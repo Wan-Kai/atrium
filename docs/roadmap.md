@@ -20,8 +20,9 @@
 
 ### 1. 基础对话
 
-- 桌面端外壳（技术栈待定：Electron / Tauri）
+- monorepo 骨架：`protocol` / `client` / `host` / `ui` + Electron 外壳，先只做 macOS（见 [ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）
 - pi RPC 适配器 + Atrium 事件模型
+- 宿主 WebSocket 服务 + token 鉴权
 - 流式输出、中断、会话列表
 
 ### 2. 第一个插件：todo（先写死）
@@ -53,4 +54,4 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 
 - 接入其他 harness：Codex（`codex app-server`）、ACP 通用适配
 - DeepSeek Harness：稳定后写桥接插件，与 pi 做横向对比
-- 移动端 / 远程访问
+- 手机端：先做响应式 + PWA，远程访问走 Tailscale；原生 App 视需要再做（见 [ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）

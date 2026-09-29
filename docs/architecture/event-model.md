@@ -2,9 +2,9 @@
 
 > 状态：草案。先覆盖基础对话，权限确认、模式切换等以后再加。
 
-Atrium 事件是桌面端和 harness 适配器之间的唯一契约。
+Atrium 协议是 UI 和宿主之间的唯一契约，经 WebSocket 传输，在 `packages/protocol` 里用 zod 定义，两端共用并做运行时校验（见 [ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)）。
 
-## 命令（桌面端 → harness）
+## 命令（UI → 宿主）
 
 | 命令 | 说明 |
 |---|---|
@@ -12,7 +12,7 @@ Atrium 事件是桌面端和 harness 适配器之间的唯一契约。
 | `interrupt()` | 中断当前 turn |
 | `close()` | 结束会话，释放进程 |
 
-## 事件（harness → 桌面端）
+## 事件（宿主 → UI）
 
 | 事件 | 说明 |
 |---|---|
