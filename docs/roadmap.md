@@ -10,7 +10,7 @@
 
 ### 0. 了解 pi（时限 1–2 周）
 
-对照源码和资料（见 [references](references.md)），写几个小 extension：
+对照源码和资料（见 [research/references.md](research/references.md)），写几个小 extension：
 
 1. **观察者**：订阅所有钩子，把事件和时间戳写进日志，看清一次 turn 的完整生命周期。
 2. **工具拦截**：在 `tool_call` 里阻止或改写调用，理解权限模型。

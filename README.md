@@ -19,9 +19,13 @@ Atrium 是我为自己的工作和生活搭建的 agent 平台，形态类似 Co
 
 ## 文档
 
-- [架构](docs/architecture.md)：选型理由、分层、事件模型、插件模型
+从 [docs/README.md](docs/README.md) 开始：
+
+- [架构设计](docs/architecture/)：分层、事件模型、插件模型
+- [架构决策记录](docs/adr/)：为什么这样设计
+- [需求与技术方案](docs/specs/)：每个功能的方案
 - [路线图](docs/roadmap.md)：分阶段计划与原则
-- [参考资料](docs/references.md)：pi 学习资料、同类项目调研
+- [调研与学习笔记](docs/research/)：pi 学习资料、同类项目调研
 
 ## License
 
