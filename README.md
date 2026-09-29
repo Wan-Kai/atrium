@@ -1,10 +1,24 @@
 # Atrium
 
-> 一个以 [pi](https://github.com/earendil-works/pi) 为内核、可自扩展的个人 agent 桌面端。
+> pi 的深度宿主：把 agent 的内部机制变成看得见、可操作的界面。
 
 Atrium 是我为自己的工作和生活搭建的 agent 平台，形态类似 Codex 桌面端。
 
 它同时是一个**以练代学**的项目：通过做一个每天真正在用的东西，去理解 agent 的底层机制——agent loop、上下文管理、工具调度、扩展系统。
+
+## 定位
+
+[Paseo](https://github.com/getpaseo/paseo) 这类宿主追求横向连接更多 agent；Atrium 追求纵向把一个 agent 做透。
+
+Atrium 以 [pi](https://github.com/earendil-works/pi) 为唯一内核，优先做只有深入 agent loop 才能实现的界面：
+
+- **会话树**：分支导航、分叉、对比，插件状态跟随分支切换
+- **上下文检查器**：每轮实际发给模型的内容、token 分布、压缩时机
+- **loop devtools**：实时查看钩子事件流
+- **工具调用拦截**：执行前查看、修改、拒绝参数
+- **extension 自带视图**：插件的界面由宿主自动渲染
+
+详见 [ADR-0004](docs/adr/0004-deep-pi-host-positioning.md)。
 
 ## 核心想法
 

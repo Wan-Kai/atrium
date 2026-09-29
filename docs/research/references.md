@@ -36,9 +36,20 @@ pi 迭代很快，资料版本不一，对不上时以当前源码为准。
 
 值得看：`packages/server/src/server/agent/agent-sdk-types.ts`（统一的 `AgentClient` / `AgentSession` 接口）、`agent-sdk-capabilities.md`（各家 SDK 能力对比）。
 
+**插件系统**（[quickstart](https://github.com/getpaseo/paseo/blob/main/public-docs/plugins/index.md) · [reference](https://github.com/getpaseo/paseo/blob/main/public-docs/plugins/reference.md) · [examples](https://github.com/getpaseo/paseo/tree/main/plugin-examples)）：
+
+- 结构：`paseo-plugin.json` + `index.client.tsx`（React Native，跑在所有客户端）+ `index.server.ts`（daemon 子进程），两边通过 schema 校验的 RPC 通信；`client/`、`server/`、`shared/` 目录边界由编译器强制。
+- 客户端贡献：侧边栏页面、工作区面板、Command Center、斜杠命令、composer pill、时间线条目改写与渲染、主题、设置页。
+- 服务端钩子：`agent.turn_started` / `turn_ended`、权限请求；`before` 钩子可在创建 agent 时注入 MCP server、改 system prompt；可代答权限、turn 结束后续跑、追加时间线条目。
+- 分发：本地目录、npm、git；有 update / reload / logs。插件为可信代码，无沙箱。
+- **局限**：宿主层工作，碰不到 loop 内部（上下文改写、tool call 拦截、分支状态）。
+- **与 pi extension 的关系**：两套独立系统。Paseo 在 `providers/pi/extensions/` 里为一批热门 pi extension（官方 todo 示例、rpiv-todo、subagents、ask-user、mcp-adapter）写死了适配器，把 tool result 的 `details` 映射成时间线条目。这是白名单，不是可扩展机制。
+
 ### DeepSeek Harness
 
-[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)：基于 Cordis 的"一切皆插件"架构，developer preview，会有破坏性变更。文档里没有面向外部应用的 API，接入它大概率要写桥接插件。
+[deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)：基于 Cordis 的"一切皆插件"架构，模型、工具、会话、loop、UI 都由插件提供，developer preview，会有破坏性变更。文档里没有面向外部应用的 API，接入它大概率要写桥接插件。
+
+对 Atrium 的价值：作为参照物，研究它如何把 loop 和 UI 统一进同一个插件系统，借鉴到 Atrium 的插件模型（见 [ADR-0004](../adr/0004-deep-pi-host-positioning.md)）。
 
 ## agent loop 近期趋势（2026）
 

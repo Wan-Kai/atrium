@@ -24,3 +24,4 @@
 | [0001](0001-use-pi-as-core.md) | 以 pi 作为唯一内核，不做多 harness 抽象 | 已接受 | 2026-09-29 |
 | [0002](0002-connect-pi-via-rpc-subprocess.md) | 通过 RPC 子进程接入 pi | 已接受 | 2026-09-29 |
 | [0003](0003-plugin-as-pi-package.md) | 插件以 pi package 形式组织和分发 | 已接受 | 2026-09-29 |
+| [0004](0004-deep-pi-host-positioning.md) | 定位为 pi 的深度宿主，纵向做透而非横向连接 | 已接受 | 2026-09-29 |
