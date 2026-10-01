@@ -1,0 +1,152 @@
+<!doctype html>
+<!--
+  PROTOTYPE · 用完即弃。
+  问题：Atrium 用哪套图标？要求风格统一、现代，参考 DeepSeek Harness 的细线图标（16 网格、线宽 1～1.3、圆头）。
+  四个候选库从 unpkg 实时加载同一组 24 个图标，放进界面片段里对比：Lucide / Tabler / Phosphor / Iconoir。
+  "物理线宽"把描边换算成屏幕上的实际像素（类似 Lucide 的 absoluteStrokeWidth），不同显示尺寸下线条一样粗。
+-->
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<title>Atrium 图标对比</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+<style>
+:root { --bg: #eef1f5; --surface: #fff; --surface-2: #f4f5f7; --hairline: rgba(17,24,39,.08); --text: #1b1d21; --text-2: #4a4f57; --text-3: #7d828a; --text-4: #a6aab1;
+  --hover: rgba(17,24,39,.045); --accent: #3b6cf6; --attn: #dd8629; --wt: #8b5cf6; --size: 16px; }
+[data-theme="dark"] { --bg: #0b0c0e; --surface: #18191b; --surface-2: #212225; --hairline: rgba(255,255,255,.07); --text: #f3f4f6; --text-2: #b4b8bf; --text-3: #81858c; --text-4: #5c6067;
+  --hover: rgba(255,255,255,.05); --accent: #7aaaff; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 "DM Sans", -apple-system, "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+.bar { position: sticky; top: 0; z-index: 5; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--hairline); font-size: 13px; color: var(--text-2); }
+.bar b { color: var(--text); }
+.bar label { display: inline-flex; gap: 6px; align-items: center; }
+.bar button { border: 0; background: var(--surface-2); color: var(--text); border-radius: 999px; padding: 4px 12px; cursor: pointer; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 16px; padding: 20px 24px 40px; }
+.card { background: var(--surface); border-radius: 14px; box-shadow: 0 0 0 .5px var(--hairline), 0 8px 28px rgba(41,70,122,.08); padding: 16px 18px 18px; }
+.card h3 { margin: 0; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline; }
+.card h3 small { font-weight: 400; color: var(--text-3); font-size: 12px; }
+.meta { color: var(--text-3); font-size: 12px; margin: 2px 0 12px; }
+.icons { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-bottom: 14px; }
+.cell { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 8px 2px 6px; border-radius: 8px; color: var(--text-2); }
+.cell:hover { background: var(--hover); color: var(--text); }
+.cell small { font-size: 10px; color: var(--text-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 64px; }
+.ic { width: var(--size); height: var(--size); display: inline-flex; flex: none; }
+.ic svg { width: 100%; height: 100%; display: block; }
+/* 线宽由脚本写入 --sw（viewBox 单位） */
+.stroke .ic svg, .stroke .ic svg * { stroke-width: var(--sw) !important; }
+.mock { border-radius: 12px; background: var(--surface-2); padding: 8px; display: grid; gap: 8px; }
+.side { background: var(--surface); border-radius: 10px; padding: 6px; }
+.row { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border-radius: 8px; color: var(--text-2); font-size: 13px; }
+.row.sel { background: var(--surface-2); color: var(--text); }
+.row .t { flex: 1; }
+.row .time { font-size: 11px; color: var(--text-4); }
+.pill { display: inline-flex; gap: 4px; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; color: #b0640f; background: rgba(221,134,41,.12); }
+.comp { background: var(--surface); border-radius: 16px; padding: 10px 10px 8px 14px; box-shadow: 0 0 0 .5px var(--hairline); }
+.comp .ph { color: var(--text-4); font-size: 13px; margin-bottom: 8px; }
+.crow { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
+.crow .sp { flex: 1; }
+.send { width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
+.status { display: flex; align-items: center; gap: 14px; font-size: 11px; color: var(--text-3); padding: 2px 6px; }
+.status span { display: inline-flex; gap: 5px; align-items: center; }
+.status .sp { flex: 1; }
+.verdict { margin-top: 10px; font-size: 12px; color: var(--text-2); line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>图标对比</b>
+  <label>显示尺寸 <select id="size"><option>14</option><option selected>16</option><option>18</option><option>20</option></select> px</label>
+  <label>物理线宽 <select id="sw"><option>1</option><option selected>1.25</option><option>1.5</option><option>1.75</option><option>2</option></select> px</label>
+  <label>Phosphor 粗细 <select id="pw"><option>thin</option><option>light</option><option selected>regular</option></select></label>
+  <button id="theme">切换深浅</button>
+  <span style="color:var(--text-4)">DeepSeek Harness 参考：16 网格、线宽 1～1.3、显示 14～16px</span>
+</div>
+<div class="grid" id="grid"></div>
+<script>
+// 每个角色在四个库里的图标名（均已验证存在）
+const ROLES = [
+  ['新建会话', 'square-pen', 'edit', 'note-pencil', 'edit-pencil'],
+  ['搜索', 'search', 'search', 'magnifying-glass', 'search'],
+  ['项目', 'folder', 'folder', 'folder', 'folder'],
+  ['worktree', 'git-branch', 'git-branch', 'git-branch', 'git-branch'],
+  ['展开', 'chevron-right', 'chevron-right', 'caret-right', 'nav-arrow-right'],
+  ['添加', 'plus', 'plus', 'plus', 'plus'],
+  ['发送', 'arrow-up', 'arrow-up', 'arrow-up', 'arrow-up'],
+  ['停止', 'square', 'player-stop', 'stop', 'square'],
+  ['关闭', 'x', 'x', 'x', 'xmark'],
+  ['复制', 'copy', 'copy', 'copy', 'copy'],
+  ['更多', 'ellipsis', 'dots', 'dots-three', 'more-horiz'],
+  ['图片', 'image', 'photo', 'image', 'media-image'],
+  ['浅色', 'sun', 'sun', 'sun', 'sun-light'],
+  ['深色', 'moon', 'moon', 'moon', 'half-moon'],
+  ['指标设置', 'sliders-horizontal', 'adjustments-horizontal', 'sliders-horizontal', 'settings'],
+  ['插话', 'corner-up-left', 'corner-up-left', 'arrow-bend-up-left', 'undo'],
+  ['压缩', 'minimize-2', 'arrows-minimize', 'arrows-in-simple', 'collapse'],
+  ['警告', 'triangle-alert', 'alert-triangle', 'warning', 'warning-triangle'],
+  ['提问', 'circle-help', 'help-circle', 'question', 'help-circle'],
+  ['授权', 'key-round', 'key', 'key', 'key'],
+  ['命令', 'terminal', 'terminal-2', 'terminal-window', 'terminal'],
+  ['改文件', 'file-pen', 'file-pencil', 'pencil-simple-line', 'edit'],
+  ['思考', 'brain', 'brain', 'brain', 'brain'],
+  ['完成', 'check', 'check', 'check', 'check'],
+];
+const SETS = [
+  { key: 'lucide', name: 'Lucide', ver: '1.49.0', lic: 'ISC', count: 2121, stroke: true,
+    url: n => `https://unpkg.com/lucide-static@1.49.0/icons/${n}.svg`,
+    note: '24 网格、描边可调、圆头；shadcn/ui 的默认图标，React 包 lucide-react 支持 absoluteStrokeWidth。' },
+  { key: 'tabler', name: 'Tabler', ver: '3.48.0', lic: 'MIT', count: 5166, stroke: true,
+    url: n => `https://unpkg.com/@tabler/icons@3.48.0/icons/outline/${n}.svg`,
+    note: '数量最多、描边可调；部分图标细节偏多，字形略显"工具化"。' },
+  { key: 'phosphor', name: 'Phosphor', ver: '2.1.1', lic: 'MIT', count: 1512, stroke: false,
+    url: (n, w) => `https://unpkg.com/@phosphor-icons/core@2.1.1/assets/${w}/${n}${w === 'regular' ? '' : '-' + w}.svg`,
+    note: '6 种粗细（thin / light / regular / bold / fill / duotone），用填充路径实现，线宽只能按档切换；曲线圆润、个性较强。' },
+  { key: 'iconoir', name: 'Iconoir', ver: '7.12.1', lic: 'MIT', count: 1383, stroke: true,
+    url: n => `https://unpkg.com/iconoir@7.12.1/icons/regular/${n}.svg`,
+    note: '默认线宽 1.5、几何感强、留白多；数量较少，部分图标（如设置）语义不够贴切。' },
+];
+const cache = new Map();
+async function load(url) {
+  // 只去掉根 <svg> 上的 width / height / class，内部 <rect> 的宽高要保留
+  if (!cache.has(url)) cache.set(url, fetch(url).then(r => r.text()).then(t => t.replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<svg\b[^>]*>/, tag => tag.replace(/\s(width|height|class)="[^"]*"/g, ''))));
+  return cache.get(url);
+}
+const $ = id => document.getElementById(id);
+async function icon(set, role) {
+  const i = ROLES.findIndex(r => r[0] === role);
+  return `<span class="ic">${await load(set.url(ROLES[i][SETS.indexOf(set) + 1], $('pw').value))}</span>`;
+}
+async function render() {
+  const size = +$('size').value, px = +$('sw').value;
+  document.documentElement.style.setProperty('--size', size + 'px');
+  // 物理线宽 → viewBox 单位：24 网格下 = px × 24 / 显示尺寸
+  document.documentElement.style.setProperty('--sw', (px * 24 / size).toFixed(3));
+  const cards = await Promise.all(SETS.map(async s => {
+    const cells = (await Promise.all(ROLES.map(async r => `<div class="cell" title="${r[SETS.indexOf(s) + 1]}">${await icon(s, r[0])}<small>${r[0]}</small></div>`))).join('');
+    const I = r => icon(s, r);
+    return `<div class="card ${s.stroke ? 'stroke' : ''}">
+      <h3>${s.name}<small>v${s.ver} · ${s.lic} · ${s.count} 个${s.stroke ? '' : ' × 6 粗细'}</small></h3>
+      <div class="meta">${s.note}</div>
+      <div class="icons">${cells}</div>
+      <div class="mock">
+        <div class="side">
+          <div class="row">${await I('搜索')}<span class="t" style="color:var(--text-4)">按标题筛选</span>${await I('新建会话')}</div>
+          <div class="row" style="font-weight:600;color:var(--text)">${await I('展开')}${await I('项目')}<span class="t">atrium</span><span class="pill">${await I('worktree')}4 · 2 待合并</span></div>
+          <div class="row sel"><span class="ic"></span><span class="t">设计侧栏交互</span><span class="time">刚刚</span>${await I('更多')}</div>
+          <div class="row"><span style="color:var(--wt);display:inline-flex">${await I('worktree')}</span><span class="t">实现侧栏组件</span><span class="time">5 分钟前</span><span style="color:var(--attn);display:inline-flex">${await I('提问')}</span></div>
+          <div class="row"><span class="ic"></span><span class="t">写一篇 pi 的文章</span><span style="color:var(--attn);display:inline-flex">${await I('授权')}</span></div>
+        </div>
+        <div class="comp"><div class="ph">给 agent 发消息…</div>
+          <div class="crow">${await I('添加')}<span>gpt-6-sol medium</span><span class="sp"></span>${await I('图片')}<span class="send">${await I('发送')}</span></div></div>
+        <div class="status"><span>${await I('思考')}思考了 6 秒</span><span>${await I('命令')}pnpm test</span><span>${await I('改文件')}Inbox.tsx</span><span>${await I('压缩')}已压缩</span><span class="sp"></span>${await I('指标设置')}</div>
+      </div>
+    </div>`;
+  }));
+  $('grid').innerHTML = cards.join('');
+}
+['size', 'sw', 'pw'].forEach(id => $(id).onchange = render);
+$('theme').onclick = () => { const h = document.documentElement; h.dataset.theme = h.dataset.theme === 'dark' ? 'light' : 'dark'; };
+render();
+</script>
+</body>
+</html>

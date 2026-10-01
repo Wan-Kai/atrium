@@ -1,0 +1,483 @@
+<!doctype html>
+<!--
+  PROTOTYPE · 用完即弃，不要当成正式代码。
+  问题：Atrium 的侧栏（项目 → 会话目录）应该长什么样？
+  三个结构不同的方案，用 ?variant=A|B|C 或底部切换条（键盘 ← →）切换：
+    A：spec 方案（项目 → 主目录会话 + worktree 分组）
+    B：状态收件箱（顶部按"要不要我处理"分区，下面是项目树）
+    C：worktree 为中心（每个 worktree、包括主目录，都是一个带合并状态和操作的区块）
+    D：收件箱 + worktree 折叠区（会话按时间平铺，彩色 git 图标对应折叠区里的 worktree）——默认
+  依据：docs/specs/0001-mvp1-single-session-chat.md 的"侧栏"一节。数据全是假的，状态只存在内存里。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Atrium 侧栏原型</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #1f1f1f; display: flex; height: 100vh; overflow: hidden; }
+  button { font: inherit; }
+
+  /* 侧栏骨架 */
+  .sidebar { width: 312px; flex: none; background: #f4f4f3; border-right: 1px solid #e2e2e0; display: flex; flex-direction: column; }
+  .titlebar { height: 38px; flex: none; display: flex; align-items: center; padding: 0 12px 0 78px; color: #888; font-size: 12px; -webkit-app-region: drag; }
+  .titlebar .lights { position: absolute; left: 14px; display: flex; gap: 8px; }
+  .titlebar .lights i { width: 12px; height: 12px; border-radius: 50%; background: #ddd; display: block; }
+  .search { margin: 0 10px 8px; }
+  .search input { width: 100%; border: 1px solid #e0e0de; background: #fff; border-radius: 6px; padding: 5px 8px; font: inherit; outline: none; }
+  .search input:focus { border-color: #9bb8f5; }
+  .scroll { flex: 1; overflow-y: auto; padding: 0 6px 12px; }
+  .footer { flex: none; border-top: 1px solid #e2e2e0; padding: 6px; }
+
+  /* 通用行 */
+  .row { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; border-radius: 6px; cursor: default; position: relative; }
+  .row:hover { background: rgba(0,0,0,.045); }
+  .row.selected { background: rgba(0,0,0,.09); }
+  .row .title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .time { color: #999; font-size: 11.5px; flex: none; }
+  .row .more { display: none; border: 0; background: none; color: #777; padding: 0 2px; cursor: pointer; }
+  .row:hover .more { display: block; }
+  .row:hover .time.hide-on-hover { display: none; }
+  .slot { width: 14px; height: 14px; flex: none; display: flex; align-items: center; justify-content: center; }
+  .muted { color: #999; }
+  .link { color: #6b7280; font-size: 12px; padding-left: 30px; cursor: pointer; }
+  .link:hover { color: #1f1f1f; }
+  .section-label { font-size: 11px; font-weight: 600; color: #8a8a88; padding: 12px 8px 4px; letter-spacing: .02em; display: flex; justify-content: space-between; }
+
+  /* 项目行 */
+  .project { font-weight: 600; margin-top: 6px; }
+  .chev { width: 14px; flex: none; color: #888; font-size: 10px; text-align: center; transition: transform .12s; }
+  .chev.open { transform: rotate(90deg); }
+  .pending { font-weight: 500; font-size: 11px; color: #b45309; background: #fef3c7; border-radius: 9px; padding: 0 7px; flex: none; }
+  .add { display: none; border: 0; background: none; color: #555; font-size: 15px; line-height: 1; cursor: pointer; padding: 0 2px; }
+  .project:hover .add { display: block; }
+
+  /* worktree 分组（A） */
+  .wt { margin: 4px 0 4px 14px; border-left: 3px solid var(--c); padding-left: 2px; }
+  .wt.done { opacity: .5; }
+  .wt-head { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px; color: #555; font-size: 12px; }
+  .wt-head .branch { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wt-head .spacer { flex: 1; }
+
+  /* 徽标 */
+  .badge { font-size: 11px; border-radius: 4px; padding: 0 5px; line-height: 17px; flex: none; white-space: nowrap; }
+  .b-warn { color: #b45309; background: #fef3c7; }
+  .b-ok { color: #15803d; background: #dcfce7; }
+  .b-gray { color: #6b7280; background: #ececeb; }
+  .b-ext { color: #6b7280; border: 1px solid #d6d6d3; line-height: 15px; }
+  .btn-mini { font-size: 11px; border: 1px solid #d6d6d3; background: #fff; border-radius: 4px; padding: 0 6px; line-height: 17px; color: #444; cursor: pointer; }
+  .btn-mini[disabled] { color: #aaa; cursor: not-allowed; }
+
+  /* 状态图标 */
+  .st { width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 10px; }
+  .st.attn { background: #f59e0b; }
+  .st.err { background: #dc2626; font-size: 11px; }
+  .st.unread { width: 8px; height: 8px; background: #2563eb; }
+  .st.run { width: 12px; height: 12px; border: 2px solid #9ca3af; border-top-color: transparent; background: none; animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* C：worktree 区块 */
+  .block { margin: 6px 4px 8px 20px; border: 1px solid #e2e2e0; border-radius: 8px; background: #fbfbfa; overflow: hidden; }
+  .block-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #ecece9; border-left: 3px solid var(--c); }
+  .block-head .name { font-weight: 600; font-size: 12px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .block-actions { display: flex; gap: 4px; padding: 5px 8px 6px 11px; border-bottom: 1px solid #ecece9; }
+  .block .row { border-radius: 0; }
+  .block .empty { padding: 6px 11px; color: #999; font-size: 12px; }
+
+  /* B：跨项目行的第二行 */
+  .row.two { height: auto; padding-top: 5px; padding-bottom: 5px; align-items: flex-start; }
+  .row.two .slot { margin-top: 1px; }
+  .sub { font-size: 11.5px; color: #8a8a88; display: flex; align-items: center; gap: 5px; margin-top: 1px; }
+  .chip { width: 8px; height: 8px; border-radius: 2px; background: var(--c); display: inline-block; flex: none; }
+
+  /* 主区域（留白） */
+  .main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #fff; color: #b0b0ad; gap: 10px; }
+  .main .big { font-size: 15px; }
+  .main pre { margin: 0; font: 12px/1.6 ui-monospace, Menlo, monospace; color: #6b7280; background: #f7f7f6; border-radius: 8px; padding: 12px 16px; max-width: 560px; white-space: pre-wrap; }
+
+  /* 菜单、提示 */
+  .menu { position: fixed; background: #fff; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.12); padding: 4px; z-index: 20; min-width: 120px; }
+  .menu div { padding: 5px 10px; border-radius: 5px; cursor: pointer; }
+  .menu div:hover { background: #2563eb; color: #fff; }
+  .toast { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%); background: #333; color: #fff; padding: 6px 14px; border-radius: 6px; font-size: 12px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+
+  /* 原型切换条（不属于被评估的设计） */
+  .switcher { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #111; color: #fff; border-radius: 999px; display: flex; align-items: center; gap: 4px; padding: 4px; box-shadow: 0 4px 20px rgba(0,0,0,.3); z-index: 30; font-size: 12.5px; }
+  .switcher button { background: none; border: 0; color: #fff; width: 30px; height: 28px; border-radius: 999px; cursor: pointer; font-size: 14px; }
+  .switcher button:hover { background: #333; }
+  .switcher span { padding: 0 10px; min-width: 190px; text-align: center; }
+  .switcher .tag { background: #f59e0b; color: #111; border-radius: 999px; padding: 1px 7px; font-size: 10.5px; font-weight: 700; margin-right: 6px; }
+
+  /* D：收件箱 + worktree 折叠区 + 彩色 git 图标 */
+  .row.hl { background: rgba(37,99,235,.10); }
+  .gi { width: 12px; }
+  .wt-toggle { display: inline-flex; align-items: center; gap: 3px; border: 1px solid transparent; background: none; border-radius: 9px; padding: 0 7px; font-size: 11px; font-weight: 500; color: #6b7280; cursor: pointer; flex: none; line-height: 18px; }
+  .wt-toggle:hover { background: rgba(0,0,0,.06); }
+  .wt-toggle.warn { color: #b45309; background: #fef3c7; }
+  .wt-toggle.on { border-color: currentColor; }
+  .wtrow { padding-left: 30px; font-size: 12px; background: rgba(0,0,0,.025); border-radius: 0; }
+  .wtrow .branch { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .wtrow.done .branch { color: #999; }
+  .wtrow .acts { display: none; gap: 3px; }
+  .wtrow:hover .acts { display: flex; }
+  .wtrow:hover .badges { display: none; }
+  .filter-chip { margin: 2px 8px 2px 30px; font-size: 11.5px; color: #1d4ed8; background: #dbeafe; border-radius: 4px; padding: 1px 6px; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div>Atrium</div>
+  <div class="search"><input id="q" placeholder="按标题筛选" autocomplete="off"></div>
+  <div class="scroll" id="list"></div>
+  <div class="footer"><div class="row" data-action="add-project"><span class="slot muted">＋</span><span class="title">添加项目</span></div></div>
+</aside>
+<main class="main" id="main"></main>
+<div class="switcher"><button id="prev" title="上一个方案（←）">‹</button><span id="vlabel"></span><button id="next" title="下一个方案（→）">›</button></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── 假数据 ────────────────────────────────────────────────────────────────
+// ago：距今分钟数，只用于排序；time：显示用
+const COLORS = ['#8b5cf6', '#0ea5e9', '#10b981', '#f43f5e', '#f59e0b', '#64748b'];
+const S = (id, title, time, ago, status) => ({ id, title, time, ago, status });
+const projects = [
+  { id: 'atrium', name: 'atrium', open: true, showAll: false,
+    main: [
+      S('s1', '设计侧栏交互', '刚刚', 0, 'running'),
+      S('s2', '重构宿主进程管理', '12 分钟前', 12, 'approval'),
+      S('s3', '调研 pi RPC', '昨天', 1400, 'idle'),
+      S('s4', '起草 SPEC-0001', '2 天前', 2900, 'idle'),
+      S('s5', '整理 ADR 目录', '4 天前', 5800, 'idle'),
+      S('s6', 'README 定位', '5 天前', 7200, 'idle'),
+    ],
+    worktrees: [
+      { branch: 'feat/sidebar', color: 0, ahead: 3, dirty: true, merged: false, removed: false, external: false,
+        sessions: [S('s7', '实现侧栏组件', '5 分钟前', 5, 'answer'), S('s8', '补侧栏测试', '1 小时前', 60, 'error')] },
+      { branch: 'fix/reconnect', color: 1, ahead: 1, dirty: false, merged: false, removed: false, external: 'Codex · ~/.codex/worktrees/a1f3/atrium',
+        sessions: [] , lastAgo: 4300 },
+      { branch: 'fix/typo', color: 2, ahead: 0, dirty: false, merged: true, removed: false, external: false,
+        sessions: [S('s9', '修正文档错别字', '3 天前', 4400, 'idle')] },
+      { branch: 'spike/sdk-embed', color: 3, ahead: 2, dirty: false, merged: false, removed: true, external: false,
+        sessions: [S('s10', '试试 SDK 嵌入', '6 天前', 8700, 'idle')] },
+    ] },
+  { id: 'blog', name: 'my-blog', open: true, showAll: false,
+    main: [S('s11', '写一篇 pi 的文章', '20 分钟前', 20, 'auth'), S('s12', '换评论系统', '上周', 11000, 'idle')],
+    worktrees: [
+      { branch: 'feat/dark-mode', color: 4, ahead: 2, dirty: false, merged: false, removed: false, external: false,
+        sessions: [S('s13', '暗色模式', '40 分钟前', 40, 'unread')] },
+    ] },
+  { id: 'dot', name: 'dotfiles', open: false, showAll: false,
+    main: [S('s14', '整理 zsh 配置', '上周', 12000, 'idle'), S('s15', '迁移到 ghostty', '2 周前', 20000, 'idle')],
+    worktrees: [] },
+];
+
+// ─── 状态定义（与 spec 一致）─────────────────────────────────────────────
+const KEY_SVG = '<svg width="9" height="9" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="5" cy="8" r="3"/><path d="M8 8h6M12 8v3"/></svg>';
+const STATUS = {
+  approval: { rank: 0, label: '待审批', desc: '工具调用等你批准（MVP 2）', html: '<span class="st attn">!</span>' },
+  answer:   { rank: 1, label: '待回答', desc: 'extension 用对话框向你提问（MVP 1）', html: '<span class="st attn">?</span>' },
+  auth:     { rank: 2, label: '待授权', desc: '模型订阅登录过期 / MCP server 需要登录（MVP 1 尽量识别）', html: '<span class="st attn">' + KEY_SVG + '</span>' },
+  error:    { rank: 3, label: '出错', desc: 'pi 进程异常退出或运行出错（MVP 1）', html: '<span class="st err">×</span>' },
+  running:  { rank: 4, label: '运行中', desc: '正在执行（MVP 1）', html: '<span class="st run"></span>' },
+  unread:   { rank: 5, label: '已完成未读', desc: '你没在看的时候跑完了（阶段 1 第 3 步）', html: '<span class="st unread"></span>' },
+  idle:     { rank: 6, label: '空闲', desc: '', html: '' },
+};
+const ATTN = ['approval', 'answer', 'auth'];
+
+// ─── 工具函数 ──────────────────────────────────────────────────────────────
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const statusIcon = st => `<span class="slot" title="${esc(STATUS[st].label + (STATUS[st].desc ? '：' + STATUS[st].desc : ''))}">${STATUS[st].html}</span>`;
+const allSessions = p => p.main.concat(...p.worktrees.map(w => w.sessions));
+const topStatus = list => list.reduce((best, s) => STATUS[s.status].rank < STATUS[best].rank ? s.status : best, 'idle');
+const isPending = w => !w.removed && !w.merged && (w.ahead > 0 || w.dirty);
+const wtAgo = w => w.sessions.length ? Math.min(...w.sessions.map(s => s.ago)) : (w.lastAgo ?? 99999);
+const byAgo = (a, b) => a.ago - b.ago;
+function sortedWorktrees(p) {
+  const pend = p.worktrees.filter(isPending).sort((a, b) => wtAgo(a) - wtAgo(b));
+  const rest = p.worktrees.filter(w => !isPending(w)).sort((a, b) => wtAgo(a) - wtAgo(b));
+  return pend.concat(rest);
+}
+function mergeBadges(w, withClean = true) {
+  if (w.removed) return '<span class="badge b-gray" title="worktree 目录已不存在">已移除</span>';
+  if (w.merged || !(w.ahead > 0 || w.dirty)) {
+    return '<span class="badge b-ok" title="改动已全部进入主干（含 squash / rebase 合并）">✓ 已合并</span>' +
+      (withClean ? ' <button class="btn-mini" disabled title="清理 worktree：阶段 1 第 3 步">清理</button>' : '');
+  }
+  const parts = [];
+  if (w.ahead > 0) parts.push(`<span class="badge b-warn" title="分支比 origin/main 多 ${w.ahead} 个提交，且改动尚未进入主干">↑${w.ahead} 未合并</span>`);
+  if (w.dirty) parts.push('<span class="badge b-warn" title="worktree 里有未提交的改动">未提交</span>');
+  return parts.join(' ');
+}
+const extTag = w => w.external ? `<span class="badge b-ext" title="不是 Atrium 创建的 worktree：${esc(w.external)}">外部</span>` : '';
+const BRANCH_SVG = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="4" cy="3.5" r="1.8"/><circle cx="4" cy="12.5" r="1.8"/><circle cx="12" cy="5.5" r="1.8"/><path d="M4 5.3v5.4M12 7.3c0 3-8 1.5-8 3.4"/></svg>';
+
+// ─── 界面状态 ──────────────────────────────────────────────────────────────
+let selected = 's1';
+let query = '';
+const matches = s => !query || s.title.toLowerCase().includes(query.toLowerCase());
+const VARIANTS = {
+  A: 'spec 方案',
+  B: '状态收件箱',
+  C: 'worktree 为中心',
+  D: '收件箱 + worktree 折叠区',
+};
+let variant = new URLSearchParams(location.search).get('variant');
+if (!VARIANTS[variant]) variant = 'D';
+let wtFilter = null; // D：{ pid, branch }
+
+function sessionRow(s, extra = '') {
+  return `<div class="row${s.id === selected ? ' selected' : ''}" data-action="select" data-id="${s.id}">
+    ${statusIcon(s.status)}<span class="title">${esc(s.title)}</span>${extra}
+    <span class="time hide-on-hover">${esc(s.time)}</span><button class="more" data-action="menu" data-id="${s.id}" title="更多">⋯</button></div>`;
+}
+function projectRow(p, rightHtml) {
+  const collapsedStatus = !p.open ? topStatus(allSessions(p)) : 'idle';
+  return `<div class="row project" data-action="toggle" data-pid="${p.id}">
+    <span class="chev${p.open ? ' open' : ''}">▶</span><span class="title">${esc(p.name)}</span>
+    ${rightHtml}${p.open ? '' : statusIcon(collapsedStatus)}
+    <button class="add" data-action="new" data-pid="${p.id}" title="新建会话（⌘N）">＋</button></div>`;
+}
+const pendingPill = p => { const n = p.worktrees.filter(isPending).length; return n ? `<span class="pending" title="有未提交或未合并改动的 worktree">${n} 个待合并</span>` : ''; };
+const LIMIT = 4;
+
+// ─── 方案 A：spec 方案 ─────────────────────────────────────────────────────
+function renderA() {
+  let h = '';
+  for (const p of projects) {
+    h += projectRow(p, pendingPill(p));
+    if (!p.open && !query) continue;
+    const main = p.main.filter(matches).sort(byAgo);
+    const shown = (p.showAll || query) ? main : main.slice(0, LIMIT);
+    h += shown.map(s => sessionRow(s)).join('');
+    if (!query && !p.showAll && main.length > LIMIT) h += `<div class="link" data-action="more" data-pid="${p.id}">显示更多（${main.length - LIMIT}）</div>`;
+    for (const w of sortedWorktrees(p)) {
+      const ss = w.sessions.filter(matches).sort(byAgo);
+      if (query && !ss.length) continue;
+      h += `<div class="wt${isPending(w) ? '' : ' done'}" style="--c:${COLORS[w.color]}">
+        <div class="wt-head">${BRANCH_SVG}<span class="branch">${esc(w.branch)}</span>${extTag(w)}<span class="spacer"></span>${mergeBadges(w)}</div>
+        ${ss.map(s => sessionRow(s)).join('') || '<div class="link" style="padding-left:26px;cursor:default">没有 pi 会话</div>'}
+      </div>`;
+    }
+  }
+  return h;
+}
+
+// ─── 方案 B：状态收件箱 ────────────────────────────────────────────────────
+function renderB() {
+  const flat = [];
+  for (const p of projects) {
+    for (const s of p.main) flat.push({ s, p, w: null });
+    for (const w of p.worktrees) for (const s of w.sessions) flat.push({ s, p, w });
+  }
+  const sub = ({ p, w }) => `<div class="sub">${esc(p.name)}${w ? ` · <span class="chip" style="--c:${COLORS[w.color]}"></span>${esc(w.branch)}` : ''}</div>`;
+  const twoRow = x => `<div class="row two${x.s.id === selected ? ' selected' : ''}" data-action="select" data-id="${x.s.id}">
+      ${statusIcon(x.s.status)}<div style="flex:1;min-width:0"><div class="title">${esc(x.s.title)}</div>${sub(x)}</div>
+      <span class="time">${esc(x.s.time)}</span></div>`;
+  const attn = flat.filter(x => ATTN.includes(x.s.status) || x.s.status === 'error').filter(x => matches(x.s)).sort((a, b) => STATUS[a.s.status].rank - STATUS[b.s.status].rank || a.s.ago - b.s.ago);
+  const run = flat.filter(x => x.s.status === 'running' || x.s.status === 'unread').filter(x => matches(x.s)).sort((a, b) => a.s.ago - b.s.ago);
+  const pend = [];
+  for (const p of projects) for (const w of p.worktrees) if (isPending(w)) pend.push({ p, w });
+  let h = '';
+  h += `<div class="section-label"><span>等你处理</span><span>${attn.length}</span></div>` + (attn.map(twoRow).join('') || '<div class="link" style="cursor:default">没有</div>');
+  h += `<div class="section-label"><span>运行中 / 刚完成</span><span>${run.length}</span></div>` + (run.map(twoRow).join('') || '<div class="link" style="cursor:default">没有</div>');
+  if (!query) {
+    h += `<div class="section-label"><span>待合并</span><span>${pend.length}</span></div>`;
+    h += pend.map(({ p, w }) => `<div class="row two"><span class="slot" style="color:${COLORS[w.color]}">${BRANCH_SVG}</span>
+      <div style="flex:1;min-width:0"><div class="title" style="font-family:ui-monospace,Menlo,monospace;font-size:12px">${esc(w.branch)} ${extTag(w)}</div>
+      <div class="sub">${esc(p.name)} · ${mergeBadges(w, false)}</div></div></div>`).join('');
+  }
+  h += '<div class="section-label"><span>项目</span></div>';
+  for (const p of projects) {
+    h += projectRow(p, '');
+    if (!p.open && !query) continue;
+    const items = flat.filter(x => x.p === p && matches(x.s)).sort((a, b) => a.s.ago - b.s.ago);
+    const shown = (p.showAll || query) ? items : items.slice(0, LIMIT + 1);
+    h += shown.map(x => sessionRow(x.s, x.w ? `<span class="chip" style="--c:${COLORS[x.w.color]}" title="${esc(x.w.branch)}"></span>` : '')).join('');
+    if (!query && !p.showAll && items.length > LIMIT + 1) h += `<div class="link" data-action="more" data-pid="${p.id}">显示更多（${items.length - LIMIT - 1}）</div>`;
+  }
+  return h;
+}
+
+// ─── 方案 C：worktree 为中心 ───────────────────────────────────────────────
+function renderC() {
+  let h = '';
+  for (const p of projects) {
+    h += projectRow(p, pendingPill(p));
+    if (!p.open && !query) continue;
+    const main = p.main.filter(matches).sort(byAgo);
+    const shown = (p.showAll || query) ? main : main.slice(0, LIMIT - 1);
+    h += `<div class="block" style="--c:#d4d4d1"><div class="block-head"><span class="name">主目录 · main</span></div>
+      ${shown.map(s => sessionRow(s)).join('')}
+      ${!query && !p.showAll && main.length > LIMIT - 1 ? `<div class="link" style="padding-left:30px;padding-bottom:4px" data-action="more" data-pid="${p.id}">显示更多（${main.length - LIMIT + 1}）</div>` : ''}</div>`;
+    const wts = sortedWorktrees(p);
+    const active = wts.filter(isPending), done = wts.filter(w => !isPending(w));
+    for (const w of active) {
+      const ss = w.sessions.filter(matches).sort(byAgo);
+      if (query && !ss.length) continue;
+      h += `<div class="block" style="--c:${COLORS[w.color]}">
+        <div class="block-head">${BRANCH_SVG}<span class="name" style="font-family:ui-monospace,Menlo,monospace;font-weight:500">${esc(w.branch)}</span>${extTag(w)}</div>
+        <div class="block-actions">${mergeBadges(w)}<span style="flex:1"></span>
+          <button class="btn-mini" disabled title="阶段 1 第 3 步">查看改动</button><button class="btn-mini" disabled title="阶段 1 第 3 步">合并</button></div>
+        ${ss.map(s => sessionRow(s)).join('') || '<div class="empty">没有 pi 会话</div>'}</div>`;
+    }
+    if (done.length && !query) {
+      h += `<div class="link" style="padding-left:24px" data-action="toggle-done" data-pid="${p.id}">${p.showDone ? '▾' : '▸'} 已收尾（${done.length}）</div>`;
+      if (p.showDone) for (const w of done) {
+        h += `<div class="block" style="--c:${COLORS[w.color]};opacity:.55"><div class="block-head">${BRANCH_SVG}<span class="name" style="font-family:ui-monospace,Menlo,monospace;font-weight:500">${esc(w.branch)}</span>${mergeBadges(w)}</div>
+          ${w.sessions.sort(byAgo).map(s => sessionRow(s)).join('')}</div>`;
+      }
+    }
+  }
+  return h;
+}
+
+// ─── 方案 D：收件箱 + worktree 折叠区 + 彩色 git 图标 ─────────────────────
+// 颜色只分给未合并的 worktree，并在所有项目之间统一分配（收件箱会混排不同项目）；
+// 已合并、已移除一律灰色。主目录会话不显示图标。
+const GRAY = '#b5b5b2';
+function wtColor(p, w) {
+  const active = projects.flatMap(q => q.worktrees.filter(isPending));
+  const i = active.indexOf(w);
+  return i >= 0 ? COLORS[i % COLORS.length] : GRAY;
+}
+const wtKey = (p, w) => p.id + '/' + w.branch;
+function gitIcon(p, w) {
+  if (!w) return '<span class="slot gi"></span>';
+  const note = w.removed ? '（已移除）' : isPending(w) ? '' : '（已合并）';
+  return `<span class="slot gi" style="color:${wtColor(p, w)}" title="worktree：${esc(w.branch + note)}">${BRANCH_SVG}</span>`;
+}
+function renderD() {
+  const flat = [];
+  for (const p of projects) {
+    for (const s of p.main) flat.push({ s, p, w: null });
+    for (const w of p.worktrees) for (const s of w.sessions) flat.push({ s, p, w });
+  }
+  // 行布局：[git 图标] 标题 …… 时间 [状态]。状态放在最右边。
+  const rowD = ({ s, p, w }, two) => `<div class="row${two ? ' two' : ''}${s.id === selected ? ' selected' : ''}" data-action="select" data-id="${s.id}"${w ? ` data-wt="${esc(wtKey(p, w))}"` : ''}>
+      ${two ? '' : gitIcon(p, w)}
+      ${two ? `<div style="flex:1;min-width:0"><div class="title">${esc(s.title)}</div><div class="sub">${esc(p.name)}${w ? ` · <span style="color:${wtColor(p, w)};display:inline-flex">${BRANCH_SVG}</span>${esc(w.branch)}` : ''}</div></div>` : `<span class="title">${esc(s.title)}</span>`}
+      <span class="time${two ? '' : ' hide-on-hover'}">${esc(s.time)}</span>${two ? '' : `<button class="more" data-action="menu" data-id="${s.id}" title="更多">⋯</button>`}${statusIcon(s.status)}</div>`;
+
+  // 收件箱：只放"等你处理"；为空时整块不显示
+  const attn = flat.filter(x => (ATTN.includes(x.s.status) || x.s.status === 'error') && matches(x.s))
+    .sort((a, b) => STATUS[a.s.status].rank - STATUS[b.s.status].rank || a.s.ago - b.s.ago);
+  let h = '';
+  if (attn.length) h += `<div class="section-label"><span>等你处理</span><span>${attn.length}</span></div>` + attn.map(x => rowD(x, true)).join('')
+    + '<div class="section-label"><span>项目</span></div>';
+
+  for (const p of projects) {
+    // 项目行：右侧是 worktree 按钮（数量 + 待合并数），点击在下方展开 worktree 列表
+    const n = p.worktrees.filter(isPending).length;
+    const wtBtn = p.worktrees.length ? `<button class="wt-toggle${p.wtOpen ? ' on' : ''}${n ? ' warn' : ''}" data-action="toggle-wt" data-pid="${p.id}" title="展开 / 收起 worktree">${BRANCH_SVG}${p.worktrees.length}${n ? ` · ${n} 待合并` : ''}</button>` : '';
+    const collapsedStatus = !p.open ? topStatus(allSessions(p)) : 'idle';
+    h += `<div class="row project" data-action="toggle" data-pid="${p.id}">
+      <span class="chev${p.open ? ' open' : ''}">▶</span><span class="title">${esc(p.name)}</span>
+      <button class="add" data-action="new" data-pid="${p.id}" title="新建会话（⌘N）">＋</button>${wtBtn}${p.open ? '<span class="slot"></span>' : statusIcon(collapsedStatus)}</div>`;
+    // worktree 列表：独立于项目折叠，项目收起时也能单独查看
+    if (p.worktrees.length && p.wtOpen && !query) {
+      for (const w of sortedWorktrees(p)) {
+        const on = wtFilter && wtFilter.pid === p.id && wtFilter.branch === w.branch;
+        h += `<div class="row wtrow${isPending(w) ? '' : ' done'}${on ? ' selected' : ''}" data-action="filter-wt" data-pid="${p.id}" data-branch="${esc(w.branch)}" data-wt="${esc(wtKey(p, w))}" title="点击：只看这个 worktree 的会话">
+          <span class="slot gi" style="color:${wtColor(p, w)}">${BRANCH_SVG}</span><span class="branch">${esc(w.branch)}</span>${extTag(w)}
+          <span class="badges" style="display:flex;gap:3px">${mergeBadges(w, false)}</span>
+          <span class="acts">${w.removed ? '' : isPending(w) ? '<button class="btn-mini" disabled title="阶段 1 第 3 步">查看改动</button><button class="btn-mini" disabled title="阶段 1 第 3 步">合并</button>' : '<button class="btn-mini" disabled title="阶段 1 第 3 步">清理</button>'}</span></div>`;
+      }
+    }
+    if (!p.open && !query) continue;
+    // 会话平铺，按时间排序
+    const f = wtFilter && wtFilter.pid === p.id ? wtFilter : null;
+    if (f) h += `<div class="filter-chip" data-action="clear-filter">只看 ${esc(f.branch)} ✕</div>`;
+    const items = flat.filter(x => x.p === p && matches(x.s) && (!f || (x.w && x.w.branch === f.branch))).sort((a, b) => a.s.ago - b.s.ago);
+    const shown = (p.showAll || query || f) ? items : items.slice(0, LIMIT + 1);
+    h += shown.map(x => rowD(x, false)).join('') || (f ? '<div class="link" style="cursor:default">这个 worktree 里没有 pi 会话</div>' : '');
+    if (!query && !f && !p.showAll && items.length > LIMIT + 1) h += `<div class="link" data-action="more" data-pid="${p.id}">显示更多（${items.length - LIMIT - 1}）</div>`;
+  }
+  return h;
+}
+
+// ─── 渲染与交互 ────────────────────────────────────────────────────────────
+function find(id) {
+  for (const p of projects) {
+    for (const s of p.main) if (s.id === id) return { p, w: null, s, list: p.main };
+    for (const w of p.worktrees) for (const s of w.sessions) if (s.id === id) return { p, w, s, list: w.sessions };
+  }
+}
+function render() {
+  document.getElementById('list').innerHTML = { A: renderA, B: renderB, C: renderC, D: renderD }[variant]();
+  document.getElementById('vlabel').innerHTML = `<span class="tag">原型</span>${variant} · ${VARIANTS[variant]}`;
+  const x = find(selected);
+  const where = x ? `${x.p.name}${x.w ? ' / ' + x.w.branch : ' / 主目录'} / ${x.s.title}` : '（未选中）';
+  const pend = projects.map(p => `${p.name}: ${p.worktrees.filter(isPending).length} 个待合并，折叠时显示「${STATUS[topStatus(allSessions(p))].label}」`).join('\n');
+  document.getElementById('main').innerHTML = `<div class="big">对话区（留白）</div>
+    <pre>方案：${variant} · ${VARIANTS[variant]}
+选中：${esc(where)}
+状态：${x ? STATUS[x.s.status].label : '-'}
+
+${esc(pend)}
+
+提示：悬停状态图标 / 徽标看说明；项目行可折叠；
+会话行悬停出现 ⋯（重命名、归档、切换状态）；
+选中「已完成未读」的会话会变为已读。</pre>`;
+}
+function toast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1600); }
+function closeMenu() { document.querySelector('.menu')?.remove(); }
+function openMenu(id, x, y) {
+  closeMenu();
+  const m = document.createElement('div'); m.className = 'menu';
+  m.innerHTML = '<div data-m="rename">重命名</div><div data-m="archive">归档</div><div style="border-top:1px solid #eee;margin:3px 0;padding:0;height:0"></div>' +
+    Object.keys(STATUS).map(k => `<div data-m="status:${k}">模拟：${STATUS[k].label}</div>`).join('');
+  m.style.left = x + 'px'; m.style.top = y + 'px';
+  m.onclick = e => {
+    const a = e.target.dataset.m; if (!a) return;
+    const f = find(id); closeMenu(); if (!f) return;
+    if (a === 'rename') { const t = prompt('新标题（原型：会写回 pi 的会话名）', f.s.title); if (t) f.s.title = t; }
+    else if (a === 'archive') { f.list.splice(f.list.indexOf(f.s), 1); toast('已归档：只在 Atrium 里隐藏，不删 pi 的会话文件'); }
+    else f.s.status = a.split(':')[1];
+    render();
+  };
+  document.body.appendChild(m);
+  const r = m.getBoundingClientRect(); if (r.bottom > innerHeight) m.style.top = (innerHeight - r.height - 8) + 'px';
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-action]');
+  if (!e.target.closest('.menu')) closeMenu();
+  if (!el) return;
+  const a = el.dataset.action, p = projects.find(p => p.id === el.dataset.pid);
+  if (a === 'menu') { e.stopPropagation(); const r = el.getBoundingClientRect(); openMenu(el.dataset.id, r.right - 4, r.bottom + 2); return; }
+  if (a === 'new') { e.stopPropagation(); const s = S('n' + Date.now(), '新会话', '刚刚', -1, 'idle'); p.main.unshift(s); p.open = true; selected = s.id; toast('新会话建在主目录（MVP 1 不建 worktree）'); }
+  else if (a === 'toggle') p.open = !p.open;
+  else if (a === 'more') p.showAll = true;
+  else if (a === 'toggle-done') p.showDone = !p.showDone;
+  else if (a === 'toggle-wt') p.wtOpen = !p.wtOpen;
+  else if (a === 'filter-wt') { const b = el.dataset.branch; wtFilter = wtFilter && wtFilter.pid === p.id && wtFilter.branch === b ? null : { pid: p.id, branch: b }; }
+  else if (a === 'clear-filter') wtFilter = null;
+  else if (a === 'select') { selected = el.dataset.id; const f = find(selected); if (f.s.status === 'unread') f.s.status = 'idle'; }
+  else if (a === 'add-project') toast('原型：这里会打开文件夹选择器');
+  render();
+});
+document.getElementById('q').addEventListener('input', e => { query = e.target.value.trim(); render(); });
+// D：悬停 worktree 或带 worktree 的会话时，联动高亮同一个 worktree 的所有行
+let hlKey = null;
+document.addEventListener('mouseover', e => {
+  const k = e.target.closest('[data-wt]')?.dataset.wt ?? null;
+  if (k === hlKey) return;
+  hlKey = k;
+  document.querySelectorAll('.row.hl').forEach(r => r.classList.remove('hl'));
+  if (k) document.querySelectorAll('[data-wt]').forEach(r => { if (r.dataset.wt === k) r.classList.add('hl'); });
+});
+function go(d) {
+  const keys = Object.keys(VARIANTS); variant = keys[(keys.indexOf(variant) + d + keys.length) % keys.length];
+  history.replaceState(null, '', '?variant=' + variant); render();
+}
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+document.addEventListener('keydown', e => {
+  if (e.target.closest('input, textarea, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'ArrowRight') go(1);
+});
+render();
+</script>
+</body>
+</html>
