@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE · 侧栏标签样式候选</title>
+<!-- 原型：一次性代码，只用来挑侧栏标签（待合并 / ↑N / 未提交 / 已合并 / 外部 / 已移除）的样式 -->
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px 40px 60px; background: #f4f5f7; color: #1d1d1f; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+.lead { margin: 0 0 28px; color: #6e6e74; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(560px, 1fr)); gap: 22px; }
+.card { background: #fff; border-radius: 16px; padding: 18px; box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.04); }
+.card h2 { margin: 0; font-size: 15px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
+.card h2 .k { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 7px; background: #1d1d1f; color: #fff; font-size: 12px; }
+.card p { margin: 4px 0 14px; color: #6e6e74; font-size: 13px; }
+.pair { display: flex; gap: 12px; }
+
+/* ── 迷你侧栏（复刻原型里的尺寸、字号和两套主题） ─────────────────────── */
+.sb { flex: 1; width: 270px; padding: 6px 8px; border-radius: 12px; font-size: 14px; }
+.sb.light { --text: #1d1d1f; --text-2: #2c2c30; --text-3: #48484e; --muted: #6e6e74; --dim: #a1a1a7; --line: rgba(0,0,0,.08); --line-strong: rgba(0,0,0,.14); --selected: rgba(0,0,0,.06); --accent: #2f6fed;
+  --o: #ff9500; --o-t: #c25f00; --g: #34c759; --g-t: #1e8e3e;
+  --glass: rgba(255,255,255,.78); --glass-edge: rgba(0,0,0,.07); --glass-shadow: rgba(0,0,0,.06); --hi: rgba(255,255,255,.7);
+  background: linear-gradient(180deg, #eceef5, #f1f0f5); color: var(--text-2); box-shadow: inset 0 0 0 .5px rgba(0,0,0,.06); }
+.sb.dark { --text: #f9fafb; --text-2: #e7e9ec; --text-3: #cfd3d6; --muted: #adb2b8; --dim: #81858c; --line: rgba(255,255,255,.10); --line-strong: rgba(255,255,255,.18); --selected: rgba(255,255,255,.08); --accent: #7aaaff;
+  --o: #ff9f0a; --o-t: #ffb547; --g: #30d158; --g-t: #5fe07f;
+  --glass: rgba(255,255,255,.09); --glass-edge: rgba(255,255,255,.09); --glass-shadow: rgba(0,0,0,.25); --hi: rgba(255,255,255,.12);
+  background: linear-gradient(180deg, #3e444f, #363a42); color: var(--text-2); }
+.r { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px; border-radius: 8px; margin-block: 2px; white-space: nowrap; }
+.r.ws { padding-left: 26px; }
+.r.sel { background: var(--selected); color: var(--text); }
+.r .ic { display: inline-flex; color: var(--muted); flex: none; }
+.r.proj .ic { color: var(--accent); }
+.r .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.r .kind { color: var(--dim); font-size: 12px; }
+.r.done .ic, .r.done .t { opacity: .5; }
+.tags { display: flex; gap: 4px; flex: none; }
+
+/* ── 标签：公共骨架；各方案只改外观，并决定显示圆点 / 图标 / 文字中的哪些 ── */
+.tag { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; }
+.tag .dot { display: none; width: 6px; height: 6px; border-radius: 50%; background: var(--o); flex: none; }
+.tag .mi { display: none; }
+.tag .n { display: none; }
+
+/* A 当前（对照） */
+.vA .tag { height: 20px; padding: 0 6px; border-radius: 999px; font-weight: 500; color: var(--muted);
+  background: linear-gradient(180deg, var(--sheen), transparent 75%), color-mix(in srgb, var(--c) var(--fill), transparent);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--c) var(--edge), transparent), inset 0 .5px 0 var(--hi); --c: var(--muted); }
+.vA .light { --fill: 8%; --edge: 26%; --sheen: rgba(255,255,255,.7); }
+.vA .dark { --fill: 13%; --edge: 32%; --sheen: rgba(255,255,255,.07); }
+.vA .warn { --c: #dd8629; color: var(--o-t); }
+.vA .ok { --c: var(--g); color: var(--g-t); }
+.vA .ext { --fill: 0%; }
+
+/* B 纯文字 + 色点：没有容器，颜色只落在小圆点和数字上 */
+.vB .tag { font-size: 12px; color: var(--muted); gap: 5px; }
+.vB .warn .dot { display: block; }
+.vB .ahead { color: var(--o-t); font-weight: 600; }
+.vB .ahead .dot { display: none; }
+.vB .ok { color: var(--g-t); }
+.vB .gray, .vB .ext { color: var(--dim); }
+.vB .tags { gap: 10px; }
+
+/* C 磨砂玻璃胶囊：中性白 / 灰底，靠阴影和高光浮起来，颜色只在圆点和图标上 */
+.vC .tag { height: 20px; padding: 0 8px; border-radius: 999px; font-weight: 500; color: var(--text-3);
+  background: var(--glass); box-shadow: 0 0 0 .5px var(--glass-edge), 0 1px 2px var(--glass-shadow), inset 0 .5px 0 var(--hi); }
+.vC .warn .dot { display: block; }
+.vC .ahead { color: var(--o-t); }
+.vC .ahead .dot { display: none; }
+.vC .ok svg { color: var(--g); }
+.vC .gray, .vC .ext { color: var(--dim); }
+.vC .ext { background: transparent; box-shadow: inset 0 0 0 .5px var(--line-strong); }
+
+/* D 系统色实心胶囊：iOS / macOS 徽标式，醒目 */
+.vD .tag { height: 18px; padding: 0 7px; border-radius: 999px; font-weight: 600; color: #fff; background: var(--o); }
+.vD .ok { background: var(--g); }
+.vD .gray { background: color-mix(in srgb, var(--muted) 22%, transparent); color: var(--muted); font-weight: 500; }
+.vD .ext { background: transparent; color: var(--muted); font-weight: 500; box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+/* E 细描边胶囊：不填底，只有一圈同色描边 */
+.vE .tag { height: 19px; padding: 0 7px; border-radius: 999px; font-weight: 500; color: var(--o-t); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--o) 45%, transparent); }
+.vE .ok { color: var(--g-t); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g) 45%, transparent); }
+.vE .gray, .vE .ext { color: var(--dim); box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+/* F 通透渐变：饱和一点的系统色，上亮下深的渐变 + 顶部高光 + 同色柔影 */
+.vF .tag { --c: var(--o); height: 20px; padding: 0 8px; border-radius: 999px; font-weight: 600; color: var(--o-t);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 10%, transparent), color-mix(in srgb, var(--c) 22%, transparent));
+  box-shadow: inset 0 1px 0 var(--hi), inset 0 0 0 .5px color-mix(in srgb, var(--c) 30%, transparent), 0 1px 3px color-mix(in srgb, var(--c) 18%, transparent); }
+.vF .ok { --c: var(--g); color: var(--g-t); }
+.vF .gray, .vF .ext { --c: var(--muted); color: var(--muted); font-weight: 500; }
+.vF .ext { background: transparent; box-shadow: inset 0 0 0 .5px var(--line-strong); }
+
+/* G 数字徽标：文字保持中性，数量放进实心小圆里（像邮件未读数） */
+.vG .tag { font-size: 12px; color: var(--muted); gap: 6px; }
+.vG .pend .w { order: 0; }
+.vG .pend .n { display: inline-flex; order: 1; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center; border-radius: 999px; background: var(--o); color: #fff; font-size: 11px; font-weight: 600; }
+.vG .pend .c { display: none; }
+.vG .ahead { color: var(--o-t); font-weight: 600; }
+.vG .dirty .dot { display: block; }
+.vG .ok { color: var(--g-t); }
+.vG .gray, .vG .ext { color: var(--dim); }
+.vG .tags { gap: 10px; }
+
+/* H 图标 + 数字：项目行只放合并图标和数量，不写字；工作区行同 B */
+.vH .tag { font-size: 12px; color: var(--muted); gap: 4px; }
+.vH .pend { color: var(--o-t); font-weight: 600; }
+.vH .pend .mi { display: block; }
+.vH .pend .w { display: none; }
+.vH .ahead { color: var(--o-t); font-weight: 600; }
+.vH .dirty .dot { display: block; }
+.vH .ok { color: var(--g-t); }
+.vH .gray, .vH .ext { color: var(--dim); }
+.vH .tags { gap: 10px; }
+</style>
+</head>
+<body>
+<h1>侧栏标签样式候选</h1>
+<p class="lead">每个方案左边浅色、右边深色，侧栏尺寸和字号与原型一致。挑中后告诉我字母，也可以说"B 的项目行 + F 的工作区行"这样混搭。</p>
+<div class="grid" id="grid"></div>
+<script>
+const P = {
+  folder: '<path d="M245,110.64A16,16,0,0,0,232,104H216V88a16,16,0,0,0-16-16H130.67L102.94,51.2a16.14,16.14,0,0,0-9.6-3.2H40A16,16,0,0,0,24,64V208h0a8,8,0,0,0,8,8H211.1a8,8,0,0,0,7.59-5.47l28.49-85.47A16.05,16.05,0,0,0,245,110.64ZM93.34,64,123.2,86.4A8,8,0,0,0,128,88h72v16H69.77a16,16,0,0,0-15.18,10.94L40,158.7V64Zm112,136H43.1l26.67-80H232Z"/>',
+  branch: '<path d="M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.840,23.840,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z"/>',
+  merge: '<path d="M208,112a32.05,32.05,0,0,0-30.69,23l-42.21-6a8,8,0,0,1-4.95-2.71L94.43,84.550A32,32,0,1,0,72,87v82a32,32,0,1,0,16,0V101.63l30,35a24,24,0,0,0,14.830,8.14l44,6.28A32,32,0,1,0,208,112ZM64,56A16,16,0,1,1,80,72,16,16,0,0,1,64,56ZM96,200a16,16,0,1,1-16-16A16,16,0,0,1,96,200Zm112-40a16,16,0,1,1,16-16A16,16,0,0,1,208,160Z"/>',
+  check: '<path d="M232.49,80.49l-128,128a12,12,0,0,1-17,0l-56-56a12,12,0,1,1,17-17L96,183,215.51,63.51a12,12,0,0,1,17,17Z"/>',
+};
+const svg = (k, s, cls = '') => `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 256 256" fill="currentColor">${P[k]}</svg>`;
+const pend = n => `<span class="tag warn pend"><i class="dot"></i>${svg('merge', 13, 'mi')}<span class="c">${n}</span><span class="w">${' '}待合并</span><span class="n">${n}</span></span>`;
+const proj = (name, n) => `<div class="r proj"><span class="ic">${svg('folder', 16)}</span><span class="t">${name}</span>${pend(n)}</div>`;
+const ws = (name, tags, extra = '') => `<div class="r ws ${extra}"><span class="ic">${svg('branch', 15)}</span><span class="t">${name}</span><span class="tags">${tags}</span></div>`;
+const T = {
+  ahead: n => `<span class="tag warn ahead"><i class="dot"></i>↑${n}</span>`,
+  dirty: '<span class="tag warn dirty"><i class="dot"></i>未提交</span>',
+  ext: '<span class="tag ext">外部</span>',
+  ok: `<span class="tag ok">${svg('check', 10)}已合并</span>`,
+  gone: '<span class="tag gray">已移除</span>',
+};
+const sidebar = theme => `<div class="sb ${theme}">
+  ${proj('atrium', 2)}
+  <div class="r ws sel"><span class="ic">${svg('branch', 15)}</span><span class="t">main</span><span class="kind">本地</span></div>
+  ${ws('feat/sidebar', T.ahead(3) + T.dirty)}
+  ${ws('fix/reconnect', T.ext + T.ahead(1))}
+  ${ws('fix/typo', T.ok, 'done')}
+  ${ws('spike/sdk-embed', T.gone, 'done')}
+  ${proj('my-blog', 1)}
+</div>`;
+const V = [
+  ['A', '当前（对照）', '淡色底 + 同色细描边 + 顶部高光。'],
+  ['B', '纯文字 + 色点', '不要容器。颜色只落在小圆点、↑N 和"已合并"上，最安静，最接近 DeepSeek Harness 的克制。'],
+  ['C', '磨砂玻璃胶囊', '中性白（深色下是半透明灰）胶囊，靠细阴影和高光浮在侧栏上；颜色只在圆点和对勾上。'],
+  ['D', '系统色实心胶囊', '苹果系统橙 / 绿实心底配白字，像 iOS 徽标，一眼能看到，但最抢眼。'],
+  ['E', '细描边胶囊', '不填底，只有一圈 1px 同色描边，轻但轮廓清楚。'],
+  ['F', '通透渐变', '系统色稍饱和，上浅下深的渐变 + 顶部高光 + 同色柔影，有一点"糖果玻璃"的质感。'],
+  ['G', '数字徽标', '"待合并"文字保持中性，数量放进橙色实心小圆，像邮件的未读数；工作区行用纯文字。'],
+  ['H', '图标 + 数字', '项目行只放合并图标和数量，不写"待合并"（悬停提示说明）；工作区行用纯文字。最省空间。'],
+];
+document.getElementById('grid').innerHTML = V.map(([k, name, desc]) => `<section class="card v${k}">
+  <h2><span class="k">${k}</span>${name}</h2><p>${desc}</p>
+  <div class="pair">${sidebar('light')}${sidebar('dark')}</div></section>`).join('');
+</script>
+</body>
+</html>
