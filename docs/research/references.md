@@ -45,6 +45,27 @@ pi 迭代很快，资料版本不一，对不上时以当前源码为准。
 - **局限**：宿主层工作，碰不到 loop 内部（上下文改写、tool call 拦截、分支状态）。
 - **与 pi extension 的关系**：两套独立系统。Paseo 在 `providers/pi/extensions/` 里为一批热门 pi extension（官方 todo 示例、rpiv-todo、subagents、ask-user、mcp-adapter）写死了适配器，把 tool result 的 `details` 映射成时间线条目。这是白名单，不是可扩展机制。
 
+**接入 pi 的方式**（主干 `3a93046`，2026-09-30）：
+
+- 子进程 `pi --mode rpc`，不嵌入 SDK；启动时传 `--session`、按 agent 生成的 `--mcp-config`，以及一个自己生成的 `--extension`（`paseo-integration.mjs`）。
+- 注入的 extension 补上了 RPC 缺的通道：用 `ctx.ui.notify` 发带固定标记前缀的 JSON 给宿主；宿主通过 `prompt` 发 `/内部命令 <base64 参数>` 调用 extension（比如用命令里才能调的 `navigateTree` 实现回退）。它还在 `before_agent_start` 里追加 Paseo 的系统提示词。
+- 对话框转成 Paseo 的提问界面；单向通知忽略；会话列表直接读 pi 的 JSONL 文件；插话用 `steer`，中断前先 `clear_queue`。
+
+**与 Atrium 在"extension → 界面"链路上的对比**：
+
+底层机制相同（RPC 子进程 + 注入 extension + 借用通道），Atrium 没有 Paseo 做不到的底层能力。差别在产品结构：
+
+| 环节 | Paseo | Atrium |
+|---|---|---|
+| extension 的界面由谁写 | 核心团队写适配器（白名单） | extension 作者随 package 自带（[ADR-0003](../adr/0003-plugin-as-pi-package.md)） |
+| 新 extension 接入 | 给核心提 PR | 安装即有界面 |
+| 界面表达力 | 映射到工具调用、时间线条目、子 agent、提问 | 任意 React 组件 |
+| 插件系统 | 两套：Paseo 插件有界面碰不到 loop，pi extension 碰得到 loop 没界面 | 一套：同一个插件兼有 loop 能力和界面 |
+| 宿主抽象 | 多家 agent 共用的通用接口 | 为 pi 设计，可表达会话树、上下文、条目 |
+| extension → 宿主通道 | Paseo 私有实现 | 可做成公开协议加辅助库 |
+
+需要正视的：现有 pi extension 在 Atrium 里同样没有界面，需要通用兜底渲染加少数适配器过渡；视图只在 Atrium 里有用；与 pi 绑得越深越受其变化影响；这些差别不是技术壁垒，靠的是专注。
+
 ### DeepSeek Harness
 
 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)：基于 Cordis 的"一切皆插件"架构，模型、工具、会话、loop、UI 都由插件提供，developer preview，会有破坏性变更。文档里没有面向外部应用的 API，接入它大概率要写桥接插件。

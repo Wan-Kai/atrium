@@ -25,6 +25,6 @@ Atrium 要做成可自扩展的 agent 桌面端，需要一个 harness 负责 ag
 ## 后果
 
 - 正面：插件能力强，工作量小，学习路径贴合目标，分享机制现成。
-- 负面：绑定 pi 的演进节奏；不能直接使用 Codex、Claude Code 的订阅。
+- 负面：绑定 pi 的演进节奏；不能直接使用 Codex、Claude Code 这些 harness 本身。模型订阅不受影响，比如 pi 支持用 ChatGPT Plus/Pro 订阅登录使用 Codex 模型（2026-09-29 更正）。
 - 缓解：桌面端只依赖自有事件模型（见 [事件模型](../architecture/event-model.md)），保留接入其他 harness 的可能。
 - 重新评估：确实需要接入 Codex / Claude Code / DeepSeek Harness 时。

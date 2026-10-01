@@ -41,7 +41,8 @@ apps/desktop/   # Electron 外壳：启动宿主，加载 ui
 ## 进程模型
 
 - 宿主是独立的 Node 进程。桌面端由 Electron 启动宿主，宿主也可以脱离 Electron 单独运行。
-- 每个会话对应一个 pi 子进程（RPC 模式），理由见 [ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)。
+- 每个会话对应一个 pi 子进程（RPC 模式），理由见 [ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)。多个会话可以并行运行。
+- 会话可以跑在独立的 git worktree 里：由宿主创建和清理，pi 子进程以 worktree 为工作目录。
 - pi 崩溃不影响宿主和 UI，适配器负责重启和报错。
 
 ## 网络与鉴权
