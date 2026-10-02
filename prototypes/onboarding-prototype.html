@@ -123,29 +123,37 @@ h1.hero { font: 700 clamp(40px, 4.4vw, 60px)/1.12 var(--display); letter-spacing
 .hero-sub { margin: 14px auto 22px; max-width: 520px; color: var(--muted); font-size: 16px; line-height: 1.6; }
 .hero-cta { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .hero-cta .hint { display: inline-flex; align-items: center; gap: 6px; color: var(--dim); font-size: 12.5px; }
-/* 主按钮：深色胶囊 + 流动的彩色描边 + 同色光晕 + 悬停时扫过一道高光，箭头前移 */
-@property --spin { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
-.cta { --ring: conic-gradient(from var(--spin), #5e84ff, #78d6d6, #ffaa78, #b48cff, #5e84ff);
-  position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 12px; height: 52px; padding: 0 10px 0 26px; border-radius: 999px;
-  font: 600 16px/1 var(--font); letter-spacing: .01em; color: var(--cta-text); overflow: hidden;
-  background: linear-gradient(180deg, var(--cta-top), var(--cta-bot));
-  box-shadow: inset 0 1px 0 var(--cta-hi), 0 14px 34px -10px var(--cta-glow), 0 2px 6px rgba(0,0,0,.18);
-  transition: transform .25s cubic-bezier(.2,.9,.25,1.3), box-shadow .3s; animation: cta-spin 6s linear infinite; }
-:root, [data-theme="dark"] { --cta-top: #ffffff; --cta-bot: #e9ecf3; --cta-text: #121318; --cta-hi: rgba(255,255,255,1); --cta-glow: rgba(110,150,255,.55); }
-[data-theme="light"] { --cta-top: #2b2f3a; --cta-bot: #111217; --cta-text: #fff; --cta-hi: rgba(255,255,255,.2); --cta-glow: rgba(70,110,255,.55); }
-.cta::before { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; background: var(--ring); z-index: -1;
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: .9; }
-.cta::after { content: ''; position: absolute; top: 0; bottom: 0; left: -40%; width: 30%; z-index: 1; pointer-events: none;
-  background: linear-gradient(100deg, transparent, rgba(255,255,255,.35), transparent); transform: skewX(-18deg); opacity: 0; }
-.cta:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 var(--cta-hi), 0 18px 42px -10px var(--cta-glow), 0 2px 6px rgba(0,0,0,.18); }
-.cta:hover::after { animation: sheen .9s cubic-bezier(.3,.7,.3,1); }
-.cta:active { transform: scale(.97); }
-.cta .arrow { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--ring); color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); transition: transform .3s cubic-bezier(.2,.9,.25,1.4); }
-.cta:hover .arrow { transform: translateX(3px); }
-.cta kbd { background: transparent; box-shadow: inset 0 0 0 1px currentColor; opacity: .45; margin-left: -2px; }
-@keyframes cta-spin { to { --spin: 360deg; } }
-@keyframes sheen { from { left: -40%; opacity: 1; } to { left: 120%; opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .cta { animation: none; } .cta:hover::after { animation: none; } }
+/* 主按钮两个方案（控制条切换）：B 液态玻璃、D 内光。按钮里只放"开始设置 →"，键盘提示放在下方小字 */
+.cta-wrap { position: relative; display: grid; place-items: center; }
+.cta-wrap::before { content: ''; position: absolute; width: 280px; height: 96px; border-radius: 50%; filter: blur(28px); opacity: var(--bed, 0); transition: opacity .4s;
+  background: radial-gradient(closest-side at 35% 50%, rgba(94,132,255,.55), transparent), radial-gradient(closest-side at 70% 50%, rgba(255,170,120,.45), transparent); }
+body.ctaB .cta-wrap { --bed: 1; }
+.cta { position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 10px; height: 54px; padding: 0 32px; border-radius: 999px;
+  font-weight: 600; font-size: 16px; line-height: 1; letter-spacing: .01em; transition: transform .25s cubic-bezier(.2,.9,.25,1.3), box-shadow .3s; }
+.cta .arr { display: inline-block; transition: transform .35s cubic-bezier(.2,.9,.25,1.3); }
+.cta:hover .arr { transform: translateX(3px); }
+.cta:active { transform: scale(.98); }
+/* B 液态玻璃 */
+body.ctaB .cta { color: var(--text); background: var(--b-fill); backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  box-shadow: inset 0 1px 1px var(--b-hi), inset 0 -1px 1px var(--b-lo), 0 10px 30px -12px var(--b-sh), 0 1px 2px rgba(0,0,0,.06); }
+body.ctaB .cta::before { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; z-index: -1;
+  background: linear-gradient(160deg, var(--b-rim1), transparent 40%, transparent 60%, var(--b-rim2));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+body.ctaB .cta::after { content: ''; position: absolute; left: 14%; right: 14%; top: 2px; height: 45%; border-radius: 999px; z-index: -1; background: linear-gradient(180deg, var(--b-spec), transparent); }
+body.ctaB .cta:hover { transform: translateY(-1px) scale(1.015); }
+:root, [data-theme="dark"] { --b-fill: rgba(255,255,255,.08); --b-hi: rgba(255,255,255,.35); --b-lo: rgba(255,255,255,.06); --b-sh: rgba(0,0,0,.7); --b-rim1: rgba(255,255,255,.55); --b-rim2: rgba(255,255,255,.25); --b-spec: rgba(255,255,255,.14); }
+[data-theme="light"] { --b-fill: rgba(255,255,255,.45); --b-hi: rgba(255,255,255,1); --b-lo: rgba(0,0,0,.04); --b-sh: rgba(60,80,160,.35); --b-rim1: rgba(255,255,255,1); --b-rim2: rgba(255,255,255,.7); --b-spec: rgba(255,255,255,.75); }
+/* D 内光 */
+body.ctaD .cta { overflow: hidden; color: #fff; background: #0f1014; height: 52px; padding: 0 30px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), inset 0 0 0 1px rgba(255,255,255,.06), 0 14px 34px -14px rgba(60,90,200,.6); }
+body.ctaD .cta::before { content: ''; position: absolute; inset: -60% -20%; z-index: -1; filter: blur(18px); opacity: .55;
+  background: radial-gradient(30% 60% at 25% 70%, #5e84ff, transparent 70%), radial-gradient(28% 60% at 60% 30%, #78d6d6, transparent 70%), radial-gradient(26% 55% at 85% 75%, #ffaa78, transparent 70%);
+  animation: cta-flow 9s ease-in-out infinite alternate; transition: opacity .4s; }
+body.ctaD .cta:hover::before { opacity: .8; }
+[data-theme="dark"] body.ctaD .cta { box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 0 0 1px rgba(255,255,255,.12), 0 14px 34px -14px rgba(90,130,255,.55); }
+@keyframes cta-flow { to { transform: translateX(14%) rotate(8deg); } }
+@media (prefers-reduced-motion: reduce) { body.ctaD .cta::before { animation: none; } }
+.hero-cta .hint kbd { font: 600 11px var(--font); padding: 1px 6px; border-radius: 5px; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
 
 /* 产品预览：一扇微微后仰的玻璃窗，下缘淡出 */
 .stage3d { position: relative; margin: clamp(24px, 4vh, 40px) auto 0; width: 860px; perspective: 1600px; }
@@ -305,7 +313,7 @@ body.vB[data-step="0"] .lead { margin-left: auto; }
 </div>
 <div class="proto" id="proto">
   <span class="tag">原型</span>
-  <button data-v="A">方案 A</button><button data-v="B">方案 B</button><span class="sep"></span>
+  <button data-v="A">方案 A</button><button data-v="B">方案 B</button><span class="sep"></span><button data-cta="B">按钮 B</button><button data-cta="D">按钮 D</button><span class="sep"></span>
   <button data-go="welcome">欢迎</button><button data-go="nopi">没装 pi</button><button data-go="fail">安装失败</button><button data-go="nonode">缺 Node</button><button data-go="oldpi">pi 太旧</button><button data-go="login">登录</button><button data-go="project">项目</button><span class="sep"></span>
   <button data-t="light">浅色</button><button data-t="dark">深色</button>
 </div>
@@ -362,8 +370,8 @@ const SCREENS = {
         <span class="go"><svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M204,64V168a12,12,0,0,1-24,0V93L72.49,200.49a12,12,0,0,1-17-17L163,76H88a12,12,0,0,1,0-24H192A12,12,0,0,1,204,64Z"/></svg></span></a>
       <h1 class="hero">看得见内部的<br>coding agent</h1>
       <p class="hero-sub">每一步读了什么、改了什么、花了多少 token，都摆在你眼前。<br>多个任务各占一个 worktree，并行推进。</p>
-      <div class="hero-cta"><button class="cta" data-next="nopi">开始设置 <kbd>⏎</kbd><span class="arrow"><svg width="16" height="16" viewBox="0 0 256 256" fill="currentColor"><path d="M224.49,136.49l-72,72a12,12,0,0,1-17-17L187,140H40a12,12,0,0,1,0-24H187L135.51,64.48a12,12,0,0,1,17-17l72,72A12,12,0,0,1,224.49,136.49Z"/></svg></span></button>
-        <span class="hint"><svg width="13" height="13" viewBox="0 0 256 256" fill="currentColor"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"/></svg>大约 1 分钟，三步完成</span></div>
+      <div class="hero-cta"><div class="cta-wrap"><button class="cta" data-next="nopi">开始设置<span class="arr">→</span></button></div>
+        <span class="hint">按 <kbd>⏎</kbd> 开始 · 大约 1 分钟，三步完成</span></div>
       <div class="stage3d">
         <span class="callout glass c1">${ic('eye', 16)}每一步都看得见</span>
         <span class="callout glass c2">${ic('tree', 16)}worktree 合没合并，一眼看出</span>
@@ -464,16 +472,19 @@ async function runJob(kind) {
   job.state = failing ? 'fail' : 'ok'; render();
   if (!failing && kind === 'node') { await new Promise(r => setTimeout(r, 700)); job = null; screen = 'nopi'; render(true); runJob('pi'); }
 }
+function setCta(v) { document.body.classList.toggle('ctaB', v === 'B'); document.body.classList.toggle('ctaD', v === 'D'); localStorage.setItem('atrium-proto-cta', v); document.querySelectorAll('[data-cta]').forEach(b => b.classList.toggle('on', b.dataset.cta === v)); }
 function setTheme(t) { localStorage.setItem('atrium-proto-theme', t); document.documentElement.dataset.theme = t; document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t)); }
 function setVariant(v) { document.body.classList.toggle('vB', v === 'B'); localStorage.setItem('atrium-proto-onb', v); document.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
 setTheme(document.documentElement.dataset.theme);
 setVariant(localStorage.getItem('atrium-proto-onb') || 'A');
+setCta(localStorage.getItem('atrium-proto-cta') || 'B');
 render(true);
 
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const d = b.dataset;
   if (d.v) return setVariant(d.v);
+  if (d.cta) return setCta(d.cta);
   if (d.t) return setTheme(d.t);
   if (d.go) { forceFail = d.go === 'fail'; job = null; return go(forceFail ? 'nopi' : d.go); }
   if (d.next) return go(d.next, 1);
