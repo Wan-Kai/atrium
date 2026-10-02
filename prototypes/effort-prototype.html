@@ -85,37 +85,88 @@ h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
 .segE button { height: 34px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .segE button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 .5px var(--line); }
 .segE button .ee { color: inherit; }
+
+/* 公共：面板里的分段，每段里放"该档位的图形 + 文字" */
+.segX { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; border-radius: 10px; background: var(--hover); }
+.segX button { height: 36px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+.segX button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 .5px var(--line); }
+:root, [data-theme="dark"] { --off: rgba(255,255,255,.16); --on: #e7e9ec; --on2: #7aaaff; }
+[data-theme="light"] { --off: rgba(0,0,0,.12); --on: #2c2c30; --on2: #2f6fed; }
+.segX button:not(.on) { --on: currentColor; }
+
+/* 0 现状：信号格（对照） */
+.i0 { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.i0 i { width: 3px; border-radius: 1px; background: var(--off); }
+.i0 i:nth-child(1) { height: 5px; } .i0 i:nth-child(2) { height: 7px; } .i0 i:nth-child(3) { height: 9px; } .i0 i:nth-child(4) { height: 11px; }
+.i0 i.f { background: var(--on); }
+
+/* F 电池：圆角外框 + 四格电量 + 小正极 */
+.iF { position: relative; display: inline-flex; gap: 1.5px; padding: 2px; width: 24px; height: 12px; border-radius: 3.5px; box-shadow: inset 0 0 0 1.2px var(--off); }
+.iF::after { content: ''; position: absolute; right: -3px; top: 4px; width: 2px; height: 4px; border-radius: 0 1.5px 1.5px 0; background: var(--off); }
+.iF i { flex: 1; border-radius: 1.5px; background: transparent; transition: background .25s; }
+.iF i.f { background: var(--on); }
+.iF.full { box-shadow: inset 0 0 0 1.2px var(--on); } .iF.full::after { background: var(--on); }
+
+/* G 分段胶囊：四段等高的小胶囊连成一条 */
+.iG { display: inline-flex; gap: 2px; }
+.iG i { width: 6px; height: 6px; border-radius: 2px; background: var(--off); transition: background .25s; }
+.iG i:first-child { border-radius: 3px 2px 2px 3px; } .iG i:last-child { border-radius: 2px 3px 3px 2px; }
+.iG i.f { background: var(--on); }
+
+/* H 精修信号格：更宽的圆顶柱、更舒展的比例，满格时最后一格带强调色 */
+.iH { display: inline-flex; align-items: flex-end; gap: 2.5px; height: 13px; }
+.iH i { width: 3.5px; border-radius: 2px 2px 1px 1px; background: var(--off); transition: background .25s, height .3s cubic-bezier(.2,.9,.25,1.3); }
+.iH i:nth-child(1) { height: 4px; } .iH i:nth-child(2) { height: 7px; } .iH i:nth-child(3) { height: 10px; } .iH i:nth-child(4) { height: 13px; }
+.iH i.f { background: var(--on); }
+.iH.full i.f { background: var(--on2); }
+
+/* I 分段圆环：一个小圆环切成四段，满格就是完整的环 */
+.iI { width: 15px; height: 15px; }
+.iI circle { fill: none; stroke-width: 2.4; stroke-linecap: round; transition: stroke .25s; }
+
+/* J 2×2 方点：和"开始设置"按钮的点阵呼应，按左上→右上→左下→右下点亮 */
+.iJ { display: inline-grid; grid-template-columns: 5px 5px; grid-template-rows: 5px 5px; gap: 2px; }
+.iJ i { border-radius: 1.5px; background: var(--off); transition: background .25s, transform .3s cubic-bezier(.2,.9,.25,1.4); }
+.iJ i.f { background: var(--on); }
+
+/* K 液位胶囊：竖着的小胶囊，液面随档位升高 */
+.iK { position: relative; width: 8px; height: 14px; border-radius: 4px; box-shadow: inset 0 0 0 1.2px var(--off); overflow: hidden; }
+.iK i { position: absolute; left: 2px; right: 2px; bottom: 2px; border-radius: 2px; background: var(--on); transition: height .35s cubic-bezier(.2,.9,.25,1.2); }
 </style>
 </head>
 <body>
 <div class="tog"><button data-t="light">浅色</button><button data-t="dark">深色</button></div>
-<h1>推理强度的表示</h1>
-<p class="lead">上面是输入框底栏里的模型按钮，下面是点开面板后的切换控件。点"切换档位"看变化。</p>
+<h1>推理强度的表示 · 第二批</h1>
+<p class="lead">都能看出"满没满格"。上面是输入框底栏里的模型按钮，下面是面板里的切换（每段带对应档位的图形）。点"切换档位"看变化，试试切到"极高"看满格的样子。</p>
 <div class="grid" id="grid"></div>
 <script>
 const EF = [['low', '低', 'L'], ['medium', '中', 'M'], ['high', '高', 'H'], ['xhigh', '极高', 'X']];
-let lv = 1;
+let lv = 3;
 const up = '<svg width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z"/></svg>';
 const plus = '<svg width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg>';
 const chev = '<svg width="10" height="10" viewBox="0 0 256 256" fill="currentColor"><path d="M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z"/></svg>';
 const gauge = (i, cls = 'ed') => { const c = Math.PI * 7, off = c * (1 - (i + 1) / 4); return `<svg class="${cls}" viewBox="0 0 18 12"><path class="arc" d="M2,10 A7,7 0 0 1 16,10"/><path class="val" d="M2,10 A7,7 0 0 1 16,10" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg>`; };
+const n4 = (cls, i, extra = '') => `<span class="${cls}${i === 3 ? ' full' : ''}" ${extra}>${[0, 1, 2, 3].map(k => `<i class="${k <= i ? 'f' : ''}"></i>`).join('')}</span>`;
+const ring4 = i => { const r = 5.6, c = 2 * Math.PI * r, seg = c / 4, gap = 1.6;
+  return `<svg class="iI" viewBox="0 0 15 15">${[0, 1, 2, 3].map(k => `<circle cx="7.5" cy="7.5" r="${r}" stroke="${k <= i ? 'var(--on)' : 'var(--off)'}" stroke-dasharray="${(seg - gap).toFixed(2)} ${(c - seg + gap).toFixed(2)}" stroke-dashoffset="${(-k * seg + c / 4 - gap / 2).toFixed(2)}"/>`).join('')}</svg>`; };
+const ICONS = {
+  '0': i => n4('i0', i), F: i => n4('iF', i), G: i => n4('iG', i), H: i => n4('iH', i), I: ring4,
+  J: i => n4('iJ', i), K: i => `<span class="iK"><i style="height:${[3, 5, 7.5, 10][i]}px"></i></span>`,
+};
 const V = [
-  ['A', '文字档位', '模型名后面跟一个灰色的档位字，最安静、最不占地方。', () => `<span class="ea">${EF[lv][1]}</span>`,
-    () => `<div class="segA">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${l}</button>`).join('')}</div>`],
-  ['B', '圆点', '四个小圆点，亮几个就是第几档；面板里是一条带节点的轨道。', () => `<span class="eb">${[0, 1, 2, 3].map(k => `<i class="${k <= lv ? 'f' : ''}"></i>`).join('')}</span>`,
-    () => `<div class="segB">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : i < lv ? 'done' : ''}" data-lv="${i}"><i></i>${l}</button>`).join('')}</div>`],
-  ['C', '细进度条', '一根很短的小胶囊按档位填充；面板里是一个四档滑杆。', () => `<span class="ec"><i style="width:${(lv + 1) * 25}%"></i></span>`,
-    () => `<div class="segC"><div class="track"></div><div class="fill" style="width:calc(${lv / 3 * 100}% - ${lv / 3 * 16}px)"></div><div class="knob" style="left:calc(8px + ${lv / 3} * (100% - 16px))"></div><div class="stops">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}" style="position:absolute;left:${i / 3 * 100}%">${l}</button>`).join('')}</div></div>`],
-  ['D', '小仪表', '一个半圆表盘，档位越高弧越满；面板里四个带表盘的格子。', () => gauge(lv),
-    () => `<div class="segD">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${gauge(i)}${l}</button>`).join('')}</div>`],
-  ['E', '字母徽标', '描边小方块里写 L / M / H / X，像键帽，偏工程师气质。', () => `<span class="ee">${EF[lv][2]}</span>`,
-    () => `<div class="segE">${EF.map(([k, l, c], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}"><span class="ee">${c}</span>${l}</button>`).join('')}</div>`],
+  ['0', '现状：信号格（对照）', '直观，但细柱太密、比例生硬。'],
+  ['F', '电池', '圆角外框里四格电量，满格时外框也变实；"满不满"一眼就知道，最贴近生活经验。'],
+  ['G', '分段胶囊', '四段等高的小方块连成一条胶囊，像 iOS 的存储条，安静、规整。'],
+  ['H', '精修信号格', '保留信号格的形状，柱子更宽、圆顶、比例更舒展；满格时最后一格带强调色。'],
+  ['I', '分段圆环', '小圆环切成四段，满格时是完整的环，像 Apple Watch 的圆环。'],
+  ['J', '2×2 方点', '四个圆角方点按顺序点亮，和"开始设置"按钮的点阵呼应，品牌感最强。'],
+  ['K', '液位胶囊', '竖着的小胶囊，液面随档位升高，满格时几乎装满。'],
 ];
 function render() {
-  document.getElementById('grid').innerHTML = V.map(([k, name, desc, btn, panel]) => `<div class="cell"><h2><b>${k}</b>${name}</h2><p>${desc}</p>
-    <div class="bar"><span class="plus">${plus}</span><span class="sp"></span><span class="mp"><span class="logo"><img src="brand/openai.svg" alt=""></span><span class="nm">gpt-6-sol</span>${btn()}<span class="chev">${chev}</span></span><span class="send">${up}</span></div>
-    <div class="panel"><div class="hd"><span>推理强度</span><span>⌘⇧E</span></div>${panel()}</div>
-    <div class="levels"><span>切换档位</span>${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${l}</button>`).join('')}</div></div>`).join('');
+  document.getElementById('grid').innerHTML = V.map(([k, name, desc]) => `<div class="cell"><h2><b>${k}</b>${name}</h2><p>${desc}</p>
+    <div class="bar"><span class="plus">${plus}</span><span class="sp"></span><span class="mp"><span class="logo"><img src="brand/openai.svg" alt=""></span><span class="nm">gpt-6-sol</span>${ICONS[k](lv)}<span class="chev">${chev}</span></span><span class="send">${up}</span></div>
+    <div class="panel"><div class="hd"><span>推理强度</span><span>⌘⇧E</span></div><div class="segX">${EF.map(([key, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${ICONS[k](i)}${l}</button>`).join('')}</div></div>
+    <div class="levels"><span>切换档位</span>${EF.map(([key, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${l}</button>`).join('')}</div></div>`).join('');
 }
 function setTheme(t) { document.documentElement.dataset.theme = t; document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t)); }
 setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
