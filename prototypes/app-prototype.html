@@ -1192,15 +1192,15 @@ function openStatusCustomizer() {
 }
 // 已登录服务商下可用的模型（来自 pi 的 get_available_models）；推理强度按模型支持的档位（get_available_thinking_levels）
 const MODELS = [
-  { id: 'gpt-6-sol', desc: '旗舰，适合复杂任务和大改动', ctx: '400K', prov: 'ChatGPT 订阅', logo: 'brand/openai.svg' },
-  { id: 'gpt-6-astra', desc: '更快，适合小改动和问答', ctx: '400K', prov: 'ChatGPT 订阅', logo: 'brand/openai.svg' },
+  { id: 'gpt-6-sol', ctx: '400K', out: '128K', image: true, prov: 'ChatGPT 订阅', logo: 'brand/openai.svg' },
+  { id: 'gpt-6-astra', ctx: '400K', out: '128K', image: true, prov: 'ChatGPT 订阅', logo: 'brand/openai.svg' },
 ];
 const EFFORTS = [['low', '低', '最快，适合简单、明确的小改动'], ['medium', '中', '默认，兼顾速度和质量'], ['high', '高', '想得更久，适合难排查的问题'], ['xhigh', '极高', '最慢最贵，留给最难的任务']];
 function openModelPop(x, y, only) {
   const btn = document.getElementById('modelPick'), r = btn.getBoundingClientRect();
   const body = () => {
     const ms = `<div class="hd"><span class="prov"><img src="brand/openai.svg" alt="">ChatGPT 订阅</span><span>⌘⇧I</span></div>`
-      + MODELS.map(m => `<button class="mrow press${m.id === model.id ? ' on' : ''}" data-model="${m.id}"><span class="nm"><b>${m.id}</b><small>${m.desc}</small></span><span class="ctx">${m.ctx}</span><span class="ck">${m.id === model.id ? ph('check', 13) : ''}</span></button>`).join('');
+      + MODELS.map(m => `<button class="mrow press${m.id === model.id ? ' on' : ''}" data-model="${m.id}"><span class="nm"><b>${m.id}</b><small>上下文 ${m.ctx} · 输出 ${m.out}${m.image ? ' · 支持图片' : ''}</small></span><span class="ck">${m.id === model.id ? ph('check', 13) : ''}</span></button>`).join('');
     const ef = EFFORTS.find(e => e[0] === model.effort);
     const es = `<div class="hd" style="margin-top:6px"><span>推理强度</span><span>⌘⇧E</span></div><div class="seg4">${EFFORTS.map(([k, l], i) => `<button class="press${k === model.effort ? ' on' : ''}" data-effort="${k}"><span class="lv">${[0, 1, 2, 3].map(j => `<i class="${j <= i ? 'f' : ''}"></i>`).join('')}</span>${l}</button>`).join('')}</div><div class="ehint">${ef[2]}</div>`;
     return only === 'model' ? ms : only === 'effort' ? es : ms + '<div class="sepr" style="margin:8px 6px 2px"></div>' + es;

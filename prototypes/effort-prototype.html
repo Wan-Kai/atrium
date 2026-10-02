@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE · 推理强度的表示</title>
+<!-- 原型：一次性代码，只用来挑模型按钮里"推理强度"的表示方式，以及面板里对应的切换控件。 -->
+<style>
+:root, [data-theme="dark"] { color-scheme: dark; --bg: #151517; --card: #212123; --text: #f9fafb; --text-2: #e7e9ec; --text-3: #cfd3d6; --muted: #adb2b8; --dim: #81858c; --line: rgba(255,255,255,.10); --line-strong: rgba(255,255,255,.18); --hover: rgba(255,255,255,.06); --sel: rgba(255,255,255,.10); --accent: #7aaaff; --seg-on: #353638; }
+[data-theme="light"] { color-scheme: light; --bg: #f5f5f7; --card: #fff; --text: #1d1d1f; --text-2: #2c2c30; --text-3: #48484e; --muted: #6e6e74; --dim: #a1a1a7; --line: rgba(0,0,0,.08); --line-strong: rgba(0,0,0,.14); --hover: rgba(0,0,0,.04); --sel: rgba(0,0,0,.06); --accent: #2f6fed; --seg-on: #fff; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 30px 40px 60px; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: default; }
+h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+.lead { margin: 0 0 22px; color: var(--muted); }
+.tog { position: fixed; top: 16px; right: 16px; display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: rgba(28,28,30,.86); }
+.tog button { height: 26px; padding: 0 10px; border-radius: 8px; color: rgba(255,255,255,.66); font-size: 12px; }
+.tog button.on { background: rgba(255,255,255,.15); color: #fff; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 16px; }
+.cell { border-radius: 18px; background: var(--card); box-shadow: 0 0 0 .5px var(--line); padding: 18px 20px; }
+.cell h2 { margin: 0; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.cell h2 b { width: 22px; height: 22px; border-radius: 7px; display: inline-grid; place-items: center; background: var(--text); color: var(--bg); font-size: 12px; }
+.cell p { margin: 4px 0 14px; color: var(--muted); font-size: 12.5px; }
+/* 输入框底栏的复刻 */
+.bar { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-radius: 16px; box-shadow: inset 0 0 0 .5px var(--line); }
+.bar .sp { flex: 1; }
+.plus { width: 30px; height: 30px; border-radius: 50%; background: var(--hover); display: grid; place-items: center; color: var(--text-3); }
+.send { width: 34px; height: 34px; border-radius: 50%; background: var(--text); color: var(--bg); display: grid; place-items: center; }
+.mp { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 6px; border-radius: 999px; color: var(--text-2); font-size: 13px; }
+.mp:hover { background: var(--hover); }
+.mp .logo { width: 20px; height: 20px; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 .5px var(--line); }
+.mp .logo img { width: 20px; height: 20px; display: block; }
+.mp .nm { font-weight: 500; }
+.mp .chev { color: var(--dim); display: inline-flex; }
+.levels { display: flex; gap: 6px; margin-top: 12px; }
+.levels span { color: var(--dim); font-size: 12px; align-self: center; margin-right: 4px; }
+.levels button { height: 26px; padding: 0 10px; border-radius: 8px; font-size: 12px; color: var(--muted); box-shadow: inset 0 0 0 .5px var(--line); }
+.levels button.on { background: var(--sel); color: var(--text); }
+/* 面板里对应的控件 */
+.panel { margin-top: 12px; padding: 10px; border-radius: 14px; box-shadow: inset 0 0 0 .5px var(--line); }
+.panel .hd { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; padding: 0 2px 8px; }
+
+/* A 文字档位：模型名后面跟一个灰色的档位字 */
+.ea { color: var(--muted); font-size: 12.5px; }
+.ea::before { content: '·'; margin-right: 6px; color: var(--dim); }
+.segA { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; border-radius: 10px; background: var(--hover); }
+.segA button { height: 30px; border-radius: 8px; font-size: 12.5px; color: var(--muted); }
+.segA button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 .5px var(--line); }
+
+/* B 圆点：四个小圆点，亮几个就是第几档 */
+.eb { display: inline-flex; gap: 3px; }
+.eb i { width: 5px; height: 5px; border-radius: 50%; background: var(--line-strong); transition: background .2s, transform .3s cubic-bezier(.2,.9,.25,1.4); }
+.eb i.f { background: var(--text-3); }
+.segB { display: flex; align-items: center; gap: 0; justify-content: space-between; position: relative; padding: 8px 10px 4px; }
+.segB::before { content: ''; position: absolute; left: 18px; right: 18px; top: 15px; height: 2px; border-radius: 2px; background: var(--line); }
+.segB button { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.segB button i { width: 12px; height: 12px; border-radius: 50%; background: var(--card); box-shadow: inset 0 0 0 2px var(--line-strong); transition: all .3s cubic-bezier(.2,.9,.25,1.4); }
+.segB button.done i { box-shadow: inset 0 0 0 6px var(--text-3); }
+.segB button.on i { box-shadow: inset 0 0 0 6px var(--text); transform: scale(1.25); }
+.segB button.on { color: var(--text); }
+
+/* C 细进度条：一根小胶囊，按档位填充 */
+.ec { width: 26px; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.ec i { display: block; height: 100%; border-radius: 4px; background: var(--text-3); transition: width .4s cubic-bezier(.2,.9,.25,1); }
+.segC { position: relative; height: 34px; margin: 4px 2px 0; }
+.segC .track { position: absolute; left: 8px; right: 8px; top: 9px; height: 6px; border-radius: 6px; background: var(--hover); box-shadow: inset 0 0 0 .5px var(--line); }
+.segC .fill { position: absolute; left: 8px; top: 9px; height: 6px; border-radius: 6px; background: var(--text-3); transition: width .4s cubic-bezier(.2,.9,.25,1); }
+.segC .knob { position: absolute; top: 3px; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3), 0 0 0 .5px rgba(0,0,0,.1); transition: left .4s cubic-bezier(.2,.9,.25,1.2); }
+.segC .stops { position: absolute; left: 8px; right: 8px; top: 22px; display: flex; justify-content: space-between; }
+.segC .stops button { font-size: 11.5px; color: var(--dim); white-space: nowrap; transform: translateX(-50%); }
+.segC .stops button:last-child { transform: translateX(-50%); }
+.segC .stops button.on { color: var(--text); }
+
+/* D 仪表：一个小半圆表盘，指针随档位转 */
+.ed { width: 18px; height: 12px; }
+.ed .arc { fill: none; stroke: var(--line-strong); stroke-width: 2; stroke-linecap: round; }
+.ed .val { fill: none; stroke: var(--text-3); stroke-width: 2; stroke-linecap: round; transition: stroke-dashoffset .4s cubic-bezier(.2,.9,.25,1); }
+.segD { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.segD button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0 8px; border-radius: 10px; font-size: 12px; color: var(--muted); box-shadow: inset 0 0 0 .5px var(--line); }
+.segD button.on { background: var(--sel); color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.segD .ed { width: 26px; height: 16px; }
+
+/* E 字母徽标：一个小方块里写 L / M / H / X */
+.ee { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; font: 600 10.5px/1 "SF Mono", ui-monospace, monospace; color: var(--text-3); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.segE { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; padding: 3px; border-radius: 10px; background: var(--hover); }
+.segE button { height: 34px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.segE button.on { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 .5px var(--line); }
+.segE button .ee { color: inherit; }
+</style>
+</head>
+<body>
+<div class="tog"><button data-t="light">浅色</button><button data-t="dark">深色</button></div>
+<h1>推理强度的表示</h1>
+<p class="lead">上面是输入框底栏里的模型按钮，下面是点开面板后的切换控件。点"切换档位"看变化。</p>
+<div class="grid" id="grid"></div>
+<script>
+const EF = [['low', '低', 'L'], ['medium', '中', 'M'], ['high', '高', 'H'], ['xhigh', '极高', 'X']];
+let lv = 1;
+const up = '<svg width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z"/></svg>';
+const plus = '<svg width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg>';
+const chev = '<svg width="10" height="10" viewBox="0 0 256 256" fill="currentColor"><path d="M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z"/></svg>';
+const gauge = (i, cls = 'ed') => { const c = Math.PI * 7, off = c * (1 - (i + 1) / 4); return `<svg class="${cls}" viewBox="0 0 18 12"><path class="arc" d="M2,10 A7,7 0 0 1 16,10"/><path class="val" d="M2,10 A7,7 0 0 1 16,10" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg>`; };
+const V = [
+  ['A', '文字档位', '模型名后面跟一个灰色的档位字，最安静、最不占地方。', () => `<span class="ea">${EF[lv][1]}</span>`,
+    () => `<div class="segA">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${l}</button>`).join('')}</div>`],
+  ['B', '圆点', '四个小圆点，亮几个就是第几档；面板里是一条带节点的轨道。', () => `<span class="eb">${[0, 1, 2, 3].map(k => `<i class="${k <= lv ? 'f' : ''}"></i>`).join('')}</span>`,
+    () => `<div class="segB">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : i < lv ? 'done' : ''}" data-lv="${i}"><i></i>${l}</button>`).join('')}</div>`],
+  ['C', '细进度条', '一根很短的小胶囊按档位填充；面板里是一个四档滑杆。', () => `<span class="ec"><i style="width:${(lv + 1) * 25}%"></i></span>`,
+    () => `<div class="segC"><div class="track"></div><div class="fill" style="width:calc(${lv / 3 * 100}% - ${lv / 3 * 16}px)"></div><div class="knob" style="left:calc(8px + ${lv / 3} * (100% - 16px))"></div><div class="stops">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}" style="position:absolute;left:${i / 3 * 100}%">${l}</button>`).join('')}</div></div>`],
+  ['D', '小仪表', '一个半圆表盘，档位越高弧越满；面板里四个带表盘的格子。', () => gauge(lv),
+    () => `<div class="segD">${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${gauge(i)}${l}</button>`).join('')}</div>`],
+  ['E', '字母徽标', '描边小方块里写 L / M / H / X，像键帽，偏工程师气质。', () => `<span class="ee">${EF[lv][2]}</span>`,
+    () => `<div class="segE">${EF.map(([k, l, c], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}"><span class="ee">${c}</span>${l}</button>`).join('')}</div>`],
+];
+function render() {
+  document.getElementById('grid').innerHTML = V.map(([k, name, desc, btn, panel]) => `<div class="cell"><h2><b>${k}</b>${name}</h2><p>${desc}</p>
+    <div class="bar"><span class="plus">${plus}</span><span class="sp"></span><span class="mp"><span class="logo"><img src="brand/openai.svg" alt=""></span><span class="nm">gpt-6-sol</span>${btn()}<span class="chev">${chev}</span></span><span class="send">${up}</span></div>
+    <div class="panel"><div class="hd"><span>推理强度</span><span>⌘⇧E</span></div>${panel()}</div>
+    <div class="levels"><span>切换档位</span>${EF.map(([k, l], i) => `<button class="${i === lv ? 'on' : ''}" data-lv="${i}">${l}</button>`).join('')}</div></div>`).join('');
+}
+function setTheme(t) { document.documentElement.dataset.theme = t; document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t)); }
+setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+render();
+document.addEventListener('click', e => { const t = e.target.closest('[data-t]'); if (t) return setTheme(t.dataset.t); const b = e.target.closest('[data-lv]'); if (b) { lv = +b.dataset.lv; render(); } });
+</script>
+</body>
+</html>
