@@ -445,6 +445,29 @@ svg { flex: none; display: block; }
 .spop .sw { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border-radius: 3px; vertical-align: -1px; }
 .spop .foot { display: flex; justify-content: space-between; margin-top: 8px; padding-top: 8px; box-shadow: inset 0 .5px 0 var(--line); color: var(--dim); font-size: var(--fs-xs); }
 .spop .foot button { border: 0; background: none; padding: 0; color: var(--accent); font-size: var(--fs-xs); }
+/* 自定义状态栏：唯一入口是状态栏末尾的调节按钮 */
+.sbcfg { --press: .9; width: 26px; height: 26px; margin-left: 2px; border: 0; border-radius: var(--r); background: none; color: var(--dim); display: inline-flex; align-items: center; justify-content: center; opacity: .5; transition: opacity .2s, background .15s, color .15s; }
+.statusbar:hover .sbcfg, .sbcfg.on { opacity: 1; }
+.sbcfg:hover, .sbcfg.on { background: var(--hover); color: var(--text-2); }
+.pop.sbpanel { width: 380px; padding: 8px; }
+.sbpanel .ph { padding: 6px 8px 10px; }
+.sbpanel .ph b { display: block; color: var(--text); font-weight: 600; font-size: var(--fs-meta); }
+.sbpanel .ph span { color: var(--dim); font-size: var(--fs-xs); }
+.sbrow { --press: .99; display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; border: 0; border-radius: var(--r-md); background: none; text-align: left; color: var(--text-2); }
+.sbrow:hover { background: var(--hover); }
+.sbrow .nm { flex: 1; min-width: 0; }
+.sbrow .nm .t { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.sbrow .nm b { font-weight: 500; color: var(--text); font-size: var(--fs-meta); white-space: nowrap; }
+.sbrow .nm small { color: var(--dim); font-size: var(--fs-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sbrow .pv { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: var(--r); background: var(--hover); color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; transition: opacity .2s; }
+.sbrow .pv .sep { color: var(--dim); }
+.sbrow:not(.on) .pv { opacity: .4; }
+.tgl { position: relative; flex: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line-strong); transition: background .25s ease; }
+.tgl::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .35s cubic-bezier(.2,.9,.25,1.3); }
+.sbrow.on .tgl { background: var(--accent); }
+.sbrow.on .tgl::after { transform: translateX(14px); }
+.sbpanel .pf { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; padding: 8px 8px 2px; box-shadow: inset 0 .5px 0 var(--line); color: var(--dim); font-size: var(--fs-xs); }
+.sbpanel .pf button { border: 0; background: none; padding: 0; color: var(--accent); font-size: var(--fs-xs); }
 :root, [data-theme="dark"] { --ctx-sys: #9ca3af; --ctx-tools: #a78bfa; --ctx-msgs: #7aaaff; }
 [data-theme="light"] { --ctx-sys: #a1a1a7; --ctx-tools: #8b5cf6; --ctx-msgs: #2f6fed; }
 
@@ -1034,14 +1057,14 @@ function ring(p) {
   return `<svg class="ring" width="16" height="16" viewBox="0 0 16 16"><circle class="track" cx="8" cy="8" r="${r}" fill="none" stroke-width="2"/><circle class="bar" cx="8" cy="8" r="${r}" fill="none" stroke-width="2" stroke-linecap="round" stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${off.toFixed(2)}"/></svg>`;
 }
 const GROUPS = [
-  { id: 'perf', name: '会话统计', def: true,
+  { id: 'perf', name: '会话统计', desc: '轮数、步数、输出速度', def: true,
     text: m => `${ph('gauge', 14)}${m.turns} 轮 ${m.steps} 步<span class="sep">·</span>${m.lastSpeed ?? '—'} tok/s`,
     pop: m => shead('gauge', '会话统计') + kv('模型用时', `${(m.modelMs / 1000).toFixed(1)} 秒`) + kv('首 token 平均（TTFT）', `${(m.ttftMs / 1000).toFixed(1)} 秒`) + kv('输出速度（TPS）', `${m.lastSpeed ?? '—'} tok/s`) },
-  { id: 'tokens', name: 'Token 用量', def: true,
+  { id: 'tokens', name: 'Token 用量', desc: '总用量与缓存命中率', def: true,
     text: m => `${ph('database', 14)}${fmtK(totalTok(m))} tok<span class="sep">·</span>缓存命中 ${hitPct(m)}%`,
     pop: m => shead('database', 'Token 用量', `${nf(totalTok(m))} tok`) + kv('缓存命中', `${hitPct(m)}%`) + kv('未缓存输入', `${nf(m.input)} tok`) + kv('缓存读取', `${nf(m.cacheRead)} tok`)
       + kv('缓存写入', `${nf(m.cacheWrite)} tok`) + kv('输出', `${nf(m.output)} tok`) + kv('其中推理', `${nf(m.reasoning)} tok`, 'sub') },
-  { id: 'ctx', name: '上下文', def: true,
+  { id: 'ctx', name: '上下文', desc: '已用比例，悬停看分段', def: true,
     cls: m => { const p = ctxPct(m); return p == null ? '' : p > 85 ? 'danger' : p > 70 ? 'warn' : ''; },
     text: m => `${ring(ctxPct(m))}${ctxPct(m) == null ? '—' : ctxPct(m) + '%'}`,
     pop: m => {
@@ -1053,7 +1076,7 @@ const GROUPS = [
         + kv('<span class="sw" style="background:var(--ctx-msgs)"></span>对话消息', '~' + fmtK(msgs))
         + `<div class="foot"><span>接近上限时 pi 会自动压缩</span></div>`;
     } },
-  { id: 'cost', name: '费用', def: false,
+  { id: 'cost', name: '费用', desc: '按 API 价格折算，订阅不实际付费', def: false,
     text: m => `${ph('coins', 14)}≈ $${m.cost.toFixed(2)}`,
     pop: m => shead('coins', '费用', `≈ $${m.cost.toFixed(2)}`) + kv('计算方式', '按 API 价格折算') + `<div class="foot"><span>订阅用户不实际付费</span></div>` },
 ];
@@ -1061,12 +1084,13 @@ function renderStatus() {
   const m = cur().m;
   if (!m) { patch(document.getElementById('statusbar'), ''); return; }
   patch(document.getElementById('statusbar'), GROUPS.filter(g => visible.includes(g.id)).map(g =>
-    `<button class="sgroup press ${g.cls ? g.cls(m) : ''}${statPop && statPop.gid === g.id ? ' on' : ''}" id="g-${g.id}" data-group="${g.id}" data-enter="pop">${g.text(m)}</button>`).join(''));
+    `<button class="sgroup press ${g.cls ? g.cls(m) : ''}${statPop && statPop.gid === g.id ? ' on' : ''}" id="g-${g.id}" data-group="${g.id}" data-enter="pop">${g.text(m)}</button>`).join('')
+    + `<button class="sbcfg press${document.querySelector('.pop.sbpanel:not([data-closing])') ? ' on' : ''}" id="sbCfg" title="自定义状态栏">${ph('gear', 14)}</button>`);
   if (statPop) statPop.el.innerHTML = popBody(statPop.gid);
 }
 // 悬停详情卡片：进入分组 120ms 后弹出；鼠标可以移进卡片里；离开 100ms 后收起
 let statPop = null, openT = 0, closeT = 0;
-const popBody = gid => GROUPS.find(g => g.id === gid).pop(cur().m) + `<div class="foot" style="justify-content:flex-end"><button data-customize>自定义状态栏</button></div>`;
+const popBody = gid => GROUPS.find(g => g.id === gid).pop(cur().m);
 function showStatPop(gid) {
   clearTimeout(closeT);
   if (statPop && statPop.gid === gid) return;
@@ -1118,10 +1142,24 @@ function openPop(html, x, y, origin, onClick) {
   return p;
 }
 const tick = on => `<span class="tick">${on ? ph('check', 12) : ''}</span>`;
-function openMetricsPop(x, y) {
+function openStatusCustomizer() {
   hideStatPop(true);
-  const p = openPop('<div class="head">状态栏显示</div>' + GROUPS.map(g => `<label class="item"><input type="checkbox" data-mid="${g.id}" ${visible.includes(g.id) ? 'checked' : ''}>${g.name}${g.def ? '' : '<span class="k">默认不显示</span>'}</label>`).join(''), x, y, 'bottom left');
-  p.addEventListener('change', e => { const id = e.target.dataset.mid; visible = GROUPS.map(g => g.id).filter(k => k === id ? e.target.checked : visible.includes(k)); renderStatus(); renderState(); });
+  const btn = document.getElementById('sbCfg'); if (!btn) return;
+  const m = cur().m, r = btn.getBoundingClientRect();   // 每行：名称 + 说明，下面是这一项现在的样子，右边是开关
+  const body = () => `<div class="ph"><b>状态栏</b><span>选择在输入框下方显示哪些指标，对所有会话生效</span></div>`
+    + GROUPS.map(g => `<button class="sbrow press${visible.includes(g.id) ? ' on' : ''}" data-mid="${g.id}"><span class="nm"><span class="t"><b>${g.name}</b><small>${g.desc}</small></span><span class="pv">${g.text(m)}</span></span><span class="tgl"></span></button>`).join('')
+    + `<div class="pf"><span>悬停任一指标可看详情</span><button data-mreset>恢复默认</button></div>`;
+  const p = openPop(body(), r.right - 380, r.top, 'bottom right', e => {
+    const row = e.target.closest('[data-mid]'), reset = e.target.closest('[data-mreset]');
+    if (!row && !reset) return;
+    if (reset) visible = GROUPS.filter(g => g.def).map(g => g.id);
+    else { const id = row.dataset.mid; const on = !visible.includes(id); visible = GROUPS.map(g => g.id).filter(k => k === id ? on : visible.includes(k)); }
+    e.stopPropagation();   // 面板内容会重绘，别让全局点击误以为点在了面板外
+    p.innerHTML = body(); renderStatus(); renderState();
+  });
+  p.classList.add('sbpanel'); p.style.left = Math.max(8, Math.min(r.right - p.offsetWidth, innerWidth - p.offsetWidth - 8)) + 'px'; p.style.top = (r.top - p.offsetHeight - 8) + 'px';
+  btn.classList.add('on');
+  const obs = new MutationObserver(() => { if (!p.isConnected || p.dataset.closing) { document.getElementById('sbCfg')?.classList.remove('on'); obs.disconnect(); } }); obs.observe(document.body, { childList: true, subtree: true, attributes: true });
 }
 function openModelPop(x, y, only) {
   const models = '<div class="head">模型<span class="k" style="float:right">⌘⇧I</span></div>' + ['gpt-6-sol', 'gpt-6-astra'].map(m => `<button class="item press" data-model="${m}">${tick(m === model.id)}openai-codex / ${m}</button>`).join('');
@@ -1373,7 +1411,6 @@ document.getElementById('send').onclick = () => running && running.sid === selec
 document.getElementById('attach').onclick = e => { e.stopPropagation(); openPlusMenu(); };
 document.getElementById('modelPick').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); openModelPop(r.left, r.top); };
 document.getElementById('themeBtn').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); openThemePop(r.left - 10, r.top); };
-document.getElementById('statusbar').addEventListener('contextmenu', e => { e.preventDefault(); openMetricsPop(e.clientX - 150, e.clientY); });
 document.getElementById('protoBtn').onclick = () => { const p = document.getElementById('protoPanel'); p.hidden = !p.hidden; };
 document.getElementById('newBtn').onclick = () => newSession(P.find(p => p.chat).workspaces[0]);
 document.getElementById('sideToggle').onclick = () => toast('原型：收起侧栏');
@@ -1383,11 +1420,10 @@ document.addEventListener('input', e => { if (e.target.id === 'q') { query = e.t
 
 document.addEventListener('click', e => {
   const el = e.target;
-  if (!el.closest('.pop') && !el.closest('#modelPick,#modeBtn,#moreBtn,#themeBtn,#attach,[data-rmore],[data-customize],[data-action="history"],[data-action="ws-menu"],[data-action="new-ws"]')) closePops();
-  if (el.closest('#gear')) { const r = el.closest('#gear').getBoundingClientRect(); openMetricsPop(r.right - 200, r.top); return; }
+  if (!el.closest('.pop') && !el.closest('#modelPick,#modeBtn,#moreBtn,#themeBtn,#attach,#sbCfg,[data-rmore],[data-action="history"],[data-action="ws-menu"],[data-action="new-ws"]')) closePops();
+  if (el.closest('#sbCfg')) { if (document.querySelector('.pop.sbpanel:not([data-closing])')) closePops(); else openStatusCustomizer(); return; }
   if (el.closest('#modeBtn')) { const r = el.closest('#modeBtn').getBoundingClientRect(); openModePop(r.left, r.bottom); return; }
   if (el.closest('#moreBtn')) { if (!selected) return; const r = el.closest('#moreBtn').getBoundingClientRect(); openSessionMenu(selected, r.right - 160, r.bottom); return; }
-  if (el.closest('[data-customize]')) { const r = document.getElementById('statusbar').getBoundingClientRect(); openMetricsPop(r.left + r.width / 2 - 100, r.top); return; }
   if (el.closest('[data-group]')) return;
 
   const act = el.closest('[data-action]');
