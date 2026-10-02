@@ -190,8 +190,9 @@ body.ctaD .cta:hover .lbl { transform: scale(1.05); }
 /* 终端：安装 / 更新的主视觉，安装时直接变成实时日志 */
 .term { border-radius: 14px; background: var(--term); box-shadow: inset 0 0 0 .5px var(--term-edge), 0 24px 48px -24px rgba(0,0,0,.5); overflow: hidden; color: var(--term-text); }
 .term .tb { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-bottom: .5px solid rgba(255,255,255,.06); }
-.term .tb i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.14); }
-.term .tb span { flex: 1; text-align: center; margin-right: 33px; font-size: 11.5px; color: var(--term-dim); }
+.term .tb i { width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.25); }   /* 终端窗口的红绿灯 */
+.term .tb i:nth-child(1) { background: #ff5f57; } .term .tb i:nth-child(2) { background: #febc2e; } .term .tb i:nth-child(3) { background: #28c840; }
+.term .tb span { flex: 1; text-align: center; margin-right: 45px; font-size: 11.5px; color: var(--term-dim); }
 .term .body { max-height: 168px; padding: 14px 16px; font: 12px/1.75 var(--mono); display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }   /* 高度随内容增长，最多约 7 行，超出时只露出最新的几行 */
 .term .body .p { color: var(--term-dim); }
 .term .body .ok { color: #4ade80; } .term .body .err { color: #f87171; }
