@@ -477,7 +477,7 @@ async function runJob(kind) {
   job.state = failing ? 'fail' : 'ok'; render();
   if (!failing && kind === 'node') { await new Promise(r => setTimeout(r, 700)); job = null; screen = 'nopi'; render(true); runJob('pi'); }
 }
-// 点阵按钮：一条"/"方向的斜光带从左向右平移，带内每个圆角方点都亮，只用深浅组成图案。
+// 点阵按钮：一条"\"方向的斜光带从左向右平移，带内每个圆角方点都亮，只用深浅组成图案。
 // 图案是随机生成的平滑噪声，种子存在本机（正式版取安装 ID），所以每个人看到的都不一样，但同一个人每次一样。
 function dotCta(btn) {
   if (btn.querySelector('canvas.dots') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -504,10 +504,12 @@ function dotCta(btn) {
     const p = window.__dotP ?? (now - sweepStart) / sweepDur;      // __dotP：原型调试用，定格光带位置
     if (p < 0 || p > 1) { requestAnimationFrame(frame); return; }
     const cols = Math.ceil(w / PITCH), rows = Math.ceil(h / PITCH), ox = (w - (cols - 1) * PITCH - SIZE) / 2, oy = (h - (rows - 1) * PITCH - SIZE) / 2;
-    const BAND = .34 * cols, SLANT = .55;                             // 光带宽度（列数）；斜率：每往上一行右移 0.55 列，形成"/"
-    const center = -BAND + p * (cols + BAND * 2);                    // 光带中心列，从左外侧平移到右外侧
+    const SLANT = .55, cy = (rows - 1) / 2;                          // 斜率：每往下一行右移 0.55 列，形成"\"
+    const MAXW = cols + rows * SLANT;                                 // 最宽时正好盖满整个按钮
+    const BAND = MAXW * (.45 + .55 * Math.sin(Math.PI * p));         // 光带宽度：进场时窄，到中间最宽（盖满），离场时再变窄
+    const center = -MAXW / 2 + p * (cols + MAXW);                    // 光带中心列，一次性从左外侧平移到右外侧
     for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
-      const local = i - center - (rows - 1 - j) * SLANT + (rows - 1) * SLANT / 2;   // 相对光带中心的位置（已按"/"倾斜）
+      const local = i - center - (j - cy) * SLANT;                    // 相对光带中心的位置（已按"\"倾斜）
       const edge = Math.abs(local) / (BAND / 2);
       if (edge >= 1) continue;
       const env = edge < .7 ? 1 : 1 - smooth((edge - .7) / .3);      // 带内全亮，只在两边柔和收边
