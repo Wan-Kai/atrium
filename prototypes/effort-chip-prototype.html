@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE · 推理强度 · 整个模型按钮来表达</title>
+<!-- 原型：一次性代码。推理强度不再是按钮里的一个小图标，而是由整个模型按钮（底色、描边、纹理、光晕、层次）来表达。 -->
+<style>
+:root, [data-theme="dark"] { color-scheme: dark; --bg: #151517; --card: #212123; --text: #f9fafb; --text-2: #e7e9ec; --text-3: #cfd3d6; --muted: #adb2b8; --dim: #81858c; --line: rgba(255,255,255,.10); --line-strong: rgba(255,255,255,.2); --hover: rgba(255,255,255,.06); --sel: rgba(255,255,255,.10); --accent: #7aaaff; --ink: 255,255,255; --seg-on: #353638; }
+[data-theme="light"] { color-scheme: light; --bg: #f5f5f7; --card: #fff; --text: #1d1d1f; --text-2: #2c2c30; --text-3: #48484e; --muted: #6e6e74; --dim: #a1a1a7; --line: rgba(0,0,0,.08); --line-strong: rgba(0,0,0,.18); --hover: rgba(0,0,0,.04); --sel: rgba(0,0,0,.06); --accent: #2f6fed; --ink: 0,0,0; --seg-on: #fff; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 30px 40px 60px; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: default; }
+h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; }
+.lead { margin: 0 0 22px; color: var(--muted); max-width: 900px; }
+.tog { position: fixed; top: 16px; right: 16px; display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: rgba(28,28,30,.86); z-index: 5; }
+.tog button { height: 26px; padding: 0 10px; border-radius: 8px; color: rgba(255,255,255,.66); font-size: 12px; }
+.tog button.on { background: rgba(255,255,255,.15); color: #fff; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(540px, 1fr)); gap: 16px; }
+.cell { border-radius: 18px; background: var(--card); box-shadow: 0 0 0 .5px var(--line); padding: 18px 20px; }
+.cell h2 { margin: 0; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.cell h2 b { width: 22px; height: 22px; border-radius: 7px; display: inline-grid; place-items: center; background: var(--text); color: var(--bg); font-size: 12px; }
+.cell p { margin: 4px 0 14px; color: var(--muted); font-size: 12.5px; }
+.bar { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-radius: 18px; box-shadow: inset 0 0 0 .5px var(--line); }
+.bar .sp { flex: 1; }
+.plus { width: 30px; height: 30px; border-radius: 50%; background: var(--hover); display: grid; place-items: center; color: var(--text-3); }
+.send { width: 34px; height: 34px; border-radius: 50%; background: var(--text); color: var(--bg); display: grid; place-items: center; }
+.levels { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+.levels span { color: var(--dim); font-size: 12px; margin-right: 4px; }
+.levels button { height: 26px; padding: 0 10px; border-radius: 8px; font-size: 12px; color: var(--muted); box-shadow: inset 0 0 0 .5px var(--line); }
+.levels button.on { background: var(--sel); color: var(--text); }
+.levels .note { margin-left: auto; color: var(--dim); font-size: 11.5px; }
+
+/* 模型按钮的公共骨架：图标 + 名称 + 档位字 + 箭头。图形由各方案作用在整个按钮上 */
+.mp { --lv: 0; position: relative; isolation: isolate; display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 7px; border-radius: 999px; color: var(--text-2); font-size: 13px; white-space: nowrap; transition: box-shadow .4s, background .4s; }
+.mp .logo { width: 20px; height: 20px; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 .5px var(--line); position: relative; z-index: 2; }
+.mp .logo img { width: 20px; height: 20px; display: block; }
+.mp .nm { font-weight: 500; position: relative; z-index: 2; }
+.mp .lvl { color: var(--muted); font-size: 12px; position: relative; z-index: 2; }
+.mp .chev { color: var(--dim); display: inline-flex; position: relative; z-index: 2; }
+
+/* A 填充胶囊：整个按钮从左往右"充"，满格时整颗胶囊被填满 */
+.vA { box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.vA::before { content: ''; position: absolute; inset: 0; z-index: 0; width: calc(var(--lv) * 25%); background: rgba(var(--ink), .08); border-radius: inherit; transition: width .5s cubic-bezier(.2,.9,.25,1.1); }
+.vA.full::before { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.vA.full { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* B 描边进度：按钮的边框本身就是进度条，顺时针画一圈；满格时闭合成完整的边 */
+.vB svg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; overflow: visible; pointer-events: none; }
+.vB .trk { fill: none; stroke: var(--line); stroke-width: 1.2; }
+.vB .val { fill: none; stroke: var(--text-3); stroke-width: 1.6; stroke-linecap: round; transition: stroke-dashoffset .6s cubic-bezier(.2,.9,.25,1), stroke .3s; }
+.vB.full .val { stroke: var(--accent); }
+
+/* C 点阵密度：按钮里铺一层圆角方点，档位越高点阵越满、越亮（和"开始设置"按钮同一种语言） */
+.vC { box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.vC::before { content: ''; position: absolute; inset: 0; z-index: 0; opacity: calc(.35 + var(--lv) * .16);
+  background-image: var(--dots); background-size: 6px 6px; background-position: 1px 1px;
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(var(--lv) * 25% - 12%), transparent calc(var(--lv) * 25% + 6%)); mask-image: linear-gradient(90deg, #000 calc(var(--lv) * 25% - 12%), transparent calc(var(--lv) * 25% + 6%)); transition: opacity .4s; }
+:root, [data-theme="dark"] { --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect x='.6' y='.6' width='3.6' height='3.6' rx='1' fill='white' fill-opacity='.22'/%3E%3C/svg%3E"); }
+[data-theme="light"] { --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect x='.6' y='.6' width='3.6' height='3.6' rx='1' fill='black' fill-opacity='.14'/%3E%3C/svg%3E"); }
+.vC .nm, .vC .lvl { text-shadow: 0 0 6px var(--card), 0 0 2px var(--card); }
+
+/* D 光晕：按钮周围有一圈同色光，档位越高光越大越亮；满格时像在发光 */
+.vD { background: var(--card); box-shadow: inset 0 0 0 1px var(--line), 0 0 calc(var(--lv) * 7px) calc(var(--lv) * 1px) color-mix(in srgb, var(--accent) calc(var(--lv) * 9%), transparent); }
+.vD::before { content: ''; position: absolute; inset: -1px; z-index: 0; border-radius: inherit; padding: 1px; opacity: calc(var(--lv) * .25);
+  background: conic-gradient(from 200deg, #5e84ff, #78d6d6, #ffaa78, #b48cff, #5e84ff);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; transition: opacity .4s; }
+
+/* E 分段底座：按钮背后是四个隔开的格子，名称压在上面；亮几格就是第几档 */
+.vE { padding: 0 12px 0 7px; }
+.vE .segs { position: absolute; inset: 0; z-index: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; border-radius: inherit; overflow: hidden; }
+.vE .segs i { background: rgba(var(--ink), .05); transition: background .35s; }
+.vE .segs i.f { background: rgba(var(--ink), .13); }
+.vE.full .segs i.f { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* F 叠层：按钮下面叠着几张"卡片"，档位越高叠得越厚，像一摞纸 */
+.vF { background: var(--card); box-shadow: inset 0 0 0 1px var(--line-strong), var(--stack); transition: box-shadow .4s cubic-bezier(.2,.9,.25,1.2), transform .4s; transform: translateY(calc(var(--lv) * -1px)); }
+.vF.l0 { --stack: 0 0 0 0 transparent; }
+.vF.l1 { --stack: 0 3px 0 -1px var(--card), 0 3px 0 -.5px var(--line-strong); }
+.vF.l2 { --stack: 0 3px 0 -1px var(--card), 0 3px 0 -.5px var(--line-strong), 0 6px 0 -2px var(--card), 0 6px 0 -1.5px var(--line-strong); }
+.vF.l3 { --stack: 0 3px 0 -1px var(--card), 0 3px 0 -.5px var(--line-strong), 0 6px 0 -2px var(--card), 0 6px 0 -1.5px var(--line-strong), 0 9px 0 -3px var(--card), 0 9px 0 -2.5px var(--line-strong); }
+
+/* G 底边刻度：按钮底边上四段细线，像音量刻度；满格时底边连成一条 */
+.vG { box-shadow: inset 0 0 0 1px var(--line); }
+.vG .ticks { position: absolute; left: 14px; right: 14px; bottom: 4px; z-index: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+.vG .ticks i { height: 2px; border-radius: 2px; background: var(--line-strong); transition: background .3s; }
+.vG .ticks i.f { background: var(--text-3); }
+.vG.full .ticks { gap: 0; } .vG.full .ticks i.f { background: var(--accent); }
+.vG .nm, .vG .lvl { transform: translateY(-1px); }
+
+/* H 两段式：模型和推理强度拆成两半，右半边是一个会"变满"的槽，悬停可以直接在槽上滚动调整 */
+.vH { padding: 0; gap: 0; box-shadow: inset 0 0 0 1px var(--line); }
+.vH .left { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 7px; height: 100%; }
+.vH .right { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 12px 0 10px; border-left: 1px solid var(--line); border-radius: 0 999px 999px 0; overflow: hidden; }
+.vH .right::before { content: ''; position: absolute; inset: 0; z-index: 0; transform-origin: left; transform: scaleX(calc(var(--lv) / 4)); background: rgba(var(--ink), .1); transition: transform .5s cubic-bezier(.2,.9,.25,1.1); }
+.vH.full .right::before { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.vH .right span { position: relative; z-index: 1; }
+
+/* 面板里对应的选择：四个小号的同款按钮并排 */
+.panel { margin-top: 12px; padding: 12px; border-radius: 14px; box-shadow: inset 0 0 0 .5px var(--line); }
+.panel .hd { display: flex; justify-content: space-between; color: var(--dim); font-size: 11px; padding: 0 2px 10px; }
+.panel .opts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.panel .opts .mp { justify-content: center; height: 30px; padding: 0 10px; font-size: 12px; }
+.panel .opts .mp .logo, .panel .opts .mp .chev, .panel .opts .mp .nm { display: none; }
+.panel .opts .mp .lvl { color: var(--text-2); }
+.panel .opts .vH .left { display: none; } .panel .opts .vH .right { border-left: 0; border-radius: 999px; width: 100%; justify-content: center; }
+.panel .opts .mp.cur { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="tog"><button data-t="light">浅色</button><button data-t="dark">深色</button></div>
+<h1>推理强度 · 用整个模型按钮来表达</h1>
+<p class="lead">不再在按钮里塞一个小图标，而是让整个模型按钮"变满"：底色、描边、纹理、光晕、层次、底边都可以。每个方案下面是面板里的四档选择。在任意一个模型按钮上滚动鼠标滚轮，可以直接调档位（这也是一个可选的交互）。</p>
+<div class="grid" id="grid"></div>
+<script>
+const EF = [['low', '低'], ['medium', '中'], ['high', '高'], ['xhigh', '极高']];
+let lv = 4;   // 1..4
+const up = '<svg width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M208.49,120.49a12,12,0,0,1-17,0L140,69V216a12,12,0,0,1-24,0V69L64.49,120.49a12,12,0,0,1-17-17l72-72a12,12,0,0,1,17,0l72,72A12,12,0,0,1,208.49,120.49Z"/></svg>';
+const plus = '<svg width="15" height="15" viewBox="0 0 256 256" fill="currentColor"><path d="M224,128a8,8,0,0,1-8,8H136v80a8,8,0,0,1-16,0V136H40a8,8,0,0,1,0-16h80V40a8,8,0,0,1,16,0v80h80A8,8,0,0,1,224,128Z"/></svg>';
+const chev = '<svg width="10" height="10" viewBox="0 0 256 256" fill="currentColor"><path d="M216.49,104.49l-80,80a12,12,0,0,1-17,0l-80-80a12,12,0,0,1,17-17L128,159l71.51-71.52a12,12,0,0,1,17,17Z"/></svg>';
+const inner = l => `<span class="logo"><img src="brand/openai.svg" alt=""></span><span class="nm">gpt-6-sol</span><span class="lvl">${EF[l - 1][1]}</span><span class="chev">${chev}</span>`;
+const V = [
+  ['A', '填充胶囊', '整个按钮从左往右"充"，满格时整颗胶囊被填满并变成强调色。', l => `<span class="mp vA${l === 4 ? ' full' : ''}" style="--lv:${l}">${inner(l)}</span>`],
+  ['B', '描边进度', '按钮的边框就是进度条，从左上顺时针画；满格时闭合成完整的蓝色边框。', l => `<span class="mp vB${l === 4 ? ' full' : ''}" style="--lv:${l}" data-ring="${l}"><svg><rect class="trk" rx="17"/><rect class="val" rx="17" pathLength="100"/></svg>${inner(l)}</span>`],
+  ['C', '点阵密度', '按钮里铺一层圆角方点，档位越高铺得越满、越亮，和"开始设置"的点阵是同一种语言。', l => `<span class="mp vC" style="--lv:${l}">${inner(l)}</span>`],
+  ['D', '光晕', '按钮周围有一圈光，档位越高光越大越亮，描边也慢慢显出彩色；满格时像在发光。', l => `<span class="mp vD" style="--lv:${l}">${inner(l)}</span>`],
+  ['E', '分段底座', '按钮背后是四个隔开的格子，名称压在上面，亮几格就是第几档。', l => `<span class="mp vE${l === 4 ? ' full' : ''}" style="--lv:${l}"><span class="segs">${[1, 2, 3, 4].map(k => `<i class="${k <= l ? 'f' : ''}"></i>`).join('')}</span>${inner(l)}</span>`],
+  ['F', '叠层', '按钮下面叠着几张"卡片"，档位越高叠得越厚、按钮被托得越高。', l => `<span class="mp vF l${l - 1}" style="--lv:${l}">${inner(l)}</span>`],
+  ['G', '底边刻度', '按钮底边上四段细线，像音量刻度；满格时连成一条蓝线。', l => `<span class="mp vG${l === 4 ? ' full' : ''}" style="--lv:${l}"><span class="ticks">${[1, 2, 3, 4].map(k => `<i class="${k <= l ? 'f' : ''}"></i>`).join('')}</span>${inner(l)}</span>`],
+  ['H', '两段式', '按钮拆成"模型 | 强度"两半，右半边是一个会变满的槽；点左半边换模型，点右半边或在上面滚动换强度。', l => `<span class="mp vH${l === 4 ? ' full' : ''}" style="--lv:${l}"><span class="left"><span class="logo"><img src="brand/openai.svg" alt=""></span><span class="nm">gpt-6-sol</span></span><span class="right"><span class="lvl">${EF[l - 1][1]}</span><span class="chev">${chev}</span></span></span>`],
+];
+function drawRings() {
+  document.querySelectorAll('[data-ring]').forEach(el => {
+    const w = el.offsetWidth, h = el.offsetHeight, l = +el.dataset.ring;
+    el.querySelectorAll('rect').forEach(r => { r.setAttribute('x', .8); r.setAttribute('y', .8); r.setAttribute('width', w - 1.6); r.setAttribute('height', h - 1.6); r.setAttribute('rx', (h - 1.6) / 2); });
+    const v = el.querySelector('.val'); v.setAttribute('stroke-dasharray', '100 100'); v.style.strokeDashoffset = 100 - l * 25;
+  });
+}
+function render() {
+  document.getElementById('grid').innerHTML = V.map(([k, name, desc, chip]) => `<div class="cell"><h2><b>${k}</b>${name}</h2><p>${desc}</p>
+    <div class="bar"><span class="plus">${plus}</span><span class="sp"></span><span data-wheel>${chip(lv)}</span><span class="send">${up}</span></div>
+    <div class="panel"><div class="hd"><span>推理强度</span><span>⌘⇧E</span></div><div class="opts">${[1, 2, 3, 4].map(l => `<button data-lv="${l}">${chip(l).replace('class="mp', `class="mp${l === lv ? ' cur' : ''}`)}</button>`).join('')}</div></div>
+    <div class="levels"><span>切换档位</span>${EF.map(([key, t], i) => `<button class="${i + 1 === lv ? 'on' : ''}" data-lv="${i + 1}">${t}</button>`).join('')}<span class="note">也可以在模型按钮上滚动</span></div></div>`).join('');
+  requestAnimationFrame(drawRings);
+}
+function setTheme(t) { document.documentElement.dataset.theme = t; document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t)); }
+setTheme(matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+render();
+document.addEventListener('click', e => { const t = e.target.closest('[data-t]'); if (t) return setTheme(t.dataset.t); const b = e.target.closest('[data-lv]'); if (b) { lv = +b.dataset.lv; render(); } });
+let wheelAcc = 0;
+document.addEventListener('wheel', e => { if (!e.target.closest('[data-wheel]')) return; e.preventDefault(); wheelAcc += e.deltaY; if (Math.abs(wheelAcc) < 40) return; lv = Math.max(1, Math.min(4, lv + (wheelAcc < 0 ? 1 : -1))); wheelAcc = 0; render(); }, { passive: false });
+</script>
+</body>
+</html>
