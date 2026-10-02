@@ -42,7 +42,7 @@ apps/desktop/   # Electron 外壳：启动宿主，加载 ui
 
 - 宿主是独立的 Node 进程。桌面端由 Electron 启动宿主，宿主也可以脱离 Electron 单独运行。
 - 每个会话对应一个 pi 子进程（RPC 模式），理由见 [ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)。多个会话可以并行运行。
-- 会话可以跑在独立的 git worktree 里：由宿主创建和清理，pi 子进程以 worktree 为工作目录。
+- 会话属于工作区：工作区是本地项目目录或一个 git worktree，与目录一一对应；pi 子进程以工作区目录为工作目录。worktree 由宿主创建和清理。不绑定工作区的"对话"各有一个独立的空目录（`~/.atrium/chats/<id>/`）作为工作目录。
 - pi 崩溃不影响宿主和 UI，适配器负责重启和报错。
 
 ## 网络与鉴权
@@ -54,7 +54,7 @@ apps/desktop/   # Electron 外壳：启动宿主，加载 ui
 ## 数据归属
 
 - **对话历史归 pi**：存在 pi 自己的会话文件里。
-- **Atrium 只存索引**：会话列表、标题、对应的 pi session id 等元数据，不复制 transcript。
+- **Atrium 只存索引**：项目、工作区、打开着的标签页、会话归档状态等元数据，不复制 transcript。
 - **插件状态跟随会话分支**：见 [插件模型](plugin-model.md)。
 
 ## 边界
