@@ -1112,14 +1112,14 @@ function submit(steer) {
   const c = cur();
   const image = c.attachments[0]; c.attachments = []; input.value = ''; autosize();
   if (!(running && running.sid === selected)) {
-    if (running) { toast('MVP 1 同一时间只跑一个会话：先停止正在运行的会话'); return; }
+    if (running) { toast('原型只模拟一个运行中的会话；真实产品里可以同时运行'); return; }
     run(selected, text || '（图片）', image); return;
   }
   if (steer) { c.pendingSteers.push(text); toast('插话：将在 agent 下一步之前送达'); } else c.queue.push({ id: 'q' + seq++, text });
   render();
 }
 // 离开正在运行的会话：MVP 1 同一时间只跑一个会话，需要确认后中断
-const leaveRunning = () => !(running && running.sid === selected) || (confirm('当前会话正在运行。离开会中断它（MVP 1 同一时间只跑一个会话），继续吗？') && (stopRunning(), true));
+const leaveRunning = () => true;   // 会话可以在后台运行：切走不中断
 function swapIn() {
   opened.clear(); quiet = true; render(); quiet = false;
   const stream = document.getElementById('stream'); stream.scrollTop = stream.scrollHeight;
@@ -1145,7 +1145,6 @@ function selectWs(wsId) {
 }
 function closeTab(id) {
   const { w } = findRow(id);
-  if (running && running.sid === id && !(confirm('这个会话正在运行，关闭标签页会中断它，继续吗？') && (stopRunning(), true))) return;
   const go = () => { const i = w.tabs.indexOf(id); w.tabs.splice(i, 1);
     if (selected === id) { selected = w.tabs[i] ?? w.tabs[i - 1] ?? null; w.active = selected; swapIn(); } else { renderHeader(); renderState(); } };
   const el = document.getElementById('tab-' + id);
