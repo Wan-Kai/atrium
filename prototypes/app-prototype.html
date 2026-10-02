@@ -185,6 +185,8 @@ svg { flex: none; display: block; }
 .filter { --press: .95; display: inline-flex; align-items: center; gap: 6px; margin: 2px 0 4px 36px; height: 24px; padding: 0 10px; border: 0; border-radius: var(--r-pill); background: var(--linked); color: var(--accent); font-size: var(--fs-sm); }
 .link-row { margin-left: 28px; padding: 4px 8px; border-radius: var(--r); color: var(--dim); font-size: var(--fs-meta); }
 .link-row.press:hover { background: var(--hover); color: var(--text-2); }
+.link-row.flat { margin-left: 0; }
+.sub-sec { padding: 8px 8px 2px; color: var(--dim); font-size: var(--fs-sm); }
 
 .badge, .pend { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; flex: none; font-size: var(--fs-sm); color: var(--muted); }   /* 纯文字，不加底框 */
 .pend::before, .b-dirty::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--attn); flex: none; }   /* 颜色只落在小圆点上 */
@@ -198,7 +200,7 @@ svg { flex: none; display: block; }
 .pill.sm { height: 20px; padding: 0 8px; font-size: var(--fs-xs); }
 
 /* 工作区行（项目下缩进；一律用分支图标，本地 / 外部只在悬停提示里说明） */
-.row.ws { padding-left: 26px; }
+.row.ws { padding-left: 36px; }                               /* 不放图标，名称缩进到项目名下面 */
 .row.ws .badges { display: flex; gap: 10px; }
 .row.ws .acts { display: none; gap: 4px; }
 .row.ws:hover .acts { display: flex; }
@@ -411,7 +413,7 @@ svg { flex: none; display: block; }
 <div class="backdrop"></div>
 <aside class="sidebar">
   <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><span class="sp"></span><button class="ibtn press" id="sideToggle" title="收起侧栏"></button></div>
-  <button class="new-btn press" id="newBtn" title="新建会话（⌘N）"></button>
+  <button class="new-btn press" id="newBtn" title="新建对话（⌘N）：不绑定项目和工作区"></button>
   <div class="side-scroll" id="side"></div>
   <div class="side-footer">
     <button class="row press" style="flex:1;border:0;background:none;font:inherit" id="settingsBtn"></button>
@@ -583,17 +585,22 @@ function initialProjects() {
     { id: 'atrium', name: 'atrium', open: true, workspaces: [
       WS('atrium/main', 'local', 'main', [S_('s1', '设计侧栏交互', '刚刚', 0, 'idle'), S_('s2', '重构宿主进程管理', '12 分钟前', 12, 'approval'), S_('s3', '调研 pi RPC', '昨天', 1400, 'idle'),
         S_('s4', '起草 SPEC-0001', '2 天前', 2900, 'idle'), S_('s5', '整理 ADR 目录', '4 天前', 5800, 'idle'), S_('s6', 'README 定位', '5 天前', 7200, 'idle')], { tabs: ['s1', 's2', 's3'] }),
-      WS('atrium/feat-sidebar', 'worktree', 'feat/sidebar', [S_('s7', '实现侧栏组件', '5 分钟前', 5, 'answer'), S_('s8', '补侧栏测试', '1 小时前', 60, 'error')], { ahead: 3, dirty: true }),
-      WS('atrium/fix-reconnect', 'worktree', 'fix/reconnect', [], { ahead: 1, external: 'Codex · ~/.codex/worktrees/a1f3/atrium', lastAgo: 4300 }),
-      WS('atrium/fix-typo', 'worktree', 'fix/typo', [S_('s9', '修正文档错别字', '3 天前', 4400, 'idle')], { merged: true }),
-      WS('atrium/spike-sdk', 'worktree', 'spike/sdk-embed', [S_('s10', '试试 SDK 嵌入', '6 天前', 8700, 'idle')], { ahead: 2, removed: true }),
+      WS('atrium/feat-sidebar', 'worktree', 'feat/sidebar', [S_('s7', '实现侧栏组件', '5 分钟前', 5, 'answer'), S_('s8', '补侧栏测试', '1 小时前', 60, 'error')], { ahead: 3, dirty: true, created: 3 }),
+      WS('atrium/fix-reconnect', 'worktree', 'fix/reconnect', [], { ahead: 1, external: 'Codex · ~/.codex/worktrees/a1f3/atrium', created: 2 }),
+      WS('atrium/fix-scroll', 'worktree', 'fix/scroll-jump', [], { created: 4 }),
+      WS('atrium/fix-typo', 'worktree', 'fix/typo', [S_('s9', '修正文档错别字', '3 天前', 4400, 'idle')], { merged: true, created: 1 }),
+      WS('atrium/spike-sdk', 'worktree', 'spike/sdk-embed', [S_('s10', '试试 SDK 嵌入', '6 天前', 8700, 'idle')], { ahead: 2, removed: true, created: 0 }),
     ] },
     { id: 'blog', name: 'my-blog', open: true, workspaces: [
       WS('blog/main', 'local', 'main', [S_('s11', '写一篇 pi 的文章', '20 分钟前', 20, 'auth'), S_('s12', '换评论系统', '上周', 11000, 'idle')]),
-      WS('blog/dark-mode', 'worktree', 'feat/dark-mode', [S_('s13', '暗色模式', '40 分钟前', 40, 'unread')], { ahead: 2 }),
+      WS('blog/dark-mode', 'worktree', 'feat/dark-mode', [S_('s13', '暗色模式', '40 分钟前', 40, 'unread'), S_('s16', '升级 Astro 5', '2 小时前', 120, 'answer')], { ahead: 2, created: 1 }),
     ] },
     { id: 'dot', name: 'dotfiles', open: false, workspaces: [
-      WS('dot/main', 'local', 'main', [S_('s14', '整理 zsh 配置', '上周', 12000, 'idle'), S_('s15', '迁移到 ghostty', '2 周前', 20000, 'idle')]),
+      WS('dot/main', 'local', 'main', [S_('s14', '整理 zsh 配置', '上周', 12000, 'idle'), S_('s15', '迁移到 ghostty', '2 周前', 20000, 'idle'), S_('s17', '同步 ssh 配置', '3 小时前', 180, 'error')]),
+    ] },
+    // 不绑定项目和工作区的对话（⌘N）：每个对话一个空目录，宿主按目录认出它们
+    { id: 'chats', name: '对话', chat: true, open: true, workspaces: [
+      WS('chats', 'chat', '对话', [S_('c1', '解释 git merge-tree 的原理', '30 分钟前', 30, 'idle'), S_('c2', '写一封请假邮件', '昨天', 1500, 'idle'), S_('c3', 'SF Pro 和苹方混排', '3 天前', 4300, 'idle')], { tabs: ['c1'] }),
     ] },
   ];
 }
@@ -611,7 +618,7 @@ const WAITING = ['approval', 'answer', 'auth', 'error'];
 const statusIcon = st => { const s = STATUS[st]; return `<span class="st ${s.cls}" title="${esc(s.label + (s.desc ? '：' + s.desc : ''))}">${s.icon ? ph(s.icon, 15) : ''}</span>`; };
 
 // ══ 7. 全局状态 ═════════════════════════════════════════════════════════════
-let P, convs, selWs, selected, running, query, searchOpen, mode, visible, seq, model;
+let P, convs, selWs, selected, running, query, searchOpen, mode, visible, seq, model, inboxAll = false;
 function resetAll() {
   P = initialProjects(); convs = {}; selWs = 'atrium/main'; selected = 's1'; running = null; query = ''; searchOpen = false;
   mode = 'summary'; visible = ['perf', 'tokens', 'ctx']; seq = 100; model = { id: 'gpt-6-sol', effort: 'medium' };
@@ -627,57 +634,76 @@ const findRow = id => allRows().find(x => x.s.id === id);
 function findWs(id) { for (const p of P) for (const w of p.workspaces) if (w.id === id) return { p, w }; }
 const curWs = () => findWs(selWs);
 const isPending = w => w.kind === 'worktree' && !w.removed && !w.merged && (w.ahead > 0 || w.dirty);
-const isDone = w => w.kind === 'worktree' && !isPending(w);
-const wsAgo = w => w.sessions.length ? Math.min(...w.sessions.map(s => s.ago)) : (w.lastAgo ?? 99999);
-function sortedWs(p) {   // 本地工作区在最前；未合并的按最近活动排；已收尾的变淡、排最后
-  const by = (a, b) => wsAgo(a) - wsAgo(b), ws = p.workspaces;
-  return ws.filter(w => w.kind === 'local').concat(ws.filter(isPending).sort(by), ws.filter(isDone).sort(by));
+const isDone = w => w.kind === 'worktree' && (w.merged || w.removed);   // 既不待合并也没收尾的，是"无改动"：刚建好、还没提交也没改文件
+const wsName = w => w.alias || w.name;   // 默认是分支名，改过名用自定义名称
+function sortedWs(p) {   // 本地工作区在最前；其余按创建时间倒序，位置稳定；已收尾的变淡、排最后
+  const by = (a, b) => (b.created ?? 0) - (a.created ?? 0), ws = p.workspaces;
+  return ws.filter(w => w.kind === 'local').concat(ws.filter(w => w.kind === 'worktree' && !isDone(w)).sort(by), ws.filter(isDone).sort(by));
 }
 const topStatus = list => list.reduce((best, s) => STATUS[s.status].rank < STATUS[best].rank ? s.status : best, 'idle');
-const matches = s => !query || s.title.toLowerCase().includes(query.toLowerCase());
-const wsMatches = w => !query || w.name.toLowerCase().includes(query.toLowerCase()) || w.sessions.some(matches);
 function mergeBadges(w) {
   if (w.kind === 'local') return '';
   if (w.removed) return '<span class="badge b-gray" title="worktree 目录已不存在">已移除</span>';
-  if (w.merged || !(w.ahead > 0 || w.dirty)) return `<span class="badge b-ok" title="改动已全部进入主干（含 squash / rebase 合并）">${ph('check', 10)}已合并</span>`;
+  if (w.merged) return `<span class="badge b-ok" title="改动已全部进入主干（含 squash / rebase 合并）">${ph('check', 10)}已合并</span>`;
+  if (!isPending(w)) return '';
   const parts = [];
   if (w.ahead > 0) parts.push(`<span class="badge b-ahead tnum" title="未合并：比 origin/main 多 ${w.ahead} 个提交">↑${w.ahead}</span>`);
   if (w.dirty) parts.push('<span class="badge b-dirty" title="worktree 里有未提交的改动">未提交</span>');
   return parts.join('');
 }
-const wsIcon = (w, s = 14) => ph('branch', s);
-function inboxRow({ s, p, w }) {
-  return `<div class="row two press${s.id === selected ? ' selected' : ''}" id="ib-${s.id}" data-flip data-enter="up" data-action="select" data-id="${s.id}">
-    <div style="flex:1;min-width:0"><div class="title">${esc(s.title)}</div><div class="sub">${esc(p.name)} · <span style="display:inline-flex">${wsIcon(w, 11)}</span>${esc(w.name)}</div></div>
-    <span class="end"><span class="time">${esc(s.time)}</span>${statusIcon(s.status)}</span></div>`;
+// 两行的会话行：收件箱和搜索结果共用；第二行是"项目 · 工作区"，不绑定工作区的对话写"对话"
+function sessRow({ s, p, w }, pre = 'ib') {
+  return `<div class="row two press${s.id === selected ? ' selected' : ''}" id="${pre}-${s.id}" data-flip data-enter="up" data-action="select" data-id="${s.id}">
+    <div style="flex:1;min-width:0"><div class="title">${esc(s.title)}</div><div class="sub">${p.chat ? '对话' : `${esc(p.name)} · ${esc(wsName(w))}`}</div></div>
+    <span class="end"><span class="time">${esc(s.time)}</span>${s.status === 'idle' ? '' : statusIcon(s.status)}</span></div>`;
 }
+const wsTip = w => (w.alias ? `分支 ${w.name}；` : '') + (w.kind === 'local' ? '本地工作区（项目目录）' : w.external ? '外部 worktree，不是 Atrium 创建的：' + w.external : 'worktree');
 function wsRow(p, w) {
   const acts = isDone(w) && !w.removed ? '<button class="pill sm" disabled title="阶段 1 第 3 步">清理</button>' : isPending(w) ? '<button class="pill sm" disabled title="阶段 1 第 3 步">查看改动</button><button class="pill sm" disabled title="阶段 1 第 3 步">合并</button>' : '';
-  return `<div class="row ws press${w.id === selWs ? ' selected' : ''}${isDone(w) ? ' done' : ''}" id="w-${safe(w.id)}" data-flip data-enter="up" data-action="select-ws" data-ws="${w.id}" title="${esc(w.kind === 'local' ? '本地工作区（项目目录）' : w.external ? '外部 worktree，不是 Atrium 创建的：' + w.external : 'worktree')}">
-    <span class="icon">${wsIcon(w)}</span><span class="title${w.kind === 'worktree' ? ' branch' : ''}">${esc(w.name)}</span>
+  return `<div class="row ws press${w.id === selWs ? ' selected' : ''}${isDone(w) ? ' done' : ''}" id="w-${safe(w.id)}" data-flip data-enter="up" data-action="select-ws" data-ws="${w.id}" title="${esc(wsTip(w))}">
+    <span class="title${w.kind === 'worktree' ? ' branch' : ''}">${esc(wsName(w))}</span>
     <span class="badges">${mergeBadges(w)}</span><span class="acts">${acts}</span>
     <button class="ibtn sm more press" data-action="ws-menu" data-ws="${w.id}" title="更多">${ph('more', 14)}</button>${topStatus(w.sessions) === 'idle' ? '' : statusIcon(topStatus(w.sessions))}</div>`;
 }
 function renderSidebar() {
   const rows = allRows();
-  const inbox = rows.filter(x => WAITING.includes(x.s.status) && matches(x.s)).sort((a, b) => STATUS[a.s.status].rank - STATUS[b.s.status].rank || a.s.ago - b.s.ago);
+  const inbox = rows.filter(x => WAITING.includes(x.s.status) && !(x.s.status === 'error' && x.s.ack))
+    .sort((a, b) => STATUS[a.s.status].rank - STATUS[b.s.status].rank || a.s.ago - b.s.ago);
   let h = '';
-  if (inbox.length) h += `<div class="sec" id="sec-inbox"><span class="lbl">等你处理</span><span class="count tnum">${inbox.length}</span></div>` + inbox.map(inboxRow).join('');
+  if (inbox.length) {
+    h += `<div class="sec" id="sec-inbox"><span class="lbl">等你处理</span><span class="count tnum">${inbox.length}</span></div>` + (inboxAll ? inbox : inbox.slice(0, 5)).map(x => sessRow(x)).join('');
+    if (inbox.length > 5) h += `<div class="link-row flat press" id="ib-more" data-action="inbox-more">${inboxAll ? '收起' : `还有 ${inbox.length - 5} 条`}</div>`;
+  }
   h += `<div class="sec" id="sec-proj"><span class="lbl">项目</span>
-    <button class="ibtn press" data-action="search" title="筛选工作区和会话">${ph('search', 15)}</button>
+    <button class="ibtn press" data-action="search" title="搜索工作区和会话">${ph('search', 15)}</button>
     <button class="ibtn press" data-action="add-project" title="添加项目">${ph('folderPlus', 17)}</button></div>`;
-  if (searchOpen) h += `<div class="search" id="searchBox" data-enter="expand">${ph('search', 13)}<input id="q" placeholder="筛选工作区和会话" value="${esc(query)}" autocomplete="off"></div>`;
-  for (const p of P) {
-    const ws = sortedWs(p).filter(wsMatches);
-    if (query && !ws.length) continue;
-    const n = p.workspaces.filter(isPending).length;
-    const all = p.workspaces.flatMap(w => w.sessions);
-    h += `<div class="row project press" id="p-${p.id}" data-action="toggle" data-pid="${p.id}">
-      <span class="icon${p.open ? ' open' : ''}">${ph(p.open ? 'folderOpen' : 'folder', 15)}</span><span class="title">${esc(p.name)}</span>
-      <button class="ibtn sm add press" data-action="new-ws" data-pid="${p.id}" title="新建工作区">${ph('plus', 13)}</button>
-      ${n ? `<span class="pend tnum" title="有未提交或未合并改动的 worktree">${n} 待合并</span>` : ''}${p.open ? '' : statusIcon(topStatus(all))}</div>`;
-    if (!p.open && !query) continue;
-    h += `<div id="pb-${p.id}" data-enter="expand">${ws.map(w => wsRow(p, w)).join('')}</div>`;
+  if (searchOpen) h += `<div class="search" id="searchBox" data-enter="expand">${ph('search', 13)}<input id="q" placeholder="搜索工作区和会话" value="${esc(query)}" autocomplete="off"></div>`;
+  if (query) {   // 搜索：搜索框和它上面的东西都不动，结果全部列在搜索框下面
+    const q = query.toLowerCase();
+    const wsHits = P.filter(p => !p.chat).flatMap(p => p.workspaces.filter(w => wsName(w).toLowerCase().includes(q)).map(w => ({ p, w })));
+    const sHits = rows.filter(x => x.s.title.toLowerCase().includes(q)).sort((a, b) => a.s.ago - b.s.ago);
+    if (wsHits.length) h += '<div class="sub-sec" id="sr-ws">工作区</div>' + wsHits.map(({ p, w }) => `<div class="row two press${w.id === selWs ? ' selected' : ''}" id="sw-${safe(w.id)}" data-flip data-enter="up" data-action="select-ws" data-ws="${w.id}">
+      <div style="flex:1;min-width:0"><div class="title">${esc(wsName(w))}</div><div class="sub">${esc(p.name)}</div></div><span class="end">${mergeBadges(w)}</span></div>`).join('');
+    if (sHits.length) h += '<div class="sub-sec" id="sr-s">会话</div>' + sHits.map(x => sessRow(x, 'sr')).join('');
+    if (!wsHits.length && !sHits.length) h += '<div class="link-row flat" id="sr-none">没有匹配的工作区或会话</div>';
+  } else {
+    for (const p of P.filter(p => !p.chat)) {
+      const ws = sortedWs(p);
+      const n = p.workspaces.filter(isPending).length;
+      const all = p.workspaces.flatMap(w => w.sessions);
+      const hasSel = !p.open && p.workspaces.some(w => w.id === selWs);   // 收起的项目里有当前工作区：项目行带选中底色
+      h += `<div class="row project press${hasSel ? ' selected' : ''}" id="p-${p.id}" data-action="toggle" data-pid="${p.id}">
+        <span class="icon${p.open ? ' open' : ''}">${ph(p.open ? 'folderOpen' : 'folder', 15)}</span><span class="title">${esc(p.name)}</span>
+        <button class="ibtn sm add press" data-action="new-ws" data-pid="${p.id}" title="新建工作区">${ph('plus', 13)}</button>
+        ${n && !p.open ? `<span class="pend tnum" title="有未提交或未合并改动的 worktree">${n} 待合并</span>` : ''}${p.open ? '' : statusIcon(topStatus(all))}</div>`;
+      if (!p.open) continue;
+      h += `<div id="pb-${p.id}" data-enter="expand">${ws.map(w => wsRow(p, w)).join('')}</div>`;
+    }
+    const cw = P.find(p => p.chat).workspaces[0];
+    const chats = [...cw.sessions].sort((a, b) => a.ago - b.ago);
+    h += `<div class="sec" id="sec-chat"><span class="lbl">对话</span></div>` + chats.slice(0, 5).map(s => `<div class="row press${s.id === selected ? ' selected' : ''}" id="ch-${s.id}" data-flip data-enter="up" data-action="select" data-id="${s.id}">
+      <span class="title">${esc(s.title)}</span><span class="time">${esc(s.time)}</span>${s.status === 'idle' ? '' : statusIcon(s.status)}</div>`).join('');
+    if (chats.length > 5) h += `<div class="link-row flat press" id="ch-more" data-action="chat-history">全部 ${chats.length} 个对话</div>`;
   }
   const side = document.getElementById('side');
   const before = firstPaint ? null : flipCapture(side);
@@ -696,9 +722,10 @@ const baseMetrics = () => ({ turns: 1, steps: 7, modelMs: 61000, ttftMs: 1400, l
 function conv(id) {
   if (convs[id]) return convs[id];
   const row = findRow(id);
-  const c = { stream: [], queue: [], queuePaused: false, pendingSteers: [], attachments: [], m: row && row.s.title === '新会话' ? zeroMetrics() : baseMetrics() };
+  const fresh = id.startsWith('n');   // newSession 建的会话：从零开始
+  const c = { stream: [], queue: [], queuePaused: false, pendingSteers: [], attachments: [], m: fresh ? zeroMetrics() : baseMetrics() };
   if (id === 's1') c.stream = richHistory();
-  else if (row && row.s.title !== '新会话') {
+  else if (row && !fresh) {
     const t = { type: 'turn', id: id + 't0', status: 'done', dur: 41, expanded: false, time: '昨天 18:02', tok: 3100, user: { text: row.s.title },
       steps: [{ kind: 'thinking', secs: 2, text: '先看看相关代码，确认现在的实现。' }, { kind: 'explore', items: [['read', 'src/index.ts'], ['grep', '"TODO" in src']] }],
       reply: `（原型数据）这是「${row.s.title}」的历史对话。` };
@@ -814,7 +841,7 @@ function renderHeader() {
   const tabs = w.tabs.map(id => { const r = findRow(id); if (!r) return ''; const st = r.s.status;
     return `<div class="tab press${id === selected ? ' on' : ''}" id="tab-${id}" data-enter="pop" data-action="tab" data-id="${id}" title="${esc(r.s.title)}">${st !== 'idle' ? statusIcon(st) : ''}<span class="t">${esc(r.s.title)}</span><button class="ibtn sm x" data-action="close-tab" data-id="${id}" title="关闭标签页（会话保留在历史里）">${ph('x', 11)}</button></div>`; }).join('');
   patch(document.getElementById('header'), `<div class="tabs" id="tabs">${tabs}</div>
-    <button class="ibtn press" data-action="new-tab" title="在本工作区新建会话（⌘N）">${ph('plus', 15)}</button>
+    <button class="ibtn press" data-action="new-tab" title="${w.kind === 'chat' ? '新建对话' : '在本工作区新建会话'}">${ph('plus', 15)}</button>
     <button class="chip press" id="histBtn" data-action="history" title="本工作区的全部会话">${ph('history', 14)}历史${ph('down', 10)}</button>
     <span class="sp"></span>
     <button class="chip press" id="modeBtn" title="显示模式（Ctrl+O 切换）">${ph('eye', 14)}${MODES.find(m => m[0] === mode)[1]}模式${ph('down', 10)}</button>
@@ -824,13 +851,14 @@ function renderStream() {
   const c = cur(); const { p, w } = curWs();
   const stream = document.getElementById('stream');
   const atBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 60;
-  const where = `${esc(p.name)} · ${w.kind === 'local' ? '本地工作区 main' : 'worktree ' + esc(w.name)}`;
+  const where = p.chat ? '' : `${esc(p.name)} · ${w.kind === 'local' ? '本地工作区 ' : 'worktree '}${esc(wsName(w))}`;
   const html = !selected
-    ? `<div class="empty" id="empty-ws" data-enter="up"><div class="big">${esc(w.name)}</div>${where}<br>在下面输入，开始这个工作区的新会话${w.sessions.length ? `；或从「历史」打开已有的 ${w.sessions.length} 个会话` : ''}</div>`
+    ? `<div class="empty" id="empty-ws" data-enter="up"><div class="big">${esc(wsName(w))}</div>${where}<br>在下面输入，开始这个工作区的新会话${w.sessions.length ? `；或从「历史」打开已有的 ${w.sessions.length} 个会话` : ''}</div>`
     : c.stream.length ? c.stream.map(x =>
       x.type === 'notice' ? `<div class="notice" id="nt-${x.id}" data-enter="pop"><span>${ph('squeeze', 13)}${esc(x.text)}</span></div>`
       : x.type === 'alert' ? `<div class="icard ${x.cls}" id="al-${x.id}" data-enter="up"><div class="tile">${ph(x.icon, 18)}</div><div class="body"><div class="ttl">${x.ttl}</div><div class="sub">${x.sub}</div></div>${x.btn ? `<button class="pill side-act press" data-c="${x.btn[0]}">${x.btn[1]}</button>` : ''}</div>`
       : renderTurn(x)).join('')
+    : p.chat ? `<div class="empty" id="empty" data-enter="up"><div class="big">新对话</div>不绑定项目和工作区，随便聊；要改代码时，到项目的工作区里开会话</div>`
     : `<div class="empty" id="empty" data-enter="up"><div class="big">新会话</div>在 ${where} 里开始，说说你想做的事</div>`;
   patch(document.getElementById('col'), html);
   renderQueue(c); renderComposer(c);
@@ -974,15 +1002,17 @@ function openThemePop(x, y) {
 }
 function openHistoryPop(x, y) {
   const { w } = curWs(); const list = [...w.sessions].sort((a, b) => a.ago - b.ago);
-  const p = openPop(`<div class="head">${esc(w.name)} · 全部会话 ${list.length}</div>` + (list.length ? list.map(s => `<button class="item press" data-open="${s.id}">${statusIcon(s.status)}<span class="grow">${esc(s.title)}</span>${w.tabs.includes(s.id) ? '<span class="k">已打开</span>' : `<span class="k">${esc(s.time)}</span>`}</button>`).join('') : '<div class="head">还没有会话</div>'),
+  const p = openPop(`<div class="head">${esc(wsName(w))} · 全部会话 ${list.length}</div>` + (list.length ? list.map(s => `<button class="item press" data-open="${s.id}">${statusIcon(s.status)}<span class="grow">${esc(s.title)}</span>${w.tabs.includes(s.id) ? '<span class="k">已打开</span>' : `<span class="k">${esc(s.time)}</span>`}</button>`).join('') : '<div class="head">还没有会话</div>'),
     x, y, 'top left', e => { const b = e.target.closest('[data-open]'); if (!b) return; closePops(); select(b.dataset.open); });
   p.classList.add('wide');
 }
 function openWsMenu(wsId, x, y) {
   const { w } = findWs(wsId);
-  openPop(`<div class="head">${esc(w.name)}</div><button class="item press" data-wm="finder">${ph('folderOpen', 14)}在访达中显示</button>`
+  openPop(`<div class="head">${esc(wsName(w))}</div><button class="item press" data-wm="rename">${ph('edit', 14)}重命名</button><button class="item press" data-wm="finder">${ph('folderOpen', 14)}在访达中显示</button>`
     + (w.kind === 'worktree' ? `<button class="item" disabled title="阶段 1 第 3 步">${ph('archive', 14)}归档工作区并清理 worktree</button>` : ''), x, y, 'top right',
-    e => { const b = e.target.closest('[data-wm]'); if (!b) return; closePops(); toast('原型：在访达中打开 ' + w.name); });
+    e => { const b = e.target.closest('[data-wm]'); if (!b) return; closePops();
+      if (b.dataset.wm === 'rename') { const t = prompt('工作区名称（只改 Atrium 里的显示，不改分支；留空恢复为分支名）', wsName(w)); if (t !== null) { w.alias = t.trim() || null; render(); } return; }
+      toast('原型：在访达中打开 ' + wsName(w)); });
 }
 function openNewWsMenu(pid, x, y) {
   const p = P.find(q => q.id === pid);
@@ -1007,12 +1037,12 @@ function renderState() {
   const c = cur(); const row = selected && findRow(selected); const { p, w } = curWs();
   document.getElementById('state').textContent =
 `外观：${THEMES.find(t => t[0] === themePref)[1]}（当前${resolved() === 'dark' ? '深色' : '浅色'}）
-工作区：${p.name} / ${w.name}（${w.kind === 'local' ? '本地' : 'worktree'}）　标签页：${w.tabs.length}　全部会话：${w.sessions.length}
+工作区：${p.name} / ${w.name}（${{ local: '本地', worktree: 'worktree', chat: '不绑定工作区的对话' }[w.kind]}）　标签页：${w.tabs.length}　全部会话：${w.sessions.length}
 会话：${row ? row.s.title + '（' + STATUS[row.s.status].label + '）' : '（未打开）'}　运行：${running ? '运行中' : '空闲'}
 显示模式：${MODES.find(m => m[0] === mode)[1]}　排队：${c.queue.length}　插话：${c.pendingSteers.length}
 状态栏：${visible.map(id => GROUPS.find(g => g.id === id).name).join('、')}`;
 }
-function setStatus(id, st, touch) { const row = findRow(id); if (!row) return; row.s.status = st; if (touch) { row.s.time = '刚刚'; row.s.ago = -(seq++); } }
+function setStatus(id, st, touch) { const row = findRow(id); if (!row) return; row.s.status = st; if (st !== 'error') row.s.ack = false; if (touch) { row.s.time = '刚刚'; row.s.ago = -(seq++); } }
 
 // ══ 15. 模拟一次运行 ════════════════════════════════════════════════════════
 async function run(sid, text, image) {
@@ -1102,6 +1132,7 @@ function select(id) {
   const w = row.w; if (!w.tabs.includes(id)) w.tabs.push(id);
   selWs = w.id; w.active = id; selected = id;
   if (row.s.status === 'unread') row.s.status = 'idle';
+  if (row.s.status === 'error') row.s.ack = true;
   swapIn();
 }
 function selectWs(wsId) {
@@ -1109,7 +1140,7 @@ function selectWs(wsId) {
   if (!leaveRunning()) return;
   const { w } = findWs(wsId); selWs = wsId;
   selected = w.active && w.tabs.includes(w.active) ? w.active : (w.tabs[0] ?? null);
-  const r = selected && findRow(selected); if (r && r.s.status === 'unread') r.s.status = 'idle';
+  const r = selected && findRow(selected); if (r && r.s.status === 'unread') r.s.status = 'idle'; if (r && r.s.status === 'error') r.s.ack = true;
   swapIn();
 }
 function closeTab(id) {
@@ -1122,7 +1153,7 @@ function closeTab(id) {
 }
 function newSession(w = curWs().w) {
   if (!leaveRunning()) return;
-  const s = S_('n' + seq++, '新会话', '刚刚', -(seq++), 'idle');
+  const s = S_('n' + seq++, w.kind === 'chat' ? '新对话' : '新会话', '刚刚', -(seq++), 'idle');
   w.sessions.unshift(s); w.tabs.push(s.id); selWs = w.id; w.active = s.id; selected = s.id; swapIn();
 }
 
@@ -1135,7 +1166,7 @@ document.getElementById('modelPick').onclick = e => { const r = e.currentTarget.
 document.getElementById('themeBtn').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); openThemePop(r.left - 10, r.top); };
 document.getElementById('statusbar').addEventListener('contextmenu', e => { e.preventDefault(); openMetricsPop(e.clientX - 150, e.clientY); });
 document.getElementById('protoBtn').onclick = () => { const p = document.getElementById('protoPanel'); p.hidden = !p.hidden; };
-document.getElementById('newBtn').onclick = () => newSession();
+document.getElementById('newBtn').onclick = () => newSession(P.find(p => p.chat).workspaces[0]);
 document.getElementById('sideToggle').onclick = () => toast('原型：收起侧栏');
 document.getElementById('settingsBtn').onclick = () => toast('原型：设置');
 document.getElementById('permChip').onclick = () => toast('MVP 1 没有审批，工具调用直接执行；MVP 2 加入审批模式');
@@ -1163,6 +1194,8 @@ document.addEventListener('click', e => {
     if (a === 'history') return openHistoryPop(r.left, r.bottom);
     if (a === 'search') { if (searchOpen) return collapseThen(document.getElementById('searchBox'), () => { searchOpen = false; query = ''; renderSidebar(); }); searchOpen = true; renderSidebar(); document.getElementById('q')?.focus(); return; }
     if (a === 'toggle') { if (p.open) return collapseThen(document.getElementById('pb-' + p.id), () => { p.open = false; renderSidebar(); }); p.open = true; }
+    if (a === 'inbox-more') { inboxAll = !inboxAll; renderSidebar(); return; }
+    if (a === 'chat-history') { selectWs('chats'); return openHistoryPop(r.left, r.bottom); }
     if (a === 'add-project') { toast('原型：这里会打开文件夹选择器'); return; }
     renderSidebar(); renderState(); return;
   }
@@ -1235,7 +1268,7 @@ document.addEventListener('keydown', e => {
 
 // 静态部分
 document.getElementById('sideToggle').innerHTML = ph('sidebar', 16);
-document.getElementById('newBtn').innerHTML = `${ph('plusCircle', 15)}新建会话`;
+document.getElementById('newBtn').innerHTML = `${ph('plusCircle', 15)}新建对话`;
 document.getElementById('permChip').innerHTML = `${ph('lightning', 14)}直接执行`;
 document.getElementById('settingsBtn').innerHTML = `<span class="icon">${ph('gearSix', 15)}</span><span class="title" style="text-align:left">设置</span>`;
 document.getElementById('attach').innerHTML = ph('plus', 15);
