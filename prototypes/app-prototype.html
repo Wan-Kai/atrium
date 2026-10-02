@@ -357,7 +357,7 @@ svg { flex: none; display: block; }
 .bottom { position: relative; flex: none; padding: 0 32px 2px; }
 .bottom::before { content: ''; position: absolute; left: 0; right: 14px; top: -64px; height: 64px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--main) 78%); }   /* 消息流在输入框上方淡出，胶囊条浮在淡出区上 */
 .composer-wrap { max-width: calc(var(--content-w) - 64px); margin: 0 auto; }
-.composer { position: relative; z-index: 2; padding: 10px 10px 8px; border-radius: var(--r-bubble); background: var(--surface-2); box-shadow: var(--composer-shadow); transition: box-shadow .25s ease; }
+.composer { position: relative; z-index: 2; padding: 14px 14px 12px; border-radius: var(--r-bubble); background: var(--surface-2); box-shadow: var(--composer-shadow); transition: box-shadow .25s ease; }
 [data-theme="light"] .composer { background: var(--surface-1); box-shadow: 0 0 0 .5px var(--line), 0 1px 2px rgba(0,0,0,.04), 0 14px 34px -16px rgba(30,40,90,.24); }
 .composer:focus-within { box-shadow: var(--composer-shadow), var(--focus); }
 [data-theme="light"] .composer:focus-within { box-shadow: 0 0 0 .5px var(--line-strong), 0 1px 2px rgba(0,0,0,.04), 0 16px 38px -16px rgba(30,40,90,.3), var(--focus); }
@@ -365,7 +365,7 @@ svg { flex: none; display: block; }
 .composer .dropmask { position: absolute; inset: 0; z-index: 3; display: none; align-items: center; justify-content: center; gap: 8px; border-radius: inherit; background: color-mix(in srgb, var(--accent) 9%, var(--surface-1)); box-shadow: inset 0 0 0 1.5px var(--accent); color: var(--accent); font-size: var(--fs-meta); pointer-events: none; }
 .composer.drop .dropmask { display: flex; }
 /* 展开输入框 */
-.composer .grow { position: absolute; top: 8px; right: 8px; z-index: 1; opacity: 0; transition: opacity .2s; }
+.composer .grow { position: absolute; top: 12px; right: 12px; z-index: 1; opacity: 0; transition: opacity .2s; }
 .composer:hover .grow, .composer:focus-within .grow, .composer.tall .grow { opacity: 1; }
 .atts { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 30px 0 2px; }
 .atts:not(:empty) { margin-bottom: 8px; }
@@ -378,7 +378,7 @@ svg { flex: none; display: block; }
 .composer textarea { display: block; width: 100%; min-height: 46px; max-height: 200px; padding: 4px 34px 4px 8px; border: 0; outline: none; resize: none; background: none; font-size: var(--fs); line-height: 1.55; transition: min-height .4s cubic-bezier(.2,.9,.25,1); }
 .composer.tall textarea { min-height: 40vh; max-height: 58vh; }
 .composer textarea::placeholder { color: var(--dim); }
-.crow { display: flex; align-items: center; gap: 4px; margin-top: 6px; }
+.crow { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
 .crow .sp { flex: 1; }
 .crow .hint { color: var(--dim); font-size: var(--fs-sm); margin-right: 6px; }
 .round { --press: .88; width: 30px; height: 30px; border: 0; border-radius: 50%; background: var(--hover); color: var(--text-3); display: inline-flex; align-items: center; justify-content: center; transition: background .15s, transform .25s cubic-bezier(.2,.9,.25,1.3); }
@@ -411,6 +411,35 @@ svg { flex: none; display: block; }
 .qitem:hover { background: var(--hover); }
 .qitem .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 .qitem input { flex: 1; height: 26px; border: 0; border-radius: var(--r-sm); padding: 0 8px; outline: none; background: var(--main); box-shadow: inset 0 0 0 1px var(--accent), var(--focus); }
+/* 模型选择：按钮 = 服务商图标 + 模型名 + 推理强度的小刻度；面板 = 模型列表 + 推理强度分段 */
+.mpick { --press: .96; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 6px; border: 0; border-radius: var(--r-pill); background: none; color: var(--text-2); font-size: var(--fs-meta); transition: background .15s; }
+.mpick:hover, .mpick.on { background: var(--hover); color: var(--text); }
+.mpick .logo { width: 20px; height: 20px; border-radius: 6px; overflow: hidden; flex: none; box-shadow: 0 0 0 .5px var(--line); }
+.mpick .logo img { width: 20px; height: 20px; display: block; }
+.mpick .nm { font-weight: 500; }
+.mpick .chev { display: inline-flex; color: var(--dim); }
+.lv { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.lv i { width: 3px; border-radius: 1px; background: var(--line-strong); transition: background .2s; }
+.lv i:nth-child(1) { height: 5px; } .lv i:nth-child(2) { height: 7px; } .lv i:nth-child(3) { height: 9px; } .lv i:nth-child(4) { height: 11px; }
+.lv i.f { background: var(--text-3); }
+.pop.mpanel { width: 340px; padding: 8px; }
+.mpanel .hd { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 6px; color: var(--dim); font-size: var(--fs-xs); }
+.mpanel .hd .prov { display: inline-flex; align-items: center; gap: 6px; }
+.mpanel .hd img { width: 14px; height: 14px; border-radius: 4px; }
+.mrow { --press: .99; display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-md); background: none; color: var(--text-2); text-align: left; }
+.mrow:hover { background: var(--hover); }
+.mrow.on { background: var(--selected); }
+.mrow .nm { flex: 1; min-width: 0; }
+.mrow .nm b { display: block; color: var(--text); font-weight: 500; font-size: var(--fs-meta); }
+.mrow .nm small { display: block; color: var(--dim); font-size: var(--fs-xs); margin-top: 1px; }
+.mrow .ctx { color: var(--dim); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
+.mrow .ck { width: 16px; color: var(--accent); display: inline-flex; }
+.seg4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px; margin: 2px 8px 0; padding: 3px; border-radius: var(--r-md); background: var(--hover); }
+.seg4 button { --press: .96; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: var(--fs-sm); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.seg4 button:hover { color: var(--text-2); }
+.seg4 button.on { background: var(--surface-1); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 .5px var(--line); }
+[data-theme="dark"] .seg4 button.on { background: var(--surface-3); }
+.mpanel .ehint { padding: 8px 10px 4px; color: var(--dim); font-size: var(--fs-xs); }
 /* @ 引用与 / 命令的候选列表 */
 .mention { position: absolute; left: 8px; bottom: calc(100% + 8px); z-index: 5; width: 380px; padding: 6px; border-radius: var(--r-btn); background: var(--surface-1); box-shadow: var(--float-shadow); font-size: var(--fs-meta); }
 [data-theme="dark"] .mention { background: var(--surface-2); }
@@ -523,10 +552,9 @@ svg { flex: none; display: block; }
         <textarea id="input" rows="1" placeholder="发消息或描述任务，@ 引用文件，/ 使用命令"></textarea>
         <div class="crow">
           <button class="round press" id="attach" title="添加：图片、引用文件、命令"></button>
-          <button class="chip press" id="permChip" title="MVP 1 没有审批：工具调用直接执行（MVP 2 加入审批模式）"></button>
           <span class="sp"></span>
           <span class="hint" id="comphint"></span>
-          <button class="chip press" id="modelPick" title="模型与推理强度"></button>
+          <button class="mpick press" id="modelPick" title="模型与推理强度（⌘⇧I / ⌘⇧E）"></button>
           <button class="send press is-empty" id="send" title="发送"></button>
         </div>
       </div>
@@ -1040,7 +1068,8 @@ function renderComposer(c) {
   send.classList.toggle('is-empty', !isRunning && !document.getElementById('input').value.trim() && !c.attachments.length);
   send.title = isRunning ? '停止' : '发送';
   document.getElementById('comphint').textContent = isRunning ? '回车排队 · ⌘回车插话' : '';
-  document.getElementById('modelPick').innerHTML = `${esc(model.id)} <span class="dim">${esc(model.effort)}</span>${ph('down', 10)}`;
+  const lvl = EFFORTS.findIndex(x => x[0] === model.effort);
+  document.getElementById('modelPick').innerHTML = `<span class="logo"><img src="${MODELS.find(x => x.id === model.id).logo}" alt=""></span><span class="nm">${esc(model.id)}</span><span class="lv" title="推理强度：${EFFORTS[lvl][1]}">${[0, 1, 2, 3].map(k => `<i class="${k <= lvl ? 'f' : ''}"></i>`).join('')}</span><span class="chev">${ph('down', 10)}</span>`;
   patch(document.getElementById('attachments'), c.attachments.map((a, i) => attChip(a, `att-${i}-${safe(normAtt(a).name)}`, true, i)).join(''));
 }
 
@@ -1161,11 +1190,30 @@ function openStatusCustomizer() {
   btn.classList.add('on');
   const obs = new MutationObserver(() => { if (!p.isConnected || p.dataset.closing) { document.getElementById('sbCfg')?.classList.remove('on'); obs.disconnect(); } }); obs.observe(document.body, { childList: true, subtree: true, attributes: true });
 }
+// 已登录服务商下可用的模型（来自 pi 的 get_available_models）；推理强度按模型支持的档位（get_available_thinking_levels）
+const MODELS = [
+  { id: 'gpt-6-sol', desc: '旗舰，适合复杂任务和大改动', ctx: '400K', prov: 'ChatGPT 订阅', logo: 'brand/openai.svg' },
+  { id: 'gpt-6-astra', desc: '更快，适合小改动和问答', ctx: '400K', prov: 'ChatGPT 订阅', logo: 'brand/openai.svg' },
+];
+const EFFORTS = [['low', '低', '最快，适合简单、明确的小改动'], ['medium', '中', '默认，兼顾速度和质量'], ['high', '高', '想得更久，适合难排查的问题'], ['xhigh', '极高', '最慢最贵，留给最难的任务']];
 function openModelPop(x, y, only) {
-  const models = '<div class="head">模型<span class="k" style="float:right">⌘⇧I</span></div>' + ['gpt-6-sol', 'gpt-6-astra'].map(m => `<button class="item press" data-model="${m}">${tick(m === model.id)}openai-codex / ${m}</button>`).join('');
-  const efforts = '<div class="head">推理强度<span class="k" style="float:right">⌘⇧E</span></div>' + ['low', 'medium', 'high', 'xhigh'].map(e => `<button class="item press" data-effort="${e}">${tick(e === model.effort)}${e}</button>`).join('');
-  openPop(only === 'model' ? models : only === 'effort' ? efforts : models + '<div class="sepr"></div>' + efforts,
-    x, y, 'bottom left', e => { const b = e.target.closest('[data-model],[data-effort]'); if (!b) return; if (b.dataset.model) model.id = b.dataset.model; else model.effort = b.dataset.effort; closePops(); renderComposer(cur()); });
+  const btn = document.getElementById('modelPick'), r = btn.getBoundingClientRect();
+  const body = () => {
+    const ms = `<div class="hd"><span class="prov"><img src="brand/openai.svg" alt="">ChatGPT 订阅</span><span>⌘⇧I</span></div>`
+      + MODELS.map(m => `<button class="mrow press${m.id === model.id ? ' on' : ''}" data-model="${m.id}"><span class="nm"><b>${m.id}</b><small>${m.desc}</small></span><span class="ctx">${m.ctx}</span><span class="ck">${m.id === model.id ? ph('check', 13) : ''}</span></button>`).join('');
+    const ef = EFFORTS.find(e => e[0] === model.effort);
+    const es = `<div class="hd" style="margin-top:6px"><span>推理强度</span><span>⌘⇧E</span></div><div class="seg4">${EFFORTS.map(([k, l], i) => `<button class="press${k === model.effort ? ' on' : ''}" data-effort="${k}"><span class="lv">${[0, 1, 2, 3].map(j => `<i class="${j <= i ? 'f' : ''}"></i>`).join('')}</span>${l}</button>`).join('')}</div><div class="ehint">${ef[2]}</div>`;
+    return only === 'model' ? ms : only === 'effort' ? es : ms + '<div class="sepr" style="margin:8px 6px 2px"></div>' + es;
+  };
+  const p = openPop(body(), r.right - 340, r.top, 'bottom right', e => {
+    const b = e.target.closest('[data-model],[data-effort]'); if (!b) return;
+    e.stopPropagation();
+    if (b.dataset.model) { model.id = b.dataset.model; closePops(); } else { model.effort = b.dataset.effort; p.innerHTML = body(); }
+    renderComposer(cur());
+  });
+  p.classList.add('mpanel'); p.style.left = Math.max(8, Math.min(r.right - p.offsetWidth, innerWidth - p.offsetWidth - 8)) + 'px'; p.style.top = (r.top - p.offsetHeight - 8) + 'px';
+  btn.classList.add('on');
+  const obs = new MutationObserver(() => { if (!p.isConnected || p.dataset.closing) { btn.classList.remove('on'); obs.disconnect(); } }); obs.observe(document.body, { childList: true, subtree: true, attributes: true });
 }
 function openModePop(x, y) {
   openPop('<div class="head">显示模式</div>' + MODES.map(([k, l, d]) => `<button class="item press" data-mode="${k}">${tick(k === mode)}<span>${l}<br><span class="muted">${d}</span></span></button>`).join('') + '<div class="sepr"></div><div class="head">Ctrl+O 循环切换</div>',
@@ -1415,7 +1463,6 @@ document.getElementById('protoBtn').onclick = () => { const p = document.getElem
 document.getElementById('newBtn').onclick = () => newSession(P.find(p => p.chat).workspaces[0]);
 document.getElementById('sideToggle').onclick = () => toast('原型：收起侧栏');
 document.getElementById('settingsBtn').onclick = () => toast('原型：设置');
-document.getElementById('permChip').onclick = () => toast('MVP 1 没有审批，工具调用直接执行；MVP 2 加入审批模式');
 document.addEventListener('input', e => { if (e.target.id === 'q') { query = e.target.value.trim(); renderSidebar(); } });
 
 document.addEventListener('click', e => {
@@ -1524,7 +1571,6 @@ document.addEventListener('keydown', e => {
 // 静态部分
 document.getElementById('sideToggle').innerHTML = ph('sidebar', 16);
 document.getElementById('newBtn').innerHTML = `${ph('plusCircle', 15)}新建对话`;
-document.getElementById('permChip').innerHTML = `${ph('lightning', 14)}直接执行`;
 document.getElementById('settingsBtn').innerHTML = `<span class="icon">${ph('gearSix', 15)}</span><span class="title" style="text-align:left">设置</span>`;
 document.getElementById('attach').innerHTML = ph('plus', 15);
 document.getElementById('dropmask').innerHTML = `${ph('image', 16)}松开即可添加：图片作为附件，其他文件作为引用`;
