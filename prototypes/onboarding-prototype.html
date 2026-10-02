@@ -152,7 +152,18 @@ body.ctaD .cta::before { content: ''; position: absolute; inset: -60% -20%; z-in
 body.ctaD .cta:hover::before { opacity: .8; }
 [data-theme="dark"] body.ctaD .cta { box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 0 0 1px rgba(255,255,255,.12), 0 14px 34px -14px rgba(90,130,255,.55); }
 @keyframes cta-flow { to { transform: translateX(14%) rotate(8deg); } }
-@media (prefers-reduced-motion: reduce) { body.ctaD .cta::before { animation: none; } }
+/* 点阵扫光：一道反差色（白）的点阵斜着从左扫到右；平时每 6 秒扫一次，悬停时立刻扫一次并把文字放大一点 */
+body.ctaD .cta::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
+  background-image: radial-gradient(circle, rgba(255,255,255,.95) 1.1px, transparent 1.6px); background-size: 6px 6px;
+  -webkit-mask-image: linear-gradient(112deg, transparent 32%, #000 44%, #000 56%, transparent 68%); mask-image: linear-gradient(112deg, transparent 32%, #000 44%, #000 56%, transparent 68%);
+  -webkit-mask-size: 250% 100%; mask-size: 250% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: 150% 0; mask-position: 150% 0;
+  opacity: .9; animation: dots-idle 6s cubic-bezier(.45,.05,.25,1) 1.2s infinite; }
+body.ctaD .cta:hover::after { opacity: 1; animation: dots-sweep .85s cubic-bezier(.3,.6,.2,1) forwards; }
+body.ctaD .cta .lbl { position: relative; z-index: 2; display: inline-flex; align-items: center; gap: 10px; text-shadow: 0 0 10px rgba(15,16,20,.8); transition: transform .45s cubic-bezier(.2,.9,.25,1.2); }   /* 文字压在点阵上面 */
+body.ctaD .cta:hover .lbl { transform: scale(1.05); }
+@keyframes dots-idle { 0% { -webkit-mask-position: 150% 0; mask-position: 150% 0; } 22%, 100% { -webkit-mask-position: -50% 0; mask-position: -50% 0; } }
+@keyframes dots-sweep { from { -webkit-mask-position: 150% 0; mask-position: 150% 0; } to { -webkit-mask-position: -50% 0; mask-position: -50% 0; } }
+@media (prefers-reduced-motion: reduce) { body.ctaD .cta::before, body.ctaD .cta::after { animation: none; } body.ctaD .cta::after { opacity: 0; } }
 .hero-cta .hint kbd { font: 600 11px var(--font); padding: 1px 6px; border-radius: 5px; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
 
 /* 产品预览：一扇微微后仰的玻璃窗，下缘淡出 */
@@ -313,7 +324,7 @@ body.vB[data-step="0"] .lead { margin-left: auto; }
 </div>
 <div class="proto" id="proto">
   <span class="tag">原型</span>
-  <button data-v="A">方案 A</button><button data-v="B">方案 B</button><span class="sep"></span><button data-cta="B">按钮 B</button><button data-cta="D">按钮 D</button><span class="sep"></span>
+  <button data-v="A">方案 A</button><button data-v="B">方案 B</button><span class="sep"></span>
   <button data-go="welcome">欢迎</button><button data-go="nopi">没装 pi</button><button data-go="fail">安装失败</button><button data-go="nonode">缺 Node</button><button data-go="oldpi">pi 太旧</button><button data-go="login">登录</button><button data-go="project">项目</button><span class="sep"></span>
   <button data-t="light">浅色</button><button data-t="dark">深色</button>
 </div>
@@ -370,7 +381,7 @@ const SCREENS = {
         <span class="go"><svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M204,64V168a12,12,0,0,1-24,0V93L72.49,200.49a12,12,0,0,1-17-17L163,76H88a12,12,0,0,1,0-24H192A12,12,0,0,1,204,64Z"/></svg></span></a>
       <h1 class="hero">看得见内部的<br>coding agent</h1>
       <p class="hero-sub">每一步读了什么、改了什么、花了多少 token，都摆在你眼前。<br>多个任务各占一个 worktree，并行推进。</p>
-      <div class="hero-cta"><div class="cta-wrap"><button class="cta" data-next="nopi">开始设置<span class="arr">→</span></button></div>
+      <div class="hero-cta"><div class="cta-wrap"><button class="cta" data-next="nopi"><span class="lbl">开始设置<span class="arr">→</span></span></button></div>
         <span class="hint">按 <kbd>⏎</kbd> 开始 · 大约 1 分钟，三步完成</span></div>
       <div class="stage3d">
         <span class="callout glass c1">${ic('eye', 16)}每一步都看得见</span>
@@ -477,7 +488,7 @@ function setTheme(t) { localStorage.setItem('atrium-proto-theme', t); document.d
 function setVariant(v) { document.body.classList.toggle('vB', v === 'B'); localStorage.setItem('atrium-proto-onb', v); document.querySelectorAll('[data-v]').forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
 setTheme(document.documentElement.dataset.theme);
 setVariant(localStorage.getItem('atrium-proto-onb') || 'A');
-setCta(localStorage.getItem('atrium-proto-cta') || 'B');
+setCta('D');   // 定稿：D 内光 + 点阵扫光
 render(true);
 
 document.addEventListener('click', e => {
