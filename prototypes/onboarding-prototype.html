@@ -158,7 +158,7 @@ h1.hero { font: 700 clamp(40px, 4.4vw, 60px)/1.12 var(--display); letter-spacing
 .term .tb { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 12px; border-bottom: .5px solid rgba(255,255,255,.06); }
 .term .tb i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.14); }
 .term .tb span { flex: 1; text-align: center; margin-right: 33px; font-size: 11.5px; color: var(--term-dim); }
-.term .body { height: 168px; padding: 14px 16px; font: 12px/1.75 var(--mono); display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }
+.term .body { max-height: 168px; padding: 14px 16px; font: 12px/1.75 var(--mono); display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; }   /* 高度随内容增长，最多约 7 行，超出时只露出最新的几行 */
 .term .body .p { color: var(--term-dim); }
 .term .body .ok { color: #4ade80; } .term .body .err { color: #f87171; }
 .term .body .cur::after { content: ''; display: inline-block; width: 7px; height: 14px; margin-left: 2px; vertical-align: -2px; background: var(--term-text); animation: blink 1s steps(1) infinite; }
@@ -348,7 +348,7 @@ const SCREENS = {
   }),
   nopi: () => ({
     eyebrow: '第 1 步 · 安装 pi', title: job?.state === 'fail' ? '没有装好' : job?.state === 'ok' ? 'pi 已就绪' : '先装好 pi',
-    lead: job?.state === 'fail' ? '多半是网络问题。可以重试，或者复制命令在终端里自己装。' : 'Atrium 用 pi 作为 agent 内核，这台电脑上还没有找到它。',
+    lead: job?.state === 'fail' ? '多半是网络问题。可以重试，或者复制命令在终端里自己装。' : job?.state === 'ok' ? '装好了，终端里也能直接用 pi。' : 'Atrium 用 pi 作为 agent 内核，这台电脑上还没有找到它。',
     html: `<div class="show">${termView('安装 pi', CMDS[cmdTab])}${manualRow(true)}</div>`,
     foot: footFor('pi', '安装 pi', '我已经装好了', true),
   }),
