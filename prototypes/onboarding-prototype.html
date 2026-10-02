@@ -175,18 +175,37 @@ h1.hero { font: 700 clamp(40px, 4.4vw, 60px)/1.12 var(--display); letter-spacing
 .need span { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 999px; background: var(--panel); box-shadow: inset 0 0 0 .5px var(--panel-edge); font-size: 12.5px; color: var(--text-3); }
 .need span.miss { color: var(--danger); }
 
-/* 登录：2×2 的订阅卡片 */
-.provs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.prov { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 16px; border-radius: 16px; text-align: left; background: var(--panel); box-shadow: inset 0 0 0 .5px var(--panel-edge); transition: transform .2s cubic-bezier(.2,.9,.25,1.2), box-shadow .2s, background .2s; }
-.prov:hover { background: var(--panel-2); box-shadow: inset 0 0 0 .5px var(--panel-edge), 0 10px 24px -14px rgba(0,0,0,.25); transform: translateY(-1px); }
-.prov:active { transform: scale(.98); }
-.prov .logo { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 14px; box-shadow: inset 0 0 0 .5px rgba(255,255,255,.2); }
-.prov b { display: block; font-weight: 600; font-size: 14px; }
-.prov small { display: block; color: var(--muted); font-size: 12.5px; }
-.prov .state { position: absolute; top: 16px; right: 16px; font-size: 12px; color: var(--dim); display: flex; align-items: center; gap: 6px; }
-.prov.busy { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft); }
-.prov.busy .state { color: var(--accent); }
-.prov.ok .state { color: var(--ok); }
+/* 登录：分段切换（订阅 / API Key）+ 一张分组列表，图标用各家官方的 */
+.seg { display: flex; width: fit-content; margin: -6px auto 18px; padding: 3px; border-radius: 12px; background: var(--selected); }
+.seg button { height: 30px; padding: 0 16px; border-radius: 9px; font-size: 13px; color: var(--muted); transition: background .2s, color .2s; }
+.seg button.on { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 .5px var(--panel-edge); }
+.group { padding: 6px; }
+.prow { display: flex; align-items: center; gap: 14px; height: 64px; padding: 0 12px 0 10px; border-radius: 14px; transition: background .15s, box-shadow .2s; }
+.prow:hover { background: var(--hover); }
+.prow + .prow { position: relative; }
+.prow + .prow::before { content: ''; position: absolute; left: 62px; right: 12px; top: 0; height: .5px; background: var(--line); }
+.prow:hover::before, .prow:hover + .prow::before, .prow.busy::before, .prow.busy + .prow::before { opacity: 0; }
+.blogo { width: 40px; height: 40px; flex: none; border-radius: 11px; display: grid; place-items: center; overflow: hidden; background: #fff; box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.06); }
+.blogo img { width: 26px; height: 26px; display: block; }
+.blogo img.full { width: 40px; height: 40px; }
+.prow .nm { flex: 1; min-width: 0; }
+.prow .nm b { display: block; font-weight: 600; font-size: 14px; }
+.prow .nm small { display: block; color: var(--muted); font-size: 12.5px; }
+.prow .act { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--dim); }
+.pill { height: 30px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 500; color: var(--text-2); box-shadow: inset 0 0 0 .5px var(--line); background: var(--panel-2); transition: background .15s, transform .18s cubic-bezier(.2,.9,.25,1.3); }
+.pill:hover { background: var(--selected); }
+.pill:active { transform: scale(.96); }
+.prow.busy { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+.prow.busy .act { color: var(--accent); }
+.prow.ok .act { color: var(--ok); }
+.prow .act .x { color: var(--muted); padding: 0 6px; border-radius: 6px; }
+.prow .act .x:hover { color: var(--text-2); background: var(--hover); }
+.fine { margin-top: 12px; text-align: center; color: var(--dim); font-size: 12.5px; }
+.fine code { font: 11.5px var(--mono); }
+.keybox { padding: 18px; display: grid; gap: 12px; }
+.keybox label { display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.keybox .row { display: flex; gap: 8px; }
+.keybox a { color: var(--accent); text-decoration: none; font-size: 12.5px; }
 .keyform { display: flex; gap: 8px; margin-top: 12px; }
 .field { height: 38px; border-radius: 12px; border: 0; padding: 0 12px; background: var(--panel); box-shadow: inset 0 0 0 .5px var(--panel-edge); color: var(--text); font: 13px var(--font); outline: none; }
 .field:focus { box-shadow: inset 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft); }
@@ -289,11 +308,13 @@ const LOGS = {
   node: ['==> Fetching node 24.11.0', '==> Pouring node--24.11.0.arm64_sequoia.bottle.tar.gz', '==> /opt/homebrew/Cellar/node/24.11.0', '✓ node v24.11.0, npm 11.6.2'],
   fail: ['Checking Node.js 22.19.0+ … ok (v24.11.0)', 'Resolving @earendil-works/pi-coding-agent … 0.99.2', 'npm error code ETIMEDOUT', 'npm error network request to registry.npmjs.org failed'],
 };
-const PROV = [['codex', 'ChatGPT', 'Plus / Pro 订阅', 'linear-gradient(145deg,#19c37d,#0e8f5b)', 'G'], ['anthropic', 'Claude', 'Pro / Max 订阅', 'linear-gradient(145deg,#e48a64,#c4613d)', 'A'],
-  ['copilot', 'GitHub Copilot', 'Copilot 订阅', 'linear-gradient(145deg,#8b5cf6,#5b33c9)', 'C'], ['kimi', 'Kimi Code', 'Kimi 订阅', 'linear-gradient(145deg,#4b5563,#1f2937)', 'K']];
+// [id, 名称, 说明, 官方图标, 图标是否铺满（自带圆角底的 app 图标）]，来源见 brand/SOURCES.md
+const PROV = [['codex', 'ChatGPT', 'Plus / Pro 订阅，可用 Codex 模型', 'brand/openai.svg', true], ['anthropic', 'Claude', 'Pro / Max 订阅', 'brand/claude.svg', false],
+  ['copilot', 'GitHub Copilot', 'Copilot 订阅', 'brand/copilot.svg', false], ['kimi', 'Kimi Code', 'Kimi 会员', 'brand/kimi.png', true], ['openrouter', 'OpenRouter', '用 OpenRouter 账号的额度', 'brand/openrouter.svg', false]];
+let loginTab = 'sub';
 const DIRS = [['atrium', '~/Documents/MT/projects/atrium', '23 个会话 · 今天'], ['my-blog', '~/code/my-blog', '6 个会话 · 3 天前'], ['dotfiles', '~/dotfiles', '2 个会话 · 上周']];
 
-let screen = 'welcome', dir = 1, job = null, forceFail = false, cmdTab = 'script', login = {}, picked = new Set(['atrium', 'my-blog']), keyOpen = false;
+let screen = 'welcome', dir = 1, job = null, forceFail = false, cmdTab = 'script', login = {}, picked = new Set(['atrium', 'my-blog']);
 const stepOf = s => ({ welcome: 0, nopi: 1, nonode: 1, oldpi: 1, login: 2, project: 3 })[s];
 
 const termView = (title, idleCmd) => {
@@ -365,12 +386,20 @@ const SCREENS = {
       : `<button class="btn ghost">去 nodejs.org 下载</button><span class="sp"></span><button class="btn primary" data-job="node">用 Homebrew 安装 ${enter}</button>`,
   }),
   login: () => ({
-    eyebrow: '第 2 步 · 登录模型', title: '登录一个模型', lead: '用已有的订阅登录。凭据保存在 pi 里，终端里的 pi 也能直接用。',
-    html: `<div class="provs">${PROV.map(([id, nm, plan, bg, ch]) => `<button class="prov${login[id] ? ' ' + login[id] : ''}" data-login="${id}">
-        <span class="logo" style="background:${bg}">${ch}</span><span><b>${nm}</b><small>${plan}</small></span>
-        <span class="state">${login[id] === 'busy' ? '<span class="spin"></span>在浏览器中登录' : login[id] === 'ok' ? ic('check', 13) + '已登录' : ''}</span></button>`).join('')}</div>
-      ${keyOpen ? `<div class="keyform"><select class="field" style="width:150px"><option>Anthropic</option><option>OpenAI</option><option>OpenRouter</option><option>DeepSeek</option></select><input class="field" style="flex:1" type="password" placeholder="粘贴 API Key"></div>` : ''}`,
-    foot: `<button class="btn ghost" data-back="nopi">返回</button><button class="btn ghost" data-key>${keyOpen ? '收起 API Key' : '使用 API Key'}</button><span class="sp"></span>
+    eyebrow: '第 2 步 · 登录模型', title: '登录一个模型', lead: '凭据保存在 pi 里，终端里的 pi 也能直接用。',
+    html: `<div class="seg"><button class="${loginTab === 'sub' ? 'on' : ''}" data-tab="sub">用订阅登录</button><button class="${loginTab === 'key' ? 'on' : ''}" data-tab="key">使用 API Key</button></div>
+      ${loginTab === 'sub' ? `<div class="show group">${PROV.map(([id, nm, plan, src, full]) => `<div class="prow${login[id] ? ' ' + login[id] : ''}">
+          <span class="blogo"><img class="${full ? 'full' : ''}" src="${src}" alt="${nm}"></span>
+          <span class="nm"><b>${nm}</b><small>${plan}</small></span>
+          <span class="act">${login[id] === 'busy' ? `<span class="spin"></span>在浏览器中完成登录<button class="x" data-cancel-login="${id}">取消</button>`
+            : login[id] === 'ok' ? ic('check', 14) + '已登录' : `<button class="pill" data-login="${id}">登录</button>`}</span></div>`).join('')}</div>
+        <div class="fine">点"登录"会打开浏览器，在官网完成授权后自动回到这里</div>`
+      : `<div class="show keybox">
+          <label>服务商<select class="field"><option>Anthropic</option><option>OpenAI</option><option>OpenRouter</option><option>DeepSeek</option><option>Google Gemini</option></select></label>
+          <label>API Key<span class="row"><input class="field" style="flex:1" type="password" placeholder="粘贴 API Key"><button class="pill" data-savekey>保存</button></span></label>
+          <a href="#">去哪里获取 API Key ↗</a></div>
+        <div class="fine">Key 写在 <code>~/.pi/agent/auth.json</code>，只保存在这台电脑上</div>`}`,
+    foot: `<button class="btn ghost" data-back="nopi">返回</button><span class="sp"></span>
       <button class="btn primary" data-next="project" ${Object.values(login).includes('ok') ? '' : 'disabled'}>继续 ${enter}</button>`,
   }),
   project: () => ({
@@ -431,8 +460,10 @@ document.addEventListener('click', e => {
   if (d.cmd) { cmdTab = d.cmd; return render(); }
   if ('copy' in d) { b.innerHTML = ic('check', 12) + '已复制'; setTimeout(() => render(), 1200); return; }
   if ('recheck' in d) { b.innerHTML = '<span class="spin"></span>正在检测'; setTimeout(() => { b.innerHTML = '<span style="color:var(--attn)">还是没找到，可能要重开终端</span>'; setTimeout(render, 2000); }, 900); return; }
-  if (d.login) { const id = d.login; if (login[id]) return; login[id] = 'busy'; render(); setTimeout(() => { login[id] = 'ok'; render(); }, 1600); return; }
-  if ('key' in d) { keyOpen = !keyOpen; return render(); }
+  if (d.login) { const id = d.login; if (login[id]) return; login[id] = 'busy'; render(); setTimeout(() => { if (login[id] === 'busy') { login[id] = 'ok'; render(); } }, 2200); return; }
+  if (d.tab) { loginTab = d.tab; return render(); }
+  if (d.cancelLogin) { delete login[d.cancelLogin]; return render(); }
+  if ('savekey' in d) { login.apikey = 'ok'; b.textContent = '已保存'; setTimeout(render, 900); return; }
   if (d.pick) { picked.has(d.pick) ? picked.delete(d.pick) : picked.add(d.pick); return render(); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing && document.activeElement.tagName !== 'INPUT') { const p = document.querySelector('.foot .btn.primary:not([disabled]), .screen .btn.primary:not([disabled])'); if (p) { e.preventDefault(); p.click(); } } });
