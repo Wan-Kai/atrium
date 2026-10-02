@@ -190,16 +190,15 @@ svg { flex: none; display: block; }
 .pend::before, .b-dirty::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--attn); flex: none; }   /* 颜色只落在小圆点上 */
 .b-ahead { color: var(--attn-text); font-weight: 600; }
 .b-ok { color: var(--ok-text); gap: 3px; }
-.b-gray, .b-ext { color: var(--dim); }
+.b-gray { color: var(--dim); }
 .pill { --press: .94; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 11px; border: 0; border-radius: var(--r-pill); background: transparent; box-shadow: inset 0 0 0 .5px var(--line-strong); color: var(--text-2); font-size: var(--fs-sm); white-space: nowrap; }
 .pill:hover { background: var(--hover); color: var(--text); }
 .pill[disabled] { color: var(--dim); cursor: not-allowed; }
 .pill.accent { color: var(--accent); }
 .pill.sm { height: 20px; padding: 0 8px; font-size: var(--fs-xs); }
 
-/* 工作区行（项目下缩进；一律用分支图标，本地工作区后面标“本地”） */
+/* 工作区行（项目下缩进；一律用分支图标，本地 / 外部只在悬停提示里说明） */
 .row.ws { padding-left: 26px; }
-.row.ws .kind { color: var(--dim); font-size: var(--fs-sm); flex: none; }
 .row.ws .badges { display: flex; gap: 10px; }
 .row.ws .acts { display: none; gap: 4px; }
 .row.ws:hover .acts { display: flex; }
@@ -646,7 +645,6 @@ function mergeBadges(w) {
   if (w.dirty) parts.push('<span class="badge b-dirty" title="worktree 里有未提交的改动">未提交</span>');
   return parts.join('');
 }
-const extTag = w => w.external ? `<span class="badge b-ext" title="不是 Atrium 创建的 worktree：${esc(w.external)}">外部</span>` : '';
 const wsIcon = (w, s = 14) => ph('branch', s);
 function inboxRow({ s, p, w }) {
   return `<div class="row two press${s.id === selected ? ' selected' : ''}" id="ib-${s.id}" data-flip data-enter="up" data-action="select" data-id="${s.id}">
@@ -655,8 +653,8 @@ function inboxRow({ s, p, w }) {
 }
 function wsRow(p, w) {
   const acts = isDone(w) && !w.removed ? '<button class="pill sm" disabled title="阶段 1 第 3 步">清理</button>' : isPending(w) ? '<button class="pill sm" disabled title="阶段 1 第 3 步">查看改动</button><button class="pill sm" disabled title="阶段 1 第 3 步">合并</button>' : '';
-  return `<div class="row ws press${w.id === selWs ? ' selected' : ''}${isDone(w) ? ' done' : ''}" id="w-${safe(w.id)}" data-flip data-enter="up" data-action="select-ws" data-ws="${w.id}">
-    <span class="icon">${wsIcon(w)}</span><span class="title${w.kind === 'worktree' ? ' branch' : ''}">${esc(w.name)}</span>${w.kind === 'local' ? '<span class="kind">本地</span>' : ''}${extTag(w)}
+  return `<div class="row ws press${w.id === selWs ? ' selected' : ''}${isDone(w) ? ' done' : ''}" id="w-${safe(w.id)}" data-flip data-enter="up" data-action="select-ws" data-ws="${w.id}" title="${esc(w.kind === 'local' ? '本地工作区（项目目录）' : w.external ? '外部 worktree，不是 Atrium 创建的：' + w.external : 'worktree')}">
+    <span class="icon">${wsIcon(w)}</span><span class="title${w.kind === 'worktree' ? ' branch' : ''}">${esc(w.name)}</span>
     <span class="badges">${mergeBadges(w)}</span><span class="acts">${acts}</span>
     <button class="ibtn sm more press" data-action="ws-menu" data-ws="${w.id}" title="更多">${ph('more', 14)}</button>${topStatus(w.sessions) === 'idle' ? '' : statusIcon(topStatus(w.sessions))}</div>`;
 }
