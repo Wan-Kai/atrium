@@ -110,8 +110,14 @@ body[data-step="0"] .col { width: 980px; }
 .gmark::before { content: ''; position: absolute; inset: -28px; border-radius: 50%; background: radial-gradient(closest-side, rgba(92,140,255,.28), transparent); z-index: -1; }
 .gmark i:nth-child(1) { inset: 16px; border-color: rgba(92,140,255,.85); }
 .gmark i:nth-child(2) { inset: 23px; border-color: rgba(120,200,210,.85); background: linear-gradient(135deg, rgba(92,140,255,.35), rgba(255,170,120,.35)); }
-.gpill { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 14px 0 10px; border-radius: 999px; font-size: 12.5px; color: var(--text-3); margin-bottom: 14px; }
-.gpill b { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 999px; background: var(--primary); color: var(--on-primary); font-size: 11px; font-weight: 600; }
+.gpill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px 0 7px; border-radius: 999px; margin-bottom: 16px; font-size: 13px; color: var(--muted); text-decoration: none; transition: transform .2s cubic-bezier(.2,.9,.25,1.3); }
+.gpill:hover { transform: translateY(-1px); }
+.gpill .pimark { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: #fff; box-shadow: 0 0 0 .5px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06); }
+.gpill .pimark svg { width: 16px; height: 16px; display: block; }
+.gpill .by b { font: 700 13.5px/1 "Syne", var(--font); color: var(--text); letter-spacing: .01em; margin: 0 1px; }
+.gpill .sep { width: 1px; height: 12px; background: var(--line); }
+.gpill .go { display: inline-flex; color: var(--dim); transition: color .2s, transform .2s; }
+.gpill:hover .go { color: var(--text-2); transform: translate(1px, -1px); }
 h1.hero { font: 700 clamp(40px, 4.4vw, 60px)/1.12 var(--display); letter-spacing: -.01em; margin: 0;
   background: linear-gradient(180deg, var(--text) 35%, color-mix(in srgb, var(--text) 62%, transparent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero-sub { margin: 14px auto 22px; max-width: 520px; color: var(--muted); font-size: 16px; line-height: 1.6; }
@@ -307,7 +313,10 @@ const SCREENS = {
     html: `<div class="welcome">
       <div class="aurora"><i></i><i></i><i></i></div>
       <div class="gmark glass"><i></i><i></i></div>
-      <div class="gpill glass"><b>pi</b>由 pi 驱动的桌面 agent</div>
+      <a class="gpill glass" href="https://pi.dev" target="_blank" rel="noopener" title="pi.dev">
+        <span class="pimark"><svg viewBox="150 150 500 500" aria-label="pi"><path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z"/><path fill="#4D9ABF" d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"/><path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z"/></svg></span>
+        <span class="by">由 <b>pi</b> 驱动</span><span class="sep"></span><span>开放的 agent 内核</span>
+        <span class="go"><svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M204,64V168a12,12,0,0,1-24,0V93L72.49,200.49a12,12,0,0,1-17-17L163,76H88a12,12,0,0,1,0-24H192A12,12,0,0,1,204,64Z"/></svg></span></a>
       <h1 class="hero">看得见内部的<br>coding agent</h1>
       <p class="hero-sub">每一步读了什么、改了什么、花了多少 token，都摆在你眼前。<br>多个任务各占一个 worktree，并行推进。</p>
       <div class="hero-cta"><button class="btn primary big" data-next="nopi">开始设置 ${enter}</button><span class="hint">大约 1 分钟</span></div>
