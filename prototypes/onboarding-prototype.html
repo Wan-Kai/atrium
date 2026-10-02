@@ -152,18 +152,11 @@ body.ctaD .cta::before { content: ''; position: absolute; inset: -60% -20%; z-in
 body.ctaD .cta:hover::before { opacity: .8; }
 [data-theme="dark"] body.ctaD .cta { box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 0 0 1px rgba(255,255,255,.12), 0 14px 34px -14px rgba(90,130,255,.55); }
 @keyframes cta-flow { to { transform: translateX(14%) rotate(8deg); } }
-/* 点阵扫光：一道反差色（白）的点阵斜着从左扫到右；平时每 6 秒扫一次，悬停时立刻扫一次并把文字放大一点 */
-body.ctaD .cta::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 1;
-  background-image: radial-gradient(circle, rgba(255,255,255,.95) 1.1px, transparent 1.6px); background-size: 6px 6px;
-  -webkit-mask-image: linear-gradient(112deg, transparent 32%, #000 44%, #000 56%, transparent 68%); mask-image: linear-gradient(112deg, transparent 32%, #000 44%, #000 56%, transparent 68%);
-  -webkit-mask-size: 250% 100%; mask-size: 250% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: 150% 0; mask-position: 150% 0;
-  opacity: .9; animation: dots-idle 6s cubic-bezier(.45,.05,.25,1) 1.2s infinite; }
-body.ctaD .cta:hover::after { opacity: 1; animation: dots-sweep .85s cubic-bezier(.3,.6,.2,1) forwards; }
-body.ctaD .cta .lbl { position: relative; z-index: 2; display: inline-flex; align-items: center; gap: 10px; text-shadow: 0 0 10px rgba(15,16,20,.8); transition: transform .45s cubic-bezier(.2,.9,.25,1.2); }   /* 文字压在点阵上面 */
+/* 点阵扫光：canvas 画圆角方点阵列，用每个点的深浅组成向右的箭头纹样；一道光带斜着慢慢扫过，纹样在光带里流动、点会轻微闪烁 */
+body.ctaD .cta canvas.dots { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+body.ctaD .cta .lbl { position: relative; z-index: 2; display: inline-flex; align-items: center; gap: 10px; text-shadow: 0 0 10px rgba(15,16,20,.85); transition: transform .6s cubic-bezier(.2,.9,.25,1.2); }   /* 文字压在点阵上面 */
 body.ctaD .cta:hover .lbl { transform: scale(1.05); }
-@keyframes dots-idle { 0% { -webkit-mask-position: 150% 0; mask-position: 150% 0; } 22%, 100% { -webkit-mask-position: -50% 0; mask-position: -50% 0; } }
-@keyframes dots-sweep { from { -webkit-mask-position: 150% 0; mask-position: 150% 0; } to { -webkit-mask-position: -50% 0; mask-position: -50% 0; } }
-@media (prefers-reduced-motion: reduce) { body.ctaD .cta::before, body.ctaD .cta::after { animation: none; } body.ctaD .cta::after { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { body.ctaD .cta::before { animation: none; } body.ctaD .cta canvas.dots { display: none; } }
 .hero-cta .hint kbd { font: 600 11px var(--font); padding: 1px 6px; border-radius: 5px; background: transparent; box-shadow: inset 0 0 0 1px var(--line); }
 
 /* 产品预览：一扇微微后仰的玻璃窗，下缘淡出 */
@@ -471,6 +464,7 @@ function render(animate) {
   const head = v.title ? `<div class="eyebrow">${v.eyebrow}</div><h1>${v.title}</h1><p class="lead">${v.lead}</p>` : '';
   document.getElementById('col').innerHTML = `${rail}<div class="screen${dir < 0 ? ' back' : ''}" style="${animate ? '' : 'animation:none'}">${head}${v.html}</div>`;
   document.getElementById('foot').innerHTML = v.foot;
+  document.querySelectorAll('.cta').forEach(dotCta);
   document.querySelectorAll('[data-go]').forEach(b => b.classList.toggle('on', b.dataset.go === (forceFail ? 'fail' : screen)));
 }
 function go(s, d = 1) { if (s !== screen) job = null; dir = d; screen = s; render(true); }
@@ -482,6 +476,45 @@ async function runJob(kind) {
   for (const l of lines) { await new Promise(r => setTimeout(r, 450)); if (!job || job.state !== 'run') return; job.lines.push(l); render(); }
   job.state = failing ? 'fail' : 'ok'; render();
   if (!failing && kind === 'node') { await new Promise(r => setTimeout(r, 700)); job = null; screen = 'nopi'; render(true); runJob('pi'); }
+}
+// 点阵按钮：圆角方点，间距 5px；亮度 = 光带包络 × 箭头纹样 × 轻微闪烁
+function dotCta(btn) {
+  if (btn.querySelector('canvas.dots') || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const cv = document.createElement('canvas'); cv.className = 'dots'; btn.prepend(cv);
+  const ctx = cv.getContext('2d'), PITCH = 6, SIZE = 4.4, R = 1.3;
+  const IDLE_EVERY = 7000, IDLE_DUR = 2800, HOVER_DUR = 1900;   // 平时 7 秒扫一次、每次 2.8 秒；悬停时 1.9 秒扫过，之后纹样保持低亮度流动
+  let w = 0, h = 0, sweepStart = performance.now() + 900, sweepDur = IDLE_DUR, hovering = false, hoverLevel = 0;
+  const seed = [];
+  function size() { const r = btn.getBoundingClientRect(), d = devicePixelRatio || 1; w = r.width; h = r.height; cv.width = w * d; cv.height = h * d; ctx.setTransform(d, 0, 0, d, 0, 0);
+    seed.length = 0; for (let i = 0; i < Math.ceil(w / PITCH) * Math.ceil(h / PITCH); i++) seed.push(Math.random() * 6.28); }
+  size(); new ResizeObserver(size).observe(btn);
+  btn.addEventListener('pointerenter', () => { hovering = true; sweepStart = performance.now(); sweepDur = HOVER_DUR; });
+  btn.addEventListener('pointerleave', () => { hovering = false; });
+  function frame(now) {
+    if (!btn.isConnected) return;
+    ctx.clearRect(0, 0, w, h);
+    if (!hovering && now - sweepStart > sweepDur + 200) { sweepStart = Math.max(sweepStart + IDLE_EVERY, now + 400 - IDLE_EVERY); sweepDur = IDLE_DUR; }
+    hoverLevel += ((hovering && now - sweepStart > HOVER_DUR * .55 ? 1 : 0) - hoverLevel) * .06;   // 悬停扫过后留一层低亮度
+    const p = window.__dotP ?? (now - sweepStart) / sweepDur;      // __dotP：原型调试用，定格光带位置
+    const bandX = -0.35 + p * 1.7;                                    // 光带中心（按按钮宽度归一化）
+    const cols = Math.ceil(w / PITCH), rows = Math.ceil(h / PITCH), ox = (w - (cols - 1) * PITCH - SIZE) / 2, oy = (h - (rows - 1) * PITCH - SIZE) / 2, cy = (rows - 1) / 2;
+    const flow = now / 520;                                           // 箭头纹样向右流动
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const nx = i / cols, ny = j / rows;
+      const d = nx - bandX - (ny - .5) * .35;                         // 斜向：越往下光带越靠左
+      const band = p > -0.2 && p < 1.25 ? Math.exp(-(d * d) / 0.03) : 0;
+      const chev = (i - Math.abs(j - cy) * 1.0) / 6 - flow;           // 向右的箭头纹样 >>>
+      const f = chev - Math.floor(chev);
+      const pattern = f < .34 ? 1 : f < .5 ? .4 : .08;
+      const tw = .75 + .25 * Math.sin(now / 260 + seed[j * cols + i]);
+      const a = Math.min(1, (band + hoverLevel * .22) * pattern * tw);
+      if (a < .03) continue;
+      ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+      ctx.beginPath(); ctx.roundRect(ox + i * PITCH, oy + j * PITCH, SIZE, SIZE, R); ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
 }
 function setCta(v) { document.body.classList.toggle('ctaB', v === 'B'); document.body.classList.toggle('ctaD', v === 'D'); localStorage.setItem('atrium-proto-cta', v); document.querySelectorAll('[data-cta]').forEach(b => b.classList.toggle('on', b.dataset.cta === v)); }
 function setTheme(t) { localStorage.setItem('atrium-proto-theme', t); document.documentElement.dataset.theme = t; document.querySelectorAll('[data-t]').forEach(b => b.classList.toggle('on', b.dataset.t === t)); }
