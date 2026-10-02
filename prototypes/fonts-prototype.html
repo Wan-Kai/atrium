@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE · 标题字体候选</title>
+<!-- 原型：一次性代码，只用来挑欢迎页标题的中英文字体。点下面的卡片，上方预览实时组合。 -->
+<link rel="stylesheet" href="fonts/fonts.css">   <!-- 本地子集，只含样字，避免网络问题导致没加载出来 -->
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #f7f7f9; color: #1d1d1f; font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; border: 0; background: none; cursor: default; padding: 0; text-align: left; }
+
+/* 顶部预览：复刻欢迎页的光和标题，吸顶 */
+.preview { position: sticky; top: 0; z-index: 5; overflow: hidden; padding: 34px 24px 30px; text-align: center; background: #f7f7f9; border-bottom: .5px solid rgba(0,0,0,.07); }
+.preview::before { content: ''; position: absolute; inset: -40% -10% auto; height: 180%; pointer-events: none;
+  background: radial-gradient(40% 50% at 22% 30%, rgba(94,132,255,.22), transparent 70%), radial-gradient(35% 45% at 80% 20%, rgba(120,214,214,.22), transparent 70%), radial-gradient(30% 40% at 60% 80%, rgba(255,170,120,.18), transparent 70%); }
+.preview > * { position: relative; }
+.pick { display: inline-flex; gap: 8px; margin-bottom: 14px; font-size: 12.5px; color: #6e6e74; }
+.pick b { color: #1d1d1f; font-weight: 600; }
+.hero { margin: 0; font-size: 56px; line-height: 1.1; letter-spacing: -.03em; font-weight: 700;
+  background: linear-gradient(180deg, #1d1d1f 35%, rgba(29,29,31,.62)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero span { display: block; }
+.sub { margin: 12px 0 0; color: #6e6e74; font-size: 15px; }
+
+main { max-width: 1240px; margin: 0 auto; padding: 28px 32px 60px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.hint { margin: 0 0 14px; color: #6e6e74; font-size: 13px; }
+.list { display: grid; gap: 10px; }
+.card { width: 100%; display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 4px 12px; padding: 14px 16px; border-radius: 16px; background: #fff; box-shadow: 0 0 0 .5px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.03); transition: box-shadow .2s, transform .2s cubic-bezier(.2,.9,.25,1.2); }
+.card:hover { transform: translateY(-1px); box-shadow: 0 0 0 .5px rgba(0,0,0,.09), 0 10px 24px -14px rgba(0,0,0,.25); }
+.card.on { box-shadow: 0 0 0 2px #2f6fed, 0 0 0 6px rgba(47,111,237,.12); }
+.card .k { grid-row: span 2; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: #f0f0f3; font-weight: 700; font-size: 13px; color: #48484e; }
+.card.on .k { background: #2f6fed; color: #fff; }
+.card .sample { font-size: 38px; line-height: 1.2; letter-spacing: -.02em; color: #1d1d1f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .meta { display: flex; gap: 8px; align-items: baseline; color: #6e6e74; font-size: 12.5px; }
+.card .meta b { color: #1d1d1f; font-weight: 600; font-size: 13px; }
+.card .meta .lic { margin-left: auto; padding: 1px 8px; border-radius: 999px; background: #f0f0f3; font-size: 11.5px; }
+.card .meta .lic.ofl { background: rgba(30,142,62,.10); color: #1e8e3e; }
+</style>
+</head>
+<body>
+<section class="preview">
+  <div class="pick">中文 <b id="pc"></b> · 英文 <b id="pe"></b></div>
+  <h1 class="hero" id="hero"><span id="hc">看得见内部的</span><span id="he">coding agent</span></h1>
+  <p class="sub">每一步读了什么、改了什么、花了多少 token，都摆在你眼前。</p>
+</section>
+<main>
+  <section><h2>中文标题字体</h2><p class="hint">样字"看得见内部的"。绿色标签是开源许可；"免费商用"的以字体官方说明为准，正式采用前再核实。</p><div class="list" id="cn"></div></section>
+  <section><h2>英文标题字体</h2><p class="hint">样字"coding agent"。英文候选都是开源许可。</p><div class="list" id="en"></div></section>
+</main>
+<script>
+// [编号, 名称, CSS 字体栈, 字重, 风格说明, 许可, 是否开源, 额外样式]
+const CN = [
+  ['1', '优设标题黑', '"YouSheBiaoTiHei"', 400, '粗壮紧凑的标题黑，海报和发布会常用', '免费商用', false],
+  ['2', '斗鱼追光体', '"DOUYU Font"', 400, '带速度感的斜体，冲劲足', '免费商用', false],
+  ['3', '站酷庆科黄油体', '"ZCOOL QingKe HuangYou"', 400, '窄长圆润，轻松活泼', 'SIL OFL', true],
+  ['4', '猫啃什锦黑', '"MaokenAssortedSans"', 400, '笔画利落的现代黑体，有一点俏皮', '免费商用', false],
+  ['5', '字魂扁桃体', '"zihunbiantaoti"', 400, '扁宽字形，稳重有张力', '免费商用', false],
+  ['6', '摄图摩登小方体', '"shetumodengxiaofangti"', 400, '方正几何，摩登', '免费商用', false],
+  ['7', '猫啃珠圆体', '"MaokenZhuyuanTi"', 400, '珠圆玉润，亲和', '免费商用', false],
+  ['8', '庞门正道细线体', '"PangMenZhengDao-XiXian"', 400, '极细的单线，克制、高级', '免费商用', false],
+  ['9', '思源屏显臻宋', '"Source Han Serif CN for Display"', 400, '为屏幕优化的宋体，清透', 'SIL OFL', true],
+  ['10', '霞鹜文楷', '"LXGW WenKai"', 400, '楷体，书卷气，开发者圈很流行', 'SIL OFL', true],
+  ['11', '汇文明朝体', '"Huiwen-mincho"', 400, '日系明朝风，复古印刷感', '免费商用', false],
+];
+const EN = [
+  ['A', 'Geist Mono', '"Geist Mono"', 600, '等宽，和 coding agent 的气质最贴', 'SIL OFL', true],
+  ['B', 'JetBrains Mono', '"JetBrains Mono"', 700, '开发者最熟悉的等宽字体', 'SIL OFL', true],
+  ['C', 'Martian Mono', '"Martian Mono"', 600, '宽体等宽，未来感', 'SIL OFL', true],
+  ['D', 'IBM Plex Mono', '"IBM Plex Mono"', 600, '有衬线细节的等宽，工业感', 'SIL OFL', true],
+  ['E', 'Unbounded', '"Unbounded"', 700, '超宽的圆润几何，很抢眼', 'SIL OFL', true],
+  ['F', 'Syne', '"Syne"', 700, '艺术感的宽体，独特', 'SIL OFL', true],
+  ['G', 'Onest', '"Onest"', 700, '干净的现代无衬线', 'SIL OFL', true],
+  ['H', 'Familjen Grotesk', '"Familjen Grotesk"', 700, '北欧风格的怪诞体，紧凑', 'SIL OFL', true],
+  ['I', 'Schibsted Grotesk', '"Schibsted Grotesk"', 800, '报刊标题风格，硬朗', 'SIL OFL', true],
+  ['J', 'Instrument Sans', '"Instrument Sans"', 700, '偏窄的现代无衬线，精致', 'SIL OFL', true],
+  ['K', 'Newsreader 斜体', '"Newsreader"', 600, '书卷气的衬线斜体', 'SIL OFL', true, 'font-style:italic'],
+  ['L', 'Gloock', '"Gloock"', 400, '高对比的展示衬线，时髦', 'SIL OFL', true],
+];
+let cn = '1', en = 'A';
+const card = (list, id, sample, cur, attr) => list.map(([k, nm, fam, w, desc, lic, ofl, extra]) => `<button class="card${k === cur ? ' on' : ''}" data-${attr}="${k}">
+  <span class="k">${k}</span><span class="sample" style="font-family:${fam.replace(/"/g, "'")};font-weight:${w};${extra || ''}">${sample}</span>
+  <span class="meta"><b>${nm}</b>${desc}<span class="lic${ofl ? ' ofl' : ''}">${lic}</span></span></button>`).join('');
+function render() {
+  document.getElementById('cn').innerHTML = card(CN, 'cn', '看得见内部的', cn, 'cn');
+  document.getElementById('en').innerHTML = card(EN, 'en', 'coding agent', en, 'en');
+  const c = CN.find(x => x[0] === cn), e = EN.find(x => x[0] === en);
+  Object.assign(document.getElementById('hc').style, { fontFamily: c[2], fontWeight: c[3], fontStyle: '' });
+  const he = document.getElementById('he'); he.style.cssText = `font-family:${e[2]};font-weight:${e[3]};${e[7] || ''}`;
+  document.getElementById('pc').textContent = `${c[0]} ${c[1]}`; document.getElementById('pe').textContent = `${e[0]} ${e[1]}`;
+}
+render();
+document.addEventListener('click', ev => { const b = ev.target.closest('.card'); if (!b) return; if (b.dataset.cn) cn = b.dataset.cn; if (b.dataset.en) en = b.dataset.en; render(); });
+</script>
+</body>
+</html>
