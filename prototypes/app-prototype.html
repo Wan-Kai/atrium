@@ -438,26 +438,23 @@ svg { flex: none; display: block; }
 .mrow .nm small { display: block; color: var(--dim); font-size: var(--fs-xs); margin-top: 1px; }
 .mrow .ctx { color: var(--dim); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; }
 .mrow .ck { width: 16px; color: var(--accent); display: inline-flex; }
-/* 推理强度：左边一块点阵区（覆盖面积随档位变，当前档位写在区内），右边一根四档滑杆（可拖动、可点、可用 ←→） */
-.effort { display: grid; grid-template-columns: 148px 1fr; gap: 14px; align-items: stretch; margin: 2px 8px 0; }
-.epv { position: relative; isolation: isolate; overflow: hidden; height: 76px; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); transition: box-shadow .5s ease; }
-.epv canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
-.epv .cur { position: absolute; left: 12px; bottom: 9px; z-index: 1; font-size: 20px; font-weight: 600; letter-spacing: .02em; color: var(--text); text-shadow: 0 0 10px var(--surface-1), 0 0 3px var(--surface-1); transition: transform .35s cubic-bezier(.2,.9,.25,1.3); }
-[data-theme="dark"] .epv .cur { text-shadow: 0 0 10px var(--surface-2), 0 0 3px var(--surface-2); }
-.epv.full { box-shadow: inset 0 0 0 1px rgba(94,132,255,.45), 0 0 18px -6px rgba(94,132,255,.55); }
-.epv.full .cur { background: linear-gradient(90deg, #5e84ff, #3fb6b6 55%, #f08a5d); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
-.eside { display: flex; flex-direction: column; justify-content: center; gap: 10px; min-width: 0; }
-.eslider { --p: 0; position: relative; height: 28px; touch-action: none; cursor: default; outline: none; }
-.eslider .trk { position: absolute; left: 9px; right: 9px; top: 12px; height: 4px; border-radius: 4px; background: var(--hover); box-shadow: inset 0 0 0 .5px var(--line); }
-.eslider .fill { position: absolute; left: 9px; top: 12px; height: 4px; width: calc((100% - 18px) * var(--p)); border-radius: 4px; background: var(--text-3); transition: width .35s cubic-bezier(.2,.9,.25,1.1); }
-.eslider.full .fill { background: linear-gradient(90deg, #5e84ff, #78d6d6, #ffaa78); }
-.eslider .stop { position: absolute; top: 12px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--line-strong); }
-.eslider .knob { position: absolute; top: 4px; left: calc(9px + (100% - 18px) * var(--p)); width: 20px; height: 20px; margin-left: -10px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.28), 0 0 0 .5px rgba(0,0,0,.12); transition: left .35s cubic-bezier(.2,.9,.25,1.25), transform .2s; }
-.eslider.drag .knob, .eslider.drag .fill { transition: none; }
-.eslider.drag .knob { transform: scale(1.12); }
-.eslider:focus-visible .knob { box-shadow: 0 1px 4px rgba(0,0,0,.28), var(--focus); }
-.eside .ends { display: flex; justify-content: space-between; padding: 0 2px; color: var(--dim); font-size: var(--fs-xs); }
-.mpanel .ehint { padding: 10px 10px 4px; color: var(--dim); font-size: var(--fs-xs); min-height: 1.5em; }
+/* 推理强度：一个框，背景的点阵覆盖度就是档位；按住拖动把覆盖度拉高或降低，松手弹簧吸附到最近一档 */
+.ebox { --n: 4; position: relative; isolation: isolate; overflow: hidden; width: calc(var(--n) * 56px); max-width: 100%; height: 38px; margin: 2px 8px 0; border-radius: 12px;
+  box-shadow: inset 0 0 0 1px var(--line); cursor: grab; touch-action: none; outline: none; user-select: none; transition: box-shadow .45s ease, transform .3s cubic-bezier(.2,.9,.25,1.3); }
+.ebox:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ebox.drag { cursor: grabbing; transform: scale(1.015); }
+.ebox:focus-visible { box-shadow: inset 0 0 0 1px var(--line-strong), var(--focus); }
+.ebox canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+.ebox .div { position: absolute; top: 10px; bottom: 10px; width: 1px; margin-left: -.5px; z-index: 1; background: var(--line-strong); opacity: .7; }
+.ebox .lab { position: absolute; left: 12px; top: 0; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 8px; pointer-events: none; }
+.ebox .nm { position: relative; height: 20px; min-width: 2.6em; overflow: hidden; font-size: var(--fs-meta); font-weight: 600; color: var(--text); }
+.ebox .nm span { position: absolute; left: 0; top: 0; line-height: 20px; white-space: nowrap; text-shadow: 0 0 8px var(--surface-1), 0 0 2px var(--surface-1); transition: transform .42s cubic-bezier(.2,.9,.25,1.15), opacity .3s; }
+[data-theme="dark"] .ebox .nm span { text-shadow: 0 0 8px var(--surface-2), 0 0 2px var(--surface-2); }
+.ebox .cnt { position: absolute; right: 12px; top: 0; bottom: 0; z-index: 2; display: flex; align-items: center; color: var(--dim); font-size: var(--fs-xs); font-variant-numeric: tabular-nums; pointer-events: none; }
+.ebox.full { box-shadow: inset 0 0 0 1px rgba(94,132,255,.5), 0 0 18px -6px rgba(94,132,255,.6); }
+.ebox.full .nm span.in { background: linear-gradient(90deg, #5e84ff, #3fb6b6 60%, #f08a5d); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; }
+.ebox.full .cnt { color: var(--accent); }
+.mpanel .ehint { padding: 8px 10px 4px; color: var(--dim); font-size: var(--fs-xs); min-height: 1.5em; }
 /* @ 引用与 / 命令的候选列表 */
 .mention { position: absolute; left: 8px; bottom: calc(100% + 8px); z-index: 5; width: 380px; padding: 6px; border-radius: var(--r-btn); background: var(--surface-1); box-shadow: var(--float-shadow); font-size: var(--fs-meta); }
 [data-theme="dark"] .mention { background: var(--surface-2); }
@@ -1268,10 +1265,11 @@ function openModelPop(x, y, only) {
   const body = () => {
     const ms = `<div class="hd"><span class="prov"><img src="brand/openai.svg" alt="">ChatGPT 订阅</span><span>⌘⇧I</span></div>`
       + MODELS.map(m => `<button class="mrow press${m.id === model.id ? ' on' : ''}" data-model="${m.id}"><span class="nm"><b>${m.id}</b><small>上下文 ${m.ctx} · 输出 ${m.out}${m.image ? ' · 支持图片' : ''}</small></span><span class="ck">${m.id === model.id ? ph('check', 13) : ''}</span></button>`).join('');
-    const es = `<div class="hd" style="margin-top:6px"><span>推理强度</span><span>⌘⇧E · ←→</span></div>
-      <div class="effort"><div class="epv" id="epv"><span class="cur" id="ecur"></span></div>
-        <div class="eside"><div class="eslider" id="eslider" tabindex="0" role="slider" aria-label="推理强度" aria-valuemin="1" aria-valuemax="4"><span class="trk"></span>${[0, 1, 2, 3].map(k => `<span class="stop" style="left:calc(9px + (100% - 18px) * ${k / 3})"></span>`).join('')}<span class="fill"></span><span class="knob"></span></div>
-          <div class="ends"><span>更快</span><span>想得更久</span></div></div></div>
+    const n = EFFORTS.length;
+    const es = `<div class="hd" style="margin-top:6px"><span>推理强度 · 按住左右拖动</span><span>⌘⇧E · ←→</span></div>
+      <div class="ebox" id="ebox" tabindex="0" role="slider" aria-label="推理强度" aria-valuemin="1" aria-valuemax="${n}" style="--n:${n}">
+        ${Array.from({ length: n - 1 }, (_, k) => `<span class="div" style="left:${(k + 1) / n * 100}%"></span>`).join('')}
+        <span class="lab"><span class="nm" id="enm"></span></span><span class="cnt" id="ecnt"></span></div>
       <div class="ehint" id="ehint"></div>`;
     return only === 'model' ? ms : only === 'effort' ? es : ms + '<div class="sepr" style="margin:8px 6px 2px"></div>' + es;
   };
@@ -1279,30 +1277,94 @@ function openModelPop(x, y, only) {
     const b = e.target.closest('[data-model]'); if (!b) return;
     e.stopPropagation(); model.id = b.dataset.model; closePops(); renderComposer(cur());
   });
-  // 推理强度：点阵区随档位变化（同一块区域），滑杆可点、可拖、可用 ←→
-  const sl = p.querySelector('#eslider');
-  if (sl) {
-    const pv = p.querySelector('#epv'), field = dotField(pv);
-    const setLv = (i, fromUser) => {
-      i = Math.max(0, Math.min(3, i)); const changed = EFFORTS[i][0] !== model.effort;
-      model.effort = EFFORTS[i][0];
-      sl.style.setProperty('--p', i / 3); sl.classList.toggle('full', i === 3); sl.setAttribute('aria-valuenow', i + 1); sl.setAttribute('aria-valuetext', EFFORTS[i][1]);
-      pv.classList.toggle('full', i === 3); p.querySelector('#ecur').textContent = EFFORTS[i][1]; p.querySelector('#ehint').textContent = EFFORTS[i][2];
-      field.set(i + 1);
-      if (changed && fromUser) renderComposer(cur());
-    };
-    const lvAt = x => { const r2 = sl.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(1, (x - r2.left - 9) / (r2.width - 18))) * 3); };
-    sl.addEventListener('pointerdown', e => { e.preventDefault(); sl.setPointerCapture(e.pointerId); sl.classList.add('drag'); sl.focus(); setLv(lvAt(e.clientX), true);
-      const mv = ev => { const r2 = sl.getBoundingClientRect(); sl.style.setProperty('--p', Math.max(0, Math.min(1, (ev.clientX - r2.left - 9) / (r2.width - 18)))); setLv(lvAt(ev.clientX), true); sl.style.setProperty('--p', Math.max(0, Math.min(1, (ev.clientX - r2.left - 9) / (r2.width - 18)))); };
-      const upf = () => { sl.classList.remove('drag'); setLv(EFFORTS.findIndex(x => x[0] === model.effort), true); sl.removeEventListener('pointermove', mv); sl.removeEventListener('pointerup', upf); sl.removeEventListener('pointercancel', upf); };
-      sl.addEventListener('pointermove', mv); sl.addEventListener('pointerup', upf); sl.addEventListener('pointercancel', upf); });
-    sl.addEventListener('keydown', e => { const i = EFFORTS.findIndex(x => x[0] === model.effort); if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { e.preventDefault(); setLv(i + 1, true); } if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { e.preventDefault(); setLv(i - 1, true); } });
-    setLv(EFFORTS.findIndex(x => x[0] === model.effort), false);
-    if (only === 'effort') sl.focus();
-  }
   p.classList.add('mpanel'); p.style.left = Math.max(8, Math.min(r.right - p.offsetWidth, innerWidth - p.offsetWidth - 8)) + 'px'; p.style.top = (r.top - p.offsetHeight - 8) + 'px';
   btn.classList.add('on');
   const obs = new MutationObserver(() => { if (!p.isConnected || p.dataset.closing) { btn.classList.remove('on'); obs.disconnect(); } }); obs.observe(document.body, { childList: true, subtree: true, attributes: true });
+  const box = p.querySelector('#ebox');
+  if (box) effortBox(box, p, only === 'effort');
+}
+// 推理强度框：点阵覆盖度 = 档位。按住拖动时覆盖度跟手（超出两端有橡皮筋阻尼），松手按弹簧（response .38s、damping .72，略带回弹）吸附到最近一档
+function effortBox(box, panel, focus) {
+  const n = EFFORTS.length, cv = document.createElement('canvas'), ctx = cv.getContext('2d'); box.prepend(cv);
+  const PITCH = 6, SIZE = 3.6, R = 1;
+  let seed = +localStorage.getItem('atrium-dot-seed') || 1;
+  const hash = (x, y) => { let h = (x * 374761393 + y * 668265263 + seed * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+  const sm = t => t * t * (3 - 2 * t);
+  const vn = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = sm(x - xi), yf = sm(y - yi), a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1); return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf; };
+  const stops = [[94, 132, 255], [120, 214, 214], [255, 170, 120]];
+  const tint = x => { const k = Math.min(1.999, Math.max(0, x) * 2), i = Math.floor(k), f = k - i, a = stops[i], b = stops[i + 1]; return a.map((v, j) => Math.round(v + (b[j] - v) * f)); };
+  let w = 0, h = 0, lvl = EFFORTS.findIndex(x => x[0] === model.effort) + 1;
+  let pos = lvl / n, vel = 0, target = pos, dragging = false, raf = 0, last = 0, sweepAt = 0;
+  const OMEGA = 2 * Math.PI / .38, ZETA = .72;
+  function size() { const r = box.getBoundingClientRect(), d = devicePixelRatio || 1; w = r.width; h = r.height; cv.width = w * d; cv.height = h * d; ctx.setTransform(d, 0, 0, d, 0, 0); kick(); }
+  function draw(now) {
+    raf = 0; if (!box.isConnected) return;
+    const dt = Math.min(.032, (now - (last || now)) / 1000); last = now;
+    if (!dragging) { const acc = -OMEGA * OMEGA * (pos - target) - 2 * ZETA * OMEGA * vel; vel += acc * dt; pos += vel * dt; if (Math.abs(pos - target) < .0008 && Math.abs(vel) < .002) { pos = target; vel = 0; } }
+    if (REDUCE && !dragging) pos = target;
+    ctx.clearRect(0, 0, w, h);
+    const dark = document.documentElement.dataset.theme === 'dark', ink = dark ? 255 : 0, full = lvl === n;
+    const cols = Math.ceil(w / PITCH), rows = Math.ceil(h / PITCH), ox = (w - (cols - 1) * PITCH - SIZE) / 2, oy = (h - (rows - 1) * PITCH - SIZE) / 2, feather = .35 / n;
+    let sp = -1; if (full && !dragging && !REDUCE) { const t = (now - sweepAt) % 3600; if (now >= sweepAt && t < 900) { const x = t / 900; sp = x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; } }
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const nx = (i + .5) / cols, m = Math.max(0, Math.min(1, (pos - nx) / feather + .5)); if (m <= 0) continue;
+      const tone = .5 + .5 * (.6 * vn(i / 3, j / 3) + .4 * vn(i / 1.3 + 9, j / 1.3 + 4));
+      let a, rgb;
+      if (full) {
+        const tw = REDUCE ? 1 : .8 + .2 * Math.sin(now / 280 + hash(i, j) * 6.28);
+        let boost = 0; if (sp >= 0) { const c = -0.4 + sp * 1.8, dd = nx - c - (j / rows - .5) * .35; boost = Math.max(0, 1 - Math.abs(dd) / .16); }
+        a = Math.min(.95, (dark ? .4 : .32) * tone * tw * m + boost * .6 * tone); rgb = tint(nx);
+      } else { a = (dark ? .32 : .24) * tone * m * (.7 + .3 * pos); rgb = [ink, ink, ink]; }
+      if (a < .015) continue;
+      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})`;
+      ctx.beginPath(); ctx.roundRect(ox + i * PITCH, oy + j * PITCH, SIZE, SIZE, R); ctx.fill();
+    }
+    if (dragging || pos !== target || full) raf = requestAnimationFrame(draw);
+  }
+  function kick() { if (!raf) { last = 0; raf = requestAnimationFrame(draw); } }
+  // 档位名：新档位从拖动方向滑入，旧的反向滑出
+  const nmEl = panel.querySelector('#enm');
+  function setLabel(i, dir) {
+    const old = nmEl.querySelector('span.in'), nu = document.createElement('span');
+    nu.className = 'in'; nu.textContent = EFFORTS[i - 1][1];
+    if (!old || REDUCE) { nmEl.innerHTML = ''; nmEl.appendChild(nu); }
+    else { nu.style.transform = `translateY(${dir > 0 ? 100 : -100}%)`; nu.style.opacity = 0; nmEl.appendChild(nu);
+      requestAnimationFrame(() => { nu.style.transform = ''; nu.style.opacity = 1; old.classList.remove('in'); old.style.transform = `translateY(${dir > 0 ? -100 : 100}%)`; old.style.opacity = 0; setTimeout(() => old.remove(), 450); }); }
+  }
+  function apply(i, commit) {
+    i = Math.max(1, Math.min(n, i)); const dir = i - lvl, changed = i !== lvl;
+    if (changed || !nmEl.firstChild) setLabel(i, dir || 1);
+    lvl = i;
+    panel.querySelector('#ecnt').textContent = `${i} / ${n}`; panel.querySelector('#ehint').textContent = EFFORTS[i - 1][2];
+    box.classList.toggle('full', i === n); box.setAttribute('aria-valuenow', i); box.setAttribute('aria-valuetext', EFFORTS[i - 1][1]);
+    if (changed && i === n) sweepAt = performance.now() + 250;
+    if (commit && EFFORTS[i - 1][0] !== model.effort) { model.effort = EFFORTS[i - 1][0]; renderComposer(cur()); }
+    kick();
+  }
+  const rawAt = x => { const r = box.getBoundingClientRect(); return (x - r.left) / r.width; };
+  const rubber = v => v < 0 ? -(1 - 1 / (-v * 3 + 1)) / 3 : v > 1 ? 1 + (1 - 1 / ((v - 1) * 3 + 1)) / 3 : v;   // 超出两端：越拉越吃力
+  const snap = v => Math.max(1, Math.min(n, Math.round(Math.max(0, Math.min(1, v)) * n + .0)));
+  box.addEventListener('pointerdown', e => {
+    e.preventDefault(); box.setPointerCapture(e.pointerId); box.focus({ preventScroll: true });
+    const startX = e.clientX, startPos = pos; let moved = false;
+    dragging = true; box.classList.add('drag'); vel = 0; kick();
+    const mv = ev => { const dx = (ev.clientX - startX) / box.getBoundingClientRect().width; if (Math.abs(ev.clientX - startX) > 3) moved = true;
+      pos = rubber(startPos + dx); apply(snap(pos), false); };
+    const end = ev => {
+      box.removeEventListener('pointermove', mv); box.removeEventListener('pointerup', end); box.removeEventListener('pointercancel', end);
+      dragging = false; box.classList.remove('drag');
+      const i = moved ? snap(pos) : Math.max(1, Math.min(n, Math.ceil(rawAt(ev.clientX) * n)));   // 点一下：跳到所点的那一格
+      target = i / n; vel = moved ? 0 : vel; apply(i, true);
+    };
+    box.addEventListener('pointermove', mv); box.addEventListener('pointerup', end); box.addEventListener('pointercancel', end);
+  });
+  box.addEventListener('keydown', e => {
+    const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0; if (!d) return;
+    e.preventDefault(); const i = Math.max(1, Math.min(n, lvl + d)); if (i === lvl) { vel += d * 1.2; kick(); return; }   // 到头了：轻轻顶一下
+    target = i / n; apply(i, true);
+  });
+  new ResizeObserver(size).observe(box); size(); apply(lvl, false);
+  if (focus) box.focus({ preventScroll: true });
 }
 function openModePop(x, y) {
   openPop('<div class="head">显示模式</div>' + MODES.map(([k, l, d]) => `<button class="item press" data-mode="${k}">${tick(k === mode)}<span>${l}<br><span class="muted">${d}</span></span></button>`).join('') + '<div class="sepr"></div><div class="head">Ctrl+O 循环切换</div>',
