@@ -1,0 +1,81 @@
+# Paseo 的架构（实现参考）
+
+> 基于 [getpaseo/paseo](https://github.com/getpaseo/paseo) 提交 `42806cd`，2026-10 读源码整理。路径相对 `packages/`。Paseo 自己的 `docs/data-model.md`、`agent-lifecycle.md`、`timeline-sync.md`、`architecture.md` 与代码一致，可直接读。
+>
+> 本地源码：`~/.cache/paseo-src`（`git clone --depth 1 https://github.com/getpaseo/paseo`）。
+
+Paseo 是"宿主横向接多个 agent"的方案（Claude Code、Codex、pi 等），和 Atrium 定位不同，但宿主层的很多问题是一样的。Atrium 领域模型里参照 Paseo 的地方，见 [domain-model.md](../architecture/domain-model.md)。
+
+## 1. 数据与持久化
+
+- **没有数据库**：Zod 校验的 JSON 文件，写入用"临时文件 + rename"保证原子性，无迁移框架（新字段可选 + 默认值）。
+  ```
+  ~/.paseo/agents/{cwd 净化后}/{agentId}.json   每个 agent 一个
+  ~/.paseo/projects/projects.json               项目登记
+  ~/.paseo/projects/workspaces.json             工作区登记
+  ~/.paseo/schedules/{id}.json
+  ~/.paseo/worktrees/...                        Paseo 自己建的 worktree
+  ```
+- **对话记录不存**：只在 daemon 内存里，每次恢复时从 provider 的历史重建（"provider history is the durable transcript authority"）。
+- **Project**（`server/src/server/workspace-registry.ts`）：`projectId = prj_<16hex>`（不透明），`rootPath`（只做词法规范化，不 realpath），`kind: git | non_git`，`projectKey`（跨主机分组，优先用 git remote），`displayName`、`customName`、`archivedAt`（软删除）。
+- **Workspace**：`workspaceId = wks_<16hex>`，`projectId`（成员关系固定，不迁移），`cwd`，`kind: local_checkout | worktree | directory`，`branch`、`worktreeRoot`、`mainRepoRoot`、`baseBranch`、`isPaseoOwnedWorktree`、`archivedAt`、`pinnedAt`、`labels`。**多个工作区可以共用一个 cwd**：由目录决定的状态（git、diff、PR）按 `(serverId, cwd)` 存，工作区自己的状态（草稿、附件）按 `workspaceId` 存。
+- **Agent**（存储：`server/agent/agent-storage.ts`；运行时：`agent-manager.ts` 的 `ManagedAgent`）：`id`（UUID）、`provider`、`cwd`、`workspaceId`（**创建时写定，是归属的唯一来源，运行时从不按 cwd 推断**）、`title`、`labels`、`lastStatus`、`config`（模型、模式、推理、MCP…）、`persistence {provider, sessionId, nativeHandle?, metadata?}`（pi 的 `nativeHandle` 就是会话文件路径）、`requiresAttention`、`attentionReason: finished | error | permission`、`attentionTimestamp`、`archivedAt`。
+- **对话记录行**（`agent-sdk-types.ts`、`agent-timeline-store*.ts`）：`{seq, timestamp, item, turnId?, providerMessageId?}`；item 有 user_message / assistant_message / reasoning / tool_call（`detail` 归一化成 shell、read、edit、write、search…）/ todo / error / notification / compaction。**没有持久化的 Turn 实体**，turn 只是行上的 `turnId`。内存里按 agent 存 `{epoch, projection, minSeq, nextSeq}`，`TimelineProjection` 把流式片段合并成展示条目。
+- **待批准请求**只在内存（`pendingPermissions: Map`），运行失败或取消时自动拒绝；只持久化 `attentionReason: permission`。
+
+## 2. agent 生命周期（`server/agent/agent-manager.ts`、`agent-loading.ts`、`agent-prompt.ts`）
+
+- **provider 接口**：
+  ```ts
+  interface AgentSession {
+    startTurn(prompt, opts): Promise<{turnId}>;      // 立即返回，事件走 subscribe
+    steerActiveTurn?(prompt, {expectedTurnId}): Promise<{status: "accepted" | "unavailable"}>;
+    subscribe(cb): () => void;
+    streamHistory(): AsyncGenerator<AgentStreamEvent>; // 从 provider 重建历史
+    getPendingPermissions(); respondToPermission(id, resp);
+    describePersistence(): AgentPersistenceHandle | null;
+    interrupt(): Promise<void>;   // 幂等；确认上一轮不会再跑才 resolve
+    close(): Promise<void>;       // 释放运行时，保留原生会话
+    setModel / setThinkingOption / listCommands / ...
+  }
+  ```
+- **生命周期**：`initializing | idle | running | error | closed`（`closed` = 有记录没有运行时，可恢复）；归档与之正交（`archivedAt`）。
+- **懒恢复**：daemon 重启后所有 agent 都是 `closed`；打开或发消息时 `ensureAgentLoaded`（并发去重）→ 用持久化句柄恢复 → `streamHistory()` 重建内存时间线。
+- **不回收空闲进程**：空闲 agent 一直常驻，只在归档、重载、替换、工作区拆除、daemon 退出时关闭。pi 是每个 agent 一个常驻子进程，另有短时的探测进程（模型目录、MCP 检测）。
+- **串行化**：按 agent 的 `runLifecycleMutation`（恢复、归档）、`runForegroundMutation`（插话、取消），以及按顺序处理 provider 事件的 promise 链。
+- **发消息**（`startAgentRun`）：provider 能直接处理的命令（pi 的 `/compact`）不分配 turn；`activeTurnBehavior: interrupt | steer`，默认中断后替换；已有运行时 `streamAgent` 拒绝。**后续消息的排队在客户端**（`app/src/stores/session-store.ts`），daemon 没有队列。
+- **中断**：`session.interrupt()` 最多等 2 秒；确认后即使没收到终止事件也结算本轮。**没确认或超时，就保持运行中，替换、重载、回退、停止都失败**，避免状态分裂。
+- **崩溃**：运行中进程退出 → `turn_failed`、进入 `error`、加一条 `[System Error]`、自动拒绝待批准请求。（pi 在两轮之间退出时 Paseo 不报告，下一次发消息才失败。）
+
+## 3. pi 的接入（`server/src/server/agent/providers/pi/`）
+
+- 文件：`agent.ts`（`PiRpcAgentClient` / `PiRpcAgentSession`）、`cli-runtime.ts`、`runtime.ts`（启动参数）、`history-mapper.ts`、`tool-call-mapper.ts`、`session-descriptor.ts`（可导入会话列表）、`rewind.ts`、`usage-poller.ts`、`extensions/`（pi-subagents、pi-ask-user、pi-mcp-adapter 等的适配）。
+- 启动：`pi --mode rpc [--model p/id] [--thinking lvl] [--session <file> | --no-session] [--mcp-config tmp] --extension <临时 paseo-integration.mjs>`。进程由 `providers/jsonl-rpc-process.ts` 管理：按 id 对应请求，默认超时 30 秒，退出时 SIGTERM 再 SIGKILL 整个进程树，退出转成合成的 `process_exit` 事件。
+- 用到的命令：`prompt`、`steer`、`clear_queue` + `abort`（中断）、`get_state`、`get_messages`、`get_available_models`、`set_model`、`set_thinking_level`、`get_session_stats`（轮询用量）、`get_commands`、`compact`、`set_auto_compaction`、`extension_ui_response`。
+- 事件映射（`agent.ts` 的 `handleSessionEvent`）：第一个 `turn_start` → `turn_started`（每个 Paseo turn 只一次）；`text_delta` / `thinking_delta` → 助手消息 / 推理；`tool_execution_*` → tool_call；`compaction_*` → compaction；`auto_retry_start` → error 条目；`agent_settled` → `turn_completed`，或最后一条助手消息带错误时 `turn_failed`。**一个 Paseo turn = 一次 `prompt` RPC**，turnId 由 Paseo 生成。
+- **历史重建用 `get_messages`**（加上下面的条目捕获），不读主会话文件，也不用 `get_entries`。Atrium 改用 `get_entries` 沿当前分支重建，见 [pi-internals.md](pi-internals.md)。
+- **"通知加标记"的旁路**：Paseo 注入一个临时 extension，用 `ctx.ui.notify("<MARKER> " + JSON)` 把 RPC 里拿不到的信息送回宿主（宿主收到的是 `extension_ui_request {method: "notify"}`）：
+  - `PASEO_ENTRY_CAPTURE`：条目 id（回退目标）和上下文条目；
+  - `PASEO_SUBMITTED_USER_ENTRY`：刚提交的用户消息对应的条目 id，用来把本地乐观消息的 `clientMessageId` 和正式条目对上；
+  - `PASEO_COMMAND_RESULT`：反向调用的结果。宿主通过发 `/paseo_capture_entries`、`/paseo_tree` 这类 extension 命令反向调用，按 `requestId` 对应，超时 30 秒。
+  - 这条通道就是 Atrium MVP 2 计划采用的 extension → 宿主通道。
+- 对话框：`select / input / editor / confirm` 映射成 `kind: "question"` 的待批准请求；拒绝回 `cancelled`。
+
+## 4. 客户端与服务端的同步（`server/directory-sync/`、`client/src/connection/`、`app/src/timeline/`）
+
+- 单条 WebSocket，握手 `hello {clientId, clientType, protocolVersion, capabilities}`；应用层 10 秒心跳；每个 socket 8 MiB 上限，超了直接断开。
+- **列表同步**（`DirectorySyncService`）：项目、工作区、agent 各是一个带 `generation`（每个 daemon 进程一个 UUID）和递增 `seq` 的集合。请求带 `{generation, afterSeq}`，响应 `mode: snapshot | changes`（snapshot 带原因：无游标 / generation 变了 / 游标过期 / 增量太大），之后推 `upsert | remove`。订阅 id 由服务端分配，重连后重新订阅。
+- **对话记录同步**：实时推 `agent_stream {agentId, event, seq?, epoch?}`，**只推给订阅了该 agent 的客户端**（打开着或可见的）。权威拉取 `fetch_agent_timeline_request {agentId, direction: tail | before | after, cursor: {epoch, seq}, limit}`，默认一页 200 条；响应带 `epoch, reset, staleCursor, gap, window, hasOlder, hasNewer`。epoch 在 daemon 重启、强制重建、回退时变化。
+- **客户端算法**（`viewed-timeline-sync.ts`、`timeline-sync-plan.ts`）：发现序号缺口就往后翻页补齐；打开时拉最近一页，往上滚再拉更早的；epoch 变或中间缺口就整段替换；失败退避重试（1 秒到 30 秒）；本地乐观消息用 `clientMessageId` 和正式消息对上。
+- **多客户端**：agent 状态广播给所有连接；标签、布局、草稿、排队、本地缓存都在客户端。服务端只记每个客户端打开的标签（label `paseo.open-agent-tab.<clientId>`）和在线心跳。
+
+## 5. 状态与关注
+
+- **关注**：`{requiresAttention, attentionReason: finished | error | permission, attentionTimestamp}`，按边沿设上（running → idle 设 finished，进入 error 设 error，第一个待批准请求设 permission）；客户端看过后 `workspace.clear_attention.request` 清除；恢复 agent 不改它。
+- **侧栏分档**（`protocol/src/agent-state-bucket.ts`）：有待批准 → `needs_input`；出错 → `failed`；运行中 → `running`；需关注 → `attention`；否则 `done`。工作区状态由服务端汇总（`server/workspace-directory.ts`），取最高优先级。没有单独的"收件箱"实体。
+
+## 6. git 状态（`server/workspace-git-service.ts`）
+
+- 按 cwd 缓存快照：文件监听（防抖 1 秒）+ 轮询；每 3 分钟后台 `git fetch`；PR 状态每 20 / 120 秒轮询（GitHub、GitLab、Gitea）。
+- 快照：`isGit, currentBranch, isDirty, baseRef, aheadBehind, ahead/behindOfOrigin, diffStat` 和 forge 的 PR 信息（是否合并、检查状态、评审结论）。
+- "已合并"不单独存，始终是 forge 的实时数据；开启设置后，PR 合并时自动归档工作区。worktree 在最后一个引用它的工作区归档后才删除。

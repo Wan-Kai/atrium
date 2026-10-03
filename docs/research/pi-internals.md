@@ -1,0 +1,163 @@
+# pi 内部机制（实现参考）
+
+> 基于 pi 1.0.1，提交 [`4c6fb7c`](https://github.com/earendil-works/pi/commit/4c6fb7cfe8c538a668726f6f8b3554098c39faee)，2026-10 读源码整理。路径相对 `packages/coding-agent/`，另有注明的除外。pi 迭代很快，实现前先确认版本；对不上时以源码为准。
+>
+> 本地源码：`~/.cache/pi-src`（`git clone --depth 1 https://github.com/earendil-works/pi`）。
+
+Atrium 用的是 pi 的**稳定模型**：`pi --mode rpc` + JSONL 会话文件。pi 仓库里另有一套实验性的多客户端服务端（第 6 节），存储不兼容，不直接用，只借鉴设计。
+
+## 1. 会话文件（`src/core/session-manager.ts`）
+
+**位置与 id**
+
+- 路径：`~/.pi/agent/sessions/--<cwd，去掉开头分隔符，/ \ : 换成 ->--/<ISO 时间，: 和 . 换成 ->_<sessionId>.jsonl`。可用 `--session-dir`、`PI_CODING_AGENT_SESSION_DIR` 或设置 `sessionDir` 覆盖。
+- 会话 id：`uuidv7()`，或 `--session-id` 指定（`/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/`）。
+- **延迟写盘**：直到内存里出现 user 或 assistant 消息才用 `openSync(path, "wx")` 创建文件，之后每条 `appendFileSync`。所以 `get_state.sessionFile` 可能指向还不存在的文件；打开就关的会话不留文件；未写盘的会话不能 fork / clone。
+- `--no-session` 用内存会话，不写盘（适合标题生成这类一次性调用）。
+
+**文件头**（第一行，不在树里）
+
+```ts
+interface SessionHeader { type: "session"; version?: number; id: string; timestamp: string; cwd: string; parentSession?: string }
+// CURRENT_SESSION_VERSION = 3；v1/v2 读入时迁移并重写文件
+```
+
+- `cwd`：恢复时用它作为工作目录；目录不存在抛 `MissingSessionCwdError`（`src/core/session-cwd.ts`）。
+- `parentSession`：fork / clone 来源文件的绝对路径。
+
+**条目**
+
+```ts
+interface SessionEntryBase { type: string; id: string; parentId: string | null; timestamp: string }
+```
+
+- 条目 id 是 8 位十六进制（`randomUUID().slice(0,8)`），**只在单个文件内唯一**；clone 出的新文件沿用原 id。跨会话要用"会话 id + 条目 id"。
+- 类型：`message`（role：system / user / assistant / toolResult / bashExecution / custom）、`thinking_level_change`、`model_change`、`usage`、`compaction`（`summary`、`firstKeptEntryId`、`tokensBefore`、`systemMessage?` 完整检查点）、`branch_summary`、`custom`（extension 状态，不进上下文）、`custom_message`（进上下文）、`context_edit`（`targetId` + 替换或省略）、`label`、`session_info`（`name`，最新的一条生效）。
+- 系统消息：role 为 system 的 message，带 `sections`（按名字的补丁）、`toolsAdded` / `toolsRemoved`；第一次请求写完整的，之后写增量。上下文分段估算就靠回放这些。
+- assistant 消息带 `provider`、`model`、`usage`、`stopReason`（stop / length / toolUse / error / aborted / deferred）、`thinkingLevel?`。
+
+**树与叶子**
+
+- 每次追加都挂在当前 `leafId` 下并移动叶子。`branch(id)` 移叶子；`branchWithSummary` 移叶子并追加 `branch_summary`；`resetLeaf()` 让下一条成为新的根。
+- **叶子不存盘**：加载时取文件最后一条为叶子。
+- 上下文构建：`buildContextEntries`（路径 + 最近的压缩）→ `buildSessionProjection`（应用 context_edit）→ `buildSessionContext`。这就是 `get_messages` 返回的东西，**不是完整历史**。
+- 列表：`SessionManager.list / listAll` 返回 `SessionInfo {path, id, cwd, name?, parentSessionPath?, created, modified, messageCount, firstMessage}`，但**不是 RPC 命令**，宿主要自己扫目录。
+
+**fork / clone**（`src/core/agent-session-runtime.ts`）
+
+- RPC `fork {entryId}`：必须是 user 消息，新文件包含到它的父条目为止，返回该消息文本。`clone`：复制整条当前路径。新会话 id、新文件，`parentSession` 指向原文件。
+- 所有"换会话"操作（new / switch / fork / import）都会拆掉当前运行时重建，**RPC 不发任何"会话已切换"事件**，要重新 `get_state`。Atrium 因此一个会话固定一个进程，不用 `switch_session`。
+
+## 2. 运行时（`src/core/agent-session.ts`，`packages/agent/src/agent.ts`）
+
+**turn 与 run**
+
+- pi 的 turn = 一次助手响应 + 它的工具调用：`turn_start … turn_end`。
+- 底层 run：`agent_start … agent_end {messages, willRetry}`。
+- 会话级运行：一次 prompt 可能产生多组 `agent_start / agent_end`（重试、压缩、排队消息），**恰好一次 `agent_settled`**。用 `agent_settled` 判断"不会再自动继续"；整个过程 `isStreaming` 为真。
+
+**`prompt` 的三种结果**（`PromptDisposition`）
+
+1. extension 的 `/命令` 立即执行（运行中也可以）→ `handled`
+2. 正在压缩 → **抛错**（RPC 返回 error）
+3. `input` 处理器消费了输入 → `handled`
+4. 运行中：必须带 `streamingBehavior`（steer / followUp），进入 pi 的队列 → `queued`
+5. 否则校验模型和认证，必要时先压缩，触发 `before_agent_start` → `started`
+
+RPC 在预检完成时就返回结果，不等运行结束。`steer` / `follow_up` 返回 `handled | queued`，不接受 extension 命令。
+
+**队列**
+
+- steer：当前这批工具调用执行完、下次请求模型之前送达；followUp：agent 本要停下时才送达。模式 `all | one-at-a-time`，默认后者。
+- `queue_update {steering, followUp}` **每次带完整队列**；`clear_queue` 清空并返回两队内容。
+- pi 按文本匹配来移除已送达的队列项（不稳）。
+
+**重试**
+
+- 可重试的助手错误（过载、限流、5xx；不含上下文超长）：发 `auto_retry_start {attempt, maxAttempts, delayMs, errorMessage}`，写一条省略失败尝试的 `context_edit`，退避后 `continue()`；成功或用尽发 `auto_retry_end {success, finalError?}`。`abort_retry` 可取消。
+- 设置：`retry.maxRetries` 默认 **3**，`retry.baseDelayMs` 默认 2000（`docs/settings.md`）；RPC `set_auto_retry {enabled}`。
+- 上下文超长：省略失败尝试，以 `overflow` 原因压缩后重试一次。
+
+**中断**：`abort()` 依次中止重试、压缩、分支摘要和 agent，**等真正空闲后才返回**。不清队列，要先 `clear_queue`。
+
+**统计**（`get_session_stats` → `SessionStats`）
+
+```ts
+{ sessionFile?, sessionId, userMessages, assistantMessages, toolCalls, toolResults, totalMessages,
+  tokens: { input, output, cacheRead, cacheWrite, total }, cost,
+  contextUsage?: { tokens: number | null, contextWindow: number, percent: number | null } }
+```
+
+- 用量和费用统计**整个文件**（含废弃分支、压缩消耗）。
+- `contextUsage` 是当前分支的估算；压缩后到下一次助手回复前为 null；没有模型时缺省。
+
+## 3. RPC 协议（`src/modes/rpc/rpc-types.ts`、`rpc-mode.ts`；`docs/rpc.md`、`docs/rpc-commands.md`、`docs/json.md`）
+
+**传输**：严格以 LF 分隔的 JSONL（不要用 Node 的 `readline`，它会在 U+2028/2029 处断行）。stdout 只有协议，诊断走 stderr。关闭 stdin 即优雅退出。
+
+**响应**：`{id?, type: "response", command, success, data? | error}`。**每行命令并发处理，响应可能乱序，按 `id` 对应。** `prompt` 在预检后返回，其他命令完成后返回。
+
+**常用命令**
+
+| 命令 | 返回 |
+|---|---|
+| `prompt {message, images?, streamingBehavior?}` | `{disposition}` |
+| `steer` / `follow_up {message, images?}` | `{disposition: handled \| queued}` |
+| `abort` / `clear_queue` | — / `{steering, followUp}` |
+| `get_state` | `{model?, thinkingLevel, isStreaming, isCompacting, steeringMode, followUpMode, sessionFile?, sessionId, sessionName?, autoCompactionEnabled, messageCount, pendingMessageCount}` |
+| `set_model {provider, modelId}` | 完整 `Model`；必须是有认证的可用模型 |
+| `get_available_models` / `get_available_thinking_levels` | `{models}` / `{levels}` |
+| `set_thinking_level {level}` | 按模型能力截断 |
+| `compact {customInstructions?}` | `CompactionResult` |
+| `set_auto_compaction` / `set_auto_retry` / `abort_retry` | — |
+| `bash {command}` | `BashResult`，流式 `bash_execution_update` |
+| `get_session_stats` | 见上 |
+| `get_entries {since?}` | `{entries, leafId}`：按追加顺序，不含文件头；`since` 是排他游标，未知 id 报错；**包含废弃分支和压缩前历史** |
+| `get_tree` | `{tree, leafId}` |
+| `get_messages` | 当前分支**投影后的上下文**（压缩后旧消息已被摘要替换） |
+| `set_session_name {name}` | 写 `session_info`，发 `session_info_changed` |
+| `get_commands` | `{commands: [{name, description?, source: extension \| prompt \| skill, sourceInfo}]}` |
+| `fork {entryId}` / `clone` / `new_session` / `switch_session` | 换会话（见第 1 节） |
+
+**RPC 里没有的**：会话列表、登录 / 登出、设置、标签、会话内树导航、reload。
+
+**事件**
+
+- 所有 `AgentSessionEvent`：`agent_start/end`、`agent_settled`、`turn_start/end`、`message_start/update/end`、`tool_execution_start/update/end`（嵌套调用带 `parentToolCallId`，id 形如 `<parent>/<n>`）、`queue_update`、`compaction_start/end {reason: manual | threshold | overflow}`、`entry_appended`、`session_info_changed`、`thinking_level_changed`、`auto_retry_start/end`、`bash_execution_update`，以及 RPC 专有的 `extension_error`。
+- `message_update` 只带增量（`text_*`、`thinking_*`、`toolcall_*`、`done`、`error`），以 `message_end.message` 为准。
+- **不发事件的条目**：`model_change`（RPC 里根本没有"模型已切换"事件）、压缩和分支摘要条目、标签、bash 消息；`entry_appended` 只覆盖少数 extension 写入。所以镜像条目要在 `agent_settled`、`compaction_end` 和自己的 `set_model` 等命令之后再调一次 `get_entries {since}`。
+
+**并发与锁**
+
+- **会话文件没有锁**：两个进程打开同一文件会各自在自己的叶子后追加，文件里交错成多条分支，互相看不到。只有首次创建用 `wx` 互斥。**宿主必须保证一个会话文件只有一个 pi 进程。**
+- `proper-lockfile` 只用于 `auth.json`、模型存储、包管理和实验性服务端。
+
+**启动**：没有可用模型（没有凭据）时 **RPC 模式直接报错退出**；模型目录在后台刷新，最多 15 秒。
+
+## 4. 模型、认证（`packages/ai/src/types.ts`、`src/core/model-runtime.ts`、`src/core/auth-storage.ts`）
+
+- `Model`：`id, name, api, provider, baseUrl, input: ("text" | "image")[], cost {input, output, cacheRead, cacheWrite}（美元 / 百万 token）, reasoning, thinkingLevelMap?, contextWindow, maxTokens, …`。
+- 身份是 `provider + modelId`。
+- 推理档位：`off | minimal | low | medium | high | xhigh | max`（`packages/agent/src/types.ts`）；每个模型支持的由 `getSupportedThinkingLevels(model)` 决定，不支持推理的只有 `off`。
+- 凭据：`~/.pi/agent/auth.json`，用 `proper-lockfile` 加锁；`{type: "api_key", key?, env?}` 或 `{type: "oauth", refresh, access, expires, …}`，每个服务商一条。环境变量里的 key 也认。
+- **登录只有终端界面的 `/login`，没有 RPC 命令。** 查状态可用 `pi auth check --provider X --json`。宿主可以在锁下写 `auth.json`，或在启动 pi 前设环境变量；OAuth 流程由 `ModelRuntime.login(providerId, type, interaction)` 实现。
+
+## 5. extension 与宿主相关的部分（`src/core/extensions/types.ts`、`docs/rpc-extension-ui.md`）
+
+- **对话框**：`extension_ui_request {id, method}`，`select {title, options, timeout?}`、`confirm {title, message, timeout?}`、`input {title, placeholder?, timeout?}`、`editor {title, prefill?}`；回 `extension_ui_response {id, value} | {id, confirmed} | {id, cancelled: true}`。超时在 pi 侧按默认值结束，迟到的回答被忽略。**不写进会话文件。**
+- **单向通知**：`notify {message, notifyType?}`、`setStatus`、`setWidget`、`setTitle`、`set_editor_text`。RPC 模式下 `custom()` 等终端专用方法不起作用。
+- **写会话**：`pi.appendEntry(customType, data)` 写 `custom` 条目并发 `entry_appended`；`pi.sendMessage` 写 `custom_message`（可 `triggerTurn`、`deliverAs: steer | followUp | nextTurn`）。
+- **可挂的钩子**（部分）：`session_start`、`session_before_switch/fork/compact`（可取消）、`input`、`before_agent_start`、`agent_before_settle`、`turn_end`、`message_end`、`context`、`before_provider_request`、`tool_call`（改参数或 `{block, reason}`）、`tool_result`。只有 `AgentSessionEvent` 那一部分会出现在 RPC 的 stdout。
+- **审批**（MVP 2）：做成 extension，在 `tool_call` 里调 `ctx.ui.confirm`，宿主收到的就是一个对话框请求。
+
+## 6. 实验性多客户端服务端（`packages/server`、`client`、`protocol`、`durable`、`chord`）
+
+只借鉴设计，不直接用：需要 `PI_EXPERIMENTAL=1 pi server`，不在 npm 包里，存储是 SQLite（`~/.pi/server/<id>/session.sqlite`），id 是数字，分叉 = 复制成新会话，和 JSONL 会话不兼容。
+
+值得借鉴的：
+
+- **拓扑**：协调进程负责路由；每个会话一个 worker 进程，用 `proper-lockfile` 锁会话目录，是唯一写者；多个客户端可以挂到同一个会话。
+- **路由围栏**：挂接后服务端分配 `attachmentId`，迟到的旧路由帧被拒绝。
+- **同步引擎 Chord 的 `ReplicatedState`**：生产者每次 `change()` 产生一个原子版本；订阅时先原子地拿一份完整快照，缓冲之后的更新，再流式推送带序号的增量批次（`r / s / d / p / m / a / t` 操作）；不允许缺口，积压超过 100 条就发 `{type: "reset", snapshot}`；断线后副本变为未就绪，重新拉取。
+- **提交状态**：`queued → placed {entry} → done {entry, answer} | unanswered {reason}`，可带 `requestId` 去重；`AgentController.prompt` 返回 `operationId`，`waitForPrompt(operationId)` 等结果。
+- **实时状态文档 `pi.live`**：`run`（运行中才存在）、`generation {attempt, message, retry?}`、`tools: [{callId, name, status: pending | running | done, output?, details?}]`、`compactions`。Atrium 的 SessionRuntime 可以参照这个形状。
