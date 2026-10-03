@@ -1,6 +1,6 @@
 # 事件模型
 
-> 状态：草案。先覆盖基础对话，权限确认、模式切换等以后再加。
+> 状态：**已被取代**。MVP 1 的命令和事件以 [SPEC-0001 · 接口与数据](../specs/0001-mvp1-single-session-chat.md#接口与数据) 为准，对应的类见 [领域模型](domain-model.md)。下面是早期草案，仅作历史参考；协议定稿后整体重写本文。
 
 Atrium 协议是 UI 和宿主之间的唯一契约，经 WebSocket 传输，在 `packages/protocol` 里用 zod 定义，两端共用并做运行时校验（见 [ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)）。
 

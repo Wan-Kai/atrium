@@ -190,7 +190,7 @@ Electron 主进程
 - 主干默认取 `origin/HEAD` 指向的分支，每个项目可以单独修改。比较对象用远程分支（如 `origin/main`），宿主在后台定期 `git fetch`（窗口获得焦点时、每隔几分钟），因为合并常在 GitHub 上完成，本地 `main` 可能还没更新。
 - 判断已合并，按顺序：
   1. 分支已在主干历史中（`git merge-base --is-ancestor`）→ 已合并。覆盖普通 merge 和快进。
-  2. 否则用 `git merge-tree --write-tree <主干> <分支>` 在内存中模拟合并，结果与主干的 tree 相同 → 已合并。覆盖 squash、rebase、cherry-pick；主干之后改了别处不影响判断；主干回滚了该改动则判为未合并。模拟合并有冲突，一律视为未合并。需要 git 2.38 以上。
+  2. 否则用 `git merge-tree --write-tree <主干> <分支>` 模拟合并（不改工作区和 index，但会在仓库里创建 git 对象），结果与主干的 tree 相同 → 已合并。覆盖 squash、rebase、cherry-pick；主干之后改了别处不影响判断；主干回滚了该改动则判为未合并。模拟合并有冲突，一律视为未合并。需要 git 2.38 以上。
 - 区分"无改动"和"已合并"：刚建好的 worktree 分支天然在主干历史里，只看第 1 步会误判为已合并。Atrium 新建 worktree 时记下起点提交；分支最新提交仍等于起点 → 无改动，离开过起点后又进入主干 → 已合并。外部 worktree 没有记录起点，看分支的 reflog 里有没有过它自己的提交。
 - 计算时机：不持续监听文件。对相关的 worktree 重算：其中的会话一次运行结束时、窗口获得焦点时、后台 `git fetch` 之后（只重算 `↑N` 和已合并，不跑 `git status`）。已合并的判断结果按"分支提交 + 主干提交"缓存；同时最多跑 4 个 git 命令。
 - 成本：`git status` 最贵（大仓库可能几百毫秒），其余都是毫秒级。
@@ -252,7 +252,7 @@ Electron 主进程
 
 - 显示当前工作区"打开着的"会话，每个标签是一个会话：标题、非空闲时的状态图标、关闭按钮。关闭标签只是收起，会话保留在"历史"里。
 - "+"在当前工作区新建会话（在"对话"里则新建对话）；"历史 ⌄"列出这个工作区的全部会话（状态、时间、是否已打开），点击即在标签页中打开。
-- 右侧是显示模式和"···"：重命名、归档、复制会话文件路径、在终端中继续（复制 `pi --session <文件>`）。
+- 右侧是显示模式和"···"：重命名、归档、复制会话文件路径、在终端中继续（交接给终端：Atrium 先停止并释放这个会话，再复制 `pi --session <文件>`，见"关键流程"）。
 - 标签多了先压缩到最小宽度（约 96px），再放不下就横向滚动，两端渐隐提示还有更多。
 - 快捷键：⌘T 在当前工作区新建会话，⌘W 关闭标签，⌘1–9 切到第几个，⌘⇧[ / ⌘⇧] 切到上一个 / 下一个。
 - 会话可以在后台运行：切换标签、切换工作区、关闭标签都不会中断它，状态显示在侧栏、收件箱和"历史"里。每个会话本来就是独立的 pi 进程，多个会话可以同时运行；要停下，打开它点"停止"。
@@ -284,7 +284,7 @@ Electron 主进程
 - 按回车：agent 空闲时直接发送；运行中进入排队。⌘+回车：直接插话。
 - 排队中的消息收在输入框上方的胶囊条里（见"输入框"），可以编辑、删除、点"插话"。
 - 插话调用 pi 的 `steer`：在 agent 当前这批工具调用执行完、下一次请求模型之前送达，不是立刻打断。界面上标注"下一步前送达"；要立刻停下用"停止"。
-- 排队由宿主管理，不使用 pi 的 `follow_up` 队列：本次运行结束（`agent_settled`）后，宿主依次把下一条作为 `prompt` 发出。这样编辑、删除、调整顺序都由 Atrium 控制。
+- 排队由宿主管理，不使用 pi 的 `follow_up` 队列：本次运行结束（`agent_settled`），或上一条输入被 extension 直接处理（`handled`）后，宿主依次把下一条作为 `prompt` 发出。这样编辑、删除、调整顺序都由 Atrium 控制。
 - 停止后，排队暂停、不自动发出，由你决定继续发送还是清掉。
 - 空闲时按 ⌘+回车，等同于普通发送。
 - 排队只放在宿主内存里，宿主重启后丢失。
@@ -298,7 +298,7 @@ Electron 主进程
 
 - 提问导航条（Paseo）：消息流右边缘一列细横条，每条对应一次提问，当前所在的加长；悬停放大并预览提问内容，点击跳转。窗口太窄时隐藏。
 - 平滑流式输出（Paseo）：增量到达是一阵一阵的，按积压量调节显示速度（约 150ms 内追平），不按到达直接绘制；复制、选择、滚动都以完整文本为准。
-- 每轮改动汇总（Claude 桌面端、Zed）：回复下方的信息行加"改了 N 个文件 +A −D"，点开列出文件，点文件展开对应的 diff。由这一轮 edit / write 工具的结果统计，不依赖文件系统面板。
+- 每轮改动汇总（Claude 桌面端、Zed）：回复下方的信息行加"改了 N 个文件 +A −D"，点开列出文件，点文件展开对应的 diff。由这一轮 edit / write 工具的结果统计，不依赖文件系统面板。语义是"已观测到的工具修改"：`edit` 有增删行，`write` 只列文件（没有旧内容，不编数字），通过 bash 等方式的改动统计不到；多次编辑同一文件是累计编辑量，不是净改动。
 - 运行中实时计时：过程标题行显示"进行中 · 12s"。
 - 回复的"···"：复制为 Markdown；整个会话"导出为 Markdown"。
 - 可选（MVP 1 有余力再做）：⌘F 会话内搜索（高亮命中、上下跳转）；选中回复中的文字后浮出"引用"，插入输入框作为引用块。
@@ -314,7 +314,7 @@ Electron 主进程
 
 - 停在底部时跟随新内容；向上翻时停止跟随，右下角出现"↓ 回到底部"，有新内容时带一个小圆点。
 - 打开会话时先渲染最近 20 轮，顶部"加载更早的消息"；以后需要再做虚拟列表。
-- 恢复的历史会话：每轮用时由消息时间戳推算；TTFT、输出速度这类只有实时计时才有的数据显示"—"。
+- 恢复的历史会话：每轮用时由消息时间戳推算，是近似值；TTFT、输出速度这类只有当场计时才有的数据，宿主存活期间保留，宿主重启后显示"—"。
 
 **回复渲染**：要完整，同时尽量轻。调研了 Paseo（移动端 `react-native-markdown-display`，基于 markdown-it，加 mermaid）、pi 自身（终端里用 marked + highlight.js）、LobeChat / Open WebUI（GFM、代码高亮、KaTeX、Mermaid 齐全），以及专门处理流式输出的库（Streamdown、Incremark、markstream）。
 
@@ -334,7 +334,7 @@ Electron 主进程
 
 **输入框**：提示文字为"发消息或描述任务，@ 引用文件，/ 使用命令"；左下角是"+"菜单；右下角是模型选择、发送 / 停止。内边距 14px，底栏与文字区间隔 10px。附件显示成文件卡片或小胶囊。MVP 1 不显示审批相关的标签（工具调用照常直接执行）；MVP 2 加审批模式选择器时再定位置。
 
-- 模型选择按钮：胶囊形，服务商官方图标 + 模型名 + 档位字（低 / 中 / 高 / 极高）。推理强度由整个按钮的"点阵密度"表达：按钮里铺一层圆角方点（间距 6px），档位越高从左往右铺得越满、越亮，切换时平滑过渡。
+- 模型选择按钮：胶囊形，服务商官方图标 + 模型名 + 档位字。档位由 pi 按模型给出（pi 共有 off / minimal / low / medium / high / xhigh / max，各模型支持的不同），界面按实际档位数画格子，常见的四档显示为低 / 中 / 高 / 极高。推理强度由整个按钮的"点阵密度"表达：按钮里铺一层圆角方点（间距 6px），档位越高从左往右铺得越满、越亮，切换时平滑过渡。
   - 拉满（极高）时有专属效果：点阵变成蓝 → 青 → 桃的彩色，带随机明暗（种子与"开始设置"按钮相同，每人不同）和轻微闪烁；每 3.6 秒有一道"\"方向的光从左扫过（约 0.9 秒，先加速后减速）；按钮外圈泛出淡蓝光，档位字变成渐变色。减弱动态效果时只保留静态彩色点阵。
   - 点开在上方弹出面板：上半部分是模型列表，按已登录的服务商分组（组名带官方图标），每行只写模型名和基础数据（上下文、最大输出、是否支持图片），不写介绍；当前模型带对勾，选中即关闭。下半部分是推理强度：一个横向的框（高 38px，每档约 56px 宽，档位多时框跟着变长），框的背景就是点阵，覆盖到第几格就是第几档；框内用细竖线分出档位数，左侧写当前档位名，右侧写"3 / 4"。框在面板里水平居中，下方说明文字也居中。按住框左右拖动，覆盖边缘跟手移动，拉过两端有橡皮筋阻尼；松手后按弹簧动画（response 0.38s、阻尼 0.72，略带回弹）吸附到最近一档；直接点某一格会弹到那一格；←→ 每次一档，到头再按会轻轻顶一下。档位名切换时新字沿拖动方向滑入。拉满时框内变成彩色点阵、带扫光和外圈淡蓝光。下面一句说明当前档位适合什么。调整不关闭面板，按钮上的点阵同步变化。
   - 模型来自 pi 的 `get_available_models`，档位来自 `get_available_thinking_levels`，模型不支持的档位不显示。
@@ -354,7 +354,7 @@ Electron 主进程
 - 胶囊条（参考 Paseo、Zed）：输入框上方一行浮动的小胶囊，替代原来叠在输入框上的排队列表：
   - "● 排队 N"：点开在上方弹出排队面板（编辑、删除、改为插话；停止后显示"继续发送"）；有新消息进入排队时自动展开。
   - "N 条插话将在下一步前送达"。
-  - "本会话改动 +A −D"：点开列出本会话改过的文件，点文件跳到改动它的那一轮并展开 diff。
+  - "本会话改动 +A −D"：点开列出本会话改过的文件，点文件跳到改动它的那一轮并展开 diff。口径同"每轮改动汇总"（已观测到的工具修改）。
   - 消息流在输入框上方约 64px 内渐隐，胶囊浮在渐隐区上。
 - 发送按钮：有内容时是深色实心圆（与正文同色），空时是浅灰。
 - 不做：排队拖拽排序。以后：收藏模型与快速切换、语音输入、新会话时选择"当前工作区 / 新建 worktree"。
@@ -366,7 +366,7 @@ Electron 主进程
 | 分组 | 默认 | 摘要 | 详情卡片 | 数据来源 |
 |---|---|---|---|---|
 | 会话统计 | 显示 | "N 轮 N 步 · 48 tok/s" | 模型用时、首 token 平均（TTFT）、输出速度（TPS） | 宿主计时：模型用时累计每次请求从发出到 `message_end`；TTFT 是发出请求到第一个增量；TPS 是最近一次回复的输出 token ÷ 流式输出时长 |
-| Token 用量 | 显示 | "1.3M tok · 缓存命中 73%" | 总量；缓存命中、未缓存输入、缓存读取、缓存写入、输出（其中推理） | `get_session_stats` 的 `tokens`；每条助手消息的 `usage`。缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`） |
+| Token 用量 | 显示 | "1.3M tok · 缓存命中 73%" | 总量；缓存命中、未缓存输入、缓存读取、缓存写入、输出（其中推理） | `get_session_stats` 的 `tokens`：统计的是整个会话文件，含其他分支和压缩消耗，详情卡片标明"本会话累计"；当前分支各轮之和另算。每条助手消息的 `usage`。缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`） |
 | 上下文 | 显示 | 圆环 + "42%" | "上下文已用 42% · ~84K / 200K"；分段彩色条与图例：系统提示词、工具定义、对话消息 | 见下文"上下文分段"。超过 70% 变黄、超过 85% 变红；压缩后到下一次回复前显示"—" |
 | 费用 | 不显示 | "≈ $0.45" | 按 API 价格折算，订阅用户不实际付费 | `get_session_stats` 的 `cost` |
 
@@ -424,62 +424,76 @@ Electron 主进程
 
 ### 关键流程
 
-- **工作区与会话列表**：宿主用 `git worktree list` 列出项目的工作区（本地工作区 + 各 worktree）。pi 的 RPC 没有列出历史会话的命令，宿主直接读 `~/.pi/agent/sessions/--<路径>--/*.jsonl`（Paseo 也是这样做的），按会话所在目录归到对应的工作区，从中取会话 id、时间、会话名和第一条用户消息（按"侧栏 · 命名"得出标题）。Atrium 自己只保存索引（见"侧栏 · 概念关系"）。
-- **恢复会话**：以 `--session <文件>` 启动 pi，再用 `get_messages` 取回当前分支的消息，渲染出历史对话。
+对象和关系见 [领域模型](../architecture/domain-model.md)；以下关于 pi 的行为已对照 pi 1.0.1（提交 `4c6fb7c`）的源码核实。
+
+- **工作区与会话列表**：宿主用 `git worktree list` 列出项目的工作区（本地工作区 + 各 worktree）。pi 的 RPC 没有列出历史会话的命令，宿主直接读 `~/.pi/agent/sessions/--<路径>--/*.jsonl`（Paseo 也是这样做的），按文件头里的 `cwd` 归到对应的容器，从中取会话 id、时间、会话名和第一条用户消息（按"侧栏 · 命名"得出标题）。会话以 pi 的会话 id 为主键，文件路径只做定位；同一个 id 扫到多个文件时报告冲突。Atrium 自己只保存索引（见"侧栏 · 概念关系"）。
+- **新建会话**：pi 创建会话时立即分配 id，但在第一条用户消息之前不写出文件。这期间的会话是"草稿"，只有宿主记得；写出文件后发 `session_bound`。
+- **恢复会话**：以 `--session <文件>` 启动 pi，用 `get_entries` 取回全部条目，按 `id / parentId` 和 `leafId` 沿当前分支重建对话记录。**不用 `get_messages`**：它返回的是送给模型的上下文，压缩之后旧消息已被摘要替换。之后用 `get_entries(since)` 增量更新，同时单独跟踪 `leafId`（条目没有增加时叶子也可能变）。pi 恢复时使用文件头里的 `cwd`；该目录不存在时报"恢复失败：目录不存在"，不换目录。
 - **流式输出**：`message_update` 里的 `text_delta` 和 `thinking_delta` 追加到对应的内容块；`message_end` 到达时，用完整消息替换拼接结果。
-- **运行结束**：以 `agent_settled` 为准，而不是 `agent_end`，因为 pi 在 `agent_end` 之后还可能自动重试或压缩。
-- **运行中继续输入**：宿主维护排队，`agent_settled` 后依次发出；插话调用 `steer`（见上文"对话区"）。
-- **中断**：先 `clear_queue`，再 `abort`。否则已经插话、还没送达的消息会让运行继续下去（Paseo 踩过这个坑）。宿主自己的排队暂停，不自动发出。
-- **图片**：粘贴或拖入的图片转成 base64，放进 `prompt` 的 `images` 字段。只有当前模型的 `input` 包含 `image` 时才允许添加图片，否则提示当前模型不支持。
+- **提交输入**：`prompt` 的回应有三种：`started`（启动了运行）、`queued`（运行中被 pi 排进去）、`handled`（被 extension 命令或输入处理器消费，没有运行）。`handled` 视为这条输入已完成。
+- **运行结束**：以 `agent_settled` 为准，而不是 `agent_end`，因为 pi 在 `agent_end` 之后还可能自动重试或压缩。`agent_settled` 只表示"不会再自动继续"，成功、失败、被停止要看实际事件单独判断。
+- **运行中继续输入**：宿主维护排队；上一条输入 `handled`，或运行 `agent_settled` 后，依次发出下一条。插话调用 `steer`（见上文"对话区"）。出队和停止由同一个会话控制器串行处理。
+- **中断**：宿主先暂停出队，再对 pi `clear_queue`、`abort`。否则已经插话、还没送达的消息会让运行继续下去（Paseo 踩过这个坑）。宿主自己的排队保留并暂停，不自动发出。
+- **进程崩溃**：运行状态回到空闲，排队暂停，已插话但未确认送达的消息退回排队，未回答的对话框作废，记录一条失败，通知界面。重新打开会话时不自动重放结果未知的上一条输入。
+- **图片**：粘贴或拖入的图片转成 base64，放进 `prompt` 的 `images` 字段。只有当前模型的 `input` 包含 `image` 时才允许添加图片，否则提示当前模型不支持。文件引用和粘贴内容在发送时展开进 `text`；历史消息里不保证还原成小胶囊。
 - **工具卡片**：
   - `bash`：显示命令和输出，输出随 `tool_execution_update` 实时刷新
   - `read`：显示文件路径和行范围
   - `edit`：用结果里的 `details.diff` 显示 diff
-  - `write`：显示文件路径和写入的内容
+  - `write`：显示文件路径和写入的内容（没有旧内容，不显示增删行）
   - 其他工具（包括 MCP 工具）：显示工具名、参数和结果文本
-- **上下文分段**：总量用 `get_session_stats` 的 `contextUsage.tokens`（pi 的实际值）。系统提示词和工具定义从会话记录还原：pi 在第一次请求时把提示词的各个分段（`sections`）和工具声明（`toolsAdded`）写成一条系统消息，之后的变化也写成系统消息（按名字修改分段、`toolsAdded` / `toolsRemoved`）；压缩条目里存有完整的检查点（`systemMessage`）。宿主用 `get_entries`（可用 `since` 增量获取）拿到条目，沿当前分支回放，得到当前的提示词和工具集，再按字符数估算 token；对话消息 = 总量 − 系统提示词 − 工具定义。分段数字标"~"，总量不标。新会话在第一次请求前没有系统消息，只显示总量。（依据 pi 文档 `session-format.md` 与 `rpc-mode.ts` 中 `get_entries` 的实现，实施时用真实会话验证。）
-- **对话框**：pi 发出 `extension_ui_request` 时，对话框类（`select` / `confirm` / `input` / `editor`）显示为卡片，回答后发 `extension_ui_response`；带超时的显示倒计时。单向通知类（`notify` 等）暂时只记录、不显示。
-- **断线重连**：UI 重连后，宿主发一份当前会话的快照（消息列表和运行状态），再接着推送后续事件。
+  - 同一批里的工具调用可能并行，每个调用各自显示状态
+- **上下文分段**：总量用 `get_session_stats` 的 `contextUsage.tokens`，它可能为空，也可能是 pi 的估算值，为空时显示"—"。系统提示词和工具定义从会话记录还原：pi 在第一次请求时把提示词的各个分段（`sections`）和工具声明（`toolsAdded`）写成一条系统消息，之后的变化也写成系统消息（按名字修改分段、`toolsAdded` / `toolsRemoved`）；压缩条目里存有完整的检查点（`systemMessage`）。宿主沿当前分支回放这些条目，得到当前的提示词和工具集，再按字符数估算 token；对话消息 = 总量 − 系统提示词 − 工具定义。分段数字标"~"。新会话在第一次请求前、以及没有系统消息的旧会话，只显示总量。
+- **对话框**：pi 发出 `extension_ui_request` 时，对话框类（`select` / `confirm` / `input` / `editor`）显示为卡片，回答后发 `extension_ui_response`；带超时的显示倒计时。对话框可能出现在一次运行之外，由宿主按会话保存（pi 不把它写进会话文件），所以"问题 → 回答"只在宿主存活期间保留。有未回答对话框的会话不回收进程；多个客户端同时回答，只接受第一个。单向通知类（`notify` 等）保留原文、暂时不显示。
+- **在终端中继续**：pi 没有跨进程的写锁，两个进程同时写一个会话会悄悄分叉。所以这是一次交接：Atrium 停止接受该会话的写命令并回收进程，再给出 `pi --session <文件>`；用户回到 Atrium 时重新加载。发现会话文件被外部改过时，提示重新加载。
+- **断线重连**：先发 `index_snapshot`（项目、工作区、各会话的派生状态、该客户端的布局），再对正在运行的会话和该客户端打开着的会话各发一份 `session_snapshot`（对话记录、流式中的消息、工具状态、排队、未回答的对话框、指标、最近失败），每份快照带 `epoch + revision`，之后只应用更新的事件。断线不自动重发结果未知的命令。
 
 ## 接口与数据
 
-以下是草案，实施时补全字段，定稿后同步到 [事件模型](../architecture/event-model.md)。
+以下是草案，实施时补全字段。本节取代 [事件模型](../architecture/event-model.md) 里的早期草案。
+
+所有会话命令都带 `sessionId` 和客户端生成的 `requestId`；连接上没有隐式的"当前会话"。所有会话事件都带 `sessionId`、`epoch`（进程代次）和 `revision`（会话内单调递增）。命令落到哪个类，见 [领域模型 · 协议与类的对应](../architecture/domain-model.md#8-协议与类的对应)。
 
 **命令（UI → 宿主）**
 
 | 命令 | 说明 |
 |---|---|
-| `list_projects` / `open_project(path)` | 最近的项目、打开项目 |
-| `list_workspaces(projectPath)` / `list_sessions(workspaceId)` / `list_chats()` | 项目下的工作区、工作区下的会话、对话 |
-| `rename_project(projectId, name)` | 重命名项目；与已有项目重名时返回错误 |
-| `create_session(workspaceId)` / `create_chat()` / `open_session(sessionFile)` / `close_session()` | 会话生命周期：新会话以工作区目录为工作目录；新对话新建 `~/.atrium/chats/<id>/` 作为工作目录 |
-| `rename_session(sessionId, name)` / `rename_workspace(workspaceId, name \| null)` | 重命名会话（写回 pi 的会话名）、工作区（只改 Atrium 索引，`null` 恢复为分支名） |
-| `prompt(text, images?)` | 发消息；运行中则进入宿主的排队 |
-| `steer(text, images?)` | 直接插话（⌘+回车） |
-| `update_queued(id, text)` / `remove_queued(id)` / `steer_queued(id)` | 编辑、删除排队消息，或把它改为插话 |
-| `respond_dialog(id, value)` | 回答 extension 的对话框 |
-| `interrupt()` | 中断 |
-| `list_models()` / `set_model(id)` / `set_thinking_level(level)` | 模型和推理强度 |
-| `list_commands()` | `/` 命令列表（pi 的 `get_commands`） |
-| `search_files(workspaceId, query)` | `@` 引用的候选文件和目录（`git ls-files` 模糊匹配） |
-| `check_setup()` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install()` / `login(provider)` / `set_api_key(provider, key)` | 首次启动：检查 pi、Node.js、模型登录、项目；一键安装和更新（输出通过 `install_output` 事件推送）；登录 |
+| `list_projects` / `add_project(path)` / `remove_project(id)` / `rename_project(id, name)` | 项目登记；移除只删索引；与已有项目重名时返回错误 |
+| `list_workspaces(projectId)` / `rename_workspace(workspaceId, name \| null)` / `window_focused()` | 工作区；`null` 恢复为分支名；窗口获得焦点时触发合并状态重算 |
+| `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话 |
+| `create_session(workspaceId)` / `create_chat()` / `open_session(sessionId)` | 新建或打开会话：新会话以工作区目录为工作目录；新对话新建 `~/.atrium/chats/<dirId>/` |
+| `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |
+| `archive_session(sessionId)` / `rename_session(sessionId, name)` / `hand_off(sessionId)` | 归档（只改索引）；重命名（写回 pi 的会话名）；交给终端 |
+| `prompt(sessionId, text, attachments?)` | 发消息；运行中则进入宿主的排队 |
+| `steer(sessionId, text, attachments?)` | 直接插话（⌘+回车） |
+| `stop(sessionId)` | 停止：暂停出队，再 `clear_queue` + `abort` |
+| `resume_queue(sessionId)` / `clear_queue(sessionId)` | 继续发送或清空宿主的排队 |
+| `update_queued` / `remove_queued` / `steer_queued(sessionId, itemId, ...)` | 编辑、删除排队消息，或把它改为插话 |
+| `answer_interaction(sessionId, interactionId, value)` | 回答 extension 的对话框；已被别的客户端回答时返回"已回答" |
+| `set_model(sessionId, providerId, modelId)` / `set_thinking_level(sessionId, level)` | 模型和推理强度 |
+| `list_models()` / `list_commands(dir)` | 模型与推理档位、`/` 命令（不依赖会话进程） |
+| `search_files(dir, query)` | `@` 引用的候选文件和目录（git 仓库用 `git ls-files`，其余按忽略规则遍历） |
+| `check_setup()` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install()` / `login(provider)` / `cancel_login()` / `set_api_key(provider, key)` | 首次启动：检查、一键安装和更新、登录 |
 
 **事件（宿主 → UI）**
 
 | 事件 | 说明 |
 |---|---|
-| `session_snapshot` | 打开会话或重连时的完整状态 |
-| `run_started` / `run_settled` | 一次运行的开始与彻底结束 |
+| `index_snapshot` | 连接或重连时的全局快照：项目、工作区、各会话派生状态、该客户端的布局 |
+| `session_snapshot` | 打开会话或重连时的会话快照，带 `epoch + revision` |
+| `session_bound` | 草稿会话写出了文件 |
+| `run_started` / `run_settled` | 一次运行的开始与彻底结束（`run_settled` 带结果：完成 / 停止 / 失败） |
+| `prompt_handled` | 输入被 extension 直接处理，没有启动运行 |
 | `message_started` / `text_delta` / `reasoning_delta` / `message_finished` | 助手消息的流式输出，`message_finished` 携带完整消息 |
-| `tool_started` / `tool_updated` / `tool_finished` | 工具调用，`tool_finished` 携带 `content` 和 `details` |
-| `queue_updated` | 排队中的消息 |
-| `install_output` / `install_finished` | 安装、更新的实时输出和结果 |
-| `session_renamed` / `workspace_updated` | 会话标题变化（手动重命名或自动生成）、工作区名称或合并状态变化 |
-| `metrics_updated` | 状态栏各分组的最新取值（含上下文分段估算、TTFT、模型用时） |
-| `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试等 |
-| `dialog_requested` / `dialog_resolved` | extension 对话框 |
+| `tool_started` / `tool_updated` / `tool_finished` | 工具调用，带调用 id；`tool_finished` 携带 `content` 和 `details` |
+| `queue_updated` | 排队中的消息及暂停状态 |
+| `interaction_requested` / `interaction_resolved` | extension 对话框；`resolved` 带结果：已回答 / 超时 / 作废 |
+| `install_output` / `install_finished` / `login_updated` | 安装、更新、登录的进度和结果 |
+| `session_renamed` / `session_status_changed` / `workspace_updated` | 会话标题、派生状态、工作区名称或合并状态变化 |
+| `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知） |
+| `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试；extension 通知原文 |
 | `session_exited` | pi 进程退出，带原因 |
-| `error` | 错误 |
+| `error` | 错误，带对应的 `requestId` |
 
 ## 备选方案
 
