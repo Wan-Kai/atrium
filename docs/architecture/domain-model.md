@@ -198,6 +198,7 @@ classDiagram
 - **TranscriptProjection** 是给对话区看的投影：沿当前分支把条目组织成 Atrium 的"轮"。注意 pi 的 turn 是"一次助手响应及其工具执行"，比 Atrium 的一轮小；Atrium 的一轮 = 一条用户消息到下一条用户消息之间的全部内容。MVP 1 不展示会话树，但底层按树建模，以后加会话树、分叉不用重来。
 - **ContextBreakdown** 给状态栏用，是估算值：总量来自 `get_session_stats().contextUsage`（可能为空或是估算）；系统提示词和工具定义沿当前分支回放系统消息与压缩检查点得出；没有系统消息的旧会话只显示总量。MVP 2 的上下文检查器要的是"每次实际发出的请求"，另由 extension 捕获，不从这里升级。
 - **Notice** 里 `extension` 类型保留无法识别的 extension 通知原文，MVP 1 只记录不显示，MVP 2 的"带标记的通知"从这里接入。
+- **Notice** 还用来显示"正在重试（第 N / 3 次）"和"进程已自动重启"。
 - **InteractionStep** 只是对话记录里"问题 → 回答"的展示，活着的请求见下一节的 PendingInteraction。pi 不把对话框写进会话文件，所以这一步只在宿主存活期间存在。
 - **ToolStep** 各自带状态，同一批里的工具调用可以并行，不假设前一个结束后一个才开始。
 - **改动汇总**不建类，语义是"已观测到的工具修改"：`edit` 有 diff，显示增删行；`write` 显示写入内容，增删行未知时不显示数字；通过 bash 等其他方式的改动统计不到。多次编辑同一文件是累计编辑量，不是净改动。
@@ -224,6 +225,7 @@ classDiagram
       lifecycle: initializing | idle | running | error | closed
       stopping: bool
       attention?: Attention
+      restartAttempts
       model: ModelRef
       thinking
     }
@@ -327,7 +329,7 @@ classDiagram
 
 **进程崩溃**
 
-统一处理：进入 `error`，排队暂停（已调用 `steer` 但未确认送达的插话退回排队），待交互请求作废，设上关注状态（原因 `error`），发 `session_exited`。下一次打开时重新启动进程。
+统一处理：排队暂停（已调用 `steer` 但未确认送达的插话退回排队），待交互请求作废，发 `session_exited`；然后按"已决定 6"自动重启，最多连续 3 次。3 次都失败才进入 `error`、设上关注状态（原因 `error`）。
 
 **指标的范围**
 
@@ -616,6 +618,7 @@ classDiagram
 | `index_snapshot` / `project_update` / `workspace_update` / `session_update`（带 `generation + seq`） | ProjectService、WorkspaceService、SessionManager |
 | `session_snapshot` / `message_*` / `tool_*` / `run_started` / `run_settled` / `interaction_*` / `notice` / `session_exited` | SessionController（经 EventTranslator） |
 | `session_bound` | SessionManager：草稿会话拿到文件后通知 |
+| `session_changed_externally` | SessionCatalog：预留，文件被外部改过 |
 | `queue_updated` / `metrics_updated` | SessionController |
 | `session_renamed` | TitleGenerator 或重命名命令 |
 | `install_*` / `login_*` | SetupService |
@@ -627,10 +630,10 @@ classDiagram
 3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档、交给终端或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。
 4. **标签页不跨客户端同步**：布局按 `clientId + containerId` 存在索引里。
 5. **会话归属**：Atrium 建的会话创建时记下所属容器；Atrium 没见过的会话按文件头的 `cwd` 归类。
+6. **失败重试 3 次再告诉用户**：模型调用的可重试错误交给 pi 自带的重试（宿主确保开启、次数为 3）；进程崩溃由 SessionController 自动重启，最多连续 3 次，崩溃前那条输入没写进会话就重新提交，已写进就补发一条"继续"；认证失败、目录不存在不重试。3 次都失败才设关注状态、显示错误卡片，卡片上的"重试"按同样规则再来一轮。Runtime 里加 `restartAttempts` 计数，成功跑完一轮后清零。
+7. **草稿会话保留**：草稿会话记在索引里，宿主重启后恢复成空标签，第一次发消息时才启动进程。
+8. **对话目录不自动清理**：`~/.atrium/chats/` 下的目录由用户自己删。
 
 ## 待定
 
-- [ ] **失败重试**："重试"是重新提交上一条输入，还是调用 pi 的某个命令，实施时确认后再补类。
-- [ ] **草稿会话的保留**：宿主重启后，没发过消息的空标签是否恢复。
-- [ ] **孤儿目录**：新建对话后一条消息都没发就关掉，`~/.atrium/chats/` 下的空目录何时清理。
-- [ ] **外部改动**：发现会话文件被终端 pi 改过时，如何提示重新加载。
+- [ ] **外部改动的处理**：会话文件被终端 pi 改过时怎么提示、怎么合并，等文件区设计时再定。现在只预留口子：SessionCatalog 记录每个文件最后一次读到的大小和修改时间，发现变化时发 `session_changed_externally`，界面暂不处理。
