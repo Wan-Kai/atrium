@@ -412,16 +412,20 @@ svg { flex: none; display: block; }
 .qitem .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
 .qitem input { flex: 1; height: 26px; border: 0; border-radius: var(--r-sm); padding: 0 8px; outline: none; background: var(--main); box-shadow: inset 0 0 0 1px var(--accent), var(--focus); }
 /* 模型选择：按钮 = 服务商图标 + 模型名 + 推理强度的小刻度；面板 = 模型列表 + 推理强度分段 */
-.mpick { --press: .96; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 6px; border: 0; border-radius: var(--r-pill); background: none; color: var(--text-2); font-size: var(--fs-meta); transition: background .15s; }
+.mpick { --press: .96; position: relative; isolation: isolate; overflow: hidden; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 6px; border: 0; border-radius: var(--r-pill); background: none; color: var(--text-2); font-size: var(--fs-meta);
+  box-shadow: inset 0 0 0 1px var(--line); transition: background .15s, box-shadow .5s ease; }
 .mpick:hover, .mpick.on { background: var(--hover); color: var(--text); }
+.mpick canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+.mpick > span { position: relative; z-index: 1; }
 .mpick .logo { width: 20px; height: 20px; border-radius: 6px; overflow: hidden; flex: none; box-shadow: 0 0 0 .5px var(--line); }
 .mpick .logo img { width: 20px; height: 20px; display: block; }
-.mpick .nm { font-weight: 500; }
+.mpick .nm { font-weight: 500; text-shadow: 0 0 6px var(--surface-1), 0 0 2px var(--surface-1); }
+.mpick .lvl { color: var(--muted); font-size: var(--fs-sm); text-shadow: 0 0 6px var(--surface-1), 0 0 2px var(--surface-1); transition: color .4s; }
+[data-theme="dark"] .mpick .nm, [data-theme="dark"] .mpick .lvl { text-shadow: 0 0 6px var(--surface-2), 0 0 2px var(--surface-2); }
 .mpick .chev { display: inline-flex; color: var(--dim); }
-.lv { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
-.lv i { width: 3px; border-radius: 1px; background: var(--line-strong); transition: background .2s; }
-.lv i:nth-child(1) { height: 5px; } .lv i:nth-child(2) { height: 7px; } .lv i:nth-child(3) { height: 9px; } .lv i:nth-child(4) { height: 11px; }
-.lv i.f { background: var(--text-3); }
+/* 拉满（极高）：彩色点阵 + 斜向扫光 + 外圈淡蓝光，档位字用渐变色 */
+.mpick.full { box-shadow: inset 0 0 0 1px rgba(94,132,255,.45), 0 0 16px -4px rgba(94,132,255,.5); }
+.mpick.full .lvl { background: linear-gradient(90deg, #5e84ff, #3fb6b6 55%, #f08a5d); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 600; text-shadow: none; }
 .pop.mpanel { width: 340px; padding: 8px; }
 .mpanel .hd { display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 6px; color: var(--dim); font-size: var(--fs-xs); }
 .mpanel .hd .prov { display: inline-flex; align-items: center; gap: 6px; }
@@ -438,6 +442,15 @@ svg { flex: none; display: block; }
 .seg4 button { --press: .96; height: 30px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: var(--fs-sm); display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .seg4 button:hover { color: var(--text-2); }
 .seg4 button.on { background: var(--surface-1); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 0 0 .5px var(--line); }
+/* 面板四段：每段背景是对应密度的点阵，"极高"是彩色点阵 */
+.seg4 button { position: relative; isolation: isolate; overflow: hidden; }
+.seg4 button::before { content: ''; position: absolute; inset: 0; z-index: -1; background-image: var(--dots); background-size: 6px 6px; background-position: 1px 1px; opacity: calc(.4 + var(--l) * .15);
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(var(--l) * 25% - 10%), transparent calc(var(--l) * 25% + 8%)); mask-image: linear-gradient(90deg, #000 calc(var(--l) * 25% - 10%), transparent calc(var(--l) * 25% + 8%)); }
+.seg4 button.max::before { background-image: var(--dots-color); opacity: 1; -webkit-mask-image: none; mask-image: none; }
+.seg4 button.max { color: var(--accent); }
+:root, [data-theme="dark"] { --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect x='.6' y='.6' width='3.6' height='3.6' rx='1' fill='white' fill-opacity='.2'/%3E%3C/svg%3E"); }
+[data-theme="light"] { --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect x='.6' y='.6' width='3.6' height='3.6' rx='1' fill='black' fill-opacity='.12'/%3E%3C/svg%3E"); }
+:root { --dots-color: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='6'%3E%3Crect x='.6' y='.6' width='3.6' height='3.6' rx='1' fill='%235e84ff' fill-opacity='.32'/%3E%3C/svg%3E"); }
 [data-theme="dark"] .seg4 button.on { background: var(--surface-3); }
 .mpanel .ehint { padding: 8px 10px 4px; color: var(--dim); font-size: var(--fs-xs); }
 /* @ 引用与 / 命令的候选列表 */
@@ -684,7 +697,7 @@ const sysDark = matchMedia('(prefers-color-scheme: dark)');
 const resolved = () => themePref === 'system' ? (sysDark.matches ? 'dark' : 'light') : themePref;
 function applyTheme(animate) {
   const next = resolved();
-  const go = () => { document.documentElement.dataset.theme = next; renderThemeBtn(); renderState(); };
+  const go = () => { document.documentElement.dataset.theme = next; renderThemeBtn(); renderState(); try { chipDots.redraw(); } catch {} };   // 点阵颜色随主题变
   if (animate && document.documentElement.dataset.theme !== next && document.startViewTransition && !REDUCE) document.startViewTransition(go); else go();
 }
 function setThemePref(p) { themePref = p; localStorage.setItem('atrium-theme', p); applyTheme(true); }
@@ -1068,8 +1081,12 @@ function renderComposer(c) {
   send.classList.toggle('is-empty', !isRunning && !document.getElementById('input').value.trim() && !c.attachments.length);
   send.title = isRunning ? '停止' : '发送';
   document.getElementById('comphint').textContent = isRunning ? '回车排队 · ⌘回车插话' : '';
-  const lvl = EFFORTS.findIndex(x => x[0] === model.effort);
-  document.getElementById('modelPick').innerHTML = `<span class="logo"><img src="${MODELS.find(x => x.id === model.id).logo}" alt=""></span><span class="nm">${esc(model.id)}</span><span class="lv" title="推理强度：${EFFORTS[lvl][1]}">${[0, 1, 2, 3].map(k => `<i class="${k <= lvl ? 'f' : ''}"></i>`).join('')}</span><span class="chev">${ph('down', 10)}</span>`;
+  const lvl = EFFORTS.findIndex(x => x[0] === model.effort), mp = document.getElementById('modelPick');
+  if (!mp.querySelector('.nm')) mp.innerHTML = `<span class="logo"><img alt=""></span><span class="nm"></span><span class="lvl"></span><span class="chev">${ph('down', 10)}</span>`;
+  mp.querySelector('.logo img').src = MODELS.find(x => x.id === model.id).logo;
+  mp.querySelector('.nm').textContent = model.id; mp.querySelector('.lvl').textContent = EFFORTS[lvl][1];
+  mp.classList.toggle('full', lvl === 3); mp.title = `模型与推理强度：${EFFORTS[lvl][1]}（⌘⇧I / ⌘⇧E）`;
+  chipDots.set(lvl + 1);
   patch(document.getElementById('attachments'), c.attachments.map((a, i) => attChip(a, `att-${i}-${safe(normAtt(a).name)}`, true, i)).join(''));
 }
 
@@ -1190,6 +1207,51 @@ function openStatusCustomizer() {
   btn.classList.add('on');
   const obs = new MutationObserver(() => { if (!p.isConnected || p.dataset.closing) { document.getElementById('sbCfg')?.classList.remove('on'); obs.disconnect(); } }); obs.observe(document.body, { childList: true, subtree: true, attributes: true });
 }
+// 模型按钮的点阵：档位越高点阵越满越亮；拉满（极高）时点阵变彩色、带随机明暗与闪烁，每隔几秒有一道"\"方向的光扫过
+const chipDots = (() => {
+  const btn = document.getElementById('modelPick');
+  const cv = document.createElement('canvas'), ctx = cv.getContext('2d'), PITCH = 6, SIZE = 3.6, R = 1;
+  let seed = +localStorage.getItem('atrium-dot-seed'); if (!seed) { seed = Math.floor(Math.random() * 1e9) + 1; localStorage.setItem('atrium-dot-seed', seed); }
+  const hash = (x, y) => { let h = (x * 374761393 + y * 668265263 + seed * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+  const sm = t => t * t * (3 - 2 * t);
+  const vn = (x, y) => { const xi = Math.floor(x), yi = Math.floor(y), xf = sm(x - xi), yf = sm(y - yi), a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1); return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf; };
+  const stops = [[94, 132, 255], [120, 214, 214], [255, 170, 120]];
+  const tint = x => { const k = Math.min(1.999, x * 2), i = Math.floor(k), f = k - i, a = stops[i], b = stops[i + 1]; return a.map((v, j) => Math.round(v + (b[j] - v) * f)); };
+  let w = 0, h = 0, level = 0, shown = 0, from = 0, t0 = 0, sweepAt = 0, raf = 0;
+  const SWEEP = 900, EVERY = 3600;
+  function size() { const r = btn.getBoundingClientRect(), d = devicePixelRatio || 1; if (!r.width) return; w = r.width; h = r.height; cv.width = w * d; cv.height = h * d; ctx.setTransform(d, 0, 0, d, 0, 0); kick(); }
+  function draw(now) {
+    raf = 0; if (!w) return;
+    const k = Math.min(1, (now - t0) / 380); shown = from + (level - from) * (1 - Math.pow(1 - k, 3));
+    ctx.clearRect(0, 0, w, h);
+    const dark = document.documentElement.dataset.theme === 'dark', ink = dark ? 255 : 0;
+    const cols = Math.ceil(w / PITCH), rows = Math.ceil(h / PITCH), ox = (w - (cols - 1) * PITCH - SIZE) / 2, oy = (h - (rows - 1) * PITCH - SIZE) / 2, edge = shown / 4;
+    let sp = -1; if (level === 4 && !REDUCE) { const t = (now - sweepAt) % EVERY; if (now >= sweepAt && t < SWEEP) { const x = t / SWEEP; sp = x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; } }
+    for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+      const nx = (i + .5) / cols, m = Math.max(0, Math.min(1, (edge - nx) / .14 + .5)); if (m <= 0) continue;
+      const tone = .45 + .55 * (.6 * vn(i / 3, j / 3) + .4 * vn(i / 1.3 + 9, j / 1.3 + 4));
+      let a, rgb;
+      if (level === 4) {
+        const tw = REDUCE ? 1 : .8 + .2 * Math.sin(now / 280 + hash(i, j) * 6.28);
+        let boost = 0; if (sp >= 0) { const c = -0.4 + sp * 1.8, dd = nx - c - (j / rows - .5) * .35; boost = Math.max(0, 1 - Math.abs(dd) / .18); }
+        a = Math.min(.95, (dark ? .34 : .26) * tone * tw * m + boost * .65 * tone); rgb = tint(nx);
+      } else { a = (dark ? .07 : .05) * (1 + shown) * tone * m; rgb = [ink, ink, ink]; }
+      if (a < .015) continue;
+      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a.toFixed(3)})`;
+      ctx.beginPath(); ctx.roundRect(ox + i * PITCH, oy + j * PITCH, SIZE, SIZE, R); ctx.fill();
+    }
+    if (k < 1 || (level === 4 && !REDUCE)) raf = requestAnimationFrame(draw);
+  }
+  function kick() { if (!raf) raf = requestAnimationFrame(draw); }
+  return {
+    set(l) {
+      if (!cv.isConnected) { btn.prepend(cv); new ResizeObserver(size).observe(btn); size(); }
+      if (l === level) return kick();
+      from = shown; level = l; t0 = performance.now(); if (l === 4) sweepAt = t0 + 300; kick();
+    },
+    redraw: kick,
+  };
+})();
 // 已登录服务商下可用的模型（来自 pi 的 get_available_models）；推理强度按模型支持的档位（get_available_thinking_levels）
 const MODELS = [
   { id: 'gpt-6-sol', ctx: '400K', out: '128K', image: true, prov: 'ChatGPT 订阅', logo: 'brand/openai.svg' },
@@ -1202,7 +1264,7 @@ function openModelPop(x, y, only) {
     const ms = `<div class="hd"><span class="prov"><img src="brand/openai.svg" alt="">ChatGPT 订阅</span><span>⌘⇧I</span></div>`
       + MODELS.map(m => `<button class="mrow press${m.id === model.id ? ' on' : ''}" data-model="${m.id}"><span class="nm"><b>${m.id}</b><small>上下文 ${m.ctx} · 输出 ${m.out}${m.image ? ' · 支持图片' : ''}</small></span><span class="ck">${m.id === model.id ? ph('check', 13) : ''}</span></button>`).join('');
     const ef = EFFORTS.find(e => e[0] === model.effort);
-    const es = `<div class="hd" style="margin-top:6px"><span>推理强度</span><span>⌘⇧E</span></div><div class="seg4">${EFFORTS.map(([k, l], i) => `<button class="press${k === model.effort ? ' on' : ''}" data-effort="${k}"><span class="lv">${[0, 1, 2, 3].map(j => `<i class="${j <= i ? 'f' : ''}"></i>`).join('')}</span>${l}</button>`).join('')}</div><div class="ehint">${ef[2]}</div>`;
+    const es = `<div class="hd" style="margin-top:6px"><span>推理强度</span><span>⌘⇧E</span></div><div class="seg4">${EFFORTS.map(([k, l], i) => `<button class="press${k === model.effort ? ' on' : ''}${i === 3 ? ' max' : ''}" data-effort="${k}" style="--l:${i + 1}">${l}</button>`).join('')}</div><div class="ehint">${ef[2]}</div>`;
     return only === 'model' ? ms : only === 'effort' ? es : ms + '<div class="sepr" style="margin:8px 6px 2px"></div>' + es;
   };
   const p = openPop(body(), r.right - 340, r.top, 'bottom right', e => {
