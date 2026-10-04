@@ -40,6 +40,7 @@
 | pi 的会话格式、RPC、事件、队列、重试、认证 | [pi-internals.md](research/pi-internals.md) |
 | 同类宿主怎么做、哪些坑已经被踩过 | [paseo-architecture.md](research/paseo-architecture.md) |
 | extension 能做什么（MVP 2） | [pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
+| 前端用什么库、流式回复怎么渲染 | 本文"已定的关键决策"里的"前端技术栈"、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[M1.3](#m13-协议客户端与流式显示) |
 | 颜色、字体、圆角、图标、点阵、动效 | [design-language.md](architecture/design-language.md) |
 | 某个决定为什么这样定 | [ADR](adr/) |
 
@@ -68,7 +69,11 @@
 界面（细节见 [SPEC-0001](specs/0001-mvp1-single-session-chat.md) 和 [design-language.md](architecture/design-language.md)）：
 
 - 视觉对齐 DeepSeek Harness，动效对齐 Apple 弹簧；图标 Phosphor；点阵是贯穿的视觉语言。
-- 回复渲染用 Streamdown（GFM、Shiki、KaTeX、Mermaid、CJK 插件按需加载）。
+- 前端技术栈：
+  - 框架与样式：React + Vite；Tailwind + shadcn/ui。design-language 的颜色、圆角映射到 shadcn 的 CSS 变量（Streamdown 也读这套变量）。
+  - 图标：Phosphor（`@phosphor-icons/react`）。动效不引入动画库，用 CSS `linear()` 弹簧曲线和少量手写弹簧（参数见 design-language "动效"）。
+  - **流式回复渲染：Vercel 的 [Streamdown](https://github.com/vercel/streamdown)**（`streamdown`，调研时 2.7.0），插件 `@streamdown/code`（Shiki 高亮）、`@streamdown/math`（KaTeX）、`@streamdown/mermaid`、`@streamdown/cjk`。它负责补全没写完的语法、按块缓存；选型理由和对比见 [SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"。
+  - 流式节奏：宿主原样转发增量，客户端按积压量平滑揭示（约 150ms 追平，参考 Paseo 的 `text-reveal.ts`），再交给 Streamdown。
 - 会话可在后台运行，多个同时跑；MVP 1 不做审批，不显示审批相关标签。
 
 ### 原型
@@ -144,9 +149,15 @@
   - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId`，事件带 `epoch + seq`。
   - `client`：WebSocket 连接、断线重连、按 `sessionId` 维护 SessionView。
   - SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
-  - UI：用户气泡、回复（Streamdown）、平滑流式揭示、"进行中 · 12s"。
-- **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、§7 客户端与一致性、§8 协议与类的对应、[SPEC-0001 · 接口与数据、回复渲染](specs/0001-mvp1-single-session-chat.md#接口与数据)、原型 `app-prototype.html`、Paseo 的 `packages/app/src/agent-stream/text-reveal.ts`。
-- **完成标准**：`protocol` 的 schema 测试通过；一轮对话在 UI 里完整显示。
+  - UI：用户气泡、回复和推理过程、"进行中 · 12s"。
+  - 流式渲染（选型见上文"前端技术栈"）：
+    - 安装 `streamdown`、`@streamdown/code`、`@streamdown/math`、`@streamdown/mermaid`、`@streamdown/cjk`；引入 `streamdown/styles.css` 和 `katex/dist/katex.min.css`。
+    - Tailwind 的 CSS 里为 `streamdown` 和每个已装插件加 `@source` 指向其 `dist/*.js`；monorepo 里依赖被提升到根目录 `node_modules`，路径按 CSS 文件位置数 `../`。
+    - 用法：`<Streamdown plugins={{ code, math, mermaid, cjk }} isAnimating={正在流式}>{已揭示的文本}</Streamdown>`。回复和推理过程都用它渲染。
+    - 平滑揭示放在 `client` 或 UI 的一个 hook 里：按积压量调节速度，约 150ms 追平；复制、选择、滚动都以完整文本为准。先不开 Streamdown 自带的 `animated`，避免和平滑揭示叠加。
+    - 按 SPEC-0001"回复渲染"的范围配置：数学只认 `$$…$$` 和 `\(…\)`；KaTeX、Mermaid 第一次遇到时才加载；Shiki 主题跟随浅色 / 深色；用 `components` 覆盖 `a`（系统浏览器打开）和 `img`（远程图片点击后才加载）；原始 HTML 不执行。
+- **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、§7 客户端与一致性、§8 协议与类的对应、[SPEC-0001 · 接口与数据、回复渲染](specs/0001-mvp1-single-session-chat.md#接口与数据)、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[design-language](architecture/design-language.md) 的"动效""消息流"、[Streamdown 文档](https://streamdown.ai/docs)（含各插件的 `@source` 写法）、原型 `app-prototype.html`、Paseo 的 `packages/app/src/agent-stream/text-reveal.ts`。
+- **完成标准**：`protocol` 的 schema 测试通过；一轮对话在 UI 里完整显示；准备一份覆盖"回复渲染"全部范围的 Markdown（表格、嵌套列表、代码块与 diff、中文加粗紧挨标点、块公式与行内公式、Mermaid、链接、远程图片、原始 HTML），按真实节奏分片流式输出，过程中不闪烁、不错乱，结束后与一次性渲染结果一致。
 
 ##### M1.4 对话记录与过程
 
