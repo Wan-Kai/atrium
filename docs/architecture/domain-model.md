@@ -481,6 +481,11 @@ classDiagram
       auth(token)
       route(command)
     }
+    class SubscriptionRegistry {
+      <<sync/>>
+      subscribe(connectionId, sessionIds)
+      viewers(sessionId)
+    }
     class Connection {
       clientId
       viewing: SessionId[]
@@ -529,7 +534,8 @@ classDiagram
     WsServer --> SessionManager
     WsServer --> FileSearch
     WsServer --> SetupService
-    SessionManager ..> Connection : 谁在看哪个会话
+    SessionManager ..> SubscriptionRegistry : 谁在看哪个会话
+    Connection ..> SubscriptionRegistry : 登记订阅
     SessionManager *-- SessionController
     SessionManager --> SessionCatalog
     SessionCatalog --> PiIntegration : SessionFiles
@@ -547,7 +553,7 @@ classDiagram
 
 - **PiIntegration** 是一个模块，不是一个类：PiAdapter（RPC 进程，自己实现，不用 pi 自带的 `RpcClient`，理由见 SPEC-0001"风险与待定问题"；按 id 对应请求和响应，pi 并发处理每行命令、响应可能乱序；一个会话固定一个进程，不用 `switch_session` 换会话，因为换完不发任何事件）、EventTranslator（纯函数，pi 事件 → Atrium 事件）、HistoryMapper（纯函数，pi 条目 → LogEntry）、SessionFiles（只读扫描会话目录、解析文件头、记录文件大小和修改时间，发现已写出的会话和历史工作目录，不做归类）、PiCatalog、ContextEstimator（按 pi 的语义回放系统消息和检查点，只返回各分段的 token 数，ContextBreakdown 由 SessionController 组装）、OneShotPi（`pi --mode json -p --no-session` 的调用和输出解析）。pi 的格式和协议细节只出现在这个模块里，对外只给 Atrium 类型。它是独立的 `packages/pi`，见 [架构总览 · 代码结构](overview.md#代码结构)。
 - **SessionCatalog** 在宿主里：用 SessionFiles 的扫描结果，按索引里记录的容器、或文件头的 `cwd` 把会话归到容器，按 id 去重并报告冲突。归类是 Atrium 的业务规则，所以不放进 pi 包。
-- **Connection** 记录每个客户端订阅了哪些会话（打开着或可见的），宿主只给订阅者推送对话记录的增量（参照 Paseo）；客户端打开会话时清除它的关注状态。
+- **Connection** 属于 `server/`，持有一个客户端的 socket、clientId 和发送方法。客户端订阅了哪些会话（打开着或可见的）记在 `sync/` 的 **SubscriptionRegistry**，以不透明的 connectionId 作键：业务模块（SessionManager）通过它知道"谁在看哪个会话"，又不必依赖 `server/`（overview.md，"宿主内部的依赖"）。宿主只给订阅者推送对话记录的增量（参照 Paseo）；客户端打开会话时清除它的关注状态。
 - **TitleGenerator** 负责标题的提示词、截断和写回规则，调 OneShotPi 单独起一次性进程，不借正在运行的会话。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
 - **FileSearch** 在 git 仓库里用 `git ls-files`；非 git 目录按忽略规则遍历，限制深度和数量。

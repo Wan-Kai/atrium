@@ -131,7 +131,7 @@ protocol  ←──  pi  ←──  host
 |---|---|---|---|
 | protocol | zod | 任何内部包 | package.json 没声明，pnpm 就不让 import |
 | pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止 |
-| host | protocol、pi | DOM、client、ui、Electron | tsconfig 的 `lib` 不含 DOM |
+| host | protocol、pi | DOM、client（生产代码）、ui、Electron | tsconfig 的 `lib` 不含 DOM；oxlint 禁止 `packages/host/src` import `@atrium/client`（client 只作第 4 层测试的开发依赖） |
 | client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
 | ui | client、protocol（只用类型） | host、pi | 没有声明依赖 |
 | desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口加载宿主提供的页面 |
@@ -139,6 +139,24 @@ protocol  ←──  pi  ←──  host
 
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。
+- **pi 包拿到宿主基础设施的方式：注入，不 import。** pi 包需要时钟、资源计数、日志和请求 id，这些都在 host 的 `platform/`，而 pi 包不能依赖 host。做法同 testkit 的假时钟：pi 包自己定义窄接口，host 的 `main.ts` 组装时传进去，结构类型匹配即可。
+
+  ```ts
+  /** pi 包对宿主的全部要求；host 在 main.ts 里提供。 */
+  interface PiDeps {
+    clock: { now(): number; setTimeout(callback: () => void, ms: number): () => void };
+    /** 计一个打开的资源（进程、监听），返回只生效一次的释放函数。 */
+    track(kind: string): () => void;
+    /** 结构化日志；host 传入的实现会自动带上当前 trace id。 */
+    log: Record<"debug" | "info" | "warn" | "error", (fields: object, message: string) => void>;
+    /** 下一条 RPC 命令的 id；host 用当前 span id 生成，pi 响应会原样带回。 */
+    nextRequestId(): string;
+    /** 启动 pi 用的环境变量，其中 PATH 来自登录 shell。 */
+    env: Readonly<Record<string, string>>;
+  }
+  ```
+
+  pi 包不 import OpenTelemetry、pino 或 host 的任何模块；它自己管 pi 子进程的进程组和退出清理。测试时 testkit 提供同形状的假实现。
 
 ### 宿主内部的依赖
 
@@ -152,7 +170,11 @@ main.ts 负责组装全部
 ```
 
 - 业务模块不依赖 `server/`，通过 `sync/` 的集合发布变化，不直接碰 WebSocket。
-- 子进程一律经过 `platform/` 的工具：启动 Node 程序用 `process.execPath`，不通过 `npx` 或 `.bin` 里的脚本；退出时杀整个进程树（Paseo 踩过这两个坑）。
+- 子进程：
+  - Atrium 自己的 Node 程序（例如测试或脚本里再起一个宿主）用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 里的脚本。
+  - pi 不适用这条：宿主跑在 Electron 里时，`process.execPath` 是 Electron 本身。pi 用 `findPi` 找到的绝对路径直接启动，环境变量里的 PATH 取自登录 shell，不经过 shell 或 npx。
+  - 宿主自己起的子进程走 `platform/` 的工具；pi 子进程由 pi 包管理（见上文"pi 包拿到宿主基础设施的方式"）。退出时都要杀整个进程组（Paseo 踩过这个坑）。
+- 这些方向由 oxlint 的 `no-restricted-imports` 按目录检查（`.oxlintrc.json`）：业务模块不能 import `server/`；`sync/`、`store/`、`platform/` 不能 import 任何业务模块或 `server/`；`packages/host/src` 不能 import `@atrium/client`（client 只给第 4 层测试用）。
 
 ### 桌面端怎么启动宿主
 

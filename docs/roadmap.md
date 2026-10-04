@@ -150,7 +150,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - pnpm workspaces，目录和依赖规则按 [overview.md · 代码结构](architecture/overview.md#代码结构)：`packages/protocol`、`pi`、`host`、`client`、`ui`、`testkit`，`apps/desktop`；依赖规则用 package.json、tsconfig 的 `lib` 和 oxlint 强制。
   - Electron 主进程用 `utilityProcess.fork` 启动宿主，随机端口 + 随机 token，preload 传给 UI；宿主入口不依赖 Electron，能用 `node` 单独运行。
   - 按 [security.md](architecture/security.md) 落实：token 不进 URL、校验 Origin、Electron 的隔离和导航限制、CSP。
-  - 按 [observability.md](architecture/observability.md) 搭好追踪和日志：OpenTelemetry + 本地 JSONL 导出、pino、脱敏、轮转、`pnpm trace`；命令信封带 `traceparent`。
+  - 按 [observability.md](architecture/observability.md) 搭好追踪和日志：OpenTelemetry + 本地 JSONL 导出、pino、脱敏、轮转、`pnpm trace`；hello 带 `traceparent`（通用命令信封挪到 M1.3，M1.1 完成时没有做）。
   - JSDoc 检查：本地 oxlint 插件的 `atrium/require-jsdoc`，要求第一句、`@remarks`、`@sideEffects`。
   - 在 [development.md](development.md) 里记下固定的 Electron、pnpm 版本和最低 macOS 版本。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
@@ -178,7 +178,19 @@ MVP 1 里还没设计、做到时先补设计的：
 - **目标**：在 UI 里发消息，看到流式回复和推理过程。
 - **范围**：
   - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId + traceparent`，事件带 `epoch + seq` 和所属运行的 trace id。
-  - 开工前先补齐协议细节，写进 SPEC-0001"接口与数据"：握手（协议版本、clientId）、心跳、单条消息大小上限、命令的应答方式、错误码表；重写已被取代的 `event-model.md`，或改为从 zod 定义生成。
+  - 开工前先补齐协议细节，写进 SPEC-0001"接口与数据"（2026-10-04 架构审查后补全清单）：
+    - 信封：所有命令都带 `requestId` 和 `traceparent`，会话命令再带 `sessionId`；放在 `protocol/src/envelope.ts`，客户端消息、宿主消息各是一个可辨识联合。
+    - 应答：每条命令恰好一条应答，`{ ok: true, result? }` 或 `{ ok: false, error: { code, params? } }`，错误码是 protocol 里的枚举；未知或无效的消息也回带错误码的应答（届时把现在用日志"message ignored"计数的限流测试改成断言应答）。
+    - 握手：welcome 带宿主实例 id（即列表同步的 generation），客户端重连时据此判断宿主是否重启过；心跳。
+    - 事件：会话事件带 `sessionId + epoch + seq` 和所属运行的 trace id；列表事件带 `collection + generation + seq`。
+    - 追踪：每条命令以自己的 `traceparent` 作父 span，再用 span link 指向连接的 trace，不挂在连接的长 trace 下面。
+    - 附件：图片 base64 后通常超过单条 1 MiB 的上限，在单独上传、客户端先压缩、为附件放宽上限三者中定一个。
+    - 订阅：SubscriptionRegistry 放 `sync/`（domain-model §6、§7）。
+    - 发送端背压：发送前看 `bufferedAmount`，慢客户端不能让宿主内存无限增长。
+    - 界面的错误和性能问题经一条上报消息回传宿主日志。
+    - 重写已被取代的 `event-model.md`，或改为从 zod 定义生成。
+  - 宿主侧：`server/connection.ts`（Connection：socket、clientId、send）和 `server/router.ts`（按 domain-model §8 的表分发命令，每条命令一个 `command <type>` span）从现在的 `ws-server.ts` 拆出来。
+  - 客户端：`createAtriumClient` 作为唯一对外入口（clientId、connect、send、重连，拥有各个 store）；现在的 connection 降为内部模块，`buildHello`、`SocketLike` 不再导出。
   - `client`：WebSocket 连接、断线重连；状态用 Zustand vanilla store，按领域拆成列表、每个会话一个 SessionView（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息；对外只暴露 store 和命令方法。
   - SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
   - UI：用户气泡、回复和推理过程、"进行中 · 12s"；滚动跟随（停在底部时跟随，往上翻停止跟随，出现"↓ 回到底部"）。

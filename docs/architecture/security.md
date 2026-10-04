@@ -43,7 +43,7 @@
 ## 子进程与文件
 
 - 外部命令一律用 `execFile` / `spawn` 传参数数组，不经过 shell，防止命令注入；参数来自用户输入时（分支名、路径）先校验。
-- 启动 Node 程序用 `process.execPath`，不通过 `npx` 或 `.bin` 脚本。
+- Atrium 自己的 Node 程序用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 脚本。pi 用找到的绝对路径直接启动（宿主跑在 Electron 里时 `process.execPath` 是 Electron 本身），PATH 取自登录 shell，不经过 shell。
 - `@` 引用的文件搜索限制在工作区目录内，解析符号链接后仍在目录内才返回。
 - 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。

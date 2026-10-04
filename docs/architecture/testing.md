@@ -51,7 +51,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 
 ## 让每个测试都有效
 
-1. **变异测试是硬门槛**。核心模块（事件翻译、对话记录重建、会话控制器、同步、状态派生、分帧、合并判定）变异分数 ≥ 80%。存活的变异逐个处理：补测试，或在代码里用 `// Stryker disable next-line <变异类型>: <理由>` 说明它与原代码等价或不可达。平时增量跑改动的文件，每个里程碑完成前用 `pnpm test:mutation --force` 全量跑一次。
+1. **变异测试是硬门槛**。核心模块变异分数 ≥ 80%：事件翻译、对话记录重建、会话控制器、同步、状态派生、分帧、合并判定，以及连接层（鉴权、静态文件、WebSocket 服务、协议编解码、客户端连接）。连接层列入是因为 M1.1 的变异测试在这里找出了真实缺陷（握手超时后仍处理 hello、关闭时被暂停的下载挂住），而且它是安全边界。存活的变异逐个处理：补测试，或在代码里用 `// Stryker disable next-line <变异类型>: <理由>` 说明它与原代码等价或不可达。平时增量跑改动的文件，每个里程碑完成前用 `pnpm test:mutation --force` 全量跑一次。
    - 时有时无的测试会让变异分数虚高：偶发失败被算成"杀死了变异"。M1.1 时日志流有竞态，分数显示 93%，修掉竞态后真实分数是 78%，补测试后才到 100%。
 2. **每个测试先见过失败**：一个测试、一段实现交替推进；修 bug 先写能复现它的测试。
 3. **用代码检查约束测试写法**（oxlint vitest 规则）：`expect-expect`（必须有断言）、`no-conditional-expect`、`no-conditional-in-test`、`no-disabled-tests`、`no-focused-tests`、`no-restricted-matchers`（禁 `toBeTruthy`、`toBeDefined` 这类弱断言）、`no-large-snapshots`、`prefer-strict-equal`（整体比对）。
