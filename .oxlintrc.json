@@ -1,0 +1,139 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "react", "jsdoc", "vitest", "promise", "node"],
+  "jsPlugins": ["./scripts/lint/atrium-plugin.mjs"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error"
+  },
+  "rules": {
+    "atrium/require-jsdoc": "error",
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/switch-exhaustiveness-check": "error",
+    "typescript/no-explicit-any": "error",
+    "jsdoc/require-param": [
+      "error",
+      {
+        "checkDestructured": false
+      }
+    ],
+    "jsdoc/require-param-description": "error",
+    "jsdoc/require-returns-description": "error",
+    "jsdoc/check-tag-names": [
+      "error",
+      {
+        "definedTags": ["remarks", "sideEffects"]
+      }
+    ],
+    "import/no-default-export": "off",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@earendil-works/*"],
+            "message": "Only packages/pi may import pi (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
+          }
+        ]
+      }
+    ],
+    "import/no-named-as-default-member": "off",
+    "react/react-in-jsx-scope": "off",
+    "unicorn/require-post-message-target-origin": "off",
+    "import/no-unassigned-import": [
+      "error",
+      {
+        "allow": ["**/*.css"]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["packages/pi/**"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    },
+    {
+      "files": ["packages/client/**", "packages/protocol/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "react",
+                "message": "client and protocol must not depend on React."
+              },
+              {
+                "name": "react-dom",
+                "message": "client and protocol must not depend on React."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@earendil-works/*"],
+                "message": "Only packages/pi may import pi."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.bench.ts", "apps/desktop/e2e/**", "packages/*/test/**"],
+      "rules": {
+        "vitest/expect-expect": [
+          "error",
+          {
+            "assertFunctionNames": ["expect", "expect.*", "fc.assert"]
+          }
+        ],
+        "vitest/no-conditional-expect": "error",
+        "vitest/no-conditional-in-test": "error",
+        "vitest/no-disabled-tests": "error",
+        "vitest/no-focused-tests": "error",
+        "vitest/no-large-snapshots": "error",
+        "vitest/prefer-strict-equal": "error",
+        "vitest/no-restricted-matchers": [
+          "error",
+          {
+            "toBeTruthy": "Assert the exact value instead (testing.md).",
+            "toBeFalsy": "Assert the exact value instead (testing.md).",
+            "toBeDefined": "Assert the exact value instead (testing.md)."
+          }
+        ],
+        "vitest/no-restricted-vi-methods": [
+          "error",
+          {
+            "mock": "Use a swappable adapter instead of vi.mock (testing.md).",
+            "doMock": "Use a swappable adapter instead (testing.md)."
+          }
+        ],
+        "typescript/no-unsafe-type-assertion": "off",
+        "jsdoc/require-param": "off"
+      }
+    },
+    {
+      "files": ["apps/desktop/e2e/*.spec.ts", "**/*.test.ts", "**/*.test.tsx", "**/*.bench.ts"],
+      "rules": {
+        "atrium/require-jsdoc": "off"
+      }
+    },
+    {
+      "files": ["**/*.soak.test.ts"],
+      "rules": {
+        "vitest/no-conditional-in-test": "off"
+      }
+    }
+  ],
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/node_modules/**",
+    "reports/**",
+    ".stryker-tmp/**",
+    "**/test-results/**",
+    ".bench/**"
+  ]
+}

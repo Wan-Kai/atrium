@@ -37,7 +37,7 @@ atrium/
 │   └── desktop/                    Electron 外壳：只负责启动宿主和开窗口
 │       ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链
 │       ├── src/preload/            把宿主地址和 token 交给 UI
-│       └── e2e/                    第 6 层端到端测试
+│       └── e2e/                    第 6 层端到端测试；heap.ts 取堆快照、比较脱离文档的 DOM 节点
 ├── packages/
 │   ├── protocol/                   宿主和客户端之间的协议（zod），只放线上传输的东西
 │   │   └── src/
@@ -63,7 +63,8 @@ atrium/
 │   │   └── fixtures/               第 3 层录制的夹具，标注 pi 版本
 │   ├── host/                       宿主：Atrium 自己的业务
 │   │   ├── src/
-│   │   │   ├── main.ts             入口：组装依赖、启动；不依赖任何 Electron API
+│   │   │   ├── main.ts             startHost：组装依赖、启动；不依赖任何 Electron API
+│   │   │   ├── entry.ts            进程入口：在 Electron 子进程里从 parentPort 收配置，或单独运行时读环境变量
 │   │   │   ├── server/             WsServer、Connection、鉴权、命令路由
 │   │   │   ├── store/              IndexStore：~/.atrium 读写、原子写入、格式版本
 │   │   │   ├── projects/           ProjectService
@@ -106,12 +107,14 @@ atrium/
 │           ├── faux/               faux 模型 extension 和回复脚本
 │           ├── fake-pi/            回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
 │           ├── clock.ts            假时钟
-│           ├── temp-env.ts         临时 HOME、~/.atrium、pi 会话目录
+│           ├── present.ts          测试里取必然存在的值，避免测试体里出现 `??`
+│           ├── bench.ts            基准与本机基线比较
+│           ├── temp-dir.ts         临时目录（以后扩展成临时 HOME、~/.atrium、pi 会话目录）
 │           └── git.ts              造 git 场景：merge、squash、rebase、cherry-pick、worktree
-├── scripts/                        录制夹具、开发辅助
+├── scripts/                        开发辅助：dev.mjs、trace.mjs、lint/atrium-plugin.mjs（JSDoc 规则）；以后的录制夹具
 ├── docs/
-└── 根目录配置：pnpm-workspace.yaml、tsconfig.base.json、vitest.config.ts、stryker.config.mjs、
-               .oxlintrc.json、.oxfmtrc.json、knip.json、lefthook.yml
+└── 根目录配置：pnpm-workspace.yaml、tsconfig.base.json、vitest.config.ts、vitest.mutation.config.ts、
+               stryker.config.mjs、.oxlintrc.json、.oxfmtrc.json、knip.json、lefthook.yml
 ```
 
 MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不建。

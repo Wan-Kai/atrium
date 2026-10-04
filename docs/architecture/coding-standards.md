@@ -53,7 +53,7 @@ export function EffortBox(props: EffortBoxProps) { … }
 ```
 
 - **唯一的豁免**：内联的匿名回调（传给 `map`、`filter`、`then`、事件属性的箭头函数）。它们要么足够短一眼能看懂，要么就该提成具名函数并写 JSDoc。测试用例靠测试标题说明，不写 JSDoc。
-- **检查**：oxlint 加载 `eslint-plugin-jsdoc`（JS 插件）的 `require-jsdoc`，覆盖函数声明、方法、类、函数表达式和赋给变量的箭头函数；`require-description`、`require-param`、`require-returns`、`require-throws-type` 等用 oxlint 自带规则；再写一条本地规则要求每个块都有 `@remarks` 和 `@sideEffects`。语义是否写对，靠代码审查。
+- **检查**：本地 oxlint 插件 `scripts/lint/atrium-plugin.mjs` 的 `atrium/require-jsdoc` 规则，要求函数声明、方法、类、函数表达式和赋给变量的箭头函数都有 JSDoc，且有第一句、`@remarks`、`@sideEffects`（`eslint-plugin-jsdoc` 要求 Node ≥ 22.22，比项目的 22.19 新，所以没用它）；`require-param`、`check-tag-names` 等用 oxlint 自带的 jsdoc 规则。语义是否写对，靠代码审查。
 - 函数内部的行内注释只解释"为什么"，不复述代码在做什么。
 
 ## 命名与组织

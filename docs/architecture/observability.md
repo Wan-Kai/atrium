@@ -68,7 +68,7 @@ ui.action send                         client 生成 trace
 
 span 结束时另写一条 `kind: "span"` 的记录：名称、开始结束时间、耗时、状态、父 span、links、属性。
 
-- 文件位置：`~/.atrium/logs/host.jsonl`（含 client 和 UI 发回的记录）、`desktop.jsonl`（Electron 主进程）。
+- 文件位置：`~/.atrium/logs/host.<n>.jsonl`（按 10MB 轮转、保留 5 个，`current.log` 链接到正在写的那个；含 client 和 UI 发回的记录）；Electron 主进程的日志以后加 `desktop.<n>.jsonl`。
 - 级别：默认 `info`；设置里可切到 `debug`；`trace` 级只在开发时用。
 - 查看：`pnpm trace <trace id>` 把一条链路的 span 和日志按树形打印出来。
 

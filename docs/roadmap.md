@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-04：MVP 1 的设计已完成，还没有代码。下一步是 [M1.1](#m11-骨架)。**
+**2026-10-04：M1.1 骨架完成（分支 `m1.1-skeleton`）。下一步是 [M1.2](#m12-最窄链路宿主驱动-pi)，开头先验证 faux 模型。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -26,6 +26,7 @@
 | 领域模型 | [domain-model.md](architecture/domain-model.md) 第 3 版：经 Grok 4.7、GPT-6-Astra 两轮评审，并对照 Paseo 与 pi 源码 |
 | 视觉规范 | [design-language.md](architecture/design-language.md) |
 | 界面原型 | `prototype/ui` 分支（见下文"原型"） |
+| M1.1 骨架 | monorepo 七个包、Electron 启动宿主、token 与 Origin 鉴权、日志与链路追踪、空白界面跟随系统外观；七层测试各有示例并验证过会失败；变异分数 100%（等价变异在代码里注明理由）。实现中改动的决定已写回 testing.md、coding-standards.md、observability.md、development.md：界面泄漏改用自写的脱离 DOM 分析、Stryker 改用命令运行器、Vitest 5 的基准 API、开发端口 5791 |
 | 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
@@ -66,7 +67,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
 - `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。
 - 工程约束：[coding-standards.md](architecture/coding-standards.md)（每个函数和组件写 JSDoc：what、why、副作用）、[security.md](architecture/security.md)、[observability.md](architecture/observability.md)（OpenTelemetry 追踪 + pino 日志，全链路 trace id）。MVP 只做中文，宿主只发错误码不发文案。
-- 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线 + memlab）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
+- 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线；界面比较脱离文档的 DOM 节点）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
@@ -142,7 +143,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 每个里程碑的完成标准都隐含一条：[追踪表](architecture/testing.md#让覆盖面全)里这个里程碑涉及的行都有测试，`pnpm check` 通过，核心模块的变异分数不低于 80%（见 [testing.md](architecture/testing.md)）。
 
-##### M1.1 骨架
+##### M1.1 骨架 ✅
 
 - **目标**：`pnpm dev` 打开一个 Electron 窗口，显示宿主提供的空白 UI，UI 用 token 连上宿主的 WebSocket。
 - **范围**：
@@ -150,7 +151,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - Electron 主进程用 `utilityProcess.fork` 启动宿主，随机端口 + 随机 token，preload 传给 UI；宿主入口不依赖 Electron，能用 `node` 单独运行。
   - 按 [security.md](architecture/security.md) 落实：token 不进 URL、校验 Origin、Electron 的隔离和导航限制、CSP。
   - 按 [observability.md](architecture/observability.md) 搭好追踪和日志：OpenTelemetry + 本地 JSONL 导出、pino、脱敏、轮转、`pnpm trace`；命令信封带 `traceparent`。
-  - JSDoc 检查：oxlint 加载 `eslint-plugin-jsdoc` 的 `require-jsdoc`，加一条要求 `@remarks` 和 `@sideEffects` 的本地规则。
+  - JSDoc 检查：本地 oxlint 插件的 `atrium/require-jsdoc`，要求第一句、`@remarks`、`@sideEffects`。
   - 在 [development.md](development.md) 里记下固定的 Electron、pnpm 版本和最低 macOS 版本。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
   - 搭好测试与代码质量工具（[testing.md](architecture/testing.md)）：Vitest 各层配置与文件后缀、Playwright + Electron、fast-check、Stryker、oxlint（类型感知 + vitest 规则）、oxfmt、TypeScript 7、knip、lefthook，以及 `pnpm test*` / `pnpm check` 命令。
@@ -238,7 +239,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 列表同步（`generation + seq`，快照 / 增量）、会话订阅、对话记录按游标分页、重连流程、`clientMessageId` 对齐。
   - 自动生成标题（OneShotPi）、交给终端。
 - **参考**：[domain-model](architecture/domain-model.md) §4 状态的派生、§7 客户端与一致性、[paseo-architecture](research/paseo-architecture.md) §4 同步、§5 状态与关注、pi 实验版的 Chord 设计（[pi-internals](research/pi-internals.md) §6）。
-- **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过；打开关闭会话、订阅退订、连接断开、停止、崩溃重启各 200 次的泄漏测试通过；界面在会话间切换的泄漏测试 memlab 报告为 0；30 分钟长时间运行通过。
+- **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过；打开关闭会话、订阅退订、连接断开、停止、崩溃重启各 200 次的泄漏测试通过；界面在会话间切换后没有多出脱离文档的 DOM 节点；30 分钟长时间运行通过。
 
 ##### M1.8 首次启动与设置
 

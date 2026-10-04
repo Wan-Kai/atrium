@@ -1,0 +1,17 @@
+# Git hooks (development.md, "提交"): fast checks before each commit, the full unit layer before push.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: format
+      glob: "*.{ts,tsx,mjs,json,css,yml,yaml}"
+      run: pnpm exec oxfmt --check {staged_files}
+    - name: lint
+      glob: "*.{ts,tsx,mjs}"
+      run: pnpm exec oxlint --type-aware --deny-warnings {staged_files}
+
+pre-push:
+  jobs:
+    - name: check
+      run: pnpm check
+    - name: unit tests
+      run: pnpm test

@@ -1,0 +1,101 @@
+/*
+ * Design tokens from docs/architecture/design-language.md ("颜色", "字体", "圆角、尺寸与间距").
+ * Light is the default; `.dark` on <html> switches to dark (see appearance.ts).
+ * The shadcn/ui names at the bottom are derived from these, never set directly.
+ */
+:root {
+  --window: #e8ecf2;
+  --sidebar-bg: rgba(246, 247, 250, 0.58);
+  --main: #ffffff;
+  --surface-1: #ffffff;
+  --surface-2: #f2f2f4;
+  --surface-3: #e9e9ec;
+  --code: #f6f6f8;
+
+  --text: #1d1d1f;
+  --text-2: #2c2c30;
+  --text-3: #48484e;
+  --text-muted: #6e6e74;
+  --text-dim: #a1a1a7;
+
+  --line: rgba(0, 0, 0, 0.08);
+  --line-soft: rgba(0, 0, 0, 0.05);
+  --line-strong: rgba(0, 0, 0, 0.14);
+  --hover: rgba(0, 0, 0, 0.035);
+  --selected: rgba(0, 0, 0, 0.06);
+  --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.16);
+
+  --tint: #2f6fed;
+  --attn: #dd8629;
+  --attn-text: #c96509;
+  --danger: #e5484d;
+  --ok: #16a34a;
+  --ok-text: #1e8e3e;
+
+  --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --fs: 14px;
+  --fs-reply: 14.5px;
+  --fs-meta: 13px;
+  --fs-sm: 12px;
+  --fs-xs: 11px;
+  --fs-mono: 12.5px;
+
+  --r-sm: 6px;
+  --r: 8px;
+  --r-md: 10px;
+  --r-btn: 12px;
+  --r-card: 16px;
+  --r-bubble: 22px;
+  --r-pill: 999px;
+
+  --background: var(--main);
+  --foreground: var(--text);
+  --card: var(--surface-1);
+  --card-foreground: var(--text);
+  --popover: var(--surface-1);
+  --popover-foreground: var(--text);
+  --primary: var(--text);
+  --primary-foreground: var(--main);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--hover);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--tint);
+  --radius: var(--r);
+}
+
+.dark {
+  --window: #0d1016;
+  --sidebar-bg: rgba(95, 102, 114, 0.42);
+  --main: #151517;
+  --surface-1: #212123;
+  --surface-2: #2c2c2e;
+  --surface-3: #353638;
+  --code: #19191b;
+
+  --text: #f9fafb;
+  --text-2: #e7e9ec;
+  --text-3: #cfd3d6;
+  --text-muted: #adb2b8;
+  --text-dim: #81858c;
+
+  --line: rgba(255, 255, 255, 0.1);
+  --line-soft: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.05);
+  --selected: rgba(255, 255, 255, 0.08);
+  --focus-ring: 0 0 0 3px rgba(122, 170, 255, 0.22);
+
+  --tint: #7aaaff;
+  --attn: #dd8629;
+  --attn-text: #f0a24e;
+  --danger: #f25a5a;
+  --ok: #22c55e;
+  --ok-text: #4ade80;
+}
