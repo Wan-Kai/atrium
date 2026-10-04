@@ -530,7 +530,7 @@ classDiagram
     SessionManager --> IndexStore
 ```
 
-- **PiIntegration** 是一个模块，不是一个类：PiAdapter（RPC 进程，倾向用 pi 自带的 `RpcClient`；按 id 对应请求和响应，pi 并发处理每行命令、响应可能乱序；一个会话固定一个进程，不用 `switch_session` 换会话，因为换完不发任何事件）、EventTranslator（纯函数，pi 事件 → Atrium 事件）、SessionCatalog（只读扫描会话目录，发现已写出的会话和历史工作目录）、PiCatalog、ContextEstimator、OneShotPi（`pi --mode json -p --no-session` 一次性调用）。pi 的格式和协议细节只出现在这个模块里，对外只给 Atrium 类型。
+- **PiIntegration** 是一个模块，不是一个类：PiAdapter（RPC 进程，自己实现，不用 pi 自带的 `RpcClient`，理由见 SPEC-0001"风险与待定问题"；按 id 对应请求和响应，pi 并发处理每行命令、响应可能乱序；一个会话固定一个进程，不用 `switch_session` 换会话，因为换完不发任何事件）、EventTranslator（纯函数，pi 事件 → Atrium 事件）、SessionCatalog（只读扫描会话目录，发现已写出的会话和历史工作目录）、PiCatalog、ContextEstimator、OneShotPi（`pi --mode json -p --no-session` 一次性调用）。pi 的格式和协议细节只出现在这个模块里，对外只给 Atrium 类型。
 - **Connection** 记录每个客户端订阅了哪些会话（打开着或可见的），宿主只给订阅者推送对话记录的增量（参照 Paseo）；客户端打开会话时清除它的关注状态。
 - **TitleGenerator** 走 OneShotPi，单独起一次性进程，不借正在运行的会话。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
@@ -595,6 +595,8 @@ classDiagram
 - 快照由 SessionController 从同一份 Runtime 状态生成，带 `epoch + seq`，包含流式中的消息、工具状态、排队、待交互、指标、关注状态；客户端只应用之后的事件。
 - 用户刚发的消息先在本地乐观显示，带 `clientMessageId`（即 `requestId`）；宿主确认后的正式消息带同一个 id，用来对上，不重复显示。
 - 断线不重发结果未知的写命令；重连后重新拿游标对齐即可，不需要持久化的事件总线。
+
+**客户端的状态**：IndexView、每个 SessionView 和布局各是一个 Zustand vanilla store（`zustand/vanilla`，不依赖 DOM），SessionView 在订阅时创建、退订时释放；UI 通过选择器订阅，不直接碰 WebSocket。
 
 **多客户端**
 

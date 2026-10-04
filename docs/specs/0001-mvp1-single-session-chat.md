@@ -516,9 +516,9 @@ Electron 主进程
 ## 风险与待定问题
 
 - [ ] **没有审批的风险**：agent 可能误删文件或执行危险命令。缓解：MVP 1 只在 git 仓库里使用，出问题用 git 回滚。
-- [ ] **pi 适配器用 pi 自带的 `RpcClient`，还是自己实现 JSONL 客户端**：前者省事，官方也推荐；后者和 pi 的依赖更松（Paseo 选了后者）。倾向先用 `RpcClient`，封装在适配器内部，以后可以替换。
-- [ ] **包管理器**：倾向 pnpm workspaces。
-- [ ] **UI 组件库和状态管理**：组件用 shadcn；`client` 里的状态管理库待定，要求不依赖 DOM。
+- [x] **pi 适配器用 pi 自带的 `RpcClient`，还是自己实现 JSONL 客户端**：自己实现（2026-10-04 定，对照 pi 1.0.1 的 `rpc-client.ts`）。`RpcClient` 没有发送 `extension_ui_response` 的方法（`send()` 是私有的），做不了需求 10；它还写死了 `node <cli.js>` 的启动方式、每条命令 30 秒超时（`compact` 会超）、无限增长的 stderr，并要依赖整个 `pi-coding-agent` 包。自己实现约 300 行：直接启动 `pi --mode rpc`，按命令设超时，stderr 只留最近一段、其余写日志，退出时杀进程组；分帧照搬 pi 的 `jsonl.ts`（MIT，只按 LF 切行）；类型用 `import type` 从固定版本的 pi 包取，只在开发时安装。Paseo 也是自己实现。
+- [x] **包管理器**：pnpm workspaces。
+- [x] **UI 组件库和状态管理**：组件用 shadcn；`client` 用 Zustand 的 `zustand/vanilla`（2026-10-04 定）：约 1KB、不依赖 React 和 DOM，UI 用 `useStore(store, selector)` 订阅。按领域拆 store：列表（项目、工作区、会话摘要）、每个会话一个（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息，其他轮次引用不变；选择器返回对象时用 `useShallow`；不引入 Immer。备选里自己写 store 要重做选择器和 devtools，MobX / Valtio 的可变代理不利于按序号整段替换，Jotai 围绕 React 设计，Signals 接 React 不顺。
 - [ ] **pi 版本兼容**：会话文件格式和 RPC 都可能变化。宿主启动时检查 pi 版本，低于最低版本就提示升级。
 
 ## 实施计划

@@ -54,7 +54,9 @@ MVP 1 里还没设计、做到时先补设计的：
 架构：
 
 - pi 是唯一内核，以 `pi --mode rpc` 子进程接入，**一个会话一个进程**，不用 `switch_session`（[ADR-0001](adr/0001-use-pi-as-core.md)、[ADR-0002](adr/0002-connect-pi-via-rpc-subprocess.md)）。
-- 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
+- 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo（pnpm workspaces）：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
+- pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
+- `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
@@ -136,7 +138,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - pnpm workspaces：`packages/protocol`、`client`、`host`、`ui`，`apps/desktop`。
   - Electron 主进程启动宿主（Node 子进程），随机端口 + 随机 token，preload 传给 UI。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
-  - 定下 SPEC-0001"风险与待定问题"里的工程选型：pi 适配器用 pi 自带的 `RpcClient` 还是自己写、`client` 的状态管理库；以及测试框架、代码检查与格式化工具。定下后更新 SPEC-0001 的勾选框和本文"已定的关键决策"。
+  - 定下测试框架、代码检查与格式化工具，写进本文"已定的关键决策"（pi 适配器自己实现、`client` 用 Zustand 已定）。
 - **参考**：[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)、[SPEC-0001 · 进程与启动、各包职责](specs/0001-mvp1-single-session-chat.md#进程与启动)、[design-language · 颜色](architecture/design-language.md#颜色)。
 - **完成标准**：窗口能打开；token 错误时连接被拒；切换系统外观界面跟着变。
 
@@ -144,12 +146,12 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：宿主启动 `pi --mode rpc`，发一条 prompt，在终端里打出流式文本，直到 `agent_settled`。
 - **范围**：
-  - PiAdapter：严格按 LF 分帧的 JSONL（不用 `readline`）、按 `id` 对应乱序响应、超时、SIGTERM → SIGKILL 进程树、退出转成事件。
+  - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
   - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。
   - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
   - pi 的 stderr 和宿主自己的日志写进 `~/.atrium/logs/`，错误卡片"展开看原始报错"要用到。
   - 录制几段真实的 pi 输出作为测试夹具（流式、工具调用、中断、退出）。
-- **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
+- **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、pi 的 `src/modes/rpc/rpc-client.ts`（只作对照，不直接用）、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
 - **完成标准**：适配器测试用录制的夹具跑通；真实 pi 能完整跑完一轮。
 
 ##### M1.3 协议、客户端与流式显示
@@ -157,7 +159,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **目标**：在 UI 里发消息，看到流式回复和推理过程。
 - **范围**：
   - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId`，事件带 `epoch + seq`。
-  - `client`：WebSocket 连接、断线重连、按 `sessionId` 维护 SessionView。
+  - `client`：WebSocket 连接、断线重连；状态用 Zustand vanilla store，按领域拆成列表、每个会话一个 SessionView（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息；对外只暴露 store 和命令方法。
   - SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
   - UI：用户气泡、回复和推理过程、"进行中 · 12s"；滚动跟随（停在底部时跟随，往上翻停止跟随，出现"↓ 回到底部"）。
   - 流式渲染（选型见上文"前端技术栈"）：
