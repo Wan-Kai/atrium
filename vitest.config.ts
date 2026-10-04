@@ -12,6 +12,7 @@ const packages = "packages/*/{src,test}/**";
  */
 export default defineConfig({
   test: {
+    globalSetup: ["./test-temp-root.ts"],
     projects: [
       {
         test: {

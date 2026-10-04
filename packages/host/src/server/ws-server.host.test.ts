@@ -3,7 +3,7 @@ import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
 import { FakeClock, createTempDir } from "@atrium/testkit";
 import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, onTestFinished } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../../test/harness";
 import { startHost } from "../main";
@@ -34,6 +34,7 @@ function openRaw(url: string, options: { origin?: string } = {}) {
 /** Writes a small UI build with one file per served content type. */
 async function uiFixture(): Promise<string> {
   const ui = await createTempDir("ui");
+  onTestFinished(ui.cleanup);
   await mkdir(`${ui.path}/assets`);
   await mkdir(`${ui.path}/assets.d`);
   const files: Record<string, string> = {
@@ -422,6 +423,7 @@ describe("host lifecycle", () => {
 
   it("closes promptly even while an HTTP keep-alive connection is open", async () => {
     const ui = await createTempDir("ui");
+    onTestFinished(ui.cleanup);
     await writeFile(`${ui.path}/index.html`, "<!doctype html>");
     const own = await startTestHost({ uiDir: ui.path });
     await (await fetch(`${own.host.origin}/`)).text();
@@ -430,19 +432,18 @@ describe("host lifecycle", () => {
     await own.dispose();
 
     expect(performance.now() - started).toBeLessThan(1_000);
-    await ui.cleanup();
   });
 
   it("fails to start when the port is already taken, and leaves the failure in its log", async () => {
     testHost = await startTestHost();
     const home = await createTempDir("failed-home");
+    onTestFinished(home.cleanup);
 
     const started = startHost({ home: home.path, token: testHost.token, port: testHost.host.port });
 
     await expect(started).rejects.toThrow(/EADDRINUSE/);
     const log = await readFile(`${home.path}/logs/current.log`, "utf8");
     expect(log).toContain('"msg":"host failed to start"');
-    await home.cleanup();
   });
 
   it("closes promptly while a client has paused in the middle of a download", async () => {
@@ -519,6 +520,7 @@ describe("host static files", () => {
 
   it("does not follow a symlink out of the UI directory, but serves one that stays inside", async () => {
     const outside = await createTempDir("outside");
+    onTestFinished(outside.cleanup);
     await writeFile(`${outside.path}/secret.json`, "secret");
     const ui = await uiFixture();
     await symlink(`${outside.path}/secret.json`, `${ui}/assets/leak.json`);
@@ -529,7 +531,6 @@ describe("host static files", () => {
     const alias = await fetch(`${testHost.host.origin}/assets/alias.js`);
 
     expect([leak.status, alias.status, await alias.text()]).toStrictEqual([404, 200, "js"]);
-    await outside.cleanup();
   });
 
   it("answers 404 for a file it cannot read and keeps running", async () => {
@@ -567,6 +568,7 @@ describe("host static files", () => {
 
   it("serves the UI with the full content security policy and refuses paths outside it", async () => {
     const ui = await createTempDir("ui");
+    onTestFinished(ui.cleanup);
     await writeFile(`${ui.path}/index.html`, "<!doctype html><title>Atrium</title>");
     testHost = await startTestHost({ uiDir: ui.path });
 
@@ -580,6 +582,5 @@ describe("host static files", () => {
         "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
     );
     expect(escape.status).toBe(404);
-    await ui.cleanup();
   });
 });

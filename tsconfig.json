@@ -5,5 +5,11 @@
     "allowJs": true,
     "checkJs": false
   },
-  "include": ["vitest.config.ts", "stryker.config.mjs", "scripts/**/*.mjs", "vitest.mutation.config.ts"]
+  "include": [
+    "vitest.config.ts",
+    "stryker.config.mjs",
+    "scripts/**/*.mjs",
+    "vitest.mutation.config.ts",
+    "test-temp-root.ts"
+  ]
 }
