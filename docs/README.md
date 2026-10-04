@@ -8,7 +8,10 @@
 | [`specs/`](specs/) | 需求与技术方案：单个功能或改动的方案 | 一事一文，有状态流转，实施后基本不再改 |
 | [`adr/`](adr/) | 架构决策记录（ADR）：一个重要决策及其理由 | 只追加不修改，被推翻时写新 ADR 取代旧的 |
 | [`research/`](research/) | 调研与学习笔记：外部项目分析、学习资料 | 参考性质，不约束实现 |
-| [`roadmap.md`](roadmap.md) | 路线图 | 阶段计划与原则 |
+| [`roadmap.md`](roadmap.md) | 路线图 | 阶段计划与原则；实现阶段的入口 |
+| [`development.md`](development.md) | 开发环境与流程 | 版本要求、分支、提交 |
+
+仓库根目录的 [`AGENTS.md`](../AGENTS.md)（`CLAUDE.md` 引用它）是每次工作都要遵守的守则。
 
 ## 三类核心文档的关系
 

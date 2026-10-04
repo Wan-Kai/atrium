@@ -26,6 +26,7 @@
 | 领域模型 | [domain-model.md](architecture/domain-model.md) 第 3 版：经 Grok 4.7、GPT-6-Astra 两轮评审，并对照 Paseo 与 pi 源码 |
 | 视觉规范 | [design-language.md](architecture/design-language.md) |
 | 界面原型 | `prototype/ui` 分支（见下文"原型"） |
+| 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
 MVP 1 里还没设计、做到时先补设计的：
@@ -42,6 +43,11 @@ MVP 1 里还没设计、做到时先补设计的：
 | 做什么、不做什么、每个界面细节 | [SPEC-0001](specs/0001-mvp1-single-session-chat.md) |
 | 有哪些对象、谁拥有谁、状态怎么派生、怎么同步 | [domain-model.md](architecture/domain-model.md) |
 | 代码放在哪、包之间怎么依赖 | [overview.md · 代码结构](architecture/overview.md#代码结构) |
+| 每次都要遵守的规则、完成标准 | 根目录 [AGENTS.md](../AGENTS.md) |
+| 怎么写代码（JSDoc、错误、异步、多语言、无障碍） | [coding-standards.md](architecture/coding-standards.md) |
+| 安全底线 | [security.md](architecture/security.md) |
+| 日志和链路追踪 | [observability.md](architecture/observability.md) |
+| 版本要求、分支、提交 | [development.md](development.md) |
 | 命令和事件 | [SPEC-0001 · 接口与数据](specs/0001-mvp1-single-session-chat.md#接口与数据)（[event-model.md](architecture/event-model.md) 已被取代） |
 | pi 的会话格式、RPC、事件、队列、重试、认证 | [pi-internals.md](research/pi-internals.md) |
 | 同类宿主怎么做、哪些坑已经被踩过 | [paseo-architecture.md](research/paseo-architecture.md) |
@@ -59,6 +65,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo（pnpm workspaces）：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
 - pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
 - `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。
+- 工程约束：[coding-standards.md](architecture/coding-standards.md)（每个函数和组件写 JSDoc：what、why、副作用）、[security.md](architecture/security.md)、[observability.md](architecture/observability.md)（OpenTelemetry 追踪 + pino 日志，全链路 trace id）。MVP 只做中文，宿主只发错误码不发文案。
 - 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线 + memlab）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
 
@@ -110,8 +117,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 ### 提交约定
 
-- 作者身份：`Ktoon <daodi154@gmail.com>`（仓库本地 git 配置）。
-- 提交信息用英文、祈使句，正文说明改了什么、为什么；只在明确要求时推送。
+见 [development.md](development.md)：每个里程碑一个分支，完成后本地合并回 `main`；作者 `Ktoon <daodi154@gmail.com>`；提交信息英文祈使句；只在明确要求时推送。
 
 ## 阶段
 
@@ -142,12 +148,16 @@ MVP 1 里还没设计、做到时先补设计的：
 - **范围**：
   - pnpm workspaces，目录和依赖规则按 [overview.md · 代码结构](architecture/overview.md#代码结构)：`packages/protocol`、`pi`、`host`、`client`、`ui`、`testkit`，`apps/desktop`；依赖规则用 package.json、tsconfig 的 `lib` 和 oxlint 强制。
   - Electron 主进程用 `utilityProcess.fork` 启动宿主，随机端口 + 随机 token，preload 传给 UI；宿主入口不依赖 Electron，能用 `node` 单独运行。
+  - 按 [security.md](architecture/security.md) 落实：token 不进 URL、校验 Origin、Electron 的隔离和导航限制、CSP。
+  - 按 [observability.md](architecture/observability.md) 搭好追踪和日志：OpenTelemetry + 本地 JSONL 导出、pino、脱敏、轮转、`pnpm trace`；命令信封带 `traceparent`。
+  - JSDoc 检查：oxlint 加载 `eslint-plugin-jsdoc` 的 `require-jsdoc`，加一条要求 `@remarks` 和 `@sideEffects` 的本地规则。
+  - 在 [development.md](development.md) 里记下固定的 Electron、pnpm 版本和最低 macOS 版本。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
   - 搭好测试与代码质量工具（[testing.md](architecture/testing.md)）：Vitest 各层配置与文件后缀、Playwright + Electron、fast-check、Stryker、oxlint（类型感知 + vitest 规则）、oxfmt、TypeScript 7、knip、lefthook，以及 `pnpm test*` / `pnpm check` 命令。
   - 建立追踪表 `docs/testing/coverage-map.md`，先填 SPEC-0001 的需求和关键流程。
   - 宿主 `platform/` 的资源计数（PiProcess、SessionController、监听、订阅、定时器、子进程），泄漏测试和日志共用；`pnpm test:leak` / `test:perf` / `bench` / `test:soak` 的骨架。
 - **参考**：[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)、[SPEC-0001 · 进程与启动、各包职责](specs/0001-mvp1-single-session-chat.md#进程与启动)、[design-language · 颜色](architecture/design-language.md#颜色)。
-- **完成标准**：窗口能打开；token 错误时连接被拒；切换系统外观界面跟着变；`pnpm check` 通过；每一层各有一个能跑的示例测试，并确认它在实现被破坏时会失败；一次变异测试能跑完并出报告。
+- **完成标准**：窗口能打开；token 错误、来源不对时连接被拒；渲染进程拿不到 Node；一次连接在日志里能按 trace id 串起来；日志里搜不到 token；切换系统外观界面跟着变；`pnpm check` 通过；每一层各有一个能跑的示例测试，并确认它在实现被破坏时会失败；一次变异测试能跑完并出报告。
 
 ##### M1.2 最窄链路：宿主驱动 pi
 
@@ -158,7 +168,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
   - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。
   - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
-  - pi 的 stderr 和宿主自己的日志写进 `~/.atrium/logs/`，错误卡片"展开看原始报错"要用到。
+  - pi 的 stderr 按行记进日志（挂在 `pi.process` span 下），错误卡片"展开看原始报错"要用到；RPC 请求 id 由 span id 生成。
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、pi 的 `src/modes/rpc/rpc-client.ts`（只作对照，不直接用）、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
 - **完成标准**：适配器测试用录制的夹具跑通；分帧的属性测试通过；pi 契约测试全部通过；真实 pi 能完整跑完一轮；启动和停止 pi 200 次后没有残留进程、监听数回到基线；分帧吞吐有了基准基线。
 
@@ -166,7 +176,8 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：在 UI 里发消息，看到流式回复和推理过程。
 - **范围**：
-  - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId`，事件带 `epoch + seq`。
+  - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId + traceparent`，事件带 `epoch + seq` 和所属运行的 trace id。
+  - 开工前先补齐协议细节，写进 SPEC-0001"接口与数据"：握手（协议版本、clientId）、心跳、单条消息大小上限、命令的应答方式、错误码表；重写已被取代的 `event-model.md`，或改为从 zod 定义生成。
   - `client`：WebSocket 连接、断线重连；状态用 Zustand vanilla store，按领域拆成列表、每个会话一个 SessionView（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息；对外只暴露 store 和命令方法。
   - SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
   - UI：用户气泡、回复和推理过程、"进行中 · 12s"；滚动跟随（停在底部时跟随，往上翻停止跟随，出现"↓ 回到底部"）。
@@ -196,6 +207,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：侧栏按"项目 → 工作区"组织，标签页切换会话，能恢复历史会话和草稿。
 - **范围**：
+  - 开工前先定 `~/.atrium/` 的文件布局、格式版本与迁移、文件损坏时的恢复，写进领域模型；宿主单实例（第二次打开应用时聚焦已有窗口，避免两个宿主同时写索引）。
   - IndexStore（`~/.atrium/`，原子写入）、ProjectService、WorkspaceService（`git worktree list`、分支、创建时间）、MergeInspector（未提交、↑N、无改动、已合并、已移除、无法判断）。
   - pi 包的 SessionFiles 扫描会话目录、解析文件头；宿主的 SessionCatalog 按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话。
   - WorkspaceService 的后台 `git fetch`（窗口聚焦时、每隔几分钟）和聚焦后重算；git 低于 2.38 时只提示合并状态不可用。
@@ -232,6 +244,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：全新机器上从零走到第一次对话；SPEC-0001 里散落的设置项有地方改。
 - **范围**：
+  - 开工前先验证：宿主能否直接调用 pi-ai 的 OAuth 实现完成订阅登录（SPEC-0001 写着"实施时确认"，是本里程碑最大的风险）。
   - 首次启动：检查 pi / Node / 登录 / 项目；一键安装和更新 pi（官方脚本、`pi update --self`、Homebrew 装 Node）；订阅登录（官方图标）与 API Key；从 pi 历史发现目录并添加；欢迎页（玻璃、点阵按钮、标题字体）。
   - 点阵图案的种子取本机安装 ID（存在 `~/.atrium/`），模型按钮拉满时的彩色点阵用同一个种子。
   - 字体子集和品牌图标打包进应用，不依赖网络。
