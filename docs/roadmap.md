@@ -59,7 +59,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo（pnpm workspaces）：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
 - pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
 - `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。
-- 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
+- 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线 + memlab）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
@@ -145,6 +145,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
   - 搭好测试与代码质量工具（[testing.md](architecture/testing.md)）：Vitest 各层配置与文件后缀、Playwright + Electron、fast-check、Stryker、oxlint（类型感知 + vitest 规则）、oxfmt、TypeScript 7、knip、lefthook，以及 `pnpm test*` / `pnpm check` 命令。
   - 建立追踪表 `docs/testing/coverage-map.md`，先填 SPEC-0001 的需求和关键流程。
+  - 宿主 `platform/` 的资源计数（PiProcess、SessionController、监听、订阅、定时器、子进程），泄漏测试和日志共用；`pnpm test:leak` / `test:perf` / `bench` / `test:soak` 的骨架。
 - **参考**：[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)、[SPEC-0001 · 进程与启动、各包职责](specs/0001-mvp1-single-session-chat.md#进程与启动)、[design-language · 颜色](architecture/design-language.md#颜色)。
 - **完成标准**：窗口能打开；token 错误时连接被拒；切换系统外观界面跟着变；`pnpm check` 通过；每一层各有一个能跑的示例测试，并确认它在实现被破坏时会失败；一次变异测试能跑完并出报告。
 
@@ -159,7 +160,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
   - pi 的 stderr 和宿主自己的日志写进 `~/.atrium/logs/`，错误卡片"展开看原始报错"要用到。
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、pi 的 `src/modes/rpc/rpc-client.ts`（只作对照，不直接用）、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
-- **完成标准**：适配器测试用录制的夹具跑通；分帧的属性测试通过；pi 契约测试全部通过；真实 pi 能完整跑完一轮。
+- **完成标准**：适配器测试用录制的夹具跑通；分帧的属性测试通过；pi 契约测试全部通过；真实 pi 能完整跑完一轮；启动和停止 pi 200 次后没有残留进程、监听数回到基线；分帧吞吐有了基准基线。
 
 ##### M1.3 协议、客户端与流式显示
 
@@ -176,7 +177,7 @@ MVP 1 里还没设计、做到时先补设计的：
     - 平滑揭示放在 `client` 或 UI 的一个 hook 里：按积压量调节速度，约 150ms 追平；复制、选择、滚动都以完整文本为准。先不开 Streamdown 自带的 `animated`，避免和平滑揭示叠加。
     - 按 SPEC-0001"回复渲染"的范围配置：数学只认 `$$…$$` 和 `\(…\)`；KaTeX、Mermaid 第一次遇到时才加载；Shiki 主题跟随浅色 / 深色；用 `components` 覆盖 `a`（系统浏览器打开）和 `img`（远程图片点击后才加载）；原始 HTML 不执行。
 - **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、§7 客户端与一致性、§8 协议与类的对应、[SPEC-0001 · 接口与数据、回复渲染](specs/0001-mvp1-single-session-chat.md#接口与数据)、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[design-language](architecture/design-language.md) 的"动效""消息流"、[Streamdown 文档](https://streamdown.ai/docs)（含各插件的 `@source` 写法）、原型 `app-prototype.html`、Paseo 的 `packages/app/src/agent-stream/text-reveal.ts`。
-- **完成标准**：`protocol` 的 schema 测试通过；一轮对话在 UI 里完整显示；准备一份覆盖"回复渲染"全部范围的 Markdown（表格、嵌套列表、代码块与 diff、中文加粗紧挨标点、块公式与行内公式、Mermaid、链接、远程图片、原始 HTML），按真实节奏分片流式输出，过程中不闪烁、不错乱，结束后与一次性渲染结果一致。
+- **完成标准**：`protocol` 的 schema 测试通过；一轮对话在 UI 里完整显示；准备一份覆盖"回复渲染"全部范围的 Markdown（表格、嵌套列表、代码块与 diff、中文加粗紧挨标点、块公式与行内公式、Mermaid、链接、远程图片、原始 HTML），按真实节奏分片流式输出，过程中不闪烁、不错乱，结束后与一次性渲染结果一致；50 tok/s 流式输出长 Markdown 期间满足性能预算（没有超过 50 毫秒的长任务，帧时间 p95 ≤ 16.7 毫秒）。
 
 ##### M1.4 对话记录与过程
 
@@ -189,7 +190,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 打开会话先取最近 20 轮（`fetch_transcript` 的 `tail`），翻到顶再按游标加载更早的（`before`）。
   - 历史会话的每轮用时由时间戳推算；TTFT、输出速度宿主重启后显示"—"。
 - **参考**：[pi-internals](research/pi-internals.md) §1 会话文件、§3 RPC 协议、[domain-model](architecture/domain-model.md) §2 会话历史、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)、Paseo 的 `packages/server/src/server/agent/providers/pi/history-mapper.ts`、`tool-call-mapper.ts`（Paseo 用 `get_messages`，只借鉴映射，不照搬重建方式）。
-- **完成标准**：用一个带压缩、带分叉的真实会话文件恢复，显示的历史与终端 pi 一致，压缩前的内容不丢。
+- **完成标准**：用一个带压缩、带分叉的真实会话文件恢复，显示的历史与终端 pi 一致，压缩前的内容不丢；打开 1000 轮的会话到首屏满足预算；2000 轮重建有基准基线。
 
 ##### M1.5 项目、工作区与会话
 
@@ -225,7 +226,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 列表同步（`generation + seq`，快照 / 增量）、会话订阅、对话记录按游标分页、重连流程、`clientMessageId` 对齐。
   - 自动生成标题（OneShotPi）、交给终端。
 - **参考**：[domain-model](architecture/domain-model.md) §4 状态的派生、§7 客户端与一致性、[paseo-architecture](research/paseo-architecture.md) §4 同步、§5 状态与关注、pi 实验版的 Chord 设计（[pi-internals](research/pi-internals.md) §6）。
-- **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过。
+- **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过；打开关闭会话、订阅退订、连接断开、停止、崩溃重启各 200 次的泄漏测试通过；界面在会话间切换的泄漏测试 memlab 报告为 0；30 分钟长时间运行通过。
 
 ##### M1.8 首次启动与设置
 
@@ -241,6 +242,7 @@ MVP 1 里还没设计、做到时先补设计的：
 ##### M1.9 自用
 
 - 用开发模式运行（v0.1 不打包签名），连续一周用它完成真实的编码任务，至少 10 个会话。
+- 每天看宿主日志里的资源计数和内存趋势；发现持续上涨就补一个能复现的泄漏测试再修。
 - 记录 pi 比 Codex 明显不够用的地方，作为 H1 的结论，决定是否继续这条路线。
 - 对照 SPEC-0001 的 14 条需求逐条过一遍。
 
