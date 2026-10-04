@@ -2,8 +2,8 @@
 
 - **状态**：评审中
 - **创建**：2026-09-30
-- **更新**：2026-10-03
-- **相关**：[路线图](../roadmap.md) 阶段 1 第 1 步、[ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)、[ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)、[ADR-0006](../adr/0006-organize-sessions-by-workspace.md)、[领域模型](../architecture/domain-model.md)、[设计语言](../architecture/design-language.md)、[事件模型](../architecture/event-model.md)
+- **更新**：2026-10-04
+- **相关**：[路线图](../roadmap.md) 阶段 1 第 1 步、[ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)、[ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)、[ADR-0006](../adr/0006-organize-sessions-by-workspace.md)、[领域模型](../architecture/domain-model.md)、[设计语言](../architecture/design-language.md)
 
 ## 背景与目标
 
@@ -82,7 +82,7 @@ Electron 主进程
 - **图标**：Phosphor Icons。14～18px 用 regular（屏幕线宽约 1px），20px 以上用 light；状态图标是纯线性图标，只给图标上色，不加底色。
 - **动效**：以 Apple 为基准，用弹簧（时长 + 回弹）而不是固定时长的缓动；按下立即反馈、展开收起有高度过渡、位置变化用位移过渡；遵从系统的"减弱动态效果"。
 - **外观**：跟随系统 / 浅色 / 深色三档，记住选择，系统外观变化时自动跟随；深色贴近 DeepSeek Harness，浅色按同样的层级关系推导。
-- 完整页面原型：`prototypes/app-prototype.html`。设计规范（变量、组件、动效参数）另行整理成文档。
+- 完整页面原型：`prototypes/app-prototype.html`。设计规范（变量、组件、动效参数）见 [设计语言](../architecture/design-language.md)。
 - 本 spec 引用的原型（`prototypes/` 下的侧栏、对话区、图标对比、完整页面）按"用完即弃"的约定保存在 `prototype/ui` 分支，不进 `main`。
 
 ### 侧栏
@@ -540,7 +540,7 @@ Electron 主进程
 - **自动化**：
   - `protocol` 的 schema 测试
   - 宿主适配器测试：用录制的 pi JSONL 输出作为模拟进程，覆盖流式输出、工具调用、中断、进程退出
-- **手动场景**：对照"需求"里的 13 条逐条过一遍。
+- **手动场景**：对照"需求"里的 14 条逐条过一遍。
 - **成功标准**：
   - 连续一周用它完成真实的编码任务，至少 10 个会话；
   - 记录下 pi 比 Codex 明显不够用的地方，作为 H1 的结论，决定是否继续这条路线。

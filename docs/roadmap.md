@@ -28,6 +28,11 @@
 | 界面原型 | `prototype/ui` 分支（见下文"原型"） |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
+MVP 1 里还没设计、做到时先补设计的：
+
+- logo，以及工作区、新会话、新对话的空状态（先用占位）。
+- 设置页：原型里只有入口。SPEC-0001 里散落的设置项见 [M1.8](#m18-首次启动与设置)。
+
 ## 开工前必读
 
 ### 文档地图
@@ -116,6 +121,8 @@
 
 ### 1. v0.1：替代 Codex 做日常编码
 
+分三步：第 1 步 MVP 1、第 2 步 MVP 2、第 3 步并行与 worktree（其他文档里的"阶段 1 第 N 步"指这里）。
+
 目标：日常编码从 Codex 换到 Atrium。模型沿用 ChatGPT 订阅。浏览器操作不单独开发：在 pi 的 `mcp.json` 里配置 chrome-devtools 或 Playwright 的 MCP server，从 MVP 1 起即可使用。
 
 #### MVP 1：纯对话
@@ -129,7 +136,7 @@
   - pnpm workspaces：`packages/protocol`、`client`、`host`、`ui`，`apps/desktop`。
   - Electron 主进程启动宿主（Node 子进程），随机端口 + 随机 token，preload 传给 UI。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
-  - 定下 SPEC-0001"风险与待定问题"里的工程选型：pi 适配器用 pi 自带的 `RpcClient` 还是自己写、`client` 的状态管理库。
+  - 定下 SPEC-0001"风险与待定问题"里的工程选型：pi 适配器用 pi 自带的 `RpcClient` 还是自己写、`client` 的状态管理库；以及测试框架、代码检查与格式化工具。定下后更新 SPEC-0001 的勾选框和本文"已定的关键决策"。
 - **参考**：[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)、[SPEC-0001 · 进程与启动、各包职责](specs/0001-mvp1-single-session-chat.md#进程与启动)、[design-language · 颜色](architecture/design-language.md#颜色)。
 - **完成标准**：窗口能打开；token 错误时连接被拒；切换系统外观界面跟着变。
 
@@ -138,8 +145,11 @@
 - **目标**：宿主启动 `pi --mode rpc`，发一条 prompt，在终端里打出流式文本，直到 `agent_settled`。
 - **范围**：
   - PiAdapter：严格按 LF 分帧的 JSONL（不用 `readline`）、按 `id` 对应乱序响应、超时、SIGTERM → SIGKILL 进程树、退出转成事件。
+  - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。
+  - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
+  - pi 的 stderr 和宿主自己的日志写进 `~/.atrium/logs/`，错误卡片"展开看原始报错"要用到。
   - 录制几段真实的 pi 输出作为测试夹具（流式、工具调用、中断、退出）。
-- **参考**：[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
+- **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
 - **完成标准**：适配器测试用录制的夹具跑通；真实 pi 能完整跑完一轮。
 
 ##### M1.3 协议、客户端与流式显示
@@ -149,7 +159,7 @@
   - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId`，事件带 `epoch + seq`。
   - `client`：WebSocket 连接、断线重连、按 `sessionId` 维护 SessionView。
   - SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
-  - UI：用户气泡、回复和推理过程、"进行中 · 12s"。
+  - UI：用户气泡、回复和推理过程、"进行中 · 12s"；滚动跟随（停在底部时跟随，往上翻停止跟随，出现"↓ 回到底部"）。
   - 流式渲染（选型见上文"前端技术栈"）：
     - 安装 `streamdown`、`@streamdown/code`、`@streamdown/math`、`@streamdown/mermaid`、`@streamdown/cjk`；引入 `streamdown/styles.css` 和 `katex/dist/katex.min.css`。
     - Tailwind 的 CSS 里为 `streamdown` 和每个已装插件加 `@source` 指向其 `dist/*.js`；monorepo 里依赖被提升到根目录 `node_modules`，路径按 CSS 文件位置数 `../`。
@@ -166,6 +176,9 @@
   - SessionLog：`get_entries(since)` + `leafId`，按条目树沿当前分支重建 TranscriptProjection（轮、步骤、系统事件）。
   - 过程折叠行、单行步骤列表、详情块；`bash` / `read` / `edit` / `write` / 其他工具；diff；显示模式（摘要 / 思考 / 详细，Ctrl+O）。
   - 每轮改动汇总（"已观测到的工具修改"口径）、回复下方信息行、提问导航条。
+  - 用户消息超过约 12 行折叠；复制消息和回复（需求 14）；回复"···"里的"复制为 Markdown"、整个会话"导出为 Markdown"。
+  - 打开会话先取最近 20 轮（`fetch_transcript` 的 `tail`），翻到顶再按游标加载更早的（`before`）。
+  - 历史会话的每轮用时由时间戳推算；TTFT、输出速度宿主重启后显示"—"。
 - **参考**：[pi-internals](research/pi-internals.md) §1 会话文件、§3 RPC 协议、[domain-model](architecture/domain-model.md) §2 会话历史、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)、Paseo 的 `packages/server/src/server/agent/providers/pi/history-mapper.ts`、`tool-call-mapper.ts`（Paseo 用 `get_messages`，只借鉴映射，不照搬重建方式）。
 - **完成标准**：用一个带压缩、带分叉的真实会话文件恢复，显示的历史与终端 pi 一致，压缩前的内容不丢。
 
@@ -175,7 +188,9 @@
 - **范围**：
   - IndexStore（`~/.atrium/`，原子写入）、ProjectService、WorkspaceService（`git worktree list`、分支、创建时间）、MergeInspector（未提交、↑N、无改动、已合并、已移除、无法判断）。
   - SessionCatalog：扫描 pi 会话目录，按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话。
-  - 侧栏、收件箱、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档。
+  - WorkspaceService 的后台 `git fetch`（窗口聚焦时、每隔几分钟）和聚焦后重算；git 低于 2.38 时只提示合并状态不可用。
+  - 侧栏、收件箱、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。
+  - 快捷键：⌘N 新建对话，⌘T 新建会话，⌘W 关闭标签，⌘1–9、⌘⇧[ / ⌘⇧] 切换标签。
 - **参考**：[ADR-0006](adr/0006-organize-sessions-by-workspace.md)、[domain-model](architecture/domain-model.md) §1 项目、工作区、会话，§6 宿主的组件、[SPEC-0001 · 侧栏](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §1 数据与持久化、§6 git 状态。
 - **完成标准**：添加几个真实项目（含 worktree、非 git 目录）后，侧栏信息和 `git` / pi 的实际情况一致；在终端里开的 pi 会话自动出现在对应工作区。
 
@@ -185,9 +200,11 @@
 - **范围**：
   - 排队、插话、停止（2 秒确认与锁定）、压缩期间暂停出队、`handled` 处理、`queue_update` 确认插话送达。
   - 模型与推理强度（PiCatalog，档位按模型）、点阵模型按钮与推理强度框。
-  - 输入框：图片、`@` 引用文件、`/` 命令、长文本粘贴、拖入、展开、↑ 历史、草稿、中文输入法回车。
+  - 输入框：图片（当前模型不支持图片时提示）、`@` 引用文件、`/` 命令、长文本粘贴、拖入、展开、↑ 历史、草稿、中文输入法回车、胶囊条（排队、插话、本会话改动）。
+  - 快捷键：回车发送 / 排队，⌘+回车插话，Esc 停止，⌘⇧I 模型菜单，⌘⇧E 推理强度菜单。
   - 对话框（PendingInteraction）、状态栏（注册表、自定义入口、上下文分段估算）。
   - 失败重试与进程崩溃自动重启（各 3 次）、错误卡片。
+  - 有余力再做（SPEC-0001 标为可选）：⌘F 会话内搜索、选中回复文字后"引用"。
 - **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、§5 模型与设置、[SPEC-0001 · 关键流程、输入框、状态栏](specs/0001-mvp1-single-session-chat.md#关键流程)、[pi-internals](research/pi-internals.md) §2 运行时、§4 模型与认证、§5 extension、[paseo-architecture](research/paseo-architecture.md) §2 生命周期（中断与锁定）、原型 `app-prototype.html`。
 - **完成标准**：对照 SPEC-0001 需求 5～7、9～11 逐条验证；人为杀掉 pi 进程能自动恢复。
 
@@ -201,16 +218,20 @@
 - **参考**：[domain-model](architecture/domain-model.md) §4 状态的派生、§7 客户端与一致性、[paseo-architecture](research/paseo-architecture.md) §4 同步、§5 状态与关注、pi 实验版的 Chord 设计（[pi-internals](research/pi-internals.md) §6）。
 - **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过。
 
-##### M1.8 首次启动
+##### M1.8 首次启动与设置
 
-- **目标**：全新机器上从零走到第一次对话。
-- **范围**：检查 pi / Node / 登录 / 项目；一键安装和更新 pi（官方脚本、`pi update --self`、Homebrew 装 Node）；订阅登录（官方图标）与 API Key；从 pi 历史发现目录并添加；欢迎页（玻璃、点阵按钮、标题字体）。
+- **目标**：全新机器上从零走到第一次对话；SPEC-0001 里散落的设置项有地方改。
+- **范围**：
+  - 首次启动：检查 pi / Node / 登录 / 项目；一键安装和更新 pi（官方脚本、`pi update --self`、Homebrew 装 Node）；订阅登录（官方图标）与 API Key；从 pi 历史发现目录并添加；欢迎页（玻璃、点阵按钮、标题字体）。
+  - 点阵图案的种子取本机安装 ID（存在 `~/.atrium/`），模型按钮拉满时的彩色点阵用同一个种子。
+  - 字体子集和品牌图标打包进应用，不依赖网络。
+  - 设置页（先设计，原型里只有入口）：外观；自动生成标题用的模型；项目的主干分支；pi 的版本与"更新 pi"（宿主每天查一次 npm，有会话在运行时等它们结束再更新）。
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)、原型 `onboarding-prototype.html`、[design-language · 点阵、字体](architecture/design-language.md#点阵)、[pi-internals](research/pi-internals.md) §4 模型与认证、[domain-model](architecture/domain-model.md) §5 首次启动。
-- **完成标准**：在一个没装 pi 的账户上走通；SPEC-0001 需求 13 通过。
+- **完成标准**：在一个没装 pi 的账户上走通；SPEC-0001 需求 13 通过；设置页里的每一项改完都生效。
 
 ##### M1.9 自用
 
-- 连续一周用它完成真实的编码任务，至少 10 个会话。
+- 用开发模式运行（v0.1 不打包签名），连续一周用它完成真实的编码任务，至少 10 个会话。
 - 记录 pi 比 Codex 明显不够用的地方，作为 H1 的结论，决定是否继续这条路线。
 - 对照 SPEC-0001 的 14 条需求逐条过一遍。
 
@@ -223,12 +244,13 @@
 - 审批：基于 `tool_call` 钩子，规则对齐 Codex（只读操作自动放行，写入和执行需要确认）；复用 PendingInteraction，状态"待审批"已在侧栏预留；输入框加审批模式选择器（⌘⇧M）。
 - 上下文检查器（基础版）：每次实际发给模型的内容和 token 分布，由 extension 捕获（`before_provider_request` / `context`），不从状态栏的估算升级。
 - 检查器作为单个会话内部的"对话 / 轨迹"视图切换接入（参考 DeepSeek Harness），和会话标签页不冲突。
+- 检查点与回滚文件：每轮开始前快照，和审批一起做（SPEC-0001 "对话记录的其他设计"）。
 - 参考：[pi-extension-capabilities.md](research/pi-extension-capabilities.md)、[pi-internals](research/pi-internals.md) §5 extension、[plugin-model.md](architecture/plugin-model.md)。
 
 #### 并行与 worktree
 
 - 完成或等待处理时发系统通知；"已完成未读"状态（关注原因 `finished`）。
-- 新建 worktree 工作区：由宿主创建 worktree，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口。
+- 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口；新会话时可选"当前工作区 / 新建 worktree"。
 - 参考：[SPEC-0001 · worktree 合并状态](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §6 git 状态。
 
 v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、打包签名、空闲进程回收、文件区（外部改动的处理留到文件区设计）。
@@ -250,7 +272,7 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 1. **loop devtools**：把阶段 0 的观察者插件界面化，实时展示钩子事件流。
 2. **上下文检查器（完整版）**：在 v0.1 基础版之上，展示压缩时机，支持钉住或丢弃。
 3. **工具调用拦截**：在 v0.1 审批之上，支持执行前修改参数。
-4. **会话树**：可视化 pi 的分支会话，支持分叉、对比，插件状态跟随分支切换。领域模型已按树建模（SessionLog），不用重来。
+4. **会话树**：可视化 pi 的分支会话，支持分叉、对比，插件状态跟随分支切换；用户消息的编辑和重发、从某一轮分叉也在这里做。领域模型已按树建模（SessionLog），不用重来。
 
 ### 5. agent 自扩展
 
@@ -260,6 +282,8 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 
 通过 pi package 分发。评估第三方插件的沙箱、权限声明，以及 UI 部分是否向 MCP Apps 这类标准靠拢。
 
+开源发布前要核对：汇文明朝体等"免费商用"字体的许可、各家品牌图标的使用规范、打包签名与自动更新。
+
 ## 以后再说
 
 - 接入其他 harness：Codex（`codex app-server`）、ACP 通用适配
@@ -268,3 +292,4 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 - 内嵌浏览器面板：用 Electron 内嵌浏览器，作为工具提供给 agent，替代 v0.1 的 MCP 方案
 - 手机端：先做响应式 + PWA，远程访问走 Tailscale；原生 App 视需要再做（见 [ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）
 - 空闲进程回收、文件区、forge（PR）状态
+- SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、订阅额度显示、长会话虚拟列表、extension 单向通知的显示
