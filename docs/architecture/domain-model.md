@@ -120,6 +120,13 @@ classDiagram
       type
       timestamp
     }
+    class LogEntry {
+      <<pi 包输出，Atrium 形状>>
+      key  会话 id + 条目 id
+      parentId?
+      kind
+      timestamp
+    }
     class SessionLog {
       <<宿主缓存>>
       entries: Map
@@ -176,7 +183,8 @@ classDiagram
       answer?
     }
 
-    SessionLog "1" *-- "0..*" SessionEntry
+    SessionEntry ..> LogEntry : pi 包 history 转换
+    SessionLog "1" *-- "0..*" LogEntry
     SessionLog ..> TranscriptProjection : 按当前分支重建
     SessionLog ..> ContextBreakdown : 回放系统消息与检查点
     TranscriptProjection "1" *-- "0..*" TranscriptItem
@@ -190,7 +198,8 @@ classDiagram
     Step <|.. InteractionStep
 ```
 
-- **SessionLog** 是宿主对 pi 条目的缓存，用 `get_entries(since)` 增量获取。它同时记两样东西：条目游标，以及当前分支叶子。`get_entries` 返回空时 `leafId` 仍可能变化，所以两者分开维护。
+- **LogEntry** 是 pi 包把 pi 条目转换后的形状（`packages/pi/src/history/`），保留 `id / parentId` 的树结构，宿主之后只处理它，不碰 pi 的原始格式；它只在宿主内部用，不进协议。系统消息（提示词分段、工具增减）和压缩检查点也转成对应的 LogEntry，供 ContextEstimator 回放。
+- **SessionLog** 是宿主对日志条目的缓存，用 `get_entries(since)` 增量获取。它同时记两样东西：条目游标，以及当前分支叶子。`get_entries` 返回空时 `leafId` 仍可能变化，所以两者分开维护。
   - 条目 id 只在一个文件内唯一（克隆出的会话沿用原 id），跨会话一律用"会话 id + 条目 id"作键。
   - pi 不保存叶子，加载时取文件最后一条为叶子。
   - 切换模型、压缩、标签等写入的条目**不会发事件**。所以在 `agent_settled`、`compaction_end`、以及宿主自己发出的 `set_model` 等命令之后，主动再取一次 `get_entries(since)`，不只靠实时事件。
@@ -504,10 +513,14 @@ classDiagram
       <<模块>>
       PiAdapter
       EventTranslator
-      SessionCatalog
+      HistoryMapper
+      SessionFiles
       PiCatalog
       ContextEstimator
       OneShotPi
+    }
+    class SessionCatalog {
+      scan() classify()
     }
 
     WsServer "1" *-- "0..*" Connection
@@ -518,7 +531,9 @@ classDiagram
     WsServer --> SetupService
     SessionManager ..> Connection : 谁在看哪个会话
     SessionManager *-- SessionController
-    SessionManager --> PiIntegration : SessionCatalog
+    SessionManager --> SessionCatalog
+    SessionCatalog --> PiIntegration : SessionFiles
+    SessionCatalog --> IndexStore : 记录的容器
     SessionController --> PiIntegration : PiAdapter、EventTranslator
     SessionController ..> TitleGenerator : 第一轮结束后
     TitleGenerator --> PiIntegration : OneShotPi
@@ -530,9 +545,10 @@ classDiagram
     SessionManager --> IndexStore
 ```
 
-- **PiIntegration** 是一个模块，不是一个类：PiAdapter（RPC 进程，自己实现，不用 pi 自带的 `RpcClient`，理由见 SPEC-0001"风险与待定问题"；按 id 对应请求和响应，pi 并发处理每行命令、响应可能乱序；一个会话固定一个进程，不用 `switch_session` 换会话，因为换完不发任何事件）、EventTranslator（纯函数，pi 事件 → Atrium 事件）、SessionCatalog（只读扫描会话目录，发现已写出的会话和历史工作目录）、PiCatalog、ContextEstimator、OneShotPi（`pi --mode json -p --no-session` 一次性调用）。pi 的格式和协议细节只出现在这个模块里，对外只给 Atrium 类型。
+- **PiIntegration** 是一个模块，不是一个类：PiAdapter（RPC 进程，自己实现，不用 pi 自带的 `RpcClient`，理由见 SPEC-0001"风险与待定问题"；按 id 对应请求和响应，pi 并发处理每行命令、响应可能乱序；一个会话固定一个进程，不用 `switch_session` 换会话，因为换完不发任何事件）、EventTranslator（纯函数，pi 事件 → Atrium 事件）、HistoryMapper（纯函数，pi 条目 → LogEntry）、SessionFiles（只读扫描会话目录、解析文件头、记录文件大小和修改时间，发现已写出的会话和历史工作目录，不做归类）、PiCatalog、ContextEstimator（按 pi 的语义回放系统消息和检查点，只返回各分段的 token 数，ContextBreakdown 由 SessionController 组装）、OneShotPi（`pi --mode json -p --no-session` 的调用和输出解析）。pi 的格式和协议细节只出现在这个模块里，对外只给 Atrium 类型。它是独立的 `packages/pi`，见 [架构总览 · 代码结构](overview.md#代码结构)。
+- **SessionCatalog** 在宿主里：用 SessionFiles 的扫描结果，按索引里记录的容器、或文件头的 `cwd` 把会话归到容器，按 id 去重并报告冲突。归类是 Atrium 的业务规则，所以不放进 pi 包。
 - **Connection** 记录每个客户端订阅了哪些会话（打开着或可见的），宿主只给订阅者推送对话记录的增量（参照 Paseo）；客户端打开会话时清除它的关注状态。
-- **TitleGenerator** 走 OneShotPi，单独起一次性进程，不借正在运行的会话。
+- **TitleGenerator** 负责标题的提示词、截断和写回规则，调 OneShotPi 单独起一次性进程，不借正在运行的会话。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
 - **FileSearch** 在 git 仓库里用 `git ls-files`；非 git 目录按忽略规则遍历，限制深度和数量。
 - 指标的计时和汇总是 SessionController 内部的事，不单独成服务。
@@ -567,7 +583,7 @@ classDiagram
       stats
     }
     class ViewState {
-      <<packages/ui>>
+      <<packages/ui，存 localStorage>>
       expandedTurns
       drafts
       scroll
@@ -597,6 +613,8 @@ classDiagram
 - 断线不重发结果未知的写命令；重连后重新拿游标对齐即可，不需要持久化的事件总线。
 
 **客户端的状态**：IndexView、每个 SessionView 和布局各是一个 Zustand vanilla store（`zustand/vanilla`，不依赖 DOM），SessionView 在订阅时创建、退订时释放；UI 通过选择器订阅，不直接碰 WebSocket。
+
+**ViewState** 在 `packages/ui/src/state/`，保存草稿、展开的过程、滚动位置，存 localStorage；client 的布局 store 只镜像宿主上按客户端记录的标签页和当前容器。
 
 **多客户端**
 

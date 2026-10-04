@@ -37,7 +37,7 @@
 | 6 端到端 | `e2e/*.spec.ts` | 少量关键旅程：首次启动（pi 已装 / 未装，安装源指向本地）；添加项目 → 发消息 → 流式 → 停止 → 重启应用 → 历史恢复；后台会话进收件箱 | 整个应用都是真的，只有模型是 faux；失败时保留 trace、截图、录像 |
 | 7 真实模型冒烟 | `*.real.test.ts` | 用真实订阅跑一两个任务 | 手动触发，不进默认测试 |
 
-测试和实现放在一起（`thing.ts` + `thing.test.ts`）；端到端放在 `apps/desktop/e2e/`；共用的测试工具放在 `packages/testkit`（见下文"faux 模型"）。
+测试和实现放在一起（`thing.ts` + `thing.test.ts`）；端到端放在 `apps/desktop/e2e/`；第 4 层的测试宿主放在 `packages/host/test/harness.ts`。共用的测试工具放在 `packages/testkit`：faux 模型、回放夹具的 pi 替身、假时钟、临时环境、git 场景。testkit 不依赖任何内部包（最多依赖 protocol），pi 替身按结构类型匹配 pi 包的接口，避免和被测包形成循环依赖（见 [架构总览 · 代码结构](overview.md#代码结构)）。
 
 ### faux 模型
 

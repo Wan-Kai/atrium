@@ -41,6 +41,7 @@ MVP 1 里还没设计、做到时先补设计的：
 |---|---|
 | 做什么、不做什么、每个界面细节 | [SPEC-0001](specs/0001-mvp1-single-session-chat.md) |
 | 有哪些对象、谁拥有谁、状态怎么派生、怎么同步 | [domain-model.md](architecture/domain-model.md) |
+| 代码放在哪、包之间怎么依赖 | [overview.md · 代码结构](architecture/overview.md#代码结构) |
 | 命令和事件 | [SPEC-0001 · 接口与数据](specs/0001-mvp1-single-session-chat.md#接口与数据)（[event-model.md](architecture/event-model.md) 已被取代） |
 | pi 的会话格式、RPC、事件、队列、重试、认证 | [pi-internals.md](research/pi-internals.md) |
 | 同类宿主怎么做、哪些坑已经被踩过 | [paseo-architecture.md](research/paseo-architecture.md) |
@@ -139,8 +140,8 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：`pnpm dev` 打开一个 Electron 窗口，显示宿主提供的空白 UI，UI 用 token 连上宿主的 WebSocket。
 - **范围**：
-  - pnpm workspaces：`packages/protocol`、`client`、`host`、`ui`，`apps/desktop`。
-  - Electron 主进程启动宿主（Node 子进程），随机端口 + 随机 token，preload 传给 UI。
+  - pnpm workspaces，目录和依赖规则按 [overview.md · 代码结构](architecture/overview.md#代码结构)：`packages/protocol`、`pi`、`host`、`client`、`ui`、`testkit`，`apps/desktop`；依赖规则用 package.json、tsconfig 的 `lib` 和 oxlint 强制。
+  - Electron 主进程用 `utilityProcess.fork` 启动宿主，随机端口 + 随机 token，preload 传给 UI；宿主入口不依赖 Electron，能用 `node` 单独运行。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
   - 搭好测试与代码质量工具（[testing.md](architecture/testing.md)）：Vitest 各层配置与文件后缀、Playwright + Electron、fast-check、Stryker、oxlint（类型感知 + vitest 规则）、oxfmt、TypeScript 7、knip、lefthook，以及 `pnpm test*` / `pnpm check` 命令。
   - 建立追踪表 `docs/testing/coverage-map.md`，先填 SPEC-0001 的需求和关键流程。
@@ -181,7 +182,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：历史会话能完整恢复，过程（工具、diff、推理）按规格显示。
 - **范围**：
-  - SessionLog：`get_entries(since)` + `leafId`，按条目树沿当前分支重建 TranscriptProjection（轮、步骤、系统事件）。
+  - pi 包的 HistoryMapper 把 pi 条目转成 LogEntry；SessionLog：`get_entries(since)` + `leafId`，按条目树沿当前分支重建 TranscriptProjection（轮、步骤、系统事件）。
   - 过程折叠行、单行步骤列表、详情块；`bash` / `read` / `edit` / `write` / 其他工具；diff；显示模式（摘要 / 思考 / 详细，Ctrl+O）。
   - 每轮改动汇总（"已观测到的工具修改"口径）、回复下方信息行、提问导航条。
   - 用户消息超过约 12 行折叠；复制消息和回复（需求 14）；回复"···"里的"复制为 Markdown"、整个会话"导出为 Markdown"。
@@ -195,7 +196,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **目标**：侧栏按"项目 → 工作区"组织，标签页切换会话，能恢复历史会话和草稿。
 - **范围**：
   - IndexStore（`~/.atrium/`，原子写入）、ProjectService、WorkspaceService（`git worktree list`、分支、创建时间）、MergeInspector（未提交、↑N、无改动、已合并、已移除、无法判断）。
-  - SessionCatalog：扫描 pi 会话目录，按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话。
+  - pi 包的 SessionFiles 扫描会话目录、解析文件头；宿主的 SessionCatalog 按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话。
   - WorkspaceService 的后台 `git fetch`（窗口聚焦时、每隔几分钟）和聚焦后重算；git 低于 2.38 时只提示合并状态不可用。
   - 侧栏、收件箱、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。
   - 快捷键：⌘N 新建对话，⌘T 新建会话，⌘W 关闭标签，⌘1–9、⌘⇧[ / ⌘⇧] 切换标签。

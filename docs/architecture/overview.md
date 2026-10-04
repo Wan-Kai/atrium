@@ -29,14 +29,133 @@
 
 ## 代码结构
 
+2026-10-04 定，经 GPT-6-Astra 评审后调整。新增或挪动模块时先改这里。
+
 ```
-packages/
-├── protocol/   # zod 定义的命令与事件
-├── client/     # 客户端层，不依赖 DOM
-├── host/       # 宿主
-└── ui/         # React + Vite
-apps/desktop/   # Electron 外壳：启动宿主，加载 ui
+atrium/
+├── apps/
+│   └── desktop/                    Electron 外壳：只负责启动宿主和开窗口
+│       ├── src/main/               主进程：启动宿主、窗口、菜单、用系统浏览器开外链
+│       ├── src/preload/            把宿主地址和 token 交给 UI
+│       └── e2e/                    第 6 层端到端测试
+├── packages/
+│   ├── protocol/                   宿主和客户端之间的协议（zod），只放线上传输的东西
+│   │   └── src/
+│   │       ├── ids.ts              prj_ / wks_ / 会话 id 的品牌类型
+│   │       ├── entities/           线上实体：项目、工作区、会话摘要，对话记录的轮、步骤、系统事件，
+│   │       │                       待交互，指标，上下文分段
+│   │       ├── commands/           按领域分文件：projects、workspaces、sessions、run、catalog、setup
+│   │       ├── events/             同上
+│   │       ├── sync.ts             generation+seq、epoch+seq、游标、快照或增量的信封
+│   │       └── version.ts          协议版本，握手时用
+│   ├── pi/                         pi 集成：pi 的格式和协议只出现在这里
+│   │   ├── src/
+│   │   │   ├── process/            PiProcess：启动、LF 分帧、请求对应、超时、stderr、进程组
+│   │   │   ├── rpc/                命令封装：prompt、steer、abort、get_entries……
+│   │   │   ├── translate/          EventTranslator：pi 实时事件 → Atrium 事件（纯函数）
+│   │   │   ├── history/            pi 条目 → 日志条目 LogEntry（纯函数；LogEntry 类型定义在这里）
+│   │   │   ├── sessions/           扫描会话文件、解析文件头、记录大小和修改时间（不做归类）
+│   │   │   ├── context/            ContextEstimator：按 pi 的语义回放系统消息和检查点，只返回各分段的 token 数
+│   │   │   ├── catalog/            PiCatalog：模型、推理档位、`/` 命令
+│   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
+│   │   │   ├── auth/               登录状态检查、OAuth、API Key
+│   │   │   └── locate/             找到 pi、检查版本
+│   │   └── fixtures/               第 3 层录制的夹具，标注 pi 版本
+│   ├── host/                       宿主：Atrium 自己的业务
+│   │   ├── src/
+│   │   │   ├── main.ts             入口：组装依赖、启动；不依赖任何 Electron API
+│   │   │   ├── server/             WsServer、Connection、鉴权、命令路由
+│   │   │   ├── store/              IndexStore：~/.atrium 读写、原子写入、格式版本
+│   │   │   ├── projects/           ProjectService
+│   │   │   ├── workspaces/         WorkspaceService、MergeInspector、git 调用（并发上限 4）
+│   │   │   ├── sessions/           SessionManager、SessionCatalog（按记录的容器或 cwd 归类）、
+│   │   │   │                       SessionController、SessionRuntime、PromptQueue、PendingInteraction、
+│   │   │   │                       Attention、计时与指标
+│   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
+│   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
+│   │   │   ├── sync/               列表集合（generation+seq）、对话记录分页（epoch+seq）
+│   │   │   ├── setup/              SetupService、安装和登录任务
+│   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
+│   │   │   ├── files/              FileSearch（`@` 引用的候选文件）
+│   │   │   └── platform/           登录 shell 的 PATH、Clock、日志、子进程工具
+│   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
+│   ├── client/                     客户端层：不依赖 DOM，也不依赖 React
+│   │   └── src/
+│   │       ├── connection/         WebSocket、握手、心跳、重连
+│   │       ├── stores/             IndexView、SessionView、布局（zustand/vanilla；布局镜像宿主上按客户端记录的标签页）
+│   │       ├── sync/               应用快照和增量、补缺口、epoch 变化时整段替换、clientMessageId 对齐（纯函数）
+│   │       ├── selectors/          收件箱等派生数据
+│   │       └── index.ts            AtriumClient：对外只暴露 store 和命令方法
+│   ├── ui/                         React 界面
+│   │   └── src/
+│   │       ├── app/                根组件、整体布局、首次启动和主界面的切换、全局快捷键
+│   │       ├── state/              把 client 的 store 包成 hooks；ViewState（草稿、展开、滚动，存 localStorage）
+│   │       ├── design/             设计变量（CSS）、弹簧曲线、点阵、图标封装、字体
+│   │       ├── components/ui/      shadcn 生成的基础组件
+│   │       └── features/
+│   │           ├── sidebar/        侧栏、收件箱、搜索、项目与工作区
+│   │           ├── tabs/           标签栏、历史
+│   │           ├── transcript/     消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条
+│   │           ├── composer/       输入框、胶囊条、@ 和 /、模型与推理强度
+│   │           ├── status-bar/     状态栏、分组注册表、自定义面板
+│   │           ├── interactions/   extension 对话框卡片
+│   │           ├── onboarding/     首次启动
+│   │           └── settings/       设置页
+│   └── testkit/                    测试工具：不依赖任何内部包（最多依赖 protocol），只出现在 devDependencies
+│       └── src/
+│           ├── faux/               faux 模型 extension 和回复脚本
+│           ├── fake-pi/            回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
+│           ├── clock.ts            假时钟
+│           ├── temp-env.ts         临时 HOME、~/.atrium、pi 会话目录
+│           └── git.ts              造 git 场景：merge、squash、rebase、cherry-pick、worktree
+├── scripts/                        录制夹具、开发辅助
+├── docs/
+└── 根目录配置：pnpm-workspace.yaml、tsconfig.base.json、vitest.config.ts、stryker.config.mjs、
+               .oxlintrc.json、.oxfmtrc.json、knip.json、lefthook.yml
 ```
+
+MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不建。
+
+### 包之间的依赖
+
+```
+protocol  ←──  pi  ←──  host
+    ↑
+    └──────  client  ←──  ui
+```
+
+| 包 | 可以依赖 | 不允许 | 怎么强制 |
+|---|---|---|---|
+| protocol | zod | 任何内部包 | package.json 没声明，pnpm 就不让 import |
+| pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止 |
+| host | protocol、pi | DOM、client、ui、Electron | tsconfig 的 `lib` 不含 DOM |
+| client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
+| ui | client、protocol（只用类型） | host、pi | 没有声明依赖 |
+| desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口加载宿主提供的页面 |
+| testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
+
+- **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
+- **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。
+
+### 宿主内部的依赖
+
+只能从左往右依赖：
+
+```
+server → sessions → transcript、status、pi
+       → workspaces、projects、setup、titles、files
+各业务模块 → sync、store、platform（这三个不依赖任何业务模块）
+main.ts 负责组装全部
+```
+
+- 业务模块不依赖 `server/`，通过 `sync/` 的集合发布变化，不直接碰 WebSocket。
+- 子进程一律经过 `platform/` 的工具：启动 Node 程序用 `process.execPath`，不通过 `npx` 或 `.bin` 里的脚本；退出时杀整个进程树（Paseo 踩过这两个坑）。
+
+### 桌面端怎么启动宿主
+
+- Electron 主进程用 `utilityProcess.fork` 启动宿主：宿主跑在 Electron 自带的 Node 里，用户不需要另装 Node 来跑宿主（pi 本身仍用系统里的 Node）。
+- 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后 PWA 和无界面运行都用它。
+- 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。打包在 v0.1 之后，这里先定方向。
 
 ## 进程模型
 
@@ -59,5 +178,5 @@ apps/desktop/   # Electron 外壳：启动宿主，加载 ui
 
 ## 边界
 
-- UI 和客户端层**只依赖 Atrium 协议**，不直接依赖 pi 的类型。将来接入其他 harness 时，只需在宿主里新增一个适配器。
+- UI 和客户端层**只依赖 Atrium 协议**，不直接依赖 pi 的类型。将来接入其他 harness 时，在 `pi` 包旁边新增一个适配器包，宿主改为依赖它；现在不为此预先定义通用接口。
 - 将来做原生 App 时，复用 `protocol` 和 `client`，只重写 UI。
