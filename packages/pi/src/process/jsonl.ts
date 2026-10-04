@@ -27,7 +27,8 @@ export interface LineSplitter {
  * @returns The splitter.
  */
 export function createLineSplitter(onLine: (line: string) => void): LineSplitter {
-  const decoder = new StringDecoder("utf8");
+  // UTF-8 is the default encoding.
+  const decoder = new StringDecoder();
   let unfinished = "";
 
   /**

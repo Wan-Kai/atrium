@@ -175,7 +175,7 @@ main.ts 负责组装全部
 - 子进程：
   - Atrium 自己的 Node 程序（例如测试或脚本里再起一个宿主）用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 里的脚本。
   - pi 不适用这条：宿主跑在 Electron 里时，`process.execPath` 是 Electron 本身。pi 用 `findPi` 找到的绝对路径直接启动，环境变量里的 PATH 取自登录 shell，不经过 shell 或 npx。
-  - 宿主自己起的子进程走 `platform/` 的工具；pi 子进程由 pi 包管理（见上文"pi 包拿到宿主基础设施的方式"）。退出时都要杀整个进程组（Paseo 踩过这个坑）。
+  - 宿主自己起的子进程走 `platform/` 的工具；pi 子进程由 pi 包管理（见上文"pi 包拿到宿主基础设施的方式"）。退出时都要清理到所有后代进程，不能只杀直接子进程（Paseo 踩过这个坑）。pi 的 bash 工具子进程各有自己的进程组，只杀 pi 的进程组会漏掉它们，做法见 roadmap M1.2。
 - 这些方向由 oxlint 的 `no-restricted-imports` 按目录检查（`.oxlintrc.json`）：业务模块不能 import `server/`；`sync/`、`store/`、`platform/` 不能 import 任何业务模块或 `server/`；`packages/host/src` 不能 import `@atrium/client`（client 只给第 4 层测试用）。
 
 ### 桌面端怎么启动宿主

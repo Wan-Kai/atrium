@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。正在做 [M1.2](#m12-最窄链路宿主驱动-pi)（分支 `m1.2-pi-link`）：faux 模型已在真实 pi 里验证通过并落进 testkit；接下来是分帧和 PiAdapter。**
+**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。正在做 [M1.2](#m12-最窄链路宿主驱动-pi)（分支 `m1.2-pi-link`）：已完成 faux 模型、LF 分帧、PiProcess（启动、请求对应、期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）；接下来是登录 shell 的 PATH 与版本检查、宿主组装（stderr 挂在 span 下、请求 id 来自 span）、pi 契约测试与夹具录制。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -166,7 +166,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **范围**：
   - ✅ 先验证 faux 模型：测试 extension 用 `pi.registerProvider()` 注册 pi-ai 的 `fauxProvider()`，在真实 RPC 进程里按脚本回复。已验证通过，实现在 `packages/testkit/src/faux/`（见 [testing.md · faux 模型](architecture/testing.md#faux-模型)）。
   - 第 3 层 pi 契约测试：逐条验证 pi-internals 里依赖的行为，并由它录制第 1 层的夹具。
-  - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（语义照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`；✅ 已实现于 `packages/pi/src/process/jsonl.ts`，改成每块只扫一次，16 MiB 的单行比 pi 的写法快约 60 倍）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
+  - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（语义照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`；✅ 已实现于 `packages/pi/src/process/jsonl.ts`，改成每块只扫一次，16 MiB 的单行比 pi 的写法快约 60 倍）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时先关 stdin、再 SIGTERM，都不退才 SIGKILL：SIGKILL 前先按父进程关系找出 pi 的所有后代，连同它们各自的进程组一起杀，这一步失败时退而只杀 pi（pi 的 bash 工具子进程有自己的进程组，只杀 pi 的进程组会漏，见 [pi-internals](research/pi-internals.md) §3"退出"）；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
   - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。
   - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
   - pi 的 stderr 按行记进日志（挂在 `pi.process` span 下），错误卡片"展开看原始报错"要用到；RPC 请求 id 由 span id 生成。

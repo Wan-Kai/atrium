@@ -50,6 +50,14 @@
 | faux 下 pi 的配置目录在测试目录里，不碰用户的 `~/.pi` | faux.pi.test.ts "keeps pi's agent directory inside the test directory…" | 已覆盖 |
 | 同一脚本每次输出相同（夹具可复现） | faux.pi.test.ts "prints the same records on every run…" | 已覆盖 |
 | 分帧只认 LF：U+2028/2029 和行内 CR 不断行，去掉一个结尾 CR，跨块的行和多字节字符能拼回，流结束时交出最后半行 | `packages/pi/src/process/jsonl.test.ts`；任意切块都能读回全部记录：`jsonl.prop.test.ts` | 已覆盖 |
+| 按 id 对应乱序响应；失败响应带 pi 的错误文字；没有 id、对不上 id 的响应只记日志 | `packages/pi/src/process/pi-process.test.ts` "matches responses to requests by id…"、"rejects with pi's error text…"、"logs a response without an id…"、"gives up at the deadline…drops the late response" | 已覆盖 |
+| 按命令设期限（`compact`、`bash` 不限时，调用方可改），期限走注入的时钟；`AbortSignal` 能取消，已取消的不发出 | pi-process.test.ts "waits for $type without a deadline"、"lets the caller lift or shorten a deadline"、"aborts a request through its signal…" | 已覆盖 |
+| 事件按序交给所有监听者，一个监听者抛错不影响其他；退订生效；非 JSON、没有 type 的行只记长度 | pi-process.test.ts "events" 一组 | 已覆盖 |
+| 能发 `extension_ui_response` | pi-process.test.ts "sends extension dialog answers to pi" | 已覆盖 |
+| stderr 按行进日志，内存只留最后 8 KiB | pi-process.test.ts "logs stderr line by line…" | 已覆盖 |
+| pi 崩溃：退出码、stderr 尾部、等待中的请求失败；启动不了时报告原因 | pi-process.test.ts "reports a crash…"、"reports a pi that cannot be started" | 已覆盖 |
+| 停止：先关 stdin，再 SIGTERM，最后连同脱离进程组的孙进程一起杀；停止后到达的响应被丢弃；停止完成时不留定时器；孙进程占着管道也能结束；杀进程树失败（如 `ps` 不能运行）时退而只杀 pi，停止仍能完成；强杀永不触及自己的进程组和 0、1 号进程组 | pi-process.test.ts "stop" 一组；`kill-tree.test.ts` | 已覆盖 |
+| 真实 pi 跑完一轮；bash 工具运行中停止，不留子进程 | `pi-process.pi.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
 
@@ -83,6 +91,8 @@
 | 要求 | 测试 | 状态 |
 |---|---|---|
 | 200 次连接、50 次拒绝后资源计数和 Node 真实定时器都回到基线 | connections.leak.test.ts | 已覆盖 |
+| 真实 pi 启动、停止 200 次后，资源计数、定时器、子进程、管道句柄都回到基线 | `packages/pi/src/process/pi-process.leak.test.ts` | 已覆盖 |
+| 测试失败、超时或被杀时不留临时目录 | 根目录 `test-temp-root.ts`（Vitest、Playwright 全局初始化）；验证方法见 testing.md"临时文件与残留进程" | 已覆盖 |
 | 定时器计数与释放 | `packages/host/src/platform/clock.test.ts` | 已覆盖 |
 | 外观来回切换不留下脱离的 DOM | `apps/desktop/e2e/appearance.leak.spec.ts`。这个测试看不到事件监听器泄漏；外观监听器的移除由 appearance.browser.test.ts 断言 | 已覆盖 |
 | 启动到连上宿主 ≤ 2 秒 | `apps/desktop/e2e/startup.perf.spec.ts` | 已覆盖 |

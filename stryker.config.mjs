@@ -12,14 +12,22 @@ export default {
   // Stryker's Vitest plugin activates mutants through Vitest's provide/inject, which no longer
   // reaches the test files in Vitest 5, so every mutant would wrongly "survive".
   testRunner: "command",
-  commandRunner: { command: "node node_modules/vitest/vitest.mjs run --config vitest.mutation.config.ts --bail=1" },
+  // Temporary files go inside the sandbox, which Stryker deletes: a mutant run killed on timeout
+  // never reaches the tests' own cleanup (testing.md, "临时文件").
+  commandRunner: {
+    command:
+      'mkdir -p .tmp && TMPDIR="$PWD/.tmp" node node_modules/vitest/vitest.mjs run --config vitest.mutation.config.ts --bail=1',
+  },
+  // Process-heavy tests (real child processes, signals) slow down sharply when many mutants run at
+  // once; more parallelism turns that slowdown into timeouts that Stryker counts as detected.
+  concurrency: 4,
   mutate: [
     "packages/protocol/src/**/*.ts",
     "packages/client/src/**/*.ts",
     "packages/host/src/platform/{redact,resources,clock}.ts",
     "packages/host/src/server/*.ts",
     "packages/pi/src/locate/version.ts",
-    "packages/pi/src/process/jsonl.ts",
+    "packages/pi/src/process/*.ts",
     "packages/testkit/src/clock.ts",
     "!**/*.test.ts",
     "!**/*.bench.ts",
