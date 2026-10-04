@@ -19,6 +19,7 @@ export default {
     "packages/host/src/platform/{redact,resources,clock}.ts",
     "packages/host/src/server/*.ts",
     "packages/pi/src/locate/version.ts",
+    "packages/pi/src/process/jsonl.ts",
     "packages/testkit/src/clock.ts",
     "!**/*.test.ts",
     "!**/*.bench.ts",

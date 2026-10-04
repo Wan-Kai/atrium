@@ -49,6 +49,7 @@
 | faux 的错误回复、放慢后中途中断 | faux.pi.test.ts "ends a reply scripted as an error…"、"can be interrupted mid-stream…" | 已覆盖 |
 | faux 下 pi 的配置目录在测试目录里，不碰用户的 `~/.pi` | faux.pi.test.ts "keeps pi's agent directory inside the test directory…" | 已覆盖 |
 | 同一脚本每次输出相同（夹具可复现） | faux.pi.test.ts "prints the same records on every run…" | 已覆盖 |
+| 分帧只认 LF：U+2028/2029 和行内 CR 不断行，去掉一个结尾 CR，跨块的行和多字节字符能拼回，流结束时交出最后半行 | `packages/pi/src/process/jsonl.test.ts`；任意切块都能读回全部记录：`jsonl.prop.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
 
@@ -86,4 +87,4 @@
 | 外观来回切换不留下脱离的 DOM | `apps/desktop/e2e/appearance.leak.spec.ts`。这个测试看不到事件监听器泄漏；外观监听器的移除由 appearance.browser.test.ts 断言 | 已覆盖 |
 | 启动到连上宿主 ≤ 2 秒 | `apps/desktop/e2e/startup.perf.spec.ts` | 已覆盖 |
 | 长时间运行：资源回到基线，内存增长每次 < 1KB | `packages/host/test/soak/connections.soak.test.ts` | 已覆盖 |
-| 热路径基准 | `packages/protocol/src/trace.bench.ts`（traceparent 解析） | 已覆盖 |
+| 热路径基准 | `packages/protocol/src/trace.bench.ts`（traceparent 解析）；`packages/pi/src/process/jsonl.bench.ts`（分帧：大量小记录、16 MiB 单行，后者能抓住每块重扫整个缓冲的退化） | 已覆盖 |

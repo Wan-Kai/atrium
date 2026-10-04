@@ -166,7 +166,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **范围**：
   - ✅ 先验证 faux 模型：测试 extension 用 `pi.registerProvider()` 注册 pi-ai 的 `fauxProvider()`，在真实 RPC 进程里按脚本回复。已验证通过，实现在 `packages/testkit/src/faux/`（见 [testing.md · faux 模型](architecture/testing.md#faux-模型)）。
   - 第 3 层 pi 契约测试：逐条验证 pi-internals 里依赖的行为，并由它录制第 1 层的夹具。
-  - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
+  - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（语义照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`；✅ 已实现于 `packages/pi/src/process/jsonl.ts`，改成每块只扫一次，16 MiB 的单行比 pi 的写法快约 60 倍）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
   - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。
   - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
   - pi 的 stderr 按行记进日志（挂在 `pi.process` span 下），错误卡片"展开看原始报错"要用到；RPC 请求 id 由 span id 生成。
