@@ -14,6 +14,14 @@ describe("createRedactor", () => {
     "idToken",
     "auth_token",
     "authToken",
+    "session_token",
+    "sessionToken",
+    "bearer",
+    "private_key",
+    "privateKey",
+    "x-api-key",
+    "api-key",
+    "proxy-authorization",
     "secret",
     "client_secret",
     "clientSecret",
@@ -97,5 +105,14 @@ describe("createRedactor", () => {
 
     expect(redact(twelve)).toStrictEqual([[[[[[[[[[[["[truncated]"]]]]]]]]]]]]);
     expect(redact(eleven)).toStrictEqual([[[[[[[[[[[{ leaf: true }]]]]]]]]]]]);
+  });
+
+  it("truncates objects nested deeper than twelve levels", () => {
+    let nested: unknown = { leaf: true };
+    for (let level = 0; level < 12; level++) nested = { child: nested };
+
+    let expected: unknown = "[truncated]";
+    for (let level = 0; level < 12; level++) expected = { child: expected };
+    expect(redact(nested)).toStrictEqual(expected);
   });
 });

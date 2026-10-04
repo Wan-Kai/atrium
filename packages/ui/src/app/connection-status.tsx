@@ -1,16 +1,25 @@
 import type { ConnectionState, RejectionReason } from "@atrium/client";
 
+/** What the status line describes: the connection, or why there is none yet. */
+export type StatusView =
+  | ConnectionState
+  | { readonly status: "starting" }
+  | { readonly status: "unavailable" }
+  | { readonly status: "bootstrap-failed" };
+
 const REJECTION_TEXT: Record<RejectionReason, string> = {
   unauthorized: "宿主拒绝了连接：凭证不对",
   "version-mismatch": "宿主和界面的版本不一致，请重启 Atrium",
   "bad-handshake": "宿主拒绝了连接：握手消息无效",
   "handshake-timeout": "连接宿主超时",
+  "rate-limited": "发送的消息太多，宿主断开了连接",
+  "too-many-connections": "宿主的连接数已满",
 };
 
 /** Props of {@link ConnectionStatus}. */
 export interface ConnectionStatusProps {
-  /** State to describe; `null` when the page is not inside the desktop app. */
-  readonly state: ConnectionState | null;
+  /** State to describe. */
+  readonly view: StatusView;
 }
 
 /**
@@ -24,39 +33,44 @@ export interface ConnectionStatusProps {
  * @param props - The state to describe.
  * @returns The status line.
  */
-export function ConnectionStatus({ state }: ConnectionStatusProps) {
+export function ConnectionStatus({ view }: ConnectionStatusProps) {
   return (
-    <p role="status" className="text-muted-foreground" data-status={state?.status ?? "unavailable"}>
-      {describe(state)}
+    <p role="status" className="text-muted-foreground" data-status={view.status}>
+      {describe(view)}
     </p>
   );
 }
 
 /**
- * Turns a connection state into Chinese text.
+ * Turns a status into Chinese text.
  *
  * @remarks
  * One place for the wording keeps it consistent and lets tests check every state.
  *
  * @sideEffects none
- * @param state - The state, or `null` outside the desktop app.
+ * @param view - The state.
  * @returns The sentence to show.
  */
-function describe(state: ConnectionState | null): string {
-  if (state === null) return "未在桌面应用中运行";
-  switch (state.status) {
+function describe(view: StatusView): string {
+  switch (view.status) {
+    case "starting":
+      return "正在启动…";
+    case "unavailable":
+      return "未在桌面应用中运行";
+    case "bootstrap-failed":
+      return "无法从桌面应用取得连接信息，请重启 Atrium";
     case "idle":
       return "尚未连接";
     case "connecting":
       return "正在连接宿主…";
     case "connected":
-      return `已连接宿主 ${state.hostVersion}`;
+      return `已连接宿主 ${view.hostVersion}`;
     case "rejected":
-      return REJECTION_TEXT[state.reason];
+      return REJECTION_TEXT[view.reason];
     case "disconnected":
       return "与宿主的连接已断开";
     default:
-      return unreachable(state);
+      return unreachable(view);
   }
 }
 

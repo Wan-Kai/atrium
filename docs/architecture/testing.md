@@ -39,6 +39,8 @@
 | 6 端到端 | `e2e/*.spec.ts` | 少量关键旅程：首次启动（pi 已装 / 未装，安装源指向本地）；添加项目 → 发消息 → 流式 → 停止 → 重启应用 → 历史恢复；后台会话进收件箱 | 整个应用都是真的，只有模型是 faux；失败时保留 trace、截图、录像 |
 | 7 真实模型冒烟 | `*.real.test.ts` | 用真实订阅跑一两个任务 | 手动触发，不进默认测试 |
 
+端到端测试只连本机测试服务器，不访问外网；会把链接交给系统浏览器的操作，测试里先替换 `shell.openExternal` 只做记录，绝不真的打开用户的浏览器。
+
 测试和实现放在一起（`thing.ts` + `thing.test.ts`）；端到端放在 `apps/desktop/e2e/`；第 4 层的测试宿主放在 `packages/host/test/harness.ts`。共用的测试工具放在 `packages/testkit`：faux 模型、回放夹具的 pi 替身、假时钟、临时环境、git 场景。testkit 不依赖任何内部包（最多依赖 protocol），pi 替身按结构类型匹配 pi 包的接口，避免和被测包形成循环依赖（见 [架构总览 · 代码结构](overview.md#代码结构)）。
 
 ### faux 模型
@@ -82,7 +84,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 **1. 泄漏测试**（`*.leak.test.ts`，跑在第 4 层的真实宿主上，Node 以 `--expose-gc` 启动，单进程串行）
 
 - 同一个操作重复 N 次（默认 200）：打开和关闭会话、订阅和退订、客户端连上和断开、发消息和停止、杀掉 pi 让它自动重启、归档。
-- 主断言是**计数回到基线**，结果确定：活着的 PiProcess 和 SessionController 数量、事件监听数、订阅数、定时器数、`process.getActiveResourcesInfo()`、按进程组查到的子进程 PID 都回到操作前。宿主为此在 `platform/` 暴露一份资源计数（测试和日志共用，不为测试另开分支）。
+- 主断言是**计数回到基线**，结果确定。宿主自己的资源计数之外，还要核对 Node 真实的活动资源（如 `process.getActiveResourcesInfo()` 里的 `Timeout`），否则"计数释放了但 `clearTimeout` 没调"这种泄漏看不出来。计数包括：活着的 PiProcess 和 SessionController 数量、事件监听数、订阅数、定时器数、`process.getActiveResourcesInfo()`、按进程组查到的子进程 PID 都回到操作前。宿主为此在 `platform/` 暴露一份资源计数（测试和日志共用，不为测试另开分支）。
 - 关键对象用 `WeakRef` + `FinalizationRegistry` 断言确实被回收：归档会话后反复 `gc()`，它的 SessionController 和 SessionLog 必须消失。
 - 堆增长只作辅助断言：预热后每轮取一次 `heapUsed`，线性回归的斜率不超过阈值（初值每次 1KB），阈值放宽，避免误报。
 - 有疑点时写出堆快照（`v8.writeHeapSnapshot`），用 Chrome DevTools 的 Memory 面板看引用链。

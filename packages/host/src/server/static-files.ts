@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
+import { pipeline } from "node:stream/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, resolve, sep } from "node:path";
 
@@ -66,10 +66,15 @@ export function resolveStaticPath(root: string, requestUrl: string): string | nu
  * Serves one GET or HEAD request for a UI file.
  *
  * @remarks
- * Every response carries the CSP and `nosniff`; `index.html` is never cached so an updated host
- * always serves a matching UI.
+ * The resolved path is checked again after following symlinks, so a link inside the UI directory
+ * cannot expose a file outside it (security.md, "子进程与文件"). The file is opened before its
+ * size is read, so it cannot change between the check and the read, and any open failure is a
+ * plain 404. `pipeline` closes the file when the client disconnects and turns read errors into a
+ * destroyed response instead of an unhandled stream error that would crash the host. Every
+ * response carries the CSP and `nosniff`; `index.html` is never cached so an updated host always
+ * serves a matching UI.
  *
- * @sideEffects Reads a file and writes the HTTP response.
+ * @sideEffects Opens and reads a file; writes the HTTP response.
  * @param request - Incoming request.
  * @param response - Response to write.
  * @param root - Absolute directory the UI is served from.
@@ -79,10 +84,23 @@ export async function serveStatic(request: IncomingMessage, response: ServerResp
     response.writeHead(405, { Allow: "GET, HEAD" }).end();
     return;
   }
-  const file = resolveStaticPath(root, request.url ?? "/");
-  // Stryker disable next-line ConditionalExpression: stat(null) rejects and lands in the same catch; the check states the intent.
-  const info = file === null ? null : await stat(file).catch(() => null);
-  if (file === null || info === null || !info.isFile()) {
+  // Stryker disable next-line StringLiteral: Node's HTTP server always sets request.url; the default only satisfies the type.
+  const candidate = resolveStaticPath(root, request.url ?? "/");
+  // Stryker disable next-line ConditionalExpression: realpath(null) rejects and yields null as well.
+  const file = candidate === null ? null : await realFileInside(root, candidate);
+  // Stryker disable next-line BlockStatement,ConditionalExpression: without this check open(null) rejects and lands in the same 404 below.
+  if (file === null) {
+    response.writeHead(404).end();
+    return;
+  }
+  const handle = await open(file, "r").catch(() => null);
+  if (handle === null) {
+    response.writeHead(404).end();
+    return;
+  }
+  const info = await handle.stat();
+  if (!info.isFile()) {
+    await handle.close();
     response.writeHead(404).end();
     return;
   }
@@ -93,10 +111,30 @@ export async function serveStatic(request: IncomingMessage, response: ServerResp
     "X-Content-Type-Options": "nosniff",
     "Cache-Control": file.endsWith("index.html") ? "no-cache" : "public, max-age=31536000, immutable",
   });
-  // Stryker disable next-line ConditionalExpression,BlockStatement: Node drops the body of HEAD responses itself; ending early only skips reading the file.
+  // Stryker disable next-line ConditionalExpression,BlockStatement,StringLiteral: Node drops the body of HEAD responses itself; ending early only skips reading the file.
   if (request.method === "HEAD") {
+    await handle.close();
     response.end();
     return;
   }
-  createReadStream(file).pipe(response);
+  // Stryker disable next-line BlockStatement,CallExpression: pipeline has already destroyed the response when it rejects; the call only states the intent.
+  await pipeline(handle.createReadStream(), response).catch(() => response.destroy());
+}
+
+/**
+ * Follows symlinks and confirms the target is still inside the root.
+ *
+ * @remarks
+ * {@link resolveStaticPath} only inspects the path string; a link inside the UI directory could
+ * still point anywhere. Comparing real paths closes that gap, including when the root itself is
+ * reached through a link (as `/tmp` is on macOS).
+ *
+ * @sideEffects Reads the file system to resolve links.
+ * @param root - Directory the UI is served from.
+ * @param file - Path produced by `resolveStaticPath`.
+ * @returns The real path of the file, or `null` when it is missing or outside the root.
+ */
+async function realFileInside(root: string, file: string): Promise<string | null> {
+  const [realRoot, realFile] = await Promise.all([realpath(root), realpath(file).catch(() => null)]);
+  return realFile !== null && realFile.startsWith(realRoot + sep) ? realFile : null;
 }

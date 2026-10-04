@@ -1,13 +1,15 @@
 import type { ResourceTracker } from "./resources";
 
-/** Source of timers; injected so tests can use a fake clock. Time reading is added when needed. */
+/** Source of time and timers; injected so tests can use a fake clock. */
 export interface Clock {
+  /** Current epoch milliseconds. */
+  now(): number;
   /** Schedules `callback` after `ms`; returns a function that cancels it. */
   setTimeout(callback: () => void, ms: number): () => void;
 }
 
 /**
- * The real clock backed by `setTimeout`.
+ * The real clock backed by `Date.now` and `setTimeout`.
  *
  * @remarks
  * Production code never calls the globals directly (coding-standards.md, "异步与取消"), so this
@@ -17,6 +19,7 @@ export interface Clock {
  * or is cancelled.
  */
 export const systemClock: Clock = {
+  now: () => Date.now(),
   setTimeout(callback, ms) {
     const handle = setTimeout(callback, ms);
     return () => clearTimeout(handle);

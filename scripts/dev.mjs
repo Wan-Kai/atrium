@@ -87,30 +87,34 @@ async function main() {
     stdio: "inherit",
     env: { ...process.env, ATRIUM_DEV_PORT: String(devPort) },
   });
-  const viteExited = new Promise((_, reject) =>
-    vite.once("exit", () => reject(new Error("Vite exited during startup"))),
-  );
-  await Promise.race([waitForServer(devUrl), viteExited]);
+  const viteExited = new Promise((resolve) => vite.once("exit", resolve));
+  const started = await Promise.race([waitForServer(devUrl).then(() => true), viteExited.then(() => false)]);
+  if (!started) throw new Error("Vite exited during startup");
   const electron = spawn(process.execPath, [join(root, "apps", "desktop", "node_modules", "electron", "cli.js"), "."], {
     cwd: join(root, "apps", "desktop"),
     stdio: "inherit",
     env: { ...process.env, ATRIUM_DEV_URL: devUrl },
   });
+  let stopped = false;
   /**
-   * Stops both child processes.
+   * Stops both child processes once.
    *
    * @remarks
-   * Either one exiting ends the dev session, so nothing is left running.
+   * Either one exiting, Ctrl+C or a SIGTERM ends the dev session, so nothing is left holding the
+   * dev port. Calling it again does nothing.
    *
    * @sideEffects Kills Vite and Electron.
    */
   const stop = () => {
+    if (stopped) return;
+    stopped = true;
     vite.kill();
     electron.kill();
   };
   electron.once("exit", stop);
   vite.once("exit", stop);
   process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
 }
 
 await main();

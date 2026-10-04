@@ -3,6 +3,25 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 /**
+ * Parses one log line, skipping lines that are not complete JSON.
+ *
+ * @remarks
+ * The last line can be cut short when the host is still writing or was killed mid-write; the
+ * trace is most needed exactly then, so a partial line must not abort the command.
+ *
+ * @sideEffects none
+ * @param {string} line - One line of a log file.
+ * @returns {Record<string, any> | null} The record, or `null` for an empty or partial line.
+ */
+function parseLine(line) {
+  try {
+    return line.length === 0 ? null : JSON.parse(line);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Reads every host log record that belongs to one trace.
  *
  * @remarks
@@ -19,9 +38,8 @@ async function readTrace(logsDir, traceId) {
   const records = [];
   for (const file of files) {
     for (const line of (await readFile(join(logsDir, file), "utf8")).split("\n")) {
-      if (line.length === 0) continue;
-      const record = JSON.parse(line);
-      if (record.trace_id === traceId) records.push(record);
+      const record = parseLine(line);
+      if (record?.trace_id === traceId) records.push(record);
     }
   }
   return records.toSorted((a, b) => String(a.start ?? a.time).localeCompare(String(b.start ?? b.time)));

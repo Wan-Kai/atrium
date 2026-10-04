@@ -13,6 +13,10 @@ export interface LaunchedApp {
   readonly readHostLog: () => Promise<Array<Record<string, unknown>>>;
   /** Quits the app and deletes its home directory. */
   readonly close: () => Promise<void>;
+  /** Quits the app but keeps its home directory, so the final log can be read. */
+  readonly quit: () => Promise<void>;
+  /** Deletes the home directory after `quit`. */
+  readonly cleanup: () => Promise<void>;
 }
 
 /**
@@ -44,15 +48,16 @@ export function median(values: readonly number[]): number {
  * the test never touches the developer's `~/.atrium`.
  *
  * @sideEffects Creates a temp directory; launches Electron; waits for the page to connect.
+ * @param env - Extra environment variables, such as `ATRIUM_DEV_URL` for the development path.
  * @returns The app, its window and helpers.
  */
-export async function launchApp(): Promise<LaunchedApp> {
+export async function launchApp(env: Record<string, string> = {}): Promise<LaunchedApp> {
   const home = await mkdtemp(join(tmpdir(), "atrium-e2e-"));
   const started = Date.now();
   const app = await electron.launch({
     args: ["."],
     cwd: join(import.meta.dirname, ".."),
-    env: { ...process.env, ATRIUM_HOME: home },
+    env: { ...process.env, ...env, ATRIUM_HOME: home },
     // Playwright emulates a light scheme by default, which would hide the real system appearance.
     colorScheme: null,
   });
@@ -72,5 +77,7 @@ export async function launchApp(): Promise<LaunchedApp> {
       await app.close();
       await rm(home, { recursive: true, force: true });
     },
+    quit: () => app.close(),
+    cleanup: () => rm(home, { recursive: true, force: true }),
   };
 }

@@ -16,6 +16,10 @@ export const CloseCode = {
   HandshakeTimeout: 4408,
   /** The client speaks a different protocol version. */
   VersionMismatch: 4426,
+  /** The client sent more messages or bytes per second than the host allows (security.md). */
+  RateLimited: 4429,
+  /** The host already has as many connections as it accepts. */
+  TooManyConnections: 4503,
 } as const;
 
 /** First message a client must send after the socket opens. */

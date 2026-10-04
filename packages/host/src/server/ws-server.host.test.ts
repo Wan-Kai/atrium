@@ -1,11 +1,12 @@
 import { createConnection } from "@atrium/client";
 import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
 import { FakeClock, createTempDir } from "@atrium/testkit";
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../../test/harness";
+import { startHost } from "../main";
 
 const trace = { traceId: "4bf92f3577b34da6a3ce929d0e0e4736", spanId: "00f067aa0ba902b7", sampled: true };
 const wrongToken = "wrong-token-0123456789abcdefghijklmnop";
@@ -61,6 +62,11 @@ function probeTcp(host: string, port: number): Promise<string> {
     });
     probe.once("error", (error: NodeJS.ErrnoException) => done(error.code ?? "unknown error"));
   });
+}
+
+/** Counts log records with the given message. */
+async function countLog(host: TestHost | undefined, msg: string): Promise<number> {
+  return ((await host?.readLog()) ?? []).filter((record) => record["msg"] === msg).length;
 }
 
 /** A hello message as a raw client would send it. */
@@ -131,14 +137,14 @@ describe("host connection handshake", () => {
     );
   });
 
-  it("lets a page served by the host itself connect", async () => {
+  it("lets a page served by the host itself connect, but still requires the token", async () => {
     testHost = await startTestHost();
     const { socket, opened, ended } = openRaw(testHost.url, { origin: testHost.host.origin });
 
     await opened;
-    socket.close(1000);
+    socket.send(hello({ token: wrongToken }));
 
-    expect(await ended).toStrictEqual({ code: 1000, reason: "" });
+    expect(await ended).toStrictEqual({ code: CloseCode.Unauthorized, reason: "unauthorized" });
   });
 
   it.each([
@@ -190,7 +196,117 @@ describe("host connection handshake", () => {
   it("listens on IPv4 loopback only", async () => {
     testHost = await startTestHost();
 
+    expect(testHost.host.address).toBe("127.0.0.1");
     expect(await probeTcp("::1", testHost.host.port)).toBe("ECONNREFUSED");
+  });
+
+  it("treats a frame that arrives together with the hello as an authenticated message", async () => {
+    testHost = await startTestHost();
+    const { socket, opened, messages } = openRaw(testHost.url);
+    await opened;
+
+    socket.send(hello({ token: testHost.token }));
+    socket.send("right behind hello");
+
+    await vi.waitFor(async () =>
+      expect(await testHost?.readLog()).toContainEqual(
+        expect.objectContaining({ msg: "message ignored: no command routing yet", bytes: 18 }),
+      ),
+    );
+    expect(messages).toHaveLength(1);
+  });
+
+  it("allows exactly 200 messages per second, starts a fresh window after one second, and drops the 201st", async () => {
+    const clock = new FakeClock();
+    testHost = await startTestHost({ clock });
+    const { socket, opened, ended } = openRaw(testHost.url);
+    await opened;
+    socket.send(hello({ token: testHost.token }));
+    for (let count = 1; count < 200; count++) socket.send("x");
+    await vi.waitFor(async () => expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(199));
+
+    clock.advance(1_000);
+    for (let count = 0; count < 200; count++) socket.send("x");
+    await vi.waitFor(async () => expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(399));
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    for (let count = 0; count < 5; count++) socket.send("over the limit");
+
+    expect(await ended).toStrictEqual({ code: CloseCode.RateLimited, reason: "rate limited" });
+    expect(await countLog(testHost, "client dropped: message rate limit exceeded")).toBe(1);
+    expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(399);
+  });
+
+  it("allows exactly 8 MiB per second and drops the next byte", async () => {
+    testHost = await startTestHost({ clock: new FakeClock() });
+    const { socket, opened, ended } = openRaw(testHost.url);
+    await opened;
+    const first = hello({ token: testHost.token });
+    const mib = 1024 * 1024;
+    socket.send(first);
+    for (let count = 0; count < 7; count++) socket.send("y".repeat(mib));
+    socket.send("y".repeat(mib - Buffer.byteLength(first)));
+    await vi.waitFor(async () => expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(8));
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
+    socket.send("y");
+
+    expect(await ended).toStrictEqual({ code: CloseCode.RateLimited, reason: "rate limited" });
+  });
+
+  it("ignores everything a rejected client still sends", async () => {
+    testHost = await startTestHost();
+    const { socket, opened, ended } = openRaw(testHost.url);
+    await opened;
+
+    socket.send("not json");
+    socket.send("still talking");
+    socket.send(hello({ token: testHost.token }));
+
+    expect(await ended).toStrictEqual({ code: CloseCode.BadHandshake, reason: "bad handshake" });
+    expect(await countLog(testHost, "client rejected: malformed hello")).toBe(1);
+    expect(await countLog(testHost, "client connected")).toBe(0);
+  });
+
+  it("rejects a binary first message as a bad handshake", async () => {
+    testHost = await startTestHost();
+    const { socket, opened, ended } = openRaw(testHost.url);
+    await opened;
+
+    socket.send(Buffer.from(hello({ token: testHost.token })));
+
+    expect(await ended).toStrictEqual({ code: CloseCode.BadHandshake, reason: "bad handshake" });
+  });
+
+  it("closes a connection that sends a message over 1 MiB and keeps serving others", async () => {
+    testHost = await startTestHost();
+    const { socket, opened, ended } = openRaw(testHost.url);
+    await opened;
+
+    socket.send("z".repeat(1024 * 1024 + 1));
+
+    expect(await ended).toMatchObject({ code: 1009 });
+    expect(await testHost.connect().connect()).toMatchObject({ status: "connected" });
+    expect(await testHost.readLog()).toContainEqual(
+      expect.objectContaining({
+        msg: "websocket error",
+        err: expect.objectContaining({ code: "WS_ERR_UNSUPPORTED_MESSAGE_LENGTH" }),
+      }),
+    );
+  });
+
+  it("refuses connections beyond 32 at once", async () => {
+    testHost = await startTestHost();
+    const { url } = testHost;
+    const held = Array.from({ length: 32 }, () => openRaw(url));
+    await Promise.all(held.map((raw) => raw.opened));
+
+    const extra = openRaw(testHost.url);
+
+    expect(await extra.ended).toStrictEqual({ code: CloseCode.TooManyConnections, reason: "too many connections" });
+    expect(await testHost.readLog()).toContainEqual(
+      expect.objectContaining({ msg: "client rejected: too many connections", limit: 32 }),
+    );
+    for (const raw of held) raw.socket.close();
   });
 
   it("drops a client that never says hello once the handshake timeout passes", async () => {
@@ -208,6 +324,21 @@ describe("host connection handshake", () => {
     expect(await testHost.readLog()).toContainEqual(
       expect.objectContaining({ msg: "client dropped: no hello before timeout" }),
     );
+  });
+
+  it("ignores a hello that arrives after the handshake timed out", async () => {
+    const clock = new FakeClock();
+    testHost = await startTestHost({ clock, handshakeTimeoutMs: 5_000 });
+    const { socket, opened, ended } = openRaw(testHost.url);
+    await opened;
+    await vi.waitFor(() => expect(testHost?.host.resources.snapshot()["ws.connection"]).toBe(1));
+
+    clock.advance(5_000);
+    socket.send(hello({ token: testHost.token }));
+
+    expect(await ended).toStrictEqual({ code: CloseCode.HandshakeTimeout, reason: "handshake timeout" });
+    expect(await countLog(testHost, "client connected")).toBe(0);
+    expect(await countLog(testHost, "client rejected: malformed hello")).toBe(0);
   });
 
   it("releases the handshake timer when a client leaves before saying hello", async () => {
@@ -229,21 +360,25 @@ describe("host connection handshake", () => {
     expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 1, "ws.connection": 1 });
   });
 
-  it("answers only the first of two hellos and ignores later messages until commands exist", async () => {
+  it("answers only the first of two hellos", async () => {
     testHost = await startTestHost();
     const { socket, opened, messages } = openRaw(testHost.url);
 
     await opened;
     socket.send(hello({ token: testHost.token }));
     socket.send(hello({ token: testHost.token }));
-    await vi.waitFor(() => expect(messages).toHaveLength(1));
     socket.send("after welcome");
 
     await vi.waitFor(async () =>
-      expect(await testHost?.readLog()).toContainEqual(
-        expect.objectContaining({ msg: "message ignored: no command routing yet", bytes: 13 }),
-      ),
+      expect(
+        (await testHost?.readLog())?.filter((record) => record["msg"] === "message ignored: no command routing yet"),
+      ).toHaveLength(2),
     );
+    // A pong is sent after any welcome, so once it arrives every welcome has arrived too.
+    await new Promise((done) => {
+      socket.once("pong", done);
+      socket.ping();
+    });
     expect(messages).toHaveLength(1);
   });
 
@@ -298,10 +433,45 @@ describe("host lifecycle", () => {
     await ui.cleanup();
   });
 
-  it("fails to start when the port is already taken", async () => {
+  it("fails to start when the port is already taken, and leaves the failure in its log", async () => {
     testHost = await startTestHost();
+    const home = await createTempDir("failed-home");
 
-    await expect(startTestHost({ port: testHost.host.port })).rejects.toThrow(/EADDRINUSE/);
+    const started = startHost({ home: home.path, token: testHost.token, port: testHost.host.port });
+
+    await expect(started).rejects.toThrow(/EADDRINUSE/);
+    const log = await readFile(`${home.path}/logs/current.log`, "utf8");
+    expect(log).toContain('"msg":"host failed to start"');
+    await home.cleanup();
+  });
+
+  it("closes promptly while a client has paused in the middle of a download", async () => {
+    const ui = await uiFixture();
+    await writeFile(`${ui}/assets/big.bin`, Buffer.alloc(64 * 1024 * 1024));
+    const own = await startTestHost({ uiDir: ui });
+    const response = await fetch(`${own.host.origin}/assets/big.bin`);
+    await response.body?.getReader().read();
+
+    const started = performance.now();
+    await own.dispose();
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  it("drops a half-sent upgrade when closing, so no WebSocket can appear afterwards", async () => {
+    const own = await startTestHost();
+    await own.connect().connect();
+    const early = connect({ host: "127.0.0.1", port: own.host.port });
+    early.on("error", () => undefined);
+    await new Promise((done) => early.once("connect", done));
+    early.write("GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\n");
+    const dropped = new Promise<void>((done) => early.once("close", () => done()));
+
+    const started = performance.now();
+    await own.dispose();
+    await dropped;
+
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });
 
@@ -345,6 +515,47 @@ describe("host static files", () => {
 
     expect([head.status, head.headers.get("content-length"), await head.text()]).toStrictEqual([200, "2", ""]);
     expect([post.status, post.headers.get("allow")]).toStrictEqual([405, "GET, HEAD"]);
+  });
+
+  it("does not follow a symlink out of the UI directory, but serves one that stays inside", async () => {
+    const outside = await createTempDir("outside");
+    await writeFile(`${outside.path}/secret.json`, "secret");
+    const ui = await uiFixture();
+    await symlink(`${outside.path}/secret.json`, `${ui}/assets/leak.json`);
+    await symlink(`${ui}/assets/app.js`, `${ui}/assets/alias.js`);
+    testHost = await startTestHost({ uiDir: ui });
+
+    const leak = await fetch(`${testHost.host.origin}/assets/leak.json`);
+    const alias = await fetch(`${testHost.host.origin}/assets/alias.js`);
+
+    expect([leak.status, alias.status, await alias.text()]).toStrictEqual([404, 200, "js"]);
+    await outside.cleanup();
+  });
+
+  it("answers 404 for a file it cannot read and keeps running", async () => {
+    const ui = await uiFixture();
+    await chmod(`${ui}/assets/app.js`, 0o000);
+    testHost = await startTestHost({ uiDir: ui });
+
+    const unreadable = await fetch(`${testHost.host.origin}/assets/app.js`);
+    const next = await fetch(`${testHost.host.origin}/assets/app.css`);
+
+    expect([unreadable.status, next.status]).toStrictEqual([404, 200]);
+    await chmod(`${ui}/assets/app.js`, 0o644);
+  });
+
+  it("survives a client that disconnects in the middle of a download", async () => {
+    const ui = await uiFixture();
+    await writeFile(`${ui}/assets/big.bin`, Buffer.alloc(32 * 1024 * 1024));
+    testHost = await startTestHost({ uiDir: ui });
+    const abort = new AbortController();
+
+    const response = await fetch(`${testHost.host.origin}/assets/big.bin`, { signal: abort.signal });
+    const reader = response.body?.getReader();
+    await reader?.read();
+    abort.abort();
+
+    expect((await fetch(`${testHost.host.origin}/assets/app.css`)).status).toBe(200);
   });
 
   it("answers 404 for missing files and for directories", async () => {

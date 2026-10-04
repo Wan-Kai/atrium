@@ -18,7 +18,13 @@ export type ConnectionState =
   | { readonly status: "disconnected"; readonly code: number };
 
 /** Why the host refused the connection; the UI turns these into text. */
-export type RejectionReason = "unauthorized" | "version-mismatch" | "bad-handshake" | "handshake-timeout";
+export type RejectionReason =
+  | "unauthorized"
+  | "version-mismatch"
+  | "bad-handshake"
+  | "handshake-timeout"
+  | "rate-limited"
+  | "too-many-connections";
 
 /** The minimal WebSocket surface the client needs; the browser and Node globals both match it. */
 export interface SocketLike {
@@ -59,6 +65,8 @@ const REJECTIONS: Partial<Record<number, RejectionReason>> = {
   [CloseCode.VersionMismatch]: "version-mismatch",
   [CloseCode.BadHandshake]: "bad-handshake",
   [CloseCode.HandshakeTimeout]: "handshake-timeout",
+  [CloseCode.RateLimited]: "rate-limited",
+  [CloseCode.TooManyConnections]: "too-many-connections",
 };
 
 /**
@@ -84,10 +92,13 @@ export function buildHello(token: string, clientId: string, trace: TraceContext)
  * @remarks
  * The client package must not depend on the DOM or React (overview.md, "包之间的依赖"), so state
  * is a vanilla store the UI wraps in hooks. The socket factory is injectable so Node tests use
- * the real host with Node's WebSocket. Reconnection and command routing come in M1.3.
+ * the real host with Node's WebSocket. Calling `connect` again closes the previous socket first;
+ * events from a replaced socket still settle its own `connect` promise but never touch the store,
+ * so a late close cannot overwrite the newer connection's state. Automatic reconnection and
+ * command routing come in M1.3.
  *
- * @sideEffects `connect` opens a WebSocket and updates `state` as the handshake progresses;
- * `disconnect` closes it.
+ * @sideEffects `connect` closes any previous socket, opens a new WebSocket and updates `state` as
+ * the handshake progresses; `disconnect` closes the current socket.
  * @param options - Host URL, token, client id and optional factories.
  * @returns The connection.
  */
@@ -101,6 +112,7 @@ export function createConnection(options: ConnectionOptions): Connection {
     connect: () =>
       new Promise((settle) => {
         const trace = (options.createTrace ?? createTraceContext)();
+        socket?.close(1000, "client reconnecting");
         state.setState({ status: "connecting", traceId: trace.traceId }, true);
         const current = openSocket(options.url);
         socket = current;
@@ -110,7 +122,7 @@ export function createConnection(options: ConnectionOptions): Connection {
         current.addEventListener("message", (event) => {
           // Stryker disable next-line ConditionalExpression: JSON.parse turns a binary payload into a string it cannot parse, so skipping the type check changes nothing.
           const welcome = typeof event.data === "string" ? WelcomeMessage.safeParse(safeJson(event.data)) : null;
-          if (welcome?.success === true && state.getState().status === "connecting") {
+          if (socket === current && welcome?.success === true && state.getState().status === "connecting") {
             state.setState(
               { status: "connected", traceId: trace.traceId, hostVersion: welcome.data.hostVersion },
               // Stryker disable next-line BooleanLiteral: merging into "connecting" yields the same keys; replacing states the intent.
@@ -121,14 +133,18 @@ export function createConnection(options: ConnectionOptions): Connection {
         });
         current.addEventListener("close", (event) => {
           const reason = REJECTIONS[event.code];
-          state.setState(reason ? { status: "rejected", reason } : { status: "disconnected", code: event.code }, true);
-          settle(state.getState());
+          const ended: ConnectionState = reason
+            ? { status: "rejected", reason }
+            : { status: "disconnected", code: event.code };
+          if (socket === current) state.setState(ended, true);
+          settle(ended);
         });
       }),
     disconnect: () => socket?.close(1000, "client closed"),
   };
 }
 
+// Stryker disable BlockStatement,ArrowFunction: an emptied catch returns undefined, which the schema rejects exactly like null.
 /**
  * Parses JSON without throwing.
  *
@@ -143,7 +159,6 @@ function safeJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
-    // Stryker disable next-line all: returning undefined instead of null is rejected by the schema the same way.
     return null;
   }
 }

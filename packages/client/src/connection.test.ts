@@ -1,4 +1,5 @@
 import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
+import { present } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { type SocketLike, buildHello, createConnection } from "./connection";
 
@@ -85,6 +86,8 @@ describe("createConnection", () => {
     [CloseCode.VersionMismatch, "version-mismatch"],
     [CloseCode.BadHandshake, "bad-handshake"],
     [CloseCode.HandshakeTimeout, "handshake-timeout"],
+    [CloseCode.RateLimited, "rate-limited"],
+    [CloseCode.TooManyConnections, "too-many-connections"],
   ] as const)("maps close code %i to the rejection %s", async (code, reason) => {
     const { socket, connection } = connectionWithSocket();
     const settled = connection.connect();
@@ -92,6 +95,53 @@ describe("createConnection", () => {
     socket.closeWith(code);
 
     expect(await settled).toStrictEqual({ status: "rejected", reason });
+  });
+
+  it("closes the previous socket on reconnect and ignores its late events", async () => {
+    const sockets = [scriptedSocket(), scriptedSocket()];
+    const unopened = [...sockets];
+    const connection = createConnection({
+      url: "ws://host.invalid",
+      token: "token-value",
+      clientId: "client-1",
+      openSocket: () => present(unopened.shift(), "a scripted socket"),
+      createTrace: () => trace,
+    });
+    const [first, second] = sockets as [ReturnType<typeof scriptedSocket>, ReturnType<typeof scriptedSocket>];
+    const firstAttempt = connection.connect();
+    const secondAttempt = connection.connect();
+    second.open();
+    second.receive(welcome("0.2.0"));
+    await secondAttempt;
+
+    first.receive(welcome("0.1.0"));
+    first.closeWith(1006);
+
+    expect(first.closes).toStrictEqual([[1000, "client reconnecting"]]);
+    expect(await firstAttempt).toStrictEqual({ status: "disconnected", code: 1006 });
+    expect(connection.state.getState()).toStrictEqual({
+      status: "connected",
+      traceId: trace.traceId,
+      hostVersion: "0.2.0",
+    });
+  });
+
+  it("ignores a welcome that the replaced socket receives while the new one is still connecting", () => {
+    const sockets = [scriptedSocket(), scriptedSocket()];
+    const unopened = [...sockets];
+    const connection = createConnection({
+      url: "ws://host.invalid",
+      token: "token-value",
+      clientId: "client-1",
+      openSocket: () => present(unopened.shift(), "a scripted socket"),
+      createTrace: () => trace,
+    });
+    void connection.connect();
+    void connection.connect();
+
+    sockets[0]?.receive(welcome("0.1.0"));
+
+    expect(connection.state.getState()).toStrictEqual({ status: "connecting", traceId: trace.traceId });
   });
 
   it("starts a fresh attempt without leftovers from a rejected one", async () => {

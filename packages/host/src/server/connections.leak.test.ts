@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+/** Counts Node's live timers, independent of the host's own bookkeeping. */
+function liveTimers(): number {
+  return process.getActiveResourcesInfo().filter((resource) => resource === "Timeout").length;
+}
 import { type TestHost, startTestHost } from "../../test/harness";
 
 let testHost: TestHost | undefined;
@@ -13,6 +18,7 @@ describe("connection resources", () => {
     testHost = await startTestHost({ logLevel: "warn" });
     const host = testHost.host;
     const baseline = { ...host.resources.snapshot(), span: 0, timer: 1, "ws.connection": 0 };
+    const timersBefore = liveTimers();
 
     for (let round = 0; round < 200; round++) {
       const connection = testHost.connect();
@@ -27,5 +33,6 @@ describe("connection resources", () => {
     }
 
     await vi.waitFor(() => expect(host.resources.snapshot()).toStrictEqual(baseline), { timeout: 5_000 });
+    await vi.waitFor(() => expect(liveTimers()).toBeLessThanOrEqual(timersBefore), { timeout: 2_000 });
   });
 });

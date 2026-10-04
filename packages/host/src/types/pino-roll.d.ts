@@ -7,12 +7,13 @@ declare module "pino-roll" {
     flushSync(): void;
     end(): void;
     once(event: "close" | "ready", listener: () => void): this;
+    on(event: "error", listener: (error: Error) => void): this;
   }
 
   export interface PinoRollOptions {
     file: string;
     size?: string | number;
-    limit?: { count: number };
+    limit?: { count: number; removeOtherLogFiles?: boolean };
     mkdir?: boolean;
     symlink?: boolean;
     /** File mode passed through to SonicBoom. */

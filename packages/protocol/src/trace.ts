@@ -11,7 +11,7 @@ export interface TraceContext {
 /** Source of random bytes; injectable so tests can produce known ids. */
 export type RandomBytes = (length: number) => Uint8Array;
 
-const TRACEPARENT = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
+const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 const ZERO_TRACE_ID = "0".repeat(32);
 const ZERO_SPAN_ID = "0".repeat(16);
 
@@ -101,18 +101,17 @@ export function formatTraceparent(context: TraceContext): string {
  *
  * @remarks
  * Values come from the network, so anything malformed, including all-zero ids, is rejected
- * rather than repaired; the host then starts a fresh trace instead of joining a bogus one.
+ * rather than repaired; the host then starts a fresh trace instead of joining a bogus one. Once
+ * the pattern matches, every field sits at a fixed offset, so slicing needs no further checks.
  *
  * @sideEffects none
  * @param value - The header value to parse.
  * @returns The trace context, or `null` when the value is not a valid version-00 traceparent.
  */
 export function parseTraceparent(value: string): TraceContext | null {
-  const match = TRACEPARENT.exec(value);
-  if (!match) return null;
-  const [, traceId, spanId, flags] = match;
-  // Stryker disable next-line all: the pattern has three mandatory groups, so a match always fills them; this only narrows the type.
-  if (traceId === undefined || spanId === undefined || flags === undefined) return null;
+  if (!TRACEPARENT.test(value)) return null;
+  const traceId = value.slice(3, 35);
+  const spanId = value.slice(36, 52);
   if (traceId === ZERO_TRACE_ID || spanId === ZERO_SPAN_ID) return null;
-  return { traceId, spanId, sampled: (Number.parseInt(flags, 16) & 1) === 1 };
+  return { traceId, spanId, sampled: (Number.parseInt(value.slice(53, 55), 16) & 1) === 1 };
 }

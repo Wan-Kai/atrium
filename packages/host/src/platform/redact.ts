@@ -5,7 +5,7 @@ const REDACTED = "[redacted]";
 export type Redactor = (value: unknown) => unknown;
 
 const SENSITIVE_KEY =
-  /^(token|access_?token|refresh_?token|id_?token|auth_?token|secret|client_?secret|password|passwd|api_?key|authorization|cookie|set-cookie|credentials?)$/i;
+  /^(token|access_?token|refresh_?token|id_?token|auth_?token|session_?token|bearer|secret|client_?secret|private_?key|password|passwd|api[-_]?key|x-api-key|authorization|proxy-authorization|cookie|set-cookie|credentials?)$/i;
 const MAX_DEPTH = 12;
 const MIN_SECRET_LENGTH = 8;
 

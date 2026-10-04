@@ -239,6 +239,9 @@ importers:
         specifier: 5.0.15
         version: 5.0.15(@types/react@19.3.0)(react@19.3.0)
     devDependencies:
+      '@atrium/testkit':
+        specifier: workspace:*
+        version: link:../testkit
       '@types/node':
         specifier: 26.6.4
         version: 26.6.4

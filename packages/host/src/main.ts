@@ -3,7 +3,6 @@ import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
 import { ensureAtriumHome } from "./platform/home";
 import { createLogger, openLogFile } from "./platform/logger";
-import { createRedactor } from "./platform/redact";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { startWsServer } from "./server/ws-server";
@@ -29,6 +28,8 @@ export interface HostConfig {
 export interface RunningHost {
   readonly port: number;
   readonly origin: string;
+  /** IP address the server is bound to; always loopback. */
+  readonly address: string;
   /** Live resource counts, for leak tests and diagnostics. */
   readonly resources: ResourceTracker;
   /** Path that always points at the log file being written. */
@@ -50,8 +51,11 @@ const RESOURCE_REPORT_INTERVAL_MS = 60_000;
  * a plain `node` process, and in-process in tests. Resource counts and memory are logged every
  * minute so leaks in real use show up in the log (testing.md, "运行时监控").
  *
+ * If listening fails, everything opened so far is released before the error is rethrown, so a
+ * failed start leaves no open file or tracer behind.
+ *
  * @sideEffects Creates `~/.atrium` and its logs folder; opens the log file; listens on a port;
- * schedules a recurring resource report.
+ * schedules a recurring resource report; on a failed start, logs the failure and closes the log.
  * @param config - Host configuration.
  * @returns The running host.
  */
@@ -63,23 +67,53 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const logger = createLogger({
     destination,
     level: config.logLevel ?? "info",
-    redact: createRedactor(() => [config.token]),
+    secrets: () => [config.token],
     service: "host",
   });
+  for (const directory of home.looseModes) {
+    logger.warn({ directory }, "atrium directory is readable by other users; expected mode 0700");
+  }
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
-  const server = await startWsServer({
-    token: config.token,
-    port: config.port ?? 0,
-    uiDir: config.uiDir,
-    extraOrigins: config.extraOrigins ?? [],
-    handshakeTimeoutMs: config.handshakeTimeoutMs ?? 5_000,
-    maxPayloadBytes: 1024 * 1024,
-    hostVersion: packageJson.version,
-    logger,
-    tracer: tracing.tracer,
-    clock,
-    resources,
-  });
+
+  /**
+   * Flushes and closes the log stream.
+   *
+   * @remarks
+   * Shared by normal shutdown and by the rollback when startup fails, so a failed start still
+   * leaves its records on disk and no open file behind.
+   *
+   * @sideEffects Writes buffered records and closes the log file.
+   */
+  async function closeLog(): Promise<void> {
+    destination.flushSync();
+    await new Promise<void>((done) => {
+      destination.once("close", () => done());
+      destination.end();
+    });
+  }
+
+  let server: Awaited<ReturnType<typeof startWsServer>>;
+  try {
+    server = await startWsServer({
+      token: config.token,
+      port: config.port ?? 0,
+      uiDir: config.uiDir,
+      extraOrigins: config.extraOrigins ?? [],
+      handshakeTimeoutMs: config.handshakeTimeoutMs ?? 5_000,
+      maxPayloadBytes: 1024 * 1024,
+      limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 8 * 1024 * 1024 },
+      hostVersion: packageJson.version,
+      logger,
+      tracer: tracing.tracer,
+      clock,
+      resources,
+    });
+  } catch (error) {
+    logger.error({ err: error }, "host failed to start");
+    await tracing.shutdown();
+    await closeLog();
+    throw error;
+  }
 
   let cancelReport = scheduleReport();
 
@@ -108,6 +142,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   return {
     port: server.port,
     origin: server.origin,
+    address: server.address,
     resources,
     logFile,
     flushLog: () => destination.flushSync(),
@@ -116,11 +151,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       await server.close();
       await tracing.shutdown();
       logger.info("host stopped");
-      destination.flushSync();
-      await new Promise<void>((done) => {
-        destination.once("close", () => done());
-        destination.end();
-      });
+      await closeLog();
     },
   };
 }

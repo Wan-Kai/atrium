@@ -99,11 +99,13 @@ export function contextFromTraceparent(traceparent: string): Context {
 }
 
 /**
- * Runs `work` inside a new active span and ends the span when `work` settles.
+ * Runs synchronous `work` inside a new active span and ends the span before returning.
  *
  * @remarks
  * Centralizes the start/try/finally pattern so no code path can leave a span open, which the
- * leak tests would report.
+ * leak tests would report. It is synchronous on purpose: the handshake must decide within the
+ * same turn of the event loop as the message that carries it, so frames that arrive in the same
+ * TCP read already see the result. An async variant is added when async work needs spans.
  *
  * @sideEffects Starts and ends a span; records an exception and error status if `work` throws.
  * @param tracer - Tracer to start the span on.
@@ -112,15 +114,10 @@ export function contextFromTraceparent(traceparent: string): Context {
  * @param work - Code to run with the span active.
  * @returns Whatever `work` returns.
  */
-export async function inSpan<T>(
-  tracer: Tracer,
-  name: string,
-  parent: Context,
-  work: (span: Span) => Promise<T> | T,
-): Promise<T> {
-  return tracer.startActiveSpan(name, {}, parent, async (span) => {
+export function inSyncSpan<T>(tracer: Tracer, name: string, parent: Context, work: (span: Span) => T): T {
+  return tracer.startActiveSpan(name, {}, parent, (span) => {
     try {
-      return await work(span);
+      return work(span);
     } catch (error) {
       span.recordException(error instanceof Error ? error : String(error));
       span.setStatus({ code: SpanStatusCode.ERROR });

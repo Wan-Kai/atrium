@@ -1,5 +1,4 @@
 interface PendingTimer {
-  readonly id: number;
   readonly dueAt: number;
   readonly callback: () => void;
 }
@@ -17,7 +16,6 @@ interface PendingTimer {
  */
 export class FakeClock {
   #now: number;
-  #nextId = 1;
   #timers: PendingTimer[] = [];
 
   /**
@@ -59,10 +57,10 @@ export class FakeClock {
    * @returns A function that cancels the timer if it has not fired.
    */
   setTimeout(callback: () => void, ms: number): () => void {
-    const timer = { id: this.#nextId++, dueAt: this.#now + Math.max(0, ms), callback };
+    const timer: PendingTimer = { dueAt: this.#now + Math.max(0, ms), callback };
     this.#timers.push(timer);
     return () => {
-      this.#timers = this.#timers.filter((pending) => pending.id !== timer.id);
+      this.#timers = this.#timers.filter((pending) => pending !== timer);
     };
   }
 
@@ -82,7 +80,7 @@ export class FakeClock {
     for (;;) {
       const due = this.#timers.filter((timer) => timer.dueAt <= target).toSorted((a, b) => a.dueAt - b.dueAt)[0];
       if (due === undefined) break;
-      this.#timers = this.#timers.filter((timer) => timer.id !== due.id);
+      this.#timers = this.#timers.filter((timer) => timer !== due);
       this.#now = due.dueAt;
       due.callback();
     }

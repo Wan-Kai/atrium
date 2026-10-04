@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { present } from "@atrium/testkit";
 import { type LaunchedApp, launchApp } from "./launch";
+import { startCountingServer } from "./servers";
 
 let launched: LaunchedApp;
 
@@ -32,15 +33,36 @@ test("gives the page no Node access and only the bootstrap bridge", async () => 
 });
 
 test("keeps the page on its own origin and refuses new windows", async () => {
-  const before = launched.window.url();
-
-  const opened = await launched.window.evaluate(() => window.open("https://example.com") === null);
-  await launched.window.evaluate(() => {
-    location.href = "https://example.com/";
+  const target = await startCountingServer();
+  const origin = new URL(launched.window.url()).origin;
+  await launched.app.evaluate(({ BrowserWindow, shell }) => {
+    const attempts: string[] = [];
+    const external: string[] = [];
+    Object.assign(globalThis, { navigationAttempts: attempts, externalOpens: external });
+    BrowserWindow.getAllWindows()[0]?.webContents.on("will-navigate", (_event, url) => attempts.push(url));
+    // Record instead of launching the real system browser during tests.
+    shell.openExternal = async (url: string) => {
+      external.push(url);
+    };
   });
 
+  const opened = await launched.window.evaluate((url) => window.open(url) === null, target.url);
+  await launched.window.evaluate((url) => {
+    location.href = url;
+  }, `${target.url}/elsewhere`);
+  await expect
+    .poll(() => launched.app.evaluate(() => (globalThis as { navigationAttempts?: string[] }).navigationAttempts))
+    .toStrictEqual([`${target.url}/elsewhere`]);
+  await launched.window.reload();
+
   expect(opened).toBe(true);
-  await expect.poll(() => launched.window.url()).toBe(before);
+  expect(new URL(launched.window.url()).origin).toBe(origin);
+  expect(target.requests()).toBe(0);
+  expect(await launched.app.evaluate(() => (globalThis as { externalOpens?: string[] }).externalOpens)).toStrictEqual([
+    `${target.url}/`,
+    `${target.url}/elsewhere`,
+  ]);
+  await target.close();
 });
 
 test("follows the system appearance", async () => {

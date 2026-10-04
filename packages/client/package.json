@@ -14,6 +14,7 @@
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@atrium/testkit": "workspace:*",
     "@types/node": "26.6.4"
   }
 }

@@ -74,10 +74,10 @@ export function EffortBox(props: EffortBoxProps) { … }
 
 ## 异步与取消
 
-- 不允许悬空的 Promise（oxlint `no-floating-promises`、`no-misused-promises`）。确实要"发出去不等"的，用 `void` 并写注释说明为什么。
+- 不允许悬空的 Promise（oxlint `no-floating-promises`、`no-misused-promises`）。确实要"发出去不等"的，用 `void` 并在上一行写 `// Fire and forget: <为什么>`。
 - 可能耗时的操作（子进程、git、网络、文件扫描、等待 pi 响应）都接受 `AbortSignal`，取消后释放资源。
 - 定时器、事件监听、订阅、子进程都要有对应的释放路径，并计入资源计数（[testing.md · 性能与资源泄漏](testing.md#性能与资源泄漏)）。
-- 时间一律通过注入的 `Clock` 取，不直接调 `Date.now()` / `setTimeout`，以便测试用假时钟。
+- 时间一律通过注入的 `Clock` 取，不直接调 `Date.now()` / `setTimeout`，以便测试用假时钟。例外：Electron 主进程和 `scripts/` 是组装层，只靠端到端测试覆盖，可以直接用定时器，并在 JSDoc 里写明。
 
 ## 类型
 

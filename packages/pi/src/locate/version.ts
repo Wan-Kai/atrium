@@ -41,7 +41,5 @@ export function parseVersion(text: string): Version | null {
 export function isAtLeast(version: Version, minimum: Version): boolean {
   const [major, minor, patch] = version;
   const [minMajor, minMinor, minPatch] = minimum;
-  if (major !== minMajor) return major > minMajor;
-  if (minor !== minMinor) return minor > minMinor;
-  return patch >= minPatch;
+  return (major - minMajor || minor - minMinor || patch - minPatch) >= 0;
 }

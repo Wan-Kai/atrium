@@ -7,9 +7,19 @@ import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
-import { contextFromTraceparent, inSpan } from "../platform/tracing";
+import { contextFromTraceparent, inSyncSpan } from "../platform/tracing";
 import { tokensMatch } from "./auth";
 import { serveStatic } from "./static-files";
+
+/** Limits that keep one local process from exhausting the host (security.md, "WebSocket 与鉴权"). */
+interface ConnectionLimits {
+  /** Simultaneous connections, authenticated or not. */
+  readonly maxConnections: number;
+  /** Messages one connection may send within any one-second window. */
+  readonly messagesPerSecond: number;
+  /** Bytes one connection may send within any one-second window. */
+  readonly bytesPerSecond: number;
+}
 
 /** Options for {@link startWsServer}. */
 export interface WsServerOptions {
@@ -25,6 +35,7 @@ export interface WsServerOptions {
   readonly handshakeTimeoutMs: number;
   /** Largest accepted message. */
   readonly maxPayloadBytes: number;
+  readonly limits: ConnectionLimits;
   readonly hostVersion: string;
   readonly logger: Logger;
   readonly tracer: Tracer;
@@ -35,9 +46,11 @@ export interface WsServerOptions {
 /** A listening server. */
 export interface RunningServer {
   readonly port: number;
+  /** IP address the server is bound to. */
+  readonly address: string;
   /** The host's own origin, `http://127.0.0.1:<port>`. */
   readonly origin: string;
-  /** Disconnects every client and stops listening. */
+  /** Stops accepting connections, disconnects every client and stops listening. */
   readonly close: () => Promise<void>;
 }
 
@@ -49,12 +62,15 @@ export interface RunningServer {
  * from foreign origins are refused at the upgrade, before any message is read; the token travels
  * in the first message, never in the URL; nothing but `hello` is handled until it succeeds, and a
  * silent client is dropped after the handshake timeout. Requests without an `Origin` header come
- * from non-browser clients, which a web page cannot impersonate, so they only need the token.
+ * from non-browser local processes, which a web page cannot impersonate, so they only need the
+ * token. Connection count and per-connection message rate are capped. Closing stops listening and
+ * drops every HTTP connection first, including one that has sent only part of an upgrade, so no
+ * WebSocket can appear after shutdown began and keep `close` waiting.
  *
  * @sideEffects Listens on a TCP port; counts each connection and handshake timer as resources;
  * logs connection outcomes; starts a `ws.connect` span per handshake.
  * @param options - Server configuration and shared services.
- * @returns The bound port, origin and a close function.
+ * @returns The bound port and address, the origin, and a close function.
  */
 export async function startWsServer(options: WsServerOptions): Promise<RunningServer> {
   const allowedOrigins = new Set<string>(options.extraOrigins);
@@ -64,7 +80,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
       response.writeHead(404).end();
       return;
     }
-    // Stryker disable all: serveStatic turns every expected failure into 404 or 405; this only catches a future bug.
+    // Stryker disable all: serveStatic answers every failure itself; this only catches a future bug.
     serveStatic(request, response, options.uiDir).catch((error: unknown) => {
       options.logger.error({ err: error, url: request.url }, "static file request failed");
       if (!response.headersSent) response.writeHead(500);
@@ -82,13 +98,18 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
       return;
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
+      if (sockets.size >= options.limits.maxConnections) {
+        options.logger.warn({ limit: options.limits.maxConnections }, "client rejected: too many connections");
+        ws.close(CloseCode.TooManyConnections, "too many connections");
+        return;
+      }
       sockets.add(ws);
       ws.once("close", () => sockets.delete(ws));
       acceptConnection(ws, options);
     });
   });
 
-  const port = await listen(httpServer, options.port);
+  const { port, address } = await listen(httpServer, options.port);
   const origin = `http://127.0.0.1:${port}`;
   allowedOrigins.add(origin);
   allowedOrigins.add(`http://localhost:${port}`);
@@ -96,14 +117,17 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
 
   return {
     port,
+    address,
     origin,
     close: async () => {
-      // Stryker disable next-line ArrowFunction: the close events currently arrive before httpServer.close resolves anyway; waiting makes the order a guarantee, so no log is written after the log file closes.
+      const stopped = new Promise<void>((done, fail) => httpServer.close((error) => (error ? fail(error) : done())));
+      httpServer.closeAllConnections();
+      // Stryker disable next-line ArrowFunction,ArrayDeclaration: the close events currently arrive before wss.close returns anyway; waiting makes the order a guarantee, so no log is written after the log file closes.
       const closed = [...sockets].map((ws) => new Promise<void>((done) => ws.once("close", () => done())));
       for (const ws of sockets) ws.terminate();
       await Promise.all(closed);
       await new Promise<void>((done) => wss.close(() => done()));
-      await new Promise<void>((done, fail) => httpServer.close((error) => (error ? fail(error) : done())));
+      await stopped;
     },
   };
 }
@@ -117,18 +141,18 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
  * @sideEffects Opens a listening socket.
  * @param server - HTTP server to bind.
  * @param port - Requested port, 0 for any free port.
- * @returns The bound port.
+ * @returns The bound port and address.
  */
-function listen(server: Server, port: number): Promise<number> {
+function listen(server: Server, port: number): Promise<{ port: number; address: string }> {
   return new Promise((done, fail) => {
     server.once("error", fail);
     server.listen(port, "127.0.0.1", () => {
       // Stryker disable next-line all: once listening, the promise is settled and a stray `fail` call has no effect.
       server.off("error", fail);
-      const address: AddressInfo | string | null = server.address();
+      const bound: AddressInfo | string | null = server.address();
       // Stryker disable next-line all: a TCP listener always reports an AddressInfo; this only narrows the type.
-      if (address === null || typeof address === "string") fail(new Error("server is not bound to a TCP port"));
-      else done(address.port);
+      if (bound === null || typeof bound === "string") fail(new Error("server is not bound to a TCP port"));
+      else done({ port: bound.port, address: bound.address });
     });
   });
 }
@@ -137,9 +161,11 @@ function listen(server: Server, port: number): Promise<number> {
  * Runs the handshake for one new socket and tracks it until it closes.
  *
  * @remarks
- * Only the first message is read as `hello`; messages that arrive while it is being checked are
- * dropped, and a rejected client is closed, so nothing else is processed before success. Command
- * routing arrives in M1.3, so authenticated messages are only logged for now.
+ * The first message must be `hello`, and it is decided synchronously, so a frame that arrives in
+ * the same TCP read is already handled as an authenticated message. A rejected client is closed
+ * and anything it still sends is ignored. Every message, before or after the handshake, counts
+ * against the per-second limits. Command routing arrives in M1.3, so authenticated messages are
+ * only logged for now.
  *
  * @sideEffects Counts the connection and its handshake timer as resources; may close the socket
  * with a protocol close code; logs the outcome.
@@ -148,61 +174,69 @@ function listen(server: Server, port: number): Promise<number> {
  */
 function acceptConnection(ws: WebSocket, options: WsServerOptions): void {
   const releaseConnection = options.resources.acquire("ws.connection");
-  let phase: "awaiting-hello" | "checking" | "open" = "awaiting-hello";
+  let phase: "awaiting-hello" | "open" | "closed" = "awaiting-hello";
   /** Trace of the accepted handshake; later records of this connection join it. */
   let connectionTrace: Context = ROOT_CONTEXT;
+  let windowStart = options.clock.now();
+  let windowMessages = 0;
+  let windowBytes = 0;
   const cancelHandshakeTimer = trackedTimeout(
     options.clock,
     options.resources,
     () => {
       // Stryker disable next-line all: the timer is cancelled when the hello arrives, so it only fires while awaiting it.
       if (phase !== "awaiting-hello") return;
+      phase = "closed";
       options.logger.warn("client dropped: no hello before timeout");
       ws.close(CloseCode.HandshakeTimeout, "handshake timeout");
     },
     options.handshakeTimeoutMs,
   );
 
-  ws.on("message", (data: RawData, isBinary: boolean) => {
-    if (phase === "open") {
-      context.with(connectionTrace, () =>
-        options.logger.debug({ bytes: rawLength(data) }, "message ignored: no command routing yet"),
-      );
-      return;
-    }
-    // Stryker disable next-line all: a second frame only lands while the first is being checked when both arrive in one TCP read, which a test cannot force.
-    if (phase === "checking" || ws.readyState !== ws.OPEN) return;
-    phase = "checking";
-    cancelHandshakeTimer();
-    void checkHello(data, isBinary);
-  });
   /**
-   * Runs the handshake for the first message and opens the connection on success.
+   * Counts one message against the current one-second window.
    *
    * @remarks
-   * Wrapped so an unexpected failure closes the socket instead of leaving it half-open.
+   * A fixed window per connection is enough to stop a flood; it does not need to be smooth.
    *
-   * @sideEffects Updates the connection phase; may close the socket and log.
-   * @param data - The first message.
-   * @param isBinary - Whether it arrived as a binary frame.
+   * @sideEffects Updates the window counters.
+   * @param bytes - Size of the message.
+   * @returns Whether the connection is still within its limits.
    */
-  async function checkHello(data: RawData, isBinary: boolean): Promise<void> {
-    try {
-      const accepted = await handleHello(ws, data, isBinary, options);
-      if (accepted !== null) {
-        phase = "open";
-        connectionTrace = accepted;
-      }
-    } catch (error) {
-      // Stryker disable all: handleHello has no throwing path; this guards against a future bug leaving the socket half-open.
-      options.logger.error({ err: error }, "handshake failed unexpectedly");
-      ws.close(CloseCode.BadHandshake, "handshake failed");
+  function withinLimits(bytes: number): boolean {
+    const now = options.clock.now();
+    if (now - windowStart >= 1_000) {
+      windowStart = now;
+      windowMessages = 0;
+      windowBytes = 0;
     }
+    windowMessages += 1;
+    windowBytes += bytes;
+    return windowMessages <= options.limits.messagesPerSecond && windowBytes <= options.limits.bytesPerSecond;
   }
 
-  // Stryker restore all
-
-  // Stryker disable next-line all: socket errors cannot be provoked from a test without a broken network stack.
+  ws.on("message", (data: RawData, isBinary: boolean) => {
+    if (phase === "closed") return;
+    const bytes = rawLength(data);
+    if (!withinLimits(bytes)) {
+      phase = "closed";
+      context.with(connectionTrace, () => options.logger.warn("client dropped: message rate limit exceeded"));
+      ws.close(CloseCode.RateLimited, "rate limited");
+      return;
+    }
+    if (phase === "open") {
+      context.with(connectionTrace, () => options.logger.debug({ bytes }, "message ignored: no command routing yet"));
+      return;
+    }
+    cancelHandshakeTimer();
+    const accepted = handleHello(ws, data, isBinary, options);
+    if (accepted === null) {
+      phase = "closed";
+    } else {
+      phase = "open";
+      connectionTrace = accepted;
+    }
+  });
   ws.on("error", (error) => options.logger.warn({ err: error }, "websocket error"));
   ws.once("close", (code: number) => {
     cancelHandshakeTimer();
@@ -227,15 +261,10 @@ function acceptConnection(ws: WebSocket, options: WsServerOptions): void {
  * @returns The trace context of the accepted handshake, so later records of the connection can
  * join the same trace; `null` when the client was rejected.
  */
-async function handleHello(
-  ws: WebSocket,
-  data: RawData,
-  isBinary: boolean,
-  options: WsServerOptions,
-): Promise<Context | null> {
+function handleHello(ws: WebSocket, data: RawData, isBinary: boolean, options: WsServerOptions): Context | null {
   const hello = isBinary ? null : HelloMessage.safeParse(parseJson(data));
   const parent = hello?.success === true ? contextFromTraceparent(hello.data.traceparent) : ROOT_CONTEXT;
-  return inSpan(options.tracer, "ws.connect", parent, (span) => {
+  return inSyncSpan(options.tracer, "ws.connect", parent, (span) => {
     if (hello?.success !== true) {
       options.logger.warn("client rejected: malformed hello");
       ws.close(CloseCode.BadHandshake, "bad handshake");
@@ -263,6 +292,7 @@ async function handleHello(
   });
 }
 
+// Stryker disable BlockStatement: an emptied catch returns undefined, which the schema rejects exactly like null.
 /**
  * Parses a text frame as JSON.
  *
@@ -277,10 +307,11 @@ function parseJson(data: RawData): unknown {
   try {
     return JSON.parse(Buffer.concat(toBuffers(data)).toString());
   } catch {
-    // Stryker disable next-line all: returning undefined instead of null is rejected by the schema the same way.
     return null;
   }
 }
+
+// Stryker restore BlockStatement
 
 /**
  * Normalizes the payload shapes `ws` may deliver into a list of buffers.
