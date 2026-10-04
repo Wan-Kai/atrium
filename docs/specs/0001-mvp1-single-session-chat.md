@@ -1,6 +1,6 @@
 # SPEC-0001：MVP 1 纯对话
 
-- **状态**：评审中
+- **状态**：已确认
 - **创建**：2026-09-30
 - **更新**：2026-10-04
 - **相关**：[路线图](../roadmap.md) 阶段 1 第 1 步、[ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)、[ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)、[ADR-0006](../adr/0006-organize-sessions-by-workspace.md)、[领域模型](../architecture/domain-model.md)、[设计语言](../architecture/design-language.md)
