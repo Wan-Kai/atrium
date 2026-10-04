@@ -9,5 +9,6 @@
 | [event-model.md](event-model.md) | 早期协议草案，已被 SPEC-0001 取代，待协议定稿后重写 |
 | [plugin-model.md](plugin-model.md) | 插件的组成、打包、状态与约束 |
 | [design-language.md](design-language.md) | 颜色、字体、圆角、图标、点阵、动效与组件要点 |
+| [testing.md](testing.md) | 测试分层、工具、让测试有效和覆盖全面的规则、代码检查与格式化 |
 
 为什么这样设计，见 [ADR](../adr/)。

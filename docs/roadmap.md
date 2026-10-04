@@ -46,6 +46,7 @@ MVP 1 里还没设计、做到时先补设计的：
 | 同类宿主怎么做、哪些坑已经被踩过 | [paseo-architecture.md](research/paseo-architecture.md) |
 | extension 能做什么（MVP 2） | [pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 | 前端用什么库、流式回复怎么渲染 | 本文"已定的关键决策"里的"前端技术栈"、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[M1.3](#m13-协议客户端与流式显示) |
+| 怎么测、用什么检查代码 | [testing.md](architecture/testing.md) |
 | 颜色、字体、圆角、图标、点阵、动效 | [design-language.md](architecture/design-language.md) |
 | 某个决定为什么这样定 | [ADR](adr/) |
 
@@ -57,6 +58,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo（pnpm workspaces）：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
 - pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
 - `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。
+- 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
@@ -131,6 +133,8 @@ MVP 1 里还没设计、做到时先补设计的：
 
 范围见 [SPEC-0001](specs/0001-mvp1-single-session-chat.md)。按下面的里程碑做，每个做完都能跑、能验证。
 
+每个里程碑的完成标准都隐含一条：[追踪表](architecture/testing.md#让覆盖面全)里这个里程碑涉及的行都有测试，`pnpm check` 通过，核心模块的变异分数不低于 80%（见 [testing.md](architecture/testing.md)）。
+
 ##### M1.1 骨架
 
 - **目标**：`pnpm dev` 打开一个 Electron 窗口，显示宿主提供的空白 UI，UI 用 token 连上宿主的 WebSocket。
@@ -138,21 +142,23 @@ MVP 1 里还没设计、做到时先补设计的：
   - pnpm workspaces：`packages/protocol`、`client`、`host`、`ui`，`apps/desktop`。
   - Electron 主进程启动宿主（Node 子进程），随机端口 + 随机 token，preload 传给 UI。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
-  - 定下测试框架、代码检查与格式化工具，写进本文"已定的关键决策"（pi 适配器自己实现、`client` 用 Zustand 已定）。
+  - 搭好测试与代码质量工具（[testing.md](architecture/testing.md)）：Vitest 各层配置与文件后缀、Playwright + Electron、fast-check、Stryker、oxlint（类型感知 + vitest 规则）、oxfmt、TypeScript 7、knip、lefthook，以及 `pnpm test*` / `pnpm check` 命令。
+  - 建立追踪表 `docs/testing/coverage-map.md`，先填 SPEC-0001 的需求和关键流程。
 - **参考**：[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)、[SPEC-0001 · 进程与启动、各包职责](specs/0001-mvp1-single-session-chat.md#进程与启动)、[design-language · 颜色](architecture/design-language.md#颜色)。
-- **完成标准**：窗口能打开；token 错误时连接被拒；切换系统外观界面跟着变。
+- **完成标准**：窗口能打开；token 错误时连接被拒；切换系统外观界面跟着变；`pnpm check` 通过；每一层各有一个能跑的示例测试，并确认它在实现被破坏时会失败；一次变异测试能跑完并出报告。
 
 ##### M1.2 最窄链路：宿主驱动 pi
 
 - **目标**：宿主启动 `pi --mode rpc`，发一条 prompt，在终端里打出流式文本，直到 `agent_settled`。
 - **范围**：
+  - 先验证 faux 模型：测试 extension 用 `pi.registerProvider()` 注册 pi-ai 的 `fauxProvider()`，在真实 RPC 进程里按脚本回复。不行就改用本地模拟的兼容 OpenAI 接口（见 [testing.md · faux 模型](architecture/testing.md#faux-模型)）。
+  - 第 3 层 pi 契约测试：逐条验证 pi-internals 里依赖的行为，并由它录制第 1 层的夹具。
   - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
   - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。
   - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
   - pi 的 stderr 和宿主自己的日志写进 `~/.atrium/logs/`，错误卡片"展开看原始报错"要用到。
-  - 录制几段真实的 pi 输出作为测试夹具（流式、工具调用、中断、退出）。
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、pi 的 `src/modes/rpc/rpc-client.ts`（只作对照，不直接用）、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
-- **完成标准**：适配器测试用录制的夹具跑通；真实 pi 能完整跑完一轮。
+- **完成标准**：适配器测试用录制的夹具跑通；分帧的属性测试通过；pi 契约测试全部通过；真实 pi 能完整跑完一轮。
 
 ##### M1.3 协议、客户端与流式显示
 
