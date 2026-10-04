@@ -1,0 +1,16 @@
+{
+  "name": "@atrium/pi",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@atrium/testkit": "workspace:*",
+    "@types/node": "26.6.4"
+  }
+}

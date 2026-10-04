@@ -14,16 +14,17 @@
 ## WebSocket 与鉴权
 
 - 默认只监听 `127.0.0.1`，随机端口。监听其他地址必须在设置里显式打开（以后远程访问用）。
-- token 每次启动随机生成（至少 32 字节），只存在内存里，由 Electron 主进程通过 preload 交给 UI，不写文件、不写日志。
+- token 每次启动随机生成（32 字节，base64url 编码为 43 个字符），只存在内存里，由 Electron 主进程通过进程消息端口交给宿主、通过 preload 交给 UI，不写文件、不写日志。宿主单独运行时用 `ATRIUM_TOKEN` 指定的 token 也必须满足同样的长度和字符集，否则拒绝启动。
 - **token 不放在 URL 里**（会进日志和历史记录）。浏览器的 WebSocket 不能自定义请求头，用 `Sec-WebSocket-Protocol` 传递，或在连接后的第一条消息里鉴权；鉴权通过前不处理任何其他消息，超时断开。
-- **校验 `Origin`**：只接受宿主自己提供的页面的来源；其他来源直接拒绝，即使带了 token。
-- 每个连接限制单条消息大小和发送速率，超出断开。
+- **校验 `Origin`**：带 `Origin` 的请求只接受宿主自己提供的页面（以及开发时的 Vite 页面）的来源，其他来源在升级阶段就以 403 拒绝，即使带了 token。不带 `Origin` 的请求放行（仍要 token）：浏览器总会带 `Origin`，不带的只能是本机的非浏览器进程，网页无法伪造这种请求。
+- 上限（超出就用协议关闭码断开）：同时最多 32 个连接（4503）；每个连接每秒最多 200 条消息、8 MiB（4429）；单条消息最大 1 MiB（WebSocket 1009）。这些上限防的是本机其他进程把宿主拖垮，正常使用远远碰不到。
+- 关闭宿主时先停止监听并断开所有 HTTP 连接（包括只发了一半的升级请求），再断开 WebSocket，关闭期间不会再出现新连接。
 
 ## Electron
 
 - 渲染进程：`contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
 - preload 只通过 `contextBridge` 暴露最小接口（宿主地址、token、少量窗口操作），不暴露 Node 或 IPC 本身。
-- 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片和连接按需放开。
+- 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片和连接按需放开。宿主提供的页面由宿主加响应头；开发时页面来自 Vite，由 Electron 主进程给它加同样的策略，只额外允许内联脚本（React 热更新需要）和连接宿主端口。
 - 禁止窗口导航到别的页面（`will-navigate`），禁止新开窗口（`setWindowOpenHandler` 一律拒绝）。
 - 外链只允许 `http` / `https`，用 `shell.openExternal` 交给系统浏览器。
 
@@ -36,14 +37,15 @@
 ## 凭据与日志
 
 - API Key 只写进 pi 的 `~/.pi/agent/auth.json`，Atrium 不另存；读 `auth.json` 只取"是否已登录"，不把内容放进内存里的其他结构。
-- 日志统一脱敏：token、API Key、OAuth 令牌、`Authorization` 头一律替换；默认不记录提示词、回复、工具参数和输出、文件内容（[observability.md](observability.md#脱敏)）。
-- `~/.atrium/` 目录权限 `0700`，其中文件 `0600`。
+- 日志统一脱敏：token、API Key、OAuth 令牌、`Authorization` 头一律替换；默认不记录提示词、回复、工具参数和输出、文件内容（[observability.md](observability.md#脱敏)）。脱敏在每行日志写盘前对整行进行，消息里的格式化参数、`Error` 的消息、子 logger 的绑定都覆盖到。
+- `~/.atrium/` 由宿主新建时目录权限 `0700`，日志文件 `0600`。已经存在的目录不改权限（`ATRIUM_HOME` 可能指向 `/tmp` 这类共享目录，改了会影响别人），权限过宽时记一条警告。
 
 ## 子进程与文件
 
 - 外部命令一律用 `execFile` / `spawn` 传参数数组，不经过 shell，防止命令注入；参数来自用户输入时（分支名、路径）先校验。
 - 启动 Node 程序用 `process.execPath`，不通过 `npx` 或 `.bin` 脚本。
 - `@` 引用的文件搜索限制在工作区目录内，解析符号链接后仍在目录内才返回。
+- 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。
 
 ## 测试

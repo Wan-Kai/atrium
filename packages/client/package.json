@@ -1,0 +1,20 @@
+{
+  "name": "@atrium/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "@atrium/protocol": "workspace:*",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@atrium/testkit": "workspace:*",
+    "@types/node": "26.6.4"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@atrium/testkit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "vitest": "5.0.3"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "@atrium/host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/main.ts"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@atrium/protocol": "workspace:*",
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/context-async-hooks": "2.11.0",
+    "@opentelemetry/core": "2.11.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-trace": "2.11.0",
+    "pino": "10.4.0",
+    "pino-roll": "4.0.0",
+    "ws": "8.22.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@atrium/client": "workspace:*",
+    "@atrium/testkit": "workspace:*",
+    "@types/node": "26.6.4",
+    "@types/ws": "8.18.2",
+    "esbuild": "0.28.2"
+  }
+}

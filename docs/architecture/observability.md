@@ -68,11 +68,13 @@ ui.action send                         client 生成 trace
 
 span 结束时另写一条 `kind: "span"` 的记录：名称、开始结束时间、耗时、状态、父 span、links、属性。
 
-- 文件位置：`~/.atrium/logs/host.jsonl`（含 client 和 UI 发回的记录）、`desktop.jsonl`（Electron 主进程）。
+- 文件位置：`~/.atrium/logs/host.<n>.jsonl`（按 10MB 轮转，磁盘上最多保留 5 个，包括之前运行留下的；`current.log` 链接到正在写的那个；含 client 和 UI 发回的记录）；Electron 主进程的日志以后加 `desktop.<n>.jsonl`。日志流出错（如磁盘写满）时写到 stderr，不让宿主崩溃。
 - 级别：默认 `info`；设置里可切到 `debug`；`trace` 级只在开发时用。
 - 查看：`pnpm trace <trace id>` 把一条链路的 span 和日志按树形打印出来。
 
 ## 脱敏
+
+脱敏在写盘前对整行进行：pino 把消息、`err`、子 logger 的绑定组装进最终那一行，只有这一行能看到全部内容。每行解析成对象，按键名替换凭据（任意深度），再把已知秘密值（会话 token）从所有字符串里擦掉，然后重新序列化。
 
 - 永远不记录：token、API Key、OAuth 令牌、`Authorization` 头（pino 的 `redact` 统一处理，测试里搜日志确认）。
 - 默认不记录：提示词、回复、推理、工具参数和输出、文件内容、模型请求的原始数据。只记长度、数量、id 和耗时。`debug` 级也只记截断后的前 200 个字符，并在设置里提示。

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/*.mjs", "scripts/lint/*.mjs", "vitest.mutation.config.ts"],
+      "ignoreDependencies": ["@stryker-mutator/command-runner"]
+    },
+    "packages/host": {
+      "entry": ["src/entry.ts", "test/**/*.ts"]
+    },
+    "apps/desktop": {
+      "entry": ["src/main/main.ts", "src/preload/preload.ts", "e2e/**/*.ts"]
+    }
+  }
+}

@@ -13,10 +13,10 @@
 | 测试框架 | Vitest 5 | 单元、集成；浏览器模式（`@vitest/browser-playwright`，真实 Chromium）跑组件测试，组件渲染用 `vitest-browser-react` |
 | 端到端 | Playwright（`@playwright/test`） | 用 `_electron.launch` 驱动真实的 Electron 应用 |
 | 属性测试 | fast-check 4 | 随机生成输入找边界情况；也用它的 `commands` 做基于模型的测试 |
-| 变异测试 | Stryker 10（`@stryker-mutator/vitest-runner`） | 往代码里注入 bug，检验测试能不能抓住 |
+| 变异测试 | Stryker 10，命令运行器 | 往代码里注入 bug，检验测试能不能抓住。Stryker 的 Vitest 插件靠 Vitest 的 provide/inject 激活变异，这在 Vitest 5 上失效（所有变异都会"存活"），所以改用命令运行器：每个变异跑一遍 Node 测试层（`vitest.mutation.config.ts`），没有逐测试覆盖分析，全量约 2 分钟 |
 | 覆盖率 | `@vitest/coverage-v8` | 只作发现漏测的提示 |
-| 内存泄漏分析 | memlab 2（`@memlab/api`） | 分析堆快照，找出泄漏对象和脱离文档的 DOM 节点 |
-| 基准 | `vitest bench`（tinybench） | 热路径基准，和基线比较 |
+| 界面泄漏分析 | 自写的堆快照分析（`apps/desktop/e2e/heap.ts`） | 比较场景前后"已脱离文档的 DOM 节点"按名称的数量。原计划用 memlab，但 Chromium 152 改用快照里的 `detachedness` 字段标记脱离节点、不再加 "Detached" 前缀，memlab 2.0.5 认不出来，注入的泄漏也报 0 |
+| 基准 | Vitest 5 的 `bench` 测试夹具 | 热路径基准写在 `*.bench.ts`，用 testkit 的 `compareWithBaseline` 和本机基线比较 |
 | 代码检查 | oxlint 1.x + `oxlint-tsgolint` | 开启类型感知规则；同时用它的 vitest、react、react-hooks 规则 |
 | 格式化 | oxfmt | 兼容 Prettier 的格式；还没到 1.0，版本固定，升级单独提交 |
 | 类型检查 | TypeScript 7 | strict，另开 `noUncheckedIndexedAccess`、`exactOptionalPropertyTypes` |
@@ -39,6 +39,8 @@
 | 6 端到端 | `e2e/*.spec.ts` | 少量关键旅程：首次启动（pi 已装 / 未装，安装源指向本地）；添加项目 → 发消息 → 流式 → 停止 → 重启应用 → 历史恢复；后台会话进收件箱 | 整个应用都是真的，只有模型是 faux；失败时保留 trace、截图、录像 |
 | 7 真实模型冒烟 | `*.real.test.ts` | 用真实订阅跑一两个任务 | 手动触发，不进默认测试 |
 
+端到端测试只连本机测试服务器，不访问外网；会把链接交给系统浏览器的操作，测试里先替换 `shell.openExternal` 只做记录，绝不真的打开用户的浏览器。
+
 测试和实现放在一起（`thing.ts` + `thing.test.ts`）；端到端放在 `apps/desktop/e2e/`；第 4 层的测试宿主放在 `packages/host/test/harness.ts`。共用的测试工具放在 `packages/testkit`：faux 模型、回放夹具的 pi 替身、假时钟、临时环境、git 场景。testkit 不依赖任何内部包（最多依赖 protocol），pi 替身按结构类型匹配 pi 包的接口，避免和被测包形成循环依赖（见 [架构总览 · 代码结构](overview.md#代码结构)）。
 
 ### faux 模型
@@ -49,7 +51,8 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 
 ## 让每个测试都有效
 
-1. **变异测试是硬门槛**。核心模块（事件翻译、对话记录重建、会话控制器、同步、状态派生、分帧、合并判定）变异分数 ≥ 80%。存活的变异逐个处理：补测试，或说明它与原代码等价。平时增量跑改动的文件，每个里程碑完成前全量跑一次。
+1. **变异测试是硬门槛**。核心模块（事件翻译、对话记录重建、会话控制器、同步、状态派生、分帧、合并判定）变异分数 ≥ 80%。存活的变异逐个处理：补测试，或在代码里用 `// Stryker disable next-line <变异类型>: <理由>` 说明它与原代码等价或不可达。平时增量跑改动的文件，每个里程碑完成前用 `pnpm test:mutation --force` 全量跑一次。
+   - 时有时无的测试会让变异分数虚高：偶发失败被算成"杀死了变异"。M1.1 时日志流有竞态，分数显示 93%，修掉竞态后真实分数是 78%，补测试后才到 100%。
 2. **每个测试先见过失败**：一个测试、一段实现交替推进；修 bug 先写能复现它的测试。
 3. **用代码检查约束测试写法**（oxlint vitest 规则）：`expect-expect`（必须有断言）、`no-conditional-expect`、`no-conditional-in-test`、`no-disabled-tests`、`no-focused-tests`、`no-restricted-matchers`（禁 `toBeTruthy`、`toBeDefined` 这类弱断言）、`no-large-snapshots`、`prefer-strict-equal`（整体比对）。
 4. **结果必须确定**：停止的 2 秒锁定、重试退避、平滑揭示、`git fetch` 间隔都用假时钟，不用 `sleep` 等待；随机数注入种子，fast-check 失败会给出种子用于复现；时有时无的测试按 bug 处理，找到根因修掉，不删测试。
@@ -81,17 +84,18 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 **1. 泄漏测试**（`*.leak.test.ts`，跑在第 4 层的真实宿主上，Node 以 `--expose-gc` 启动，单进程串行）
 
 - 同一个操作重复 N 次（默认 200）：打开和关闭会话、订阅和退订、客户端连上和断开、发消息和停止、杀掉 pi 让它自动重启、归档。
-- 主断言是**计数回到基线**，结果确定：活着的 PiProcess 和 SessionController 数量、事件监听数、订阅数、定时器数、`process.getActiveResourcesInfo()`、按进程组查到的子进程 PID 都回到操作前。宿主为此在 `platform/` 暴露一份资源计数（测试和日志共用，不为测试另开分支）。
+- 主断言是**计数回到基线**，结果确定。宿主自己的资源计数之外，还要核对 Node 真实的活动资源（如 `process.getActiveResourcesInfo()` 里的 `Timeout`），否则"计数释放了但 `clearTimeout` 没调"这种泄漏看不出来。计数包括：活着的 PiProcess 和 SessionController 数量、事件监听数、订阅数、定时器数、`process.getActiveResourcesInfo()`、按进程组查到的子进程 PID 都回到操作前。宿主为此在 `platform/` 暴露一份资源计数（测试和日志共用，不为测试另开分支）。
 - 关键对象用 `WeakRef` + `FinalizationRegistry` 断言确实被回收：归档会话后反复 `gc()`，它的 SessionController 和 SessionLog 必须消失。
 - 堆增长只作辅助断言：预热后每轮取一次 `heapUsed`，线性回归的斜率不超过阈值（初值每次 1KB），阈值放宽，避免误报。
-- 有疑点时写出堆快照，用 memlab（`@memlab/api` 的按快照找泄漏）分析引用链。
+- 有疑点时写出堆快照（`v8.writeHeapSnapshot`），用 Chrome DevTools 的 Memory 面板看引用链。
 
 client 也做同样的测试：订阅和退订 1000 次，store 数量回到基线，SessionView 被回收。
 
 **2. 界面泄漏测试**（`e2e/*.leak.spec.ts`，Playwright 驱动 Electron）
 
 - 场景：在几个会话间来回切换、打开再关闭长会话、流式输出后切走，各重复 N 次。
-- 通过 CDP 强制垃圾回收后取堆快照，交给 memlab 找出泄漏的对象和脱离文档的 DOM 节点；断言泄漏数为 0（已知可接受的，写进白名单并注明理由）。
+- 通过 CDP 强制垃圾回收后，在场景前后各取一份堆快照，比较"已脱离文档的 DOM 节点"按名称的数量（`findDetachedDomLeaks`）；任何增长都算泄漏，断言为空。React 组件卸载后仍被引用时，它的 DOM 也会留下，所以同样能抓到。
+- 场景里的每一步都要等界面真正变化后再做下一步：Chromium 会合并来得太快的变化，不等就等于没跑完场景。
 
 **3. 性能预算**（`e2e/*.perf.spec.ts`，取多次运行的中位数）
 
@@ -106,8 +110,8 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 
 **4. 基准与长时间运行**
 
-- 热路径基准（`*.bench.ts`，`vitest bench`）：JSONL 分帧吞吐、事件翻译、2000 轮会话的对话记录重建、同步增量应用、平滑揭示。和仓库里保存的基线比较，变慢超过 20% 报警。基准受机器负载影响，只报警、不阻塞提交。
-- 长时间运行（`pnpm test:soak`）：真实宿主 + faux pi，模拟几个会话交替运行、流式、停止、崩溃、重连，默认 30 分钟（过夜可跑更久）。每 10 秒采样一次宿主的 RSS、堆、资源计数、子进程数，输出 CSV 和报告；资源计数结束时回到基线、内存斜率不超过阈值才算通过。
+- 热路径基准（`*.bench.ts`，`pnpm bench`）：JSONL 分帧吞吐、事件翻译、2000 轮会话的对话记录重建、同步增量应用、平滑揭示。基线按机器保存在不进仓库的 `.bench/` 里，第一次运行或 `BENCH_UPDATE=1` 时记录；之后比较中位延迟，变慢超过 20% 打印警告，只在慢到 3 倍时失败。基准受机器负载影响，不阻塞提交。
+- 长时间运行（`pnpm test:soak`）：真实宿主 + faux pi，模拟几个会话交替运行、流式、停止、崩溃、重连，默认 30 分钟（过夜可跑更久）。按时长采样约 60 次（至少间隔 1 秒），记录宿主的 RSS、堆、资源计数、子进程数，输出 CSV；资源计数结束时回到基线、预热后"每次循环的堆增长"小于 1KB 才算通过。按循环而不是按分钟算增长，短时间运行（`SOAK_MINUTES=0.5`）和过夜运行用同一个标准。
 
 ### 让这些测试有效
 
@@ -129,10 +133,10 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 | `pnpm test:ui` | 第 5 层 |
 | `pnpm test:e2e` | 第 6 层 |
 | `pnpm test:real` | 第 7 层 |
-| `pnpm test:mutation` | 变异测试（默认增量，`--full` 全量） |
+| `pnpm test:mutation` | 变异测试（默认增量，`--force` 全量），报告在 `reports/mutation/index.html` |
 | `pnpm test:leak` | 泄漏测试（宿主、client、界面） |
 | `pnpm test:perf` | 性能预算 |
-| `pnpm bench` | 热路径基准，和基线比较 |
+| `pnpm bench` | 热路径基准，和本机基线比较（`BENCH_UPDATE=1` 重新记录基线） |
 | `pnpm test:soak` | 长时间运行（默认 30 分钟） |
 | `pnpm check` | 格式、代码检查、类型检查、knip |
 

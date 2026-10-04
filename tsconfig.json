@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["vitest.config.ts", "stryker.config.mjs", "scripts/**/*.mjs", "vitest.mutation.config.ts"]
+}

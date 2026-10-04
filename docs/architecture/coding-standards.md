@@ -53,7 +53,7 @@ export function EffortBox(props: EffortBoxProps) { … }
 ```
 
 - **唯一的豁免**：内联的匿名回调（传给 `map`、`filter`、`then`、事件属性的箭头函数）。它们要么足够短一眼能看懂，要么就该提成具名函数并写 JSDoc。测试用例靠测试标题说明，不写 JSDoc。
-- **检查**：oxlint 加载 `eslint-plugin-jsdoc`（JS 插件）的 `require-jsdoc`，覆盖函数声明、方法、类、函数表达式和赋给变量的箭头函数；`require-description`、`require-param`、`require-returns`、`require-throws-type` 等用 oxlint 自带规则；再写一条本地规则要求每个块都有 `@remarks` 和 `@sideEffects`。语义是否写对，靠代码审查。
+- **检查**：本地 oxlint 插件 `scripts/lint/atrium-plugin.mjs` 的 `atrium/require-jsdoc` 规则，要求函数声明、方法、类、函数表达式和赋给变量的箭头函数都有 JSDoc，且有第一句、`@remarks`、`@sideEffects`（`eslint-plugin-jsdoc` 要求 Node ≥ 22.22，比项目的 22.19 新，所以没用它）；`require-param`、`check-tag-names` 等用 oxlint 自带的 jsdoc 规则。语义是否写对，靠代码审查。
 - 函数内部的行内注释只解释"为什么"，不复述代码在做什么。
 
 ## 命名与组织
@@ -74,10 +74,10 @@ export function EffortBox(props: EffortBoxProps) { … }
 
 ## 异步与取消
 
-- 不允许悬空的 Promise（oxlint `no-floating-promises`、`no-misused-promises`）。确实要"发出去不等"的，用 `void` 并写注释说明为什么。
+- 不允许悬空的 Promise（oxlint `no-floating-promises`、`no-misused-promises`）。确实要"发出去不等"的，用 `void` 并在上一行写 `// Fire and forget: <为什么>`。
 - 可能耗时的操作（子进程、git、网络、文件扫描、等待 pi 响应）都接受 `AbortSignal`，取消后释放资源。
 - 定时器、事件监听、订阅、子进程都要有对应的释放路径，并计入资源计数（[testing.md · 性能与资源泄漏](testing.md#性能与资源泄漏)）。
-- 时间一律通过注入的 `Clock` 取，不直接调 `Date.now()` / `setTimeout`，以便测试用假时钟。
+- 时间一律通过注入的 `Clock` 取，不直接调 `Date.now()` / `setTimeout`，以便测试用假时钟。例外：Electron 主进程和 `scripts/` 是组装层，只靠端到端测试覆盖，可以直接用定时器，并在 JSDoc 里写明。
 
 ## 类型
 

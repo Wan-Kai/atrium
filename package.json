@@ -1,0 +1,48 @@
+{
+  "name": "atrium",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "pnpm --filter @atrium/host build && pnpm --filter @atrium/ui build && pnpm --filter @atrium/desktop build",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm knip",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "typecheck": "pnpm -r --parallel typecheck && tsc -p tsconfig.json",
+    "knip": "knip",
+    "test": "vitest run --project unit",
+    "test:pi": "vitest run --project pi",
+    "test:host": "vitest run --project host",
+    "test:ui": "vitest run --project ui",
+    "test:leak": "vitest run --project leak && pnpm build && pnpm --filter @atrium/desktop test:e2e --grep @leak",
+    "test:perf": "pnpm build && pnpm --filter @atrium/desktop test:e2e --grep @perf",
+    "test:e2e": "pnpm build && pnpm --filter @atrium/desktop test:e2e --grep-invert \"@leak|@perf\"",
+    "test:soak": "vitest run --project soak",
+    "test:mutation": "stryker run",
+    "bench": "vitest bench --run",
+    "trace": "node scripts/trace.mjs",
+    "postinstall": "pnpm --filter @atrium/desktop exec install-electron"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "10.0.0",
+    "@types/node": "26.6.4",
+    "@vitejs/plugin-react": "6.1.1",
+    "@vitest/browser-playwright": "5.0.3",
+    "@vitest/coverage-v8": "5.0.3",
+    "fast-check": "4.10.2",
+    "knip": "6.39.0",
+    "lefthook": "2.1.16",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
+    "oxlint-tsgolint": "7.0.2003",
+    "playwright": "1.63.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "packageManager": "pnpm@12.9.1"
+}
