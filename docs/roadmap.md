@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。下一步是 [M1.2](#m12-最窄链路宿主驱动-pi)，开头先验证 faux 模型。**
+**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。正在做 [M1.2](#m12-最窄链路宿主驱动-pi)（分支 `m1.2-pi-link`）：faux 模型已在真实 pi 里验证通过并落进 testkit；接下来是分帧和 PiAdapter。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -164,7 +164,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：宿主启动 `pi --mode rpc`，发一条 prompt，在终端里打出流式文本，直到 `agent_settled`。
 - **范围**：
-  - 先验证 faux 模型：测试 extension 用 `pi.registerProvider()` 注册 pi-ai 的 `fauxProvider()`，在真实 RPC 进程里按脚本回复。不行就改用本地模拟的兼容 OpenAI 接口（见 [testing.md · faux 模型](architecture/testing.md#faux-模型)）。
+  - ✅ 先验证 faux 模型：测试 extension 用 `pi.registerProvider()` 注册 pi-ai 的 `fauxProvider()`，在真实 RPC 进程里按脚本回复。已验证通过，实现在 `packages/testkit/src/faux/`（见 [testing.md · faux 模型](architecture/testing.md#faux-模型)）。
   - 第 3 层 pi 契约测试：逐条验证 pi-internals 里依赖的行为，并由它录制第 1 层的夹具。
   - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
   - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。

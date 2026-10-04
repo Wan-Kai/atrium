@@ -40,6 +40,16 @@
 | 界面跟随系统外观 | `packages/ui/src/design/appearance.browser.test.ts`；e2e "follows the system appearance" | 已覆盖 |
 | 连接状态的全部文案，包括启动中、桥接失败 | `packages/ui/src/app/connection-status.browser.test.tsx` | 已覆盖 |
 
+## pi 链路（M1.2）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| faux 模型在真实 pi 进程里按脚本流式输出推理和文本，以 `agent_settled` 结束 | `packages/testkit/src/faux/faux.pi.test.ts` "streams scripted thinking and text…" | 已覆盖 |
+| faux 的工具调用由 pi 真实执行（`stopReason: "toolUse"`），结果进入下一轮 | faux.pi.test.ts "lets pi really run a scripted tool call…" | 已覆盖 |
+| faux 的错误回复、放慢后中途中断 | faux.pi.test.ts "ends a reply scripted as an error…"、"can be interrupted mid-stream…" | 已覆盖 |
+| faux 下 pi 的配置目录在测试目录里，不碰用户的 `~/.pi` | faux.pi.test.ts "keeps pi's agent directory inside the test directory…" | 已覆盖 |
+| 同一脚本每次输出相同（夹具可复现） | faux.pi.test.ts "prints the same records on every run…" | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

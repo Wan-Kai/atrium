@@ -47,7 +47,16 @@
 
 pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、推理和工具调用（见 pi 的 `packages/ai/README.md` "Faux Provider for Tests"）。测试用一个 pi extension 通过 `pi.registerProvider()` 注册它，启动时 `pi --mode rpc --extension <faux 扩展> --model <faux 模型>`；每个测试的回复脚本通过扩展命令或环境变量指定的文件传入。
 
-这条路还没跑通，M1.2 开头先验证。不行的话，退路是起一个本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
+2026-10-04 在 pi 1.0.2 上验证通过（不需要退路）：
+
+- 扩展里 `import { fauxProvider, ... } from "@earendil-works/pi-ai"` 由 pi 的扩展加载器解析到它自带的 pi-ai，不需要我们安装。
+- 启动参数：`pi --mode rpc --extension <faux 扩展> --provider faux --model <faux 模型 id>`；`PI_CODING_AGENT_DIR` 指向临时目录，隔离用户的 `~/.pi/agent`。
+- 验证过的行为：推理和文本分片流式输出，以 `agent_settled` 结束；工具调用会被 pi 真实执行（bash 工具跑了命令，结果回到下一轮）；`tokensPerSecond` 放慢输出后，`abort` 能在中途打断（`stopReason: "aborted"`）；`stopReason: "error"` 且消息像 5xx 时，pi 会自动重试（`auto_retry_start`）。
+- **结果确定**：faux 默认每片长度随机、`api` 和工具调用 id 带时间戳和随机数。固定 `api`、`tokenSize` 的 `min` 等于 `max`、工具调用传固定 `id` 后，同一脚本跑两次的输出，去掉时间戳字段后逐行相同。夹具录制时只需要规范化时间戳类字段。
+- 回复脚本放在文件里，路径由环境变量传给扩展；每个场景启动一个新的 pi 进程。
+- 实现在 `packages/testkit/src/faux/`：`extension.ts` 是交给 pi 加载的扩展（为什么它能 import pi-ai，见 [架构总览 · 包之间的依赖](overview.md#包之间的依赖)），`fauxPi(script)` 写好脚本并返回启动参数和环境变量，三层测试用同一个入口。
+
+没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
 
 ## 让每个测试都有效
 

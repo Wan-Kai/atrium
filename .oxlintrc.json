@@ -50,7 +50,7 @@
   },
   "overrides": [
     {
-      "files": ["packages/pi/**"],
+      "files": ["packages/pi/**", "packages/testkit/src/faux/extension.ts"],
       "rules": {
         "no-restricted-imports": "off"
       }

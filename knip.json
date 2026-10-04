@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreBinaries": ["pi"],
   "workspaces": {
     ".": {
       "entry": ["scripts/*.mjs", "scripts/lint/*.mjs", "vitest.mutation.config.ts"],
@@ -10,6 +11,9 @@
     },
     "apps/desktop": {
       "entry": ["src/main/main.ts", "src/preload/preload.ts", "e2e/**/*.ts"]
+    },
+    "packages/testkit": {
+      "entry": ["src/faux/extension.ts"]
     }
   }
 }
