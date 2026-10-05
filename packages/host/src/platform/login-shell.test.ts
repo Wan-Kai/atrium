@@ -1,12 +1,15 @@
-import { createTempDir } from "@atrium/testkit";
+import { FakeClock, createTempDir } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "./clock";
 import { type ShellAttemptFailure, readLoginShellEnv } from "./login-shell";
 
 const INHERITED_PATH = "/usr/bin:/bin";
+/** `sleep` commands unique to this test process, so leftovers from an interrupted run do not match. */
+const HANGING = `sleep ${40_000 + (process.pid % 10_000)}`;
+const ABORTED = `sleep ${50_000 + (process.pid % 10_000)}`;
 
 /** A temporary home with the given rc files; returns a host environment pointing zsh and bash at it. */
 async function homeWith(files: Readonly<Record<string, string>>): Promise<Record<string, string>> {
@@ -106,14 +109,21 @@ describe("readLoginShellEnv", () => {
   it("falls back to a login-only shell when the interactive one hangs, and kills what it started", async () => {
     const env = await homeWith({
       ".zprofile": "export PATH=/custom/profile/bin:$PATH\n",
-      ".zshrc": "sleep 4321\n",
+      ".zshrc": `${HANGING}\n`,
     });
+    const clock = new FakeClock();
+    const failures: ShellAttemptFailure[] = [];
 
-    const { path, failures } = await read("/bin/zsh", env, { timeoutMs: 1_000 });
+    // The deadline runs on a fake clock and passes only once the interactive shell is stuck in its
+    // rc file, so a slow machine cannot make the healthy login-only attempt time out too.
+    const reading = readLoginShellEnv({ shell: "/bin/zsh", env, clock, onFailure: (f) => failures.push(f) });
+    await vi.waitFor(() => expect(running(HANGING)).toHaveLength(1), { timeout: 15_000 });
+    clock.advance(10_000);
+    const result = await reading;
 
-    expect(path.split(":")[0]).toBe("/custom/profile/bin");
+    expect(result.env["PATH"]?.split(":")[0]).toBe("/custom/profile/bin");
     expect(failures).toStrictEqual([{ args: ["-i", "-l", "-c"], reason: "timeout" }]);
-    expect(running("sleep 4321")).toStrictEqual([]);
+    expect(running(HANGING)).toStrictEqual([]);
   });
 
   it("keeps the host's environment, without Atrium's and Electron's variables, when both attempts fail", async () => {
@@ -172,7 +182,7 @@ describe("readLoginShellEnv", () => {
   });
 
   it("stops at once when aborted, killing the running shell", async () => {
-    const env = await homeWith({ ".zprofile": "sleep 4322\n" });
+    const env = await homeWith({ ".zprofile": `${ABORTED}\n` });
     const controller = new AbortController();
 
     const reading = read("/bin/zsh", env, { signal: controller.signal });
@@ -182,6 +192,6 @@ describe("readLoginShellEnv", () => {
 
     expect(result).toMatchObject({ source: "inherited", reason: "failed" });
     expect(failures).toStrictEqual([{ args: ["-i", "-l", "-c"], reason: "aborted" }]);
-    expect(running("sleep 4322")).toStrictEqual([]);
+    expect(running(ABORTED)).toStrictEqual([]);
   });
 });

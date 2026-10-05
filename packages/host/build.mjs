@@ -24,4 +24,28 @@ async function bundleHost() {
   });
 }
 
+/**
+ * Bundles the `pnpm pi:try` development command.
+ *
+ * @remarks
+ * It imports the host's TypeScript sources and workspace packages, which Node cannot load
+ * directly, so it is bundled the same way as the host.
+ *
+ * @sideEffects Writes `dist/try-pi.cjs` and its source map.
+ */
+async function bundleTryPi() {
+  await build({
+    entryPoints: ["src/dev/try-pi.ts"],
+    outfile: "dist/try-pi.cjs",
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: "node22",
+    sourcemap: true,
+    external: ["bufferutil", "utf-8-validate"],
+    logLevel: "warning",
+  });
+}
+
 await bundleHost();
+await bundleTryPi();

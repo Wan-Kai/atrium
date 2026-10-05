@@ -65,6 +65,7 @@ atrium/
 │   │   ├── src/
 │   │   │   ├── main.ts             startHost：组装依赖、启动；不依赖任何 Electron API
 │   │   │   ├── entry.ts            进程入口：在 Electron 子进程里从 parentPort 收配置，或单独运行时读环境变量
+│   │   │   ├── dev/                开发用命令：`pnpm pi:try`（用宿主的组件驱动真实 pi，终端里看流式输出）
 │   │   │   ├── server/             WsServer、Connection、鉴权、命令路由
 │   │   │   ├── store/              IndexStore：~/.atrium 读写、原子写入、格式版本
 │   │   │   ├── projects/           ProjectService
@@ -106,6 +107,7 @@ atrium/
 │       └── src/
 │           ├── faux/               faux 模型：交给 pi 加载的 extension、回复脚本格式、启动参数
 │           ├── fake-pi/            回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
+│           ├── scripted-pi.ts      按脚本行为的 pi 可执行替身（乱序回应、崩溃、不理 SIGTERM、留下孙进程），pi 包和宿主的测试共用
 │           ├── clock.ts            假时钟
 │           ├── present.ts          测试里取必然存在的值，避免测试体里出现 `??`
 │           ├── bench.ts            基准与本机基线比较

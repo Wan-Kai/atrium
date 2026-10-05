@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。正在做 [M1.2](#m12-最窄链路宿主驱动-pi)（分支 `m1.2-pi-link`）：已完成 faux 模型、LF 分帧、PiProcess（启动、请求对应、期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）；读取登录 shell 的环境与 pi 版本检查；接下来是宿主组装（stderr 挂在 span 下、请求 id 来自 span）、pi 契约测试与夹具录制。**
+**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。正在做 [M1.2](#m12-最窄链路宿主驱动-pi)（分支 `m1.2-pi-link`）：已完成 faux 模型、LF 分帧、PiProcess（启动、请求对应、期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）；读取登录 shell 的环境与 pi 版本检查、宿主组装（stderr 挂在 `pi.process` span 下、请求 id 来自 span）、`pnpm pi:try` 在终端里流式打出回复；接下来是 pi 契约测试与夹具录制。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -169,7 +169,8 @@ MVP 1 里还没设计、做到时先补设计的：
   - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（语义照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`；✅ 已实现于 `packages/pi/src/process/jsonl.ts`，改成每块只扫一次，16 MiB 的单行比 pi 的写法快约 60 倍）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时先关 stdin、再 SIGTERM，都不退才 SIGKILL：SIGKILL 前先按父进程关系找出 pi 的所有后代，连同它们各自的进程组一起杀，这一步失败时退而只杀 pi（pi 的 bash 工具子进程有自己的进程组，只杀 pi 的进程组会漏，见 [pi-internals](research/pi-internals.md) §3"退出"）；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
   - ✅ 找到 pi：宿主启动后在后台读取登录 shell 的完整环境（从访达启动的 Electron 拿不到 shell 的 `PATH`、API Key、代理等），再在它的 `PATH` 上查找 pi（`packages/host/src/platform/login-shell.ts`、`packages/pi/src/locate/inspect.ts`）。node、npm、brew 的查找留到 M1.8 首次启动时做。
   - ✅ 版本检查：结果分为找不到、不能运行（带 pi 自己的报错）、版本过低、可用四种；提示升级的界面在 M1.8。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
-  - pi 的 stderr 按行记进日志（挂在 `pi.process` span 下），错误卡片"展开看原始报错"要用到；RPC 请求 id 由 span id 生成。
+  - ✅ pi 的 stderr 按行记进日志（挂在 `pi.process` span 下），错误卡片"展开看原始报错"要用到；RPC 请求 id 由 span id 生成（`<span id>-<序号>`）。宿主侧的组装在 `platform/pi-deps.ts`（`PiDeps` 的实现）和 `sessions/traced-pi.ts`（`pi.process`、`pi.rpc` span）。
+  - ✅ 目标里的"在终端里打出流式文本"：`pnpm pi:try "<提示词>"`（`packages/host/src/dev/try-pi.ts`）。
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、pi 的 `src/modes/rpc/rpc-client.ts`（只作对照，不直接用）、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
 - **完成标准**：适配器测试用录制的夹具跑通；分帧的属性测试通过；pi 契约测试全部通过；真实 pi 能完整跑完一轮；启动和停止 pi 200 次后没有残留进程、监听数回到基线；分帧吞吐有了基准基线。
 

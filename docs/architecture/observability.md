@@ -46,7 +46,8 @@ ui.action send                         client 生成 trace
 
 ## pi 进程
 
-- RPC 命令的 `id` 用对应 span 的 id 生成，pi 的响应原样带回这个 id，请求和响应自然落在同一条链路里。
+- RPC 命令的 `id` 用对应 `pi.rpc` span 的 id 生成，形如 `<span id>-<序号>`（序号保证同一个 span 发多条命令时也不重复），pi 的响应原样带回这个 id，请求和响应自然落在同一条链路里。
+- pi 进程在 `pi.process` span 激活时启动；Node 在启动时的上下文里执行子进程的流回调，所以 pi 的 stderr 和进程生命周期日志自动带上这个 span，pi 包不需要知道链路追踪。span 在 pi 退出时结束，记下退出码，不是宿主要求的退出标为错误。
 - pi 发出的事件没有 id，宿主按"当前运行"把它们挂到 `run` span 下。
 - pi 的 stderr 逐行记录在 `pi.process` span 下。
 - 以后（MVP 2）Atrium 的内置 extension 可以接收 trace id，把 pi 内部的钩子（请求模型前、工具调用）也记成 span，经"通知加标记"通道送回宿主，链路就能延伸进 pi 内部。

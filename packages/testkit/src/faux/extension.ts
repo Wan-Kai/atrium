@@ -57,7 +57,7 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * the same script produces the same output on every run apart from timestamps, which recorded
  * fixtures rely on (testing.md, "faux 模型").
  *
- * @sideEffects Reads the script file named by `ATRIUM_FAUX_SCRIPT`; registers a provider with pi.
+ * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; registers a provider with pi.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
  */

@@ -7,16 +7,13 @@
       "ignoreDependencies": ["@stryker-mutator/command-runner"]
     },
     "packages/host": {
-      "entry": ["src/entry.ts", "test/**/*.ts"]
+      "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts"]
     },
     "apps/desktop": {
       "entry": ["src/main/main.ts", "src/preload/preload.ts", "e2e/**/*.ts"]
     },
     "packages/testkit": {
       "entry": ["src/faux/extension.ts"]
-    },
-    "packages/pi": {
-      "entry": ["test/**/*.ts"]
     }
   }
 }

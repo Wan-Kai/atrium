@@ -74,7 +74,7 @@ const SHELL_OWN_VARIABLES: ReadonlySet<string> = new Set(["SHLVL", "_", "PWD", "
  * @param env - Any environment.
  * @returns The variables tools may see.
  */
-function toolSafe(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+export function toolSafe(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
   return Object.fromEntries(
     Object.entries(env).filter(
       (entry): entry is [string, string] =>

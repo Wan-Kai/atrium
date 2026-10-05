@@ -36,8 +36,8 @@ export const FAUX_PROVIDER = "faux";
 export const FAUX_MODEL = "faux-1";
 /** Fixed API name; faux would otherwise generate one with a timestamp in it. */
 export const FAUX_API = "atrium-faux";
-/** Environment variable that tells the extension where the script is. */
-export const FAUX_SCRIPT_ENV = "ATRIUM_FAUX_SCRIPT";
+/** Environment variable that tells the extension where the script is; not `ATRIUM_*`, which the host keeps from pi. */
+export const FAUX_SCRIPT_ENV = "FAUX_PI_SCRIPT";
 
 /** How to start a pi process that answers with the faux model. */
 export interface FauxPiLaunch {

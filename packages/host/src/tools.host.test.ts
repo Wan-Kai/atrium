@@ -1,12 +1,14 @@
-import { createTempDir, present } from "@atrium/testkit";
+import { createTempDir, present, writeShellPi } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { type TestHost, startTestHost } from "../test/harness";
 import { type RunningHost, startHost } from "./main";
 
 const TOKEN = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
+/** A `sleep` unique to this test process, so leftovers from an interrupted run do not match. */
+const HANGING = `sleep ${60_000 + (process.pid % 10_000)}`;
 let testHost: TestHost | undefined;
 
 afterEach(async () => {
@@ -27,14 +29,12 @@ async function hostWithShell(rcFiles: Readonly<Record<string, string>>): Promise
   return host;
 }
 
-/** A directory with a fake `pi` that reports `version`. */
-async function fakePiBin(version: string): Promise<string> {
+/** A directory with a `pi` that reports `version`, and the environment that `pi` needs. */
+async function fakePiBin(version: string): Promise<{ bin: string; env: Readonly<Record<string, string>> }> {
   const dir = await createTempDir("tools-bin");
   onTestFinished(dir.cleanup);
-  await mkdir(dir.path, { recursive: true });
-  await writeFile(join(dir.path, "pi"), `#!/bin/sh\necho ${version}\n`);
-  await chmod(join(dir.path, "pi"), 0o755);
-  return dir.path;
+  const { env } = await writeShellPi(dir.path, `echo ${version}`);
+  return { bin: dir.path, env };
 }
 
 describe("tool detection at startup", () => {
@@ -59,8 +59,11 @@ describe("tool detection at startup", () => {
   });
 
   it("takes the login shell environment when none is configured, finds pi on it, and keeps it out of the log", async () => {
-    const bin = await fakePiBin("1.0.2");
-    const host = await hostWithShell({ ".zshrc": `export PATH=${bin}:$PATH\nexport OPENAI_API_KEY=sk-from-zshrc\n` });
+    const { bin, env } = await fakePiBin("1.0.2");
+    const exports = Object.entries(env).map(([name, value]) => `export ${name}='${value}'\n`);
+    const host = await hostWithShell({
+      ".zshrc": `export PATH=${bin}:$PATH\nexport OPENAI_API_KEY=sk-from-zshrc\n${exports.join("")}`,
+    });
 
     const tools = present(await host.tools, "tools");
 
@@ -73,7 +76,7 @@ describe("tool detection at startup", () => {
   });
 
   it("stops looking when the host closes, leaving no shell behind, and closes only once", async () => {
-    const host = await hostWithShell({ ".zprofile": "sleep 4324\n", ".zshrc": "sleep 4324\n" });
+    const host = await hostWithShell({ ".zprofile": `${HANGING}\n`, ".zshrc": `${HANGING}\n` });
     await vi.waitFor(() => expect(host.resources.snapshot()["tools.detect"]).toBe(1));
 
     const started = performance.now();
@@ -86,7 +89,7 @@ describe("tool detection at startup", () => {
     expect(host.resources.snapshot()["tools.detect"]).toBe(0);
     const sleeping = execFileSync("ps", ["-A", "-o", "command="], { encoding: "utf8" })
       .split("\n")
-      .filter((line) => line.trim() === "sleep 4324");
+      .filter((line) => line.trim() === HANGING);
     expect(sleeping).toStrictEqual([]);
   });
 });

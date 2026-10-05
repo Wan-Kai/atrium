@@ -1,7 +1,7 @@
-import { FakeClock, createTempDir, present } from "@atrium/testkit";
+import { FakeClock, type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { getEventListeners } from "node:events";
+import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { type FakeBehavior, writeFakePi } from "../../test/fake-pi";
 import type { PiDeps } from "../deps";
 import type { ProcessSystem } from "./kill-tree";
 import { type PiEvent, PiRequestError, startPiProcess } from "./pi-process";
@@ -60,7 +60,7 @@ function recordingDeps(clock: PiDeps["clock"]) {
 
 /** Starts a fake pi with recording dependencies. */
 async function start(
-  behavior: FakeBehavior,
+  behavior: ScriptedPiBehavior,
   options: {
     clock?: PiDeps["clock"];
     stopGraceMs?: number;
@@ -69,7 +69,7 @@ async function start(
   } = {},
 ) {
   const dir = await createTempDir("pi-process");
-  const fake = await writeFakePi(dir.path, behavior);
+  const fake = await writeScriptedPi(dir.path, behavior);
   const { deps, logs, open } = recordingDeps(options.clock ?? realClock);
   const pi = startPiProcess({ piPath: fake.piPath, args: options.args ?? [], cwd: dir.path, env: fake.env }, deps, {
     stopGraceMs: options.stopGraceMs ?? 2_000,
@@ -151,7 +151,11 @@ describe("requests", () => {
   it("starts pi in RPC mode with the launch arguments and logs the start", async () => {
     const { pi, events, logs, dir } = await start({ announceArgv: true }, { args: ["--no-session"] });
 
-    expect(await eventOf(events, "argv")).toStrictEqual({ type: "argv", argv: ["--mode", "rpc", "--no-session"] });
+    expect(await eventOf(events, "argv")).toStrictEqual({
+      type: "argv",
+      argv: ["--mode", "rpc", "--no-session"],
+      cwd: await realpath(dir),
+    });
     expect(logs[0]).toStrictEqual({ level: "info", fields: { pid: pi.pid, cwd: dir }, message: "pi started" });
   });
 

@@ -1,8 +1,9 @@
-import { chmod, writeFile } from "node:fs/promises";
+import { symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { sharedExecutable, warmExecutable } from "./shared-executable";
 
 /** How the fake pi answers one command type. */
-export interface FakeRule {
+export interface ScriptedRule {
   /** Answer only after a command of this type has been answered. */
   readonly after?: string;
   /** Answer only when stdin closes, just before exiting. */
@@ -21,17 +22,21 @@ export interface FakeRule {
   readonly exit?: number;
   /** Print the response twice. */
   readonly twice?: true;
+  /** Exit with this code right after answering. */
+  readonly exitAfter?: number;
 }
 
 /** Everything the fake pi does. */
-export interface FakeBehavior {
-  readonly rules?: Readonly<Record<string, FakeRule>>;
+export interface ScriptedPiBehavior {
+  readonly rules?: Readonly<Record<string, ScriptedRule>>;
   /** Raw lines printed to stdout at start. */
   readonly stdout?: readonly string[];
   /** Raw text printed to stdout at start without a line break. */
   readonly stdoutUnterminated?: string;
-  /** Print `{type: "argv", argv}` with the arguments it was started with. */
+  /** Print `{type: "argv", argv, cwd}` with the arguments and directory it was started with. */
   readonly announceArgv?: true;
+  /** Write the same `{argv, cwd}` as one JSON line to stderr, for callers that only see logs. */
+  readonly argvToStderr?: true;
   /** Raw text written to stderr at start. */
   readonly stderr?: string;
   /** Exit with this code right after start. */
@@ -40,24 +45,31 @@ export interface FakeBehavior {
   readonly ignoreStdinEnd?: true;
   /** Keep running after SIGTERM. */
   readonly ignoreSigterm?: true;
+  /** What `pi --version` prints; defaults to 1.0.2. */
+  readonly version?: string;
   /** Start `sleep` children; each is announced as `{type: "grandchild", pid, mode}`. */
   readonly grandchildren?: readonly ("detached" | "attached" | "holds-pipes")[];
 }
 
-/** Environment variable the fake pi reads its behavior from. */
-const BEHAVIOR_ENV = "ATRIUM_FAKE_PI";
+/** Environment variable the scripted pi reads its behavior from; not `ATRIUM_*`, which the host keeps from pi. */
+const BEHAVIOR_ENV = "SCRIPTED_PI_BEHAVIOR";
 
-/** The fake pi, a Node script; every command it receives is announced as `{type: "received", record}`. */
+/** The scripted pi, a Node script; every command it receives is announced as `{type: "received", record}`. */
 const SCRIPT = `
 import { spawn } from "node:child_process";
 const behavior = JSON.parse(process.env.${BEHAVIOR_ENV} ?? "{}");
+if (process.argv.includes("--version")) {
+  process.stdout.write((behavior.version ?? "1.0.2") + "\\n");
+  process.exit(0);
+}
 // Exit once orphaned: a test run killed on timeout never stops this process, and some behaviors
 // ignore stdin closing and SIGTERM.
 setInterval(() => {
   if (process.ppid === 1) process.exit(0);
 }, 500).unref();
 const print = (record) => process.stdout.write(JSON.stringify(record) + "\\n");
-if (behavior.announceArgv) print({ type: "argv", argv: process.argv.slice(2) });
+if (behavior.announceArgv) print({ type: "argv", argv: process.argv.slice(2), cwd: process.cwd() });
+if (behavior.argvToStderr) process.stderr.write(JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");
 for (const line of behavior.stdout ?? []) process.stdout.write(line + "\\n");
 if (behavior.stdoutUnterminated !== undefined) process.stdout.write(behavior.stdoutUnterminated);
 if (behavior.stderr !== undefined) process.stderr.write(behavior.stderr);
@@ -105,6 +117,7 @@ function answer(record, rule) {
   if (rule.fail !== undefined) print({ ...response, success: false, error: rule.fail });
   else print({ ...response, success: true, ...(rule.data === undefined ? {} : { data: rule.data }) });
   if (rule.twice) print({ ...response, success: true });
+  if (rule.exitAfter !== undefined) process.stdout.write("", () => process.exit(rule.exitAfter));
   answered.add(record.type);
   const ready = held.filter((waiting) => answered.has(behavior.rules[waiting.type].after));
   held = held.filter((waiting) => !ready.includes(waiting));
@@ -112,26 +125,44 @@ function answer(record, rule) {
 }
 `;
 
+/** The shared file every `writeScriptedPi` links to: the script run by this Node. */
+const SCRIPTED_PI = `#!${process.execPath}\n${SCRIPT}`;
+
 /**
- * Writes an executable fake pi into `dir`.
+ * Writes and runs the shared scripted pi once, before tests start.
+ *
+ * @remarks
+ * See `sharedExecutable`: the first run of a new executable is the slow one.
+ *
+ * @sideEffects Writes the shared script if missing; runs it with `--version`.
+ */
+export async function warmScriptedPi(): Promise<void> {
+  await warmExecutable(await sharedExecutable("scripted-pi.mjs", SCRIPTED_PI), ["--version"]);
+}
+
+/**
+ * Puts an executable pi stand-in, scripted by `behavior`, into `dir`.
  *
  * @remarks
  * Adapter tests need pi to misbehave on cue (answer out of order, crash, ignore SIGTERM, leave
  * grandchildren behind), which real pi does not do reliably. The fake is a real child process, so
  * spawning, pipes, signals and process groups are all real (testing.md, "能用真的就用真的"); the
- * pi contract tests check the same adapter against real pi.
+ * pi contract tests check the same adapter against real pi. It lives in testkit because both the
+ * pi package and the host drive it. `dir` gets a symlink to one shared copy, so no test waits for
+ * macOS to check a new executable (see `sharedExecutable`).
  *
- * @sideEffects Writes an executable file.
+ * @sideEffects Creates a symlink in `dir`; writes the shared script on first use.
  * @param dir - A temporary directory owned by the test.
  * @param behavior - What the fake does.
+ * @param fileName - File name; `pi` lets code that searches PATH for pi find it.
  * @returns The executable path and the environment that carries the behavior.
  */
-export async function writeFakePi(
+export async function writeScriptedPi(
   dir: string,
-  behavior: FakeBehavior,
+  behavior: ScriptedPiBehavior,
+  fileName = "scripted-pi.mjs",
 ): Promise<{ readonly piPath: string; readonly env: Readonly<Record<string, string>> }> {
-  const piPath = join(dir, "fake-pi.mjs");
-  await writeFile(piPath, `#!${process.execPath}\n${SCRIPT}`);
-  await chmod(piPath, 0o755);
+  const piPath = join(dir, fileName);
+  await symlink(await sharedExecutable("scripted-pi.mjs", SCRIPTED_PI), piPath);
   return { piPath, env: { [BEHAVIOR_ENV]: JSON.stringify(behavior) } };
 }
