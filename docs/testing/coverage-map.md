@@ -34,8 +34,8 @@
 | 宿主只监听 IPv4 回环 | ws-server.host.test.ts "listens on IPv4 loopback only"（断言实际绑定地址） | 已覆盖 |
 | 端口被占用时启动失败，失败记录写进日志、资源释放 | ws-server.host.test.ts "fails to start when the port is already taken…" | 已覆盖 |
 | 关闭宿主：所有连接断开；保持中的 HTTP 连接和只发了一半的升级请求都不拖住关闭 | ws-server.host.test.ts "host lifecycle" | 已覆盖 |
-| 退出应用时等宿主写完日志 | `apps/desktop/e2e/shutdown.spec.ts`（冒烟）。宿主几毫秒就关完，不等也能写完，测试逼不出这个竞态；等待逻辑靠代码审查 | 部分 |
-| 宿主启动中途收到退出：不在退出后报"已就绪" | 无自动化，靠代码审查（`packages/host/src/entry.ts`） | 部分 |
+| 退出应用时等宿主写完日志 | `apps/desktop/e2e/shutdown.spec.ts`："waits for a host that is slow to exit…" 用 `e2e/slow-exit-host.cjs` 包住真实宿主、把退出推迟 1.5 秒，应用不等就留不下标记文件 | 已覆盖 |
+| 宿主启动中途收到退出：不在退出后报"已就绪" | `packages/host/src/electron-port.test.ts` "does not report ready, and closes the host, when shutdown arrives while it is still starting"（启动和退出由测试控制） | 已覆盖 |
 | 重新连接时关闭旧连接，旧连接晚到的事件不改写新状态 | connection.test.ts "closes the previous socket on reconnect…" | 已覆盖 |
 | 界面跟随系统外观 | `packages/ui/src/design/appearance.browser.test.ts`；e2e "follows the system appearance" | 已覆盖 |
 | 连接状态的全部文案，包括启动中、桥接失败 | `packages/ui/src/app/connection-status.browser.test.tsx` | 已覆盖 |
@@ -83,7 +83,7 @@
 | 静态文件不越出 UI 目录：路径穿越、符号链接 | `packages/host/src/server/static-files.test.ts`；ws-server.host.test.ts "does not follow a symlink out of the UI directory…" | 已覆盖 |
 | 读不了的文件、中途断开的下载不让宿主崩溃 | ws-server.host.test.ts "answers 404 for a file it cannot read…"、"survives a client that disconnects…" | 已覆盖 |
 | 日志脱敏：凭据键、已知秘密、格式化参数、`Error`、子 logger 绑定 | `packages/host/src/platform/logger.test.ts`、`redact.test.ts`、`redact.prop.test.ts`；e2e "…never logs the token" | 已覆盖 |
-| 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；日志文件 0600 手动验证 | 部分 |
+| 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
 
 ## 日志与链路追踪（observability.md）
 
@@ -93,7 +93,7 @@
 | 宿主 span 挂在客户端的 trace 下，日志带 trace_id | ws-server.host.test.ts "records the whole connection…"；e2e "records the connection under one trace id…" | 已覆盖 |
 | 日志磁盘上最多保留 5 个（含之前运行的）；`current.log` 是普通文件时能自愈；日志流出错不崩溃 | logger.test.ts "openLogFile" | 已覆盖 |
 | 未结束的 span 计入资源计数 | `packages/host/src/server/connections.leak.test.ts` | 已覆盖 |
-| `pnpm trace` 打印链路，跳过不完整的行 | 手动（M1.1 验证过） | 部分 |
+| `pnpm trace` 打印链路，跳过不完整的行 | `scripts/trace.test.ts`（跨轮转文件、别的 trace、半行、无记录、用法错误） | 已覆盖 |
 
 ## 资源与性能（testing.md）
 

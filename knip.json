@@ -10,7 +10,7 @@
       "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts"]
     },
     "apps/desktop": {
-      "entry": ["src/main/main.ts", "src/preload/preload.ts", "e2e/**/*.ts"]
+      "entry": ["src/main/main.ts", "src/preload/preload.ts", "e2e/**/*.ts", "e2e/*.cjs"]
     },
     "packages/testkit": {
       "entry": ["src/faux/extension.ts"]

@@ -1,5 +1,5 @@
 import { createTempDir, present } from "@atrium/testkit";
-import { lstat, readdir, writeFile } from "node:fs/promises";
+import { lstat, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import { describe, expect, it, vi, onTestFinished } from "vitest";
@@ -80,6 +80,26 @@ describe("openLogFile", () => {
       stream.once("close", () => done());
       stream.end();
     });
+  });
+
+  it("creates log files readable only by their owner, rotated ones included", async () => {
+    const dir = await createTempDir("logs");
+    onTestFinished(dir.cleanup);
+
+    const { stream, currentPath } = await openLogFile(dir.path, { maxSize: "1k" });
+    for (let line = 0; line < 30; line++) stream.write(`${"x".repeat(100)}\n`);
+    await vi.waitFor(async () =>
+      expect((await readdir(dir.path)).filter((name) => name.endsWith(".jsonl")).length).toBeGreaterThan(1),
+    );
+    await new Promise<void>((done) => {
+      stream.once("close", () => done());
+      stream.end();
+    });
+
+    const files = (await readdir(dir.path)).filter((name) => name.endsWith(".jsonl"));
+    const modes = await Promise.all(files.map(async (name) => (await stat(join(dir.path, name))).mode & 0o777));
+    expect(modes).toStrictEqual(files.map(() => 0o600));
+    expect((await stat(currentPath)).mode & 0o777).toBe(0o600);
   });
 
   it("replaces a plain file named current.log with the link", async () => {
