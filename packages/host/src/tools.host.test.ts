@@ -1,6 +1,6 @@
 import { createTempDir, present } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -38,35 +38,38 @@ async function fakePiBin(version: string): Promise<string> {
 }
 
 describe("tool detection at startup", () => {
-  it("finds no pi on an empty tool path and logs that", async () => {
+  it("finds no pi on an empty PATH and logs that", async () => {
     testHost = await startTestHost();
 
-    expect(await testHost.host.tools).toMatchObject({ path: "", pathSource: "configured", pi: { status: "missing" } });
+    expect(await testHost.host.tools).toStrictEqual({
+      env: { PATH: "" },
+      envSource: "configured",
+      pi: { status: "missing" },
+    });
     expect(await testHost.readLog()).toContainEqual(
       expect.objectContaining({ level: "warn", msg: "pi inspected", status: "missing" }),
     );
   });
 
-  it("finds the installed pi on a configured PATH and runs it with that PATH", async () => {
-    const path = present(process.env["PATH"], "PATH");
-    testHost = await startTestHost({ toolPath: path });
+  it("finds the installed pi with a configured environment", async () => {
+    const env = { PATH: present(process.env["PATH"], "PATH"), HOME: present(process.env["HOME"], "HOME") };
+    testHost = await startTestHost({ toolEnv: env });
 
-    const tools = present(await testHost.host.tools, "tools");
-
-    expect(tools.pi).toMatchObject({ status: "ready" });
-    expect(tools.env["PATH"]).toBe(path);
-    expect(tools.env["HOME"]).toBe(process.env["HOME"]);
+    expect(await testHost.host.tools).toMatchObject({ env, envSource: "configured", pi: { status: "ready" } });
   });
 
-  it("reads PATH from the login shell when none is configured, and finds pi on it", async () => {
+  it("takes the login shell environment when none is configured, finds pi on it, and keeps it out of the log", async () => {
     const bin = await fakePiBin("1.0.2");
-    const host = await hostWithShell({ ".zshrc": `export PATH=${bin}:$PATH\n` });
+    const host = await hostWithShell({ ".zshrc": `export PATH=${bin}:$PATH\nexport OPENAI_API_KEY=sk-from-zshrc\n` });
 
     const tools = present(await host.tools, "tools");
 
-    expect(tools.pathSource).toBe("login-shell");
-    expect(tools.path.split(":")[0]).toBe(bin);
+    expect(tools.envSource).toBe("login-shell");
+    expect(tools.env["PATH"]?.split(":")[0]).toBe(bin);
+    expect(tools.env["OPENAI_API_KEY"]).toBe("sk-from-zshrc");
     expect(tools.pi).toStrictEqual({ status: "ready", piPath: join(bin, "pi"), version: [1, 0, 2] });
+    host.flushLog();
+    expect(await readFile(host.logFile, "utf8")).not.toContain("sk-from-zshrc");
   });
 
   it("stops looking when the host closes, leaving no shell behind, and closes only once", async () => {

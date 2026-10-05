@@ -42,6 +42,7 @@
 
 ## 子进程与文件
 
+- 子进程的环境里没有 token：宿主把登录 shell 的环境交给 pi 时去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，读取登录 shell 时 shell 也只带少数基本变量启动（SPEC-0001"第 1 步"）。这份环境可能含有用户的 API Key，日志里不记录它的内容。
 - 外部命令一律用 `execFile` / `spawn` 传参数数组，不经过 shell，防止命令注入；参数来自用户输入时（分支名、路径）先校验。
 - Atrium 自己的 Node 程序用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 脚本。pi 用找到的绝对路径直接启动（宿主跑在 Electron 里时 `process.execPath` 是 Electron 本身），PATH 取自登录 shell，不经过 shell。
 - `@` 引用的文件搜索限制在工作区目录内，解析符号链接后仍在目录内才返回。

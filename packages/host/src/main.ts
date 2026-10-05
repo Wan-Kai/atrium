@@ -3,7 +3,7 @@ import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
 import { ensureAtriumHome } from "./platform/home";
-import { type ToolPath, readLoginShellPath } from "./platform/login-shell";
+import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
 import { createLogger, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
@@ -25,20 +25,18 @@ export interface HostConfig {
   readonly clock?: Clock;
   readonly handshakeTimeoutMs?: number;
   /**
-   * PATH for finding and running pi. When omitted, it is read from the user's login shell; tests
-   * set it so no shell runs.
+   * Environment for finding and running pi. When omitted, it is read from the user's login shell;
+   * tests set it so no shell runs.
    */
-  readonly toolPath?: string;
+  readonly toolEnv?: Readonly<Record<string, string>>;
 }
 
 /** The tools the host found after starting. */
 export interface HostTools {
-  /** PATH used to find and run pi and the tools it needs. */
-  readonly path: string;
-  /** Where `path` came from: the login shell, the inherited environment, or `HostConfig.toolPath`. */
-  readonly pathSource: ToolPath["source"] | "configured";
-  /** Environment for pi processes: the host's own, with `path` as PATH. */
+  /** Environment for pi and the tools it runs; its PATH is where pi was looked for. */
   readonly env: Readonly<Record<string, string>>;
+  /** Where `env` came from: the login shell, the host's own environment, or `HostConfig.toolEnv`. */
+  readonly envSource: ToolEnv["source"] | "configured";
   readonly pi: PiInspection;
 }
 
@@ -141,13 +139,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const tools = detectTools();
 
   /**
-   * Reads PATH from the login shell, then looks for pi on it.
+   * Reads the login shell's environment, then looks for pi on its PATH.
    *
    * @remarks
    * Runs in the background after the server listens: an interactive login shell can take seconds,
-   * which would blow the startup budget (testing.md, "性能预算"). Only PATH is taken from the shell
-   * (SPEC-0001, "第 1 步：安装 pi"). Closing the host aborts it, and it is counted as a resource,
-   * so it cannot outlive the host unnoticed. It never rejects.
+   * which would blow the startup budget (testing.md, "性能预算"). The whole environment is taken so
+   * pi behaves as in the user's terminal (SPEC-0001, "第 1 步：安装 pi"); only its source, PATH and
+   * size are logged, because it may hold API keys. Closing the host aborts it, and it is counted
+   * as a resource, so it cannot outlive the host unnoticed. It never rejects.
    *
    * @sideEffects Spawns the login shell and `pi --version`; logs the outcome.
    * @returns The tools found, or `null` if the host closed first.
@@ -156,26 +155,24 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     const release = resources.acquire("tools.detect");
     const signal = stopDetecting.signal;
     try {
-      const inherited = Object.fromEntries(
-        Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-      );
-      const found: ToolPath | { source: "configured"; path: string } =
-        config.toolPath === undefined
-          ? await readLoginShellPath({
+      const found: ToolEnv | { source: "configured"; env: Readonly<Record<string, string>> } =
+        config.toolEnv === undefined
+          ? await readLoginShellEnv({
               shell: process.env["SHELL"],
               env: process.env,
               clock,
               signal,
               onFailure: (failure) => logger.warn({ ...failure }, "login shell attempt failed"),
             })
-          : { source: "configured", path: config.toolPath };
-      logger.info({ ...found }, "tool path resolved");
+          : { source: "configured", env: config.toolEnv };
+      const path = found.env["PATH"] ?? "";
+      const { env, ...origin } = found;
+      logger.info({ ...origin, path, variables: Object.keys(env).length }, "tool environment resolved");
       if (signal.aborted) return null;
-      const env = { ...inherited, PATH: found.path };
-      const pi = await inspectPi(found.path, { env, signal });
+      const pi = await inspectPi(path, { env, signal });
       if (signal.aborted) return null;
       logger[pi.status === "ready" ? "info" : "warn"]({ ...pi }, "pi inspected");
-      return { path: found.path, pathSource: found.source, env, pi };
+      return { env, envSource: found.source, pi };
     } finally {
       release();
     }

@@ -78,7 +78,7 @@ atrium/
 │   │   │   ├── setup/              SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件）
-│   │   │   └── platform/           登录 shell 的 PATH、Clock、日志、子进程工具
+│   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
 │   ├── client/                     客户端层：不依赖 DOM，也不依赖 React
 │   │   └── src/
@@ -153,7 +153,7 @@ protocol  ←──  pi  ←──  host
     log: Record<"debug" | "info" | "warn" | "error", (fields: object, message: string) => void>;
     /** 下一条 RPC 命令的 id；host 用当前 span id 生成，pi 响应会原样带回。 */
     nextRequestId(): string;
-    /** 启动 pi 用的环境变量，其中 PATH 来自登录 shell。 */
+    /** 启动 pi 用的环境变量：登录 shell 的完整环境，去掉 Atrium 和 Electron 自己的变量。 */
     env: Readonly<Record<string, string>>;
   }
   ```
