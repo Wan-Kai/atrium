@@ -98,6 +98,17 @@ export interface PiProcessOptions {
   readonly stopGraceMs?: number;
   /** Process listing and signalling for the forced kill; tests pass a fake. */
   readonly processSystem?: ProcessSystem;
+  /**
+   * Sees every record written to pi and every record pi prints, responses included, in order.
+   * The pi contract tests record fixtures through it (testing.md, "pi 夹具").
+   */
+  readonly tap?: PiTap;
+}
+
+/** Observer of the raw protocol traffic. */
+export interface PiTap {
+  sent(record: object): void;
+  received(record: object): void;
 }
 
 /** A running `pi --mode rpc` process. */
@@ -270,6 +281,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
       deps.log.warn({ pid, length: line.length }, "pi printed a record without a type");
       return;
     }
+    options.tap?.received(record);
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- pi's record shapes are checked by the pi contract tests.
     if (record.type === "response") return handleResponse(record as RpcResponse);
     for (const listener of listeners) {
@@ -426,7 +438,9 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
       },
     });
     deps.log.debug({ pid, id, command: type }, "pi request");
-    child.stdin.write(serializeJsonLine({ ...command, id }));
+    const line = { ...command, id };
+    options.tap?.sent(line);
+    child.stdin.write(serializeJsonLine(line));
     return response.promise;
   }
 
@@ -437,6 +451,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     respond(response) {
       // Stryker disable next-line ConditionalExpression: after a crash stdin is already destroyed, and Node drops such writes without an error.
       if (exit !== undefined || stopRequested) return;
+      options.tap?.sent(response);
       child.stdin.write(serializeJsonLine(response));
     },
     onEvent(listener) {

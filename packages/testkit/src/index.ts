@@ -14,3 +14,8 @@ export { type ScriptedPiBehavior, type ScriptedRule, warmScriptedPi, writeScript
 export { TEST_BIN_DIR_ENV } from "./shared-executable";
 export { warmShellPi, writeShellPi } from "./shell-pi";
 export { type TempDir, createTempDir } from "./temp-dir";
+export { type FixtureRecord, type Json, type JsonObject, parseFixture, serializeFixture } from "./pi-fixtures/format";
+export { createNormalizer } from "./pi-fixtures/normalize";
+export { type FixtureHeader, type FixtureRecorder, createRecorder } from "./pi-fixtures/recorder";
+export { comparable } from "./pi-fixtures/compare";
+export { FixtureMismatch, type ReplayExit, ReplayRequestError, type ReplayedPi, replayPi } from "./pi-fixtures/replay";

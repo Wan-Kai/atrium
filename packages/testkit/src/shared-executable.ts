@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { access, chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,17 +30,18 @@ export const TEST_BIN_DIR_ENV = "ATRIUM_TEST_BIN_DIR";
 export async function sharedExecutable(name: string, content: string): Promise<string> {
   const dir = process.env[TEST_BIN_DIR_ENV] ?? join(tmpdir(), "atrium-test-bin");
   const file = join(dir, `${createHash("sha256").update(content).digest("hex").slice(0, 16)}-${name}`);
-  const exists = await access(file).then(
-    () => true,
-    () => false,
-  );
-  if (!exists) {
-    await mkdir(dir, { recursive: true });
-    const temporary = `${file}.${process.pid}.tmp`;
-    await writeFile(temporary, content, { mode: 0o755 });
-    await chmod(temporary, 0o755);
-    await rename(temporary, file);
+  try {
+    await access(file);
+    return file;
+  } catch {
+    // Not written yet.
   }
+  await mkdir(dir, { recursive: true });
+  // Unique per call: two callers in one process may write the same content at the same time.
+  const temporary = `${file}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(temporary, content);
+  await chmod(temporary, 0o755);
+  await rename(temporary, file);
   return file;
 }
 

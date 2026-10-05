@@ -6,8 +6,17 @@ import {
   fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { readFileSync } from "node:fs";
-import { FAUX_API, FAUX_MODEL, FAUX_PROVIDER, FAUX_SCRIPT_ENV, type FauxReply, type FauxScript } from "./script";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  FAUX_API,
+  FAUX_GATES_ENV,
+  FAUX_MODEL,
+  FAUX_PROVIDER,
+  FAUX_SCRIPT_ENV,
+  type FauxReply,
+  type FauxScript,
+} from "./script";
 
 /** The part of pi's extension API this extension uses. */
 interface ExtensionApi {
@@ -21,6 +30,39 @@ interface ExtensionApi {
       readonly streamSimple: ReturnType<typeof fauxProvider>["provider"]["streamSimple"];
     },
   ): void;
+  registerCommand(
+    name: string,
+    options: {
+      readonly description: string;
+      readonly handler: (args: string, ctx: CommandContext) => Promise<void>;
+    },
+  ): void;
+}
+
+/** The part of a command's context these commands use. */
+interface CommandContext {
+  readonly ui: {
+    confirm(title: string, message: string): Promise<boolean>;
+    notify(message: string, type?: "info" | "warning" | "error"): void;
+  };
+}
+
+/**
+ * Resolves once the gate file exists or the request is aborted.
+ *
+ * @remarks
+ * Polls, because pi gives the provider no other way to hear from the test. An abort must end the
+ * wait, or a test that aborts a held reply would hang.
+ *
+ * @sideEffects Checks the file system every 20 ms.
+ * @param path - The gate file.
+ * @param signal - The request's abort signal.
+ */
+async function waitForGate(path: string, signal: AbortSignal | undefined): Promise<void> {
+  for (;;) {
+    if (existsSync(path) || signal?.aborted === true) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
 }
 
 /**
@@ -57,7 +99,11 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * the same script produces the same output on every run apart from timestamps, which recorded
  * fixtures rely on (testing.md, "faux 模型").
  *
- * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; registers a provider with pi.
+ * Replies scripted with `waitFor` hold until the test releases them, and two commands cover the
+ * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具").
+ *
+ * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; registers a provider and two
+ * commands with pi.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
  */
@@ -73,12 +119,33 @@ export default function fauxExtension(pi: ExtensionApi): void {
     tokenSize: { min: 2, max: 2 },
     ...(script.tokensPerSecond === undefined ? {} : { tokensPerSecond: script.tokensPerSecond }),
   });
-  faux.setResponses(script.replies.map(toAssistantMessage));
+  const gates = process.env[FAUX_GATES_ENV] ?? "";
+  faux.setResponses(
+    script.replies.map((reply) => {
+      const message = toAssistantMessage(reply);
+      const gate = reply.waitFor;
+      if (gate === undefined) return message;
+      return async (_context, options) => {
+        await waitForGate(join(gates, gate), options?.signal);
+        return message;
+      };
+    }),
+  );
   pi.registerProvider(FAUX_PROVIDER, {
     api: faux.api,
     baseUrl: faux.getModel().baseUrl,
     apiKey: "faux-key",
     models: faux.models,
     streamSimple: (model, context, options) => faux.provider.streamSimple(model, context, options),
+  });
+  // A command that consumes the input without a run, so `prompt` answers `handled`.
+  pi.registerCommand("faux-noop", { description: "Does nothing", handler: () => Promise.resolve() });
+  // A command that asks the client a question and reports the answer.
+  pi.registerCommand("faux-confirm", {
+    description: "Asks for confirmation",
+    handler: async (_args, ctx) => {
+      const confirmed = await ctx.ui.confirm("Proceed?", "The faux extension asks.");
+      ctx.ui.notify(confirmed ? "confirmed" : "declined", "info");
+    },
   });
 }

@@ -4,7 +4,7 @@ import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiDeps } from "../deps";
 import type { ProcessSystem } from "./kill-tree";
-import { type PiEvent, PiRequestError, startPiProcess } from "./pi-process";
+import { type PiEvent, PiRequestError, type PiTap, startPiProcess } from "./pi-process";
 
 /** One log call. */
 interface LogRecord {
@@ -66,6 +66,7 @@ async function start(
     stopGraceMs?: number;
     args?: readonly string[];
     processSystem?: ProcessSystem;
+    tap?: PiTap;
   } = {},
 ) {
   const dir = await createTempDir("pi-process");
@@ -74,6 +75,7 @@ async function start(
   const pi = startPiProcess({ piPath: fake.piPath, args: options.args ?? [], cwd: dir.path, env: fake.env }, deps, {
     stopGraceMs: options.stopGraceMs ?? 2_000,
     ...(options.processSystem === undefined ? {} : { processSystem: options.processSystem }),
+    ...(options.tap === undefined ? {} : { tap: options.tap }),
   });
   const events: PiEvent[] = [];
   pi.onEvent((event) => events.push(event));
@@ -391,6 +393,39 @@ describe("events", () => {
       type: "received",
       record: { type: "extension_ui_response", id: "ui-1", confirmed: true },
     });
+  });
+});
+
+describe("tap", () => {
+  it("sees every record written and every record printed, responses included, in order", async () => {
+    const seen: [string, object][] = [];
+    const tap: PiTap = {
+      sent: (record) => seen.push(["sent", record]),
+      received: (record) => seen.push(["received", record]),
+    };
+    const { pi } = await start(
+      {
+        stdout: ["not json"],
+        rules: { prompt: { events: [{ type: "agent_settled" }], data: { disposition: "started" } } },
+      },
+      { tap },
+    );
+
+    await pi.request({ type: "prompt", message: "hi" });
+    pi.respond({ type: "extension_ui_response", id: "ui-1", cancelled: true });
+    await vi.waitFor(() => expect(seen).toHaveLength(6), WAIT);
+
+    expect(seen).toStrictEqual([
+      ["sent", { type: "prompt", message: "hi", id: "req-1" }],
+      ["received", { type: "received", record: { type: "prompt", message: "hi", id: "req-1" } }],
+      ["received", { type: "agent_settled" }],
+      [
+        "received",
+        { type: "response", command: "prompt", id: "req-1", success: true, data: { disposition: "started" } },
+      ],
+      ["sent", { type: "extension_ui_response", id: "ui-1", cancelled: true }],
+      ["received", { type: "received", record: { type: "extension_ui_response", id: "ui-1", cancelled: true } }],
+    ]);
   });
 });
 

@@ -12,5 +12,6 @@ export {
   PiRequestError,
   type PiRequestFailure,
   type PiResponseData,
+  type PiTap,
   startPiProcess,
 } from "./process/pi-process";

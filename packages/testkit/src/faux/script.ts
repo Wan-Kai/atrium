@@ -21,6 +21,11 @@ export type FauxBlock =
 export interface FauxReply {
   readonly blocks: readonly FauxBlock[];
   readonly error?: string;
+  /**
+   * Hold the reply until the test calls `release(name)`; pi prints nothing meanwhile, so whatever
+   * the test sends in between lands at a fixed place in the recorded fixture. An abort ends the wait.
+   */
+  readonly waitFor?: string;
 }
 
 /** Everything the faux model will say, in order, for one pi process. */
@@ -36,6 +41,8 @@ export const FAUX_PROVIDER = "faux";
 export const FAUX_MODEL = "faux-1";
 /** Fixed API name; faux would otherwise generate one with a timestamp in it. */
 export const FAUX_API = "atrium-faux";
+/** Environment variable naming the directory where released gates appear as files. */
+export const FAUX_GATES_ENV = "FAUX_PI_GATES";
 /** Environment variable that tells the extension where the script is; not `ATRIUM_*`, which the host keeps from pi. */
 export const FAUX_SCRIPT_ENV = "FAUX_PI_SCRIPT";
 
@@ -45,6 +52,8 @@ export interface FauxPiLaunch {
   readonly args: readonly string[];
   /** Variables to add to the child's environment (the caller still provides PATH). */
   readonly env: Readonly<Record<string, string>>;
+  /** Lets replies scripted with `waitFor: name` continue. */
+  release(name: string): Promise<void>;
 }
 
 /**
@@ -56,17 +65,21 @@ export interface FauxPiLaunch {
  * at an empty directory under `dir`, so the user's `~/.pi/agent` settings, extensions and
  * credentials never reach the test.
  *
- * @sideEffects Creates `dir/pi-agent` and writes `dir/faux-script.json`.
+ * @sideEffects Creates `dir/pi-agent` and `dir/faux-gates`, and writes `dir/faux-script.json`;
+ * `release` writes a file into `dir/faux-gates`.
  * @param script - Replies the faux model gives, in order.
  * @param dir - A temporary directory owned by the test.
  * @returns Arguments and environment variables for the pi process.
  */
 export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLaunch> {
   const agentDir = join(dir, "pi-agent");
+  const gatesDir = join(dir, "faux-gates");
   const scriptPath = join(dir, "faux-script.json");
   await mkdir(agentDir, { recursive: true });
+  await mkdir(gatesDir, { recursive: true });
   await writeFile(scriptPath, JSON.stringify(script));
   return {
+    release: (name) => writeFile(join(gatesDir, name), ""),
     args: [
       "--extension",
       fileURLToPath(new URL("extension.ts", import.meta.url)),
@@ -75,6 +88,6 @@ export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLau
       "--model",
       FAUX_MODEL,
     ],
-    env: { PI_CODING_AGENT_DIR: agentDir, [FAUX_SCRIPT_ENV]: scriptPath },
+    env: { PI_CODING_AGENT_DIR: agentDir, [FAUX_SCRIPT_ENV]: scriptPath, [FAUX_GATES_ENV]: gatesDir },
   };
 }

@@ -60,7 +60,8 @@ atrium/
 │   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
 │   │   │   ├── auth/               登录状态检查、OAuth、API Key
 │   │   │   └── locate/             找到 pi、检查版本
-│   │   └── fixtures/               第 3 层录制的夹具，标注 pi 版本
+│   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
+│   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
 │   ├── host/                       宿主：Atrium 自己的业务
 │   │   ├── src/
 │   │   │   ├── main.ts             startHost：组装依赖、启动；不依赖任何 Electron API
@@ -106,7 +107,8 @@ atrium/
 │   └── testkit/                    测试工具：不依赖任何内部包（最多依赖 protocol），只出现在 devDependencies
 │       └── src/
 │           ├── faux/               faux 模型：交给 pi 加载的 extension、回复脚本格式、启动参数
-│           ├── fake-pi/            回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
+│           ├── pi-fixtures/        夹具的格式、规范化、录制、比较，以及回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
+│           ├── shared-executable.ts 测试用可执行文件按内容只写一份并预热（见 testing.md"测试里的可执行文件"）
 │           ├── scripted-pi.ts      按脚本行为的 pi 可执行替身（乱序回应、崩溃、不理 SIGTERM、留下孙进程），pi 包和宿主的测试共用
 │           ├── clock.ts            假时钟
 │           ├── present.ts          测试里取必然存在的值，避免测试体里出现 `??`

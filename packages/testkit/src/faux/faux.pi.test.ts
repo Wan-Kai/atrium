@@ -14,6 +14,8 @@ interface RunningPi {
   /** The temporary directory pi runs in, which is also its HOME. */
   readonly dir: string;
   readonly records: PiRecord[];
+  /** Lets a reply scripted with `waitFor` continue. */
+  release(name: string): Promise<void>;
   send(command: object): void;
   /** Waits until pi has printed a record matching `predicate`. */
   until(predicate: (record: PiRecord) => boolean): Promise<void>;
@@ -57,6 +59,7 @@ async function startPi(script: FauxScript): Promise<RunningPi> {
   return {
     dir: dir.path,
     records,
+    release: (name) => launch.release(name),
     send: (command) => child.stdin.write(`${JSON.stringify(command)}\n`),
     until: (predicate) =>
       vi.waitFor(
@@ -201,5 +204,58 @@ describe("faux model in a real pi process", () => {
     const second = await normalizedRun(script);
 
     expect(second).toBe(first);
+  });
+
+  it("holds a reply until its gate is released, printing nothing for the reply meanwhile", async () => {
+    const pi = await startPi({ replies: [{ waitFor: "go", blocks: [{ type: "text", text: "after the gate" }] }] });
+
+    pi.send({ id: "r1", type: "prompt", message: "go" });
+    await pi.until((record) => record.type === "turn_start");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const whileHeld = pi.records.filter((record) => record.type === "message_update").length;
+    await pi.release("go");
+    await pi.until(settled);
+
+    expect(whileHeld).toBe(0);
+    expect(deltas(pi.records, "text_delta").join("")).toBe("after the gate");
+  });
+
+  it("ends a held reply when the run is aborted", async () => {
+    const pi = await startPi({ replies: [{ waitFor: "never", blocks: [{ type: "text", text: "unseen" }] }] });
+
+    pi.send({ id: "r1", type: "prompt", message: "go" });
+    await pi.until((record) => record.type === "turn_start");
+    pi.send({ id: "r2", type: "abort" });
+    await pi.until(settled);
+
+    expect(lastAssistant(pi.records)).toMatchObject({ stopReason: "aborted" });
+  });
+
+  it("answers handled for /faux-noop without starting a run", async () => {
+    const pi = await startPi({ replies: [] });
+
+    pi.send({ id: "r1", type: "prompt", message: "/faux-noop" });
+    await pi.until((record) => record.type === "response");
+
+    expect(pi.records).toStrictEqual([
+      { id: "r1", type: "response", command: "prompt", success: true, data: { disposition: "handled" } },
+    ]);
+  });
+
+  it("asks the client through /faux-confirm and reports the answer", async () => {
+    const pi = await startPi({ replies: [] });
+
+    pi.send({ id: "r1", type: "prompt", message: "/faux-confirm" });
+    await pi.until((record) => record.type === "extension_ui_request");
+    const request = pi.records.find((record) => record.type === "extension_ui_request");
+    pi.send({ type: "extension_ui_response", id: request?.["id"], confirmed: true });
+    await pi.until((record) => record["method"] === "notify");
+
+    expect(request).toMatchObject({ method: "confirm", title: "Proceed?", message: "The faux extension asks." });
+    expect(pi.records.find((record) => record["method"] === "notify")).toMatchObject({
+      type: "extension_ui_request",
+      message: "confirmed",
+      notifyType: "info",
+    });
   });
 });

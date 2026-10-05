@@ -58,6 +58,61 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 
 没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
 
+### pi 夹具（2026-10-05 定）
+
+**用途**：第 3 层用真实 pi 跑各种场景，把"宿主发了什么、pi 回了什么"录下来，供第 1 层的纯逻辑测试回放，不用启动 pi。消费者是 M1.3 的事件翻译（实时事件 → Atrium 事件）、M1.4 的对话记录重建（条目 → 对话记录），以及 M1.2 完成标准里的"适配器测试用录制的夹具跑通"。
+
+**位置**：`packages/pi/fixtures/pi-<版本>/<场景>.jsonl`，进 git。仓库里只保留一个版本：重录新版本时，在同一次提交里删掉旧版本的目录，这次提交的 diff 就是"pi 的输出变了什么"，旧版本留在 git 历史里。
+
+**格式**：一个场景一个 JSONL 文件，按实际发生的顺序记录宿主和 pi 之间的每一条往来：
+
+| 记录 | 含义 |
+|---|---|
+| `{"kind":"fixture","scenario":"prompt-started","pi":"1.0.2","script":{…},"args":[…]}` | 第一行：场景名、pi 版本、faux 回复脚本、pi 的启动参数 |
+| `{"kind":"send","record":{…}}` | 宿主写给 pi 的一行（命令或 `extension_ui_response`） |
+| `{"kind":"stdout","record":{…}}` | pi 打印的一条记录（响应、事件、对话框请求），原样保存 |
+| `{"kind":"exit","code":0,"signal":null,"requested":true}` | pi 退出；`requested` 表示是不是宿主要它停的，回放时宿主要求的退出等调用方 `stop()` 才发生，其余的当作崩溃自己发生 |
+| `{"kind":"session","lines":[…]}` | 场景结束时会话文件的全部行（文件头 + 条目），只在用到会话文件的场景里有 |
+
+**规范化**（录制时做，保证同一台机器上重录结果逐字节相同）：
+
+- 时间：名为 `timestamp` 的数字字段 → `0`；ISO 时间字符串 → `"1970-01-01T00:00:00.000Z"`。
+- 路径：临时工作目录 → `<cwd>`，pi 配置目录 → `<agent>`，会话文件路径 → `<session-file>`。
+- 随机 id：会话 id → `<session-id>`；条目 id 按首次出现的顺序换成 `e1`、`e2`……，`parentId`、`leafId`、`since` 等引用同一个 id 的地方一起换，树的结构不变；请求 id → `r1`、`r2`……。
+- 工具调用 id 本来就由 faux 脚本固定，不用处理。
+
+**录制与漂移检查**：
+
+- `pnpm fixtures:record`：用本机的 pi 重录全部场景，写到 `pi-<本机版本>/`，并删掉其他版本的目录。
+- `pnpm test:pi`：先对真实 pi 做契约断言，再把这次的输出规范化后和同版本的夹具比较，不一致就失败，提示重录并审查 diff。本机 pi 版本没有对应的夹具时也失败，要求先录制。这样升级 pi 后，第一次跑 `test:pi` 就会逼着人看 pi 的输出变了什么。
+- 比较时忽略和机器有关的部分：`usage` 和 `cost` 里的数字（token 估算受系统提示词长度影响，而系统提示词里有工作目录路径），以及系统消息的正文。夹具本身仍保存录到的原值。
+
+**回放**：testkit 的 `fake-pi` 读一个夹具文件，提供和 `PiProcess` 同形状的对象（按结构类型匹配，不 import pi 包）：
+
+- `request(command)` 要求它和夹具里下一条 `send` 的类型、字段一致（请求 id 除外），否则抛出写明"期望什么、收到什么"的错误；然后依次发出它后面的 `stdout` 记录，直到下一条 `send`，响应里的 id 换成调用方实际用的 id。
+- `respond()` 同样对上下一条 `send`；`stop()` 对应 `exit` 记录。
+- 记录在微任务里逐条发出，保持顺序，不依赖真实时间。
+
+**实现**：录制、规范化、比较和回放在 testkit 的 `pi-fixtures/`；跑场景的 `runScenario` 在 `packages/pi/test/contract.ts`；场景在 `packages/pi/src/contract/*.pi.test.ts`；`packages/pi/src/contract/replay.test.ts` 让每个夹具都按原样回放一遍。
+
+**在运行中途发命令**：faux 回复可以写 `waitFor: "<名字>"`，在测试调用 `release(名字)` 之前不开始输出；这段时间 pi 打印的最后一条是这一轮的用户消息（`message_end`，role 为 user），测试等到它再发命令，命令在夹具里的位置就是固定的。中断会结束等待。faux 扩展还注册了 `/faux-noop`（输入被处理掉，`handled`）和 `/faux-confirm`（弹确认框，再用通知报告结果）。
+
+**首批场景**（全部在 pi 1.0.2 上录制，两次录制逐字节相同）：
+
+| 场景 | 验证 |
+|---|---|
+| `prompt-started` | 一轮完整运行：推理、文本分片、`agent_settled` |
+| `prompt-tool` | 工具调用：`tool_execution_start/update/end`，结果进入下一轮 |
+| `prompt-queued` | 运行中再发 `prompt`（`streamingBehavior`）：`queued` 和 `queue_update` |
+| `prompt-handled` | extension 命令把输入处理掉：`handled`，不运行 |
+| `abort` | 运行中 `clear_queue` + `abort`：`stopReason: "aborted"`，`abort` 在真正停下后才回应 |
+| `session-lazy-file` | 会话文件在第一条消息出现前不存在，之后逐条追加；`get_state.sessionFile` |
+| `get-entries` | `get_entries` 的全量与 `since` 增量、`leafId`；未知 `since` 报错 |
+| `error-retry` | 可重试错误：`auto_retry_start/end`；不可重试错误直接结束 |
+| `dialog` | extension 对话框：`extension_ui_request` → `extension_ui_response` → 继续 |
+| `compaction` | 压缩期间 `prompt` 报错，`compaction_start/end` |
+| `exit-stdin`、`exit-sigterm` | 关 stdin 退出码 0；SIGTERM 退出码 143 |
+
 ## 让每个测试都有效
 
 1. **变异测试是硬门槛**。核心模块变异分数 ≥ 80%：事件翻译、对话记录重建、会话控制器、同步、状态派生、分帧、合并判定，以及连接层（鉴权、静态文件、WebSocket 服务、协议编解码、客户端连接）。连接层列入是因为 M1.1 的变异测试在这里找出了真实缺陷（握手超时后仍处理 hello、关闭时被暂停的下载挂住），而且它是安全边界。存活的变异逐个处理：补测试，或在代码里用 `// Stryker disable next-line <变异类型>: <理由>` 说明它与原代码等价或不可达。平时增量跑改动的文件，每个里程碑完成前用 `pnpm test:mutation --force` 全量跑一次。
@@ -159,7 +214,8 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | 命令 | 内容 |
 |---|---|
 | `pnpm test` | 第 1、2 层 |
-| `pnpm test:pi` | 第 3 层（需要本机装有 pi） |
+| `pnpm test:pi` | 第 3 层（需要本机装有 pi）：契约断言，并检查输出和同版本的夹具一致 |
+| `pnpm fixtures:record` | 用本机 pi 重录全部夹具，删掉其他版本的夹具目录；提交前审查 diff |
 | `pnpm test:host` | 第 4 层 |
 | `pnpm test:ui` | 第 5 层 |
 | `pnpm test:e2e` | 第 6 层 |
