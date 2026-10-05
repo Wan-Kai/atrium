@@ -248,6 +248,9 @@ importers:
 
   packages/host:
     dependencies:
+      '@atrium/pi':
+        specifier: workspace:*
+        version: link:../pi
       '@atrium/protocol':
         specifier: workspace:*
         version: link:../protocol

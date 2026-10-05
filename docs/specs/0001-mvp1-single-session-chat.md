@@ -402,7 +402,7 @@ Electron 主进程
 - 缺 Node.js（pi 需要 22.19 以上，安装脚本会先检查）：有 Homebrew 时提供"用 Homebrew 安装 Node.js"（`brew install node`），装好后接着安装 pi；没有 Homebrew 时给出 nodejs.org 的下载链接。
 - 版本低于要求：主按钮"更新 pi"，运行 `pi update --self`，同样显示日志。pi 报告"无法自更新这种安装方式"时，退回到手动更新。
 - 失败时显示"没有装好"、完整日志和"重试"，并自动展开手动方式。手动方式始终可以展开：安装命令（npm / 安装脚本两种，可复制）、"我装好了，重新检测"、手动选择 pi 的位置。
-- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。
+- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现）：只取 `PATH`；先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设 `PATH`），失败或超时（10 秒）再用登录 shell（`-l -c`）；值由 shell 自己的 `printf` 夹在随机标记之间打印，rc 文件打印的横幅不影响；支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用继承的 `PATH`。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 2.6 秒）。
 
 **第 2 步：登录模型**
 

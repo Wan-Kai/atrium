@@ -1,7 +1,9 @@
+import { type PiInspection, inspectPi } from "@atrium/pi";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
 import { ensureAtriumHome } from "./platform/home";
+import { type ToolPath, readLoginShellPath } from "./platform/login-shell";
 import { createLogger, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
@@ -22,6 +24,22 @@ export interface HostConfig {
   readonly logLevel?: Level;
   readonly clock?: Clock;
   readonly handshakeTimeoutMs?: number;
+  /**
+   * PATH for finding and running pi. When omitted, it is read from the user's login shell; tests
+   * set it so no shell runs.
+   */
+  readonly toolPath?: string;
+}
+
+/** The tools the host found after starting. */
+export interface HostTools {
+  /** PATH used to find and run pi and the tools it needs. */
+  readonly path: string;
+  /** Where `path` came from: the login shell, the inherited environment, or `HostConfig.toolPath`. */
+  readonly pathSource: ToolPath["source"] | "configured";
+  /** Environment for pi processes: the host's own, with `path` as PATH. */
+  readonly env: Readonly<Record<string, string>>;
+  readonly pi: PiInspection;
 }
 
 /** A running host. */
@@ -32,11 +50,13 @@ export interface RunningHost {
   readonly address: string;
   /** Live resource counts, for leak tests and diagnostics. */
   readonly resources: ResourceTracker;
+  /** Resolves once PATH is known and pi has been looked for; `null` if the host closed first. */
+  readonly tools: Promise<HostTools | null>;
   /** Path that always points at the log file being written. */
   readonly logFile: string;
   /** Writes buffered log records to disk now. */
   readonly flushLog: () => void;
-  /** Disconnects clients, flushes logs and spans, and stops listening. */
+  /** Disconnects clients, flushes logs and spans, and stops listening; later calls share the first. */
   readonly close: () => Promise<void>;
 }
 
@@ -55,7 +75,8 @@ const RESOURCE_REPORT_INTERVAL_MS = 60_000;
  * failed start leaves no open file or tracer behind.
  *
  * @sideEffects Creates `~/.atrium` and its logs folder; opens the log file; listens on a port;
- * schedules a recurring resource report; on a failed start, logs the failure and closes the log.
+ * schedules a recurring resource report; starts looking for pi in the background; on a failed
+ * start, logs the failure and closes the log.
  * @param config - Host configuration.
  * @returns The running host.
  */
@@ -116,6 +137,49 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   }
 
   let cancelReport = scheduleReport();
+  const stopDetecting = new AbortController();
+  const tools = detectTools();
+
+  /**
+   * Reads PATH from the login shell, then looks for pi on it.
+   *
+   * @remarks
+   * Runs in the background after the server listens: an interactive login shell can take seconds,
+   * which would blow the startup budget (testing.md, "性能预算"). Only PATH is taken from the shell
+   * (SPEC-0001, "第 1 步：安装 pi"). Closing the host aborts it, and it is counted as a resource,
+   * so it cannot outlive the host unnoticed. It never rejects.
+   *
+   * @sideEffects Spawns the login shell and `pi --version`; logs the outcome.
+   * @returns The tools found, or `null` if the host closed first.
+   */
+  async function detectTools(): Promise<HostTools | null> {
+    const release = resources.acquire("tools.detect");
+    const signal = stopDetecting.signal;
+    try {
+      const inherited = Object.fromEntries(
+        Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+      );
+      const found: ToolPath | { source: "configured"; path: string } =
+        config.toolPath === undefined
+          ? await readLoginShellPath({
+              shell: process.env["SHELL"],
+              env: process.env,
+              clock,
+              signal,
+              onFailure: (failure) => logger.warn({ ...failure }, "login shell attempt failed"),
+            })
+          : { source: "configured", path: config.toolPath };
+      logger.info({ ...found }, "tool path resolved");
+      if (signal.aborted) return null;
+      const env = { ...inherited, PATH: found.path };
+      const pi = await inspectPi(found.path, { env, signal });
+      if (signal.aborted) return null;
+      logger[pi.status === "ready" ? "info" : "warn"]({ ...pi }, "pi inspected");
+      return { path: found.path, pathSource: found.source, env, pi };
+    } finally {
+      release();
+    }
+  }
 
   /**
    * Schedules the next resource report.
@@ -139,19 +203,36 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     );
   }
 
+  let closing: Promise<void> | undefined;
+
+  /**
+   * Stops detection, the server, tracing and logging, in that order.
+   *
+   * @remarks
+   * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
+   * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
+   *
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; flushes spans
+   * and logs; closes the log file.
+   */
+  async function close(): Promise<void> {
+    cancelReport();
+    stopDetecting.abort();
+    await tools;
+    await server.close();
+    await tracing.shutdown();
+    logger.info("host stopped");
+    await closeLog();
+  }
+
   return {
     port: server.port,
     origin: server.origin,
     address: server.address,
     resources,
+    tools,
     logFile,
     flushLog: () => destination.flushSync(),
-    close: async () => {
-      cancelReport();
-      await server.close();
-      await tracing.shutdown();
-      logger.info("host stopped");
-      await closeLog();
-    },
+    close: () => (closing ??= close()),
   };
 }

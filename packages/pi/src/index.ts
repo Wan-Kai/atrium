@@ -1,4 +1,5 @@
 export type { PiDeps } from "./deps";
+export { type PiInspection, inspectPi } from "./locate/inspect";
 export { findPi, readPiVersion } from "./locate/locate";
 export { MIN_PI_VERSION, type Version, isAtLeast, parseVersion } from "./locate/version";
 export {
