@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。正在做 [M1.2](#m12-最窄链路宿主驱动-pi)（分支 `m1.2-pi-link`）：已完成 faux 模型、LF 分帧、PiProcess（启动、请求对应、期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）；读取登录 shell 的环境与 pi 版本检查、宿主组装（stderr 挂在 `pi.process` span 下、请求 id 来自 span）、`pnpm pi:try` 在终端里流式打出回复、pi 契约测试与夹具（12 个场景，回放替身）；接下来是 M1.2 收尾：补 M1.1 留下的"部分"项、全量变异测试、三方审查、合并。**
+**2026-10-06：M1.2 最窄链路完成，经三方审查修复后合并进 `main`。宿主能读取登录 shell 的环境、找到并检查 pi、启动 `pi --mode rpc` 并在终端里流式打出回复（`pnpm pi:try`）；pi 契约测试录下 12 个场景的夹具供后续回放；全量变异分数 99.67%（剩下 3 个已补测试杀掉）。下一步是 [M1.3](#m13-协议客户端与流式显示)。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -27,6 +27,7 @@
 | 视觉规范 | [design-language.md](architecture/design-language.md) |
 | 界面原型 | `prototype/ui` 分支（见下文"原型"） |
 | M1.1 骨架 | monorepo 七个包、Electron 启动宿主、token 与 Origin 鉴权、日志与链路追踪、空白界面跟随系统外观；七层测试各有示例并验证过会失败；变异分数 100%（等价变异在代码里注明理由）。实现中改动的决定已写回 testing.md、coding-standards.md、observability.md、development.md：界面泄漏改用自写的脱离 DOM 分析、Stryker 改用命令运行器、Vitest 5 的基准 API、开发端口 5791 |
+| M1.2 最窄链路 | `packages/pi`：PiProcess（LF 分帧、按 id 对应响应、按命令设期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）、找 pi 与版本检查、交给 pi 的环境去掉相对 `PATH` 和 Atrium/Electron 变量；宿主读取登录 shell 的完整环境、`pi.process`/`pi.rpc` span、环境里的凭据不进日志；`pnpm pi:try`；faux 模型、12 个 pi 契约场景与夹具（录制时归一化，回放替身与 PiProcess 语义一致）。决定写回 testing.md、security.md、overview.md、domain-model.md（决定 9） |
 | 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
@@ -160,7 +161,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)、[SPEC-0001 · 进程与启动、各包职责](specs/0001-mvp1-single-session-chat.md#进程与启动)、[design-language · 颜色](architecture/design-language.md#颜色)。
 - **完成标准**：窗口能打开；token 错误、来源不对时连接被拒；渲染进程拿不到 Node；一次连接在日志里能按 trace id 串起来；日志里搜不到 token；切换系统外观界面跟着变；`pnpm check` 通过；每一层各有一个能跑的示例测试，并确认它在实现被破坏时会失败；一次变异测试能跑完并出报告。
 
-##### M1.2 最窄链路：宿主驱动 pi
+##### M1.2 最窄链路：宿主驱动 pi ✅
 
 - **目标**：宿主启动 `pi --mode rpc`，发一条 prompt，在终端里打出流式文本，直到 `agent_settled`。
 - **范围**：
