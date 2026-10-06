@@ -1,6 +1,6 @@
 import { createConnection } from "@atrium/client";
 import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
-import { FakeClock, createTempDir } from "@atrium/testkit";
+import { FakeClock, createTempDir, present } from "@atrium/testkit";
 import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it, vi, onTestFinished } from "vitest";
@@ -29,6 +29,19 @@ function openRaw(url: string, options: { origin?: string } = {}) {
   });
   const opened = new Promise<void>((done) => socket.once("open", () => done()));
   return { socket, ended, opened, messages };
+}
+
+/** Starts a host, says hello over a raw socket and returns the parsed welcome. */
+async function welcomeOf(): Promise<unknown> {
+  testHost = await startTestHost();
+  const { socket, opened, messages } = openRaw(testHost.url);
+  await opened;
+  socket.send(hello({ token: testHost.token }));
+  await vi.waitFor(() => expect(messages).toHaveLength(1));
+  socket.close();
+  await testHost.dispose();
+  testHost = undefined;
+  return JSON.parse(present(messages[0], "welcome"));
 }
 
 /** Writes a small UI build with one file per served content type. */
@@ -359,6 +372,24 @@ describe("host connection handshake", () => {
     await testHost.connect().connect();
 
     expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 1, "ws.connection": 1 });
+  });
+
+  it("welcomes with the heartbeat and an instance id that is new on every host start", async () => {
+    const first = await welcomeOf();
+    const second = await welcomeOf();
+
+    const shape = {
+      type: "welcome",
+      protocolVersion: PROTOCOL_VERSION,
+      hostVersion: "0.0.0",
+      hostInstanceId: expect.stringMatching(/^[0-9a-f]{16}$/),
+      heartbeatMs: 15_000,
+    };
+    expect(first).toStrictEqual(shape);
+    expect(second).toStrictEqual(shape);
+    expect((first as { hostInstanceId: string }).hostInstanceId).not.toBe(
+      (second as { hostInstanceId: string }).hostInstanceId,
+    );
   });
 
   it("answers only the first of two hellos", async () => {

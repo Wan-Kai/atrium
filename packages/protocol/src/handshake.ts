@@ -18,6 +18,8 @@ export const CloseCode = {
   VersionMismatch: 4426,
   /** The client sent more messages or bytes per second than the host allows (security.md). */
   RateLimited: 4429,
+  /** The client reads so slowly that more than the allowed amount waits to be sent to it. */
+  SlowConsumer: 4507,
   /** The host already has as many connections as it accepts. */
   TooManyConnections: 4503,
 } as const;
@@ -37,5 +39,9 @@ export const WelcomeMessage = z.object({
   type: z.literal("welcome"),
   protocolVersion: z.number().int().positive(),
   hostVersion: z.string(),
+  /** Random per host start, and the `generation` of list sync: a new value means the host restarted. */
+  hostInstanceId: z.string().min(1).max(64),
+  /** How often the client pings, and how long it waits for the answer (SPEC-0001, "握手与心跳"). */
+  heartbeatMs: z.number().int().positive(),
 });
 export type WelcomeMessage = z.infer<typeof WelcomeMessage>;

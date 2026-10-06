@@ -37,6 +37,10 @@ export interface WsServerOptions {
   readonly maxPayloadBytes: number;
   readonly limits: ConnectionLimits;
   readonly hostVersion: string;
+  /** Random per host start; tells a reconnecting client whether the host restarted. */
+  readonly hostInstanceId: string;
+  /** How often clients ping and how long they wait for the answer. */
+  readonly heartbeatMs: number;
   readonly logger: Logger;
   readonly tracer: Tracer;
   readonly clock: Clock;
@@ -285,6 +289,8 @@ function handleHello(ws: WebSocket, data: RawData, isBinary: boolean, options: W
       type: "welcome",
       protocolVersion: PROTOCOL_VERSION,
       hostVersion: options.hostVersion,
+      hostInstanceId: options.hostInstanceId,
+      heartbeatMs: options.heartbeatMs,
     };
     ws.send(JSON.stringify(welcome));
     options.logger.info({ client_id: hello.data.clientId }, "client connected");

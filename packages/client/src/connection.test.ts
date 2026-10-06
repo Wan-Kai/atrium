@@ -5,7 +5,13 @@ import { type SocketLike, buildHello, createConnection } from "./connection";
 
 const trace = { traceId: "4bf92f3577b34da6a3ce929d0e0e4736", spanId: "00f067aa0ba902b7", sampled: true };
 const welcome = (hostVersion: string) =>
-  JSON.stringify({ type: "welcome", protocolVersion: PROTOCOL_VERSION, hostVersion });
+  JSON.stringify({
+    type: "welcome",
+    protocolVersion: PROTOCOL_VERSION,
+    hostVersion,
+    hostInstanceId: "h1",
+    heartbeatMs: 15_000,
+  });
 
 /** A socket the test drives by hand: it records what the client sends and replays host events. */
 function scriptedSocket() {

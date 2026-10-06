@@ -1,4 +1,5 @@
 import { type PiInspection, inspectPi } from "@atrium/pi";
+import { randomBytes } from "node:crypto";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
@@ -9,6 +10,9 @@ import { createLogger, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { startWsServer } from "./server/ws-server";
+
+/** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
+const HEARTBEAT_MS = 15_000;
 
 /** Everything needed to start a host. */
 export interface HostConfig {
@@ -125,6 +129,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       maxPayloadBytes: 1024 * 1024,
       limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 8 * 1024 * 1024 },
       hostVersion: packageJson.version,
+      hostInstanceId: randomBytes(8).toString("hex"),
+      heartbeatMs: HEARTBEAT_MS,
       logger,
       tracer: tracing.tracer,
       clock,
