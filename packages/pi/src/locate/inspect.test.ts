@@ -1,5 +1,6 @@
 import { FakeClock, createTempDir, writeShellPi } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join, relative as relativePath } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import type { PiDeps } from "../deps";
@@ -144,6 +145,40 @@ describe("inspectPi", () => {
       status: "unusable",
       detail: `${bin}:/usr/bin`,
     });
+  });
+
+  it("skips a directory named pi, as a shell would, and finds the real pi after it", async () => {
+    const { bin: decoy } = await binWith();
+    await mkdir(join(decoy, "pi"));
+    const { bin, env } = await binWith("echo 1.0.2");
+
+    expect(await inspectPi(`${decoy}:${bin}`, { env, clock })).toStrictEqual({
+      status: "ready",
+      piPath: join(bin, "pi"),
+      version: [1, 0, 2],
+    });
+  });
+
+  it("reports a pi that cannot be started with the system's error, not as an exit code", async () => {
+    // The interpreter on the first line is missing, as when the node pi's launcher names is gone.
+    const { bin } = await binWith();
+    const piPath = join(bin, "pi");
+    await writeFile(piPath, "#!/nonexistent/interpreter\n");
+    await chmod(piPath, 0o755);
+
+    expect(await inspectPi(bin, { env: {}, clock })).toStrictEqual({
+      status: "unusable",
+      piPath,
+      detail: `spawn ${piPath} ENOENT`,
+    });
+  });
+
+  it("cancels its deadline once pi has answered", async () => {
+    const { bin, env } = await binWith("echo 1.0.2");
+    const fake = new FakeClock();
+
+    expect(await inspectPi(bin, { env, clock: fake })).toMatchObject({ status: "ready" });
+    expect(fake.pendingTimers()).toBe(0);
   });
 
   it("ignores stderr that is only whitespace", async () => {

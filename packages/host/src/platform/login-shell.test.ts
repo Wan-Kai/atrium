@@ -1,10 +1,11 @@
 import { FakeClock, createTempDir } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
+import { getEventListeners } from "node:events";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "./clock";
-import { type ShellAttemptFailure, readLoginShellEnv } from "./login-shell";
+import { type ShellAttemptFailure, readLoginShellEnv, toolSafe } from "./login-shell";
 
 const INHERITED_PATH = "/usr/bin:/bin";
 /**
@@ -16,6 +17,13 @@ const HANGING = `sleep 25.${PID}1`;
 const ABORTED = `sleep 25.${PID}2`;
 const BACKGROUND = `sleep 25.${PID}3`;
 const OTHER_GROUP = `sleep 25.${PID}4`;
+const LATE_HOLDER = `sleep 25.${PID}5`;
+const FALLBACK = `sleep 25.${PID}6`;
+
+/** How many pipes this test process has open. */
+function openPipes(): number {
+  return process.getActiveResourcesInfo().filter((resource) => resource === "PipeWrap").length;
+}
 
 /** A temporary home with the given rc files; returns a host environment pointing zsh and bash at it. */
 async function homeWith(files: Readonly<Record<string, string>>): Promise<Record<string, string>> {
@@ -93,6 +101,8 @@ describe("readLoginShellEnv", () => {
     const { result } = await read("/bin/zsh", env);
 
     expect(result.env["MULTI"]).toBe("first\nsecond=2");
+    // `env -0` ends with a NUL, and the empty piece after it is not a variable.
+    expect(Object.keys(result.env)).not.toContain("");
     expect(Object.keys(result.env).filter((name) => ["SHLVL", "_", "PWD", "OLDPWD"].includes(name))).toStrictEqual([]);
   });
 
@@ -127,12 +137,15 @@ describe("readLoginShellEnv", () => {
       for (const pid of pidsOf(BACKGROUND)) process.kill(pid, "SIGKILL");
     });
 
+    const pipesBefore = openPipes();
     const started = performance.now();
     const { result, failures } = await read("/bin/zsh", env);
 
     expect(failures).toStrictEqual([]);
     expect(result).toMatchObject({ source: "login-shell", env: { GREETING: "hi" } });
     expect(performance.now() - started).toBeLessThan(5_000);
+    // The pipe the job still holds is let go of, rather than kept open until the job ends.
+    await vi.waitFor(() => expect(openPipes()).toBe(pipesBefore));
     // The job outlives the shell, as it would for the user. Under load its `sleep` may not have
     // been exec'd yet, so wait for it before killing it, or the cleanup above would miss it.
     await vi.waitFor(() => expect(pidsOf(BACKGROUND)).toHaveLength(1), { timeout: 15_000 });
@@ -228,11 +241,13 @@ describe("readLoginShellEnv", () => {
       reason: "unsupported-shell",
       shell: "/opt/homebrew/bin/fish",
     });
-    expect(await readLoginShellEnv({ shell: undefined, env: {}, clock: systemClock })).toStrictEqual({
-      source: "inherited",
-      env: {},
-      reason: "no-shell",
-    });
+    for (const shell of [undefined, ""]) {
+      expect(await readLoginShellEnv({ shell, env: {}, clock: systemClock })).toStrictEqual({
+        source: "inherited",
+        env: {},
+        reason: "no-shell",
+      });
+    }
   });
 
   it("stops at once when aborted, killing the running shell", async () => {
@@ -247,5 +262,129 @@ describe("readLoginShellEnv", () => {
     expect(result).toMatchObject({ source: "inherited", reason: "failed" });
     expect(failures).toStrictEqual([{ args: ["-i", "-l", "-c"], reason: "aborted" }]);
     expect(running(ABORTED)).toStrictEqual([]);
+  });
+  it.each(["/bin/sh", "/bin/dash", "/bin/ksh"])("reads the environment through %s as well", async (shell) => {
+    const env = await homeWith({});
+
+    const { result, failures } = await read(shell, env);
+
+    expect(failures).toStrictEqual([]);
+    expect(result).toMatchObject({ source: "login-shell", shell, env: { HOME: env["HOME"] } });
+  });
+
+  it("starts the shell with the host's basic variables, like a terminal would", async () => {
+    const home = await homeWith({});
+    const basics = {
+      USER: "someone",
+      LOGNAME: "someone-login",
+      SHELL: "/bin/zsh",
+      TMPDIR: "/tmp/atrium-test-tmpdir/",
+      LANG: "en_US.UTF-8",
+      LC_ALL: "en_US.UTF-8",
+      LC_CTYPE: "en_US.UTF-8",
+      SSH_AUTH_SOCK: "/tmp/atrium-test-agent.sock",
+      __CF_USER_TEXT_ENCODING: "0x1F5:0x0:0x0",
+    };
+
+    const { result, path } = await read("/bin/zsh", { ...home, ...basics, PATH: `/custom/host/bin:${INHERITED_PATH}` });
+
+    expect(result.source).toBe("login-shell");
+    expect(Object.fromEntries(Object.keys(basics).map((name) => [name, result.env[name]]))).toStrictEqual(basics);
+    // macOS's /etc/zprofile reorders PATH, but keeps what the host had.
+    expect(path.split(":")).toContain("/custom/host/bin");
+  });
+
+  it("gives the shell no input to wait for, and leaves no timer or abort listener behind", async () => {
+    const env = await homeWith({ ".zshrc": "read -r answer\nexport AFTER_READ=yes\n" });
+    // A fake clock that never moves: a shell waiting for input would hang the test, not time out.
+    const clock = new FakeClock();
+    const controller = new AbortController();
+
+    const result = await readLoginShellEnv({ shell: "/bin/zsh", env, clock, signal: controller.signal });
+
+    expect(result).toMatchObject({ source: "login-shell", env: { AFTER_READ: "yes" } });
+    expect(clock.pendingTimers()).toBe(0);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
+  it("waits for the closing marker when it arrives after the shell has exited", async () => {
+    // The second marker is printed 0.3 s after the shell exits, by a background job that then
+    // keeps the output open: neither the exit nor the pipe closing may end the attempt early.
+    const env = await homeWith({
+      ".zshrc": [
+        "export GREETING=late",
+        "n=0",
+        `printf() { n=$((n+1)); if [ $n -eq 2 ]; then (sleep 0.3; builtin printf "$@"; exec ${LATE_HOLDER}) & else builtin printf "$@"; fi }`,
+        "",
+      ].join("\n"),
+    });
+    onTestFinished(() => {
+      for (const pid of pidsOf(LATE_HOLDER)) process.kill(pid, "SIGKILL");
+    });
+    // A fake clock that never moves: an attempt that missed the marker would hang, not time out.
+    const clock = new FakeClock();
+    const failures: ShellAttemptFailure[] = [];
+
+    const result = await readLoginShellEnv({ shell: "/bin/zsh", env, clock, onFailure: (f) => failures.push(f) });
+
+    expect(failures).toStrictEqual([]);
+    expect(result).toMatchObject({ source: "login-shell", env: { GREETING: "late" } });
+    await vi.waitFor(() => expect(pidsOf(LATE_HOLDER)).toHaveLength(1), { timeout: 15_000 });
+    for (const pid of pidsOf(LATE_HOLDER)) process.kill(pid, "SIGKILL");
+    await vi.waitFor(() => expect(running(LATE_HOLDER)).toStrictEqual([]));
+  });
+
+  it("kills the shell's process group when the process table cannot be read", async () => {
+    // The sleep ignores SIGTERM (interactive zsh would reset a `trap`), so only SIGKILL ends it.
+    const env = await homeWith({
+      ".zprofile": "export PATH=/custom/profile/bin:$PATH\n",
+      ".zshrc": `perl -e '$SIG{TERM} = "IGNORE"; exec "sleep", "${FALLBACK.slice(6)}"'\n`,
+    });
+    onTestFinished(() => {
+      for (const pid of pidsOf(FALLBACK)) process.kill(pid, "SIGKILL");
+    });
+    const clock = new FakeClock();
+    const failures: ShellAttemptFailure[] = [];
+    const processSystem = {
+      listProcesses: () => Promise.reject(new Error("ps is unavailable")),
+      kill: (target: number) => process.kill(target, "SIGKILL"),
+      ownPid: process.pid,
+    };
+
+    const reading = readLoginShellEnv({
+      shell: "/bin/zsh",
+      env,
+      clock,
+      processSystem,
+      onFailure: (failure) => failures.push(failure),
+    });
+    await vi.waitFor(() => expect(running(FALLBACK)).toHaveLength(1), { timeout: 15_000 });
+    clock.advance(10_000);
+    const result = await reading;
+
+    expect(result.env["PATH"]?.split(":")[0]).toBe("/custom/profile/bin");
+    expect(failures).toStrictEqual([{ args: ["-i", "-l", "-c"], reason: "timeout" }]);
+    await vi.waitFor(() => expect(running(FALLBACK)).toStrictEqual([]));
+  });
+
+  it("works without a failure callback", async () => {
+    const silent = await homeWith({ ".zprofile": "printf() { :; }\n" });
+
+    expect(await readLoginShellEnv({ shell: "/nonexistent/zsh", env: {}, clock: systemClock })).toMatchObject({
+      source: "inherited",
+      reason: "failed",
+    });
+    expect(await readLoginShellEnv({ shell: "/bin/zsh", env: silent, clock: systemClock })).toMatchObject({
+      source: "inherited",
+      reason: "failed",
+    });
+  });
+});
+
+describe("toolSafe", () => {
+  it("drops unset values and Atrium's and Electron's variables", () => {
+    expect(toolSafe({ UNSET: undefined, ATRIUM_TOKEN: "t", ELECTRON_RUN_AS_NODE: "1", KEEP: "k" })).toStrictEqual({
+      KEEP: "k",
+    });
   });
 });
