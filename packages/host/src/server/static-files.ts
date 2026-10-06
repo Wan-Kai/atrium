@@ -117,7 +117,7 @@ export async function serveStatic(request: IncomingMessage, response: ServerResp
     response.end();
     return;
   }
-  // Stryker disable next-line BlockStatement,CallExpression: pipeline has already destroyed the response when it rejects; the call only states the intent.
+  // Stryker disable next-line ArrowFunction,BlockStatement,CallExpression: pipeline has already destroyed the response when it rejects; the call only states the intent.
   await pipeline(handle.createReadStream(), response).catch(() => response.destroy());
 }
 

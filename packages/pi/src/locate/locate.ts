@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
+import { piEnvironment } from "../env/pi-env";
 import { type Version, parseVersion } from "./version";
 
 const run = promisify(execFile);
@@ -12,7 +13,9 @@ const run = promisify(execFile);
  *
  * @remarks
  * The caller passes the PATH read from the user's login shell, because Electron started from the
- * Finder does not inherit it (SPEC-0001, "第 1 步：安装 pi").
+ * Finder does not inherit it (SPEC-0001, "第 1 步：安装 pi"). Relative entries, including the empty
+ * entry that POSIX reads as the current directory, are skipped: the host must never run a `pi`
+ * from whatever directory it happens to be in.
  *
  * @sideEffects Checks file permissions on disk.
  * @param searchPath - A PATH-style list of directories.
@@ -20,15 +23,14 @@ const run = promisify(execFile);
  */
 export async function findPi(searchPath: string): Promise<string | null> {
   for (const directory of searchPath.split(delimiter)) {
-    if (directory.length === 0) continue;
+    if (!isAbsolute(directory)) continue;
     const candidate = join(directory, "pi");
-    if (
-      await access(candidate, constants.X_OK).then(
-        () => true,
-        () => false,
-      )
-    )
+    try {
+      await access(candidate, constants.X_OK);
       return candidate;
+    } catch {
+      // Not here, or not executable; try the next directory.
+    }
   }
   return null;
 }
@@ -37,23 +39,40 @@ export async function findPi(searchPath: string): Promise<string | null> {
  * Asks a pi executable for its version.
  *
  * @remarks
- * Uses `execFile` with an argument array so no shell is involved (security.md, "子进程与文件"),
- * and a timeout so a hung binary cannot block startup.
+ * Uses `execFile` with an argument array so no shell is involved (security.md, "子进程与文件").
+ * The environment goes through `piEnvironment`, so a relative PATH entry cannot pick the `node`
+ * pi's launcher runs. Aborting kills with SIGKILL and the promise settles only once pi has exited,
+ * so a pi that ignores SIGTERM can neither keep the caller waiting nor outlive the check; the
+ * caller sets the deadline through the signal.
  *
- * @sideEffects Runs `pi --version` as a child process.
+ * @sideEffects Runs `pi --version` as a child process; kills it if the signal aborts.
  * @param piPath - Absolute path of the pi executable.
  * @param options - Environment for the child (its PATH must reach Node) and an abort signal.
  * @returns The reported version, or `null` if the output has none.
- * @throws {Error} When the process cannot start, exits non-zero, times out or is aborted.
+ * @throws {Error} When the process cannot start, exits non-zero or is aborted.
  */
 export async function readPiVersion(
   piPath: string,
-  options: { readonly env: NodeJS.ProcessEnv; readonly signal?: AbortSignal },
+  options: { readonly env: Readonly<Record<string, string | undefined>>; readonly signal?: AbortSignal },
 ): Promise<Version | null> {
-  const { stdout } = await run(piPath, ["--version"], {
-    env: options.env,
-    timeout: 10_000,
-    ...(options.signal === undefined ? {} : { signal: options.signal }),
-  });
-  return parseVersion(stdout);
+  // Not `execFile`'s own `signal` option: on abort it sends SIGTERM whatever `killSignal` says.
+  const running = run(piPath, ["--version"], { env: piEnvironment(options.env) });
+  /**
+   * Kills `pi --version` outright.
+   *
+   * @remarks
+   * SIGKILL, because a hung pi may ignore SIGTERM.
+   *
+   * @sideEffects Sends SIGKILL to the child.
+   */
+  function kill(): void {
+    running.child.kill("SIGKILL");
+  }
+  options.signal?.addEventListener("abort", kill, { once: true });
+  if (options.signal?.aborted === true) kill();
+  try {
+    return parseVersion((await running).stdout);
+  } finally {
+    options.signal?.removeEventListener("abort", kill);
+  }
 }

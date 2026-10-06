@@ -1,8 +1,8 @@
 import { createTempDir, present } from "@atrium/testkit";
-import { lstat, readdir, writeFile } from "node:fs/promises";
+import { lstat, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, onTestFinished } from "vitest";
 import { createLogger, openLogFile } from "./logger";
 
 const token = "SECRET-TOKEN-0123456789abcdefghijklmnopqrstuv";
@@ -62,6 +62,7 @@ describe("createLogger", () => {
 describe("openLogFile", () => {
   it("keeps at most five files, deleting files left by earlier runs when it rotates", async () => {
     const dir = await createTempDir("logs");
+    onTestFinished(dir.cleanup);
     for (let n = 1; n <= 8; n++) await writeFile(join(dir.path, `host.${n}.jsonl`), "old\n");
 
     const { stream } = await openLogFile(dir.path, { maxSize: "1k" });
@@ -79,22 +80,42 @@ describe("openLogFile", () => {
       stream.once("close", () => done());
       stream.end();
     });
-    await dir.cleanup();
+  });
+
+  it("creates log files readable only by their owner, rotated ones included", async () => {
+    const dir = await createTempDir("logs");
+    onTestFinished(dir.cleanup);
+
+    const { stream, currentPath } = await openLogFile(dir.path, { maxSize: "1k" });
+    for (let line = 0; line < 30; line++) stream.write(`${"x".repeat(100)}\n`);
+    await vi.waitFor(async () =>
+      expect((await readdir(dir.path)).filter((name) => name.endsWith(".jsonl")).length).toBeGreaterThan(1),
+    );
+    await new Promise<void>((done) => {
+      stream.once("close", () => done());
+      stream.end();
+    });
+
+    const files = (await readdir(dir.path)).filter((name) => name.endsWith(".jsonl"));
+    const modes = await Promise.all(files.map(async (name) => (await stat(join(dir.path, name))).mode & 0o777));
+    expect(modes).toStrictEqual(files.map(() => 0o600));
+    expect((await stat(currentPath)).mode & 0o777).toBe(0o600);
   });
 
   it("replaces a plain file named current.log with the link", async () => {
     const dir = await createTempDir("logs");
+    onTestFinished(dir.cleanup);
     await writeFile(join(dir.path, "current.log"), "not a link");
 
     const { stream, currentPath } = await openLogFile(dir.path);
 
     expect((await lstat(currentPath)).isSymbolicLink()).toBe(true);
     stream.end();
-    await dir.cleanup();
   });
 
   it("reports a stream error on stderr instead of throwing it", async () => {
     const dir = await createTempDir("logs");
+    onTestFinished(dir.cleanup);
     const { stream } = await openLogFile(dir.path);
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
@@ -103,6 +124,5 @@ describe("openLogFile", () => {
     expect(stderr).toHaveBeenCalledWith("atrium: log stream error: disk full\n");
     stderr.mockRestore();
     stream.end();
-    await dir.cleanup();
   });
 });

@@ -32,7 +32,8 @@ export interface TestHost {
 export async function startTestHost(overrides: Partial<HostConfig> = {}): Promise<TestHost> {
   const home = await createTempDir("host");
   const token = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
-  const host = await startHost({ home: home.path, token, logLevel: "debug", ...overrides });
+  // An empty PATH finds no pi, so no shell or `pi --version` runs unless a test asks for it.
+  const host = await startHost({ home: home.path, token, logLevel: "debug", toolEnv: { PATH: "" }, ...overrides });
   const url = `ws://127.0.0.1:${host.port}`;
   let clientCount = 0;
   return {

@@ -60,11 +60,13 @@ atrium/
 │   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
 │   │   │   ├── auth/               登录状态检查、OAuth、API Key
 │   │   │   └── locate/             找到 pi、检查版本
-│   │   └── fixtures/               第 3 层录制的夹具，标注 pi 版本
+│   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
+│   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
 │   ├── host/                       宿主：Atrium 自己的业务
 │   │   ├── src/
 │   │   │   ├── main.ts             startHost：组装依赖、启动；不依赖任何 Electron API
 │   │   │   ├── entry.ts            进程入口：在 Electron 子进程里从 parentPort 收配置，或单独运行时读环境变量
+│   │   │   ├── dev/                开发用命令：`pnpm pi:try`（用宿主的组件驱动真实 pi，终端里看流式输出）
 │   │   │   ├── server/             WsServer、Connection、鉴权、命令路由
 │   │   │   ├── store/              IndexStore：~/.atrium 读写、原子写入、格式版本
 │   │   │   ├── projects/           ProjectService
@@ -78,7 +80,7 @@ atrium/
 │   │   │   ├── setup/              SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件）
-│   │   │   └── platform/           登录 shell 的 PATH、Clock、日志、子进程工具
+│   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
 │   ├── client/                     客户端层：不依赖 DOM，也不依赖 React
 │   │   └── src/
@@ -104,8 +106,10 @@ atrium/
 │   │           └── settings/       设置页
 │   └── testkit/                    测试工具：不依赖任何内部包（最多依赖 protocol），只出现在 devDependencies
 │       └── src/
-│           ├── faux/               faux 模型 extension 和回复脚本
-│           ├── fake-pi/            回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
+│           ├── faux/               faux 模型：交给 pi 加载的 extension、回复脚本格式、启动参数
+│           ├── pi-fixtures/        夹具的格式、规范化、录制、比较，以及回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
+│           ├── shared-executable.ts 测试用可执行文件按内容只写一份并预热（见 testing.md"测试里的可执行文件"）
+│           ├── scripted-pi.ts      按脚本行为的 pi 可执行替身（乱序回应、崩溃、不理 SIGTERM、留下孙进程），pi 包和宿主的测试共用
 │           ├── clock.ts            假时钟
 │           ├── present.ts          测试里取必然存在的值，避免测试体里出现 `??`
 │           ├── bench.ts            基准与本机基线比较
@@ -130,15 +134,35 @@ protocol  ←──  pi  ←──  host
 | 包 | 可以依赖 | 不允许 | 怎么强制 |
 |---|---|---|---|
 | protocol | zod | 任何内部包 | package.json 没声明，pnpm 就不让 import |
-| pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止 |
-| host | protocol、pi | DOM、client、ui、Electron | tsconfig 的 `lib` 不含 DOM |
+| pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止（唯一例外见下文 testkit 的 faux extension） |
+| host | protocol、pi | DOM、client（生产代码）、ui、Electron | tsconfig 的 `lib` 不含 DOM；oxlint 禁止 `packages/host/src` import `@atrium/client`（client 只作第 4 层测试的开发依赖） |
 | client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
 | ui | client、protocol（只用类型） | host、pi | 没有声明依赖 |
 | desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口加载宿主提供的页面 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
+- **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
+
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。
+- **pi 包拿到宿主基础设施的方式：注入，不 import。** pi 包需要时钟、资源计数、日志和请求 id，这些都在 host 的 `platform/`，而 pi 包不能依赖 host。做法同 testkit 的假时钟：pi 包自己定义窄接口，host 的 `main.ts` 组装时传进去，结构类型匹配即可。
+
+  ```ts
+  /** pi 包对宿主的全部要求；host 在 main.ts 里提供。 */
+  interface PiDeps {
+    clock: { now(): number; setTimeout(callback: () => void, ms: number): () => void };
+    /** 计一个打开的资源（进程、监听），返回只生效一次的释放函数。 */
+    track(kind: string): () => void;
+    /** 结构化日志；host 传入的实现会自动带上当前 trace id。 */
+    log: Record<"debug" | "info" | "warn" | "error", (fields: object, message: string) => void>;
+    /** 下一条 RPC 命令的 id；host 用当前 span id 生成，pi 响应会原样带回。 */
+    nextRequestId(): string;
+    /** 启动 pi 用的环境变量：登录 shell 的完整环境，去掉 Atrium 和 Electron 自己的变量。 */
+    env: Readonly<Record<string, string>>;
+  }
+  ```
+
+  pi 包不 import OpenTelemetry、pino 或 host 的任何模块；它自己管 pi 子进程的进程组和退出清理。测试时由测试自己构造 `PiDeps`（例如注入 `FakeClock`、计数的 `track`）；要代替整个 pi 进程时，用 testkit 的 `replayPi` 回放夹具。
 
 ### 宿主内部的依赖
 
@@ -152,7 +176,11 @@ main.ts 负责组装全部
 ```
 
 - 业务模块不依赖 `server/`，通过 `sync/` 的集合发布变化，不直接碰 WebSocket。
-- 子进程一律经过 `platform/` 的工具：启动 Node 程序用 `process.execPath`，不通过 `npx` 或 `.bin` 里的脚本；退出时杀整个进程树（Paseo 踩过这两个坑）。
+- 子进程：
+  - Atrium 自己的 Node 程序（例如测试或脚本里再起一个宿主）用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 里的脚本。
+  - pi 不适用这条：宿主跑在 Electron 里时，`process.execPath` 是 Electron 本身。pi 用 `findPi` 找到的绝对路径直接启动，环境变量里的 PATH 取自登录 shell，不经过 shell 或 npx。
+  - 宿主自己起的子进程走 `platform/` 的工具；pi 子进程由 pi 包管理（见上文"pi 包拿到宿主基础设施的方式"）。退出时都要清理到所有后代进程，不能只杀直接子进程（Paseo 踩过这个坑）。pi 的 bash 工具子进程各有自己的进程组，只杀 pi 的进程组会漏掉它们，做法见 roadmap M1.2。
+- 这些方向由 oxlint 的 `no-restricted-imports` 按目录检查（`.oxlintrc.json`）：业务模块不能 import `server/`；`sync/`、`store/`、`platform/` 不能 import 任何业务模块或 `server/`；`packages/host/src` 不能 import `@atrium/client`（client 只给第 4 层测试用）。
 
 ### 桌面端怎么启动宿主
 

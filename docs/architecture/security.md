@@ -38,12 +38,16 @@
 
 - API Key 只写进 pi 的 `~/.pi/agent/auth.json`，Atrium 不另存；读 `auth.json` 只取"是否已登录"，不把内容放进内存里的其他结构。
 - 日志统一脱敏：token、API Key、OAuth 令牌、`Authorization` 头一律替换；默认不记录提示词、回复、工具参数和输出、文件内容（[observability.md](observability.md#脱敏)）。脱敏在每行日志写盘前对整行进行，消息里的格式化参数、`Error` 的消息、子 logger 的绑定都覆盖到。
+- pi 的 stderr 会逐行进日志，可能带着凭据（例如报错时回显的 Key）。宿主拿到交给 pi 的环境后，把其中名字像凭据的变量（名字含 `key`、`token`、`secret`、`password`、`passwd`、`credential`、`auth`，值至少 8 个字符）的值加入脱敏列表，在记录第一条日志前完成。**没有覆盖的**：pi 自己从 `auth.json` 读的 Key 不在环境里，宿主不读它的内容，所以 pi 回显这类 Key 时日志里拦不住；这是已知缺口，到 M1.8 做登录时再定。
+- `PiRequestError` 的 `message` 只有命令名和原因，pi 的原文（错误文字、stderr 末尾）只放在 `detail`，`detail` 只用于界面上"展开看原始报错"。链路追踪记录异常时只取名字、消息和调用栈，碰不到 `detail`；记日志时只记 `command` 和 `reason`，不把整个错误对象交给 logger（pino 会把 `detail` 一起序列化）。
 - `~/.atrium/` 由宿主新建时目录权限 `0700`，日志文件 `0600`。已经存在的目录不改权限（`ATRIUM_HOME` 可能指向 `/tmp` 这类共享目录，改了会影响别人），权限过宽时记一条警告。
 
 ## 子进程与文件
 
+- 子进程的环境里没有 token：宿主把登录 shell 的环境交给 pi 时去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，读取登录 shell 时 shell 也只带少数基本变量启动（SPEC-0001"第 1 步"）。这份环境可能含有用户的 API Key，日志里不记录它的内容。
 - 外部命令一律用 `execFile` / `spawn` 传参数数组，不经过 shell，防止命令注入；参数来自用户输入时（分支名、路径）先校验。
-- 启动 Node 程序用 `process.execPath`，不通过 `npx` 或 `.bin` 脚本。
+- 在 `PATH` 里找 pi 时跳过相对路径（包括 POSIX 里表示"当前目录"的空项），宿主不会运行恰好位于自己工作目录里的 `pi`。交给 pi（`pi --version` 和 `pi --mode rpc`）的 `PATH` 也去掉相对项：pi 的启动脚本用 `#!/usr/bin/env node` 在 `PATH` 上找 `node`，相对项会让它运行工作目录里的 `node`。
+- Atrium 自己的 Node 程序用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 脚本。pi 用找到的绝对路径直接启动（宿主跑在 Electron 里时 `process.execPath` 是 Electron 本身），PATH 取自登录 shell，不经过 shell。
 - `@` 引用的文件搜索限制在工作区目录内，解析符号链接后仍在目录内才返回。
 - 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。

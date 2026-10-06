@@ -1,0 +1,4 @@
+{"kind":"fixture","scenario":"exit-sigterm","pi":"1.0.2","script":{"replies":[]},"args":["--no-session"]}
+{"kind":"send","record":{"type":"get_state","id":"r1"}}
+{"kind":"stdout","record":{"id":"r1","type":"response","command":"get_state","success":true,"data":{"model":{"id":"faux-1","name":"faux-1","api":"atrium-faux","provider":"faux","baseUrl":"http://localhost:0","reasoning":true,"input":["text","image"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":128000,"maxTokens":16384},"thinkingLevel":"medium","isStreaming":false,"isCompacting":false,"steeringMode":"one-at-a-time","followUpMode":"one-at-a-time","sessionId":"<uuid-1>","autoCompactionEnabled":true,"messageCount":0,"pendingMessageCount":0}}}
+{"kind":"exit","code":143,"signal":null,"requested":false}

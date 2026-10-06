@@ -77,6 +77,7 @@ RPC 在预检完成时就返回结果，不等运行结束。`steer` / `follow_u
 - 可重试的助手错误（过载、限流、5xx；不含上下文超长）：发 `auto_retry_start {attempt, maxAttempts, delayMs, errorMessage}`，写一条省略失败尝试的 `context_edit`，退避后 `continue()`；成功或用尽发 `auto_retry_end {success, finalError?}`。`abort_retry` 可取消。
 - 设置：`retry.maxRetries` 默认 **3**，`retry.baseDelayMs` 默认 2000（`docs/settings.md`）；RPC `set_auto_retry {enabled}`。
 - 上下文超长：省略失败尝试，以 `overflow` 原因压缩后重试一次。
+- 手动压缩（RPC `compact`）在可压缩的内容不足时报错 `Nothing to compact (session too small)`；保留多少不压缩由设置 `compaction.keepRecentTokens`（默认 20000）决定。返回的 `summary` 不只是模型的原话：pi 会加上自己的框架，例如没有更早历史时的 `No prior history.`，以及切开一轮时的 `**Turn Context (split turn):**` 段（2026-10-06 在 pi 1.0.2 上由契约测试 `compaction` 观察到）。
 
 **中断**：`abort()` 依次中止重试、压缩、分支摘要和 agent，**等真正空闲后才返回**。不清队列，要先 `clear_queue`。
 
@@ -131,6 +132,8 @@ RPC 在预检完成时就返回结果，不等运行结束。`steer` / `follow_u
 
 - **会话文件没有锁**：两个进程打开同一文件会各自在自己的叶子后追加，文件里交错成多条分支，互相看不到。只有首次创建用 `wx` 互斥。**宿主必须保证一个会话文件只有一个 pi 进程。**
 - `proper-lockfile` 只用于 `auth.json`、模型存储、包管理和实验性服务端。
+
+**退出**（2026-10-04 在 pi 1.0.2 上实测）：bash 工具的子进程用 `detached: true` 启动，各有自己的进程组，pi 记录它们的 pid。关闭 stdin（退出码 0）或 SIGTERM（143）时，pi 会先杀掉这些子进程再退出，约 0.3 秒。SIGKILL 时 pi 来不及清理，子进程被过继给 1 号进程继续运行，杀 pi 的进程组也够不到它们。所以强杀前要趁 pi 还活着按父进程关系找出后代，连同它们的进程组一起杀。
 
 **启动**：没有可用模型（没有凭据）时 **RPC 模式直接报错退出**；模型目录在后台刷新，最多 15 秒。
 

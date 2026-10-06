@@ -50,7 +50,7 @@
   },
   "overrides": [
     {
-      "files": ["packages/pi/**"],
+      "files": ["packages/pi/**", "packages/testkit/src/faux/extension.ts"],
       "rules": {
         "no-restricted-imports": "off"
       }
@@ -75,6 +75,109 @@
               {
                 "group": ["@earendil-works/*"],
                 "message": "Only packages/pi may import pi."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/host/src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/*"],
+                "message": "Only packages/pi may import pi (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
+              },
+              {
+                "group": ["@atrium/client"],
+                "message": "Host production code must not depend on the client; it is a dev dependency for layer-4 tests only (overview.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/host/src/{projects,workspaces,sessions,transcript,status,setup,titles,files}/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/*"],
+                "message": "Only packages/pi may import pi (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
+              },
+              {
+                "group": ["@atrium/client"],
+                "message": "Host production code must not depend on the client; it is a dev dependency for layer-4 tests only (overview.md)."
+              },
+              {
+                "group": ["**/server/**", "**/server"],
+                "message": "Business modules must not import server/; publish through sync/ instead (overview.md, \u5bbf\u4e3b\u5185\u90e8\u7684\u4f9d\u8d56)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/host/src/{sync,store,platform}/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/*"],
+                "message": "Only packages/pi may import pi (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
+              },
+              {
+                "group": ["@atrium/client"],
+                "message": "Host production code must not depend on the client; it is a dev dependency for layer-4 tests only (overview.md)."
+              },
+              {
+                "group": [
+                  "**/projects/**",
+                  "**/workspaces/**",
+                  "**/sessions/**",
+                  "**/transcript/**",
+                  "**/status/**",
+                  "**/setup/**",
+                  "**/titles/**",
+                  "**/files/**",
+                  "**/projects",
+                  "**/workspaces",
+                  "**/sessions",
+                  "**/transcript",
+                  "**/status",
+                  "**/setup",
+                  "**/titles",
+                  "**/files",
+                  "**/server/**",
+                  "**/server"
+                ],
+                "message": "sync/, store/ and platform/ must not import business modules or server/ (overview.md, \u5bbf\u4e3b\u5185\u90e8\u7684\u4f9d\u8d56)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/host/src/**/*.test.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/*"],
+                "message": "Only packages/pi may import pi (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
               }
             ]
           }

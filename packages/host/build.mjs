@@ -1,19 +1,23 @@
 import { build } from "esbuild";
 
 /**
- * Bundles the host into one CommonJS file.
+ * Bundles one host entry point into a single CommonJS file.
  *
  * @remarks
  * A single file avoids `app.asar` missing undeclared peer dependencies at runtime, which Paseo hit
  * (overview.md, "桌面端怎么启动宿主"). The optional native accelerators of `ws` are left out; `ws`
- * works without them.
+ * works without them. The `pnpm pi:try` command imports the host's TypeScript sources and
+ * workspace packages, which Node cannot load directly, so it is bundled the same way.
  *
- * @sideEffects Writes `dist/entry.cjs` and its source map.
+ * @sideEffects Writes `outfile` and its source map.
+ * @param {string} entryPoint - The source file.
+ * @param {string} outfile - The bundle to write.
+ * @returns {Promise<void>} Once the bundle is written.
  */
-async function bundleHost() {
+async function bundle(entryPoint, outfile) {
   await build({
-    entryPoints: ["src/entry.ts"],
-    outfile: "dist/entry.cjs",
+    entryPoints: [entryPoint],
+    outfile,
     bundle: true,
     platform: "node",
     format: "cjs",
@@ -24,4 +28,4 @@ async function bundleHost() {
   });
 }
 
-await bundleHost();
+await Promise.all([bundle("src/entry.ts", "dist/entry.cjs"), bundle("src/dev/try-pi.ts", "dist/try-pi.cjs")]);

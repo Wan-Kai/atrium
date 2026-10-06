@@ -9,6 +9,8 @@ import { defineConfig } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
+  // Every temporary directory of the run lives under one root that is deleted at the end.
+  globalSetup: "../../test-temp-root.ts",
   timeout: 60_000,
   workers: 1,
   fullyParallel: false,

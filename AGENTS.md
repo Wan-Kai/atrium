@@ -47,4 +47,4 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 
 ## 常用命令
 
-`pnpm dev`、`pnpm check`、`pnpm test`（及 `test:pi`、`test:host`、`test:ui`、`test:e2e`、`test:leak`、`test:perf`、`test:mutation`、`test:soak`）、`pnpm bench`、`pnpm trace <trace id>`。M1.1 搭好后以 `package.json` 为准。
+`pnpm dev`、`pnpm check`、`pnpm test`（及 `test:pi`、`test:host`、`test:ui`、`test:e2e`、`test:leak`、`test:perf`、`test:mutation`、`test:soak`）、`pnpm bench`、`pnpm trace <trace id>`、`pnpm pi:try "<提示词>"`、`pnpm fixtures:record`。M1.1 搭好后以 `package.json` 为准。

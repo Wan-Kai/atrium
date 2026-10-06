@@ -129,6 +129,40 @@ export function inSyncSpan<T>(tracer: Tracer, name: string, parent: Context, wor
 }
 
 /**
+ * Runs asynchronous `work` inside a new active span and ends the span when it settles.
+ *
+ * @remarks
+ * The async counterpart of `inSyncSpan`, with the same guarantee that no path leaves the span
+ * open. The parent defaults to the span active where it is called, so spans nest the way the
+ * code calls itself (observability.md, "一条链路包含什么").
+ *
+ * @sideEffects Starts and ends a span; records an exception and error status if `work` rejects.
+ * @param tracer - Tracer to start the span on.
+ * @param name - Span name, such as `pi.rpc prompt`.
+ * @param work - Code to run with the span active.
+ * @param parent - Parent context; defaults to the active one.
+ * @returns Whatever `work` resolves with.
+ */
+export function inSpan<T>(
+  tracer: Tracer,
+  name: string,
+  work: (span: Span) => Promise<T>,
+  parent: Context = context.active(),
+): Promise<T> {
+  return tracer.startActiveSpan(name, {}, parent, async (span) => {
+    try {
+      return await work(span);
+    } catch (error) {
+      span.recordException(error instanceof Error ? error : String(error));
+      span.setStatus({ code: SpanStatusCode.ERROR });
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
+}
+
+/**
  * Span processor that counts spans between start and end.
  *
  * @remarks

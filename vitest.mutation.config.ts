@@ -24,6 +24,7 @@ export default defineConfig({
     ),
   },
   test: {
+    globalSetup: ["./test-temp-root.ts"],
     include: [`${packages}/*.test.ts`, `${packages}/*.host.test.ts`],
     exclude: [`${packages}/*.{pi,leak,soak,browser}.test.ts`, "**/node_modules/**"],
     testTimeout: 15_000,

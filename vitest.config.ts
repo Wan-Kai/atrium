@@ -12,11 +12,12 @@ const packages = "packages/*/{src,test}/**";
  */
 export default defineConfig({
   test: {
+    globalSetup: ["./test-temp-root.ts"],
     projects: [
       {
         test: {
           name: "unit",
-          include: [`${packages}/*.test.ts`],
+          include: [`${packages}/*.test.ts`, "scripts/**/*.test.ts"],
           exclude: [`${packages}/*.{pi,host,leak,soak,browser}.test.ts`],
           benchmark: { include: [`${packages}/*.bench.ts`] },
         },

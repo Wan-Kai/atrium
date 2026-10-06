@@ -402,7 +402,7 @@ Electron 主进程
 - 缺 Node.js（pi 需要 22.19 以上，安装脚本会先检查）：有 Homebrew 时提供"用 Homebrew 安装 Node.js"（`brew install node`），装好后接着安装 pi；没有 Homebrew 时给出 nodejs.org 的下载链接。
 - 版本低于要求：主按钮"更新 pi"，运行 `pi update --self`，同样显示日志。pi 报告"无法自更新这种安装方式"时，退回到手动更新。
 - 失败时显示"没有装好"、完整日志和"重试"，并自动展开手动方式。手动方式始终可以展开：安装命令（npm / 安装脚本两种，可复制）、"我装好了，重新检测"、手动选择 pi 的位置。
-- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。
+- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现，2026-10-05 定为取完整环境）：取登录 shell 的**完整环境**，不只是 `PATH`，这样 `.zshrc` 里设的 API Key、代理（`HTTPS_PROXY`）、`NODE_OPTIONS` 在 Atrium 里同样生效，和终端里的 pi 一致；实测取完整环境和只取 `PATH` 一样快，时间都花在 shell 启动上。先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设变量），失败或超时（10 秒）再用登录 shell（`-l -c`）；`/usr/bin/env -0` 的输出夹在随机标记之间，rc 文件打印的横幅、回显不影响，值里的换行不会被拆开；shell 自己的 `SHLVL`、`_`、`PWD`、`OLDPWD` 不要。shell 只带宿主的少数变量启动（`HOME`、`USER`、`SHELL`、`TMPDIR`、语言、`SSH_AUTH_SOCK`、`ZDOTDIR`、`PATH`），结果里去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，token 不会进入 pi 的环境。支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用宿主的环境（同样去掉这两类变量）。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 1～2.6 秒）；只在宿主启动时读一次，之后每个会话的 pi 都用这份环境。环境里可能有密钥，日志只记来源、`PATH` 和变量个数。
 
 **第 2 步：登录模型**
 
@@ -516,7 +516,7 @@ Electron 主进程
 ## 风险与待定问题
 
 - [ ] **没有审批的风险**：agent 可能误删文件或执行危险命令。缓解：MVP 1 只在 git 仓库里使用，出问题用 git 回滚。
-- [x] **pi 适配器用 pi 自带的 `RpcClient`，还是自己实现 JSONL 客户端**：自己实现（2026-10-04 定，对照 pi 1.0.1 的 `rpc-client.ts`）。`RpcClient` 没有发送 `extension_ui_response` 的方法（`send()` 是私有的），做不了需求 10；它还写死了 `node <cli.js>` 的启动方式、每条命令 30 秒超时（`compact` 会超）、无限增长的 stderr，并要依赖整个 `pi-coding-agent` 包。自己实现约 300 行：直接启动 `pi --mode rpc`，按命令设超时，stderr 只留最近一段、其余写日志，退出时杀进程组；分帧照搬 pi 的 `jsonl.ts`（MIT，只按 LF 切行）；类型用 `import type` 从固定版本的 pi 包取，只在开发时安装。Paseo 也是自己实现。
+- [x] **pi 适配器用 pi 自带的 `RpcClient`，还是自己实现 JSONL 客户端**：自己实现（2026-10-04 定，对照 pi 1.0.1 的 `rpc-client.ts`）。`RpcClient` 没有发送 `extension_ui_response` 的方法（`send()` 是私有的），做不了需求 10；它还写死了 `node <cli.js>` 的启动方式、每条命令 30 秒超时（`compact` 会超）、无限增长的 stderr，并要依赖整个 `pi-coding-agent` 包。自己实现约 300 行：直接启动 `pi --mode rpc`，按命令设超时，stderr 只留最近一段、其余写日志，退出时先关 stdin、再 SIGTERM，最后连同所有后代的进程组一起 SIGKILL（2026-10-04 实测后细化，见 pi-internals §3"退出"）；分帧照搬 pi 的 `jsonl.ts`（MIT，只按 LF 切行）；类型用 `import type` 从固定版本的 pi 包取，只在开发时安装。Paseo 也是自己实现。
 - [x] **包管理器**：pnpm workspaces。
 - [x] **UI 组件库和状态管理**：组件用 shadcn；`client` 用 Zustand 的 `zustand/vanilla`（2026-10-04 定）：约 1KB、不依赖 React 和 DOM，UI 用 `useStore(store, selector)` 订阅。按领域拆 store：列表（项目、工作区、会话摘要）、每个会话一个（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息，其他轮次引用不变；选择器返回对象时用 `useShallow`；不引入 Immer。备选里自己写 store 要重做选择器和 devtools，MobX / Valtio 的可变代理不利于按序号整段替换，Jotai 围绕 React 设计，Signals 接 React 不顺。
 - [ ] **pi 版本兼容**：会话文件格式和 RPC 都可能变化。宿主启动时检查 pi 版本，低于最低版本就提示升级。

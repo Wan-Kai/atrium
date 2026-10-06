@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。下一步是 [M1.2](#m12-最窄链路宿主驱动-pi)，开头先验证 faux 模型。**
+**2026-10-04：M1.1 骨架完成，经三方审查（code-review、Grok 4.7、GPT-6-Astra）修复后合并进 `main`。正在做 [M1.2](#m12-最窄链路宿主驱动-pi)（分支 `m1.2-pi-link`）：已完成 faux 模型、LF 分帧、PiProcess（启动、请求对应、期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）；读取登录 shell 的环境与 pi 版本检查、宿主组装（stderr 挂在 `pi.process` span 下、请求 id 来自 span）、`pnpm pi:try` 在终端里流式打出回复、pi 契约测试与夹具（12 个场景，回放替身）；接下来是 M1.2 收尾：补 M1.1 留下的"部分"项、全量变异测试、三方审查、合并。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -150,7 +150,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - pnpm workspaces，目录和依赖规则按 [overview.md · 代码结构](architecture/overview.md#代码结构)：`packages/protocol`、`pi`、`host`、`client`、`ui`、`testkit`，`apps/desktop`；依赖规则用 package.json、tsconfig 的 `lib` 和 oxlint 强制。
   - Electron 主进程用 `utilityProcess.fork` 启动宿主，随机端口 + 随机 token，preload 传给 UI；宿主入口不依赖 Electron，能用 `node` 单独运行。
   - 按 [security.md](architecture/security.md) 落实：token 不进 URL、校验 Origin、Electron 的隔离和导航限制、CSP。
-  - 按 [observability.md](architecture/observability.md) 搭好追踪和日志：OpenTelemetry + 本地 JSONL 导出、pino、脱敏、轮转、`pnpm trace`；命令信封带 `traceparent`。
+  - 按 [observability.md](architecture/observability.md) 搭好追踪和日志：OpenTelemetry + 本地 JSONL 导出、pino、脱敏、轮转、`pnpm trace`；hello 带 `traceparent`（通用命令信封挪到 M1.3，M1.1 完成时没有做）。
   - JSDoc 检查：本地 oxlint 插件的 `atrium/require-jsdoc`，要求第一句、`@remarks`、`@sideEffects`。
   - 在 [development.md](development.md) 里记下固定的 Electron、pnpm 版本和最低 macOS 版本。
   - UI：React + Vite + Tailwind + shadcn；把 design-language 的变量落成 CSS 变量（浅色 / 深色 / 跟随系统）。
@@ -164,12 +164,13 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：宿主启动 `pi --mode rpc`，发一条 prompt，在终端里打出流式文本，直到 `agent_settled`。
 - **范围**：
-  - 先验证 faux 模型：测试 extension 用 `pi.registerProvider()` 注册 pi-ai 的 `fauxProvider()`，在真实 RPC 进程里按脚本回复。不行就改用本地模拟的兼容 OpenAI 接口（见 [testing.md · faux 模型](architecture/testing.md#faux-模型)）。
-  - 第 3 层 pi 契约测试：逐条验证 pi-internals 里依赖的行为，并由它录制第 1 层的夹具。
-  - PiAdapter（自己实现，约 300 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时 SIGTERM → SIGKILL 整个进程组；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
-  - 找到 pi：宿主启动时先从登录 shell 读取 `PATH`（从访达启动的 Electron 拿不到 shell 的 `PATH`），再查找 pi、node、npm、brew。
-  - 版本检查：低于最低版本时提示升级。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
-  - pi 的 stderr 按行记进日志（挂在 `pi.process` span 下），错误卡片"展开看原始报错"要用到；RPC 请求 id 由 span id 生成。
+  - ✅ 先验证 faux 模型：测试 extension 用 `pi.registerProvider()` 注册 pi-ai 的 `fauxProvider()`，在真实 RPC 进程里按脚本回复。已验证通过，实现在 `packages/testkit/src/faux/`（见 [testing.md · faux 模型](architecture/testing.md#faux-模型)）。
+  - ✅ 第 3 层 pi 契约测试：逐条验证 pi-internals 里依赖的行为，并由它录制第 1 层的夹具（12 个场景，见 [testing.md · pi 夹具](architecture/testing.md#pi-夹具2026-10-05-定)；`pnpm fixtures:record` 重录）。
+  - PiAdapter（自己实现，✅ `pi-process.ts`、`jsonl.ts`、`kill-tree.ts` 三个文件，去掉注释约 450 行）：直接启动 `pi --mode rpc`；严格按 LF 分帧（语义照搬 pi 的 `src/modes/rpc/jsonl.ts`，MIT，不用 `readline`；✅ 已实现于 `packages/pi/src/process/jsonl.ts`，改成每块只扫一次，16 MiB 的单行比 pi 的写法快约 60 倍）；按 `id` 对应乱序响应；按命令设超时（`compact` 不限时）；能发 `extension_ui_response`；stderr 只在内存留最近一段；退出时先关 stdin、再 SIGTERM，都不退才 SIGKILL：SIGKILL 前先按父进程关系找出 pi 的所有后代，连同它们各自的进程组一起杀，这一步失败时退而只杀 pi（pi 的 bash 工具子进程有自己的进程组，只杀 pi 的进程组会漏，见 [pi-internals](research/pi-internals.md) §3"退出"）；退出转成事件。类型用 `import type` 从固定版本的 `@earendil-works/pi-coding-agent` 取（开发依赖，不打进应用）。
+  - ✅ 找到 pi：宿主启动后在后台读取登录 shell 的完整环境（从访达启动的 Electron 拿不到 shell 的 `PATH`、API Key、代理等），再在它的 `PATH` 上查找 pi（`packages/host/src/platform/login-shell.ts`、`packages/pi/src/locate/inspect.ts`）。node、npm、brew 的查找留到 M1.8 首次启动时做。
+  - ✅ 版本检查：结果分为找不到、不能运行（带 pi 自己的报错）、版本过低、可用四种；提示升级的界面在 M1.8。最低版本先定为调研时的 1.0.1，pi-internals 里的结论都基于这个版本。
+  - ✅ pi 的 stderr 按行记进日志（挂在 `pi.process` span 下），错误卡片"展开看原始报错"要用到；RPC 请求 id 由 span id 生成（`<span id>-<序号>`）。宿主侧的组装在 `platform/pi-deps.ts`（`PiDeps` 的实现）和 `sessions/traced-pi.ts`（`pi.process`、`pi.rpc` span）。
+  - ✅ 目标里的"在终端里打出流式文本"：`pnpm pi:try "<提示词>"`（`packages/host/src/dev/try-pi.ts`）。
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、pi 的 `src/modes/rpc/rpc-client.ts`（只作对照，不直接用）、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
 - **完成标准**：适配器测试用录制的夹具跑通；分帧的属性测试通过；pi 契约测试全部通过；真实 pi 能完整跑完一轮；启动和停止 pi 200 次后没有残留进程、监听数回到基线；分帧吞吐有了基准基线。
 
@@ -178,7 +179,19 @@ MVP 1 里还没设计、做到时先补设计的：
 - **目标**：在 UI 里发消息，看到流式回复和推理过程。
 - **范围**：
   - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId + traceparent`，事件带 `epoch + seq` 和所属运行的 trace id。
-  - 开工前先补齐协议细节，写进 SPEC-0001"接口与数据"：握手（协议版本、clientId）、心跳、单条消息大小上限、命令的应答方式、错误码表；重写已被取代的 `event-model.md`，或改为从 zod 定义生成。
+  - 开工前先补齐协议细节，写进 SPEC-0001"接口与数据"（2026-10-04 架构审查后补全清单）：
+    - 信封：所有命令都带 `requestId` 和 `traceparent`，会话命令再带 `sessionId`；放在 `protocol/src/envelope.ts`，客户端消息、宿主消息各是一个可辨识联合。
+    - 应答：每条命令恰好一条应答，`{ ok: true, result? }` 或 `{ ok: false, error: { code, params? } }`，错误码是 protocol 里的枚举；未知或无效的消息也回带错误码的应答（届时把现在用日志"message ignored"计数的限流测试改成断言应答）。
+    - 握手：welcome 带宿主实例 id（即列表同步的 generation），客户端重连时据此判断宿主是否重启过；心跳。
+    - 事件：会话事件带 `sessionId + epoch + seq` 和所属运行的 trace id；列表事件带 `collection + generation + seq`。
+    - 追踪：每条命令以自己的 `traceparent` 作父 span，再用 span link 指向连接的 trace，不挂在连接的长 trace 下面。
+    - 附件：图片 base64 后通常超过单条 1 MiB 的上限，在单独上传、客户端先压缩、为附件放宽上限三者中定一个。
+    - 订阅：SubscriptionRegistry 放 `sync/`（domain-model §6、§7）。
+    - 发送端背压：发送前看 `bufferedAmount`，慢客户端不能让宿主内存无限增长。
+    - 界面的错误和性能问题经一条上报消息回传宿主日志。
+    - 重写已被取代的 `event-model.md`，或改为从 zod 定义生成。
+  - 宿主侧：`server/connection.ts`（Connection：socket、clientId、send）和 `server/router.ts`（按 domain-model §8 的表分发命令，每条命令一个 `command <type>` span）从现在的 `ws-server.ts` 拆出来。
+  - 客户端：`createAtriumClient` 作为唯一对外入口（clientId、connect、send、重连，拥有各个 store）；现在的 connection 降为内部模块，`buildHello`、`SocketLike` 不再导出。
   - `client`：WebSocket 连接、断线重连；状态用 Zustand vanilla store，按领域拆成列表、每个会话一个 SessionView（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息；对外只暴露 store 和命令方法。
   - SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
   - UI：用户气泡、回复和推理过程、"进行中 · 12s"；滚动跟随（停在底部时跟随，往上翻停止跟随，出现"↓ 回到底部"）。
@@ -210,7 +223,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **范围**：
   - 开工前先定 `~/.atrium/` 的文件布局、格式版本与迁移、文件损坏时的恢复，写进领域模型；宿主单实例（第二次打开应用时聚焦已有窗口，避免两个宿主同时写索引）。
   - IndexStore（`~/.atrium/`，原子写入）、ProjectService、WorkspaceService（`git worktree list`、分支、创建时间）、MergeInspector（未提交、↑N、无改动、已合并、已移除、无法判断）。
-  - pi 包的 SessionFiles 扫描会话目录、解析文件头；宿主的 SessionCatalog 按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话。
+  - pi 包的 SessionFiles 扫描会话目录、解析文件头；宿主的 SessionCatalog 按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话；新建对话时立刻启动 pi，不等第一条消息（[领域模型 · 已决定 9](architecture/domain-model.md#已决定)）。
   - WorkspaceService 的后台 `git fetch`（窗口聚焦时、每隔几分钟）和聚焦后重算；git 低于 2.38 时只提示合并状态不可用。
   - 侧栏、收件箱、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。
   - 快捷键：⌘N 新建对话，⌘T 新建会话，⌘W 关闭标签，⌘1–9、⌘⇧[ / ⌘⇧] 切换标签。

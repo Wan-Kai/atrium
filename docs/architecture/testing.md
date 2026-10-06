@@ -47,12 +47,80 @@
 
 pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、推理和工具调用（见 pi 的 `packages/ai/README.md` "Faux Provider for Tests"）。测试用一个 pi extension 通过 `pi.registerProvider()` 注册它，启动时 `pi --mode rpc --extension <faux 扩展> --model <faux 模型>`；每个测试的回复脚本通过扩展命令或环境变量指定的文件传入。
 
-这条路还没跑通，M1.2 开头先验证。不行的话，退路是起一个本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
+2026-10-04 在 pi 1.0.2 上验证通过（不需要退路）：
+
+- 扩展里 `import { fauxProvider, ... } from "@earendil-works/pi-ai"` 由 pi 的扩展加载器解析到它自带的 pi-ai，不需要我们安装。
+- 启动参数：`pi --mode rpc --extension <faux 扩展> --provider faux --model <faux 模型 id>`；`PI_CODING_AGENT_DIR` 指向临时目录，隔离用户的 `~/.pi/agent`。
+- 验证过的行为：推理和文本分片流式输出，以 `agent_settled` 结束；工具调用会被 pi 真实执行（bash 工具跑了命令，结果回到下一轮）；`tokensPerSecond` 放慢输出后，`abort` 能在中途打断（`stopReason: "aborted"`）；`stopReason: "error"` 且消息像 5xx 时，pi 会自动重试（`auto_retry_start`）。
+- **结果确定**：faux 默认每片长度随机、`api` 和工具调用 id 带时间戳和随机数。固定 `api`、`tokenSize` 的 `min` 等于 `max`、工具调用传固定 `id` 后，同一脚本跑两次的输出，去掉时间戳字段后逐行相同。夹具录制时只需要规范化时间戳类字段。
+- 回复脚本放在文件里，路径由环境变量传给扩展；每个场景启动一个新的 pi 进程。
+- 实现在 `packages/testkit/src/faux/`：`extension.ts` 是交给 pi 加载的扩展（为什么它能 import pi-ai，见 [架构总览 · 包之间的依赖](overview.md#包之间的依赖)），`fauxPi(script)` 写好脚本并返回启动参数和环境变量，三层测试用同一个入口。
+
+没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
+
+### pi 夹具（2026-10-05 定）
+
+**用途**：第 3 层用真实 pi 跑各种场景，把"宿主发了什么、pi 回了什么"录下来，供第 1 层的纯逻辑测试回放，不用启动 pi。消费者是 M1.3 的事件翻译（实时事件 → Atrium 事件）、M1.4 的对话记录重建（条目 → 对话记录），以及 M1.2 完成标准里的"适配器测试用录制的夹具跑通"。
+
+**位置**：`packages/pi/fixtures/pi-<版本>/<场景>.jsonl`，进 git。仓库里只保留一个版本：重录新版本时，在同一次提交里删掉旧版本的目录，这次提交的 diff 就是"pi 的输出变了什么"，旧版本留在 git 历史里。
+
+**格式**：一个场景一个 JSONL 文件，按实际发生的顺序记录宿主和 pi 之间的每一条往来：
+
+| 记录 | 含义 |
+|---|---|
+| `{"kind":"fixture","scenario":"prompt-started","pi":"1.0.2","script":{…},"args":[…]}` | 第一行：场景名、pi 版本、faux 回复脚本、pi 的启动参数 |
+| `{"kind":"send","record":{…}}` | 宿主写给 pi 的一行（命令或 `extension_ui_response`） |
+| `{"kind":"stdout","record":{…}}` | pi 打印的一条记录（响应、事件、对话框请求），原样保存 |
+| `{"kind":"exit","code":0,"signal":null,"requested":true}` | pi 退出；`requested` 表示是不是宿主要它停的，回放时宿主要求的退出等调用方 `stop()` 才发生，其余的当作崩溃自己发生 |
+| `{"kind":"session","lines":[…]}` | 场景结束时会话文件的全部行（文件头 + 条目），只在用到会话文件的场景里有 |
+
+**规范化**（录制时做，保证同一台机器上重录结果逐字节相同）：
+
+- 时间：名为 `timestamp` 的数字字段 → `0`；ISO 时间字符串 → `"1970-01-01T00:00:00.000Z"`；会话文件名里的时间 → `1970-01-01T00-00-00-000Z`。
+- 度量：`usage` 里的所有数字（含 `cost`）、`tokensBefore`、`estimatedTokensAfter`、`wall_time_seconds` → `0`。token 数受系统提示词长度影响，而系统提示词里有本机路径；耗时取决于机器。
+- 路径：临时工作目录 → `<cwd>`，pi 配置目录 → `<agent>`，会话目录 → `<sessions>`，faux 扩展目录 → `<faux>`，用户主目录 → `<home>`（系统提示词里有 pi 的安装路径）。长的路径先换。
+- 随机 id：UUID（会话 id 等）按首次出现的顺序换成 `<uuid-1>`、`<uuid-2>`……；条目 id 只在 `id`、`parentId`、`leafId`、`since`、`targetId`、`firstKeptEntryId` 这几个键下识别，按首次出现的顺序换成 `e1`、`e2`……，引用同一个 id 的地方一起换，树的结构不变；正文里碰巧是 8 位十六进制的文字不动。请求 id 由录制时注入的 `nextRequestId` 生成，本来就是 `r1`、`r2`……。
+- 工具调用 id 本来就由 faux 脚本固定，不用处理。
+
+**录制与漂移检查**：
+
+- `pnpm fixtures:record`：用本机的 pi 重录全部场景，写到 `pi-<本机版本>/`，并删掉其他版本的目录。
+- `pnpm test:pi`：先对真实 pi 做契约断言，再把这次的输出规范化后和同版本的夹具比较，不一致就失败，提示重录并审查 diff。本机 pi 版本没有对应的夹具时也失败，要求先录制。这样升级 pi 后，第一次跑 `test:pi` 就会逼着人看 pi 的输出变了什么。
+- 比较时只忽略系统消息里的文字（role 除外）：系统提示词写着本机的路径，换台机器就不同。系统消息的键和 `sections` 的结构仍要一致，pi 改了系统提示词的组织方式也能发现。夹具本身保存录到的文字。
+
+**回放**：testkit 的 `replayPi` 读一个夹具，提供和 `PiProcess` 同形状的对象（按结构类型匹配，不 import pi 包）：
+
+- `request(command)` 要求它和夹具里下一条 `send` 的类型、字段一致（请求 id 除外），否则抛出写明"期望什么、收到什么"的 `FixtureMismatch`；然后依次发出它后面的 `stdout` 记录，直到下一条 `send`。请求按夹具里录下的 id 登记，录下的响应凭这个 id 找到对应的请求，调用方自己的 id 不用和夹具一致。
+- 失败和真实的 `PiRequestError` 一样：`message` 只有命令和原因，pi 的原文在 `detail`。
+- `respond()` 同样对上下一条 `send`。
+- `stop()` 和真实进程一样：还在等的请求以 `stopped` 失败，之后到的响应丢掉，按夹具的 `exit` 记录结束（调用方没做完场景里的步骤也一样，没有 `exit` 记录时按退出码 0）。停止以后的请求以 `stopped` 失败，崩溃以后的以 `exited` 失败，都不再对夹具；`respond()` 被丢掉。
+- 记录在微任务里逐条发出，保持顺序，不依赖真实时间。
+
+**实现**：录制、规范化、比较和回放在 testkit 的 `pi-fixtures/`；跑场景的 `runScenario` 在 `packages/pi/test/contract.ts`；场景在 `packages/pi/src/contract/*.pi.test.ts`；`packages/pi/src/contract/replay.test.ts` 让每个夹具都按原样回放一遍。
+
+**在运行中途发命令**：faux 回复可以写 `waitFor: "<名字>"`，在测试调用 `release(名字)` 之前不开始输出；这段时间 pi 打印的最后一条是这一轮的用户消息（`message_end`，role 为 user），测试等到它再发命令，命令在夹具里的位置就是固定的。中断会结束等待。faux 扩展还注册了 `/faux-noop`（输入被处理掉，`handled`）和 `/faux-confirm`（弹确认框，再用通知报告结果）。
+
+**首批场景**（全部在 pi 1.0.2 上录制，两次录制逐字节相同）：
+
+| 场景 | 验证 |
+|---|---|
+| `prompt-started` | 一轮完整运行：推理、文本分片、`agent_settled` |
+| `prompt-tool` | 工具调用：`tool_execution_start/update/end`，结果进入下一轮 |
+| `prompt-queued` | 运行中再发 `prompt`（`streamingBehavior`）：`queued` 和 `queue_update` |
+| `prompt-handled` | extension 命令把输入处理掉：`handled`，不运行 |
+| `abort` | 运行中 `clear_queue` + `abort`：`stopReason: "aborted"`，`abort` 在真正停下后才回应 |
+| `session-lazy-file` | 会话文件在第一条消息出现前不存在，之后逐条追加；`get_state.sessionFile` |
+| `get-entries` | `get_entries` 的全量与 `since` 增量、`leafId`；未知 `since` 报错 |
+| `error-retry` | 可重试错误：`auto_retry_start/end`；不可重试错误直接结束 |
+| `dialog` | extension 对话框：`extension_ui_request` → `extension_ui_response` → 继续 |
+| `compaction` | 压缩期间 `prompt` 报错，`compaction_start/end` |
+| `exit-stdin`、`exit-sigterm` | 关 stdin 退出码 0；SIGTERM 退出码 143 |
 
 ## 让每个测试都有效
 
-1. **变异测试是硬门槛**。核心模块（事件翻译、对话记录重建、会话控制器、同步、状态派生、分帧、合并判定）变异分数 ≥ 80%。存活的变异逐个处理：补测试，或在代码里用 `// Stryker disable next-line <变异类型>: <理由>` 说明它与原代码等价或不可达。平时增量跑改动的文件，每个里程碑完成前用 `pnpm test:mutation --force` 全量跑一次。
+1. **变异测试是硬门槛**。核心模块变异分数 ≥ 80%：事件翻译、对话记录重建、会话控制器、同步、状态派生、分帧、合并判定，以及连接层（鉴权、静态文件、WebSocket 服务、协议编解码、客户端连接）。连接层列入是因为 M1.1 的变异测试在这里找出了真实缺陷（握手超时后仍处理 hello、关闭时被暂停的下载挂住），而且它是安全边界。存活的变异逐个处理：补测试，或在代码里用 `// Stryker disable next-line <变异类型>: <理由>` 说明它与原代码等价或不可达。平时增量跑改动的文件，每个里程碑完成前用 `pnpm test:mutation --force` 全量跑一次。
    - 时有时无的测试会让变异分数虚高：偶发失败被算成"杀死了变异"。M1.1 时日志流有竞态，分数显示 93%，修掉竞态后真实分数是 78%，补测试后才到 100%。
+   - 超时也算"检测到"。启动真实子进程的测试在高并发下会变慢，Stryker 把变慢判成超时，分数同样虚高（M1.2 时一个只改日志文字的变异被记为超时）。所以并发固定为 4；看结果时留意超时数，超时的变异要能说清楚为什么会让测试卡住。
 2. **每个测试先见过失败**：一个测试、一段实现交替推进；修 bug 先写能复现它的测试。
 3. **用代码检查约束测试写法**（oxlint vitest 规则）：`expect-expect`（必须有断言）、`no-conditional-expect`、`no-conditional-in-test`、`no-disabled-tests`、`no-focused-tests`、`no-restricted-matchers`（禁 `toBeTruthy`、`toBeDefined` 这类弱断言）、`no-large-snapshots`、`prefer-strict-equal`（整体比对）。
 4. **结果必须确定**：停止的 2 秒锁定、重试退避、平滑揭示、`git fetch` 间隔都用假时钟，不用 `sleep` 等待；随机数注入种子，fast-check 失败会给出种子用于复现；时有时无的测试按 bug 处理，找到根因修掉，不删测试。
@@ -119,6 +187,27 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 - 优先断言确定的计数和回收，堆数值只作辅助，阈值放宽；固定种子，串行运行，降低噪音。
 - 性能预算失败时保留 trace（Playwright trace、CDP 性能记录），便于定位。
 
+### 临时文件与残留进程
+
+测试自己创建的临时目录，在创建后立刻用 `onTestFinished` 登记清理，测试失败也会删除；不要把清理写在测试体末尾。兜底有两层：
+
+- Vitest 和 Playwright 的全局初始化（根目录 `test-temp-root.ts`）把每次运行的 `TMPDIR` 指向一个新目录，运行结束整个删除；测试启动的子进程（pi、宿主、Electron）继承它。
+- 变异测试把 `TMPDIR` 放进 Stryker 的沙箱目录，沙箱结束时删除。超时的变异会被 Stryker 直接杀掉，测试里的清理和上面的全局清理都来不及运行。
+
+测试里启动的替身进程要能自己收场：scripted pi（testkit 里按脚本行为的 pi 替身）发现自己成了孤儿（父进程变成 1 号）就退出，它的孙进程只活 60 秒。这样即使测试进程被 Stryker 超时杀掉，也不会留下一直运行的进程。测试里故意挂住的命令同样要有寿命上限（如 `sleep 25.1234` 这种带小数、按测试进程区分的写法，或有次数上限的循环），不能用 `sleep 4321` 这类长时间的值：M1.2 的全量变异测试中，被打坏的清理逻辑加上被 Stryker 杀掉的测试进程，留下了 59 个卡在 rc 文件里的登录 shell。
+
+教训（M1.2）：一个测试每次留下 64 MiB 的临时目录，变异测试重复跑上千次，把磁盘写满了。
+
+### 测试里的可执行文件
+
+macOS 在一个新建的可执行文件第一次运行前会先检查它，这些检查要排队：100 个新写的脚本同时运行，中位数要 7 秒、最慢 14 秒；而通过符号链接运行一个已经检查过的文件，中位数只要 37 毫秒（2026-10-05 实测）。所以测试不要每次新写可执行文件：
+
+- 测试用的替身（scripted pi、shell pi）每种内容只写一份，按内容哈希命名、原子写入，放在全局初始化指定的目录里，所有测试进程共用；测试在自己的临时目录里放一个指向它的符号链接，行为通过环境变量传入。
+- 全局初始化（`test-temp-root.ts`）在任何测试进程启动前先把它们各运行一次，检查在单进程时完成。
+- 这个目录不在每次运行的临时根目录下，所以跨运行复用，只检查一次；变异测试时它在 Stryker 的沙箱里。
+
+教训（M1.2）：几个测试在高并发下时有时无地失败，表现为"pi --version 10 秒没回应"、"停止时 pi 还没启动完就收到了 SIGTERM"，根因都是新写的可执行文件第一次运行被挡住。
+
 ### 运行时监控
 
 测试覆盖不到真实使用。宿主每分钟把资源计数、堆、RSS 写进日志；Electron 主进程用 `app.getAppMetrics()` 记录各进程的内存和 CPU。M1.9 自用期间每天看一眼趋势，发现持续上涨就补一个能复现的泄漏测试。
@@ -128,7 +217,8 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 | 命令 | 内容 |
 |---|---|
 | `pnpm test` | 第 1、2 层 |
-| `pnpm test:pi` | 第 3 层（需要本机装有 pi） |
+| `pnpm test:pi` | 第 3 层（需要本机装有 pi）：契约断言，并检查输出和同版本的夹具一致 |
+| `pnpm fixtures:record` | 用本机 pi 重录全部夹具，删掉其他版本的夹具目录；提交前审查 diff |
 | `pnpm test:host` | 第 4 层 |
 | `pnpm test:ui` | 第 5 层 |
 | `pnpm test:e2e` | 第 6 层 |

@@ -88,3 +88,25 @@ function scrub(text: string, secrets: readonly string[]): string {
   }
   return result;
 }
+
+/** Variable names that suggest the value is a credential. */
+const SECRET_VARIABLE = /key|token|secret|password|passwd|credential|auth/i;
+
+/**
+ * Picks the values of credential-like variables from an environment, for the logger's secret list.
+ *
+ * @remarks
+ * The login shell's environment, which pi inherits, usually holds the user's API keys
+ * (`OPENAI_API_KEY`). pi's stderr is logged line by line, and pi or a tool may print a key there;
+ * registering these values lets the redactor scrub them from any log line (security.md,
+ * "凭据与日志"). Keys pi keeps in its own `auth.json` are not known to Atrium and are not covered.
+ *
+ * @sideEffects none
+ * @param env - An environment.
+ * @returns The values of variables whose names look like credentials.
+ */
+export function secretsInEnvironment(env: Readonly<Record<string, string | undefined>>): string[] {
+  return Object.entries(env).flatMap(([name, value]) =>
+    value !== undefined && SECRET_VARIABLE.test(name) && value.length >= MIN_SECRET_LENGTH ? [value] : [],
+  );
+}

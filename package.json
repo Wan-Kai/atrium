@@ -22,7 +22,9 @@
     "test:mutation": "stryker run",
     "bench": "vitest bench --run",
     "trace": "node scripts/trace.mjs",
-    "postinstall": "pnpm --filter @atrium/desktop exec install-electron"
+    "postinstall": "pnpm --filter @atrium/desktop exec install-electron",
+    "pi:try": "pnpm --silent --filter @atrium/host build && node packages/host/dist/try-pi.cjs",
+    "fixtures:record": "node scripts/record-fixtures.mjs"
   },
   "devDependencies": {
     "@stryker-mutator/core": "10.0.0",
