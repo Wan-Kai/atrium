@@ -1,30 +1,12 @@
 # 事件模型
 
-> 状态：**已被取代**。MVP 1 的命令和事件以 [SPEC-0001 · 接口与数据](../specs/0001-mvp1-single-session-chat.md#接口与数据) 为准，对应的类见 [领域模型](domain-model.md)。下面是早期草案，仅作历史参考；协议定稿后整体重写本文。
+> 2026-10-07 改写。早期草案（`turn_started`、`interrupt` 等）已被取代，不再保留。
 
-Atrium 协议是 UI 和宿主之间的唯一契约，经 WebSocket 传输，在 `packages/protocol` 里用 zod 定义，两端共用并做运行时校验（见 [ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)）。
+Atrium 协议是 UI 和宿主之间的唯一契约，经 WebSocket 传输（[ADR-0005](../adr/0005-split-host-and-ui-pwa-first.md)）。
 
-## 命令（UI → 宿主）
+- **准绳**：`packages/protocol` 里的 zod 定义，两端共用，收到的每条消息都做运行时校验。
+- **概览与规则**：[SPEC-0001 · 接口与数据](../specs/0001-mvp1-single-session-chat.md#接口与数据)：信封、应答、握手与心跳、事件的序号、追踪、订阅、背压、附件，以及命令和事件的总表。
+- **命令落到哪个类、事件从哪来**：[领域模型 §8](domain-model.md#8-协议与类的对应)。
+- **pi 的 RPC 事件怎么翻译成 Atrium 的事件**：[pi-internals.md](../research/pi-internals.md) §3 和宿主的 EventTranslator。
 
-| 命令 | 说明 |
-|---|---|
-| `prompt(text, attachments?)` | 发起一轮对话 |
-| `interrupt()` | 中断当前 turn |
-| `close()` | 结束会话，释放进程 |
-
-## 事件（宿主 → UI）
-
-| 事件 | 说明 |
-|---|---|
-| `turn_started` | 一轮开始 |
-| `text_delta` | 回复文本增量 |
-| `reasoning_delta` | 推理内容增量 |
-| `tool_started` | 工具开始执行（名称、参数） |
-| `tool_finished` | 工具执行结束，携带结构化 `details`，供插件视图渲染 |
-| `turn_settled` | agent 不会再自动继续 |
-| `error` | 错误 |
-
-## 参照
-
-- Paseo 的 `AgentSession` 接口（`startTurn` / `subscribe` / `interrupt` / `close`）
-- pi 的 [RPC 协议](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/rpc.md)
+这里不再另列命令和事件，避免和 zod 定义、SPEC 出现两份不一致的清单。
