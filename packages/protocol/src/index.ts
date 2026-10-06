@@ -1,6 +1,6 @@
 export { PROTOCOL_VERSION } from "./version";
 export { CloseCode, HelloMessage, WelcomeMessage } from "./handshake";
-export { ErrorCode, ErrorInfo, ErrorParams } from "./errors";
+export { CommandError, ErrorCode, ErrorInfo, ErrorParams } from "./errors";
 export {
   COMMAND_TYPES,
   ClientIssueKind,

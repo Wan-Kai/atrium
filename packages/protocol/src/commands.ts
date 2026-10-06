@@ -22,9 +22,11 @@ const sessionCommandFields = { ...commandFields, sessionId: SessionId };
 
 /** Heartbeat: the client sends one every `heartbeatMs` and expects the response within as long. */
 export const PingCommand = z.strictObject({ type: z.literal("ping"), ...commandFields });
+export type PingCommand = z.infer<typeof PingCommand>;
 
 /** Creates a chat: a directory under `~/.atrium/chats/` with a session whose pi starts at once. */
 export const CreateChatCommand = z.strictObject({ type: z.literal("create_chat"), ...commandFields });
+export type CreateChatCommand = z.infer<typeof CreateChatCommand>;
 
 /**
  * Sets which sessions this client receives live events for, replacing the previous set.
@@ -38,6 +40,7 @@ export const SubscribeSessionsCommand = z.strictObject({
   ...commandFields,
   sessionIds: z.array(SessionId).max(64),
 });
+export type SubscribeSessionsCommand = z.infer<typeof SubscribeSessionsCommand>;
 
 /** Sends a message to a session; its `requestId` doubles as the user message's `clientMessageId`. */
 export const PromptCommand = z.strictObject({
@@ -45,6 +48,7 @@ export const PromptCommand = z.strictObject({
   ...sessionCommandFields,
   text: z.string().min(1),
 });
+export type PromptCommand = z.infer<typeof PromptCommand>;
 
 /** Kinds of problems the UI reports to the host's log. */
 export const ClientIssueKind = z.enum(["error", "long_task", "slow_frames"]);
@@ -57,6 +61,7 @@ export const ReportClientIssueCommand = z.strictObject({
   message: z.string().max(4096),
   details: z.string().max(4096).optional(),
 });
+export type ReportClientIssueCommand = z.infer<typeof ReportClientIssueCommand>;
 
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
@@ -86,8 +91,11 @@ export const CommandResult = {
   create_chat: z.strictObject({ sessionId: SessionId }),
   subscribe_sessions: z.strictObject({}),
   prompt: z.strictObject({
-    /** `started` runs the message; `handled` means an extension consumed it without a run. */
-    disposition: z.enum(["started", "handled"]),
+    /**
+     * `started` runs the message; `queued` waits for the run in progress; `handled` means an
+     * extension consumed it without a run.
+     */
+    disposition: z.enum(["started", "queued", "handled"]),
   }),
   report_client_issue: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;

@@ -28,3 +28,33 @@ export type ErrorParams = z.infer<typeof ErrorParams>;
 /** A failure as it travels in a response. */
 export const ErrorInfo = z.strictObject({ code: ErrorCode, params: ErrorParams.optional() });
 export type ErrorInfo = z.infer<typeof ErrorInfo>;
+
+/**
+ * A command that failed with a protocol error code.
+ *
+ * @remarks
+ * The host throws it from a command handler to answer with that code; the client rejects with it
+ * when a response fails. The message names only the code, never user-facing text (AGENTS.md).
+ *
+ * @sideEffects none
+ */
+export class CommandError extends Error {
+  override readonly name = "CommandError";
+
+  /**
+   * Creates the error.
+   *
+   * @remarks
+   * `params` are values the UI fills into its wording, such as the pi status.
+   *
+   * @sideEffects none
+   * @param code - Why the command failed.
+   * @param params - Values for the UI's wording.
+   */
+  constructor(
+    readonly code: ErrorCode,
+    readonly params?: ErrorParams,
+  ) {
+    super(`command failed: ${code}`);
+  }
+}

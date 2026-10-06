@@ -299,6 +299,10 @@ importers:
         version: 0.28.2
 
   packages/pi:
+    dependencies:
+      '@atrium/protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       '@atrium/testkit':
         specifier: workspace:*

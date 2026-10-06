@@ -18,9 +18,12 @@ afterEach(async () => {
   testHost = undefined;
 });
 
-/** Opens a raw `ws` socket, optionally with an Origin header; records what it receives and how it ended. */
-function openRaw(url: string, options: { origin?: string } = {}) {
-  const socket = new WebSocket(url, options.origin === undefined ? {} : { origin: options.origin });
+/** Opens a raw `ws` socket, optionally with an Origin header or without answering pings; records what it receives and how it ended. */
+function openRaw(url: string, options: { origin?: string; autoPong?: boolean } = {}) {
+  const socket = new WebSocket(url, {
+    ...(options.origin === undefined ? {} : { origin: options.origin }),
+    autoPong: options.autoPong ?? true,
+  });
   const messages: string[] = [];
   socket.on("message", (data: Buffer) => messages.push(data.toString("utf8")));
   const ended = new Promise<{ status?: number; code?: number; reason?: string }>((done) => {
@@ -91,6 +94,26 @@ function hello(fields: Record<string, unknown>): string {
     clientId: "raw",
     traceparent: "",
     ...fields,
+  });
+}
+
+/** The `ws.connect` span record in a log with one handshake. */
+function handshakeSpan(log: readonly Record<string, unknown>[]): Record<string, unknown> {
+  return present(
+    log.find((record) => record["kind"] === "span" && record["name"] === "ws.connect"),
+    "ws.connect span",
+  );
+}
+
+/** Trace id a test's hello carries when the test checks which trace the connection's logs join. */
+const helloTraceId = "6bf92f3577b34da6a3ce929d0e0e4738";
+
+/** A `ping` command with the given request id. */
+function ping(requestId: string): string {
+  return JSON.stringify({
+    type: "ping",
+    requestId,
+    traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
   });
 }
 
@@ -220,46 +243,55 @@ describe("host connection handshake", () => {
     await opened;
 
     socket.send(hello({ token: testHost.token }));
-    socket.send("right behind hello");
+    socket.send(ping("r1"));
 
-    await vi.waitFor(async () =>
-      expect(await testHost?.readLog()).toContainEqual(
-        expect.objectContaining({ msg: "message ignored: no command routing yet", bytes: 18 }),
-      ),
-    );
-    expect(messages).toHaveLength(1);
+    await vi.waitFor(() => expect(messages).toHaveLength(2));
+    expect(JSON.parse(present(messages[1], "response"))).toStrictEqual({
+      type: "response",
+      requestId: "r1",
+      ok: true,
+      result: {},
+    });
   });
 
   it("allows exactly 200 messages per second, starts a fresh window after one second, and drops the 201st", async () => {
     const clock = new FakeClock();
     testHost = await startTestHost({ clock });
-    const { socket, opened, ended } = openRaw(testHost.url);
+    const { socket, opened, ended, messages } = openRaw(testHost.url);
     await opened;
     socket.send(hello({ token: testHost.token }));
+    // Every message within the limit gets its answer, here `invalid_message`; the welcome comes first.
     for (let count = 1; count < 200; count++) socket.send("x");
-    await vi.waitFor(async () => expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(199));
+    await vi.waitFor(() => expect(messages).toHaveLength(200));
 
     clock.advance(1_000);
     for (let count = 0; count < 200; count++) socket.send("x");
-    await vi.waitFor(async () => expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(399));
+    await vi.waitFor(() => expect(messages).toHaveLength(400));
     expect(socket.readyState).toBe(WebSocket.OPEN);
     for (let count = 0; count < 5; count++) socket.send("over the limit");
 
     expect(await ended).toStrictEqual({ code: CloseCode.RateLimited, reason: "rate limited" });
-    expect(await countLog(testHost, "client dropped: message rate limit exceeded")).toBe(1);
-    expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(399);
+    const log = await testHost.readLog();
+    // The line joins the connection's handshake trace.
+    expect(log.filter((record) => record["msg"] === "client dropped: message rate limit exceeded")).toStrictEqual([
+      expect.objectContaining({ trace_id: handshakeSpan(log)["trace_id"] }),
+    ]);
+    expect(messages).toHaveLength(400);
+    expect(new Set(messages.slice(1))).toStrictEqual(
+      new Set([JSON.stringify({ type: "response", requestId: null, ok: false, error: { code: "invalid_message" } })]),
+    );
   });
 
   it("allows exactly 8 MiB per second and drops the next byte", async () => {
     testHost = await startTestHost({ clock: new FakeClock() });
-    const { socket, opened, ended } = openRaw(testHost.url);
+    const { socket, opened, ended, messages } = openRaw(testHost.url);
     await opened;
     const first = hello({ token: testHost.token });
     const mib = 1024 * 1024;
     socket.send(first);
     for (let count = 0; count < 7; count++) socket.send("y".repeat(mib));
     socket.send("y".repeat(mib - Buffer.byteLength(first)));
-    await vi.waitFor(async () => expect(await countLog(testHost, "message ignored: no command routing yet")).toBe(8));
+    await vi.waitFor(() => expect(messages).toHaveLength(9));
     expect(socket.readyState).toBe(WebSocket.OPEN);
 
     socket.send("y");
@@ -371,7 +403,8 @@ describe("host connection handshake", () => {
 
     await testHost.connect().connect();
 
-    expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 1, "ws.connection": 1 });
+    // The two timers left are the host's resource report and the connection's heartbeat.
+    expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 2, "ws.connection": 1 });
   });
 
   it("welcomes with the heartbeat and an instance id that is new on every host start", async () => {
@@ -392,6 +425,35 @@ describe("host connection handshake", () => {
     );
   });
 
+  it("pings clients on the injected clock and drops one that has not answered by the next ping", async () => {
+    const clock = new FakeClock();
+    testHost = await startTestHost({ clock });
+    const alive = openRaw(testHost.url);
+    const silent = openRaw(testHost.url, { autoPong: false });
+    await Promise.all([alive.opened, silent.opened]);
+    const pinged = (raw: ReturnType<typeof openRaw>) => new Promise((done) => raw.socket.once("ping", done));
+    const firstPings = [pinged(alive), pinged(silent)];
+    alive.socket.send(hello({ token: testHost.token }));
+    silent.socket.send(hello({ token: testHost.token, traceparent: `00-${helloTraceId}-00f067aa0ba902b7-01` }));
+    await Promise.all(firstPings);
+    // The host reads the pong before this command, so once the answer is back the pong has arrived.
+    alive.socket.send(ping("r1"));
+    await vi.waitFor(() => expect(alive.messages).toHaveLength(2));
+
+    const secondPing = pinged(alive);
+    clock.advance(15_000);
+
+    expect(await silent.ended).toStrictEqual({ code: 1006, reason: "" });
+    expect(alive.socket.readyState).toBe(WebSocket.OPEN);
+    const log = await testHost.readLog();
+    const dropped = log.filter((record) => record["msg"] === "client dropped: no pong before the next ping");
+    // The line joins the dropped client's own handshake trace.
+    expect(dropped).toStrictEqual([expect.objectContaining({ trace_id: helloTraceId })]);
+    await vi.waitFor(() => expect(testHost?.host.resources.snapshot()).toMatchObject({ "sync.connection": 1 }));
+    // The one still connected keeps being pinged.
+    await secondPing;
+  });
+
   it("answers only the first of two hellos", async () => {
     testHost = await startTestHost();
     const { socket, opened, messages } = openRaw(testHost.url);
@@ -401,17 +463,13 @@ describe("host connection handshake", () => {
     socket.send(hello({ token: testHost.token }));
     socket.send("after welcome");
 
-    await vi.waitFor(async () =>
-      expect(
-        (await testHost?.readLog())?.filter((record) => record["msg"] === "message ignored: no command routing yet"),
-      ).toHaveLength(2),
-    );
-    // A pong is sent after any welcome, so once it arrives every welcome has arrived too.
-    await new Promise((done) => {
-      socket.once("pong", done);
-      socket.ping();
-    });
-    expect(messages).toHaveLength(1);
+    await vi.waitFor(() => expect(messages).toHaveLength(3));
+    expect(messages.slice(1).map((message) => JSON.parse(message))).toStrictEqual([
+      // After the handshake, `hello` is not a command; its `requestId` cannot be read.
+      { type: "response", requestId: null, ok: false, error: { code: "unknown_command" } },
+      { type: "response", requestId: null, ok: false, error: { code: "invalid_message" } },
+    ]);
+    expect(JSON.parse(present(messages[0], "welcome"))).toMatchObject({ type: "welcome" });
   });
 
   it("logs a disconnect only for clients that were let in", async () => {

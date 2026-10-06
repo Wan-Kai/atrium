@@ -8,7 +8,11 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import { contextFromTraceparent, inSyncSpan } from "../platform/tracing";
+import type { SessionCommands } from "../sessions/session-commands";
+import type { SubscriptionRegistry } from "../sync/subscriptions";
 import { tokensMatch } from "./auth";
+import { type Connection, createConnection } from "./connection";
+import { type Route, createRouter } from "./router";
 import { serveStatic } from "./static-files";
 
 /** Limits that keep one local process from exhausting the host (security.md, "WebSocket 与鉴权"). */
@@ -39,8 +43,14 @@ export interface WsServerOptions {
   readonly hostVersion: string;
   /** Random per host start; tells a reconnecting client whether the host restarted. */
   readonly hostInstanceId: string;
-  /** How often clients ping and how long they wait for the answer. */
+  /** How often clients ping and how long they wait for the answer; also the host's ping interval. */
   readonly heartbeatMs: number;
+  /** Bytes that may wait to be sent to one client before it is dropped as too slow. */
+  readonly maxBufferedBytes: number;
+  /** Where connections register to receive session events. */
+  readonly subscriptions: SubscriptionRegistry;
+  /** Handles session commands. */
+  readonly sessions: SessionCommands;
   readonly logger: Logger;
   readonly tracer: Tracer;
   readonly clock: Clock;
@@ -93,6 +103,8 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
   });
   // Stryker restore all
   const wss = new WebSocketServer({ noServer: true, maxPayload: options.maxPayloadBytes });
+  const route = createRouter({ sessions: options.sessions, tracer: options.tracer, logger: options.logger });
+  let nextConnectionId = 0;
 
   httpServer.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
     const origin = request.headers.origin;
@@ -109,7 +121,9 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
       }
       sockets.add(ws);
       ws.once("close", () => sockets.delete(ws));
-      acceptConnection(ws, options);
+      // Stryker disable next-line AssignmentOperator: counting down gives unique ids just the same.
+      nextConnectionId += 1;
+      acceptConnection(ws, `connection-${nextConnectionId}`, route, options);
     });
   });
 
@@ -162,25 +176,36 @@ function listen(server: Server, port: number): Promise<{ port: number; address: 
 }
 
 /**
- * Runs the handshake for one new socket and tracks it until it closes.
+ * Runs the handshake for one new socket, then serves it until it closes.
  *
  * @remarks
  * The first message must be `hello`, and it is decided synchronously, so a frame that arrives in
  * the same TCP read is already handled as an authenticated message. A rejected client is closed
  * and anything it still sends is ignored. Every message, before or after the handshake, counts
- * against the per-second limits. Command routing arrives in M1.3, so authenticated messages are
- * only logged for now.
+ * against the per-second limits. Once accepted, the socket becomes a `Connection` registered for
+ * session events, each message goes to the router, and the host pings it every `heartbeatMs`: a
+ * client that has not answered the previous ping by the next one is gone (asleep, or its network
+ * dropped) and is terminated (SPEC-0001, "握手与心跳").
  *
- * @sideEffects Counts the connection and its handshake timer as resources; may close the socket
- * with a protocol close code; logs the outcome.
+ * @sideEffects Counts the connection, its handshake timer and its heartbeat timer as resources;
+ * may close or terminate the socket; registers and unregisters the connection for session events;
+ * logs the outcome.
  * @param ws - The upgraded socket.
+ * @param connectionId - Opaque id for the connection.
+ * @param route - Handles each message after the handshake.
  * @param options - Server configuration and shared services.
  */
-function acceptConnection(ws: WebSocket, options: WsServerOptions): void {
+function acceptConnection(ws: WebSocket, connectionId: string, route: Route, options: WsServerOptions): void {
   const releaseConnection = options.resources.acquire("ws.connection");
-  let phase: "awaiting-hello" | "open" | "closed" = "awaiting-hello";
-  /** Trace of the accepted handshake; later records of this connection join it. */
+  /** Set once the client was dropped or rejected; nothing it sends is handled after that. */
+  let closed = false;
+  /** Set once the hello is accepted. */
+  let connection: Connection | undefined;
+  /** Trace of the accepted handshake; the connection's log lines join it. */
   let connectionTrace: Context = ROOT_CONTEXT;
+  let cancelHeartbeat: (() => void) | undefined;
+  /** Whether a pong arrived since the last ping; the first beat only pings. */
+  let answered = true;
   let windowStart = options.clock.now();
   let windowMessages = 0;
   let windowBytes = 0;
@@ -189,8 +214,8 @@ function acceptConnection(ws: WebSocket, options: WsServerOptions): void {
     options.resources,
     () => {
       // Stryker disable next-line all: the timer is cancelled when the hello arrives, so it only fires while awaiting it.
-      if (phase !== "awaiting-hello") return;
-      phase = "closed";
+      if (connection !== undefined || closed) return;
+      closed = true;
       options.logger.warn("client dropped: no hello before timeout");
       ws.close(CloseCode.HandshakeTimeout, "handshake timeout");
     },
@@ -219,33 +244,68 @@ function acceptConnection(ws: WebSocket, options: WsServerOptions): void {
     return windowMessages <= options.limits.messagesPerSecond && windowBytes <= options.limits.bytesPerSecond;
   }
 
+  /**
+   * Pings the client, or terminates it if the previous ping went unanswered.
+   *
+   * @remarks
+   * Browsers answer pings by themselves, so only a client that is really gone stays silent.
+   *
+   * @sideEffects Sends a ping or terminates the socket; schedules the next beat.
+   */
+  function beat(): void {
+    if (!answered) {
+      context.with(connectionTrace, () => options.logger.warn("client dropped: no pong before the next ping"));
+      ws.terminate();
+      return;
+    }
+    answered = false;
+    ws.ping();
+    cancelHeartbeat = trackedTimeout(options.clock, options.resources, beat, options.heartbeatMs);
+  }
+
   ws.on("message", (data: RawData, isBinary: boolean) => {
-    if (phase === "closed") return;
+    if (closed) return;
     const bytes = rawLength(data);
     if (!withinLimits(bytes)) {
-      phase = "closed";
+      closed = true;
       context.with(connectionTrace, () => options.logger.warn("client dropped: message rate limit exceeded"));
       ws.close(CloseCode.RateLimited, "rate limited");
       return;
     }
-    if (phase === "open") {
-      context.with(connectionTrace, () => options.logger.debug({ bytes }, "message ignored: no command routing yet"));
+    if (connection !== undefined) {
+      // Fire and forget: the router answers every message itself and never rejects.
+      void route(connection, isBinary ? undefined : parseJson(data));
       return;
     }
     cancelHandshakeTimer();
     const accepted = handleHello(ws, data, isBinary, options);
     if (accepted === null) {
-      phase = "closed";
-    } else {
-      phase = "open";
-      connectionTrace = accepted;
+      closed = true;
+      return;
     }
+    connectionTrace = accepted.trace;
+    connection = createConnection(ws, {
+      id: connectionId,
+      clientId: accepted.clientId,
+      trace: accepted.trace,
+      maxBufferedBytes: options.maxBufferedBytes,
+      logger: options.logger,
+    });
+    const open = connection;
+    options.subscriptions.connect(connectionId, (event) => open.send(event));
+    beat();
+  });
+  ws.on("pong", () => {
+    answered = true;
   });
   ws.on("error", (error) => options.logger.warn({ err: error }, "websocket error"));
   ws.once("close", (code: number) => {
     cancelHandshakeTimer();
+    cancelHeartbeat?.();
     releaseConnection();
-    if (phase === "open") context.with(connectionTrace, () => options.logger.info({ code }, "client disconnected"));
+    if (connection === undefined) return;
+    options.subscriptions.disconnect(connectionId);
+    context.with(connectionTrace, () => options.logger.info({ code }, "client disconnected"));
   });
 }
 
@@ -262,10 +322,15 @@ function acceptConnection(ws: WebSocket, options: WsServerOptions): void {
  * @param data - The raw first message.
  * @param isBinary - Whether the frame was binary; `hello` must be text.
  * @param options - Server configuration and shared services.
- * @returns The trace context of the accepted handshake, so later records of the connection can
- * join the same trace; `null` when the client was rejected.
+ * @returns The client's id and the trace context of the accepted handshake, so later records of the
+ * connection can join or link to the same trace; `null` when the client was rejected.
  */
-function handleHello(ws: WebSocket, data: RawData, isBinary: boolean, options: WsServerOptions): Context | null {
+function handleHello(
+  ws: WebSocket,
+  data: RawData,
+  isBinary: boolean,
+  options: WsServerOptions,
+): { readonly clientId: string; readonly trace: Context } | null {
   const hello = isBinary ? null : HelloMessage.safeParse(parseJson(data));
   const parent = hello?.success === true ? contextFromTraceparent(hello.data.traceparent) : ROOT_CONTEXT;
   return inSyncSpan(options.tracer, "ws.connect", parent, (span) => {
@@ -294,7 +359,7 @@ function handleHello(ws: WebSocket, data: RawData, isBinary: boolean, options: W
     };
     ws.send(JSON.stringify(welcome));
     options.logger.info({ client_id: hello.data.clientId }, "client connected");
-    return context.active();
+    return { clientId: hello.data.clientId, trace: context.active() };
   });
 }
 

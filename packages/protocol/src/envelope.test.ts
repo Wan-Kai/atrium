@@ -164,7 +164,7 @@ describe("CommandResult", () => {
     expect(CommandResult.create_chat.parse({ sessionId: "s1" })).toStrictEqual({ sessionId: "s1" });
     expect(CommandResult.prompt.parse({ disposition: "handled" })).toStrictEqual({ disposition: "handled" });
     expect(CommandResult.ping.safeParse({ extra: 1 }).success).toBe(false);
-    expect(CommandResult.prompt.safeParse({ disposition: "queued" }).success).toBe(false);
+    expect(CommandResult.prompt.safeParse({ disposition: "paused" }).success).toBe(false);
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });

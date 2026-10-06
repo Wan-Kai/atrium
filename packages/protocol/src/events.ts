@@ -27,6 +27,7 @@ export type AssistantBlock = z.infer<typeof AssistantBlock>;
 
 /** Why an assistant message ended, as pi reports it. */
 export const StopReason = z.enum(["stop", "length", "toolUse", "error", "aborted"]);
+export type StopReason = z.infer<typeof StopReason>;
 
 /** A user message as the transcript shows it. */
 export const UserMessage = z.strictObject({
@@ -37,6 +38,7 @@ export const UserMessage = z.strictObject({
   clientMessageId: z.string().nullable(),
   timestamp: Timestamp,
 });
+export type UserMessage = z.infer<typeof UserMessage>;
 
 /** A finished assistant message. */
 export const AssistantMessage = z.strictObject({
@@ -48,6 +50,7 @@ export const AssistantMessage = z.strictObject({
   errorMessage: z.string().nullable(),
   timestamp: Timestamp,
 });
+export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
 /** A message in a session's transcript. */
 export const TranscriptMessage = z.discriminatedUnion("role", [UserMessage, AssistantMessage]);
@@ -71,6 +74,7 @@ export const SessionSnapshotEvent = z.strictObject({
   streaming: z.strictObject({ messageId: z.string().min(1), content: z.array(AssistantBlock) }).nullable(),
   run: RunInfo.nullable(),
 });
+export type SessionSnapshotEvent = z.infer<typeof SessionSnapshotEvent>;
 
 /** A run began: pi accepted a message and is working on it. */
 export const RunStartedEvent = z.strictObject({
@@ -78,6 +82,7 @@ export const RunStartedEvent = z.strictObject({
   ...sessionEventFields,
   ...RunInfo.shape,
 });
+export type RunStartedEvent = z.infer<typeof RunStartedEvent>;
 
 /** A run ended for good: pi will not continue on its own. */
 export const RunSettledEvent = z.strictObject({
@@ -87,6 +92,7 @@ export const RunSettledEvent = z.strictObject({
   outcome: z.enum(["completed", "stopped", "failed"]),
   settledAt: Timestamp,
 });
+export type RunSettledEvent = z.infer<typeof RunSettledEvent>;
 
 /** An assistant message started streaming. */
 export const MessageStartedEvent = z.strictObject({
@@ -94,6 +100,7 @@ export const MessageStartedEvent = z.strictObject({
   ...sessionEventFields,
   messageId: z.string().min(1),
 });
+export type MessageStartedEvent = z.infer<typeof MessageStartedEvent>;
 
 /** Fields of a streamed piece of text. */
 const deltaFields = {
@@ -106,9 +113,11 @@ const deltaFields = {
 
 /** More reply text. */
 export const TextDeltaEvent = z.strictObject({ type: z.literal("text_delta"), ...deltaFields });
+export type TextDeltaEvent = z.infer<typeof TextDeltaEvent>;
 
 /** More reasoning text. */
 export const ReasoningDeltaEvent = z.strictObject({ type: z.literal("reasoning_delta"), ...deltaFields });
+export type ReasoningDeltaEvent = z.infer<typeof ReasoningDeltaEvent>;
 
 /** A message is complete: an assistant message that streamed, or a user message pi accepted. */
 export const MessageFinishedEvent = z.strictObject({
@@ -116,6 +125,7 @@ export const MessageFinishedEvent = z.strictObject({
   ...sessionEventFields,
   message: TranscriptMessage,
 });
+export type MessageFinishedEvent = z.infer<typeof MessageFinishedEvent>;
 
 /** The session's pi process ended. */
 export const SessionExitedEvent = z.strictObject({
@@ -126,6 +136,7 @@ export const SessionExitedEvent = z.strictObject({
   code: z.number().int().nullable(),
   signal: z.string().nullable(),
 });
+export type SessionExitedEvent = z.infer<typeof SessionExitedEvent>;
 
 /** Every event about one session. */
 export const SessionEvent = z.discriminatedUnion("type", [

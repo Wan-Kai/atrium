@@ -17,3 +17,4 @@ export {
   type PiTap,
   startPiProcess,
 } from "./process/pi-process";
+export { type EventTranslator, type TranslatedEvent, createEventTranslator } from "./events/translate";
