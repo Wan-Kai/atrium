@@ -52,6 +52,7 @@ export type PromptCommand = z.infer<typeof PromptCommand>;
 
 /** Kinds of problems the UI reports to the host's log. */
 export const ClientIssueKind = z.enum(["error", "long_task", "slow_frames"]);
+export type ClientIssueKind = z.infer<typeof ClientIssueKind>;
 
 /** Writes a UI problem into the host's log; the client truncates both texts to 4 KB first. */
 export const ReportClientIssueCommand = z.strictObject({

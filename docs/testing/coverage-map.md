@@ -84,7 +84,10 @@
 | 事件翻译：真实 pi 输出（推理、文字、出错重试、中断）翻译成带自己 id 的消息和增量；工具调用先不显示且不占位；漏掉开头的块也有序号；停止原因的映射；用户消息的文字 | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
 | 会话控制器：一次运行从 `agent_start` 到 `agent_settled`，带 `prompt` 的 trace；事件按序编号；用户消息带对应 `prompt` 的 `requestId`（`handled` 的跳过）；快照含流式中的消息和运行；运行结果；pi 崩溃时运行失败并报告退出，之后的 `prompt` 被拒 | `packages/host/src/sessions/session-controller.test.ts`（含夹具回放） | 已覆盖 |
 | 新建对话：在 `chats/` 下建目录、在里面启动 pi、用 pi 报告的会话 id；pi 没找到、不可用或启动即退出时 `pi_unavailable`；未知会话 `session_not_found`；宿主关闭时停掉所有 pi | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
-| 一轮对话经 WebSocket：新建、订阅得到快照、发消息得到按序编号的流式事件 | `packages/host/src/chat.host.test.ts` | 已覆盖 |
+| 一轮对话经 WebSocket：新建、订阅得到快照、发消息得到按序编号的流式事件；两个客户端订阅同一会话收到同样的事件；真实客户端从新建到看到回复替换掉乐观显示的消息 | `packages/host/src/chat.host.test.ts` | 已覆盖 |
+| 客户端连接：握手、只认真的 welcome、拒绝原因且不重试、主动断开不重试、替换连接时忽略旧 socket、断线按退避重连（最后一档重复，连上后归零）、可关闭重连、心跳 ping 到下一次没应答就断开 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 客户端命令：每条新的请求 id 和 trace；结果按 schema 校验；错误应答变成 `CommandError`；没有连接或断线时 `ConnectionLostError`、不重发；上报截断到 4 KB | atrium-client.test.ts | 已覆盖 |
+| 会话视图：订阅时创建、退订时释放；快照整体替换；事件按序应用，缺口、重复、换代都重新取快照；流式只复制改动的那一块；乐观显示的消息在确认、失败、被 extension 处理时移除；重连后重新订阅 | `packages/client/src/session-view.test.ts`、atrium-client.test.ts | 已覆盖 |
 
 ## 安全（security.md）
 

@@ -1,4 +1,4 @@
-import { createConnection } from "@atrium/client";
+import { createAtriumClient } from "@atrium/client";
 import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
 import { FakeClock, createTempDir, present } from "@atrium/testkit";
 import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
@@ -120,16 +120,22 @@ function ping(requestId: string): string {
 describe("host connection handshake", () => {
   it("records the whole connection, from handshake to disconnect, under the client's trace", async () => {
     testHost = await startTestHost();
-    const connection = createConnection({
+    const connection = createAtriumClient({
       url: testHost.url,
       token: testHost.token,
       clientId: "traced-client",
       createTrace: () => trace,
+      reconnectDelaysMs: [],
     });
 
     const state = await connection.connect();
 
-    expect(state).toStrictEqual({ status: "connected", traceId: trace.traceId, hostVersion: "0.0.0" });
+    expect(state).toStrictEqual({
+      status: "connected",
+      traceId: trace.traceId,
+      hostVersion: "0.0.0",
+      hostInstanceId: expect.stringMatching(/^[0-9a-f]{16}$/),
+    });
     connection.disconnect();
     await vi.waitFor(() => expect(testHost?.host.resources.snapshot()["ws.connection"]).toBe(0));
     const log = await testHost.readLog();

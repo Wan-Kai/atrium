@@ -1,4 +1,4 @@
-import { createConnection, type Connection } from "@atrium/client";
+import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import { createTempDir } from "@atrium/testkit";
 import { readFile } from "node:fs/promises";
 import { type HostConfig, type RunningHost, startHost } from "../src/main";
@@ -10,7 +10,7 @@ export interface TestHost {
   /** WebSocket URL of the host. */
   readonly url: string;
   /** Creates a client connection, optionally with a different token. */
-  readonly connect: (options?: { token?: string }) => Connection;
+  readonly connect: (options?: { token?: string }) => AtriumClient;
   /** Reads every record written to the host log so far. */
   readonly readLog: () => Promise<Array<Record<string, unknown>>>;
   /** Stops the host and deletes its home directory. */
@@ -41,7 +41,13 @@ export async function startTestHost(overrides: Partial<HostConfig> = {}): Promis
     token,
     url,
     connect: (options = {}) =>
-      createConnection({ url, token: options.token ?? token, clientId: `test-client-${++clientCount}` }),
+      // No reconnecting: a test decides itself when a client comes back.
+      createAtriumClient({
+        url,
+        token: options.token ?? token,
+        clientId: `test-client-${++clientCount}`,
+        reconnectDelaysMs: [],
+      }),
     readLog: async () => {
       host.flushLog();
       return (await readFile(host.logFile, "utf8"))

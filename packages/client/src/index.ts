@@ -1,9 +1,10 @@
 export {
-  type Connection,
-  type ConnectionOptions,
+  type AtriumClient,
+  type AtriumClientOptions,
+  type ClientClock,
+  ConnectionLostError,
   type ConnectionState,
   type RejectionReason,
-  type SocketLike,
-  buildHello,
-  createConnection,
-} from "./connection";
+  createAtriumClient,
+} from "./atrium-client";
+export { type PendingMessage, type SessionView } from "./session-view";

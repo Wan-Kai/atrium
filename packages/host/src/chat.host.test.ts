@@ -1,3 +1,4 @@
+import { createAtriumClient } from "@atrium/client";
 import type { HostMessage } from "@atrium/protocol";
 import { createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -165,5 +166,36 @@ describe("one chat over the WebSocket", () => {
       );
     }
     expect(sessionEvents(second.received)).toStrictEqual(sessionEvents(first.received));
+  });
+
+  it("lets the client create a chat, watch it and see the reply replace its pending message", async () => {
+    const chat = await chatHost();
+    const client = createAtriumClient({
+      url: chat.host.url,
+      token: chat.host.token,
+      clientId: "real-client",
+      reconnectDelaysMs: [],
+    });
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+
+    const { sessionId } = await client.createChat();
+    await client.watch([sessionId]);
+    const view = present(client.session(sessionId), "the session's view");
+    await vi.waitFor(() => expect(view.getState().status).toBe("ready"));
+    await client.prompt(sessionId, "ping");
+    await vi.waitFor(() => expect(view.getState().run).toBeNull());
+    // Request ids count every command: the first heartbeat ping, create_chat, subscribe_sessions, prompt.
+
+    expect(view.getState()).toMatchObject({
+      status: "ready",
+      seq: 6,
+      pending: [],
+      streaming: null,
+      messages: [
+        { role: "user", text: "ping", clientMessageId: "real-client-4" },
+        { role: "assistant", content: [{ type: "text", text: "pong" }], stopReason: "stop" },
+      ],
+    });
   });
 });

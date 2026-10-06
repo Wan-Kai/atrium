@@ -1,4 +1,4 @@
-import { type Connection, createConnection } from "@atrium/client";
+import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import { useEffect, useState } from "react";
 import { useConnectionState } from "../state/use-connection-state";
 import { clientId, readBootstrap } from "./bootstrap";
@@ -7,7 +7,7 @@ import { ConnectionStatus, type StatusView } from "./connection-status";
 /** The app before a connection exists, or the connection once it does. */
 type Shell =
   | { readonly kind: "waiting"; readonly view: StatusView }
-  | { readonly kind: "connected"; readonly connection: Connection };
+  | { readonly kind: "connected"; readonly client: AtriumClient };
 
 /**
  * Root component: connects to the host and shows the connection state.
@@ -27,7 +27,7 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    let opened: Connection | null = null;
+    let opened: AtriumClient | null = null;
 
     /**
      * Opens the connection once the bootstrap data arrives, unless the component unmounted first.
@@ -48,12 +48,12 @@ export function App() {
         });
         return;
       }
-      opened = createConnection({
+      opened = createAtriumClient({
         url: bootstrap.hostUrl.replace(/^http/, "ws"),
         token: bootstrap.token,
         clientId: clientId(localStorage),
       });
-      setShell({ kind: "connected", connection: opened });
+      setShell({ kind: "connected", client: opened });
       await opened.connect();
     }
 
@@ -68,7 +68,7 @@ export function App() {
   return (
     <main className="flex h-full flex-col items-center justify-center gap-2 bg-background">
       <h1 className="text-xl font-semibold">Atrium</h1>
-      {shell.kind === "waiting" ? <ConnectionStatus view={shell.view} /> : <LiveStatus connection={shell.connection} />}
+      {shell.kind === "waiting" ? <ConnectionStatus view={shell.view} /> : <LiveStatus client={shell.client} />}
     </main>
   );
 }
@@ -80,9 +80,9 @@ export function App() {
  * Split out so the store subscription only exists once a connection does.
  *
  * @sideEffects Subscribes to the connection's store.
- * @param props - The connection to watch.
+ * @param props - The client whose connection to watch.
  * @returns The status line.
  */
-function LiveStatus({ connection }: { readonly connection: Connection }) {
-  return <ConnectionStatus view={useConnectionState(connection)} />;
+function LiveStatus({ client }: { readonly client: AtriumClient }) {
+  return <ConnectionStatus view={useConnectionState(client)} />;
 }
