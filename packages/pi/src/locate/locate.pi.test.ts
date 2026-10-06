@@ -17,7 +17,14 @@ describe("installed pi", () => {
   it("is ready when inspected through the test process's PATH", async () => {
     const path = present(process.env["PATH"], "PATH");
 
-    expect(await inspectPi(path, { env: { HOME: present(process.env["HOME"], "HOME") } })).toMatchObject({
+    const clock = {
+      now: () => Date.now(),
+      setTimeout: (callback: () => void, ms: number) => {
+        const timer = setTimeout(callback, ms);
+        return () => clearTimeout(timer);
+      },
+    };
+    expect(await inspectPi(path, { env: { HOME: present(process.env["HOME"], "HOME") }, clock })).toMatchObject({
       status: "ready",
       piPath: present(await findPi(path), "pi on PATH"),
     });

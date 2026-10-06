@@ -22,6 +22,22 @@ function ownDescendants(): number[] {
   return descendantsOf(parseProcessTable(rows.join("\n")), process.pid).map((row) => row.pid);
 }
 
+/**
+ * Running processes that are one of `pids` or sit in a process group one of them leads.
+ *
+ * @remarks
+ * pi and the children it starts in its own group are reparented to launchd once pi is gone, so
+ * `ownDescendants` alone would no longer see them.
+ *
+ * @sideEffects Runs `ps`.
+ * @param pids - pi's pids.
+ * @returns The matching rows.
+ */
+function survivorsOf(pids: ReadonlySet<number>): { pid: number; ppid: number; pgid: number }[] {
+  const table = parseProcessTable(execFileSync("ps", ["-A", "-o", "pid=,ppid=,pgid="], { encoding: "utf8" }));
+  return table.filter((row) => pids.has(row.pid) || pids.has(row.pgid));
+}
+
 /** Dependencies that count open resources and live timers. */
 function countingDeps(env: Record<string, string>) {
   const open = new Map<string, number>();
@@ -63,11 +79,13 @@ describe("PiProcess resources", () => {
     const { deps, open, timers } = countingDeps({ PATH: path, HOME: dir.path });
     const handlesBefore = liveHandles();
     const descendantsBefore = ownDescendants();
+    const piPids = new Set<number>();
 
     for (let batch = 0; batch < 20; batch++) {
       const processes = Array.from({ length: 10 }, () =>
         startPiProcess({ piPath, args: ["--no-session", ...launch.args], cwd: dir.path, env: launch.env }, deps),
       );
+      for (const pi of processes) piPids.add(present(pi.pid, "pi pid"));
       const exits = await Promise.all(processes.map((pi) => pi.stop()));
       expect(exits.map((exit) => exit.requested)).toStrictEqual(Array.from({ length: 10 }, () => true));
     }
@@ -75,6 +93,8 @@ describe("PiProcess resources", () => {
     expect(open.get("pi-process")).toBe(0);
     expect(timers.size).toBe(0);
     expect(ownDescendants()).toStrictEqual(descendantsBefore);
+    expect(piPids.size).toBe(200);
+    expect(survivorsOf(piPids)).toStrictEqual([]);
     // Checked directly, not through vi.waitFor, whose own polling timer would be counted too.
     // stop() resolves only after pi's pipes have closed, so nothing should be left to wait for.
     await new Promise((resolve) => setTimeout(resolve, 100));

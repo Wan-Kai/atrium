@@ -7,9 +7,15 @@ import { systemClock } from "./clock";
 import { type ShellAttemptFailure, readLoginShellEnv } from "./login-shell";
 
 const INHERITED_PATH = "/usr/bin:/bin";
-/** `sleep` commands unique to this test process, so leftovers from an interrupted run do not match. */
-const HANGING = `sleep ${40_000 + (process.pid % 10_000)}`;
-const ABORTED = `sleep ${50_000 + (process.pid % 10_000)}`;
+/**
+ * `sleep` commands unique to this test process, so leftovers from an interrupted run do not match,
+ * and short-lived, so a shell left behind by a killed test run ends by itself.
+ */
+const PID = String(process.pid % 10_000).padStart(4, "0");
+const HANGING = `sleep 25.${PID}1`;
+const ABORTED = `sleep 25.${PID}2`;
+const BACKGROUND = `sleep 25.${PID}3`;
+const OTHER_GROUP = `sleep 25.${PID}4`;
 
 /** A temporary home with the given rc files; returns a host environment pointing zsh and bash at it. */
 async function homeWith(files: Readonly<Record<string, string>>): Promise<Record<string, string>> {
@@ -34,6 +40,15 @@ async function read(
     ...extra,
   });
   return { result, failures, path: result.env["PATH"] ?? "" };
+}
+
+/** Pids of running processes whose whole command line is `command`. */
+function pidsOf(command: string): number[] {
+  return execFileSync("ps", ["-A", "-o", "pid=,command="], { encoding: "utf8" })
+    .split("\n")
+    .map((line) => line.trim().split(/\s+(.*)/s))
+    .filter(([, rest]) => rest === command)
+    .map(([pid]) => Number(pid));
 }
 
 /** Running processes whose whole command line is `command`. */
@@ -104,6 +119,45 @@ describe("readLoginShellEnv", () => {
     const { path } = await read("/bin/zsh", env);
 
     expect(path.split(":")[0]).toBe("/custom/noisy/bin");
+  });
+
+  it("answers at once when .zshrc leaves a background job holding the output, keeping what .zshrc set", async () => {
+    const env = await homeWith({ ".zshrc": `export GREETING=hi\n${BACKGROUND} &\n` });
+    onTestFinished(() => {
+      for (const pid of pidsOf(BACKGROUND)) process.kill(pid, "SIGKILL");
+    });
+
+    const started = performance.now();
+    const { result, failures } = await read("/bin/zsh", env);
+
+    expect(failures).toStrictEqual([]);
+    expect(result).toMatchObject({ source: "login-shell", env: { GREETING: "hi" } });
+    expect(performance.now() - started).toBeLessThan(5_000);
+    // The job outlives the shell, as it would for the user. Under load its `sleep` may not have
+    // been exec'd yet, so wait for it before killing it, or the cleanup above would miss it.
+    await vi.waitFor(() => expect(pidsOf(BACKGROUND)).toHaveLength(1), { timeout: 15_000 });
+    for (const pid of pidsOf(BACKGROUND)) process.kill(pid, "SIGKILL");
+    await vi.waitFor(() => expect(running(BACKGROUND)).toStrictEqual([]));
+  });
+
+  it("kills a hung shell's descendants on timeout, including one in another process group", async () => {
+    const env = await homeWith({
+      ".zprofile": "export PATH=/custom/profile/bin:$PATH\n",
+      ".zshrc": `perl -e 'setpgrp(0, 0); exec "sleep", "${OTHER_GROUP.slice(6)}"' &\n${HANGING}\n`,
+    });
+    const clock = new FakeClock();
+    const failures: ShellAttemptFailure[] = [];
+
+    const reading = readLoginShellEnv({ shell: "/bin/zsh", env, clock, onFailure: (f) => failures.push(f) });
+    await vi.waitFor(() => expect([running(HANGING).length, running(OTHER_GROUP).length]).toStrictEqual([1, 1]), {
+      timeout: 15_000,
+    });
+    clock.advance(10_000);
+    const result = await reading;
+
+    expect(result.env["PATH"]?.split(":")[0]).toBe("/custom/profile/bin");
+    expect(failures).toStrictEqual([{ args: ["-i", "-l", "-c"], reason: "timeout" }]);
+    expect([running(HANGING), running(OTHER_GROUP)]).toStrictEqual([[], []]);
   });
 
   it("falls back to a login-only shell when the interactive one hangs, and kills what it started", async () => {
@@ -186,7 +240,7 @@ describe("readLoginShellEnv", () => {
     const controller = new AbortController();
 
     const reading = read("/bin/zsh", env, { signal: controller.signal });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await vi.waitFor(() => expect(running(ABORTED)).toHaveLength(1), { timeout: 15_000 });
     controller.abort();
     const { result, failures } = await reading;
 

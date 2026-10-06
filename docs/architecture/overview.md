@@ -162,7 +162,7 @@ protocol  ←──  pi  ←──  host
   }
   ```
 
-  pi 包不 import OpenTelemetry、pino 或 host 的任何模块；它自己管 pi 子进程的进程组和退出清理。测试时 testkit 提供同形状的假实现。
+  pi 包不 import OpenTelemetry、pino 或 host 的任何模块；它自己管 pi 子进程的进程组和退出清理。测试时由测试自己构造 `PiDeps`（例如注入 `FakeClock`、计数的 `track`）；要代替整个 pi 进程时，用 testkit 的 `replayPi` 回放夹具。
 
 ### 宿主内部的依赖
 

@@ -57,8 +57,21 @@ describe("replayPi", () => {
       .request({ type: "set_model", provider: "x", modelId: "y" } as { type: string })
       .catch((caught: unknown) => caught);
 
-    expect(error).toStrictEqual(new ReplayRequestError("set_model", "rejected", '"Model not found: x/y"'));
-    expect(error).toMatchObject({ name: "PiRequestError", reason: "rejected" });
+    expect(error).toStrictEqual(new ReplayRequestError("set_model", "rejected", "Model not found: x/y"));
+    expect(error).toMatchObject({ name: "PiRequestError", reason: "rejected", detail: "Model not found: x/y" });
+  });
+
+  it("keeps an error pi did not give as text readable, as JSON", async () => {
+    const pi = replayPi(
+      fixture(
+        { kind: "send", record: { type: "compact", id: "r1" } },
+        { kind: "stdout", record: { type: "response", command: "compact", id: "r1", success: false, error: { n: 1 } } },
+      ),
+    );
+
+    const error = await pi.request({ type: "compact" }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ reason: "rejected", detail: '{"n":1}' });
   });
 
   it("fails clearly when the caller sends something else than the fixture recorded", async () => {
@@ -105,8 +118,52 @@ describe("replayPi", () => {
 
     const error = await pi.request({ type: "get_state" }).catch((caught: unknown) => caught);
 
-    expect(error).toStrictEqual(new ReplayRequestError("get_state", "exited"));
+    expect(error).toStrictEqual(new ReplayRequestError("get_state", "exited", ""));
+    expect(error).toMatchObject({ detail: "" });
     expect(await pi.exited).toStrictEqual({ code: 3, signal: null, requested: false, stderrTail: "" });
+    // After the crash nothing reaches the fixture, as with a real pi that has exited.
+    const later = await pi.request({ type: "get_state" }).catch((caught: unknown) => caught);
+    expect(later).toMatchObject({ name: "PiRequestError", reason: "exited", detail: "" });
+    expect(() => pi.respond({ type: "extension_ui_response", id: "x", cancelled: true })).not.toThrow();
+  });
+
+  it("on stop, fails waiting requests as stopped, drops their responses and ends as the fixture ended", async () => {
+    const pi = replayPi(
+      fixture(
+        { kind: "send", record: { type: "get_state", id: "r1" } },
+        { kind: "stdout", record: { type: "response", command: "get_state", id: "r1", success: true, data: {} } },
+        { kind: "stdout", record: { type: "agent_settled" } },
+        { kind: "exit", code: null, signal: "SIGTERM", requested: true },
+      ),
+    );
+    const events: JsonObject[] = [];
+    pi.onEvent((event) => events.push(event));
+
+    const waiting = pi.request({ type: "get_state" }).catch((caught: unknown) => caught);
+    const exit = await pi.stop();
+
+    expect(await waiting).toMatchObject({ name: "PiRequestError", reason: "stopped", detail: undefined });
+    expect(events).toStrictEqual([{ type: "agent_settled" }]);
+    expect(exit).toStrictEqual({ code: null, signal: "SIGTERM", requested: true, stderrTail: "" });
+    expect(await pi.exited).toBe(exit);
+    expect(await pi.stop()).toBe(exit);
+    const after = await pi.request({ type: "get_state" }).catch((caught: unknown) => caught);
+    expect(after).toMatchObject({ name: "PiRequestError", reason: "stopped" });
+    expect(pi.remaining()).toBe(0);
+  });
+
+  it("ends a caller that stops early the way the fixture ended, skipping the sends it never made", async () => {
+    const early = replayPi(
+      fixture(
+        { kind: "send", record: { type: "get_state", id: "r1" } },
+        { kind: "exit", code: null, signal: "SIGTERM", requested: true },
+      ),
+    );
+    const noExit = replayPi(fixture({ kind: "send", record: { type: "get_state", id: "r1" } }));
+
+    expect(await early.stop()).toStrictEqual({ code: null, signal: "SIGTERM", requested: true, stderrTail: "" });
+    expect(early.remaining()).toBe(2);
+    expect(await noExit.stop()).toStrictEqual({ code: 0, signal: null, requested: true, stderrTail: "" });
   });
 
   it("stops calling a listener once it unsubscribes", async () => {
@@ -175,8 +232,10 @@ describe("replayPi", () => {
       name: "PiRequestError",
       message: "pi get_state exited",
     });
-    expect(new ReplayRequestError("compact", "rejected", '"busy"')).toMatchObject({
-      message: 'pi compact rejected: "busy"',
+    // Like the real error, the message leaves pi's text out; it stays in `detail`.
+    expect(new ReplayRequestError("compact", "rejected", "busy")).toMatchObject({
+      message: "pi compact rejected",
+      detail: "busy",
     });
   });
 

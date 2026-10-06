@@ -37,8 +37,14 @@ export interface ScriptedPiBehavior {
   readonly announceArgv?: true;
   /** Write the same `{argv, cwd}` as one JSON line to stderr, for callers that only see logs. */
   readonly argvToStderr?: true;
+  /** Print `{type: "env", values}` with these variables (`null` when unset). */
+  readonly announceEnv?: readonly string[];
+  /** Close its own stdin right away but keep running, then print `{type: "stdin-closed"}`. */
+  readonly closeStdin?: true;
   /** Raw text written to stderr at start. */
   readonly stderr?: string;
+  /** Raw text written to stderr piece by piece, 10 ms apart, so each arrives as its own chunk. */
+  readonly stderrChunks?: readonly string[];
   /** Exit with this code right after start. */
   readonly exitCode?: number;
   /** Keep running after stdin closes. */
@@ -57,6 +63,7 @@ const BEHAVIOR_ENV = "SCRIPTED_PI_BEHAVIOR";
 /** The scripted pi, a Node script; every command it receives is announced as `{type: "received", record}`. */
 const SCRIPT = `
 import { spawn } from "node:child_process";
+import { closeSync } from "node:fs";
 const behavior = JSON.parse(process.env.${BEHAVIOR_ENV} ?? "{}");
 if (process.argv.includes("--version")) {
   process.stdout.write((behavior.version ?? "1.0.2") + "\\n");
@@ -69,14 +76,31 @@ setInterval(() => {
 }, 500).unref();
 const print = (record) => process.stdout.write(JSON.stringify(record) + "\\n");
 if (behavior.announceArgv) print({ type: "argv", argv: process.argv.slice(2), cwd: process.cwd() });
+if (behavior.announceEnv) {
+  print({ type: "env", values: Object.fromEntries(behavior.announceEnv.map((name) => [name, process.env[name] ?? null])) });
+}
 if (behavior.argvToStderr) process.stderr.write(JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");
 for (const line of behavior.stdout ?? []) process.stdout.write(line + "\\n");
 if (behavior.stdoutUnterminated !== undefined) process.stdout.write(behavior.stdoutUnterminated);
 if (behavior.stderr !== undefined) process.stderr.write(behavior.stderr);
+if (behavior.stderrChunks !== undefined) {
+  const pieces = [...behavior.stderrChunks];
+  const writeNext = () => {
+    const piece = pieces.shift();
+    if (piece !== undefined) process.stderr.write(piece, () => setTimeout(writeNext, 10));
+  };
+  writeNext();
+}
 if (behavior.exitCode !== undefined) {
   process.exitCode = behavior.exitCode;
 } else {
   if (behavior.ignoreSigterm) process.on("SIGTERM", () => {});
+  if (behavior.closeStdin) {
+    // Close fd 0 itself: destroying process.stdin leaves the descriptor open.
+    closeSync(0);
+    setInterval(() => {}, 1 << 30);
+    print({ type: "stdin-closed" });
+  }
   if (behavior.ignoreStdinEnd) setInterval(() => {}, 1 << 30);
   for (const mode of behavior.grandchildren ?? []) {
     const stdio = mode === "holds-pipes" ? ["ignore", "inherit", "inherit"] : "ignore";
@@ -84,19 +108,21 @@ if (behavior.exitCode !== undefined) {
     const child = spawn("sleep", ["60"], { detached: mode === "detached", stdio });
     print({ type: "grandchild", pid: child.pid, mode });
   }
-  let pending = "";
-  process.stdin.on("data", (chunk) => {
-    pending += chunk;
-    for (let end = pending.indexOf("\\n"); end !== -1; end = pending.indexOf("\\n")) {
-      handle(JSON.parse(pending.slice(0, end)));
-      pending = pending.slice(end + 1);
-    }
-  });
-  process.stdin.on("end", () => {
-    for (const record of atEnd) answer(record, behavior.rules[record.type]);
-    // Exit once everything printed so far is flushed; macOS writes pipes asynchronously.
-    if (!behavior.ignoreStdinEnd) process.stdout.write("", () => process.exit(0));
-  });
+  if (!behavior.closeStdin) {
+    let pending = "";
+    process.stdin.on("data", (chunk) => {
+      pending += chunk;
+      for (let end = pending.indexOf("\\n"); end !== -1; end = pending.indexOf("\\n")) {
+        handle(JSON.parse(pending.slice(0, end)));
+        pending = pending.slice(end + 1);
+      }
+    });
+    process.stdin.on("end", () => {
+      for (const record of atEnd) answer(record, behavior.rules[record.type]);
+      // Exit once everything printed so far is flushed; macOS writes pipes asynchronously.
+      if (!behavior.ignoreStdinEnd) process.stdout.write("", () => process.exit(0));
+    });
+  }
 }
 const answered = new Set();
 let held = [];

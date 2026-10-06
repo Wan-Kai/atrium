@@ -48,6 +48,38 @@ describe("createNormalizer", () => {
     ]);
   });
 
+  it("fixes measurements: every number inside usage, token counts and wall time", () => {
+    const normalize = createNormalizer({});
+
+    expect(
+      normalize({
+        usage: { input: 1455, totalTokens: 2917, cost: { input: 0.5, total: 1.25 } },
+        result: { tokensBefore: 2917, estimatedTokensAfter: 1468, messageCount: 4 },
+        details: { wall_time_seconds: 0.4, exit_code: 3 },
+        contextWindow: 128000,
+      }),
+    ).toStrictEqual({
+      usage: { input: 0, totalTokens: 0, cost: { input: 0, total: 0 } },
+      result: { tokensBefore: 0, estimatedTokensAfter: 0, messageCount: 4 },
+      details: { wall_time_seconds: 0, exit_code: 3 },
+      contextWindow: 128000,
+    });
+  });
+
+  it("treats 8-hex text as an entry id only under the keys that hold entry ids", () => {
+    const normalize = createNormalizer({});
+
+    expect(
+      normalize([
+        { id: "deadbeef", targetId: "deadbeef", firstKeptEntryId: "cafef00d" },
+        { text: "deadbeef", sha: "cafef00d", items: ["deadbeef"] },
+      ]),
+    ).toStrictEqual([
+      { id: "e1", targetId: "e1", firstKeptEntryId: "e2" },
+      { text: "deadbeef", sha: "cafef00d", items: ["deadbeef"] },
+    ]);
+  });
+
   it("leaves strings that only look similar, booleans and null alone", () => {
     const normalize = createNormalizer({});
 

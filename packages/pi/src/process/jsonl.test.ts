@@ -68,6 +68,31 @@ describe("createLineSplitter", () => {
   });
 });
 
+describe("createLineSplitter with a line limit", () => {
+  it("passes on an unfinished line once it reaches the limit, and keeps shorter ones until their line break", () => {
+    const lines: string[] = [];
+    const splitter = createLineSplitter((line) => lines.push(line), { maxLineLength: 4 });
+
+    splitter.push(Buffer.from("ab"));
+    splitter.push(Buffer.from("cdef"));
+    splitter.push(Buffer.from("g\nhi\njklmn"));
+    splitter.end();
+
+    expect(lines).toStrictEqual(["abcdef", "g", "hi", "jklmn"]);
+  });
+
+  it("passes on an unfinished line as soon as it is exactly the limit", () => {
+    const lines: string[] = [];
+    const splitter = createLineSplitter((line) => lines.push(line), { maxLineLength: 4 });
+
+    splitter.push(Buffer.from("abc"));
+    expect(lines).toStrictEqual([]);
+    splitter.push(Buffer.from("d"));
+
+    expect(lines).toStrictEqual(["abcd"]);
+  });
+});
+
 describe("serializeJsonLine", () => {
   it("writes one record with a single LF at the end, escaping LF inside strings", () => {
     expect(serializeJsonLine({ text: "a\nb" })).toBe('{"text":"a\\nb"}\n');

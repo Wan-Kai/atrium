@@ -24,19 +24,20 @@ export class ReplayRequestError extends Error {
    * Creates the error.
    *
    * @remarks
-   * Mirrors the real error's fields so code under test can read `reason` and `detail`.
+   * Mirrors the real error's fields and message so code under test can read `reason` and
+   * `detail`; like the real one, the message leaves `detail` out.
    *
    * @sideEffects none
    * @param command - The command type.
    * @param reason - Why it failed.
-   * @param detail - pi's error text.
+   * @param detail - pi's error text, or the (empty) stderr tail when it exited.
    */
   constructor(
     readonly command: string,
-    readonly reason: "rejected" | "exited",
+    readonly reason: "rejected" | "exited" | "stopped",
     readonly detail?: string,
   ) {
-    super(`pi ${command} ${reason}${detail === undefined ? "" : `: ${detail}`}`);
+    super(`pi ${command} ${reason}`);
   }
 }
 
@@ -108,8 +109,11 @@ function sameSend(recorded: object, sent: object, ignoreId: boolean): boolean {
  * command must match the next recorded `send` apart from its id, so a test cannot quietly drift
  * from what real pi was asked; a mismatch fails with both sides in the message. After each
  * matching command, the recorded output up to the next `send` is delivered in order on a
- * microtask: responses settle the matching request, everything else goes to the listeners. It
- * matches structurally, without importing the pi package (overview.md, "包之间的依赖").
+ * microtask: responses settle the matching request, everything else goes to the listeners. Like
+ * the real process, `stop()` fails waiting requests with `stopped` and ends the way the fixture
+ * ended, even if the caller stops before doing everything the scenario did; after that, or after a
+ * crash, requests fail without touching the fixture. It matches structurally, without importing
+ * the pi package (overview.md, "包之间的依赖").
  *
  * @sideEffects none; delivery happens on microtasks.
  * @param fixture - The fixture records, header first.
@@ -122,42 +126,82 @@ export function replayPi(fixture: readonly FixtureRecord[]): ReplayedPi {
   const pending = new Map<Json, { command: string; resolve(data: unknown): void; reject(error: Error): void }>();
   const exited = Promise.withResolvers<ReplayExit>();
   let stopRequested = false;
+  let ended = false;
+
+  /**
+   * Ends the replay with the given exit.
+   *
+   * @remarks
+   * Like the real process, requests still waiting fail with `exited` and the stderr tail, which
+   * fixtures do not record; `stop()` has already failed its own with `stopped`.
+   *
+   * @sideEffects Rejects waiting requests; resolves `exited`.
+   * @param code - The recorded exit code.
+   * @param signal - The recorded signal.
+   */
+  function end(code: number | null, signal: string | null): void {
+    ended = true;
+    for (const waiting of pending.values()) waiting.reject(new ReplayRequestError(waiting.command, "exited", ""));
+    // Stryker disable next-line CallExpression: nothing can arrive after the exit; clearing only frees memory.
+    pending.clear();
+    exited.resolve({ code, signal, requested: stopRequested, stderrTail: "" });
+  }
 
   /**
    * Delivers the recorded output that follows the last matched `send`.
    *
    * @remarks
    * Stops at the next `send`, which waits for the caller; at an `exit` the host asked for, which
-   * waits for `stop()`; or at a crash `exit`, which ends the replay.
+   * waits for `stop()`; or at a crash `exit`, which ends the replay. A response whose request is
+   * no longer waiting is dropped, as the real process does.
    *
    * @sideEffects Settles requests; calls listeners; may resolve `exited`.
    */
   function deliver(): void {
-    for (let next = body[cursor]; next !== undefined && next.kind !== "send"; next = body[cursor]) {
+    for (let next = body[cursor]; !ended && next !== undefined && next.kind !== "send"; next = body[cursor]) {
       // A stop the host asked for happens only once the caller asks too.
       // Stryker disable next-line ConditionalExpression: other records have no `requested`, so the kind check is redundant.
       if (next.kind === "exit" && next.requested && !stopRequested) return;
       cursor += 1;
       if (next.kind === "exit") {
-        for (const waiting of pending.values()) waiting.reject(new ReplayRequestError(waiting.command, "exited"));
-        // Stryker disable next-line CallExpression: nothing can arrive after the exit; clearing only frees memory.
-        pending.clear();
-        exited.resolve({ code: next.code, signal: next.signal, requested: stopRequested, stderrTail: "" });
+        end(next.code, next.signal);
         return;
       }
       const record = next.record;
-      const id = record["id"] ?? null;
-      // Stryker disable next-line ConditionalExpression: events never carry a request id, so only responses can match.
-      const waiting = record["type"] === "response" ? pending.get(id) : undefined;
-      if (waiting !== undefined) {
-        // Stryker disable next-line CallExpression: a settled promise ignores a second settlement; deleting only frees memory.
-        pending.delete(id);
-        if (record["success"] === true) waiting.resolve(record["data"]);
-        else waiting.reject(new ReplayRequestError(waiting.command, "rejected", JSON.stringify(record["error"])));
-      } else {
+      if (record["type"] !== "response") {
         for (const listener of listeners) listener(record);
+        continue;
       }
+      const id = record["id"] ?? null;
+      const waiting = pending.get(id);
+      if (waiting === undefined) continue;
+      // Stryker disable next-line CallExpression: a settled promise ignores a second settlement; deleting only frees memory.
+      pending.delete(id);
+      const error = record["error"];
+      if (record["success"] === true) waiting.resolve(record["data"]);
+      else
+        waiting.reject(
+          new ReplayRequestError(
+            waiting.command,
+            "rejected",
+            typeof error === "string" ? error : JSON.stringify(error),
+          ),
+        );
     }
+  }
+
+  /**
+   * The exit the fixture recorded, wherever it is from the cursor on.
+   *
+   * @remarks
+   * A caller may stop before doing everything the scenario did; pi then still ends the way it
+   * ended when the scenario stopped it.
+   *
+   * @sideEffects none
+   * @returns The exit record, if the fixture has one.
+   */
+  function recordedExit(): Extract<Played, { kind: "exit" }> | undefined {
+    return body.slice(cursor).find((record): record is Extract<Played, { kind: "exit" }> => record.kind === "exit");
   }
 
   /**
@@ -190,6 +234,13 @@ export function replayPi(fixture: readonly FixtureRecord[]): ReplayedPi {
     pid: undefined,
     exited: exited.promise,
     request(command) {
+      if (ended || stopRequested) {
+        return Promise.reject(
+          stopRequested
+            ? new ReplayRequestError(command.type, "stopped")
+            : new ReplayRequestError(command.type, "exited", ""),
+        );
+      }
       try {
         const recorded = expectSend(command, true);
         const response = Promise.withResolvers<unknown>();
@@ -201,6 +252,8 @@ export function replayPi(fixture: readonly FixtureRecord[]): ReplayedPi {
       }
     },
     respond(response) {
+      // Dropped like the real process drops it: pi can no longer be told anything.
+      if (ended || stopRequested) return;
       expectSend(response, false);
       queueMicrotask(deliver);
     },
@@ -209,8 +262,19 @@ export function replayPi(fixture: readonly FixtureRecord[]): ReplayedPi {
       return () => listeners.delete(listener);
     },
     stop() {
-      stopRequested = true;
-      deliver();
+      if (!ended && !stopRequested) {
+        stopRequested = true;
+        for (const waiting of pending.values()) waiting.reject(new ReplayRequestError(waiting.command, "stopped"));
+        // Stryker disable next-line CallExpression: a rejected promise ignores later settlements; clearing only drops recorded responses early.
+        pending.clear();
+        deliver();
+        if (!ended) {
+          const exit = recordedExit();
+          // A recorded `code: null` (killed by a signal) must stay null, so no `??` on the code.
+          if (exit === undefined) end(0, null);
+          else end(exit.code, exit.signal);
+        }
+      }
       return exited.promise;
     },
     remaining: () => body.length - cursor,

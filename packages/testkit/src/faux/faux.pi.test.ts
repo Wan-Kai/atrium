@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { once } from "node:events";
 import { readdir } from "node:fs/promises";
@@ -33,7 +34,7 @@ async function startPi(script: FauxScript): Promise<RunningPi> {
   const launch = await fauxPi(script, dir.path);
   const child: ChildProcessWithoutNullStreams = spawn("pi", ["--mode", "rpc", "--no-session", ...launch.args], {
     cwd: dir.path,
-    env: { PATH: process.env["PATH"] ?? "", HOME: dir.path, ...launch.env },
+    env: { PATH: process.env["PATH"] ?? "", HOME: dir.path, TMPDIR: tmpdir(), ...launch.env },
   });
   const exited = once(child, "exit");
   cleanups.push(async () => {

@@ -67,16 +67,22 @@ async function start(
     args?: readonly string[];
     processSystem?: ProcessSystem;
     tap?: PiTap;
+    /** Added to the scripted pi's own environment variables. */
+    extraEnv?: Readonly<Record<string, string>>;
   } = {},
 ) {
   const dir = await createTempDir("pi-process");
   const fake = await writeScriptedPi(dir.path, behavior);
   const { deps, logs, open } = recordingDeps(options.clock ?? realClock);
-  const pi = startPiProcess({ piPath: fake.piPath, args: options.args ?? [], cwd: dir.path, env: fake.env }, deps, {
-    stopGraceMs: options.stopGraceMs ?? 2_000,
-    ...(options.processSystem === undefined ? {} : { processSystem: options.processSystem }),
-    ...(options.tap === undefined ? {} : { tap: options.tap }),
-  });
+  const pi = startPiProcess(
+    { piPath: fake.piPath, args: options.args ?? [], cwd: dir.path, env: { ...options.extraEnv, ...fake.env } },
+    deps,
+    {
+      stopGraceMs: options.stopGraceMs ?? 2_000,
+      ...(options.processSystem === undefined ? {} : { processSystem: options.processSystem }),
+      ...(options.tap === undefined ? {} : { tap: options.tap }),
+    },
+  );
   const events: PiEvent[] = [];
   pi.onEvent((event) => events.push(event));
   cleanups.push(async () => {
@@ -224,8 +230,9 @@ describe("requests", () => {
       .catch((caught: unknown) => caught);
 
     expect(error).toStrictEqual(new PiRequestError("set_model", "rejected", "Model not found: x/y"));
-    expect(error).toMatchObject({ name: "PiRequestError", message: "pi set_model rejected: Model not found: x/y" });
-    expect(new PiRequestError("get_state", "timeout").message).toBe("pi get_state timeout");
+    // pi's own text stays in `detail`, out of the message that logs and spans record.
+    expect(error).toMatchObject({ name: "PiRequestError", message: "pi set_model rejected" });
+    expect(new PiRequestError("get_state", "timeout", "x").message).toBe("pi get_state timeout");
   });
 
   it("gives up at the deadline on the injected clock and drops the late response", async () => {
@@ -437,11 +444,52 @@ describe("stderr", () => {
     const exit = await pi.exited;
 
     const lines = logs.filter((log) => log.message === "pi stderr").map((log) => log.fields["line"]);
+    expect(logsWith(logs, "pi stderr")[0]).toStrictEqual({
+      level: "info",
+      fields: { pid: pi.pid, stream: "stderr", line: "first" },
+      message: "pi stderr",
+    });
     expect(lines.slice(0, 2)).toStrictEqual(["first", "second"]);
     expect(lines.at(-1)).toBe("last");
     expect(lines).toHaveLength(103);
     expect(exit.stderrTail).toHaveLength(8 * 1024);
     expect(exit.stderrTail.endsWith("x\nlast")).toBe(true);
+  });
+});
+
+describe("stderr limits", () => {
+  it("logs output without line breaks in bounded pieces and keeps multibyte text intact in the tail", async () => {
+    // 30 small chunks: a piece is logged once 16 KiB characters have built up, not per chunk.
+    const { pi, logs } = await start({
+      stderrChunks: Array.from({ length: 30 }, () => "中".repeat(1000)),
+      exitCode: 0,
+    });
+
+    const exit = await pi.exited;
+
+    const pieces = logsWith(logs, "pi stderr").map((log) => String(log.fields["line"]));
+    // Chunks may merge under load, but every piece before the last has reached the limit.
+    expect(pieces.length).toBeLessThanOrEqual(2);
+    expect(pieces.slice(0, -1).map((piece) => piece.length >= 16 * 1024)).toStrictEqual(
+      pieces.slice(0, -1).map(() => true),
+    );
+    expect(pieces.join("")).toBe("中".repeat(30_000));
+    expect(exit.stderrTail).toBe("中".repeat(8 * 1024));
+  });
+});
+
+describe("environment", () => {
+  it("never passes Atrium's or Electron's variables or relative PATH entries to pi", async () => {
+    const { pi, events } = await start(
+      { announceEnv: ["PATH", "ATRIUM_TOKEN", "ELECTRON_RUN_AS_NODE", "KEEP"] },
+      { extraEnv: { PATH: ".::/usr/bin:bin:/bin", ATRIUM_TOKEN: "secret", ELECTRON_RUN_AS_NODE: "1", KEEP: "yes" } },
+    );
+
+    expect(await eventOf(events, "env")).toStrictEqual({
+      type: "env",
+      values: { PATH: "/usr/bin:/bin", ATRIUM_TOKEN: null, ELECTRON_RUN_AS_NODE: null, KEEP: "yes" },
+    });
+    void pi;
   });
 });
 
@@ -486,17 +534,30 @@ describe("exit", () => {
     );
   });
 
+  it("fails waiting requests, untimed ones included, and stops pi when it stops reading stdin", async () => {
+    const { pi, events, logs } = await start({ closeStdin: true, rules: { compact: { silent: true } } });
+    await eventOf(events, "stdin-closed");
+
+    const compact = await pi.request({ type: "compact" }).catch((error: unknown) => error);
+
+    expect(compact).toMatchObject({ reason: "exited", detail: expect.stringContaining("EPIPE") });
+    expect(await pi.exited).toMatchObject({ requested: true });
+    expect(logsWith(logs, "pi stdin failed")).toHaveLength(1);
+  });
+
   it("reports a pi that cannot be started", async () => {
     const dir = await createTempDir("pi-missing");
     cleanups.push(dir.cleanup);
     const { deps, logs, open } = recordingDeps(realClock);
     const pi = startPiProcess({ piPath: `${dir.path}/no-such-pi`, args: [], cwd: dir.path }, deps);
+    const early = pi.request({ type: "get_state" }).catch((error: unknown) => error);
 
     const exit = await pi.exited;
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(exit).toMatchObject({ code: null, signal: null, requested: false });
     expect(exit.spawnError).toContain("ENOENT");
+    expect(await early).toMatchObject({ reason: "exited", detail: expect.stringContaining("ENOENT") });
     await expect(pi.request({ type: "get_state" })).rejects.toMatchObject({ reason: "exited" });
     expect(open.get("pi-process")).toBe(0);
     expect(logsWith(logs, "pi exited")).toHaveLength(1);

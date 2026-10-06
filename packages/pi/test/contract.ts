@@ -12,7 +12,7 @@ import {
   serializeFixture,
 } from "@atrium/testkit";
 import { mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, vi } from "vitest";
 import type { PiDeps } from "../src/deps";
@@ -149,7 +149,8 @@ export async function runScenario(
     );
     const pi = startPiProcess(
       { piPath, args: [...sessionArgs, ...launch.args], cwd, env: launch.env },
-      contractDeps({ PATH: path, HOME: cwd }),
+      // TMPDIR too, so pi's own temporary files land in the run's directory, which is cleaned up.
+      contractDeps({ PATH: path, HOME: cwd, TMPDIR: tmpdir() }),
       { tap: recorder.tap },
     );
     const events: PiEvent[] = [];

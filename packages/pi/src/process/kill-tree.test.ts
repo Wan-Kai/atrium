@@ -1,7 +1,7 @@
 import { present } from "@atrium/testkit";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { type ProcessSystem, descendantsOf, killProcessTree, parseProcessTable } from "./kill-tree";
 
 describe("parseProcessTable", () => {
@@ -67,6 +67,23 @@ function fakeSystem(rows: readonly string[], failures: Readonly<Record<number, u
   return { system, killed };
 }
 
+/**
+ * Kills a process if it is still there.
+ *
+ * @remarks
+ * Cleanup for a test that failed before killing what it spawned.
+ *
+ * @sideEffects Sends SIGKILL.
+ * @param target - A pid, or a negative process group id.
+ */
+function killIfAlive(target: number): void {
+  try {
+    process.kill(target, "SIGKILL");
+  } catch {
+    // Already gone.
+  }
+}
+
 /** An error shaped like the ones `process.kill` throws. */
 function errno(code: string): Error {
   return Object.assign(new Error(code), { code });
@@ -107,16 +124,22 @@ describe("killProcessTree", () => {
       process.execPath,
       [
         "-e",
-        `const c = require("node:child_process").spawn("sleep", ["60"], { detached: true, stdio: "ignore" });
-         process.stdout.write(String(c.pid) + "\\n"); setInterval(() => {}, 1 << 30);`,
+        // Both end on their own if the test never kills them: the sleep after 30 s, the parent
+        // once it is orphaned, as when a timed-out test run is killed.
+        `const c = require("node:child_process").spawn("sleep", ["30"], { detached: true, stdio: "ignore" });
+         process.stdout.write(String(c.pid) + "\\n");
+         setInterval(() => { if (process.ppid === 1) process.exit(1); }, 200);`,
       ],
       { detached: true, stdio: ["ignore", "pipe", "ignore"] },
     );
+    const parentPid = present(parent.pid, "parent pid");
+    onTestFinished(() => killIfAlive(-parentPid));
     const [chunk] = (await once(parent.stdout, "data")) as [Buffer];
     const grandchild = Number(chunk.toString().trim());
+    onTestFinished(() => killIfAlive(grandchild));
     const parentExit = once(parent, "exit");
 
-    await killProcessTree(present(parent.pid, "parent pid"));
+    await killProcessTree(parentPid);
 
     expect(await parentExit).toStrictEqual([null, "SIGKILL"]);
     // The grandchild may linger for a moment as a zombie until launchd reaps it.

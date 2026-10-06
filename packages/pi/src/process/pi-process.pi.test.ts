@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { type FauxScript, createTempDir, fauxPi, present } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -36,7 +37,7 @@ async function startRealPi(script: FauxScript): Promise<{ pi: PiProcess; events:
   const piPath = present(await findPi(path), "pi on PATH");
   const pi = startPiProcess(
     { piPath, args: ["--no-session", ...launch.args], cwd: dir.path, env: launch.env },
-    quietDeps({ PATH: path, HOME: dir.path }),
+    quietDeps({ PATH: path, HOME: dir.path, TMPDIR: tmpdir() }),
   );
   const events: PiEvent[] = [];
   pi.onEvent((event) => events.push(event));

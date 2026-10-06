@@ -6,7 +6,9 @@ import type {
   RpcResponse,
 } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import type { PiDeps } from "../deps";
+import { piEnvironment } from "../env/pi-env";
 import { createLineSplitter, serializeJsonLine } from "./jsonl";
 import { type ProcessSystem, killProcessTree } from "./kill-tree";
 
@@ -51,7 +53,8 @@ export class PiRequestError extends Error {
    * Creates the error.
    *
    * @remarks
-   * The message combines command and reason so log lines are readable on their own.
+   * The message names command and reason so log lines are readable on their own; pi's own text
+   * stays in `detail`.
    *
    * @sideEffects none
    * @param command - The command type that failed.
@@ -63,7 +66,9 @@ export class PiRequestError extends Error {
     readonly reason: PiRequestFailure,
     readonly detail?: string,
   ) {
-    super(`pi ${command} ${reason}${detail === undefined ? "" : `: ${detail}`}`);
+    // Only the command and the reason: `detail` may hold pi's raw output, which stays out of
+    // messages that get logged and recorded on spans (security.md, "凭据与日志").
+    super(`pi ${command} ${reason}`);
   }
 }
 
@@ -138,6 +143,8 @@ const DEFAULT_STOP_GRACE_MS = 2_000;
 /** Commands whose duration depends on the model or the user's command, so a deadline would be wrong. */
 const UNTIMED_COMMANDS: ReadonlySet<string> = new Set(["compact", "bash"]);
 const STDERR_TAIL_BYTES = 8 * 1024;
+/** Longest stderr line kept before it is logged in pieces. */
+const STDERR_LINE_LIMIT = 16 * 1024;
 /** How long to wait for pi's pipes to close after it exited before giving up on them. */
 const PIPE_DRAIN_MS = 1_000;
 
@@ -174,7 +181,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
   const stopGraceMs = options.stopGraceMs ?? DEFAULT_STOP_GRACE_MS;
   const child = spawn(launch.piPath, ["--mode", "rpc", ...launch.args], {
     cwd: launch.cwd,
-    env: { ...deps.env, ...launch.env },
+    env: piEnvironment(deps.env, launch.env ?? {}),
     detached: true,
   });
   const pid = child.pid;
@@ -230,7 +237,7 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
       ...(spawnError === undefined ? {} : { spawnError }),
     };
     cancelDrain?.();
-    failAll("exited", stderrTail);
+    failAll("exited", spawnError ?? stderrTail);
     release();
     deps.log[exit.requested ? "info" : "warn"]({ pid, code, signal, requested: exit.requested }, "pi exited");
     resolveExited(exit);
@@ -297,15 +304,26 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
   const stdout = createLineSplitter(handleLine);
   child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
   child.stdout.on("end", () => stdout.end());
-  const stderr = createLineSplitter((line) => {
-    if (line.length > 0) deps.log.info({ pid, stream: "stderr", line }, "pi stderr");
-  });
+  const stderrText = new StringDecoder();
+  const stderr = createLineSplitter(
+    (line) => {
+      if (line.length > 0) deps.log.info({ pid, stream: "stderr", line }, "pi stderr");
+    },
+    { maxLineLength: STDERR_LINE_LIMIT },
+  );
   child.stderr.on("data", (chunk: Buffer) => {
     stderr.push(chunk);
-    stderrTail = (stderrTail + chunk.toString("utf8")).slice(-STDERR_TAIL_BYTES);
+    // One decoder for the whole stream, so a character split between chunks is not mangled.
+    stderrTail = (stderrTail + stderrText.write(chunk)).slice(-STDERR_TAIL_BYTES);
   });
   child.stderr.on("end", () => stderr.end());
-  child.stdin.on("error", (error) => deps.log.warn({ pid, err: error }, "pi stdin failed"));
+  child.stdin.on("error", (error) => {
+    // pi can no longer hear us: nothing waiting would ever be answered, untimed requests included.
+    deps.log.warn({ pid, err: error }, "pi stdin failed");
+    failAll("exited", error.message);
+    // Fire and forget: `stop` never rejects, and its outcome reaches callers through `exited`.
+    void stop();
+  });
   child.on("error", (error) => {
     // Without a pid the process never started, and no `close` follows reliably. After a successful
     // spawn, Node emits `error` only when `kill()` fails, which cannot be provoked in a test.
@@ -444,6 +462,25 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
     return response.promise;
   }
 
+  /**
+   * Stops pi, once; every call gets the same promise.
+   *
+   * @remarks
+   * See `PiProcess.stop`. Also used when stdin breaks, since pi can no longer be told anything.
+   *
+   * @sideEffects Fails waiting requests; runs the shutdown steps.
+   * @returns How pi ended, once every shutdown step is done.
+   */
+  function stop(): Promise<PiExit> {
+    if (stopping === undefined) {
+      stopRequested = true;
+      failAll("stopped");
+      // Resolve only after the shutdown steps have cancelled their own timers, not just when pi exits.
+      stopping = shutdown().then(() => exited);
+    }
+    return stopping;
+  }
+
   return {
     pid,
     exited,
@@ -458,14 +495,6 @@ export function startPiProcess(launch: PiLaunch, deps: PiDeps, options: PiProces
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    stop() {
-      if (stopping === undefined) {
-        stopRequested = true;
-        failAll("stopped");
-        // Resolve only after the shutdown steps have cancelled their own timers, not just when pi exits.
-        stopping = shutdown().then(() => exited);
-      }
-      return stopping;
-    },
+    stop,
   };
 }

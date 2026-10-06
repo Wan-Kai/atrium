@@ -7,8 +7,8 @@ import { type TestHost, startTestHost } from "../test/harness";
 import { type RunningHost, startHost } from "./main";
 
 const TOKEN = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
-/** A `sleep` unique to this test process, so leftovers from an interrupted run do not match. */
-const HANGING = `sleep ${60_000 + (process.pid % 10_000)}`;
+/** A `sleep` unique to this test process and short-lived, so a leftover never matches or lingers. */
+const HANGING = `sleep 25.${String(process.pid % 10_000).padStart(4, "0")}3`;
 let testHost: TestHost | undefined;
 
 afterEach(async () => {
@@ -38,6 +38,35 @@ async function fakePiBin(version: string): Promise<{ bin: string; env: Readonly<
 }
 
 describe("tool detection at startup", () => {
+  it("scrubs credentials from the tool environment out of the host's log", async () => {
+    // The PATH carries the key only so that a log line written during detection contains it.
+    testHost = await startTestHost({
+      toolEnv: { PATH: "/opt/sk-host-0123456789/bin", OPENAI_API_KEY: "sk-host-0123456789" },
+    });
+
+    await testHost.host.tools;
+    const resolved = (await testHost.readLog()).find((record) => record["msg"] === "tool environment resolved");
+
+    expect(resolved).toMatchObject({ path: "/opt/[redacted]/bin" });
+  });
+
+  it("keeps running, without pi, when detection fails unexpectedly", async () => {
+    const broken: Record<string, string> = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error("environment unreadable");
+        },
+      },
+    );
+    testHost = await startTestHost({ toolEnv: broken });
+
+    expect(await testHost.host.tools).toBeNull();
+    expect(await testHost.readLog()).toContainEqual(
+      expect.objectContaining({ level: "error", msg: "tool detection failed" }),
+    );
+  });
+
   it("finds no pi on an empty PATH and logs that", async () => {
     testHost = await startTestHost();
 

@@ -3,12 +3,10 @@ import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
+import { piEnvironment } from "../env/pi-env";
 import { type Version, parseVersion } from "./version";
 
 const run = promisify(execFile);
-
-/** How long `pi --version` may take before it counts as hung. */
-export const PI_VERSION_TIMEOUT_MS = 10_000;
 
 /**
  * Finds the `pi` executable on a search path.
@@ -41,25 +39,40 @@ export async function findPi(searchPath: string): Promise<string | null> {
  * Asks a pi executable for its version.
  *
  * @remarks
- * Uses `execFile` with an argument array so no shell is involved (security.md, "子进程与文件"),
- * and a timeout so a hung binary cannot block startup.
+ * Uses `execFile` with an argument array so no shell is involved (security.md, "子进程与文件").
+ * The environment goes through `piEnvironment`, so a relative PATH entry cannot pick the `node`
+ * pi's launcher runs. Aborting kills with SIGKILL and the promise settles only once pi has exited,
+ * so a pi that ignores SIGTERM can neither keep the caller waiting nor outlive the check; the
+ * caller sets the deadline through the signal.
  *
- * @sideEffects Runs `pi --version` as a child process.
+ * @sideEffects Runs `pi --version` as a child process; kills it if the signal aborts.
  * @param piPath - Absolute path of the pi executable.
- * @param options - Environment for the child (its PATH must reach Node), an abort signal, and the
- * deadline (10 seconds unless given).
+ * @param options - Environment for the child (its PATH must reach Node) and an abort signal.
  * @returns The reported version, or `null` if the output has none.
- * @throws {Error} When the process cannot start, exits non-zero, times out or is aborted.
+ * @throws {Error} When the process cannot start, exits non-zero or is aborted.
  */
 export async function readPiVersion(
   piPath: string,
-  options: { readonly env: NodeJS.ProcessEnv; readonly signal?: AbortSignal; readonly timeoutMs?: number },
+  options: { readonly env: Readonly<Record<string, string | undefined>>; readonly signal?: AbortSignal },
 ): Promise<Version | null> {
-  const { stdout } = await run(piPath, ["--version"], {
-    env: options.env,
-    timeout: options.timeoutMs ?? PI_VERSION_TIMEOUT_MS,
-    // Stryker disable next-line ConditionalExpression: passing `signal: undefined` behaves the same; the spread only satisfies exact optional types.
-    ...(options.signal === undefined ? {} : { signal: options.signal }),
-  });
-  return parseVersion(stdout);
+  // Not `execFile`'s own `signal` option: on abort it sends SIGTERM whatever `killSignal` says.
+  const running = run(piPath, ["--version"], { env: piEnvironment(options.env) });
+  /**
+   * Kills `pi --version` outright.
+   *
+   * @remarks
+   * SIGKILL, because a hung pi may ignore SIGTERM.
+   *
+   * @sideEffects Sends SIGKILL to the child.
+   */
+  function kill(): void {
+    running.child.kill("SIGKILL");
+  }
+  options.signal?.addEventListener("abort", kill, { once: true });
+  if (options.signal?.aborted === true) kill();
+  try {
+    return parseVersion((await running).stdout);
+  } finally {
+    options.signal?.removeEventListener("abort", kill);
+  }
 }

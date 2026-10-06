@@ -76,21 +76,24 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 
 **规范化**（录制时做，保证同一台机器上重录结果逐字节相同）：
 
-- 时间：名为 `timestamp` 的数字字段 → `0`；ISO 时间字符串 → `"1970-01-01T00:00:00.000Z"`。
-- 路径：临时工作目录 → `<cwd>`，pi 配置目录 → `<agent>`，会话文件路径 → `<session-file>`。
-- 随机 id：会话 id → `<session-id>`；条目 id 按首次出现的顺序换成 `e1`、`e2`……，`parentId`、`leafId`、`since` 等引用同一个 id 的地方一起换，树的结构不变；请求 id → `r1`、`r2`……。
+- 时间：名为 `timestamp` 的数字字段 → `0`；ISO 时间字符串 → `"1970-01-01T00:00:00.000Z"`；会话文件名里的时间 → `1970-01-01T00-00-00-000Z`。
+- 度量：`usage` 里的所有数字（含 `cost`）、`tokensBefore`、`estimatedTokensAfter`、`wall_time_seconds` → `0`。token 数受系统提示词长度影响，而系统提示词里有本机路径；耗时取决于机器。
+- 路径：临时工作目录 → `<cwd>`，pi 配置目录 → `<agent>`，会话目录 → `<sessions>`，faux 扩展目录 → `<faux>`，用户主目录 → `<home>`（系统提示词里有 pi 的安装路径）。长的路径先换。
+- 随机 id：UUID（会话 id 等）按首次出现的顺序换成 `<uuid-1>`、`<uuid-2>`……；条目 id 只在 `id`、`parentId`、`leafId`、`since`、`targetId`、`firstKeptEntryId` 这几个键下识别，按首次出现的顺序换成 `e1`、`e2`……，引用同一个 id 的地方一起换，树的结构不变；正文里碰巧是 8 位十六进制的文字不动。请求 id 由录制时注入的 `nextRequestId` 生成，本来就是 `r1`、`r2`……。
 - 工具调用 id 本来就由 faux 脚本固定，不用处理。
 
 **录制与漂移检查**：
 
 - `pnpm fixtures:record`：用本机的 pi 重录全部场景，写到 `pi-<本机版本>/`，并删掉其他版本的目录。
 - `pnpm test:pi`：先对真实 pi 做契约断言，再把这次的输出规范化后和同版本的夹具比较，不一致就失败，提示重录并审查 diff。本机 pi 版本没有对应的夹具时也失败，要求先录制。这样升级 pi 后，第一次跑 `test:pi` 就会逼着人看 pi 的输出变了什么。
-- 比较时忽略和机器有关的部分：`usage` 和 `cost` 里的数字（token 估算受系统提示词长度影响，而系统提示词里有工作目录路径），以及系统消息的正文。夹具本身仍保存录到的原值。
+- 比较时只忽略系统消息里的文字（role 除外）：系统提示词写着本机的路径，换台机器就不同。系统消息的键和 `sections` 的结构仍要一致，pi 改了系统提示词的组织方式也能发现。夹具本身保存录到的文字。
 
-**回放**：testkit 的 `fake-pi` 读一个夹具文件，提供和 `PiProcess` 同形状的对象（按结构类型匹配，不 import pi 包）：
+**回放**：testkit 的 `replayPi` 读一个夹具，提供和 `PiProcess` 同形状的对象（按结构类型匹配，不 import pi 包）：
 
-- `request(command)` 要求它和夹具里下一条 `send` 的类型、字段一致（请求 id 除外），否则抛出写明"期望什么、收到什么"的错误；然后依次发出它后面的 `stdout` 记录，直到下一条 `send`，响应里的 id 换成调用方实际用的 id。
-- `respond()` 同样对上下一条 `send`；`stop()` 对应 `exit` 记录。
+- `request(command)` 要求它和夹具里下一条 `send` 的类型、字段一致（请求 id 除外），否则抛出写明"期望什么、收到什么"的 `FixtureMismatch`；然后依次发出它后面的 `stdout` 记录，直到下一条 `send`。请求按夹具里录下的 id 登记，录下的响应凭这个 id 找到对应的请求，调用方自己的 id 不用和夹具一致。
+- 失败和真实的 `PiRequestError` 一样：`message` 只有命令和原因，pi 的原文在 `detail`。
+- `respond()` 同样对上下一条 `send`。
+- `stop()` 和真实进程一样：还在等的请求以 `stopped` 失败，之后到的响应丢掉，按夹具的 `exit` 记录结束（调用方没做完场景里的步骤也一样，没有 `exit` 记录时按退出码 0）。停止以后的请求以 `stopped` 失败，崩溃以后的以 `exited` 失败，都不再对夹具；`respond()` 被丢掉。
 - 记录在微任务里逐条发出，保持顺序，不依赖真实时间。
 
 **实现**：录制、规范化、比较和回放在 testkit 的 `pi-fixtures/`；跑场景的 `runScenario` 在 `packages/pi/test/contract.ts`；场景在 `packages/pi/src/contract/*.pi.test.ts`；`packages/pi/src/contract/replay.test.ts` 让每个夹具都按原样回放一遍。
@@ -191,7 +194,7 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 - Vitest 和 Playwright 的全局初始化（根目录 `test-temp-root.ts`）把每次运行的 `TMPDIR` 指向一个新目录，运行结束整个删除；测试启动的子进程（pi、宿主、Electron）继承它。
 - 变异测试把 `TMPDIR` 放进 Stryker 的沙箱目录，沙箱结束时删除。超时的变异会被 Stryker 直接杀掉，测试里的清理和上面的全局清理都来不及运行。
 
-测试里启动的替身进程要能自己收场：scripted pi（testkit 里按脚本行为的 pi 替身）发现自己成了孤儿（父进程变成 1 号）就退出，它的孙进程只活 60 秒。这样即使测试进程被 Stryker 超时杀掉，也不会留下一直运行的进程。
+测试里启动的替身进程要能自己收场：scripted pi（testkit 里按脚本行为的 pi 替身）发现自己成了孤儿（父进程变成 1 号）就退出，它的孙进程只活 60 秒。这样即使测试进程被 Stryker 超时杀掉，也不会留下一直运行的进程。测试里故意挂住的命令同样要有寿命上限（如 `sleep 25.1234` 这种带小数、按测试进程区分的写法，或有次数上限的循环），不能用 `sleep 4321` 这类长时间的值：M1.2 的全量变异测试中，被打坏的清理逻辑加上被 Stryker 杀掉的测试进程，留下了 59 个卡在 rc 文件里的登录 shell。
 
 教训（M1.2）：一个测试每次留下 64 MiB 的临时目录，变异测试重复跑上千次，把磁盘写满了。
 

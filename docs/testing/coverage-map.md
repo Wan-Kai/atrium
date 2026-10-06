@@ -54,18 +54,20 @@
 | 按命令设期限（`compact`、`bash` 不限时，调用方可改），期限走注入的时钟；`AbortSignal` 能取消，已取消的不发出 | pi-process.test.ts "waits for $type without a deadline"、"lets the caller lift or shorten a deadline"、"aborts a request through its signal…" | 已覆盖 |
 | 事件按序交给所有监听者，一个监听者抛错不影响其他；退订生效；非 JSON、没有 type 的行只记长度 | pi-process.test.ts "events" 一组 | 已覆盖 |
 | 能发 `extension_ui_response` | pi-process.test.ts "sends extension dialog answers to pi" | 已覆盖 |
-| stderr 按行进日志，内存只留最后 8 KiB | pi-process.test.ts "logs stderr line by line…" | 已覆盖 |
+| stderr 按行进日志，内存只留最后 8 KiB；不换行的输出按 16 KiB 分段记，多字节字符跨块不乱码 | pi-process.test.ts "logs stderr line by line…"、"logs output without line breaks in bounded pieces…" | 已覆盖 |
+| 交给 pi 的环境不含 `ATRIUM_`、`ELECTRON_` 变量，`PATH` 去掉相对项 | `packages/pi/src/env/pi-env.test.ts`；pi-process.test.ts "never passes Atrium's or Electron's variables or relative PATH entries to pi"；inspect.test.ts "never gives pi --version a relative PATH entry…" | 已覆盖 |
+| pi 不再读 stdin 时，等待中的请求（含不限时的）以 `exited` 失败并停止 pi | pi-process.test.ts "fails waiting requests, untimed ones included, and stops pi when it stops reading stdin" | 已覆盖 |
 | pi 崩溃：退出码、stderr 尾部、等待中的请求失败；启动不了时报告原因 | pi-process.test.ts "reports a crash…"、"reports a pi that cannot be started" | 已覆盖 |
 | 停止：先关 stdin，再 SIGTERM，最后连同脱离进程组的孙进程一起杀；停止后到达的响应被丢弃；停止完成时不留定时器；孙进程占着管道也能结束；杀进程树失败（如 `ps` 不能运行）时退而只杀 pi，停止仍能完成；强杀永不触及自己的进程组和 0、1 号进程组 | pi-process.test.ts "stop" 一组；`kill-tree.test.ts` | 已覆盖 |
 | 真实 pi 跑完一轮；bash 工具运行中停止，不留子进程 | `pi-process.pi.test.ts` | 已覆盖 |
-| 读登录 shell 的完整环境：交互式配置生效；值里的换行、等号完整保留；shell 自己的变量不要；token 和 Atrium、Electron 的变量不进入结果；rc 打印的横幅和回显不干扰；交互式卡住时退到登录 shell 并杀掉它启动的进程；都失败、启动不了、不支持的 shell 时沿用宿主环境（去掉这两类变量）；可中途取消 | `packages/host/src/platform/login-shell.test.ts` | 已覆盖 |
-| 找 pi 并检查版本：找不到、可用、版本过低、不能运行（带 pi 的报错，没有报错时说明是退出码、信号还是超时）、输出没有版本；用找到的 PATH 运行 `pi --version`；不在相对路径和空项里找 pi | `packages/pi/src/locate/inspect.test.ts`；真实 pi：`locate.pi.test.ts` | 已覆盖 |
-| 宿主启动后在后台读环境、找 pi，结果写日志但不写环境内容（`.zshrc` 里的 Key 不进日志）；关闭宿主时中止查找、不留 shell；`close()` 重复调用只关一次 | `packages/host/src/tools.host.test.ts` | 已覆盖 |
+| 读登录 shell 的完整环境：交互式配置生效；值里的换行、等号完整保留；shell 自己的变量不要；token 和 Atrium、Electron 的变量不进入结果；rc 打印的横幅和回显不干扰；交互式卡住时退到登录 shell 并杀掉它启动的进程；都失败、启动不了、不支持的 shell 时沿用宿主环境（去掉这两类变量）；可中途取消；`.zshrc` 留下占着输出的后台任务时立即返回；超时时连另一个进程组里的后代一起杀 | `packages/host/src/platform/login-shell.test.ts` | 已覆盖 |
+| 找 pi 并检查版本：找不到、可用、版本过低、不能运行（带 pi 的报错，没有报错时说明是退出码、信号还是超时）、输出没有版本；用找到的 PATH 运行 `pi --version`；不在相对路径和空项里找 pi；`pi --version` 的期限走注入的时钟，超时或取消时用 SIGKILL 杀掉（忽略 SIGTERM 的也不留下） | `packages/pi/src/locate/inspect.test.ts`；真实 pi：`locate.pi.test.ts` | 已覆盖 |
+| 宿主启动后在后台读环境、找 pi，结果写日志但不写环境内容（`.zshrc` 里的 Key 不进日志）；关闭宿主时中止查找、不留 shell；`close()` 重复调用只关一次；工具环境里的凭据从日志里抹掉；查找意外失败时宿主照常运行、只是没有 pi | `packages/host/src/tools.host.test.ts` | 已覆盖 |
 | `PiDeps` 的宿主实现：请求 id 取自当前 span 并编号；pi 的定时器计入宿主的定时器计数；日志按级别写、带当前 span | `packages/host/src/platform/pi-deps.test.ts` | 已覆盖 |
 | pi 的启动、stderr、退出日志挂在 `pi.process` span 下；崩溃时 span 标为错误，宿主停止时为正常；每条命令一个 `pi.rpc` span，挂在调用方 span 下，请求 id 由它派生；命令失败时 span 标为错误 | `packages/host/src/sessions/traced-pi.test.ts` | 已覆盖 |
-| `pnpm pi:try`：参数解析；事件渲染；找不到 pi 时退出码 1；真实 pi 流式打出回复，整次运行在一条 trace 里；模型回复失败时退出码 1 | `packages/host/src/dev/try-pi.test.ts`、`try-pi.pi.test.ts` | 已覆盖 |
+| `pnpm pi:try`：参数解析；事件渲染；找不到 pi 时退出码 1；真实 pi 流式打出回复，整次运行在一条 trace 里；模型回复失败时退出码 1，重试后成功时退出码 0；环境（含登录 shell 里的）中的凭据不进日志；中断时停掉 pi、退出码 130 | `packages/host/src/dev/try-pi.test.ts`、`try-pi.pi.test.ts` | 已覆盖 |
 | pi 契约：一轮完整运行、工具调用、运行中排队与 `queue_update`、命令被处理掉、`clear_queue` + `abort`、会话文件延迟写出、`get_entries` 全量与增量和未知游标、自动重试与不可重试错误、对话框往返、压缩期间发消息报错、退出码 | `packages/pi/src/contract/*.pi.test.ts`（12 个场景，同时检查夹具） | 已覆盖 |
-| 夹具：规范化（时间、路径、UUID、条目 id 及其引用）、比较时忽略机器相关部分、录制顺序、文件格式；每个夹具按原样回放；回放替身的对上检查、崩溃、`stop()`、对话框 | `packages/testkit/src/pi-fixtures/*.test.ts`、`packages/pi/src/contract/replay.test.ts` | 已覆盖 |
+| 夹具：规范化（时间、度量、路径、UUID、只在固定键下识别的条目 id 及其引用）、比较时只忽略系统消息的文字、录制顺序、文件格式；每个夹具按原样回放；回放替身的对上检查、错误详情、崩溃后和停止后的请求、`stop()` 丢弃迟到的响应并按夹具结束、对话框 | `packages/testkit/src/pi-fixtures/*.test.ts`、`packages/pi/src/contract/replay.test.ts` | 已覆盖 |
 | faux：回复可以等测试放行，中断会结束等待；`/faux-noop`、`/faux-confirm` | `packages/testkit/src/faux/faux.pi.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
@@ -83,6 +85,8 @@
 | 静态文件不越出 UI 目录：路径穿越、符号链接 | `packages/host/src/server/static-files.test.ts`；ws-server.host.test.ts "does not follow a symlink out of the UI directory…" | 已覆盖 |
 | 读不了的文件、中途断开的下载不让宿主崩溃 | ws-server.host.test.ts "answers 404 for a file it cannot read…"、"survives a client that disconnects…" | 已覆盖 |
 | 日志脱敏：凭据键、已知秘密、格式化参数、`Error`、子 logger 绑定 | `packages/host/src/platform/logger.test.ts`、`redact.test.ts`、`redact.prop.test.ts`；e2e "…never logs the token" | 已覆盖 |
+| pi 的环境里名字像凭据的变量值加入脱敏列表，pi 在 stderr 回显也不进日志 | redact.test.ts "picks the values of credential-like variables…"；tools.host.test.ts "scrubs credentials from the tool environment…"；try-pi.test.ts "keeps credentials from the environment out of its log…" | 已覆盖 |
+| pi 从 `auth.json` 读的 Key 被 pi 回显时不进日志（已知缺口，见 security.md"凭据与日志"） | — | 待 M1.8 |
 | 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
 
 ## 日志与链路追踪（observability.md）
@@ -100,7 +104,7 @@
 | 要求 | 测试 | 状态 |
 |---|---|---|
 | 200 次连接、50 次拒绝后资源计数和 Node 真实定时器都回到基线 | connections.leak.test.ts | 已覆盖 |
-| 真实 pi 启动、停止 200 次后，资源计数、定时器、子进程、管道句柄都回到基线 | `packages/pi/src/process/pi-process.leak.test.ts` | 已覆盖 |
+| 真实 pi 启动、停止 200 次后，资源计数、定时器、子进程、管道句柄都回到基线，每个 pi 进程及其进程组都已消失 | `packages/pi/src/process/pi-process.leak.test.ts` | 已覆盖 |
 | 测试失败、超时或被杀时不留临时目录 | 根目录 `test-temp-root.ts`（Vitest、Playwright 全局初始化）；验证方法见 testing.md"临时文件与残留进程" | 已覆盖 |
 | 定时器计数与释放 | `packages/host/src/platform/clock.test.ts` | 已覆盖 |
 | 外观来回切换不留下脱离的 DOM | `apps/desktop/e2e/appearance.leak.spec.ts`。这个测试看不到事件监听器泄漏；外观监听器的移除由 appearance.browser.test.ts 断言 | 已覆盖 |

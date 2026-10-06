@@ -110,6 +110,7 @@ async function tryScripted(
   behavior: ScriptedPiBehavior,
   options: Partial<TryOptions> = {},
   extraEnv: Record<string, string> = {},
+  hooks: { readonly signal?: AbortSignal; readonly onStdout?: (text: string) => void } = {},
 ) {
   const dir = await createTempDir("try-scripted");
   onTestFinished(dir.cleanup);
@@ -121,8 +122,15 @@ async function tryScripted(
     {
       home: join(dir.path, "atrium"),
       env: { PATH: `${dir.path}:/usr/bin:/bin`, ...scripted.env, ...extraEnv },
-      stdout: { write: (text) => out.push(text), color: false },
+      stdout: {
+        write: (text) => {
+          out.push(text);
+          hooks.onStdout?.(text);
+        },
+        color: false,
+      },
       stderr: { write: (text) => err.push(text), color: false },
+      ...(hooks.signal === undefined ? {} : { signal: hooks.signal }),
     },
   );
   const log = await readFile(join(dir.path, "atrium", "dev-logs", "current.log"), "utf8");
@@ -131,6 +139,18 @@ async function tryScripted(
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line) as Record<string, unknown>);
   return { code, out: out.join(""), err: err.join(""), records, dir: dir.path };
+}
+
+/** A stdout hook that aborts `controller` once `text` has been written. */
+function abortOn(controller: AbortController, text: string): (written: string) => void {
+  return (written) => {
+    if (written === text) controller.abort();
+  };
+}
+
+/** An assistant `message_end` record with this stop reason. */
+function reply(stopReason: string): object {
+  return { type: "message_end", message: { role: "assistant", stopReason, errorMessage: "overloaded" } };
 }
 
 /** A `message_update` record as pi prints it. */
@@ -201,6 +221,34 @@ describe("runTry with a scripted pi", () => {
     expect(err.startsWith("\npi: overloaded\n")).toBe(true);
   });
 
+  it("exits with 0 when an error is retried and the last reply succeeds", async () => {
+    const { code, err } = await tryScripted({
+      rules: {
+        prompt: {
+          data: { disposition: "started" },
+          events: [reply("error"), reply("stop"), { type: "agent_settled" }],
+        },
+      },
+    });
+
+    expect(code).toBe(0);
+    expect(err.startsWith("\npi: overloaded\n")).toBe(true);
+  });
+
+  it("keeps credentials from the environment out of its log, even when pi prints them", async () => {
+    const { code, records } = await tryScripted(
+      { stderr: "auth failed for sk-try-0123456789\n", rules: { prompt: { data: { disposition: "handled" } } } },
+      {},
+      { OPENAI_API_KEY: "sk-try-0123456789" },
+    );
+
+    expect(code).toBe(0);
+    expect(JSON.stringify(records)).not.toContain("sk-try-0123456789");
+    expect(records.find((record) => record["msg"] === "pi stderr")).toMatchObject({
+      line: "auth failed for [redacted]",
+    });
+  });
+
   it("exits with 1 when pi dies before the run settles", async () => {
     const { code, err, records } = await tryScripted({
       rules: { prompt: { data: { disposition: "started" }, exitAfter: 3 } },
@@ -223,10 +271,14 @@ describe("runTry with a scripted pi", () => {
     onTestFinished(shellHome.cleanup);
     const bin = await createTempDir("try-bin");
     onTestFinished(bin.cleanup);
-    const scripted = await writeScriptedPi(bin.path, { rules: { prompt: { data: { disposition: "handled" } } } }, "pi");
+    const scripted = await writeScriptedPi(
+      bin.path,
+      { stderr: "token sk-zshrc-0123456789\n", rules: { prompt: { data: { disposition: "handled" } } } },
+      "pi",
+    );
     await writeFile(
       join(shellHome.path, ".zshrc"),
-      `export PATH=${bin.path}:$PATH\nexport SCRIPTED_PI_BEHAVIOR='${present(scripted.env["SCRIPTED_PI_BEHAVIOR"], "behavior")}'\n`,
+      `export PATH=${bin.path}:$PATH\nexport OPENAI_API_KEY=sk-zshrc-0123456789\nexport SCRIPTED_PI_BEHAVIOR='${present(scripted.env["SCRIPTED_PI_BEHAVIOR"], "behavior")}'\n`,
     );
 
     const code = await runTry(
@@ -246,6 +298,8 @@ describe("runTry with a scripted pi", () => {
       .map((line) => JSON.parse(line) as { attributes: Record<string, unknown> });
     expect(code).toBe(0);
     expect(process.map((span) => span.attributes["pi.path"])).toStrictEqual([join(bin.path, "pi")]);
+    // The key exists only in .zshrc, so only the login shell's environment can name it.
+    expect(log).not.toContain("sk-zshrc-0123456789");
   });
 });
 
@@ -296,5 +350,32 @@ describe("runTry checks pi first", () => {
 
     expect(code).toBe(1);
     expect(err.startsWith('pi is outdated: {"status":"outdated"')).toBe(true);
+  });
+});
+
+describe("runTry interrupted", () => {
+  it("stops pi and exits with 130 when interrupted mid-run", async () => {
+    const interrupt = new AbortController();
+    // Interrupt the moment the reply has started streaming.
+    const { code, out, records } = await tryScripted(
+      { rules: { prompt: { data: { disposition: "started" }, events: [delta("text_delta", "partial")] } } },
+      {},
+      {},
+      { signal: interrupt.signal, onStdout: abortOn(interrupt, "partial") },
+    );
+
+    expect(code).toBe(130);
+    expect(out).toBe("partial");
+    expect(records.filter((record) => record["msg"] === "pi exited")).toMatchObject([{ requested: true }]);
+  });
+
+  it("exits with 130 without starting pi when interrupted before", async () => {
+    const interrupt = new AbortController();
+    interrupt.abort();
+
+    const { code, records } = await tryScripted({}, {}, {}, { signal: interrupt.signal });
+
+    expect(code).toBe(130);
+    expect(records.filter((record) => record["msg"] === "pi started")).toStrictEqual([]);
   });
 });

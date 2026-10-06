@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
+import { killProcessTree } from "@atrium/pi";
 import type { Clock } from "./clock";
 
 /** The environment for tools such as pi, and where it came from. */
@@ -109,57 +110,106 @@ function parseEnv(output: string): Record<string, string> {
  *
  * @remarks
  * The shell gets no stdin, so an rc file that waits for input cannot hang it, and it leads its own
- * process group, so a deadline kills whatever the rc file started too (a shell that `exec`s tmux,
- * an agent that daemonizes).
+ * process group. The attempt is over as soon as the shell has exited and its output holds the
+ * closing marker, without waiting for the pipe to close: an rc file that starts a background job
+ * (`some-agent &`) leaves that job holding the pipe, and waiting for it would turn a good answer
+ * into a timeout. A deadline or abort kills the shell's whole process tree (`killProcessTree`)
+ * and stops listening at once, so a descendant that keeps the pipe open cannot keep the attempt,
+ * or the host's shutdown, waiting.
  *
- * @sideEffects Spawns a shell; may kill its process group.
+ * @sideEffects Spawns a shell; may kill its process tree.
  * @param shell - Absolute path of the shell.
  * @param args - Arguments, ending with the script.
- * @param options - Environment, clock, deadline and abort signal.
+ * @param options - Environment, clock, deadline, abort signal, and the marker that ends the output.
  * @returns Stdout when the shell exits with 0, or why it did not.
  */
 function runShell(
   shell: string,
   args: readonly string[],
-  options: Pick<LoginShellOptions, "env" | "clock" | "signal"> & { readonly timeoutMs: number },
+  options: Pick<LoginShellOptions, "env" | "clock" | "signal"> & { readonly timeoutMs: number; readonly mark: string },
 ): Promise<{ readonly stdout: string } | Omit<ShellAttemptFailure, "args">> {
   return new Promise((resolve) => {
     const child = spawn(shell, args, { env: options.env, stdio: ["ignore", "pipe", "ignore"], detached: true });
     let stdout = "";
-    let killedFor: "timeout" | "aborted" | undefined;
-    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+    let exitCode: number | null | undefined;
+    let closed = false;
+    let settled = false;
+    const listening = new AbortController();
 
     /**
-     * Kills the shell and everything in its process group.
+     * Ends the attempt, once.
      *
      * @remarks
-     * Interactive rc files may leave children behind; they share the shell's group.
+     * Destroying stdout lets go of a pipe that a background job may keep open.
      *
-     * @sideEffects Sends SIGKILL to a process group.
+     * @sideEffects Cancels the deadline and abort listener; destroys stdout; resolves.
+     * @param result - The outcome.
+     */
+    function settle(result: { readonly stdout: string } | Omit<ShellAttemptFailure, "args">): void {
+      if (settled) return;
+      settled = true;
+      cancelTimer();
+      listening.abort();
+      child.stdout.destroy();
+      resolve(result);
+    }
+
+    /**
+     * Settles once the shell has exited and its answer is complete.
+     *
+     * @remarks
+     * A failed exit needs no output; a successful one needs the closing marker, or the pipe to close.
+     *
+     * @sideEffects May settle.
+     */
+    function check(): void {
+      if (exitCode === undefined) return;
+      if (exitCode !== 0) settle({ reason: "exit", code: exitCode });
+      else if (closed || stdout.split(options.mark).length >= 3) settle({ stdout });
+    }
+
+    /**
+     * Kills the shell and everything it started.
+     *
+     * @remarks
+     * The whole tree, not only the group: an rc file may start jobs in other process groups.
+     * Killing the group is the fallback if the process table cannot be read. The attempt ends once
+     * the kill is done, so its end means the shell is gone.
+     *
+     * @sideEffects Sends SIGKILL to processes; then settles.
      * @param reason - Why the shell is being killed.
      */
-    function killGroup(reason: "timeout" | "aborted"): void {
-      killedFor ??= reason;
-      try {
-        if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
-      } catch {
-        // Already gone.
-      }
+    function killTree(reason: "timeout" | "aborted"): void {
+      if (settled) return;
+      const pid = child.pid;
+      // Stryker disable next-line ConditionalExpression: a shell that never started has already settled through `error`.
+      if (pid === undefined) return;
+      // Fire and forget: the chain settles the attempt itself and cannot reject.
+      void killProcessTree(pid)
+        .catch(() => {
+          try {
+            process.kill(-pid, "SIGKILL");
+          } catch {
+            // Already gone.
+          }
+        })
+        .finally(() => settle({ reason }));
     }
-    const cancelTimer = options.clock.setTimeout(() => killGroup("timeout"), options.timeoutMs);
-    const settled = new AbortController();
-    options.signal?.addEventListener("abort", () => killGroup("aborted"), { signal: settled.signal });
-    child.once("error", () => {
-      cancelTimer();
-      settled.abort();
-      resolve({ reason: "spawn" });
+
+    const cancelTimer = options.clock.setTimeout(() => killTree("timeout"), options.timeoutMs);
+    options.signal?.addEventListener("abort", () => killTree("aborted"), { signal: listening.signal });
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+      stdout += chunk;
+      check();
     });
-    child.once("close", (code) => {
-      cancelTimer();
-      settled.abort();
-      if (killedFor !== undefined) resolve({ reason: killedFor });
-      else if (code !== 0) resolve({ reason: "exit", code });
-      else resolve({ stdout });
+    child.once("error", () => settle({ reason: "spawn" }));
+    child.once("exit", (code) => {
+      exitCode = code;
+      check();
+    });
+    child.once("close", () => {
+      closed = true;
+      check();
     });
   });
 }
@@ -207,6 +257,7 @@ export async function readLoginShellEnv(options: LoginShellOptions): Promise<Too
       ...options,
       env: startEnv,
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+      mark,
     });
     if (!("stdout" in result)) {
       options.onFailure?.({ args: flags, ...result });

@@ -20,13 +20,20 @@ export interface LineSplitter {
  * to, so a multi-megabyte line (a large `get_entries` response) arriving in small chunks costs
  * linear time instead of rescanning the whole buffer on every chunk. A UTF-8 character split
  * across chunks is reassembled by the decoder. Empty lines are passed on; the caller decides what
- * to do with them.
+ * to do with them. With `maxLineLength`, an unfinished line that grows past it is passed on as it
+ * is, so output without line breaks (a progress bar redrawn with CR) cannot grow memory without
+ * bound; pi's stdout uses no limit, since one record may legitimately be megabytes.
  *
  * @sideEffects none
  * @param onLine - Called with each complete line, without its line ending.
+ * @param options - The longest unfinished line kept, in UTF-16 units.
  * @returns The splitter.
  */
-export function createLineSplitter(onLine: (line: string) => void): LineSplitter {
+export function createLineSplitter(
+  onLine: (line: string) => void,
+  options: { readonly maxLineLength?: number } = {},
+): LineSplitter {
+  const maxLineLength = options.maxLineLength ?? Number.POSITIVE_INFINITY;
   // UTF-8 is the default encoding.
   const decoder = new StringDecoder();
   let unfinished = "";
@@ -44,12 +51,30 @@ export function createLineSplitter(onLine: (line: string) => void): LineSplitter
     onLine(line.endsWith("\r") ? line.slice(0, -1) : line);
   }
 
+  /**
+   * Keeps the unfinished end of the input, passing it on once it is too long.
+   *
+   * @remarks
+   * See `maxLineLength`.
+   *
+   * @sideEffects May call `onLine`.
+   * @param rest - The text after the last line break.
+   */
+  function keep(rest: string): void {
+    if (rest.length >= maxLineLength) {
+      unfinished = "";
+      emit(rest);
+    } else {
+      unfinished = rest;
+    }
+  }
+
   return {
     push(chunk) {
       const text = decoder.write(chunk);
       let newline = text.indexOf("\n");
       if (newline === -1) {
-        unfinished += text;
+        keep(unfinished + text);
         return;
       }
       emit(unfinished + text.slice(0, newline));
@@ -58,7 +83,7 @@ export function createLineSplitter(onLine: (line: string) => void): LineSplitter
         emit(text.slice(start, newline));
         start = newline + 1;
       }
-      unfinished = text.slice(start);
+      keep(text.slice(start));
     },
     end() {
       const rest = unfinished + decoder.end();

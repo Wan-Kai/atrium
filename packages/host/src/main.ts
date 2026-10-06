@@ -3,6 +3,7 @@ import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
 import { ensureAtriumHome } from "./platform/home";
+import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
 import { createLogger, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
@@ -48,7 +49,7 @@ export interface RunningHost {
   readonly address: string;
   /** Live resource counts, for leak tests and diagnostics. */
   readonly resources: ResourceTracker;
-  /** Resolves once PATH is known and pi has been looked for; `null` if the host closed first. */
+  /** Resolves once PATH is known and pi has been looked for; `null` if the host closed first or detection failed. */
   readonly tools: Promise<HostTools | null>;
   /** Path that always points at the log file being written. */
   readonly logFile: string;
@@ -80,13 +81,15 @@ const RESOURCE_REPORT_INTERVAL_MS = 60_000;
  */
 export async function startHost(config: HostConfig): Promise<RunningHost> {
   const clock = config.clock ?? systemClock;
+  let environmentSecrets: readonly string[] = [];
   const home = await ensureAtriumHome(config.home);
   const { stream: destination, currentPath: logFile } = await openLogFile(home.logs);
   const resources = new ResourceTracker();
   const logger = createLogger({
     destination,
     level: config.logLevel ?? "info",
-    secrets: () => [config.token],
+    // Credentials from the tool environment join once it is known (`detectTools`).
+    secrets: () => [config.token, ...environmentSecrets],
     service: "host",
   });
   for (const directory of home.looseModes) {
@@ -149,7 +152,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * as a resource, so it cannot outlive the host unnoticed. It never rejects.
    *
    * @sideEffects Spawns the login shell and `pi --version`; logs the outcome.
-   * @returns The tools found, or `null` if the host closed first.
+   * @returns The tools found, or `null` if the host closed first or detection failed.
    */
   async function detectTools(): Promise<HostTools | null> {
     const release = resources.acquire("tools.detect");
@@ -167,12 +170,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           : { source: "configured", env: config.toolEnv };
       const path = found.env["PATH"] ?? "";
       const { env, ...origin } = found;
+      // Before anything from this environment can reach the log, including the line below.
+      environmentSecrets = secretsInEnvironment(env);
       logger.info({ ...origin, path, variables: Object.keys(env).length }, "tool environment resolved");
       if (signal.aborted) return null;
-      const pi = await inspectPi(path, { env, signal });
+      const pi = await inspectPi(path, { env, clock, signal });
       if (signal.aborted) return null;
       logger[pi.status === "ready" ? "info" : "warn"]({ ...pi }, "pi inspected");
       return { env, envSource: found.source, pi };
+    } catch (error) {
+      // Nothing above is expected to throw; if something does, the host keeps running without pi.
+      logger.error({ err: error }, "tool detection failed");
+      return null;
     } finally {
       release();
     }
