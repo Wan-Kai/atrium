@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { basename } from "node:path";
-import { killProcessTree } from "@atrium/pi";
+import { type ProcessSystem, killProcessTree } from "@atrium/pi";
 import type { Clock } from "./clock";
 
 /** The environment for tools such as pi, and where it came from. */
@@ -34,6 +34,8 @@ export interface LoginShellOptions {
   readonly signal?: AbortSignal;
   /** Called for each failed attempt, so the caller can log it. */
   readonly onFailure?: (failure: ShellAttemptFailure) => void;
+  /** Process table and kill for the tree kill; tests make it fail to reach the fallback. */
+  readonly processSystem?: ProcessSystem;
 }
 
 /** Shells whose `-i -l -c` and `printf` behave like the POSIX shell's. */
@@ -98,6 +100,7 @@ function parseEnv(output: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const entry of output.split("\0")) {
     const equals = entry.indexOf("=");
+    // Stryker disable next-line EqualityOperator: `env` never prints a variable without a name, so `=` is never first.
     if (equals > 0 && !SHELL_OWN_VARIABLES.has(entry.slice(0, equals))) {
       env[entry.slice(0, equals)] = entry.slice(equals + 1);
     }
@@ -126,10 +129,14 @@ function parseEnv(output: string): Record<string, string> {
 function runShell(
   shell: string,
   args: readonly string[],
-  options: Pick<LoginShellOptions, "env" | "clock" | "signal"> & { readonly timeoutMs: number; readonly mark: string },
+  options: Pick<LoginShellOptions, "env" | "clock" | "signal" | "processSystem"> & {
+    readonly timeoutMs: number;
+    readonly mark: string;
+  },
 ): Promise<{ readonly stdout: string } | Omit<ShellAttemptFailure, "args">> {
   return new Promise((resolve) => {
     const child = spawn(shell, args, { env: options.env, stdio: ["ignore", "pipe", "ignore"], detached: true });
+    // Stryker disable next-line StringLiteral: anything before the first marker is discarded.
     let stdout = "";
     let exitCode: number | null | undefined;
     let closed = false;
@@ -146,7 +153,9 @@ function runShell(
      * @param result - The outcome.
      */
     function settle(result: { readonly stdout: string } | Omit<ShellAttemptFailure, "args">): void {
+      // Stryker disable next-line ConditionalExpression,BooleanLiteral: every step below is idempotent, and a promise settles once; the flag only saves work.
       if (settled) return;
+      // Stryker disable next-line BooleanLiteral: see above.
       settled = true;
       cancelTimer();
       listening.abort();
@@ -180,12 +189,13 @@ function runShell(
      * @param reason - Why the shell is being killed.
      */
     function killTree(reason: "timeout" | "aborted"): void {
+      // Stryker disable next-line ConditionalExpression: settling cancels the deadline and the abort listener, the only callers.
       if (settled) return;
       const pid = child.pid;
       // Stryker disable next-line ConditionalExpression: a shell that never started has already settled through `error`.
       if (pid === undefined) return;
       // Fire and forget: the chain settles the attempt itself and cannot reject.
-      void killProcessTree(pid)
+      void killProcessTree(pid, options.processSystem)
         .catch(() => {
           try {
             process.kill(-pid, "SIGKILL");
@@ -198,6 +208,7 @@ function runShell(
 
     const cancelTimer = options.clock.setTimeout(() => killTree("timeout"), options.timeoutMs);
     options.signal?.addEventListener("abort", () => killTree("aborted"), { signal: listening.signal });
+    // Stryker disable next-line StringLiteral: Node reads an empty encoding as UTF-8.
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
       stdout += chunk;
       check();
@@ -230,7 +241,8 @@ function runShell(
  * Electron. Shells outside the POSIX family (fish, nu) keep the host's environment.
  *
  * @sideEffects Spawns up to two shells; may kill their process groups on a deadline.
- * @param options - Shell, host environment, clock, deadline, abort signal and failure callback.
+ * @param options - Shell, host environment, clock, deadline, abort signal, failure callback and,
+ * for tests, the process system.
  * @returns The environment for tools and where it came from.
  */
 export async function readLoginShellEnv(options: LoginShellOptions): Promise<ToolEnv> {
@@ -268,6 +280,7 @@ export async function readLoginShellEnv(options: LoginShellOptions): Promise<Too
       options.onFailure?.({ args: flags, reason: "no-marker" });
       continue;
     }
+    // Stryker disable next-line StringLiteral: with three or more parts, `printed[1]` always exists.
     return { source: "login-shell", env: toolSafe(parseEnv(printed[1] ?? "")), shell };
   }
   return { source: "inherited", env: inherited, reason: "failed", shell };

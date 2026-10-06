@@ -24,9 +24,10 @@ export default {
   mutate: [
     "packages/protocol/src/**/*.ts",
     "packages/client/src/**/*.ts",
-    "packages/host/src/platform/{redact,resources,clock}.ts",
+    "packages/host/src/platform/{redact,resources,clock,login-shell}.ts",
     "packages/host/src/server/*.ts",
-    "packages/pi/src/locate/version.ts",
+    "packages/pi/src/env/*.ts",
+    "packages/pi/src/locate/{version,locate,inspect}.ts",
     "packages/pi/src/process/*.ts",
     "packages/testkit/src/clock.ts",
     "!**/*.test.ts",

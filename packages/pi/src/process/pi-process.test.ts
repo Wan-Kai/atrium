@@ -459,21 +459,22 @@ describe("stderr", () => {
 
 describe("stderr limits", () => {
   it("logs output without line breaks in bounded pieces and keeps multibyte text intact in the tail", async () => {
-    // 30 small chunks: a piece is logged once 16 KiB characters have built up, not per chunk.
+    // 60 small chunks, 180 KB in all: a piece is logged once 16 Ki characters have built up, not
+    // per chunk. A read takes at most 64 KB, so even chunks merged under load make several pieces.
     const { pi, logs } = await start({
-      stderrChunks: Array.from({ length: 30 }, () => "中".repeat(1000)),
+      stderrChunks: Array.from({ length: 60 }, () => "中".repeat(1000)),
       exitCode: 0,
     });
 
     const exit = await pi.exited;
 
     const pieces = logsWith(logs, "pi stderr").map((log) => String(log.fields["line"]));
-    // Chunks may merge under load, but every piece before the last has reached the limit.
-    expect(pieces.length).toBeLessThanOrEqual(2);
+    expect(pieces.length).toBeGreaterThanOrEqual(2);
+    expect(pieces.length).toBeLessThanOrEqual(4);
     expect(pieces.slice(0, -1).map((piece) => piece.length >= 16 * 1024)).toStrictEqual(
       pieces.slice(0, -1).map(() => true),
     );
-    expect(pieces.join("")).toBe("中".repeat(30_000));
+    expect(pieces.join("")).toBe("中".repeat(60_000));
     expect(exit.stderrTail).toBe("中".repeat(8 * 1024));
   });
 });

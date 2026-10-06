@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { piEnvironment } from "../env/pi-env";
@@ -15,7 +15,8 @@ const run = promisify(execFile);
  * The caller passes the PATH read from the user's login shell, because Electron started from the
  * Finder does not inherit it (SPEC-0001, "第 1 步：安装 pi"). Relative entries, including the empty
  * entry that POSIX reads as the current directory, are skipped: the host must never run a `pi`
- * from whatever directory it happens to be in.
+ * from whatever directory it happens to be in. Like a shell, it skips a directory named `pi`,
+ * which passes the execute check too.
  *
  * @sideEffects Checks file permissions on disk.
  * @param searchPath - A PATH-style list of directories.
@@ -27,7 +28,7 @@ export async function findPi(searchPath: string): Promise<string | null> {
     const candidate = join(directory, "pi");
     try {
       await access(candidate, constants.X_OK);
-      return candidate;
+      if ((await stat(candidate)).isFile()) return candidate;
     } catch {
       // Not here, or not executable; try the next directory.
     }
@@ -68,6 +69,7 @@ export async function readPiVersion(
   function kill(): void {
     running.child.kill("SIGKILL");
   }
+  // Stryker disable next-line ObjectLiteral,BooleanLiteral: the listener is removed below either way, and a signal aborts once.
   options.signal?.addEventListener("abort", kill, { once: true });
   if (options.signal?.aborted === true) kill();
   try {
