@@ -67,6 +67,8 @@ function describe(view: StatusView): string {
       return `已连接宿主 ${view.hostVersion}`;
     case "rejected":
       return REJECTION_TEXT[view.reason];
+    case "reconnecting":
+      return `与宿主的连接已断开，正在重连（第 ${view.attempt} 次）…`;
     case "disconnected":
       return "与宿主的连接已断开";
     default:

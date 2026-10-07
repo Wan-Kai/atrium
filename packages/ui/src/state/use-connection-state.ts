@@ -1,4 +1,4 @@
-import type { Connection, ConnectionState } from "@atrium/client";
+import type { AtriumClient, ConnectionState } from "@atrium/client";
 import { useStore } from "zustand";
 
 /**
@@ -9,9 +9,9 @@ import { useStore } from "zustand";
  * React (overview.md, "代码结构", `ui/src/state`).
  *
  * @sideEffects Subscribes the calling component to the store; it re-renders on every change.
- * @param connection - The connection to watch.
+ * @param client - The client whose connection to watch.
  * @returns The current state.
  */
-export function useConnectionState(connection: Connection): ConnectionState {
-  return useStore(connection.state);
+export function useConnectionState(client: AtriumClient): ConnectionState {
+  return useStore(client.connection);
 }

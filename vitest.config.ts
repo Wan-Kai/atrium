@@ -1,4 +1,3 @@
-import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
@@ -53,8 +52,9 @@ export default defineConfig({
         },
       },
       {
+        // The UI's own Vite config, so tests get the same plugins as the page (React, Tailwind).
+        extends: "./packages/ui/vite.config.ts",
         root: "./packages/ui",
-        plugins: [react()],
         test: {
           name: "ui",
           include: ["src/**/*.browser.test.{ts,tsx}"],

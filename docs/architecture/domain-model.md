@@ -637,6 +637,8 @@ classDiagram
 | `prompt` / `steer` / `stop` / `resume_queue` / `clear_queue` / `update_queued` / `remove_queued` / `steer_queued` / `answer_interaction` / `set_model` / `set_thinking_level` | SessionController |
 | `list_models` / `list_commands(dir)` | PiCatalog |
 | `search_files(dir, query)` | FileSearch |
+| `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.6） |
+| `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |
 | `check_setup` / `install_*` / `update_pi` / `cancel_install` / `login` / `cancel_login` / `set_api_key` | SetupService |
 
 | 事件 | 来源 |

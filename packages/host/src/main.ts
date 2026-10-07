@@ -1,4 +1,5 @@
 import { type PiInspection, inspectPi } from "@atrium/pi";
+import { randomBytes, randomUUID } from "node:crypto";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
@@ -9,6 +10,14 @@ import { createLogger, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { startWsServer } from "./server/ws-server";
+import { createSessionManager } from "./sessions/session-manager";
+import { SubscriptionRegistry } from "./sync/subscriptions";
+
+/** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
+const HEARTBEAT_MS = 15_000;
+
+/** Bytes that may wait to be sent to one client before it is dropped (SPEC-0001, "发送端背压"). */
+const MAX_BUFFERED_BYTES = 16 * 1024 * 1024;
 
 /** Everything needed to start a host. */
 export interface HostConfig {
@@ -96,6 +105,19 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger.warn({ directory }, "atrium directory is readable by other users; expected mode 0700");
   }
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
+  const subscriptions = new SubscriptionRegistry(resources);
+  // Settled with the detection below once the server listens; commands can only arrive after that.
+  const toolsFound = Promise.withResolvers<HostTools | null>();
+  const sessions = createSessionManager({
+    home: home.root,
+    tools: toolsFound.promise,
+    subscriptions,
+    clock,
+    resources,
+    tracer: tracing.tracer,
+    logger,
+    newId: () => randomUUID(),
+  });
 
   /**
    * Flushes and closes the log stream.
@@ -125,6 +147,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       maxPayloadBytes: 1024 * 1024,
       limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 8 * 1024 * 1024 },
       hostVersion: packageJson.version,
+      hostInstanceId: randomBytes(8).toString("hex"),
+      heartbeatMs: HEARTBEAT_MS,
+      maxBufferedBytes: MAX_BUFFERED_BYTES,
+      subscriptions,
+      sessions,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -140,6 +167,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   let cancelReport = scheduleReport();
   const stopDetecting = new AbortController();
   const tools = detectTools();
+  toolsFound.resolve(tools);
 
   /**
    * Reads the login shell's environment, then looks for pi on its PATH.
@@ -212,20 +240,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   let closing: Promise<void> | undefined;
 
   /**
-   * Stops detection, the server, tracing and logging, in that order.
+   * Stops detection, the server, the sessions' pi processes, tracing and logging, in that order.
    *
    * @remarks
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; flushes spans
-   * and logs; closes the log file.
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; stops every
+   * session's pi; flushes spans and logs; closes the log file.
    */
   async function close(): Promise<void> {
     cancelReport();
     stopDetecting.abort();
     await tools;
     await server.close();
+    await sessions.close();
     await tracing.shutdown();
     logger.info("host stopped");
     await closeLog();

@@ -1,5 +1,6 @@
 import {
   type Context,
+  type Link,
   ROOT_CONTEXT,
   type Span,
   SpanStatusCode,
@@ -141,6 +142,7 @@ export function inSyncSpan<T>(tracer: Tracer, name: string, parent: Context, wor
  * @param name - Span name, such as `pi.rpc prompt`.
  * @param work - Code to run with the span active.
  * @param parent - Parent context; defaults to the active one.
+ * @param links - Spans this one relates to without being their child, such as a connection's.
  * @returns Whatever `work` resolves with.
  */
 export function inSpan<T>(
@@ -148,8 +150,9 @@ export function inSpan<T>(
   name: string,
   work: (span: Span) => Promise<T>,
   parent: Context = context.active(),
+  links: readonly Link[] = [],
 ): Promise<T> {
-  return tracer.startActiveSpan(name, {}, parent, async (span) => {
+  return tracer.startActiveSpan(name, { links: [...links] }, parent, async (span) => {
     try {
       return await work(span);
     } catch (error) {

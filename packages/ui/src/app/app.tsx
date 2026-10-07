@@ -1,24 +1,26 @@
-import { type Connection, createConnection } from "@atrium/client";
+import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import { useEffect, useState } from "react";
 import { useConnectionState } from "../state/use-connection-state";
 import { clientId, readBootstrap } from "./bootstrap";
+import { ChatScreen } from "../chat/chat-screen";
 import { ConnectionStatus, type StatusView } from "./connection-status";
+import { installIssueReporting } from "./issue-reporting";
 
 /** The app before a connection exists, or the connection once it does. */
 type Shell =
   | { readonly kind: "waiting"; readonly view: StatusView }
-  | { readonly kind: "connected"; readonly connection: Connection };
+  | { readonly kind: "connected"; readonly client: AtriumClient };
 
 /**
  * Root component: connects to the host and shows the connection state.
  *
  * @remarks
- * M1.1 only proves the path Electron → UI → WebSocket → host works end to end; the sidebar,
- * tabs and transcript replace this screen in later milestones. Until the desktop bridge answers,
+ * A status line over M1.3's conversation screen; the sidebar and tabs come with M1.5. Until the desktop bridge answers,
  * the screen says it is starting rather than claiming the app runs outside the desktop shell, and
  * a failed bridge call is shown instead of becoming an unhandled rejection.
  *
- * @sideEffects On mount, asks the desktop bridge for the host address and opens a WebSocket;
+ * @sideEffects On mount, asks the desktop bridge for the host address, opens a WebSocket and
+ * starts reporting UI problems to the host;
  * disconnects on unmount.
  * @returns The app shell.
  */
@@ -27,7 +29,8 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    let opened: Connection | null = null;
+    let opened: AtriumClient | null = null;
+    let stopReporting: (() => void) | undefined;
 
     /**
      * Opens the connection once the bootstrap data arrives, unless the component unmounted first.
@@ -48,12 +51,13 @@ export function App() {
         });
         return;
       }
-      opened = createConnection({
+      opened = createAtriumClient({
         url: bootstrap.hostUrl.replace(/^http/, "ws"),
         token: bootstrap.token,
         clientId: clientId(localStorage),
       });
-      setShell({ kind: "connected", connection: opened });
+      stopReporting = installIssueReporting(opened, window);
+      setShell({ kind: "connected", client: opened });
       await opened.connect();
     }
 
@@ -61,14 +65,17 @@ export function App() {
     void open();
     return () => {
       active = false;
+      stopReporting?.();
       opened?.disconnect();
     };
   }, []);
 
   return (
-    <main className="flex h-full flex-col items-center justify-center gap-2 bg-background">
-      <h1 className="text-xl font-semibold">Atrium</h1>
-      {shell.kind === "waiting" ? <ConnectionStatus view={shell.view} /> : <LiveStatus connection={shell.connection} />}
+    <main className="flex h-full flex-col bg-[var(--main)]">
+      <header className="flex h-12 shrink-0 items-center justify-center text-[length:var(--fs-sm)]">
+        {shell.kind === "waiting" ? <ConnectionStatus view={shell.view} /> : <LiveStatus client={shell.client} />}
+      </header>
+      {shell.kind === "connected" ? <ChatScreen client={shell.client} /> : null}
     </main>
   );
 }
@@ -80,9 +87,9 @@ export function App() {
  * Split out so the store subscription only exists once a connection does.
  *
  * @sideEffects Subscribes to the connection's store.
- * @param props - The connection to watch.
+ * @param props - The client whose connection to watch.
  * @returns The status line.
  */
-function LiveStatus({ connection }: { readonly connection: Connection }) {
-  return <ConnectionStatus view={useConnectionState(connection)} />;
+function LiveStatus({ client }: { readonly client: AtriumClient }) {
+  return <ConnectionStatus view={useConnectionState(client)} />;
 }

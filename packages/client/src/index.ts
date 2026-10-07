@@ -1,9 +1,12 @@
 export {
-  type Connection,
-  type ConnectionOptions,
+  type AtriumClient,
+  type AtriumClientOptions,
+  type ClientClock,
+  ConnectionLostError,
   type ConnectionState,
   type RejectionReason,
-  type SocketLike,
-  buildHello,
-  createConnection,
-} from "./connection";
+  createAtriumClient,
+} from "./atrium-client";
+export { type PendingMessage, type SessionView } from "./session-view";
+// The UI checks failures against it and may use the protocol only for types (overview.md, "包之间的依赖").
+export { CommandError } from "@atrium/protocol";

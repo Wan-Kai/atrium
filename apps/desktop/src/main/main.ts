@@ -123,7 +123,7 @@ function devContentSecurityPolicy(hostPort: number): string {
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https:",
     "font-src 'self'",
     `connect-src 'self' ws://127.0.0.1:${hostPort}`,
     "object-src 'none'",

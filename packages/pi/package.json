@@ -9,6 +9,9 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"
   },
+  "dependencies": {
+    "@atrium/protocol": "workspace:*"
+  },
   "devDependencies": {
     "@atrium/testkit": "workspace:*",
     "@earendil-works/pi-coding-agent": "1.0.2",

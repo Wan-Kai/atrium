@@ -331,7 +331,7 @@ Electron 主进程
   - 中文：启用 `@streamdown/cjk`，修正加粗、删除线紧挨中文标点时不生效的问题（例如 `**注意：**后面的文字`）。
   - 数学公式：支持 `$$…$$` 块公式和 `\(…\)` 行内公式；不启用单个 `$`，避免和 shell 变量、价格冲突。KaTeX 第一次遇到公式时才加载。
   - Mermaid：第一次遇到时才加载，渲染成图，可切换看源码，主题跟随浅色 / 深色。
-  - 链接：用系统浏览器打开。图片：本地图片直接显示；远程图片默认不自动加载，点击后加载（防止通过图片地址外传信息）。
+  - 链接：用系统浏览器打开。图片：本地图片和 `https` 远程图片直接显示；`http` 图片不加载，显示为指向它的链接（2026-10-07 定：原先"远程图片点击后才加载"改为直接显示，接受图片地址可能把信息带出去的风险，见 security.md"渲染内容"）。
   - 原始 HTML：不执行，按文本显示。
 
 
@@ -438,7 +438,7 @@ Electron 主进程
 - **运行中继续输入**：宿主维护排队；上一条输入 `handled`，或运行 `agent_settled` 后，依次发出下一条。插话调用 `steer`（见上文"对话区"），pi 的 `queue_update` 每次带完整的内部队列，用来确认插话是否送达。正在压缩时 pi 的 `prompt` 会报错，所以压缩期间暂停出队，`compaction_end` 后再发。出队和停止由同一个会话控制器串行处理。
 - **中断**：宿主先暂停出队，再对 pi `clear_queue`、`abort`。否则已经插话、还没送达的消息会让运行继续下去（Paseo 踩过这个坑）。宿主自己的排队保留并暂停，不自动发出。`abort` 2 秒内没确认停下时，会话保持"停止中"，拒绝新的提交和切换模型等操作，直到确认或进程退出，避免宿主和 pi 的状态对不上。
 - **进程崩溃**：运行状态回到空闲，排队暂停，已插话但未确认送达的消息退回排队，未回答的对话框作废，记录一条失败，通知界面。重新打开会话时不自动重放结果未知的上一条输入。
-- **图片**：粘贴或拖入的图片转成 base64，放进 `prompt` 的 `images` 字段。只有当前模型的 `input` 包含 `image` 时才允许添加图片，否则提示当前模型不支持。文件引用和粘贴内容在发送时展开进 `text`；历史消息里不保证还原成小胶囊。
+- **图片**：粘贴或拖入的图片由客户端压缩后单独上传（见"接口与数据 · 附件"），宿主发消息时转成 base64 放进 pi `prompt` 的 `images` 字段。只有当前模型的 `input` 包含 `image` 时才允许添加图片，否则提示当前模型不支持。文件引用和粘贴内容在发送时展开进 `text`；历史消息里不保证还原成小胶囊。
 - **工具卡片**：
   - `bash`：显示命令和输出，输出随 `tool_execution_update` 实时刷新
   - `read`：显示文件路径和行范围
@@ -458,9 +458,60 @@ Electron 主进程
 
 ## 接口与数据
 
-以下是草案，实施时补全字段。本节取代 [事件模型](../architecture/event-model.md) 里的早期草案。
+命令和事件的字段随里程碑补全，准绳是 `packages/protocol` 的 zod 定义。
 
 所有会话命令都带 `sessionId` 和客户端生成的 `requestId`；连接上没有隐式的"当前会话"。所有会话事件都带 `sessionId`、`epoch`（进程代次）和 `seq`（会话内单调递增）；列表类事件带 `generation` 和 `seq`。命令落到哪个类，见 [领域模型 · 协议与类的对应](../architecture/domain-model.md#8-协议与类的对应)。
+
+### 协议细节（2026-10-07 定）
+
+zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概览。
+
+**信封**（`protocol/src/envelope.ts`）
+
+- 客户端发的每条消息是一个可辨识联合 `ClientMessage`，按 `type` 区分：握手的 `hello`，以及各条命令。宿主发的是 `HostMessage`：`welcome`、`response` 和各种事件。
+- 每条命令都带 `requestId`（客户端生成，同一连接内唯一）和 `traceparent`；会话命令再带 `sessionId`。参数和这三个字段平铺在同一层，不另套 `params`。
+
+**应答**
+
+- 每条命令恰好一条应答：`{ type: "response", requestId, ok: true, result? }` 或 `{ type: "response", requestId, ok: false, error: { code, params? } }`。宿主不产出给用户看的文字，界面按 `code` 和 `params` 显示。
+- 错误码是 protocol 里的枚举，随里程碑增加。M1.3 用到：`invalid_message`（不是 JSON、不符合 schema）、`unknown_command`、`session_not_found`、`pi_unavailable`（`params.status` 说明原因：`missing` / `outdated` / `unusable` 是检查结果，`exited` 是 pi 已退出，`unresponsive` 是 pi 没有回应）、`session_busy`（pi 正在运行或压缩，不收新消息）、`pi_rejected`（pi 拒绝了这条命令，`params.detail` 是 pi 的原文，只供"展开看原始报错"）、`internal_error`（宿主自己的 bug）。pi 的拒绝不算宿主的 bug，不报 `internal_error`。
+- `prompt` 不设期限：pi 要做完发送前的准备（可能包括自动压缩）才回应答，可能远超 30 秒；超时会让界面以为没发出，而 pi 照样执行。
+- 未知或无效的消息也有应答：能读出 `requestId` 就带上，读不出时为 `null`。限流仍然直接断开（4429）；现在用日志"message ignored"计数的限流测试改成断言应答。
+- 原来事件表里的 `error` 不再需要：命令的错误走应答；运行中的失败由 `run_settled` 带出，系统事件走 `notice`。
+
+**握手与心跳**
+
+- `welcome` 带 `protocolVersion`、`hostVersion`、`hostInstanceId`（宿主每次启动随机生成，就是列表同步的 `generation`）和 `heartbeatMs`（15000）。客户端重连后比较 `hostInstanceId`，判断宿主是否重启过。
+- 客户端每 `heartbeatMs` 发一条 `ping` 命令，`heartbeatMs` 内没收到应答就当连接已死、断开重连（浏览器察觉不到休眠唤醒后断掉的 TCP）。宿主每 `heartbeatMs` 发一次 WebSocket 协议层的 ping，到下一次时还没收到 pong 就终止连接（浏览器会自动回 pong）。
+
+**事件**
+
+- 会话事件带 `sessionId`、`epoch`、`seq`，以及所属运行的 `traceId`（不在运行中为 `null`）。快照带 `exited`，pi 已退出的会话重连后也显示为已退出。
+- 客户端每次连上都比较 `hostInstanceId`：变了说明宿主重启过，之前订阅的会话在新宿主里不存在（宿主重启后的恢复在 M1.4、M1.7）。M1.3 把这些会话的视图标为"已失效"，保留已显示的消息，清掉运行和流式状态，不再订阅；对话界面在已失效或已退出的会话里发消息时，新建一个对话。
+- 列表事件带 `collection`（`projects`、`workspaces`、`sessions`）、`generation`、`seq`。
+
+**追踪**：宿主为每条命令开一个 `command <type>` span，父 span 是命令自带的 `traceparent`，再用 span link 指向连接的 trace；不挂在连接那条长 trace 下面，否则一个连接上的所有操作会堆进同一条 trace。
+
+**订阅**：哪个客户端订阅了哪些会话，记在宿主 `sync/` 下的 SubscriptionRegistry（[领域模型 §6、§7](../architecture/domain-model.md#6-宿主的组件)）；连接断开时清掉它的订阅。
+
+**发送端背压**：宿主发消息前看这个连接的 `bufferedAmount`，超过 16 MiB 就以 4507 关闭这个连接，不再往里写。客户端重连后按游标重新对齐（[领域模型 §7](../architecture/domain-model.md#7-客户端与一致性)），所以不需要在宿主为它合并或丢弃增量；一个读得慢的客户端只影响它自己。
+
+**附件**（实现在 M1.6）
+
+- 客户端先压缩：长边缩到不超过 2048 像素（主流模型本来就会把更大的图缩小再看），编码成 WebP；单张压缩后仍超过 1 MiB 时降低质量重试，还不行就提示图片太大。
+- 粘贴或拖入时就用 `upload_attachment(mimeType, data)` 单独上传（`data` 是 base64），应答带 `attachmentId`；`prompt` 和 `steer` 只带 `attachmentIds`。每条 WebSocket 消息仍不超过 1 MiB，一次发好几张图也不受影响，发送时也不用再等上传。
+- 宿主把上传的图片暂存在内存里，按客户端计：最多 32 MiB、20 张，超出时应答 `attachment_limit`。被 `prompt` / `steer` 用掉、连接断开、或 30 分钟没被用到时释放；消息进了宿主的排队时，图片随排队项保存，不再算在客户端头上。宿主发给 pi 时按 pi 的 RPC 格式放进 `prompt` 的 `images`。
+
+**界面问题上报**：`report_client_issue(kind, message, details?)` 把界面里的未捕获错误和性能问题（长任务、掉帧）写进宿主日志，带客户端 id 和当时的 trace id。`message` 和 `details` 截断到 4 KB，照常脱敏；界面不在里面放对话内容。界面在入口捕获未处理的错误和 Promise 拒绝，并观察超过 50 毫秒的长任务；同一类问题每 10 秒最多报一次，不会触发连接的限流。
+
+**M1.3 先做的部分**
+
+- 命令：`ping`、`create_chat`（最小形态：在 `~/.atrium/chats/` 下建目录，按领域模型"已决定 9"立刻启动 pi；写进索引留到 M1.5）、`subscribe_sessions`、`prompt`（只有文字）、`report_client_issue`。
+- 运行中输入框不能发送：宿主的排队和"停止"在 M1.6，这之前运行中发消息只会被 pi 拒绝（`session_busy`）。
+- 事件：`session_snapshot`（这次宿主运行中见过的消息；用 `get_entries` 重建历史在 M1.4）、`run_started`、`message_started`、`text_delta`、`reasoning_delta`、`message_finished`、`run_settled`、`session_exited`。
+- 只显示文字和推理；工具调用的事件和显示在 M1.4。
+
+### 命令与事件
 
 **命令（UI → 宿主）**
 
@@ -474,8 +525,11 @@ Electron 主进程
 | `subscribe_sessions(sessionIds)` / `fetch_transcript(sessionId, tail \| before \| after, cursor, limit)` | 订阅要实时增量的会话；按游标分页拉取对话记录 |
 | `clear_attention(sessionId)` | 打开会话时清除关注状态（出错、待授权），移出收件箱 |
 | `archive_session(sessionId)` / `rename_session(sessionId, name)` / `hand_off(sessionId)` | 归档（只改索引）；重命名（写回 pi 的会话名）；交给终端 |
-| `prompt(sessionId, text, attachments?)` | 发消息；运行中则进入宿主的排队 |
-| `steer(sessionId, text, attachments?)` | 直接插话（⌘+回车） |
+| `prompt(sessionId, text, attachmentIds?)` | 发消息；运行中则进入宿主的排队 |
+| `steer(sessionId, text, attachmentIds?)` | 直接插话（⌘+回车） |
+| `upload_attachment(mimeType, data)` | 上传一张已压缩的图片，应答带 `attachmentId`（见上文"附件"） |
+| `ping()` | 心跳 |
+| `report_client_issue(kind, message, details?)` | 界面的错误和性能问题写进宿主日志 |
 | `stop(sessionId)` | 停止：暂停出队，再 `clear_queue` + `abort` |
 | `resume_queue(sessionId)` / `clear_queue(sessionId)` | 继续发送或清空宿主的排队 |
 | `update_queued` / `remove_queued` / `steer_queued(sessionId, itemId, ...)` | 编辑、删除排队消息，或把它改为插话 |
@@ -504,7 +558,7 @@ Electron 主进程
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |
 | `session_exited` | pi 进程退出，带原因 |
-| `error` | 错误，带对应的 `requestId` |
+| `response` | 每条命令的应答，带 `requestId`；成功带 `result`，失败带错误码（见上文"应答"） |
 
 ## 备选方案
 

@@ -9,7 +9,7 @@
 | # | 需求 | 测试 | 状态 |
 |---|---|---|---|
 | 1 | 侧栏按项目和工作区组织，显示运行、待处理、合并状态；标签页切换会话 | — | 待 M1.5 |
-| 2 | 流式输出回复和推理过程 | — | 待 M1.3 |
+| 2 | 流式输出回复和推理过程 | `apps/desktop/e2e/chat.spec.ts`、`chat.perf.spec.ts`；组件与渲染见"协议、客户端与流式显示（M1.3）" | 已覆盖 |
 | 3 | 粘贴或拖入截图随消息发出 | — | 待 M1.6 |
 | 4 | 看到工具调用：命令和输出、读的文件、diff、写入的文件 | — | 待 M1.4 |
 | 5 | 随时中断 | — | 待 M1.6 |
@@ -69,6 +69,42 @@
 | pi 契约：一轮完整运行、工具调用、运行中排队与 `queue_update`、命令被处理掉、`clear_queue` + `abort`、会话文件延迟写出、`get_entries` 全量与增量和未知游标、自动重试与不可重试错误、对话框往返、压缩期间发消息报错、退出码 | `packages/pi/src/contract/*.pi.test.ts`（12 个场景，同时检查夹具） | 已覆盖 |
 | 夹具：规范化（时间、度量、路径、UUID、只在固定键下识别的条目 id 及其引用）、比较时只忽略系统消息的文字、录制顺序、文件格式；每个夹具按原样回放；回放替身的对上检查、错误详情、崩溃后和停止后的请求、`stop()` 丢弃迟到的响应并按夹具结束、对话框 | `packages/testkit/src/pi-fixtures/*.test.ts`、`packages/pi/src/contract/replay.test.ts` | 已覆盖 |
 | faux：回复可以等测试放行，中断会结束等待；`/faux-noop`、`/faux-confirm` | `packages/testkit/src/faux/faux.pi.test.ts` | 已覆盖 |
+
+## 协议、客户端与流式显示（M1.3）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议 schema：每条命令和事件按线上的 JSON 形态通过校验；未知命令和无效消息分开，能读出 `requestId` 就带上；字段越界、多余字段、错误的 traceparent 和 trace id 被拒；错误码、停止原因、运行结果、退出原因的每个取值 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| `welcome` 带心跳间隔和每次启动都不同的宿主实例 id | ws-server.host.test.ts "welcomes with the heartbeat and an instance id…" | 已覆盖 |
+| 每条命令一条应答：结果、`CommandError` 的错误码和参数、其他异常一律 `internal_error`（只记日志，不发原文）、未知和无效消息带能读出的 `requestId`；`ping` 和界面问题上报由 router 直接处理 | `packages/host/src/server/router.test.ts`；ws-server.host.test.ts 的限流、"answers only the first of two hellos" | 已覆盖 |
+| 命令 span 以命令的 `traceparent` 为父，link 到连接的 `ws.connect` | router.test.ts "answers ping in a command span…"；`packages/host/src/chat.host.test.ts` | 已覆盖 |
+| 心跳：宿主按注入的时钟 ping，到下一次还没 pong 的客户端被终止，正常的继续 | ws-server.host.test.ts "pings clients on the injected clock…" | 已覆盖 |
+| 发送端背压：积压超过上限以 4507 关闭，之后不再发送 | `packages/host/src/server/connection.test.ts` | 已覆盖 |
+| 订阅：整组替换，只对新加入的会话发快照；只把会话事件发给它的订阅者；断开时清掉 | `packages/host/src/sync/subscriptions.test.ts`；session-manager.test.ts | 已覆盖 |
+| 事件翻译：真实 pi 输出（推理、文字、出错重试、中断）翻译成带自己 id 的消息和增量；工具调用先不显示且不占位；漏掉开头的块也有序号；停止原因的映射；用户消息的文字 | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
+| 会话控制器：一次运行从 `agent_start` 到 `agent_settled`，带 `prompt` 的 trace；事件按序编号；用户消息带对应 `prompt` 的 `requestId`（`handled` 的跳过）；快照含流式中的消息和运行；运行结果；pi 崩溃时运行失败并报告退出，之后的 `prompt` 被拒 | `packages/host/src/sessions/session-controller.test.ts`（含夹具回放） | 已覆盖 |
+| 新建对话：在 `chats/` 下建目录、在里面启动 pi、用 pi 报告的会话 id；pi 没找到、不可用或启动即退出时 `pi_unavailable`；未知会话 `session_not_found`；宿主关闭时停掉所有 pi | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
+| 一轮对话经 WebSocket：新建、订阅得到快照、发消息得到按序编号的流式事件；两个客户端订阅同一会话收到同样的事件；真实客户端从新建到看到回复替换掉乐观显示的消息 | `packages/host/src/chat.host.test.ts` | 已覆盖 |
+| 客户端连接：握手、只认真的 welcome、拒绝原因且不重试、主动断开不重试、替换连接时忽略旧 socket、断线按退避重连（最后一档重复，连上后归零）、可关闭重连、心跳 ping 到下一次没应答就断开 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 客户端命令：每条新的请求 id 和 trace；结果按 schema 校验；错误应答变成 `CommandError`；没有连接或断线时 `ConnectionLostError`、不重发；上报截断到 4 KB | atrium-client.test.ts | 已覆盖 |
+| 会话视图：订阅时创建、退订时释放；快照整体替换；事件按序应用，缺口、重复、换代都重新取快照；流式只复制改动的那一块；乐观显示的消息在确认、失败、被 extension 处理时移除；重连后重新订阅 | `packages/client/src/session-view.test.ts`、atrium-client.test.ts | 已覆盖 |
+| 回复渲染：GFM（表格、嵌套与任务列表、删除线）、中文标点旁的加粗、`$$…$$` 与 `\(…\)` 公式而不认单个 `$`、Shiki 高亮与 diff、Mermaid、链接交给系统浏览器且不弹确认、`https` 图片直接显示而 `http` 图片变成链接、原始 HTML 按文字显示且不执行 | `packages/ui/src/chat/markdown.browser.test.tsx`、`markdown-transforms.test.ts` | 已覆盖 |
+| 覆盖"回复渲染"全部范围的样例按真实节奏分片流式渲染，每一步都不出错，结束后与一次性渲染逐字节一致 | `packages/ui/src/chat/streaming.browser.test.tsx`（样例 `reply-showcase.md`） | 已覆盖 |
+| 平滑揭示：只放慢增长部分；每帧按积压量揭示、约 150 毫秒的时间常数；长时间停顿也只算 250 毫秒；不切断字形，未到齐的字符等到齐；结束时一次显示完 | `packages/ui/src/chat/text-reveal.test.ts`；基准 `text-reveal.bench.ts` | 已覆盖 |
+| 滚动跟随：停在底部时跟随；往上翻停止跟随并出现"回到底部"，有新内容时带圆点；点了回到底部并恢复跟随 | `packages/ui/src/chat/follow-bottom.test.ts`、`chat.browser.test.tsx` | 已覆盖 |
+| 对话区：用户气泡（乐观显示的没有时间）、推理过程运行时展开结束后折叠、回复出错和已停止的标注、"进行中 · 12s"、各部分的顺序；输入框回车发送、Shift+回车换行、输入法组字时不发送；第一次发送时新建对话并订阅；发送失败的原因 | `packages/ui/src/chat/chat.browser.test.tsx` | 已覆盖 |
+| 推理折叠后显示"思考了 N 秒"、显示模式切换 | — | 待 M1.4 |
+| 在真实应用里发消息，推理和流式回复显示出来，运行结束后没有残留的计时和乐观显示 | `apps/desktop/e2e/chat.spec.ts` | 已覆盖 |
+| 客户端订阅和退订 1000 个会话后视图全部释放，并能被回收 | `packages/client/src/atrium-client.leak.test.ts` | 已覆盖 |
+| pi 拒绝消息时的错误码：运行中或压缩中回 `session_busy`，其他拒绝回 `pi_rejected`（带 pi 原文），退出或停止回 `pi_unavailable/exited`，不回应回 `unresponsive`；回显先到、失败后到时不删别的 prompt 的位置；`prompt` 不设期限 | `packages/host/src/sessions/session-controller.test.ts`；`packages/pi/src/process/rejections.test.ts` | 已覆盖 |
+| 新建对话：pi 报不出会话 id 时停掉它；管理器关闭后才建好的对话停掉自己的 pi | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
+| 快照带 `exited`；客户端发现宿主重启后把旧会话标为已失效、保留已显示的消息、不再订阅；同一宿主重连照常订阅 | session-view.test.ts、atrium-client.test.ts | 已覆盖 |
+| 心跳没应答时立刻放弃连接：等待中的命令失败、开始重连，晚到的关闭事件不重复处理；已连接时再次连接让旧命令失败；等待重连时断开变成"已断开" | atrium-client.test.ts | 已覆盖 |
+| 对话界面：运行中不能发送；连按两次只建一个对话；会话已退出或已失效时下一条消息新建对话；新错误码的文字 | `packages/ui/src/chat/chat.browser.test.tsx` | 已覆盖 |
+| 滚动跟随不被自己滚动的那次事件打断，即使其间内容又长高了 | follow-bottom.test.ts | 已覆盖 |
+| 流式渲染走真实路径：经消息列表和平滑揭示流式显示，每一步文字只增不减，结束后在别处重新挂载，与直接渲染已完成的回复一致 | `packages/ui/src/chat/streaming.browser.test.tsx` | 已覆盖 |
+| 界面的未捕获错误、未处理的 Promise 拒绝和长任务上报给宿主，每类每 10 秒最多一次，卸载后停止 | `packages/ui/src/app/issue-reporting.browser.test.ts` | 已覆盖 |
+| 50 tok/s 流式输出长 Markdown 时没有超过 50 毫秒的长任务，帧时间 p95 ≤ 16.7 毫秒 | `apps/desktop/e2e/chat.perf.spec.ts` | 已覆盖 |
 
 ## 安全（security.md）
 

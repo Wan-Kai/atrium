@@ -22,7 +22,7 @@ pi 自己有一套遥测接口（`@earendil-works/pi-telemetry`），但 pi 1.0.
 
 **根**：
 
-- 用户操作：client 发命令时生成 trace，命令信封里带 `traceparent`（协议字段，和 `requestId` 并列）。
+- 用户操作：client 发命令时生成 trace，命令信封里带 `traceparent`（协议字段，和 `requestId` 并列）。宿主的 `command <type>` span 以它为父，再用 span link 指向这个连接的 `ws.connect`，不挂在连接那条长 trace 下面（SPEC-0001"协议细节 · 追踪"）。
 - 后台任务：定时 `git fetch`、会话目录扫描、自动生成标题、崩溃后自动重启、pi 更新检查，各自开一条新 trace，并用 span link 指向引起它的那条（例如标题生成链接到那次运行，自动重启链接到崩溃时的运行）。
 
 **典型的 span 树**（发一条消息）：
