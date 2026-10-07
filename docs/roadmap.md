@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-06：M1.2 最窄链路完成，经三方审查修复后合并进 `main`。宿主能读取登录 shell 的环境、找到并检查 pi、启动 `pi --mode rpc` 并在终端里流式打出回复（`pnpm pi:try`）；pi 契约测试录下 12 个场景的夹具供后续回放；全量变异分数 99.67%（剩下 3 个已补测试杀掉）。下一步是 [M1.3](#m13-协议客户端与流式显示)。**
+**2026-10-07：M1.3 协议、客户端与流式显示完成，经三方审查修复后合并进 `main`。在界面里发消息，就能看到推理过程和流式渲染的 Markdown 回复（Streamdown：代码高亮、公式、Mermaid、中文标点），平滑揭示、滚动跟随；协议有信封、应答与错误码、心跳、背压、会话事件序号和快照；客户端断线重连、发现宿主重启。50 tok/s 输出长 Markdown 时没有长任务，帧间隔 p95 约 10 毫秒；全量变异分数 99.9%。下一步是 [M1.4](#m14-对话记录与过程)。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -28,6 +28,7 @@
 | 界面原型 | `prototype/ui` 分支（见下文"原型"） |
 | M1.1 骨架 | monorepo 七个包、Electron 启动宿主、token 与 Origin 鉴权、日志与链路追踪、空白界面跟随系统外观；七层测试各有示例并验证过会失败；变异分数 100%（等价变异在代码里注明理由）。实现中改动的决定已写回 testing.md、coding-standards.md、observability.md、development.md：界面泄漏改用自写的脱离 DOM 分析、Stryker 改用命令运行器、Vitest 5 的基准 API、开发端口 5791 |
 | M1.2 最窄链路 | `packages/pi`：PiProcess（LF 分帧、按 id 对应响应、按命令设期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）、找 pi 与版本检查、交给 pi 的环境去掉相对 `PATH` 和 Atrium/Electron 变量；宿主读取登录 shell 的完整环境、`pi.process`/`pi.rpc` span、环境里的凭据不进日志；`pnpm pi:try`；faux 模型、12 个 pi 契约场景与夹具（录制时归一化，回放替身与 PiProcess 语义一致）。决定写回 testing.md、security.md、overview.md、domain-model.md（决定 9） |
+| M1.3 协议、客户端与流式显示 | `protocol`：信封、每条命令一条应答与错误码、握手与心跳、会话事件（`epoch + seq`、运行的 trace）与快照；宿主：命令分发与 `command <type>` span、心跳、背压、订阅表、pi 事件翻译、SessionController（运行、乐观消息对应、pi 拒绝的错误码）、新建对话；客户端：`createAtriumClient`（重连、心跳、宿主重启、每个会话的 SessionView）；界面：Streamdown 渲染、平滑揭示、滚动跟随、用户气泡与"进行中"、输入框、界面问题上报。决定写回 SPEC-0001"协议细节"、security.md（https 图片）、testing.md、observability.md、pi-internals.md |
 | 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
@@ -54,7 +55,7 @@ MVP 1 里还没设计、做到时先补设计的：
 | pi 的会话格式、RPC、事件、队列、重试、认证 | [pi-internals.md](research/pi-internals.md) |
 | 同类宿主怎么做、哪些坑已经被踩过 | [paseo-architecture.md](research/paseo-architecture.md) |
 | extension 能做什么（MVP 2） | [pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
-| 前端用什么库、流式回复怎么渲染 | 本文"已定的关键决策"里的"前端技术栈"、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[M1.3](#m13-协议客户端与流式显示) |
+| 前端用什么库、流式回复怎么渲染 | 本文"已定的关键决策"里的"前端技术栈"、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[M1.3](#m13-协议客户端与流式显示-) |
 | 怎么测、用什么检查代码 | [testing.md](architecture/testing.md) |
 | 颜色、字体、圆角、图标、点阵、动效 | [design-language.md](architecture/design-language.md) |
 | 某个决定为什么这样定 | [ADR](adr/) |
@@ -175,7 +176,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[SPEC-0001 · 首次启动](specs/0001-mvp1-single-session-chat.md#首次启动)的"第 1 步"（`PATH`）、[SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)（版本兼容）、[pi-internals](research/pi-internals.md) §3 RPC 协议、pi 的 `packages/coding-agent/docs/rpc.md`、pi 的 `src/modes/rpc/rpc-client.ts`（只作对照，不直接用）、Paseo 的 `packages/server/src/server/agent/providers/jsonl-rpc-process.ts`。
 - **完成标准**：适配器测试用录制的夹具跑通；分帧的属性测试通过；pi 契约测试全部通过；真实 pi 能完整跑完一轮；启动和停止 pi 200 次后没有残留进程、监听数回到基线；分帧吞吐有了基准基线。
 
-##### M1.3 协议、客户端与流式显示
+##### M1.3 协议、客户端与流式显示 ✅
 
 - **目标**：在 UI 里发消息，看到流式回复和推理过程。
 - **范围**：
