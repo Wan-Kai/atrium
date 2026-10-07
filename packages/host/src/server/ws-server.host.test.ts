@@ -673,7 +673,7 @@ describe("host static files", () => {
     expect(page.status).toBe(200);
     expect(await page.text()).toBe("<!doctype html><title>Atrium</title>");
     expect(page.headers.get("content-security-policy")).toBe(
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; " +
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; " +
         "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
     );
     expect(escape.status).toBe(404);

@@ -41,7 +41,15 @@ export type RejectionReason =
   | "rate-limited"
   | "too-many-connections";
 
-/** The WebSocket surface the client uses; the browser's and Node's both match it. Not exported from the package. */
+/**
+ * The WebSocket surface the client uses; the browser's and Node's both match it.
+ *
+ * @remarks
+ * Not exported from the package. `globals.d.ts` types the global `WebSocket` with it, which
+ * knip cannot see, hence the tag.
+ *
+ * @public
+ */
 export interface SocketLike {
   readyState: number;
   send(data: string): void;

@@ -1,5 +1,13 @@
 @import "tailwindcss";
+@import "streamdown/styles.css";
 @import "./design/tokens.css";
+
+/* Streamdown and its plugins ship Tailwind classes; these let Tailwind see them (Streamdown docs). */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+@source "../node_modules/@streamdown/cjk/dist/*.js";
+@source "../node_modules/@streamdown/math/dist/*.js";
+@source "../node_modules/@streamdown/mermaid/dist/*.js";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -36,4 +44,34 @@ body {
     animation-duration: 1ms !important;
     transition-duration: 1ms !important;
   }
+}
+
+/* Replies and reasoning (design-language, "字体"). */
+.atrium-markdown {
+  font-size: var(--fs-reply);
+  line-height: 1.68;
+  color: var(--text);
+}
+
+/* Counters and timers never jump (design-language, "字体"). */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The "进行中" shimmer: a light sweep across the text every 2.2 s (design-language, "动效"). */
+@keyframes atrium-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.atrium-shimmer {
+  background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: atrium-shimmer 2.2s linear infinite;
 }

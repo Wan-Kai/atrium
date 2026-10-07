@@ -17,6 +17,9 @@
     },
     "packages/pi": {
       "entry": ["test/**/*.ts"]
+    },
+    "packages/ui": {
+      "entry": ["src/**/*.test.{ts,tsx}", "src/**/*.bench.ts"]
     }
   }
 }

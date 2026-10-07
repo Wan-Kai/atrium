@@ -10,11 +10,20 @@
   },
   "dependencies": {
     "@atrium/client": "workspace:*",
+    "@atrium/protocol": "workspace:*",
+    "@phosphor-icons/react": "2.1.10",
+    "@streamdown/cjk": "1.0.4",
+    "@streamdown/code": "2.0.0",
+    "@streamdown/math": "1.0.3",
+    "@streamdown/mermaid": "1.0.3",
+    "katex": "0.19.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "streamdown": "2.7.0",
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@atrium/testkit": "workspace:*",
     "@tailwindcss/vite": "4.3.3",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

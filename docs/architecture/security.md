@@ -24,14 +24,14 @@
 
 - 渲染进程：`contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
 - preload 只通过 `contextBridge` 暴露最小接口（宿主地址、token、少量窗口操作），不暴露 Node 或 IPC 本身。
-- 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片和连接按需放开。宿主提供的页面由宿主加响应头；开发时页面来自 Vite，由 Electron 主进程给它加同样的策略，只额外允许内联脚本（React 热更新需要）和连接宿主端口。
+- 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片允许本应用、`data:`、`blob:` 和 `https:`（回复里的远程图片，见下文"渲染内容"），连接只允许本应用。宿主提供的页面由宿主加响应头；开发时页面来自 Vite，由 Electron 主进程给它加同样的策略，只额外允许内联脚本（React 热更新需要）和连接宿主端口。
 - 禁止窗口导航到别的页面（`will-navigate`），禁止新开窗口（`setWindowOpenHandler` 一律拒绝）。
 - 外链只允许 `http` / `https`，用 `shell.openExternal` 交给系统浏览器。
 
 ## 渲染内容
 
 - 回复的 Markdown 不执行原始 HTML，按文本显示（Streamdown 自带 rehype-harden）。
-- 远程图片默认不加载，点击后才加载，防止通过图片地址外传信息。
+- 回复里的 `https` 远程图片直接显示（2026-10-07 定）。**接受的风险**：模型输出（可能受网页、文件里的提示注入影响）可以把信息编进图片地址，图片一加载就发到对方服务器。为了看图方便接受这一点，限制在：只放开 `https`，`http` 图片不加载、显示成链接；原始 HTML 不渲染，图片只能来自 Markdown 的图片语法。
 - 链接一律交给系统浏览器，不在应用内打开。
 
 ## 凭据与日志

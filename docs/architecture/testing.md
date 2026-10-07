@@ -10,7 +10,7 @@
 
 | 方面 | 工具 | 说明 |
 |---|---|---|
-| 测试框架 | Vitest 5 | 单元、集成；浏览器模式（`@vitest/browser-playwright`，真实 Chromium）跑组件测试，组件渲染用 `vitest-browser-react` |
+| 测试框架 | Vitest 5 | 单元、集成；浏览器模式（`@vitest/browser-playwright`，真实 Chromium）跑组件测试，组件渲染用 `vitest-browser-react`。组件测试直接用 UI 包的 `vite.config.ts`（`extends`），和页面一样带 React 与 Tailwind 插件；依赖在配置里预构建（`optimizeDeps.include`），否则测试中途发现新依赖时 Vite 会重载页面，加载出两份 React，渲染全部失败 |
 | 端到端 | Playwright（`@playwright/test`） | 用 `_electron.launch` 驱动真实的 Electron 应用 |
 | 属性测试 | fast-check 4 | 随机生成输入找边界情况；也用它的 `commands` 做基于模型的测试 |
 | 变异测试 | Stryker 10，命令运行器 | 往代码里注入 bug，检验测试能不能抓住。Stryker 的 Vitest 插件靠 Vitest 的 provide/inject 激活变异，这在 Vitest 5 上失效（所有变异都会"存活"），所以改用命令运行器：每个变异跑一遍 Node 测试层（`vitest.mutation.config.ts`），没有逐测试覆盖分析，全量约 2 分钟 |
@@ -57,6 +57,8 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 - 实现在 `packages/testkit/src/faux/`：`extension.ts` 是交给 pi 加载的扩展（为什么它能 import pi-ai，见 [架构总览 · 包之间的依赖](overview.md#包之间的依赖)），`fauxPi(script)` 写好脚本并返回启动参数和环境变量，三层测试用同一个入口。
 
 没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
+
+**端到端测试里让宿主用上 faux**（2026-10-07）：`apps/desktop/e2e/faux-pi.ts` 的 `fauxPiEnvironment(script)` 给 `launchApp` 一份环境变量。`SHELL` 设成宿主不支持的 shell，宿主就不读登录 shell，沿用自己的环境（SPEC-0001"第 1 步"）；PATH 最前面放一个名为 `pi` 的包装脚本，它把 `--version` 原样交给真实的 pi，其余调用加上 faux 扩展的参数。宿主照常找到、检查、启动"pi"，整条链路都是真的，只有模型是 faux。变量名避开 `ATRIUM_` 前缀，宿主不会把这类变量交给 pi。
 
 ### pi 夹具（2026-10-05 定）
 
@@ -153,7 +155,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 
 - 同一个操作重复 N 次（默认 200）：打开和关闭会话、订阅和退订、客户端连上和断开、发消息和停止、杀掉 pi 让它自动重启、归档。
 - 主断言是**计数回到基线**，结果确定。宿主自己的资源计数之外，还要核对 Node 真实的活动资源（如 `process.getActiveResourcesInfo()` 里的 `Timeout`），否则"计数释放了但 `clearTimeout` 没调"这种泄漏看不出来。计数包括：活着的 PiProcess 和 SessionController 数量、事件监听数、订阅数、定时器数、`process.getActiveResourcesInfo()`、按进程组查到的子进程 PID 都回到操作前。宿主为此在 `platform/` 暴露一份资源计数（测试和日志共用，不为测试另开分支）。
-- 关键对象用 `WeakRef` + `FinalizationRegistry` 断言确实被回收：归档会话后反复 `gc()`，它的 SessionController 和 SessionLog 必须消失。
+- 关键对象用 `WeakRef` + `FinalizationRegistry` 断言确实被回收：归档会话后反复 `gc()`，它的 SessionController 和 SessionLog 必须消失。每一轮先让出当前任务、再 `gc()`、最后才 `deref()`：`deref()` 会让目标在当前任务结束前保持存活，先查再回收就永远回收不掉（2026-10-07 写客户端泄漏测试时踩到）。
 - 堆增长只作辅助断言：预热后每轮取一次 `heapUsed`，线性回归的斜率不超过阈值（初值每次 1KB），阈值放宽，避免误报。
 - 有疑点时写出堆快照（`v8.writeHeapSnapshot`），用 Chrome DevTools 的 Memory 面板看引用链。
 
@@ -175,6 +177,8 @@ client 也做同样的测试：订阅和退订 1000 次，store 数量回到基�
 | 切换标签 | ≤ 100 毫秒 |
 
 长任务和帧时间在渲染进程里用 `PerformanceObserver` 采集。超出预算即失败。
+
+- 流式输出那一项在 `e2e/chat.perf.spec.ts`：faux 以 50 tok/s 输出 6 节"表格 + 代码 + diff + 行内与块公式"的长回复。帧时间取相邻两次 `requestAnimationFrame` 的间隔。2026-10-07 在 M 系列 MacBook 上实测：三次都没有长任务，帧间隔 p95 约 10 毫秒（120Hz 屏）。在渲染里故意每次卡 60 毫秒，测试会报出 67 毫秒的长任务，失败。
 
 **4. 基准与长时间运行**
 

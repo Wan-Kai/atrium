@@ -179,7 +179,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：在 UI 里发消息，看到流式回复和推理过程。
 - **范围**：
-  - `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId + traceparent`，事件带 `epoch + seq` 和所属运行的 trace id。
+  - ✅ `protocol`：用 zod 定义 SPEC-0001 的命令和事件（先做本里程碑用到的），每条会话命令带 `sessionId + requestId + traceparent`，事件带 `epoch + seq` 和所属运行的 trace id。
   - ✅ 开工前先补齐协议细节，写进 SPEC-0001"接口与数据"（2026-10-04 架构审查后补全清单；2026-10-07 定稿，见 [SPEC-0001 · 协议细节](specs/0001-mvp1-single-session-chat.md#协议细节2026-10-07-定)；附件选了"客户端压缩 + 逐张上传"）：
     - 信封：所有命令都带 `requestId` 和 `traceparent`，会话命令再带 `sessionId`；放在 `protocol/src/envelope.ts`，客户端消息、宿主消息各是一个可辨识联合。
     - 应答：每条命令恰好一条应答，`{ ok: true, result? }` 或 `{ ok: false, error: { code, params? } }`，错误码是 protocol 里的枚举；未知或无效的消息也回带错误码的应答（届时把现在用日志"message ignored"计数的限流测试改成断言应答）。
@@ -191,17 +191,17 @@ MVP 1 里还没设计、做到时先补设计的：
     - 发送端背压：发送前看 `bufferedAmount`，慢客户端不能让宿主内存无限增长。
     - 界面的错误和性能问题经一条上报消息回传宿主日志。
     - 重写已被取代的 `event-model.md`，或改为从 zod 定义生成。（定为改写成指向说明，不另列清单。）
-  - 宿主侧：`server/connection.ts`（Connection：socket、clientId、send）和 `server/router.ts`（按 domain-model §8 的表分发命令，每条命令一个 `command <type>` span）从现在的 `ws-server.ts` 拆出来。
-  - 客户端：`createAtriumClient` 作为唯一对外入口（clientId、connect、send、重连，拥有各个 store）；现在的 connection 降为内部模块，`buildHello`、`SocketLike` 不再导出。
-  - `client`：WebSocket 连接、断线重连；状态用 Zustand vanilla store，按领域拆成列表、每个会话一个 SessionView（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息；对外只暴露 store 和命令方法。
-  - SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
-  - UI：用户气泡、回复和推理过程、"进行中 · 12s"；滚动跟随（停在底部时跟随，往上翻停止跟随，出现"↓ 回到底部"）。
-  - 流式渲染（选型见上文"前端技术栈"）：
+  - ✅ 宿主侧：`server/connection.ts`（Connection：socket、clientId、send）和 `server/router.ts`（按 domain-model §8 的表分发命令，每条命令一个 `command <type>` span）从现在的 `ws-server.ts` 拆出来。
+  - ✅ 客户端：`createAtriumClient` 作为唯一对外入口（clientId、connect、send、重连，拥有各个 store）；现在的 connection 降为内部模块，`buildHello`、`SocketLike` 不再导出。
+  - ✅ `client`：WebSocket 连接、断线重连（本里程碑做了每个会话的 SessionView；列表和布局的 store 随 M1.5、M1.7）；状态用 Zustand vanilla store，按领域拆成列表、每个会话一个 SessionView（订阅时创建、退订时释放）、布局；流式增量只复制当前那条消息；对外只暴露 store 和命令方法。
+  - ✅ SessionController + SessionRuntime 的最小形态：提交、流式事件翻译、`run_started / run_settled`。
+  - ✅ UI：用户气泡、回复和推理过程、"进行中 · 12s"；滚动跟随（停在底部时跟随，往上翻停止跟随，出现"↓ 回到底部"）。
+  - ✅ 流式渲染（选型见上文"前端技术栈"）：
     - 安装 `streamdown`、`@streamdown/code`、`@streamdown/math`、`@streamdown/mermaid`、`@streamdown/cjk`；引入 `streamdown/styles.css` 和 `katex/dist/katex.min.css`。
     - Tailwind 的 CSS 里为 `streamdown` 和每个已装插件加 `@source` 指向其 `dist/*.js`；monorepo 里依赖被提升到根目录 `node_modules`，路径按 CSS 文件位置数 `../`。
     - 用法：`<Streamdown plugins={{ code, math, mermaid, cjk }} isAnimating={正在流式}>{已揭示的文本}</Streamdown>`。回复和推理过程都用它渲染。
     - 平滑揭示放在 `client` 或 UI 的一个 hook 里：按积压量调节速度，约 150ms 追平；复制、选择、滚动都以完整文本为准。先不开 Streamdown 自带的 `animated`，避免和平滑揭示叠加。
-    - 按 SPEC-0001"回复渲染"的范围配置：数学只认 `$$…$$` 和 `\(…\)`；KaTeX、Mermaid 第一次遇到时才加载；Shiki 主题跟随浅色 / 深色；用 `components` 覆盖 `a`（系统浏览器打开）和 `img`（远程图片点击后才加载）；原始 HTML 不执行。
+    - 按 SPEC-0001"回复渲染"的范围配置：数学只认 `$$…$$` 和 `\(…\)`；KaTeX、Mermaid 第一次遇到时才加载；Shiki 主题跟随浅色 / 深色；用 `components` 覆盖 `a`（系统浏览器打开）和 `img`（`https` 远程图片直接显示，`http` 图片显示成链接；CSP 的 `img-src` 加上 `https:`，2026-10-07 定）；原始 HTML 不执行，按文本显示。
 - **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、§7 客户端与一致性、§8 协议与类的对应、[SPEC-0001 · 接口与数据、回复渲染](specs/0001-mvp1-single-session-chat.md#接口与数据)、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[design-language](architecture/design-language.md) 的"动效""消息流"、[Streamdown 文档](https://streamdown.ai/docs)（含各插件的 `@source` 写法）、原型 `app-prototype.html`、Paseo 的 `packages/app/src/agent-stream/text-reveal.ts`。
 - **完成标准**：`protocol` 的 schema 测试通过；一轮对话在 UI 里完整显示；准备一份覆盖"回复渲染"全部范围的 Markdown（表格、嵌套列表、代码块与 diff、中文加粗紧挨标点、块公式与行内公式、Mermaid、链接、远程图片、原始 HTML），按真实节奏分片流式输出，过程中不闪烁、不错乱，结束后与一次性渲染结果一致；50 tok/s 流式输出长 Markdown 期间满足性能预算（没有超过 50 毫秒的长任务，帧时间 p95 ≤ 16.7 毫秒）。
 
