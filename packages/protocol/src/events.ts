@@ -73,6 +73,8 @@ export const SessionSnapshotEvent = z.strictObject({
   /** The assistant message still streaming, as far as it has come. */
   streaming: z.strictObject({ messageId: z.string().min(1), content: z.array(AssistantBlock) }).nullable(),
   run: RunInfo.nullable(),
+  /** pi has exited; nothing more will happen in this session. */
+  exited: z.boolean(),
 });
 export type SessionSnapshotEvent = z.infer<typeof SessionSnapshotEvent>;
 

@@ -1,4 +1,4 @@
-import { type TranslatedEvent, createEventTranslator } from "@atrium/pi";
+import { type TranslatedEvent, createEventTranslator, isBusyRejection } from "@atrium/pi";
 import type { PiEvent } from "@atrium/pi";
 import {
   type AssistantBlock,
@@ -46,6 +46,49 @@ type Unnumbered = SessionEvent extends infer E
     ? Omit<E, "sessionId" | "epoch" | "seq" | "traceId">
     : never
   : never;
+
+/** What a failed pi request looks like: the pi package's `PiRequestError`, or a replay of it in tests. */
+interface PiFailure {
+  readonly name: "PiRequestError";
+  readonly reason: string;
+  readonly detail?: string;
+}
+
+/**
+ * Whether an error is a failed pi request.
+ *
+ * @remarks
+ * Matched by shape, so the fixture replay's mirror of the error counts too.
+ *
+ * @sideEffects none
+ * @param error - What was thrown.
+ * @returns Whether it is a pi request failure.
+ */
+function isPiFailure(error: unknown): error is PiFailure {
+  return error instanceof Error && error.name === "PiRequestError" && "reason" in error;
+}
+
+/**
+ * Turns a failed `prompt` into the error code the client gets.
+ *
+ * @remarks
+ * pi refusing a message is not a host bug (SPEC-0001, "应答"): busy becomes `session_busy`, any
+ * other refusal `pi_rejected` with pi's text for "展开看原始报错", and a pi that has gone or does
+ * not answer `pi_unavailable`. Anything else is passed on as it is.
+ *
+ * @sideEffects none
+ * @param error - What the request threw.
+ * @returns The error to throw.
+ */
+function promptFailure(error: unknown): unknown {
+  if (!isPiFailure(error)) return error;
+  const detail = error.detail ?? "";
+  if (error.reason === "rejected") {
+    return isBusyRejection(detail) ? new CommandError("session_busy") : new CommandError("pi_rejected", { detail });
+  }
+  const status = error.reason === "exited" || error.reason === "stopped" ? "exited" : "unresponsive";
+  return new CommandError("pi_unavailable", { status });
+}
 
 /** How a run ended, from the last assistant message's stop reason. */
 const OUTCOMES: Readonly<Record<StopReason, "completed" | "stopped" | "failed">> = {
@@ -214,6 +257,7 @@ export function createSessionController(options: {
       seq,
       traceId: run?.traceId ?? null,
       messages: [...messages],
+      exited,
       streaming: streaming === null ? null : { messageId: streaming.messageId, content: [...streaming.content] },
       run: run === null ? null : { runId: run.runId, startedAt: run.startedAt },
     }),
@@ -222,13 +266,26 @@ export function createSessionController(options: {
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
       const entry = { requestId: command.requestId, traceId: parseTraceparent(command.traceparent)?.traceId ?? null };
       waiting.push(entry);
+      /**
+       * Stops waiting for pi to echo this prompt.
+       *
+       * @remarks
+       * The echo may already have taken the entry; then there is nothing to remove, and removing
+       * by index -1 would drop another prompt's entry.
+       *
+       * @sideEffects Updates the waiting list.
+       */
+      const forget = (): void => {
+        const index = waiting.indexOf(entry);
+        if (index !== -1) waiting.splice(index, 1);
+      };
       try {
         const { disposition } = await pi.prompt(command.text);
-        if (disposition === "handled") waiting.splice(waiting.indexOf(entry), 1);
+        if (disposition === "handled") forget();
         return { disposition };
       } catch (error) {
-        waiting.splice(waiting.indexOf(entry), 1);
-        throw error;
+        forget();
+        throw promptFailure(error);
       }
     },
     async stop() {

@@ -8,15 +8,23 @@ import { type KeyboardEvent, useState } from "react";
  * M1.3's minimal form of the input box (SPEC-0001, "输入框"): rounded 22 card with 14 px padding,
  * the send button a dark filled circle when there is text and pale when empty. Enter while an
  * input method is composing only picks a candidate (`isComposing`). Models, attachments, `@` and
- * `/` come with M1.6.
+ * `/` come with M1.6. While sending is not possible, as during a run until M1.6 brings the host's
+ * queue and "停止", the text can still be written but not sent.
  *
  * @sideEffects Calls `onSend` with the text when the user sends.
- * @param props - What to do with a message.
+ * @param props - What to do with a message, and whether sending is possible now.
  * @returns The input box.
  */
-export function Composer({ onSend }: { readonly onSend: (text: string) => void }) {
+export function Composer({
+  onSend,
+  disabled = false,
+}: {
+  readonly onSend: (text: string) => void;
+  readonly disabled?: boolean;
+}) {
   const [text, setText] = useState("");
   const empty = text.trim() === "";
+  const blocked = empty || disabled;
 
   /**
    * Sends the text, unless there is none, and clears the box.
@@ -27,7 +35,7 @@ export function Composer({ onSend }: { readonly onSend: (text: string) => void }
    * @sideEffects Calls `onSend`; clears the input.
    */
   const send = (): void => {
-    if (empty) return;
+    if (blocked) return;
     onSend(text);
     setText("");
   };
@@ -62,7 +70,7 @@ export function Composer({ onSend }: { readonly onSend: (text: string) => void }
         <button
           type="button"
           aria-label="发送"
-          disabled={empty}
+          disabled={blocked}
           onClick={send}
           className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
         >

@@ -60,7 +60,7 @@ async function manage(tools: ScriptedPiBehavior | SessionTools | null) {
     newId: () => `id${++next}`,
   });
   cleanups.push(() => manager.close());
-  return { manager, received, home: home.path, records: recording.records };
+  return { manager, received, home: home.path, records: recording.records, resources: recording.resources };
 }
 
 describe("createSessionManager", () => {
@@ -159,5 +159,25 @@ describe("createSessionManager", () => {
     await vi.waitFor(() => expect(received.at(-1)?.type).toBe("session_exited"));
 
     expect(received.at(-1)).toMatchObject({ reason: "requested", code: 0 });
+  });
+
+  it("stops a pi that cannot report its session, instead of leaving it running", async () => {
+    const { manager, resources } = await manage({ rules: { get_state: { fail: "not ready" } } });
+
+    await expect(manager.createChat("c1")).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "unresponsive" }),
+    );
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("stops the pi of a chat whose creation finishes after the manager closed", async () => {
+    const { manager, resources } = await manage({ rules: { get_state: { data: { sessionId: "pi-session-1" } } } });
+
+    await manager.close();
+
+    await expect(manager.createChat("c1")).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(resources.snapshot()["pi-process"]).toBe(0);
   });
 });

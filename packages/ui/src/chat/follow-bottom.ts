@@ -36,14 +36,22 @@ export function atBottom(metrics: ScrollMetrics): boolean {
  *
  * @remarks
  * Scrolling up stops following; coming back to the bottom resumes it and clears the dot
- * (SPEC-0001, "滚动与长会话").
+ * (SPEC-0001, "滚动与长会话"). The scroll the view made itself to stay at the bottom also fires an
+ * event, a frame later; if the content grew again in between, that position is no longer the
+ * bottom, but the user did not scroll, so the state stays.
  *
  * @sideEffects none
  * @param state - The current state.
  * @param metrics - The container's position after scrolling.
+ * @param ownScrollTop - Where the view last scrolled itself, if that scroll's event is still due.
  * @returns The new state.
  */
-export function afterScroll(state: FollowState, metrics: ScrollMetrics): FollowState {
+export function afterScroll(
+  state: FollowState,
+  metrics: ScrollMetrics,
+  ownScrollTop: number | null = null,
+): FollowState {
+  if (ownScrollTop !== null && Math.abs(metrics.scrollTop - ownScrollTop) <= 1) return state;
   const bottom = atBottom(metrics);
   return { following: bottom, unseen: bottom ? false : state.unseen };
 }
@@ -104,18 +112,37 @@ export function useFollowBottom(
       latest.current = next;
       setState(next);
     };
-    scrollToEnd.current = () => {
+    /** Where the view last scrolled itself, until that scroll's event arrives. */
+    let ownScrollTop: number | null = null;
+    /**
+     * Scrolls to the end and remembers where that landed.
+     *
+     * @remarks
+     * The browser clamps the value, so the position is read back.
+     *
+     * @sideEffects Scrolls the container.
+     */
+    const scrollToBottom = (): void => {
       scroller.scrollTop = scroller.scrollHeight;
+      ownScrollTop = scroller.scrollTop;
+    };
+    scrollToEnd.current = () => {
+      scrollToBottom();
       update({ following: true, unseen: false });
     };
     const listening = new AbortController();
-    scroller.addEventListener("scroll", () => update(afterScroll(latest.current, scroller)), {
-      passive: true,
-      signal: listening.signal,
-    });
+    scroller.addEventListener(
+      "scroll",
+      () => {
+        const next = afterScroll(latest.current, scroller, ownScrollTop);
+        ownScrollTop = null;
+        update(next);
+      },
+      { passive: true, signal: listening.signal },
+    );
     const observer = new ResizeObserver(() => {
       const next = afterGrowth(latest.current);
-      if (next.following) scroller.scrollTop = scroller.scrollHeight;
+      if (next.following) scrollToBottom();
       update(next);
     });
     observer.observe(inner);

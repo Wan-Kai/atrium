@@ -210,6 +210,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   let live: SocketLike | undefined;
   // Stryker disable next-line BooleanLiteral: `connect` sets it before anything reads it.
   let stopped = false;
+  /** The host instance of the last welcome; a different one means the host restarted. */
+  let hostInstance: string | undefined;
   let attempt = 0;
   let nextRequest = 0;
   let cancelTimer: (() => void) | undefined;
@@ -277,6 +279,23 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    */
   async function subscribeWatched(): Promise<void> {
     if (watched.length > 0) await request("subscribe_sessions", { sessionIds: [...watched] });
+  }
+
+  /**
+   * Marks every watched session as lost after the host restarted.
+   *
+   * @remarks
+   * A restarted host knows none of the old sessions (SPEC-0001, "事件"); their views keep the
+   * messages already shown, drop the run, the streaming reply and unconfirmed messages, and are
+   * no longer subscribed. Restoring them from pi's files comes with M1.4 and M1.7.
+   *
+   * @sideEffects Updates every view; clears the watched set.
+   */
+  function loseSessions(): void {
+    for (const view of views.values()) {
+      view.setState({ status: "lost", run: null, streaming: null, pending: [] });
+    }
+    watched = [];
   }
 
   /**
@@ -370,8 +389,15 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     cancelTimer = clock.setTimeout(() => {
       // Stryker disable next-line ConditionalExpression: replacing or closing the socket cancels this timer first.
       if (live !== current) return;
-      if (answered) beat(current, heartbeatMs);
-      else current.close(HEARTBEAT_LOST, "heartbeat lost");
+      if (answered) {
+        beat(current, heartbeatMs);
+        return;
+      }
+      // Give up on this socket now: the browser may take a minute to notice it is dead, and
+      // meanwhile commands would vanish into it. Its close event then changes nothing.
+      socket = undefined;
+      lost(HEARTBEAT_LOST);
+      current.close(HEARTBEAT_LOST, "heartbeat lost");
     }, heartbeatMs);
   }
 
@@ -389,6 +415,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       const trace = createTrace();
       cancelTimer?.();
       live = undefined;
+      // Answers to commands sent on the old socket can no longer arrive.
+      failPending();
       socket?.close(1000, "client reconnecting");
       connection.setState({ status: "connecting", traceId: trace.traceId }, true);
       const current = openSocket(options.url);
@@ -415,6 +443,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         live = current;
         attempt = 0;
         const { hostVersion, hostInstanceId, heartbeatMs } = parsed.data;
+        if (hostInstance !== undefined && hostInstance !== hostInstanceId) loseSessions();
+        hostInstance = hostInstanceId;
         // Stryker disable next-line BooleanLiteral: "connected" has every key "connecting" has, so merging equals replacing.
         connection.setState({ status: "connected", traceId: trace.traceId, hostVersion, hostInstanceId }, true);
         beat(current, heartbeatMs);
@@ -443,6 +473,22 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     const reason = REJECTIONS[code];
     if (socket !== current)
       return reason === undefined ? { status: "disconnected", code } : { status: "rejected", reason };
+    socket = undefined;
+    return lost(code);
+  }
+
+  /**
+   * Handles losing the current socket: refused, stopped, or dropped and to be retried.
+   *
+   * @remarks
+   * Shared by a close event and by a heartbeat that went unanswered.
+   *
+   * @sideEffects Fails waiting commands; updates the connection state; may schedule a reconnect.
+   * @param code - Why the socket ended.
+   * @returns The new connection state.
+   */
+  function lost(code: number): ConnectionState {
+    const reason = REJECTIONS[code];
     live = undefined;
     cancelTimer?.();
     failPending();
@@ -472,7 +518,13 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     disconnect() {
       stopped = true;
       cancelTimer?.();
-      socket?.close(1000, "client closed");
+      if (socket !== undefined) {
+        socket.close(1000, "client closed");
+        return;
+      }
+      // Waiting to reconnect: no socket will close, so nothing else would end the wait.
+      if (connection.getState().status === "reconnecting")
+        connection.setState({ status: "disconnected", code: 1000 }, true);
     },
     session: (sessionId) => views.get(sessionId),
     async watch(sessionIds) {

@@ -14,8 +14,12 @@ export const ErrorCode = z.enum([
   "unknown_command",
   /** The `sessionId` names no session the host knows. */
   "session_not_found",
-  /** pi is missing, outdated or cannot run; `params.status` says which. */
+  /** pi cannot be used: missing, outdated, unusable, exited or unresponsive, as `params.status` says. */
   "pi_unavailable",
+  /** pi is running or compacting and takes no new message now. */
+  "session_busy",
+  /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
+  "pi_rejected",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

@@ -88,7 +88,7 @@ function event(seq: number, fields: Record<string, unknown>): string {
 
 /** A snapshot of s1 at `seq` with no messages. */
 function snapshot(seq: number): string {
-  return event(seq, { type: "session_snapshot", messages: [], streaming: null, run: null });
+  return event(seq, { type: "session_snapshot", messages: [], streaming: null, run: null, exited: false });
 }
 
 describe("createAtriumClient: the connection", () => {
@@ -258,7 +258,7 @@ describe("createAtriumClient: the connection", () => {
   });
 
   it("pings every heartbeat and drops a connection whose ping went unanswered", async () => {
-    const { latest, clock } = await connected();
+    const { client, latest, clock } = await connected();
     const socket = latest();
 
     expect(socket.commands()).toStrictEqual([{ type: "ping", requestId: "client-1-1" }]);
@@ -269,9 +269,37 @@ describe("createAtriumClient: the connection", () => {
       { type: "ping", requestId: "client-1-1" },
       { type: "ping", requestId: "client-1-2" },
     ]);
+    const waiting = client.createChat();
     clock.advance(15_000);
 
+    // Given up at once, without waiting for the browser to report the close.
     expect(socket.closes).toStrictEqual([[4000, "heartbeat lost"]]);
+    expect(client.connection.getState()).toStrictEqual({ status: "reconnecting", attempt: 1, code: 4000 });
+    await expect(waiting).rejects.toStrictEqual(new ConnectionLostError("create_chat"));
+    await expect(client.createChat()).rejects.toStrictEqual(new ConnectionLostError("create_chat"));
+    // The late close event changes nothing, and only one reconnect is scheduled.
+    socket.closeWith(1006);
+    expect(client.connection.getState()).toStrictEqual({ status: "reconnecting", attempt: 1, code: 4000 });
+    expect(clock.pendingTimers()).toBe(1);
+  });
+
+  it("fails commands still waiting on the old socket when connecting again", async () => {
+    const { client } = await connected();
+    const waiting = client.createChat();
+
+    void client.connect();
+
+    await expect(waiting).rejects.toStrictEqual(new ConnectionLostError("create_chat"));
+  });
+
+  it("ends a reconnect wait when told to disconnect", async () => {
+    const { client, latest, clock } = await connected();
+    latest().closeWith(1006);
+
+    client.disconnect();
+
+    expect(client.connection.getState()).toStrictEqual({ status: "disconnected", code: 1000 });
+    expect(clock.pendingTimers()).toBe(0);
   });
 });
 
@@ -391,6 +419,14 @@ describe("createAtriumClient: sessions", () => {
 
     expect(client.session("s1")?.getState().status).toBe("loading");
     expect(latest().sent).toStrictEqual([]);
+    // The first welcome is no restart: the views stay and are subscribed.
+    latest().open();
+    latest().receive(welcome());
+    expect(client.session("s1")?.getState().status).toBe("loading");
+    expect(latest().commands()).toStrictEqual([
+      { type: "ping", requestId: "client-1-1" },
+      { type: "subscribe_sessions", requestId: "client-1-2", sessionIds: ["s1"] },
+    ]);
   });
 
   it("applies a session's events to its view, and drops events of sessions it does not watch", async () => {
@@ -440,7 +476,7 @@ describe("createAtriumClient: sessions", () => {
     latest().closeWith(1006);
     clock.advance(250);
     latest().open();
-    latest().receive(welcome("0.1.0", "h2"));
+    latest().receive(welcome("0.1.0", "h1"));
 
     expect(latest().commands()).toStrictEqual([
       { type: "ping", requestId: "client-1-3" },
@@ -519,5 +555,47 @@ describe("createAtriumClient: sessions", () => {
     );
     await expect(failed).rejects.toStrictEqual(new CommandError("session_not_found"));
     expect(client.session("s9")).toBeUndefined();
+  });
+
+  it("marks the watched sessions lost when the host restarted, keeping what was shown", async () => {
+    const { client, latest, clock } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(
+      event(3, {
+        type: "session_snapshot",
+        messages: [{ id: "u1", role: "user", text: "hi", clientMessageId: null, timestamp: 0 }],
+        streaming: { messageId: "m1", content: [] },
+        run: { runId: "r1", startedAt: 1 },
+        exited: false,
+      }),
+    );
+    const shown = client.session("s1")?.getState().messages;
+
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+
+    expect(client.session("s1")?.getState()).toMatchObject({ status: "lost", run: null, streaming: null, pending: [] });
+    expect(client.session("s1")?.getState().messages).toBe(shown);
+    // The new host does not know the session, so it is not subscribed again.
+    expect(latest().commands()).toStrictEqual([{ type: "ping", requestId: "client-1-3" }]);
+  });
+
+  it("keeps sessions when it reconnects to the same host", async () => {
+    const { client, latest, clock } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(snapshot(0));
+
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h1"));
+
+    expect(client.session("s1")?.getState().status).toBe("ready");
   });
 });

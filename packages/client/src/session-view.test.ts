@@ -60,6 +60,7 @@ describe("applySessionEvent", () => {
       messages: [user("q1")],
       streaming: { messageId: "m2", content: [] },
       run: { runId: "r", startedAt: 1 },
+      exited: false,
     });
 
     expect(before).toBe(loading);
@@ -205,5 +206,19 @@ describe("applySessionEvent", () => {
     expect(
       applySessionEvent(ready(0), { type: "message_started", ...envelope, seq: 1, messageId: "m1" }),
     ).toStrictEqual(ready(1, { streaming: { messageId: "m1", content: [] } }));
+  });
+
+  it("takes a snapshot of a session whose pi has exited as exited", () => {
+    expect(
+      applySessionEvent(loadingView("s1"), {
+        type: "session_snapshot",
+        ...envelope,
+        seq: 2,
+        messages: [],
+        streaming: null,
+        run: null,
+        exited: true,
+      }),
+    ).toMatchObject({ status: "exited", seq: 2 });
   });
 });

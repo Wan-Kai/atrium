@@ -18,3 +18,4 @@ export {
   startPiProcess,
 } from "./process/pi-process";
 export { type EventTranslator, type TranslatedEvent, createEventTranslator } from "./events/translate";
+export { isBusyRejection } from "./process/rejections";

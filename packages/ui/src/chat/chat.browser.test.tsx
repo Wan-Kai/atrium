@@ -4,7 +4,7 @@ import type { TranscriptMessage } from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { createStore } from "zustand/vanilla";
+import { type StoreApi, createStore } from "zustand/vanilla";
 import "../styles.css";
 import { ChatScreen, describeSendError } from "./chat-screen";
 import { Composer } from "./composer";
@@ -201,28 +201,35 @@ describe("Transcript", () => {
   });
 });
 
-/** A client that records commands and answers them as the test says. */
-function fakeClient(
-  answers: { createChat?: () => Promise<{ sessionId: string }>; prompt?: () => Promise<never> } = {},
-) {
+/** A client that records commands, creates chats s1, s2, … and answers as the test says. */
+function fakeClient(answers: { createChat?: () => Promise<void>; prompt?: () => Promise<never> } = {}) {
   const calls: string[] = [];
-  const store = createStore<SessionView>(() => view());
+  const stores = new Map<string, StoreApi<SessionView>>();
   const client = {
-    createChat: () => {
+    createChat: async () => {
       calls.push("createChat");
-      return answers.createChat?.() ?? Promise.resolve({ sessionId: "s1" });
+      await answers.createChat?.();
+      const sessionId = `s${stores.size + 1}`;
+      stores.set(
+        sessionId,
+        createStore<SessionView>(() => view({ sessionId })),
+      );
+      return { sessionId };
     },
     watch: async (ids: readonly string[]) => {
       calls.push(`watch ${ids.join(",")}`);
     },
-    session: (id: string) => (id === "s1" ? store : undefined),
+    session: (id: string) => stores.get(id),
     prompt: (sessionId: string, text: string) => {
       calls.push(`prompt ${sessionId} ${text}`);
-      store.setState({ pending: [...store.getState().pending, { clientMessageId: `q${calls.length}`, text }] });
+      const store = stores.get(sessionId);
+      store?.setState({
+        pending: [...(store.getState().pending ?? []), { clientMessageId: `q${calls.length}`, text }],
+      });
       return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
     },
   } as unknown as AtriumClient;
-  return { client, calls };
+  return { client, calls, stores };
 }
 
 describe("ChatScreen", () => {
@@ -242,6 +249,51 @@ describe("ChatScreen", () => {
     );
   });
 
+  it("waits for the chat being created instead of creating a second one", async () => {
+    const gate = Promise.withResolvers<void>();
+    const { client, calls } = fakeClient({ createChat: () => gate.promise });
+    const screen = await render(<ChatScreen client={client} />);
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "一{Enter}");
+    await userEvent.type(box, "二{Enter}");
+    gate.resolve();
+
+    await vi.waitFor(() => expect(calls).toHaveLength(4));
+    expect(calls).toStrictEqual(["createChat", "watch s1", "prompt s1 一", "prompt s1 二"]);
+  });
+
+  it.each(["exited", "lost"] as const)("starts a new chat once the current one is %s", async (status) => {
+    const { client, calls, stores } = fakeClient();
+    const screen = await render(<ChatScreen client={client} />);
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.type(box, "一{Enter}");
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+
+    stores.get("s1")?.setState({ status });
+    await userEvent.type(box, "二{Enter}");
+
+    await vi.waitFor(() => expect(calls).toHaveLength(6));
+    expect(calls.slice(3)).toStrictEqual(["createChat", "watch s2", "prompt s2 二"]);
+  });
+
+  it("does not send while a run is in progress", async () => {
+    const { client, calls, stores } = fakeClient();
+    const screen = await render(<ChatScreen client={client} />);
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.type(box, "一{Enter}");
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+
+    stores.get("s1")?.setState({ run: { runId: "r1", startedAt: Date.now() } });
+    await userEvent.type(box, "二{Enter}");
+
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    expect(calls).toHaveLength(3);
+    stores.get("s1")?.setState({ run: null });
+    await screen.getByRole("button", { name: "发送" }).click();
+    await vi.waitFor(() => expect(calls).toStrictEqual(["createChat", "watch s1", "prompt s1 一", "prompt s1 二"]));
+  });
+
   it("explains a failed send above the input box", async () => {
     const { client } = fakeClient({
       createChat: () => Promise.reject(new CommandError("pi_unavailable", { status: "missing" })),
@@ -257,7 +309,10 @@ describe("ChatScreen", () => {
     [new ConnectionLostError("prompt"), "与宿主的连接断开了，这条消息可能没有发出"],
     [new CommandError("pi_unavailable", { status: "outdated" }), "pi 的版本过低，请先更新"],
     [new CommandError("pi_unavailable", { status: "unusable" }), "pi 无法运行，请在终端里检查 pi 能否启动"],
-    [new CommandError("pi_unavailable", { status: "exited" }), "pi 启动后立即退出了，可能还没有登录模型服务"],
+    [new CommandError("pi_unavailable", { status: "exited" }), "pi 已经退出了，可能还没有登录模型服务"],
+    [new CommandError("pi_unavailable", { status: "unresponsive" }), "pi 没有响应，请稍后再试"],
+    [new CommandError("session_busy"), "pi 正在忙，等这一轮结束再发"],
+    [new CommandError("pi_rejected", { detail: "No model" }), "pi 拒绝了这条消息：No model"],
     [new CommandError("pi_unavailable", { status: "unknown" }), "还在查找 pi，请稍后再试"],
     [new CommandError("pi_unavailable"), "还在查找 pi，请稍后再试"],
     [new CommandError("session_not_found", { sessionId: "s1" }), "这个会话已经不存在了"],

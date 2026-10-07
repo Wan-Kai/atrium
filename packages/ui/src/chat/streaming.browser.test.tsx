@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import type { SessionView } from "@atrium/client";
 import { Markdown } from "./markdown";
+import { Transcript } from "./transcript";
 import showcase from "./reply-showcase.md?raw";
 
 /**
@@ -49,6 +51,38 @@ function normalized(root: HTMLElement): string {
   return root.innerHTML.replaceAll(/mermaid-[0-9a-z-]+/g, "mermaid-id").replaceAll(' style=""', "");
 }
 
+/** The transcript of session s1 at one moment, in a 600 px box. */
+function transcriptAt(fields: Partial<SessionView>) {
+  return (
+    <div style={{ height: 600, display: "flex", flexDirection: "column" }}>
+      <Transcript
+        view={{
+          sessionId: "s1",
+          status: "ready",
+          epoch: 1,
+          seq: 0,
+          messages: [],
+          streaming: null,
+          run: null,
+          pending: [],
+          ...fields,
+        }}
+      />
+    </div>
+  );
+}
+
+/** How many characters of the reply are on screen. */
+function replyTextLength(root: HTMLElement): number {
+  return root.querySelector('[data-testid="assistant-message"]')?.textContent?.length ?? 0;
+}
+
+/** The reply's HTML, comparable across renders. */
+function replyHtml(root: HTMLElement): string {
+  const reply = root.querySelector<HTMLElement>('[data-testid="assistant-message"]');
+  return normalized(reply?.parentElement ?? root);
+}
+
 describe("streaming the reply showcase", () => {
   it("renders every prefix without failing, and ends exactly as rendering it at once does", async () => {
     const once = await render(<Markdown text={showcase} streaming={false} />);
@@ -67,5 +101,36 @@ describe("streaming the reply showcase", () => {
 
     expect(text).toBe(showcase);
     expect(normalized(streamed.container)).toBe(expected);
+  }, 60_000);
+
+  it("streams through the transcript as the app does, never losing text, and ends as the finished reply renders", async () => {
+    const finished = {
+      id: "m1",
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text: showcase }],
+      stopReason: "stop" as const,
+      errorMessage: null,
+      timestamp: 0,
+    };
+    const run = { runId: "r1", startedAt: Date.now() };
+    // The same layout both times, since the diagram scales to the width it gets.
+    const once = await render(transcriptAt({ messages: [finished] }));
+    await settled(once.container);
+    const expected = replyHtml(once.container);
+    await once.unmount();
+
+    const screen = await render(transcriptAt({ run, streaming: { messageId: "m1", content: [] } }));
+    const lengths: number[] = [];
+    let text = "";
+    for (const delta of deltas(showcase)) {
+      text += delta;
+      await screen.rerender(transcriptAt({ run, streaming: { messageId: "m1", content: [{ type: "text", text }] } }));
+      lengths.push(replyTextLength(screen.container));
+    }
+    await screen.rerender(transcriptAt({ messages: [finished] }));
+    await settled(screen.container);
+
+    expect(lengths).toStrictEqual(lengths.toSorted((a, b) => a - b));
+    expect(replyHtml(screen.container)).toBe(expected);
   }, 60_000);
 });

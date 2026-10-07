@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COMMAND_TYPES, type Command, CommandResult } from "./commands";
-import { ErrorCode } from "./errors";
+import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import { PROTOCOL_VERSION } from "./version";
@@ -51,6 +51,7 @@ const events: SessionEvent[] = [
     ],
     streaming: { messageId: "a2", content: [{ type: "text", text: "par" }] },
     run: { runId: "run-1", startedAt: 3 },
+    exited: false,
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
   { type: "message_started", ...at, messageId: "a2" },
@@ -212,6 +213,8 @@ describe("HostMessage", () => {
       "unknown_command",
       "session_not_found",
       "pi_unavailable",
+      "session_busy",
+      "pi_rejected",
       "internal_error",
     ]);
     for (const variant of variants) expect(HostMessage.parse(variant)).toStrictEqual(variant);
@@ -239,5 +242,16 @@ describe("HostMessage", () => {
     ["a welcome without heartbeat", { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1" }],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);
+  });
+});
+
+describe("CommandError", () => {
+  it("names itself and its code, never user-facing text", () => {
+    expect(new CommandError("session_busy", { a: 1 })).toMatchObject({
+      name: "CommandError",
+      message: "command failed: session_busy",
+      code: "session_busy",
+      params: { a: 1 },
+    });
   });
 });

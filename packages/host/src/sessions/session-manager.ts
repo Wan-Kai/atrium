@@ -53,6 +53,8 @@ export function createSessionManager(options: {
   const sessions = new Map<string, SessionController>();
   /** Every pi started, including one still reporting its session id, so `close` stops them all. */
   const running = new Set<{ stop(): Promise<unknown> }>();
+  /** Set by `close`; a chat being created then stops its pi instead of keeping it. */
+  let closed = false;
 
   /**
    * Finds a session.
@@ -90,6 +92,12 @@ export function createSessionManager(options: {
         tracer: options.tracer,
       });
       const pi = traced.process;
+      if (closed) {
+        // The host began closing while this chat was being set up; `close` has already stopped
+        // every pi it knew of, so this one stops itself.
+        await pi.stop();
+        throw new CommandError("pi_unavailable", { status: "exited" });
+      }
       running.add(pi);
       // Fire and forget: `exited` never rejects.
       void pi.exited.then(() => running.delete(pi));
@@ -97,8 +105,13 @@ export function createSessionManager(options: {
       try {
         ({ sessionId } = await traced.request({ type: "get_state" }));
       } catch (error) {
+        // A pi that cannot report its session is of no use; it must not keep running unowned.
+        await pi.stop();
         // pi exits at once when it has no model to use; the UI explains that from the status.
-        if (error instanceof PiRequestError) throw new CommandError("pi_unavailable", { status: "exited" });
+        if (error instanceof PiRequestError) {
+          const exited = error.reason === "exited" || error.reason === "stopped";
+          throw new CommandError("pi_unavailable", { status: exited ? "exited" : "unresponsive" });
+        }
         throw error;
       }
       sessions.set(
@@ -108,7 +121,8 @@ export function createSessionManager(options: {
           pi: {
             onEvent: (listener) => pi.onEvent(listener),
             exited: pi.exited,
-            prompt: (message) => traced.request({ type: "prompt", message }),
+            // No deadline: pi answers only after its preparations, which may include compacting.
+            prompt: (message) => traced.request({ type: "prompt", message }, { timeoutMs: null }),
             stop: () => pi.stop(),
           },
           publish: (event) => options.subscriptions.publish(event),
@@ -130,6 +144,7 @@ export function createSessionManager(options: {
       return controllerOf(command.sessionId).prompt(command);
     },
     async close() {
+      closed = true;
       await Promise.all([...running].map((pi) => pi.stop()));
     },
   };

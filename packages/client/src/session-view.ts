@@ -10,8 +10,8 @@ export interface PendingMessage {
 /** What the client knows about one session it watches. */
 export interface SessionView {
   readonly sessionId: string;
-  /** `loading` until the first snapshot; `exited` once pi has ended. */
-  readonly status: "loading" | "ready" | "exited";
+  /** `loading` until the first snapshot; `exited` once pi has ended; `lost` when the host restarted without it. */
+  readonly status: "loading" | "ready" | "exited" | "lost";
   readonly epoch: number;
   /** The last event applied; events must follow it without a gap. */
   readonly seq: number;
@@ -96,7 +96,7 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
   if (event.type === "session_snapshot") {
     return {
       sessionId: view.sessionId,
-      status: "ready",
+      status: event.exited ? "exited" : "ready",
       epoch: event.epoch,
       seq: event.seq,
       messages: event.messages,

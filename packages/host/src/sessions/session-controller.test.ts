@@ -1,5 +1,6 @@
 import type { PiEvent } from "@atrium/pi";
 import { CommandError, type SessionEvent } from "@atrium/protocol";
+import { ReplayRequestError } from "@atrium/testkit";
 import { parseFixture, replayPi } from "@atrium/testkit";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -123,6 +124,7 @@ describe("createSessionController on recorded pi output", () => {
       messages: [userMessage, reply],
       streaming: null,
       run: null,
+      exited: false,
     });
   });
 
@@ -184,6 +186,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
         ],
       },
       run: { runId: "id1", startedAt: 1000 },
+      exited: false,
     });
   });
 
@@ -309,7 +312,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
       { type: "run_settled", ...at(3), runId: "id1", outcome: "failed", settledAt: 1000 },
       { type: "session_exited", ...at(4, null), reason: "crashed", code: null, signal: "SIGKILL" },
     ]);
-    expect(controller.snapshot()).toMatchObject({ streaming: null, run: null, seq: 4 });
+    expect(controller.snapshot()).toMatchObject({ streaming: null, run: null, seq: 4, exited: true });
     await expect(controller.prompt(prompt("q2", "y"))).rejects.toStrictEqual(
       new CommandError("pi_unavailable", { status: "exited" }),
     );
@@ -325,5 +328,89 @@ describe("createSessionController on cases the fixtures do not show", () => {
     expect(events).toStrictEqual([
       { type: "session_exited", ...at(1, null), reason: "requested", code: 0, signal: null },
     ]);
+  });
+
+  it.each([
+    [
+      "busy with a run",
+      new ReplayRequestError("prompt", "rejected", "Agent is already processing. Specify streamingBehavior."),
+      new CommandError("session_busy"),
+    ],
+    [
+      "busy compacting",
+      new ReplayRequestError("prompt", "rejected", "Cannot submit a prompt while compaction is in progress."),
+      new CommandError("session_busy"),
+    ],
+    [
+      "refusing for another reason",
+      new ReplayRequestError("prompt", "rejected", "No model"),
+      new CommandError("pi_rejected", { detail: "No model" }),
+    ],
+    [
+      "refusing without text",
+      new ReplayRequestError("prompt", "rejected"),
+      new CommandError("pi_rejected", { detail: "" }),
+    ],
+    [
+      "exiting",
+      new ReplayRequestError("prompt", "exited", ""),
+      new CommandError("pi_unavailable", { status: "exited" }),
+    ],
+    [
+      "being stopped",
+      new ReplayRequestError("prompt", "stopped"),
+      new CommandError("pi_unavailable", { status: "exited" }),
+    ],
+  ])("turns pi %s into an error code, not a host failure", async (_case, failure, expected) => {
+    const { pi, answers } = manualPi();
+    const { controller } = control(pi);
+    answers.push(() => Promise.reject(failure));
+
+    await expect(controller.prompt(prompt("q1", "x"))).rejects.toStrictEqual(expected);
+  });
+
+  it("reports a pi that does not answer in time as unresponsive, and passes other errors on", async () => {
+    const { pi, answers } = manualPi();
+    const { controller } = control(pi);
+    const other = new Error("not from pi");
+    const withReason = Object.assign(new Error("has a reason"), { reason: "rejected" });
+    const notAnError = { name: "PiRequestError", reason: "rejected" };
+    const timeout = Object.assign(new Error("pi prompt timeout"), { name: "PiRequestError", reason: "timeout" });
+    answers.push(
+      () => Promise.reject(timeout),
+      () => Promise.reject(other),
+      () => Promise.reject(withReason),
+      // oxlint-disable-next-line prefer-promise-reject-errors -- testing what is not an Error.
+      () => Promise.reject(notAnError),
+    );
+
+    await expect(controller.prompt(prompt("q1", "x"))).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "unresponsive" }),
+    );
+    await expect(controller.prompt(prompt("q2", "y"))).rejects.toBe(other);
+    await expect(controller.prompt(prompt("q3", "z"))).rejects.toBe(withReason);
+    await expect(controller.prompt(prompt("q4", "w"))).rejects.toBe(notAnError);
+  });
+
+  it("does not drop another prompt's place when a failed one was already echoed", async () => {
+    const { pi, emit, answers } = manualPi();
+    const { controller, events } = control(pi);
+    const first = Promise.withResolvers<{ disposition: "started" }>();
+    const second = Promise.withResolvers<{ disposition: "started" }>();
+    answers.push(
+      () => first.promise,
+      () => second.promise,
+    );
+
+    const failing = controller.prompt(prompt("q1", "a"));
+    const later = controller.prompt(prompt("q2", "b"));
+    emit(userEnd("a"));
+    first.reject(new ReplayRequestError("prompt", "exited", ""));
+    await expect(failing).rejects.toBeInstanceOf(CommandError);
+    emit(userEnd("b"));
+    second.resolve({ disposition: "started" });
+    await later;
+
+    expect(clientMessageIds(events)).toStrictEqual(["q1", "q2"]);
   });
 });

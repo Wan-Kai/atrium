@@ -61,10 +61,10 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 1. extension 的 `/命令` 立即执行（运行中也可以）→ `handled`
 2. 正在压缩 → **抛错**（RPC 返回 error）
 3. `input` 处理器消费了输入 → `handled`
-4. 运行中：必须带 `streamingBehavior`（steer / followUp），进入 pi 的队列 → `queued`
+4. 运行中：必须带 `streamingBehavior`（steer / followUp），进入 pi 的队列 → `queued`；不带就**抛错**："Agent is already processing. Specify streamingBehavior…"（1.0.2 `agent-session.js`）。压缩中的错误文字是 "Cannot submit a prompt while compaction is in progress…"。宿主按这两段文字的开头认出"忙"（`packages/pi/src/process/rejections.ts`），回 `session_busy`。
 5. 否则校验模型和认证，必要时先压缩，触发 `before_agent_start` → `started`
 
-RPC 在预检完成时就返回结果，不等运行结束。`steer` / `follow_up` 返回 `handled | queued`，不接受 extension 命令。
+RPC 在预检完成时就返回结果，不等运行结束；预检可能包括自动压缩，所以宿主的 `prompt` 请求不设期限。`steer` / `follow_up` 返回 `handled | queued`，不接受 extension 命令。
 
 **队列**
 

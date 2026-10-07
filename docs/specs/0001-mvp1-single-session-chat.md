@@ -474,7 +474,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **应答**
 
 - 每条命令恰好一条应答：`{ type: "response", requestId, ok: true, result? }` 或 `{ type: "response", requestId, ok: false, error: { code, params? } }`。宿主不产出给用户看的文字，界面按 `code` 和 `params` 显示。
-- 错误码是 protocol 里的枚举，随里程碑增加。M1.3 用到：`invalid_message`（不是 JSON、不符合 schema）、`unknown_command`、`session_not_found`、`pi_unavailable`（没找到 pi 或版本不对，`params` 带检查结果）、`internal_error`。
+- 错误码是 protocol 里的枚举，随里程碑增加。M1.3 用到：`invalid_message`（不是 JSON、不符合 schema）、`unknown_command`、`session_not_found`、`pi_unavailable`（`params.status` 说明原因：`missing` / `outdated` / `unusable` 是检查结果，`exited` 是 pi 已退出，`unresponsive` 是 pi 没有回应）、`session_busy`（pi 正在运行或压缩，不收新消息）、`pi_rejected`（pi 拒绝了这条命令，`params.detail` 是 pi 的原文，只供"展开看原始报错"）、`internal_error`（宿主自己的 bug）。pi 的拒绝不算宿主的 bug，不报 `internal_error`。
+- `prompt` 不设期限：pi 要做完发送前的准备（可能包括自动压缩）才回应答，可能远超 30 秒；超时会让界面以为没发出，而 pi 照样执行。
 - 未知或无效的消息也有应答：能读出 `requestId` 就带上，读不出时为 `null`。限流仍然直接断开（4429）；现在用日志"message ignored"计数的限流测试改成断言应答。
 - 原来事件表里的 `error` 不再需要：命令的错误走应答；运行中的失败由 `run_settled` 带出，系统事件走 `notice`。
 
@@ -485,7 +486,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **事件**
 
-- 会话事件带 `sessionId`、`epoch`、`seq`，以及所属运行的 `traceId`（不在运行中为 `null`）。
+- 会话事件带 `sessionId`、`epoch`、`seq`，以及所属运行的 `traceId`（不在运行中为 `null`）。快照带 `exited`，pi 已退出的会话重连后也显示为已退出。
+- 客户端每次连上都比较 `hostInstanceId`：变了说明宿主重启过，之前订阅的会话在新宿主里不存在（宿主重启后的恢复在 M1.4、M1.7）。M1.3 把这些会话的视图标为"已失效"，保留已显示的消息，清掉运行和流式状态，不再订阅；对话界面在已失效或已退出的会话里发消息时，新建一个对话。
 - 列表事件带 `collection`（`projects`、`workspaces`、`sessions`）、`generation`、`seq`。
 
 **追踪**：宿主为每条命令开一个 `command <type>` span，父 span 是命令自带的 `traceparent`，再用 span link 指向连接的 trace；不挂在连接那条长 trace 下面，否则一个连接上的所有操作会堆进同一条 trace。
@@ -500,11 +502,12 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 粘贴或拖入时就用 `upload_attachment(mimeType, data)` 单独上传（`data` 是 base64），应答带 `attachmentId`；`prompt` 和 `steer` 只带 `attachmentIds`。每条 WebSocket 消息仍不超过 1 MiB，一次发好几张图也不受影响，发送时也不用再等上传。
 - 宿主把上传的图片暂存在内存里，按客户端计：最多 32 MiB、20 张，超出时应答 `attachment_limit`。被 `prompt` / `steer` 用掉、连接断开、或 30 分钟没被用到时释放；消息进了宿主的排队时，图片随排队项保存，不再算在客户端头上。宿主发给 pi 时按 pi 的 RPC 格式放进 `prompt` 的 `images`。
 
-**界面问题上报**：`report_client_issue(kind, message, details?)` 把界面里的未捕获错误和性能问题（长任务、掉帧）写进宿主日志，带客户端 id 和当时的 trace id。`message` 和 `details` 截断到 4 KB，照常脱敏；界面不在里面放对话内容。
+**界面问题上报**：`report_client_issue(kind, message, details?)` 把界面里的未捕获错误和性能问题（长任务、掉帧）写进宿主日志，带客户端 id 和当时的 trace id。`message` 和 `details` 截断到 4 KB，照常脱敏；界面不在里面放对话内容。界面在入口捕获未处理的错误和 Promise 拒绝，并观察超过 50 毫秒的长任务；同一类问题每 10 秒最多报一次，不会触发连接的限流。
 
 **M1.3 先做的部分**
 
 - 命令：`ping`、`create_chat`（最小形态：在 `~/.atrium/chats/` 下建目录，按领域模型"已决定 9"立刻启动 pi；写进索引留到 M1.5）、`subscribe_sessions`、`prompt`（只有文字）、`report_client_issue`。
+- 运行中输入框不能发送：宿主的排队和"停止"在 M1.6，这之前运行中发消息只会被 pi 拒绝（`session_busy`）。
 - 事件：`session_snapshot`（这次宿主运行中见过的消息；用 `get_entries` 重建历史在 M1.4）、`run_started`、`message_started`、`text_delta`、`reasoning_delta`、`message_finished`、`run_settled`、`session_exited`。
 - 只显示文字和推理；工具调用的事件和显示在 M1.4。
 

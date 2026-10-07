@@ -4,6 +4,7 @@ import { useConnectionState } from "../state/use-connection-state";
 import { clientId, readBootstrap } from "./bootstrap";
 import { ChatScreen } from "../chat/chat-screen";
 import { ConnectionStatus, type StatusView } from "./connection-status";
+import { installIssueReporting } from "./issue-reporting";
 
 /** The app before a connection exists, or the connection once it does. */
 type Shell =
@@ -18,7 +19,8 @@ type Shell =
  * the screen says it is starting rather than claiming the app runs outside the desktop shell, and
  * a failed bridge call is shown instead of becoming an unhandled rejection.
  *
- * @sideEffects On mount, asks the desktop bridge for the host address and opens a WebSocket;
+ * @sideEffects On mount, asks the desktop bridge for the host address, opens a WebSocket and
+ * starts reporting UI problems to the host;
  * disconnects on unmount.
  * @returns The app shell.
  */
@@ -28,6 +30,7 @@ export function App() {
   useEffect(() => {
     let active = true;
     let opened: AtriumClient | null = null;
+    let stopReporting: (() => void) | undefined;
 
     /**
      * Opens the connection once the bootstrap data arrives, unless the component unmounted first.
@@ -53,6 +56,7 @@ export function App() {
         token: bootstrap.token,
         clientId: clientId(localStorage),
       });
+      stopReporting = installIssueReporting(opened, window);
       setShell({ kind: "connected", client: opened });
       await opened.connect();
     }
@@ -61,6 +65,7 @@ export function App() {
     void open();
     return () => {
       active = false;
+      stopReporting?.();
       opened?.disconnect();
     };
   }, []);

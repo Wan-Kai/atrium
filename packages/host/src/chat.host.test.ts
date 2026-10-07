@@ -1,5 +1,5 @@
 import { createAtriumClient } from "@atrium/client";
-import type { HostMessage } from "@atrium/protocol";
+import { type HostMessage, PROTOCOL_VERSION } from "@atrium/protocol";
 import { createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
@@ -52,7 +52,9 @@ async function openClient(host: TestHost, clientId: string) {
   const received: HostMessage[] = [];
   socket.on("message", (data: Buffer) => received.push(JSON.parse(data.toString("utf8")) as HostMessage));
   await new Promise((done) => socket.once("open", done));
-  socket.send(JSON.stringify({ type: "hello", protocolVersion: 2, clientId, token: host.token, traceparent }));
+  socket.send(
+    JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION, clientId, token: host.token, traceparent }),
+  );
   await vi.waitFor(() => expect(received).toHaveLength(1));
   return { socket, received };
 }

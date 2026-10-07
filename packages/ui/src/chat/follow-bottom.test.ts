@@ -17,6 +17,19 @@ describe("follow bottom", () => {
     expect(afterScroll({ following: false, unseen: true }, bottom)).toStrictEqual({ following: true, unseen: false });
   });
 
+  it("ignores the event of its own scroll even when the content grew again since", () => {
+    const following = { following: true, unseen: false };
+    const grownSince = { scrollTop: 500, scrollHeight: 1100, clientHeight: 500 };
+
+    expect(afterScroll(following, grownSince, 500)).toBe(following);
+    expect(afterScroll(following, { ...grownSince, scrollTop: 501 }, 500)).toBe(following);
+    expect(afterScroll(following, { ...grownSince, scrollTop: 498 }, 500)).toStrictEqual({
+      following: false,
+      unseen: false,
+    });
+    expect(afterScroll(following, grownSince, null)).toStrictEqual({ following: false, unseen: false });
+  });
+
   it("keeps following when content grows, and marks it unseen otherwise", () => {
     const following = { following: true, unseen: false };
 
