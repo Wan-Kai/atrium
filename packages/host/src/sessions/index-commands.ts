@@ -45,8 +45,15 @@ export function createIndexCommands(options: {
       return { projectId: await options.projects.add(path) };
     },
     async removeProject(projectId) {
-      const workspaceIds = await options.projects.remove(projectId);
-      await options.sessions.forgetWorkspaces(workspaceIds);
+      // The sessions are found through the project's workspaces, so they stop before it goes.
+      const workspaceIds = options.projects
+        .workspaces()
+        .filter((workspace) => workspace.projectId === projectId)
+        .map((workspace) => workspace.id);
+      if (options.projects.projects().some((project) => project.id === projectId)) {
+        await options.sessions.forgetWorkspaces(workspaceIds);
+      }
+      await options.projects.remove(projectId);
       return {};
     },
     async renameProject(projectId, name) {
