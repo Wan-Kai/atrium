@@ -1,4 +1,16 @@
-import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, session, shell, utilityProcess } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  net,
+  protocol,
+  session,
+  shell,
+  utilityProcess,
+} from "electron";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
@@ -105,23 +117,27 @@ function startHost(options: {
   });
 }
 
+/** The scheme and origin the window loads the UI from, the same on every launch. */
+const APP_SCHEME = "atrium";
+const APP_ORIGIN = `${APP_SCHEME}://app`;
+
 /**
- * Content Security Policy for the Vite dev server page.
+ * Content Security Policy for a page the host does not serve directly.
  *
  * @remarks
- * In development the page comes from Vite, not the host, so the host's CSP header never reaches
- * it while it still holds the real token (security.md, "Electron"). The policy matches the
- * host's, except that inline scripts are allowed for React Fast Refresh's preamble and the page
- * may connect to the host on its own port.
+ * Matches the host's own policy (security.md, "Electron"), except that the page may connect to
+ * the host on its port, which is not the page's own origin. In development the page comes from
+ * Vite, and inline scripts are also allowed for React Fast Refresh's preamble.
  *
  * @sideEffects none
  * @param hostPort - Port the host listens on.
+ * @param dev - Whether the page is Vite's.
  * @returns The policy string.
  */
-function devContentSecurityPolicy(hostPort: number): string {
+function pageContentSecurityPolicy(hostPort: number, dev: boolean): string {
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    dev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self'",
@@ -173,7 +189,8 @@ function restrictNavigation(window: BrowserWindow, pageOrigin: string): void {
 }
 
 /**
- * Starts the host, then opens the main window on the page the host (or the Vite dev server) serves.
+ * Starts the host, then opens the main window on the UI: the host's files at `atrium://app/`, or
+ * the Vite dev server's page.
  *
  * @remarks
  * Renderer settings follow security.md ("Electron"): context isolation, sandbox, no Node. The
@@ -199,7 +216,7 @@ async function main(): Promise<void> {
     hostEntry: paths.hostEntry,
     token,
     uiDir: devUrl === undefined ? paths.uiDir : undefined,
-    extraOrigins: devUrl === undefined ? [] : [new URL(devUrl).origin],
+    extraOrigins: [devUrl === undefined ? APP_ORIGIN : new URL(devUrl).origin],
   });
   let hostStopped = false;
   app.on("will-quit", (event) => {
@@ -211,17 +228,19 @@ async function main(): Promise<void> {
   });
 
   const hostUrl = `http://127.0.0.1:${host.port}`;
-  const pageUrl = devUrl ?? `${hostUrl}/`;
+  const pageUrl = devUrl ?? `${APP_ORIGIN}/`;
   const pageOrigin = new URL(pageUrl).origin;
   if (devUrl !== undefined) {
     session.defaultSession.webRequest.onHeadersReceived({ urls: [`${pageOrigin}/*`] }, (details, callback) => {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          "Content-Security-Policy": [devContentSecurityPolicy(host.port)],
+          "Content-Security-Policy": [pageContentSecurityPolicy(host.port, true)],
         },
       });
     });
+  } else {
+    serveAppScheme(hostUrl, pageContentSecurityPolicy(host.port, false));
   }
 
   /**
@@ -285,6 +304,30 @@ async function main(): Promise<void> {
 }
 
 /**
+ * Serves `atrium://app/` from the host's static files.
+ *
+ * @remarks
+ * The page needs an origin that stays the same across launches, or its `localStorage` (the
+ * client id, collapsed projects, drafts) is lost with every new host port (overview.md,
+ * "桌面端怎么启动宿主"). Requests are forwarded to the host, which keeps the path and symlink
+ * checks (security.md, "子进程与文件"); only the CSP header is replaced, so the page may reach
+ * the host's WebSocket.
+ *
+ * @sideEffects Registers the scheme's handler on the default session.
+ * @param hostUrl - The host's HTTP origin.
+ * @param policy - The page's CSP.
+ */
+function serveAppScheme(hostUrl: string, policy: string): void {
+  protocol.handle(APP_SCHEME, async (request) => {
+    const url = new URL(request.url);
+    const response = await net.fetch(`${hostUrl}${url.pathname}${url.search}`, { bypassCustomProtocolHandlers: true });
+    const headers = new Headers(response.headers);
+    headers.set("Content-Security-Policy", policy);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  });
+}
+
+/**
  * The app menu: the standard app, edit and window items, without closing the window on ⌘W.
  *
  * @remarks
@@ -323,6 +366,10 @@ function separateUserData(): void {
 }
 
 separateUserData();
+// Before the app is ready, so the page's origin behaves like https: storage, fetch and a secure context.
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } },
+]);
 // Only one app per home: a second launch hands over to the first and quits (domain-model §1,
 // "索引的存储").
 if (app.requestSingleInstanceLock()) {

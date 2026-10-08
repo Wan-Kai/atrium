@@ -1,11 +1,12 @@
 import { parseFixture } from "@atrium/testkit";
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxPiEnvironment } from "./faux-pi";
 import { launchApp } from "./launch";
+import { addProject, piSessionFolder } from "./projects";
 
 /** The recorded history scenario, which belongs to the pi package. */
 const FIXTURE = join(import.meta.dirname, "..", "..", "..", "packages", "pi", "fixtures", "pi-1.0.2", "history.jsonl");
@@ -32,7 +33,7 @@ async function writeRecordedSession(agentDir: string, cwd: string): Promise<stri
       JSON.stringify(line).replaceAll("<cwd>", cwd).replaceAll("<home>", cwd).replaceAll("<uuid-1>", sessionId),
     )
     .join("\n");
-  const folder = join(agentDir, "sessions", "--work--");
+  const folder = piSessionFolder(agentDir, cwd);
   await mkdir(folder, { recursive: true });
   await writeFile(join(folder, `2026-10-08T00-00-00-000Z_${sessionId}.jsonl`), `${text}\n`);
   return sessionId;
@@ -40,13 +41,16 @@ async function writeRecordedSession(agentDir: string, cwd: string): Promise<stri
 
 test("opens a session from pi's file: tools, a retry and a compaction on its branch, not the other branch", async () => {
   const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "fifth answer" }] }] });
-  const cwd = await mkdtemp(join(tmpdir(), "atrium-e2e-session-"));
+  // pi records the real path, and the host keeps projects at theirs.
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "atrium-e2e-session-")));
   await writeRecordedSession(pi.agentDir, cwd);
   const launched = await launchApp(pi.env);
   try {
-    const { window } = launched;
-    const recent = window.getByRole("region", { name: "最近的会话" });
-    await recent.getByRole("button", { name: /^one/ }).click({ timeout: 30_000 });
+    const { window, app } = launched;
+    await addProject(app, window, cwd);
+    await window.getByTestId("workspace-row").click({ timeout: 30_000 });
+    await window.getByRole("button", { name: "历史" }).click();
+    await window.getByRole("menuitem", { name: /^one/ }).click({ timeout: 30_000 });
 
     const turns = window.getByTestId("turn");
     await expect(turns).toHaveCount(4, { timeout: 30_000 });

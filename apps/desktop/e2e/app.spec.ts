@@ -16,13 +16,25 @@ test.afterEach(async () => {
   await launched.close();
 });
 
-test("opens a window on the host-served UI, protected by the content security policy", async () => {
+test("opens a window on the host's UI at a fixed origin, protected by the content security policy", async () => {
   const csp = await launched.window.evaluate(async () =>
     (await fetch(location.href)).headers.get("content-security-policy"),
   );
 
-  expect(new URL(launched.window.url()).hostname).toBe("127.0.0.1");
-  expect(csp).toContain("script-src 'self'");
+  expect(launched.window.url()).toBe("atrium://app/");
+  expect(csp).toContain("script-src 'self';");
+  expect(csp).toMatch(/connect-src 'self' ws:\/\/127\.0\.0\.1:\d+;/);
+});
+
+test("keeps the page's storage across a restart, since its origin stays the same", async () => {
+  const before = await launched.window.evaluate(() => [location.origin, localStorage.getItem("atrium.clientId")]);
+  await launched.quit();
+
+  launched = await launchApp({}, launched.home);
+  const after = await launched.window.evaluate(() => [location.origin, localStorage.getItem("atrium.clientId")]);
+
+  expect(after).toStrictEqual(before);
+  expect(before[0]).toBe("atrium://app");
 });
 
 test("gives the page no Node access and only the bridge: bootstrap, folder choice and appearance", async () => {
