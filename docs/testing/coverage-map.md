@@ -8,14 +8,14 @@
 
 | # | 需求 | 测试 | 状态 |
 |---|---|---|---|
-| 1 | 侧栏按项目和工作区组织，显示运行、待处理、合并状态；标签页切换会话 | — | 待 M1.5 |
+| 1 | 侧栏按项目和工作区组织，显示运行、待处理、合并状态；标签页切换会话 | `apps/desktop/e2e/workspaces.spec.ts`；组件与宿主见"项目、工作区与会话（M1.5）"。待处理的状态随 M1.6、M1.7 | 部分覆盖 |
 | 2 | 流式输出回复和推理过程 | `apps/desktop/e2e/chat.spec.ts`、`chat.perf.spec.ts`；组件与渲染见"协议、客户端与流式显示（M1.3）" | 已覆盖 |
 | 3 | 粘贴或拖入截图随消息发出 | — | 待 M1.6 |
 | 4 | 看到工具调用：命令和输出、读的文件、diff、写入的文件 | — | 待 M1.4 |
 | 5 | 随时中断 | — | 待 M1.6 |
 | 6 | 运行中默认排队，可插话 | — | 待 M1.6 |
 | 7 | 输入框旁切换模型和推理强度 | — | 待 M1.6 |
-| 8 | 重启后恢复之前的会话 | — | 待 M1.4、M1.5 |
+| 8 | 重启后恢复之前的会话 | `apps/desktop/e2e/history.spec.ts`（从 pi 的文件恢复）、`workspaces.spec.ts`（重启后标签页、当前标签和草稿还在）、`app.spec.ts`（页面存储跨重启） | 已覆盖 |
 | 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | — | 待 M1.6 |
 | 10 | 在 Atrium 里回答 extension 的对话框 | — | 待 M1.6 |
 | 11 | 默认只突出回复，可切换显示模式 | — | 待 M1.4 |
@@ -123,15 +123,38 @@
 | 客户端会话视图：轮的开始、步骤增加、增量、更新、结束、提示条；只复制改动的轮和步骤；找最后一个同 id 的轮；新 epoch 的快照整体替换；对不上的步骤事件重新取快照；更早的页放在前面，过期 epoch 或已不在最前的丢弃 | `packages/client/src/session-view.test.ts` | 已覆盖 |
 | 客户端分页：一次只取一页，同时的请求共用一次；不在观察、加载中、已失效或没有更早的不取；`transcript_changed` 时重新取快照，其他失败往上抛 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 界面的轮：过程折叠成标题行（"已完成，用时 · 读了 · 跑了 · 改了 · N 条命令失败"），折叠时插话仍可见；只有推理时显示"思考了 N 秒"或"思考过程"；没有过程时没有标题行；点击步骤展开详情（命令输出、截断说明、带行号和增删竖条的 diff）；显示模式（摘要、思考、详细）与切换；运行中展开、正在进行的步骤转圈并实时显示；已停止、出错（可展开原始报错）；信息行（复制、"···"复制为 Markdown、改动胶囊展开文件和 diff、用量、结束时间）；菜单按 Esc 和点击外部关闭；提示条展开压缩摘要 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数：`turn-layout.test.ts` | 已覆盖 |
-| 会话文件：从 pi 写的真实文件读出会话 id、工作目录和第一条提问；按修改时间从新到旧、只读需要的条数、跨目录、同一会话只取最新的文件；提问为块时拼接文字、跳过图片；文件开头没有带文字的用户消息时没有提问；跳过不是会话的文件、其他文件、散放的文件和不存在的目录；会话目录按 pi 的顺序（环境变量、全局设置的 `sessionDir`、代理目录下的 `sessions`），展开 `~` | `packages/pi/src/sessions/session-files.test.ts` | 已覆盖 |
-| 最近会话与打开会话：列出 pi 会话目录里最近的会话及第一条提问；还没找 pi 时为空；用 `pi --session <文件>` 在会话记录的目录里启动，pi 还在运行时直接返回；同时打开只启动一个 pi，pi 退出后再打开会重新启动；没有文件时 `session_not_found`，pi 不可用时 `pi_unavailable`；宿主关闭后打开的会停掉自己的 pi；重新打开的会话接着上一个控制器的 epoch，旧视图会重新取快照；协议和路由 | `packages/host/src/sessions/session-manager.test.ts`、`server/router.test.ts`、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts` | 已覆盖 |
-| 界面的最近会话：连上之后才读，列出提问和时间（今天、昨天、日期），点一下打开并观察；"最近会话"返回列表；打不开时说明原因 | `packages/ui/src/chat/chat.browser.test.tsx`、`recent-sessions.test.ts` | 已覆盖 |
+| 会话文件与打开会话：M1.4 的"最近会话"列表在 M1.5 由侧栏和"历史"取代，读取和打开的测试见"项目、工作区与会话（M1.5）" | — | 已取代 |
 | 用 pi 写的真实会话文件恢复：工具、重试、压缩在当前分支上，另一个分支不显示，提示条在它所在的轮之后，过程标题行的统计；接着发消息照常运行 | `apps/desktop/e2e/history.spec.ts` | 已覆盖 |
 | 审查后补上（2026-10-08）：当场看到的轮和插话按记录重建（停在工具结果之后的下一轮仍是新的一轮）；上下文溢出的恢复不算重试；空报错按 pi 写 "Unknown error"；任何位置新增的提示条都推 `notice_added` 并带插入位置；pi 崩溃中断的一轮为 `failed`；长文字以预览发送、标 `partial`，`fetch_step` 取回完整步骤，快照和分页按 4 MB 装；`write` 的内容只发一份；打开目录已不存在的会话回 `session_cwd_missing`；刷新失败的日志只记命令和原因；扫描会话目录只认 LF、可随关闭中止；界面的时间经注入的时钟；导出遇到重建时报错而不是导出一部分 | `packages/host/src/transcript/*.test.ts`、`sessions/*.test.ts`、`packages/client/src/*.test.ts`、`packages/pi/src/sessions/session-files.test.ts`、`packages/ui/src/chat/*.test.ts(x)` | 已覆盖 |
 | 同一回复里的并行工具调用：只由手写的条目和事件覆盖（重建、实时），录制的场景每次回复只调一个工具，因为 pi 并行执行时事件顺序不定 | `projection.test.ts`、`session-transcript.test.ts`、`translate.test.ts` | 部分覆盖 |
 | 打开 1000 轮的会话到首屏 ≤ 500 毫秒（中位数，实测约 25 毫秒；第一次打开含启动 pi 约 1 秒） | `apps/desktop/e2e/history.perf.spec.ts` | 已覆盖 |
 | 2000 轮会话的对话记录重建（基准，本机中位约 2.4 毫秒） | `packages/host/src/transcript/rebuild.bench.ts` | 已覆盖 |
-| 对话区：轮、提示条、待确认的消息、运行状态的顺序；运行的计时在轮里；滚到顶加载更早的，且阅读位置不动；提问导航条跳转；长消息折叠与展开；Ctrl+O 和菜单切换显示模式；导出会话时取完所有页 | `packages/ui/src/chat/chat.browser.test.tsx`、`session-toolbar.test.ts` | 已覆盖 |
+| 对话区：轮、提示条、待确认的消息、运行状态的顺序；运行的计时在轮里；滚到顶加载更早的，且阅读位置不动；提问导航条跳转；长消息折叠与展开；Ctrl+O 和菜单切换显示模式；导出会话时取完所有页 | `packages/ui/src/chat/chat.browser.test.tsx`、`packages/ui/src/app/workbench.browser.test.tsx`、`packages/ui/src/tabs/session-menus.test.ts` | 已覆盖 |
+
+## 项目、工作区与会话（M1.5）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 索引文件：原子写入、权限 0600；版本逐级升级并留 `.v<N>.bak`；新版本拒绝且不改文件；不是 JSON、版本无效、格式不符、缺少升级步骤时挪成 `.corrupt-<时间>.json` 并从空开始；保留不认识的字段；写入期间的多次保存只写最新的一次；写入失败不留临时文件、之后还能再写；缺文件不算损坏 | `packages/host/src/store/index-file.test.ts` | 已覆盖 |
+| 宿主单实例：锁文件记进程号和启动时间；活着的宿主占着就拒绝；进程已不在、早于开机、内容损坏或形状不对时接管；只删自己的锁；同一家目录第二个宿主启动失败、第一个关掉后能启动；启动失败也释放锁 | `packages/host/src/store/host-lock.test.ts`、`server/ws-server.host.test.ts` | 已覆盖 |
+| 应用单实例：同一家目录第二次打开时退出并让第一个窗口回到前面；设了 `ATRIUM_HOME` 时 Electron 的数据跟着它 | `apps/desktop/e2e/app.spec.ts` | 已覆盖 |
+| 损坏的索引文件在列表里报告一次、界面提示到关掉为止；新版本格式拒绝启动、改回后能启动；偏好和每个客户端的布局跨重启保留 | `packages/host/src/index.host.test.ts`、`packages/ui/src/app/workbench.browser.test.tsx` | 已覆盖 |
+| git 调用：用工具环境、关可选锁、不弹提示、固定语言；最多同时 4 个、其余排队；按注入的时钟超时（默认 30 秒）；取消；起不来时报 `spawn` 并释放名额；非零退出是结果不是错误 | `packages/host/src/platform/git.test.ts` | 已覆盖 |
+| 合并状态（真实 git）：目录没了是已移除；Atrium 建的、没提交的是无改动；有提交是 `pending` 并数出 ↑N；merge、快进、squash（主干之后又改了别处）、cherry-pick 都算已合并；主干回滚了改动、冲突算 `pending`；外部 worktree 按 reflog 区分无改动和已合并（含 amend、只快进到主干）；没有分支或 reflog 时无法判断；没有主干时无法判断但仍报未提交；git 低于 2.38 不模拟合并；git 出错；同样的提交只判断一次，`git status` 每次都跑，知道是否未提交时可以跳过 | `packages/host/src/workspaces/merge-inspector.test.ts`、`worktree-list.test.ts` | 已覆盖 |
+| 项目登记：真实路径；不存在或不是目录报 `path_not_found`；已是项目、已是某个项目的 worktree（含反过来）报 `project_exists`；仓库的子目录、没有 git 或 git 出错时当普通目录；重名加序号；同时添加同一目录只成功一个；移除只删索引；改名与重名；工作区改名和清除；只为已登记的项目记新 worktree | `packages/host/src/projects/project-service.test.ts` | 已覆盖 |
+| 工作区扫描：本地工作区和各 worktree（记成外部）、分支、detached 的短提交、创建时间；目录没了和被 prune 后是已移除；普通目录、仓库子目录、没有 git 时没有分支和合并状态；没有 `origin/HEAD` 时无法判断，项目设了主干就按它；运行结束后重扫、没变化不通知；每 5 分钟和窗口聚焦（至少隔一分钟）fetch，之后不跑 `git status`；没有 `origin` 的跳过，fetch 失败记日志；新加的项目立刻扫描；git 出错时保留上次的结果并按原因记日志；关闭后停掉定时器 | `packages/host/src/workspaces/workspace-service.test.ts` | 已覆盖 |
+| 会话文件：真实文件的会话 id、工作目录、会话名（最新的 `session_info`，去空白，空的清除）、第一条带文字的提问；不是会话的文件、坏链接、目录、其他文件、缺的和锁住的目录都跳过；只按 LF 分行；跨块的大文件；文件只增长时只读新增部分，没变的不重读，变小或没变长却改过的从头读；写了一半的行和文件头等写完；文件没了忘掉，同一路径的新文件整个读；只清理扫描的那个目录；可中止；不留打开的文件；会话目录按 pi 的顺序、目录名按 pi 的规则 | `packages/pi/src/sessions/session-files.test.ts` | 已覆盖 |
+| 会话目录：只读已登记容器对应的目录并核对 `cwd`；Atrium 建的会话按记录的容器，容器不在了按目录；草稿在文件出现前列出，出现后不再是草稿；文件没了是 `missing`；丢弃草稿；归档（终端会话也记下）；每个对话目录都归"对话"，新对话不等扫描；同一会话多个文件取最新并记日志；pi 全放一个目录时也能分开；不知道目录时只列记录；只在变化时通知、扫描期间的请求合并；关闭后停止 | `packages/host/src/sessions/session-catalog.test.ts`；兜底标题：`prompt-line.test.ts` | 已覆盖 |
+| 布局：每个客户端分开；打开的标签按顺序、激活、切换容器；关掉激活的标签时右边的、再左边的接上；各客户端关掉某会话的标签；去掉消失的容器；只留最近的 10 个客户端 | `packages/host/src/sessions/layouts.test.ts`；客户端的即时更新：`packages/client/src/index-view.test.ts` | 已覆盖 |
+| 会话管理器：新建对话（自己的目录）和工作区会话都立刻启动 pi、记成草稿、打开成标签；pi 不可用时不留目录；打开终端会话用 `--session`、同时只启动一个、退出后在新 epoch 重启并给订阅者快照；目录没了、文件没了时报错不启动；重启后的草稿不启动，第一条消息时用 `--session-id`；没发过消息的草稿关掉最后一个标签时丢弃（对话的空目录一并删、有文件的留下），发过消息的保留；归档停掉 pi 并关掉各处标签；改名先启动 pi；项目移除时停掉其中的会话；运行状态进列表、运行结束重扫；插话记录读入和写回，读写失败只记日志 | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
+| 插话记录：存进 `turns/<会话 id>.json`，每个条目只记一次；不适合做文件名的 id 只放内存；损坏时重来；重建时按记录把工具结果之后的消息当新的一轮，没有记录时按位置推断 | `packages/host/src/store/turn-starts.test.ts`、`transcript/projection.test.ts`、`session-transcript.test.ts` | 已覆盖 |
+| 列表推送：订阅时马上给自己客户端的快照；一段时间内的变化合并成一份推给所有订阅者；断开后不再推；关闭时丢掉待推的 | `packages/host/src/sync/index-feed.test.ts`、`subscriptions.test.ts` | 已覆盖 |
+| 协议与路由：新命令、快照的每种取值和越界、新错误码；路由把布局类命令连同客户端交给会话层，列表命令交给索引命令 | `packages/protocol/src/envelope.test.ts`、`packages/host/src/server/router.test.ts` | 已覆盖 |
+| 客户端：每次连上都订阅列表；第一份快照前为空，之后只收同一宿主更新的快照；开标签、关标签、切容器、改偏好立刻反映；各命令的字段和结果 | `packages/client/src/atrium-client.test.ts`、`index-view.test.ts` | 已覆盖 |
+| 宿主层：添加项目后推来工作区、合并状态，聚焦后出现终端会话，worktree 不能再登记成项目；偏好和布局跨重启；损坏重置；新版本拒绝启动 | `packages/host/src/index.host.test.ts` | 已覆盖 |
+| 侧栏：工作区按本地、新到旧、已收尾排序，合并标签、运行状态、本地的提示；点击切换；项目折叠后显示待合并数和运行状态并记住；添加项目（取消不添加）、已存在时说明是哪个项目；搜索工作区和会话（不分大小写，结果保留到关闭）、没有匹配；最近 5 个对话和"全部 N 个对话"；工作区和项目改名、移除项目；外观三档切换并通知窗口 | `packages/ui/src/app/workbench.browser.test.tsx`；纯函数：`packages/ui/src/sidebar/names.test.ts` | 已覆盖 |
+| 标签栏与对话区：当前容器的标签、激活、切换、关闭；"历史"按新到旧、标出已打开、不含归档；"+"新建；会话"···"改名、归档、复制路径（草稿不可复制）；快捷键 ⌘N、⌘T（不在任何容器时新建对话）、⌘W、⌘1–9、⌘⇧[ ]；窗口聚焦通知宿主；空状态说明会话建在哪里；第一条消息在当前位置新建会话并等它建好；退出或丢失的会话先重新打开再发 | `packages/ui/src/app/workbench.browser.test.tsx`、`packages/ui/src/chat/chat.browser.test.tsx` | 已覆盖 |
+| 端到端：真实 git 项目的 worktree 和普通目录在侧栏里和 git 一致，worktree 里提交后聚焦显示 ↑1，终端里开的会话聚焦后出现在对应工作区的"历史"；新建会话成标签，重启后标签、当前标签和草稿还在，⌘W 丢弃空草稿；从侧栏和"历史"打开 pi 的会话文件 | `apps/desktop/e2e/workspaces.spec.ts`、`history.spec.ts`、`history.perf.spec.ts` | 已覆盖 |
 
 ## 安全（security.md）
 
@@ -142,7 +165,9 @@
 | 只认第一条 hello；格式错误、版本不符、超时各有关闭码 | ws-server.host.test.ts "closes the socket on …"、"drops a client that never says hello…"、"answers only the first of two hellos" | 已覆盖 |
 | 连接数、消息速率、字节速率、单条大小的上限 | ws-server.host.test.ts "disconnects a client that sends more than 200 messages…"、"…more than 8 MiB…"、"closes a connection that sends a message over 1 MiB…"、"refuses connections beyond 32 at once" | 已覆盖 |
 | token 强度（单独运行与 Electron 两条路径） | `packages/host/src/server/auth.test.ts`；host-standalone.spec.ts "refuses a weak token…" | 已覆盖 |
-| 渲染进程拿不到 Node，只有 bootstrap 桥 | e2e "gives the page no Node access…" | 已覆盖 |
+| 渲染进程拿不到 Node，桥上只有 bootstrap、选择文件夹、窗口外观 | e2e "gives the page no Node access and only the bridge…" | 已覆盖 |
+| 窗口页面从固定的 `atrium://app` 加载，CSP 只多允许连宿主端口，存储跨重启保留 | e2e "opens a window on the host's UI at a fixed origin…"、"keeps the page's storage across a restart…" | 已覆盖 |
+| git 的输出、fetch 失败的原文不进日志，只记命令和原因；索引文件损坏只记文件名 | `workspace-service.test.ts` "logs a scan git could not run by its reason…"、"skips projects without an origin and logs a fetch that fails"；`index.host.test.ts` | 已覆盖 |
 | 不能导航到别的源、不能开新窗口，链接交给系统浏览器 | e2e "keeps the page on its own origin…"（目标服务器零请求，`shell.openExternal` 被调用） | 已覆盖 |
 | 宿主页面带 CSP、nosniff；开发页面也带 CSP | ws-server.host.test.ts "serves the UI with the full content security policy…"；`apps/desktop/e2e/dev.spec.ts` | 已覆盖 |
 | 静态文件不越出 UI 目录：路径穿越、符号链接 | `packages/host/src/server/static-files.test.ts`；ws-server.host.test.ts "does not follow a symlink out of the UI directory…" | 已覆盖 |
@@ -151,6 +176,7 @@
 | pi 的环境里名字像凭据的变量值加入脱敏列表，pi 在 stderr 回显也不进日志 | redact.test.ts "picks the values of credential-like variables…"；tools.host.test.ts "scrubs credentials from the tool environment…"；try-pi.test.ts "keeps credentials from the environment out of its log…" | 已覆盖 |
 | pi 从 `auth.json` 读的 Key 被 pi 回显时不进日志（已知缺口，见 security.md"凭据与日志"） | — | 待 M1.8 |
 | 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
+| 索引文件 0600、`turns/` 目录 0700；插话记录的文件名只用 pi 形状的会话 id | `packages/host/src/store/index-file.test.ts`、`turn-starts.test.ts` | 已覆盖 |
 
 ## 日志与链路追踪（observability.md）
 
