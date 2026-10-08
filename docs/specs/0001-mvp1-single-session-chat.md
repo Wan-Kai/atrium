@@ -474,7 +474,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **应答**
 
 - 每条命令恰好一条应答：`{ type: "response", requestId, ok: true, result? }` 或 `{ type: "response", requestId, ok: false, error: { code, params? } }`。宿主不产出给用户看的文字，界面按 `code` 和 `params` 显示。
-- 错误码是 protocol 里的枚举，随里程碑增加。M1.3 用到：`invalid_message`（不是 JSON、不符合 schema）、`unknown_command`、`session_not_found`、`pi_unavailable`（`params.status` 说明原因：`missing` / `outdated` / `unusable` 是检查结果，`exited` 是 pi 已退出，`unresponsive` 是 pi 没有回应）、`session_busy`（pi 正在运行或压缩，不收新消息）、`pi_rejected`（pi 拒绝了这条命令，`params.detail` 是 pi 的原文，只供"展开看原始报错"）、`internal_error`（宿主自己的 bug）。pi 的拒绝不算宿主的 bug，不报 `internal_error`。
+- 错误码是 protocol 里的枚举，随里程碑增加。M1.3 用到：`invalid_message`（不是 JSON、不符合 schema）、`unknown_command`、`session_not_found`、`pi_unavailable`（`params.status` 说明原因：`missing` / `outdated` / `unusable` 是检查结果，`exited` 是 pi 已退出，`unresponsive` 是 pi 没有回应）、`session_busy`（pi 正在运行或压缩，不收新消息）、`transcript_changed`（`fetch_transcript` 带的 `epoch` 已经过时，M1.4）、`pi_rejected`（pi 拒绝了这条命令，`params.detail` 是 pi 的原文，只供"展开看原始报错"）、`internal_error`（宿主自己的 bug）。pi 的拒绝不算宿主的 bug，不报 `internal_error`。
 - `prompt` 不设期限：pi 要做完发送前的准备（可能包括自动压缩）才回应答，可能远超 30 秒；超时会让界面以为没发出，而 pi 照样执行。
 - 未知或无效的消息也有应答：能读出 `requestId` 就带上，读不出时为 `null`。限流仍然直接断开（4429）；现在用日志"message ignored"计数的限流测试改成断言应答。
 - 原来事件表里的 `error` 不再需要：命令的错误走应答；运行中的失败由 `run_settled` 带出，系统事件走 `notice`。
@@ -510,6 +510,34 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 运行中输入框不能发送：宿主的排队和"停止"在 M1.6，这之前运行中发消息只会被 pi 拒绝（`session_busy`）。
 - 事件：`session_snapshot`（这次宿主运行中见过的消息；用 `get_entries` 重建历史在 M1.4）、`run_started`、`message_started`、`text_delta`、`reasoning_delta`、`message_finished`、`run_settled`、`session_exited`。
 - 只显示文字和推理；工具调用的事件和显示在 M1.4。
+
+### 对话记录（M1.4，2026-10-08 定）
+
+对话区显示的是 TranscriptProjection（[领域模型 §2](../architecture/domain-model.md#2-会话历史条目分支与对话记录)）：宿主沿当前分支把 pi 的条目组织成"轮"和"提示条"，实时事件和分页拉取用同一套实体，M1.3 的消息级事件（`message_started`、`text_delta`、`reasoning_delta`、`message_finished`）由下面的轮级事件取代。
+
+**实体**（`packages/protocol`）
+
+- **轮** `Turn`：一条用户消息到下一条用户消息之间的全部内容。字段：`id`、`user`（文字、图片张数、`clientMessageId`、时间）、`steps`、`outcome`（`running` / `done` / `stopped` / `failed`）、`error`（失败时 pi 的原文）、`startedAt`、`durationMs`（由消息时间戳推算，运行中为空）、`usage`（这一轮的输入、输出 token）、`changes`（这一轮"已观测到的工具修改"：文件路径和增删行，`write` 没有行数）。
+- **步骤** `Step`，按出现顺序：
+  - `thinking`：推理文字；`durationMs` 只有当场计时才有，否则为空，界面显示"思考过程"而不是"思考了 N 秒"。
+  - `text`：一段文字。只有一轮最后那段文字作为回复显示在过程下方，前面的收进过程（"一轮里的文字"）；哪段是最后一段由界面判断。
+  - `tool`：`callId`、`tool`（工具名）、`args`、`status`（`running` / `done` / `failed` / `unfinished`：这一轮结束了还没有结果，比如被中断）、`output`（结果文字，最多 16 KB，超出时带 `truncated`）、`details`。`details` 按工具区分：`bash`（命令）、`read`（路径、起止行）、`edit`（路径、pi 给的 diff、增删行数）、`write`（路径和写入内容，内容来自调用参数，pi 的结果里没有）、其他工具没有。
+  - `steer`：插话。pi 的文件不区分插话和追加消息，规则是：一条用户消息紧跟在工具结果之后、下一次模型回复之前，就是插话，属于当前这一轮。
+- **提示条** `Notice`：`compacted`（压缩前 token 数、压缩摘要）、`retrying`（第 N 次、pi 的报错原文）。失败后被重试的那次回复不作为回复显示，变成一条 `retrying`。
+
+**id**：工具步骤带 pi 的调用 id；步骤的 `id` 是它在轮里的序号，实时和重建按同样的规则排出同样的序号。轮的 `id` 在实时时由宿主生成；运行结束后宿主重新读条目，按顺序把新的用户消息条目对应到实时的轮，沿用实时的 id。只在历史里出现的轮用"会话 id + 条目 id"。
+
+**实时事件**（都带 `sessionId + epoch + seq + traceId`）：`turn_started`（带整条轮，用户消息确认时）、`step_added`、`step_delta`（推理、文字的增量）、`step_updated`（工具状态和结果变化时带整个步骤）、`turn_finished`（结果、用时、用量、改动）、`notice_added`。`run_started`、`run_settled`、`session_exited` 不变。
+
+**快照与分页**
+
+- `session_snapshot` 带最近 20 轮（连同其间的提示条）、`hasOlder`、运行状态和 `exited`。打开会话订阅后一条消息就能画出首屏。
+- `fetch_transcript(sessionId, before, limit)`：取某一条（轮或提示条）之前的 `limit` 条，返回条目和 `hasOlder`，带当前 `epoch`；`epoch` 已经变了就应答 `transcript_changed`，客户端改为重新订阅取快照。
+- 运行结束、压缩结束、宿主自己发出改变状态的命令之后，宿主用 `get_entries(since)` 补齐条目并重建。重建结果和已推给客户端的不一致（例如 pi 屏蔽了一条失败的回复、当前分支变了），`epoch` 加一并给订阅者推新的快照。
+
+**当场计时的数据**：推理用时、首 token 时间、输出速度由宿主在实时事件里测得，另外存放，重建时合并回去；宿主重启后为空，界面显示"—"（"滚动与长会话"）。
+
+**打开历史会话**（M1.4 的临时入口，M1.5 的侧栏和"历史"做好后替换）：没有打开会话时，对话区列出 pi 会话目录里最近的会话（第一条提问、时间）。`list_recent_sessions(limit)` 返回会话 id、文件里的第一条提问、修改时间；`open_session(sessionId)` 用 `pi --session <文件>` 启动 pi 并返回，客户端随后订阅。扫描会话目录是 pi 包的 SessionFiles，只读。
 
 ### 命令与事件
 

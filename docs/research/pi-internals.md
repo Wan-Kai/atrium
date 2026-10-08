@@ -126,7 +126,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 
 - 所有 `AgentSessionEvent`：`agent_start/end`、`agent_settled`、`turn_start/end`、`message_start/update/end`、`tool_execution_start/update/end`（嵌套调用带 `parentToolCallId`，id 形如 `<parent>/<n>`）、`queue_update`、`compaction_start/end {reason: manual | threshold | overflow}`、`entry_appended`、`session_info_changed`、`thinking_level_changed`、`auto_retry_start/end`、`bash_execution_update`，以及 RPC 专有的 `extension_error`。
 - `message_update` 只带增量（`text_*`、`thinking_*`、`toolcall_*`、`done`、`error`），以 `message_end.message` 为准。
-- **不发事件的条目**：`model_change`（RPC 里根本没有"模型已切换"事件）、压缩和分支摘要条目、标签、bash 消息；`entry_appended` 只覆盖少数 extension 写入。所以镜像条目要在 `agent_settled`、`compaction_end` 和自己的 `set_model` 等命令之后再调一次 `get_entries {since}`。
+- **不发事件的条目**：`model_change`（RPC 里根本没有"模型已切换"事件）、压缩和分支摘要条目、标签、bash 消息；`entry_appended` 只覆盖少数写入：extension 的 `appendEntry`、缓存预热的 `usage` 条目、虚拟模型的 `custom` 条目、extension 边界草稿、重试和上下文溢出时去掉失败回复的 `context_edit`（2026-10-08 核实）。所以镜像条目要在 `agent_settled`、`compaction_end` 和自己的 `set_model` 等命令之后再调一次 `get_entries {since}`。
 
 **并发与锁**
 

@@ -214,7 +214,8 @@ MVP 1 里还没设计、做到时先补设计的：
   - 过程折叠行、单行步骤列表、详情块；`bash` / `read` / `edit` / `write` / 其他工具；diff；显示模式（摘要 / 思考 / 详细，Ctrl+O）。
   - 每轮改动汇总（"已观测到的工具修改"口径）、回复下方信息行、提问导航条。
   - 用户消息超过约 12 行折叠；复制消息和回复（需求 14）；回复"···"里的"复制为 Markdown"、整个会话"导出为 Markdown"。
-  - 打开会话先取最近 20 轮（`fetch_transcript` 的 `tail`），翻到顶再按游标加载更早的（`before`）。
+  - 打开会话先取最近 20 轮（订阅时的快照带上），翻到顶再按游标加载更早的（`fetch_transcript` 的 `before`）。协议见 [SPEC-0001 · 对话记录](specs/0001-mvp1-single-session-chat.md#对话记录m142026-10-08-定)。
+  - 临时的"最近会话"列表（2026-10-08 定）：没有打开会话时列出 pi 会话目录里最近的会话，点一下打开；用到 M1.5 的 SessionFiles 的只读扫描，M1.5 的侧栏和"历史"做好后替换。
   - 历史会话的每轮用时由时间戳推算；TTFT、输出速度宿主重启后显示"—"。
 - **参考**：[pi-internals](research/pi-internals.md) §1 会话文件、§3 RPC 协议、[domain-model](architecture/domain-model.md) §2 会话历史、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)、Paseo 的 `packages/server/src/server/agent/providers/pi/history-mapper.ts`、`tool-call-mapper.ts`（Paseo 用 `get_messages`，只借鉴映射，不照搬重建方式）。
 - **完成标准**：用一个带压缩、带分叉的真实会话文件恢复，显示的历史与终端 pi 一致，压缩前的内容不丢；打开 1000 轮的会话到首屏满足预算；2000 轮重建有基准基线。
