@@ -353,6 +353,26 @@ describe("createAtriumClient: commands", () => {
     expect(latest().sent.at(-1)).toStrictEqual({ type: "create_chat", requestId: "client-1-2", traceparent });
   });
 
+  it("lists recent sessions and opens one", async () => {
+    const { client, latest } = await connected();
+
+    const listed = client.listRecentSessions(20);
+    latest().answer("list_recent_sessions", { sessions: [{ sessionId: "s7", firstPrompt: "hi", modifiedAt: 9 }] });
+    const opened = client.openSession("s7");
+    latest().answer("open_session", { sessionId: "s7" });
+
+    expect(await listed).toStrictEqual({ sessions: [{ sessionId: "s7", firstPrompt: "hi", modifiedAt: 9 }] });
+    expect(await opened).toStrictEqual({ sessionId: "s7" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] !== "ping"),
+    ).toStrictEqual([
+      { type: "list_recent_sessions", requestId: "client-1-2", limit: 20 },
+      { type: "open_session", requestId: "client-1-3", sessionId: "s7" },
+    ]);
+  });
+
   it("rejects with the host's error code, and with the schema's error for a malformed result", async () => {
     const { client, latest } = await connected();
 

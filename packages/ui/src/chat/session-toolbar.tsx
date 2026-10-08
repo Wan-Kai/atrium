@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
-import { CaretDown, Check, DotsThree, Eye } from "@phosphor-icons/react";
+import { CaretDown, CaretLeft, Check, DotsThree, Eye } from "@phosphor-icons/react";
 import { DISPLAY_MODES, useDisplayMode } from "../state/display-mode";
 import { MENU_ITEM, MenuButton } from "./menu-button";
 import { transcriptMarkdown } from "./turn-layout";
@@ -56,19 +56,35 @@ function download(name: string, text: string): void {
  *
  * @remarks
  * Their place is the tab bar's right end (SPEC-0001, "标签栏"), which comes with M1.5; until then
- * they sit at the top of the conversation area. The mode menu shows the three modes with their
- * hints (Ctrl+O cycles them); "···" exports the whole session as Markdown (SPEC-0001,
- * "对话记录的其他设计").
+ * they sit at the top of the conversation area, with a way back to M1.4's recent sessions. The
+ * mode menu shows the three modes with their hints (Ctrl+O cycles them); "···" exports the whole
+ * session as Markdown (SPEC-0001, "对话记录的其他设计").
  *
  * @sideEffects Exporting fetches the whole transcript and downloads a file.
- * @param props - The client and the session.
+ * @param props - The client, the session, and how to go back to the recent sessions.
  * @returns The toolbar.
  */
-export function SessionToolbar({ client, sessionId }: { readonly client: AtriumClient; readonly sessionId: string }) {
+export function SessionToolbar({
+  client,
+  sessionId,
+  onClose,
+}: {
+  readonly client: AtriumClient;
+  readonly sessionId: string;
+  readonly onClose: () => void;
+}) {
   const { mode, set } = useDisplayMode();
   const current = DISPLAY_MODES.find((entry) => entry.mode === mode);
   return (
     <div className="flex items-center justify-end gap-1 px-4 pt-2" data-testid="session-toolbar">
+      <button
+        type="button"
+        onClick={onClose}
+        className="mr-auto flex h-7 items-center gap-1.5 rounded-[var(--r)] px-2 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+      >
+        <CaretLeft size={12} />
+        最近会话
+      </button>
       <MenuButton
         label="显示模式（Ctrl+O 切换）"
         content={

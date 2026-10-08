@@ -1,8 +1,7 @@
-import type { AtriumClient, SessionView } from "@atrium/client";
+import type { AtriumClient, ConnectionState, SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
-import type { TranscriptItem, Turn } from "@atrium/protocol";
+import type { RecentSession, TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { present } from "@atrium/testkit";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { type StoreApi, createStore } from "zustand/vanilla";
@@ -104,8 +103,8 @@ describe("messages", () => {
         <UserBubble text="短" />
       </>,
     );
-    const [folded, short] = [...screen.container.querySelectorAll<HTMLElement>('[data-testid="user-text"]')];
-    const body = present(folded, "the long message");
+    const body = screen.getByTestId("user-text").nth(0).element() as HTMLElement;
+    const short = screen.getByTestId("user-text").nth(1).element();
 
     await vi.waitFor(() => expect(body.scrollHeight).toBeGreaterThan(body.clientHeight));
     expect(screen.container.textContent).toContain("2 张图片");
@@ -113,7 +112,7 @@ describe("messages", () => {
     expect(body.scrollHeight).toBe(body.clientHeight);
     await screen.getByRole("button", { name: "收起" }).click();
     expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
-    expect(present(short, "the short message").parentElement?.querySelector("button")).toBeNull();
+    expect(short.parentElement?.querySelectorAll("button")).toHaveLength(0);
   });
 
   it("formats run times compactly", () => {
@@ -242,10 +241,38 @@ describe("Transcript", () => {
 });
 
 /** A client that records commands, creates chats s1, s2, … and answers as the test says. */
-function fakeClient(answers: { createChat?: () => Promise<void>; prompt?: () => Promise<never> } = {}) {
+function fakeClient(
+  answers: {
+    createChat?: () => Promise<void>;
+    prompt?: () => Promise<never>;
+    recent?: RecentSession[];
+    openSession?: () => Promise<void>;
+  } = {},
+) {
   const calls: string[] = [];
+  const listed: number[] = [];
   const stores = new Map<string, StoreApi<SessionView>>();
+  const connection = createStore<ConnectionState>(() => ({
+    status: "connected",
+    traceId: "t",
+    hostVersion: "0",
+    hostInstanceId: "h1",
+  }));
   const client = {
+    connection,
+    listRecentSessions: async (limit: number) => {
+      listed.push(limit);
+      return { sessions: answers.recent ?? [] };
+    },
+    openSession: async (sessionId: string) => {
+      calls.push(`openSession ${sessionId}`);
+      await answers.openSession?.();
+      stores.set(
+        sessionId,
+        createStore<SessionView>(() => view({ sessionId, items: [turn("t1", "以前的回答")] })),
+      );
+      return { sessionId };
+    },
     createChat: async () => {
       calls.push("createChat");
       await answers.createChat?.();
@@ -270,7 +297,7 @@ function fakeClient(answers: { createChat?: () => Promise<void>; prompt?: () => 
       return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
     },
   } as unknown as AtriumClient;
-  return { client, calls, stores };
+  return { client, calls, listed, stores, connection };
 }
 
 describe("ChatScreen", () => {
@@ -335,6 +362,43 @@ describe("ChatScreen", () => {
     await vi.waitFor(() => expect(calls).toStrictEqual(["createChat", "watch s1", "prompt s1 一", "prompt s1 二"]));
   });
 
+  it("lists the recent sessions once connected, and opens one", async () => {
+    const recent: RecentSession[] = [
+      { sessionId: "old", firstPrompt: "以前问的", modifiedAt: Date.now() - 60_000 },
+      { sessionId: "blank", firstPrompt: null, modifiedAt: Date.UTC(2026, 0, 2) },
+    ];
+    const { client, calls, listed, connection } = fakeClient({ recent });
+    connection.setState({ status: "connecting", traceId: "t" }, true);
+    const screen = await render(<ChatScreen client={client} />);
+    expect(listed).toStrictEqual([]);
+
+    connection.setState({ status: "connected", traceId: "t", hostVersion: "0", hostInstanceId: "h1" }, true);
+    const list = screen.getByRole("region", { name: "最近的会话" });
+    await expect.element(list).toMatchTextContent(/^最近的会话以前问的今天 \d{2}:\d{2}（没有提问）1月2日$/);
+    expect(listed).toStrictEqual([20]);
+    await list.getByRole("button", { name: /以前问的/ }).click();
+
+    await vi.waitFor(() => expect(calls).toStrictEqual(["openSession old", "watch old"]));
+    await expect.element(screen.getByTestId("reply")).toHaveTextContent("以前的回答");
+    await expect.element(screen.getByRole("region", { name: "最近的会话" })).not.toBeInTheDocument();
+
+    await screen.getByRole("button", { name: "最近会话" }).click();
+    await expect.element(screen.getByRole("region", { name: "最近的会话" })).toBeVisible();
+    expect(calls.at(-1)).toBe("watch ");
+  });
+
+  it("explains a session that could not be opened", async () => {
+    const { client } = fakeClient({
+      recent: [{ sessionId: "gone", firstPrompt: "x", modifiedAt: 0 }],
+      openSession: () => Promise.reject(new CommandError("session_not_found", { sessionId: "gone" })),
+    });
+    const screen = await render(<ChatScreen client={client} />);
+
+    await screen.getByRole("button", { name: /^x/ }).click();
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("这个会话已经不存在了");
+  });
+
   it("switches the display mode with Ctrl+O and from its menu", async () => {
     const { client, calls } = fakeClient();
     const screen = await render(<ChatScreen client={client} />);
@@ -376,6 +440,7 @@ describe("ChatScreen", () => {
     [new CommandError("pi_unavailable", { status: "unknown" }), "还在查找 pi，请稍后再试"],
     [new CommandError("pi_unavailable"), "还在查找 pi，请稍后再试"],
     [new CommandError("session_not_found", { sessionId: "s1" }), "这个会话已经不存在了"],
+    [new CommandError("transcript_changed"), "对话记录刚刚更新了，请再试一次"],
     [new CommandError("internal_error"), "宿主出错了，消息没有发出"],
     [new Error("other"), "发送失败"],
   ])("describes %s", (error, text) => {

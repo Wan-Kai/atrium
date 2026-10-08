@@ -142,8 +142,8 @@ const firstTurn = turn("e6", "one", {
 });
 
 describe("projectTranscript on a recorded session", () => {
-  it("rebuilds the branch with a retry and a compaction between turns", () => {
-    expect(projectTranscript(recordedBranch("e20"), "s", none)).toStrictEqual({
+  it("rebuilds the branch the file ends on, with a retry and a compaction between turns", () => {
+    expect(projectTranscript(recordedBranch("e24"), "s", none)).toStrictEqual({
       items: [
         firstTurn,
         turn("e16", "two", {
@@ -162,8 +162,9 @@ describe("projectTranscript on a recorded session", () => {
           timestamp: 0,
         },
         turn("e19", "three", { steps: [{ kind: "text", id: "0", text: "third answer" }] }),
+        turn("e23", "four", { steps: [{ kind: "text", id: "0", text: "fourth answer" }] }),
       ],
-      turnEntryIds: ["e6", "e16", "e19"],
+      turnEntryIds: ["e6", "e16", "e19", "e23"],
     });
   });
 

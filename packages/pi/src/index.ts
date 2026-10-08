@@ -27,3 +27,4 @@ export {
   toLogEntry,
 } from "./history/log-entry";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
+export { type SessionFileInfo, listSessionFiles, sessionsDirectory } from "./sessions/session-files";

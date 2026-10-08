@@ -6,6 +6,8 @@ import { delimiter, join } from "node:path";
 /** Environment for `launchApp` that makes the host's pi answer from a faux script, and its cleanup. */
 export interface FauxPiEnvironment {
   readonly env: Record<string, string>;
+  /** pi's agent directory, where it keeps its settings and session files. */
+  readonly agentDir: string;
   readonly cleanup: () => Promise<void>;
 }
 
@@ -68,6 +70,7 @@ export async function fauxPiEnvironment(script: FauxScript): Promise<FauxPiEnvir
       PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
       E2E_REAL_PI: await realPi(),
     },
+    agentDir: launch.agentDir,
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
 }

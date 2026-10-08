@@ -90,7 +90,8 @@ function playHistory() {
     [upTo("e17"), "e17"],
     [upTo("e18"), "e18"],
     [upTo("e20"), "e20"],
-    [entries.length, "e22"],
+    [upTo("e22"), "e22"],
+    [entries.length, "e24"],
   ];
   let read = 0;
   const results: RebuildResult[] = [];
@@ -132,21 +133,16 @@ describe("createSessionTranscript following a recorded session", () => {
       { kind: "same" },
       { kind: "appended", events: [{ type: "notice_added", notice: expect.objectContaining({ id: "s:e18" }) }] },
       { kind: "same" },
-      // pi went back to the first turn and branched from there.
+      // pi went back to the first turn and branched from there, then back to the first branch.
+      { kind: "changed" },
       { kind: "changed" },
     ]);
-    expect(session.items().map((item) => item.id)).toStrictEqual(["live-1", "live-4"]);
-    expect(session.items()[1]).toMatchObject({ user: { text: "two, differently", clientMessageId: "client-4" } });
-    expect(published.map((event) => event.type).filter((type) => type.startsWith("turn_"))).toStrictEqual([
-      "turn_started",
-      "turn_finished",
-      "turn_started",
-      "turn_finished",
-      "turn_started",
-      "turn_finished",
-      "turn_started",
-      "turn_finished",
-    ]);
+    // Turns seen live keep their ids across both changes of branch.
+    expect(session.items().map((item) => item.id)).toStrictEqual(["live-1", "live-2", "s:e18", "live-3", "live-5"]);
+    expect(session.items()[4]).toMatchObject({ user: { text: "four", clientMessageId: "client-5" } });
+    expect(published.map((event) => event.type).filter((type) => type.startsWith("turn_"))).toStrictEqual(
+      Array.from({ length: 5 }, () => ["turn_started", "turn_finished"]).flat(),
+    );
   });
 
   it("publishes the first turn step by step: blocks as they start, tools as they run and finish", () => {

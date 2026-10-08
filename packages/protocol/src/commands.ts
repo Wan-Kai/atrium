@@ -51,6 +51,38 @@ export const PromptCommand = z.strictObject({
 });
 export type PromptCommand = z.infer<typeof PromptCommand>;
 
+/** The most sessions one `list_recent_sessions` returns. */
+export const RECENT_SESSIONS_LIMIT = 50;
+
+/**
+ * Lists the sessions in pi's session directory changed most recently, for M1.4's temporary
+ * "最近会话" list (SPEC-0001, "打开历史会话").
+ */
+export const ListRecentSessionsCommand = z.strictObject({
+  type: z.literal("list_recent_sessions"),
+  ...commandFields,
+  limit: z.number().int().min(1).max(RECENT_SESSIONS_LIMIT),
+});
+export type ListRecentSessionsCommand = z.infer<typeof ListRecentSessionsCommand>;
+
+/** Opens a session from its file: starts pi on it, or returns it if it is already open. */
+export const OpenSessionCommand = z.strictObject({
+  type: z.literal("open_session"),
+  ...commandFields,
+  sessionId: SessionId,
+});
+export type OpenSessionCommand = z.infer<typeof OpenSessionCommand>;
+
+/** One session in the recent list. */
+export const RecentSession = z.strictObject({
+  sessionId: SessionId,
+  /** The first question asked in it, if the start of the file holds one. */
+  firstPrompt: z.string().nullable(),
+  /** When its file last changed, in milliseconds since the epoch. */
+  modifiedAt: z.number().int().nonnegative(),
+});
+export type RecentSession = z.infer<typeof RecentSession>;
+
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
 
@@ -92,6 +124,8 @@ export const Command = z.discriminatedUnion("type", [
   SubscribeSessionsCommand,
   PromptCommand,
   FetchTranscriptCommand,
+  ListRecentSessionsCommand,
+  OpenSessionCommand,
   ReportClientIssueCommand,
 ]);
 export type Command = z.infer<typeof Command>;
@@ -125,6 +159,8 @@ export const CommandResult = {
     items: z.array(TranscriptItem),
     hasOlder: z.boolean(),
   }),
+  list_recent_sessions: z.strictObject({ sessions: z.array(RecentSession) }),
+  open_session: z.strictObject({ sessionId: SessionId }),
   report_client_issue: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

@@ -65,7 +65,8 @@ function replayedHistory() {
     [upTo("e17"), "e17"],
     [upTo("e18"), "e18"],
     [upTo("e20"), "e20"],
-    [entries.length, "e22"],
+    [upTo("e22"), "e22"],
+    [entries.length, "e24"],
   ];
   const since: (string | undefined)[] = [];
   /** The entries from one cut to the next. */
@@ -147,14 +148,14 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Where the snapshots are among the events. */
+function snapshotIndexes(events: readonly SessionEvent[]): number[] {
+  return events.flatMap((event, index) => (event.type === "session_snapshot" ? [index] : []));
+}
+
 /** The envelope every event of the first run carries, at sequence number `seq`. */
 function at(seq: number, traceId: string | null = traceIds[0]) {
   return { sessionId: "s1", epoch: 1, seq, traceId };
-}
-
-/** How many runs have settled among the events. */
-function settledRuns(events: readonly SessionEvent[]): number {
-  return events.filter((event) => event.type === "run_settled").length;
 }
 
 describe("createSessionController on a recorded session", () => {
@@ -174,29 +175,36 @@ describe("createSessionController on a recorded session", () => {
     expect(await controller.prompt(prompt("q4", "/faux-navigate e16"))).toStrictEqual({ disposition: "handled" });
     await controller.prompt(prompt("q5", "two, differently"));
     await vi.waitFor(() => expect(since).toHaveLength(5));
+    await raw.request({ type: "get_entries" });
+    expect(await controller.prompt(prompt("q6", "/faux-navigate e20"))).toStrictEqual({ disposition: "handled" });
+    await controller.prompt(prompt("q7", "four"));
+    await vi.waitFor(() => expect(since).toHaveLength(6));
     await settle();
 
-    expect(since).toStrictEqual(["e4", "e15", "e17", "e18", "e20"]);
+    expect(since).toStrictEqual(["e4", "e15", "e17", "e18", "e20", "e22"]);
     expect(failures).toStrictEqual([]);
-    expect(settledRuns(events)).toBe(4);
-    expect(clientMessageIds(events)).toStrictEqual(["q1", "q2", "q3", "q5"]);
-    expect(events.filter((event) => event.type === "run_settled").map((event) => event.outcome)).toStrictEqual([
-      "completed",
-      "completed",
-      "completed",
-      "completed",
-    ]);
-    // Every run rebuilt as it was sent, so one epoch holds every event until pi changed branch.
-    const last = present(events.at(-1), "the last event");
-    expect(events.slice(0, -1).every((event) => event.epoch === 1)).toBe(true);
-    expect(events.map((event) => event.seq).slice(0, -1)).toStrictEqual(
-      Array.from({ length: events.length - 1 }, (_, index) => index + 1),
+    expect(events.filter((event) => event.type === "run_settled").map((event) => event.outcome)).toStrictEqual(
+      Array.from({ length: 5 }, () => "completed"),
     );
+    expect(clientMessageIds(events)).toStrictEqual(["q1", "q2", "q3", "q5", "q7"]);
+    // Every run rebuilt as it was sent, so an epoch holds every event until pi changed branch.
+    const snapshots = snapshotIndexes(events);
+    expect(snapshots).toHaveLength(2);
+    const [toBranch, back] = snapshots as [number, number];
+    expect(events.slice(0, toBranch).map((event) => [event.epoch, event.seq])).toStrictEqual(
+      Array.from({ length: toBranch }, (_, index) => [1, index + 1]),
+    );
+    expect(events.slice(toBranch + 1, back).map((event) => [event.epoch, event.seq])).toStrictEqual(
+      Array.from({ length: back - toBranch - 1 }, (_, index) => [2, index + 1]),
+    );
+    expect(back).toBe(events.length - 1);
     expect(events.filter((event) => event.type === "notice_added")).toStrictEqual([
       expect.objectContaining({ notice: expect.objectContaining({ id: "s1:e18" }), epoch: 1, traceId: null }),
     ]);
-    expect(last).toMatchObject({ type: "session_snapshot", epoch: 2, seq: 0, hasOlder: false, run: null });
-    expect(controller.snapshot().items.map((item) => item.id)).toStrictEqual(["id2", "id8"]);
+    expect(events[toBranch]).toMatchObject({ type: "session_snapshot", epoch: 2, seq: 0, run: null });
+    expect(events[back]).toMatchObject({ type: "session_snapshot", epoch: 3, seq: 0, hasOlder: false, run: null });
+    // Back on the first branch, its turns have the ids they had live.
+    expect(controller.snapshot().items.map((item) => item.id)).toStrictEqual(["id2", "id4", "s1:e18", "id6", "id10"]);
   });
 
   it("pages back through the transcript, and refuses a page from an epoch that has passed", async () => {

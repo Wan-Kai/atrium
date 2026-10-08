@@ -123,6 +123,12 @@
 | 客户端会话视图：轮的开始、步骤增加、增量、更新、结束、提示条；只复制改动的轮和步骤；找最后一个同 id 的轮；新 epoch 的快照整体替换；对不上的步骤事件重新取快照；更早的页放在前面，过期 epoch 或已不在最前的丢弃 | `packages/client/src/session-view.test.ts` | 已覆盖 |
 | 客户端分页：一次只取一页，同时的请求共用一次；不在观察、加载中、已失效或没有更早的不取；`transcript_changed` 时重新取快照，其他失败往上抛 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 界面的轮：过程折叠成标题行（"已完成，用时 · 读了 · 跑了 · 改了 · N 条命令失败"），折叠时插话仍可见；只有推理时显示"思考了 N 秒"或"思考过程"；没有过程时没有标题行；点击步骤展开详情（命令输出、截断说明、带行号和增删竖条的 diff）；显示模式（摘要、思考、详细）与切换；运行中展开、正在进行的步骤转圈并实时显示；已停止、出错（可展开原始报错）；信息行（复制、"···"复制为 Markdown、改动胶囊展开文件和 diff、用量、结束时间）；菜单按 Esc 和点击外部关闭；提示条展开压缩摘要 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数：`turn-layout.test.ts` | 已覆盖 |
+| 会话文件：从 pi 写的真实文件读出会话 id、工作目录和第一条提问；按修改时间从新到旧、只读需要的条数、跨目录、同一会话只取最新的文件；提问为块时拼接文字、跳过图片；文件开头没有带文字的用户消息时没有提问；跳过不是会话的文件、其他文件、散放的文件和不存在的目录；会话目录按 pi 的顺序（环境变量、全局设置的 `sessionDir`、代理目录下的 `sessions`），展开 `~` | `packages/pi/src/sessions/session-files.test.ts` | 已覆盖 |
+| 最近会话与打开会话：列出 pi 会话目录里最近的会话及第一条提问；还没找 pi 时为空；用 `pi --session <文件>` 在会话记录的目录里启动，pi 还在运行时直接返回；同时打开只启动一个 pi，pi 退出后再打开会重新启动；没有文件时 `session_not_found`，pi 不可用时 `pi_unavailable`；宿主关闭后打开的会停掉自己的 pi；协议和路由 | `packages/host/src/sessions/session-manager.test.ts`、`server/router.test.ts`、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 界面的最近会话：连上之后才读，列出提问和时间（今天、昨天、日期），点一下打开并观察；"最近会话"返回列表；打不开时说明原因 | `packages/ui/src/chat/chat.browser.test.tsx`、`recent-sessions.test.ts` | 已覆盖 |
+| 用 pi 写的真实会话文件恢复：工具、重试、压缩在当前分支上，另一个分支不显示，提示条在它所在的轮之后，过程标题行的统计；接着发消息照常运行 | `apps/desktop/e2e/history.spec.ts` | 已覆盖 |
+| 打开 1000 轮的会话到首屏 ≤ 500 毫秒（中位数，实测约 25 毫秒；第一次打开含启动 pi 约 1 秒） | `apps/desktop/e2e/history.perf.spec.ts` | 已覆盖 |
+| 2000 轮会话的对话记录重建（基准，本机中位约 2.4 毫秒） | `packages/host/src/transcript/rebuild.bench.ts` | 已覆盖 |
 | 对话区：轮、提示条、待确认的消息、运行状态的顺序；运行的计时在轮里；滚到顶加载更早的，且阅读位置不动；提问导航条跳转；长消息折叠与展开；Ctrl+O 和菜单切换显示模式；导出会话时取完所有页 | `packages/ui/src/chat/chat.browser.test.tsx`、`session-toolbar.test.ts` | 已覆盖 |
 
 ## 安全（security.md）

@@ -6,6 +6,7 @@ import { runScenario } from "../../test/contract";
 interface Entry {
   readonly id: string;
   readonly type: string;
+  readonly parentId?: string | null;
   readonly message?: { readonly role: string; readonly content?: unknown };
 }
 
@@ -21,21 +22,25 @@ function kindOf(entry: Entry): string {
 }
 
 /**
- * Finds the user message whose only text is `text`.
+ * Finds the message of `role` whose only content is the text `text`.
+ *
+ * @remarks
+ * Entry ids are random, so the scenario finds entries by what they say.
  *
  * @sideEffects none
  * @param entries - The entries to search.
+ * @param role - The message's role.
  * @param text - The message's text.
  * @returns The entry.
  * @throws If there is no such entry.
  */
-function userEntry(entries: readonly Entry[], text: string): Entry {
+function messageEntry(entries: readonly Entry[], role: "user" | "assistant", text: string): Entry {
   return present(
     entries.find(
       (entry) =>
-        kindOf(entry) === "user" && JSON.stringify(entry.message?.content) === JSON.stringify([{ type: "text", text }]),
+        kindOf(entry) === role && JSON.stringify(entry.message?.content) === JSON.stringify([{ type: "text", text }]),
     ),
-    `the user message "${text}"`,
+    `the ${role} message "${text}"`,
   );
 }
 
@@ -84,6 +89,7 @@ describe("pi contract: a session history with tools, a retry, a compaction and a
             { blocks: [{ type: "text", text: "The turn so far." }] },
             { blocks: [{ type: "text", text: "third answer" }] },
             { blocks: [{ type: "text", text: "branch answer" }] },
+            { blocks: [{ type: "text", text: "fourth answer" }] },
           ],
         },
       },
@@ -100,12 +106,21 @@ describe("pi contract: a session history with tools, a retry, a compaction and a
         await pi.request({ type: "prompt", message: "three" });
         await settled(3);
         const { entries } = (await pi.request({ type: "get_entries" })) as { entries: Entry[] };
-        const two = userEntry(entries, "two");
+        const two = messageEntry(entries, "user", "two");
         expect(await pi.request({ type: "prompt", message: `/faux-navigate ${two.id}` })).toStrictEqual({
           disposition: "handled",
         });
         await pi.request({ type: "prompt", message: "two, differently" });
         await settled(4);
+        // Back to the first branch, so the file ends on it: pi takes the last entry as the leaf
+        // when it opens the file, and that branch holds the retry and the compaction.
+        const branched = (await pi.request({ type: "get_entries" })) as { entries: Entry[] };
+        const third = messageEntry(branched.entries, "assistant", "third answer");
+        expect(await pi.request({ type: "prompt", message: `/faux-navigate ${third.id}` })).toStrictEqual({
+          disposition: "handled",
+        });
+        await pi.request({ type: "prompt", message: "four" });
+        await settled(5);
 
         const after = (await pi.request({ type: "get_entries" })) as { entries: Entry[]; leafId: string };
         // In file order: the retry's error and its context_edit, then the compaction, then the branch.
@@ -132,10 +147,13 @@ describe("pi contract: a session history with tools, a retry, a compaction and a
           "assistant",
           "user",
           "assistant",
+          "user",
+          "assistant",
         ]);
         expect(after.leafId).toBe(after.entries.at(-1)?.id);
+        expect(after.entries.at(-2)?.parentId).toBe(third.id);
         expect(events.findLast((event) => event.type === "message_end")).toMatchObject({
-          message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "branch answer" }] },
+          message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "fourth answer" }] },
         });
       },
     );

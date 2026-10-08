@@ -96,6 +96,10 @@ export interface AtriumClient {
   watch(sessionIds: readonly string[]): Promise<void>;
   /** Creates a chat and returns its session id. */
   createChat(): Promise<CommandResult<"create_chat">>;
+  /** The sessions in pi's session directory changed most recently. */
+  listRecentSessions(limit: number): Promise<CommandResult<"list_recent_sessions">>;
+  /** Opens a session from its file; `watch` it to see it. */
+  openSession(sessionId: string): Promise<CommandResult<"open_session">>;
   /** Sends a message, showing it at once as pending. */
   prompt(sessionId: string, text: string): Promise<CommandResult<"prompt">>;
   /**
@@ -549,6 +553,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (live !== undefined) await request("subscribe_sessions", { sessionIds: [...watched] });
     },
     createChat: () => request("create_chat", {}),
+    listRecentSessions: (limit) => request("list_recent_sessions", { limit }),
+    openSession: (sessionId) => request("open_session", { sessionId }),
     async prompt(sessionId, text) {
       const requestId = `${options.clientId}-${++nextRequest}`;
       const view = views.get(sessionId);

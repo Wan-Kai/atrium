@@ -1,6 +1,6 @@
 import { CommandError, type SessionEvent } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, writeScriptedPi } from "@atrium/testkit";
-import { readdir, realpath } from "node:fs/promises";
+import { mkdir, readdir, realpath, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -17,8 +17,11 @@ afterEach(async () => {
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
-/** A manager whose tools are `tools`, or a scripted pi with `behavior`, with one registered connection. */
-async function manage(tools: ScriptedPiBehavior | SessionTools | null) {
+/**
+ * A manager whose tools are `tools`, or a scripted pi with `behavior` and `env` added to its
+ * environment, with one registered connection.
+ */
+async function manage(tools: ScriptedPiBehavior | SessionTools | null, env: Record<string, string> = {}) {
   const home = await createTempDir("sessions-home");
   const recording = recordingTracing();
   cleanups.push(home.cleanup, recording.shutdown);
@@ -28,7 +31,7 @@ async function manage(tools: ScriptedPiBehavior | SessionTools | null) {
   } else {
     const scripted = await writeScriptedPi(home.path, tools);
     found = {
-      env: { PATH: process.env["PATH"] ?? "", ...scripted.env },
+      env: { PATH: process.env["PATH"] ?? "", ...scripted.env, ...env },
       pi: { status: "ready", piPath: scripted.piPath, version: [1, 0, 2] },
     };
   }
@@ -176,5 +179,148 @@ describe("createSessionManager", () => {
       new CommandError("pi_unavailable", { status: "exited" }),
     );
     expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+});
+
+/**
+ * A pi session directory holding one file per session, `cwd` being its working directory.
+ *
+ * @remarks
+ * Each file has a header and a first question; the first is changed most recently.
+ */
+async function sessionsDir(sessions: { readonly id: string; readonly prompt: string; readonly cwd: string }[]) {
+  const dir = await createTempDir("pi-sessions");
+  cleanups.push(dir.cleanup);
+  const folder = join(dir.path, "--work--");
+  await mkdir(folder);
+  const files: string[] = [];
+  for (const [index, session] of sessions.entries()) {
+    const path = join(folder, `${session.id}.jsonl`);
+    const header = {
+      type: "session",
+      version: 3,
+      id: session.id,
+      timestamp: "2026-10-08T00:00:00.000Z",
+      cwd: session.cwd,
+    };
+    const user = {
+      type: "message",
+      id: "u1",
+      parentId: null,
+      timestamp: "2026-10-08T00:00:00.001Z",
+      message: { role: "user", content: [{ type: "text", text: session.prompt }], timestamp: 1 },
+    };
+    await writeFile(path, `${JSON.stringify(header)}\n${JSON.stringify(user)}\n`);
+    const time = 2_000_000 - index * 1000;
+    await utimes(path, time, time);
+    files.push(path);
+  }
+  return { dir: dir.path, files };
+}
+
+/** The pi processes that have ended, by their spans. */
+function piStarts(records: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  return records.filter((record) => record["kind"] === "span" && record["name"] === "pi.process");
+}
+
+describe("createSessionManager opening sessions from pi's files", () => {
+  it("lists the sessions pi's session directory holds, newest first, with their first question", async () => {
+    const cwd = await createTempDir("session-cwd");
+    cleanups.push(cwd.cleanup);
+    const { dir } = await sessionsDir([
+      { id: "pi-session-1", prompt: "newest", cwd: cwd.path },
+      { id: "pi-session-2", prompt: "older", cwd: cwd.path },
+    ]);
+    const { manager } = await manage({ rules: {} }, { PI_CODING_AGENT_SESSION_DIR: dir });
+
+    expect(await manager.listRecentSessions(1)).toStrictEqual({
+      sessions: [{ sessionId: "pi-session-1", firstPrompt: "newest", modifiedAt: 2_000_000_000 }],
+    });
+    expect((await manager.listRecentSessions(10)).sessions.map((session) => session.sessionId)).toStrictEqual([
+      "pi-session-1",
+      "pi-session-2",
+    ]);
+  });
+
+  it("lists nothing while pi has not been looked for", async () => {
+    const { manager } = await manage(null);
+
+    expect(await manager.listRecentSessions(10)).toStrictEqual({ sessions: [] });
+  });
+
+  it("opens a session with pi --session in the directory it recorded, then returns it while its pi runs", async () => {
+    const cwd = await createTempDir("session-cwd");
+    cleanups.push(cwd.cleanup);
+    const { dir, files } = await sessionsDir([{ id: "pi-session-1", prompt: "ping", cwd: cwd.path }]);
+    const { manager, received, records } = await manage(
+      { argvToStderr: true, rules: { get_state: { data: { sessionId: "pi-session-1" } }, get_entries: getEntries } },
+      { PI_CODING_AGENT_SESSION_DIR: dir },
+    );
+
+    expect(await manager.openSession("pi-session-1")).toStrictEqual({ sessionId: "pi-session-1" });
+    expect(await manager.openSession("pi-session-1")).toStrictEqual({ sessionId: "pi-session-1" });
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    const real = await realpath(cwd.path);
+    await vi.waitFor(() =>
+      expect(records.filter((record) => record["msg"] === "pi stderr").map((record) => record["line"])).toStrictEqual([
+        JSON.stringify({ argv: ["--mode", "rpc", "--session", files[0]], cwd: real }),
+      ]),
+    );
+    expect(received).toMatchObject([{ type: "session_snapshot", items: [], exited: false }]);
+  });
+
+  it("starts one pi when a session is opened twice at once, and another once that pi has exited", async () => {
+    const cwd = await createTempDir("session-cwd");
+    cleanups.push(cwd.cleanup);
+    const { dir } = await sessionsDir([{ id: "pi-session-1", prompt: "ping", cwd: cwd.path }]);
+    const { manager, received, records } = await manage(
+      {
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1" } },
+          get_entries: getEntries,
+          prompt: { data: { disposition: "started" }, exitAfter: 1 },
+        },
+      },
+      { PI_CODING_AGENT_SESSION_DIR: dir },
+    );
+    const starts = () => piStarts(records);
+
+    await Promise.all([manager.openSession("pi-session-1"), manager.openSession("pi-session-1")]);
+    await manager.subscribe("c1", ["pi-session-1"]);
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+    await vi.waitFor(() => expect(received.at(-1)?.type).toBe("session_exited"));
+    expect(starts()).toHaveLength(1);
+
+    expect(await manager.openSession("pi-session-1")).toStrictEqual({ sessionId: "pi-session-1" });
+    await manager.close();
+    await vi.waitFor(() => expect(starts()).toHaveLength(2));
+  });
+
+  it("stops the pi of a session opened after the manager closed", async () => {
+    const cwd = await createTempDir("session-cwd");
+    cleanups.push(cwd.cleanup);
+    const { dir } = await sessionsDir([{ id: "pi-session-1", prompt: "ping", cwd: cwd.path }]);
+    const { manager, resources } = await manage({ rules: {} }, { PI_CODING_AGENT_SESSION_DIR: dir });
+
+    await manager.close();
+
+    await expect(manager.openSession("pi-session-1")).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("refuses a session it has no file for, and one when pi cannot be used", async () => {
+    const { dir } = await sessionsDir([]);
+    const { manager } = await manage({ rules: {} }, { PI_CODING_AGENT_SESSION_DIR: dir });
+    const missing = await manage({ env: {}, pi: { status: "missing" } });
+
+    await expect(manager.openSession("nope")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+    await expect(missing.manager.openSession("nope")).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "missing" }),
+    );
   });
 });

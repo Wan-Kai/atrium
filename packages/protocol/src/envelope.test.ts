@@ -26,6 +26,8 @@ const commands: Command[] = [
   },
   { type: "report_client_issue", requestId: "r7", traceparent, kind: "slow_frames", message: "p95 40 ms" },
   { type: "fetch_transcript", requestId: "r8", traceparent, sessionId: "s1", epoch: 2, before: "s1:e7", limit: 100 },
+  { type: "list_recent_sessions", requestId: "r9", traceparent, limit: 50 },
+  { type: "open_session", requestId: "r10", traceparent, sessionId: "019a-session" },
 ];
 
 /** A finished command. */
@@ -151,6 +153,8 @@ describe("parseClientMessage", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
       "create_chat",
       "fetch_transcript",
+      "list_recent_sessions",
+      "open_session",
       "ping",
       "prompt",
       "report_client_issue",
@@ -206,6 +210,9 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a non-string type", { type: 3, requestId: "r1", traceparent }, "r1"],
+    ["no recent sessions asked for", { type: "list_recent_sessions", requestId: "r1", traceparent, limit: 0 }, "r1"],
+    ["more than 50 recent sessions", { type: "list_recent_sessions", requestId: "r1", traceparent, limit: 51 }, "r1"],
+    ["opening no session", { type: "open_session", requestId: "r1", traceparent }, "r1"],
     [
       "a fetch of no items",
       { type: "fetch_transcript", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, before: "x", limit: 0 },
@@ -244,6 +251,10 @@ describe("CommandResult", () => {
     expect(CommandResult.prompt.parse({ disposition: "handled" })).toStrictEqual({ disposition: "handled" });
     expect(CommandResult.ping.safeParse({ extra: 1 }).success).toBe(false);
     expect(CommandResult.prompt.safeParse({ disposition: "paused" }).success).toBe(false);
+    const recent = { sessionId: "s1", firstPrompt: null, modifiedAt: 5 };
+    expect(CommandResult.list_recent_sessions.parse({ sessions: [recent] })).toStrictEqual({ sessions: [recent] });
+    expect(CommandResult.list_recent_sessions.safeParse({ sessions: [{ ...recent, path: "/x" }] }).success).toBe(false);
+    expect(CommandResult.open_session.parse({ sessionId: "s1" })).toStrictEqual({ sessionId: "s1" });
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
       hasOlder: false,

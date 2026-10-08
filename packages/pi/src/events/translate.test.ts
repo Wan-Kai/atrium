@@ -220,6 +220,14 @@ describe("createEventTranslator against recorded pi output", () => {
       delta(0, "nswer"),
       reply([{ type: "text", text: "branch answer" }]),
       settled,
+      run,
+      user("four"),
+      started,
+      start(0, "text"),
+      delta(0, "fourth a"),
+      delta(0, "nswer"),
+      reply([{ type: "text", text: "fourth answer" }]),
+      settled,
     ]);
   });
 });

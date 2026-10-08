@@ -227,6 +227,17 @@ describe("toLogEntry", () => {
         errorMessage: null,
         usage: none,
       },
+      { id: "e23", parentId: "e20", timestamp: 0, kind: "user", text: "four", images: 0 },
+      {
+        id: "e24",
+        parentId: "e23",
+        timestamp: 0,
+        kind: "assistant",
+        parts: [{ type: "text", text: "fourth answer" }],
+        stopReason: "stop",
+        errorMessage: null,
+        usage: none,
+      },
     ] satisfies LogEntry[]);
   });
 
