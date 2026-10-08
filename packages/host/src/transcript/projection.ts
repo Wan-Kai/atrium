@@ -126,9 +126,9 @@ export function projectTranscript(
         notices.push(notice);
         break;
       }
-      // Stryker disable next-line StringLiteral: these cases do nothing, as no case does for other kinds.
+      // Stryker disable next-line StringLiteral,ConditionalExpression: these cases do nothing, as no case does for other kinds.
       case "omission":
-      // Stryker disable next-line StringLiteral: see above.
+      // Stryker disable next-line StringLiteral,ConditionalExpression: see above.
       case "other":
         break;
     }
@@ -152,6 +152,7 @@ export function projectTranscript(
 function overflowRecoveries(branch: readonly LogEntry[]): Set<string> {
   const recovered = new Set<string>();
   branch.forEach((entry, index) => {
+    // Stryker disable next-line ConditionalExpression: other entries have no target, and no reply has an undefined id.
     if (entry.kind !== "omission") return;
     const next = branch.slice(index + 1).find((later) => later.kind !== "omission" && later.kind !== "other");
     if (next?.kind === "compaction") recovered.add(entry.targetId);

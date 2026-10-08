@@ -112,10 +112,10 @@ export async function sessionsDirectory(env: Readonly<Record<string, string>>): 
 function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
-    // Stryker disable next-line BlockStatement: an empty block returns `undefined` all the same.
   } catch {
-    return undefined;
+    // Not JSON: nothing.
   }
+  return undefined;
 }
 
 /**

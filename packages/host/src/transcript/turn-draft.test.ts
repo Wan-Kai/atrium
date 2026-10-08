@@ -75,6 +75,35 @@ describe("TurnDraft", () => {
     ]);
   });
 
+  it("keeps the duration of a later block of a later message in its own place", () => {
+    const turn = draft();
+    turn.startAssistant();
+    turn.finishAssistant(
+      reply([
+        { type: "text", text: "first" },
+        { type: "text", text: "second" },
+      ]),
+    );
+    turn.startAssistant();
+    turn.setPart(0, { type: "text", text: "" });
+    turn.setPart(1, { type: "thinking", text: "" });
+    turn.timeThinking("3", 900);
+
+    turn.finishAssistant(
+      reply([
+        { type: "text", text: "a" },
+        { type: "thinking", text: "hm" },
+      ]),
+    );
+
+    expect(turn.running().steps).toStrictEqual([
+      { kind: "text", id: "0", text: "first" },
+      { kind: "text", id: "1", text: "second" },
+      { kind: "text", id: "2", text: "a" },
+      { kind: "thinking", id: "3", text: "hm", durationMs: 900 },
+    ]);
+  });
+
   it("gives a block that finished as something else than it started no duration", () => {
     const turn = draft();
     turn.startAssistant();

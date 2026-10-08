@@ -228,6 +228,7 @@ export function createSessionTranscript(options: {
         clientMessageId: clientMessageId(),
         timestamp: message.timestamp,
       });
+      // Stryker disable next-line ObjectLiteral: the turn's end sets its facts before any rebuild reads them.
       const record: SeenTurn = { facts: null };
       seen.push(record);
       live = { draft, record, startedAt: now(), thinkingMs: new Map(), thinking: null };
@@ -260,6 +261,7 @@ export function createSessionTranscript(options: {
     const records = seen.slice(seen.length - count);
     entries.forEach((entry, index) => {
       const facts = records[index]?.facts;
+      // Stryker disable next-line ConditionalExpression: rebuilds happen between runs, when every turn has ended and has facts.
       if (facts !== undefined && facts !== null) factsByEntry.set(entry.id, facts);
     });
     // Stryker disable next-line ArrayDeclaration: see `seen`.

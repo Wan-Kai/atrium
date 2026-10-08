@@ -161,6 +161,7 @@ export function createSessionController(options: {
   let epoch = options.epoch ?? 1;
   let seq = 0;
   const transcript = createSessionTranscript({ sessionId, newId, now: () => clock.now() });
+  // Stryker disable next-line BooleanLiteral: the log starts empty, so reading everything again changes nothing.
   transcript.rebuild(options.entries, false);
   let run: { readonly runId: string; readonly startedAt: number; readonly traceId: string | null } | null = null;
   /** `prompt`s pi has not echoed yet, oldest first. */
