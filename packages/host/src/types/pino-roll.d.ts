@@ -4,9 +4,8 @@ declare module "pino-roll" {
     /** File descriptor; negative until the file is open. */
     readonly fd: number;
     write(chunk: string): boolean;
-    flushSync(): void;
     end(): void;
-    once(event: "close" | "ready", listener: () => void): this;
+    once(event: "close" | "drain" | "ready", listener: () => void): this;
     on(event: "error", listener: (error: Error) => void): this;
   }
 

@@ -577,6 +577,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `create_session(workspaceId)` / `create_chat()`：新建草稿会话并立刻启动 pi（领域模型"已决定 9"，2026-10-08 定工作区里的新会话也一样），打开成这个客户端的标签并激活，返回 `sessionId`。
 - `open_session(sessionId)`：打开成标签并激活，切到它所在的容器；pi 没在运行就用 `--session <文件>` 启动。宿主重启后恢复的草稿不启动，第一次 `prompt` 时才用 `--session-id <id>` 启动（"已决定 7"）。
 - `close_tab(sessionId)`：只改这个客户端的布局。关掉的是还没发过消息的草稿时，丢弃它：停掉 pi、删掉索引里的记录，对话的空目录一并删掉（只删空的）（2026-10-08 定）。
+- 同一个客户端改标签和位置的命令（`open_session`、`close_tab`、`select_container`，以及新建后打开标签）按收到的顺序生效：`open_session` 要等第一次扫描，扫描期间关掉的标签不会在扫描结束后又被打开（2026-10-08 修）。
 - `select_container(containerId | null)`：切换工作区或"对话"。
 - `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。
 - `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。

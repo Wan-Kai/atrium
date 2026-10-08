@@ -1,5 +1,5 @@
-import { createSessionFileReader, sessionFolder } from "@atrium/pi";
-import { CommandError, type SessionEvent } from "@atrium/protocol";
+import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
+import { CHATS, CommandError, type SessionEvent } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -47,12 +47,15 @@ async function place() {
  * @sideEffects Creates files; starts nothing until a command.
  * @param tools - The pi.
  * @param where - The directories, to share between managers.
+ * @param turnStarts - Where turn starts are read from, if not the default.
+ * @param location - Where pi keeps sessions, when a test holds back the first scan.
  * @returns The manager and what tests look at.
  */
 async function manage(
   tools: ScriptedPiBehavior | SessionTools | null,
   where?: Awaited<ReturnType<typeof place>>,
   turnStarts?: (sessionId: string) => Promise<TurnStarts>,
+  location?: Promise<SessionsLocation | null>,
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -75,7 +78,7 @@ async function manage(
   const index = join(at.home, "index");
   const catalog = createSessionCatalog({
     file: (await loadIndexFile(index, SESSIONS_FILE, 0)).file,
-    location: Promise.resolve({ directory: at.piSessions, perCwd: false }),
+    location: location ?? Promise.resolve({ directory: at.piSessions, perCwd: false }),
     chatsRoot: join(at.home, "chats"),
     workspaces: () => [{ id: WORKSPACE, dir: at.workspace }],
     reader: createSessionFileReader(),
@@ -463,6 +466,37 @@ describe("SessionManager tabs", () => {
     await manager.closeTab("client-1", sessionId);
 
     expect(await readdir(join(at.home, "chats", "id1"))).toStrictEqual(["notes.md"]);
+  });
+
+  it("closes a tab closed while its opening waited for the first scan, as the client asked last", async () => {
+    const first = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await first.manager.createChat("client-1");
+    await first.manager.close();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, layouts, catalog } = await manage(null, first.at, undefined, scanned.promise);
+
+    const opening = manager.openSession("client-1", sessionId);
+    const closing = manager.closeTab("client-1", sessionId);
+    scanned.resolve({ directory: first.at.piSessions, perCwd: false });
+    await Promise.all([opening, closing]);
+
+    expect(layouts.of("client-1")).toStrictEqual({ container: CHATS, tabs: { [CHATS]: { open: [], active: null } } });
+    expect(catalog.find(sessionId)).toBeUndefined();
+  });
+
+  it("goes on with a client's next tab change after one that failed", async () => {
+    const at = await place();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, layouts } = await manage(null, at, undefined, scanned.promise);
+
+    const opening = manager.openSession("client-1", "nope");
+    const selecting = manager.selectContainer("client-1", CHATS);
+    scanned.resolve({ directory: at.piSessions, perCwd: false });
+
+    await expect(opening).rejects.toStrictEqual(new CommandError("session_not_found", { sessionId: "nope" }));
+    await selecting;
+
+    expect(layouts.of("client-1")).toStrictEqual({ container: CHATS, tabs: {} });
   });
 
   it("goes to a container or nowhere, and closes a tab it does not have without complaint", async () => {

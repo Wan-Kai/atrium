@@ -9,7 +9,7 @@ import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
-import { createLogger, openLogFile } from "./platform/logger";
+import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
@@ -76,8 +76,8 @@ export interface RunningHost {
   readonly tools: Promise<HostTools | null>;
   /** Path that always points at the log file being written. */
   readonly logFile: string;
-  /** Writes buffered log records to disk now. */
-  readonly flushLog: () => void;
+  /** Resolves once every log record so far is on disk, in order. */
+  readonly flushLog: () => Promise<void>;
   /** Disconnects clients, flushes logs and spans, and stops listening; later calls share the first. */
   readonly close: () => Promise<void>;
 }
@@ -137,7 +137,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const index = await loadIndex(home.root, clock.now(), logger).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     await tracing.shutdown();
-    await closeLog();
+    await closeLogFile(destination);
     await lock.release();
     throw error;
   });
@@ -214,23 +214,6 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   });
   const indexCommands = createIndexCommands({ projects, workspaces, sessions, preferences, feed });
 
-  /**
-   * Flushes and closes the log stream.
-   *
-   * @remarks
-   * Shared by normal shutdown and by the rollback when startup fails, so a failed start still
-   * leaves its records on disk and no open file behind.
-   *
-   * @sideEffects Writes buffered records and closes the log file.
-   */
-  async function closeLog(): Promise<void> {
-    destination.flushSync();
-    await new Promise<void>((done) => {
-      destination.once("close", () => done());
-      destination.end();
-    });
-  }
-
   let server: Awaited<ReturnType<typeof startWsServer>>;
   try {
     server = await startWsServer({
@@ -256,7 +239,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   } catch (error) {
     logger.error({ err: error }, "host failed to start");
     await tracing.shutdown();
-    await closeLog();
+    await closeLogFile(destination);
     await lock.release();
     throw error;
   }
@@ -362,7 +345,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await index.flush();
     await tracing.shutdown();
     logger.info("host stopped");
-    await closeLog();
+    await closeLogFile(destination);
     await lock.release();
   }
 
@@ -373,7 +356,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     tools,
     logFile,
-    flushLog: () => destination.flushSync(),
+    flushLog: () => drainLogFile(destination),
     close: () => (closing ??= close()),
   };
 }

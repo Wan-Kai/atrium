@@ -49,7 +49,7 @@ export async function startTestHost(overrides: Partial<HostConfig> = {}): Promis
         reconnectDelaysMs: [],
       }),
     readLog: async () => {
-      host.flushLog();
+      await host.flushLog();
       return (await readFile(host.logFile, "utf8"))
         .split("\n")
         .filter((line) => line.length > 0)

@@ -64,6 +64,8 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  * - closing the last tab of a draft that never got a message discards it: its pi stops, its
  *   record goes, and a chat's empty directory is removed (domain-model, "已决定 13");
  * - archiving hides a session and stops its pi;
+ * - a client's tab and place changes take effect in the order its commands came: opening waits
+ *   for the first scan, and a tab closed meanwhile must not open again;
  * - pi must have been found and be usable; otherwise starting fails with `pi_unavailable` and
  *   pi's status, which the UI explains;
  * - which user messages opened turns is kept per session (`turnStarts`), so a later host
@@ -110,6 +112,33 @@ export function createSessionManager(options: {
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
   let closed = false;
+  /** Each client's last tab or place change, which the next one waits for. */
+  const clientTurns = new Map<string, Promise<unknown>>();
+
+  /**
+   * Runs a change to a client's tabs or place after the changes it asked for earlier.
+   *
+   * @remarks
+   * Commands run at once, and opening a session waits for the first scan; without this a tab
+   * the client closed during that wait would open again when it ends. A failed change does not
+   * hold up the next.
+   *
+   * @sideEffects Runs `change` once the client's earlier changes are done.
+   * @param clientId - The client.
+   * @param change - The change.
+   * @returns What the change returns.
+   */
+  async function inClientOrder<T>(clientId: string, change: () => Promise<T>): Promise<T> {
+    const turn = (clientTurns.get(clientId) ?? Promise.resolve()).then(change);
+    const settled = turn.catch(() => undefined);
+    clientTurns.set(clientId, settled);
+    try {
+      return await turn;
+    } finally {
+      // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
+      if (clientTurns.get(clientId) === settled) clientTurns.delete(clientId);
+    }
+  }
 
   /**
    * Runs work in the background, logging a failure.
@@ -373,8 +402,11 @@ export function createSessionManager(options: {
     const tools = await readyTools();
     const { sessionId } = await startPi(tools, { args: [], cwd });
     await options.catalog.record({ sessionId, containerId, cwd });
-    await options.layouts.open(clientId, containerId, sessionId);
-    options.onChange();
+    // In order from here: the client could not name the session before.
+    await inClientOrder(clientId, async () => {
+      await options.layouts.open(clientId, containerId, sessionId);
+      options.onChange();
+    });
     return sessionId;
   }
 
@@ -409,17 +441,22 @@ export function createSessionManager(options: {
       return { sessionId: await create(clientId, workspaceId, dir) };
     },
     async openSession(clientId, sessionId) {
-      await options.catalog.ready();
-      const entry = entryOf(sessionId);
-      // The tab opens first, so a session that cannot start explains why in its own tab.
-      await options.layouts.open(clientId, entry.containerId, sessionId);
-      options.onChange();
+      const entry = await inClientOrder(clientId, async () => {
+        await options.catalog.ready();
+        const found = entryOf(sessionId);
+        // The tab opens first, so a session that cannot start explains why in its own tab.
+        await options.layouts.open(clientId, found.containerId, sessionId);
+        options.onChange();
+        return found;
+      });
       if (entry.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
       return {};
     },
     async closeTab(clientId, sessionId) {
-      await options.layouts.close(clientId, sessionId);
-      options.onChange();
+      await inClientOrder(clientId, async () => {
+        await options.layouts.close(clientId, sessionId);
+        options.onChange();
+      });
       if (options.catalog.find(sessionId)?.state !== "draft") return {};
       // A message may be on its way, or its file just written: look again before discarding.
       await options.catalog.scan();
@@ -437,8 +474,10 @@ export function createSessionManager(options: {
       return {};
     },
     async selectContainer(clientId, containerId) {
-      await options.layouts.select(clientId, containerId);
-      options.onChange();
+      await inClientOrder(clientId, async () => {
+        await options.layouts.select(clientId, containerId);
+        options.onChange();
+      });
       return {};
     },
     async archiveSession(sessionId) {

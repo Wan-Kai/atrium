@@ -100,7 +100,7 @@ describe("tool detection at startup", () => {
     expect(tools.env["PATH"]?.split(":")[0]).toBe(bin);
     expect(tools.env["OPENAI_API_KEY"]).toBe("sk-from-zshrc");
     expect(tools.pi).toStrictEqual({ status: "ready", piPath: join(bin, "pi"), version: [1, 0, 2] });
-    host.flushLog();
+    await host.flushLog();
     expect(await readFile(host.logFile, "utf8")).not.toContain("sk-from-zshrc");
   });
 

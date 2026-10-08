@@ -35,6 +35,8 @@
 | 端口被占用时启动失败，失败记录写进日志、资源释放 | ws-server.host.test.ts "fails to start when the port is already taken…" | 已覆盖 |
 | 关闭宿主：所有连接断开；保持中的 HTTP 连接和只发了一半的升级请求都不拖住关闭 | ws-server.host.test.ts "host lifecycle" | 已覆盖 |
 | 退出应用时等宿主写完日志 | `apps/desktop/e2e/shutdown.spec.ts`："waits for a host that is slow to exit…" 用 `e2e/slow-exit-host.cjs` 包住真实宿主、把退出推迟 1.5 秒，应用不等就留不下标记文件 | 已覆盖 |
+| 同一客户端的标签命令按收到的顺序生效：打开等第一次扫描时关掉的标签不会再打开；一条失败不耽误下一条（2026-10-08 修，原来在机器繁忙时重启后 ⌘W 偶尔无效） | `packages/host/src/sessions/session-manager.test.ts` "closes a tab closed while its opening waited for the first scan…"、"goes on with a client's next tab change after one that failed"；`apps/desktop/e2e/workspaces.spec.ts` | 已覆盖 |
+| 宿主关闭时日志按写入的顺序落盘，最后一行是 "host stopped"；有写入正在进行时也一样；测试读日志前等全部落盘（2026-10-08 修，原来在机器繁忙时偶尔乱序） | `packages/host/src/platform/logger.test.ts` "drainLogFile"、"closeLogFile"（占满线程池，让一次写入一定还在进行）；`apps/desktop/e2e/shutdown.spec.ts` | 已覆盖 |
 | 宿主启动中途收到退出：不在退出后报"已就绪" | `packages/host/src/electron-port.test.ts` "does not report ready, and closes the host, when shutdown arrives while it is still starting"（启动和退出由测试控制） | 已覆盖 |
 | 重新连接时关闭旧连接，旧连接晚到的事件不改写新状态 | connection.test.ts "closes the previous socket on reconnect…" | 已覆盖 |
 | 界面跟随系统外观 | `packages/ui/src/design/appearance.browser.test.ts`；e2e "follows the system appearance" | 已覆盖 |

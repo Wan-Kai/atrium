@@ -27,6 +27,43 @@ export interface LogFile {
 }
 
 /**
+ * Waits until every record written to the log file so far is on disk.
+ *
+ * @remarks
+ * SonicBoom's `flushSync` writes what is queued at once, even while an earlier write is still in
+ * flight, so newer records can land before older ones. An empty write joins the queue instead,
+ * and `drain` follows once the queue is empty.
+ *
+ * @sideEffects Waits for the stream's pending writes.
+ * @param stream - The log file's stream.
+ * @returns When the records are on disk.
+ */
+export function drainLogFile(stream: RollStream): Promise<void> {
+  return new Promise((done) => {
+    stream.once("drain", () => done());
+    stream.write("");
+  });
+}
+
+/**
+ * Writes every pending record to the log file, in order, and closes it.
+ *
+ * @remarks
+ * `end` lets a write in flight finish before writing the rest, unlike `flushSync` (see
+ * `drainLogFile`), so the last record of a shutdown is also the last line of the file.
+ *
+ * @sideEffects Writes buffered records and closes the file.
+ * @param stream - The log file's stream.
+ * @returns When the file is closed.
+ */
+export function closeLogFile(stream: RollStream): Promise<void> {
+  return new Promise((done) => {
+    stream.once("close", () => done());
+    stream.end();
+  });
+}
+
+/**
  * Opens the rotating JSONL log file under the logs directory.
  *
  * @remarks
