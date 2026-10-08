@@ -9,6 +9,7 @@ export {
   type FauxScript,
   fauxPi,
 } from "./faux/script";
+export { GIT_SCENE_ENV, type GitScene, createGitScene, gitSceneEnv } from "./git";
 export { present } from "./present";
 export { type ScriptedPiBehavior, type ScriptedRule, warmScriptedPi, writeScriptedPi } from "./scripted-pi";
 export { TEST_BIN_DIR_ENV } from "./shared-executable";

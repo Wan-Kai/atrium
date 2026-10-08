@@ -176,7 +176,8 @@ describe("one chat over the WebSocket", () => {
     await vi.waitFor(() => expect(view.getState().status).toBe("ready"));
     await client.prompt(sessionId, "ping");
     await vi.waitFor(() => expect(view.getState().run).toBeNull());
-    // Request ids count every command: the first heartbeat ping, create_chat, subscribe_sessions, prompt.
+    // Request ids count every command: the first heartbeat ping, subscribe_index, create_chat,
+    // subscribe_sessions, prompt.
 
     expect(view.getState()).toMatchObject({
       status: "ready",
@@ -186,7 +187,7 @@ describe("one chat over the WebSocket", () => {
       items: [
         {
           kind: "turn",
-          user: { text: "ping", clientMessageId: "real-client-4" },
+          user: { text: "ping", clientMessageId: "real-client-5" },
           steps: [{ kind: "text", id: "0", text: "pong" }],
           outcome: "done",
           usage: { input: 3, output: 1 },

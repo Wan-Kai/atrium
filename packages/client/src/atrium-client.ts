@@ -5,15 +5,26 @@ import {
   CommandError,
   CommandResult,
   type CommandType,
+  type ContainerId,
   type HelloMessage,
   HostMessage,
   PROTOCOL_VERSION,
+  type Preferences,
   type SessionEvent,
   type TraceContext,
   createTraceContext,
   formatTraceparent,
 } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
+import {
+  type IndexView,
+  applyIndexSnapshot,
+  emptyIndex,
+  withContainer,
+  withPreferences,
+  withTabClosed,
+  withTabOpen,
+} from "./index-view";
 import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
 /** Connection state exposed to the UI. */
@@ -90,16 +101,33 @@ export interface AtriumClient {
   connect(): Promise<ConnectionState>;
   /** Closes the socket and stops reconnecting. */
   disconnect(): void;
+  /** The list: projects, workspaces, sessions, this client's layout and the preferences. */
+  readonly index: StoreApi<IndexView>;
   /** The view of a watched session; `undefined` for one not watched. */
   session(sessionId: string): StoreApi<SessionView> | undefined;
   /** Sets the sessions to receive live events for; views are created for new ones and dropped for the rest. */
   watch(sessionIds: readonly string[]): Promise<void>;
-  /** Creates a chat and returns its session id. */
+  /** Creates a chat, opened as the active tab, and returns its session id. */
   createChat(): Promise<CommandResult<"create_chat">>;
-  /** The sessions in pi's session directory changed most recently. */
-  listRecentSessions(limit: number): Promise<CommandResult<"list_recent_sessions">>;
-  /** Opens a session from its file; `watch` it to see it. */
+  /** Creates a session in a workspace, opened as the active tab, and returns its id. */
+  createSession(workspaceId: string): Promise<CommandResult<"create_session">>;
+  /** Opens a session as the active tab, at once in the list; `watch` it to see it. */
   openSession(sessionId: string): Promise<CommandResult<"open_session">>;
+  /** Closes this client's tab of a session, at once in the list. */
+  closeTab(sessionId: string): Promise<CommandResult<"close_tab">>;
+  /** Goes to a workspace or the chats, or nowhere, at once in the list. */
+  selectContainer(containerId: ContainerId | null): Promise<CommandResult<"select_container">>;
+  archiveSession(sessionId: string): Promise<CommandResult<"archive_session">>;
+  renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
+  addProject(path: string): Promise<CommandResult<"add_project">>;
+  removeProject(projectId: string): Promise<CommandResult<"remove_project">>;
+  renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
+  /** Names a workspace, or with `null` goes back to its branch's name. */
+  renameWorkspace(workspaceId: string, name: string | null): Promise<CommandResult<"rename_workspace">>;
+  /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
+  windowFocused(): Promise<CommandResult<"window_focused">>;
+  /** Changes preferences, at once in the list. */
+  setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
   /** Sends a message, showing it at once as pending. */
   prompt(sessionId: string, text: string): Promise<CommandResult<"prompt">>;
   /**
@@ -208,6 +236,7 @@ function parseFrame(data: unknown): unknown {
  */
 export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const connection = createStore<ConnectionState>(() => ({ status: "idle" }));
+  const index = createStore<IndexView>(emptyIndex);
   const openSocket: (url: string) => SocketLike = options.openSocket ?? ((url: string) => new WebSocket(url));
   const createTrace = options.createTrace ?? createTraceContext;
   const clock = options.clock ?? systemClock;
@@ -365,6 +394,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   function receive(message: HostMessage): void {
     // Stryker disable next-line ConditionalExpression,StringLiteral: a second welcome names no session, so no view would take it.
     if (message.type === "welcome") return;
+    if (message.type === "index_snapshot") {
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      index.setState(applyIndexSnapshot(index.getState(), message), true);
+      return;
+    }
     if (message.type !== "response") {
       deliver(message);
       return;
@@ -464,6 +498,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         // Stryker disable next-line BooleanLiteral: "connected" has every key "connecting" has, so merging equals replacing.
         connection.setState({ status: "connected", traceId: trace.traceId, hostVersion, hostInstanceId }, true);
         beat(current, heartbeatMs);
+        // Each connection subscribes anew; the host sends the list at once.
+        request("subscribe_index", {}).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         settle(connection.getState());
       });
@@ -542,6 +578,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (connection.getState().status === "reconnecting")
         connection.setState({ status: "disconnected", code: 1000 }, true);
     },
+    index,
     session: (sessionId) => views.get(sessionId),
     async watch(sessionIds) {
       watched = [...new Set(sessionIds)];
@@ -555,8 +592,34 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (live !== undefined) await request("subscribe_sessions", { sessionIds: [...watched] });
     },
     createChat: () => request("create_chat", {}),
-    listRecentSessions: (limit) => request("list_recent_sessions", { limit }),
-    openSession: (sessionId) => request("open_session", { sessionId }),
+    createSession: (workspaceId) => request("create_session", { workspaceId }),
+    openSession(sessionId) {
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      index.setState(withTabOpen(index.getState(), sessionId), true);
+      return request("open_session", { sessionId });
+    },
+    closeTab(sessionId) {
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      index.setState(withTabClosed(index.getState(), sessionId), true);
+      return request("close_tab", { sessionId });
+    },
+    selectContainer(containerId) {
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      index.setState(withContainer(index.getState(), containerId), true);
+      return request("select_container", { containerId });
+    },
+    archiveSession: (sessionId) => request("archive_session", { sessionId }),
+    renameSession: (sessionId, name) => request("rename_session", { sessionId, name }),
+    addProject: (path) => request("add_project", { path }),
+    removeProject: (projectId) => request("remove_project", { projectId }),
+    renameProject: (projectId, name) => request("rename_project", { projectId, name }),
+    renameWorkspace: (workspaceId, name) => request("rename_workspace", { workspaceId, name }),
+    windowFocused: () => request("window_focused", {}),
+    setPreferences(changes) {
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      index.setState(withPreferences(index.getState(), changes), true);
+      return request("set_preferences", changes);
+    },
     async prompt(sessionId, text) {
       const requestId = `${options.clientId}-${++nextRequest}`;
       const view = views.get(sessionId);

@@ -1,9 +1,11 @@
 import { createTempDir, present } from "@atrium/testkit";
-import { lstat, readdir, stat, writeFile } from "node:fs/promises";
+import { pbkdf2 } from "node:crypto";
+import { closeSync } from "node:fs";
+import { lstat, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
 import { describe, expect, it, vi, onTestFinished } from "vitest";
-import { createLogger, openLogFile } from "./logger";
+import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./logger";
 
 const token = "SECRET-TOKEN-0123456789abcdefghijklmnopqrstuv";
 
@@ -124,5 +126,120 @@ describe("openLogFile", () => {
     expect(stderr).toHaveBeenCalledWith("atrium: log stream error: disk full\n");
     stderr.mockRestore();
     stream.end();
+  });
+});
+
+/**
+ * Keeps every thread of libuv's pool busy for a while.
+ *
+ * @remarks
+ * A log write queued behind them is certain to be still in flight when the test writes more,
+ * which is the moment the order of records on disk depends on.
+ *
+ * @sideEffects Runs key derivations on the thread pool.
+ * @returns When they are done.
+ */
+function busyThreadPool(): Promise<unknown> {
+  const threads = Number(process.env["UV_THREADPOOL_SIZE"] ?? 4);
+  return Promise.all(
+    Array.from({ length: threads }, () => new Promise((done) => pbkdf2("x", "salt", 300_000, 64, "sha512", done))),
+  );
+}
+
+/**
+ * A log file with one record whose write is still in flight and a second queued behind it.
+ *
+ * @remarks
+ * The case where flushing at once would put the second record before the first.
+ *
+ * @sideEffects Creates a temporary log directory, removed when the test ends; writes two records.
+ * @returns The stream, the file and when the thread pool is free again.
+ */
+async function writeWhileBusy() {
+  const dir = await createTempDir("logs");
+  onTestFinished(dir.cleanup);
+  const { stream, currentPath } = await openLogFile(dir.path);
+  onTestFinished(() => closeLogFile(stream));
+  const busy = busyThreadPool();
+  stream.write("first\n");
+  stream.write("second\n");
+  return { stream, currentPath, busy };
+}
+
+describe("drainLogFile", () => {
+  it("has every record written so far on disk, in the order written, while a write is in flight", async () => {
+    const { stream, currentPath, busy } = await writeWhileBusy();
+
+    await drainLogFile(stream);
+
+    expect(await readFile(currentPath, "utf8")).toBe("first\nsecond\n");
+    await busy;
+    await closeLogFile(stream);
+  });
+});
+
+describe("closeLogFile", () => {
+  it("writes every record in the order written and closes, while a write is in flight", async () => {
+    const { stream, currentPath, busy } = await writeWhileBusy();
+
+    await closeLogFile(stream);
+
+    expect(await readFile(currentPath, "utf8")).toBe("first\nsecond\n");
+    expect(() => stream.write("third\n")).toThrow("SonicBoom destroyed");
+    await busy;
+  });
+});
+
+/**
+ * A log file whose writes fail from now on, as on a full disk.
+ *
+ * @remarks
+ * The stream is pointed at a descriptor that is not open; its own descriptor is closed when the
+ * test ends, and never while the test runs, so no other file can take its number.
+ *
+ * @sideEffects Creates a temporary log directory; silences the stream's error report on stderr;
+ * all undone when the test ends.
+ * @returns The stream.
+ */
+async function failingLogFile() {
+  const dir = await createTempDir("logs");
+  onTestFinished(dir.cleanup);
+  const { stream } = await openLogFile(dir.path);
+  const own = stream.fd;
+  onTestFinished(() => closeSync(own));
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  onTestFinished(() => stderr.mockRestore());
+  (stream as unknown as { fd: number }).fd = 999_999;
+  return stream;
+}
+
+describe("drainLogFile when writing fails", () => {
+  it("rejects instead of waiting forever", async () => {
+    const stream = await failingLogFile();
+    stream.write("lost\n");
+
+    await expect(drainLogFile(stream)).rejects.toMatchObject({ code: "EBADF" });
+  });
+});
+
+describe("closeLogFile when writing fails", () => {
+  it("closes the stream instead of waiting forever", async () => {
+    const stream = await failingLogFile();
+    stream.write("lost\n");
+
+    await closeLogFile(stream);
+
+    expect(() => stream.write("more\n")).toThrow("SonicBoom destroyed");
+  });
+
+  it("does nothing for a stream already closed", async () => {
+    const dir = await createTempDir("logs");
+    onTestFinished(dir.cleanup);
+    const { stream } = await openLogFile(dir.path);
+    await closeLogFile(stream);
+
+    await closeLogFile(stream);
+
+    expect(() => stream.write("more\n")).toThrow("SonicBoom destroyed");
   });
 });

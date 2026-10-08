@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type ColorSchemeQuery, followSystemAppearance } from "./appearance";
+import { type ColorSchemeQuery, applyAppearance, followSystemAppearance } from "./appearance";
 
 /** A color-scheme query whose value the test can flip, standing in for the OS setting. */
 function systemScheme(initiallyDark: boolean) {
@@ -29,6 +29,27 @@ describe("followSystemAppearance", () => {
     scheme.flip(true);
 
     expect(root.classList.contains("dark")).toBe(false);
+    expect(scheme.listenerCount()).toBe(0);
+  });
+});
+
+describe("applyAppearance", () => {
+  it("keeps light or dark whatever the system does, and follows the system when asked", () => {
+    const root = document.createElement("html");
+    const scheme = systemScheme(true);
+
+    applyAppearance(root, scheme, "light")();
+    expect(root.classList.contains("dark")).toBe(false);
+    applyAppearance(root, scheme, "dark");
+    scheme.flip(false);
+    expect(root.classList.contains("dark")).toBe(true);
+    expect(scheme.listenerCount()).toBe(0);
+    const stop = applyAppearance(root, scheme, "system");
+    expect(root.classList.contains("dark")).toBe(true);
+    scheme.flip(false);
+    expect(root.classList.contains("dark")).toBe(false);
+    stop();
+
     expect(scheme.listenerCount()).toBe(0);
   });
 });

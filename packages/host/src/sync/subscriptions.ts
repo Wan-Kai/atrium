@@ -1,8 +1,14 @@
-import type { SessionEvent } from "@atrium/protocol";
+import type { IndexSnapshotEvent, SessionEvent } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
 
 /** Delivers events to one connection. */
-export type EventSink = (event: SessionEvent) => void;
+export type EventSink = (event: SessionEvent | IndexSnapshotEvent) => void;
+
+/** A connection that subscribed to the list, and the client behind it. */
+export interface IndexSubscriber {
+  readonly connectionId: string;
+  readonly clientId: string;
+}
 
 /**
  * Who is watching which session, and the way to reach each watcher.
@@ -17,8 +23,12 @@ export type EventSink = (event: SessionEvent) => void;
  */
 export class SubscriptionRegistry {
   readonly #resources: ResourceTracker;
-  readonly #sinks = new Map<string, { readonly sink: EventSink; readonly release: () => void }>();
+  readonly #sinks = new Map<
+    string,
+    { readonly sink: EventSink; readonly clientId: string; readonly release: () => void }
+  >();
   readonly #subscriptions = new Map<string, ReadonlySet<string>>();
+  readonly #indexSubscribers = new Set<string>();
 
   /**
    * Creates an empty registry.
@@ -42,9 +52,10 @@ export class SubscriptionRegistry {
    * @sideEffects Stores the sink; counts the connection as a resource.
    * @param connectionId - The connection's opaque id.
    * @param sink - Sends one event over the connection.
+   * @param clientId - The client behind it, whose layout its list carries.
    */
-  connect(connectionId: string, sink: EventSink): void {
-    this.#sinks.set(connectionId, { sink, release: this.#resources.acquire("sync.connection") });
+  connect(connectionId: string, sink: EventSink, clientId: string): void {
+    this.#sinks.set(connectionId, { sink, clientId, release: this.#resources.acquire("sync.connection") });
     this.#subscriptions.set(connectionId, new Set());
   }
 
@@ -61,6 +72,40 @@ export class SubscriptionRegistry {
     this.#sinks.get(connectionId)?.release();
     this.#sinks.delete(connectionId);
     this.#subscriptions.delete(connectionId);
+    this.#indexSubscribers.delete(connectionId);
+  }
+
+  /**
+   * Subscribes a connection to the list.
+   *
+   * @remarks
+   * Until it disconnects (SPEC-0001, "项目、工作区与会话").
+   *
+   * @sideEffects Records the subscription.
+   * @param connectionId - The connection.
+   * @returns The subscriber, or `undefined` for an unknown connection.
+   */
+  subscribeIndex(connectionId: string): IndexSubscriber | undefined {
+    const found = this.#sinks.get(connectionId);
+    if (found === undefined) return undefined;
+    this.#indexSubscribers.add(connectionId);
+    return { connectionId, clientId: found.clientId };
+  }
+
+  /**
+   * Lists the connections subscribed to the list.
+   *
+   * @remarks
+   * In subscription order.
+   *
+   * @sideEffects none
+   * @returns The subscribers.
+   */
+  indexSubscribers(): IndexSubscriber[] {
+    return [...this.#indexSubscribers].flatMap((connectionId) => {
+      const found = this.#sinks.get(connectionId);
+      return found === undefined ? [] : [{ connectionId, clientId: found.clientId }];
+    });
   }
 
   /**
@@ -122,7 +167,7 @@ export class SubscriptionRegistry {
    * @param connectionId - The connection.
    * @param event - The event.
    */
-  sendTo(connectionId: string, event: SessionEvent): void {
+  sendTo(connectionId: string, event: SessionEvent | IndexSnapshotEvent): void {
     this.#sinks.get(connectionId)?.sink(event);
   }
 }

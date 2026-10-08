@@ -480,6 +480,61 @@ describe("createSessionTranscript keeping live and rebuilt alike", () => {
   });
 });
 
+describe("createSessionTranscript remembering turn starts", () => {
+  /** pi's entries for a run a tool ended, then a new prompt: "next" follows the tool result. */
+  const entries = [
+    userEntry("u1", null, "go"),
+    callEntry("a1", "u1", "c1"),
+    resultEntry("r1", "a1", "c1"),
+    userEntry("u2", "r1", "next"),
+  ];
+
+  it("tells which entries opened the turns it saw live", () => {
+    const seen: string[][] = [];
+    const session = createSessionTranscript({
+      sessionId: "s",
+      newId: () => "live",
+      now: () => 0,
+      onTurnsSeen: (entryIds) => seen.push([...entryIds]),
+    });
+    session.apply(userMessage("go"), noClient);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "bash", args: { command: "ls" } }], "toolUse"),
+      noClient,
+    );
+    session.apply(toolResult("c1", "x"), noClient);
+    session.settle();
+    session.apply(userMessage("next"), noClient);
+    session.settle();
+
+    session.rebuild({ entries, leafId: "u2" }, false);
+    session.rebuild({ entries: [], leafId: "u2" }, false);
+
+    expect(seen).toStrictEqual([["u1", "u2"]]);
+  });
+
+  it("follows the turn starts an earlier host recorded, and tells steers by position without them", () => {
+    const recorded = createSessionTranscript({
+      sessionId: "s",
+      newId: () => "x",
+      now: () => 0,
+      opened: new Set(["u2"]),
+    });
+    const { transcript: unrecorded } = transcript();
+
+    recorded.rebuild({ entries, leafId: "u2" }, false);
+    unrecorded.rebuild({ entries, leafId: "u2" }, false);
+
+    expect(recorded.items().map((item) => [item.id, (item as Turn).steps.map((step) => step.kind)])).toStrictEqual([
+      ["s:u1", ["tool"]],
+      ["s:u2", []],
+    ]);
+    expect(unrecorded.items().map((item) => [item.id, (item as Turn).steps.map((step) => step.kind)])).toStrictEqual([
+      ["s:u1", ["tool", "steer"]],
+    ]);
+  });
+});
+
 describe("createSessionTranscript comparing a rebuild", () => {
   it("reports items that went away as changed, and turns added with notices too", () => {
     const { transcript: session } = transcript();

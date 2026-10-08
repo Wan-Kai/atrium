@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxPiEnvironment } from "./faux-pi";
 import { launchApp, median } from "./launch";
+import { addProject, piSessionFolder } from "./projects";
 
 /** How many turns the session has (testing.md, "性能预算"). */
 const TURNS = 1000;
@@ -80,7 +81,7 @@ async function writeLongSession(agentDir: string, cwd: string): Promise<void> {
       },
     });
   }
-  const folder = join(agentDir, "sessions", "--work--");
+  const folder = piSessionFolder(agentDir, cwd);
   await mkdir(folder, { recursive: true });
   await writeFile(
     join(folder, `2026-10-01T00-00-00-000Z_${sessionId}.jsonl`),
@@ -89,7 +90,7 @@ async function writeLongSession(agentDir: string, cwd: string): Promise<void> {
 }
 
 /**
- * Starts timing from the next press of the recent session and resolves once its first screen is drawn.
+ * Starts timing from the next press of the session in "历史" and resolves once its first screen is drawn.
  *
  * @remarks
  * Runs inside the renderer. The first screen is drawn once the snapshot's 20 turns are in the
@@ -118,19 +119,25 @@ function timeFirstScreen(): void {
 test(`@perf opens a ${TURNS}-turn session to its first screen within ${BUDGET_MS} ms (median of 3)`, async () => {
   test.setTimeout(240_000);
   const pi = await fauxPiEnvironment({ replies: [] });
-  const cwd = await mkdtemp(join(tmpdir(), "atrium-e2e-long-"));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "atrium-e2e-long-")));
   await writeLongSession(pi.agentDir, cwd);
   const launched = await launchApp(pi.env);
   try {
     const { window } = launched;
-    const open = window.getByRole("region", { name: "最近的会话" }).getByRole("button", { name: /第 0 个问题/ });
+    await addProject(launched.app, window, cwd);
+    await window.getByTestId("workspace-row").click({ timeout: 30_000 });
+    const history = window.getByRole("button", { name: "历史" });
+    const open = window.getByRole("menuitem", { name: /第 0 个问题/ });
     const started = Date.now();
+    await history.click();
     await open.click({ timeout: 30_000 });
     await expect(window.getByTestId("turn")).toHaveCount(20, { timeout: 60_000 });
     test.info().annotations.push({ type: "first open, pi starting", description: `${Date.now() - started} ms` });
     const timings: number[] = [];
     for (let run = 0; run < 3; run++) {
-      await window.getByRole("button", { name: "最近会话" }).click();
+      await window.getByRole("button", { name: /^关闭 / }).click();
+      await expect(window.getByTestId("turn")).toHaveCount(0);
+      await history.click();
       await window.evaluate(timeFirstScreen);
       await open.click();
       timings.push(await window.evaluate(() => (window as unknown as { firstScreen: Promise<number> }).firstScreen));

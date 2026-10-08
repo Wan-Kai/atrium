@@ -10,8 +10,7 @@ export interface ColorSchemeQuery {
  *
  * @remarks
  * The default appearance is "follow system" (SPEC-0001, "界面"); dark tokens apply under `.dark`
- * (tokens.css). The light/dark/system switch in the sidebar comes in M1.5 and will decide
- * whether this watcher runs at all.
+ * (tokens.css). `applyAppearance` runs it only while the user's choice is to follow the system.
  *
  * @sideEffects Adds or removes the `dark` class on `root` now and on every system change;
  * registers a listener on `query` until the returned function is called.
@@ -35,4 +34,26 @@ export function followSystemAppearance(root: Element, query: ColorSchemeQuery): 
   root.classList.toggle("dark", query.matches);
   query.addEventListener("change", onChange);
   return () => query.removeEventListener("change", onChange);
+}
+
+/**
+ * Applies the appearance the user chose: always light, always dark, or following the system.
+ *
+ * @remarks
+ * The sidebar's switch (SPEC-0001, "界面"); only "system" keeps watching the system's scheme.
+ *
+ * @sideEffects Sets the `dark` class on `root`; for "system", watches `query` until stopped.
+ * @param root - Element that carries the class, normally `<html>`.
+ * @param query - Result of `matchMedia("(prefers-color-scheme: dark)")`.
+ * @param appearance - The user's choice.
+ * @returns A function that stops watching.
+ */
+export function applyAppearance(
+  root: Element,
+  query: ColorSchemeQuery,
+  appearance: "system" | "light" | "dark",
+): () => void {
+  if (appearance === "system") return followSystemAppearance(root, query);
+  root.classList.toggle("dark", appearance === "dark");
+  return () => undefined;
 }

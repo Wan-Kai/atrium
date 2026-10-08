@@ -8,6 +8,7 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import { contextFromTraceparent, inSyncSpan } from "../platform/tracing";
+import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import type { SubscriptionRegistry } from "../sync/subscriptions";
 import { tokensMatch } from "./auth";
@@ -51,6 +52,7 @@ export interface WsServerOptions {
   readonly subscriptions: SubscriptionRegistry;
   /** Handles session commands. */
   readonly sessions: SessionCommands;
+  readonly index: IndexCommands;
   readonly logger: Logger;
   readonly tracer: Tracer;
   readonly clock: Clock;
@@ -103,7 +105,12 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
   });
   // Stryker restore all
   const wss = new WebSocketServer({ noServer: true, maxPayload: options.maxPayloadBytes });
-  const route = createRouter({ sessions: options.sessions, tracer: options.tracer, logger: options.logger });
+  const route = createRouter({
+    sessions: options.sessions,
+    index: options.index,
+    tracer: options.tracer,
+    logger: options.logger,
+  });
   let nextConnectionId = 0;
 
   httpServer.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -292,7 +299,7 @@ function acceptConnection(ws: WebSocket, connectionId: string, route: Route, opt
       logger: options.logger,
     });
     const open = connection;
-    options.subscriptions.connect(connectionId, (event) => open.send(event));
+    options.subscriptions.connect(connectionId, (event) => open.send(event), accepted.clientId);
     beat();
   });
   ws.on("pong", () => {

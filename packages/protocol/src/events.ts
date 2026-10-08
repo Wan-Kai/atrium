@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SessionId } from "./commands";
+import { SessionId } from "./ids";
 import { Notice, Step, TranscriptItem, Turn } from "./transcript";
 
 /** A trace id: 32 lowercase hex characters. */

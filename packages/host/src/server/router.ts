@@ -9,12 +9,14 @@ import {
 import { type Tracer, context, trace } from "@opentelemetry/api";
 import type { Logger } from "../platform/logger";
 import { contextFromTraceparent, inSpan } from "../platform/tracing";
+import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import type { Connection } from "./connection";
 
 /** What the router needs from the rest of the host. */
 export interface RouterOptions {
   readonly sessions: SessionCommands;
+  readonly index: IndexCommands;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -32,8 +34,8 @@ export type Route = (connection: Connection, message: unknown) => Promise<void>;
  * `internal_error`, never with the error's text. Each command runs in a `command <type>` span whose
  * parent is the command's own `traceparent`, linked to the connection's trace rather than nested in
  * it, so one long-lived connection does not collect every operation into one trace. `ping` and
- * `report_client_issue` are answered here; session commands go to the session layer (domain-model
- * §8). The returned promise never rejects.
+ * `report_client_issue` are answered here; session commands go to the session layer, list commands
+ * to the index commands (domain-model §8). The returned promise never rejects.
  *
  * @sideEffects none until called; then starts a span, runs the handler, sends a response and logs.
  * @param options - Session commands, tracer and logger.
@@ -63,7 +65,34 @@ export function createRouter(options: RouterOptions): Route {
         );
         return {};
       case "create_chat":
-        return options.sessions.createChat(connection.id);
+        return options.sessions.createChat(connection.clientId);
+      case "create_session":
+        return options.sessions.createSession(connection.clientId, command.workspaceId);
+      case "close_tab":
+        return options.sessions.closeTab(connection.clientId, command.sessionId);
+      case "select_container":
+        return options.sessions.selectContainer(connection.clientId, command.containerId);
+      case "archive_session":
+        return options.sessions.archiveSession(command.sessionId);
+      case "rename_session":
+        return options.sessions.renameSession(command.sessionId, command.name);
+      case "subscribe_index":
+        return options.index.subscribeIndex(connection.id);
+      case "add_project":
+        return options.index.addProject(command.path);
+      case "remove_project":
+        return options.index.removeProject(command.projectId);
+      case "rename_project":
+        return options.index.renameProject(command.projectId, command.name);
+      case "rename_workspace":
+        return options.index.renameWorkspace(command.workspaceId, command.name);
+      case "window_focused":
+        return options.index.windowFocused();
+      case "set_preferences":
+        return options.index.setPreferences({
+          ...(command.appearance === undefined ? {} : { appearance: command.appearance }),
+          ...(command.displayMode === undefined ? {} : { displayMode: command.displayMode }),
+        });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
       case "prompt":
@@ -72,10 +101,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.fetchTranscript(command);
       case "fetch_step":
         return options.sessions.fetchStep(command);
-      case "list_recent_sessions":
-        return options.sessions.listRecentSessions(command.limit);
       case "open_session":
-        return options.sessions.openSession(command.sessionId);
+        return options.sessions.openSession(connection.clientId, command.sessionId);
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

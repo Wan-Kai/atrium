@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@atrium/protocol";
+import type { IndexSnapshotEvent, SessionEvent } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { ResourceTracker } from "../platform/resources";
 import { SubscriptionRegistry } from "./subscriptions";
@@ -12,9 +12,9 @@ function eventOf(sessionId: string, seq: number): SessionEvent {
 function twoConnections() {
   const resources = new ResourceTracker();
   const registry = new SubscriptionRegistry(resources);
-  const received: Record<string, SessionEvent[]> = { a: [], b: [] };
-  registry.connect("a", (event) => received["a"]?.push(event));
-  registry.connect("b", (event) => received["b"]?.push(event));
+  const received: Record<string, (SessionEvent | IndexSnapshotEvent)[]> = { a: [], b: [] };
+  registry.connect("a", (event) => received["a"]?.push(event), "client-a");
+  registry.connect("b", (event) => received["b"]?.push(event), "client-b");
   return { registry, received, resources };
 }
 
@@ -61,5 +61,23 @@ describe("SubscriptionRegistry", () => {
     expect(registry.viewers("s1")).toStrictEqual([]);
     expect(registry.subscribe("a", ["s1"])).toStrictEqual([]);
     expect(received["a"]).toStrictEqual([]);
+  });
+});
+
+describe("SubscriptionRegistry list subscribers", () => {
+  it("records which connections watch the list, with their clients, until they disconnect", () => {
+    const { registry } = twoConnections();
+
+    expect(registry.subscribeIndex("b")).toStrictEqual({ connectionId: "b", clientId: "client-b" });
+    expect(registry.subscribeIndex("a")).toStrictEqual({ connectionId: "a", clientId: "client-a" });
+    expect(registry.subscribeIndex("b")).toStrictEqual({ connectionId: "b", clientId: "client-b" });
+    expect(registry.subscribeIndex("never-connected")).toBeUndefined();
+    expect(registry.indexSubscribers()).toStrictEqual([
+      { connectionId: "b", clientId: "client-b" },
+      { connectionId: "a", clientId: "client-a" },
+    ]);
+
+    registry.disconnect("b");
+    expect(registry.indexSubscribers()).toStrictEqual([{ connectionId: "a", clientId: "client-a" }]);
   });
 });

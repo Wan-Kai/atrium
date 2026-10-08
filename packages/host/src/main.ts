@@ -1,17 +1,31 @@
-import { type PiInspection, inspectPi } from "@atrium/pi";
+import { type PiInspection, createSessionFileReader, inspectPi, sessionsLocation } from "@atrium/pi";
 import { randomBytes, randomUUID } from "node:crypto";
+import { uptime } from "node:os";
+import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
+import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
-import { createLogger, openLogFile } from "./platform/logger";
+import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
+import { createProjectService } from "./projects/project-service";
 import { startWsServer } from "./server/ws-server";
+import { createIndexCommands } from "./sessions/index-commands";
+import { createLayouts } from "./sessions/layouts";
+import { createSessionCatalog } from "./sessions/session-catalog";
 import { createSessionManager } from "./sessions/session-manager";
+import { acquireHostLock, processStartedAt } from "./store/host-lock";
+import { loadIndex } from "./store/load-index";
+import { createPreferenceStore } from "./store/preferences";
+import { loadTurnStarts } from "./store/turn-starts";
+import { createIndexFeed } from "./sync/index-feed";
 import { SubscriptionRegistry } from "./sync/subscriptions";
+import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspector";
+import { createWorkspaceService } from "./workspaces/workspace-service";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
 const HEARTBEAT_MS = 15_000;
@@ -62,8 +76,8 @@ export interface RunningHost {
   readonly tools: Promise<HostTools | null>;
   /** Path that always points at the log file being written. */
   readonly logFile: string;
-  /** Writes buffered log records to disk now. */
-  readonly flushLog: () => void;
+  /** Resolves once every log record so far is on disk, in order. */
+  readonly flushLog: () => Promise<void>;
   /** Disconnects clients, flushes logs and spans, and stops listening; later calls share the first. */
   readonly close: () => Promise<void>;
 }
@@ -82,16 +96,27 @@ const RESOURCE_REPORT_INTERVAL_MS = 60_000;
  * If listening fails, everything opened so far is released before the error is rethrown, so a
  * failed start leaves no open file or tracer behind.
  *
- * @sideEffects Creates `~/.atrium` and its logs folder; opens the log file; listens on a port;
+ * The host takes `host.lock` before anything else in the home, so a second host on the same home
+ * refuses to start rather than writing the index alongside the first (domain-model §1, "索引的存储").
+ *
+ * @sideEffects Creates `~/.atrium` and its logs folder; takes the host lock; opens the log file; listens on a port;
  * schedules a recurring resource report; starts looking for pi in the background; on a failed
  * start, logs the failure and closes the log.
  * @param config - Host configuration.
  * @returns The running host.
+ * @throws {HostLockedError} When another live host uses the same home.
  */
 export async function startHost(config: HostConfig): Promise<RunningHost> {
   const clock = config.clock ?? systemClock;
   let environmentSecrets: readonly string[] = [];
   const home = await ensureAtriumHome(config.home);
+  const now = clock.now();
+  const lock = await acquireHostLock(home.root, {
+    pid: process.pid,
+    now,
+    bootedAt: now - uptime() * 1000,
+    processStartedAt,
+  });
   const { stream: destination, currentPath: logFile } = await openLogFile(home.logs);
   const resources = new ResourceTracker();
   const logger = createLogger({
@@ -106,35 +131,88 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   }
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
   const subscriptions = new SubscriptionRegistry(resources);
+  const hostInstanceId = randomBytes(8).toString("hex");
   // Settled with the detection below once the server listens; commands can only arrive after that.
   const toolsFound = Promise.withResolvers<HostTools | null>();
+  const index = await loadIndex(home.root, clock.now(), logger).catch(async (error: unknown) => {
+    logger.error({ err: error }, "host failed to start");
+    await tracing.shutdown();
+    await closeLogFile(destination);
+    await lock.release();
+    throw error;
+  });
+  const git = toolsFound.promise.then((tools) =>
+    tools === null ? null : createGitRunner({ env: tools.env, clock, resources }),
+  );
+  const projects = createProjectService({
+    file: index.projects,
+    git,
+    newId: (prefix) => `${prefix}_${randomBytes(8).toString("hex")}`,
+  });
+  const workspaces = createWorkspaceService({
+    projects,
+    git,
+    inspector: git.then(async (runner) => {
+      if (runner === null) return null;
+      const version = await runner.run(["--version"], { cwd: home.root }).catch(() => null);
+      return createMergeInspector({ git: runner, version: parseGitVersion(version?.stdout ?? "") });
+    }),
+    clock,
+    resources,
+    logger,
+  });
+  const catalog = createSessionCatalog({
+    file: index.sessions,
+    location: toolsFound.promise.then((tools) => (tools === null ? null : sessionsLocation(tools.env))),
+    chatsRoot: join(home.root, "chats"),
+    workspaces: () => workspaces.list().map((workspace) => ({ id: workspace.id, dir: workspace.dir })),
+    reader: createSessionFileReader(),
+    clock,
+    logger,
+  });
+  const layouts = createLayouts({ file: index.layouts, clock });
+  const preferences = createPreferenceStore(index.preferences);
+  const feed = createIndexFeed({
+    registry: subscriptions,
+    generation: hostInstanceId,
+    build: (clientId) => ({
+      projects: projects.projects().map(({ id, path, name }) => ({ id, path, name })),
+      workspaces: workspaces.list(),
+      sessions: sessions.summaries(),
+      layout: layouts.of(clientId),
+      preferences: preferences.read(),
+      resets: [...index.resets],
+    }),
+    clock,
+    resources,
+  });
   const sessions = createSessionManager({
-    home: home.root,
+    chatsRoot: join(home.root, "chats"),
     tools: toolsFound.promise,
     subscriptions,
+    catalog,
+    layouts,
+    workspaces,
+    onChange: () => feed.changed(),
     clock,
     resources,
     tracer: tracing.tracer,
     logger,
     newId: () => randomUUID(),
+    turnStarts: async (sessionId) => {
+      const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
+      if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
+      return starts;
+    },
   });
-
-  /**
-   * Flushes and closes the log stream.
-   *
-   * @remarks
-   * Shared by normal shutdown and by the rollback when startup fails, so a failed start still
-   * leaves its records on disk and no open file behind.
-   *
-   * @sideEffects Writes buffered records and closes the log file.
-   */
-  async function closeLog(): Promise<void> {
-    destination.flushSync();
-    await new Promise<void>((done) => {
-      destination.once("close", () => done());
-      destination.end();
-    });
-  }
+  projects.onChange(() => feed.changed());
+  catalog.onChange(() => feed.changed());
+  workspaces.onChange(() => {
+    feed.changed();
+    // New worktrees may hold sessions started in a terminal.
+    sessions.rescan();
+  });
+  const indexCommands = createIndexCommands({ projects, workspaces, sessions, preferences, feed });
 
   let server: Awaited<ReturnType<typeof startWsServer>>;
   try {
@@ -147,11 +225,12 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       maxPayloadBytes: 1024 * 1024,
       limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 8 * 1024 * 1024 },
       hostVersion: packageJson.version,
-      hostInstanceId: randomBytes(8).toString("hex"),
+      hostInstanceId,
       heartbeatMs: HEARTBEAT_MS,
       maxBufferedBytes: MAX_BUFFERED_BYTES,
       subscriptions,
       sessions,
+      index: indexCommands,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -160,10 +239,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   } catch (error) {
     logger.error({ err: error }, "host failed to start");
     await tracing.shutdown();
-    await closeLog();
+    await closeLogFile(destination);
+    await lock.release();
     throw error;
   }
 
+  workspaces.start();
+  sessions.rescan();
   let cancelReport = scheduleReport();
   const stopDetecting = new AbortController();
   const tools = detectTools();
@@ -246,18 +328,25 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; stops every
-   * session's pi; flushes spans and logs; closes the log file.
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; stops scans,
+   * fetches and every session's pi; finishes writing the index; flushes spans and logs; closes
+   * the log file; releases the host lock.
    */
   async function close(): Promise<void> {
     cancelReport();
     stopDetecting.abort();
     await tools;
     await server.close();
+    await workspaces.close();
     await sessions.close();
+    await catalog.close();
+    // After the sessions, whose stopping still reports changes.
+    feed.close();
+    await index.flush();
     await tracing.shutdown();
     logger.info("host stopped");
-    await closeLog();
+    await closeLogFile(destination);
+    await lock.release();
   }
 
   return {
@@ -267,7 +356,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     tools,
     logFile,
-    flushLog: () => destination.flushSync(),
+    flushLog: () => drainLogFile(destination),
     close: () => (closing ??= close()),
   };
 }

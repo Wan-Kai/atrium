@@ -3,8 +3,6 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { useDisplayMode } from "../state/display-mode";
 import { Composer } from "./composer";
-import { RecentSessions } from "./recent-sessions";
-import { SessionToolbar } from "./session-toolbar";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -38,6 +36,7 @@ export function describeSendError(error: unknown): string {
   if (error.code === "session_not_found") return "这个会话已经不存在了";
   if (error.code === "transcript_changed") return "对话记录刚刚更新了，请再试一次";
   if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
+  if (error.code === "workspace_not_found") return "这个工作区已经不在了";
   return "宿主出错了，消息没有发出";
 }
 
@@ -49,8 +48,8 @@ export function describeSendError(error: unknown): string {
  * while a run is in progress (SPEC-0001, "M1.3 先做的部分").
  *
  * @sideEffects Subscribes to the session's store; loads older items when asked.
- * @param props - The client, the session, its view store, what to do with a message, how to go
- * back to the recent sessions, and a notice to show above the input box.
+ * @param props - The client, the session, its view store, what to do with a message, and a
+ * notice to show above the input box.
  * @returns The transcript and input box.
  */
 function SessionArea({
@@ -58,20 +57,17 @@ function SessionArea({
   sessionId,
   store,
   onSend,
-  onClose,
   notice,
 }: {
   readonly client: AtriumClient;
   readonly sessionId: string;
   readonly store: StoreApi<SessionView>;
   readonly onSend: (text: string) => void;
-  readonly onClose: () => void;
   readonly notice: ReactNode;
 }) {
   const view = useStore(store);
   return (
     <>
-      <SessionToolbar client={client} sessionId={sessionId} onClose={onClose} />
       <Transcript
         view={view}
         onLoadOlder={() => {
@@ -97,7 +93,7 @@ function SessionArea({
  *
  * @sideEffects Listens for keys on the window while mounted.
  */
-function useDisplayModeShortcut(): void {
+export function useDisplayModeShortcut(): void {
   const cycle = useDisplayMode().cycle;
   useEffect(() => {
     /**
@@ -120,68 +116,99 @@ function useDisplayModeShortcut(): void {
 }
 
 /**
- * The conversation screen until M1.5: one session, its transcript and the input box.
+ * The conversation area: the active session of the current container, or its empty state.
  *
  * @remarks
- * The sidebar and tabs come with M1.5. With no session open the recent sessions are listed, and
- * choosing one opens it (SPEC-0001, "打开历史会话"); the first message instead creates a chat,
- * as typing into an empty conversation area does (SPEC-0001, "标签栏"), and later messages go to
- * it. A second message sent while the chat is still being created waits for that chat instead of
- * creating another. Once the session's pi has exited or the host restarted without it, the next
- * message starts a new chat (SPEC-0001, "事件"). A failed send or open is explained above the
- * input box.
+ * The active session is watched while it shows. With no session open, typing into the input box
+ * creates one where the client is, a chat when it is nowhere yet, and sends the message to it
+ * (SPEC-0001, "标签栏"); a second message sent while it is being created waits for it instead of
+ * creating another, while one sent after moving to another container starts its own there. The
+ * active session is opened whenever it shows, which starts a pi that is not running (as after a
+ * restart) and explains here why it cannot. A session whose pi has exited, or that the host lost
+ * in a restart, is opened again before the message goes. A failed send is explained above the input box. The empty
+ * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计").
  *
- * @sideEffects Lists, opens and creates sessions, watches them and sends messages through the client.
- * @param props - The client.
- * @returns The screen.
+ * @sideEffects Watches the active session; creates and opens sessions and sends messages
+ * through the client.
+ * @param props - The client, the container, its active session, and how to create a session.
+ * @returns The area.
  */
-export function ChatScreen({ client }: { readonly client: AtriumClient }) {
-  useDisplayModeShortcut();
-  const [sessionId, setSessionId] = useState<string | null>(null);
+export function ConversationArea({
+  client,
+  containerId,
+  sessionId,
+  create,
+}: {
+  readonly client: AtriumClient;
+  readonly containerId: string | null;
+  readonly sessionId: string | null;
+  /** Creates a session where the client is and returns its id. */
+  readonly create: () => Promise<string>;
+}) {
   const [failure, setFailure] = useState<string | null>(null);
-  // The chat being created, shared by every send until it exists; only read in event handlers.
-  const creating = useRef<Promise<string> | null>(null);
-  const store = sessionId === null ? undefined : client.session(sessionId);
+  const [store, setStore] = useState<StoreApi<SessionView> | undefined>(undefined);
+  // The session being created in each container, shared by every send there until it exists;
+  // only read in event handlers.
+  const creating = useRef(new Map<string, Promise<string>>());
+
+  useEffect(() => {
+    let current = true;
+    // Fire and forget: a lost connection resubscribes on reconnect.
+    client.watch(sessionId === null ? [] : [sessionId]).catch(() => undefined);
+    // The client is the external system here: `watch` makes the session's view at once, and the
+    // area has to render again to subscribe to it; an old failure belongs to the old session.
+    // oxlint-disable-next-line react/set-state-in-effect -- see above.
+    setStore(sessionId === null ? undefined : client.session(sessionId));
+    setFailure(null);
+    // A tab may show a session whose pi is not running, as after a restart; opening starts it,
+    // and says here why it cannot (SPEC-0001, "项目、工作区与会话").
+    if (sessionId !== null) {
+      client.openSession(sessionId).catch((error: unknown) => {
+        if (current) setFailure(describeSendError(error));
+      });
+    }
+    return () => {
+      current = false;
+    };
+  }, [client, sessionId]);
 
   /**
-   * Creates a chat and starts watching it.
+   * Picks the session a message goes to, creating or reopening one as needed.
    *
    * @remarks
-   * See `ChatScreen`.
+   * Reads the view's status at send time, not from the last render.
    *
-   * @sideEffects Sends `create_chat` and `subscribe_sessions`; shows the new chat.
-   * @returns The new chat's session id.
-   */
-  async function createChat(): Promise<string> {
-    const { sessionId: created } = await client.createChat();
-    await client.watch([created]);
-    setSessionId(created);
-    return created;
-  }
-
-  /**
-   * Picks the chat a message goes to, creating one when there is none that can take it.
-   *
-   * @remarks
-   * Reads the current view's status at send time, not from the last render.
-   *
-   * @sideEffects May create a chat.
+   * @sideEffects May create or open a session and watch it.
    * @returns The session id to send to.
    */
   async function target(): Promise<string> {
-    const status = sessionId === null ? undefined : client.session(sessionId)?.getState().status;
-    if (sessionId !== null && status !== "exited" && status !== "lost") return sessionId;
-    creating.current ??= createChat().finally(() => {
-      creating.current = null;
-    });
-    return creating.current;
+    if (sessionId === null) {
+      // Per container: a message sent in another one must not wait for, or go to, this session.
+      const key = containerId ?? "";
+      const going = creating.current.get(key);
+      if (going !== undefined) return going;
+      const created = create()
+        .then(async (id) => {
+          await client.watch([id]);
+          return id;
+        })
+        .finally(() => creating.current.delete(key));
+      creating.current.set(key, created);
+      return created;
+    }
+    const status = client.session(sessionId)?.getState().status;
+    if (status === "exited" || status === "lost") {
+      await client.openSession(sessionId);
+      await client.watch([sessionId]);
+    }
+    return sessionId;
   }
 
   /**
-   * Sends a message to the chat, creating it first when needed.
+   * Sends a message, creating or reopening its session first when needed.
    *
    * @remarks
-   * See `ChatScreen`.
+   * See `ConversationArea`.
    *
    * @sideEffects Sends commands; updates component state.
    * @param text - The message.
@@ -190,27 +217,6 @@ export function ChatScreen({ client }: { readonly client: AtriumClient }) {
     setFailure(null);
     try {
       await client.prompt(await target(), text);
-    } catch (error) {
-      setFailure(describeSendError(error));
-    }
-  }
-
-  /**
-   * Opens a session from the recent list and starts watching it.
-   *
-   * @remarks
-   * Opening starts pi on the session's file unless it is open already (SPEC-0001, "打开历史会话");
-   * a failure is explained above the input box.
-   *
-   * @sideEffects Sends `open_session` and `subscribe_sessions`; shows the session.
-   * @param chosen - The session's id.
-   */
-  async function open(chosen: string): Promise<void> {
-    setFailure(null);
-    try {
-      const { sessionId: opened } = await client.openSession(chosen);
-      await client.watch([opened]);
-      setSessionId(opened);
     } catch (error) {
       setFailure(describeSendError(error));
     }
@@ -243,31 +249,21 @@ export function ChatScreen({ client }: { readonly client: AtriumClient }) {
     <div className="flex min-h-0 flex-1 flex-col">
       {store === undefined || sessionId === null ? (
         <>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <RecentSessions
-              client={client}
-              onOpen={(chosen) => {
-                // Fire and forget: `open` explains its own failures.
-                void open(chosen);
-              }}
-            />
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
+            <p className="text-[20px] font-medium text-[var(--text)]">
+              {containerId === null ? "开始一段对话" : containerId === "chats" ? "新对话" : "新会话"}
+            </p>
+            <p className="text-[length:var(--fs-meta)]">
+              {containerId === "chats" || containerId === null
+                ? "不绑定项目和工作区，直接输入就开始"
+                : "在这个工作区里开始，直接输入就会新建会话"}
+            </p>
           </div>
           {notice}
           <Composer onSend={onSend} />
         </>
       ) : (
-        <SessionArea
-          client={client}
-          sessionId={sessionId}
-          store={store}
-          onSend={onSend}
-          onClose={() => {
-            setSessionId(null);
-            // Fire and forget: nothing is watched any more.
-            client.watch([]).catch(() => undefined);
-          }}
-          notice={notice}
-        />
+        <SessionArea client={client} sessionId={sessionId} store={store} onSend={onSend} notice={notice} />
       )}
     </div>
   );

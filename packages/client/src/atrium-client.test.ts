@@ -48,10 +48,11 @@ function scriptedSocket() {
       );
       socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: false, error: { code } }));
     },
-    /** The commands sent after the hello, without their trace. */
+    /** The commands sent after the hello, without their trace or the list subscription every welcome brings. */
     commands: () =>
       socket.sent
         .slice(1)
+        .filter((sent) => sent["type"] !== "subscribe_index")
         .map((sent) => Object.fromEntries(Object.entries(sent).filter(([key]) => key !== "traceparent"))),
   };
   return socket;
@@ -296,7 +297,7 @@ describe("createAtriumClient: the connection", () => {
     clock.advance(15_000);
     expect(socket.commands()).toStrictEqual([
       { type: "ping", requestId: "client-1-1" },
-      { type: "ping", requestId: "client-1-2" },
+      { type: "ping", requestId: "client-1-3" },
     ]);
     const waiting = client.createChat();
     clock.advance(15_000);
@@ -350,26 +351,58 @@ describe("createAtriumClient: commands", () => {
     latest().answer("create_chat", { sessionId: "s1" });
 
     expect(await created).toStrictEqual({ sessionId: "s1" });
-    expect(latest().sent.at(-1)).toStrictEqual({ type: "create_chat", requestId: "client-1-2", traceparent });
+    expect(latest().sent.at(-1)).toStrictEqual({ type: "create_chat", requestId: "client-1-3", traceparent });
   });
 
-  it("lists recent sessions and opens one", async () => {
+  it("sends the session, project, workspace and preference commands with their fields", async () => {
     const { client, latest } = await connected();
+    const calls = [
+      client.createSession("wks_0123456789abcdef"),
+      client.archiveSession("s1"),
+      client.renameSession("s1", "名字"),
+      client.addProject("/work/app"),
+      client.removeProject("prj_0123456789abcdef"),
+      client.renameProject("prj_0123456789abcdef", "app"),
+      client.renameWorkspace("wks_0123456789abcdef", null),
+      client.windowFocused(),
+    ];
+    latest().answer("create_session", { sessionId: "s9" });
+    latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
+    for (const type of [
+      "archive_session",
+      "rename_session",
+      "remove_project",
+      "rename_project",
+      "rename_workspace",
+      "window_focused",
+    ]) {
+      latest().answer(type);
+    }
 
-    const listed = client.listRecentSessions(20);
-    latest().answer("list_recent_sessions", { sessions: [{ sessionId: "s7", firstPrompt: "hi", modifiedAt: 9 }] });
-    const opened = client.openSession("s7");
-    latest().answer("open_session", { sessionId: "s7" });
-
-    expect(await listed).toStrictEqual({ sessions: [{ sessionId: "s7", firstPrompt: "hi", modifiedAt: 9 }] });
-    expect(await opened).toStrictEqual({ sessionId: "s7" });
+    expect(await Promise.all(calls)).toStrictEqual([
+      { sessionId: "s9" },
+      {},
+      {},
+      { projectId: "prj_0123456789abcdef" },
+      {},
+      {},
+      {},
+      {},
+    ]);
     expect(
       latest()
         .commands()
-        .filter((command) => command["type"] !== "ping"),
+        .filter((command) => command["type"] !== "ping")
+        .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([
-      { type: "list_recent_sessions", requestId: "client-1-2", limit: 20 },
-      { type: "open_session", requestId: "client-1-3", sessionId: "s7" },
+      { type: "create_session", workspaceId: "wks_0123456789abcdef" },
+      { type: "archive_session", sessionId: "s1" },
+      { type: "rename_session", sessionId: "s1", name: "名字" },
+      { type: "add_project", path: "/work/app" },
+      { type: "remove_project", projectId: "prj_0123456789abcdef" },
+      { type: "rename_project", projectId: "prj_0123456789abcdef", name: "app" },
+      { type: "rename_workspace", workspaceId: "wks_0123456789abcdef", name: null },
+      { type: "window_focused" },
     ]);
   });
 
@@ -380,7 +413,7 @@ describe("createAtriumClient: commands", () => {
     latest().receive(
       JSON.stringify({
         type: "response",
-        requestId: "client-1-2",
+        requestId: "client-1-3",
         ok: false,
         error: { code: "pi_unavailable", params: { status: "missing" } },
       }),
@@ -429,12 +462,12 @@ describe("createAtriumClient: commands", () => {
     expect(latest().commands().slice(1)).toStrictEqual([
       {
         type: "report_client_issue",
-        requestId: "client-1-2",
+        requestId: "client-1-3",
         kind: "error",
         message: "m".repeat(4096),
         details: "d".repeat(4096),
       },
-      { type: "report_client_issue", requestId: "client-1-3", kind: "long_task", message: "took 80 ms" },
+      { type: "report_client_issue", requestId: "client-1-4", kind: "long_task", message: "took 80 ms" },
     ]);
   });
 });
@@ -452,8 +485,8 @@ describe("createAtriumClient: sessions", () => {
     await rewatching;
 
     expect(latest().commands().slice(1)).toStrictEqual([
-      { type: "subscribe_sessions", requestId: "client-1-2", sessionIds: ["s1", "s2"] },
-      { type: "subscribe_sessions", requestId: "client-1-3", sessionIds: ["s1"] },
+      { type: "subscribe_sessions", requestId: "client-1-3", sessionIds: ["s1", "s2"] },
+      { type: "subscribe_sessions", requestId: "client-1-4", sessionIds: ["s1"] },
     ]);
     expect(client.session("s1")).toBe(s1);
     expect(client.session("s2")).toBeUndefined();
@@ -474,7 +507,7 @@ describe("createAtriumClient: sessions", () => {
     expect(client.session("s1")?.getState().status).toBe("loading");
     expect(latest().commands()).toStrictEqual([
       { type: "ping", requestId: "client-1-1" },
-      { type: "subscribe_sessions", requestId: "client-1-2", sessionIds: ["s1"] },
+      { type: "subscribe_sessions", requestId: "client-1-3", sessionIds: ["s1"] },
     ]);
   });
 
@@ -511,8 +544,8 @@ describe("createAtriumClient: sessions", () => {
 
     expect(client.session("s1")?.getState().status).toBe("loading");
     expect(latest().commands().slice(2)).toStrictEqual([
-      { type: "subscribe_sessions", requestId: "client-1-3", sessionIds: ["s2"] },
-      { type: "subscribe_sessions", requestId: "client-1-4", sessionIds: ["s1", "s2"] },
+      { type: "subscribe_sessions", requestId: "client-1-4", sessionIds: ["s2"] },
+      { type: "subscribe_sessions", requestId: "client-1-5", sessionIds: ["s1", "s2"] },
     ]);
   });
 
@@ -528,8 +561,8 @@ describe("createAtriumClient: sessions", () => {
     latest().receive(welcome("0.1.0", "h1"));
 
     expect(latest().commands()).toStrictEqual([
-      { type: "ping", requestId: "client-1-3" },
-      { type: "subscribe_sessions", requestId: "client-1-4", sessionIds: ["s1"] },
+      { type: "ping", requestId: "client-1-4" },
+      { type: "subscribe_sessions", requestId: "client-1-6", sessionIds: ["s1"] },
     ]);
   });
 
@@ -546,18 +579,18 @@ describe("createAtriumClient: sessions", () => {
     await sent;
     // Started is not confirmed yet: the copy stays until pi echoes the message.
     const pendingAfterAnswer = client.session("s1")?.getState().pending;
-    latest().receive(event(1, { type: "turn_started", turn: turn("t1", "client-1-3") }));
+    latest().receive(event(1, { type: "turn_started", turn: turn("t1", "client-1-4") }));
 
-    expect(pendingNow).toStrictEqual([{ clientMessageId: "client-1-3", text: "hello" }]);
+    expect(pendingNow).toStrictEqual([{ clientMessageId: "client-1-4", text: "hello" }]);
     expect(pendingAfterAnswer).toStrictEqual(pendingNow);
     expect(latest().sent.at(-1)).toStrictEqual({
       type: "prompt",
-      requestId: "client-1-3",
+      requestId: "client-1-4",
       traceparent,
       sessionId: "s1",
       text: "hello",
     });
-    expect(client.session("s1")?.getState()).toMatchObject({ pending: [], items: [turn("t1", "client-1-3")] });
+    expect(client.session("s1")?.getState()).toMatchObject({ pending: [], items: [turn("t1", "client-1-4")] });
   });
 
   it("takes a pending prompt back when it fails or an extension handles it", async () => {
@@ -572,13 +605,13 @@ describe("createAtriumClient: sessions", () => {
     const kept = client.prompt("s1", "kept");
     const failed = client.prompt("s1", "x");
     latest().receive(
-      JSON.stringify({ type: "response", requestId: "client-1-5", ok: false, error: { code: "session_not_found" } }),
+      JSON.stringify({ type: "response", requestId: "client-1-6", ok: false, error: { code: "session_not_found" } }),
     );
     await expect(failed).rejects.toBeInstanceOf(CommandError);
 
-    expect(client.session("s1")?.getState().pending).toStrictEqual([{ clientMessageId: "client-1-4", text: "kept" }]);
+    expect(client.session("s1")?.getState().pending).toStrictEqual([{ clientMessageId: "client-1-5", text: "kept" }]);
     latest().receive(
-      JSON.stringify({ type: "response", requestId: "client-1-4", ok: true, result: { disposition: "started" } }),
+      JSON.stringify({ type: "response", requestId: "client-1-5", ok: true, result: { disposition: "started" } }),
     );
     await kept;
   });
@@ -592,7 +625,7 @@ describe("createAtriumClient: sessions", () => {
     expect(await sent).toStrictEqual({ disposition: "started" });
     const failed = client.prompt("s9", "again");
     latest().receive(
-      JSON.stringify({ type: "response", requestId: "client-1-3", ok: false, error: { code: "session_not_found" } }),
+      JSON.stringify({ type: "response", requestId: "client-1-4", ok: false, error: { code: "session_not_found" } }),
     );
     await expect(failed).rejects.toStrictEqual(new CommandError("session_not_found"));
     expect(client.session("s9")).toBeUndefined();
@@ -622,7 +655,7 @@ describe("createAtriumClient: sessions", () => {
     expect(client.session("s1")?.getState()).toMatchObject({ status: "lost", run: null, pending: [] });
     expect(client.session("s1")?.getState().items).toBe(shown);
     // The new host does not know the session, so it is not subscribed again.
-    expect(latest().commands()).toStrictEqual([{ type: "ping", requestId: "client-1-3" }]);
+    expect(latest().commands()).toStrictEqual([{ type: "ping", requestId: "client-1-4" }]);
   });
 
   it("fetches the page before the earliest item once at a time, joining a fetch on its way, and puts it in front", async () => {
@@ -644,7 +677,7 @@ describe("createAtriumClient: sessions", () => {
         .commands()
         .filter((command) => command["type"] === "fetch_transcript"),
     ).toStrictEqual([
-      { type: "fetch_transcript", requestId: "client-1-3", sessionId: "s1", epoch: 1, before: "t5", limit: 50 },
+      { type: "fetch_transcript", requestId: "client-1-4", sessionId: "s1", epoch: 1, before: "t5", limit: 50 },
     ]);
     expect(client.session("s1")?.getState()).toMatchObject({
       items: [turn("t3"), turn("t4"), turn("t5")],
@@ -726,7 +759,7 @@ describe("createAtriumClient: sessions", () => {
         .commands()
         .filter((command) => command["type"] === "fetch_step"),
     ).toStrictEqual([
-      { type: "fetch_step", requestId: "client-1-3", sessionId: "s1", epoch: 1, turnId: "t1", stepId: "0" },
+      { type: "fetch_step", requestId: "client-1-4", sessionId: "s1", epoch: 1, turnId: "t1", stepId: "0" },
     ]);
     expect(client.session("s1")?.getState().items).toStrictEqual([
       { ...turn("t1"), steps: [{ ...preview, output: "start…end", partial: false }] },
@@ -785,5 +818,98 @@ describe("createAtriumClient: sessions", () => {
     latest().receive(welcome("0.1.0", "h1"));
 
     expect(client.session("s1")?.getState().status).toBe("ready");
+  });
+});
+
+/** A list snapshot of host instance `generation` at `seq`, with one session in a workspace. */
+function indexSnapshot(seq: number, generation = "h1", fields: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    type: "index_snapshot",
+    generation,
+    seq,
+    projects: [],
+    workspaces: [],
+    sessions: [
+      {
+        sessionId: "s1",
+        containerId: "wks_0123456789abcdef",
+        name: null,
+        prompt: "hi",
+        file: null,
+        state: "draft",
+        updatedAt: 1,
+        archived: false,
+        running: false,
+      },
+    ],
+    layout: { container: null, tabs: {} },
+    preferences: { appearance: "system", displayMode: "summary" },
+    resets: [],
+    ...fields,
+  });
+}
+
+describe("createAtriumClient: the list", () => {
+  it("subscribes to the list on every connection", async () => {
+    const { latest, clock } = await connected();
+    const subscribed = () => latest().sent.filter((sent) => sent["type"] === "subscribe_index");
+    expect(subscribed()).toHaveLength(1);
+
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome());
+
+    expect(subscribed()).toHaveLength(1);
+  });
+
+  it("is empty until the first snapshot, then holds the latest, ignoring older ones of the same host", async () => {
+    const { client, latest } = await connected();
+    expect(client.index.getState()).toMatchObject({ ready: false, sessions: [], seq: 0 });
+
+    latest().receive(indexSnapshot(2));
+    latest().receive(indexSnapshot(1, "h1", { sessions: [] }));
+    latest().receive(indexSnapshot(2, "h1", { sessions: [] }));
+    expect(client.index.getState()).toMatchObject({
+      ready: true,
+      generation: "h1",
+      seq: 2,
+      sessions: [{ sessionId: "s1" }],
+    });
+
+    latest().receive(indexSnapshot(1, "h2", { sessions: [] }));
+    expect(client.index.getState()).toMatchObject({ generation: "h2", seq: 1, sessions: [] });
+    expect(client.index.getState()).not.toHaveProperty("type");
+  });
+
+  it("shows tab and preference changes at once, before the host confirms them", async () => {
+    const { client, latest } = await connected();
+    latest().receive(indexSnapshot(1));
+
+    const opened = client.openSession("s1");
+    expect(client.index.getState().layout).toStrictEqual({
+      container: "wks_0123456789abcdef",
+      tabs: { wks_0123456789abcdef: { open: ["s1"], active: "s1" } },
+    });
+    const closed = client.closeTab("s1");
+    expect(client.index.getState().layout.tabs).toStrictEqual({ wks_0123456789abcdef: { open: [], active: null } });
+    const selected = client.selectContainer("chats");
+    expect(client.index.getState().layout.container).toBe("chats");
+    const preferred = client.setPreferences({ displayMode: "detailed" });
+    expect(client.index.getState().preferences).toStrictEqual({ appearance: "system", displayMode: "detailed" });
+
+    for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
+    expect(await Promise.all([opened, closed, selected, preferred])).toStrictEqual([{}, {}, {}, {}]);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] !== "ping")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "open_session", sessionId: "s1" },
+      { type: "close_tab", sessionId: "s1" },
+      { type: "select_container", containerId: "chats" },
+      { type: "set_preferences", displayMode: "detailed" },
+    ]);
   });
 });

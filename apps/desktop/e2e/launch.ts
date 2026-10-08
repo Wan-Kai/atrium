@@ -7,6 +7,8 @@ import { join } from "node:path";
 export interface LaunchedApp {
   readonly app: ElectronApplication;
   readonly window: Page;
+  /** The Atrium home directory the app was started with. */
+  readonly home: string;
   /** Milliseconds from launch until the page reported a connected host. */
   readonly connectedAfterMs: number;
   /** Reads every record in the host's current log file. */
@@ -47,12 +49,14 @@ export function median(values: readonly number[]): number {
  * in its utility process and loads the UI the host serves. Only `ATRIUM_HOME` is redirected, so
  * the test never touches the developer's `~/.atrium`.
  *
- * @sideEffects Creates a temp directory; launches Electron; waits for the page to connect.
+ * @sideEffects Creates a temp directory unless given one; launches Electron; waits for the page to
+ * connect.
  * @param env - Extra environment variables, such as `ATRIUM_DEV_URL` for the development path.
+ * @param existingHome - A home an earlier launch used, to start the app again on it.
  * @returns The app, its window and helpers.
  */
-export async function launchApp(env: Record<string, string> = {}): Promise<LaunchedApp> {
-  const home = await mkdtemp(join(tmpdir(), "atrium-e2e-"));
+export async function launchApp(env: Record<string, string> = {}, existingHome?: string): Promise<LaunchedApp> {
+  const home = existingHome ?? (await mkdtemp(join(tmpdir(), "atrium-e2e-")));
   const started = Date.now();
   const app = await electron.launch({
     args: ["."],
@@ -67,6 +71,7 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
   return {
     app,
     window,
+    home,
     connectedAfterMs,
     readHostLog: async () =>
       (await readFile(join(home, "logs", "current.log"), "utf8"))

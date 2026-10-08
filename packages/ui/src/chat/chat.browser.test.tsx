@@ -1,12 +1,12 @@
-import type { AtriumClient, ConnectionState, SessionView } from "@atrium/client";
+import type { SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
-import type { RecentSession, TranscriptItem, Turn } from "@atrium/protocol";
+import type { TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
-import { type StoreApi, createStore } from "zustand/vanilla";
 import "../styles.css";
-import { ChatScreen, describeSendError } from "./chat-screen";
+import { fakeClient } from "../test/fake-client";
+import { ConversationArea, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
 import { UserBubble } from "./messages";
 import { ClockContext, type UiClock } from "../state/clock";
@@ -266,190 +266,165 @@ describe("Transcript", () => {
   });
 });
 
-/** A client that records commands, creates chats s1, s2, … and answers as the test says. */
-function fakeClient(
-  answers: {
-    createChat?: () => Promise<void>;
-    prompt?: () => Promise<never>;
-    recent?: RecentSession[];
-    openSession?: () => Promise<void>;
-  } = {},
-) {
-  const calls: string[] = [];
-  const listed: number[] = [];
-  const stores = new Map<string, StoreApi<SessionView>>();
-  const connection = createStore<ConnectionState>(() => ({
-    status: "connected",
-    traceId: "t",
-    hostVersion: "0",
-    hostInstanceId: "h1",
-  }));
-  const client = {
-    connection,
-    listRecentSessions: async (limit: number) => {
-      listed.push(limit);
-      return { sessions: answers.recent ?? [] };
-    },
-    openSession: async (sessionId: string) => {
-      calls.push(`openSession ${sessionId}`);
-      await answers.openSession?.();
-      stores.set(
-        sessionId,
-        createStore<SessionView>(() => view({ sessionId, items: [turn("t1", "以前的回答")] })),
-      );
-      return { sessionId };
-    },
-    createChat: async () => {
-      calls.push("createChat");
-      await answers.createChat?.();
-      const sessionId = `s${stores.size + 1}`;
-      stores.set(
-        sessionId,
-        createStore<SessionView>(() => view({ sessionId })),
-      );
-      return { sessionId };
-    },
-    watch: async (ids: readonly string[]) => {
-      calls.push(`watch ${ids.join(",")}`);
-    },
-    session: (id: string) => stores.get(id),
-    loadOlder: async () => undefined,
-    loadStep: async () => undefined,
-    prompt: (sessionId: string, text: string) => {
-      calls.push(`prompt ${sessionId} ${text}`);
-      const store = stores.get(sessionId);
-      store?.setState({
-        pending: [...(store.getState().pending ?? []), { clientMessageId: `q${calls.length}`, text }],
-      });
-      return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
-    },
-  } as unknown as AtriumClient;
-  return { client, calls, listed, stores, connection };
+/**
+ * A creation that never happens.
+ *
+ * @remarks
+ * For tests where a session is active, so nothing is created.
+ *
+ * @sideEffects none
+ * @returns An empty id.
+ */
+async function noCreate(): Promise<string> {
+  return "";
 }
 
-describe("ChatScreen", () => {
-  it("creates and watches a chat on the first message, and sends later ones to it", async () => {
-    const { client, calls } = fakeClient();
-    const screen = await render(<ChatScreen client={client} />);
-    const box = screen.getByRole("textbox", { name: "消息" });
-
-    await userEvent.type(box, "你好{Enter}");
-    await vi.waitFor(() => expect(calls).toHaveLength(3));
-    await userEvent.type(box, "再说一句{Enter}");
-    await vi.waitFor(() => expect(calls).toHaveLength(4));
-
-    expect(calls).toStrictEqual(["createChat", "watch s1", "prompt s1 你好", "prompt s1 再说一句"]);
-    await vi.waitFor(() =>
-      expect(screen.container.querySelectorAll('[data-testid="user-message"][data-pending="true"]')).toHaveLength(2),
+describe("ConversationArea", () => {
+  it("opens the active session when it shows, and explains when it cannot start", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      { openSession: () => Promise.reject(new CommandError("session_cwd_missing", { cwd: "/gone/work" })) },
     );
+
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />,
+    );
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("恢复失败：会话的目录 /gone/work 不存在");
+    expect(calls).toStrictEqual(["watch s1", "openSession s1"]);
   });
 
-  it("waits for the chat being created instead of creating a second one", async () => {
+  it("keeps a session being created to its own container, so a message sent after moving goes elsewhere", async () => {
     const gate = Promise.withResolvers<void>();
-    const { client, calls } = fakeClient({ createChat: () => gate.promise });
-    const screen = await render(<ChatScreen client={client} />);
+    const { client, calls } = fakeClient({}, { createSession: () => gate.promise });
+    const createIn = (workspaceId: string) => async () => (await client.createSession(workspaceId)).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId="wks_a" sessionId={null} create={createIn("wks_a")} />,
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "给 A{Enter}");
+
+    await screen.rerender(
+      <ConversationArea client={client} containerId="wks_b" sessionId={null} create={createIn("wks_b")} />,
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "给 B{Enter}");
+    gate.resolve();
+
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.startsWith("prompt")).toSorted()).toStrictEqual([
+        "prompt new1 给 A",
+        "prompt new2 给 B",
+      ]),
+    );
+    expect(calls.filter((call) => call.startsWith("createSession"))).toStrictEqual([
+      "createSession wks_a",
+      "createSession wks_b",
+    ]);
+  });
+
+  it("creates a session where the client is on the first message, watches it, and waits for it", async () => {
+    const gate = Promise.withResolvers<void>();
+    const { client, calls } = fakeClient({}, { createChat: () => gate.promise });
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId={null} sessionId={null} create={create} />,
+    );
+    await expect.element(screen.getByText("开始一段对话")).toBeVisible();
     const box = screen.getByRole("textbox", { name: "消息" });
 
     await userEvent.type(box, "一{Enter}");
     await userEvent.type(box, "二{Enter}");
     gate.resolve();
 
-    await vi.waitFor(() => expect(calls).toHaveLength(4));
-    expect(calls).toStrictEqual(["createChat", "watch s1", "prompt s1 一", "prompt s1 二"]);
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual([
+        "createChat",
+        "prompt new1 一",
+        "prompt new1 二",
+      ]),
+    );
+    expect(calls).toContain("watch new1");
   });
 
-  it.each(["exited", "lost"] as const)("starts a new chat once the current one is %s", async (status) => {
-    const { client, calls, stores } = fakeClient();
-    const screen = await render(<ChatScreen client={client} />);
-    const box = screen.getByRole("textbox", { name: "消息" });
-    await userEvent.type(box, "一{Enter}");
-    await vi.waitFor(() => expect(calls).toHaveLength(3));
+  it.each([
+    ["chats", "不绑定项目和工作区，直接输入就开始"],
+    ["wks_000000000000000a", "在这个工作区里开始，直接输入就会新建会话"],
+  ])("says where a new session goes in %s when none is open", async (containerId, hint) => {
+    const { client } = fakeClient();
 
-    stores.get("s1")?.setState({ status });
-    await userEvent.type(box, "二{Enter}");
+    const screen = await render(
+      <ConversationArea client={client} containerId={containerId} sessionId={null} create={async () => ""} />,
+    );
 
-    await vi.waitFor(() => expect(calls).toHaveLength(6));
-    expect(calls.slice(3)).toStrictEqual(["createChat", "watch s2", "prompt s2 二"]);
+    await expect.element(screen.getByText(hint)).toBeVisible();
+  });
+
+  it("watches the active session and sends to it", async () => {
+    const { client, calls } = fakeClient();
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />,
+    );
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
+
+    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 你好"]));
+    await expect.element(screen.getByTestId("user-message")).toHaveAttribute("data-pending", "true");
+    await expect.element(screen.getByTestId("user-message")).toHaveTextContent("你好");
+  });
+
+  it.each(["exited", "lost"] as const)("opens a session that is %s again before sending to it", async (status) => {
+    const { client, calls, views } = fakeClient();
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId="s1" create={async () => ""} />,
+    );
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    views.get("s1")?.setState({ status });
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "再来{Enter}");
+
+    await vi.waitFor(() =>
+      expect(calls).toStrictEqual(["watch s1", "openSession s1", "openSession s1", "watch s1", "prompt s1 再来"]),
+    );
   });
 
   it("does not send while a run is in progress", async () => {
-    const { client, calls, stores } = fakeClient();
-    const screen = await render(<ChatScreen client={client} />);
-    const box = screen.getByRole("textbox", { name: "消息" });
-    await userEvent.type(box, "一{Enter}");
-    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    const { client, calls, views } = fakeClient();
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId="s1" create={async () => ""} />,
+    );
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    views.get("s1")?.setState({ run: { runId: "r1", startedAt: Date.now() } });
 
-    stores.get("s1")?.setState({ run: { runId: "r1", startedAt: Date.now() } });
-    await userEvent.type(box, "二{Enter}");
-
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "二{Enter}");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
-    expect(calls).toHaveLength(3);
-    stores.get("s1")?.setState({ run: null });
+    views.get("s1")?.setState({ run: null });
     await screen.getByRole("button", { name: "发送" }).click();
-    await vi.waitFor(() => expect(calls).toStrictEqual(["createChat", "watch s1", "prompt s1 一", "prompt s1 二"]));
+
+    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 二"]));
   });
 
-  it("lists the recent sessions once connected, and opens one", async () => {
-    const recent: RecentSession[] = [
-      { sessionId: "old", firstPrompt: "以前问的", modifiedAt: Date.now() - 60_000 },
-      { sessionId: "blank", firstPrompt: null, modifiedAt: Date.UTC(2026, 0, 2) },
-    ];
-    const { client, calls, listed, connection } = fakeClient({ recent });
-    connection.setState({ status: "connecting", traceId: "t" }, true);
-    const screen = await render(<ChatScreen client={client} />);
-    expect(listed).toStrictEqual([]);
+  it("stops watching when no session is active, and drops an old failure on switching", async () => {
+    const { client, calls } = fakeClient({}, { prompt: () => Promise.reject(new CommandError("session_busy")) });
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />,
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "一{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 正在忙，等这一轮结束再发");
 
-    connection.setState({ status: "connected", traceId: "t", hostVersion: "0", hostInstanceId: "h1" }, true);
-    const list = screen.getByRole("region", { name: "最近的会话" });
-    await expect.element(list).toMatchTextContent(/^最近的会话以前问的今天 \d{2}:\d{2}（没有提问）1月2日$/);
-    expect(listed).toStrictEqual([20]);
-    await list.getByRole("button", { name: /以前问的/ }).click();
+    await screen.rerender(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />);
 
-    await vi.waitFor(() => expect(calls).toStrictEqual(["openSession old", "watch old"]));
-    await expect.element(screen.getByTestId("reply")).toHaveTextContent("以前的回答");
-    await expect.element(screen.getByRole("region", { name: "最近的会话" })).not.toBeInTheDocument();
-
-    await screen.getByRole("button", { name: "最近会话" }).click();
-    await expect.element(screen.getByRole("region", { name: "最近的会话" })).toBeVisible();
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
     expect(calls.at(-1)).toBe("watch ");
   });
 
-  it("explains a session that could not be opened", async () => {
-    const { client } = fakeClient({
-      recent: [{ sessionId: "gone", firstPrompt: "x", modifiedAt: 0 }],
-      openSession: () => Promise.reject(new CommandError("session_not_found", { sessionId: "gone" })),
-    });
-    const screen = await render(<ChatScreen client={client} />);
-
-    await screen.getByRole("button", { name: /^x/ }).click();
-
-    await expect.element(screen.getByRole("alert")).toHaveTextContent("这个会话已经不存在了");
-  });
-
-  it("switches the display mode with Ctrl+O and from its menu", async () => {
-    const { client, calls } = fakeClient();
-    const screen = await render(<ChatScreen client={client} />);
-    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "一{Enter}");
-    await vi.waitFor(() => expect(calls).toHaveLength(3));
-    const menu = screen.getByRole("button", { name: "显示模式（Ctrl+O 切换）" });
-    await expect.element(menu).toHaveTextContent("摘要模式");
-
-    await userEvent.keyboard("{Control>}o{/Control}");
-    await expect.element(menu).toHaveTextContent("思考模式");
-    await userEvent.keyboard("{Meta>}{Control>}o{/Control}{/Meta}");
-    await expect.element(menu).toHaveTextContent("思考模式");
-    await menu.click();
-    await screen.getByRole("menuitemradio", { name: /详细/ }).click();
-
-    await expect.element(menu).toHaveTextContent("详细模式");
-    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
-  });
-
-  it("explains a failed send above the input box", async () => {
-    const { client } = fakeClient({
-      createChat: () => Promise.reject(new CommandError("pi_unavailable", { status: "missing" })),
-    });
-    const screen = await render(<ChatScreen client={client} />);
+  it("explains a failed creation above the input box", async () => {
+    const { client } = fakeClient(
+      {},
+      { createChat: () => Promise.reject(new CommandError("pi_unavailable", { status: "missing" })) },
+    );
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId={null} sessionId={null} create={create} />,
+    );
 
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
 
@@ -470,6 +445,7 @@ describe("ChatScreen", () => {
     [new CommandError("transcript_changed"), "对话记录刚刚更新了，请再试一次"],
     [new CommandError("session_cwd_missing", { cwd: "/gone/work" }), "恢复失败：会话的目录 /gone/work 不存在"],
     [new CommandError("session_cwd_missing"), "恢复失败：会话的目录  不存在"],
+    [new CommandError("workspace_not_found"), "这个工作区已经不在了"],
     [new CommandError("internal_error"), "宿主出错了，消息没有发出"],
     [new Error("other"), "发送失败"],
   ])("describes %s", (error, text) => {

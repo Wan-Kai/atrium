@@ -1,4 +1,16 @@
-import { BrowserWindow, app, ipcMain, nativeTheme, session, shell, utilityProcess } from "electron";
+import {
+  BrowserWindow,
+  Menu,
+  app,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  net,
+  protocol,
+  session,
+  shell,
+  utilityProcess,
+} from "electron";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
@@ -105,23 +117,27 @@ function startHost(options: {
   });
 }
 
+/** The scheme and origin the window loads the UI from, the same on every launch. */
+const APP_SCHEME = "atrium";
+const APP_ORIGIN = `${APP_SCHEME}://app`;
+
 /**
- * Content Security Policy for the Vite dev server page.
+ * Content Security Policy for a page the host does not serve directly.
  *
  * @remarks
- * In development the page comes from Vite, not the host, so the host's CSP header never reaches
- * it while it still holds the real token (security.md, "Electron"). The policy matches the
- * host's, except that inline scripts are allowed for React Fast Refresh's preamble and the page
- * may connect to the host on its own port.
+ * Matches the host's own policy (security.md, "Electron"), except that the page may connect to
+ * the host on its port, which is not the page's own origin. In development the page comes from
+ * Vite, and inline scripts are also allowed for React Fast Refresh's preamble.
  *
  * @sideEffects none
  * @param hostPort - Port the host listens on.
+ * @param dev - Whether the page is Vite's.
  * @returns The policy string.
  */
-function devContentSecurityPolicy(hostPort: number): string {
+function pageContentSecurityPolicy(hostPort: number, dev: boolean): string {
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    dev ? "script-src 'self' 'unsafe-inline'" : "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob: https:",
     "font-src 'self'",
@@ -149,6 +165,29 @@ function openInBrowser(url: string): void {
 }
 
 /**
+ * Whether a URL belongs to the app's page.
+ *
+ * @remarks
+ * Compares scheme and host (with port), not `URL.origin`: Node gives every URL of a scheme it does
+ * not know, `atrium:` included, the origin `"null"`, so all opaque origins would compare equal
+ * (security.md, "Electron").
+ *
+ * @sideEffects none
+ * @param url - The URL to check.
+ * @param pageUrl - The page's URL.
+ * @returns Whether it is the page's.
+ */
+function isPageUrl(url: string, pageUrl: string): boolean {
+  try {
+    const candidate = new URL(url);
+    const page = new URL(pageUrl);
+    return candidate.protocol === page.protocol && candidate.host === page.host;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Applies the window-level security rules to a window's web contents.
  *
  * @remarks
@@ -158,11 +197,11 @@ function openInBrowser(url: string): void {
  * @sideEffects Registers navigation and window-open handlers on `window`; may open URLs in the
  * system browser.
  * @param window - The window to restrict.
- * @param pageOrigin - The only origin the page may navigate within.
+ * @param pageUrl - The page; navigation stays within its scheme and host.
  */
-function restrictNavigation(window: BrowserWindow, pageOrigin: string): void {
+function restrictNavigation(window: BrowserWindow, pageUrl: string): void {
   window.webContents.on("will-navigate", (event, url) => {
-    if (new URL(url).origin === pageOrigin) return;
+    if (isPageUrl(url, pageUrl)) return;
     event.preventDefault();
     openInBrowser(url);
   });
@@ -173,20 +212,24 @@ function restrictNavigation(window: BrowserWindow, pageOrigin: string): void {
 }
 
 /**
- * Starts the host, then opens the main window on the page the host (or the Vite dev server) serves.
+ * Starts the host, then opens the main window on the UI: the host's files at `atrium://app/`, or
+ * the Vite dev server's page.
  *
  * @remarks
  * Renderer settings follow security.md ("Electron"): context isolation, sandbox, no Node. The
  * preload asks for the token over IPC, and the handler answers only frames from the expected
  * origin. Permission requests are refused until a feature needs one. Quitting is held until the
- * host has shut down cleanly. In development the Vite page gets its own CSP header.
+ * host has shut down cleanly. In development the Vite page gets its own CSP header. Opening the
+ * app again focuses this window.
  *
- * @sideEffects Generates the session token; starts the host; registers IPC handlers; creates a
- * window; adds a CSP header to dev pages; delays quitting until the host has stopped.
+ * @sideEffects Generates the session token; starts the host; registers IPC handlers (bootstrap,
+ * choosing a folder, appearance); sets the app menu; creates a window; adds a CSP header to dev pages; delays quitting until the host has stopped; focuses
+ * the window when the app is opened again.
  */
 async function main(): Promise<void> {
   await app.whenReady();
   nativeTheme.themeSource = "system";
+  Menu.setApplicationMenu(appMenu());
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 
   const paths = resolvePaths();
@@ -196,7 +239,7 @@ async function main(): Promise<void> {
     hostEntry: paths.hostEntry,
     token,
     uiDir: devUrl === undefined ? paths.uiDir : undefined,
-    extraOrigins: devUrl === undefined ? [] : [new URL(devUrl).origin],
+    extraOrigins: [devUrl === undefined ? APP_ORIGIN : new URL(devUrl).origin],
   });
   let hostStopped = false;
   app.on("will-quit", (event) => {
@@ -208,24 +251,53 @@ async function main(): Promise<void> {
   });
 
   const hostUrl = `http://127.0.0.1:${host.port}`;
-  const pageUrl = devUrl ?? `${hostUrl}/`;
+  const pageUrl = devUrl ?? `${APP_ORIGIN}/`;
   const pageOrigin = new URL(pageUrl).origin;
   if (devUrl !== undefined) {
     session.defaultSession.webRequest.onHeadersReceived({ urls: [`${pageOrigin}/*`] }, (details, callback) => {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          "Content-Security-Policy": [devContentSecurityPolicy(host.port)],
+          "Content-Security-Policy": [pageContentSecurityPolicy(host.port, true)],
         },
       });
     });
+  } else {
+    serveAppScheme(hostUrl, pageContentSecurityPolicy(host.port, false));
   }
 
-  ipcMain.handle("atrium:bootstrap", (event) => {
-    if (event.senderFrame === null || new URL(event.senderFrame.url).origin !== pageOrigin) {
-      throw new Error("bootstrap requested from an unexpected origin");
+  /**
+   * Refuses IPC from any frame but the app's page.
+   *
+   * @remarks
+   * Every handler answers only the expected origin (security.md, "Electron").
+   *
+   * @sideEffects none
+   * @param event - The IPC event.
+   * @throws {Error} When the sender is another origin.
+   */
+  const checkSender = (event: Electron.IpcMainInvokeEvent): void => {
+    if (event.senderFrame === null || !isPageUrl(event.senderFrame.url, pageUrl)) {
+      throw new Error("IPC from an unexpected origin");
     }
+  };
+  ipcMain.handle("atrium:bootstrap", (event) => {
+    checkSender(event);
     return { hostUrl, token };
+  });
+  ipcMain.handle("atrium:pick-directory", async (event) => {
+    checkSender(event);
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = { properties: ["openDirectory", "createDirectory"] };
+    const chosen =
+      window === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(window, options);
+    return chosen.canceled ? null : (chosen.filePaths[0] ?? null);
+  });
+  ipcMain.handle("atrium:appearance", (event, appearance: unknown) => {
+    checkSender(event);
+    if (appearance === "system" || appearance === "light" || appearance === "dark") {
+      nativeTheme.themeSource = appearance;
+    }
   });
 
   const window = new BrowserWindow({
@@ -243,13 +315,94 @@ async function main(): Promise<void> {
       spellcheck: false,
     },
   });
-  restrictNavigation(window, pageOrigin);
+  restrictNavigation(window, pageUrl);
   window.once("ready-to-show", () => window.show());
+  // Opening the app again brings this window forward (domain-model §1, "索引的存储").
+  app.on("second-instance", () => {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
   await window.loadURL(pageUrl);
 }
 
-app.on("window-all-closed", () => app.quit());
-main().catch((error: unknown) => {
-  console.error(error);
-  app.exit(1);
-});
+/**
+ * Serves `atrium://app/` from the host's static files.
+ *
+ * @remarks
+ * The page needs an origin that stays the same across launches, or its `localStorage` (the
+ * client id, collapsed projects, drafts) is lost with every new host port (overview.md,
+ * "桌面端怎么启动宿主"). Requests are forwarded to the host, which keeps the path and symlink
+ * checks (security.md, "子进程与文件"); only the CSP header is replaced, so the page may reach
+ * the host's WebSocket.
+ *
+ * @sideEffects Registers the scheme's handler on the default session.
+ * @param hostUrl - The host's HTTP origin.
+ * @param policy - The page's CSP.
+ */
+function serveAppScheme(hostUrl: string, policy: string): void {
+  protocol.handle(APP_SCHEME, async (request) => {
+    const url = new URL(request.url);
+    // Only the app's own host; another would be a different page with the same powers.
+    if (url.host !== "app") return new Response(null, { status: 404 });
+    const response = await net.fetch(`${hostUrl}${url.pathname}${url.search}`, { bypassCustomProtocolHandlers: true });
+    const headers = new Headers(response.headers);
+    headers.set("Content-Security-Policy", policy);
+    return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+  });
+}
+
+/**
+ * The app menu: the standard app, edit and window items, without closing the window on ⌘W.
+ *
+ * @remarks
+ * ⌘W closes a session tab and ⌘N, ⌘T create sessions (SPEC-0001, "标签栏"); Electron's default
+ * menu would take ⌘W to close the window first. The edit items keep copy, paste and undo working
+ * in text fields; the view items keep reload and the developer tools.
+ *
+ * @sideEffects none
+ * @returns The menu.
+ */
+function appMenu(): Menu {
+  return Menu.buildFromTemplate([
+    { role: "appMenu" },
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [{ role: "reload" }, { role: "toggleDevTools" }, { type: "separator" }, { role: "togglefullscreen" }],
+    },
+    { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
+  ]);
+}
+
+/**
+ * Keeps Electron's own data with the Atrium home it was pointed at.
+ *
+ * @remarks
+ * Electron's single-instance lock and the page's storage live in its user data directory. With
+ * `ATRIUM_HOME` set (tests, a second development copy), the app is a separate instance with its
+ * own storage, so it neither blocks nor is blocked by the Atrium in normal use.
+ *
+ * @sideEffects Changes Electron's user data path when `ATRIUM_HOME` is set.
+ */
+function separateUserData(): void {
+  const home = process.env["ATRIUM_HOME"];
+  if (home !== undefined && home !== "") app.setPath("userData", join(home, "electron"));
+}
+
+separateUserData();
+// Before the app is ready, so the page's origin behaves like https: storage, fetch and a secure context.
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true } },
+]);
+// Only one app per home: a second launch hands over to the first and quits (domain-model §1,
+// "索引的存储").
+if (app.requestSingleInstanceLock()) {
+  app.on("window-all-closed", () => app.quit());
+  main().catch((error: unknown) => {
+    console.error(error);
+    app.exit(1);
+  });
+} else {
+  app.quit();
+}

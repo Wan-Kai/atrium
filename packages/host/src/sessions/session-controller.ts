@@ -143,7 +143,8 @@ function isUnknownCursor(error: unknown): boolean {
  * @sideEffects Subscribes to pi's events; calls `publish` for every event; calls `newId`; reads
  * pi's entries after runs and compactions, reporting failures to `onRefreshFailed`.
  * @param options - The session id, its pi, the entries it had at start, where events go, the clock,
- * an id source, where refresh failures go, and the epoch to start in.
+ * an id source, where refresh failures go, the epoch to start in, and the session's turn starts
+ * (SPEC-0001, `steer`).
  * @returns The controller.
  */
 export function createSessionController(options: {
@@ -156,11 +157,23 @@ export function createSessionController(options: {
   readonly onRefreshFailed: (error: unknown) => void;
   /** The epoch to start in; after the session's previous controller, one past its last. */
   readonly epoch?: number;
+  /** Entries earlier host runs saw open a turn, and where newly seen ones go. */
+  readonly turnStarts?: {
+    readonly opened: ReadonlySet<string>;
+    readonly record: (entryIds: readonly string[]) => void;
+  };
 }): SessionController {
   const { sessionId, pi, clock, newId } = options;
   let epoch = options.epoch ?? 1;
   let seq = 0;
-  const transcript = createSessionTranscript({ sessionId, newId, now: () => clock.now() });
+  const transcript = createSessionTranscript({
+    sessionId,
+    newId,
+    now: () => clock.now(),
+    ...(options.turnStarts === undefined
+      ? {}
+      : { opened: options.turnStarts.opened, onTurnsSeen: options.turnStarts.record }),
+  });
   // Stryker disable next-line BooleanLiteral: the log starts empty, so reading everything again changes nothing.
   transcript.rebuild(options.entries, false);
   let run: { readonly runId: string; readonly startedAt: number; readonly traceId: string | null } | null = null;

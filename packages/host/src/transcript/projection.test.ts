@@ -284,6 +284,21 @@ describe("projectTranscript", () => {
     ]);
   });
 
+  it("follows what an earlier host saw: an entry it recorded as opening a turn opens one, without its timings", () => {
+    const branch = [
+      user("u1", "go"),
+      reply("a1", [bash("c1")], { stopReason: "toolUse" }),
+      result("r1", "c1", "ended by the tool"),
+      user("u2", "next"),
+      reply("a2", [says("done")]),
+    ];
+
+    const { items } = projectTranscript(branch, "s", none, new Set(["u2"]));
+
+    expect(stepKinds(items)).toStrictEqual([["tool"], ["text"]]);
+    expect(items[1]).toMatchObject({ id: "s:u2", user: { clientMessageId: null }, durationMs: 0 });
+  });
+
   it("takes a reply pi omitted to recover from a context overflow for no retry, and an empty error as Unknown error", () => {
     const { items } = projectTranscript(
       [
