@@ -72,12 +72,22 @@ describe("createNormalizer", () => {
     expect(
       normalize([
         { id: "deadbeef", targetId: "deadbeef", firstKeptEntryId: "cafef00d" },
-        { text: "deadbeef", sha: "cafef00d", items: ["deadbeef"] },
+        { text: "0badf00d", sha: "feedface", items: ["0badf00d"] },
+        { id: "feedface" },
       ]),
     ).toStrictEqual([
       { id: "e1", targetId: "e1", firstKeptEntryId: "e2" },
-      { text: "deadbeef", sha: "cafef00d", items: ["deadbeef"] },
+      { text: "0badf00d", sha: "feedface", items: ["0badf00d"] },
+      { id: "e3" },
     ]);
+  });
+
+  it("replaces an entry id already seen where text mentions it, and nothing else of that shape", () => {
+    const normalize = createNormalizer({});
+
+    expect(
+      normalize([{ id: "a1b2c3d4" }, { message: "/faux-navigate a1b2c3d4" }, { message: "commit deadbeef stays" }]),
+    ).toStrictEqual([{ id: "e1" }, { message: "/faux-navigate e1" }, { message: "commit deadbeef stays" }]);
   });
 
   it("leaves strings that only look similar, booleans and null alone", () => {

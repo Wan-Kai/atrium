@@ -19,3 +19,5 @@ export {
 } from "./process/pi-process";
 export { type EventTranslator, type TranslatedEvent, createEventTranslator } from "./events/translate";
 export { isBusyRejection } from "./process/rejections";
+export { type AssistantPart, type LogEntry, type LogStopReason, toLogEntry } from "./history/log-entry";
+export { type ToolArgs, contentText, toolDetails } from "./history/tools";

@@ -67,7 +67,7 @@
 | pi 的启动、stderr、退出日志挂在 `pi.process` span 下；崩溃时 span 标为错误，宿主停止时为正常；每条命令一个 `pi.rpc` span，挂在调用方 span 下，请求 id 由它派生；命令失败时 span 标为错误 | `packages/host/src/sessions/traced-pi.test.ts` | 已覆盖 |
 | `pnpm pi:try`：参数解析；事件渲染；找不到 pi 时退出码 1；真实 pi 流式打出回复，整次运行在一条 trace 里；模型回复失败时退出码 1，重试后成功时退出码 0；环境（含登录 shell 里的）中的凭据不进日志；中断时停掉 pi、退出码 130 | `packages/host/src/dev/try-pi.test.ts`、`try-pi.pi.test.ts` | 已覆盖 |
 | pi 契约：一轮完整运行、工具调用、运行中排队与 `queue_update`、命令被处理掉、`clear_queue` + `abort`、会话文件延迟写出、`get_entries` 全量与增量和未知游标、自动重试与不可重试错误、对话框往返、压缩期间发消息报错、退出码 | `packages/pi/src/contract/*.pi.test.ts`（12 个场景，同时检查夹具） | 已覆盖 |
-| 夹具：规范化（时间、度量、路径、UUID、只在固定键下识别的条目 id 及其引用）、比较时只忽略系统消息的文字、录制顺序、文件格式；每个夹具按原样回放；回放替身的对上检查、错误详情、崩溃后和停止后的请求、`stop()` 丢弃迟到的响应并按夹具结束、对话框 | `packages/testkit/src/pi-fixtures/*.test.ts`、`packages/pi/src/contract/replay.test.ts` | 已覆盖 |
+| 夹具：规范化（时间、度量、路径、UUID、只在固定键下识别的条目 id 及其引用，以及已认出的条目 id 在其他文字里的出现）、比较时只忽略系统消息的文字、录制顺序、文件格式；每个夹具按原样回放；回放替身的对上检查、错误详情、崩溃后和停止后的请求、`stop()` 丢弃迟到的响应并按夹具结束、对话框 | `packages/testkit/src/pi-fixtures/*.test.ts`、`packages/pi/src/contract/replay.test.ts` | 已覆盖 |
 | faux：回复可以等测试放行，中断会结束等待；`/faux-noop`、`/faux-confirm` | `packages/testkit/src/faux/faux.pi.test.ts` | 已覆盖 |
 
 ## 协议、客户端与流式显示（M1.3）
@@ -105,6 +105,14 @@
 | 流式渲染走真实路径：经消息列表和平滑揭示流式显示，每一步文字只增不减，结束后在别处重新挂载，与直接渲染已完成的回复一致 | `packages/ui/src/chat/streaming.browser.test.tsx` | 已覆盖 |
 | 界面的未捕获错误、未处理的 Promise 拒绝和长任务上报给宿主，每类每 10 秒最多一次，卸载后停止 | `packages/ui/src/app/issue-reporting.browser.test.ts` | 已覆盖 |
 | 50 tok/s 流式输出长 Markdown 时没有超过 50 毫秒的长任务，帧时间 p95 ≤ 16.7 毫秒 | `apps/desktop/e2e/chat.perf.spec.ts` | 已覆盖 |
+
+## 对话记录（M1.4）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| pi 契约：一份会话历史含推理、bash/write/edit/read 工具、出错重试（错误回复和移除它的 `context_edit`）、手动压缩（切开一轮）、`/faux-navigate` 回到早先的条目再分支 | `packages/pi/src/contract/history.pi.test.ts`（夹具 `history.jsonl`） | 已覆盖 |
+| 条目映射：真实会话的每个条目变成 Atrium 的形状（用户、助手的推理/文字/工具调用、工具结果、压缩、重试移除、其他条目只留树中位置）；消息按自己的时间，其他条目按条目时间，读不出时为 0；流式中和延迟的停止原因算正常停止；用量只留输入输出；用户消息的图片数；替换而不是移除的 `context_edit`、`!bash` 消息不显示 | `packages/pi/src/history/log-entry.test.ts` | 已覆盖 |
+| 工具详情：bash 的命令、read 的路径和范围（非整数不算）、edit 的展示 diff 和增删行数（运行中没有 diff）、write 的内容只来自参数；`file_path` 旧名；字段缺失和其他工具没有详情；内容块的文字拼接和图片计数 | `packages/pi/src/history/tools.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
 

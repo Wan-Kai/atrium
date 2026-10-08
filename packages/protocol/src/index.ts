@@ -32,6 +32,7 @@ export {
   TranscriptMessage,
   UserMessage,
 } from "./events";
+export { FileChange, Notice, Step, TOOL_OUTPUT_LIMIT, ToolDetails, TranscriptItem, Turn } from "./transcript";
 export { ClientMessage, HostMessage, type ParsedCommand, ResponseMessage, parseClientMessage } from "./envelope";
 export {
   type RandomBytes,
