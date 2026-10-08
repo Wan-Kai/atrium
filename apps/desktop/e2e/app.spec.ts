@@ -84,6 +84,24 @@ test("keeps the page on its own origin and refuses new windows", async () => {
   await target.close();
 });
 
+test("refuses to navigate to another host of its own scheme", async () => {
+  await launched.app.evaluate(({ BrowserWindow }) => {
+    const attempts: string[] = [];
+    Object.assign(globalThis, { navigationAttempts: attempts });
+    BrowserWindow.getAllWindows()[0]?.webContents.on("will-navigate", (_event, url) => attempts.push(url));
+  });
+
+  await launched.window.evaluate(() => {
+    location.href = "atrium://other/";
+  });
+  await expect
+    .poll(() => launched.app.evaluate(() => (globalThis as { navigationAttempts?: string[] }).navigationAttempts))
+    .toStrictEqual(["atrium://other/"]);
+  await launched.window.waitForTimeout(500);
+
+  expect(launched.window.url()).toBe("atrium://app/");
+});
+
 test("follows the system appearance", async () => {
   const isDark = () => launched.window.evaluate(() => document.documentElement.classList.contains("dark"));
 

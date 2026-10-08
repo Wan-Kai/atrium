@@ -165,6 +165,29 @@ function openInBrowser(url: string): void {
 }
 
 /**
+ * Whether a URL belongs to the app's page.
+ *
+ * @remarks
+ * Compares scheme and host (with port), not `URL.origin`: Node gives every URL of a scheme it does
+ * not know, `atrium:` included, the origin `"null"`, so all opaque origins would compare equal
+ * (security.md, "Electron").
+ *
+ * @sideEffects none
+ * @param url - The URL to check.
+ * @param pageUrl - The page's URL.
+ * @returns Whether it is the page's.
+ */
+function isPageUrl(url: string, pageUrl: string): boolean {
+  try {
+    const candidate = new URL(url);
+    const page = new URL(pageUrl);
+    return candidate.protocol === page.protocol && candidate.host === page.host;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Applies the window-level security rules to a window's web contents.
  *
  * @remarks
@@ -174,11 +197,11 @@ function openInBrowser(url: string): void {
  * @sideEffects Registers navigation and window-open handlers on `window`; may open URLs in the
  * system browser.
  * @param window - The window to restrict.
- * @param pageOrigin - The only origin the page may navigate within.
+ * @param pageUrl - The page; navigation stays within its scheme and host.
  */
-function restrictNavigation(window: BrowserWindow, pageOrigin: string): void {
+function restrictNavigation(window: BrowserWindow, pageUrl: string): void {
   window.webContents.on("will-navigate", (event, url) => {
-    if (new URL(url).origin === pageOrigin) return;
+    if (isPageUrl(url, pageUrl)) return;
     event.preventDefault();
     openInBrowser(url);
   });
@@ -254,7 +277,7 @@ async function main(): Promise<void> {
    * @throws {Error} When the sender is another origin.
    */
   const checkSender = (event: Electron.IpcMainInvokeEvent): void => {
-    if (event.senderFrame === null || new URL(event.senderFrame.url).origin !== pageOrigin) {
+    if (event.senderFrame === null || !isPageUrl(event.senderFrame.url, pageUrl)) {
       throw new Error("IPC from an unexpected origin");
     }
   };
@@ -292,7 +315,7 @@ async function main(): Promise<void> {
       spellcheck: false,
     },
   });
-  restrictNavigation(window, pageOrigin);
+  restrictNavigation(window, pageUrl);
   window.once("ready-to-show", () => window.show());
   // Opening the app again brings this window forward (domain-model §1, "索引的存储").
   app.on("second-instance", () => {
@@ -320,6 +343,8 @@ async function main(): Promise<void> {
 function serveAppScheme(hostUrl: string, policy: string): void {
   protocol.handle(APP_SCHEME, async (request) => {
     const url = new URL(request.url);
+    // Only the app's own host; another would be a different page with the same powers.
+    if (url.host !== "app") return new Response(null, { status: 404 });
     const response = await net.fetch(`${hostUrl}${url.pathname}${url.search}`, { bypassCustomProtocolHandlers: true });
     const headers = new Headers(response.headers);
     headers.set("Content-Security-Policy", policy);
