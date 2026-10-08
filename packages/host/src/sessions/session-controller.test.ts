@@ -266,6 +266,26 @@ describe("createSessionController on cases the fixtures do not show", () => {
     });
   });
 
+  it("starts in the epoch it was given", () => {
+    const { pi, emit } = manualPi();
+    const events: SessionEvent[] = [];
+    const controller = createSessionController({
+      sessionId: "s1",
+      pi,
+      entries: empty,
+      publish: (event) => events.push(event),
+      clock: { now: () => 1000 },
+      newId: () => "id1",
+      onRefreshFailed: () => undefined,
+      epoch: 4,
+    });
+
+    emit({ type: "agent_start" });
+
+    expect(controller.snapshot()).toMatchObject({ epoch: 4, seq: 1 });
+    expect(events).toMatchObject([{ type: "run_started", epoch: 4, seq: 1 }]);
+  });
+
   it("starts with the transcript of the entries it was given", () => {
     const { pi } = manualPi();
     const { controller } = control(pi, { entries: [userEntry("u1", null, "earlier")], leafId: "u1" });

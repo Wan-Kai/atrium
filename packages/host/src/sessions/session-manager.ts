@@ -171,10 +171,14 @@ export function createSessionManager(options: {
       }
       throw error;
     }
+    // A session opened again continues past its old controller's epoch, so clients still showing
+    // the old one see the change and take a fresh snapshot (domain-model §7).
+    const previous = sessions.get(sessionId)?.snapshot().epoch ?? 0;
     sessions.set(
       sessionId,
       createSessionController({
         sessionId,
+        epoch: previous + 1,
         pi: {
           onEvent: (listener) => pi.onEvent(listener),
           exited: pi.exited,

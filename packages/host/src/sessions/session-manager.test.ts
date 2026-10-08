@@ -293,6 +293,10 @@ describe("createSessionManager opening sessions from pi's files", () => {
     expect(starts()).toHaveLength(1);
 
     expect(await manager.openSession("pi-session-1")).toStrictEqual({ sessionId: "pi-session-1" });
+    await manager.subscribe("c1", []);
+    await manager.subscribe("c1", ["pi-session-1"]);
+    // The new pi's session continues in a new epoch, so a client showing the old one resyncs.
+    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, seq: 0, exited: false });
     await manager.close();
     await vi.waitFor(() => expect(starts()).toHaveLength(2));
   });

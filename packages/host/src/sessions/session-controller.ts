@@ -139,7 +139,7 @@ function isUnknownCursor(error: unknown): boolean {
  * @sideEffects Subscribes to pi's events; calls `publish` for every event; calls `newId`; reads
  * pi's entries after runs and compactions, reporting failures to `onRefreshFailed`.
  * @param options - The session id, its pi, the entries it had at start, where events go, the clock,
- * an id source and where refresh failures go.
+ * an id source, where refresh failures go, and the epoch to start in.
  * @returns The controller.
  */
 export function createSessionController(options: {
@@ -150,9 +150,11 @@ export function createSessionController(options: {
   readonly clock: { now(): number };
   readonly newId: () => string;
   readonly onRefreshFailed: (error: unknown) => void;
+  /** The epoch to start in; after the session's previous controller, one past its last. */
+  readonly epoch?: number;
 }): SessionController {
   const { sessionId, pi, clock, newId } = options;
-  let epoch = 1;
+  let epoch = options.epoch ?? 1;
   let seq = 0;
   const transcript = createSessionTranscript({ sessionId, newId, now: () => clock.now() });
   transcript.rebuild(options.entries, true);
