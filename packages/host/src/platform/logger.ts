@@ -32,15 +32,43 @@ export interface LogFile {
  * @remarks
  * SonicBoom's `flushSync` writes what is queued at once, even while an earlier write is still in
  * flight, so newer records can land before older ones. An empty write joins the queue instead,
- * and `drain` follows once the queue is empty.
+ * and `drain` follows once the queue is empty; that holds because the stream has no
+ * `minLength`, so every write starts at once. A write that fails sends `error` and no `drain`.
  *
  * @sideEffects Waits for the stream's pending writes.
  * @param stream - The log file's stream.
  * @returns When the records are on disk.
+ * @throws The write error, when writing fails.
  */
 export function drainLogFile(stream: RollStream): Promise<void> {
-  return new Promise((done) => {
-    stream.once("drain", () => done());
+  return new Promise((done, fail) => {
+    /**
+     * Settles once the queue is empty.
+     *
+     * @remarks
+     * See `drainLogFile`.
+     *
+     * @sideEffects Stops listening for errors.
+     */
+    const drained = (): void => {
+      stream.off("error", failed);
+      done();
+    };
+    /**
+     * Rejects with a write error.
+     *
+     * @remarks
+     * See `drainLogFile`.
+     *
+     * @sideEffects Stops listening for `drain`.
+     * @param error - The error.
+     */
+    const failed = (error: Error): void => {
+      stream.off("drain", drained);
+      fail(error);
+    };
+    stream.once("drain", drained);
+    stream.once("error", failed);
     stream.write("");
   });
 }
@@ -50,15 +78,45 @@ export function drainLogFile(stream: RollStream): Promise<void> {
  *
  * @remarks
  * `end` lets a write in flight finish before writing the rest, unlike `flushSync` (see
- * `drainLogFile`), so the last record of a shutdown is also the last line of the file.
+ * `drainLogFile`), so the last record of a shutdown is also the last line of the file. When
+ * writing fails (a full disk, EIO) or rotating cannot open the next file, SonicBoom sends `error`
+ * and never `close`; the stream is then closed without its pending records, so shutting down
+ * goes on (observability.md). A stream already closed is left as it is.
  *
  * @sideEffects Writes buffered records and closes the file.
  * @param stream - The log file's stream.
- * @returns When the file is closed.
+ * @returns When the file is closed; never rejects.
  */
 export function closeLogFile(stream: RollStream): Promise<void> {
+  if (stream.destroyed) return Promise.resolve();
   return new Promise((done) => {
-    stream.once("close", () => done());
+    /**
+     * Settles once the file is closed.
+     *
+     * @remarks
+     * See `closeLogFile`.
+     *
+     * @sideEffects Stops listening for errors.
+     */
+    const closed = (): void => {
+      stream.off("error", failed);
+      done();
+    };
+    /**
+     * Gives up on the pending records and closes the file.
+     *
+     * @remarks
+     * See `closeLogFile`.
+     *
+     * @sideEffects Closes the file.
+     */
+    const failed = (): void => {
+      stream.off("close", closed);
+      stream.destroy();
+      done();
+    };
+    stream.once("close", closed);
+    stream.once("error", failed);
     stream.end();
   });
 }

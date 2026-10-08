@@ -64,8 +64,11 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  * - closing the last tab of a draft that never got a message discards it: its pi stops, its
  *   record goes, and a chat's empty directory is removed (domain-model, "已决定 13");
  * - archiving hides a session and stops its pi;
- * - a client's tab and place changes take effect in the order its commands came: opening waits
- *   for the first scan, and a tab closed meanwhile must not open again;
+ * - a client's tab and place changes take effect in the order its commands came, at once for a
+ *   session the index knows; one it does not know yet waits for the first scan, and a tab closed
+ *   meanwhile must not open again; once closing, queued changes do nothing;
+ * - a new session's tab opens once its pi started; the client goes there only if it stayed where
+ *   it was when it asked;
  * - pi must have been found and be usable; otherwise starting fails with `pi_unavailable` and
  *   pi's status, which the UI explains;
  * - which user messages opened turns is kept per session (`turnStarts`), so a later host
@@ -119,17 +122,18 @@ export function createSessionManager(options: {
    * Runs a change to a client's tabs or place after the changes it asked for earlier.
    *
    * @remarks
-   * Commands run at once, and opening a session waits for the first scan; without this a tab
-   * the client closed during that wait would open again when it ends. A failed change does not
-   * hold up the next.
+   * Commands run at once, and opening a session the index does not know yet waits for the first
+   * scan; without this a tab the client closed during that wait would open again when it ends. A
+   * failed change does not hold up the next. Once the manager closes, a change that has not
+   * started does nothing, so nothing is written after the index's last write.
    *
-   * @sideEffects Runs `change` once the client's earlier changes are done.
+   * @sideEffects Runs `change` once the client's earlier changes are done, unless closed by then.
    * @param clientId - The client.
    * @param change - The change.
-   * @returns What the change returns.
+   * @returns What the change returns, or `undefined` when closed first.
    */
-  async function inClientOrder<T>(clientId: string, change: () => Promise<T>): Promise<T> {
-    const turn = (clientTurns.get(clientId) ?? Promise.resolve()).then(change);
+  async function inClientOrder<T>(clientId: string, change: () => Promise<T>): Promise<T | undefined> {
+    const turn = (clientTurns.get(clientId) ?? Promise.resolve()).then(() => (closed ? undefined : change()));
     const settled = turn.catch(() => undefined);
     clientTurns.set(clientId, settled);
     try {
@@ -387,7 +391,7 @@ export function createSessionManager(options: {
   }
 
   /**
-   * Creates a session in a directory, records it and opens it as the client's active tab.
+   * Creates a session in a directory, records it and opens it as the active tab of its container.
    *
    * @remarks
    * See `createSessionManager`.
@@ -399,12 +403,14 @@ export function createSessionManager(options: {
    * @returns The new session's id.
    */
   async function create(clientId: string, containerId: string, cwd: string): Promise<string> {
+    const asked = options.layouts.of(clientId).container;
     const tools = await readyTools();
     const { sessionId } = await startPi(tools, { args: [], cwd });
     await options.catalog.record({ sessionId, containerId, cwd });
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {
-      await options.layouts.open(clientId, containerId, sessionId);
+      const stayed = options.layouts.of(clientId).container === asked;
+      await options.layouts.open(clientId, containerId, sessionId, stayed);
       options.onChange();
     });
     return sessionId;
@@ -442,14 +448,19 @@ export function createSessionManager(options: {
     },
     async openSession(clientId, sessionId) {
       const entry = await inClientOrder(clientId, async () => {
-        await options.catalog.ready();
+        if (options.catalog.find(sessionId) === undefined) await options.catalog.ready();
+        // The scan may have ended because the host is closing.
+        if (closed) return undefined;
         const found = entryOf(sessionId);
         // The tab opens first, so a session that cannot start explains why in its own tab.
         await options.layouts.open(clientId, found.containerId, sessionId);
         options.onChange();
         return found;
       });
-      if (entry.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
+      if (entry === undefined) return {};
+      // Starting needs the session's file, which only a scan finds.
+      await options.catalog.ready();
+      if (entryOf(sessionId).state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
       return {};
     },
     async closeTab(clientId, sessionId) {

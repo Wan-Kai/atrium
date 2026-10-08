@@ -5,8 +5,14 @@ declare module "pino-roll" {
     readonly fd: number;
     write(chunk: string): boolean;
     end(): void;
+    /** Set once the file is closed; writing then throws. */
+    readonly destroyed: boolean;
+    destroy(): void;
     once(event: "close" | "drain" | "ready", listener: () => void): this;
+    once(event: "error", listener: (error: Error) => void): this;
     on(event: "error", listener: (error: Error) => void): this;
+    off(event: "close" | "drain", listener: () => void): this;
+    off(event: "error", listener: (error: Error) => void): this;
   }
 
   export interface PinoRollOptions {

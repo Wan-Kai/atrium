@@ -10,8 +10,8 @@ export const KEPT_CLIENTS = 10;
 export interface Layouts {
   /** A client's layout; empty for one never seen. */
   of(clientId: string): Layout;
-  /** Opens a session as the active tab of its container and goes there. */
-  open(clientId: string, containerId: string, sessionId: string): Promise<void>;
+  /** Opens a session as the active tab of its container, and goes there unless `go` is false. */
+  open(clientId: string, containerId: string, sessionId: string, go?: boolean): Promise<void>;
   /** Closes a client's tab of a session; the tab to its right, else its left, becomes active. */
   close(clientId: string, sessionId: string): Promise<void>;
   /** Goes to a container, or nowhere. */
@@ -107,13 +107,13 @@ export function createLayouts(options: { readonly file: IndexFile<LayoutsDocumen
       );
       return { container: found.container, tabs };
     },
-    open: (clientId, containerId, sessionId) =>
+    open: (clientId, containerId, sessionId, go = true) =>
       update(clientId, (layout) => {
         const tabs = layout.tabs[containerId] ?? { open: [], active: null };
         const open = tabs.open.includes(sessionId) ? tabs.open : [...tabs.open, sessionId];
         return {
           ...layout,
-          container: containerId,
+          container: go ? containerId : layout.container,
           tabs: { ...layout.tabs, [containerId]: { ...tabs, open, active: sessionId } },
         };
       }),

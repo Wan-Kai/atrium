@@ -342,19 +342,33 @@ describe("WorkspaceService", () => {
     ]);
   });
 
-  it("does not fetch the repository a plain folder project sits in", async () => {
+  it("does not fetch the repository a plain folder project sits in, only a repository's own", async () => {
     const repo = await scene();
     const inner = join(repo.repo, "docs");
     await mkdir(inner);
     const git = countingGit();
     const { projects, workspaces } = await services({ git });
     await projects.add(inner);
+    await projects.add(repo.repo);
 
     workspaces.windowFocused();
     await workspaces.idle();
 
-    expect(git.commands).not.toContain("fetch");
-    expect(git.commands).not.toContain("remote");
+    expect(git.commands.filter((command) => ["remote", "fetch"].includes(command))).toStrictEqual(["remote", "fetch"]);
+  });
+
+  it("fetches a repository whose directory name ends in a space", async () => {
+    const repo = await scene();
+    const spaced = join(repo.root, "spaced ");
+    await repo.git(repo.root, "clone", "--quiet", repo.origin, spaced);
+    const git = countingGit();
+    const { projects, workspaces } = await services({ git });
+    await projects.add(spaced);
+
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    expect(git.commands.filter((command) => command === "fetch")).toStrictEqual(["fetch"]);
   });
 
   it("scans a project as soon as it is added, and forgets a removed one", async () => {

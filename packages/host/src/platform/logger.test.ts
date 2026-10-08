@@ -1,5 +1,6 @@
 import { createTempDir, present } from "@atrium/testkit";
 import { pbkdf2 } from "node:crypto";
+import { closeSync } from "node:fs";
 import { lstat, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Writable } from "node:stream";
@@ -158,6 +159,7 @@ async function writeWhileBusy() {
   const dir = await createTempDir("logs");
   onTestFinished(dir.cleanup);
   const { stream, currentPath } = await openLogFile(dir.path);
+  onTestFinished(() => closeLogFile(stream));
   const busy = busyThreadPool();
   stream.write("first\n");
   stream.write("second\n");
@@ -185,5 +187,59 @@ describe("closeLogFile", () => {
     expect(await readFile(currentPath, "utf8")).toBe("first\nsecond\n");
     expect(() => stream.write("third\n")).toThrow("SonicBoom destroyed");
     await busy;
+  });
+});
+
+/**
+ * A log file whose writes fail from now on, as on a full disk.
+ *
+ * @remarks
+ * The stream is pointed at a descriptor that is not open; its own descriptor is closed when the
+ * test ends, and never while the test runs, so no other file can take its number.
+ *
+ * @sideEffects Creates a temporary log directory; silences the stream's error report on stderr;
+ * all undone when the test ends.
+ * @returns The stream.
+ */
+async function failingLogFile() {
+  const dir = await createTempDir("logs");
+  onTestFinished(dir.cleanup);
+  const { stream } = await openLogFile(dir.path);
+  const own = stream.fd;
+  onTestFinished(() => closeSync(own));
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  onTestFinished(() => stderr.mockRestore());
+  (stream as unknown as { fd: number }).fd = 999_999;
+  return stream;
+}
+
+describe("drainLogFile when writing fails", () => {
+  it("rejects instead of waiting forever", async () => {
+    const stream = await failingLogFile();
+    stream.write("lost\n");
+
+    await expect(drainLogFile(stream)).rejects.toMatchObject({ code: "EBADF" });
+  });
+});
+
+describe("closeLogFile when writing fails", () => {
+  it("closes the stream instead of waiting forever", async () => {
+    const stream = await failingLogFile();
+    stream.write("lost\n");
+
+    await closeLogFile(stream);
+
+    expect(() => stream.write("more\n")).toThrow("SonicBoom destroyed");
+  });
+
+  it("does nothing for a stream already closed", async () => {
+    const dir = await createTempDir("logs");
+    onTestFinished(dir.cleanup);
+    const { stream } = await openLogFile(dir.path);
+    await closeLogFile(stream);
+
+    await closeLogFile(stream);
+
+    expect(() => stream.write("more\n")).toThrow("SonicBoom destroyed");
   });
 });

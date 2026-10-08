@@ -574,10 +574,12 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `remove_project(projectId)` / `rename_project(projectId, name)`：移除只删索引，同时停掉其中会话的 pi、从各客户端的布局里去掉；改成已有项目的名字应答 `name_taken`。
 - `rename_workspace(workspaceId, name | null)`：`null` 恢复为分支名。
 - `window_focused()`：窗口获得焦点，宿主重扫工作区、合并状态和会话文件。
-- `create_session(workspaceId)` / `create_chat()`：新建草稿会话并立刻启动 pi（领域模型"已决定 9"，2026-10-08 定工作区里的新会话也一样），打开成这个客户端的标签并激活，返回 `sessionId`。
+- `create_session(workspaceId)` / `create_chat()`：新建草稿会话并立刻启动 pi（领域模型"已决定 9"，2026-10-08 定工作区里的新会话也一样），打开成这个客户端的标签并激活（这期间客户端换过位置时不切过去，见下文），返回 `sessionId`。
 - `open_session(sessionId)`：打开成标签并激活，切到它所在的容器；pi 没在运行就用 `--session <文件>` 启动。宿主重启后恢复的草稿不启动，第一次 `prompt` 时才用 `--session-id <id>` 启动（"已决定 7"）。
 - `close_tab(sessionId)`：只改这个客户端的布局。关掉的是还没发过消息的草稿时，丢弃它：停掉 pi、删掉索引里的记录，对话的空目录一并删掉（只删空的）（2026-10-08 定）。
-- 同一个客户端改标签和位置的命令（`open_session`、`close_tab`、`select_container`，以及新建后打开标签）按收到的顺序生效：`open_session` 要等第一次扫描，扫描期间关掉的标签不会在扫描结束后又被打开（2026-10-08 修）。
+- 同一个客户端改标签和位置的命令（`open_session`、`close_tab`、`select_container`）按收到的顺序生效（2026-10-08 修）。索引里已有记录的会话立刻打开成标签，不等第一次扫描；还不认识的会话才等扫描结束再打开，扫描期间关掉的标签不会在扫描结束后又被打开。启动 pi 仍要等第一次扫描，因为要知道会话文件在哪。第一次扫描要先读出登录 shell 的环境（最坏约 30 秒），界面上的切换和关闭不跟着等，这和 VS Code、Zed 的做法一致。宿主开始关闭后，排着队的这类命令不再执行。
+- 新建的会话在 pi 启动后才打开成标签：它成为所在容器的激活标签；客户端在这期间没换过位置就切过去，换过就留在原处（2026-10-08 定）。
+- 已知问题：关掉一个空草稿的标签后立刻再打开它，标签可能开着而草稿已被丢弃（记录删掉、pi 停掉）。需要两条命令落在丢弃的那几毫秒里，少见，暂不处理。
 - `select_container(containerId | null)`：切换工作区或"对话"。
 - `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。
 - `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。

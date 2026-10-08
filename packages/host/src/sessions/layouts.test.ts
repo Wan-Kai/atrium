@@ -46,6 +46,18 @@ describe("Layouts", () => {
     expect(file.read().clients).toMatchObject([{ clientId: "c1", seenAt: 1_000 }]);
   });
 
+  it("opens a session as its container's active tab without going there when asked to stay", async () => {
+    const { layouts: all } = await layouts();
+    await all.open("c1", A, "s1");
+
+    await all.open("c1", B, "s2", false);
+
+    expect(all.of("c1")).toStrictEqual({
+      container: A,
+      tabs: { [A]: { open: ["s1"], active: "s1" }, [B]: { open: ["s2"], active: "s2" } },
+    });
+  });
+
   it("keeps each client's layout apart", async () => {
     const { layouts: all } = await layouts();
 

@@ -154,6 +154,19 @@ async function terminalSession(at: Awaited<ReturnType<typeof place>>, id: string
 }
 
 describe("SessionManager creating sessions", () => {
+  it("opens a new session's tab where it belongs but leaves the client where it went while pi started", async () => {
+    const { manager, layouts } = await manage({ rules: SESSION_ONE });
+
+    const creating = manager.createSession("client-1", WORKSPACE);
+    await manager.selectContainer("client-1", CHATS);
+    const { sessionId } = await creating;
+
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHATS,
+      tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
+    });
+  });
+
   it("creates a chat in its own directory, starts its pi there, records it and opens it", async () => {
     const { manager, catalog, layouts, at, starts, changes } = await manage({ argvToStderr: true, rules: SESSION_ONE });
 
@@ -482,6 +495,42 @@ describe("SessionManager tabs", () => {
 
     expect(layouts.of("client-1")).toStrictEqual({ container: CHATS, tabs: { [CHATS]: { open: [], active: null } } });
     expect(catalog.find(sessionId)).toBeUndefined();
+  });
+
+  it("opens a session the index knows, and goes elsewhere, without waiting for the first scan", async () => {
+    const first = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await first.manager.createSession("client-1", WORKSPACE);
+    await first.manager.selectContainer("client-1", null);
+    await first.manager.close();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, layouts } = await manage(null, first.at, undefined, scanned.promise);
+
+    // Answered once the scan tells whether its pi should start; the tab does not wait for that.
+    const opening = manager.openSession("client-1", sessionId);
+    await manager.selectContainer("client-1", CHATS);
+
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHATS,
+      tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
+    });
+    scanned.resolve({ directory: first.at.piSessions, perCwd: false });
+    expect(await opening).toStrictEqual({});
+  });
+
+  it("does nothing more for a client's queued tab changes once it closes", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, layouts } = await manage(null, at, undefined, scanned.promise);
+
+    const opening = manager.openSession("client-1", "pi-session-1");
+    const selecting = manager.selectContainer("client-1", CHATS);
+    await manager.close();
+    scanned.resolve({ directory: at.piSessions, perCwd: false });
+
+    expect(await opening).toStrictEqual({});
+    expect(await selecting).toStrictEqual({});
+    expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
   });
 
   it("goes on with a client's next tab change after one that failed", async () => {

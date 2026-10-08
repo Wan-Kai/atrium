@@ -11,7 +11,7 @@
 | 链路追踪 | `@opentelemetry/api` + `sdk-trace-node`（2.x，稳定） | 宿主里用 AsyncLocalStorage 自动沿 `await` 传递当前 span，不用手动层层传参 |
 | 导出 | 自己写一个 SpanExporter，写成本地 JSONL | 默认不联网；开发时可以额外打开 OTLP 导出，用 Jaeger 之类的工具看瀑布图 |
 | 日志 | pino 10 | 每行一条 JSON；用 `mixin` 从当前 span 取 `trace_id` / `span_id` 自动带上；自带按路径脱敏 |
-| 日志轮转 | pino-roll | 按大小轮转（10MB × 5 个文件）。关闭时用 `end` 写完再关，不用 `flushSync`：有写入正在进行时，`flushSync` 会让后写的记录先落盘，最后一条日志就不在最后了 |
+| 日志轮转 | pino-roll | 按大小轮转（10MB × 5 个文件）。关闭时用 `end` 写完再关，不用 `flushSync`：有写入正在进行时，`flushSync` 会让后写的记录先落盘，最后一条日志就不在最后了。写入或轮转时打开文件出错（磁盘满、EIO）时直接关掉文件，宿主照常关闭、释放锁，不卡在等日志上 |
 | UI 与 client | 不引入浏览器端 OpenTelemetry SDK | client 只负责生成 `traceparent` 并随命令发出；界面的错误和性能问题经 WebSocket 发回宿主记录 |
 
 OpenTelemetry 的日志 SDK（`sdk-logs`）还在 0.x，不用；日志走 pino，只借用追踪那部分。

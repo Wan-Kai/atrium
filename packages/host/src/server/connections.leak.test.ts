@@ -17,7 +17,7 @@ describe("connection resources", () => {
   it("returns every resource count to its baseline after 200 accepted and 50 rejected connections", async () => {
     testHost = await startTestHost({ logLevel: "warn" });
     const host = testHost.host;
-    // Two timers stay: the heartbeat and the background fetch's next run.
+    // Two timers stay: the next resource report and the background fetch's next run.
     const baseline = {
       ...host.resources.snapshot(),
       span: 0,

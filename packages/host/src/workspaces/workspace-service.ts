@@ -292,9 +292,9 @@ export function createWorkspaceService(options: {
         git.run(args, { cwd: project.path, signal: stop.signal, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
       try {
         // A folder inside another repository, or one whose repository git cannot read just now,
-        // would fetch the repository around it.
+        // would fetch the repository around it. Only the line end goes: a name may end in a space.
         const top = await run(["rev-parse", "--path-format=absolute", "--show-toplevel"]);
-        if (top.code !== 0 || top.stdout.trim() !== project.path) continue;
+        if (top.code !== 0 || top.stdout.replace(/\n$/, "") !== project.path) continue;
         const remote = await run(["remote", "get-url", "origin"]);
         if (remote.code !== 0) continue;
         const fetched = await run(["fetch", "--quiet", "--prune", "origin"], FETCH_TIMEOUT_MS);

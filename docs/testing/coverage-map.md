@@ -35,8 +35,8 @@
 | 端口被占用时启动失败，失败记录写进日志、资源释放 | ws-server.host.test.ts "fails to start when the port is already taken…" | 已覆盖 |
 | 关闭宿主：所有连接断开；保持中的 HTTP 连接和只发了一半的升级请求都不拖住关闭 | ws-server.host.test.ts "host lifecycle" | 已覆盖 |
 | 退出应用时等宿主写完日志 | `apps/desktop/e2e/shutdown.spec.ts`："waits for a host that is slow to exit…" 用 `e2e/slow-exit-host.cjs` 包住真实宿主、把退出推迟 1.5 秒，应用不等就留不下标记文件 | 已覆盖 |
-| 同一客户端的标签命令按收到的顺序生效：打开等第一次扫描时关掉的标签不会再打开；一条失败不耽误下一条（2026-10-08 修，原来在机器繁忙时重启后 ⌘W 偶尔无效） | `packages/host/src/sessions/session-manager.test.ts` "closes a tab closed while its opening waited for the first scan…"、"goes on with a client's next tab change after one that failed"；`apps/desktop/e2e/workspaces.spec.ts` | 已覆盖 |
-| 宿主关闭时日志按写入的顺序落盘，最后一行是 "host stopped"；有写入正在进行时也一样；测试读日志前等全部落盘（2026-10-08 修，原来在机器繁忙时偶尔乱序） | `packages/host/src/platform/logger.test.ts` "drainLogFile"、"closeLogFile"（占满线程池，让一次写入一定还在进行）；`apps/desktop/e2e/shutdown.spec.ts` | 已覆盖 |
+| 同一客户端的标签命令按收到的顺序生效：索引里已有的会话不等第一次扫描就打开、切换立刻生效；还不认识的会话等扫描时关掉的标签不会再打开；一条失败不耽误下一条；关闭后排队的命令不再执行；新建会话在 pi 启动后打开成所在容器的激活标签，这期间换过位置就不切过去（2026-10-08 修，原来在机器繁忙时重启后 ⌘W 偶尔无效） | `packages/host/src/sessions/session-manager.test.ts` "closes a tab closed while its opening waited for the first scan…"、"opens a session the index knows…without waiting for the first scan"、"goes on with a client's next tab change after one that failed"、"does nothing more for a client's queued tab changes once it closes"、"opens a new session's tab where it belongs but leaves the client where it went…"；`layouts.test.ts`；`apps/desktop/e2e/workspaces.spec.ts` | 已覆盖 |
+| 宿主关闭时日志按写入的顺序落盘，最后一行是 "host stopped"；有写入正在进行时也一样；测试读日志前等全部落盘；写日志出错时不再一直等：等落盘的报错，关闭的直接关掉文件（2026-10-08 修，原来在机器繁忙时偶尔乱序） | `packages/host/src/platform/logger.test.ts` "drainLogFile"、"closeLogFile"（占满线程池，让一次写入一定还在进行；把流指向没打开的描述符，让写入一定失败）；`apps/desktop/e2e/shutdown.spec.ts` | 已覆盖 |
 | 宿主启动中途收到退出：不在退出后报"已就绪" | `packages/host/src/electron-port.test.ts` "does not report ready, and closes the host, when shutdown arrives while it is still starting"（启动和退出由测试控制） | 已覆盖 |
 | 重新连接时关闭旧连接，旧连接晚到的事件不改写新状态 | connection.test.ts "closes the previous socket on reconnect…" | 已覆盖 |
 | 界面跟随系统外观 | `packages/ui/src/design/appearance.browser.test.ts`；e2e "follows the system appearance" | 已覆盖 |
@@ -144,7 +144,7 @@
 | git 调用：用工具环境、关可选锁、不弹提示、固定语言；最多同时 4 个、其余排队；按注入的时钟超时（默认 30 秒）；取消；起不来时报 `spawn` 并释放名额；非零退出是结果不是错误 | `packages/host/src/platform/git.test.ts` | 已覆盖 |
 | 合并状态（真实 git）：目录没了是已移除；Atrium 建的、没提交的是无改动；有提交是 `pending` 并数出 ↑N；merge、快进、squash（主干之后又改了别处）、cherry-pick 都算已合并；主干回滚了改动、冲突算 `pending`；外部 worktree 按 reflog 区分无改动和已合并（含 amend、只快进到主干）；没有分支或 reflog 时无法判断；没有主干时无法判断但仍报未提交；git 低于 2.38 不模拟合并；git 出错；同样的提交只判断一次，`git status` 每次都跑，知道是否未提交时可以跳过 | `packages/host/src/workspaces/merge-inspector.test.ts`、`worktree-list.test.ts` | 已覆盖 |
 | 项目登记：真实路径；不存在或不是目录报 `path_not_found`；已是项目、已是某个项目的 worktree（含反过来）报 `project_exists`；仓库的子目录、没有 git 或 git 出错时当普通目录；重名加序号；同时添加同一目录只成功一个；移除只删索引；改名与重名；工作区改名和清除；只为已登记的项目记新 worktree | `packages/host/src/projects/project-service.test.ts` | 已覆盖 |
-| 工作区扫描：本地工作区和各 worktree（记成外部）、分支、detached 的短提交、创建时间；目录没了和被 prune 后是已移除；普通目录、仓库子目录、没有 git 时没有分支和合并状态；没有 `origin/HEAD` 时无法判断，项目设了主干就按它；运行结束后重扫、没变化不通知；每 5 分钟和窗口聚焦（至少隔一分钟）fetch，之后不跑 `git status`；没有 `origin` 的跳过，普通目录不 fetch 它所在的仓库，fetch 失败记日志；新加的项目立刻扫描；git 出错时保留上次的结果并按原因记日志；关闭后停掉定时器 | `packages/host/src/workspaces/workspace-service.test.ts` | 已覆盖 |
+| 工作区扫描：本地工作区和各 worktree（记成外部）、分支、detached 的短提交、创建时间；目录没了和被 prune 后是已移除；普通目录、仓库子目录、没有 git 时没有分支和合并状态；没有 `origin/HEAD` 时无法判断，项目设了主干就按它；运行结束后重扫、没变化不通知；每 5 分钟和窗口聚焦（至少隔一分钟）fetch，之后不跑 `git status`；没有 `origin` 的跳过，普通目录不 fetch 它所在的仓库，目录名以空格结尾的仓库照常 fetch，fetch 失败记日志；新加的项目立刻扫描；git 出错时保留上次的结果并按原因记日志；关闭后停掉定时器 | `packages/host/src/workspaces/workspace-service.test.ts` | 已覆盖 |
 | 会话文件：真实文件的会话 id、工作目录、会话名（最新的 `session_info`，去空白，空的清除）、第一条带文字的提问；不是会话的文件、坏链接、目录、其他文件、缺的和锁住的目录都跳过；只按 LF 分行；跨块的大文件；文件只增长时只读新增部分，没变的不重读，变小或没变长却改过的从头读；写了一半的行和文件头等写完；文件没了忘掉，同一路径的新文件整个读；只清理扫描的那个目录；可中止；不留打开的文件；会话目录按 pi 的顺序、目录名按 pi 的规则 | `packages/pi/src/sessions/session-files.test.ts` | 已覆盖 |
 | 会话目录：只读已登记容器对应的目录并核对 `cwd`；Atrium 建的会话按记录的容器，容器不在了按目录；草稿在文件出现前列出，出现后不再是草稿；文件没了是 `missing`；丢弃草稿；归档（终端会话也记下）；每个对话目录都归"对话"，新对话不等扫描；同一会话多个文件取最新并记日志；pi 全放一个目录时也能分开；不知道目录时只列记录；只在变化时通知、扫描期间的请求合并；关闭后停止 | `packages/host/src/sessions/session-catalog.test.ts`；兜底标题：`prompt-line.test.ts` | 已覆盖 |
 | 布局：每个客户端分开；打开的标签按顺序、激活、切换容器；关掉激活的标签时右边的、再左边的接上；各客户端关掉某会话的标签；去掉消失的容器；只留最近的 10 个客户端 | `packages/host/src/sessions/layouts.test.ts`；客户端的即时更新：`packages/client/src/index-view.test.ts` | 已覆盖 |
@@ -195,7 +195,7 @@
 
 | 要求 | 测试 | 状态 |
 |---|---|---|
-| 200 次连接（每次都订阅索引）、50 次拒绝后资源计数和 Node 真实定时器都回到基线；常驻的只有心跳和后台 fetch 两个定时器，git 进程为 0 | connections.leak.test.ts | 已覆盖 |
+| 200 次连接（每次都订阅索引）、50 次拒绝后资源计数和 Node 真实定时器都回到基线；常驻的只有资源报告和后台 fetch 两个定时器，git 进程为 0 | connections.leak.test.ts | 已覆盖 |
 | 真实 pi 启动、停止 200 次后，资源计数、定时器、子进程、管道句柄都回到基线，每个 pi 进程及其进程组都已消失 | `packages/pi/src/process/pi-process.leak.test.ts` | 已覆盖 |
 | 测试失败、超时或被杀时不留临时目录 | 根目录 `test-temp-root.ts`（Vitest、Playwright 全局初始化）；验证方法见 testing.md"临时文件与残留进程" | 已覆盖 |
 | 定时器计数与释放 | `packages/host/src/platform/clock.test.ts` | 已覆盖 |
