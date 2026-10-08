@@ -1,7 +1,7 @@
 import { FakeClock, GIT_SCENE_ENV, type GitScene, createGitScene, createTempDir, present } from "@atrium/testkit";
 import { mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { systemClock } from "../platform/clock";
 import { GitError, type GitRunner, createGitRunner } from "../platform/git";
@@ -11,6 +11,10 @@ import { PROJECTS_FILE, type ProjectsDocument } from "../store/index-schema";
 import { type IndexFile, loadIndexFile } from "../store/index-file";
 import { createMergeInspector } from "./merge-inspector";
 import { FETCH_INTERVAL_MS, FOCUS_FETCH_GAP_MS, createWorkspaceService } from "./workspace-service";
+
+// Each test builds real repositories and runs dozens of git commands; next to the other test
+// files running at once, that takes well over the default 5 seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 /**
  * A repository with a remote, at its real path.

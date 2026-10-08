@@ -153,7 +153,8 @@ describe("GitRunner.run", () => {
     });
 
     const run = git.run(["fetch"], { cwd, timeoutMs: 1_000 }).catch((error: unknown) => error);
-    await vi.waitFor(async () => expect(await readFile(pidFile, "utf8")).toMatch(/^\d+\n$/));
+    // Starting the shell and its helper can take a few seconds on a loaded machine.
+    await vi.waitFor(async () => expect(await readFile(pidFile, "utf8")).toMatch(/^\d+\n$/), { timeout: 10_000 });
     const helper = Number((await readFile(pidFile, "utf8")).trim());
     onTestFinished(() => killIfAlive(helper));
     clock.advance(1_000);

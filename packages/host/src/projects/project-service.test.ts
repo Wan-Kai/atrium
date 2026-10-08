@@ -2,13 +2,17 @@ import { CommandError } from "@atrium/protocol";
 import { GIT_SCENE_ENV, createGitScene, createTempDir, present } from "@atrium/testkit";
 import { mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "../platform/clock";
 import { type GitRunner, GitError, createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
 import { loadIndexFile } from "../store/index-file";
 import { PROJECTS_FILE } from "../store/index-schema";
 import { createProjectService } from "./project-service";
+
+// Each test builds real repositories and runs dozens of git commands; next to the other test
+// files running at once, that takes well over the default 5 seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 /**
  * A temporary directory removed after the test.

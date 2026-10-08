@@ -1,11 +1,15 @@
 import { GIT_SCENE_ENV, type GitScene, createGitScene } from "@atrium/testkit";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "../platform/clock";
 import { type GitRunner, createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
 import { type MergeTarget, createMergeInspector, parseGitVersion } from "./merge-inspector";
+
+// Each test builds real repositories and runs dozens of git commands; next to the other test
+// files running at once, that takes well over the default 5 seconds.
+vi.setConfig({ testTimeout: 30_000 });
 
 const MAIN = "refs/remotes/origin/main";
 
