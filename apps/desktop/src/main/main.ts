@@ -179,10 +179,12 @@ function restrictNavigation(window: BrowserWindow, pageOrigin: string): void {
  * Renderer settings follow security.md ("Electron"): context isolation, sandbox, no Node. The
  * preload asks for the token over IPC, and the handler answers only frames from the expected
  * origin. Permission requests are refused until a feature needs one. Quitting is held until the
- * host has shut down cleanly. In development the Vite page gets its own CSP header.
+ * host has shut down cleanly. In development the Vite page gets its own CSP header. Opening the
+ * app again focuses this window.
  *
  * @sideEffects Generates the session token; starts the host; registers IPC handlers; creates a
- * window; adds a CSP header to dev pages; delays quitting until the host has stopped.
+ * window; adds a CSP header to dev pages; delays quitting until the host has stopped; focuses
+ * the window when the app is opened again.
  */
 async function main(): Promise<void> {
   await app.whenReady();
@@ -245,11 +247,39 @@ async function main(): Promise<void> {
   });
   restrictNavigation(window, pageOrigin);
   window.once("ready-to-show", () => window.show());
+  // Opening the app again brings this window forward (domain-model §1, "索引的存储").
+  app.on("second-instance", () => {
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
   await window.loadURL(pageUrl);
 }
 
-app.on("window-all-closed", () => app.quit());
-main().catch((error: unknown) => {
-  console.error(error);
-  app.exit(1);
-});
+/**
+ * Keeps Electron's own data with the Atrium home it was pointed at.
+ *
+ * @remarks
+ * Electron's single-instance lock and the page's storage live in its user data directory. With
+ * `ATRIUM_HOME` set (tests, a second development copy), the app is a separate instance with its
+ * own storage, so it neither blocks nor is blocked by the Atrium in normal use.
+ *
+ * @sideEffects Changes Electron's user data path when `ATRIUM_HOME` is set.
+ */
+function separateUserData(): void {
+  const home = process.env["ATRIUM_HOME"];
+  if (home !== undefined && home !== "") app.setPath("userData", join(home, "electron"));
+}
+
+separateUserData();
+// Only one app per home: a second launch hands over to the first and quits (domain-model §1,
+// "索引的存储").
+if (app.requestSingleInstanceLock()) {
+  app.on("window-all-closed", () => app.quit());
+  main().catch((error: unknown) => {
+    console.error(error);
+    app.exit(1);
+  });
+} else {
+  app.quit();
+}

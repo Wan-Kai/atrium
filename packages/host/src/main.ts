@@ -1,5 +1,6 @@
 import { type PiInspection, inspectPi } from "@atrium/pi";
 import { randomBytes, randomUUID } from "node:crypto";
+import { uptime } from "node:os";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
@@ -11,6 +12,7 @@ import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { startWsServer } from "./server/ws-server";
 import { createSessionManager } from "./sessions/session-manager";
+import { acquireHostLock, processExists } from "./store/host-lock";
 import { SubscriptionRegistry } from "./sync/subscriptions";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
@@ -82,16 +84,27 @@ const RESOURCE_REPORT_INTERVAL_MS = 60_000;
  * If listening fails, everything opened so far is released before the error is rethrown, so a
  * failed start leaves no open file or tracer behind.
  *
- * @sideEffects Creates `~/.atrium` and its logs folder; opens the log file; listens on a port;
+ * The host takes `host.lock` before anything else in the home, so a second host on the same home
+ * refuses to start rather than writing the index alongside the first (domain-model §1, "索引的存储").
+ *
+ * @sideEffects Creates `~/.atrium` and its logs folder; takes the host lock; opens the log file; listens on a port;
  * schedules a recurring resource report; starts looking for pi in the background; on a failed
  * start, logs the failure and closes the log.
  * @param config - Host configuration.
  * @returns The running host.
+ * @throws {HostLockedError} When another live host uses the same home.
  */
 export async function startHost(config: HostConfig): Promise<RunningHost> {
   const clock = config.clock ?? systemClock;
   let environmentSecrets: readonly string[] = [];
   const home = await ensureAtriumHome(config.home);
+  const now = clock.now();
+  const lock = await acquireHostLock(home.root, {
+    pid: process.pid,
+    now,
+    bootedAt: now - uptime() * 1000,
+    isAlive: processExists,
+  });
   const { stream: destination, currentPath: logFile } = await openLogFile(home.logs);
   const resources = new ResourceTracker();
   const logger = createLogger({
@@ -161,6 +174,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger.error({ err: error }, "host failed to start");
     await tracing.shutdown();
     await closeLog();
+    await lock.release();
     throw error;
   }
 
@@ -247,7 +261,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
    * @sideEffects Cancels the report timer; aborts tool detection; closes the server; stops every
-   * session's pi; flushes spans and logs; closes the log file.
+   * session's pi; flushes spans and logs; closes the log file; releases the host lock.
    */
   async function close(): Promise<void> {
     cancelReport();
@@ -258,6 +272,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await tracing.shutdown();
     logger.info("host stopped");
     await closeLog();
+    await lock.release();
   }
 
   return {

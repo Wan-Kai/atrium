@@ -1,12 +1,13 @@
 import { createAtriumClient } from "@atrium/client";
 import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
 import { FakeClock, createTempDir, present } from "@atrium/testkit";
-import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it, vi, onTestFinished } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../../test/harness";
 import { startHost } from "../main";
+import { HostLockedError } from "../store/host-lock";
 
 const trace = { traceId: "4bf92f3577b34da6a3ce929d0e0e4736", spanId: "00f067aa0ba902b7", sampled: true };
 const wrongToken = "wrong-token-0123456789abcdefghijklmnop";
@@ -539,6 +540,24 @@ describe("host lifecycle", () => {
     await expect(started).rejects.toThrow(/EADDRINUSE/);
     const log = await readFile(`${home.path}/logs/current.log`, "utf8");
     expect(log).toContain('"msg":"host failed to start"');
+    expect(await readdir(home.path)).toStrictEqual(["logs"]);
+  });
+
+  it("refuses to start on a home another live host is using, and starts once that host has closed", async () => {
+    const home = await createTempDir("shared-home");
+    onTestFinished(home.cleanup);
+    const token = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
+    const first = await startHost({ home: home.path, token, toolEnv: { PATH: "" } });
+    onTestFinished(first.close);
+
+    const second = startHost({ home: home.path, token, toolEnv: { PATH: "" } });
+
+    await expect(second).rejects.toThrow(HostLockedError);
+    await expect(second).rejects.toMatchObject({ pid: process.pid });
+    await first.close();
+    const third = await startHost({ home: home.path, token, toolEnv: { PATH: "" } });
+    await third.close();
+    expect(await readdir(home.path)).toStrictEqual(["logs"]);
   });
 
   it("closes promptly while a client has paused in the middle of a download", async () => {

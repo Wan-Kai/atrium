@@ -7,6 +7,8 @@ import { join } from "node:path";
 export interface LaunchedApp {
   readonly app: ElectronApplication;
   readonly window: Page;
+  /** The Atrium home directory the app was started with. */
+  readonly home: string;
   /** Milliseconds from launch until the page reported a connected host. */
   readonly connectedAfterMs: number;
   /** Reads every record in the host's current log file. */
@@ -67,6 +69,7 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Launc
   return {
     app,
     window,
+    home,
     connectedAfterMs,
     readHostLog: async () =>
       (await readFile(join(home, "logs", "current.log"), "utf8"))

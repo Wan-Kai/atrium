@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { present } from "@atrium/testkit";
+import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { join } from "node:path";
 import { type LaunchedApp, launchApp } from "./launch";
 import { startCountingServer } from "./servers";
 
@@ -94,4 +97,33 @@ test("records the connection under one trace id and never logs the token", async
   expect(connected["trace_id"]).toMatch(/^[0-9a-f]{32}$/);
   expect(span["trace_id"]).toBe(connected["trace_id"]);
   expect(JSON.stringify(log)).not.toContain(token);
+});
+
+test("a second launch on the same home quits and brings the first window back", async () => {
+  /**
+   * Reads the first app's windows.
+   *
+   * @remarks
+   * Both the count and visibility show what the second launch did to the first app; a hidden
+   * window stands in for a minimized one, which the test machine's window server may not honour.
+   *
+   * @sideEffects none
+   * @returns Whether each window is visible.
+   */
+  const windows = () =>
+    launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => window.isVisible()));
+  await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.hide());
+  await expect.poll(windows).toStrictEqual([false]);
+  const electronPath = createRequire(import.meta.url)("electron") as string;
+
+  const second = spawn(electronPath, ["."], {
+    cwd: join(import.meta.dirname, ".."),
+    env: { ...process.env, ATRIUM_HOME: launched.home },
+    stdio: "ignore",
+  });
+  const code = await new Promise<number | null>((done) => second.once("exit", done));
+
+  expect(code).toBe(0);
+  await expect.poll(windows).toStrictEqual([true]);
+  await expect(launched.window.getByRole("status")).toHaveText(/已连接宿主/);
 });
