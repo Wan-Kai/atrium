@@ -354,10 +354,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     stopDetecting.abort();
     await tools;
     await server.close();
-    feed.close();
     await workspaces.close();
     await sessions.close();
     await catalog.close();
+    // After the sessions, whose stopping still reports changes.
+    feed.close();
     await index.flush();
     await tracing.shutdown();
     logger.info("host stopped");

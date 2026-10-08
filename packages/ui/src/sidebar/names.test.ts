@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isDone, isPending, mergeLabels, placeOf, sessionTitle, sortWorkspaces, timeAgo, workspaceName } from "./names";
 
 /** A merge state with `fields`. */
-const merge = (fields: Partial<{ dirty: boolean; ahead: number; verdict: string }>) => ({
+const merge = (fields: Partial<{ dirty: boolean; ahead: number; verdict: string; reason: string }>) => ({
   merge: { dirty: false, ahead: 0, verdict: "noChange", reason: null, ...fields } as never,
 });
 
@@ -31,7 +31,11 @@ describe("mergeLabels", () => {
   it.each([
     ["no merge state", { merge: null }, []],
     ["no changes", merge({}), []],
-    ["unknown", merge({ verdict: "unknown", dirty: true }), [{ kind: "dirty" }]],
+    [
+      "unknown and dirty",
+      merge({ verdict: "unknown", dirty: true, reason: "no_main_branch" }),
+      [{ kind: "dirty" }, { kind: "unknown", reason: "no_main_branch" }],
+    ],
     ["commits ahead", merge({ verdict: "pending", ahead: 3 }), [{ kind: "ahead", count: 3 }]],
     [
       "ahead and dirty",

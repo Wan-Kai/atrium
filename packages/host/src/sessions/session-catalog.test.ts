@@ -110,21 +110,26 @@ describe("SessionCatalog", () => {
   });
 
   it("checks each file's directory, since different directories can share pi's folder", async () => {
-    const { sessions, root, write } = await catalog();
+    const { sessions, root, write, setWorkspaces } = await catalog();
     // `/x/a-b` and `/x/a/b` both map to the folder `--x-a-b--`.
     const dashed = join(root, "a-b");
     const nested = join(root, "a", "b");
     await mkdir(dashed);
     await mkdir(nested, { recursive: true });
-    await write(dashed, "s1");
+    const mine = await write(dashed, "s1", [], 100);
     await write(nested, "s2");
-    const only = await catalog();
-    only.setWorkspaces([{ id: A, dir: dashed }]);
+    // A newer file with the same id from the other directory must not take its place.
+    await write(nested, "s1", [], 300, "other-s1.jsonl");
+    expect(sessionFolder({ directory: join(root, "pi-sessions"), perCwd: true }, dashed)).toBe(
+      sessionFolder({ directory: join(root, "pi-sessions"), perCwd: true }, nested),
+    );
+    setWorkspaces([{ id: A, dir: dashed }]);
 
     await sessions.scan();
 
-    expect(sessions.list()).toStrictEqual([]);
-    expect(only.sessions.list()).toStrictEqual([]);
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.containerId, entry.file])).toStrictEqual([
+      ["s1", A, mine],
+    ]);
   });
 
   it("keeps a session Atrium created in its container while it exists, then files it by directory", async () => {

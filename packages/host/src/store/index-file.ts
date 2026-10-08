@@ -93,6 +93,7 @@ export class IndexTooNewError extends Error {
  * @param directory - The index directory, normally `~/.atrium`.
  * @param spec - The file's name, version, schema and upgrades.
  * @param now - The time, for naming a damaged file's copy.
+ * @param write - How content reaches the disk; tests pass one that fails on purpose.
  * @returns The loaded file, and where a damaged one went.
  * @throws {IndexTooNewError} When the file's version is newer than `spec.version`.
  * @throws Errors reading the file other than its absence, and errors writing it back.
@@ -101,13 +102,14 @@ export async function loadIndexFile<T extends object>(
   directory: string,
   spec: IndexFileSpec<T>,
   now: number,
+  write: (path: string, content: string) => Promise<void> = writeAtomically,
 ): Promise<LoadedIndexFile<T>> {
   const path = join(directory, `${spec.name}.json`);
   const text = await readFile(path, "utf8").catch((error: unknown) => {
     if (errorCode(error) === "ENOENT") return null;
     throw error;
   });
-  if (text === null) return { file: indexFile(path, spec, spec.empty()), setAside: null };
+  if (text === null) return { file: indexFile(path, spec, spec.empty(), write), setAside: null };
   const stored = storedVersion(text);
   if (stored !== null && stored.version > spec.version) {
     throw new IndexTooNewError(path, stored.version, spec.version);
@@ -117,9 +119,9 @@ export async function loadIndexFile<T extends object>(
   if (parsed?.success !== true) {
     const aside = join(directory, `${spec.name}.corrupt-${new Date(now).toISOString().replaceAll(":", "-")}.json`);
     await rename(path, aside);
-    return { file: indexFile(path, spec, spec.empty()), setAside: aside };
+    return { file: indexFile(path, spec, spec.empty(), write), setAside: aside };
   }
-  const file = indexFile(path, spec, parsed.data);
+  const file = indexFile(path, spec, parsed.data, write);
   if (stored !== null && stored.version < spec.version) {
     await copyFile(path, join(directory, `${spec.name}.v${stored.version}.bak`));
     await file.save(parsed.data);
@@ -182,15 +184,22 @@ function upgrade<T extends object>(
  *
  * @remarks
  * Writes to one file run one at a time; a document saved during a write is written once that
- * write ends, and documents saved in between are skipped, since only the latest matters.
+ * write ends, even when it failed, and documents saved in between are skipped, since only the
+ * latest matters.
  *
  * @sideEffects none until `save`; then writes the file.
  * @param path - The file.
  * @param spec - The file's spec, for its version.
  * @param initial - The loaded document.
+ * @param write - How content reaches the disk.
  * @returns The file.
  */
-function indexFile<T extends object>(path: string, spec: IndexFileSpec<T>, initial: T): IndexFile<T> {
+function indexFile<T extends object>(
+  path: string,
+  spec: IndexFileSpec<T>,
+  initial: T,
+  write: (path: string, content: string) => Promise<void>,
+): IndexFile<T> {
   let latest = initial;
   let pending = false;
   let writing: Promise<void> | null = null;
@@ -207,7 +216,12 @@ function indexFile<T extends object>(path: string, spec: IndexFileSpec<T>, initi
     try {
       while (pending) {
         pending = false;
-        await writeAtomically(path, `${JSON.stringify({ version: spec.version, ...latest }, null, 2)}\n`);
+        try {
+          await write(path, `${JSON.stringify({ version: spec.version, ...latest }, null, 2)}\n`);
+        } catch (error) {
+          // A document saved while this write failed gets its own write, whose outcome counts.
+          if (!pending) throw error;
+        }
       }
     } finally {
       writing = null;

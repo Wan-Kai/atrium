@@ -1,5 +1,5 @@
 import { type AtriumClient, CommandError, type IndexView } from "@atrium/client";
-import type { Appearance, Project, SessionSummary, Workspace } from "@atrium/protocol";
+import type { Appearance, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
   Check,
   DotsThree,
@@ -29,6 +29,14 @@ const APPEARANCES: readonly { readonly appearance: Appearance; readonly label: s
   { appearance: "light", label: "外观：浅色", icon: <Sun size={16} /> },
   { appearance: "dark", label: "外观：深色", icon: <Moon size={16} /> },
 ];
+
+/** Why a merge state cannot be told, in words for the hover text (SPEC-0001, "worktree 合并状态"). */
+const UNKNOWN_REASONS: Readonly<Record<MergeUnknownReason, string>> = {
+  no_main_branch: "无法判断是否已合并：没有主干分支（远程没有 origin/HEAD，项目也没有设置主干）",
+  git_too_old: "无法判断是否已合并：git 低于 2.38",
+  git_failed: "无法判断是否已合并：git 出错了，稍后会再看",
+  base_unknown: "无法判断是否已合并：看不出这个 worktree 从哪里开始",
+};
 
 /** Where collapsed projects are remembered in this browser profile (domain-model §7, ViewState). */
 const COLLAPSED_KEY = "atrium.collapsedProjects";
@@ -554,7 +562,8 @@ function WorkspaceRow({
  * A workspace's merge labels, as plain text.
  *
  * @remarks
- * "• 未提交", orange bold "↑N", green "✓ 已合并", dim "已移除" (design-language, "标签").
+ * "• 未提交", orange bold "↑N", green "✓ 已合并", dim "已移除", dimmer "状态未知" with the reason on
+ * hover (design-language, "标签").
  *
  * @sideEffects none
  * @param props - The workspace.
@@ -596,9 +605,20 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
         </span>
       );
     }
+    if (label.kind === "removed") {
+      return (
+        <span key="removed" title="worktree 目录已不存在" className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+          已移除
+        </span>
+      );
+    }
     return (
-      <span key="removed" title="worktree 目录已不存在" className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-        已移除
+      <span
+        key="unknown"
+        title={UNKNOWN_REASONS[label.reason ?? "git_failed"]}
+        className="text-[length:var(--fs-sm)] text-[var(--text-dim)] opacity-70"
+      >
+        状态未知
       </span>
     );
   });

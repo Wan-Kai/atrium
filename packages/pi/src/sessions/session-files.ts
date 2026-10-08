@@ -267,13 +267,21 @@ function readLine(state: FileState, line: string): void {
  * @param from - Where to start.
  * @param to - Where to stop.
  * @param signal - Stops the read.
+ * @returns Where the read stopped: `to`, or earlier when the file ended first.
  * @throws The signal's reason once it is aborted; the file system's errors.
  */
-async function readRange(path: string, state: FileState, from: number, to: number, signal?: AbortSignal) {
+async function readRange(
+  path: string,
+  state: FileState,
+  from: number,
+  to: number,
+  signal?: AbortSignal,
+): Promise<number> {
   const file = await open(path, "r");
+  let position = from;
   try {
     const buffer = Buffer.alloc(Math.min(CHUNK_BYTES, Math.max(to - from, 1)));
-    for (let position = from; position < to;) {
+    while (position < to) {
       signal?.throwIfAborted();
       const { bytesRead } = await file.read(buffer, 0, Math.min(buffer.length, to - position), position);
       if (bytesRead === 0) break;
@@ -283,6 +291,7 @@ async function readRange(path: string, state: FileState, from: number, to: numbe
   } finally {
     await file.close();
   }
+  return position;
 }
 
 /**
@@ -323,8 +332,11 @@ export function createSessionFileReader(): SessionFileReader {
           files.set(path, state);
         }
         if (info.size > state.size) {
-          const read = await unlessUnreadable(readRange(path, state, state.size, info.size, signal));
-          if (read === null) {
+          const reached = await unlessUnreadable(readRange(path, state, state.size, info.size, signal));
+          // A file that ended before its size (rewritten since it was looked at) is read again
+          // from its start next time, rather than continued from the wrong place.
+          // Stryker disable next-line ConditionalExpression,EqualityOperator: a file shrinking between stat and read cannot be timed in a test.
+          if (reached === null || reached < info.size) {
             files.delete(path);
             continue;
           }

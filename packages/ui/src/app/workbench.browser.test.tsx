@@ -216,6 +216,28 @@ describe("Workbench sidebar", () => {
   });
 });
 
+describe("Workbench merge states", () => {
+  it("says when a worktree's merge state cannot be told, and why on hover", async () => {
+    const initial = list();
+    const { screen } = await workbench({
+      initial: {
+        ...initial,
+        workspaces: [
+          workspace({
+            id: FEATURE,
+            branch: "feat/old-git",
+            merge: { dirty: true, ahead: 0, verdict: "unknown", reason: "git_too_old" },
+          }),
+        ],
+      },
+    });
+
+    const row = screen.getByTestId("workspace-row");
+    await expect.element(row).toHaveTextContent("feat/old-git未提交状态未知");
+    await expect.element(row.getByText("状态未知")).toHaveAttribute("title", "无法判断是否已合并：git 低于 2.38");
+  });
+});
+
 describe("Workbench tabs", () => {
   it("shows the container's open sessions as tabs, the active one selected, and switches and closes them", async () => {
     const { screen, calls } = await workbench();

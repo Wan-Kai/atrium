@@ -82,7 +82,7 @@ describe("IndexFeed", () => {
     expect(received["a"]).toHaveLength(3);
   });
 
-  it("stops sending to a connection that disconnected, and drops a pending push when closed", () => {
+  it("stops sending to a connection that disconnected, and drops a pending push and later changes when closed", () => {
     const { index, received, clock, registry, resources } = feed();
     index.subscribe("a");
     index.subscribe("b");
@@ -93,6 +93,7 @@ describe("IndexFeed", () => {
     index.changed();
     index.close();
     index.close();
+    index.changed();
     clock.advance(INDEX_PUSH_DELAY_MS);
 
     expect(received["a"]).toHaveLength(1);

@@ -68,6 +68,8 @@ test("creates sessions as tabs, keeps them and the tab it was on across a restar
     await expect(restarted.getByRole("tab", { selected: true })).toHaveText("新会话");
     await restarted.keyboard.press("Meta+W");
     await expect(restarted.getByRole("tab")).toHaveText(["ping"]);
+    // The tab left is a session on file whose pi has not started since the restart.
+    await expect(restarted.getByTestId("reply")).toHaveText("pong", { timeout: 30_000 });
     await restarted.getByRole("button", { name: "历史" }).click();
     await expect(restarted.getByRole("menuitem")).toHaveText([/^ping已打开/]);
   } finally {

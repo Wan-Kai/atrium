@@ -1,5 +1,5 @@
 import type { IndexView } from "@atrium/client";
-import type { SessionSummary, Workspace } from "@atrium/protocol";
+import type { MergeUnknownReason, SessionSummary, Workspace } from "@atrium/protocol";
 
 /**
  * A workspace's name.
@@ -41,15 +41,16 @@ export type MergeLabel =
   | { readonly kind: "dirty" }
   | { readonly kind: "ahead"; readonly count: number }
   | { readonly kind: "merged" }
-  | { readonly kind: "removed" };
+  | { readonly kind: "removed" }
+  | { readonly kind: "unknown"; readonly reason: MergeUnknownReason | null };
 
 /**
  * The label of a workspace's merge state, if any.
  *
  * @remarks
  * Uncommitted changes come first; then commits not yet in the main branch; then merged or
- * removed. A worktree with no changes, the local workspace and an unknown state show nothing
- * (SPEC-0001, "worktree 合并状态"; domain-model §1).
+ * removed. A state that cannot be told says so after them (2026-10-08). A worktree with no
+ * changes and the local workspace show nothing (SPEC-0001, "worktree 合并状态"; domain-model §1).
  *
  * @sideEffects none
  * @param workspace - The workspace.
@@ -63,6 +64,7 @@ export function mergeLabels(workspace: Pick<Workspace, "merge">): MergeLabel[] {
   const labels: MergeLabel[] = [];
   if (merge.verdict === "pending" && merge.ahead > 0) labels.push({ kind: "ahead", count: merge.ahead });
   if (merge.dirty) labels.push({ kind: "dirty" });
+  if (merge.verdict === "unknown") labels.push({ kind: "unknown", reason: merge.reason });
   return labels;
 }
 

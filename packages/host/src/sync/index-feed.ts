@@ -15,7 +15,7 @@ export interface IndexFeed {
   subscribe(connectionId: string): void;
   /** Something in the list changed; a snapshot goes to every subscriber shortly. */
   changed(): void;
-  /** Cancels a pending push. */
+  /** Cancels a pending push and ignores later changes. */
   close(): void;
 }
 
@@ -43,6 +43,7 @@ export function createIndexFeed(options: {
 }): IndexFeed {
   let seq = 0;
   let cancel: (() => void) | null = null;
+  let closed = false;
 
   /**
    * Sends one connection a snapshot.
@@ -70,6 +71,8 @@ export function createIndexFeed(options: {
       if (subscriber !== undefined) send(subscriber.connectionId, subscriber.clientId);
     },
     changed() {
+      // Sessions stopping while the host closes still report changes; nobody is left to tell.
+      if (closed) return;
       cancel ??= trackedTimeout(
         options.clock,
         options.resources,
@@ -81,6 +84,7 @@ export function createIndexFeed(options: {
       );
     },
     close() {
+      closed = true;
       cancel?.();
       cancel = null;
     },

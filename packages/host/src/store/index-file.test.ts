@@ -214,3 +214,40 @@ describe("writeAtomically", () => {
     expect(await readdir(directory)).toStrictEqual(["file.json"]);
   });
 });
+
+/**
+ * A writer whose first write fails, as when the disk is briefly full.
+ *
+ * @remarks
+ * Records what the later writes put on disk.
+ *
+ * @sideEffects Writes files after the first call.
+ * @param written - Where the written contents go.
+ * @returns The writer.
+ */
+function failingFirst(written: string[]): (path: string, content: string) => Promise<void> {
+  let failed = false;
+  return async (path, content) => {
+    if (!failed) {
+      failed = true;
+      throw new Error("disk full");
+    }
+    written.push(content);
+    await writeAtomically(path, content);
+  };
+}
+
+describe("IndexFile.save after a failed write", () => {
+  it("still writes a document saved while a write was failing", async () => {
+    const directory = await indexDirectory();
+    const written: string[] = [];
+    const { file } = await loadIndexFile(directory, spec, NOW, failingFirst(written));
+
+    const first = file.save({ items: [{ name: "a" }] });
+    const second = file.save({ items: [{ name: "b" }] });
+
+    await expect(second).resolves.toBeUndefined();
+    expect(second).toBe(first);
+    expect(written.map((content) => JSON.parse(content))).toStrictEqual([{ version: 3, items: [{ name: "b" }] }]);
+  });
+});
