@@ -17,7 +17,15 @@ describe("connection resources", () => {
   it("returns every resource count to its baseline after 200 accepted and 50 rejected connections", async () => {
     testHost = await startTestHost({ logLevel: "warn" });
     const host = testHost.host;
-    const baseline = { ...host.resources.snapshot(), span: 0, timer: 1, "ws.connection": 0, "sync.connection": 0 };
+    // Two timers stay: the heartbeat and the background fetch's next run.
+    const baseline = {
+      ...host.resources.snapshot(),
+      span: 0,
+      timer: 2,
+      "git.process": 0,
+      "ws.connection": 0,
+      "sync.connection": 0,
+    };
     const timersBefore = liveTimers();
 
     for (let round = 0; round < 200; round++) {

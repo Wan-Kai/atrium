@@ -193,7 +193,7 @@
 
 | 要求 | 测试 | 状态 |
 |---|---|---|
-| 200 次连接、50 次拒绝后资源计数和 Node 真实定时器都回到基线 | connections.leak.test.ts | 已覆盖 |
+| 200 次连接（每次都订阅索引）、50 次拒绝后资源计数和 Node 真实定时器都回到基线；常驻的只有心跳和后台 fetch 两个定时器，git 进程为 0 | connections.leak.test.ts | 已覆盖 |
 | 真实 pi 启动、停止 200 次后，资源计数、定时器、子进程、管道句柄都回到基线，每个 pi 进程及其进程组都已消失 | `packages/pi/src/process/pi-process.leak.test.ts` | 已覆盖 |
 | 测试失败、超时或被杀时不留临时目录 | 根目录 `test-temp-root.ts`（Vitest、Playwright 全局初始化）；验证方法见 testing.md"临时文件与残留进程" | 已覆盖 |
 | 定时器计数与释放 | `packages/host/src/platform/clock.test.ts` | 已覆盖 |
