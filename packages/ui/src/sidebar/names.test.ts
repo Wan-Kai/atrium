@@ -89,6 +89,12 @@ describe("sortWorkspaces", () => {
     ]);
   });
 
+  it("keeps worktrees already newest first in that order", () => {
+    const sorted = sortWorkspaces([worktree("newest", 3), worktree("middle", 2), worktree("oldest", 1)]);
+
+    expect(sorted.map((workspace) => workspace.id)).toStrictEqual(["newest", "middle", "oldest"]);
+  });
+
   it("lists a local workspace once, first, whatever its merge state says", () => {
     const local = { id: "local", kind: "local" as const, createdAt: null, ...merge({ verdict: "removed" }) };
 
