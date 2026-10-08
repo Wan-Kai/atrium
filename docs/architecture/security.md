@@ -25,7 +25,7 @@
 - 渲染进程：`contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
 - preload 只通过 `contextBridge` 暴露最小接口（宿主地址和 token、让用户选择文件夹、设置窗口外观；M1.5 起），不暴露 Node 或 IPC 本身。每个 IPC 处理函数都只回应应用自己页面的来源，外观只接受三个取值。
 - 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片允许本应用、`data:`、`blob:` 和 `https:`（回复里的远程图片，见下文"渲染内容"），连接只允许本应用。宿主直接提供的页面（单独运行时）由宿主加响应头；窗口里的页面从 `atrium://app/` 加载（overview.md"桌面端怎么启动宿主"），由 Electron 主进程转发宿主的文件并换上同样的策略，只额外允许连接宿主端口；开发时页面来自 Vite，主进程给它加的策略再额外允许内联脚本（React 热更新需要）。
-- `atrium` 协议只转发到宿主的静态文件服务，路径校验和符号链接检查仍由宿主做；宿主的 `Origin` 白名单只多出 `atrium://app` 这一个来源。
+- `atrium` 协议只转发到宿主的静态文件服务，路径校验和符号链接检查仍由宿主做；宿主的 `Origin` 白名单只多出 `atrium://app` 这一个来源。主进程判断"是不是自己的页面"时比较协议和主机名（`atrium:` 加 `app`），不用 `URL.origin`：Node 对非标准协议给出的 origin 是 `"null"`，所有不透明来源都相等。协议处理器只接受主机名 `app`。
 - 禁止窗口导航到别的页面（`will-navigate`），禁止新开窗口（`setWindowOpenHandler` 一律拒绝）。
 - 外链只允许 `http` / `https`，用 `shell.openExternal` 交给系统浏览器。
 
@@ -48,7 +48,7 @@
 - 子进程的环境里没有 token：宿主把登录 shell 的环境交给 pi 时去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，读取登录 shell 时 shell 也只带少数基本变量启动（SPEC-0001"第 1 步"）。这份环境可能含有用户的 API Key，日志里不记录它的内容。
 - 外部命令一律用 `execFile` / `spawn` 传参数数组，不经过 shell，防止命令注入；参数来自用户输入时（分支名、路径）先校验。
 - 在 `PATH` 里找 pi 时跳过相对路径（包括 POSIX 里表示"当前目录"的空项），宿主不会运行恰好位于自己工作目录里的 `pi`。交给 pi（`pi --version` 和 `pi --mode rpc`）的 `PATH` 也去掉相对项：pi 的启动脚本用 `#!/usr/bin/env node` 在 `PATH` 上找 `node`，相对项会让它运行工作目录里的 `node`。
-- Atrium 自己的 Node 程序用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 脚本。pi 用找到的绝对路径直接启动（宿主跑在 Electron 里时 `process.execPath` 是 Electron 本身），PATH 取自登录 shell，不经过 shell。
+- Atrium 自己的 Node 程序用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 脚本。pi 用找到的绝对路径直接启动（宿主跑在 Electron 里时 `process.execPath` 是 Electron 本身），PATH 取自登录 shell，不经过 shell。git 同样用登录 shell 的 PATH，去掉相对项和空项，仓库里同名的 `git` 不会被执行（2026-10-08 审查后补）；git 超时或取消时连同它拉起的子进程（ssh、凭据助手）一起结束。
 - `@` 引用的文件搜索限制在工作区目录内，解析符号链接后仍在目录内才返回。
 - 宿主提供界面文件时同样解析符号链接，真实路径不在界面目录内就返回 404；先打开文件再读大小，读失败或客户端中途断开都不会影响宿主进程。
 - 安装 pi 只运行官方安装脚本（`https://pi.dev/install.sh`），地址写死在代码里。

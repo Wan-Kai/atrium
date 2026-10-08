@@ -186,6 +186,7 @@ Electron 主进程
 | 无改动 | 干净，且分支还停在起点（见下文） | 不显示标签，不变淡 |
 | 已合并 | 干净，分支离开过起点，且已进入主干（见下文） | `✓ 已合并`，变淡，提供"清理"入口（阶段 1 第 3 步） |
 | 已移除 | worktree 目录不存在（`git worktree list` 标为 prunable） | `已移除`，变淡 |
+| 无法判断 | 没有主干分支、git 低于 2.38、git 出错、外部 worktree 看不出起点 | 最淡的 `状态未知`，悬停说明原因；未提交仍照常显示（2026-10-08 定） |
 
 - 主干默认取 `origin/HEAD` 指向的分支，每个项目可以单独修改。比较对象用远程分支（如 `origin/main`），宿主在后台定期 `git fetch`（窗口获得焦点时、每隔几分钟），因为合并常在 GitHub 上完成，本地 `main` 可能还没更新。
 - 判断已合并，按顺序：
@@ -568,7 +569,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **命令**
 
 - `subscribe_index()`：订阅列表，宿主马上推一份快照，之后有变化就推。连接断开即退订。
-- `add_project(path)`：登记项目，返回 `projectId`。不是目录应答 `path_not_found`；已经是某个项目或其工作区时应答 `project_exists`（`params.projectId`）；名称和已有项目重复时自动加序号，如 `app (1)`。
+- 订阅一个已写出文件、但 pi 还没启动的会话时，宿主先记下订阅，pi 启动（由 `open_session` 或第一次 `prompt` 触发）后再发快照，不拒绝；客户端拿到列表后，对当前标签先 `open_session` 再订阅（2026-10-08 审查后补）。
+- `add_project(path)`：登记项目，返回 `projectId`。不是目录应答 `path_not_found`；已经是某个项目或其工作区时应答 `project_exists`（`params.projectId`）；名称和已有项目重复时自动加序号，如 `app (1)`。选的是某个仓库的 worktree（不是主工作树）时，登记的是主工作树所在的仓库，这个 worktree 作为它的一个工作区出现（2026-10-08 定）。同时添加的几个目录依次处理。
 - `remove_project(projectId)` / `rename_project(projectId, name)`：移除只删索引，同时停掉其中会话的 pi、从各客户端的布局里去掉；改成已有项目的名字应答 `name_taken`。
 - `rename_workspace(workspaceId, name | null)`：`null` 恢复为分支名。
 - `window_focused()`：窗口获得焦点，宿主重扫工作区、合并状态和会话文件。
@@ -577,10 +579,10 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `close_tab(sessionId)`：只改这个客户端的布局。关掉的是还没发过消息的草稿时，丢弃它：停掉 pi、删掉索引里的记录，对话的空目录一并删掉（只删空的）（2026-10-08 定）。
 - `select_container(containerId | null)`：切换工作区或"对话"。
 - `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。
-- `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。
+- `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。
 - `set_preferences(appearance?, displayMode?)`。
 
-新增错误码：`project_not_found`、`workspace_not_found`、`project_exists`、`name_taken`、`path_not_found`。
+新增错误码：`project_not_found`、`workspace_not_found`、`project_exists`、`name_taken`、`path_not_found`、`session_is_draft`。
 
 **扫描**：工作区用 `git worktree list --porcelain`，同时最多跑 4 个 git 命令。会话只扫已登记的容器对应的 pi 会话目录（按 pi 的规则由工作目录得出目录名），再按文件头的 `cwd` 核对；按文件大小和修改时间缓存，文件只增长时只读新增的部分（会话名取最新一条 `session_info`）。同一个 id 出现在多个文件时取最新的，日志记一条冲突。
 
