@@ -342,6 +342,21 @@ describe("WorkspaceService", () => {
     ]);
   });
 
+  it("does not fetch the repository a plain folder project sits in", async () => {
+    const repo = await scene();
+    const inner = join(repo.repo, "docs");
+    await mkdir(inner);
+    const git = countingGit();
+    const { projects, workspaces } = await services({ git });
+    await projects.add(inner);
+
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    expect(git.commands).not.toContain("fetch");
+    expect(git.commands).not.toContain("remote");
+  });
+
   it("scans a project as soon as it is added, and forgets a removed one", async () => {
     const repo = await scene();
     await repo.worktree("feature");

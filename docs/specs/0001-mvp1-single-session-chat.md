@@ -188,7 +188,7 @@ Electron 主进程
 | 已移除 | worktree 目录不存在（`git worktree list` 标为 prunable） | `已移除`，变淡 |
 | 无法判断 | 没有主干分支、git 低于 2.38、git 出错、外部 worktree 看不出起点 | 最淡的 `状态未知`，悬停说明原因；未提交仍照常显示（2026-10-08 定） |
 
-- 主干默认取 `origin/HEAD` 指向的分支，每个项目可以单独修改。比较对象用远程分支（如 `origin/main`），宿主在后台定期 `git fetch`（窗口获得焦点时、每隔几分钟），因为合并常在 GitHub 上完成，本地 `main` 可能还没更新。
+- 主干默认取 `origin/HEAD` 指向的分支，每个项目可以单独修改。比较对象用远程分支（如 `origin/main`），宿主在后台定期 `git fetch`（窗口获得焦点时、每隔几分钟），因为合并常在 GitHub 上完成，本地 `main` 可能还没更新。只 fetch 本身是仓库顶层的项目：放在别的仓库里的普通目录不会去 fetch 外面那个仓库。
 - 判断已合并，按顺序：
   1. 分支已在主干历史中（`git merge-base --is-ancestor`）→ 已合并。覆盖普通 merge 和快进。
   2. 否则用 `git merge-tree --write-tree <主干> <分支>` 模拟合并（不改工作区和 index，但会在仓库里创建 git 对象），结果与主干的 tree 相同 → 已合并。覆盖 squash、rebase、cherry-pick；主干之后改了别处不影响判断；主干回滚了该改动则判为未合并。模拟合并有冲突，一律视为未合并。需要 git 2.38 以上。

@@ -59,8 +59,9 @@ export interface WorkspaceService {
  *   (domain-model, "已决定 15");
  * - scans run when the service starts, when the window gains focus, when a run in a workspace
  *   ends, and for a project just added; files are never watched;
- * - every few minutes and on focus (at most once a minute) each project with an `origin` is
- *   fetched, and its merge states are worked out again without `git status`.
+ * - every few minutes and on focus (at most once a minute) each project that is the top of its
+ *   own repository and has an `origin` is fetched, and its merge states are worked out again
+ *   without `git status`; a folder inside another repository never fetches that repository.
  *
  * Scans of one project never overlap: a scan asked for during another runs once it ends. A git
  * failure, or git failing to read a repository it read before, leaves the project's last results
@@ -262,7 +263,8 @@ export function createWorkspaceService(options: {
   }
 
   /**
-   * Fetches every project with an `origin`, then works out their merge states again.
+   * Fetches every project that is its own repository's top and has an `origin`, then works out
+   * their merge states again.
    *
    * @remarks
    * See `createWorkspaceService`. A fetch that fails (offline, no access) is logged by its reason.
@@ -289,6 +291,10 @@ export function createWorkspaceService(options: {
       const run = (args: string[], timeoutMs?: number) =>
         git.run(args, { cwd: project.path, signal: stop.signal, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
       try {
+        // A folder inside another repository, or one whose repository git cannot read just now,
+        // would fetch the repository around it.
+        const top = await run(["rev-parse", "--path-format=absolute", "--show-toplevel"]);
+        if (top.code !== 0 || top.stdout.trim() !== project.path) continue;
         const remote = await run(["remote", "get-url", "origin"]);
         if (remote.code !== 0) continue;
         const fetched = await run(["fetch", "--quiet", "--prune", "origin"], FETCH_TIMEOUT_MS);
