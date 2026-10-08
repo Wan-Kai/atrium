@@ -230,7 +230,8 @@ MVP 1 里还没设计、做到时先补设计的：
   - IndexStore（`~/.atrium/`，原子写入）、ProjectService、WorkspaceService（`git worktree list`、分支、创建时间）、MergeInspector（未提交、↑N、无改动、已合并、已移除、无法判断）。
   - pi 包的 SessionFiles 扫描会话目录、解析文件头；宿主的 SessionCatalog 按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话；新建对话时立刻启动 pi，不等第一条消息（[领域模型 · 已决定 9](architecture/domain-model.md#已决定)）。
   - WorkspaceService 的后台 `git fetch`（窗口聚焦时、每隔几分钟）和聚焦后重算；git 低于 2.38 时只提示合并状态不可用。
-  - 侧栏、收件箱、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。
+  - 侧栏、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。收件箱挪到 M1.7（2026-10-08 定）。协议见 [SPEC-0001 · 项目、工作区与会话](specs/0001-mvp1-single-session-chat.md#项目工作区与会话m152026-10-08-定)。
+  - 插话记录存进 `~/.atrium/turns/`（SPEC-0001"对话记录"），宿主重启后仍在。
   - 快捷键：⌘N 新建对话，⌘T 新建会话，⌘W 关闭标签，⌘1–9、⌘⇧[ / ⌘⇧] 切换标签。
 - **参考**：[ADR-0006](adr/0006-organize-sessions-by-workspace.md)、[domain-model](architecture/domain-model.md) §1 项目、工作区、会话，§6 宿主的组件、[SPEC-0001 · 侧栏](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §1 数据与持久化、§6 git 状态。
 - **完成标准**：添加几个真实项目（含 worktree、非 git 目录）后，侧栏信息和 `git` / pi 的实际情况一致；在终端里开的 pi 会话自动出现在对应工作区。
@@ -253,7 +254,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 - **目标**：多个会话同时跑，切走不中断；断线重连不丢不重；收件箱准确。
 - **范围**：
-  - 后台运行、关注状态（error / auth）与收件箱、工作区与项目的状态汇总。
+  - 后台运行、关注状态（error / auth）与收件箱（2026-10-08 从 M1.5 挪来）、工作区与项目的状态汇总。
   - 列表同步（`generation + seq`，快照 / 增量）、会话订阅、对话记录按游标分页、重连流程、`clientMessageId` 对齐。
   - 自动生成标题（OneShotPi）、交给终端。
 - **参考**：[domain-model](architecture/domain-model.md) §4 状态的派生、§7 客户端与一致性、[paseo-architecture](research/paseo-architecture.md) §4 同步、§5 状态与关注、pi 实验版的 Chord 设计（[pi-internals](research/pi-internals.md) §6）。

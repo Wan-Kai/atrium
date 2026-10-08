@@ -548,7 +548,43 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **当场计时的数据**：轮的用时、推理用时由宿主在实时事件里测得，连同轮的实时 id、`clientMessageId` 和它开启新一轮还是插话，按轮另外存放，重建时合并回去，所以正常运行后重建结果和实时推过的一致；宿主重启后为空（"滚动与长会话"）。首 token 时间、输出速度只在状态栏显示，和状态栏一起在 M1.6 做（2026-10-08 定）。
 
-**打开历史会话**（M1.4 的临时入口，M1.5 的侧栏和"历史"做好后替换）：没有打开会话时，对话区列出 pi 会话目录里最近的会话（第一条提问、时间）。`list_recent_sessions(limit)` 返回会话 id、文件里的第一条提问、修改时间；`open_session(sessionId)` 用 `pi --session <文件>` 在会话记录的工作目录里启动 pi 并返回，客户端随后订阅；工作目录不存在时应答 `session_cwd_missing`（`params.cwd`），界面显示"恢复失败：目录不存在"。扫描会话目录是 pi 包的 SessionFiles，只读，按 LF 分行，和读 pi 的 RPC 输出用同一个分帧（pi-internals §3）。
+**打开历史会话**（M1.4 的临时入口，M1.5 由侧栏和"历史"取代，见下一节）：没有打开会话时，对话区列出 pi 会话目录里最近的会话（第一条提问、时间）。`list_recent_sessions(limit)` 返回会话 id、文件里的第一条提问、修改时间；`open_session(sessionId)` 用 `pi --session <文件>` 在会话记录的工作目录里启动 pi 并返回，客户端随后订阅；工作目录不存在时应答 `session_cwd_missing`（`params.cwd`），界面显示"恢复失败：目录不存在"。扫描会话目录是 pi 包的 SessionFiles，只读，按 LF 分行，和读 pi 的 RPC 输出用同一个分帧（pi-internals §3）。
+
+### 项目、工作区与会话（M1.5，2026-10-08 定）
+
+侧栏、标签栏和"历史"显示的是宿主推来的一份完整列表（[领域模型 · 已决定 11](../architecture/domain-model.md#已决定)）。M1.5 只发快照：客户端订阅后先收到一份，之后索引、扫描结果或会话的运行状态一有变化，宿主合并一下再推一份完整的。M1.7 再加增量和游标。M1.4 的临时入口 `list_recent_sessions` 和"最近会话"列表随之删掉。
+
+**实体**（`packages/protocol`）
+
+- **项目** `Project`：`id`（`prj_…`）、`path`（解析过符号链接的真实路径）、`name`。
+- **工作区** `Workspace`：`id`（`wks_…`）、`projectId`、`kind`（`local` / `worktree`）、`dir`、`alias`（自定义名称，没有为空）、`branch`（检出的分支；detached HEAD 或不是 git 仓库时为空）、`head`（detached 时的短 commit 号）、`external`（不是 Atrium 建的 worktree）、`createdAt`（worktree 的创建时间，本地工作区为空）、`merge`（合并状态，本地工作区和非 git 项目为空）。名称由界面按 `alias ?? branch ?? 目录名` 得出。
+- **合并状态** `MergeState`：`dirty`、`ahead`、`verdict`（`noChange` / `pending` / `merged` / `removed` / `unknown`）、`reason`（`unknown` 的原因：`git_too_old`、`no_main_branch`、`git_failed`、`base_unknown`）。主干只认项目的覆盖值或 `origin/HEAD`，没有就是 `unknown`（`no_main_branch`），不猜本地分支（2026-10-08 定）。
+- **会话摘要** `SessionSummary`：`sessionId`、`containerId`（工作区 id，或对话的 `chats`）、`name`（pi 的会话名）、`prompt`（第一条用户消息的第一行，去掉 Markdown 符号和首尾空白，最多 200 个字符；没有文字为空）、`file`（会话文件路径，还没写出时为空）、`state`（`draft` / `persisted` / `missing`）、`updatedAt`、`archived`、`running`。标题由界面按 `name ?? prompt` 得出，都为空时草稿显示"新会话"，否则显示"图片"。
+- **布局** `Layout`（只给这个客户端自己的）：`container`（当前所在的工作区或 `chats`，没有为空）、`tabs`（每个容器打开着的会话和当前标签）。
+- **偏好** `Preferences`：`appearance`（`system` / `light` / `dark`）、`displayMode`（摘要 / 思考 / 详细，从 M1.4 的 localStorage 挪到宿主，所有客户端一致）。
+
+**事件**：`index_snapshot(generation, seq, projects, workspaces, sessions, layout, preferences, resets)`。`generation` 是宿主实例 id，`seq` 每推一次加一。`resets` 列出这次宿主启动时因损坏被重置的索引文件（领域模型 §1"索引的存储"），界面提示一次。
+
+**命令**
+
+- `subscribe_index()`：订阅列表，宿主马上推一份快照，之后有变化就推。连接断开即退订。
+- `add_project(path)`：登记项目，返回 `projectId`。不是目录应答 `path_not_found`；已经是某个项目或其工作区时应答 `project_exists`（`params.projectId`）；名称和已有项目重复时自动加序号，如 `app (1)`。
+- `remove_project(projectId)` / `rename_project(projectId, name)`：移除只删索引，同时停掉其中会话的 pi、从各客户端的布局里去掉；改成已有项目的名字应答 `name_taken`。
+- `rename_workspace(workspaceId, name | null)`：`null` 恢复为分支名。
+- `window_focused()`：窗口获得焦点，宿主重扫工作区、合并状态和会话文件。
+- `create_session(workspaceId)` / `create_chat()`：新建草稿会话并立刻启动 pi（领域模型"已决定 9"，2026-10-08 定工作区里的新会话也一样），打开成这个客户端的标签并激活，返回 `sessionId`。
+- `open_session(sessionId)`：打开成标签并激活，切到它所在的容器；pi 没在运行就用 `--session <文件>` 启动。宿主重启后恢复的草稿不启动，第一次 `prompt` 时才用 `--session-id <id>` 启动（"已决定 7"）。
+- `close_tab(sessionId)`：只改这个客户端的布局。关掉的是还没发过消息的草稿时，丢弃它：停掉 pi、删掉索引里的记录，对话的空目录一并删掉（只删空的）（2026-10-08 定）。
+- `select_container(containerId | null)`：切换工作区或"对话"。
+- `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。
+- `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。
+- `set_preferences(appearance?, displayMode?)`。
+
+新增错误码：`project_not_found`、`workspace_not_found`、`project_exists`、`name_taken`、`path_not_found`。
+
+**扫描**：工作区用 `git worktree list --porcelain`，同时最多跑 4 个 git 命令。会话只扫已登记的容器对应的 pi 会话目录（按 pi 的规则由工作目录得出目录名），再按文件头的 `cwd` 核对；按文件大小和修改时间缓存，文件只增长时只读新增的部分（会话名取最新一条 `session_info`）。同一个 id 出现在多个文件时取最新的，日志记一条冲突。
+
+**收件箱**挪到 M1.7，和关注状态一起做（2026-10-08 定）：它收的"待回答、待授权、出错未看"要到 M1.6、M1.7 才有，为空时本来就整块不显示。
 
 ### 命令与事件
 
@@ -558,7 +594,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 |---|---|
 | `list_projects` / `add_project(path)` / `remove_project(id)` / `rename_project(id, name)` | 项目登记；移除只删索引；与已有项目重名时返回错误 |
 | `list_workspaces(projectId)` / `rename_workspace(workspaceId, name \| null)` / `window_focused()` | 工作区；`null` 恢复为分支名；窗口获得焦点时触发合并状态重算 |
-| `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话 |
+| `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话（M1.5 起由 `subscribe_index` 推来的完整列表取代，见上文"项目、工作区与会话"） |
 | `create_session(workspaceId)` / `create_chat()` / `open_session(sessionId)` | 新建或打开会话：新会话以工作区目录为工作目录；新对话新建 `~/.atrium/chats/<dirId>/` |
 | `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |
 | `subscribe_sessions(sessionIds)` / `fetch_transcript(sessionId, tail \| before \| after, cursor, limit)` | 订阅要实时增量的会话；按游标分页拉取对话记录 |
