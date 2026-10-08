@@ -50,6 +50,7 @@ export function loadingView(sessionId: string): SessionView {
  * @returns The ones still unconfirmed.
  */
 function unconfirmed(pending: readonly PendingMessage[], items: readonly TranscriptItem[]): PendingMessage[] {
+  // Stryker disable next-line ArrayDeclaration: a made-up id matches no pending message.
   const confirmed = new Set(items.flatMap((item) => (item.kind === "turn" ? [item.user.clientMessageId] : [])));
   return pending.filter((message) => !confirmed.has(message.clientMessageId));
 }

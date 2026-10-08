@@ -422,6 +422,27 @@ describe("createSessionTranscript keeping live and rebuilt alike", () => {
     ]);
   });
 
+  it("ties the newest records to the newest entries when there are more records than entries", () => {
+    const { transcript: session } = transcript();
+    session.apply(userMessage("lost"), noClient);
+    session.settle();
+    session.apply(userMessage("kept"), noClient);
+    session.settle();
+
+    session.rebuild({ entries: [userEntry("u1", null, "kept")], leafId: "u1" }, false);
+
+    expect(session.items().map((item) => item.id)).toStrictEqual(["live-2"]);
+  });
+
+  it("is live only while a turn is being built", () => {
+    const { transcript: session } = transcript();
+    expect(session.live).toBe(false);
+    session.apply(userMessage("go"), noClient);
+    expect(session.live).toBe(true);
+    session.settle();
+    expect(session.live).toBe(false);
+  });
+
   it("fails a turn pi went away in, whatever its last reply", () => {
     const { transcript: session } = transcript();
     session.apply(userMessage("go"), noClient);
@@ -456,6 +477,27 @@ describe("createSessionTranscript keeping live and rebuilt alike", () => {
         { type: "notice_added", notice: expect.objectContaining({ id: "s:k3" }), before: null },
       ],
     });
+  });
+});
+
+describe("createSessionTranscript comparing a rebuild", () => {
+  it("reports items that went away as changed, and turns added with notices too", () => {
+    const { transcript: session } = transcript();
+    session.rebuild({ entries: [userEntry("u1", null, "a"), userEntry("u2", "u1", "b")], leafId: "u2" }, false);
+
+    expect(session.rebuild({ entries: [], leafId: "u1" }, false)).toStrictEqual({ kind: "changed" });
+    expect(
+      session.rebuild({ entries: [compactionEntry("k1", "u1"), userEntry("u3", "k1", "c")], leafId: "u3" }, false),
+    ).toStrictEqual({ kind: "changed" });
+  });
+
+  it("forgets the old file's entries when it reads the whole session again", () => {
+    const { transcript: session } = transcript();
+    session.rebuild({ entries: [userEntry("old", null, "gone")], leafId: "old" }, false);
+
+    session.rebuild({ entries: [userEntry("u1", "old", "new")], leafId: "u1" }, true);
+
+    expect(session.items().map((item) => item.id)).toStrictEqual(["s:u1"]);
   });
 });
 

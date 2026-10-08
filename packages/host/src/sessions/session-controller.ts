@@ -118,6 +118,7 @@ const RUN_OUTCOMES: Readonly<
  * @returns Whether to read everything again.
  */
 function isUnknownCursor(error: unknown): boolean {
+  // Stryker disable next-line StringLiteral: no text and a made-up one both fail to start with "Entry not found".
   return isPiFailure(error) && error.reason === "rejected" && (error.detail ?? "").startsWith("Entry not found");
 }
 
@@ -160,13 +161,14 @@ export function createSessionController(options: {
   let epoch = options.epoch ?? 1;
   let seq = 0;
   const transcript = createSessionTranscript({ sessionId, newId, now: () => clock.now() });
-  transcript.rebuild(options.entries, true);
+  transcript.rebuild(options.entries, false);
   let run: { readonly runId: string; readonly startedAt: number; readonly traceId: string | null } | null = null;
   /** `prompt`s pi has not echoed yet, oldest first. */
   const waiting: { readonly requestId: string; readonly traceId: string | null }[] = [];
   let exited = false;
   /** Whether a refresh is running, and whether another was asked for meanwhile. */
   let refreshing = false;
+  // Stryker disable next-line BooleanLiteral: the loop clears it before each read.
   let refreshAgain = false;
   const translate = createEventTranslator(() => clock.now());
 

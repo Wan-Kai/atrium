@@ -35,13 +35,51 @@ function expandTilde(path: string, home: string): string {
 }
 
 /**
+ * Reads one field of a JSON value.
+ *
+ * @remarks
+ * Session files and settings are JSON from another program; any field may be missing or of
+ * another type.
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @param key - The field.
+ * @returns The field's value, or `undefined` when the value is not an object.
+ */
+function field(value: unknown, key: string): unknown {
+  return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined;
+}
+
+/**
+ * Waits for a read, counting a file the system cannot read as none.
+ *
+ * @remarks
+ * A file missing, unreadable or not what was expected fails a system call, and its error names
+ * the call (`syscall`); such files are skipped. Any other error, such as Node refusing an
+ * argument, is a bug and is thrown.
+ *
+ * @sideEffects none beyond the read.
+ * @param read - The read.
+ * @returns What it read, or `null`.
+ * @throws Errors that are not a failed system call.
+ */
+async function unlessUnreadable<T>(read: Promise<T>): Promise<T | null> {
+  try {
+    return await read;
+  } catch (error) {
+    if (typeof field(error, "syscall") === "string") return null;
+    throw error;
+  }
+}
+
+/**
  * Finds the directory pi keeps its session files in.
  *
  * @remarks
  * The same order pi follows (pi 1.0.2, `main.js`): `PI_CODING_AGENT_SESSION_DIR`, then
  * `sessionDir` in the global `settings.json`, then `sessions` in pi's agent directory
  * (`PI_CODING_AGENT_DIR`, by default `~/.pi/agent`); pi-internals.md §1. Project settings can
- * also move it, which is not followed here. An unreadable settings file counts as none.
+ * also move it, which is not followed here. A missing or unreadable settings file counts as none.
  *
  * @sideEffects Reads pi's settings file.
  * @param env - pi's environment.
@@ -53,16 +91,31 @@ export async function sessionsDirectory(env: Readonly<Record<string, string>>): 
   if (fromEnv !== undefined && fromEnv !== "") return expandTilde(fromEnv, home);
   const agentEnv = env["PI_CODING_AGENT_DIR"];
   const agentDir = agentEnv === undefined || agentEnv === "" ? join(home, ".pi", "agent") : expandTilde(agentEnv, home);
-  try {
-    const settings: unknown = JSON.parse(await readFile(join(agentDir, "settings.json"), "utf8"));
-    if (typeof settings === "object" && settings !== null && "sessionDir" in settings) {
-      const configured = settings.sessionDir;
-      if (typeof configured === "string" && configured !== "") return expandTilde(configured, home);
-    }
-  } catch {
-    // No settings, or not JSON: pi's default applies.
-  }
+  // Stryker disable next-line StringLiteral: without an encoding the bytes parse the same.
+  const text = await unlessUnreadable(readFile(join(agentDir, "settings.json"), "utf8"));
+  // No file reads as JSON `null`, which has no field.
+  const configured = field(parseJson(String(text)), "sessionDir");
+  if (typeof configured === "string" && configured !== "") return expandTilde(configured, home);
   return join(agentDir, "sessions");
+}
+
+/**
+ * Parses JSON text.
+ *
+ * @remarks
+ * A damaged line or file counts as nothing rather than failing the whole read.
+ *
+ * @sideEffects none
+ * @param text - The text.
+ * @returns The value, or `undefined` when it is not JSON.
+ */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+    // Stryker disable next-line BlockStatement: an empty block returns `undefined` all the same.
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -70,71 +123,34 @@ export async function sessionsDirectory(env: Readonly<Record<string, string>>): 
  *
  * @remarks
  * Only the start of the file is read (`HEAD_BYTES`), split at LF only, as pi frames its records
- * (pi-internals.md §3): a lone CR inside a line does not end it. The header
- * is the first line (pi-internals.md §1); a file whose first line is not one is not a session
- * file. A last line cut by the limit does not parse and is skipped.
+ * (pi-internals.md §3): a lone CR inside a line does not end it. The header is the first line
+ * (pi-internals.md §1); a file whose first line is not one is not a session file. A last line cut
+ * by the limit does not parse and is skipped. A file the system cannot read counts as none.
  *
  * @sideEffects Reads the file.
  * @param path - The file.
  * @returns The session id, its working directory and the first prompt, or `null` for no session file.
+ * @throws Errors that are not the file system's.
  */
-async function readHead(
+export async function readSessionHead(
   path: string,
 ): Promise<{ readonly sessionId: string; readonly cwd: string; readonly firstPrompt: string | null } | null> {
-  const file = await open(path, "r");
-  let head: Buffer;
-  try {
-    const buffer = Buffer.alloc(HEAD_BYTES);
-    const { bytesRead } = await file.read(buffer, 0, HEAD_BYTES, 0);
-    head = buffer.subarray(0, bytesRead);
-  } finally {
-    await file.close();
-  }
-  const lines: string[] = [];
-  const splitter = createLineSplitter((line) => lines.push(line));
+  const head = await unlessUnreadable(readStart(path));
+  if (head === null) return null;
+  const lines: unknown[] = [];
+  const splitter = createLineSplitter((line) => lines.push(parseJson(line)));
   splitter.push(head);
   splitter.end();
-  const [first, ...rest] = lines.map(parseLine);
-  if (first?.["type"] !== "session" || typeof first["id"] !== "string") return null;
-  const header = { sessionId: first["id"], cwd: typeof first["cwd"] === "string" ? first["cwd"] : "" };
+  const [first, ...rest] = lines;
+  const sessionId = field(first, "id");
+  if (field(first, "type") !== "session" || typeof sessionId !== "string") return null;
+  const cwd = field(first, "cwd");
+  const header = { sessionId, cwd: typeof cwd === "string" ? cwd : "" };
   for (const record of rest) {
     const prompt = userText(record);
     if (prompt !== null) return { ...header, firstPrompt: prompt };
   }
   return { ...header, firstPrompt: null };
-}
-
-/**
- * Parses one line of a session file.
- *
- * @remarks
- * A line cut by the read limit, or damaged, is skipped.
- *
- * @sideEffects none
- * @param line - The line.
- * @returns The record, or `null`.
- */
-function parseLine(line: string): Record<string, unknown> | null {
-  try {
-    const value: unknown = JSON.parse(line);
-    return isRecord(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Whether a value is a JSON object.
- *
- * @remarks
- * See `parseLine`.
- *
- * @sideEffects none
- * @param value - The value.
- * @returns Whether it is an object that is not an array.
- */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -147,22 +163,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * @param record - An entry.
  * @returns The text, or `null` when the entry is not a user message with text.
  */
-function userText(record: Record<string, unknown> | null): string | null {
-  const message = record?.["type"] === "message" ? record["message"] : undefined;
-  if (typeof message !== "object" || message === null || !("role" in message) || message.role !== "user") return null;
-  const content = "content" in message ? message.content : undefined;
+function userText(record: unknown): string | null {
+  const message = field(record, "type") === "message" ? field(record, "message") : undefined;
+  if (field(message, "role") !== "user") return null;
+  const content = field(message, "content");
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return null;
-  const texts = content.flatMap((block: unknown) =>
-    typeof block === "object" &&
-    block !== null &&
-    "type" in block &&
-    block.type === "text" &&
-    "text" in block &&
-    typeof block.text === "string"
-      ? [block.text]
-      : [],
-  );
+  const texts = content.flatMap((block: unknown) => {
+    const text = field(block, "text");
+    return field(block, "type") === "text" && typeof text === "string" ? [text] : [];
+  });
   return texts.length === 0 ? null : texts.join("\n");
 }
 
@@ -172,16 +182,17 @@ function userText(record: Record<string, unknown> | null): string | null {
  * @remarks
  * pi keeps one folder per working directory, each holding `.jsonl` files (pi-internals.md §1).
  * Files are ordered by modification time, newest first, and only the newest `limit` are read
- * (scanning a large directory takes a while, so it can be stopped);
- * a session id that appears in more than one file keeps the newest file. Missing directories,
- * unreadable files and files that are not sessions are skipped. Read only: nothing is written.
+ * (scanning a large directory takes a while, so it can be stopped); a session id that appears in
+ * more than one file keeps the newest file. What the system cannot read (a missing directory, a
+ * loose file where a folder should be, a broken link) and files that are not sessions are
+ * skipped. Read only: nothing is written.
  *
  * @sideEffects Reads the directory and the start of the newest files.
  * @param directory - pi's session directory.
  * @param limit - The most sessions to return.
  * @param signal - Stops the scan; it then rejects with the signal's reason.
  * @returns The sessions, newest first.
- * @throws The signal's reason once it is aborted.
+ * @throws The signal's reason once it is aborted, and errors that are not the file system's.
  */
 export async function listSessionFiles(
   directory: string,
@@ -189,16 +200,13 @@ export async function listSessionFiles(
   signal?: AbortSignal,
 ): Promise<SessionFileInfo[]> {
   signal?.throwIfAborted();
-  const folders = await readdir(directory, { withFileTypes: true }).catch(() => []);
   const files: { readonly path: string; readonly modifiedAt: number }[] = [];
-  for (const folder of folders) {
+  for (const folder of await namesIn(directory)) {
     signal?.throwIfAborted();
-    if (!folder.isDirectory()) continue;
-    const names = await readdir(join(directory, folder.name)).catch((): string[] => []);
-    for (const name of names) {
+    for (const name of await namesIn(join(directory, folder))) {
       if (!name.endsWith(".jsonl")) continue;
-      const path = join(directory, folder.name, name);
-      const info = await stat(path).catch(() => null);
+      const path = join(directory, folder, name);
+      const info = await unlessUnreadable(stat(path));
       if (info?.isFile() === true) files.push({ path, modifiedAt: info.mtimeMs });
     }
   }
@@ -208,10 +216,47 @@ export async function listSessionFiles(
   for (const file of files) {
     signal?.throwIfAborted();
     if (found.length >= limit) break;
-    const head = await readHead(file.path).catch(() => null);
+    const head = await readSessionHead(file.path);
     if (head === null || seen.has(head.sessionId)) continue;
     seen.add(head.sessionId);
     found.push({ path: file.path, modifiedAt: Math.floor(file.modifiedAt), ...head });
   }
   return found;
+}
+
+/**
+ * The names in a directory.
+ *
+ * @remarks
+ * A directory the system cannot list, or a file in its place, has none.
+ *
+ * @sideEffects Reads the directory.
+ * @param directory - The directory.
+ * @returns The names.
+ * @throws Errors that are not the file system's.
+ */
+async function namesIn(directory: string): Promise<string[]> {
+  // Stryker disable next-line ArrayDeclaration: a made-up name is no folder and no `.jsonl` file, so it is skipped too.
+  return (await unlessUnreadable(readdir(directory))) ?? [];
+}
+
+/**
+ * Reads the start of a file.
+ *
+ * @remarks
+ * At most `HEAD_BYTES`; see `readSessionHead`.
+ *
+ * @sideEffects Reads the file.
+ * @param path - The file.
+ * @returns The bytes read.
+ */
+async function readStart(path: string): Promise<Buffer> {
+  const file = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(HEAD_BYTES);
+    const { bytesRead } = await file.read(buffer, 0, HEAD_BYTES, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await file.close();
+  }
 }

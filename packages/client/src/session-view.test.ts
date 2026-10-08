@@ -55,6 +55,21 @@ function applyAll(view: SessionView, events: SessionEvent[]): SessionView {
   }, view);
 }
 
+describe("loadingView", () => {
+  it("has nothing yet, and no older items to ask for", () => {
+    expect(loadingView("s7")).toStrictEqual({
+      sessionId: "s7",
+      status: "loading",
+      epoch: 0,
+      seq: 0,
+      items: [],
+      hasOlder: false,
+      run: null,
+      pending: [],
+    });
+  });
+});
+
 describe("applySessionEvent", () => {
   it("ignores events before the snapshot, then takes the snapshot whole, keeping unconfirmed pending messages", () => {
     const loading = {
@@ -326,6 +341,12 @@ describe("prependOlder", () => {
       items: [turn("t3"), notice("n4"), turn("t5"), turn("t6")],
       hasOlder: false,
     });
+  });
+
+  it("drops a page for a view that has no items any more", () => {
+    const empty = ready(3, { items: [] });
+
+    expect(prependOlder(empty, { items: [turn("t3")], hasOlder: false }, 1, "t5")).toBe(empty);
   });
 
   it("drops a page from an epoch that has passed, or fetched before an item that is no longer first", () => {

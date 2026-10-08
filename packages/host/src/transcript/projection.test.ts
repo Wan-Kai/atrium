@@ -262,7 +262,7 @@ describe("projectTranscript", () => {
     expect(items[0]).toMatchObject({ outcome: "failed", error: "503" });
   });
 
-  it("follows what the host saw live: a turn stays a turn after a tool result, a steer stays a steer", () => {
+  it("follows what the host saw live: a turn stays a turn after a tool result", () => {
     const branch = [
       user("u1", "go"),
       reply("a1", [bash("c1")], { stopReason: "toolUse" }),
@@ -272,18 +272,15 @@ describe("projectTranscript", () => {
       result("r2", "c2", "x"),
       user("u3", "also"),
       reply("a3", [says("done")]),
-      user("u4", "after"),
-      reply("a4", [says("ok")]),
     ];
     const facts: TurnFacts = { turnId: "live", clientMessageId: null, durationMs: 1, thinkingMs: new Map() };
 
     expect(stepKinds(projectTranscript(branch, "s", none).items)).toStrictEqual([
       ["tool", "steer", "tool", "steer", "text"],
-      ["text"],
     ]);
-    expect(stepKinds(projectTranscript(branch, "s", new Map([["u2", facts]]), new Set(["u4"])).items)).toStrictEqual([
+    expect(stepKinds(projectTranscript(branch, "s", new Map([["u2", facts]])).items)).toStrictEqual([
       ["tool"],
-      ["tool", "steer", "text", "steer", "text"],
+      ["tool", "steer", "text"],
     ]);
   });
 
@@ -372,9 +369,15 @@ describe("projectTranscript", () => {
     expect((items[1] as Turn).steps.map((step) => step.kind)).toStrictEqual(["tool", "text"]);
   });
 
-  it("skips replies before any user message and results of calls it never saw", () => {
+  it("skips replies and results before any user message and results of calls it never saw", () => {
     const { items } = projectTranscript(
-      [reply("a0", [says("orphan")]), user("u1", "go"), result("r0", "nope", "x"), reply("a1", [says("hi")])],
+      [
+        reply("a0", [says("orphan")]),
+        result("r9", "c9", "orphan"),
+        user("u1", "go"),
+        result("r0", "nope", "x"),
+        reply("a1", [says("hi")]),
+      ],
       "s",
       none,
     );

@@ -583,13 +583,14 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       }
     },
     loadOlder(sessionId) {
-      const view = views.get(sessionId);
-      const state = view?.getState();
-      const before = state?.items[0]?.id;
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;
-      if (view === undefined || before === undefined || !state?.hasOlder) return Promise.resolve();
-      if (state.status === "loading" || state.status === "lost") return Promise.resolve();
+      const view = views.get(sessionId);
+      if (view === undefined) return Promise.resolve();
+      const state = view.getState();
+      const before = state.items[0]?.id;
+      // A view still loading has no items, so nothing to fetch before.
+      if (before === undefined || !state.hasOlder || state.status === "lost") return Promise.resolve();
       /**
        * Fetches one page and puts it in front of the view's items.
        *
@@ -606,7 +607,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
             before,
             limit: OLDER_PAGE_ITEMS,
           });
-          view.setState(prependOlder(view.getState(), page, state.epoch, before), true);
+          view.setState(prependOlder(view.getState(), page, state.epoch, before));
         } catch (error) {
           if (!(error instanceof CommandError && error.code === "transcript_changed")) throw error;
           await resync(sessionId);
@@ -618,11 +619,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     },
     async loadStep(sessionId, turnId, stepId) {
       const view = views.get(sessionId);
-      const state = view?.getState();
-      if (view === undefined || state === undefined || state.status === "loading" || state.status === "lost") return;
+      if (view === undefined) return;
+      const state = view.getState();
+      if (state.status === "loading" || state.status === "lost") return;
       try {
         const { step } = await request("fetch_step", { sessionId, epoch: state.epoch, turnId, stepId });
-        view.setState(withWholeStep(view.getState(), turnId, step, state.epoch), true);
+        view.setState(withWholeStep(view.getState(), turnId, step, state.epoch));
       } catch (error) {
         // The host rebuilt the transcript; a fresh snapshot replaces what the view has.
         if (!(error instanceof CommandError && error.code === "transcript_changed")) throw error;

@@ -472,12 +472,12 @@ describe("createSessionController on cases the fixtures do not show", () => {
     expect(since).toStrictEqual([]);
   });
 
-  it("reads the whole session again when pi does not know the cursor", async () => {
+  it("reads the whole session again when pi does not know the cursor, forgetting the old file's entries", async () => {
     const { pi, emit, pages, since } = manualPi();
     const { events } = control(pi, { entries: [userEntry("u1", null, "a")], leafId: "u1" });
     pages.push(
       () => Promise.reject(new ReplayRequestError("get_entries", "rejected", "Entry not found: u1")),
-      async () => ({ entries: [userEntry("v1", null, "b")], leafId: "v1" }),
+      async () => ({ entries: [userEntry("v1", "u1", "b")], leafId: "v1" }),
     );
 
     emit({ type: "compaction_end" });
@@ -485,6 +485,49 @@ describe("createSessionController on cases the fixtures do not show", () => {
     await settle();
 
     expect(events).toMatchObject([{ type: "session_snapshot", epoch: 2, items: [{ id: "s1:v1" }] }]);
+  });
+
+  it("reads the whole session again only when pi says it does not know the cursor", async () => {
+    const { pi, emit, pages, since } = manualPi();
+    const { failures } = control(pi);
+    const exited = new ReplayRequestError("get_entries", "exited", "Entry not found: in stderr");
+    const notPi = Object.assign(new Error("other"), { detail: "Entry not found: x" });
+    pages.push(
+      () => Promise.reject(exited),
+      () => Promise.reject(notPi),
+    );
+
+    emit({ type: "compaction_end" });
+    await vi.waitFor(() => expect(failures).toHaveLength(1));
+    emit({ type: "compaction_end" });
+    await vi.waitFor(() => expect(failures).toHaveLength(2));
+
+    expect(failures).toStrictEqual([exited, notPi]);
+    expect(since).toStrictEqual([undefined, undefined]);
+  });
+
+  it("dates a message pi sent without a time by the host's clock", async () => {
+    const { pi, emit } = manualPi();
+    const { controller } = control(pi);
+
+    emit({ type: "agent_start" }, { type: "message_end", message: { role: "user", content: "x" } });
+
+    expect(controller.snapshot().items).toMatchObject([{ startedAt: 1000, user: { timestamp: 1000 } }]);
+  });
+
+  it("settles a run whose turn ended with a tool still running, its turn first", async () => {
+    const { pi, emit } = manualPi();
+    const { events } = control(pi);
+
+    emit(
+      { type: "agent_start" },
+      userEnd("x"),
+      replyEnd("toolUse", [{ type: "toolCall", id: "c1", name: "bash", arguments: { command: "sleep" } }]),
+      { type: "agent_settled" },
+    );
+
+    expect(events.map((event) => event.type).slice(-3)).toStrictEqual(["step_updated", "turn_finished", "run_settled"]);
+    expect(events.at(-1)).toMatchObject({ outcome: "stopped" });
   });
 
   it("reports any other failure to read, and reads again next time", async () => {

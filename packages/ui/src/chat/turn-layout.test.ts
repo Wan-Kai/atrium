@@ -88,13 +88,14 @@ describe("countProcess and processParts", () => {
       tool("3", "find"),
       tool("4", "ls"),
       tool("5", "bash"),
+      tool("5b", "bash"),
       tool("6", "bash", "failed"),
       tool("7", "edit"),
       text("8", "x"),
     ]);
 
-    expect(counts).toStrictEqual({ reads: 2, searches: 3, commands: 2, failedCommands: 1 });
-    expect(processParts(counts, 3)).toStrictEqual(["读了 2 个文件", "搜索了 3 次", "跑了 2 条命令", "改了 3 个文件"]);
+    expect(counts).toStrictEqual({ reads: 2, searches: 3, commands: 3, failedCommands: 1 });
+    expect(processParts(counts, 3)).toStrictEqual(["读了 2 个文件", "搜索了 3 次", "跑了 3 条命令", "改了 3 个文件"]);
   });
 
   it("names nothing that did not happen", () => {
@@ -151,6 +152,14 @@ describe("parseDisplayDiff", () => {
       { kind: "context", number: null, text: "dd" },
     ]);
   });
+
+  it("takes only a whole line of dots for skipped lines, and a number only at a line's start", () => {
+    expect(parseDisplayDiff(" 12 a...\n ...more\n+x 12 y")).toStrictEqual([
+      { kind: "context", number: 12, text: "a..." },
+      { kind: "context", number: null, text: "...more" },
+      { kind: "add", number: null, text: "x 12 y" },
+    ]);
+  });
 });
 
 describe("opening", () => {
@@ -162,8 +171,9 @@ describe("opening", () => {
     expect(opening("")).toBe("");
   });
 
-  it("cuts a long sentence", () => {
+  it("cuts a long sentence, and keeps one exactly as long as allowed", () => {
     expect(opening("x".repeat(60), 10)).toBe(`${"x".repeat(10)}…`);
+    expect(opening("x".repeat(10), 10)).toBe("x".repeat(10));
   });
 });
 
@@ -232,6 +242,13 @@ describe("describeStep", () => {
     expect(describeStep(tool("0", "read", "failed", read), false).end).toBe("失败");
   });
 
+  it("keeps arguments exactly 80 characters long whole", () => {
+    const step = { ...tool("0", "grep"), args: { p: "x".repeat(72) } };
+
+    expect(JSON.stringify(step.args)).toHaveLength(80);
+    expect(describeStep(step, false).object).toBe(JSON.stringify(step.args));
+  });
+
   it("shows another tool by its name and arguments, cut to one line", () => {
     const step = { ...tool("0", "grep"), args: { pattern: "x".repeat(100) } };
 
@@ -249,6 +266,19 @@ describe("describeStep", () => {
 });
 
 describe("transcriptMarkdown", () => {
+  it("writes every step of the process, read-only calls one by one, thinking as finished", () => {
+    const steps: Step[] = [
+      { kind: "thinking", id: "0", text: "Plan.", durationMs: 2_000 },
+      tool("1", "read", "done", { tool: "read", path: "a.ts", offset: null, limit: null }),
+      tool("2", "grep"),
+      text("3", "done"),
+    ];
+
+    expect(transcriptMarkdown([turn(steps)])).toBe(
+      "> do it\n\n- 思考了 2 秒 · Plan\n- 读取 · a.ts\n- grep · {}\n\ndone\n",
+    );
+  });
+
   it("writes each turn's question, process and reply, and notices, separated by rules", () => {
     const steps = [tool("0", "bash", "done", { tool: "bash", command: "ls" }), text("1", "**Done.**")];
 

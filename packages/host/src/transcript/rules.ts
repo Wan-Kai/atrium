@@ -117,6 +117,7 @@ export function withResult(step: ToolStep, result: ToolResult): ToolStep {
  * @returns The preview.
  */
 function preview(text: string, keepEnd: boolean): string {
+  // Stryker disable next-line StringLiteral: an empty encoding is UTF-8.
   const bytes = Buffer.from(text, "utf8");
   if (keepEnd) {
     let start = bytes.length - STEP_TEXT_LIMIT;
@@ -140,6 +141,7 @@ function preview(text: string, keepEnd: boolean): string {
  * @returns Whether it is over `STEP_TEXT_LIMIT` bytes.
  */
 function tooLong(text: string): boolean {
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: the length check only spares counting the bytes of short text, which cannot be too long; an empty encoding is UTF-8.
   return text.length > STEP_TEXT_LIMIT / 4 && Buffer.byteLength(text, "utf8") > STEP_TEXT_LIMIT;
 }
 
@@ -230,9 +232,23 @@ export function itemForTransport(item: TranscriptItem): TranscriptItem {
  * @returns The steps, with running tools unfinished.
  */
 export function finishedSteps(steps: readonly Step[]): Step[] {
-  return steps.map((step) =>
-    step.kind === "tool" && step.status === "running" ? { ...step, status: "unfinished" } : step,
-  );
+  return steps.map(finishedStep);
+}
+
+/**
+ * One step of a turn that has ended.
+ *
+ * @remarks
+ * See `finishedSteps`.
+ *
+ * @sideEffects none
+ * @param step - The step.
+ * @returns The step, unfinished if it was a running tool.
+ */
+function finishedStep(step: Step): Step {
+  // Stryker disable next-line ConditionalExpression: a step that is not a tool has no status.
+  if (step.kind !== "tool" || step.status !== "running") return step;
+  return { ...step, status: "unfinished" };
 }
 
 /**
@@ -270,6 +286,7 @@ export function turnOutcome(
 export function turnChanges(steps: readonly Step[]): FileChange[] {
   const changes = new Map<string, FileChange>();
   for (const step of steps) {
+    // Stryker disable next-line ConditionalExpression: a step that is not a tool has no status, which is never "done".
     if (step.kind !== "tool" || step.status !== "done") continue;
     const details = step.details;
     if (details?.tool === "edit") {

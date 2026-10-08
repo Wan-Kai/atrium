@@ -77,6 +77,13 @@ function update(type: string, contentIndex: number, text?: string): PiEvent {
 }
 
 const started = { kind: "assistant_started" } as const;
+
+/** What the translator makes of one live output of tool call `c`. */
+function toolOutput(partialResult: unknown): TranslatedEvent[] {
+  return translateAll([
+    { type: "tool_execution_update", toolCallId: "c", toolName: "x", args: {}, partialResult } as never,
+  ]);
+}
 const run = { kind: "agent_started" } as const;
 const settled = { kind: "agent_settled" } as const;
 const unavailable = "upstream returned 503 service unavailable";
@@ -289,6 +296,25 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
     expect(translateAll([{ type: "message_end", message: { role: "user", content: "plain" } } as never])).toStrictEqual(
       [finished({ kind: "user", text: "plain", images: 0, timestamp: 99 })],
     );
+  });
+
+  it("starts a thinking block that streams nothing", () => {
+    expect(
+      translateAll([
+        { type: "message_start", message: assistant([], "pending") } as never,
+        update("thinking_start", 0),
+        update("text_start", 1),
+      ]),
+    ).toStrictEqual([started, start(0, "thinking"), start(1, "text")]);
+  });
+
+  it("reads a tool's output only from text blocks in a content list, and none from anything else", () => {
+    expect(toolOutput({ content: [null, "x", 3, {}, { type: 1 }, { type: "text", text: "a" }] })).toStrictEqual([
+      { kind: "tool_output", callId: "c", text: "a" },
+    ]);
+    expect(toolOutput(null)).toStrictEqual([{ kind: "tool_output", callId: "c", text: "" }]);
+    expect(toolOutput("text")).toStrictEqual([{ kind: "tool_output", callId: "c", text: "" }]);
+    expect(toolOutput({ content: "not a list" })).toStrictEqual([{ kind: "tool_output", callId: "c", text: "" }]);
   });
 
   it("passes on a tool's output with no content as empty, and drops nested tool calls' output", () => {

@@ -1,14 +1,16 @@
 import { createTempDir, parseFixture, present } from "@atrium/testkit";
-import { mkdir, readFileSync, utimes, writeFile } from "node:fs";
+import { chmod, mkdir, readFileSync, readdirSync, symlink, utimes, writeFile } from "node:fs";
 import { promisify } from "node:util";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { FIXTURES_DIR } from "../../test/contract";
-import { listSessionFiles, sessionsDirectory } from "./session-files";
+import { listSessionFiles, readSessionHead, sessionsDirectory } from "./session-files";
 
 const write = promisify(writeFile);
 const makeDir = promisify(mkdir);
 const touch = promisify(utimes);
+const link = promisify(symlink);
+const changeMode = promisify(chmod);
 
 /** A temporary directory removed after the test. */
 async function tempDir(prefix: string): Promise<string> {
@@ -109,6 +111,18 @@ describe("listSessionFiles", () => {
     ]);
   });
 
+  it("skips a broken link and a folder it cannot read", async () => {
+    const dir = await tempDir("sessions");
+    await sessionFile(join(dir, "--a--"), "good.jsonl", [header("s1"), user("hi")], 100);
+    await link(join(dir, "nowhere.jsonl"), join(dir, "--a--", "broken.jsonl"));
+    await makeDir(join(dir, "--locked--"));
+    await sessionFile(join(dir, "--locked--"), "hidden.jsonl", [header("s2"), user("x")], 200);
+    await changeMode(join(dir, "--locked--"), 0o000);
+    onTestFinished(() => changeMode(join(dir, "--locked--"), 0o755));
+
+    expect((await listSessionFiles(dir, 10)).map((file) => file.sessionId)).toStrictEqual(["s1"]);
+  });
+
   it("skips files that are not sessions, other files and loose files, and a missing directory", async () => {
     const dir = await tempDir("sessions");
     await sessionFile(join(dir, "--a--"), "no-header.jsonl", [user("x")], 300);
@@ -152,6 +166,73 @@ describe("listSessionFiles", () => {
   });
 });
 
+/** A file holding these lines, as given. */
+async function fileWith(lines: string[]): Promise<string> {
+  const dir = await tempDir("head");
+  const path = join(dir, "s.jsonl");
+  await write(path, lines.join("\n"));
+  return path;
+}
+
+/** How many files this process has open; each holds a descriptor until it is closed. */
+function openFiles(): number {
+  return readdirSync("/dev/fd").length;
+}
+
+describe("readSessionHead", () => {
+  it("takes no first line that is not a session header for a session", async () => {
+    for (const first of [
+      "null",
+      "[]",
+      '"session"',
+      "7",
+      "{}",
+      '{"type":"session"}',
+      '{"type":"session","id":7}',
+      "not json",
+    ]) {
+      expect(await readSessionHead(await fileWith([first, JSON.stringify(user("hi"))]))).toBeNull();
+    }
+  });
+
+  it("finds the question among records of every shape, and reads a last line without a line break", async () => {
+    const path = await fileWith([
+      JSON.stringify(header("s1")),
+      "null",
+      "[]",
+      '"text"',
+      JSON.stringify({ type: "message", message: null }),
+      JSON.stringify({ type: "message", message: "user" }),
+      JSON.stringify({ type: "message", message: { content: "no role" } }),
+      JSON.stringify({ type: "message", message: { role: "assistant", content: "not a user" } }),
+      JSON.stringify({ type: "other", message: { role: "user", content: "not a message entry" } }),
+      JSON.stringify(user([null, "x", 3, { type: "text" }, { type: "text", text: 4 }, { text: "no type" }])),
+      JSON.stringify(user(7)),
+      JSON.stringify(user([{ type: "text", text: "found" }])),
+    ]);
+
+    expect(await readSessionHead(path)).toStrictEqual({ sessionId: "s1", cwd: "/work", firstPrompt: "found" });
+  });
+
+  it("closes every file it opens", async () => {
+    const path = await fileWith([JSON.stringify(header("s1")), JSON.stringify(user("hi"))]);
+    const before = openFiles();
+
+    await readSessionHead(path);
+    await readSessionHead(path);
+
+    expect(openFiles()).toBe(before);
+  });
+
+  it("counts a file the system cannot read as none, and passes any other error on", async () => {
+    const dir = await tempDir("head");
+
+    expect(await readSessionHead(join(dir, "missing.jsonl"))).toBeNull();
+    expect(await readSessionHead(dir)).toBeNull();
+    await expect(readSessionHead(7 as unknown as string)).rejects.toMatchObject({ code: "ERR_INVALID_ARG_TYPE" });
+  });
+});
+
 describe("sessionsDirectory", () => {
   it("uses pi's session directory variable first, expanding ~", async () => {
     expect(await sessionsDirectory({ HOME: "/home/a", PI_CODING_AGENT_SESSION_DIR: "~/s" })).toBe("/home/a/s");
@@ -174,6 +255,10 @@ describe("sessionsDirectory", () => {
     expect(await sessionsDirectory({ HOME: "/home/a", PI_CODING_AGENT_DIR: agent })).toBe(join(agent, "sessions"));
     await write(join(agent, "settings.json"), JSON.stringify(["sessionDir"]));
     expect(await sessionsDirectory({ HOME: "/home/a", PI_CODING_AGENT_DIR: agent })).toBe(join(agent, "sessions"));
+    for (const settings of ["null", '"text"', JSON.stringify({ sessionDir: 7 })]) {
+      await write(join(agent, "settings.json"), settings);
+      expect(await sessionsDirectory({ HOME: "/home/a", PI_CODING_AGENT_DIR: agent })).toBe(join(agent, "sessions"));
+    }
   });
 
   it("defaults to ~/.pi/agent/sessions, with the agent directory variable expanded too", async () => {

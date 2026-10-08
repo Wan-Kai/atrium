@@ -62,6 +62,17 @@ describe("partStep", () => {
     );
   });
 
+  it("keeps the arguments of any other tool as they are, content included, even without details", () => {
+    expect(partStep({ type: "toolCall", callId: "c1", tool: "notes", args: { content: "x" } }, 0)).toStrictEqual(
+      tool({ id: "0", callId: "c1", tool: "notes", args: { content: "x" } }),
+    );
+    expect(
+      partStep({ type: "toolCall", callId: "c2", tool: "bash", args: { command: "ls", content: "y" } }, 1),
+    ).toMatchObject({
+      args: { command: "ls", content: "y" },
+    });
+  });
+
   it("keeps a write's content in its details only", () => {
     expect(
       partStep({ type: "toolCall", callId: "c1", tool: "write", args: { path: "a.ts", content: "x", mode: 1 } }, 0),
@@ -102,6 +113,12 @@ describe("withOutput and withResult", () => {
       status: "failed",
       output: "no match",
     });
+  });
+
+  it("finishes a tool without details", () => {
+    expect(withResult(tool({ tool: "notes" }), { text: "ok", isError: false, details: undefined })).toStrictEqual(
+      tool({ tool: "notes", status: "done", output: "ok" }),
+    );
   });
 
   it("keeps a write's content, which its result does not have", () => {

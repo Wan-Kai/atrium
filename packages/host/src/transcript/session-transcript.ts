@@ -89,8 +89,17 @@ export interface SessionTranscript {
   step(turnId: string, stepId: string): Step | null;
 }
 
-/** A user message seen live, in order: a turn it opened, with what was measured of it, or a steer. */
-type SeenUser = { readonly kind: "turn"; facts: TurnFacts | null } | { readonly kind: "steer" };
+/**
+ * A user message seen live that opened a turn, with what was measured of it once the turn ends.
+ *
+ * @remarks
+ * A steer is recorded as `null`: it only keeps the order. Live, a message is a steer exactly when
+ * pi's file shows one, right after a tool result (SPEC-0001, `steer`), so the rebuild already
+ * agrees; what it cannot tell is that a message after a tool result opened a turn.
+ */
+interface SeenTurn {
+  facts: TurnFacts | null;
+}
 
 /**
  * Creates a session's transcript.
@@ -101,10 +110,11 @@ type SeenUser = { readonly kind: "turn"; facts: TurnFacts | null } | { readonly 
  * the turn and its thinking with its own clock. A user message right after a tool result is a
  * steer instead. A user message while a turn runs that is not a steer ends that turn and starts
  * another, as a follow-up would. Every user message seen live is recorded, in order, as a new turn
- * with what was measured of it, or a steer ("当场计时的数据"). After a rebuild the records are tied
- * to the new user message entries of that read, matched from the end, and the rebuild follows
- * them: the turns keep their live ids and timings, and a turn stays a turn even where pi's file
- * would suggest a steer (SPEC-0001, `steer`), so a normal run rebuilds exactly as it was sent.
+ * with what was measured of it, or a steer (`SeenTurn`, "当场计时的数据"). After a rebuild the
+ * records are tied to the new user message entries of that read, matched from the end, and the
+ * rebuild follows them: the turns keep their live ids and timings, and a turn stays a turn even
+ * where pi's file would suggest a steer (SPEC-0001, `steer`), so a normal run rebuilds exactly as
+ * it was sent.
  * Events, snapshots and pages carry steps as they travel (`forTransport`); the transcript keeps
  * them whole. Rebuilds only happen between runs; the caller makes sure of that.
  *
@@ -123,13 +133,12 @@ export function createSessionTranscript(options: {
   let items: TranscriptItem[] = [];
   /** Facts of turns seen live, by the entry that opened them. */
   const factsByEntry = new Map<string, TurnFacts>();
-  /** User message entries seen live as steers. */
-  const steerEntries = new Set<string>();
   /** User messages seen live since the last rebuild, oldest first, not yet tied to entries. */
-  let seen: SeenUser[] = [];
+  // Stryker disable next-line ArrayDeclaration: a made-up record has no facts and only shifts nothing at the start.
+  let seen: (SeenTurn | null)[] = [];
   let live: {
     readonly draft: TurnDraft;
-    readonly record: Extract<SeenUser, { kind: "turn" }>;
+    readonly record: SeenTurn;
     readonly startedAt: number;
     readonly thinkingMs: Map<string, number>;
     /** The thinking step being timed, and since when. */
@@ -143,15 +152,17 @@ export function createSessionTranscript(options: {
    * Thinking ends when the next block starts or its message finishes.
    *
    * @sideEffects Updates the live turn.
+   * @param current - The live turn.
    * @returns The events to publish.
    */
-  function endThinking(): TranscriptEvent[] {
-    if (live === null || live.thinking === null) return [];
-    const durationMs = Math.max(0, now() - live.thinking.since);
-    live.thinkingMs.set(live.thinking.id, durationMs);
-    const step = live.draft.timeThinking(live.thinking.id, durationMs);
-    live.thinking = null;
-    return step === null ? [] : [{ type: "step_updated", turnId: live.draft.id, step }];
+  function endThinking(current: NonNullable<typeof live>): TranscriptEvent[] {
+    if (current.thinking === null) return [];
+    const durationMs = Math.max(0, now() - current.thinking.since);
+    current.thinkingMs.set(current.thinking.id, durationMs);
+    const step = current.draft.timeThinking(current.thinking.id, durationMs);
+    current.thinking = null;
+    // Stryker disable next-line ConditionalExpression,ArrayDeclaration: only a thinking step is ever timed, which timing always updates.
+    return step === null ? [] : [{ type: "step_updated", turnId: current.draft.id, step }];
   }
 
   /**
@@ -166,7 +177,7 @@ export function createSessionTranscript(options: {
    */
   function finishLive(crashed: boolean): TranscriptEvent[] {
     if (live === null) return [];
-    const events = endThinking();
+    const events = endThinking(live);
     const facts: TurnFacts = {
       turnId: live.draft.id,
       clientMessageId: live.draft.user.clientMessageId,
@@ -207,7 +218,7 @@ export function createSessionTranscript(options: {
   ): TranscriptEvent[] {
     if (message.kind === "user") {
       if (live?.draft.takesSteer === true) {
-        seen.push({ kind: "steer" });
+        seen.push(null);
         return [{ type: "step_added", turnId: live.draft.id, step: live.draft.steer(message.text, message.timestamp) }];
       }
       const events = finishLive(false);
@@ -217,7 +228,7 @@ export function createSessionTranscript(options: {
         clientMessageId: clientMessageId(),
         timestamp: message.timestamp,
       });
-      const record: Extract<SeenUser, { kind: "turn" }> = { kind: "turn", facts: null };
+      const record: SeenTurn = { facts: null };
       seen.push(record);
       live = { draft, record, startedAt: now(), thinkingMs: new Map(), thinking: null };
       events.push({ type: "turn_started", turn: draft.running() });
@@ -226,7 +237,7 @@ export function createSessionTranscript(options: {
     if (live === null) return [];
     const turnId = live.draft.id;
     if (message.kind === "assistant") {
-      return [...endThinking(), ...live.draft.finishAssistant(message).map((change) => stepEvent(turnId, change))];
+      return [...endThinking(live), ...live.draft.finishAssistant(message).map((change) => stepEvent(turnId, change))];
     }
     const step = live.draft.toolResult(message.callId, message, message.timestamp);
     return step === null ? [] : [{ type: "step_updated", turnId, step: forTransport(step) }];
@@ -239,7 +250,7 @@ export function createSessionTranscript(options: {
    * Matched from the end: the newest entries are the ones the host saw. Records that find no
    * entry are dropped; they would never match later.
    *
-   * @sideEffects Records facts and steers by entry; clears the records.
+   * @sideEffects Records facts by entry; clears the records.
    * @param fresh - Ids of the entries this read added.
    */
   function bindSeen(fresh: ReadonlySet<string>): void {
@@ -248,10 +259,10 @@ export function createSessionTranscript(options: {
     const entries = users.slice(users.length - count);
     const records = seen.slice(seen.length - count);
     entries.forEach((entry, index) => {
-      const record = records[index];
-      if (record?.kind === "steer") steerEntries.add(entry.id);
-      else if (record?.facts != null) factsByEntry.set(entry.id, record.facts);
+      const facts = records[index]?.facts;
+      if (facts !== undefined && facts !== null) factsByEntry.set(entry.id, facts);
     });
+    // Stryker disable next-line ArrayDeclaration: see `seen`.
     seen = [];
   }
 
@@ -269,11 +280,12 @@ export function createSessionTranscript(options: {
       const turnId = live.draft.id;
       if (event.kind === "assistant_started") {
         live.draft.startAssistant();
-        return endThinking();
+        return endThinking(live);
       }
       if (event.kind === "part_started") {
-        const events = endThinking();
+        const events = endThinking(live);
         const change = live.draft.setPart(event.index, event.part);
+        // Stryker disable next-line ConditionalExpression: timing another block leaves its step as it is, and only thinking steps' durations are read.
         if (event.part.type === "thinking") live.thinking = { id: change.step.id, since: now() };
         events.push(stepEvent(turnId, change));
         return events;
@@ -297,7 +309,7 @@ export function createSessionTranscript(options: {
       if (reset) log.clear();
       bindSeen(log.append(page.entries, page.leafId));
       const before = items;
-      items = [...projectTranscript(log.branch(), sessionId, factsByEntry, steerEntries).items];
+      items = [...projectTranscript(log.branch(), sessionId, factsByEntry).items];
       return compare(before, items);
     },
     latest() {
@@ -339,7 +351,9 @@ function takeFromEnd(
   for (const whole of from.toReversed()) {
     if (enough(taken)) break;
     const item = itemForTransport(whole);
+    // Stryker disable next-line StringLiteral: an empty encoding is UTF-8.
     const size = Buffer.byteLength(JSON.stringify(item), "utf8");
+    // Stryker disable next-line EqualityOperator: exactly at the limit is within it by one byte either way.
     if (taken.length > 0 && bytes + size > PAGE_BYTES) break;
     taken.unshift(item);
     bytes += size;

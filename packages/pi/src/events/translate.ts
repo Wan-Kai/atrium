@@ -93,7 +93,6 @@ export function createEventTranslator(now: () => number): EventTranslator {
     if (update.type === "text_delta") return grow("text", update.contentIndex, update.delta);
     if (update.type === "thinking_delta") return grow("thinking", update.contentIndex, update.delta);
     if (update.type !== "toolcall_end") return [];
-    started.add(update.contentIndex);
     const { id, name, arguments: args } = update.toolCall;
     return [
       { kind: "part_started", index: update.contentIndex, part: { type: "toolCall", callId: id, tool: name, args } },
@@ -106,12 +105,12 @@ export function createEventTranslator(now: () => number): EventTranslator {
    * @remarks
    * See `createEventTranslator`.
    *
-   * @sideEffects Forgets the streaming message's blocks.
+   * @sideEffects Forgets the blocks of the message that streamed; a finished message ends it.
    * @param message - pi's message.
    * @returns The events.
    */
   function finished(message: PiMessage): TranslatedEvent[] {
-    if (message.role === "assistant") started = new Set();
+    started = new Set();
     const converted = toLogMessage(message, now());
     return converted === null ? [] : [{ kind: "message_finished", message: converted }];
   }
@@ -167,5 +166,6 @@ function outputText(partial: unknown): string {
  * @returns Whether it has a string `type`.
  */
 function isBlock(value: unknown): value is { readonly type: string; readonly text?: string } {
+  // Stryker disable next-line ConditionalExpression: `contentText` compares the type with "text", which no other type equals.
   return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string";
 }

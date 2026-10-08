@@ -49,12 +49,15 @@ export function layoutTurn(turn: Turn): TurnLayout {
    * @sideEffects Updates the rows being built.
    */
   const flush = (): void => {
-    const [first] = group;
-    if (first !== undefined && group.length === 1) process.push({ kind: "step", step: first });
-    else if (first !== undefined) process.push({ kind: "explore", id: first.id, steps: group });
+    const [first, ...rest] = group;
     group = [];
+    if (first === undefined) return;
+    process.push(
+      rest.length === 0 ? { kind: "step", step: first } : { kind: "explore", id: first.id, steps: [first, ...rest] },
+    );
   };
   for (const step of steps) {
+    // Stryker disable next-line ConditionalExpression: a step that is not a tool has no `tool`, which the set does not hold.
     if (step.kind === "tool" && EXPLORE_TOOLS.has(step.tool)) {
       group.push(step);
       continue;
@@ -105,6 +108,7 @@ export function countProcess(steps: readonly Step[]): ProcessCounts {
   let commands = 0;
   let failedCommands = 0;
   for (const step of steps) {
+    // Stryker disable next-line ConditionalExpression: a step that is not a tool has no `tool`, so no count below takes it.
     if (step.kind !== "tool") continue;
     if (step.tool === "read") reads += 1;
     else if (EXPLORE_TOOLS.has(step.tool)) searches += 1;
@@ -182,6 +186,7 @@ export function formatTokens(tokens: number): string {
  * @returns Its text.
  */
 function trimmed(value: number): string {
+  // Stryker disable next-line EqualityOperator: at exactly 100 both ways give "100".
   return value >= 100 ? String(Math.round(value)) : String(Math.round(value * 10) / 10);
 }
 
@@ -210,8 +215,9 @@ export function parseDisplayDiff(diff: string): DiffLine[] {
     const rest = line.slice(1);
     if (/^\s*\.\.\.$/.test(rest)) return { kind: "gap", number: null, text: "…" };
     const kind = line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "context";
-    const match = /^\s*(\d+) (.*)$/s.exec(rest);
+    const match = /^\s*(\d+) (.*)/s.exec(rest);
     if (match === null) return { kind, number: null, text: rest };
+    // Stryker disable next-line StringLiteral: both groups always match when the expression does.
     return { kind, number: Number(match[1]), text: match[2] ?? "" };
   });
 }
@@ -232,7 +238,8 @@ export function opening(text: string, max = 48): string {
   const end = trimmedText.search(/[。．.!！?？\n]/);
   const sentence = end === -1 ? trimmedText : trimmedText.slice(0, end);
   if (sentence.length > max) return `${sentence.slice(0, max)}…`;
-  const more = end !== -1 && trimmedText.slice(end + 1).trim() !== "";
+  // The text is trimmed, so anything after the sentence's end is more text.
+  const more = end !== -1 && trimmedText.slice(end + 1) !== "";
   return more ? `${sentence}…` : sentence;
 }
 
@@ -269,9 +276,8 @@ export function describeStep(step: Step, live: boolean): StepLine {
 }
 
 /** How a tool step ended, in words. */
-const TOOL_ENDS: Readonly<Record<ToolStep["status"], string>> = {
+const TOOL_ENDS: Readonly<Record<Exclude<ToolStep["status"], "done">, string>> = {
   running: "运行中",
-  done: "完成",
   failed: "失败",
   unfinished: "未完成",
 };
@@ -288,20 +294,19 @@ const TOOL_ENDS: Readonly<Record<ToolStep["status"], string>> = {
  */
 function describeTool(step: ToolStep): StepLine {
   const details = step.details;
-  const end = TOOL_ENDS[step.status];
-  if (details?.tool === "bash")
-    return { verb: "运行", object: details.command, end: step.status === "done" ? "通过" : end };
+  const done = step.status === "done";
+  const end = step.status === "done" ? null : TOOL_ENDS[step.status];
+  if (details?.tool === "bash") return { verb: "运行", object: details.command, end: done ? "通过" : end };
   if (details?.tool === "read") {
     const range = details.offset === null ? "" : ` 第 ${details.offset} 行起`;
-    return { verb: "读取", object: `${details.path}${range}`, end: step.status === "done" ? null : end };
+    return { verb: "读取", object: `${details.path}${range}`, end };
   }
   if (details?.tool === "edit") {
     const counts = details.diff === null ? null : `+${details.added} −${details.removed}`;
-    return { verb: "编辑", object: details.path, end: step.status === "done" ? counts : end };
+    return { verb: "编辑", object: details.path, end: done ? counts : end };
   }
-  if (details?.tool === "write")
-    return { verb: "写入", object: details.path, end: step.status === "done" ? null : end };
-  return { verb: step.tool, object: compactJson(step.args), end: step.status === "done" ? null : end };
+  if (details?.tool === "write") return { verb: "写入", object: details.path, end };
+  return { verb: step.tool, object: compactJson(step.args), end };
 }
 
 /**

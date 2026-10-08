@@ -741,10 +741,35 @@ describe("createAtriumClient: sessions", () => {
     await changed;
     expect(client.session("s1")?.getState().status).toBe("loading");
     await client.loadStep("s1", "t1", "0");
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_step"),
+    ).toHaveLength(2);
     latest().receive(snapshot(0, [turn("t1")]));
     const failed = client.loadStep("s1", "t1", "0");
     latest().fail("fetch_step", "session_not_found");
     await expect(failed).rejects.toStrictEqual(new CommandError("session_not_found"));
+  });
+
+  it("fetches no step for a session that was lost", async () => {
+    const { client, latest, clock } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(snapshot(0, [turn("t1")]));
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+
+    await client.loadStep("s1", "t1", "0");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_step"),
+    ).toStrictEqual([]);
   });
 
   it("keeps sessions when it reconnects to the same host", async () => {

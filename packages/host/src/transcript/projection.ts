@@ -28,9 +28,9 @@ function historyId(sessionId: string, entryId: string): string {
  * Builds the transcript of a session's current branch from its entries (domain-model §2).
  *
  * @remarks
- * A user message the host saw live is a new turn or a steer as it was then (`facts`, `steers`);
- * pi's file does not say, so any other one opens a turn unless it directly follows a tool result,
- * which makes it a steer in the turn running then (SPEC-0001, `steer`). Assistant messages add
+ * A user message the host saw open a turn opens one (`facts`); pi's file does not say, so any other
+ * opens a turn unless it directly follows a tool result, which makes it a steer in the turn
+ * running then (SPEC-0001, `steer`). Assistant messages add
  * their blocks as steps; a failed reply that pi took out of the context (an omission) is followed
  * by a retry step, numbered as pi counts: consecutive failures count up, a successful reply
  * resets, and an empty error reads as pi's "Unknown error". An omission followed straight by a
@@ -44,15 +44,14 @@ function historyId(sessionId: string, entryId: string): string {
  * @param branch - The branch's entries, root first.
  * @param sessionId - The session's id, for history-only ids.
  * @param facts - What the host measured of turns it saw live, by the id of the entry opening them.
- * @param steers - User message entries the host saw live as steers.
  * @returns The items and the entries that opened turns.
  */
 export function projectTranscript(
   branch: readonly LogEntry[],
   sessionId: string,
   facts: ReadonlyMap<string, TurnFacts>,
-  steers: ReadonlySet<string> = new Set(),
 ): Projection {
+  // Stryker disable next-line ConditionalExpression,ArrayDeclaration: only looked up by entry id, which is never undefined or made up.
   const omitted = new Set(branch.flatMap((entry) => (entry.kind === "omission" ? [entry.targetId] : [])));
   const recovered = overflowRecoveries(branch);
   const items: TranscriptItem[] = [];
@@ -79,8 +78,7 @@ export function projectTranscript(
   for (const entry of branch) {
     switch (entry.kind) {
       case "user": {
-        const steer = facts.has(entry.id) ? false : steers.has(entry.id) || draft?.turn.takesSteer === true;
-        if (draft !== null && steer) {
+        if (draft !== null && !facts.has(entry.id) && draft.turn.takesSteer) {
           draft.turn.steer(entry.text, entry.timestamp);
           break;
         }
@@ -124,11 +122,13 @@ export function projectTranscript(
           summary: entry.summary,
           timestamp: entry.timestamp,
         };
-        if (draft === null) items.push(notice);
-        else notices.push(notice);
+        // Before any turn, the next turn's start puts it in place all the same.
+        notices.push(notice);
         break;
       }
+      // Stryker disable next-line StringLiteral: these cases do nothing, as no case does for other kinds.
       case "omission":
+      // Stryker disable next-line StringLiteral: see above.
       case "other":
         break;
     }
@@ -151,13 +151,10 @@ export function projectTranscript(
  */
 function overflowRecoveries(branch: readonly LogEntry[]): Set<string> {
   const recovered = new Set<string>();
-  let pending: string[] = [];
-  for (const entry of branch) {
-    if (entry.kind === "omission") pending.push(entry.targetId);
-    else if (entry.kind === "compaction") {
-      for (const id of pending) recovered.add(id);
-      pending = [];
-    } else if (entry.kind !== "other") pending = [];
-  }
+  branch.forEach((entry, index) => {
+    if (entry.kind !== "omission") return;
+    const next = branch.slice(index + 1).find((later) => later.kind !== "omission" && later.kind !== "other");
+    if (next?.kind === "compaction") recovered.add(entry.targetId);
+  });
   return recovered;
 }

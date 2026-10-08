@@ -27,7 +27,7 @@ const commands: Command[] = [
   { type: "report_client_issue", requestId: "r7", traceparent, kind: "slow_frames", message: "p95 40 ms" },
   { type: "fetch_transcript", requestId: "r8", traceparent, sessionId: "s1", epoch: 2, before: "s1:e7", limit: 100 },
   { type: "list_recent_sessions", requestId: "r9", traceparent, limit: 50 },
-  { type: "fetch_step", requestId: "r11", traceparent, sessionId: "s1", epoch: 1, turnId: "s1:e1", stepId: "2" },
+  { type: "fetch_step", requestId: "r11", traceparent, sessionId: "s1", epoch: 1, turnId: "s1:e1", stepId: "12" },
   { type: "open_session", requestId: "r10", traceparent, sessionId: "019a-session" },
 ];
 
@@ -136,7 +136,7 @@ const events: SessionEvent[] = [
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
   { type: "turn_started", ...at, turn: { ...turn, steps: [], outcome: "running", durationMs: null, usage: null } },
   { type: "step_added", ...at, turnId: "s1:e1", step: { kind: "text", id: "0", text: "" } },
-  { type: "step_delta", ...at, turnId: "s1:e1", stepId: "0", delta: "par" },
+  { type: "step_delta", ...at, turnId: "s1:e1", stepId: "10", delta: "par" },
   { type: "step_updated", ...at, turnId: "s1:e1", step: bashStep },
   {
     type: "turn_finished",

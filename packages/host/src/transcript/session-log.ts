@@ -61,6 +61,7 @@ export function createSessionLog(): SessionLog {
       const path: LogEntry[] = [];
       const seen = new Set<string>();
       let id = leafId;
+      // Stryker disable next-line ConditionalExpression: there is no entry under `null`, which also ends the walk.
       while (id !== null && !seen.has(id)) {
         const entry = entries.get(id);
         if (entry === undefined) break;

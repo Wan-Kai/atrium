@@ -84,19 +84,6 @@ export class TurnDraft {
   }
 
   /**
-   * The steps so far.
-   *
-   * @remarks
-   * The draft's own list; callers only read it.
-   *
-   * @sideEffects none
-   * @returns The steps.
-   */
-  get steps(): readonly Step[] {
-    return this.#steps;
-  }
-
-  /**
    * Notes that an assistant message starts, so its blocks know their positions.
    *
    * @remarks
@@ -123,8 +110,7 @@ export class TurnDraft {
     const position = this.#base + index;
     const step = partStep(part, position);
     const added = position >= this.#steps.length;
-    if (added) this.#steps.push(step);
-    else this.#steps[position] = step;
+    this.#steps[position] = step;
     return { step, added };
   }
 
@@ -182,7 +168,8 @@ export class TurnDraft {
     message.parts.forEach((part, index) => {
       const before = this.#steps[this.#base + index];
       let { step, added } = this.setPart(index, part);
-      if (before?.kind === "thinking" && step.kind === "thinking" && before.durationMs !== null) {
+      // An untimed step copies `null`, which changes nothing.
+      if (before?.kind === "thinking" && step.kind === "thinking") {
         step = { ...step, durationMs: before.durationMs };
         this.#steps[this.#base + index] = step;
       }
@@ -312,8 +299,10 @@ export class TurnDraft {
   finish(facts: TurnFacts | undefined, crashed = false): { readonly changed: Step[]; readonly turn: FinishedTurn } {
     const changed: Step[] = [];
     finishedSteps(this.#steps).forEach((step, position) => {
+      // Stryker disable next-line ConditionalExpression: only thinking steps are ever timed, so other steps have no duration to look up.
       const durationMs = step.kind === "thinking" ? facts?.thinkingMs.get(step.id) : undefined;
       const final =
+        // Stryker disable next-line ConditionalExpression: see above; other steps found no duration.
         step.kind !== "thinking" || durationMs === undefined || durationMs === step.durationMs
           ? step
           : { ...step, durationMs };
@@ -361,6 +350,7 @@ export class TurnDraft {
    * @returns Its position, or -1.
    */
   #findTool(callId: string): number {
+    // Stryker disable next-line ConditionalExpression: only tool steps have a call id.
     return this.#steps.findLastIndex((step) => step.kind === "tool" && step.callId === callId);
   }
 }
