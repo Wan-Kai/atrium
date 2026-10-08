@@ -9,6 +9,9 @@ import { IndexTooNewError } from "./store/index-file";
 
 const TOKEN = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
 
+/** How long a scan with real git may take on a loaded machine, as under mutation testing. */
+const SCAN = { timeout: 10_000 };
+
 /**
  * A home, a repository with a worktree and pi's session directory, at real paths.
  *
@@ -69,20 +72,24 @@ describe("the list over the WebSocket", () => {
 
     const { projectId } = await client.addProject(at.repo);
 
-    await vi.waitFor(() =>
-      expect(client.index.getState().workspaces.map(({ kind, dir, branch }) => [kind, dir, branch])).toStrictEqual([
-        ["local", at.repo, "main"],
-        ["worktree", at.worktree, "feature"],
-      ]),
+    await vi.waitFor(
+      () =>
+        expect(client.index.getState().workspaces.map(({ kind, dir, branch }) => [kind, dir, branch])).toStrictEqual([
+          ["local", at.repo, "main"],
+          ["worktree", at.worktree, "feature"],
+        ]),
+      SCAN,
     );
     expect(client.index.getState().projects).toStrictEqual([{ id: projectId, path: at.repo, name: "repo" }]);
-    await vi.waitFor(() =>
-      expect(client.index.getState().workspaces[1]?.merge).toStrictEqual({
-        dirty: false,
-        ahead: 0,
-        verdict: "noChange",
-        reason: null,
-      }),
+    await vi.waitFor(
+      () =>
+        expect(client.index.getState().workspaces[1]?.merge).toStrictEqual({
+          dirty: false,
+          ahead: 0,
+          verdict: "noChange",
+          reason: null,
+        }),
+      SCAN,
     );
 
     await mkdir(at.piSessions, { recursive: true });
@@ -91,10 +98,12 @@ describe("the list over the WebSocket", () => {
     await writeFile(join(at.piSessions, "t.jsonl"), `${JSON.stringify(header)}\n${JSON.stringify(user)}\n`);
     await client.windowFocused();
 
-    await vi.waitFor(() =>
-      expect(client.index.getState().sessions).toMatchObject([
-        { sessionId: "terminal-1", containerId: client.index.getState().workspaces[1]?.id, prompt: "hi" },
-      ]),
+    await vi.waitFor(
+      () =>
+        expect(client.index.getState().sessions).toMatchObject([
+          { sessionId: "terminal-1", containerId: client.index.getState().workspaces[1]?.id, prompt: "hi" },
+        ]),
+      SCAN,
     );
     await expect(client.addProject(at.worktree)).rejects.toStrictEqual(
       new CommandError("project_exists", { projectId }),
