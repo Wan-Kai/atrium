@@ -262,6 +262,16 @@ describe("parseClientMessage", () => {
       { type: "create_session", requestId: "r1", traceparent, workspaceId: PROJECT },
       "r1",
     ],
+    [
+      "a workspace id with something before it",
+      { type: "create_session", requestId: "r1", traceparent, workspaceId: `x${WORKSPACE}` },
+      "r1",
+    ],
+    [
+      "a workspace id with something after it",
+      { type: "create_session", requestId: "r1", traceparent, workspaceId: `${WORKSPACE}0` },
+      "r1",
+    ],
     ["an empty project path", { type: "add_project", requestId: "r1", traceparent, path: "" }, "r1"],
     [
       "a blank project name",

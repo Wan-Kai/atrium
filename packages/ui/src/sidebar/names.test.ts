@@ -113,11 +113,13 @@ describe("timeAgo", () => {
     const minute = 60_000;
 
     expect(timeAgo(now - 30_000, now)).toBe("刚刚");
+    expect(timeAgo(now - minute, now)).toBe("1 分钟前");
     expect(timeAgo(now - 12 * minute, now)).toBe("12 分钟前");
     expect(timeAgo(now - 59 * minute, now)).toBe("59 分钟前");
     expect(timeAgo(now - 60 * minute, now)).toBe("1 小时前");
     expect(timeAgo(now - 23 * 60 * minute, now)).toBe("23 小时前");
     expect(timeAgo(new Date(2026, 9, 7, 1, 0).getTime(), now)).toBe("昨天");
+    expect(timeAgo(new Date(2026, 9, 7, 0, 0).getTime(), now)).toBe("昨天");
     expect(timeAgo(new Date(2026, 9, 6, 23, 0).getTime(), now)).toBe("10月6日");
   });
 });
