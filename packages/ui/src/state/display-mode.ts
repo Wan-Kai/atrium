@@ -1,9 +1,10 @@
+import type { AtriumClient } from "@atrium/client";
+import type { DisplayMode } from "@atrium/protocol";
 import { createContext, useContext } from "react";
 import { useStore } from "zustand";
 import { type StoreApi, createStore } from "zustand/vanilla";
 
-/** How much of a turn's process shows (SPEC-0001, "显示模式"). */
-export type DisplayMode = "summary" | "thinking" | "detailed";
+export type { DisplayMode };
 
 /** The modes in the order Ctrl+O goes through them, with their names. */
 export const DISPLAY_MODES: readonly { readonly mode: DisplayMode; readonly label: string; readonly hint: string }[] = [
@@ -20,40 +21,36 @@ export interface DisplayModeState {
   readonly cycle: () => void;
 }
 
-/** Where the choice is kept; it applies to every session. */
-const STORAGE_KEY = "atrium.displayMode";
-
 /**
- * Creates the display mode store, remembering the choice in `storage`.
+ * Creates a display mode store.
  *
  * @remarks
- * The choice is global and remembered (SPEC-0001, "显示模式"); summary is the default, and so is
- * anything unreadable in storage. A storage that refuses to write only loses the memory.
+ * The choice is global and remembered by the host with the other preferences (SPEC-0001,
+ * "显示模式"; "项目、工作区与会话"); the app passes a `save` that sends it there and keeps the
+ * store in step with the list (`followPreferences`). Summary is the default.
  *
- * @sideEffects Reads `storage` now; writes it on every change.
- * @param storage - Where to keep the choice.
+ * @sideEffects none until a change; then calls `save`.
+ * @param initial - The mode to start with.
+ * @param save - Where a chosen mode goes.
  * @returns The store.
  */
-export function createDisplayMode(storage: Pick<Storage, "getItem" | "setItem">): StoreApi<DisplayModeState> {
-  const saved = storage.getItem(STORAGE_KEY);
-  const initial = DISPLAY_MODES.find((entry) => entry.mode === saved)?.mode ?? "summary";
+export function createDisplayMode(
+  initial: DisplayMode = "summary",
+  save: (mode: DisplayMode) => void = () => undefined,
+): StoreApi<DisplayModeState> {
   return createStore<DisplayModeState>()((setState, getState) => {
     /**
-     * Sets and remembers the mode.
+     * Sets the mode and saves it.
      *
      * @remarks
      * See `createDisplayMode`.
      *
-     * @sideEffects Updates the store; writes `storage`.
+     * @sideEffects Updates the store; calls `save`.
      * @param mode - The mode.
      */
     const set = (mode: DisplayMode): void => {
       setState({ mode });
-      try {
-        storage.setItem(STORAGE_KEY, mode);
-      } catch {
-        // Storage full or disabled: the mode still applies for now.
-      }
+      save(mode);
     };
     return {
       mode: initial,
@@ -66,10 +63,36 @@ export function createDisplayMode(storage: Pick<Storage, "getItem" | "setItem">)
   });
 }
 
+/**
+ * Keeps a display mode store in step with the preferences in a client's list.
+ *
+ * @remarks
+ * Another client, or the host's first snapshot, may change the mode.
+ *
+ * @sideEffects Subscribes to the client's list until the returned function is called.
+ * @param store - The store.
+ * @param client - The client.
+ * @returns A function that stops following.
+ */
+export function followPreferences(store: StoreApi<DisplayModeState>, client: AtriumClient): () => void {
+  /**
+   * Copies the list's mode into the store when it differs.
+   *
+   * @remarks
+   * See `followPreferences`.
+   *
+   * @sideEffects May update the store.
+   */
+  const copy = (): void => {
+    const mode = client.index.getState().preferences.displayMode;
+    if (store.getState().mode !== mode) store.setState({ mode });
+  };
+  copy();
+  return client.index.subscribe(copy);
+}
+
 /** The display mode the app provides; tests without a provider get one that remembers nothing. */
-export const DisplayModeContext = createContext<StoreApi<DisplayModeState>>(
-  createDisplayMode({ getItem: () => null, setItem: () => undefined }),
-);
+export const DisplayModeContext = createContext<StoreApi<DisplayModeState>>(createDisplayMode());
 
 /**
  * Subscribes a component to the display mode.

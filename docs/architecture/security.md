@@ -23,7 +23,7 @@
 ## Electron
 
 - 渲染进程：`contextIsolation: true`、`sandbox: true`、`nodeIntegration: false`、`webSecurity: true`。
-- preload 只通过 `contextBridge` 暴露最小接口（宿主地址、token、少量窗口操作），不暴露 Node 或 IPC 本身。
+- preload 只通过 `contextBridge` 暴露最小接口（宿主地址和 token、让用户选择文件夹、设置窗口外观；M1.5 起），不暴露 Node 或 IPC 本身。每个 IPC 处理函数都只回应应用自己页面的来源，外观只接受三个取值。
 - 设置内容安全策略（CSP）：脚本只允许本应用；不允许 `eval`；图片允许本应用、`data:`、`blob:` 和 `https:`（回复里的远程图片，见下文"渲染内容"），连接只允许本应用。宿主提供的页面由宿主加响应头；开发时页面来自 Vite，由 Electron 主进程给它加同样的策略，只额外允许内联脚本（React 热更新需要）和连接宿主端口。
 - 禁止窗口导航到别的页面（`will-navigate`），禁止新开窗口（`setWindowOpenHandler` 一律拒绝）。
 - 外链只允许 `http` / `https`，用 `shell.openExternal` 交给系统浏览器。

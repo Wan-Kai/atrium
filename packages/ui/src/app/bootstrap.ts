@@ -8,6 +8,21 @@ export interface Bootstrap {
 /** What the desktop preload exposes on `window.atrium`. */
 interface AtriumBridge {
   getBootstrap(): Promise<Bootstrap>;
+  pickDirectory?(): Promise<string | null>;
+  setAppearance?(appearance: "system" | "light" | "dark"): Promise<void>;
+}
+
+/**
+ * The desktop bridge, when the page runs inside the app.
+ *
+ * @remarks
+ * Outside Electron (browser tests, a future PWA) there is none.
+ *
+ * @sideEffects none
+ * @returns The bridge, or `undefined`.
+ */
+export function desktopBridge(): AtriumBridge | undefined {
+  return (window as Window & { atrium?: AtriumBridge }).atrium;
 }
 
 /**
@@ -22,7 +37,7 @@ interface AtriumBridge {
  * @returns The bootstrap data, or `null` when not running inside the desktop app.
  */
 export async function readBootstrap(): Promise<Bootstrap | null> {
-  const bridge = (window as Window & { atrium?: AtriumBridge }).atrium;
+  const bridge = desktopBridge();
   return bridge === undefined ? null : bridge.getBootstrap();
 }
 

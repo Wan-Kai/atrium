@@ -402,7 +402,8 @@ describe("host connection handshake", () => {
     socket.close(1000);
     await ended;
 
-    await vi.waitFor(() => expect(testHost?.host.resources.snapshot()).toMatchObject({ timer: 1, "ws.connection": 0 }));
+    // The timers left are the host's resource report and the workspaces' background fetch.
+    await vi.waitFor(() => expect(testHost?.host.resources.snapshot()).toMatchObject({ timer: 2, "ws.connection": 0 }));
   });
 
   it("releases the handshake timer as soon as the hello is accepted", async () => {
@@ -410,8 +411,9 @@ describe("host connection handshake", () => {
 
     await testHost.connect().connect();
 
-    // The two timers left are the host's resource report and the connection's heartbeat.
-    expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 2, "ws.connection": 1 });
+    // The timers left are the host's resource report, the workspaces' background fetch and the
+    // connection's heartbeat.
+    expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 3, "ws.connection": 1 });
   });
 
   it("welcomes with the heartbeat and an instance id that is new on every host start", async () => {

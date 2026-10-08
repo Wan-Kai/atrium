@@ -2,7 +2,7 @@ import type { AtriumClient, SessionView } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { type StoreApi, createStore } from "zustand/vanilla";
-import { wholeTranscript } from "./session-toolbar";
+import { wholeTranscript } from "./session-menus";
 
 /** A notice with the given id. */
 function notice(id: string): TranscriptItem {

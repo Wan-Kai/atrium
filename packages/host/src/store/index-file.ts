@@ -25,7 +25,7 @@ export interface IndexFileSpec<T extends object> {
 }
 
 /** One file of the index, loaded. */
-interface IndexFile<T extends object> {
+export interface IndexFile<T extends object> {
   /** The document as last loaded or saved. */
   read(): T;
   /**

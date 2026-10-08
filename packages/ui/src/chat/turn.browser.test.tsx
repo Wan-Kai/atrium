@@ -59,7 +59,7 @@ const answer: Step = { kind: "text", id: "4", text: "改好了，**一处**改�
  * Each render gets a mode store of its own, so modes do not leak between tests.
  */
 async function show(value: Turn, mode: DisplayMode = "summary", runStartedAt: number | null = null) {
-  const store = createDisplayMode({ getItem: () => mode, setItem: () => undefined });
+  const store = createDisplayMode(mode);
   const screen = await render(
     <DisplayModeContext value={store}>
       <TurnView turn={value} runStartedAt={runStartedAt} />
@@ -176,7 +176,7 @@ describe("TurnView", () => {
 
   it("fetches a step that arrived as a preview once it is opened, and only then", async () => {
     const asked: string[] = [];
-    const store = createDisplayMode({ getItem: () => "summary", setItem: () => undefined });
+    const store = createDisplayMode("summary");
     const preview: Step = { ...command, status: "done", output: "…the end", partial: true };
     const screen = await render(
       <DisplayModeContext value={store}>
@@ -208,7 +208,7 @@ describe("TurnView", () => {
 
   it("fetches a file change that arrived as a preview when the file is opened", async () => {
     const asked: string[] = [];
-    const store = createDisplayMode({ getItem: () => "summary", setItem: () => undefined });
+    const store = createDisplayMode("summary");
     const screen = await render(
       <DisplayModeContext value={store}>
         <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>

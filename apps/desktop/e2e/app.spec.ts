@@ -25,14 +25,18 @@ test("opens a window on the host-served UI, protected by the content security po
   expect(csp).toContain("script-src 'self'");
 });
 
-test("gives the page no Node access and only the bootstrap bridge", async () => {
+test("gives the page no Node access and only the bridge: bootstrap, folder choice and appearance", async () => {
   const exposed = await launched.window.evaluate(() => ({
     require: typeof (globalThis as { require?: unknown }).require,
     process: typeof (globalThis as { process?: unknown }).process,
     bridge: Object.keys(window.atrium),
   }));
 
-  expect(exposed).toStrictEqual({ require: "undefined", process: "undefined", bridge: ["getBootstrap"] });
+  expect(exposed).toStrictEqual({
+    require: "undefined",
+    process: "undefined",
+    bridge: ["getBootstrap", "pickDirectory", "setAppearance"],
+  });
 });
 
 test("keeps the page on its own origin and refuses new windows", async () => {

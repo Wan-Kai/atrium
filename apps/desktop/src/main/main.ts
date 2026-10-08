@@ -1,4 +1,4 @@
-import { BrowserWindow, app, ipcMain, nativeTheme, session, shell, utilityProcess } from "electron";
+import { BrowserWindow, Menu, app, dialog, ipcMain, nativeTheme, session, shell, utilityProcess } from "electron";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
@@ -182,13 +182,14 @@ function restrictNavigation(window: BrowserWindow, pageOrigin: string): void {
  * host has shut down cleanly. In development the Vite page gets its own CSP header. Opening the
  * app again focuses this window.
  *
- * @sideEffects Generates the session token; starts the host; registers IPC handlers; creates a
- * window; adds a CSP header to dev pages; delays quitting until the host has stopped; focuses
+ * @sideEffects Generates the session token; starts the host; registers IPC handlers (bootstrap,
+ * choosing a folder, appearance); sets the app menu; creates a window; adds a CSP header to dev pages; delays quitting until the host has stopped; focuses
  * the window when the app is opened again.
  */
 async function main(): Promise<void> {
   await app.whenReady();
   nativeTheme.themeSource = "system";
+  Menu.setApplicationMenu(appMenu());
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 
   const paths = resolvePaths();
@@ -223,11 +224,38 @@ async function main(): Promise<void> {
     });
   }
 
-  ipcMain.handle("atrium:bootstrap", (event) => {
+  /**
+   * Refuses IPC from any frame but the app's page.
+   *
+   * @remarks
+   * Every handler answers only the expected origin (security.md, "Electron").
+   *
+   * @sideEffects none
+   * @param event - The IPC event.
+   * @throws {Error} When the sender is another origin.
+   */
+  const checkSender = (event: Electron.IpcMainInvokeEvent): void => {
     if (event.senderFrame === null || new URL(event.senderFrame.url).origin !== pageOrigin) {
-      throw new Error("bootstrap requested from an unexpected origin");
+      throw new Error("IPC from an unexpected origin");
     }
+  };
+  ipcMain.handle("atrium:bootstrap", (event) => {
+    checkSender(event);
     return { hostUrl, token };
+  });
+  ipcMain.handle("atrium:pick-directory", async (event) => {
+    checkSender(event);
+    const window = BrowserWindow.fromWebContents(event.sender);
+    const options: Electron.OpenDialogOptions = { properties: ["openDirectory", "createDirectory"] };
+    const chosen =
+      window === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(window, options);
+    return chosen.canceled ? null : (chosen.filePaths[0] ?? null);
+  });
+  ipcMain.handle("atrium:appearance", (event, appearance: unknown) => {
+    checkSender(event);
+    if (appearance === "system" || appearance === "light" || appearance === "dark") {
+      nativeTheme.themeSource = appearance;
+    }
   });
 
   const window = new BrowserWindow({
@@ -254,6 +282,29 @@ async function main(): Promise<void> {
     window.focus();
   });
   await window.loadURL(pageUrl);
+}
+
+/**
+ * The app menu: the standard app, edit and window items, without closing the window on ⌘W.
+ *
+ * @remarks
+ * ⌘W closes a session tab and ⌘N, ⌘T create sessions (SPEC-0001, "标签栏"); Electron's default
+ * menu would take ⌘W to close the window first. The edit items keep copy, paste and undo working
+ * in text fields; the view items keep reload and the developer tools.
+ *
+ * @sideEffects none
+ * @returns The menu.
+ */
+function appMenu(): Menu {
+  return Menu.buildFromTemplate([
+    { role: "appMenu" },
+    { role: "editMenu" },
+    {
+      label: "View",
+      submenu: [{ role: "reload" }, { role: "toggleDevTools" }, { type: "separator" }, { role: "togglefullscreen" }],
+    },
+    { label: "Window", submenu: [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }] },
+  ]);
 }
 
 /**

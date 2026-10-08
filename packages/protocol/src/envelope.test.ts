@@ -3,11 +3,14 @@ import { COMMAND_TYPES, type Command, CommandResult } from "./commands";
 import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
+import type { IndexSnapshotEvent } from "./listing";
 import type { Step, Turn } from "./transcript";
 import { PROTOCOL_VERSION } from "./version";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
+const PROJECT = "prj_0123456789abcdef";
+const WORKSPACE = "wks_0123456789abcdef";
 
 /** One valid example of every command. */
 const commands: Command[] = [
@@ -26,9 +29,24 @@ const commands: Command[] = [
   },
   { type: "report_client_issue", requestId: "r7", traceparent, kind: "slow_frames", message: "p95 40 ms" },
   { type: "fetch_transcript", requestId: "r8", traceparent, sessionId: "s1", epoch: 2, before: "s1:e7", limit: 100 },
-  { type: "list_recent_sessions", requestId: "r9", traceparent, limit: 50 },
   { type: "fetch_step", requestId: "r11", traceparent, sessionId: "s1", epoch: 1, turnId: "s1:e1", stepId: "12" },
   { type: "open_session", requestId: "r10", traceparent, sessionId: "019a-session" },
+  { type: "subscribe_index", requestId: "r12", traceparent },
+  { type: "add_project", requestId: "r13", traceparent, path: "/work/app" },
+  { type: "remove_project", requestId: "r14", traceparent, projectId: PROJECT },
+  { type: "rename_project", requestId: "r15", traceparent, projectId: PROJECT, name: "app" },
+  { type: "rename_workspace", requestId: "r16", traceparent, workspaceId: WORKSPACE, name: "侧栏" },
+  { type: "rename_workspace", requestId: "r17", traceparent, workspaceId: WORKSPACE, name: null },
+  { type: "window_focused", requestId: "r18", traceparent },
+  { type: "create_session", requestId: "r19", traceparent, workspaceId: WORKSPACE },
+  { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
+  { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
+  { type: "select_container", requestId: "r22", traceparent, containerId: "chats" },
+  { type: "select_container", requestId: "r23", traceparent, containerId: null },
+  { type: "archive_session", requestId: "r24", traceparent, sessionId: "s1" },
+  { type: "rename_session", requestId: "r25", traceparent, sessionId: "s1", name: "重构" },
+  { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
+  { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
 ];
 
 /** A finished command. */
@@ -167,15 +185,26 @@ describe("parseClientMessage", () => {
 
   it("knows exactly the commands it accepts", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
+      "add_project",
+      "archive_session",
+      "close_tab",
       "create_chat",
+      "create_session",
       "fetch_step",
       "fetch_transcript",
-      "list_recent_sessions",
       "open_session",
       "ping",
       "prompt",
+      "remove_project",
+      "rename_project",
+      "rename_session",
+      "rename_workspace",
       "report_client_issue",
+      "select_container",
+      "set_preferences",
+      "subscribe_index",
       "subscribe_sessions",
+      "window_focused",
     ]);
   });
 
@@ -227,8 +256,25 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a non-string type", { type: 3, requestId: "r1", traceparent }, "r1"],
-    ["no recent sessions asked for", { type: "list_recent_sessions", requestId: "r1", traceparent, limit: 0 }, "r1"],
-    ["more than 50 recent sessions", { type: "list_recent_sessions", requestId: "r1", traceparent, limit: 51 }, "r1"],
+    ["a project id of another shape", { type: "remove_project", requestId: "r1", traceparent, projectId: "p1" }, "r1"],
+    [
+      "a project id where a workspace id belongs",
+      { type: "create_session", requestId: "r1", traceparent, workspaceId: PROJECT },
+      "r1",
+    ],
+    ["an empty project path", { type: "add_project", requestId: "r1", traceparent, path: "" }, "r1"],
+    [
+      "a blank project name",
+      { type: "rename_project", requestId: "r1", traceparent, projectId: PROJECT, name: "  " },
+      "r1",
+    ],
+    [
+      "a project name over 256 characters",
+      { type: "rename_project", requestId: "r1", traceparent, projectId: PROJECT, name: "n".repeat(257) },
+      "r1",
+    ],
+    ["an unknown container", { type: "select_container", requestId: "r1", traceparent, containerId: "inbox" }, "r1"],
+    ["an unknown appearance", { type: "set_preferences", requestId: "r1", traceparent, appearance: "sepia" }, "r1"],
     ["opening no session", { type: "open_session", requestId: "r1", traceparent }, "r1"],
     [
       "a step fetch without a step",
@@ -273,10 +319,10 @@ describe("CommandResult", () => {
     expect(CommandResult.prompt.parse({ disposition: "handled" })).toStrictEqual({ disposition: "handled" });
     expect(CommandResult.ping.safeParse({ extra: 1 }).success).toBe(false);
     expect(CommandResult.prompt.safeParse({ disposition: "paused" }).success).toBe(false);
-    const recent = { sessionId: "s1", firstPrompt: null, modifiedAt: 5 };
-    expect(CommandResult.list_recent_sessions.parse({ sessions: [recent] })).toStrictEqual({ sessions: [recent] });
-    expect(CommandResult.list_recent_sessions.safeParse({ sessions: [{ ...recent, path: "/x" }] }).success).toBe(false);
-    expect(CommandResult.open_session.parse({ sessionId: "s1" })).toStrictEqual({ sessionId: "s1" });
+    expect(CommandResult.open_session.parse({})).toStrictEqual({});
+    expect(CommandResult.add_project.parse({ projectId: PROJECT })).toStrictEqual({ projectId: PROJECT });
+    expect(CommandResult.add_project.safeParse({ projectId: "p1" }).success).toBe(false);
+    expect(CommandResult.create_session.parse({ sessionId: "s1" })).toStrictEqual({ sessionId: "s1" });
     expect(CommandResult.fetch_step.parse({ step: bashStep })).toStrictEqual({ step: bashStep });
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
@@ -285,6 +331,70 @@ describe("CommandResult", () => {
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
+
+/** A list with one of everything. */
+const snapshot: IndexSnapshotEvent = {
+  type: "index_snapshot",
+  generation: "h1",
+  seq: 3,
+  projects: [{ id: PROJECT, path: "/work/app", name: "app" }],
+  workspaces: [
+    {
+      id: WORKSPACE,
+      projectId: PROJECT,
+      kind: "local",
+      dir: "/work/app",
+      alias: null,
+      branch: "main",
+      head: null,
+      external: false,
+      createdAt: null,
+      merge: null,
+    },
+    {
+      id: "wks_fedcba9876543210",
+      projectId: PROJECT,
+      kind: "worktree",
+      dir: "/work/app-sidebar",
+      alias: "侧栏",
+      branch: null,
+      head: "1a2b3c4",
+      external: true,
+      createdAt: 1_700_000_000_000,
+      merge: { dirty: true, ahead: 3, verdict: "unknown", reason: "no_main_branch" },
+    },
+  ],
+  sessions: [
+    {
+      sessionId: "s1",
+      containerId: WORKSPACE,
+      name: null,
+      prompt: "重构宿主进程管理",
+      file: "/pi/sessions/s1.jsonl",
+      state: "persisted",
+      updatedAt: 5,
+      archived: false,
+      running: true,
+    },
+    {
+      sessionId: "s2",
+      containerId: "chats",
+      name: "解释 merge-tree",
+      prompt: null,
+      file: null,
+      state: "draft",
+      updatedAt: 6,
+      archived: true,
+      running: false,
+    },
+  ],
+  layout: {
+    container: WORKSPACE,
+    tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, chats: { open: [], active: null } },
+  },
+  preferences: { appearance: "system", displayMode: "summary" },
+  resets: ["layouts"],
+};
 
 describe("HostMessage", () => {
   it("accepts the welcome, both kinds of response and every session event", () => {
@@ -306,6 +416,7 @@ describe("HostMessage", () => {
         error: { code: "pi_unavailable", params: { status: "missing" } },
       },
       ...events,
+      snapshot,
     ];
 
     for (const message of messages) {
@@ -313,8 +424,26 @@ describe("HostMessage", () => {
     }
   });
 
-  it("accepts every error code, turn and run outcome and exit reason", () => {
+  it("accepts every error code, turn and run outcome, exit reason and list variant", () => {
+    const [local, worktree] = snapshot.workspaces;
+    const [session] = snapshot.sessions;
     const variants: unknown[] = [
+      ...["noChange", "pending", "merged", "removed"].map((verdict) => ({
+        ...snapshot,
+        workspaces: [{ ...worktree, merge: { dirty: false, ahead: 0, verdict, reason: null } }],
+      })),
+      ...["git_too_old", "git_failed", "base_unknown"].map((reason) => ({
+        ...snapshot,
+        workspaces: [{ ...worktree, merge: { dirty: false, ahead: 0, verdict: "unknown", reason } }],
+      })),
+      ...["missing"].map((state) => ({ ...snapshot, sessions: [{ ...session, state }] })),
+      ...["light", "dark"].map((appearance) => ({ ...snapshot, preferences: { ...snapshot.preferences, appearance } })),
+      ...["thinking", "detailed"].map((displayMode) => ({
+        ...snapshot,
+        preferences: { ...snapshot.preferences, displayMode },
+      })),
+      { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "sessions", "preferences"] },
+      { ...snapshot, workspaces: [local] },
       ...ErrorCode.options.map((code) => ({ type: "response", requestId: "r1", ok: false, error: { code } })),
       ...["running", "done", "stopped", "failed"].map((outcome) => ({ ...events[2], turn: { ...turn, outcome } })),
       ...["done", "stopped", "failed"].map((outcome) => ({ ...events[6], outcome })),
@@ -330,6 +459,11 @@ describe("HostMessage", () => {
       "session_busy",
       "transcript_changed",
       "session_cwd_missing",
+      "project_not_found",
+      "workspace_not_found",
+      "project_exists",
+      "name_taken",
+      "path_not_found",
       "pi_rejected",
       "internal_error",
     ]);
@@ -360,6 +494,40 @@ describe("HostMessage", () => {
     ["a snapshot with messages", { ...events[0], messages: [] }],
     ["an unknown run outcome", { ...events[8], outcome: "paused" }],
     ["an unknown event", { type: "message_started", ...at, messageId: "a1" }],
+    ["a workspace of an unknown kind", { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], kind: "clone" }] }],
+    [
+      "an unknown merge verdict",
+      {
+        ...snapshot,
+        workspaces: [
+          { ...snapshot.workspaces[1], merge: { dirty: false, ahead: 0, verdict: "rebased", reason: null } },
+        ],
+      },
+    ],
+    [
+      "a negative ahead count",
+      {
+        ...snapshot,
+        workspaces: [
+          { ...snapshot.workspaces[1], merge: { dirty: false, ahead: -1, verdict: "pending", reason: null } },
+        ],
+      },
+    ],
+    ["an unknown session state", { ...snapshot, sessions: [{ ...snapshot.sessions[0], state: "closed" }] }],
+    [
+      "a session prompt over 200 characters",
+      { ...snapshot, sessions: [{ ...snapshot.sessions[0], prompt: "x".repeat(201) }] },
+    ],
+    [
+      "a session in an unknown container",
+      { ...snapshot, sessions: [{ ...snapshot.sessions[0], containerId: "inbox" }] },
+    ],
+    [
+      "tabs of an unknown container",
+      { ...snapshot, layout: { container: null, tabs: { inbox: { open: [], active: null } } } },
+    ],
+    ["an unknown reset file", { ...snapshot, resets: ["turns"] }],
+    ["a snapshot without preferences", { ...snapshot, preferences: undefined }],
     ["a welcome without heartbeat", { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1" }],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);

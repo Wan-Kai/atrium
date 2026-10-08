@@ -22,6 +22,16 @@ export const ErrorCode = z.enum([
   "transcript_changed",
   /** The session to open recorded a working directory that no longer exists; `params.cwd` names it. */
   "session_cwd_missing",
+  /** The `projectId` names no registered project. */
+  "project_not_found",
+  /** The `workspaceId` names no workspace of a registered project. */
+  "workspace_not_found",
+  /** The directory is a registered project or one of its workspaces already; `params.projectId` names the project. */
+  "project_exists",
+  /** Another project has that name; `params.name` repeats it. */
+  "name_taken",
+  /** The path is not a directory, or does not exist; `params.path` repeats it. */
+  "path_not_found",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */

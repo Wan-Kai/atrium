@@ -1,11 +1,12 @@
 import { type AtriumClient, createAtriumClient } from "@atrium/client";
+import type { Appearance } from "@atrium/protocol";
 import { useEffect, useState } from "react";
-import { DisplayModeContext, createDisplayMode } from "../state/display-mode";
+import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { useConnectionState } from "../state/use-connection-state";
-import { clientId, readBootstrap } from "./bootstrap";
-import { ChatScreen } from "../chat/chat-screen";
+import { clientId, desktopBridge, readBootstrap } from "./bootstrap";
 import { ConnectionStatus, type StatusView } from "./connection-status";
 import { installIssueReporting } from "./issue-reporting";
+import { Workbench } from "./workbench";
 
 /** The app before a connection exists, or the connection once it does. */
 type Shell =
@@ -13,21 +14,19 @@ type Shell =
   | { readonly kind: "connected"; readonly client: AtriumClient };
 
 /**
- * Root component: connects to the host and shows the connection state.
+ * Root component: connects to the host, then shows the workbench.
  *
  * @remarks
- * A status line over M1.3's conversation screen; the sidebar and tabs come with M1.5. Until the desktop bridge answers,
- * the screen says it is starting rather than claiming the app runs outside the desktop shell, and
- * a failed bridge call is shown instead of becoming an unhandled rejection.
+ * Until the desktop bridge answers, the screen says it is starting rather than claiming the app
+ * runs outside the desktop shell, and a failed bridge call is shown instead of becoming an
+ * unhandled rejection. Once connected, the workbench carries the connection's status line.
  *
  * @sideEffects On mount, asks the desktop bridge for the host address, opens a WebSocket and
- * starts reporting UI problems to the host; disconnects on unmount. Reads the display mode from
- * `localStorage` and keeps it there.
+ * starts reporting UI problems to the host; disconnects on unmount.
  * @returns The app shell.
  */
 export function App() {
   const [shell, setShell] = useState<Shell>({ kind: "waiting", view: { status: "starting" } });
-  const [displayMode] = useState(() => createDisplayMode(localStorage));
 
   useEffect(() => {
     let active = true;
@@ -72,17 +71,65 @@ export function App() {
     };
   }, []);
 
+  if (shell.kind === "waiting") {
+    return (
+      <main className="flex h-full items-center justify-center bg-[var(--main)] text-[length:var(--fs-sm)]">
+        <ConnectionStatus view={shell.view} />
+      </main>
+    );
+  }
+  return <Connected client={shell.client} />;
+}
+
+/**
+ * Sends the appearance to the desktop shell.
+ *
+ * @remarks
+ * For the window's own parts, such as the title bar; the page sets its own.
+ *
+ * @sideEffects Calls the desktop bridge.
+ * @param appearance - The user's choice.
+ */
+function setNativeAppearance(appearance: Appearance): void {
+  // Fire and forget: the page's own appearance does not depend on it.
+  void desktopBridge()
+    ?.setAppearance?.(appearance)
+    .catch(() => undefined);
+}
+
+/**
+ * The app once a client exists: the display mode store and the workbench.
+ *
+ * @remarks
+ * The display mode follows the host's preferences and saves changes there (SPEC-0001,
+ * "项目、工作区与会话").
+ *
+ * @sideEffects Subscribes the display mode to the client's list while mounted.
+ * @param props - The client.
+ * @returns The workbench.
+ */
+function Connected({ client }: { readonly client: AtriumClient }) {
+  const [displayMode] = useState(() =>
+    createDisplayMode(client.index.getState().preferences.displayMode, (mode) => {
+      // Fire and forget: the list shows the change at once, and the host keeps it.
+      void client.setPreferences({ displayMode: mode }).catch(() => undefined);
+    }),
+  );
+  useEffect(() => followPreferences(displayMode, client), [displayMode, client]);
+  const bridge = desktopBridge();
   return (
-    <main className="flex h-full flex-col bg-[var(--main)]">
-      <header className="flex h-12 shrink-0 items-center justify-center text-[length:var(--fs-sm)]">
-        {shell.kind === "waiting" ? <ConnectionStatus view={shell.view} /> : <LiveStatus client={shell.client} />}
-      </header>
-      {shell.kind === "connected" ? (
-        <DisplayModeContext value={displayMode}>
-          <ChatScreen client={shell.client} />
-        </DisplayModeContext>
-      ) : null}
-    </main>
+    <DisplayModeContext value={displayMode}>
+      <Workbench
+        client={client}
+        status={<LiveStatus client={client} />}
+        pickDirectory={
+          bridge?.pickDirectory === undefined
+            ? undefined
+            : () => desktopBridge()?.pickDirectory?.() ?? Promise.resolve(null)
+        }
+        setNativeAppearance={bridge?.setAppearance === undefined ? undefined : setNativeAppearance}
+      />
+    </DisplayModeContext>
   );
 }
 
