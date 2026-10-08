@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { parseTraceparent } from "./trace";
-import { TranscriptItem } from "./transcript";
+import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -103,6 +103,16 @@ export const FetchTranscriptCommand = z.strictObject({
 });
 export type FetchTranscriptCommand = z.infer<typeof FetchTranscriptCommand>;
 
+/** Fetches one step whole, for a step marked `partial` (SPEC-0001, "大内容"). */
+export const FetchStepCommand = z.strictObject({
+  type: z.literal("fetch_step"),
+  ...sessionCommandFields,
+  epoch: z.number().int().nonnegative(),
+  turnId: z.string().min(1).max(256),
+  stepId: z.string().min(1).max(32),
+});
+export type FetchStepCommand = z.infer<typeof FetchStepCommand>;
+
 /** Kinds of problems the UI reports to the host's log. */
 export const ClientIssueKind = z.enum(["error", "long_task", "slow_frames"]);
 export type ClientIssueKind = z.infer<typeof ClientIssueKind>;
@@ -124,6 +134,7 @@ export const Command = z.discriminatedUnion("type", [
   SubscribeSessionsCommand,
   PromptCommand,
   FetchTranscriptCommand,
+  FetchStepCommand,
   ListRecentSessionsCommand,
   OpenSessionCommand,
   ReportClientIssueCommand,
@@ -159,6 +170,7 @@ export const CommandResult = {
     items: z.array(TranscriptItem),
     hasOlder: z.boolean(),
   }),
+  fetch_step: z.strictObject({ step: Step }),
   list_recent_sessions: z.strictObject({ sessions: z.array(RecentSession) }),
   open_session: z.strictObject({ sessionId: SessionId }),
   report_client_issue: z.strictObject({}),

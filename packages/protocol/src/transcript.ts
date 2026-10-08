@@ -3,8 +3,14 @@ import { z } from "zod";
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
 
-/** Most of a tool's output that travels in the transcript (SPEC-0001, "对话记录"). */
-export const TOOL_OUTPUT_LIMIT = 16 * 1024;
+/**
+ * The longest text of a tool step that travels in full with events, snapshots and pages.
+ *
+ * @remarks
+ * Longer ones travel as a preview and the step is marked `partial`; `fetch_step` returns it whole
+ * (SPEC-0001, "大内容").
+ */
+export const STEP_TEXT_LIMIT = 16 * 1024;
 
 /** What a tool step shows besides its output, by tool. */
 export const ToolDetails = z.discriminatedUnion("tool", [
@@ -49,8 +55,11 @@ export const Step = z.discriminatedUnion("kind", [
     args: z.record(z.string(), z.unknown()),
     /** `unfinished`: the turn ended without a result, as when it was stopped. */
     status: z.enum(["running", "done", "failed", "unfinished"]),
-    output: z.strictObject({ text: z.string(), truncated: z.boolean() }).nullable(),
+    /** What the tool printed so far, or its result. */
+    output: z.string().nullable(),
     details: ToolDetails.nullable(),
+    /** Some long text is only a preview here; `fetch_step` returns the step whole. */
+    partial: z.boolean(),
   }),
   z.strictObject({ kind: z.literal("steer"), ...stepFields, text: z.string() }),
   z.strictObject({ kind: z.literal("retry"), ...stepFields, attempt: z.number().int().positive(), error: z.string() }),

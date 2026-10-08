@@ -1,6 +1,7 @@
 import type { AtriumClient } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
 import { CaretDown, CaretLeft, Check, DotsThree, Eye } from "@phosphor-icons/react";
+import { useState } from "react";
 import { DISPLAY_MODES, useDisplayMode } from "../state/display-mode";
 import { MENU_ITEM, MenuButton } from "./menu-button";
 import { transcriptMarkdown } from "./turn-layout";
@@ -12,24 +13,28 @@ const MAX_EXPORT_PAGES = 10_000;
  * Fetches a session's whole transcript, page by page.
  *
  * @remarks
- * The view only holds what was scrolled to; an export needs everything. It stops when there is
- * nothing older, or when a page brought nothing new, as when the host rebuilt the transcript and
- * the view went back to loading.
+ * The view only holds what was scrolled to; an export needs everything. If the host rebuilds
+ * the transcript meanwhile, the view starts over from its latest turns, so the export fails
+ * rather than saving part of the session; so does a page that brought nothing new.
  *
  * @sideEffects Fetches older pages into the session's view.
  * @param client - The client.
  * @param sessionId - The session.
  * @returns Every item, oldest first.
+ * @throws {Error} When the transcript changed or stopped growing before it was complete.
  */
 export async function wholeTranscript(client: AtriumClient, sessionId: string): Promise<readonly TranscriptItem[]> {
+  const start = client.session(sessionId)?.getState();
+  if (start === undefined) return [];
   for (let page = 0; page < MAX_EXPORT_PAGES; page += 1) {
     const before = client.session(sessionId)?.getState();
-    if (before === undefined || !before.hasOlder) break;
+    if (before === undefined || before.epoch !== start.epoch || before.status === "loading") break;
+    if (!before.hasOlder) return before.items;
     await client.loadOlder(sessionId);
     const after = client.session(sessionId)?.getState();
     if (after === undefined || after.items.length <= before.items.length) break;
   }
-  return client.session(sessionId)?.getState().items ?? [];
+  throw new Error("the transcript changed while it was being exported");
 }
 
 /**
@@ -60,7 +65,7 @@ function download(name: string, text: string): void {
  * mode menu shows the three modes with their hints (Ctrl+O cycles them); "···" exports the whole
  * session as Markdown (SPEC-0001, "对话记录的其他设计").
  *
- * @sideEffects Exporting fetches the whole transcript and downloads a file.
+ * @sideEffects Exporting fetches the whole transcript and downloads a file, or says it failed.
  * @param props - The client, the session, and how to go back to the recent sessions.
  * @returns The toolbar.
  */
@@ -74,6 +79,7 @@ export function SessionToolbar({
   readonly onClose: () => void;
 }) {
   const { mode, set } = useDisplayMode();
+  const [exportFailed, setExportFailed] = useState(false);
   const current = DISPLAY_MODES.find((entry) => entry.mode === mode);
   return (
     <div className="flex items-center justify-end gap-1 px-4 pt-2" data-testid="session-toolbar">
@@ -115,6 +121,11 @@ export function SessionToolbar({
           ))
         }
       </MenuButton>
+      {exportFailed ? (
+        <span role="status" className="text-[length:var(--fs-sm)] text-[var(--danger)]">
+          导出时对话记录刚好更新了，请再试一次
+        </span>
+      ) : null}
       <MenuButton label="当前会话" content={<DotsThree size={16} weight="bold" />}>
         {(close) => (
           <button
@@ -123,10 +134,11 @@ export function SessionToolbar({
             className={MENU_ITEM}
             onClick={() => {
               close();
-              // Fire and forget: an export that fails to fetch saves nothing.
+              setExportFailed(false);
+              // Fire and forget: a failed export says so next to the menu.
               void wholeTranscript(client, sessionId)
                 .then((items) => download(`atrium-${sessionId}.md`, transcriptMarkdown(items)))
-                .catch(() => undefined);
+                .catch(() => setExportFailed(true));
             }}
           >
             导出为 Markdown

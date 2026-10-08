@@ -12,6 +12,7 @@ import {
   type TurnStartedEvent,
 } from "@atrium/protocol";
 import { projectTranscript } from "./projection";
+import { forTransport, itemForTransport } from "./rules";
 import { type SessionLog, createSessionLog } from "./session-log";
 import { TurnDraft, type TurnFacts } from "./turn-draft";
 
@@ -36,16 +37,19 @@ export interface EntriesPage {
 /** What a rebuild found, compared with what clients were sent. */
 export type RebuildResult =
   | { readonly kind: "same" }
-  /** Only notices were added at the end; each goes out as `notice_added`. */
-  | { readonly kind: "appended"; readonly events: TranscriptEvent[] }
+  /** Only notices were added; each goes out as `notice_added` with where it goes. */
+  | { readonly kind: "notices"; readonly events: TranscriptEvent[] }
   /** Anything else: clients need a new snapshot in a new epoch. */
   | { readonly kind: "changed" };
 
-/** A window of items, with whether earlier ones exist. */
+/** A window of items, as they travel, with whether earlier ones exist. */
 interface TranscriptPage {
   readonly items: TranscriptItem[];
   readonly hasOlder: boolean;
 }
+
+/** The most bytes of JSON a snapshot or a page carries (SPEC-0001, "快照与分页"). */
+export const PAGE_BYTES = 4 * 1024 * 1024;
 
 /** One session's transcript: rebuilt from pi's entries, and built live from pi's events. */
 export interface SessionTranscript {
@@ -53,7 +57,7 @@ export interface SessionTranscript {
   readonly cursor: string | undefined;
   /** Whether a turn is being built live. */
   readonly live: boolean;
-  /** Every item, the turn running now included. */
+  /** Every item, whole, the turn running now included. */
   items(): TranscriptItem[];
   /**
    * Applies one of pi's translated events.
@@ -63,8 +67,13 @@ export interface SessionTranscript {
    * @returns The events to publish.
    */
   apply(event: TranslatedEvent, clientMessageId: () => string | null): TranscriptEvent[];
-  /** Ends the turn running now, when the run settles; returns the events to publish. */
-  settle(): TranscriptEvent[];
+  /**
+   * Ends the turn running now, when the run settles or pi goes away.
+   *
+   * @param crashed - Whether pi went away mid-run.
+   * @returns The events to publish.
+   */
+  settle(crashed?: boolean): TranscriptEvent[];
   /**
    * Adds entries pi returned and rebuilds the transcript from the current branch.
    *
@@ -72,11 +81,16 @@ export interface SessionTranscript {
    * @param reset - Whether the page holds the whole session rather than what follows the cursor.
    */
   rebuild(page: EntriesPage, reset: boolean): RebuildResult;
-  /** The latest turns, with the notices among and after them. */
+  /** The latest turns, with the notices among and after them, as they travel. */
   latest(): TranscriptPage;
-  /** Up to `limit` items before the one with id `before`; `null` if there is no such item. */
+  /** Up to `limit` items before the one with id `before`, as they travel; `null` if there is no such item. */
   before(before: string, limit: number): TranscriptPage | null;
+  /** One step, whole; `null` if there is no such step. */
+  step(turnId: string, stepId: string): Step | null;
 }
+
+/** A user message seen live, in order: a turn it opened, with what was measured of it, or a steer. */
+type SeenUser = { readonly kind: "turn"; facts: TurnFacts | null } | { readonly kind: "steer" };
 
 /**
  * Creates a session's transcript.
@@ -86,11 +100,13 @@ export interface SessionTranscript {
  * follow pi's events through a `TurnDraft`, the same builder a rebuild uses, and the host times
  * the turn and its thinking with its own clock. A user message right after a tool result is a
  * steer instead. A user message while a turn runs that is not a steer ends that turn and starts
- * another, as a follow-up would. What was measured live is kept by turn ("当场计时的数据") and,
- * after a rebuild, tied to the entries that opened those turns: the newest unclaimed turn entries
- * from that read, matched from the end, so the rebuilt turns keep their live ids and timings and
- * a normal run rebuilds exactly as it was sent (SPEC-0001, "快照与分页"). Rebuilds only happen
- * between runs; the caller makes sure of that.
+ * another, as a follow-up would. Every user message seen live is recorded, in order, as a new turn
+ * with what was measured of it, or a steer ("当场计时的数据"). After a rebuild the records are tied
+ * to the new user message entries of that read, matched from the end, and the rebuild follows
+ * them: the turns keep their live ids and timings, and a turn stays a turn even where pi's file
+ * would suggest a steer (SPEC-0001, `steer`), so a normal run rebuilds exactly as it was sent.
+ * Events, snapshots and pages carry steps as they travel (`forTransport`); the transcript keeps
+ * them whole. Rebuilds only happen between runs; the caller makes sure of that.
  *
  * @sideEffects none; the returned object keeps the session's state and calls `newId` and `now`.
  * @param options - The session id, a source of turn ids and the host's clock.
@@ -103,14 +119,17 @@ export function createSessionTranscript(options: {
 }): SessionTranscript {
   const { sessionId, newId, now } = options;
   const log: SessionLog = createSessionLog();
-  /** Finished items, in order. */
+  /** Finished items, whole, in order. */
   let items: TranscriptItem[] = [];
   /** Facts of turns seen live, by the entry that opened them. */
   const factsByEntry = new Map<string, TurnFacts>();
-  /** Facts of turns seen live since the last rebuild, oldest first, not yet tied to entries. */
-  let unbound: TurnFacts[] = [];
+  /** User message entries seen live as steers. */
+  const steerEntries = new Set<string>();
+  /** User messages seen live since the last rebuild, oldest first, not yet tied to entries. */
+  let seen: SeenUser[] = [];
   let live: {
     readonly draft: TurnDraft;
+    readonly record: Extract<SeenUser, { kind: "turn" }>;
     readonly startedAt: number;
     readonly thinkingMs: Map<string, number>;
     /** The thinking step being timed, and since when. */
@@ -139,12 +158,13 @@ export function createSessionTranscript(options: {
    * Ends the live turn.
    *
    * @remarks
-   * Its facts wait to be tied to the entry that opened it at the next rebuild.
+   * Its facts wait in its record to be tied to the entry that opened it at the next rebuild.
    *
    * @sideEffects Moves the turn to the finished items; records its facts.
+   * @param crashed - Whether pi went away mid-run.
    * @returns The events to publish.
    */
-  function finishLive(): TranscriptEvent[] {
+  function finishLive(crashed: boolean): TranscriptEvent[] {
     if (live === null) return [];
     const events = endThinking();
     const facts: TurnFacts = {
@@ -153,8 +173,8 @@ export function createSessionTranscript(options: {
       durationMs: Math.max(0, now() - live.startedAt),
       thinkingMs: live.thinkingMs,
     };
-    const { changed, turn } = live.draft.finish(facts);
-    for (const step of changed) events.push({ type: "step_updated", turnId: turn.id, step });
+    const { changed, turn } = live.draft.finish(facts, crashed);
+    for (const step of changed) events.push({ type: "step_updated", turnId: turn.id, step: forTransport(step) });
     events.push({
       type: "turn_finished",
       turnId: turn.id,
@@ -164,7 +184,7 @@ export function createSessionTranscript(options: {
       usage: turn.usage,
       changes: turn.changes,
     });
-    unbound.push(facts);
+    live.record.facts = facts;
     items.push(turn);
     live = null;
     return events;
@@ -176,7 +196,7 @@ export function createSessionTranscript(options: {
    * @remarks
    * See `createSessionTranscript`.
    *
-   * @sideEffects Updates the live turn.
+   * @sideEffects Updates the live turn and the record of user messages.
    * @param message - The message.
    * @param clientMessageId - See `SessionTranscript.apply`.
    * @returns The events to publish.
@@ -187,16 +207,19 @@ export function createSessionTranscript(options: {
   ): TranscriptEvent[] {
     if (message.kind === "user") {
       if (live?.draft.takesSteer === true) {
+        seen.push({ kind: "steer" });
         return [{ type: "step_added", turnId: live.draft.id, step: live.draft.steer(message.text, message.timestamp) }];
       }
-      const events = finishLive();
+      const events = finishLive(false);
       const draft = new TurnDraft(newId(), {
         text: message.text,
         images: message.images,
         clientMessageId: clientMessageId(),
         timestamp: message.timestamp,
       });
-      live = { draft, startedAt: now(), thinkingMs: new Map(), thinking: null };
+      const record: Extract<SeenUser, { kind: "turn" }> = { kind: "turn", facts: null };
+      seen.push(record);
+      live = { draft, record, startedAt: now(), thinkingMs: new Map(), thinking: null };
       events.push({ type: "turn_started", turn: draft.running() });
       return events;
     }
@@ -206,7 +229,30 @@ export function createSessionTranscript(options: {
       return [...endThinking(), ...live.draft.finishAssistant(message).map((change) => stepEvent(turnId, change))];
     }
     const step = live.draft.toolResult(message.callId, message, message.timestamp);
-    return step === null ? [] : [{ type: "step_updated", turnId, step }];
+    return step === null ? [] : [{ type: "step_updated", turnId, step: forTransport(step) }];
+  }
+
+  /**
+   * Ties the user messages seen live to the new user message entries of a read.
+   *
+   * @remarks
+   * Matched from the end: the newest entries are the ones the host saw. Records that find no
+   * entry are dropped; they would never match later.
+   *
+   * @sideEffects Records facts and steers by entry; clears the records.
+   * @param fresh - Ids of the entries this read added.
+   */
+  function bindSeen(fresh: ReadonlySet<string>): void {
+    const users = log.branch().filter((entry) => entry.kind === "user" && fresh.has(entry.id));
+    const count = Math.min(users.length, seen.length);
+    const entries = users.slice(users.length - count);
+    const records = seen.slice(seen.length - count);
+    entries.forEach((entry, index) => {
+      const record = records[index];
+      if (record?.kind === "steer") steerEntries.add(entry.id);
+      else if (record?.facts != null) factsByEntry.set(entry.id, record.facts);
+    });
+    seen = [];
   }
 
   return {
@@ -238,7 +284,7 @@ export function createSessionTranscript(options: {
       }
       if (event.kind === "tool_output") {
         const step = live.draft.toolOutput(event.callId, event.text);
-        return step === null ? [] : [{ type: "step_updated", turnId, step }];
+        return step === null ? [] : [{ type: "step_updated", turnId, step: forTransport(step) }];
       }
       if (event.kind === "retry_started") {
         return [{ type: "step_added", turnId, step: live.draft.retry(event.attempt, event.error) }];
@@ -246,49 +292,89 @@ export function createSessionTranscript(options: {
       // Runs and compactions are the controller's business.
       return [];
     },
-    settle: finishLive,
+    settle: (crashed = false) => finishLive(crashed),
     rebuild(page, reset) {
       if (reset) log.clear();
-      const fresh = log.append(page.entries, page.leafId);
-      let projection = projectTranscript(log.branch(), sessionId, factsByEntry);
-      const claimable = projection.turnEntryIds.filter((id) => fresh.has(id) && !factsByEntry.has(id));
-      const count = Math.min(claimable.length, unbound.length);
-      const claimed = claimable.slice(claimable.length - count);
-      const facts = unbound.slice(unbound.length - count);
-      claimed.forEach((entryId, index) => {
-        const turnFacts = facts[index];
-        // Stryker disable next-line ConditionalExpression: both lists are `count` long.
-        if (turnFacts !== undefined) factsByEntry.set(entryId, turnFacts);
-      });
-      unbound = [];
-      if (count > 0) projection = projectTranscript(log.branch(), sessionId, factsByEntry);
+      bindSeen(log.append(page.entries, page.leafId));
       const before = items;
-      items = [...projection.items];
-      const kept = items.slice(0, before.length).every((item, index) => sameItem(item, before[index]));
-      if (kept && items.length === before.length) return { kind: "same" };
-      const added = items.slice(before.length);
-      if (kept && items.length > before.length && added.every(isNotice)) {
-        return { kind: "appended", events: added.map((notice) => ({ type: "notice_added", notice })) };
-      }
-      return { kind: "changed" };
+      items = [...projectTranscript(log.branch(), sessionId, factsByEntry, steerEntries).items];
+      return compare(before, items);
     },
     latest() {
       const all = this.items();
-      let start = all.length;
-      let turns = 0;
-      while (start > 0 && turns < SNAPSHOT_TURNS) {
-        start -= 1;
-        if (all[start]?.kind === "turn") turns += 1;
-      }
-      return { items: all.slice(start), hasOlder: start > 0 };
+      return takeFromEnd(all, (taken) => taken.filter((item) => item.kind === "turn").length >= SNAPSHOT_TURNS);
     },
     before(id, limit) {
       const all = this.items();
       const end = all.findIndex((item) => item.id === id);
       if (end === -1) return null;
-      const start = Math.max(0, end - limit);
-      return { items: all.slice(start, end), hasOlder: start > 0 };
+      return takeFromEnd(all.slice(0, end), (taken) => taken.length >= limit);
     },
+    step(turnId, stepId) {
+      const turn = this.items().findLast((item) => item.id === turnId);
+      return turn?.kind === "turn" ? (turn.steps.find((step) => step.id === stepId) ?? null) : null;
+    },
+  };
+}
+
+/**
+ * Takes items from the end of a list, as they travel, until a count or the size limit is reached.
+ *
+ * @remarks
+ * At least one item is always taken, however big (SPEC-0001, "快照与分页"). Counting turns stops
+ * at a turn, so notices after the earliest turn taken come along and those before it wait for
+ * the next page.
+ *
+ * @sideEffects none
+ * @param from - The items to take from, whole.
+ * @param enough - Whether the items taken so far are enough.
+ * @returns The items taken, in order, and whether earlier ones remain.
+ */
+function takeFromEnd(
+  from: readonly TranscriptItem[],
+  enough: (taken: readonly TranscriptItem[]) => boolean,
+): TranscriptPage {
+  const taken: TranscriptItem[] = [];
+  let bytes = 0;
+  for (const whole of from.toReversed()) {
+    if (enough(taken)) break;
+    const item = itemForTransport(whole);
+    const size = Buffer.byteLength(JSON.stringify(item), "utf8");
+    if (taken.length > 0 && bytes + size > PAGE_BYTES) break;
+    taken.unshift(item);
+    bytes += size;
+  }
+  return { items: taken, hasOlder: taken.length < from.length };
+}
+
+/**
+ * Compares a rebuild with the items clients were sent.
+ *
+ * @remarks
+ * Equal is nothing to send. If the only difference is notices, wherever they are, each goes out
+ * as `notice_added` with the item it goes before, the earliest first, so a client inserting them
+ * in turn ends with the rebuilt list. Anything else changed (SPEC-0001, "快照与分页").
+ *
+ * @sideEffects none
+ * @param sent - The items clients have.
+ * @param rebuilt - The rebuilt items.
+ * @returns What changed.
+ */
+function compare(sent: readonly TranscriptItem[], rebuilt: readonly TranscriptItem[]): RebuildResult {
+  const known = new Set(sent.map((item) => item.id));
+  const kept = rebuilt.filter((item) => known.has(item.id));
+  if (kept.length !== sent.length || !kept.every((item, index) => sameItem(item, sent[index]))) {
+    return { kind: "changed" };
+  }
+  const added = rebuilt.filter((item) => !known.has(item.id));
+  if (added.length === 0) return { kind: "same" };
+  if (!added.every(isNotice)) return { kind: "changed" };
+  return {
+    kind: "notices",
+    events: added.map((notice) => {
+      const next = rebuilt.slice(rebuilt.indexOf(notice) + 1).find((item) => known.has(item.id));
+      return { type: "notice_added", notice, before: next?.id ?? null };
+    }),
   };
 }
 
@@ -296,7 +382,8 @@ export function createSessionTranscript(options: {
  * The event for a step that was added or changed.
  *
  * @remarks
- * A block that was already in place live is updated rather than added again.
+ * A block that was already in place live is updated rather than added again; the step travels
+ * as `forTransport` makes it.
  *
  * @sideEffects none
  * @param turnId - The turn's id.
@@ -304,7 +391,7 @@ export function createSessionTranscript(options: {
  * @returns The event.
  */
 function stepEvent(turnId: string, change: { readonly step: Step; readonly added: boolean }): TranscriptEvent {
-  return { type: change.added ? "step_added" : "step_updated", turnId, step: change.step };
+  return { type: change.added ? "step_added" : "step_updated", turnId, step: forTransport(change.step) };
 }
 
 /**

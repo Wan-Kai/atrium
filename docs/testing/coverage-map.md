@@ -127,6 +127,8 @@
 | 最近会话与打开会话：列出 pi 会话目录里最近的会话及第一条提问；还没找 pi 时为空；用 `pi --session <文件>` 在会话记录的目录里启动，pi 还在运行时直接返回；同时打开只启动一个 pi，pi 退出后再打开会重新启动；没有文件时 `session_not_found`，pi 不可用时 `pi_unavailable`；宿主关闭后打开的会停掉自己的 pi；重新打开的会话接着上一个控制器的 epoch，旧视图会重新取快照；协议和路由 | `packages/host/src/sessions/session-manager.test.ts`、`server/router.test.ts`、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 界面的最近会话：连上之后才读，列出提问和时间（今天、昨天、日期），点一下打开并观察；"最近会话"返回列表；打不开时说明原因 | `packages/ui/src/chat/chat.browser.test.tsx`、`recent-sessions.test.ts` | 已覆盖 |
 | 用 pi 写的真实会话文件恢复：工具、重试、压缩在当前分支上，另一个分支不显示，提示条在它所在的轮之后，过程标题行的统计；接着发消息照常运行 | `apps/desktop/e2e/history.spec.ts` | 已覆盖 |
+| 审查后补上（2026-10-08）：当场看到的轮和插话按记录重建（停在工具结果之后的下一轮仍是新的一轮）；上下文溢出的恢复不算重试；空报错按 pi 写 "Unknown error"；任何位置新增的提示条都推 `notice_added` 并带插入位置；pi 崩溃中断的一轮为 `failed`；长文字以预览发送、标 `partial`，`fetch_step` 取回完整步骤，快照和分页按 4 MB 装；`write` 的内容只发一份；打开目录已不存在的会话回 `session_cwd_missing`；刷新失败的日志只记命令和原因；扫描会话目录只认 LF、可随关闭中止；界面的时间经注入的时钟；导出遇到重建时报错而不是导出一部分 | `packages/host/src/transcript/*.test.ts`、`sessions/*.test.ts`、`packages/client/src/*.test.ts`、`packages/pi/src/sessions/session-files.test.ts`、`packages/ui/src/chat/*.test.ts(x)` | 已覆盖 |
+| 同一回复里的并行工具调用：只由手写的条目和事件覆盖（重建、实时），录制的场景每次回复只调一个工具，因为 pi 并行执行时事件顺序不定 | `projection.test.ts`、`session-transcript.test.ts`、`translate.test.ts` | 部分覆盖 |
 | 打开 1000 轮的会话到首屏 ≤ 500 毫秒（中位数，实测约 25 毫秒；第一次打开含启动 pi 约 1 秒） | `apps/desktop/e2e/history.perf.spec.ts` | 已覆盖 |
 | 2000 轮会话的对话记录重建（基准，本机中位约 2.4 毫秒） | `packages/host/src/transcript/rebuild.bench.ts` | 已覆盖 |
 | 对话区：轮、提示条、待确认的消息、运行状态的顺序；运行的计时在轮里；滚到顶加载更早的，且阅读位置不动；提问导航条跳转；长消息折叠与展开；Ctrl+O 和菜单切换显示模式；导出会话时取完所有页 | `packages/ui/src/chat/chat.browser.test.tsx`、`session-toolbar.test.ts` | 已覆盖 |

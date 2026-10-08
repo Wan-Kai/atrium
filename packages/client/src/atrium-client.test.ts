@@ -698,6 +698,55 @@ describe("createAtriumClient: sessions", () => {
     await expect(failed).rejects.toStrictEqual(new CommandError("session_not_found"));
   });
 
+  it("fetches a step whole and puts it in place, and resyncs when the host rebuilt the transcript", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    const preview = {
+      kind: "tool",
+      id: "0",
+      callId: "c",
+      tool: "bash",
+      args: {},
+      status: "done",
+      output: "end",
+      details: null,
+      partial: true,
+    };
+    latest().receive(snapshot(2, [{ ...turn("t1"), steps: [preview] }]));
+
+    const loaded = client.loadStep("s1", "t1", "0");
+    latest().answer("fetch_step", { step: { ...preview, output: "start…end", partial: false } });
+    await loaded;
+    await client.loadStep("s9", "t1", "0");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_step"),
+    ).toStrictEqual([
+      { type: "fetch_step", requestId: "client-1-3", sessionId: "s1", epoch: 1, turnId: "t1", stepId: "0" },
+    ]);
+    expect(client.session("s1")?.getState().items).toStrictEqual([
+      { ...turn("t1"), steps: [{ ...preview, output: "start…end", partial: false }] },
+    ]);
+
+    const changed = client.loadStep("s1", "t1", "0");
+    latest().fail("fetch_step", "transcript_changed");
+    await vi.waitFor(() => expect(subscriptions(latest())).toBe(2));
+    latest().answer("subscribe_sessions");
+    await vi.waitFor(() => expect(subscriptions(latest())).toBe(3));
+    latest().answer("subscribe_sessions");
+    await changed;
+    expect(client.session("s1")?.getState().status).toBe("loading");
+    await client.loadStep("s1", "t1", "0");
+    latest().receive(snapshot(0, [turn("t1")]));
+    const failed = client.loadStep("s1", "t1", "0");
+    latest().fail("fetch_step", "session_not_found");
+    await expect(failed).rejects.toStrictEqual(new CommandError("session_not_found"));
+  });
+
   it("keeps sessions when it reconnects to the same host", async () => {
     const { client, latest, clock } = await connected();
     const watching = client.watch(["s1"]);

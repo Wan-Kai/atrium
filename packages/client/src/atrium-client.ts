@@ -14,7 +14,7 @@ import {
   formatTraceparent,
 } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
-import { type SessionView, applySessionEvent, loadingView, prependOlder } from "./session-view";
+import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
 /** Connection state exposed to the UI. */
 export type ConnectionState =
@@ -107,6 +107,8 @@ export interface AtriumClient {
    * none, and joins a fetch already on its way.
    */
   loadOlder(sessionId: string): Promise<void>;
+  /** Fetches a step that arrived as a preview and puts it whole in the session's view. */
+  loadStep(sessionId: string, turnId: string, stepId: string): Promise<void>;
   /** Reports a UI problem to the host's log. */
   reportIssue(kind: ClientIssueKind, message: string, details?: string): Promise<void>;
 }
@@ -613,6 +615,19 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       const fetching = fetchPage().finally(() => olderLoading.delete(sessionId));
       olderLoading.set(sessionId, fetching);
       return fetching;
+    },
+    async loadStep(sessionId, turnId, stepId) {
+      const view = views.get(sessionId);
+      const state = view?.getState();
+      if (view === undefined || state === undefined || state.status === "loading" || state.status === "lost") return;
+      try {
+        const { step } = await request("fetch_step", { sessionId, epoch: state.epoch, turnId, stepId });
+        view.setState(withWholeStep(view.getState(), turnId, step, state.epoch), true);
+      } catch (error) {
+        // The host rebuilt the transcript; a fresh snapshot replaces what the view has.
+        if (!(error instanceof CommandError && error.code === "transcript_changed")) throw error;
+        await resync(sessionId);
+      }
     },
     async reportIssue(kind, message, details) {
       await request("report_client_issue", {

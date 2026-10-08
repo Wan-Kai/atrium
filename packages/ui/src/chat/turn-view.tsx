@@ -9,13 +9,13 @@ import {
   Stop,
   Warning,
 } from "@phosphor-icons/react";
-import { useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import { useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
 import { MENU_ITEM, MenuButton } from "./menu-button";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
 import { RunStatus } from "./run-status";
-import { DiffBlock, ProcessRowView, StreamedText } from "./steps";
+import { DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
 import {
   type ProcessRow,
   countProcess,
@@ -98,7 +98,7 @@ function FilesList({ turn }: { readonly turn: Turn }) {
               </span>
             )}
           </button>
-          {open === change.path ? <FileChanges steps={turn.steps} path={change.path} /> : null}
+          {open === change.path ? <FileChanges turnId={turn.id} steps={turn.steps} path={change.path} /> : null}
         </div>
       ))}
     </div>
@@ -109,13 +109,22 @@ function FilesList({ turn }: { readonly turn: Turn }) {
  * What a turn's tools did to one file.
  *
  * @remarks
- * See `FilesList`; successful tool calls only, in order.
+ * See `FilesList`; successful tool calls only, in order. A change that arrived as a preview is
+ * fetched whole.
  *
  * @sideEffects none
- * @param props - The turn's steps and the file.
+ * @param props - The turn's id and steps, and the file.
  * @returns The changes.
  */
-function FileChanges({ steps, path }: { readonly steps: readonly Step[]; readonly path: string }) {
+function FileChanges({
+  turnId,
+  steps,
+  path,
+}: {
+  readonly turnId: string;
+  readonly steps: readonly Step[];
+  readonly path: string;
+}) {
   return (
     <>
       {steps.map((step) => {
@@ -123,27 +132,53 @@ function FileChanges({ steps, path }: { readonly steps: readonly Step[]; readonl
         const details = step.details;
         if (details.tool === "edit" && details.path === path && details.diff !== null) {
           return (
-            <div
-              key={step.id}
-              className="mx-1 mt-0.5 mb-1.5 overflow-hidden rounded-[var(--r)] bg-[var(--code)] px-3 py-2.5"
-            >
+            <FileChange key={step.id} turnId={turnId} step={step}>
               <DiffBlock diff={details.diff} />
-            </div>
+            </FileChange>
           );
         }
         if (details.tool === "write" && details.path === path) {
           return (
-            <pre
-              key={step.id}
-              className="mx-1 mt-0.5 mb-1.5 max-h-80 overflow-auto rounded-[var(--r)] bg-[var(--code)] px-3 py-2.5 font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] whitespace-pre-wrap text-[var(--text-3)]"
-            >
-              {details.content}
-            </pre>
+            <FileChange key={step.id} turnId={turnId} step={step}>
+              <pre className="max-h-80 overflow-auto font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] whitespace-pre-wrap text-[var(--text-3)]">
+                {details.content}
+              </pre>
+            </FileChange>
           );
         }
         return null;
       })}
     </>
+  );
+}
+
+/**
+ * One tool call's change to a file, in a dark block.
+ *
+ * @remarks
+ * Split out so each change fetches its own step when it arrived as a preview.
+ *
+ * @sideEffects Fetches the step whole if it is partial.
+ * @param props - The turn's id, the step and what to show.
+ * @returns The block.
+ */
+function FileChange({
+  turnId,
+  step,
+  children,
+}: {
+  readonly turnId: string;
+  readonly step: Step;
+  readonly children: ReactNode;
+}) {
+  useWholeStep(turnId, step, true);
+  return (
+    <div className="mx-1 mt-0.5 mb-1.5 overflow-hidden rounded-[var(--r)] bg-[var(--code)] px-3 py-2.5">
+      {children}
+      {step.kind === "tool" && step.partial ? (
+        <p className="mt-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">正在加载完整内容…</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -249,21 +284,21 @@ function TurnFooter({
  * pi's error for a failed turn, folded until asked for.
  *
  * @remarks
- * A short line, with the raw error behind "展开看原始报错" (SPEC-0001, "运行出错与停止"); the
- * "重试" button comes with the host's retry rules in M1.6.
+ * A short line, with the raw error behind "展开看原始报错" (SPEC-0001, "运行出错与停止"); a turn
+ * pi went away in has no text of pi's. The "重试" button comes with the host's retry rules in M1.6.
  *
  * @sideEffects none
- * @param props - pi's error text.
+ * @param props - pi's error text, if there is any.
  * @returns The error card.
  */
-function TurnError({ error }: { readonly error: string }) {
+function TurnError({ error }: { readonly error: string | null }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="my-1 text-[length:var(--fs-meta)] text-[var(--danger)]" data-testid="turn-error">
       <div className="flex items-center gap-1.5">
         <Warning size={14} />
         <span>回复出错</span>
-        {error === "" ? null : (
+        {error === null || error === "" ? null : (
           <button
             type="button"
             className="text-[var(--text-dim)] hover:text-[var(--text-muted)]"
@@ -366,7 +401,12 @@ export function TurnView({ turn, runStartedAt }: TurnViewProps) {
       {open || lead.length > 0 ? (
         <div className="pt-0.5 pb-2" data-testid="process">
           {(open ? process : lead).map((row) => (
-            <ProcessRowView key={row.kind === "step" ? row.step.id : row.id} row={row} isLive={isLive} />
+            <ProcessRowView
+              key={row.kind === "step" ? row.step.id : row.id}
+              turnId={turn.id}
+              row={row}
+              isLive={isLive}
+            />
           ))}
         </div>
       ) : null}
@@ -376,7 +416,7 @@ export function TurnView({ turn, runStartedAt }: TurnViewProps) {
           已停止
         </div>
       ) : null}
-      {turn.outcome === "failed" && turn.error !== null ? <TurnError error={turn.error} /> : null}
+      {turn.outcome === "failed" ? <TurnError error={turn.error} /> : null}
       {reply === null ? null : (
         <div
           ref={replyElement}

@@ -9,7 +9,8 @@ import "../styles.css";
 import { ChatScreen, describeSendError } from "./chat-screen";
 import { Composer } from "./composer";
 import { UserBubble } from "./messages";
-import { formatElapsed } from "./run-status";
+import { ClockContext, type UiClock } from "../state/clock";
+import { RunStatus, formatElapsed } from "./run-status";
 import { Transcript } from "./transcript";
 
 /** A ready view of session s1 with the given fields. */
@@ -115,6 +116,31 @@ describe("messages", () => {
     expect(short.parentElement?.querySelectorAll("button")).toHaveLength(0);
   });
 
+  it("counts the run's time by the injected clock", async () => {
+    let now = 100_000;
+    const ticks: (() => void)[] = [];
+    const clock: UiClock = {
+      now: () => now,
+      every: (_ms, tick) => {
+        ticks.push(tick);
+        return () => ticks.splice(ticks.indexOf(tick), 1);
+      },
+    };
+    const screen = await render(
+      <ClockContext value={clock}>
+        <RunStatus startedAt={88_000} />
+      </ClockContext>,
+    );
+    await expect.element(screen.getByTestId("run-status")).toHaveTextContent("进行中 · 12s");
+
+    now = 101_000;
+    for (const tick of ticks) tick();
+
+    await expect.element(screen.getByTestId("run-status")).toHaveTextContent("进行中 · 13s");
+    await screen.unmount();
+    expect(ticks).toStrictEqual([]);
+  });
+
   it("formats run times compactly", () => {
     expect([0, 12_400, 59_999, 133_000, 3_840_000].map(formatElapsed)).toStrictEqual([
       "0s",
@@ -130,7 +156,7 @@ describe("messages", () => {
 function at(items: TranscriptItem[], fields: Partial<SessionView> = {}, onLoadOlder = () => undefined) {
   return (
     <div style={{ height: 300, display: "flex", flexDirection: "column" }}>
-      <Transcript view={view({ items, ...fields })} onLoadOlder={onLoadOlder} />
+      <Transcript view={view({ items, ...fields })} onLoadOlder={onLoadOlder} onLoadStep={() => undefined} />
     </div>
   );
 }
@@ -288,6 +314,7 @@ function fakeClient(
     },
     session: (id: string) => stores.get(id),
     loadOlder: async () => undefined,
+    loadStep: async () => undefined,
     prompt: (sessionId: string, text: string) => {
       calls.push(`prompt ${sessionId} ${text}`);
       const store = stores.get(sessionId);
@@ -441,6 +468,8 @@ describe("ChatScreen", () => {
     [new CommandError("pi_unavailable"), "还在查找 pi，请稍后再试"],
     [new CommandError("session_not_found", { sessionId: "s1" }), "这个会话已经不存在了"],
     [new CommandError("transcript_changed"), "对话记录刚刚更新了，请再试一次"],
+    [new CommandError("session_cwd_missing", { cwd: "/gone/work" }), "恢复失败：会话的目录 /gone/work 不存在"],
+    [new CommandError("session_cwd_missing"), "恢复失败：会话的目录  不存在"],
     [new CommandError("internal_error"), "宿主出错了，消息没有发出"],
     [new Error("other"), "发送失败"],
   ])("describes %s", (error, text) => {

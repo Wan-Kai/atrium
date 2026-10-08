@@ -1,10 +1,11 @@
-import { type Step, TOOL_OUTPUT_LIMIT } from "@atrium/protocol";
+import { STEP_TEXT_LIMIT, type Step, type TranscriptItem } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import {
   type ToolStep,
   addUsage,
-  cutOutput,
   finishedSteps,
+  forTransport,
+  itemForTransport,
   partStep,
   turnChanges,
   turnOutcome,
@@ -23,6 +24,7 @@ function tool(fields: Partial<ToolStep>): ToolStep {
     status: "running",
     output: null,
     details: null,
+    partial: false,
     ...fields,
   };
 }
@@ -59,39 +61,27 @@ describe("partStep", () => {
       }),
     );
   });
-});
 
-describe("cutOutput", () => {
-  it("keeps output up to the limit whole", () => {
-    const text = "x".repeat(TOOL_OUTPUT_LIMIT);
-
-    expect(cutOutput("bash", text)).toStrictEqual({ text, truncated: false });
-    expect(cutOutput("read", "")).toStrictEqual({ text: "", truncated: false });
-  });
-
-  it("keeps the end of a command's output and the start of other tools'", () => {
-    const text = `${"a".repeat(10)}${"m".repeat(TOOL_OUTPUT_LIMIT - 10)}${"z".repeat(10)}`;
-
-    expect(cutOutput("bash", text)).toStrictEqual({ text: text.slice(10), truncated: true });
-    expect(cutOutput("read", text)).toStrictEqual({ text: text.slice(0, TOOL_OUTPUT_LIMIT), truncated: true });
-  });
-
-  it("counts bytes and never cuts a character in half", () => {
-    // "文" is three bytes; the limit falls inside the character either way.
-    const text = `${"a".repeat(TOOL_OUTPUT_LIMIT - 1)}文${"b".repeat(TOOL_OUTPUT_LIMIT - 1)}`;
-
-    expect(cutOutput("read", text)).toStrictEqual({ text: "a".repeat(TOOL_OUTPUT_LIMIT - 1), truncated: true });
-    expect(cutOutput("bash", text)).toStrictEqual({ text: "b".repeat(TOOL_OUTPUT_LIMIT - 1), truncated: true });
-    expect(cutOutput("read", "文".repeat(TOOL_OUTPUT_LIMIT))).toStrictEqual({
-      text: "文".repeat(Math.floor(TOOL_OUTPUT_LIMIT / 3)),
-      truncated: true,
-    });
+  it("keeps a write's content in its details only", () => {
+    expect(
+      partStep({ type: "toolCall", callId: "c1", tool: "write", args: { path: "a.ts", content: "x", mode: 1 } }, 0),
+    ).toStrictEqual(
+      tool({
+        id: "0",
+        callId: "c1",
+        tool: "write",
+        args: { path: "a.ts", mode: 1 },
+        details: { tool: "write", path: "a.ts", content: "x" },
+      }),
+    );
   });
 });
 
 describe("withOutput and withResult", () => {
-  it("shows a running tool's output so far, cut like a result", () => {
-    expect(withOutput(tool({}), "partial")).toStrictEqual(tool({ output: { text: "partial", truncated: false } }));
+  it("shows a running tool's whole output so far", () => {
+    const long = "x".repeat(STEP_TEXT_LIMIT * 2);
+
+    expect(withOutput(tool({}), long)).toStrictEqual(tool({ output: long }));
   });
 
   it("finishes a tool as done or failed, working its details out again with the result's", () => {
@@ -104,14 +94,108 @@ describe("withOutput and withResult", () => {
     expect(withResult(step, { text: "ok", isError: false, details: { diff: "+1 x\n-1 y\n+2 z" } })).toStrictEqual({
       ...step,
       status: "done",
-      output: { text: "ok", truncated: false },
+      output: "ok",
       details: { tool: "edit", path: "a.ts", diff: "+1 x\n-1 y\n+2 z", added: 2, removed: 1 },
     });
     expect(withResult(step, { text: "no match", isError: true, details: undefined })).toStrictEqual({
       ...step,
       status: "failed",
-      output: { text: "no match", truncated: false },
+      output: "no match",
     });
+  });
+
+  it("keeps a write's content, which its result does not have", () => {
+    const step = tool({
+      tool: "write",
+      args: { path: "a.ts" },
+      details: { tool: "write", path: "a.ts", content: "x" },
+    });
+
+    expect(withResult(step, { text: "Successfully wrote", isError: false, details: undefined })).toStrictEqual({
+      ...step,
+      status: "done",
+      output: "Successfully wrote",
+    });
+  });
+});
+
+describe("forTransport", () => {
+  const long = `${"a".repeat(10)}${"m".repeat(STEP_TEXT_LIMIT)}${"z".repeat(10)}`;
+
+  it("sends a step without long text as it is", () => {
+    const step = tool({ output: "x".repeat(STEP_TEXT_LIMIT), args: { command: "ls" } });
+    const text: Step = { kind: "text", id: "1", text: long };
+
+    expect(forTransport(step)).toBe(step);
+    expect(forTransport(text)).toBe(text);
+  });
+
+  it("sends the end of a command's long output and the start of any other tool's, marked partial", () => {
+    expect(forTransport(tool({ output: long }))).toStrictEqual(tool({ output: long.slice(20), partial: true }));
+    expect(forTransport(tool({ tool: "read", output: long }))).toStrictEqual(
+      tool({ tool: "read", output: long.slice(0, STEP_TEXT_LIMIT), partial: true }),
+    );
+  });
+
+  it("previews a long write content, edit diff and long strings anywhere in the arguments", () => {
+    const head = long.slice(0, STEP_TEXT_LIMIT);
+
+    expect(
+      forTransport(tool({ tool: "write", details: { tool: "write", path: "a.ts", content: long } })),
+    ).toStrictEqual(tool({ tool: "write", details: { tool: "write", path: "a.ts", content: head }, partial: true }));
+    expect(
+      forTransport(tool({ tool: "edit", details: { tool: "edit", path: "a.ts", diff: long, added: 1, removed: 0 } })),
+    ).toStrictEqual(
+      tool({ tool: "edit", details: { tool: "edit", path: "a.ts", diff: head, added: 1, removed: 0 }, partial: true }),
+    );
+    expect(
+      forTransport(
+        tool({ tool: "edit", args: { path: "a.ts", edits: [{ oldText: long, newText: "b" }], n: 3, x: null } }),
+      ),
+    ).toStrictEqual(
+      tool({
+        tool: "edit",
+        args: { path: "a.ts", edits: [{ oldText: head, newText: "b" }], n: 3, x: null },
+        partial: true,
+      }),
+    );
+  });
+
+  it("counts bytes and never cuts a character in half", () => {
+    // "文" is three bytes; the limit falls inside the character either way.
+    const text = `${"a".repeat(STEP_TEXT_LIMIT - 1)}文${"b".repeat(STEP_TEXT_LIMIT - 1)}`;
+
+    expect(forTransport(tool({ tool: "read", output: text }))).toMatchObject({
+      output: "a".repeat(STEP_TEXT_LIMIT - 1),
+    });
+    expect(forTransport(tool({ output: text }))).toMatchObject({ output: "b".repeat(STEP_TEXT_LIMIT - 1) });
+    expect(forTransport(tool({ tool: "read", output: "文".repeat(STEP_TEXT_LIMIT) }))).toMatchObject({
+      output: "文".repeat(Math.floor(STEP_TEXT_LIMIT / 3)),
+    });
+    expect(forTransport(tool({ output: "文".repeat(STEP_TEXT_LIMIT / 3) }))).toMatchObject({ partial: false });
+  });
+
+  it("sends an item as it is unless one of its steps is shortened", () => {
+    const short = { kind: "turn", id: "t", steps: [tool({ output: "x" })] } as unknown as TranscriptItem;
+    const notice: TranscriptItem = {
+      kind: "notice",
+      id: "n",
+      notice: "compacted",
+      tokensBefore: 0,
+      summary: long,
+      timestamp: 0,
+    };
+    const kept = tool({ id: "0", output: "x" });
+    const big = { kind: "turn", id: "t", steps: [kept, tool({ id: "1", output: long })] } as unknown as Extract<
+      TranscriptItem,
+      { kind: "turn" }
+    >;
+
+    expect(itemForTransport(short)).toBe(short);
+    expect(itemForTransport(notice)).toBe(notice);
+    const sent = itemForTransport(big) as typeof big;
+    expect(sent.steps[0]).toBe(kept);
+    expect(sent.steps[1]).toMatchObject({ partial: true });
   });
 });
 

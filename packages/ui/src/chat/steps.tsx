@@ -13,7 +13,7 @@ import {
   Terminal,
   Wrench,
 } from "@phosphor-icons/react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, createContext, useContext, useEffect, useState } from "react";
 import { type DisplayMode, useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
 import { type ProcessRow, type ToolStep, describeStep, parseDisplayDiff } from "./turn-layout";
@@ -153,29 +153,52 @@ export function DiffBlock({ diff }: { readonly diff: string }) {
   );
 }
 
+/** Fetches a step that arrived as a preview, by its turn and its id; the app provides the client's. */
+export const LoadStepContext = createContext<(turnId: string, stepId: string) => void>(() => undefined);
+
+/**
+ * Fetches a step whole once it is wanted, if it arrived as a preview.
+ *
+ * @remarks
+ * Long text travels as a preview (SPEC-0001, "大内容"); the whole step replaces it in the view,
+ * after which it is no longer `partial` and nothing more is fetched.
+ *
+ * @sideEffects Asks for the step through `LoadStepContext` when `wanted` and it is partial.
+ * @param turnId - The step's turn.
+ * @param step - The step.
+ * @param wanted - Whether its content is being shown.
+ */
+export function useWholeStep(turnId: string, step: Step, wanted: boolean): void {
+  const load = useContext(LoadStepContext);
+  const partial = step.kind === "tool" && step.partial;
+  useEffect(() => {
+    if (wanted && partial) load(turnId, step.id);
+  }, [load, turnId, step.id, wanted, partial]);
+}
+
 /**
  * What a tool step shows when open.
  *
  * @remarks
  * A command's output; an edit's diff; what a write wrote; a read's text; for other tools their
- * arguments and output. Cut output says which end was kept (SPEC-0001, `output`).
+ * arguments and output. A step that arrived as a preview says it is loading the rest.
  *
  * @sideEffects none
  * @param props - The step.
  * @returns The detail block.
  */
 function ToolDetail({ step }: { readonly step: ToolStep }) {
-  const cut =
-    step.output?.truncated === true ? (
-      <p className="mt-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
-        {step.tool === "bash" ? "只保留了最后 16 KB" : "只保留了前 16 KB"}
-      </p>
-    ) : null;
+  const loading = step.partial ? (
+    <p className="mt-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]" data-testid="step-loading">
+      正在加载完整内容…
+    </p>
+  ) : null;
   const details = step.details;
   if (details?.tool === "edit" && details.diff !== null) {
     return (
       <Detail label="改动" tool="edit">
         <DiffBlock diff={details.diff} />
+        {loading}
       </Detail>
     );
   }
@@ -183,15 +206,16 @@ function ToolDetail({ step }: { readonly step: ToolStep }) {
     return (
       <Detail label="写入" tool="write">
         <Output text={details.content} />
+        {loading}
       </Detail>
     );
   }
-  const output = step.output === null ? null : <Output text={step.output.text} />;
+  const output = step.output === null ? null : <Output text={step.output} />;
   if (details !== null) {
     return (
       <Detail label={step.status === "failed" ? "出错" : "输出"} tool={step.tool}>
         {output ?? <p className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">还没有输出</p>}
-        {cut}
+        {loading}
       </Detail>
     );
   }
@@ -199,7 +223,7 @@ function ToolDetail({ step }: { readonly step: ToolStep }) {
     <Detail label="参数" tool={step.tool}>
       <Output text={JSON.stringify(step.args, null, 2)} />
       {output === null ? null : <div className="mt-2">{output}</div>}
-      {cut}
+      {loading}
     </Detail>
   );
 }
@@ -226,14 +250,15 @@ export function StreamedText({ text, streaming }: { readonly text: string; reado
  * where it starts. While a step is going on, thinking and a running command show their detail
  * as it comes. Failed steps are red, steers in the accent colour.
  *
- * @sideEffects none
- * @param props - The step and whether it is the one going on now.
+ * @sideEffects Fetches the step whole when it shows and arrived as a preview.
+ * @param props - The step's turn, the step and whether it is the one going on now.
  * @returns The row.
  */
-function StepRow({ step, live }: { readonly step: Step; readonly live: boolean }) {
+function StepRow({ turnId, step, live }: { readonly turnId: string; readonly step: Step; readonly live: boolean }) {
   const { mode } = useDisplayMode();
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? openByDefault(mode, step);
+  useWholeStep(turnId, step, open || live);
   const line = describeStep(step, live);
   const failed = step.kind === "tool" && step.status === "failed";
   const tone = failed
@@ -302,10 +327,18 @@ function StepRow({ step, live }: { readonly step: Step; readonly live: boolean }
  * Opening it lists each call, each of which opens like any step (SPEC-0001, "显示模式").
  *
  * @sideEffects none
- * @param props - The calls, and whether the last of them is going on.
+ * @param props - The calls' turn, the calls, and whether any of them is going on.
  * @returns The row.
  */
-function ExploreRow({ steps, live }: { readonly steps: readonly ToolStep[]; readonly live: boolean }) {
+function ExploreRow({
+  turnId,
+  steps,
+  live,
+}: {
+  readonly turnId: string;
+  readonly steps: readonly ToolStep[];
+  readonly live: boolean;
+}) {
   const { mode } = useDisplayMode();
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? mode === "detailed";
@@ -332,7 +365,7 @@ function ExploreRow({ steps, live }: { readonly steps: readonly ToolStep[]; read
       {open ? (
         <div className="ml-6">
           {steps.map((step) => (
-            <StepRow key={step.id} step={step} live={live && step.status === "running"} />
+            <StepRow key={step.id} turnId={turnId} step={step} live={live && step.status === "running"} />
           ))}
         </div>
       ) : null}
@@ -347,16 +380,18 @@ function ExploreRow({ steps, live }: { readonly steps: readonly ToolStep[]; read
  * Dispatches between a single step and an explore group.
  *
  * @sideEffects none
- * @param props - The row and which steps are going on now.
+ * @param props - The row's turn, the row and which steps are going on now.
  * @returns The row.
  */
 export function ProcessRowView({
+  turnId,
   row,
   isLive,
 }: {
+  readonly turnId: string;
   readonly row: ProcessRow;
   readonly isLive: (step: Step) => boolean;
 }) {
-  if (row.kind === "explore") return <ExploreRow steps={row.steps} live={row.steps.some(isLive)} />;
-  return <StepRow step={row.step} live={isLive(row.step)} />;
+  if (row.kind === "explore") return <ExploreRow turnId={turnId} steps={row.steps} live={row.steps.some(isLive)} />;
+  return <StepRow turnId={turnId} step={row.step} live={isLive(row.step)} />;
 }

@@ -1,8 +1,7 @@
-import { createReadStream } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { open, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { createInterface } from "node:readline";
+import { createLineSplitter } from "../process/jsonl";
 
 /** A session file found in pi's session directory. */
 export interface SessionFileInfo {
@@ -70,8 +69,10 @@ export async function sessionsDirectory(env: Readonly<Record<string, string>>): 
  * Reads a session file's header and the text of its first user message.
  *
  * @remarks
- * Only the start of the file is read (`HEAD_BYTES`). The header is the first line (pi-internals.md
- * §1); a file whose first line is not one is not a session file.
+ * Only the start of the file is read (`HEAD_BYTES`), split at LF only, as pi frames its records
+ * (pi-internals.md §3): a lone CR inside a line does not end it. The header
+ * is the first line (pi-internals.md §1); a file whose first line is not one is not a session
+ * file. A last line cut by the limit does not parse and is skipped.
  *
  * @sideEffects Reads the file.
  * @param path - The file.
@@ -80,25 +81,27 @@ export async function sessionsDirectory(env: Readonly<Record<string, string>>): 
 async function readHead(
   path: string,
 ): Promise<{ readonly sessionId: string; readonly cwd: string; readonly firstPrompt: string | null } | null> {
-  const stream = createReadStream(path, { encoding: "utf8", end: HEAD_BYTES - 1 });
-  const lines = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
-  let header: { sessionId: string; cwd: string } | null = null;
+  const file = await open(path, "r");
+  let head: Buffer;
   try {
-    for await (const line of lines) {
-      const record = parseLine(line);
-      if (header === null) {
-        if (record?.["type"] !== "session" || typeof record["id"] !== "string") return null;
-        header = { sessionId: record["id"], cwd: typeof record["cwd"] === "string" ? record["cwd"] : "" };
-        continue;
-      }
-      const prompt = userText(record);
-      if (prompt !== null) return { ...header, firstPrompt: prompt };
-    }
+    const buffer = Buffer.alloc(HEAD_BYTES);
+    const { bytesRead } = await file.read(buffer, 0, HEAD_BYTES, 0);
+    head = buffer.subarray(0, bytesRead);
   } finally {
-    lines.close();
-    stream.destroy();
+    await file.close();
   }
-  return header === null ? null : { ...header, firstPrompt: null };
+  const lines: string[] = [];
+  const splitter = createLineSplitter((line) => lines.push(line));
+  splitter.push(head);
+  splitter.end();
+  const [first, ...rest] = lines.map(parseLine);
+  if (first?.["type"] !== "session" || typeof first["id"] !== "string") return null;
+  const header = { sessionId: first["id"], cwd: typeof first["cwd"] === "string" ? first["cwd"] : "" };
+  for (const record of rest) {
+    const prompt = userText(record);
+    if (prompt !== null) return { ...header, firstPrompt: prompt };
+  }
+  return { ...header, firstPrompt: null };
 }
 
 /**
@@ -168,19 +171,28 @@ function userText(record: Record<string, unknown> | null): string | null {
  *
  * @remarks
  * pi keeps one folder per working directory, each holding `.jsonl` files (pi-internals.md §1).
- * Files are ordered by modification time, newest first, and only the newest `limit` are read;
+ * Files are ordered by modification time, newest first, and only the newest `limit` are read
+ * (scanning a large directory takes a while, so it can be stopped);
  * a session id that appears in more than one file keeps the newest file. Missing directories,
  * unreadable files and files that are not sessions are skipped. Read only: nothing is written.
  *
  * @sideEffects Reads the directory and the start of the newest files.
  * @param directory - pi's session directory.
  * @param limit - The most sessions to return.
+ * @param signal - Stops the scan; it then rejects with the signal's reason.
  * @returns The sessions, newest first.
+ * @throws The signal's reason once it is aborted.
  */
-export async function listSessionFiles(directory: string, limit: number): Promise<SessionFileInfo[]> {
+export async function listSessionFiles(
+  directory: string,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<SessionFileInfo[]> {
+  signal?.throwIfAborted();
   const folders = await readdir(directory, { withFileTypes: true }).catch(() => []);
   const files: { readonly path: string; readonly modifiedAt: number }[] = [];
   for (const folder of folders) {
+    signal?.throwIfAborted();
     if (!folder.isDirectory()) continue;
     const names = await readdir(join(directory, folder.name)).catch((): string[] => []);
     for (const name of names) {
@@ -194,6 +206,7 @@ export async function listSessionFiles(directory: string, limit: number): Promis
   const found: SessionFileInfo[] = [];
   const seen = new Set<string>();
   for (const file of files) {
+    signal?.throwIfAborted();
     if (found.length >= limit) break;
     const head = await readHead(file.path).catch(() => null);
     if (head === null || seen.has(head.sessionId)) continue;

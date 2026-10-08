@@ -9,6 +9,7 @@ export {
   type CommandType,
   CreateChatCommand,
   FETCH_TRANSCRIPT_LIMIT,
+  FetchStepCommand,
   FetchTranscriptCommand,
   ListRecentSessionsCommand,
   OpenSessionCommand,
@@ -36,7 +37,7 @@ export {
   TurnFinishedEvent,
   TurnStartedEvent,
 } from "./events";
-export { FileChange, Notice, Step, TOOL_OUTPUT_LIMIT, ToolDetails, TranscriptItem, Turn } from "./transcript";
+export { FileChange, Notice, STEP_TEXT_LIMIT, Step, ToolDetails, TranscriptItem, Turn } from "./transcript";
 export { ClientMessage, HostMessage, type ParsedCommand, ResponseMessage, parseClientMessage } from "./envelope";
 export {
   type RandomBytes,

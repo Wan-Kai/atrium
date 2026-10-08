@@ -123,6 +123,27 @@ describe("listSessionFiles", () => {
     expect(await listSessionFiles(join(dir, "missing"), 10)).toStrictEqual([]);
   });
 
+  it("splits lines at LF only, so a lone CR between records does not end a line", async () => {
+    const dir = await tempDir("sessions");
+    const path = join(dir, "--a--", "a.jsonl");
+    await makeDir(join(dir, "--a--"));
+    await write(
+      path,
+      `${JSON.stringify(header("s1"))}\n${JSON.stringify(user("one"))}\r${JSON.stringify(user("two"))}\n`,
+    );
+
+    // Joined at the CR the two records are one line that is not JSON, so neither counts.
+    expect((await listSessionFiles(dir, 10))[0]?.firstPrompt).toBeNull();
+  });
+
+  it("stops scanning once its signal is aborted", async () => {
+    const dir = await tempDir("sessions");
+    await sessionFile(join(dir, "--a--"), "a.jsonl", [header("s1"), user("hi")], 100);
+    const reason = new Error("closing");
+
+    await expect(listSessionFiles(dir, 10, AbortSignal.abort(reason))).rejects.toBe(reason);
+  });
+
   it("gives a header without a working directory an empty one", async () => {
     const dir = await tempDir("sessions");
     await sessionFile(join(dir, "--a--"), "a.jsonl", [{ type: "session", id: "s1" }, user("hi")], 100);

@@ -1,6 +1,6 @@
 import type { Notice, SessionEvent, Step, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
-import { type SessionView, applySessionEvent, loadingView, prependOlder } from "./session-view";
+import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
 const envelope = { sessionId: "s1", epoch: 1, traceId: null };
 
@@ -106,8 +106,9 @@ describe("applySessionEvent", () => {
       status: "running",
       output: null,
       details: { tool: "bash", command: "ls" },
+      partial: false,
     };
-    const done: Step = { ...tool, status: "done", output: { text: "a.ts", truncated: false } };
+    const done: Step = { ...tool, status: "done", output: "a.ts" };
 
     const view = applyAll(ready(0, { pending: [{ clientMessageId: "q1", text: "hi" }] }), [
       { type: "run_started", ...at(1), runId: "r1", startedAt: 5 },
@@ -130,7 +131,7 @@ describe("applySessionEvent", () => {
         changes: [{ path: "a.ts", added: 1, removed: 0 }],
       },
       { type: "run_settled", ...at(11), runId: "r1", outcome: "failed", settledAt: 9 },
-      { type: "notice_added", ...at(12), notice: notice("n1") },
+      { type: "notice_added", ...at(12), notice: notice("n1"), before: null },
     ]);
 
     expect(view).toStrictEqual(
@@ -198,9 +199,13 @@ describe("applySessionEvent", () => {
   });
 
   it.each([
-    ["a gap in the sequence", { type: "notice_added", ...envelope, seq: 3, notice: notice("n") }],
-    ["a repeated event", { type: "notice_added", ...envelope, seq: 1, notice: notice("n") }],
-    ["another epoch", { type: "notice_added", ...envelope, epoch: 2, seq: 2, notice: notice("n") }],
+    ["a gap in the sequence", { type: "notice_added", ...envelope, seq: 3, notice: notice("n"), before: null }],
+    ["a repeated event", { type: "notice_added", ...envelope, seq: 1, notice: notice("n"), before: null }],
+    ["another epoch", { type: "notice_added", ...envelope, epoch: 2, seq: 2, notice: notice("n"), before: null }],
+    [
+      "a notice before an item it does not have",
+      { type: "notice_added", ...envelope, seq: 2, notice: notice("n"), before: "nope" },
+    ],
     [
       "a step for a turn it does not have",
       { type: "step_added", ...envelope, seq: 2, turnId: "nope", step: text("0", "") },
@@ -245,6 +250,7 @@ describe("applySessionEvent", () => {
               status: "running",
               output: null,
               details: null,
+              partial: false,
             },
           ],
         }),
@@ -269,6 +275,45 @@ describe("applySessionEvent", () => {
         exited: true,
       }),
     ).toStrictEqual({ ...view, status: "exited", epoch: 2, seq: 0, items: [turn("new")], hasOlder: true });
+  });
+});
+
+describe("applySessionEvent placing notices", () => {
+  it("puts a notice before the item it names", () => {
+    const view = ready(1, { items: [turn("t1"), turn("t2")] });
+
+    expect(
+      applyAll(view, [
+        { type: "notice_added", ...envelope, seq: 2, notice: notice("n1"), before: "t2" },
+        { type: "notice_added", ...envelope, seq: 3, notice: notice("n2"), before: "t2" },
+      ]).items.map((item) => item.id),
+    ).toStrictEqual(["t1", "n1", "n2", "t2"]);
+  });
+});
+
+describe("withWholeStep", () => {
+  const preview: Step = {
+    kind: "tool",
+    id: "0",
+    callId: "c",
+    tool: "bash",
+    args: {},
+    status: "done",
+    output: "end",
+    details: null,
+    partial: true,
+  };
+  const whole: Step = { ...preview, output: "start…end", partial: false };
+  const view = ready(3, { items: [turn("t1", { steps: [preview, text("1", "x")] })] });
+
+  it("puts the whole step in place of its preview", () => {
+    expect(withWholeStep(view, "t1", whole, 1).items).toStrictEqual([turn("t1", { steps: [whole, text("1", "x")] })]);
+  });
+
+  it("drops a step from an epoch that has passed, or of a turn or step the view does not have", () => {
+    expect(withWholeStep(view, "t1", whole, 2)).toBe(view);
+    expect(withWholeStep(view, "t9", whole, 1)).toBe(view);
+    expect(withWholeStep(view, "t1", { ...whole, id: "7" }, 1)).toBe(view);
   });
 });
 

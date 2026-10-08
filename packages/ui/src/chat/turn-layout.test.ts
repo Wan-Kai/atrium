@@ -20,7 +20,7 @@ function tool(
   status: ToolStep["status"] = "done",
   details: ToolStep["details"] = null,
 ): ToolStep {
-  return { kind: "tool", id, callId: `c${id}`, tool: name, args: {}, status, output: null, details };
+  return { kind: "tool", id, callId: `c${id}`, tool: name, args: {}, status, output: null, details, partial: false };
 }
 
 /** A text step. */

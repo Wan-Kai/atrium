@@ -1,6 +1,7 @@
 import { CommandError, type SessionEvent } from "@atrium/protocol";
-import { type ScriptedPiBehavior, createTempDir, writeScriptedPi } from "@atrium/testkit";
+import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { mkdir, readdir, realpath, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -103,6 +104,28 @@ describe("createSessionManager", () => {
       ["run_settled", 6],
     ]);
     expect(received[2]).toMatchObject({ turn: { user: { text: "ping", clientMessageId: "q1" } } });
+  });
+
+  it("logs a failed read of pi's entries by its command and reason, never pi's own text", async () => {
+    const { manager, records } = await manage({
+      rules: {
+        get_state: { data: { sessionId: "pi-session-1" } },
+        get_entries: { sequence: [{ data: { entries: [], leafId: null } }, { fail: "secret-in-pi-text" }] },
+        prompt: { data: { disposition: "started" }, events: turn },
+      },
+    });
+    const { sessionId } = await manager.createChat("c1");
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+
+    const failure = await vi.waitFor(() =>
+      present(
+        records.find((record) => record["msg"] === "transcript refresh failed"),
+        "the refresh failure",
+      ),
+    );
+    expect(failure).toMatchObject({ command: "get_entries", reason: "rejected", sessionId });
+    expect(JSON.stringify(records)).not.toContain("secret-in-pi-text");
   });
 
   it("sends a snapshot only for sessions a connection did not already watch", async () => {
@@ -306,6 +329,8 @@ describe("createSessionManager opening sessions from pi's files", () => {
     cleanups.push(cwd.cleanup);
     const { dir } = await sessionsDir([{ id: "pi-session-1", prompt: "ping", cwd: cwd.path }]);
     const { manager, resources } = await manage({ rules: {} }, { PI_CODING_AGENT_SESSION_DIR: dir });
+    // Listed first, so opening finds the file without scanning and gets as far as starting pi.
+    await manager.listRecentSessions(10);
 
     await manager.close();
 
@@ -313,6 +338,31 @@ describe("createSessionManager opening sessions from pi's files", () => {
       new CommandError("pi_unavailable", { status: "exited" }),
     );
     expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("stops scanning pi's session directory once the manager closes", async () => {
+    const { dir } = await sessionsDir([]);
+    const { manager } = await manage({ rules: {} }, { PI_CODING_AGENT_SESSION_DIR: dir });
+
+    await manager.close();
+
+    await expect(manager.listRecentSessions(10)).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    await expect(manager.openSession("anything")).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+  });
+
+  it("refuses a session whose recorded directory is gone, naming it, without starting pi", async () => {
+    const gone = join(await realpath(tmpdir()), "atrium-removed-workspace");
+    const { dir } = await sessionsDir([{ id: "pi-session-1", prompt: "ping", cwd: gone }]);
+    const { manager, records } = await manage({ rules: {} }, { PI_CODING_AGENT_SESSION_DIR: dir });
+
+    await expect(manager.openSession("pi-session-1")).rejects.toStrictEqual(
+      new CommandError("session_cwd_missing", { cwd: gone }),
+    );
+    expect(piStarts(records)).toStrictEqual([]);
   });
 
   it("refuses a session it has no file for, and one when pi cannot be used", async () => {

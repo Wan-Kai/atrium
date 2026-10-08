@@ -28,11 +28,14 @@ function historyId(sessionId: string, entryId: string): string {
  * Builds the transcript of a session's current branch from its entries (domain-model §2).
  *
  * @remarks
- * A user message opens a turn, unless it directly follows a tool result, which makes it a steer
- * in the turn running then. Assistant messages add their blocks as steps; a failed reply that pi
- * took out of the context (an omission) is followed by a retry step, numbered as pi counts:
- * consecutive failures count up, a successful reply resets. Tool results pair with their calls by
- * call id. A compaction becomes a notice after the turn it happened in, or in place between turns.
+ * A user message the host saw live is a new turn or a steer as it was then (`facts`, `steers`);
+ * pi's file does not say, so any other one opens a turn unless it directly follows a tool result,
+ * which makes it a steer in the turn running then (SPEC-0001, `steer`). Assistant messages add
+ * their blocks as steps; a failed reply that pi took out of the context (an omission) is followed
+ * by a retry step, numbered as pi counts: consecutive failures count up, a successful reply
+ * resets, and an empty error reads as pi's "Unknown error". An omission followed straight by a
+ * compaction is pi recovering from a context overflow, which is no retry (pi-internals.md §3).
+ * Tool results pair with their calls by call id. A compaction becomes a notice after the turn it happened in, or in place between turns.
  * Model changes, labels, system messages and other entries are skipped. Assistant messages before
  * any user message belong to no turn and are skipped too. A turn the host saw live gets the id,
  * `clientMessageId` and timings it had then, from `facts`.
@@ -41,14 +44,17 @@ function historyId(sessionId: string, entryId: string): string {
  * @param branch - The branch's entries, root first.
  * @param sessionId - The session's id, for history-only ids.
  * @param facts - What the host measured of turns it saw live, by the id of the entry opening them.
+ * @param steers - User message entries the host saw live as steers.
  * @returns The items and the entries that opened turns.
  */
 export function projectTranscript(
   branch: readonly LogEntry[],
   sessionId: string,
   facts: ReadonlyMap<string, TurnFacts>,
+  steers: ReadonlySet<string> = new Set(),
 ): Projection {
   const omitted = new Set(branch.flatMap((entry) => (entry.kind === "omission" ? [entry.targetId] : [])));
+  const recovered = overflowRecoveries(branch);
   const items: TranscriptItem[] = [];
   const turnEntryIds: string[] = [];
   let draft: { readonly turn: TurnDraft; readonly entryId: string } | null = null;
@@ -73,7 +79,8 @@ export function projectTranscript(
   for (const entry of branch) {
     switch (entry.kind) {
       case "user": {
-        if (draft?.turn.takesSteer === true) {
+        const steer = facts.has(entry.id) ? false : steers.has(entry.id) || draft?.turn.takesSteer === true;
+        if (draft !== null && steer) {
           draft.turn.steer(entry.text, entry.timestamp);
           break;
         }
@@ -97,9 +104,12 @@ export function projectTranscript(
         draft.turn.startAssistant();
         draft.turn.finishAssistant(entry);
         if (entry.stopReason !== "error") retries = 0;
-        else if (omitted.has(entry.id)) {
+        else if (omitted.has(entry.id) && !recovered.has(entry.id)) {
           retries += 1;
-          draft.turn.retry(retries, entry.errorMessage ?? "");
+          draft.turn.retry(
+            retries,
+            entry.errorMessage === null || entry.errorMessage === "" ? "Unknown error" : entry.errorMessage,
+          );
         }
         break;
       case "toolResult":
@@ -125,4 +135,29 @@ export function projectTranscript(
   }
   close();
   return { items, turnEntryIds };
+}
+
+/**
+ * The replies pi took out of the context to recover from an overflow.
+ *
+ * @remarks
+ * pi writes the omissions of the failed reply and its tool results, then at once the compaction,
+ * then retries without a retry event (pi-internals.md §3); a retry's omission is followed by the
+ * retried reply instead.
+ *
+ * @sideEffects none
+ * @param branch - The branch's entries, root first.
+ * @returns The ids of the replies omitted before a compaction.
+ */
+function overflowRecoveries(branch: readonly LogEntry[]): Set<string> {
+  const recovered = new Set<string>();
+  let pending: string[] = [];
+  for (const entry of branch) {
+    if (entry.kind === "omission") pending.push(entry.targetId);
+    else if (entry.kind === "compaction") {
+      for (const id of pending) recovered.add(id);
+      pending = [];
+    } else if (entry.kind !== "other") pending = [];
+  }
+  return recovered;
 }

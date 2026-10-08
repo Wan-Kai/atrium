@@ -27,6 +27,7 @@ const commands: Command[] = [
   { type: "report_client_issue", requestId: "r7", traceparent, kind: "slow_frames", message: "p95 40 ms" },
   { type: "fetch_transcript", requestId: "r8", traceparent, sessionId: "s1", epoch: 2, before: "s1:e7", limit: 100 },
   { type: "list_recent_sessions", requestId: "r9", traceparent, limit: 50 },
+  { type: "fetch_step", requestId: "r11", traceparent, sessionId: "s1", epoch: 1, turnId: "s1:e1", stepId: "2" },
   { type: "open_session", requestId: "r10", traceparent, sessionId: "019a-session" },
 ];
 
@@ -38,8 +39,9 @@ const bashStep: Step = {
   tool: "bash",
   args: { command: "ls" },
   status: "done",
-  output: { text: "a.ts", truncated: false },
+  output: "a.ts",
   details: { tool: "bash", command: "ls" },
+  partial: false,
 };
 
 /** One step of every kind, and a tool step with every kind of details. */
@@ -54,8 +56,9 @@ const steps: Step[] = [
     tool: "read",
     args: { path: "a.ts" },
     status: "failed",
-    output: { text: "…", truncated: true },
+    output: "…",
     details: { tool: "read", path: "a.ts", offset: 10, limit: null },
+    partial: false,
   },
   {
     kind: "tool",
@@ -66,6 +69,7 @@ const steps: Step[] = [
     status: "running",
     output: null,
     details: { tool: "edit", path: "a.ts", diff: "+1 x", added: 1, removed: 0 },
+    partial: false,
   },
   {
     kind: "tool",
@@ -76,8 +80,19 @@ const steps: Step[] = [
     status: "unfinished",
     output: null,
     details: { tool: "write", path: "b.ts", content: "x" },
+    partial: false,
   },
-  { kind: "tool", id: "6", callId: "call-5", tool: "grep", args: {}, status: "done", output: null, details: null },
+  {
+    kind: "tool",
+    id: "6",
+    callId: "call-5",
+    tool: "grep",
+    args: {},
+    status: "done",
+    output: null,
+    details: null,
+    partial: true,
+  },
   { kind: "steer", id: "7", text: "also b" },
   { kind: "retry", id: "8", attempt: 1, error: "503" },
   { kind: "text", id: "9", text: "done" },
@@ -137,6 +152,7 @@ const events: SessionEvent[] = [
     type: "notice_added",
     ...at,
     notice: { kind: "notice", id: "s1:e9", notice: "compacted", tokensBefore: 0, summary: "", timestamp: 3 },
+    before: "s1:e1",
   },
   { type: "run_settled", ...at, runId: "run-1", outcome: "failed", settledAt: 5 },
   { type: "session_exited", ...at, traceId: null, reason: "crashed", code: null, signal: "SIGKILL" },
@@ -152,6 +168,7 @@ describe("parseClientMessage", () => {
   it("knows exactly the commands it accepts", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
       "create_chat",
+      "fetch_step",
       "fetch_transcript",
       "list_recent_sessions",
       "open_session",
@@ -214,6 +231,11 @@ describe("parseClientMessage", () => {
     ["more than 50 recent sessions", { type: "list_recent_sessions", requestId: "r1", traceparent, limit: 51 }, "r1"],
     ["opening no session", { type: "open_session", requestId: "r1", traceparent }, "r1"],
     [
+      "a step fetch without a step",
+      { type: "fetch_step", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, turnId: "t" },
+      "r1",
+    ],
+    [
       "a fetch of no items",
       { type: "fetch_transcript", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, before: "x", limit: 0 },
       "r1",
@@ -255,6 +277,7 @@ describe("CommandResult", () => {
     expect(CommandResult.list_recent_sessions.parse({ sessions: [recent] })).toStrictEqual({ sessions: [recent] });
     expect(CommandResult.list_recent_sessions.safeParse({ sessions: [{ ...recent, path: "/x" }] }).success).toBe(false);
     expect(CommandResult.open_session.parse({ sessionId: "s1" })).toStrictEqual({ sessionId: "s1" });
+    expect(CommandResult.fetch_step.parse({ step: bashStep })).toStrictEqual({ step: bashStep });
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
       hasOlder: false,
@@ -306,6 +329,7 @@ describe("HostMessage", () => {
       "pi_unavailable",
       "session_busy",
       "transcript_changed",
+      "session_cwd_missing",
       "pi_rejected",
       "internal_error",
     ]);
@@ -331,6 +355,7 @@ describe("HostMessage", () => {
     ["a retry numbered 0", { ...events[3], step: { kind: "retry", id: "0", attempt: 0, error: "" } }],
     ["an unknown tool status", { ...events[5], step: { ...bashStep, status: "queued" } }],
     ["details of an unknown tool", { ...events[5], step: { ...bashStep, details: { tool: "grep" } } }],
+    ["a notice without where it goes", { ...events[7], before: undefined }],
     ["an unknown notice", { ...events[7], notice: { ...(events[7] as { notice: object }).notice, notice: "retried" } }],
     ["a snapshot with messages", { ...events[0], messages: [] }],
     ["an unknown run outcome", { ...events[8], outcome: "paused" }],

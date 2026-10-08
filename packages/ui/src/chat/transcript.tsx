@@ -4,6 +4,7 @@ import { ArrowDown } from "@phosphor-icons/react";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
+import { LoadStepContext } from "./steps";
 import { RunStatus } from "./run-status";
 import { NoticeView, TurnView } from "./turn-view";
 
@@ -193,6 +194,8 @@ export interface TranscriptProps {
   readonly view: SessionView;
   /** Loads the page before the first item. */
   readonly onLoadOlder: () => void;
+  /** Fetches a step that arrived as a preview. */
+  readonly onLoadStep: (turnId: string, stepId: string) => void;
 }
 
 /**
@@ -206,10 +209,10 @@ export interface TranscriptProps {
  * the run's turn arrives the run shows on its own line.
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
- * @param props - The session's view and how to load older items.
+ * @param props - The session's view, how to load older items and how to fetch a step whole.
  * @returns The scrollable conversation.
  */
-export function Transcript({ view, onLoadOlder }: TranscriptProps) {
+export function Transcript({ view, onLoadOlder, onLoadStep }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -219,39 +222,43 @@ export function Transcript({ view, onLoadOlder }: TranscriptProps) {
   const last = view.items.at(-1);
   const turnRunning = last?.kind === "turn" && last.outcome === "running";
   return (
-    <div className="relative min-h-0 flex-1">
-      <div ref={scroller} className="h-full overflow-y-auto" data-testid="transcript">
-        <div ref={content} className="mx-auto flex max-w-[720px] flex-col gap-6 px-6 py-8">
-          <div ref={top} data-testid="transcript-top">
-            {view.hasOlder ? (
-              <p className="text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">正在加载更早的记录…</p>
-            ) : null}
+    <LoadStepContext value={onLoadStep}>
+      <div className="relative min-h-0 flex-1">
+        <div ref={scroller} className="h-full overflow-y-auto" data-testid="transcript">
+          <div ref={content} className="mx-auto flex max-w-[720px] flex-col gap-6 px-6 py-8">
+            <div ref={top} data-testid="transcript-top">
+              {view.hasOlder ? (
+                <p className="text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">正在加载更早的记录…</p>
+              ) : null}
+            </div>
+            {view.items.map((item) =>
+              item.kind === "turn" ? (
+                <TurnView key={item.id} turn={item} runStartedAt={view.run?.startedAt ?? null} />
+              ) : (
+                <NoticeView key={item.id} notice={item} />
+              ),
+            )}
+            {view.pending.map((message) => (
+              <UserBubble key={message.clientMessageId} text={message.text} />
+            ))}
+            {view.run === null || turnRunning ? null : <RunStatus startedAt={view.run.startedAt} />}
           </div>
-          {view.items.map((item) =>
-            item.kind === "turn" ? (
-              <TurnView key={item.id} turn={item} runStartedAt={view.run?.startedAt ?? null} />
-            ) : (
-              <NoticeView key={item.id} notice={item} />
-            ),
-          )}
-          {view.pending.map((message) => (
-            <UserBubble key={message.clientMessageId} text={message.text} />
-          ))}
-          {view.run === null || turnRunning ? null : <RunStatus startedAt={view.run.startedAt} />}
         </div>
+        <QuestionNav items={view.items} scroller={scroller} content={content} />
+        {follow.following ? null : (
+          <button
+            type="button"
+            onClick={follow.jumpToBottom}
+            className="absolute right-6 bottom-4 flex items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] px-3 py-1.5 text-[length:var(--fs-sm)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line),0_9px_27px_rgba(41,70,122,0.08)]"
+          >
+            <ArrowDown size={13} weight="bold" />
+            回到底部
+            {follow.unseen ? (
+              <span className="size-1.5 rounded-full bg-[var(--tint)]" data-testid="unseen-dot" />
+            ) : null}
+          </button>
+        )}
       </div>
-      <QuestionNav items={view.items} scroller={scroller} content={content} />
-      {follow.following ? null : (
-        <button
-          type="button"
-          onClick={follow.jumpToBottom}
-          className="absolute right-6 bottom-4 flex items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] px-3 py-1.5 text-[length:var(--fs-sm)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line),0_9px_27px_rgba(41,70,122,0.08)]"
-        >
-          <ArrowDown size={13} weight="bold" />
-          回到底部
-          {follow.unseen ? <span className="size-1.5 rounded-full bg-[var(--tint)]" data-testid="unseen-dot" /> : null}
-        </button>
-      )}
-    </div>
+    </LoadStepContext>
   );
 }

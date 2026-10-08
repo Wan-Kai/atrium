@@ -1,5 +1,5 @@
 import { type AssistantPart, type LogMessage, toolDetails } from "@atrium/pi";
-import { type FileChange, type Step, TOOL_OUTPUT_LIMIT, type Turn } from "@atrium/protocol";
+import { type FileChange, STEP_TEXT_LIMIT, type Step, type TranscriptItem, type Turn } from "@atrium/protocol";
 
 /** A tool step. */
 export type ToolStep = Extract<Step, { kind: "tool" }>;
@@ -32,7 +32,8 @@ export function stepId(position: number): string {
  *
  * @remarks
  * A thinking step's duration is only known when timed live, which the caller adds. A tool call
- * starts running with the details its arguments give.
+ * starts running with the details its arguments give; a `write` call's content goes into its
+ * details only, not again in its arguments (SPEC-0001, "对话记录").
  *
  * @sideEffects none
  * @param part - The block.
@@ -43,43 +44,33 @@ export function partStep(part: AssistantPart, position: number): Step {
   const id = stepId(position);
   if (part.type === "thinking") return { kind: "thinking", id, text: part.text, durationMs: null };
   if (part.type === "text") return { kind: "text", id, text: part.text };
+  const details = toolDetails(part.tool, part.args);
   return {
     kind: "tool",
     id,
     callId: part.callId,
     tool: part.tool,
-    args: part.args,
+    args: details?.tool === "write" ? withoutKey(part.args, "content") : part.args,
     status: "running",
     output: null,
-    details: toolDetails(part.tool, part.args),
+    details,
+    partial: false,
   };
 }
 
 /**
- * Cuts a tool's output to what travels in the transcript.
+ * A copy of an object without one key.
  *
  * @remarks
- * At most `TOOL_OUTPUT_LIMIT` bytes of UTF-8. A command's output keeps its end, where errors
- * and summaries are and the end pi itself keeps; other tools keep the start (SPEC-0001,
- * "对话记录"). The cut never splits a character.
+ * See `partStep`.
  *
  * @sideEffects none
- * @param tool - The tool's name.
- * @param text - The whole output.
- * @returns The output to send.
+ * @param object - The object.
+ * @param key - The key to leave out.
+ * @returns The copy.
  */
-export function cutOutput(tool: string, text: string): NonNullable<ToolStep["output"]> {
-  const bytes = Buffer.from(text, "utf8");
-  if (bytes.length <= TOOL_OUTPUT_LIMIT) return { text, truncated: false };
-  if (tool === "bash") {
-    let start = bytes.length - TOOL_OUTPUT_LIMIT;
-    // A continuation byte is the middle of a character.
-    while ((bytes[start] ?? 0) >> 6 === 0b10) start += 1;
-    return { text: bytes.subarray(start).toString("utf8"), truncated: true };
-  }
-  let end = TOOL_OUTPUT_LIMIT;
-  while ((bytes[end] ?? 0) >> 6 === 0b10) end -= 1;
-  return { text: bytes.subarray(0, end).toString("utf8"), truncated: true };
+function withoutKey(object: Readonly<Record<string, unknown>>, key: string): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(object).filter(([name]) => name !== key));
 }
 
 /**
@@ -94,14 +85,15 @@ export function cutOutput(tool: string, text: string): NonNullable<ToolStep["out
  * @returns The updated step.
  */
 export function withOutput(step: ToolStep, text: string): ToolStep {
-  return { ...step, output: cutOutput(step.tool, text) };
+  return { ...step, output: text };
 }
 
 /**
  * A tool step with its result.
  *
  * @remarks
- * The details are worked out again with the result's own, which hold an edit's diff.
+ * The details are worked out again with the result's own, which hold an edit's diff; a write's
+ * content stays where `partStep` put it.
  *
  * @sideEffects none
  * @param step - The step.
@@ -109,12 +101,121 @@ export function withOutput(step: ToolStep, text: string): ToolStep {
  * @returns The finished step.
  */
 export function withResult(step: ToolStep, result: ToolResult): ToolStep {
-  return {
-    ...step,
-    status: result.isError ? "failed" : "done",
-    output: cutOutput(step.tool, result.text),
-    details: toolDetails(step.tool, step.args, result.details),
+  const details = step.details?.tool === "write" ? step.details : toolDetails(step.tool, step.args, result.details);
+  return { ...step, status: result.isError ? "failed" : "done", output: result.text, details };
+}
+
+/**
+ * A preview of a long text: its start, or its end.
+ *
+ * @remarks
+ * At most `STEP_TEXT_LIMIT` bytes of UTF-8, never cutting a character in half.
+ *
+ * @sideEffects none
+ * @param text - The text, longer than the limit.
+ * @param keepEnd - Whether to keep the end rather than the start.
+ * @returns The preview.
+ */
+function preview(text: string, keepEnd: boolean): string {
+  const bytes = Buffer.from(text, "utf8");
+  if (keepEnd) {
+    let start = bytes.length - STEP_TEXT_LIMIT;
+    // A continuation byte is the middle of a character.
+    while ((bytes[start] ?? 0) >> 6 === 0b10) start += 1;
+    return bytes.subarray(start).toString("utf8");
+  }
+  let end = STEP_TEXT_LIMIT;
+  while ((bytes[end] ?? 0) >> 6 === 0b10) end -= 1;
+  return bytes.subarray(0, end).toString("utf8");
+}
+
+/**
+ * Whether a text is too long to travel whole.
+ *
+ * @remarks
+ * See `forTransport`.
+ *
+ * @sideEffects none
+ * @param text - The text.
+ * @returns Whether it is over `STEP_TEXT_LIMIT` bytes.
+ */
+function tooLong(text: string): boolean {
+  return text.length > STEP_TEXT_LIMIT / 4 && Buffer.byteLength(text, "utf8") > STEP_TEXT_LIMIT;
+}
+
+/**
+ * A step as events, snapshots and pages carry it.
+ *
+ * @remarks
+ * Nothing is cut away for good (SPEC-0001, "大内容"): long text of a tool step, its output, a
+ * write's content, an edit's diff and long strings in its arguments, travels as a preview, and
+ * the step says it is `partial`, so the UI can fetch it whole. A command's output keeps its end,
+ * where errors are, as pi does; every other text keeps its start. Short steps are returned as
+ * they are.
+ *
+ * @sideEffects none
+ * @param step - The whole step.
+ * @returns The step to send.
+ */
+export function forTransport(step: Step): Step {
+  if (step.kind !== "tool") return step;
+  let partial = false;
+  /**
+   * Shortens one text if it is too long.
+   *
+   * @remarks
+   * See `forTransport`.
+   *
+   * @sideEffects Marks the step partial.
+   * @param text - The text.
+   * @param keepEnd - Whether a preview keeps the end.
+   * @returns The text or its preview.
+   */
+  const shorten = (text: string, keepEnd = false): string => {
+    if (!tooLong(text)) return text;
+    partial = true;
+    return preview(text, keepEnd);
   };
+  /**
+   * Shortens the long strings anywhere in an argument value.
+   *
+   * @remarks
+   * Arguments are any JSON the model wrote.
+   *
+   * @sideEffects Marks the step partial.
+   * @param value - The value.
+   * @returns The value with long strings shortened.
+   */
+  const shortenValue = (value: unknown): unknown => {
+    if (typeof value === "string") return shorten(value);
+    if (Array.isArray(value)) return value.map(shortenValue);
+    if (typeof value === "object" && value !== null) {
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shortenValue(item)]));
+    }
+    return value;
+  };
+  const args = Object.fromEntries(Object.entries(step.args).map(([key, value]) => [key, shortenValue(value)]));
+  const output = step.output === null ? null : shorten(step.output, step.tool === "bash");
+  let details = step.details;
+  if (details?.tool === "write") details = { ...details, content: shorten(details.content) };
+  else if (details?.tool === "edit" && details.diff !== null) details = { ...details, diff: shorten(details.diff) };
+  return partial ? { ...step, args, output, details, partial } : step;
+}
+
+/**
+ * An item as events, snapshots and pages carry it.
+ *
+ * @remarks
+ * See `forTransport`.
+ *
+ * @sideEffects none
+ * @param item - The whole item.
+ * @returns The item to send.
+ */
+export function itemForTransport(item: TranscriptItem): TranscriptItem {
+  if (item.kind !== "turn") return item;
+  const steps = item.steps.map(forTransport);
+  return steps.every((step, index) => step === item.steps[index]) ? item : { ...item, steps };
 }
 
 /**

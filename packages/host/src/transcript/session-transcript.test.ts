@@ -1,9 +1,9 @@
 import { type LogEntry, createEventTranslator } from "@atrium/pi";
-import type { TranscriptItem, Turn } from "@atrium/protocol";
+import { STEP_TEXT_LIMIT, type TranscriptItem, type Turn } from "@atrium/protocol";
 import { present } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { fixtureEntries, fixtureEvents } from "../../test/pi-fixtures";
-import { type RebuildResult, type TranscriptEvent, createSessionTranscript } from "./session-transcript";
+import { PAGE_BYTES, type RebuildResult, type TranscriptEvent, createSessionTranscript } from "./session-transcript";
 
 /** A transcript for session `s` whose clock the test sets, with turn ids live-1, live-2, … */
 function transcript() {
@@ -131,7 +131,10 @@ describe("createSessionTranscript following a recorded session", () => {
     expect(results).toStrictEqual([
       { kind: "same" },
       { kind: "same" },
-      { kind: "appended", events: [{ type: "notice_added", notice: expect.objectContaining({ id: "s:e18" }) }] },
+      {
+        kind: "notices",
+        events: [{ type: "notice_added", notice: expect.objectContaining({ id: "s:e18" }), before: null }],
+      },
       { kind: "same" },
       // pi went back to the first turn and branched from there, then back to the first branch.
       { kind: "changed" },
@@ -191,12 +194,12 @@ describe("createSessionTranscript following a recorded session", () => {
       {
         type: "step_updated",
         turnId: "live-1",
-        step: expect.objectContaining({ status: "running", output: { text: "", truncated: false } }),
+        step: expect.objectContaining({ status: "running", output: "" }),
       },
       {
         type: "step_updated",
         turnId: "live-1",
-        step: expect.objectContaining({ status: "running", output: { text: "tool-ok", truncated: false } }),
+        step: expect.objectContaining({ status: "running", output: "tool-ok" }),
       },
     ]);
     const thinking = present(published[4], "the timed thinking step");
@@ -309,6 +312,7 @@ describe("createSessionTranscript live", () => {
           status: "unfinished",
           output: null,
           details: { tool: "bash", command: "sleep 9" },
+          partial: false,
         },
       },
       expect.objectContaining({ type: "turn_finished", outcome: "stopped", usage: null }),
@@ -339,6 +343,119 @@ describe("createSessionTranscript live", () => {
     expect(session.apply({ kind: "retry_started", attempt: 2, error: "503" }, noClient)).toStrictEqual([
       { type: "step_added", turnId: "live-1", step: { kind: "retry", id: "0", attempt: 2, error: "503" } },
     ]);
+  });
+});
+
+/** A tool result entry. */
+function resultEntry(id: string, parentId: string, callId: string): LogEntry {
+  return {
+    id,
+    parentId,
+    kind: "toolResult",
+    callId,
+    tool: "bash",
+    text: "x",
+    isError: false,
+    details: undefined,
+    timestamp: 0,
+  };
+}
+
+/** An assistant entry calling bash as `callId`. */
+function callEntry(id: string, parentId: string, callId: string): LogEntry {
+  return {
+    id,
+    parentId,
+    kind: "assistant",
+    parts: [{ type: "toolCall", callId, tool: "bash", args: { command: "ls" } }],
+    stopReason: "toolUse",
+    errorMessage: null,
+    usage: { input: 1, output: 2 },
+    timestamp: 0,
+  };
+}
+
+/** A compaction entry. */
+function compactionEntry(id: string, parentId: string): LogEntry {
+  return { id, parentId, kind: "compaction", summary: "", tokensBefore: 0, timestamp: 0 };
+}
+
+/** User entries u0, u1, … each under the one before, with these texts. */
+function userChain(texts: readonly string[]): LogEntry[] {
+  return texts.map((text, index) => userEntry(`u${index}`, index === 0 ? null : `u${index - 1}`, text));
+}
+
+describe("createSessionTranscript keeping live and rebuilt alike", () => {
+  it("keeps a turn after a run that ended on a tool result a turn, and a steer a steer", () => {
+    const { transcript: session } = transcript();
+    session.apply(userMessage("go"), noClient);
+    session.apply({ kind: "assistant_started" }, noClient);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "bash", args: { command: "ls" } }], "toolUse"),
+      noClient,
+    );
+    session.apply(toolResult("c1", "x"), noClient);
+    session.apply(userMessage("also"), noClient);
+    session.settle();
+    // A tool ended the run; the next prompt is a new turn.
+    session.apply(userMessage("next"), noClient);
+    session.settle();
+
+    expect(
+      session.rebuild(
+        {
+          entries: [
+            userEntry("u1", null, "go"),
+            callEntry("a1", "u1", "c1"),
+            resultEntry("r1", "a1", "c1"),
+            userEntry("u2", "r1", "also"),
+            userEntry("u3", "u2", "next"),
+          ],
+          leafId: "u3",
+        },
+        false,
+      ),
+    ).toStrictEqual({ kind: "same" });
+    expect(session.items().map((item) => [item.id, (item as Turn).steps.map((step) => step.kind)])).toStrictEqual([
+      ["live-1", ["tool", "steer"]],
+      ["live-2", []],
+    ]);
+  });
+
+  it("fails a turn pi went away in, whatever its last reply", () => {
+    const { transcript: session } = transcript();
+    session.apply(userMessage("go"), noClient);
+    session.apply(assistantMessage([{ type: "text", text: "half" }]), noClient);
+
+    expect(session.settle(true)).toMatchObject([{ type: "turn_finished", outcome: "failed", error: null }]);
+  });
+
+  it("reports notices that appeared anywhere, each with the item it goes before", () => {
+    const { transcript: session } = transcript();
+    session.rebuild({ entries: [userEntry("u1", null, "a"), userEntry("u2", "u1", "b")], leafId: "u2" }, false);
+
+    expect(
+      session.rebuild(
+        {
+          entries: [
+            userEntry("u1", null, "a"),
+            compactionEntry("k1", "u1"),
+            compactionEntry("k2", "k1"),
+            userEntry("u2", "k2", "b"),
+            compactionEntry("k3", "u2"),
+          ],
+          leafId: "k3",
+        },
+        true,
+      ),
+    ).toStrictEqual({
+      kind: "notices",
+      events: [
+        { type: "notice_added", notice: expect.objectContaining({ id: "s:k1" }), before: "s:u2" },
+        { type: "notice_added", notice: expect.objectContaining({ id: "s:k2" }), before: "s:u2" },
+        { type: "notice_added", notice: expect.objectContaining({ id: "s:k3" }), before: null },
+      ],
+    });
   });
 });
 
@@ -396,6 +513,39 @@ describe("createSessionTranscript pages", () => {
   it("shows everything when there are 20 turns or fewer", () => {
     expect(longSession(20).latest()).toMatchObject({ hasOlder: false, items: { length: 40 } });
     expect(longSession(0).latest()).toStrictEqual({ items: [], hasOlder: false });
+  });
+
+  it("sends long text as a preview, keeps it whole, and gives a step back whole", () => {
+    const { transcript: session } = transcript();
+    const long = "x".repeat(STEP_TEXT_LIMIT + 1);
+    session.apply(userMessage("go"), noClient);
+    session.apply({ kind: "assistant_started" }, noClient);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "read", args: { path: "a" } }], "toolUse"),
+      noClient,
+    );
+
+    const [event] = session.apply({ kind: "tool_output", callId: "c1", text: long }, noClient);
+
+    expect(event).toMatchObject({ type: "step_updated", step: { output: "x".repeat(STEP_TEXT_LIMIT), partial: true } });
+    expect(session.latest().items[0]).toMatchObject({ steps: [{ partial: true }] });
+    expect(session.step("live-1", "0")).toMatchObject({ output: long, partial: false });
+    expect(session.step("live-1", "9")).toBeNull();
+    expect(session.step("nope", "0")).toBeNull();
+  });
+
+  it("fits snapshots and pages within the size limit, always taking at least one item", () => {
+    const { transcript: session } = transcript();
+    const big = "y".repeat(PAGE_BYTES / 4);
+    session.rebuild({ entries: userChain([big, big, big, big, big]), leafId: "u4" }, false);
+
+    expect(ids(session.latest().items)).toStrictEqual(["s:u2", "s:u3", "s:u4"]);
+    expect(session.latest().hasOlder).toBe(true);
+    expect(ids(present(session.before("s:u2", 10), "a page").items)).toStrictEqual(["s:u0", "s:u1"]);
+
+    const huge = transcript().transcript;
+    huge.rebuild({ entries: [userEntry("h1", null, "z".repeat(PAGE_BYTES * 2))], leafId: "h1" }, false);
+    expect(ids(huge.latest().items)).toStrictEqual(["s:h1"]);
   });
 
   it("pages back from an item, and knows no item it does not have", () => {

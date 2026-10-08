@@ -298,16 +298,18 @@ export class TurnDraft {
    * Ends the turn.
    *
    * @remarks
-   * Tools without a result become `unfinished`; the outcome comes from the last reply. The
+   * Tools without a result become `unfinished`; the outcome comes from the last reply, unless pi
+   * went away mid-turn: then it failed, with no text of pi's to show (SPEC-0001, `turn_finished`). The
    * duration is the one measured live if there is one, otherwise worked out from the messages'
    * timestamps, which is approximate (SPEC-0001, "滚动与长会话"). Live-timed thinking durations
    * are put back on their steps.
    *
    * @sideEffects Updates the draft.
    * @param facts - What the host measured of this turn live, if it saw it.
+   * @param crashed - Whether pi went away mid-turn, which fails the turn whatever its last reply.
    * @returns The steps that changed, and the finished turn.
    */
-  finish(facts: TurnFacts | undefined): { readonly changed: Step[]; readonly turn: FinishedTurn } {
+  finish(facts: TurnFacts | undefined, crashed = false): { readonly changed: Step[]; readonly turn: FinishedTurn } {
     const changed: Step[] = [];
     finishedSteps(this.#steps).forEach((step, position) => {
       const durationMs = step.kind === "thinking" ? facts?.thinkingMs.get(step.id) : undefined;
@@ -322,7 +324,7 @@ export class TurnDraft {
     });
     const turn: FinishedTurn = {
       ...this.running(),
-      ...turnOutcome(this.#last),
+      ...(crashed ? { outcome: "failed" as const, error: null } : turnOutcome(this.#last)),
       durationMs: facts?.durationMs ?? Math.max(0, this.#lastTime - this.user.timestamp),
       usage: this.#usage,
       changes: turnChanges(this.#steps),

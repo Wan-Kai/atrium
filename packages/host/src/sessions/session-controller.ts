@@ -3,6 +3,7 @@ import { createEventTranslator, isBusyRejection } from "@atrium/pi";
 import {
   CommandError,
   type CommandResult,
+  type FetchStepCommand,
   type FetchTranscriptCommand,
   type PromptCommand,
   type RunSettledEvent,
@@ -40,6 +41,8 @@ export interface SessionController {
   prompt(command: PromptCommand): Promise<CommandResult<"prompt">>;
   /** Items before one the client has, for scrolling back. */
   fetchTranscript(command: FetchTranscriptCommand): CommandResult<"fetch_transcript">;
+  /** One step whole, for one that traveled as a preview. */
+  fetchStep(command: FetchStepCommand): CommandResult<"fetch_step">;
   /** Stops pi, which publishes `session_exited`. */
   stop(): Promise<void>;
 }
@@ -131,10 +134,10 @@ function isUnknownCursor(error: unknown): boolean {
  * the `prompt` command carried. A turn pi opens is matched to the oldest `prompt` still waiting
  * and carries that command's `requestId` as `clientMessageId`, so the client can replace its
  * pending copy. After a run and after a compaction the controller reads pi's new entries and
- * rebuilds the transcript, never during a run (SPEC-0001, "快照与分页"): only notices added at
- * the end go out as `notice_added`; any other difference starts a new epoch and sends every
- * subscriber a fresh snapshot. When pi exits, a run in progress ends as failed, then
- * `session_exited` follows.
+ * rebuilds the transcript, never during a run (SPEC-0001, "快照与分页"): added notices go out as
+ * `notice_added`, wherever they are; any other difference starts a new epoch and sends every
+ * subscriber a fresh snapshot. When pi exits, a run in progress ends as failed, its turn too,
+ * then `session_exited` follows.
  *
  * @sideEffects Subscribes to pi's events; calls `publish` for every event; calls `newId`; reads
  * pi's entries after runs and compactions, reporting failures to `onRefreshFailed`.
@@ -215,7 +218,7 @@ export function createSessionController(options: {
    */
   function settle(crashed: boolean): void {
     if (run === null) return;
-    const events = transcript.settle();
+    const events = transcript.settle(crashed);
     for (const event of events) emit(event);
     const finished = events.find((event) => event.type === "turn_finished");
     const outcome = crashed ? "failed" : finished === undefined ? "completed" : RUN_OUTCOMES[finished.outcome];
@@ -255,7 +258,7 @@ export function createSessionController(options: {
         }
         if (run !== null) return;
         const result = transcript.rebuild(page, reset);
-        if (result.kind === "appended") for (const event of result.events) emit(event);
+        if (result.kind === "notices") for (const event of result.events) emit(event);
         if (result.kind === "changed") {
           epoch += 1;
           seq = 0;
@@ -354,6 +357,11 @@ export function createSessionController(options: {
       const page = command.epoch === epoch ? transcript.before(command.before, command.limit) : null;
       if (page === null) throw new CommandError("transcript_changed");
       return page;
+    },
+    fetchStep(command) {
+      const step = command.epoch === epoch ? transcript.step(command.turnId, command.stepId) : null;
+      if (step === null) throw new CommandError("transcript_changed");
+      return { step };
     },
     async stop() {
       await pi.stop();

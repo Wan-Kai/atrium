@@ -69,6 +69,7 @@ function transcriptAt(fields: Partial<SessionView>) {
           ...fields,
         }}
         onLoadOlder={() => undefined}
+        onLoadStep={() => undefined}
       />
     </div>
   );

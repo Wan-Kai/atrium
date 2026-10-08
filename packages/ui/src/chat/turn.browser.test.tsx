@@ -4,6 +4,7 @@ import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { DisplayModeContext, type DisplayMode, createDisplayMode } from "../state/display-mode";
 import "../styles.css";
+import { LoadStepContext } from "./steps";
 import { NoticeView, TurnView } from "./turn-view";
 
 const at = Date.UTC(2026, 9, 7, 14, 31);
@@ -33,8 +34,9 @@ const command: Step = {
   tool: "bash",
   args: { command: "pnpm test" },
   status: "failed",
-  output: { text: "FAIL sidebar", truncated: true },
+  output: "FAIL sidebar",
   details: { tool: "bash", command: "pnpm test" },
+  partial: false,
 };
 const edit: Step = {
   kind: "tool",
@@ -43,8 +45,9 @@ const edit: Step = {
   tool: "edit",
   args: { path: "src/a.ts" },
   status: "done",
-  output: { text: "ok", truncated: false },
+  output: "ok",
   details: { tool: "edit", path: "src/a.ts", diff: " 1 keep\n-2 old\n+2 new", added: 1, removed: 1 },
+  partial: false,
 };
 const steer: Step = { kind: "steer", id: "3", text: "顺便加个测试" };
 const answer: Step = { kind: "text", id: "4", text: "改好了，**一处**改动。" };
@@ -95,7 +98,7 @@ describe("TurnView", () => {
     const details = screen.container.querySelectorAll('[data-testid="step-detail"]');
 
     expect(details).toHaveLength(2);
-    expect(details[0]?.textContent).toBe("出错bashFAIL sidebar只保留了最后 16 KB");
+    expect(details[0]?.textContent).toBe("出错bashFAIL sidebar");
     expect(
       [...screen.container.querySelectorAll('[data-testid="diff"] > div')].map((line) =>
         line.getAttribute("data-kind"),
@@ -144,7 +147,7 @@ describe("TurnView", () => {
   });
 
   it("shows a running turn's process open with the step going on, and no info row", async () => {
-    const live: Step = { ...command, status: "running", output: { text: "running…", truncated: false } };
+    const live: Step = { ...command, status: "running", output: "running…" };
     const { screen } = await show(
       turn([thinking, live], { outcome: "running", durationMs: null, usage: null }),
       "summary",
@@ -169,6 +172,69 @@ describe("TurnView", () => {
     await vi.waitFor(() =>
       expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toBe("先看侧栏。再决定。"),
     );
+  });
+
+  it("fetches a step that arrived as a preview once it is opened, and only then", async () => {
+    const asked: string[] = [];
+    const store = createDisplayMode({ getItem: () => "summary", setItem: () => undefined });
+    const preview: Step = { ...command, status: "done", output: "…the end", partial: true };
+    const screen = await render(
+      <DisplayModeContext value={store}>
+        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+          <TurnView turn={turn([preview, answer], { id: "t7" })} runStartedAt={null} />
+        </LoadStepContext>
+      </DisplayModeContext>,
+    );
+    await screen.getByTestId("process-header").click();
+    expect(asked).toStrictEqual([]);
+
+    await screen.getByRole("button", { name: /运行 · pnpm test/ }).click();
+
+    expect(asked).toStrictEqual(["t7/1"]);
+    await expect.element(screen.getByTestId("step-loading")).toHaveTextContent("正在加载完整内容…");
+    await screen.rerender(
+      <DisplayModeContext value={store}>
+        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+          <TurnView
+            turn={turn([{ ...preview, output: "the start…the end", partial: false }, answer], { id: "t7" })}
+            runStartedAt={null}
+          />
+        </LoadStepContext>
+      </DisplayModeContext>,
+    );
+    await expect.element(screen.getByTestId("step-detail")).toHaveTextContent("输出bashthe start…the end");
+    expect(asked).toStrictEqual(["t7/1"]);
+  });
+
+  it("fetches a file change that arrived as a preview when the file is opened", async () => {
+    const asked: string[] = [];
+    const store = createDisplayMode({ getItem: () => "summary", setItem: () => undefined });
+    const screen = await render(
+      <DisplayModeContext value={store}>
+        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+          <TurnView
+            turn={turn([{ ...edit, partial: true }, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] })}
+            runStartedAt={null}
+          />
+        </LoadStepContext>
+      </DisplayModeContext>,
+    );
+
+    await screen
+      .getByTestId("turn-footer")
+      .getByRole("button", { name: /改了 1 个文件/ })
+      .click();
+    await screen.getByRole("button", { name: /src\/a\.ts/ }).click();
+
+    expect(asked).toStrictEqual(["t1/2"]);
+    await expect.element(screen.getByTestId("files")).toMatchTextContent(/正在加载完整内容…$/);
+  });
+
+  it("shows a turn pi went away in as failed, with no text of pi's to open", async () => {
+    const { screen } = await show(turn([command], { outcome: "failed", error: null }));
+
+    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错");
+    expect(screen.container.querySelector('[data-testid="turn-error"] button')).toBeNull();
   });
 
   it("marks a stopped turn", async () => {

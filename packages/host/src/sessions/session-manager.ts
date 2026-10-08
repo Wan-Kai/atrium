@@ -8,7 +8,7 @@ import {
 } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
-import { mkdir } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
 import type { Logger } from "../platform/logger";
@@ -69,6 +69,8 @@ export function createSessionManager(options: {
   const listed = new Map<string, SessionFileInfo>();
   /** Sessions being opened, so a second `open_session` waits for the first. */
   const opening = new Map<string, Promise<string>>();
+  /** Stops scans of pi's session directory when the manager closes. */
+  const scanning = new AbortController();
 
   /**
    * Finds a session.
@@ -191,7 +193,8 @@ export function createSessionManager(options: {
         publish: (event) => options.subscriptions.publish(event),
         clock: options.clock,
         newId: options.newId,
-        onRefreshFailed: (error) => options.logger.warn({ err: error, sessionId }, "transcript refresh failed"),
+        onRefreshFailed: (error) =>
+          options.logger.warn({ ...failureFields(error), sessionId }, "transcript refresh failed"),
       }),
     );
     return sessionId;
@@ -212,7 +215,7 @@ export function createSessionManager(options: {
   async function findSessionFile(env: Readonly<Record<string, string>>, sessionId: string) {
     const known = listed.get(sessionId);
     if (known !== undefined) return known;
-    const files = await listSessionFiles(await sessionsDirectory(env), Number.MAX_SAFE_INTEGER);
+    const files = await listSessionFiles(await sessionsDirectory(env), Number.MAX_SAFE_INTEGER, scanning.signal);
     return files.find((file) => file.sessionId === sessionId);
   }
 
@@ -226,7 +229,7 @@ export function createSessionManager(options: {
     async listRecentSessions(limit) {
       const tools = await options.tools;
       if (tools === null) return { sessions: [] };
-      const files = await listSessionFiles(await sessionsDirectory(tools.env), limit);
+      const files = await listSessionFiles(await sessionsDirectory(tools.env), limit, scanning.signal);
       for (const file of files) listed.set(file.sessionId, file);
       return {
         sessions: files.map((file) => ({
@@ -254,6 +257,10 @@ export function createSessionManager(options: {
         const tools = await readyTools();
         const file = await findSessionFile(tools.env, sessionId);
         if (file === undefined) throw new CommandError("session_not_found", { sessionId });
+        // pi resumes in the directory the session recorded; a removed one is reported, not
+        // replaced (domain-model §1).
+        const directory = await stat(file.cwd).catch(() => null);
+        if (directory?.isDirectory() !== true) throw new CommandError("session_cwd_missing", { cwd: file.cwd });
         return startSession(tools, { args: ["--session", file.path], cwd: file.cwd });
       };
       const started = start().finally(() => opening.delete(sessionId));
@@ -271,12 +278,33 @@ export function createSessionManager(options: {
     async prompt(command) {
       return controllerOf(command.sessionId).prompt(command);
     },
+    async fetchStep(command) {
+      return controllerOf(command.sessionId).fetchStep(command);
+    },
     async fetchTranscript(command) {
       return controllerOf(command.sessionId).fetchTranscript(command);
     },
     async close() {
       closed = true;
+      scanning.abort(new CommandError("pi_unavailable", { status: "exited" }));
       await Promise.all([...running].map((pi) => pi.stop()));
     },
   };
+}
+
+/**
+ * What to log about a failed refresh.
+ *
+ * @remarks
+ * A failed pi request is logged by its command and reason only: its `detail` holds pi's own text
+ * or the end of its stderr, which may carry secrets (security.md, "凭据与日志"). Anything else is
+ * a host bug and logged whole.
+ *
+ * @sideEffects none
+ * @param error - What the refresh threw.
+ * @returns The log fields.
+ */
+function failureFields(error: unknown): Record<string, unknown> {
+  if (error instanceof PiRequestError) return { command: error.command, reason: error.reason };
+  return { err: error };
 }

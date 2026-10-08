@@ -41,6 +41,10 @@ function fakeSessions() {
       calls.push(["openSession", sessionId]);
       return { sessionId };
     },
+    fetchStep: async (command) => {
+      calls.push(["fetchStep", command.sessionId, command.epoch, command.turnId, command.stepId]);
+      return { step: { kind: "text", id: command.stepId, text: "whole" } };
+    },
     fetchTranscript: async (command) => {
       calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
       return { items: [], hasOlder: true };
@@ -132,6 +136,10 @@ describe("createRouter", () => {
       withTrace({ type: "fetch_transcript", requestId: "r4", sessionId: "s1", epoch: 2, before: "t9", limit: 50 }),
     );
     await route(connection, withTrace({ type: "list_recent_sessions", requestId: "r5", limit: 20 }));
+    await route(
+      connection,
+      withTrace({ type: "fetch_step", requestId: "r7", sessionId: "s1", epoch: 2, turnId: "t9", stepId: "3" }),
+    );
     await route(connection, withTrace({ type: "open_session", requestId: "r6", sessionId: "s2" }));
 
     expect(calls).toStrictEqual([
@@ -140,6 +148,7 @@ describe("createRouter", () => {
       ["prompt", "s1", "hi"],
       ["fetchTranscript", "s1", 2, "t9", 50],
       ["listRecentSessions", 20],
+      ["fetchStep", "s1", 2, "t9", "3"],
       ["openSession", "s2"],
     ]);
     expect(sent).toStrictEqual([
@@ -152,6 +161,12 @@ describe("createRouter", () => {
         requestId: "r5",
         ok: true,
         result: { sessions: [{ sessionId: "s2", firstPrompt: "hi", modifiedAt: 3 }] },
+      },
+      {
+        type: "response",
+        requestId: "r7",
+        ok: true,
+        result: { step: { kind: "text", id: "3", text: "whole" } },
       },
       { type: "response", requestId: "r6", ok: true, result: { sessionId: "s2" } },
     ]);

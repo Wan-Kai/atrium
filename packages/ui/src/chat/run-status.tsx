@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useClock } from "../state/clock";
 
 /**
  * Formats how long a run has taken.
@@ -26,16 +27,14 @@ export function formatElapsed(ms: number): string {
  * design-language, "动效"); the timer counts from the run's start on the host's clock and ticks
  * once a second, with tabular digits so it does not jump.
  *
- * @sideEffects Schedules a one-second interval while mounted.
+ * @sideEffects Ticks the clock once a second while mounted.
  * @param props - When the run started.
  * @returns The status line.
  */
 export function RunStatus({ startedAt }: { readonly startedAt: number }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const clock = useClock();
+  const [now, setNow] = useState(() => clock.now());
+  useEffect(() => clock.every(1000, () => setNow(clock.now())), [clock]);
   return (
     <p className="text-[length:var(--fs-meta)] tabular-nums" data-testid="run-status">
       <span className="atrium-shimmer">进行中</span>

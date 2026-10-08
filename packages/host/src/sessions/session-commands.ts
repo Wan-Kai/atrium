@@ -1,4 +1,4 @@
-import type { CommandResult, FetchTranscriptCommand, PromptCommand } from "@atrium/protocol";
+import type { CommandResult, FetchStepCommand, FetchTranscriptCommand, PromptCommand } from "@atrium/protocol";
 
 /**
  * The session commands the server hands to the session layer.
@@ -21,4 +21,6 @@ export interface SessionCommands {
   openSession(sessionId: string): Promise<CommandResult<"open_session">>;
   /** Items of a session's transcript before one the client has. */
   fetchTranscript(command: FetchTranscriptCommand): Promise<CommandResult<"fetch_transcript">>;
+  /** One step of a session's transcript, whole. */
+  fetchStep(command: FetchStepCommand): Promise<CommandResult<"fetch_step">>;
 }

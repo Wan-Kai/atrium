@@ -2,6 +2,7 @@ import type { AtriumClient } from "@atrium/client";
 import type { RecentSession } from "@atrium/protocol";
 import { ChatCircle } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
+import { useClock } from "../state/clock";
 import { useConnectionState } from "../state/use-connection-state";
 
 /** How many sessions the list shows. */
@@ -49,6 +50,7 @@ export function RecentSessions({
   readonly onOpen: (sessionId: string) => void;
 }) {
   const connection = useConnectionState(client);
+  const clock = useClock();
   const [listed, setListed] = useState<{ readonly sessions: readonly RecentSession[]; readonly at: number }>({
     sessions: [],
     at: 0,
@@ -67,14 +69,14 @@ export function RecentSessions({
      */
     const read = async (): Promise<void> => {
       const result = await client.listRecentSessions(SHOWN).catch(() => null);
-      if (current && result !== null) setListed({ sessions: result.sessions, at: Date.now() });
+      if (current && result !== null) setListed({ sessions: result.sessions, at: clock.now() });
     };
     // Fire and forget: `read` handles its own failure.
     void read();
     return () => {
       current = false;
     };
-  }, [client, ready]);
+  }, [client, ready, clock]);
   const { sessions, at: now } = listed;
   if (sessions.length === 0) return null;
   return (

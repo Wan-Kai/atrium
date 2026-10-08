@@ -102,18 +102,20 @@ const firstTurn = turn("e6", "one", {
       tool: "bash",
       args: { command: "printf 'tool-%s' ok" },
       status: "done",
-      output: { text: "tool-ok", truncated: false },
+      output: "tool-ok",
       details: { tool: "bash", command: "printf 'tool-%s' ok" },
+      partial: false,
     },
     {
       kind: "tool",
       id: "2",
       callId: "call-2",
       tool: "write",
-      args: { path: "notes.txt", content: "a\nb\n" },
+      args: { path: "notes.txt" },
       status: "done",
-      output: { text: "Successfully wrote to notes.txt", truncated: false },
+      output: "Successfully wrote to notes.txt",
       details: { tool: "write", path: "notes.txt", content: "a\nb\n" },
+      partial: false,
     },
     {
       kind: "tool",
@@ -122,8 +124,9 @@ const firstTurn = turn("e6", "one", {
       tool: "edit",
       args: { path: "notes.txt", edits: [{ oldText: "b", newText: "c\nd" }] },
       status: "done",
-      output: { text: "Successfully replaced 1 block(s) in notes.txt.", truncated: false },
+      output: "Successfully replaced 1 block(s) in notes.txt.",
       details: { tool: "edit", path: "notes.txt", diff: " 1 a\n-2 b\n+2 c\n+3 d", added: 2, removed: 1 },
+      partial: false,
     },
     {
       kind: "tool",
@@ -132,8 +135,9 @@ const firstTurn = turn("e6", "one", {
       tool: "read",
       args: { path: "notes.txt", offset: 2, limit: 1 },
       status: "done",
-      output: { text: "c\n\n[2 more lines in file. Use offset=3 to continue.]", truncated: false },
+      output: "c\n\n[2 more lines in file. Use offset=3 to continue.]",
       details: { tool: "read", path: "notes.txt", offset: 2, limit: 1 },
+      partial: false,
     },
     { kind: "text", id: "5", text: "first answer" },
   ],
@@ -258,6 +262,75 @@ describe("projectTranscript", () => {
     expect(items[0]).toMatchObject({ outcome: "failed", error: "503" });
   });
 
+  it("follows what the host saw live: a turn stays a turn after a tool result, a steer stays a steer", () => {
+    const branch = [
+      user("u1", "go"),
+      reply("a1", [bash("c1")], { stopReason: "toolUse" }),
+      result("r1", "c1", "ended by the tool"),
+      user("u2", "next"),
+      reply("a2", [bash("c2")], { stopReason: "toolUse" }),
+      result("r2", "c2", "x"),
+      user("u3", "also"),
+      reply("a3", [says("done")]),
+      user("u4", "after"),
+      reply("a4", [says("ok")]),
+    ];
+    const facts: TurnFacts = { turnId: "live", clientMessageId: null, durationMs: 1, thinkingMs: new Map() };
+
+    expect(stepKinds(projectTranscript(branch, "s", none).items)).toStrictEqual([
+      ["tool", "steer", "tool", "steer", "text"],
+      ["text"],
+    ]);
+    expect(stepKinds(projectTranscript(branch, "s", new Map([["u2", facts]]), new Set(["u4"])).items)).toStrictEqual([
+      ["tool"],
+      ["tool", "steer", "text", "steer", "text"],
+    ]);
+  });
+
+  it("takes a reply pi omitted to recover from a context overflow for no retry, and an empty error as Unknown error", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("f1", [bash("c1")], { stopReason: "error", error: "context overflow" }),
+        result("r1", "c1", "x"),
+        omit("o1", "f1"),
+        omit("o2", "r1"),
+        { id: "m1", parentId: null, timestamp: 0, kind: "other" },
+        compaction("k1"),
+        reply("f2", [], { stopReason: "error", error: "" }),
+        omit("o3", "f2"),
+        reply("f3", [], { stopReason: "error" }),
+        omit("o4", "f3"),
+        reply("a1", [says("done")]),
+      ],
+      "s",
+      none,
+    );
+
+    expect((items[0] as Turn).steps.map((step) => step.kind)).toStrictEqual(["tool", "retry", "retry", "text"]);
+    expect((items[0] as Turn).steps.slice(1, 3)).toStrictEqual([
+      { kind: "retry", id: "1", attempt: 1, error: "Unknown error" },
+      { kind: "retry", id: "2", attempt: 2, error: "Unknown error" },
+    ]);
+    expect(items.map((item) => item.kind)).toStrictEqual(["turn", "notice"]);
+  });
+
+  it("still counts a retry whose omission is followed by a message before any compaction", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("f1", [], { stopReason: "error", error: "503" }),
+        omit("o1", "f1"),
+        reply("a1", [says("ok")]),
+        compaction("k1"),
+      ],
+      "s",
+      none,
+    );
+
+    expect((items[0] as Turn).steps[0]).toStrictEqual({ kind: "retry", id: "0", attempt: 1, error: "503" });
+  });
+
   it("does not take a reply that was taken out of the context but had not failed for a retry", () => {
     const { items } = projectTranscript(
       [
@@ -334,6 +407,7 @@ describe("projectTranscript", () => {
             status: "unfinished",
             output: null,
             details: { tool: "bash", command: "ls" },
+            partial: false,
           },
           {
             kind: "tool",
@@ -342,8 +416,9 @@ describe("projectTranscript", () => {
             tool: "bash",
             args: { command: "ls" },
             status: "failed",
-            output: { text: "boom", truncated: false },
+            output: "boom",
             details: { tool: "bash", command: "ls" },
+            partial: false,
           },
         ],
         outcome: "stopped",

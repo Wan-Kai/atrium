@@ -53,11 +53,31 @@ describe("wholeTranscript", () => {
     expect(asked()).toBe(2);
   });
 
-  it("stops when a page brings nothing new", async () => {
+  it("fails rather than export part of the session when a page brings nothing new", async () => {
     const { client, asked } = clientWith([notice("n5")], [null, [notice("n1")]]);
 
-    expect((await wholeTranscript(client, "s1")).map((item) => item.id)).toStrictEqual(["n5"]);
+    await expect(wholeTranscript(client, "s1")).rejects.toThrow("the transcript changed while it was being exported");
     expect(asked()).toBe(1);
+  });
+
+  it("fails when the host rebuilt the transcript meanwhile, or the view went back to loading", async () => {
+    const rebuilt = clientWith([notice("n5")], [[notice("n4")], [notice("n1")]]);
+    const store = rebuilt.client.session("s1");
+    rebuilt.client.loadOlder = async () => store?.setState({ epoch: 2, items: [notice("n9")] });
+    const reloading = clientWith([notice("n5")], [[notice("n4")], [notice("n1")]]);
+    const other = reloading.client.session("s1");
+    reloading.client.loadOlder = async () =>
+      other?.setState({ status: "loading", items: [notice("n0"), notice("n5")] });
+
+    await expect(wholeTranscript(rebuilt.client, "s1")).rejects.toThrow("changed");
+    await expect(wholeTranscript(reloading.client, "s1")).rejects.toThrow("changed");
+  });
+
+  it("exports what the view has when there is nothing older", async () => {
+    const { client, asked } = clientWith([notice("n5")], []);
+
+    expect((await wholeTranscript(client, "s1")).map((item) => item.id)).toStrictEqual(["n5"]);
+    expect(asked()).toBe(0);
   });
 
   it("has nothing for a session it does not watch", async () => {

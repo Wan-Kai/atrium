@@ -190,13 +190,37 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
           changes: event.changes,
         })),
       );
-    case "notice_added":
-      return { ...next, items: [...view.items, event.notice] };
+    case "notice_added": {
+      if (event.before === null) return { ...next, items: [...view.items, event.notice] };
+      const index = view.items.findIndex((item) => item.id === event.before);
+      if (index === -1) return "resync";
+      return { ...next, items: view.items.toSpliced(index, 0, event.notice) };
+    }
     case "session_exited":
       return { ...next, status: "exited", run: null };
   }
   // Stryker disable next-line all: unreachable, since the switch covers every event type.
   throw new Error(`unknown session event ${String((event as { type: unknown }).type)}`);
+}
+
+/**
+ * Puts a step fetched whole in place of the preview the view has.
+ *
+ * @remarks
+ * A step fetched in an epoch that has since passed may no longer be the same step, so it is
+ * dropped (SPEC-0001, "大内容"). Live events after the fetch replace it as any other step.
+ *
+ * @sideEffects none
+ * @param view - The current view.
+ * @param turnId - The turn.
+ * @param step - The whole step.
+ * @param epoch - The epoch it was fetched in.
+ * @returns The new view.
+ */
+export function withWholeStep(view: SessionView, turnId: string, step: Step, epoch: number): SessionView {
+  if (view.epoch !== epoch) return view;
+  const items = updateTurn(view.items, turnId, (turn) => updateStep(turn, step.id, () => step));
+  return items === null ? view : { ...view, items };
 }
 
 /**

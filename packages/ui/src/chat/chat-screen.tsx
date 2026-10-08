@@ -37,6 +37,7 @@ export function describeSendError(error: unknown): string {
   if (error.code === "pi_rejected") return `pi 拒绝了这条消息：${String(error.params?.["detail"] ?? "")}`;
   if (error.code === "session_not_found") return "这个会话已经不存在了";
   if (error.code === "transcript_changed") return "对话记录刚刚更新了，请再试一次";
+  if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
   return "宿主出错了，消息没有发出";
 }
 
@@ -76,6 +77,10 @@ function SessionArea({
         onLoadOlder={() => {
           // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
           client.loadOlder(sessionId).catch(() => undefined);
+        }}
+        onLoadStep={(turnId, stepId) => {
+          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
         }}
       />
       {notice}

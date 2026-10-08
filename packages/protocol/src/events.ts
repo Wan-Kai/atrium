@@ -108,11 +108,13 @@ export const TurnFinishedEvent = z.strictObject({
 });
 export type TurnFinishedEvent = z.infer<typeof TurnFinishedEvent>;
 
-/** A notice joined the end of the transcript, found when the host re-read pi's entries. */
+/** A notice joined the transcript, found when the host re-read pi's entries. */
 export const NoticeAddedEvent = z.strictObject({
   type: z.literal("notice_added"),
   ...sessionEventFields,
   notice: Notice,
+  /** The id of the item it goes before; `null` for the end. */
+  before: z.string().min(1).nullable(),
 });
 export type NoticeAddedEvent = z.infer<typeof NoticeAddedEvent>;
 

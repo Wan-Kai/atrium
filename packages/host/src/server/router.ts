@@ -70,6 +70,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.prompt(command);
       case "fetch_transcript":
         return options.sessions.fetchTranscript(command);
+      case "fetch_step":
+        return options.sessions.fetchStep(command);
       case "list_recent_sessions":
         return options.sessions.listRecentSessions(command.limit);
       case "open_session":

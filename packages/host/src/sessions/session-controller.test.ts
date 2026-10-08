@@ -226,6 +226,22 @@ describe("createSessionController on a recorded session", () => {
     });
     expect(() => controller.fetchTranscript(fetch(2, "s1:e18"))).toThrow(new CommandError("transcript_changed"));
     expect(() => controller.fetchTranscript(fetch(1, "nope"))).toThrow(new CommandError("transcript_changed"));
+
+    const step = {
+      type: "fetch_step",
+      requestId: "f2",
+      traceparent: fetch(1, "x").traceparent,
+      sessionId: "s1",
+    } as const;
+    expect(controller.fetchStep({ ...step, epoch: 1, turnId: "id2", stepId: "1" })).toStrictEqual({
+      step: expect.objectContaining({ kind: "tool", callId: "call-1", output: "tool-ok" }),
+    });
+    expect(() => controller.fetchStep({ ...step, epoch: 2, turnId: "id2", stepId: "1" })).toThrow(
+      new CommandError("transcript_changed"),
+    );
+    expect(() => controller.fetchStep({ ...step, epoch: 1, turnId: "id2", stepId: "99" })).toThrow(
+      new CommandError("transcript_changed"),
+    );
   });
 });
 
@@ -364,7 +380,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
         type: "turn_finished",
         ...at(3),
         turnId: "id2",
-        outcome: "stopped",
+        outcome: "failed",
         error: null,
         durationMs: 0,
         usage: null,

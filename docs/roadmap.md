@@ -216,7 +216,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 用户消息超过约 12 行折叠；复制消息和回复（需求 14）；回复"···"里的"复制为 Markdown"、整个会话"导出为 Markdown"。
   - 打开会话先取最近 20 轮（订阅时的快照带上），翻到顶再按游标加载更早的（`fetch_transcript` 的 `before`）。协议见 [SPEC-0001 · 对话记录](specs/0001-mvp1-single-session-chat.md#对话记录m142026-10-08-定)。
   - 临时的"最近会话"列表（2026-10-08 定）：没有打开会话时列出 pi 会话目录里最近的会话，点一下打开；用到 M1.5 的 SessionFiles 的只读扫描，M1.5 的侧栏和"历史"做好后替换。
-  - 历史会话的每轮用时由时间戳推算；TTFT、输出速度宿主重启后显示"—"。
+  - 历史会话的每轮用时由时间戳推算。（TTFT、输出速度只在状态栏显示，2026-10-08 定挪到 M1.6，和状态栏一起做。）
   - 显示模式菜单和会话"···"（导出为 Markdown）的位置在 M1.5 的标签栏右端；M1.4 先放在对话区顶部右侧，标签栏做好后挪过去。
 - **参考**：[pi-internals](research/pi-internals.md) §1 会话文件、§3 RPC 协议、[domain-model](architecture/domain-model.md) §2 会话历史、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)、Paseo 的 `packages/server/src/server/agent/providers/pi/history-mapper.ts`、`tool-call-mapper.ts`（Paseo 用 `get_messages`，只借鉴映射，不照搬重建方式）。
 - **完成标准**：用一个带压缩、带分叉的真实会话文件恢复，显示的历史与终端 pi 一致，压缩前的内容不丢；打开 1000 轮的会话到首屏满足预算；2000 轮重建有基准基线。
@@ -242,7 +242,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 模型与推理强度（PiCatalog，档位按模型）、点阵模型按钮与推理强度框。
   - 输入框：图片（当前模型不支持图片时提示）、`@` 引用文件、`/` 命令、长文本粘贴、拖入、展开、↑ 历史、草稿、中文输入法回车、胶囊条（排队、插话、本会话改动）。
   - 快捷键：回车发送 / 排队，⌘+回车插话，Esc 停止，⌘⇧I 模型菜单，⌘⇧E 推理强度菜单。
-  - 对话框（PendingInteraction）、状态栏（注册表、自定义入口、上下文分段估算）。
+  - 对话框（PendingInteraction）、状态栏（注册表、自定义入口、上下文分段估算；首 token 时间、输出速度由宿主当场测得，宿主重启后显示"—"）。
   - 失败重试与进程崩溃自动重启（各 3 次）、错误卡片。
   - 有余力再做（SPEC-0001 标为可选）：⌘F 会话内搜索、选中回复文字后"引用"。
 - **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、§5 模型与设置、[SPEC-0001 · 关键流程、输入框、状态栏](specs/0001-mvp1-single-session-chat.md#关键流程)、[pi-internals](research/pi-internals.md) §2 运行时、§4 模型与认证、§5 extension、[paseo-architecture](research/paseo-architecture.md) §2 生命周期（中断与锁定）、原型 `app-prototype.html`。
