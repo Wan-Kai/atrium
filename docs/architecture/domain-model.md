@@ -160,7 +160,7 @@ classDiagram
       duration?
     }
     class Notice {
-      kind: compacted | retrying | extension
+      kind: compacted | extension
       raw?
     }
     class Step {
@@ -177,6 +177,10 @@ classDiagram
       details?
     }
     class SteerStep
+    class RetryStep {
+      attempt
+      error
+    }
     class InteractionStep {
       interactionId
       question
@@ -195,6 +199,7 @@ classDiagram
     Step <|.. TextStep
     Step <|.. ToolStep
     Step <|.. SteerStep
+    Step <|.. RetryStep
     Step <|.. InteractionStep
 ```
 
@@ -207,7 +212,7 @@ classDiagram
 - **TranscriptProjection** 是给对话区看的投影：沿当前分支把条目组织成 Atrium 的"轮"。注意 pi 的 turn 是"一次助手响应及其工具执行"，比 Atrium 的一轮小；Atrium 的一轮 = 一条用户消息到下一条用户消息之间的全部内容。MVP 1 不展示会话树，但底层按树建模，以后加会话树、分叉不用重来。
 - **ContextBreakdown** 给状态栏用，是估算值：总量来自 `get_session_stats().contextUsage`（可能为空或是估算）；系统提示词和工具定义沿当前分支回放系统消息与压缩检查点得出；没有系统消息的旧会话只显示总量。MVP 2 的上下文检查器要的是"每次实际发出的请求"，另由 extension 捕获，不从这里升级。
 - **Notice** 里 `extension` 类型保留无法识别的 extension 通知原文，MVP 1 只记录不显示，MVP 2 的"带标记的通知"从这里接入。
-- **Notice** 还用来显示"正在重试（第 N / 3 次）"和"进程已自动重启"。
+- 自动重试发生在一轮中间，用 **RetryStep** 显示"正在重试（第 N / 3 次）"，不拆开这一轮；**Notice** 用来显示压缩和"进程已自动重启"（M1.6）。
 - **InteractionStep** 只是对话记录里"问题 → 回答"的展示，活着的请求见下一节的 PendingInteraction。pi 不把对话框写进会话文件，所以这一步只在宿主存活期间存在。
 - **ToolStep** 各自带状态，同一批里的工具调用可以并行，不假设前一个结束后一个才开始。
 - **改动汇总**不建类，语义是"已观测到的工具修改"：`edit` 有 diff，显示增删行；`write` 显示写入内容（取自调用参数，pi 的结果里没有），增删行未知时不显示数字；通过 bash 等其他方式的改动统计不到。多次编辑同一文件是累计编辑量，不是净改动。

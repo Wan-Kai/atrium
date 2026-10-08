@@ -523,11 +523,12 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
   - `text`：一段文字。只有一轮最后那段文字作为回复显示在过程下方，前面的收进过程（"一轮里的文字"）；哪段是最后一段由界面判断。
   - `tool`：`callId`、`tool`（工具名）、`args`、`status`（`running` / `done` / `failed` / `unfinished`：这一轮结束了还没有结果，比如被中断）、`output`（结果文字，最多 16 KB，超出时带 `truncated`）、`details`。`details` 按工具区分：`bash`（命令）、`read`（路径、起止行）、`edit`（路径、pi 给的 diff、增删行数）、`write`（路径和写入内容，内容来自调用参数，pi 的结果里没有）、其他工具没有。
   - `steer`：插话。pi 的文件不区分插话和追加消息，规则是：一条用户消息紧跟在工具结果之后、下一次模型回复之前，就是插话，属于当前这一轮。
-- **提示条** `Notice`：`compacted`（压缩前 token 数、压缩摘要）、`retrying`（第 N 次、pi 的报错原文）。失败后被重试的那次回复不作为回复显示，变成一条 `retrying`。
+  - `retry`：自动重试（第 N 次、pi 的报错原文），显示成一行灰色"正在重试"。失败后被重试的那次回复不作为回复。重试发生在一轮中间，所以是步骤，不是提示条。
+- **提示条** `Notice`：`compacted`（压缩前 token 数、压缩摘要）。压缩发生在一轮中间时（上下文溢出），提示条放在这一轮之后，不把一轮拆开。
 
 **id**：工具步骤带 pi 的调用 id；步骤的 `id` 是它在轮里的序号，实时和重建按同样的规则排出同样的序号。轮的 `id` 在实时时由宿主生成；运行结束后宿主重新读条目，按顺序把新的用户消息条目对应到实时的轮，沿用实时的 id。只在历史里出现的轮用"会话 id + 条目 id"。
 
-**实时事件**（都带 `sessionId + epoch + seq + traceId`）：`turn_started`（带整条轮，用户消息确认时）、`step_added`、`step_delta`（推理、文字的增量）、`step_updated`（工具状态和结果变化时带整个步骤）、`turn_finished`（结果、用时、用量、改动）、`notice_added`。`run_started`、`run_settled`、`session_exited` 不变。
+**实时事件**（都带 `sessionId + epoch + seq + traceId`）：`turn_started`（带整条轮，用户消息确认时）、`step_added`、`step_delta`（推理、文字的增量）、`step_updated`（工具状态和结果变化时带整个步骤）、`turn_finished`（结果、用时、用量、改动）、`notice_added`（压缩结束时）。`run_started`、`run_settled`、`session_exited` 不变。
 
 **快照与分页**
 
