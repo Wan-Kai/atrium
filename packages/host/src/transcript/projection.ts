@@ -28,7 +28,8 @@ function historyId(sessionId: string, entryId: string): string {
  * Builds the transcript of a session's current branch from its entries (domain-model §2).
  *
  * @remarks
- * A user message the host saw open a turn opens one (`facts`); pi's file does not say, so any other
+ * A user message the host saw open a turn opens one (`facts` from this host run, `opened` from
+ * earlier ones); pi's file does not say, so any other
  * opens a turn unless it directly follows a tool result, which makes it a steer in the turn
  * running then (SPEC-0001, `steer`). Assistant messages add
  * their blocks as steps; a failed reply that pi took out of the context (an omission) is followed
@@ -44,12 +45,15 @@ function historyId(sessionId: string, entryId: string): string {
  * @param branch - The branch's entries, root first.
  * @param sessionId - The session's id, for history-only ids.
  * @param facts - What the host measured of turns it saw live, by the id of the entry opening them.
+ * @param opened - Entries an earlier host run saw open a turn; nothing was measured of them then
+ * that survived.
  * @returns The items and the entries that opened turns.
  */
 export function projectTranscript(
   branch: readonly LogEntry[],
   sessionId: string,
   facts: ReadonlyMap<string, TurnFacts>,
+  opened: ReadonlySet<string> = new Set(),
 ): Projection {
   // Stryker disable next-line ConditionalExpression,ArrayDeclaration: only looked up by entry id, which is never undefined or made up.
   const omitted = new Set(branch.flatMap((entry) => (entry.kind === "omission" ? [entry.targetId] : [])));
@@ -78,7 +82,7 @@ export function projectTranscript(
   for (const entry of branch) {
     switch (entry.kind) {
       case "user": {
-        if (draft !== null && !facts.has(entry.id) && draft.turn.takesSteer) {
+        if (draft !== null && !facts.has(entry.id) && !opened.has(entry.id) && draft.turn.takesSteer) {
           draft.turn.steer(entry.text, entry.timestamp);
           break;
         }

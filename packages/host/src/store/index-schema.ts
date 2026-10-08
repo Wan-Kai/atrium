@@ -97,3 +97,21 @@ export const PREFERENCES_FILE: IndexFileSpec<PreferencesDocument> = {
   schema: PreferencesDocument,
   empty: () => ({ appearance: "system", displayMode: "summary" }),
 };
+
+const TurnStartsDocument = z.looseObject({ entries: z.array(z.string()) });
+export type TurnStartsDocument = z.infer<typeof TurnStartsDocument>;
+
+/**
+ * `turns/<session id>.json`: the user message entries the host saw open a turn.
+ *
+ * @remarks
+ * pi's file does not tell a new turn from a steer (SPEC-0001, `steer`); the host records what it
+ * saw so a rebuild after a restart still agrees (domain-model §1, "索引的存储").
+ *
+ * @sideEffects none
+ * @param sessionId - The session; only ids safe as a file name.
+ * @returns The file's spec.
+ */
+export function turnStartsFile(sessionId: string): IndexFileSpec<TurnStartsDocument> {
+  return { name: `turns/${sessionId}`, version: 1, schema: TurnStartsDocument, empty: () => ({ entries: [] }) };
+}

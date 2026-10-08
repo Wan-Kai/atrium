@@ -16,6 +16,7 @@ import type { ResourceTracker } from "../platform/resources";
 import type { SubscriptionRegistry } from "../sync/subscriptions";
 import type { EntriesPage } from "../transcript/session-transcript";
 import type { WorkspaceService } from "../workspaces/workspace-service";
+import type { TurnStarts } from "../store/turn-starts";
 import type { Layouts } from "./layouts";
 import type { CatalogEntry, SessionCatalog } from "./session-catalog";
 import type { SessionCommands } from "./session-commands";
@@ -64,7 +65,9 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  *   record goes, and a chat's empty directory is removed (domain-model, "已决定 13");
  * - archiving hides a session and stops its pi;
  * - pi must have been found and be usable; otherwise starting fails with `pi_unavailable` and
- *   pi's status, which the UI explains.
+ *   pi's status, which the UI explains;
+ * - which user messages opened turns is kept per session (`turnStarts`), so a later host
+ *   rebuilds steers and turns as they were (SPEC-0001, `steer`).
  *
  * Subscribing sends each newly watched session's snapshot to that connection before any later
  * event (domain-model §7); a draft without pi has an empty one, and its subscribers get the real
@@ -91,6 +94,8 @@ export function createSessionManager(options: {
   readonly tracer: Tracer;
   readonly logger: Logger;
   readonly newId: () => string;
+  /** Loads a session's turn starts (`turns/<session id>.json`); without it they live in memory. */
+  readonly turnStarts?: (sessionId: string) => Promise<TurnStarts>;
 }): SessionManager {
   const sessions = new Map<string, Running>();
   /** Every pi started, including one still reporting its session id, so `close` stops them all. */
@@ -267,6 +272,10 @@ export function createSessionManager(options: {
     // A session started again continues past its old controller's epoch, so clients still
     // showing the old one see the change and take a fresh snapshot (domain-model §7).
     const previous = sessions.get(sessionId)?.controller.snapshot().epoch ?? 0;
+    const starts = await options.turnStarts?.(sessionId).catch((error: unknown) => {
+      options.logger.warn({ ...failureFields(error), sessionId }, "turn starts could not be read");
+      return undefined;
+    });
     const controller = createSessionController({
       sessionId,
       epoch: previous + 1,
@@ -287,6 +296,14 @@ export function createSessionManager(options: {
       newId: options.newId,
       onRefreshFailed: (error) =>
         options.logger.warn({ ...failureFields(error), sessionId }, "transcript refresh failed"),
+      ...(starts === undefined
+        ? {}
+        : {
+            turnStarts: {
+              opened: starts.opened,
+              record: (entryIds: readonly string[]) => inBackground("turn starts", () => starts.record(entryIds)),
+            },
+          }),
     });
     const started: Running = { controller, pi: traced };
     sessions.set(sessionId, started);

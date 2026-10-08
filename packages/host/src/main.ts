@@ -21,6 +21,7 @@ import { createSessionManager } from "./sessions/session-manager";
 import { acquireHostLock, processExists } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
 import { createPreferenceStore } from "./store/preferences";
+import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
 import { SubscriptionRegistry } from "./sync/subscriptions";
 import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspector";
@@ -198,6 +199,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     tracer: tracing.tracer,
     logger,
     newId: () => randomUUID(),
+    turnStarts: async (sessionId) => {
+      const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
+      if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
+      return starts;
+    },
   });
   projects.onChange(() => feed.changed());
   catalog.onChange(() => feed.changed());

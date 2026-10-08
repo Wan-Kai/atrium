@@ -114,7 +114,8 @@ interface SeenTurn {
  * records are tied to the new user message entries of that read, matched from the end, and the
  * rebuild follows them: the turns keep their live ids and timings, and a turn stays a turn even
  * where pi's file would suggest a steer (SPEC-0001, `steer`), so a normal run rebuilds exactly as
- * it was sent.
+ * it was sent. The entries found to open live turns are handed to `onTurnsSeen`, so a host
+ * started later still knows them (`opened`; SPEC-0001, `steer`).
  * Events, snapshots and pages carry steps as they travel (`forTransport`); the transcript keeps
  * them whole. Rebuilds only happen between runs; the caller makes sure of that.
  *
@@ -126,6 +127,10 @@ export function createSessionTranscript(options: {
   readonly sessionId: string;
   readonly newId: () => string;
   readonly now: () => number;
+  /** Entries earlier host runs saw open a turn. */
+  readonly opened?: ReadonlySet<string>;
+  /** Told the entries a rebuild found turns seen live to have opened, to remember them. */
+  readonly onTurnsSeen?: (entryIds: readonly string[]) => void;
 }): SessionTranscript {
   const { sessionId, newId, now } = options;
   const log: SessionLog = createSessionLog();
@@ -251,7 +256,7 @@ export function createSessionTranscript(options: {
    * Matched from the end: the newest entries are the ones the host saw. Records that find no
    * entry are dropped; they would never match later.
    *
-   * @sideEffects Records facts by entry; clears the records.
+   * @sideEffects Records facts by entry; clears the records; tells `onTurnsSeen`.
    * @param fresh - Ids of the entries this read added.
    */
   function bindSeen(fresh: ReadonlySet<string>): void {
@@ -259,13 +264,18 @@ export function createSessionTranscript(options: {
     const count = Math.min(users.length, seen.length);
     const entries = users.slice(users.length - count);
     const records = seen.slice(seen.length - count);
+    const opened: string[] = [];
     entries.forEach((entry, index) => {
       const facts = records[index]?.facts;
       // Stryker disable next-line ConditionalExpression: rebuilds happen between runs, when every turn has ended and has facts.
-      if (facts !== undefined && facts !== null) factsByEntry.set(entry.id, facts);
+      if (facts !== undefined && facts !== null) {
+        factsByEntry.set(entry.id, facts);
+        opened.push(entry.id);
+      }
     });
     // Stryker disable next-line ArrayDeclaration: see `seen`.
     seen = [];
+    if (opened.length > 0) options.onTurnsSeen?.(opened);
   }
 
   return {
@@ -311,7 +321,7 @@ export function createSessionTranscript(options: {
       if (reset) log.clear();
       bindSeen(log.append(page.entries, page.leafId));
       const before = items;
-      items = [...projectTranscript(log.branch(), sessionId, factsByEntry).items];
+      items = [...projectTranscript(log.branch(), sessionId, factsByEntry, options.opened).items];
       return compare(before, items);
     },
     latest() {

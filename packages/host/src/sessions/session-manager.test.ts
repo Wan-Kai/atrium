@@ -12,6 +12,7 @@ import { LAYOUTS_FILE, SESSIONS_FILE } from "../store/index-schema";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
 import { createSessionCatalog } from "./session-catalog";
+import type { TurnStarts } from "../store/turn-starts";
 import { type SessionTools, createSessionManager } from "./session-manager";
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -48,7 +49,11 @@ async function place() {
  * @param where - The directories, to share between managers.
  * @returns The manager and what tests look at.
  */
-async function manage(tools: ScriptedPiBehavior | SessionTools | null, where?: Awaited<ReturnType<typeof place>>) {
+async function manage(
+  tools: ScriptedPiBehavior | SessionTools | null,
+  where?: Awaited<ReturnType<typeof place>>,
+  turnStarts?: (sessionId: string) => Promise<TurnStarts>,
+) {
   const at = where ?? (await place());
   const recording = recordingTracing();
   cleanups.push(recording.shutdown);
@@ -97,6 +102,7 @@ async function manage(tools: ScriptedPiBehavior | SessionTools | null, where?: A
     tracer: recording.tracer,
     logger: recording.logger,
     newId: () => `id${++next}`,
+    ...(turnStarts === undefined ? {} : { turnStarts }),
   });
   cleanups.push(
     () => manager.close(),
@@ -539,5 +545,56 @@ describe("SessionManager workspaces", () => {
     manager.rescan();
 
     await vi.waitFor(() => expect(records.filter((record) => record["msg"] === "session scan failed")).toHaveLength(1));
+  });
+});
+
+describe("SessionManager turn starts", () => {
+  it("reads a session's turn starts when its pi starts, and adds the turns it sees", async () => {
+    const asked: string[] = [];
+    const recorded: string[][] = [];
+    const { manager } = await manage(
+      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } } },
+      undefined,
+      async (sessionId) => {
+        asked.push(sessionId);
+        return { opened: new Set(), record: async (entryIds) => void recorded.push([...entryIds]) };
+      },
+    );
+    const { sessionId } = await manager.createChat("client-1");
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+
+    await vi.waitFor(() => expect(recorded).toStrictEqual([["u1"]]));
+    expect(asked).toStrictEqual(["pi-session-1"]);
+  });
+
+  it("goes on without turn starts it cannot read, logging it", async () => {
+    const { manager, records } = await manage({ rules: SESSION_ONE }, undefined, () =>
+      Promise.reject(new Error("disk gone")),
+    );
+
+    const { sessionId } = await manager.createChat("client-1");
+
+    expect(sessionId).toBe("pi-session-1");
+    expect(records.filter((record) => record["msg"] === "turn starts could not be read")).toMatchObject([
+      { level: "warn", sessionId: "pi-session-1", err: { message: "disk gone" } },
+    ]);
+  });
+
+  it("logs a failed write of turn starts", async () => {
+    const { manager, records } = await manage(
+      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } } },
+      undefined,
+      async () => ({ opened: new Set(), record: () => Promise.reject(new Error("disk full")) }),
+    );
+    const { sessionId } = await manager.createChat("client-1");
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+
+    await vi.waitFor(() =>
+      expect(records.filter((record) => record["msg"] === "turn starts failed")).toMatchObject([
+        { level: "warn", err: { message: "disk full" } },
+      ]),
+    );
   });
 });
