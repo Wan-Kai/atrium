@@ -1,4 +1,5 @@
-import { execFile } from "node:child_process";
+import { absolutePathEntries } from "@atrium/pi";
+import { spawn } from "node:child_process";
 import type { Clock } from "./clock";
 import type { ResourceTracker } from "./resources";
 
@@ -67,7 +68,8 @@ const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
  * @remarks
  * At most `GIT_CONCURRENCY` commands run at once and the rest wait in order (SPEC-0001,
  * "worktree 合并状态"). Every command runs with the tool environment, so the git and the
- * credentials are the user's own, plus:
+ * credentials are the user's own, but PATH keeps only absolute directories, so a `git` placed in
+ * a repository is never run (security.md, "子进程与文件"); and:
  * - `GIT_OPTIONAL_LOCKS=0`, so a background `git status` never takes the index lock from under
  *   the user's own git commands;
  * - `GIT_TERMINAL_PROMPT=0`, so a fetch that needs a password fails instead of waiting for input;
@@ -85,7 +87,13 @@ export function createGitRunner(options: {
   readonly clock: Clock;
   readonly resources: ResourceTracker;
 }): GitRunner {
-  const env = { ...options.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" };
+  const env = {
+    ...options.env,
+    PATH: absolutePathEntries(options.env["PATH"] ?? ""),
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_TERMINAL_PROMPT: "0",
+    LC_ALL: "C",
+  };
   const waiting: (() => void)[] = [];
   let running = 0;
 
@@ -133,24 +141,10 @@ export function createGitRunner(options: {
         runOptions.signal === undefined ? deadline.signal : AbortSignal.any([deadline.signal, runOptions.signal]);
       const command = args[0] ?? "";
       try {
-        return await new Promise<GitResult>((resolve, reject) => {
-          execFile(
-            "git",
-            [...args],
-            { cwd: runOptions.cwd, env, signal, maxBuffer: MAX_OUTPUT_BYTES, encoding: "utf8" },
-            (error, stdout) => {
-              if (error === null) {
-                resolve({ code: 0, stdout });
-              } else if (signal.aborted) {
-                reject(new GitError(command, timedOut ? "timeout" : "aborted"));
-              } else if (typeof error.code === "number") {
-                resolve({ code: error.code, stdout });
-              } else {
-                reject(new GitError(command, "spawn"));
-              }
-            },
-          );
-        });
+        const ended = await runGit(args, runOptions.cwd, env, signal);
+        if (signal.aborted) throw new GitError(command, timedOut ? "timeout" : "aborted");
+        if (ended.code === null) throw new GitError(command, "spawn");
+        return { code: ended.code, stdout: ended.stdout };
       } finally {
         cancel();
         untrack();
@@ -158,4 +152,82 @@ export function createGitRunner(options: {
       }
     },
   };
+}
+
+/**
+ * Runs git in a process group of its own and waits until the whole group has ended.
+ *
+ * @remarks
+ * git starts helpers of its own, such as ssh for a fetch or a credential helper; ending only git
+ * would leave them running (security.md, "子进程与文件"). So git leads a new process group,
+ * which is killed when the signal aborts and, once git exits, again for anything it left behind;
+ * the run ends only when every holder of git's output has gone. Output past
+ * `MAX_OUTPUT_BYTES`, a failure to start and death by a signal give no exit code.
+ *
+ * @sideEffects Spawns git; may kill its process group.
+ * @param args - git's arguments.
+ * @param cwd - Where to run it.
+ * @param env - Its environment.
+ * @param signal - Stops it.
+ * @returns The exit code, or `null` when there is none, and what git printed.
+ */
+function runGit(
+  args: readonly string[],
+  cwd: string,
+  env: Readonly<Record<string, string>>,
+  signal: AbortSignal,
+): Promise<{ readonly code: number | null; readonly stdout: string }> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve({ code: null, stdout: "" });
+      return;
+    }
+    // stdin stays open and unused, as with `execFile`: no git command Atrium runs reads it.
+    const child = spawn("git", [...args], { cwd, env, detached: true, stdio: ["pipe", "pipe", "ignore"] });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let failed = false;
+    /**
+     * Kills git's whole process group.
+     *
+     * @remarks
+     * A group already gone is fine.
+     *
+     * @sideEffects Sends SIGKILL to the group.
+     */
+    const killGroup = (): void => {
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    };
+    /**
+     * Ends git when the signal aborts.
+     *
+     * @remarks
+     * A named listener, so it can be removed once git has ended.
+     *
+     * @sideEffects Kills git's process group.
+     */
+    const onAbort = (): void => killGroup();
+    signal.addEventListener("abort", onAbort, { once: true });
+    child.stdout.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_OUTPUT_BYTES) {
+        failed = true;
+        killGroup();
+      } else {
+        chunks.push(chunk);
+      }
+    });
+    child.once("error", () => {
+      failed = true;
+    });
+    child.once("exit", () => killGroup());
+    child.once("close", (code) => {
+      signal.removeEventListener("abort", onAbort);
+      resolve({ code: failed ? null : code, stdout: Buffer.concat(chunks).toString("utf8") });
+    });
+  });
 }

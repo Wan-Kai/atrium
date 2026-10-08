@@ -1,9 +1,42 @@
 import { FakeClock, createTempDir } from "@atrium/testkit";
-import { join } from "node:path";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { delimiter, join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "./clock";
 import { GIT_CONCURRENCY, GitError, createGitRunner } from "./git";
 import { ResourceTracker } from "./resources";
+
+/**
+ * Whether a process exists.
+ *
+ * @remarks
+ * Signal 0 checks without sending anything.
+ *
+ * @sideEffects none
+ * @param pid - The process.
+ * @returns Whether it exists.
+ */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Kills a process the test started, if it is still there.
+ *
+ * @remarks
+ * By its own id, never by name.
+ *
+ * @sideEffects May kill the process.
+ * @param pid - The process.
+ */
+function killIfAlive(pid: number): void {
+  if (alive(pid)) process.kill(pid, "SIGKILL");
+}
 
 /** The environment the tests give git: the test process's own PATH and HOME. */
 const env = { PATH: process.env["PATH"] ?? "", HOME: process.env["HOME"] ?? "" };
@@ -51,6 +84,22 @@ describe("GitRunner.run", () => {
     );
   });
 
+  it("never runs a git found through a relative or empty PATH entry, as one placed in the repository", async () => {
+    const cwd = await tempDir();
+    const fake = join(cwd, "git");
+    await writeFile(fake, "#!/bin/sh\necho planted\n");
+    await chmod(fake, 0o755);
+    const git = createGitRunner({
+      env: { ...env, PATH: [".", "", env.PATH].join(delimiter) },
+      clock: systemClock,
+      resources: new ResourceTracker(),
+    });
+
+    const { stdout } = await git.run(["--version"], { cwd });
+
+    expect(stdout).toMatch(/^git version /);
+  });
+
   it(`runs at most ${GIT_CONCURRENCY} commands at once, the rest waiting in order`, async () => {
     const cwd = await tempDir();
     const resources = new ResourceTracker();
@@ -85,6 +134,48 @@ describe("GitRunner.run", () => {
 
     expect(await run).toStrictEqual(new GitError("hash-object", "timeout"));
     expect(clock.pendingTimers()).toBe(0);
+  });
+
+  it("ends what git started along with it, such as ssh for a fetch, before freeing its slot", async () => {
+    const cwd = await tempDir();
+    const bin = join(cwd, "bin");
+    await mkdir(bin);
+    const pidFile = join(cwd, "child.pid");
+    // A git that starts a long-lived helper, as fetch starts ssh, and then waits.
+    await writeFile(join(bin, "git"), `#!/bin/sh\nsleep 60 &\necho $! > ${pidFile}\nwait\n`);
+    await chmod(join(bin, "git"), 0o755);
+    const clock = new FakeClock();
+    const resources = new ResourceTracker();
+    const git = createGitRunner({
+      env: { ...env, PATH: `${bin}${delimiter}/bin${delimiter}/usr/bin` },
+      clock,
+      resources,
+    });
+
+    const run = git.run(["fetch"], { cwd, timeoutMs: 1_000 }).catch((error: unknown) => error);
+    await vi.waitFor(async () => expect(await readFile(pidFile, "utf8")).toMatch(/^\d+\n$/));
+    const helper = Number((await readFile(pidFile, "utf8")).trim());
+    onTestFinished(() => killIfAlive(helper));
+    clock.advance(1_000);
+
+    expect(await run).toStrictEqual(new GitError("fetch", "timeout"));
+    expect(resources.snapshot()["git.process"]).toBe(0);
+    expect(alive(helper)).toBe(false);
+  });
+
+  it("gives up on output past 16 MiB", async () => {
+    const cwd = await tempDir();
+    const bin = join(cwd, "bin");
+    await mkdir(bin);
+    await writeFile(join(bin, "git"), "#!/bin/sh\nhead -c 17000000 /dev/zero\n");
+    await chmod(join(bin, "git"), 0o755);
+    const git = createGitRunner({
+      env: { ...env, PATH: `${bin}${delimiter}/bin${delimiter}/usr/bin` },
+      clock: systemClock,
+      resources: new ResourceTracker(),
+    });
+
+    await expect(git.run(["log"], { cwd })).rejects.toStrictEqual(new GitError("log", "spawn"));
   });
 
   it("waits 30 seconds by default", async () => {
