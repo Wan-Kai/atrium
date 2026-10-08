@@ -18,6 +18,7 @@
     "test:leak": "vitest run --project leak && pnpm build && pnpm --filter @atrium/desktop test:e2e --grep @leak",
     "test:perf": "pnpm build && pnpm --filter @atrium/desktop test:e2e --grep @perf",
     "test:e2e": "pnpm build && pnpm --filter @atrium/desktop test:e2e --grep-invert \"@leak|@perf\"",
+    "test:stress": "node scripts/stress.mjs",
     "test:soak": "vitest run --project soak",
     "test:mutation": "stryker run",
     "bench": "vitest bench --run",
