@@ -1,4 +1,4 @@
-import { FakeClock, createTempDir } from "@atrium/testkit";
+import { FakeClock, GIT_SCENE_ENV, createTempDir } from "@atrium/testkit";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -38,8 +38,15 @@ function killIfAlive(pid: number): void {
   if (alive(pid)) process.kill(pid, "SIGKILL");
 }
 
-/** The environment the tests give git: the test process's own PATH and HOME. */
-const env = { PATH: process.env["PATH"] ?? "", HOME: process.env["HOME"] ?? "" };
+/**
+ * The environment the tests give git: the test process's own PATH and HOME, and the scenes'
+ * ceiling, so git never works on a repository around the temporary folder.
+ */
+const env = {
+  PATH: process.env["PATH"] ?? "",
+  HOME: process.env["HOME"] ?? "",
+  GIT_CEILING_DIRECTORIES: GIT_SCENE_ENV["GIT_CEILING_DIRECTORIES"] ?? "",
+};
 
 /**
  * A temporary directory removed after the test.

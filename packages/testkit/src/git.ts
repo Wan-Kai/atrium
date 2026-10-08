@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
+import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { createTempDir } from "./temp-dir";
@@ -7,24 +9,41 @@ import { createTempDir } from "./temp-dir";
 const run = promisify(execFile);
 
 /**
- * The environment test repositories are built with.
+ * The environment test repositories are built with, for temporary folders under `root`.
  *
  * @remarks
  * The user's and the system's git configuration are left out, so hooks, signing or a different
  * default branch on the developer's machine cannot change a scene; authors and dates are fixed.
+ *
+ * git never looks for a repository at or above `root` (`GIT_CEILING_DIRECTORIES`). Mutation testing
+ * keeps temporary folders inside Atrium's own checkout; a test that timed out has its scene
+ * removed by its cleanup while its body still runs git there, and git would then work on the
+ * checkout itself: it once switched its branch and created branches and worktrees in it, and the
+ * scene's next step pushes (testing.md, "临时文件"). Both the path and its real path are given,
+ * since macOS reaches the temporary folder through a link.
+ *
+ * @sideEffects none
+ * @param root - The folder temporary folders are made in.
+ * @returns The environment.
  */
-export const GIT_SCENE_ENV: Readonly<Record<string, string>> = {
-  PATH: process.env["PATH"] ?? "",
-  HOME: process.env["HOME"] ?? "",
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_NOSYSTEM: "1",
-  GIT_AUTHOR_NAME: "Atrium Test",
-  GIT_AUTHOR_EMAIL: "test@example.com",
-  GIT_COMMITTER_NAME: "Atrium Test",
-  GIT_COMMITTER_EMAIL: "test@example.com",
-  GIT_AUTHOR_DATE: "2026-10-08T00:00:00Z",
-  GIT_COMMITTER_DATE: "2026-10-08T00:00:00Z",
-};
+export function gitSceneEnv(root: string): Readonly<Record<string, string>> {
+  return {
+    GIT_CEILING_DIRECTORIES: [...new Set([root, realpathSync(root)])].join(":"),
+    PATH: process.env["PATH"] ?? "",
+    HOME: process.env["HOME"] ?? "",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_AUTHOR_NAME: "Atrium Test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "Atrium Test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+    GIT_AUTHOR_DATE: "2026-10-08T00:00:00Z",
+    GIT_COMMITTER_DATE: "2026-10-08T00:00:00Z",
+  };
+}
+
+/** The environment test repositories are built with; see `gitSceneEnv`. */
+export const GIT_SCENE_ENV = gitSceneEnv(tmpdir());
 
 /**
  * Runs git with the scenes' environment.
