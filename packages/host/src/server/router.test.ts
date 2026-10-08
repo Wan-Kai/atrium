@@ -33,6 +33,10 @@ function fakeSessions() {
       if (command.text === "crash") throw new Error("secret detail");
       return { disposition: "started" };
     },
+    fetchTranscript: async (command) => {
+      calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
+      return { items: [], hasOlder: true };
+    },
   };
   return { sessions, calls };
 }
@@ -115,16 +119,22 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "create_chat", requestId: "r1" }));
     await route(connection, withTrace({ type: "subscribe_sessions", requestId: "r2", sessionIds: ["s1"] }));
     await route(connection, withTrace({ type: "prompt", requestId: "r3", sessionId: "s1", text: "hi" }));
+    await route(
+      connection,
+      withTrace({ type: "fetch_transcript", requestId: "r4", sessionId: "s1", epoch: 2, before: "t9", limit: 50 }),
+    );
 
     expect(calls).toStrictEqual([
       ["createChat", "connection-7"],
       ["subscribe", "connection-7", ["s1"]],
       ["prompt", "s1", "hi"],
+      ["fetchTranscript", "s1", 2, "t9", 50],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { sessionId: "s1" } },
       { type: "response", requestId: "r2", ok: true, result: {} },
       { type: "response", requestId: "r3", ok: true, result: { disposition: "started" } },
+      { type: "response", requestId: "r4", ok: true, result: { items: [], hasOlder: true } },
     ]);
   });
 

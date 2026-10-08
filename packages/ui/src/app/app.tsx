@@ -1,5 +1,6 @@
 import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import { useEffect, useState } from "react";
+import { DisplayModeContext, createDisplayMode } from "../state/display-mode";
 import { useConnectionState } from "../state/use-connection-state";
 import { clientId, readBootstrap } from "./bootstrap";
 import { ChatScreen } from "../chat/chat-screen";
@@ -20,12 +21,13 @@ type Shell =
  * a failed bridge call is shown instead of becoming an unhandled rejection.
  *
  * @sideEffects On mount, asks the desktop bridge for the host address, opens a WebSocket and
- * starts reporting UI problems to the host;
- * disconnects on unmount.
+ * starts reporting UI problems to the host; disconnects on unmount. Reads the display mode from
+ * `localStorage` and keeps it there.
  * @returns The app shell.
  */
 export function App() {
   const [shell, setShell] = useState<Shell>({ kind: "waiting", view: { status: "starting" } });
+  const [displayMode] = useState(() => createDisplayMode(localStorage));
 
   useEffect(() => {
     let active = true;
@@ -75,7 +77,11 @@ export function App() {
       <header className="flex h-12 shrink-0 items-center justify-center text-[length:var(--fs-sm)]">
         {shell.kind === "waiting" ? <ConnectionStatus view={shell.view} /> : <LiveStatus client={shell.client} />}
       </header>
-      {shell.kind === "connected" ? <ChatScreen client={shell.client} /> : null}
+      {shell.kind === "connected" ? (
+        <DisplayModeContext value={displayMode}>
+          <ChatScreen client={shell.client} />
+        </DisplayModeContext>
+      ) : null}
     </main>
   );
 }

@@ -52,10 +52,15 @@ describe("pi contract: a session history with tools, a retry, a compaction and a
               blocks: [
                 { type: "thinking", text: "Look first." },
                 { type: "toolCall", id: "call-1", name: "bash", arguments: { command: "printf 'tool-%s' ok" } },
+              ],
+            },
+            // One call per reply: pi runs a reply's calls in parallel, so their events would come
+            // in any order, and each call needs the file the one before it wrote.
+            {
+              blocks: [
                 { type: "toolCall", id: "call-2", name: "write", arguments: { path: "notes.txt", content: "a\nb\n" } },
               ],
             },
-            // One call per reply from here, so each runs after the file it needs exists.
             {
               blocks: [
                 {
@@ -111,6 +116,7 @@ describe("pi contract: a session history with tools, a retry, a compaction and a
           "user",
           "assistant",
           "toolResult",
+          "assistant",
           "toolResult",
           "assistant",
           "toolResult",

@@ -1,4 +1,4 @@
-import { type PiInspection, PiRequestError } from "@atrium/pi";
+import { type PiInspection, PiRequestError, toLogEntry } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
 import { mkdir } from "node:fs/promises";
@@ -8,6 +8,7 @@ import type { Logger } from "../platform/logger";
 import { createPiDeps } from "../platform/pi-deps";
 import type { ResourceTracker } from "../platform/resources";
 import type { SubscriptionRegistry } from "../sync/subscriptions";
+import type { EntriesPage } from "../transcript/session-transcript";
 import { type SessionController, createSessionController } from "./session-controller";
 import type { SessionCommands } from "./session-commands";
 import { startTracedPi } from "./traced-pi";
@@ -102,8 +103,26 @@ export function createSessionManager(options: {
       // Fire and forget: `exited` never rejects.
       void pi.exited.then(() => running.delete(pi));
       let sessionId: string;
+      let entries: EntriesPage;
+      /**
+       * Reads the session's entries after `since`, or all of them.
+       *
+       * @remarks
+       * pi's leaf is the one it reports, not the last entry (domain-model §2).
+       *
+       * @sideEffects Calls pi.
+       * @param since - The last entry already read.
+       * @returns The entries, converted, and the leaf.
+       */
+      const getEntries = async (since: string | undefined): Promise<EntriesPage> => {
+        const data = await traced.request(
+          since === undefined ? { type: "get_entries" } : { type: "get_entries", since },
+        );
+        return { entries: data.entries.map(toLogEntry), leafId: data.leafId };
+      };
       try {
         ({ sessionId } = await traced.request({ type: "get_state" }));
+        entries = await getEntries(undefined);
       } catch (error) {
         // A pi that cannot report its session is of no use; it must not keep running unowned.
         await pi.stop();
@@ -123,11 +142,14 @@ export function createSessionManager(options: {
             exited: pi.exited,
             // No deadline: pi answers only after its preparations, which may include compacting.
             prompt: (message) => traced.request({ type: "prompt", message }, { timeoutMs: null }),
+            getEntries,
             stop: () => pi.stop(),
           },
+          entries,
           publish: (event) => options.subscriptions.publish(event),
           clock: options.clock,
           newId: options.newId,
+          onRefreshFailed: (error) => options.logger.warn({ err: error, sessionId }, "transcript refresh failed"),
         }),
       );
       return { sessionId };
@@ -142,6 +164,9 @@ export function createSessionManager(options: {
     },
     async prompt(command) {
       return controllerOf(command.sessionId).prompt(command);
+    },
+    async fetchTranscript(command) {
+      return controllerOf(command.sessionId).fetchTranscript(command);
     },
     async close() {
       closed = true;

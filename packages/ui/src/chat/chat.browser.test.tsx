@@ -1,14 +1,15 @@
 import type { AtriumClient, SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
-import type { TranscriptMessage } from "@atrium/protocol";
+import type { TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
+import { present } from "@atrium/testkit";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import "../styles.css";
 import { ChatScreen, describeSendError } from "./chat-screen";
 import { Composer } from "./composer";
-import { AssistantReply, UserBubble } from "./messages";
+import { UserBubble } from "./messages";
 import { formatElapsed } from "./run-status";
 import { Transcript } from "./transcript";
 
@@ -19,23 +20,27 @@ function view(fields: Partial<SessionView> = {}): SessionView {
     status: "ready",
     epoch: 1,
     seq: 0,
-    messages: [],
-    streaming: null,
+    items: [],
+    hasOlder: false,
     run: null,
     pending: [],
     ...fields,
   };
 }
 
-/** A finished assistant message. */
-function reply(id: string, text: string, fields: Partial<Extract<TranscriptMessage, { role: "assistant" }>> = {}) {
+/** A turn answered with `text`. */
+function turn(id: string, text: string, fields: Partial<Turn> = {}): Turn {
   return {
+    kind: "turn",
     id,
-    role: "assistant" as const,
-    content: [{ type: "text" as const, text }],
-    stopReason: "stop" as const,
-    errorMessage: null,
-    timestamp: Date.UTC(2026, 9, 7, 14, 31),
+    user: { text: `问 ${id}`, images: 0, clientMessageId: null, timestamp: Date.UTC(2026, 9, 7, 14, 31) },
+    steps: [{ kind: "text", id: "0", text }],
+    outcome: "done",
+    error: null,
+    startedAt: Date.UTC(2026, 9, 7, 14, 31),
+    durationMs: 1000,
+    usage: null,
+    changes: [],
     ...fields,
   };
 }
@@ -91,43 +96,24 @@ describe("messages", () => {
     expect(confirmed?.textContent).toMatch(/^已确认\d{2}:31$/);
   });
 
-  it("says when a reply failed, with pi's text, or was stopped", async () => {
+  it("folds a message longer than about 12 lines, with a way to open and close it", async () => {
+    const long = Array.from({ length: 30 }, (_, index) => `第 ${index} 行`).join("\n");
     const screen = await render(
       <>
-        <AssistantReply
-          content={[]}
-          streaming={false}
-          finished={reply("a1", "", { stopReason: "error", errorMessage: "429" })}
-        />
-        <AssistantReply
-          content={[{ type: "text", text: "写了一半" }]}
-          streaming={false}
-          finished={reply("a2", "写了一半", { stopReason: "aborted" })}
-        />
+        <UserBubble text={long} images={2} />
+        <UserBubble text="短" />
       </>,
     );
+    const [folded, short] = [...screen.container.querySelectorAll<HTMLElement>('[data-testid="user-text"]')];
+    const body = present(folded, "the long message");
 
-    expect(screen.container.querySelector('[data-testid="reply-error"]')?.textContent).toBe("回复出错：429");
-    expect(screen.container.textContent).toContain("写了一半已停止");
-  });
-
-  it("shows reasoning while it streams and folds it into a toggle afterwards", async () => {
-    const content = [
-      { type: "reasoning" as const, text: "先想一想" },
-      { type: "text" as const, text: "答案" },
-    ];
-    const screen = await render(<AssistantReply content={content} streaming />);
-    const toggle = screen.getByRole("button", { name: "思考中" });
-    await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.container.textContent).toContain("先想一想");
-
-    await screen.rerender(<AssistantReply content={content} streaming={false} finished={reply("a1", "答案")} />);
-    const folded = screen.getByRole("button", { name: "思考过程" });
-
-    await expect.element(folded).toHaveAttribute("aria-expanded", "false");
-    expect(screen.container.textContent).not.toContain("先想一想");
-    await folded.click();
-    expect(screen.container.textContent).toContain("先想一想");
+    await vi.waitFor(() => expect(body.scrollHeight).toBeGreaterThan(body.clientHeight));
+    expect(screen.container.textContent).toContain("2 张图片");
+    await screen.getByRole("button", { name: "展开" }).click();
+    expect(body.scrollHeight).toBe(body.clientHeight);
+    await screen.getByRole("button", { name: "收起" }).click();
+    expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
+    expect(present(short, "the short message").parentElement?.querySelector("button")).toBeNull();
   });
 
   it("formats run times compactly", () => {
@@ -141,39 +127,93 @@ describe("messages", () => {
   });
 });
 
-/** The transcript with the given messages in a 300 px box. */
-function at(messages: TranscriptMessage[]) {
+/** The transcript with the given items in a 300 px box. */
+function at(items: TranscriptItem[], fields: Partial<SessionView> = {}, onLoadOlder = () => undefined) {
   return (
     <div style={{ height: 300, display: "flex", flexDirection: "column" }}>
-      <Transcript view={view({ messages })} />
+      <Transcript view={view({ items, ...fields })} onLoadOlder={onLoadOlder} />
     </div>
   );
 }
 
 describe("Transcript", () => {
-  it("shows messages, pending sends, the running timer and the reply streaming, in that order", async () => {
+  it("shows turns and notices, then pending sends, then the run until its turn arrives", async () => {
     const screen = await render(
-      <div style={{ height: 400, display: "flex", flexDirection: "column" }}>
-        <Transcript
-          view={view({
-            messages: [{ id: "u1", role: "user", text: "问", clientMessageId: "q1", timestamp: 0 }],
-            pending: [{ clientMessageId: "q2", text: "再问" }],
-            run: { runId: "r1", startedAt: Date.now() - 12_000 },
-            streaming: { messageId: "m1", content: [{ type: "text", text: "正在答" }] },
-          })}
-        />
-      </div>,
+      at(
+        [
+          turn("t1", "答"),
+          { kind: "notice", id: "n1", notice: "compacted", tokensBefore: 1, summary: "", timestamp: 0 },
+        ],
+        { pending: [{ clientMessageId: "q2", text: "再问" }], run: { runId: "r1", startedAt: Date.now() - 12_000 } },
+      ),
     );
-    const items = screen.container.querySelectorAll("[data-testid]");
+    const shown = [
+      ...screen.container.querySelectorAll(
+        '[data-testid="turn"], [data-testid="notice"], [data-testid="user-message"], [data-testid="run-status"]',
+      ),
+    ].map((item) => item.getAttribute("data-testid"));
 
-    expect(
-      [...items].map((item) => item.getAttribute("data-testid")).filter((id) => id !== "transcript"),
-    ).toStrictEqual(["user-message", "user-message", "run-status", "assistant-message"]);
+    expect(shown).toStrictEqual(["turn", "user-message", "notice", "user-message", "run-status"]);
     expect(screen.container.querySelector('[data-testid="run-status"]')?.textContent).toMatch(/^进行中 · 1[23]s$/);
   });
 
+  it("shows the run's timer in its turn once the turn arrives", async () => {
+    const running = turn("t1", "", {
+      steps: [{ kind: "thinking", id: "0", text: "嗯", durationMs: null }],
+      outcome: "running",
+    });
+    const screen = await render(at([running], { run: { runId: "r1", startedAt: Date.now() - 3_000 } }));
+
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(1);
+    expect(
+      screen.container.querySelector('[data-testid="process-header"] [data-testid="run-status"]')?.textContent,
+    ).toMatch(/^进行中 · [34]s$/);
+  });
+
+  it("asks for older items when the top comes into view, and keeps the place it was reading", async () => {
+    const asked: number[] = [];
+    const later = Array.from({ length: 30 }, (_, index) => turn(`t${index + 10}`, `第 ${index + 10} 段`));
+    const screen = await render(
+      at(later, { hasOlder: true }, () => {
+        asked.push(1);
+      }),
+    );
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(scroller.scrollTop).toBeGreaterThan(0));
+    expect(asked).toStrictEqual([]);
+
+    scroller.scrollTop = 0;
+    await vi.waitFor(() => expect(asked.length).toBeGreaterThan(0));
+    const reading = screen.container.querySelector('[data-turn-id="t10"]') as HTMLElement;
+    const before = reading.getBoundingClientRect().top;
+    const earlier = Array.from({ length: 10 }, (_, index) => turn(`t${index}`, `第 ${index} 段`));
+    await screen.rerender(
+      at([...earlier, ...later], { hasOlder: false }, () => {
+        asked.push(1);
+      }),
+    );
+
+    await vi.waitFor(() => expect(Math.abs(reading.getBoundingClientRect().top - before)).toBeLessThanOrEqual(1));
+    expect(screen.container.textContent).not.toContain("正在加载更早的记录");
+  });
+
+  it("lists the questions along the edge and jumps to one", async () => {
+    // The bar only shows in a wide window.
+    await page.viewport(1280, 800);
+    const turns = Array.from({ length: 12 }, (_, index) => turn(`t${index}`, `第 ${index} 段`));
+    const screen = await render(at(turns));
+    const nav = screen.getByRole("navigation", { name: "提问导航" });
+    await expect.element(nav).toBeVisible();
+
+    await nav.getByRole("button", { name: "问 t2" }).click();
+
+    await vi.waitFor(() =>
+      expect(nav.getByRole("button", { name: "问 t2" }).element().getAttribute("aria-current")).toBe("true"),
+    );
+  });
+
   it("follows new content at the bottom; scrolled up it stops and offers a way back, with a dot for news", async () => {
-    const long = Array.from({ length: 40 }, (_, index) => reply(`a${index}`, `第 ${index} 段`));
+    const long = Array.from({ length: 40 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
     const screen = await render(at(long));
     const scroller = screen.getByTestId("transcript").element() as HTMLElement;
     await vi.waitFor(() =>
@@ -184,7 +224,7 @@ describe("Transcript", () => {
     const back = screen.getByRole("button", { name: "回到底部" });
     await expect.element(back).toBeVisible();
     expect(screen.container.querySelector('[data-testid="unseen-dot"]')).toBeNull();
-    await screen.rerender(at([...long, reply("new", "新的回复")]));
+    await screen.rerender(at([...long, turn("new", "新的回复")]));
     await vi.waitFor(() => expect(screen.container.querySelector('[data-testid="unseen-dot"]')).not.toBeNull());
     expect(scroller.scrollTop).toBe(0);
 
@@ -194,7 +234,7 @@ describe("Transcript", () => {
       expect(scroller.scrollTop + scroller.clientHeight).toBeGreaterThanOrEqual(scroller.scrollHeight - 1),
     );
     await expect.element(screen.getByRole("button", { name: "回到底部" })).not.toBeInTheDocument();
-    await screen.rerender(at([...long, reply("new", "新的回复"), reply("newer", "更新的回复")]));
+    await screen.rerender(at([...long, turn("new", "新的回复"), turn("newer", "更新的回复")]));
     await vi.waitFor(() =>
       expect(scroller.scrollTop + scroller.clientHeight).toBeGreaterThanOrEqual(scroller.scrollHeight - 1),
     );
@@ -220,6 +260,7 @@ function fakeClient(answers: { createChat?: () => Promise<void>; prompt?: () => 
       calls.push(`watch ${ids.join(",")}`);
     },
     session: (id: string) => stores.get(id),
+    loadOlder: async () => undefined,
     prompt: (sessionId: string, text: string) => {
       calls.push(`prompt ${sessionId} ${text}`);
       const store = stores.get(sessionId);
@@ -292,6 +333,25 @@ describe("ChatScreen", () => {
     stores.get("s1")?.setState({ run: null });
     await screen.getByRole("button", { name: "发送" }).click();
     await vi.waitFor(() => expect(calls).toStrictEqual(["createChat", "watch s1", "prompt s1 一", "prompt s1 二"]));
+  });
+
+  it("switches the display mode with Ctrl+O and from its menu", async () => {
+    const { client, calls } = fakeClient();
+    const screen = await render(<ChatScreen client={client} />);
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "一{Enter}");
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    const menu = screen.getByRole("button", { name: "显示模式（Ctrl+O 切换）" });
+    await expect.element(menu).toHaveTextContent("摘要模式");
+
+    await userEvent.keyboard("{Control>}o{/Control}");
+    await expect.element(menu).toHaveTextContent("思考模式");
+    await userEvent.keyboard("{Meta>}{Control>}o{/Control}{/Meta}");
+    await expect.element(menu).toHaveTextContent("思考模式");
+    await menu.click();
+    await screen.getByRole("menuitemradio", { name: /详细/ }).click();
+
+    await expect.element(menu).toHaveTextContent("详细模式");
+    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
   });
 
   it("explains a failed send above the input box", async () => {

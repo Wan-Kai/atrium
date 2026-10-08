@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import type { SessionView } from "@atrium/client";
+import type { Turn } from "@atrium/protocol";
 import { Markdown } from "./markdown";
 import { Transcript } from "./transcript";
 import showcase from "./reply-showcase.md?raw";
@@ -61,12 +62,13 @@ function transcriptAt(fields: Partial<SessionView>) {
           status: "ready",
           epoch: 1,
           seq: 0,
-          messages: [],
-          streaming: null,
+          items: [],
+          hasOlder: false,
           run: null,
           pending: [],
           ...fields,
         }}
+        onLoadOlder={() => undefined}
       />
     </div>
   );
@@ -74,13 +76,29 @@ function transcriptAt(fields: Partial<SessionView>) {
 
 /** How many characters of the reply are on screen. */
 function replyTextLength(root: HTMLElement): number {
-  return root.querySelector('[data-testid="assistant-message"]')?.textContent?.length ?? 0;
+  return root.querySelector('[data-testid="reply"]')?.textContent?.length ?? 0;
 }
 
 /** The reply's HTML, comparable across renders. */
 function replyHtml(root: HTMLElement): string {
-  const reply = root.querySelector<HTMLElement>('[data-testid="assistant-message"]');
-  return normalized(reply?.parentElement ?? root);
+  const reply = root.querySelector<HTMLElement>('[data-testid="reply"]');
+  return normalized(reply ?? root).replace(' data-streaming="false"', "");
+}
+
+/** A turn answered with `text`, running or done. */
+function answered(text: string, outcome: Turn["outcome"]): Turn {
+  return {
+    kind: "turn",
+    id: "t1",
+    user: { text: "展示一下", images: 0, clientMessageId: null, timestamp: 0 },
+    steps: text === "" ? [] : [{ kind: "text", id: "0", text }],
+    outcome,
+    error: null,
+    startedAt: 0,
+    durationMs: outcome === "running" ? null : 1000,
+    usage: null,
+    changes: [],
+  };
 }
 
 describe("streaming the reply showcase", () => {
@@ -104,30 +122,23 @@ describe("streaming the reply showcase", () => {
   }, 60_000);
 
   it("streams through the transcript as the app does, never losing text, and ends as the finished reply renders", async () => {
-    const finished = {
-      id: "m1",
-      role: "assistant" as const,
-      content: [{ type: "text" as const, text: showcase }],
-      stopReason: "stop" as const,
-      errorMessage: null,
-      timestamp: 0,
-    };
+    const finished = answered(showcase, "done");
     const run = { runId: "r1", startedAt: Date.now() };
     // The same layout both times, since the diagram scales to the width it gets.
-    const once = await render(transcriptAt({ messages: [finished] }));
+    const once = await render(transcriptAt({ items: [finished] }));
     await settled(once.container);
     const expected = replyHtml(once.container);
     await once.unmount();
 
-    const screen = await render(transcriptAt({ run, streaming: { messageId: "m1", content: [] } }));
+    const screen = await render(transcriptAt({ run, items: [answered("", "running")] }));
     const lengths: number[] = [];
     let text = "";
     for (const delta of deltas(showcase)) {
       text += delta;
-      await screen.rerender(transcriptAt({ run, streaming: { messageId: "m1", content: [{ type: "text", text }] } }));
+      await screen.rerender(transcriptAt({ run, items: [answered(text, "running")] }));
       lengths.push(replyTextLength(screen.container));
     }
-    await screen.rerender(transcriptAt({ messages: [finished] }));
+    await screen.rerender(transcriptAt({ items: [finished] }));
     await settled(screen.container);
 
     expect(lengths).toStrictEqual(lengths.toSorted((a, b) => a - b));

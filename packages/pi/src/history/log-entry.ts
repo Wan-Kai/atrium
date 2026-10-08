@@ -11,25 +11,22 @@ export type AssistantPart =
 export type LogStopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 
 /**
- * A session entry in Atrium's shape (domain-model §2).
+ * A message in Atrium's shape: user, assistant or tool result (domain-model §2).
  *
  * @remarks
- * Produced by the pi package, used only inside the host, never sent to clients. The tree
- * structure (`id`, `parentId`) is kept for every entry, including those the transcript skips.
+ * Live events and session entries carry the same messages, so the live transcript and the one
+ * rebuilt from entries are made from the same shape. `timestamp` is the message's own time, in
+ * milliseconds since the epoch.
  */
-export type LogEntry = {
-  readonly id: string;
-  readonly parentId: string | null;
-  /** Milliseconds since the epoch: the message's own time for messages, the entry's otherwise. */
-  readonly timestamp: number;
-} & (
-  | { readonly kind: "user"; readonly text: string; readonly images: number }
+export type LogMessage =
+  | { readonly kind: "user"; readonly text: string; readonly images: number; readonly timestamp: number }
   | {
       readonly kind: "assistant";
       readonly parts: readonly AssistantPart[];
       readonly stopReason: LogStopReason;
       readonly errorMessage: string | null;
-      readonly usage: { readonly input: number; readonly output: number } | null;
+      readonly usage: { readonly input: number; readonly output: number };
+      readonly timestamp: number;
     }
   | {
       readonly kind: "toolResult";
@@ -39,16 +36,31 @@ export type LogEntry = {
       readonly isError: boolean;
       /** pi's `details`, read by `toolDetails`. */
       readonly details: unknown;
-    }
-  | { readonly kind: "compaction"; readonly summary: string; readonly tokensBefore: number }
-  /** A failed reply taken out of the model's context before a retry. */
-  | { readonly kind: "omission"; readonly targetId: string }
-  /** Anything the transcript does not show: model and thinking changes, labels, system messages… */
-  | { readonly kind: "other" }
+      readonly timestamp: number;
+    };
+
+/**
+ * A session entry in Atrium's shape (domain-model §2).
+ *
+ * @remarks
+ * Produced by the pi package, used only inside the host, never sent to clients. The tree
+ * structure (`id`, `parentId`) is kept for every entry, including those the transcript skips.
+ * `timestamp` is the message's own time for messages and the entry's otherwise.
+ */
+export type LogEntry = { readonly id: string; readonly parentId: string | null } & (
+  | LogMessage
+  | ({ readonly timestamp: number } & (
+      | { readonly kind: "compaction"; readonly summary: string; readonly tokensBefore: number }
+      /** A failed reply taken out of the model's context before a retry. */
+      | { readonly kind: "omission"; readonly targetId: string }
+      /** Anything the transcript does not show: model and thinking changes, labels, system messages… */
+      | { readonly kind: "other" }
+    ))
 );
 
-/** pi's assistant message, as it arrives in a message entry. */
-type PiAssistantMessage = Extract<Extract<SessionEntry, { type: "message" }>["message"], { role: "assistant" }>;
+/** pi's message, as it arrives in a message entry or a `message_end` event. */
+export type PiMessage = Extract<SessionEntry, { type: "message" }>["message"];
+type PiAssistantMessage = Extract<PiMessage, { role: "assistant" }>;
 
 /**
  * Converts an assistant message's blocks.
@@ -84,13 +96,53 @@ function stopReason(reason: PiAssistantMessage["stopReason"]): LogStopReason {
 }
 
 /**
+ * Converts one of pi's messages to Atrium's shape.
+ *
+ * @remarks
+ * User, assistant and tool result messages are part of turns; system messages, `!bash` messages
+ * and extensions' messages are not (pi-internals.md §1). The message's own time is the one live
+ * events carry too, so durations computed from either match; the types promise it, but the file
+ * is JSON from another process, so a message without one takes `fallbackTime`.
+ *
+ * @sideEffects none
+ * @param message - pi's message.
+ * @param fallbackTime - The time to use when the message has none.
+ * @returns The message, or `null` for one the transcript does not show.
+ */
+export function toLogMessage(message: PiMessage, fallbackTime: number): LogMessage | null {
+  const timestamp = typeof message.timestamp === "number" ? message.timestamp : fallbackTime;
+  if (message.role === "user") return { kind: "user", ...contentText(message.content), timestamp };
+  if (message.role === "assistant") {
+    return {
+      kind: "assistant",
+      parts: assistantParts(message.content),
+      stopReason: stopReason(message.stopReason),
+      errorMessage: message.errorMessage ?? null,
+      usage: { input: message.usage.input, output: message.usage.output },
+      timestamp,
+    };
+  }
+  if (message.role === "toolResult") {
+    return {
+      kind: "toolResult",
+      callId: message.toolCallId,
+      tool: message.toolName,
+      text: contentText(message.content).text,
+      isError: message.isError,
+      details: message.details,
+      timestamp,
+    };
+  }
+  return null;
+}
+
+/**
  * Converts one pi session entry to Atrium's shape.
  *
  * @remarks
- * Message entries become user, assistant or tool result entries; system messages and `!bash`
- * messages are not part of turns (pi-internals.md §1). A `context_edit` that removes its target
- * marks a failed reply that pi retried. Everything else keeps only its place in the tree. Message
- * entries use the message's own time, the one live events carry too, so durations match.
+ * Message entries become messages (`toLogMessage`). A `context_edit` that removes its target
+ * marks a failed reply that pi retried. Everything else keeps only its place in the tree. An entry
+ * time that cannot be read becomes 0.
  *
  * @sideEffects none
  * @param entry - pi's entry.
@@ -107,33 +159,6 @@ export function toLogEntry(entry: SessionEntry): LogEntry {
       : { ...base, kind: "other" };
   }
   if (entry.type !== "message") return { ...base, kind: "other" };
-  const message = entry.message;
-  const at = {
-    ...base,
-    // The types promise a time, but the file is JSON from another process.
-    timestamp: typeof message.timestamp === "number" ? message.timestamp : base.timestamp,
-  };
-  if (message.role === "user") return { ...at, kind: "user", ...contentText(message.content) };
-  if (message.role === "assistant") {
-    return {
-      ...at,
-      kind: "assistant",
-      parts: assistantParts(message.content),
-      stopReason: stopReason(message.stopReason),
-      errorMessage: message.errorMessage ?? null,
-      usage: { input: message.usage.input, output: message.usage.output },
-    };
-  }
-  if (message.role === "toolResult") {
-    return {
-      ...at,
-      kind: "toolResult",
-      callId: message.toolCallId,
-      tool: message.toolName,
-      text: contentText(message.content).text,
-      isError: message.isError,
-      details: message.details,
-    };
-  }
-  return { ...at, kind: "other" };
+  const message = toLogMessage(entry.message, base.timestamp);
+  return message === null ? { ...base, kind: "other" } : { id: entry.id, parentId: entry.parentId, ...message };
 }

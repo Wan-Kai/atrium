@@ -8,6 +8,8 @@ export {
   CommandResult,
   type CommandType,
   CreateChatCommand,
+  FETCH_TRANSCRIPT_LIMIT,
+  FetchTranscriptCommand,
   PingCommand,
   PromptCommand,
   ReportClientIssueCommand,
@@ -17,20 +19,18 @@ export {
   Traceparent,
 } from "./commands";
 export {
-  AssistantBlock,
-  AssistantMessage,
-  MessageFinishedEvent,
-  MessageStartedEvent,
-  ReasoningDeltaEvent,
+  NoticeAddedEvent,
   RunSettledEvent,
   RunStartedEvent,
+  SNAPSHOT_TURNS,
   SessionEvent,
   SessionExitedEvent,
   SessionSnapshotEvent,
-  StopReason,
-  TextDeltaEvent,
-  TranscriptMessage,
-  UserMessage,
+  StepAddedEvent,
+  StepDeltaEvent,
+  StepUpdatedEvent,
+  TurnFinishedEvent,
+  TurnStartedEvent,
 } from "./events";
 export { FileChange, Notice, Step, TOOL_OUTPUT_LIMIT, ToolDetails, TranscriptItem, Turn } from "./transcript";
 export { ClientMessage, HostMessage, type ParsedCommand, ResponseMessage, parseClientMessage } from "./envelope";

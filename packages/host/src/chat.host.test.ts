@@ -4,6 +4,7 @@ import { createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../test/harness";
+import { PONG_ENTRIES, PONG_TURN } from "../test/scripted-chat";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 const traceparent = `00-${traceId}-00f067aa0ba902b7-01`;
@@ -14,19 +15,6 @@ afterEach(async () => {
   testHost = undefined;
 });
 
-/** What a scripted pi prints for one prompt, answered with "pong". */
-const turn = [
-  { type: "agent_start" },
-  { type: "message_end", message: { role: "user", content: [{ type: "text", text: "ping" }], timestamp: 1 } },
-  { type: "message_start", message: { role: "assistant", content: [], stopReason: "pending", timestamp: 2 } },
-  { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "pong" } },
-  {
-    type: "message_end",
-    message: { role: "assistant", content: [{ type: "text", text: "pong" }], stopReason: "stop", timestamp: 2 },
-  },
-  { type: "agent_settled" },
-];
-
 /** Starts a host whose tool environment finds a scripted pi as `pi`, and opens an authenticated socket. */
 async function chatHost() {
   const bin = await createTempDir("chat-bin");
@@ -36,7 +24,8 @@ async function chatHost() {
     {
       rules: {
         get_state: { data: { sessionId: "pi-session-1" } },
-        prompt: { data: { disposition: "started" }, events: turn },
+        get_entries: PONG_ENTRIES,
+        prompt: { data: { disposition: "started" }, events: PONG_TURN },
       },
     },
     "pi",
@@ -125,10 +114,10 @@ describe("one chat over the WebSocket", () => {
     expect(events.map((event) => event.type)).toStrictEqual([
       "session_snapshot",
       "run_started",
-      "message_finished",
-      "message_started",
-      "text_delta",
-      "message_finished",
+      "turn_started",
+      "step_added",
+      "step_delta",
+      "turn_finished",
       "run_settled",
     ]);
     expect(events.slice(1)).toMatchObject(
@@ -170,7 +159,7 @@ describe("one chat over the WebSocket", () => {
     expect(sessionEvents(second.received)).toStrictEqual(sessionEvents(first.received));
   });
 
-  it("lets the client create a chat, watch it and see the reply replace its pending message", async () => {
+  it("lets the client create a chat, watch it and see the turn replace its pending message", async () => {
     const chat = await chatHost();
     const client = createAtriumClient({
       url: chat.host.url,
@@ -191,12 +180,17 @@ describe("one chat over the WebSocket", () => {
 
     expect(view.getState()).toMatchObject({
       status: "ready",
+      epoch: 1,
       seq: 6,
       pending: [],
-      streaming: null,
-      messages: [
-        { role: "user", text: "ping", clientMessageId: "real-client-4" },
-        { role: "assistant", content: [{ type: "text", text: "pong" }], stopReason: "stop" },
+      items: [
+        {
+          kind: "turn",
+          user: { text: "ping", clientMessageId: "real-client-4" },
+          steps: [{ kind: "text", id: "0", text: "pong" }],
+          outcome: "done",
+          usage: { input: 3, output: 1 },
+        },
       ],
     });
   });

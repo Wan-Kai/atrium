@@ -3,6 +3,7 @@ import { COMMAND_TYPES, type Command, CommandResult } from "./commands";
 import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
+import type { Step, Turn } from "./transcript";
 import { PROTOCOL_VERSION } from "./version";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
@@ -24,7 +25,78 @@ const commands: Command[] = [
     details: "at render",
   },
   { type: "report_client_issue", requestId: "r7", traceparent, kind: "slow_frames", message: "p95 40 ms" },
+  { type: "fetch_transcript", requestId: "r8", traceparent, sessionId: "s1", epoch: 2, before: "s1:e7", limit: 100 },
 ];
+
+/** A finished command. */
+const bashStep: Step = {
+  kind: "tool",
+  id: "2",
+  callId: "call-1",
+  tool: "bash",
+  args: { command: "ls" },
+  status: "done",
+  output: { text: "a.ts", truncated: false },
+  details: { tool: "bash", command: "ls" },
+};
+
+/** One step of every kind, and a tool step with every kind of details. */
+const steps: Step[] = [
+  { kind: "thinking", id: "0", text: "plan", durationMs: 1200 },
+  { kind: "thinking", id: "1", text: "", durationMs: null },
+  bashStep,
+  {
+    kind: "tool",
+    id: "3",
+    callId: "call-2",
+    tool: "read",
+    args: { path: "a.ts" },
+    status: "failed",
+    output: { text: "…", truncated: true },
+    details: { tool: "read", path: "a.ts", offset: 10, limit: null },
+  },
+  {
+    kind: "tool",
+    id: "4",
+    callId: "call-3",
+    tool: "edit",
+    args: {},
+    status: "running",
+    output: null,
+    details: { tool: "edit", path: "a.ts", diff: "+1 x", added: 1, removed: 0 },
+  },
+  {
+    kind: "tool",
+    id: "5",
+    callId: "call-4",
+    tool: "write",
+    args: {},
+    status: "unfinished",
+    output: null,
+    details: { tool: "write", path: "b.ts", content: "x" },
+  },
+  { kind: "tool", id: "6", callId: "call-5", tool: "grep", args: {}, status: "done", output: null, details: null },
+  { kind: "steer", id: "7", text: "also b" },
+  { kind: "retry", id: "8", attempt: 1, error: "503" },
+  { kind: "text", id: "9", text: "done" },
+];
+
+/** A finished turn holding every kind of step. */
+const turn: Turn = {
+  kind: "turn",
+  id: "s1:e1",
+  user: { text: "hi", images: 1, clientMessageId: "r4", timestamp: 1 },
+  steps,
+  outcome: "done",
+  error: null,
+  startedAt: 1,
+  durationMs: 2000,
+  usage: { input: 10, output: 5 },
+  changes: [
+    { path: "a.ts", added: 1, removed: 0 },
+    { path: "b.ts", added: null, removed: null },
+  ],
+};
 
 /** Where an event sits in a session's stream. */
 const at = { sessionId: "s1", epoch: 1, seq: 7, traceId };
@@ -35,39 +107,34 @@ const events: SessionEvent[] = [
     type: "session_snapshot",
     ...at,
     traceId: null,
-    messages: [
-      { id: "u1", role: "user", text: "hi", clientMessageId: "r4", timestamp: 1 },
-      {
-        id: "a1",
-        role: "assistant",
-        content: [
-          { type: "reasoning", text: "thinking" },
-          { type: "text", text: "hello" },
-        ],
-        stopReason: "stop",
-        errorMessage: null,
-        timestamp: 2,
-      },
+    items: [
+      turn,
+      { kind: "notice", id: "s1:e9", notice: "compacted", tokensBefore: 152_000, summary: "so far", timestamp: 3 },
+      { ...turn, id: "live-2", steps: [], outcome: "running", durationMs: null, usage: null, changes: [] },
     ],
-    streaming: { messageId: "a2", content: [{ type: "text", text: "par" }] },
+    hasOlder: true,
     run: { runId: "run-1", startedAt: 3 },
     exited: false,
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
-  { type: "message_started", ...at, messageId: "a2" },
-  { type: "text_delta", ...at, messageId: "a2", contentIndex: 0, delta: "tial" },
-  { type: "reasoning_delta", ...at, messageId: "a2", contentIndex: 1, delta: "hmm" },
+  { type: "turn_started", ...at, turn: { ...turn, steps: [], outcome: "running", durationMs: null, usage: null } },
+  { type: "step_added", ...at, turnId: "s1:e1", step: { kind: "text", id: "0", text: "" } },
+  { type: "step_delta", ...at, turnId: "s1:e1", stepId: "0", delta: "par" },
+  { type: "step_updated", ...at, turnId: "s1:e1", step: bashStep },
   {
-    type: "message_finished",
+    type: "turn_finished",
     ...at,
-    message: {
-      id: "a2",
-      role: "assistant",
-      content: [],
-      stopReason: "error",
-      errorMessage: "429 rate limited",
-      timestamp: 4,
-    },
+    turnId: "s1:e1",
+    outcome: "failed",
+    error: "429 rate limited",
+    durationMs: 4,
+    usage: null,
+    changes: [],
+  },
+  {
+    type: "notice_added",
+    ...at,
+    notice: { kind: "notice", id: "s1:e9", notice: "compacted", tokensBefore: 0, summary: "", timestamp: 3 },
   },
   { type: "run_settled", ...at, runId: "run-1", outcome: "failed", settledAt: 5 },
   { type: "session_exited", ...at, traceId: null, reason: "crashed", code: null, signal: "SIGKILL" },
@@ -83,6 +150,7 @@ describe("parseClientMessage", () => {
   it("knows exactly the commands it accepts", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
       "create_chat",
+      "fetch_transcript",
       "ping",
       "prompt",
       "report_client_issue",
@@ -138,6 +206,16 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a non-string type", { type: 3, requestId: "r1", traceparent }, "r1"],
+    [
+      "a fetch of no items",
+      { type: "fetch_transcript", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, before: "x", limit: 0 },
+      "r1",
+    ],
+    [
+      "a fetch of more than 100 items",
+      { type: "fetch_transcript", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, before: "x", limit: 101 },
+      "r1",
+    ],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
   });
@@ -166,6 +244,10 @@ describe("CommandResult", () => {
     expect(CommandResult.prompt.parse({ disposition: "handled" })).toStrictEqual({ disposition: "handled" });
     expect(CommandResult.ping.safeParse({ extra: 1 }).success).toBe(false);
     expect(CommandResult.prompt.safeParse({ disposition: "paused" }).success).toBe(false);
+    expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
+      items: [turn],
+      hasOlder: false,
+    });
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
@@ -197,15 +279,13 @@ describe("HostMessage", () => {
     }
   });
 
-  it("accepts every error code, stop reason, run outcome and exit reason", () => {
+  it("accepts every error code, turn and run outcome and exit reason", () => {
     const variants: unknown[] = [
       ...ErrorCode.options.map((code) => ({ type: "response", requestId: "r1", ok: false, error: { code } })),
-      ...["stop", "length", "toolUse", "error", "aborted"].map((stopReason) => ({
-        ...events[5],
-        message: { ...(events[5] as { message: object }).message, stopReason },
-      })),
-      ...["completed", "stopped", "failed"].map((outcome) => ({ ...events[6], outcome })),
-      ...["requested", "crashed"].map((reason) => ({ ...events[7], reason })),
+      ...["running", "done", "stopped", "failed"].map((outcome) => ({ ...events[2], turn: { ...turn, outcome } })),
+      ...["done", "stopped", "failed"].map((outcome) => ({ ...events[6], outcome })),
+      ...["completed", "stopped", "failed"].map((outcome) => ({ ...events[8], outcome })),
+      ...["requested", "crashed"].map((reason) => ({ ...events[9], reason })),
     ];
 
     expect(ErrorCode.options).toStrictEqual([
@@ -214,6 +294,7 @@ describe("HostMessage", () => {
       "session_not_found",
       "pi_unavailable",
       "session_busy",
+      "transcript_changed",
       "pi_rejected",
       "internal_error",
     ]);
@@ -232,13 +313,17 @@ describe("HostMessage", () => {
     ["a negative seq", { ...events[1], seq: -1 }],
     ["a fractional epoch", { ...events[1], epoch: 1.5 }],
     ["an uppercase trace id", { ...events[1], traceId: traceId.toUpperCase() }],
-    ["a negative content index", { ...events[3], contentIndex: -1 }],
-    [
-      "an unknown stop reason",
-      { ...events[5], message: { ...(events[5] as { message: object }).message, stopReason: "pending" } },
-    ],
-    ["an unknown run outcome", { ...events[6], outcome: "paused" }],
-    ["an unknown event", { type: "tool_started", ...at }],
+    ["a turn that finishes still running", { ...events[6], outcome: "running" }],
+    ["a finished turn without a duration", { ...events[6], durationMs: null }],
+    ["a step without an id", { ...events[3], step: { kind: "text", id: "", text: "" } }],
+    ["an unknown step kind", { ...events[3], step: { kind: "image", id: "0" } }],
+    ["a retry numbered 0", { ...events[3], step: { kind: "retry", id: "0", attempt: 0, error: "" } }],
+    ["an unknown tool status", { ...events[5], step: { ...bashStep, status: "queued" } }],
+    ["details of an unknown tool", { ...events[5], step: { ...bashStep, details: { tool: "grep" } } }],
+    ["an unknown notice", { ...events[7], notice: { ...(events[7] as { notice: object }).notice, notice: "retried" } }],
+    ["a snapshot with messages", { ...events[0], messages: [] }],
+    ["an unknown run outcome", { ...events[8], outcome: "paused" }],
+    ["an unknown event", { type: "message_started", ...at, messageId: "a1" }],
     ["a welcome without heartbeat", { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1" }],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);

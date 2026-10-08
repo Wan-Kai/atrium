@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseTraceparent } from "./trace";
+import { TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -50,6 +51,26 @@ export const PromptCommand = z.strictObject({
 });
 export type PromptCommand = z.infer<typeof PromptCommand>;
 
+/** The most items one `fetch_transcript` returns. */
+export const FETCH_TRANSCRIPT_LIMIT = 100;
+
+/**
+ * Fetches the transcript items before one the client has, for scrolling back.
+ *
+ * @remarks
+ * `epoch` is the one the client's items come from; if the host has rebuilt the transcript since,
+ * the item ids may no longer line up, so it answers `transcript_changed` (SPEC-0001, "快照与分页").
+ */
+export const FetchTranscriptCommand = z.strictObject({
+  type: z.literal("fetch_transcript"),
+  ...sessionCommandFields,
+  epoch: z.number().int().nonnegative(),
+  /** The id of the earliest item the client has. */
+  before: z.string().min(1).max(256),
+  limit: z.number().int().min(1).max(FETCH_TRANSCRIPT_LIMIT),
+});
+export type FetchTranscriptCommand = z.infer<typeof FetchTranscriptCommand>;
+
 /** Kinds of problems the UI reports to the host's log. */
 export const ClientIssueKind = z.enum(["error", "long_task", "slow_frames"]);
 export type ClientIssueKind = z.infer<typeof ClientIssueKind>;
@@ -70,6 +91,7 @@ export const Command = z.discriminatedUnion("type", [
   CreateChatCommand,
   SubscribeSessionsCommand,
   PromptCommand,
+  FetchTranscriptCommand,
   ReportClientIssueCommand,
 ]);
 export type Command = z.infer<typeof Command>;
@@ -97,6 +119,11 @@ export const CommandResult = {
      * extension consumed it without a run.
      */
     disposition: z.enum(["started", "queued", "handled"]),
+  }),
+  fetch_transcript: z.strictObject({
+    /** The items just before `before`, oldest first. */
+    items: z.array(TranscriptItem),
+    hasOlder: z.boolean(),
   }),
   report_client_issue: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;

@@ -1,8 +1,8 @@
-import type { AssistantBlock, SessionEvent, TranscriptMessage } from "@atrium/protocol";
+import type { CommandResult, SessionEvent, Step, TranscriptItem, Turn } from "@atrium/protocol";
 
 /** A user message shown before the host confirms it (domain-model §7). */
 export interface PendingMessage {
-  /** The `requestId` of the `prompt` that sent it; the confirmed message carries the same id. */
+  /** The `requestId` of the `prompt` that sent it; the turn it opens carries the same id. */
   readonly clientMessageId: string;
   readonly text: string;
 }
@@ -15,8 +15,10 @@ export interface SessionView {
   readonly epoch: number;
   /** The last event applied; events must follow it without a gap. */
   readonly seq: number;
-  readonly messages: readonly TranscriptMessage[];
-  readonly streaming: { readonly messageId: string; readonly content: readonly AssistantBlock[] } | null;
+  /** The transcript as far back as the client has it, oldest first. */
+  readonly items: readonly TranscriptItem[];
+  /** Whether the host has items before the first one here. */
+  readonly hasOlder: boolean;
   readonly run: { readonly runId: string; readonly startedAt: number } | null;
   readonly pending: readonly PendingMessage[];
 }
@@ -32,60 +34,102 @@ export interface SessionView {
  * @returns An empty, loading view.
  */
 export function loadingView(sessionId: string): SessionView {
-  return { sessionId, status: "loading", epoch: 0, seq: 0, messages: [], streaming: null, run: null, pending: [] };
+  return { sessionId, status: "loading", epoch: 0, seq: 0, items: [], hasOlder: false, run: null, pending: [] };
 }
 
 /**
  * Drops pending messages the host has confirmed.
  *
  * @remarks
- * A confirmed user message carries the pending one's id as `clientMessageId`, so it replaces the
- * optimistic copy rather than showing twice.
+ * A turn carries the id of the pending message that opened it as `clientMessageId`, so it
+ * replaces the optimistic copy rather than showing twice.
  *
  * @sideEffects none
  * @param pending - Messages still waiting.
- * @param messages - Messages the host sent.
+ * @param items - Items the host sent.
  * @returns The ones still unconfirmed.
  */
-function unconfirmed(pending: readonly PendingMessage[], messages: readonly TranscriptMessage[]): PendingMessage[] {
-  // Stryker disable next-line ConditionalExpression,ArrayDeclaration: assistant messages have no id a pending message could match.
-  const confirmed = new Set(messages.flatMap((message) => (message.role === "user" ? [message.clientMessageId] : [])));
+function unconfirmed(pending: readonly PendingMessage[], items: readonly TranscriptItem[]): PendingMessage[] {
+  const confirmed = new Set(items.flatMap((item) => (item.kind === "turn" ? [item.user.clientMessageId] : [])));
   return pending.filter((message) => !confirmed.has(message.clientMessageId));
 }
 
 /**
- * Adds streamed text to one block of the message in progress.
+ * Replaces one turn, found by id from the end, where live events go.
  *
  * @remarks
- * Only the changed block is replaced; the other blocks, the message list and every earlier
- * message keep their identity, so React redraws just the streaming text (domain-model §7).
+ * Only the changed turn is new; the list's other items keep their identity, so React redraws
+ * just that turn (domain-model §7).
  *
  * @sideEffects none
- * @param streaming - The message in progress.
- * @param type - Which kind of block.
- * @param index - The block's index.
- * @param delta - The new text.
- * @returns The updated message.
+ * @param items - The items.
+ * @param turnId - The turn's id.
+ * @param change - Makes the new turn from the old; `null` if the change does not apply.
+ * @returns The new items, or `null` when there is no such turn or the change does not apply.
  */
-function appendDelta(
-  streaming: NonNullable<SessionView["streaming"]>,
-  type: AssistantBlock["type"],
-  index: number,
-  delta: string,
-): NonNullable<SessionView["streaming"]> {
-  const content = [...streaming.content];
-  content[index] = { type, text: (streaming.content[index]?.text ?? "") + delta };
-  return { messageId: streaming.messageId, content };
+function updateTurn(
+  items: readonly TranscriptItem[],
+  turnId: string,
+  change: (turn: Turn) => Turn | null,
+): TranscriptItem[] | null {
+  const index = items.findLastIndex((item) => item.id === turnId);
+  const turn = items[index];
+  if (turn?.kind !== "turn") return null;
+  const changed = change(turn);
+  if (changed === null) return null;
+  const next = [...items];
+  next[index] = changed;
+  return next;
+}
+
+/**
+ * Replaces one step of a turn, found by id.
+ *
+ * @remarks
+ * See `updateTurn`: the turn's other steps keep their identity.
+ *
+ * @sideEffects none
+ * @param turn - The turn.
+ * @param stepId - The step's id.
+ * @param change - Makes the new step from the old; `null` if the change does not apply.
+ * @returns The new turn, or `null` when there is no such step or the change does not apply.
+ */
+function updateStep(turn: Turn, stepId: string, change: (step: Step) => Step | null): Turn | null {
+  const index = turn.steps.findIndex((step) => step.id === stepId);
+  const step = turn.steps[index];
+  if (step === undefined) return null;
+  const changed = change(step);
+  if (changed === null) return null;
+  const steps = [...turn.steps];
+  steps[index] = changed;
+  return { ...turn, steps };
+}
+
+/**
+ * Applies a change to the items, or asks for a snapshot when it does not fit.
+ *
+ * @remarks
+ * A step event for a turn or step the view does not have means it missed something.
+ *
+ * @sideEffects none
+ * @param view - The view after the event's sequence number.
+ * @param items - The new items, or `null`.
+ * @returns The new view, or `resync`.
+ */
+function withItems(view: SessionView, items: TranscriptItem[] | null): SessionView | "resync" {
+  return items === null ? "resync" : { ...view, items };
 }
 
 /**
  * Applies one event from the host to a session's view.
  *
  * @remarks
- * A snapshot replaces everything but the still-unconfirmed pending messages. Any other event must
- * be the next one: from the same epoch with the next sequence number. Anything else means the
- * client missed something, and it asks for a fresh snapshot instead of guessing (domain-model §7).
- * Events that arrive before the first snapshot are already part of it and are ignored.
+ * A snapshot replaces everything but the still-unconfirmed pending messages; one that starts a
+ * new epoch (the host rebuilt the transcript) replaces older pages fetched before too. Any other
+ * event must be the next one: from the same epoch with the next sequence number. Anything else, or
+ * an event about a turn or step the view does not have, means the client missed something, and it
+ * asks for a fresh snapshot instead of guessing (domain-model §7). Events that arrive before the
+ * first snapshot are already part of it and are ignored.
  *
  * @sideEffects none
  * @param view - The current view.
@@ -99,10 +143,10 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       status: event.exited ? "exited" : "ready",
       epoch: event.epoch,
       seq: event.seq,
-      messages: event.messages,
-      streaming: event.streaming,
+      items: event.items,
+      hasOlder: event.hasOlder,
       run: event.run,
-      pending: unconfirmed(view.pending, event.messages),
+      pending: unconfirmed(view.pending, event.items),
     };
   }
   if (view.status === "loading") return view;
@@ -113,32 +157,68 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       return { ...next, run: { runId: event.runId, startedAt: event.startedAt } };
     case "run_settled":
       return { ...next, run: null };
-    case "message_started":
-      return { ...next, streaming: { messageId: event.messageId, content: [] } };
-    case "text_delta":
-    case "reasoning_delta":
-      if (view.streaming?.messageId !== event.messageId) return "resync";
-      return {
-        ...next,
-        streaming: appendDelta(
-          view.streaming,
-          event.type === "text_delta" ? "text" : "reasoning",
-          event.contentIndex,
-          event.delta,
+    case "turn_started":
+      return { ...next, items: [...view.items, event.turn], pending: unconfirmed(view.pending, [event.turn]) };
+    case "step_added":
+      return withItems(
+        next,
+        updateTurn(view.items, event.turnId, (turn) => ({ ...turn, steps: [...turn.steps, event.step] })),
+      );
+    case "step_delta":
+      return withItems(
+        next,
+        updateTurn(view.items, event.turnId, (turn) =>
+          updateStep(turn, event.stepId, (step) =>
+            step.kind === "thinking" || step.kind === "text" ? { ...step, text: step.text + event.delta } : null,
+          ),
         ),
-      };
-    case "message_finished": {
-      const messages = [...view.messages, event.message];
-      return {
-        ...next,
-        messages,
-        streaming: event.message.role === "assistant" ? null : view.streaming,
-        pending: unconfirmed(view.pending, [event.message]),
-      };
-    }
+      );
+    case "step_updated":
+      return withItems(
+        next,
+        updateTurn(view.items, event.turnId, (turn) => updateStep(turn, event.step.id, () => event.step)),
+      );
+    case "turn_finished":
+      return withItems(
+        next,
+        updateTurn(view.items, event.turnId, (turn) => ({
+          ...turn,
+          outcome: event.outcome,
+          error: event.error,
+          durationMs: event.durationMs,
+          usage: event.usage,
+          changes: event.changes,
+        })),
+      );
+    case "notice_added":
+      return { ...next, items: [...view.items, event.notice] };
     case "session_exited":
-      return { ...next, status: "exited", streaming: null, run: null };
+      return { ...next, status: "exited", run: null };
   }
   // Stryker disable next-line all: unreachable, since the switch covers every event type.
   throw new Error(`unknown session event ${String((event as { type: unknown }).type)}`);
+}
+
+/**
+ * Puts a page of older items in front of the view's.
+ *
+ * @remarks
+ * A page fetched in an epoch that has since passed no longer lines up and is dropped; so is one
+ * that no longer ends where the view's items begin, as when two fetches raced.
+ *
+ * @sideEffects none
+ * @param view - The current view.
+ * @param page - The items fetched and whether there are older ones.
+ * @param epoch - The epoch the page was fetched in.
+ * @param before - The id of the item it was fetched before.
+ * @returns The new view.
+ */
+export function prependOlder(
+  view: SessionView,
+  page: CommandResult<"fetch_transcript">,
+  epoch: number,
+  before: string,
+): SessionView {
+  if (view.epoch !== epoch || view.items[0]?.id !== before) return view;
+  return { ...view, items: [...page.items, ...view.items], hasOlder: page.hasOlder };
 }

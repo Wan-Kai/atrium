@@ -68,6 +68,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.subscribe(connection.id, command.sessionIds);
       case "prompt":
         return options.sessions.prompt(command);
+      case "fetch_transcript":
+        return options.sessions.fetchTranscript(command);
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

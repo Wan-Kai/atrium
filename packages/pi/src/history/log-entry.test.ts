@@ -74,7 +74,6 @@ describe("toLogEntry", () => {
         parts: [
           { type: "thinking", text: "Look first." },
           { type: "toolCall", callId: "call-1", tool: "bash", args: { command: "printf 'tool-%s' ok" } },
-          { type: "toolCall", callId: "call-2", tool: "write", args: { path: "notes.txt", content: "a\nb\n" } },
         ],
         stopReason: "toolUse",
         errorMessage: null,
@@ -95,6 +94,16 @@ describe("toLogEntry", () => {
         id: "e9",
         parentId: "e8",
         timestamp: 0,
+        kind: "assistant",
+        parts: [{ type: "toolCall", callId: "call-2", tool: "write", args: { path: "notes.txt", content: "a\nb\n" } }],
+        stopReason: "toolUse",
+        errorMessage: null,
+        usage: none,
+      },
+      {
+        id: "e10",
+        parentId: "e9",
+        timestamp: 0,
         kind: "toolResult",
         callId: "call-2",
         tool: "write",
@@ -103,8 +112,8 @@ describe("toLogEntry", () => {
         details: undefined,
       },
       {
-        id: "e10",
-        parentId: "e9",
+        id: "e11",
+        parentId: "e10",
         timestamp: 0,
         kind: "assistant",
         parts: [
@@ -120,8 +129,8 @@ describe("toLogEntry", () => {
         usage: none,
       },
       {
-        id: "e11",
-        parentId: "e10",
+        id: "e12",
+        parentId: "e11",
         timestamp: 0,
         kind: "toolResult",
         callId: "call-3",
@@ -135,8 +144,8 @@ describe("toLogEntry", () => {
         },
       },
       {
-        id: "e12",
-        parentId: "e11",
+        id: "e13",
+        parentId: "e12",
         timestamp: 0,
         kind: "assistant",
         parts: [{ type: "toolCall", callId: "call-4", tool: "read", args: { path: "notes.txt", offset: 2, limit: 1 } }],
@@ -145,8 +154,8 @@ describe("toLogEntry", () => {
         usage: none,
       },
       {
-        id: "e13",
-        parentId: "e12",
+        id: "e14",
+        parentId: "e13",
         timestamp: 0,
         kind: "toolResult",
         callId: "call-4",
@@ -156,8 +165,8 @@ describe("toLogEntry", () => {
         details: undefined,
       },
       {
-        id: "e14",
-        parentId: "e13",
+        id: "e15",
+        parentId: "e14",
         timestamp: 0,
         kind: "assistant",
         parts: [{ type: "text", text: "first answer" }],
@@ -165,10 +174,10 @@ describe("toLogEntry", () => {
         errorMessage: null,
         usage: none,
       },
-      { id: "e15", parentId: "e14", timestamp: 0, kind: "user", text: "two", images: 0 },
+      { id: "e16", parentId: "e15", timestamp: 0, kind: "user", text: "two", images: 0 },
       {
         id: "e2",
-        parentId: "e15",
+        parentId: "e16",
         timestamp: 0,
         kind: "assistant",
         parts: [],
@@ -178,7 +187,7 @@ describe("toLogEntry", () => {
       },
       { id: "e1", parentId: "e2", timestamp: 0, kind: "omission", targetId: "e2" },
       {
-        id: "e16",
+        id: "e17",
         parentId: "e1",
         timestamp: 0,
         kind: "assistant",
@@ -188,18 +197,18 @@ describe("toLogEntry", () => {
         usage: none,
       },
       {
-        id: "e17",
-        parentId: "e16",
+        id: "e18",
+        parentId: "e17",
         timestamp: 0,
         kind: "compaction",
         summary:
           "A short summary.\n\n---\n\n**Turn Context (split turn):**\n\nThe turn so far.\n\n<modified-files>\nnotes.txt\n</modified-files>",
         tokensBefore: 0,
       },
-      { id: "e18", parentId: "e17", timestamp: 0, kind: "user", text: "three", images: 0 },
+      { id: "e19", parentId: "e18", timestamp: 0, kind: "user", text: "three", images: 0 },
       {
-        id: "e19",
-        parentId: "e18",
+        id: "e20",
+        parentId: "e19",
         timestamp: 0,
         kind: "assistant",
         parts: [{ type: "text", text: "third answer" }],
@@ -207,10 +216,10 @@ describe("toLogEntry", () => {
         errorMessage: null,
         usage: none,
       },
-      { id: "e20", parentId: "e14", timestamp: 0, kind: "user", text: "two, differently", images: 0 },
+      { id: "e21", parentId: "e15", timestamp: 0, kind: "user", text: "two, differently", images: 0 },
       {
-        id: "e21",
-        parentId: "e20",
+        id: "e22",
+        parentId: "e21",
         timestamp: 0,
         kind: "assistant",
         parts: [{ type: "text", text: "branch answer" }],
@@ -300,9 +309,9 @@ describe("toLogEntry", () => {
         type: "message",
         id: "b1",
         parentId: "a1",
-        timestamp: "1970-01-01T00:00:00.000Z",
+        timestamp: "1970-01-01T00:00:00.009Z",
         message: { role: "bashExecution", command: "ls", output: "", exitCode: 0, timestamp: 7 },
       } as SessionEntry),
-    ).toStrictEqual({ id: "b1", parentId: "a1", timestamp: 7, kind: "other" });
+    ).toStrictEqual({ id: "b1", parentId: "a1", timestamp: 9, kind: "other" });
   });
 });

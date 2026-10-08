@@ -1,190 +1,171 @@
-import type { AssistantBlock, StopReason, TranscriptMessage } from "@atrium/protocol";
+import { type AssistantPart, type LogMessage, type PiMessage, toLogMessage } from "../history/log-entry";
+import { contentText } from "../history/tools";
 import type { PiEvent } from "../process/pi-process";
 
 /**
- * What the translator makes of pi's events: Atrium's transcript entities, without the session,
- * epoch, sequence numbers or trace id the host adds (overview.md, "包之间的依赖").
+ * What the translator makes of pi's events, in the shapes the host builds its transcript from
+ * (domain-model §2), without the session, epoch, sequence numbers or trace id the host adds.
+ *
+ * @remarks
+ * `index` is the block's position in its assistant message, the same as in the finished message's
+ * `parts`, so the host can place a step live exactly where a rebuild from entries puts it.
  */
 export type TranslatedEvent =
-  | { readonly kind: "message_started"; readonly messageId: string }
-  | {
-      readonly kind: "text_delta" | "reasoning_delta";
-      readonly messageId: string;
-      readonly contentIndex: number;
-      readonly delta: string;
-    }
-  | { readonly kind: "message_finished"; readonly message: TranscriptMessage }
   | { readonly kind: "agent_started" }
-  | { readonly kind: "agent_settled" };
-
-/** pi's message types, as they arrive in events. */
-type PiMessage = Extract<PiEvent, { type: "message_end" }>["message"];
-type PiAssistantMessage = Extract<PiMessage, { role: "assistant" }>;
-type PiUserMessage = Extract<PiMessage, { role: "user" }>;
+  | { readonly kind: "agent_settled" }
+  | { readonly kind: "assistant_started" }
+  /** A text or thinking block starts empty; a tool call arrives once its arguments are complete. */
+  | { readonly kind: "part_started"; readonly index: number; readonly part: AssistantPart }
+  | { readonly kind: "part_delta"; readonly index: number; readonly delta: string }
+  | { readonly kind: "message_finished"; readonly message: LogMessage }
+  /** A running tool's output so far, all of it, not just what is new. */
+  | { readonly kind: "tool_output"; readonly callId: string; readonly text: string }
+  | { readonly kind: "retry_started"; readonly attempt: number; readonly error: string }
+  | { readonly kind: "compaction_finished" };
 
 /** Translates pi's session events one at a time, keeping track of the message that is streaming. */
 export type EventTranslator = (event: PiEvent) => TranslatedEvent[];
 
-/**
- * Maps pi's stop reason onto the protocol's.
- *
- * @remarks
- * `pending` only appears while a message streams, and `deferred` only when a request asks for a
- * deferred response, which Atrium never does; a finished message with either is treated as an
- * ordinary stop rather than rejected.
- *
- * @sideEffects none
- * @param reason - pi's stop reason.
- * @returns The protocol's.
- */
-function stopReason(reason: PiAssistantMessage["stopReason"]): StopReason {
-  return reason === "pending" || reason === "deferred" ? "stop" : reason;
-}
-
-/**
- * Keeps the text and reasoning of an assistant message, in order.
- *
- * @remarks
- * Tool calls get their own blocks in M1.4; until then they are left out, and the streaming
- * indexes count only the blocks kept, so they match this list.
- *
- * @sideEffects none
- * @param content - pi's content blocks.
- * @returns Atrium's.
- */
-function assistantBlocks(content: PiAssistantMessage["content"]): AssistantBlock[] {
-  return content.flatMap((block): AssistantBlock[] => {
-    if (block.type === "text") return [{ type: "text", text: block.text }];
-    if (block.type === "thinking") return [{ type: "reasoning", text: block.thinking }];
-    return [];
-  });
-}
-
-/**
- * Joins the text parts of a user message.
- *
- * @remarks
- * pi stores a typed message as a list of parts; images are attachments, not text (M1.6).
- *
- * @sideEffects none
- * @param content - pi's user content.
- * @returns The text.
- */
-function userText(content: PiUserMessage["content"]): string {
-  if (typeof content === "string") return content;
-  return content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
-}
+/** pi's streaming update of an assistant message. */
+type PiUpdate = Extract<PiEvent, { type: "message_update" }>["assistantMessageEvent"];
 
 /**
  * Creates a translator from pi's events to Atrium's.
  *
  * @remarks
- * pi streams an assistant message as `message_start`, `message_update`s and `message_end`, with
- * `contentIndex` counting pi's blocks; Atrium gives the message an id of its own and counts only
- * the blocks it shows, so the translator remembers, for the message in progress, which pi index is
- * which Atrium index. User messages arrive complete at `message_end`; system messages and the
- * events Atrium does not show yet are dropped. `agent_start` and `agent_settled` pass through:
- * the first `agent_start` after idle begins a run, and `agent_settled` is the only event that ends
- * it (pi-internals.md §3); an automatic retry starts the agent again within the same run. Deterministic given `newId`, so it is tested against
- * the recorded fixtures.
+ * pi streams an assistant message as `message_start`, `message_update`s and `message_end`. Text
+ * and thinking blocks are reported when they start and as they grow; a tool call only once its
+ * arguments are complete (`toolcall_end`), since partial JSON is of no use to show. A delta for a
+ * block whose start was missed reports the start first rather than being dropped. Finished user,
+ * assistant and tool result messages are converted by `toLogMessage`, the same conversion session
+ * entries get, so live and rebuilt transcripts agree; other messages are dropped. A tool's live
+ * output, automatic retries and the end of a compaction pass through, nested tool calls' output
+ * does not. `agent_start` and `agent_settled` pass through: the first `agent_start` after idle
+ * begins a run, and `agent_settled` is the only event that ends it (pi-internals.md §3).
  *
- * @sideEffects none; the returned function updates its own state and calls `newId`.
- * @param newId - Makes a fresh message id.
+ * @sideEffects none; the returned function updates its own state.
+ * @param now - The time to give a message pi sent without one.
  * @returns The translator.
  */
-export function createEventTranslator(newId: () => string): EventTranslator {
-  let current: { readonly id: string; readonly indexes: Map<number, number> } | undefined;
+export function createEventTranslator(now: () => number): EventTranslator {
+  /** Indexes of the streaming message's blocks reported so far. */
+  let started = new Set<number>();
 
   /**
-   * Finds or assigns the Atrium index of one of pi's blocks.
+   * Reports a text or thinking block's growth, starting it first if its start was missed.
    *
    * @remarks
-   * A block normally gets its index at its `*_start` event; a delta for a block whose start was
-   * missed gets one too, rather than being dropped.
+   * See `createEventTranslator`.
    *
-   * @sideEffects Records the index.
-   * @param message - The message in progress.
-   * @param piIndex - pi's index.
-   * @returns Atrium's index.
+   * @sideEffects Records the block as started.
+   * @param type - The block's kind.
+   * @param index - Its position in the message.
+   * @param delta - The new text.
+   * @returns The events.
    */
-  function indexOf(message: NonNullable<typeof current>, piIndex: number): number {
-    const known = message.indexes.get(piIndex);
-    if (known !== undefined) return known;
-    const assigned = message.indexes.size;
-    message.indexes.set(piIndex, assigned);
-    return assigned;
+  function grow(type: "text" | "thinking", index: number, delta: string): TranslatedEvent[] {
+    const events: TranslatedEvent[] = [];
+    if (!started.has(index)) {
+      started.add(index);
+      events.push({ kind: "part_started", index, part: { type, text: "" } });
+    }
+    events.push({ kind: "part_delta", index, delta });
+    return events;
   }
 
   /**
-   * Reports a message pi finished.
+   * Translates one streaming update of an assistant message.
    *
    * @remarks
-   * A user message arrives complete and gets its id here; an assistant message keeps the id it
-   * got when it started streaming.
+   * See `createEventTranslator`.
    *
-   * @sideEffects Ends the message in progress; may call `newId`.
-   * @param message - pi's finished message.
-   * @returns The finished message, or nothing for a system message.
+   * @sideEffects Records started blocks.
+   * @param update - pi's update.
+   * @returns The events.
+   */
+  function streamed(update: PiUpdate): TranslatedEvent[] {
+    if (update.type === "text_start" || update.type === "thinking_start") {
+      if (started.has(update.contentIndex)) return [];
+      started.add(update.contentIndex);
+      const type = update.type === "text_start" ? "text" : "thinking";
+      return [{ kind: "part_started", index: update.contentIndex, part: { type, text: "" } }];
+    }
+    if (update.type === "text_delta") return grow("text", update.contentIndex, update.delta);
+    if (update.type === "thinking_delta") return grow("thinking", update.contentIndex, update.delta);
+    if (update.type !== "toolcall_end") return [];
+    started.add(update.contentIndex);
+    const { id, name, arguments: args } = update.toolCall;
+    return [
+      { kind: "part_started", index: update.contentIndex, part: { type: "toolCall", callId: id, tool: name, args } },
+    ];
+  }
+
+  /**
+   * Reports a finished message.
+   *
+   * @remarks
+   * See `createEventTranslator`.
+   *
+   * @sideEffects Forgets the streaming message's blocks.
+   * @param message - pi's message.
+   * @returns The events.
    */
   function finished(message: PiMessage): TranslatedEvent[] {
-    if (message.role === "user") {
-      return [
-        {
-          kind: "message_finished",
-          message: {
-            id: newId(),
-            role: "user",
-            text: userText(message.content),
-            clientMessageId: null,
-            timestamp: message.timestamp,
-          },
-        },
-      ];
-    }
-    if (message.role !== "assistant") return [];
-    const id = current?.id ?? newId();
-    current = undefined;
-    return [
-      {
-        kind: "message_finished",
-        message: {
-          id,
-          role: "assistant",
-          content: assistantBlocks(message.content),
-          stopReason: stopReason(message.stopReason),
-          errorMessage: message.errorMessage ?? null,
-          timestamp: message.timestamp,
-        },
-      },
-    ];
+    if (message.role === "assistant") started = new Set();
+    const converted = toLogMessage(message, now());
+    return converted === null ? [] : [{ kind: "message_finished", message: converted }];
   }
 
   return (event) => {
     if (event.type === "message_start") {
       if (event.message.role !== "assistant") return [];
-      current = { id: newId(), indexes: new Map() };
-      return [{ kind: "message_started", messageId: current.id }];
+      started = new Set();
+      return [{ kind: "assistant_started" }];
     }
-    if (event.type === "message_update") {
-      const update = event.assistantMessageEvent;
-      if (current === undefined) return [];
-      if (update.type === "text_start" || update.type === "thinking_start") {
-        indexOf(current, update.contentIndex);
-        return [];
-      }
-      if (update.type !== "text_delta" && update.type !== "thinking_delta") return [];
-      return [
-        {
-          kind: update.type === "text_delta" ? "text_delta" : "reasoning_delta",
-          messageId: current.id,
-          contentIndex: indexOf(current, update.contentIndex),
-          delta: update.delta,
-        },
-      ];
-    }
+    if (event.type === "message_update") return streamed(event.assistantMessageEvent);
     if (event.type === "message_end") return finished(event.message);
+    if (event.type === "tool_execution_update") {
+      if (event.parentToolCallId !== undefined) return [];
+      const partial: unknown = event.partialResult;
+      return [{ kind: "tool_output", callId: event.toolCallId, text: outputText(partial) }];
+    }
+    if (event.type === "auto_retry_start") {
+      return [{ kind: "retry_started", attempt: event.attempt, error: event.errorMessage }];
+    }
+    if (event.type === "compaction_end") return [{ kind: "compaction_finished" }];
     if (event.type === "agent_start") return [{ kind: "agent_started" }];
     if (event.type === "agent_settled") return [{ kind: "agent_settled" }];
     return [];
   };
+}
+
+/**
+ * The text of a running tool's partial result.
+ *
+ * @remarks
+ * pi types the partial result as anything; built-in tools send `{ content, details }`, others
+ * may send nothing yet.
+ *
+ * @sideEffects none
+ * @param partial - The partial result.
+ * @returns Its text, empty if it has none.
+ */
+function outputText(partial: unknown): string {
+  if (typeof partial !== "object" || partial === null || !("content" in partial)) return "";
+  const content: unknown = partial.content;
+  return Array.isArray(content) ? contentText(content.filter(isBlock)).text : "";
+}
+
+/**
+ * Whether a value is a content block.
+ *
+ * @remarks
+ * See `outputText`.
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @returns Whether it has a string `type`.
+ */
+function isBlock(value: unknown): value is { readonly type: string; readonly text?: string } {
+  return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string";
 }

@@ -21,11 +21,16 @@ test("sends a message and streams the reply, reasoning first, until the run sett
 
     await expect(window.getByTestId("user-message")).toHaveCount(1, { timeout: 30_000 });
     await expect(window.getByTestId("user-message")).toContainText("你好");
-    const reply = window.locator('[data-testid="assistant-message"][data-streaming="false"]');
+    const reply = window.locator('[data-testid="reply"][data-streaming="false"]');
     await expect(reply).toContainText("这是 faux 的回复，带一个列表：", { timeout: 30_000 });
     await expect(reply.locator("h2")).toHaveText("你好");
     await expect(reply.locator("li")).toHaveText(["一", "二"]);
-    await expect(window.getByRole("button", { name: "思考过程" })).toBeVisible();
+    // Thinking was timed live, so its folded header says how long it took.
+    const header = window.getByTestId("process-header");
+    await expect(header).toHaveText(/^思考了 \d+ 秒$/);
+    await header.click();
+    await window.getByTestId("step").getByRole("button").click();
+    await expect(window.getByTestId("step-detail")).toHaveText("先想一想怎么回答。");
     await expect(window.getByTestId("run-status")).toHaveCount(0);
     await expect(window.locator('[data-testid="user-message"][data-pending="true"]')).toHaveCount(0);
   } finally {

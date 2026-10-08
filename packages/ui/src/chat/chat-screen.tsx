@@ -1,7 +1,9 @@
 import { type AtriumClient, CommandError, ConnectionLostError, type SessionView } from "@atrium/client";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
+import { useDisplayMode } from "../state/display-mode";
 import { Composer } from "./composer";
+import { SessionToolbar } from "./session-toolbar";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -43,15 +45,19 @@ export function describeSendError(error: unknown): string {
  * Split out so the store subscription exists only once there is a session. Sending is blocked
  * while a run is in progress (SPEC-0001, "M1.3 先做的部分").
  *
- * @sideEffects Subscribes to the session's store.
- * @param props - The session's view store, what to do with a message, and a notice to show above the input box.
+ * @sideEffects Subscribes to the session's store; loads older items when asked.
+ * @param props - The client, the session, its view store, what to do with a message, and a notice to show above the input box.
  * @returns The transcript and input box.
  */
 function SessionArea({
+  client,
+  sessionId,
   store,
   onSend,
   notice,
 }: {
+  readonly client: AtriumClient;
+  readonly sessionId: string;
   readonly store: StoreApi<SessionView>;
   readonly onSend: (text: string) => void;
   readonly notice: ReactNode;
@@ -59,11 +65,48 @@ function SessionArea({
   const view = useStore(store);
   return (
     <>
-      <Transcript view={view} />
+      <SessionToolbar client={client} sessionId={sessionId} />
+      <Transcript
+        view={view}
+        onLoadOlder={() => {
+          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+          client.loadOlder(sessionId).catch(() => undefined);
+        }}
+      />
       {notice}
       <Composer onSend={onSend} disabled={view.run !== null} />
     </>
   );
+}
+
+/**
+ * Switches the display mode with Ctrl+O.
+ *
+ * @remarks
+ * "用 Ctrl+O 切换" (SPEC-0001, "显示模式"); Ctrl, not ⌘, as in Claude Code.
+ *
+ * @sideEffects Listens for keys on the window while mounted.
+ */
+function useDisplayModeShortcut(): void {
+  const cycle = useDisplayMode().cycle;
+  useEffect(() => {
+    /**
+     * Cycles the mode on Ctrl+O alone.
+     *
+     * @remarks
+     * See `useDisplayModeShortcut`.
+     *
+     * @sideEffects May change the display mode; stops the browser's own handling of the key.
+     * @param event - The key event.
+     */
+    const onKey = (event: KeyboardEvent): void => {
+      if (!event.ctrlKey || event.metaKey || event.altKey || event.key.toLowerCase() !== "o") return;
+      event.preventDefault();
+      cycle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cycle]);
 }
 
 /**
@@ -81,6 +124,7 @@ function SessionArea({
  * @returns The screen.
  */
 export function ChatScreen({ client }: { readonly client: AtriumClient }) {
+  useDisplayModeShortcut();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   // The chat being created, shared by every send until it exists; only read in event handlers.
@@ -164,14 +208,14 @@ export function ChatScreen({ client }: { readonly client: AtriumClient }) {
     );
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {store === undefined ? (
+      {store === undefined || sessionId === null ? (
         <>
           <div className="flex-1" />
           {notice}
           <Composer onSend={onSend} />
         </>
       ) : (
-        <SessionArea store={store} onSend={onSend} notice={notice} />
+        <SessionArea client={client} sessionId={sessionId} store={store} onSend={onSend} notice={notice} />
       )}
     </div>
   );
