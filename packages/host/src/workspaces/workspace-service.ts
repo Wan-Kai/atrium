@@ -294,6 +294,7 @@ export function createWorkspaceService(options: {
         // A folder inside another repository, or one whose repository git cannot read just now,
         // would fetch the repository around it. Only the line end goes: a name may end in a space.
         const top = await run(["rev-parse", "--path-format=absolute", "--show-toplevel"]);
+        // Stryker disable next-line Regex: git prints one line here, so its first line end is its last.
         if (top.code !== 0 || top.stdout.replace(/\n$/, "") !== project.path) continue;
         const remote = await run(["remote", "get-url", "origin"]);
         if (remote.code !== 0) continue;

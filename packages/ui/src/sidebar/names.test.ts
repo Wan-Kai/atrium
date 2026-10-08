@@ -88,6 +88,15 @@ describe("sortWorkspaces", () => {
       "merged",
     ]);
   });
+
+  it("lists a local workspace once, first, whatever its merge state says", () => {
+    const local = { id: "local", kind: "local" as const, createdAt: null, ...merge({ verdict: "removed" }) };
+
+    expect(sortWorkspaces([worktree("new", 3), local]).map((workspace) => workspace.id)).toStrictEqual([
+      "local",
+      "new",
+    ]);
+  });
 });
 
 describe("placeOf", () => {
@@ -118,6 +127,7 @@ describe("timeAgo", () => {
     expect(timeAgo(now - 59 * minute, now)).toBe("59 分钟前");
     expect(timeAgo(now - 60 * minute, now)).toBe("1 小时前");
     expect(timeAgo(now - 23 * 60 * minute, now)).toBe("23 小时前");
+    expect(timeAgo(now - 24 * 60 * minute, now)).toBe("昨天");
     expect(timeAgo(new Date(2026, 9, 7, 1, 0).getTime(), now)).toBe("昨天");
     expect(timeAgo(new Date(2026, 9, 7, 0, 0).getTime(), now)).toBe("昨天");
     expect(timeAgo(new Date(2026, 9, 6, 23, 0).getTime(), now)).toBe("10月6日");
