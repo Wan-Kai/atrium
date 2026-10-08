@@ -100,10 +100,10 @@ test("@perf streams a long Markdown reply at 50 tok/s without long tasks or slow
       await window.evaluate(startMeasuring);
       await window.getByRole("textbox", { name: "消息" }).fill("写一份长的说明");
       await window.getByRole("textbox", { name: "消息" }).press("Enter");
-      await expect(window.locator('[data-testid="assistant-message"][data-streaming="true"]')).toHaveCount(1, {
+      await expect(window.locator('[data-testid="reply"][data-streaming="true"]')).toHaveCount(1, {
         timeout: 30_000,
       });
-      await expect(window.locator('[data-testid="assistant-message"][data-streaming="false"]')).toHaveCount(1, {
+      await expect(window.locator('[data-testid="reply"][data-streaming="false"]')).toHaveCount(1, {
         timeout: 120_000,
       });
       const measured = await window.evaluate(stopMeasuring);

@@ -40,6 +40,14 @@ function scriptedSocket() {
       );
       socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: true, result }));
     },
+    /** Answers the last command of `type` with the error `code`. */
+    fail: (type: string, code: string) => {
+      const command = present(
+        socket.sent.findLast((sent) => sent["type"] === type),
+        `a ${type} command`,
+      );
+      socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: false, error: { code } }));
+    },
     /** The commands sent after the hello, without their trace. */
     commands: () =>
       socket.sent
@@ -86,9 +94,30 @@ function event(seq: number, fields: Record<string, unknown>): string {
   return JSON.stringify({ sessionId: "s1", epoch: 1, seq, traceId: null, ...fields });
 }
 
-/** A snapshot of s1 at `seq` with no messages. */
-function snapshot(seq: number): string {
-  return event(seq, { type: "session_snapshot", messages: [], streaming: null, run: null, exited: false });
+/** A snapshot of s1 at `seq` with `items`. */
+function snapshot(seq: number, items: unknown[] = [], hasOlder = false): string {
+  return event(seq, { type: "session_snapshot", items, hasOlder, run: null, exited: false });
+}
+
+/** How many `subscribe_sessions` the client sent. */
+function subscriptions(socket: { commands(): Record<string, unknown>[] }): number {
+  return socket.commands().filter((command) => command["type"] === "subscribe_sessions").length;
+}
+
+/** A turn of the transcript, opened by `clientMessageId`. */
+function turn(id: string, clientMessageId: string | null = null) {
+  return {
+    kind: "turn",
+    id,
+    user: { text: "hi", images: 0, clientMessageId, timestamp: 0 },
+    steps: [],
+    outcome: "done",
+    error: null,
+    startedAt: 0,
+    durationMs: 1,
+    usage: null,
+    changes: [],
+  };
 }
 
 describe("createAtriumClient: the connection", () => {
@@ -324,6 +353,26 @@ describe("createAtriumClient: commands", () => {
     expect(latest().sent.at(-1)).toStrictEqual({ type: "create_chat", requestId: "client-1-2", traceparent });
   });
 
+  it("lists recent sessions and opens one", async () => {
+    const { client, latest } = await connected();
+
+    const listed = client.listRecentSessions(20);
+    latest().answer("list_recent_sessions", { sessions: [{ sessionId: "s7", firstPrompt: "hi", modifiedAt: 9 }] });
+    const opened = client.openSession("s7");
+    latest().answer("open_session", { sessionId: "s7" });
+
+    expect(await listed).toStrictEqual({ sessions: [{ sessionId: "s7", firstPrompt: "hi", modifiedAt: 9 }] });
+    expect(await opened).toStrictEqual({ sessionId: "s7" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] !== "ping"),
+    ).toStrictEqual([
+      { type: "list_recent_sessions", requestId: "client-1-2", limit: 20 },
+      { type: "open_session", requestId: "client-1-3", sessionId: "s7" },
+    ]);
+  });
+
   it("rejects with the host's error code, and with the schema's error for a malformed result", async () => {
     const { client, latest } = await connected();
 
@@ -438,7 +487,7 @@ describe("createAtriumClient: sessions", () => {
     latest().receive(snapshot(3));
     latest().receive(event(4, { type: "run_started", runId: "r1", startedAt: 9 }));
     latest().receive(
-      JSON.stringify({ ...JSON.parse(event(1, { type: "message_started", messageId: "x" })), sessionId: "s9" }),
+      JSON.stringify({ ...JSON.parse(event(1, { type: "turn_started", turn: turn("t1") })), sessionId: "s9" }),
     );
 
     expect(client.session("s1")?.getState()).toMatchObject({
@@ -497,12 +546,7 @@ describe("createAtriumClient: sessions", () => {
     await sent;
     // Started is not confirmed yet: the copy stays until pi echoes the message.
     const pendingAfterAnswer = client.session("s1")?.getState().pending;
-    latest().receive(
-      event(1, {
-        type: "message_finished",
-        message: { id: "u1", role: "user", text: "hello", clientMessageId: "client-1-3", timestamp: 0 },
-      }),
-    );
+    latest().receive(event(1, { type: "turn_started", turn: turn("t1", "client-1-3") }));
 
     expect(pendingNow).toStrictEqual([{ clientMessageId: "client-1-3", text: "hello" }]);
     expect(pendingAfterAnswer).toStrictEqual(pendingNow);
@@ -513,10 +557,7 @@ describe("createAtriumClient: sessions", () => {
       sessionId: "s1",
       text: "hello",
     });
-    expect(client.session("s1")?.getState()).toMatchObject({
-      pending: [],
-      messages: [{ id: "u1", clientMessageId: "client-1-3" }],
-    });
+    expect(client.session("s1")?.getState()).toMatchObject({ pending: [], items: [turn("t1", "client-1-3")] });
   });
 
   it("takes a pending prompt back when it fails or an extension handles it", async () => {
@@ -565,23 +606,170 @@ describe("createAtriumClient: sessions", () => {
     latest().receive(
       event(3, {
         type: "session_snapshot",
-        messages: [{ id: "u1", role: "user", text: "hi", clientMessageId: null, timestamp: 0 }],
-        streaming: { messageId: "m1", content: [] },
+        items: [turn("t1")],
+        hasOlder: false,
         run: { runId: "r1", startedAt: 1 },
         exited: false,
       }),
     );
-    const shown = client.session("s1")?.getState().messages;
+    const shown = client.session("s1")?.getState().items;
 
     latest().closeWith(1006);
     clock.advance(250);
     latest().open();
     latest().receive(welcome("0.1.0", "h2"));
 
-    expect(client.session("s1")?.getState()).toMatchObject({ status: "lost", run: null, streaming: null, pending: [] });
-    expect(client.session("s1")?.getState().messages).toBe(shown);
+    expect(client.session("s1")?.getState()).toMatchObject({ status: "lost", run: null, pending: [] });
+    expect(client.session("s1")?.getState().items).toBe(shown);
     // The new host does not know the session, so it is not subscribed again.
     expect(latest().commands()).toStrictEqual([{ type: "ping", requestId: "client-1-3" }]);
+  });
+
+  it("fetches the page before the earliest item once at a time, joining a fetch on its way, and puts it in front", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(snapshot(2, [turn("t5")], true));
+
+    const loading = client.loadOlder("s1");
+    const again = client.loadOlder("s1");
+    expect(again).toBe(loading);
+    latest().answer("fetch_transcript", { items: [turn("t3"), turn("t4")], hasOlder: false });
+    await Promise.all([loading, again]);
+    await client.loadOlder("s1");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_transcript"),
+    ).toStrictEqual([
+      { type: "fetch_transcript", requestId: "client-1-3", sessionId: "s1", epoch: 1, before: "t5", limit: 50 },
+    ]);
+    expect(client.session("s1")?.getState()).toMatchObject({
+      items: [turn("t3"), turn("t4"), turn("t5")],
+      hasOlder: false,
+    });
+  });
+
+  it("fetches nothing for a session it does not watch, one still loading, lost or empty", async () => {
+    const { client, latest, clock } = await connected();
+    const watching = client.watch(["s1", "s2"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(JSON.stringify({ ...JSON.parse(snapshot(0, [], true)), sessionId: "s2" }));
+
+    await client.loadOlder("s9");
+    await client.loadOlder("s1");
+    await client.loadOlder("s2");
+    latest().receive(snapshot(0, [turn("t1")], true));
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+    await client.loadOlder("s1");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_transcript"),
+    ).toStrictEqual([]);
+  });
+
+  it("asks for a fresh snapshot when the host rebuilt the transcript, and passes other failures on", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(snapshot(2, [turn("t5")], true));
+
+    const changed = client.loadOlder("s1");
+    latest().fail("fetch_transcript", "transcript_changed");
+    await vi.waitFor(() => expect(subscriptions(latest())).toBe(2));
+    latest().answer("subscribe_sessions");
+    await vi.waitFor(() => expect(subscriptions(latest())).toBe(3));
+    latest().answer("subscribe_sessions");
+    await changed;
+    expect(client.session("s1")?.getState().status).toBe("loading");
+
+    latest().receive(snapshot(0, [turn("t5")], true));
+    const failed = client.loadOlder("s1");
+    latest().fail("fetch_transcript", "session_not_found");
+    await expect(failed).rejects.toStrictEqual(new CommandError("session_not_found"));
+  });
+
+  it("fetches a step whole and puts it in place, and resyncs when the host rebuilt the transcript", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    const preview = {
+      kind: "tool",
+      id: "0",
+      callId: "c",
+      tool: "bash",
+      args: {},
+      status: "done",
+      output: "end",
+      details: null,
+      partial: true,
+    };
+    latest().receive(snapshot(2, [{ ...turn("t1"), steps: [preview] }]));
+
+    const loaded = client.loadStep("s1", "t1", "0");
+    latest().answer("fetch_step", { step: { ...preview, output: "start…end", partial: false } });
+    await loaded;
+    await client.loadStep("s9", "t1", "0");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_step"),
+    ).toStrictEqual([
+      { type: "fetch_step", requestId: "client-1-3", sessionId: "s1", epoch: 1, turnId: "t1", stepId: "0" },
+    ]);
+    expect(client.session("s1")?.getState().items).toStrictEqual([
+      { ...turn("t1"), steps: [{ ...preview, output: "start…end", partial: false }] },
+    ]);
+
+    const changed = client.loadStep("s1", "t1", "0");
+    latest().fail("fetch_step", "transcript_changed");
+    await vi.waitFor(() => expect(subscriptions(latest())).toBe(2));
+    latest().answer("subscribe_sessions");
+    await vi.waitFor(() => expect(subscriptions(latest())).toBe(3));
+    latest().answer("subscribe_sessions");
+    await changed;
+    expect(client.session("s1")?.getState().status).toBe("loading");
+    await client.loadStep("s1", "t1", "0");
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_step"),
+    ).toHaveLength(2);
+    latest().receive(snapshot(0, [turn("t1")]));
+    const failed = client.loadStep("s1", "t1", "0");
+    latest().fail("fetch_step", "session_not_found");
+    await expect(failed).rejects.toStrictEqual(new CommandError("session_not_found"));
+  });
+
+  it("fetches no step for a session that was lost", async () => {
+    const { client, latest, clock } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(snapshot(0, [turn("t1")]));
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+
+    await client.loadStep("s1", "t1", "0");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_step"),
+    ).toStrictEqual([]);
   });
 
   it("keeps sessions when it reconnects to the same host", async () => {

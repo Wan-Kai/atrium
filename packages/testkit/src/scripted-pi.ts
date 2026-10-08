@@ -24,6 +24,8 @@ export interface ScriptedRule {
   readonly twice?: true;
   /** Exit with this code right after answering. */
   readonly exitAfter?: number;
+  /** Rules for successive commands of this type, the last one repeating; the other fields are ignored. */
+  readonly sequence?: readonly ScriptedRule[];
 }
 
 /** Everything the fake pi does. */
@@ -125,12 +127,20 @@ if (behavior.exitCode !== undefined) {
   }
 }
 const answered = new Set();
+const counts = new Map();
 let held = [];
 const atEnd = [];
+function ruleFor(type) {
+  const rule = (behavior.rules ?? {})[type] ?? {};
+  if (rule.sequence === undefined) return rule;
+  const count = counts.get(type) ?? 0;
+  counts.set(type, count + 1);
+  return rule.sequence[Math.min(count, rule.sequence.length - 1)];
+}
 function handle(record) {
   print({ type: "received", record });
   if (record.type === "extension_ui_response") return;
-  const rule = (behavior.rules ?? {})[record.type] ?? {};
+  const rule = ruleFor(record.type);
   if (rule.exit !== undefined) process.exit(rule.exit);
   if (rule.silent) return;
   if (rule.atStdinEnd) atEnd.push(record);

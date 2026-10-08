@@ -67,7 +67,7 @@
 | pi 的启动、stderr、退出日志挂在 `pi.process` span 下；崩溃时 span 标为错误，宿主停止时为正常；每条命令一个 `pi.rpc` span，挂在调用方 span 下，请求 id 由它派生；命令失败时 span 标为错误 | `packages/host/src/sessions/traced-pi.test.ts` | 已覆盖 |
 | `pnpm pi:try`：参数解析；事件渲染；找不到 pi 时退出码 1；真实 pi 流式打出回复，整次运行在一条 trace 里；模型回复失败时退出码 1，重试后成功时退出码 0；环境（含登录 shell 里的）中的凭据不进日志；中断时停掉 pi、退出码 130 | `packages/host/src/dev/try-pi.test.ts`、`try-pi.pi.test.ts` | 已覆盖 |
 | pi 契约：一轮完整运行、工具调用、运行中排队与 `queue_update`、命令被处理掉、`clear_queue` + `abort`、会话文件延迟写出、`get_entries` 全量与增量和未知游标、自动重试与不可重试错误、对话框往返、压缩期间发消息报错、退出码 | `packages/pi/src/contract/*.pi.test.ts`（12 个场景，同时检查夹具） | 已覆盖 |
-| 夹具：规范化（时间、度量、路径、UUID、只在固定键下识别的条目 id 及其引用）、比较时只忽略系统消息的文字、录制顺序、文件格式；每个夹具按原样回放；回放替身的对上检查、错误详情、崩溃后和停止后的请求、`stop()` 丢弃迟到的响应并按夹具结束、对话框 | `packages/testkit/src/pi-fixtures/*.test.ts`、`packages/pi/src/contract/replay.test.ts` | 已覆盖 |
+| 夹具：规范化（时间、度量、路径、UUID、只在固定键下识别的条目 id 及其引用，以及已认出的条目 id 在其他文字里的出现）、比较时只忽略系统消息的文字、录制顺序、文件格式；每个夹具按原样回放；回放替身的对上检查、错误详情、崩溃后和停止后的请求、`stop()` 丢弃迟到的响应并按夹具结束、对话框 | `packages/testkit/src/pi-fixtures/*.test.ts`、`packages/pi/src/contract/replay.test.ts` | 已覆盖 |
 | faux：回复可以等测试放行，中断会结束等待；`/faux-noop`、`/faux-confirm` | `packages/testkit/src/faux/faux.pi.test.ts` | 已覆盖 |
 
 ## 协议、客户端与流式显示（M1.3）
@@ -81,20 +81,19 @@
 | 心跳：宿主按注入的时钟 ping，到下一次还没 pong 的客户端被终止，正常的继续 | ws-server.host.test.ts "pings clients on the injected clock…" | 已覆盖 |
 | 发送端背压：积压超过上限以 4507 关闭，之后不再发送 | `packages/host/src/server/connection.test.ts` | 已覆盖 |
 | 订阅：整组替换，只对新加入的会话发快照；只把会话事件发给它的订阅者；断开时清掉 | `packages/host/src/sync/subscriptions.test.ts`；session-manager.test.ts | 已覆盖 |
-| 事件翻译：真实 pi 输出（推理、文字、出错重试、中断）翻译成带自己 id 的消息和增量；工具调用先不显示且不占位；漏掉开头的块也有序号；停止原因的映射；用户消息的文字 | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
+| 事件翻译：真实 pi 输出（推理、文字、出错重试、中断）翻译成带自己 id 的消息和增量；工具调用先不显示且不占位；漏掉开头的块也有序号；停止原因的映射；用户消息的文字 | `packages/pi/src/events/translate.test.ts` | M1.4 改为按轮，见"对话记录（M1.4）" |
 | 会话控制器：一次运行从 `agent_start` 到 `agent_settled`，带 `prompt` 的 trace；事件按序编号；用户消息带对应 `prompt` 的 `requestId`（`handled` 的跳过）；快照含流式中的消息和运行；运行结果；pi 崩溃时运行失败并报告退出，之后的 `prompt` 被拒 | `packages/host/src/sessions/session-controller.test.ts`（含夹具回放） | 已覆盖 |
 | 新建对话：在 `chats/` 下建目录、在里面启动 pi、用 pi 报告的会话 id；pi 没找到、不可用或启动即退出时 `pi_unavailable`；未知会话 `session_not_found`；宿主关闭时停掉所有 pi | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
 | 一轮对话经 WebSocket：新建、订阅得到快照、发消息得到按序编号的流式事件；两个客户端订阅同一会话收到同样的事件；真实客户端从新建到看到回复替换掉乐观显示的消息 | `packages/host/src/chat.host.test.ts` | 已覆盖 |
 | 客户端连接：握手、只认真的 welcome、拒绝原因且不重试、主动断开不重试、替换连接时忽略旧 socket、断线按退避重连（最后一档重复，连上后归零）、可关闭重连、心跳 ping 到下一次没应答就断开 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
 | 客户端命令：每条新的请求 id 和 trace；结果按 schema 校验；错误应答变成 `CommandError`；没有连接或断线时 `ConnectionLostError`、不重发；上报截断到 4 KB | atrium-client.test.ts | 已覆盖 |
-| 会话视图：订阅时创建、退订时释放；快照整体替换；事件按序应用，缺口、重复、换代都重新取快照；流式只复制改动的那一块；乐观显示的消息在确认、失败、被 extension 处理时移除；重连后重新订阅 | `packages/client/src/session-view.test.ts`、atrium-client.test.ts | 已覆盖 |
+| 会话视图：订阅时创建、退订时释放；快照整体替换；事件按序应用，缺口、重复、换代都重新取快照；流式只复制改动的那一块；乐观显示的消息在确认、失败、被 extension 处理时移除；重连后重新订阅 | `packages/client/src/session-view.test.ts`、atrium-client.test.ts | M1.4 改为按轮，见"对话记录（M1.4）" |
 | 回复渲染：GFM（表格、嵌套与任务列表、删除线）、中文标点旁的加粗、`$$…$$` 与 `\(…\)` 公式而不认单个 `$`、Shiki 高亮与 diff、Mermaid、链接交给系统浏览器且不弹确认、`https` 图片直接显示而 `http` 图片变成链接、原始 HTML 按文字显示且不执行 | `packages/ui/src/chat/markdown.browser.test.tsx`、`markdown-transforms.test.ts` | 已覆盖 |
 | 覆盖"回复渲染"全部范围的样例按真实节奏分片流式渲染，每一步都不出错，结束后与一次性渲染逐字节一致 | `packages/ui/src/chat/streaming.browser.test.tsx`（样例 `reply-showcase.md`） | 已覆盖 |
 | 平滑揭示：只放慢增长部分；每帧按积压量揭示、约 150 毫秒的时间常数；长时间停顿也只算 250 毫秒；不切断字形，未到齐的字符等到齐；结束时一次显示完 | `packages/ui/src/chat/text-reveal.test.ts`；基准 `text-reveal.bench.ts` | 已覆盖 |
 | 滚动跟随：停在底部时跟随；往上翻停止跟随并出现"回到底部"，有新内容时带圆点；点了回到底部并恢复跟随 | `packages/ui/src/chat/follow-bottom.test.ts`、`chat.browser.test.tsx` | 已覆盖 |
-| 对话区：用户气泡（乐观显示的没有时间）、推理过程运行时展开结束后折叠、回复出错和已停止的标注、"进行中 · 12s"、各部分的顺序；输入框回车发送、Shift+回车换行、输入法组字时不发送；第一次发送时新建对话并订阅；发送失败的原因 | `packages/ui/src/chat/chat.browser.test.tsx` | 已覆盖 |
-| 推理折叠后显示"思考了 N 秒"、显示模式切换 | — | 待 M1.4 |
-| 在真实应用里发消息，推理和流式回复显示出来，运行结束后没有残留的计时和乐观显示 | `apps/desktop/e2e/chat.spec.ts` | 已覆盖 |
+| 对话区：用户气泡（乐观显示的没有时间）、推理过程运行时展开结束后折叠、回复出错和已停止的标注、"进行中 · 12s"、各部分的顺序；输入框回车发送、Shift+回车换行、输入法组字时不发送；第一次发送时新建对话并订阅；发送失败的原因 | `packages/ui/src/chat/chat.browser.test.tsx` | M1.4 改为按轮，见"对话记录（M1.4）" |
+| 在真实应用里发消息，推理和流式回复显示出来，运行结束后推理折叠成"思考了 N 秒"，没有残留的计时和乐观显示 | `apps/desktop/e2e/chat.spec.ts` | 已覆盖 |
 | 客户端订阅和退订 1000 个会话后视图全部释放，并能被回收 | `packages/client/src/atrium-client.leak.test.ts` | 已覆盖 |
 | pi 拒绝消息时的错误码：运行中或压缩中回 `session_busy`，其他拒绝回 `pi_rejected`（带 pi 原文），退出或停止回 `pi_unavailable/exited`，不回应回 `unresponsive`；回显先到、失败后到时不删别的 prompt 的位置；`prompt` 不设期限 | `packages/host/src/sessions/session-controller.test.ts`；`packages/pi/src/process/rejections.test.ts` | 已覆盖 |
 | 新建对话：pi 报不出会话 id 时停掉它；管理器关闭后才建好的对话停掉自己的 pi | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
@@ -105,6 +104,34 @@
 | 流式渲染走真实路径：经消息列表和平滑揭示流式显示，每一步文字只增不减，结束后在别处重新挂载，与直接渲染已完成的回复一致 | `packages/ui/src/chat/streaming.browser.test.tsx` | 已覆盖 |
 | 界面的未捕获错误、未处理的 Promise 拒绝和长任务上报给宿主，每类每 10 秒最多一次，卸载后停止 | `packages/ui/src/app/issue-reporting.browser.test.ts` | 已覆盖 |
 | 50 tok/s 流式输出长 Markdown 时没有超过 50 毫秒的长任务，帧时间 p95 ≤ 16.7 毫秒 | `apps/desktop/e2e/chat.perf.spec.ts` | 已覆盖 |
+
+## 对话记录（M1.4）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| pi 契约：一份会话历史含推理、bash/write/edit/read 工具（一次回复一个调用，pi 并行执行同一回复里的调用，事件顺序不定）、出错重试（错误回复和移除它的 `context_edit`）、手动压缩（切开一轮）、`/faux-navigate` 回到早先的条目再分支；13 路并发两轮都与夹具一致 | `packages/pi/src/contract/history.pi.test.ts`（夹具 `history.jsonl`） | 已覆盖 |
+| 事件翻译：真实 pi 输出翻译成按块位置的推理、文字、完整的工具调用、工具的实时输出、结果、自动重试和压缩结束；漏掉开头的块先补开头；重复的开头只报一次；部分参数和其他更新不报；没有时间的消息用翻译器的时钟；嵌套工具调用的输出不报 | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
+| 条目映射：真实会话的每个条目变成 Atrium 的形状（用户、助手的推理/文字/工具调用、工具结果、压缩、重试移除、其他条目只留树中位置）；消息按自己的时间，其他条目按条目时间，读不出时为 0；流式中和延迟的停止原因算正常停止；用量只留输入输出；用户消息的图片数；替换而不是移除的 `context_edit`、`!bash` 消息不显示 | `packages/pi/src/history/log-entry.test.ts` | 已覆盖 |
+| 工具详情：bash 的命令、read 的路径和范围（非整数不算）、edit 的展示 diff 和增删行数（运行中没有 diff）、write 的内容只来自参数；`file_path` 旧名；字段缺失和其他工具没有详情；内容块的文字拼接和图片计数 | `packages/pi/src/history/tools.test.ts` | 已覆盖 |
+| 协议：轮、步骤（每种）、工具详情（每种）、提示条、轮级事件、带 `items` 和 `hasOlder` 的快照、`fetch_transcript` 及其结果和上限、`transcript_changed`；越界和未知取值被拒 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 规则：块对应的步骤和位置 id；输出按 UTF-8 字节截到 16 KB，bash 留结尾、其他留开头、不切开字符；实时输出与结果（详情按结果重算）；结束时运行中的工具改为未完成；结果按最后一条回复（完成、停止、出错带原文，工具调用后或没有回复算停止）；改动汇总（编辑累计、写入后不计行数、只算成功的、按首次出现排序）；用量相加 | `packages/host/src/transcript/rules.test.ts` | 已覆盖 |
+| SessionLog：沿 pi 报告的叶子走出当前分支，其他分支不算；新条目；叶子可以不随新条目移动；缺父和环处停止；清空 | `packages/host/src/transcript/session-log.test.ts` | 已覆盖 |
+| 重建：真实会话两个分支的完整结果（工具、重试、轮间压缩、分支）；插话规则；重试按 pi 的计法编号，每轮重新计；没有失败的被移除回复不算重试；轮中的压缩放在轮后、轮前的就地；回复前的孤立消息和不认识的工具结果跳过；按最后一条回复结束；用时由时间戳推算、用量相加；当场看到的轮用实时 id、`clientMessageId` 和计时 | `packages/host/src/transcript/projection.test.ts` | 已覆盖 |
+| 对话记录：跟着真实会话实时构建，每次运行后用条目重建都与推过的一致，压缩后只追加提示条，换分支后报告变化；第一轮按块逐步推出的事件；按宿主时钟计时轮和推理；插话不占 `prompt` 的 id；非插话的用户消息结束上一轮；结束时未完成的工具；没有轮时忽略事件；重建不一致时报告变化；实时的轮从末尾对应到新条目；重置后重读；快照取最近 20 轮及其后的提示条；按条目往前分页 | `packages/host/src/transcript/session-transcript.test.ts` | 已覆盖 |
+| 会话控制器：真实会话回放，四次运行都在同一 epoch，压缩后推 `notice_added`，换分支后 epoch 加一并推快照；`get_entries` 的游标；分页和过期 epoch、未知条目回 `transcript_changed`；运行中的轮在快照里；开始时用给定的条目；运行结果按最后一轮；崩溃时先结束轮；一次只读一页、期间再要求就再读一次；读的期间开始运行就等运行结束；运行中和退出后不读；未知游标时全部重读；其他失败上报并等下次；没有变化不推 | `packages/host/src/sessions/session-controller.test.ts` | 已覆盖 |
+| 会话管理器：新建时读一次条目；运行后再读与推过的一致，不多推事件；`fetch_transcript` 交给会话；scripted pi 按次序回答同一命令（`sequence`） | `packages/host/src/sessions/session-manager.test.ts`、`chat.host.test.ts`、`server/router.test.ts` | 已覆盖 |
+| 客户端会话视图：轮的开始、步骤增加、增量、更新、结束、提示条；只复制改动的轮和步骤；找最后一个同 id 的轮；新 epoch 的快照整体替换；对不上的步骤事件重新取快照；更早的页放在前面，过期 epoch 或已不在最前的丢弃 | `packages/client/src/session-view.test.ts` | 已覆盖 |
+| 客户端分页：一次只取一页，同时的请求共用一次；不在观察、加载中、已失效或没有更早的不取；`transcript_changed` 时重新取快照，其他失败往上抛 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 界面的轮：过程折叠成标题行（"已完成，用时 · 读了 · 跑了 · 改了 · N 条命令失败"），折叠时插话仍可见；只有推理时显示"思考了 N 秒"或"思考过程"；没有过程时没有标题行；点击步骤展开详情（命令输出、截断说明、带行号和增删竖条的 diff）；显示模式（摘要、思考、详细）与切换；运行中展开、正在进行的步骤转圈并实时显示；已停止、出错（可展开原始报错）；信息行（复制、"···"复制为 Markdown、改动胶囊展开文件和 diff、用量、结束时间）；菜单按 Esc 和点击外部关闭；提示条展开压缩摘要 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数：`turn-layout.test.ts` | 已覆盖 |
+| 会话文件：从 pi 写的真实文件读出会话 id、工作目录和第一条提问；按修改时间从新到旧、只读需要的条数、跨目录、同一会话只取最新的文件；提问为块时拼接文字、跳过图片；文件开头没有带文字的用户消息时没有提问；跳过不是会话的文件、其他文件、散放的文件和不存在的目录；会话目录按 pi 的顺序（环境变量、全局设置的 `sessionDir`、代理目录下的 `sessions`），展开 `~` | `packages/pi/src/sessions/session-files.test.ts` | 已覆盖 |
+| 最近会话与打开会话：列出 pi 会话目录里最近的会话及第一条提问；还没找 pi 时为空；用 `pi --session <文件>` 在会话记录的目录里启动，pi 还在运行时直接返回；同时打开只启动一个 pi，pi 退出后再打开会重新启动；没有文件时 `session_not_found`，pi 不可用时 `pi_unavailable`；宿主关闭后打开的会停掉自己的 pi；重新打开的会话接着上一个控制器的 epoch，旧视图会重新取快照；协议和路由 | `packages/host/src/sessions/session-manager.test.ts`、`server/router.test.ts`、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 界面的最近会话：连上之后才读，列出提问和时间（今天、昨天、日期），点一下打开并观察；"最近会话"返回列表；打不开时说明原因 | `packages/ui/src/chat/chat.browser.test.tsx`、`recent-sessions.test.ts` | 已覆盖 |
+| 用 pi 写的真实会话文件恢复：工具、重试、压缩在当前分支上，另一个分支不显示，提示条在它所在的轮之后，过程标题行的统计；接着发消息照常运行 | `apps/desktop/e2e/history.spec.ts` | 已覆盖 |
+| 审查后补上（2026-10-08）：当场看到的轮和插话按记录重建（停在工具结果之后的下一轮仍是新的一轮）；上下文溢出的恢复不算重试；空报错按 pi 写 "Unknown error"；任何位置新增的提示条都推 `notice_added` 并带插入位置；pi 崩溃中断的一轮为 `failed`；长文字以预览发送、标 `partial`，`fetch_step` 取回完整步骤，快照和分页按 4 MB 装；`write` 的内容只发一份；打开目录已不存在的会话回 `session_cwd_missing`；刷新失败的日志只记命令和原因；扫描会话目录只认 LF、可随关闭中止；界面的时间经注入的时钟；导出遇到重建时报错而不是导出一部分 | `packages/host/src/transcript/*.test.ts`、`sessions/*.test.ts`、`packages/client/src/*.test.ts`、`packages/pi/src/sessions/session-files.test.ts`、`packages/ui/src/chat/*.test.ts(x)` | 已覆盖 |
+| 同一回复里的并行工具调用：只由手写的条目和事件覆盖（重建、实时），录制的场景每次回复只调一个工具，因为 pi 并行执行时事件顺序不定 | `projection.test.ts`、`session-transcript.test.ts`、`translate.test.ts` | 部分覆盖 |
+| 打开 1000 轮的会话到首屏 ≤ 500 毫秒（中位数，实测约 25 毫秒；第一次打开含启动 pi 约 1 秒） | `apps/desktop/e2e/history.perf.spec.ts` | 已覆盖 |
+| 2000 轮会话的对话记录重建（基准，本机中位约 2.4 毫秒） | `packages/host/src/transcript/rebuild.bench.ts` | 已覆盖 |
+| 对话区：轮、提示条、待确认的消息、运行状态的顺序；运行的计时在轮里；滚到顶加载更早的，且阅读位置不动；提问导航条跳转；长消息折叠与展开；Ctrl+O 和菜单切换显示模式；导出会话时取完所有页 | `packages/ui/src/chat/chat.browser.test.tsx`、`session-toolbar.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
 

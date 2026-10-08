@@ -52,6 +52,8 @@ export interface FauxPiLaunch {
   readonly args: readonly string[];
   /** Variables to add to the child's environment (the caller still provides PATH). */
   readonly env: Readonly<Record<string, string>>;
+  /** pi's agent directory, where it keeps its settings and session files. */
+  readonly agentDir: string;
   /** Lets replies scripted with `waitFor: name` continue. */
   release(name: string): Promise<void>;
 }
@@ -80,6 +82,7 @@ export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLau
   await writeFile(scriptPath, JSON.stringify(script));
   return {
     release: (name) => writeFile(join(gatesDir, name), ""),
+    agentDir,
     args: [
       "--extension",
       fileURLToPath(new URL("extension.ts", import.meta.url)),

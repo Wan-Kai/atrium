@@ -13,8 +13,9 @@ export interface LineSplitter {
  * Creates a strict JSONL line splitter: lines end at LF and nowhere else.
  *
  * @remarks
- * pi frames RPC output with LF only, and JSON strings may legally contain U+2028 and U+2029, which
- * Node's `readline` treats as line breaks (pi-internals.md §3 "传输"). The semantics match pi's own
+ * pi frames RPC output with LF only; Node's `readline` also ends lines at a lone CR, and pi's docs
+ * warn that it breaks at U+2028 and U+2029, which Node 22 no longer does (pi-internals.md §3
+ * "传输"). The semantics match pi's own
  * reader: one trailing CR is dropped, and data left at the end of the stream counts as a last
  * line. Unlike pi's reader, each chunk is scanned once and the unfinished line is only appended
  * to, so a multi-megabyte line (a large `get_entries` response) arriving in small chunks costs

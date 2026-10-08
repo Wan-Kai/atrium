@@ -14,7 +14,7 @@ import {
   formatTraceparent,
 } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
-import { type SessionView, applySessionEvent, loadingView } from "./session-view";
+import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
 /** Connection state exposed to the UI. */
 export type ConnectionState =
@@ -96,8 +96,19 @@ export interface AtriumClient {
   watch(sessionIds: readonly string[]): Promise<void>;
   /** Creates a chat and returns its session id. */
   createChat(): Promise<CommandResult<"create_chat">>;
+  /** The sessions in pi's session directory changed most recently. */
+  listRecentSessions(limit: number): Promise<CommandResult<"list_recent_sessions">>;
+  /** Opens a session from its file; `watch` it to see it. */
+  openSession(sessionId: string): Promise<CommandResult<"open_session">>;
   /** Sends a message, showing it at once as pending. */
   prompt(sessionId: string, text: string): Promise<CommandResult<"prompt">>;
+  /**
+   * Fetches the page before the earliest item of a watched session; does nothing when there is
+   * none, and joins a fetch already on its way.
+   */
+  loadOlder(sessionId: string): Promise<void>;
+  /** Fetches a step that arrived as a preview and puts it whole in the session's view. */
+  loadStep(sessionId: string, turnId: string, stepId: string): Promise<void>;
   /** Reports a UI problem to the host's log. */
   reportIssue(kind: ClientIssueKind, message: string, details?: string): Promise<void>;
 }
@@ -141,6 +152,9 @@ const DEFAULT_RECONNECT_DELAYS_MS = [250, 500, 1_000, 2_000, 5_000];
 /** Close code the client uses when the host stops answering pings. */
 const HEARTBEAT_LOST = 4000;
 const MAX_ISSUE_LENGTH = 4096;
+
+/** How many items one scroll back fetches. */
+const OLDER_PAGE_ITEMS = 50;
 
 /** A command as callers give it, without the envelope the client fills in. */
 type CommandFields<T extends CommandType> = Omit<Extract<Command, { type: T }>, "type" | "requestId" | "traceparent">;
@@ -199,6 +213,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const clock = options.clock ?? systemClock;
   const delays = options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS;
   const views = new Map<string, StoreApi<SessionView>>();
+  /** Fetches of older items on their way, by session. */
+  const olderLoading = new Map<string, Promise<void>>();
   let watched: readonly string[] = [];
   const pending = new Map<
     string,
@@ -286,14 +302,14 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    *
    * @remarks
    * A restarted host knows none of the old sessions (SPEC-0001, "事件"); their views keep the
-   * messages already shown, drop the run, the streaming reply and unconfirmed messages, and are
-   * no longer subscribed. Restoring them from pi's files comes with M1.4 and M1.7.
+   * items already shown, drop the run and unconfirmed messages, and are no longer subscribed. A
+   * lost session can be opened again from pi's file (`open_session`).
    *
    * @sideEffects Updates every view; clears the watched set.
    */
   function loseSessions(): void {
     for (const view of views.values()) {
-      view.setState({ status: "lost", run: null, streaming: null, pending: [] });
+      view.setState({ status: "lost", run: null, pending: [] });
     }
     watched = [];
   }
@@ -539,6 +555,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (live !== undefined) await request("subscribe_sessions", { sessionIds: [...watched] });
     },
     createChat: () => request("create_chat", {}),
+    listRecentSessions: (limit) => request("list_recent_sessions", { limit }),
+    openSession: (sessionId) => request("open_session", { sessionId }),
     async prompt(sessionId, text) {
       const requestId = `${options.clientId}-${++nextRequest}`;
       const view = views.get(sessionId);
@@ -562,6 +580,55 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       } catch (error) {
         withdraw();
         throw error;
+      }
+    },
+    loadOlder(sessionId) {
+      const going = olderLoading.get(sessionId);
+      if (going !== undefined) return going;
+      const view = views.get(sessionId);
+      if (view === undefined) return Promise.resolve();
+      const state = view.getState();
+      const before = state.items[0]?.id;
+      // A view still loading has no items, so nothing to fetch before.
+      if (before === undefined || !state.hasOlder || state.status === "lost") return Promise.resolve();
+      /**
+       * Fetches one page and puts it in front of the view's items.
+       *
+       * @remarks
+       * When the host rebuilt the transcript, a fresh snapshot replaces what the view has.
+       *
+       * @sideEffects Sends `fetch_transcript`, or `subscribe_sessions` to resync; updates the view.
+       */
+      const fetchPage = async (): Promise<void> => {
+        try {
+          const page = await request("fetch_transcript", {
+            sessionId,
+            epoch: state.epoch,
+            before,
+            limit: OLDER_PAGE_ITEMS,
+          });
+          view.setState(prependOlder(view.getState(), page, state.epoch, before));
+        } catch (error) {
+          if (!(error instanceof CommandError && error.code === "transcript_changed")) throw error;
+          await resync(sessionId);
+        }
+      };
+      const fetching = fetchPage().finally(() => olderLoading.delete(sessionId));
+      olderLoading.set(sessionId, fetching);
+      return fetching;
+    },
+    async loadStep(sessionId, turnId, stepId) {
+      const view = views.get(sessionId);
+      if (view === undefined) return;
+      const state = view.getState();
+      if (state.status === "loading" || state.status === "lost") return;
+      try {
+        const { step } = await request("fetch_step", { sessionId, epoch: state.epoch, turnId, stepId });
+        view.setState(withWholeStep(view.getState(), turnId, step, state.epoch));
+      } catch (error) {
+        // The host rebuilt the transcript; a fresh snapshot replaces what the view has.
+        if (!(error instanceof CommandError && error.code === "transcript_changed")) throw error;
+        await resync(sessionId);
       }
     },
     async reportIssue(kind, message, details) {

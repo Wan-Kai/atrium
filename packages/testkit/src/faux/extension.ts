@@ -45,6 +45,8 @@ interface CommandContext {
     confirm(title: string, message: string): Promise<boolean>;
     notify(message: string, type?: "info" | "warning" | "error"): void;
   };
+  /** Moves the session's current position, as pi's tree navigation does. */
+  navigateTree(targetId: string): Promise<{ readonly cancelled: boolean }>;
 }
 
 /**
@@ -100,9 +102,10 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * fixtures rely on (testing.md, "faux 模型").
  *
  * Replies scripted with `waitFor` hold until the test releases them, and two commands cover the
- * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具").
+ * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具"); a third navigates the
+ * session tree, the only way to make a branch inside one session file.
  *
- * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; registers a provider and two
+ * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; registers a provider and three
  * commands with pi.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
@@ -141,6 +144,13 @@ export default function fauxExtension(pi: ExtensionApi): void {
   // A command that consumes the input without a run, so `prompt` answers `handled`.
   pi.registerCommand("faux-noop", { description: "Does nothing", handler: () => Promise.resolve() });
   // A command that asks the client a question and reports the answer.
+  // A command that moves to another point of the session tree, so the next prompt starts a branch.
+  pi.registerCommand("faux-navigate", {
+    description: "Navigates the session tree to the given entry",
+    handler: async (args, ctx) => {
+      await ctx.navigateTree(args.trim());
+    },
+  });
   pi.registerCommand("faux-confirm", {
     description: "Asks for confirmation",
     handler: async (_args, ctx) => {

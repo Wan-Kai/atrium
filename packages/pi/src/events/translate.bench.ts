@@ -13,14 +13,19 @@ const EVENTS = [
   })),
   {
     type: "message_end",
-    message: { role: "assistant", content: [{ type: "text", text: "…" }], stopReason: "stop", timestamp: 0 },
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "…" }],
+      stopReason: "stop",
+      usage: { input: 1, output: 1 },
+      timestamp: 0,
+    },
   },
 ] as unknown as PiEvent[];
 
 /** Translates the whole reply with a fresh translator. */
 function translateAll(): void {
-  let next = 0;
-  const translate = createEventTranslator(() => `m${++next}`);
+  const translate = createEventTranslator(() => 0);
   for (const event of EVENTS) translate(event);
 }
 

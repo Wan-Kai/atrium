@@ -1,7 +1,10 @@
 import { type AtriumClient, CommandError, ConnectionLostError, type SessionView } from "@atrium/client";
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
+import { useDisplayMode } from "../state/display-mode";
 import { Composer } from "./composer";
+import { RecentSessions } from "./recent-sessions";
+import { SessionToolbar } from "./session-toolbar";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -33,6 +36,8 @@ export function describeSendError(error: unknown): string {
   if (error.code === "session_busy") return "pi 正在忙，等这一轮结束再发";
   if (error.code === "pi_rejected") return `pi 拒绝了这条消息：${String(error.params?.["detail"] ?? "")}`;
   if (error.code === "session_not_found") return "这个会话已经不存在了";
+  if (error.code === "transcript_changed") return "对话记录刚刚更新了，请再试一次";
+  if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
   return "宿主出错了，消息没有发出";
 }
 
@@ -43,23 +48,41 @@ export function describeSendError(error: unknown): string {
  * Split out so the store subscription exists only once there is a session. Sending is blocked
  * while a run is in progress (SPEC-0001, "M1.3 先做的部分").
  *
- * @sideEffects Subscribes to the session's store.
- * @param props - The session's view store, what to do with a message, and a notice to show above the input box.
+ * @sideEffects Subscribes to the session's store; loads older items when asked.
+ * @param props - The client, the session, its view store, what to do with a message, how to go
+ * back to the recent sessions, and a notice to show above the input box.
  * @returns The transcript and input box.
  */
 function SessionArea({
+  client,
+  sessionId,
   store,
   onSend,
+  onClose,
   notice,
 }: {
+  readonly client: AtriumClient;
+  readonly sessionId: string;
   readonly store: StoreApi<SessionView>;
   readonly onSend: (text: string) => void;
+  readonly onClose: () => void;
   readonly notice: ReactNode;
 }) {
   const view = useStore(store);
   return (
     <>
-      <Transcript view={view} />
+      <SessionToolbar client={client} sessionId={sessionId} onClose={onClose} />
+      <Transcript
+        view={view}
+        onLoadOlder={() => {
+          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+          client.loadOlder(sessionId).catch(() => undefined);
+        }}
+        onLoadStep={(turnId, stepId) => {
+          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+        }}
+      />
       {notice}
       <Composer onSend={onSend} disabled={view.run !== null} />
     </>
@@ -67,20 +90,53 @@ function SessionArea({
 }
 
 /**
- * M1.3's conversation screen: one chat, its transcript and the input box.
+ * Switches the display mode with Ctrl+O.
  *
  * @remarks
- * The sidebar and tabs come with M1.5; until then the first message creates a chat, as typing
- * into an empty conversation area does (SPEC-0001, "标签栏"), and later messages go to it. A
- * second message sent while the chat is still being created waits for that chat instead of
- * creating another. Once the chat's pi has exited or the host restarted without it, the next
- * message starts a new chat (SPEC-0001, "事件"). A failed send is explained above the input box.
+ * "用 Ctrl+O 切换" (SPEC-0001, "显示模式"); Ctrl, not ⌘, as in Claude Code.
  *
- * @sideEffects Creates chats, watches them and sends messages through the client.
+ * @sideEffects Listens for keys on the window while mounted.
+ */
+function useDisplayModeShortcut(): void {
+  const cycle = useDisplayMode().cycle;
+  useEffect(() => {
+    /**
+     * Cycles the mode on Ctrl+O alone.
+     *
+     * @remarks
+     * See `useDisplayModeShortcut`.
+     *
+     * @sideEffects May change the display mode; stops the browser's own handling of the key.
+     * @param event - The key event.
+     */
+    const onKey = (event: KeyboardEvent): void => {
+      if (!event.ctrlKey || event.metaKey || event.altKey || event.key.toLowerCase() !== "o") return;
+      event.preventDefault();
+      cycle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cycle]);
+}
+
+/**
+ * The conversation screen until M1.5: one session, its transcript and the input box.
+ *
+ * @remarks
+ * The sidebar and tabs come with M1.5. With no session open the recent sessions are listed, and
+ * choosing one opens it (SPEC-0001, "打开历史会话"); the first message instead creates a chat,
+ * as typing into an empty conversation area does (SPEC-0001, "标签栏"), and later messages go to
+ * it. A second message sent while the chat is still being created waits for that chat instead of
+ * creating another. Once the session's pi has exited or the host restarted without it, the next
+ * message starts a new chat (SPEC-0001, "事件"). A failed send or open is explained above the
+ * input box.
+ *
+ * @sideEffects Lists, opens and creates sessions, watches them and sends messages through the client.
  * @param props - The client.
  * @returns The screen.
  */
 export function ChatScreen({ client }: { readonly client: AtriumClient }) {
+  useDisplayModeShortcut();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   // The chat being created, shared by every send until it exists; only read in event handlers.
@@ -140,6 +196,27 @@ export function ChatScreen({ client }: { readonly client: AtriumClient }) {
   }
 
   /**
+   * Opens a session from the recent list and starts watching it.
+   *
+   * @remarks
+   * Opening starts pi on the session's file unless it is open already (SPEC-0001, "打开历史会话");
+   * a failure is explained above the input box.
+   *
+   * @sideEffects Sends `open_session` and `subscribe_sessions`; shows the session.
+   * @param chosen - The session's id.
+   */
+  async function open(chosen: string): Promise<void> {
+    setFailure(null);
+    try {
+      const { sessionId: opened } = await client.openSession(chosen);
+      await client.watch([opened]);
+      setSessionId(opened);
+    } catch (error) {
+      setFailure(describeSendError(error));
+    }
+  }
+
+  /**
    * Starts a send without waiting for it.
    *
    * @remarks
@@ -164,14 +241,33 @@ export function ChatScreen({ client }: { readonly client: AtriumClient }) {
     );
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {store === undefined ? (
+      {store === undefined || sessionId === null ? (
         <>
-          <div className="flex-1" />
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <RecentSessions
+              client={client}
+              onOpen={(chosen) => {
+                // Fire and forget: `open` explains its own failures.
+                void open(chosen);
+              }}
+            />
+          </div>
           {notice}
           <Composer onSend={onSend} />
         </>
       ) : (
-        <SessionArea store={store} onSend={onSend} notice={notice} />
+        <SessionArea
+          client={client}
+          sessionId={sessionId}
+          store={store}
+          onSend={onSend}
+          onClose={() => {
+            setSessionId(null);
+            // Fire and forget: nothing is watched any more.
+            client.watch([]).catch(() => undefined);
+          }}
+          notice={notice}
+        />
       )}
     </div>
   );

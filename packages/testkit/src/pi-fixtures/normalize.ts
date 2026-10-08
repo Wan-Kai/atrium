@@ -3,6 +3,8 @@ import type { Json } from "./format";
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const ENTRY_ID = /^[0-9a-f]{8}$/;
+/** An 8-hex word inside text; replaced only when it is an entry id already seen under an id key. */
+const ENTRY_ID_WORD = /\b[0-9a-f]{8}\b/g;
 /** Keys whose value is a session entry id or a reference to one (pi-internals.md §1). */
 const ENTRY_ID_KEYS: ReadonlySet<string> = new Set([
   "id",
@@ -32,7 +34,8 @@ const FILE_NAME_TIME = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g;
  * entry ids become numbered tokens in order of first appearance. Entry ids are recognized only
  * under the keys that hold them, so text that happens to be 8 hex digits stays as it is. The
  * numbering is shared by every value the function sees, so an id and every reference to it
- * (`parentId`, `leafId`, `since`) get the same token and the entry tree keeps its shape. Longer
+ * (`parentId`, `leafId`, `since`) get the same token and the entry tree keeps its shape; an id
+ * already seen is also replaced where text mentions it, as in a command's argument. Longer
  * paths are replaced first, so a path inside another is not cut in half.
  *
  * @sideEffects none; the returned function remembers the tokens it has handed out.
@@ -63,6 +66,8 @@ export function createNormalizer(paths: Readonly<Record<string, string>>): (valu
     }
     let result = text.replace(FILE_NAME_TIME, "1970-01-01T00-00-00-000Z");
     for (const [path, placeholder] of byLength) result = result.replaceAll(path, placeholder);
+    // An entry id already seen elsewhere, mentioned in text such as a command's argument.
+    result = result.replace(ENTRY_ID_WORD, (word) => entryIds.get(word) ?? word);
     return result.replace(UUID, (uuid) => {
       if (!uuids.has(uuid)) uuids.set(uuid, `<uuid-${uuids.size + 1}>`);
       return uuids.get(uuid) ?? uuid;

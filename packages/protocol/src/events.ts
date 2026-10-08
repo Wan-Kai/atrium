@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { SessionId } from "./commands";
+import { Notice, Step, TranscriptItem, Turn } from "./transcript";
 
 /** A trace id: 32 lowercase hex characters. */
 const TraceId = z.string().regex(/^[0-9a-f]{32}$/);
+
+/** How many turns a snapshot carries; older ones come through `fetch_transcript` (SPEC-0001, "快照与分页"). */
+export const SNAPSHOT_TURNS = 20;
 
 /** A position in a session's event stream (SPEC-0001, "事件"). */
 const sessionEventFields = {
@@ -18,44 +22,6 @@ const sessionEventFields = {
 /** Milliseconds since the Unix epoch, from the host's clock. */
 const Timestamp = z.number().int().nonnegative();
 
-/** One block of an assistant message; tool calls join in M1.4. */
-export const AssistantBlock = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("text"), text: z.string() }),
-  z.strictObject({ type: z.literal("reasoning"), text: z.string() }),
-]);
-export type AssistantBlock = z.infer<typeof AssistantBlock>;
-
-/** Why an assistant message ended, as pi reports it. */
-export const StopReason = z.enum(["stop", "length", "toolUse", "error", "aborted"]);
-export type StopReason = z.infer<typeof StopReason>;
-
-/** A user message as the transcript shows it. */
-export const UserMessage = z.strictObject({
-  id: z.string().min(1),
-  role: z.literal("user"),
-  text: z.string(),
-  /** The `requestId` of the `prompt` that sent it, so the client can replace its optimistic copy. */
-  clientMessageId: z.string().nullable(),
-  timestamp: Timestamp,
-});
-export type UserMessage = z.infer<typeof UserMessage>;
-
-/** A finished assistant message. */
-export const AssistantMessage = z.strictObject({
-  id: z.string().min(1),
-  role: z.literal("assistant"),
-  content: z.array(AssistantBlock),
-  stopReason: StopReason,
-  /** pi's own error text when `stopReason` is `error`, for the "展开看原始报错" view. */
-  errorMessage: z.string().nullable(),
-  timestamp: Timestamp,
-});
-export type AssistantMessage = z.infer<typeof AssistantMessage>;
-
-/** A message in a session's transcript. */
-export const TranscriptMessage = z.discriminatedUnion("role", [UserMessage, AssistantMessage]);
-export type TranscriptMessage = z.infer<typeof TranscriptMessage>;
-
 /** The run in progress, for "进行中 · 12s". */
 const RunInfo = z.strictObject({ runId: z.string().min(1), startedAt: Timestamp });
 
@@ -69,9 +35,10 @@ const RunInfo = z.strictObject({ runId: z.string().min(1), startedAt: Timestamp 
 export const SessionSnapshotEvent = z.strictObject({
   type: z.literal("session_snapshot"),
   ...sessionEventFields,
-  messages: z.array(TranscriptMessage),
-  /** The assistant message still streaming, as far as it has come. */
-  streaming: z.strictObject({ messageId: z.string().min(1), content: z.array(AssistantBlock) }).nullable(),
+  /** The latest turns, up to `SNAPSHOT_TURNS`, with the notices among and after them; a running turn as far as it has come. */
+  items: z.array(TranscriptItem),
+  /** Whether earlier items exist, for `fetch_transcript`. */
+  hasOlder: z.boolean(),
   run: RunInfo.nullable(),
   /** pi has exited; nothing more will happen in this session. */
   exited: z.boolean(),
@@ -96,38 +63,60 @@ export const RunSettledEvent = z.strictObject({
 });
 export type RunSettledEvent = z.infer<typeof RunSettledEvent>;
 
-/** An assistant message started streaming. */
-export const MessageStartedEvent = z.strictObject({
-  type: z.literal("message_started"),
-  ...sessionEventFields,
-  messageId: z.string().min(1),
-});
-export type MessageStartedEvent = z.infer<typeof MessageStartedEvent>;
+/** A turn began: pi echoed the user message that opens it (SPEC-0001, "对话记录"). */
+export const TurnStartedEvent = z.strictObject({ type: z.literal("turn_started"), ...sessionEventFields, turn: Turn });
+export type TurnStartedEvent = z.infer<typeof TurnStartedEvent>;
 
-/** Fields of a streamed piece of text. */
-const deltaFields = {
+/** A step joined a turn: a block started, a tool call is complete, a steer or a retry happened. */
+export const StepAddedEvent = z.strictObject({
+  type: z.literal("step_added"),
   ...sessionEventFields,
-  messageId: z.string().min(1),
-  /** Index of the block in the Atrium message's `content`. */
-  contentIndex: z.number().int().nonnegative(),
+  turnId: z.string().min(1),
+  step: Step,
+});
+export type StepAddedEvent = z.infer<typeof StepAddedEvent>;
+
+/** More text of a thinking or text step. */
+export const StepDeltaEvent = z.strictObject({
+  type: z.literal("step_delta"),
+  ...sessionEventFields,
+  turnId: z.string().min(1),
+  stepId: z.string().min(1),
   delta: z.string(),
-};
-
-/** More reply text. */
-export const TextDeltaEvent = z.strictObject({ type: z.literal("text_delta"), ...deltaFields });
-export type TextDeltaEvent = z.infer<typeof TextDeltaEvent>;
-
-/** More reasoning text. */
-export const ReasoningDeltaEvent = z.strictObject({ type: z.literal("reasoning_delta"), ...deltaFields });
-export type ReasoningDeltaEvent = z.infer<typeof ReasoningDeltaEvent>;
-
-/** A message is complete: an assistant message that streamed, or a user message pi accepted. */
-export const MessageFinishedEvent = z.strictObject({
-  type: z.literal("message_finished"),
-  ...sessionEventFields,
-  message: TranscriptMessage,
 });
-export type MessageFinishedEvent = z.infer<typeof MessageFinishedEvent>;
+export type StepDeltaEvent = z.infer<typeof StepDeltaEvent>;
+
+/** A step changed: its message finished, or a tool has output, a result or no result at the end. */
+export const StepUpdatedEvent = z.strictObject({
+  type: z.literal("step_updated"),
+  ...sessionEventFields,
+  turnId: z.string().min(1),
+  step: Step,
+});
+export type StepUpdatedEvent = z.infer<typeof StepUpdatedEvent>;
+
+/** A turn ended with its run. */
+export const TurnFinishedEvent = z.strictObject({
+  type: z.literal("turn_finished"),
+  ...sessionEventFields,
+  turnId: z.string().min(1),
+  outcome: Turn.shape.outcome.exclude(["running"]),
+  error: Turn.shape.error,
+  durationMs: z.number().int().nonnegative(),
+  usage: Turn.shape.usage,
+  changes: Turn.shape.changes,
+});
+export type TurnFinishedEvent = z.infer<typeof TurnFinishedEvent>;
+
+/** A notice joined the transcript, found when the host re-read pi's entries. */
+export const NoticeAddedEvent = z.strictObject({
+  type: z.literal("notice_added"),
+  ...sessionEventFields,
+  notice: Notice,
+  /** The id of the item it goes before; `null` for the end. */
+  before: z.string().min(1).nullable(),
+});
+export type NoticeAddedEvent = z.infer<typeof NoticeAddedEvent>;
 
 /** The session's pi process ended. */
 export const SessionExitedEvent = z.strictObject({
@@ -145,10 +134,12 @@ export const SessionEvent = z.discriminatedUnion("type", [
   SessionSnapshotEvent,
   RunStartedEvent,
   RunSettledEvent,
-  MessageStartedEvent,
-  TextDeltaEvent,
-  ReasoningDeltaEvent,
-  MessageFinishedEvent,
+  TurnStartedEvent,
+  StepAddedEvent,
+  StepDeltaEvent,
+  StepUpdatedEvent,
+  TurnFinishedEvent,
+  NoticeAddedEvent,
   SessionExitedEvent,
 ]);
 export type SessionEvent = z.infer<typeof SessionEvent>;

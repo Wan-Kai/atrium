@@ -5,7 +5,7 @@ import { SubscriptionRegistry } from "./subscriptions";
 
 /** An event of a session. */
 function eventOf(sessionId: string, seq: number): SessionEvent {
-  return { type: "message_started", sessionId, epoch: 1, seq, traceId: null, messageId: "m1" };
+  return { type: "step_delta", sessionId, epoch: 1, seq, traceId: null, turnId: "t1", stepId: "0", delta: "x" };
 }
 
 /** A registry with two connections whose deliveries are recorded. */

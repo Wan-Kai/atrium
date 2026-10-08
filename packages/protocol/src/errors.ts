@@ -18,6 +18,10 @@ export const ErrorCode = z.enum([
   "pi_unavailable",
   /** pi is running or compacting and takes no new message now. */
   "session_busy",
+  /** `fetch_transcript` or `fetch_step` named an epoch that has passed; the client subscribes again for a snapshot. */
+  "transcript_changed",
+  /** The session to open recorded a working directory that no longer exists; `params.cwd` names it. */
+  "session_cwd_missing",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */

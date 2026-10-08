@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseTraceparent } from "./trace";
+import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -50,6 +51,68 @@ export const PromptCommand = z.strictObject({
 });
 export type PromptCommand = z.infer<typeof PromptCommand>;
 
+/** The most sessions one `list_recent_sessions` returns. */
+export const RECENT_SESSIONS_LIMIT = 50;
+
+/**
+ * Lists the sessions in pi's session directory changed most recently, for M1.4's temporary
+ * "最近会话" list (SPEC-0001, "打开历史会话").
+ */
+export const ListRecentSessionsCommand = z.strictObject({
+  type: z.literal("list_recent_sessions"),
+  ...commandFields,
+  limit: z.number().int().min(1).max(RECENT_SESSIONS_LIMIT),
+});
+export type ListRecentSessionsCommand = z.infer<typeof ListRecentSessionsCommand>;
+
+/** Opens a session from its file: starts pi on it, or returns it if it is already open. */
+export const OpenSessionCommand = z.strictObject({
+  type: z.literal("open_session"),
+  ...commandFields,
+  sessionId: SessionId,
+});
+export type OpenSessionCommand = z.infer<typeof OpenSessionCommand>;
+
+/** One session in the recent list. */
+export const RecentSession = z.strictObject({
+  sessionId: SessionId,
+  /** The first question asked in it, if the start of the file holds one. */
+  firstPrompt: z.string().nullable(),
+  /** When its file last changed, in milliseconds since the epoch. */
+  modifiedAt: z.number().int().nonnegative(),
+});
+export type RecentSession = z.infer<typeof RecentSession>;
+
+/** The most items one `fetch_transcript` returns. */
+export const FETCH_TRANSCRIPT_LIMIT = 100;
+
+/**
+ * Fetches the transcript items before one the client has, for scrolling back.
+ *
+ * @remarks
+ * `epoch` is the one the client's items come from; if the host has rebuilt the transcript since,
+ * the item ids may no longer line up, so it answers `transcript_changed` (SPEC-0001, "快照与分页").
+ */
+export const FetchTranscriptCommand = z.strictObject({
+  type: z.literal("fetch_transcript"),
+  ...sessionCommandFields,
+  epoch: z.number().int().nonnegative(),
+  /** The id of the earliest item the client has. */
+  before: z.string().min(1).max(256),
+  limit: z.number().int().min(1).max(FETCH_TRANSCRIPT_LIMIT),
+});
+export type FetchTranscriptCommand = z.infer<typeof FetchTranscriptCommand>;
+
+/** Fetches one step whole, for a step marked `partial` (SPEC-0001, "大内容"). */
+export const FetchStepCommand = z.strictObject({
+  type: z.literal("fetch_step"),
+  ...sessionCommandFields,
+  epoch: z.number().int().nonnegative(),
+  turnId: z.string().min(1).max(256),
+  stepId: z.string().min(1).max(32),
+});
+export type FetchStepCommand = z.infer<typeof FetchStepCommand>;
+
 /** Kinds of problems the UI reports to the host's log. */
 export const ClientIssueKind = z.enum(["error", "long_task", "slow_frames"]);
 export type ClientIssueKind = z.infer<typeof ClientIssueKind>;
@@ -70,6 +133,10 @@ export const Command = z.discriminatedUnion("type", [
   CreateChatCommand,
   SubscribeSessionsCommand,
   PromptCommand,
+  FetchTranscriptCommand,
+  FetchStepCommand,
+  ListRecentSessionsCommand,
+  OpenSessionCommand,
   ReportClientIssueCommand,
 ]);
 export type Command = z.infer<typeof Command>;
@@ -98,6 +165,14 @@ export const CommandResult = {
      */
     disposition: z.enum(["started", "queued", "handled"]),
   }),
+  fetch_transcript: z.strictObject({
+    /** The items just before `before`, oldest first. */
+    items: z.array(TranscriptItem),
+    hasOlder: z.boolean(),
+  }),
+  fetch_step: z.strictObject({ step: Step }),
+  list_recent_sessions: z.strictObject({ sessions: z.array(RecentSession) }),
+  open_session: z.strictObject({ sessionId: SessionId }),
   report_client_issue: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;
