@@ -122,8 +122,10 @@ export function useDisplayModeShortcut(): void {
  * The active session is watched while it shows. With no session open, typing into the input box
  * creates one where the client is, a chat when it is nowhere yet, and sends the message to it
  * (SPEC-0001, "标签栏"); a second message sent while it is being created waits for it instead of
- * creating another. A session whose pi has exited, or that the host lost in a restart, is opened
- * again before the message goes. A failed send is explained above the input box. The empty
+ * creating another, while one sent after moving to another container starts its own there. The
+ * active session is opened whenever it shows, which starts a pi that is not running (as after a
+ * restart) and explains here why it cannot. A session whose pi has exited, or that the host lost
+ * in a restart, is opened again before the message goes. A failed send is explained above the input box. The empty
  * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计").
  *
  * @sideEffects Watches the active session; creates and opens sessions and sends messages
@@ -145,10 +147,12 @@ export function ConversationArea({
 }) {
   const [failure, setFailure] = useState<string | null>(null);
   const [store, setStore] = useState<StoreApi<SessionView> | undefined>(undefined);
-  // The session being created, shared by every send until it exists; only read in event handlers.
-  const creating = useRef<Promise<string> | null>(null);
+  // The session being created in each container, shared by every send there until it exists;
+  // only read in event handlers.
+  const creating = useRef(new Map<string, Promise<string>>());
 
   useEffect(() => {
+    let current = true;
     // Fire and forget: a lost connection resubscribes on reconnect.
     client.watch(sessionId === null ? [] : [sessionId]).catch(() => undefined);
     // The client is the external system here: `watch` makes the session's view at once, and the
@@ -156,6 +160,16 @@ export function ConversationArea({
     // oxlint-disable-next-line react/set-state-in-effect -- see above.
     setStore(sessionId === null ? undefined : client.session(sessionId));
     setFailure(null);
+    // A tab may show a session whose pi is not running, as after a restart; opening starts it,
+    // and says here why it cannot (SPEC-0001, "项目、工作区与会话").
+    if (sessionId !== null) {
+      client.openSession(sessionId).catch((error: unknown) => {
+        if (current) setFailure(describeSendError(error));
+      });
+    }
+    return () => {
+      current = false;
+    };
   }, [client, sessionId]);
 
   /**
@@ -169,15 +183,18 @@ export function ConversationArea({
    */
   async function target(): Promise<string> {
     if (sessionId === null) {
-      creating.current ??= create()
-        .then(async (created) => {
-          await client.watch([created]);
-          return created;
+      // Per container: a message sent in another one must not wait for, or go to, this session.
+      const key = containerId ?? "";
+      const going = creating.current.get(key);
+      if (going !== undefined) return going;
+      const created = create()
+        .then(async (id) => {
+          await client.watch([id]);
+          return id;
         })
-        .finally(() => {
-          creating.current = null;
-        });
-      return creating.current;
+        .finally(() => creating.current.delete(key));
+      creating.current.set(key, created);
+      return created;
     }
     const status = client.session(sessionId)?.getState().status;
     if (status === "exited" || status === "lost") {

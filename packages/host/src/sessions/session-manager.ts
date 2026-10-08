@@ -102,6 +102,8 @@ export function createSessionManager(options: {
   const running = new Set<{ stop(): Promise<unknown> }>();
   /** Sessions with a run in progress. */
   const busy = new Set<string>();
+  /** `prompt`s on their way, by session, so a draft is not discarded under one. */
+  const prompting = new Map<string, number>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
   /** Background work, such as scans after a run, that `close` waits for. */
@@ -407,24 +409,31 @@ export function createSessionManager(options: {
       return { sessionId: await create(clientId, workspaceId, dir) };
     },
     async openSession(clientId, sessionId) {
+      await options.catalog.ready();
       const entry = entryOf(sessionId);
-      if (entry.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
+      // The tab opens first, so a session that cannot start explains why in its own tab.
       await options.layouts.open(clientId, entry.containerId, sessionId);
       options.onChange();
+      if (entry.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
       return {};
     },
     async closeTab(clientId, sessionId) {
       await options.layouts.close(clientId, sessionId);
+      options.onChange();
+      if (options.catalog.find(sessionId)?.state !== "draft") return {};
+      // A message may be on its way, or its file just written: look again before discarding.
+      await options.catalog.scan();
       const entry = options.catalog.find(sessionId);
       const empty = (sessions.get(sessionId)?.controller.snapshot().items.length ?? 0) === 0;
-      if (entry?.state === "draft" && empty && !options.layouts.isOpen(sessionId)) {
+      const busyNow = starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0;
+      if (entry?.state === "draft" && empty && !busyNow && !options.layouts.isOpen(sessionId)) {
         await stopSession(sessionId);
         sessions.delete(sessionId);
         await options.catalog.forget(sessionId);
         // Only a chat's own directory, and only while empty (domain-model, "已决定 13").
         if (entry.containerId === CHATS) await rmdir(entry.cwd).catch(() => undefined);
+        options.onChange();
       }
-      options.onChange();
       return {};
     },
     async selectContainer(clientId, containerId) {
@@ -441,12 +450,16 @@ export function createSessionManager(options: {
       return {};
     },
     async renameSession(sessionId, name) {
+      await options.catalog.ready();
+      // pi writes no file before the first message, so a draft's name has nowhere to go.
+      if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
       const { pi } = await ensureRunning(sessionId);
       await pi.request({ type: "set_session_name", name });
       inBackground("session scan", () => options.catalog.scan());
       return {};
     },
     async subscribe(connectionId, sessionIds) {
+      await options.catalog.ready();
       const snapshots = new Map<string, SessionSnapshotEvent>();
       for (const sessionId of sessionIds) {
         const controller = sessions.get(sessionId)?.controller;
@@ -454,9 +467,9 @@ export function createSessionManager(options: {
           snapshots.set(sessionId, controller.snapshot());
         } else if (entryOf(sessionId).state === "draft") {
           snapshots.set(sessionId, draftSnapshot(sessionId));
-        } else {
-          throw new CommandError("session_not_found", { sessionId });
         }
+        // A session on file whose pi has not started yet is watched already; its snapshot follows
+        // once `open_session` or a message starts it (SPEC-0001, "项目、工作区与会话").
       }
       for (const sessionId of options.subscriptions.subscribe(connectionId, sessionIds)) {
         const snapshot = snapshots.get(sessionId);
@@ -465,13 +478,19 @@ export function createSessionManager(options: {
       return {};
     },
     async prompt(command) {
-      const found = sessions.get(command.sessionId);
-      const session =
-        found === undefined && options.catalog.find(command.sessionId)?.state === "draft"
-          ? await ensureRunning(command.sessionId)
-          : found;
-      if (session === undefined) throw new CommandError("session_not_found", { sessionId: command.sessionId });
-      return session.controller.prompt(command);
+      const { sessionId } = command;
+      prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
+      try {
+        await options.catalog.ready();
+        entryOf(sessionId);
+        // A session whose pi is not running, a restored draft among them, starts on its message.
+        const session = live(sessionId) ?? (await ensureRunning(sessionId));
+        return await session.controller.prompt(command);
+      } finally {
+        const left = (prompting.get(sessionId) ?? 1) - 1;
+        if (left === 0) prompting.delete(sessionId);
+        else prompting.set(sessionId, left);
+      }
     },
     async fetchStep(command) {
       return controllerOf(command.sessionId).fetchStep(command);

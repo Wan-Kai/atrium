@@ -313,3 +313,30 @@ describe("SessionCatalog", () => {
     });
   });
 });
+
+describe("SessionCatalog before its first scan", () => {
+  it("does not call a recorded session missing until a scan has looked, and starts that scan when waited for", async () => {
+    const { sessions, dirs, file, write } = await catalog();
+    await file.save({
+      sessions: [{ sessionId: "s1", containerId: A, cwd: dirs.a, draft: false, archived: false, createdAt: 1 }],
+    });
+    expect(sessions.find("s1")?.state).toBe("persisted");
+    await write(dirs.a, "s1", [user("still here")]);
+
+    await sessions.ready();
+    await sessions.ready();
+
+    expect(sessions.find("s1")).toMatchObject({ state: "persisted", prompt: "still here" });
+  });
+
+  it("calls it missing once a scan found no file", async () => {
+    const { sessions, dirs, file } = await catalog();
+    await file.save({
+      sessions: [{ sessionId: "s1", containerId: A, cwd: dirs.a, draft: false, archived: false, createdAt: 1 }],
+    });
+
+    await sessions.ready();
+
+    expect(sessions.find("s1")?.state).toBe("missing");
+  });
+});

@@ -464,6 +464,7 @@ describe("HostMessage", () => {
       "project_exists",
       "name_taken",
       "path_not_found",
+      "session_is_draft",
       "pi_rejected",
       "internal_error",
     ]);

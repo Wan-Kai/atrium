@@ -280,6 +280,47 @@ async function noCreate(): Promise<string> {
 }
 
 describe("ConversationArea", () => {
+  it("opens the active session when it shows, and explains when it cannot start", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      { openSession: () => Promise.reject(new CommandError("session_cwd_missing", { cwd: "/gone/work" })) },
+    );
+
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />,
+    );
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("恢复失败：会话的目录 /gone/work 不存在");
+    expect(calls).toStrictEqual(["watch s1", "openSession s1"]);
+  });
+
+  it("keeps a session being created to its own container, so a message sent after moving goes elsewhere", async () => {
+    const gate = Promise.withResolvers<void>();
+    const { client, calls } = fakeClient({}, { createSession: () => gate.promise });
+    const createIn = (workspaceId: string) => async () => (await client.createSession(workspaceId)).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId="wks_a" sessionId={null} create={createIn("wks_a")} />,
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "给 A{Enter}");
+
+    await screen.rerender(
+      <ConversationArea client={client} containerId="wks_b" sessionId={null} create={createIn("wks_b")} />,
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "给 B{Enter}");
+    gate.resolve();
+
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.startsWith("prompt")).toSorted()).toStrictEqual([
+        "prompt new1 给 A",
+        "prompt new2 给 B",
+      ]),
+    );
+    expect(calls.filter((call) => call.startsWith("createSession"))).toStrictEqual([
+      "createSession wks_a",
+      "createSession wks_b",
+    ]);
+  });
+
   it("creates a session where the client is on the first message, watches it, and waits for it", async () => {
     const gate = Promise.withResolvers<void>();
     const { client, calls } = fakeClient({}, { createChat: () => gate.promise });
@@ -325,7 +366,7 @@ describe("ConversationArea", () => {
 
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
 
-    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "prompt s1 你好"]));
+    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 你好"]));
     await expect.element(screen.getByTestId("user-message")).toHaveAttribute("data-pending", "true");
     await expect.element(screen.getByTestId("user-message")).toHaveTextContent("你好");
   });
@@ -340,7 +381,9 @@ describe("ConversationArea", () => {
 
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "再来{Enter}");
 
-    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "watch s1", "prompt s1 再来"]));
+    await vi.waitFor(() =>
+      expect(calls).toStrictEqual(["watch s1", "openSession s1", "openSession s1", "watch s1", "prompt s1 再来"]),
+    );
   });
 
   it("does not send while a run is in progress", async () => {
@@ -356,7 +399,7 @@ describe("ConversationArea", () => {
     views.get("s1")?.setState({ run: null });
     await screen.getByRole("button", { name: "发送" }).click();
 
-    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "prompt s1 二"]));
+    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 二"]));
   });
 
   it("stops watching when no session is active, and drops an old failure on switching", async () => {

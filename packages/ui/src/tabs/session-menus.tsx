@@ -109,7 +109,7 @@ export function DisplayModeMenu() {
  *
  * @remarks
  * SPEC-0001 ("标签栏"); "在终端中继续" comes with M1.7. Renaming asks for the name in place of the
- * menu; copying needs the session's file, which a draft does not have yet. Failures are shown
+ * menu; renaming and copying need the session's file, which a draft does not have yet. Failures are shown
  * next to the menu.
  *
  * @sideEffects Sends commands; writes the clipboard; downloads an export.
@@ -161,7 +161,9 @@ export function SessionMenu({ client, session }: { readonly client: AtriumClient
             <button
               type="button"
               role="menuitem"
-              className={MENU_ITEM}
+              className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+              disabled={session.state === "draft"}
+              title={session.state === "draft" ? "发出第一条消息后才能改名" : undefined}
               onClick={() => {
                 close();
                 setRenaming(true);

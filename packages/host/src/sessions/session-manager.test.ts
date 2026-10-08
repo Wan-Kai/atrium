@@ -598,3 +598,97 @@ describe("SessionManager turn starts", () => {
     );
   });
 });
+
+describe("SessionManager after the review (2026-10-08)", () => {
+  it("lets a client watch a session on file before its pi starts, and sends the snapshot once it has", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, received } = await manage({ rules: SESSION_ONE }, at);
+
+    // As the UI does: the tab shows at once, and its view subscribes before the open has finished.
+    const opening = manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    expect(received).toStrictEqual([]);
+    await opening;
+
+    expect(received).toMatchObject([{ type: "session_snapshot", sessionId: "pi-session-1", epoch: 1 }]);
+  });
+
+  it("starts the pi of a session on file when a message comes before anyone opened it", async () => {
+    const at = await place();
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, starts } = await manage(
+      { argvToStderr: true, rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" } } } },
+      at,
+    );
+
+    const answer = await manager.prompt({
+      type: "prompt",
+      requestId: "q1",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "hi",
+    });
+
+    expect(answer).toStrictEqual({ disposition: "started" });
+    await vi.waitFor(() =>
+      expect(starts()).toStrictEqual([{ argv: ["--mode", "rpc", "--session", file], cwd: at.workspace }]),
+    );
+  });
+
+  it("keeps the tab of a session that cannot start, so the failure shows there", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, layouts } = await manage({ rules: SESSION_ONE }, at);
+    await catalog.scan();
+    await rm(at.workspace, { recursive: true });
+
+    await expect(manager.openSession("client-1", "pi-session-1")).rejects.toStrictEqual(
+      new CommandError("session_cwd_missing", { cwd: at.workspace }),
+    );
+
+    expect(layouts.of("client-1").tabs).toStrictEqual({
+      [WORKSPACE]: { open: ["pi-session-1"], active: "pi-session-1" },
+    });
+  });
+
+  it("does not discard a restored draft whose first message is on its way", async () => {
+    const at = await place();
+    const first = await manage({ rules: SESSION_ONE }, at);
+    const { sessionId } = await first.manager.createChat("client-1");
+    await first.manager.close();
+    await first.catalog.close();
+    const { manager, catalog } = await manage(
+      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } } },
+      at,
+    );
+
+    const sending = manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    await manager.closeTab("client-1", sessionId);
+    await sending;
+
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: "chats" });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+  });
+
+  it("does not discard a draft whose file pi has written since the last scan", async () => {
+    const at = await place();
+    const { manager, catalog } = await manage({ rules: SESSION_ONE }, at);
+    const { sessionId } = await manager.createSession("client-1", WORKSPACE);
+    // pi wrote the file, say just before the host last stopped; no scan has seen it yet.
+    await terminalSession(at, sessionId, at.workspace);
+
+    await manager.closeTab("client-1", sessionId);
+
+    expect(catalog.find(sessionId)).toMatchObject({ state: "persisted" });
+  });
+
+  it("refuses to rename a draft, which has no file to keep the name in", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.renameSession(sessionId, "名字")).rejects.toStrictEqual(
+      new CommandError("session_is_draft", { sessionId }),
+    );
+  });
+});

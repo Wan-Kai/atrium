@@ -32,6 +32,8 @@ export const ErrorCode = z.enum([
   "name_taken",
   /** The path is not a directory, or does not exist; `params.path` repeats it. */
   "path_not_found",
+  /** The session has had no message yet, so pi has no file to keep its name in. */
+  "session_is_draft",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */

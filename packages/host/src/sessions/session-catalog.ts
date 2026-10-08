@@ -31,6 +31,14 @@ export interface SessionCatalog {
   forget(sessionId: string): Promise<void>;
   /** Hides a session in Atrium; pi's file stays. */
   archive(sessionId: string): Promise<void>;
+  /**
+   * Resolves once the first scan has ended, starting one if none has.
+   *
+   * @remarks
+   * Until then a recorded session whose file was not seen yet is not known to be missing, nor a
+   * draft known to have no file (domain-model §1, "第一次扫描之前").
+   */
+  ready(): Promise<void>;
   /** Scans the containers' session folders again; scans asked for during one run once after it. */
   scan(): Promise<void>;
   /** Calls `listener` after the list changed; returns a function that stops it. */
@@ -50,7 +58,7 @@ export interface SessionCatalog {
  *   exists; any other session to the container whose directory is its working directory;
  * - a session found in more than one file is the newest file's; the conflict is logged;
  * - a draft becomes a session once its file is found; a recorded session whose file is gone is
- *   `missing`;
+ *   `missing`, but only once a scan has looked (`ready`);
  * - every chat has its own directory under the chats root, and all of them are the chats'
  *   container.
  *
@@ -77,6 +85,9 @@ export function createSessionCatalog(options: {
   let chatDirs: readonly string[] = [];
   let scanning: Promise<void> | null = null;
   let again = false;
+  /** Settles once the first scan has ended, however it ended. */
+  const firstScan = Promise.withResolvers<void>();
+  let scanned = false;
 
   /**
    * Every container directory, workspaces first.
@@ -149,7 +160,8 @@ export function createSessionCatalog(options: {
         name: null,
         prompt: null,
         file: null,
-        state: record.draft ? "draft" : "missing",
+        // Before the first scan, a file not found yet may well be there (domain-model §1).
+        state: record.draft ? "draft" : scanned ? "missing" : "persisted",
         updatedAt: record.createdAt,
         archived: record.archived,
       });
@@ -274,9 +286,16 @@ export function createSessionCatalog(options: {
           } while (again && !stop.signal.aborted);
         } finally {
           scanning = null;
+          scanned = true;
+          firstScan.resolve();
         }
       })();
       return scanning;
+    },
+    ready() {
+      // Fire and forget: a failed scan still ends the wait; the scan's caller reports the failure.
+      if (!scanned && scanning === null) void this.scan().catch(() => undefined);
+      return firstScan.promise;
     },
     onChange(listener) {
       listeners.add(listener);

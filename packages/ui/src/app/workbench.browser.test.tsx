@@ -283,7 +283,7 @@ describe("Workbench tabs", () => {
     await expect.element(screen.getByRole("menuitem", { name: "复制会话文件路径" })).toBeEnabled();
   });
 
-  it("cannot copy the path of a draft, which has no file yet", async () => {
+  it("cannot rename a draft or copy its path, as it has no file yet", async () => {
     const initial = list();
     const { screen } = await workbench({
       initial: { ...initial, sessions: [session({ sessionId: "s1", containerId: LOCAL, file: null, state: "draft" })] },
@@ -292,6 +292,7 @@ describe("Workbench tabs", () => {
     await screen.getByRole("button", { name: "当前会话" }).click();
 
     await expect.element(screen.getByRole("menuitem", { name: "复制会话文件路径" })).toBeDisabled();
+    await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeDisabled();
   });
 
   it("switches the display mode with Ctrl+O and from its menu, saving it with the preferences", async () => {
@@ -329,15 +330,16 @@ describe("Workbench keys and focus", () => {
 
   it("goes to the previous tab with ⌘⇧[, and ignores keys with no tab to go to", async () => {
     const initial = list();
-    const { calls } = await workbench({
+    const { index } = await workbench({
       initial: { ...initial, layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2"], active: "s2" } } } },
     });
 
     await userEvent.keyboard("{Meta>}{Shift>}[[{/Shift}{/Meta}");
+    await vi.waitFor(() => expect(index.getState().layout.tabs[LOCAL]?.active).toBe("s1"));
+    await userEvent.keyboard("{Meta>}{Shift>}[[{/Shift}{/Meta}");
     await userEvent.keyboard("{Meta>}9{/Meta}");
 
-    await vi.waitFor(() => expect(calls).toContain("openSession s1"));
-    expect(calls.filter((call) => call.startsWith("openSession"))).toStrictEqual(["openSession s1"]);
+    expect(index.getState().layout.tabs[LOCAL]).toStrictEqual({ open: ["s1", "s2"], active: "s1" });
   });
 
   it("starts a chat with ⌘T when the client is nowhere", async () => {
