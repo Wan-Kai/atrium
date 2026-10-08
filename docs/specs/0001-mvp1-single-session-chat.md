@@ -429,7 +429,7 @@ Electron 主进程
 
 对象和关系见 [领域模型](../architecture/domain-model.md)；以下关于 pi 的行为已对照 pi 1.0.1（提交 `4c6fb7c`）的源码核实。
 
-- **工作区与会话列表**：宿主用 `git worktree list` 列出项目的工作区（本地工作区 + 各 worktree）。pi 的 RPC 没有列出历史会话的命令，宿主直接读 `~/.pi/agent/sessions/--<路径>--/*.jsonl`（Paseo 也是这样做的），按文件头里的 `cwd` 归到对应的容器，从中取会话 id、时间、会话名和第一条用户消息（按"侧栏 · 命名"得出标题）。会话以 pi 的会话 id 为主键，文件路径只做定位；同一个 id 扫到多个文件时报告冲突。Atrium 自己只保存索引（见"侧栏 · 概念关系"）。
+- **工作区与会话列表**：宿主用 `git worktree list` 列出项目的工作区（本地工作区 + 各 worktree）。pi 的 RPC 没有列出历史会话的命令，宿主直接读 `~/.pi/agent/sessions/--<路径>--/*.jsonl`（Paseo 也是这样做的），按文件头里的 `cwd` 归到对应的容器，从中取会话 id、时间、会话名和第一条用户消息（按"侧栏 · 命名"得出标题）。窗口获得焦点、会话的一次运行结束时重扫，按文件大小和修改时间缓存，只重读变化的文件；不常驻监听会话目录（2026-10-08 定）。会话以 pi 的会话 id 为主键，文件路径只做定位；同一个 id 扫到多个文件时报告冲突。Atrium 自己只保存索引（见"侧栏 · 概念关系"）。
 - **新建会话**：pi 创建会话时立即分配 id，但在第一条用户消息之前不写出文件。这期间的会话是"草稿"，只有宿主记得；写出文件后发 `session_bound`。草稿会话记在索引里，宿主重启后照样恢复成空标签（不启动进程，第一次发消息时再启动）；新对话的目录也一直保留，Atrium 不自动清理，用户自己删。
 - **恢复会话**：以 `--session <文件>` 启动 pi（一个会话固定一个进程，不用 `switch_session`），用 `get_entries` 取回全部条目，按 `id / parentId` 和 `leafId` 沿当前分支重建对话记录。**不用 `get_messages`**：它返回的是送给模型的上下文，压缩之后旧消息已被摘要替换。之后用 `get_entries(since)` 增量更新，同时单独跟踪 `leafId`（条目没有增加时叶子也可能变）。切换模型、压缩等写入的条目不发事件，所以在 `agent_settled`、`compaction_end` 和宿主自己的命令之后都再取一次。条目 id 只在单个文件内唯一，跨会话用"会话 id + 条目 id"。pi 恢复时使用文件头里的 `cwd`；该目录不存在时报"恢复失败：目录不存在"，不换目录。
 - **流式输出**：`message_update` 里的 `text_delta` 和 `thinking_delta` 追加到对应的内容块；`message_end` 到达时，用完整消息替换拼接结果。
@@ -582,7 +582,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 | 事件 | 说明 |
 |---|---|
-| `index_snapshot` / `project_update` / `workspace_update` / `session_update` | 列表快照与增量（带 `generation + seq`）：项目、工作区、各会话派生状态与关注状态、该客户端的布局 |
+| `index_snapshot` / `project_update` / `workspace_update` / `session_update` | 列表快照与增量（带 `generation + seq`；M1.5 只发快照，有变化就推一份完整的，增量在 M1.7）：项目、工作区、各会话派生状态与关注状态、该客户端的布局 |
 | `session_snapshot` | 打开会话或重连时的会话快照，带 `epoch + seq` |
 | `session_bound` | 草稿会话写出了文件 |
 | `session_changed_externally` | 预留：会话文件被 Atrium 以外的进程改过（处理方式待文件区设计） |
