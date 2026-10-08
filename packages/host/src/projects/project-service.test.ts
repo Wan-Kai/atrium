@@ -135,7 +135,7 @@ describe("ProjectService.add", () => {
     expect(raced.map((result) => result.status).toSorted()).toStrictEqual(["fulfilled", "rejected"]);
   });
 
-  it("refuses a worktree of a registered repository, and the repository once a worktree is registered", async () => {
+  it("refuses a worktree of a registered repository", async () => {
     const repo = await createGitScene("projects");
     onTestFinished(repo.cleanup);
     const worktree = await repo.worktree("feature");
@@ -143,12 +143,33 @@ describe("ProjectService.add", () => {
     const id = await projects.add(repo.repo);
 
     await expect(projects.add(worktree)).rejects.toStrictEqual(new CommandError("project_exists", { projectId: id }));
+  });
 
-    const other = await service();
-    const worktreeId = await other.projects.add(worktree);
-    await expect(other.projects.add(repo.repo)).rejects.toStrictEqual(
-      new CommandError("project_exists", { projectId: worktreeId }),
-    );
+  it("registers the repository a chosen worktree belongs to, and refuses that repository afterwards", async () => {
+    const repo = await createGitScene("projects");
+    onTestFinished(repo.cleanup);
+    const worktree = await repo.worktree("feature");
+    const main = await realpath(repo.repo);
+    const { projects } = await service();
+
+    const id = await projects.add(worktree);
+
+    expect(projects.projects()).toStrictEqual([{ id, path: main, name: "repo", mainBranch: null }]);
+    expect(projects.workspaces().map((workspace) => [workspace.kind, workspace.dir])).toStrictEqual([["local", main]]);
+    await expect(projects.add(repo.repo)).rejects.toStrictEqual(new CommandError("project_exists", { projectId: id }));
+  });
+
+  it("registers one project when a repository and its worktree are added at once", async () => {
+    const repo = await createGitScene("projects");
+    onTestFinished(repo.cleanup);
+    const worktree = await repo.worktree("feature");
+    const { projects } = await service();
+    await projects.add(await folder(await tempDir("work"), "other"));
+
+    const results = await Promise.allSettled([projects.add(repo.repo), projects.add(worktree)]);
+
+    expect(results.map((result) => result.status)).toStrictEqual(["fulfilled", "rejected"]);
+    expect(projects.projects().map((project) => project.name)).toStrictEqual(["other", "repo"]);
   });
 
   it("refuses a worktree already recorded as a workspace, without asking git", async () => {

@@ -1,5 +1,5 @@
 import { FakeClock, GIT_SCENE_ENV, type GitScene, createGitScene, createTempDir, present } from "@atrium/testkit";
-import { mkdir, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -396,5 +396,43 @@ describe("WorkspaceService", () => {
     await projects.add(dir);
 
     expect(workspaces.dirOf(present(workspaces.list()[0], "workspace").id)).toBe(dir);
+  });
+});
+
+describe("WorkspaceService after the review", () => {
+  it("lists the main worktree and the chosen one when a project was added through its worktree", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const { projects, workspaces } = await services();
+    await projects.add(feature);
+
+    workspaces.start();
+    await workspaces.idle();
+
+    expect(workspaces.list().map(({ kind, dir, branch }) => [kind, dir, branch])).toStrictEqual([
+      ["local", repo.repo, "main"],
+      ["worktree", feature, "feature"],
+    ]);
+  });
+
+  it("keeps what it knew of a repository git cannot read for now, as with its drive away", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    await repo.commit(feature, "a.txt", "a");
+    const { projects, workspaces, records } = await services();
+    const id = await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    const before = workspaces.list();
+
+    await rename(join(repo.repo, ".git"), join(repo.repo, ".git-away"));
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    expect(workspaces.list()).toStrictEqual(before);
+    expect(records.filter((record) => record["msg"] === "workspace scan skipped")).toMatchObject([
+      { level: "info", projectId: id },
+    ]);
+    await rename(join(repo.repo, ".git-away"), join(repo.repo, ".git"));
   });
 });

@@ -63,7 +63,8 @@ export interface WorkspaceService {
  *   fetched, and its merge states are worked out again without `git status`.
  *
  * Scans of one project never overlap: a scan asked for during another runs once it ends. A git
- * failure leaves the project's last results and is logged by its reason only.
+ * failure, or git failing to read a repository it read before, leaves the project's last results
+ * and is logged by its reason or exit code only.
  *
  * @sideEffects none until `start`; then runs git, reads repositories' administrative files,
  * schedules timers and logs.
@@ -80,6 +81,8 @@ export function createWorkspaceService(options: {
   readonly logger: Logger;
 }): WorkspaceService {
   const scanned = new Map<string, Scanned>();
+  /** Projects last seen to be git repositories, whose results a failed read of git keeps. */
+  const gitProjects = new Set<string>();
   const known = new Set<string>();
   const listeners = new Set<() => void>();
   const stop = new AbortController();
@@ -189,15 +192,26 @@ export function createWorkspaceService(options: {
      * @returns The records.
      */
     const records = () => options.projects.workspaces().filter((workspace) => workspace.projectId === project.id);
-    if (topLevel !== project.path || common === undefined) {
+    const listing = topLevel === project.path ? await run("worktree", "list", "--porcelain") : null;
+    if (gitProjects.has(project.id) && (common === undefined || listing?.code !== 0)) {
+      // A repository git could not read just now (a drive away, a lock held): keep what was known.
+      options.logger.info(
+        { projectId: project.id, code: listing?.code ?? top?.code ?? null },
+        "workspace scan skipped",
+      );
+      return;
+    }
+    if (topLevel !== project.path || common === undefined || listing?.code !== 0) {
+      gitProjects.delete(project.id);
       for (const record of records())
         scanned.set(record.id, { branch: null, head: null, createdAt: null, merge: null });
     } else {
-      const listing = await run("worktree", "list", "--porcelain");
-      const listed = listing?.code === 0 ? parseWorktreeList(listing.stdout).filter((worktree) => !worktree.bare) : [];
+      gitProjects.add(project.id);
+      const listed = parseWorktreeList(listing.stdout).filter((worktree) => !worktree.bare);
+      // Every worktree but the project's own directory, whichever git lists first.
       await options.projects.recordWorktrees(
         project.id,
-        listed.slice(1).map((worktree) => worktree.dir),
+        listed.filter((worktree) => worktree.dir !== project.path).map((worktree) => worktree.dir),
       );
       const created = await creationTimes(common);
       const mainRef = await mainBranchRef(project, run);

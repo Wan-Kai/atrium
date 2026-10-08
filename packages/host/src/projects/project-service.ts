@@ -1,6 +1,6 @@
 import { CommandError, type ProjectId, type WorkspaceId } from "@atrium/protocol";
 import { realpath, stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, dirname } from "node:path";
 import type { GitRunner } from "../platform/git";
 import type { IndexFile } from "../store/index-file";
 import type { ProjectRecord, ProjectsDocument, WorkspaceRecord } from "../store/index-schema";
@@ -82,38 +82,61 @@ export function createProjectService(options: {
     return project;
   }
 
+  /** The last add, which the next one waits for. */
+  let adding: Promise<unknown> = Promise.resolve();
+
+  /**
+   * Registers a directory as a project, once earlier adds have finished.
+   *
+   * @remarks
+   * See `createProjectService`. A linked worktree registers the repository it belongs to, and
+   * shows up as one of its workspaces once scanned (SPEC-0001, "项目、工作区与会话").
+   *
+   * @sideEffects Reads directories; runs git; writes `projects.json`.
+   * @param requested - The directory asked for.
+   * @returns The new project's id.
+   * @throws {CommandError} `path_not_found` or `project_exists`.
+   */
+  async function addNow(requested: string): Promise<ProjectId> {
+    const chosen = await realpath(requested).catch(() => null);
+    const info = chosen === null ? null : await stat(chosen).catch(() => null);
+    if (chosen === null || info?.isDirectory() !== true) throw new CommandError("path_not_found", { path: requested });
+    const git = await options.git;
+    const repository = git === null ? null : await repositoryOf(git, chosen);
+    const path = repository?.main ?? chosen;
+    const others = new Map<string, string | null>();
+    if (git !== null && repository !== null) {
+      for (const project of options.file.read().projects)
+        others.set(project.id, (await repositoryOf(git, project.path))?.common ?? null);
+    }
+    // Checked after every wait, so two adds of one directory cannot both pass.
+    const document = options.file.read();
+    const known =
+      document.workspaces.find((workspace) => workspace.dir === path)?.projectId ??
+      document.projects.find((project) => repository !== null && others.get(project.id) === repository.common)?.id;
+    if (known !== undefined) throw new CommandError("project_exists", { projectId: known });
+    const names = new Set(document.projects.map((project) => project.name));
+    const base = basename(path);
+    let name = base;
+    for (let number = 1; names.has(name); number += 1) name = `${base} (${number})`;
+    const id = options.newId("prj");
+    const local = { id: options.newId("wks"), projectId: id, kind: "local" as const, dir: path };
+    await save({
+      ...document,
+      projects: [...document.projects, { id, path, name, mainBranch: null }],
+      workspaces: [...document.workspaces, { ...local, alias: null, baseCommit: null, external: false }],
+    });
+    return id;
+  }
+
   return {
     projects: () => options.file.read().projects,
     workspaces: () => options.file.read().workspaces,
-    async add(requested) {
-      const path = await realpath(requested).catch(() => null);
-      const info = path === null ? null : await stat(path).catch(() => null);
-      if (path === null || info?.isDirectory() !== true) throw new CommandError("path_not_found", { path: requested });
-      const git = await options.git;
-      const repository = git === null ? null : await repositoryOf(git, path);
-      const others = new Map<string, string | null>();
-      if (git !== null && repository !== null) {
-        for (const project of options.file.read().projects)
-          others.set(project.id, await repositoryOf(git, project.path));
-      }
-      // Checked after every wait, so two adds of one directory cannot both pass.
-      const document = options.file.read();
-      const known =
-        document.workspaces.find((workspace) => workspace.dir === path)?.projectId ??
-        document.projects.find((project) => repository !== null && others.get(project.id) === repository)?.id;
-      if (known !== undefined) throw new CommandError("project_exists", { projectId: known });
-      const names = new Set(document.projects.map((project) => project.name));
-      const base = basename(path);
-      let name = base;
-      for (let number = 1; names.has(name); number += 1) name = `${base} (${number})`;
-      const id = options.newId("prj");
-      const local = { id: options.newId("wks"), projectId: id, kind: "local" as const, dir: path };
-      await save({
-        ...document,
-        projects: [...document.projects, { id, path, name, mainBranch: null }],
-        workspaces: [...document.workspaces, { ...local, alias: null, baseCommit: null, external: false }],
-      });
-      return id;
+    add(requested) {
+      // One at a time, so two adds of one repository cannot both pass its checks.
+      const added = adding.then(() => addNow(requested));
+      adding = added.catch(() => undefined);
+      return added;
     },
     async remove(projectId) {
       projectOf(projectId);
@@ -179,21 +202,26 @@ export function createProjectService(options: {
 }
 
 /**
- * Where a directory's repository keeps its objects, if the directory is the top of one.
+ * The repository a directory is the top of: where it keeps its objects, and its main worktree.
  *
  * @remarks
- * Every worktree of a repository shares this directory, so it identifies the repository.
+ * Every worktree of a repository shares the common directory, so it identifies the repository.
+ * The main worktree is the directory holding `.git`; a bare repository has none, and the
+ * directory itself stands in.
  *
- * @sideEffects Runs git.
+ * @sideEffects Runs git; reads the main worktree's real path.
  * @param git - The git runner.
  * @param dir - The directory.
- * @returns The common git directory, or `null` for a directory that is not a repository's top.
+ * @returns The common directory and main worktree, or `null` for a directory that is not a
+ * repository's top.
  */
-async function repositoryOf(git: GitRunner, dir: string): Promise<string | null> {
+async function repositoryOf(git: GitRunner, dir: string): Promise<{ common: string; main: string } | null> {
   const result = await git
     .run(["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"], { cwd: dir })
     .catch(() => null);
   if (result?.code !== 0) return null;
   const [top, common] = result.stdout.trim().split("\n");
-  return top === dir && common !== undefined ? common : null;
+  if (top !== dir || common === undefined) return null;
+  const main = basename(common) === ".git" ? await realpath(dirname(common)).catch(() => dir) : dir;
+  return { common, main };
 }

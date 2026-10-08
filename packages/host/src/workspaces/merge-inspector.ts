@@ -86,8 +86,9 @@ export function parseGitVersion(output: string): [number, number] | null {
  *   anything else, conflicts included, is `pending`.
  *
  * Without a main branch, with git older than 2.38, or when git fails, the verdict is `unknown`
- * with the reason. Verdicts are cached by branch commit, main commit and base, since they cannot
- * change while those stay the same (domain-model §1).
+ * with the reason. Each worktree keeps its last verdict with the branch, its commit, the main
+ * commit and the base it came from, since it cannot change while those stay the same
+ * (domain-model §1); a failure of git is not kept.
  *
  * @sideEffects none until `inspect`; then runs git.
  * @param options - The git runner and git's version.
@@ -97,7 +98,11 @@ export function createMergeInspector(options: {
   readonly git: GitRunner;
   readonly version: readonly [number, number] | null;
 }): MergeInspector {
-  const verdicts = new Map<string, Pick<MergeState, "ahead" | "verdict" | "reason">>();
+  /** The last verdict of each worktree, with what it was worked out from. */
+  const verdicts = new Map<
+    string,
+    { readonly key: string; readonly result: Pick<MergeState, "ahead" | "verdict" | "reason"> }
+  >();
   const oldGit =
     options.version === null ||
     options.version[0] < MERGE_TREE_VERSION[0] ||
@@ -133,9 +138,10 @@ export function createMergeInspector(options: {
     const main = await run("rev-parse", "--verify", "--quiet", `${target.mainRef}^{commit}`);
     if (main.code !== 0) return unknown("no_main_branch");
     const mainCommit = main.stdout.trim();
-    const key = `${target.head}:${mainCommit}:${target.baseCommit ?? ""}`;
-    const known = verdicts.get(key);
-    if (known !== undefined) return known;
+    // The branch counts too: its reflog decides between merged and unchanged (`startedOrMerged`).
+    const key = `${target.branch ?? ""}:${target.head}:${mainCommit}:${target.baseCommit ?? ""}`;
+    const known = verdicts.get(target.dir);
+    if (known?.key === key) return known.result;
     const count = await run("rev-list", "--count", `${mainCommit}..${target.head}`);
     if (count.code !== 0) return unknown("git_failed");
     const ahead = Number(count.stdout.trim());
@@ -154,7 +160,8 @@ export function createMergeInspector(options: {
       verdict === "noChange" || verdict === "merged" || verdict === "pending"
         ? { ahead, verdict, reason: null }
         : { ...unknown(verdict), ahead };
-    verdicts.set(key, result);
+    // A failure may not happen again; anything else holds while the commits stay the same.
+    if (verdict !== "git_failed") verdicts.set(target.dir, { key, result });
     return result;
   }
 

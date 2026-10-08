@@ -76,6 +76,28 @@ async function pushMain(repo: GitScene): Promise<void> {
   await repo.git(repo.repo, "push", "--quiet", "origin", "main");
 }
 
+/**
+ * Real git whose first run of one subcommand fails, as git does when a lock is held.
+ *
+ * @remarks
+ * For telling a failure that passes from a verdict.
+ *
+ * @sideEffects none until it runs git.
+ * @param subcommand - The subcommand that fails once.
+ * @returns The runner.
+ */
+function failingOnce(subcommand: string): GitRunner {
+  const real = countingGit();
+  let failed = false;
+  return {
+    run: (args, options) => {
+      if (args[0] !== subcommand || failed) return real.run(args, options);
+      failed = true;
+      return Promise.resolve({ code: 128, stdout: "" });
+    },
+  };
+}
+
 const inspector = () => createMergeInspector({ git: countingGit(), version: [2, 50] });
 
 describe("MergeInspector.inspect", () => {
@@ -343,5 +365,31 @@ describe("parseGitVersion", () => {
   it("finds none in other output", () => {
     expect(parseGitVersion("")).toBeNull();
     expect(parseGitVersion("version 2.38")).toBeNull();
+  });
+});
+
+describe("MergeInspector caching (after the review)", () => {
+  it("tells apart two branches at the same commit, one merged back and one just started from it", async () => {
+    const repo = await scene();
+    const merged = await repo.worktree("merged");
+    await repo.commit(merged, "a.txt", "a");
+    await repo.git(repo.repo, "merge", "--quiet", "--ff-only", "merged");
+    await pushMain(repo);
+    const fresh = await repo.worktree("fresh");
+    const inspect = inspector();
+
+    expect(await inspect.inspect(await target(repo, merged))).toMatchObject({ verdict: "merged" });
+    expect(await inspect.inspect(await target(repo, fresh))).toMatchObject({ verdict: "noChange" });
+  });
+
+  it("does not keep a verdict git failed to give, and asks again next time", async () => {
+    const repo = await scene();
+    const dir = await repo.worktree("work");
+    await repo.commit(dir, "a.txt", "a");
+    const inspect = createMergeInspector({ git: failingOnce("merge-base"), version: [2, 50] });
+    const work = await target(repo, dir);
+
+    expect(await inspect.inspect(work)).toMatchObject({ verdict: "unknown", reason: "git_failed" });
+    expect(await inspect.inspect(work)).toMatchObject({ verdict: "pending", reason: null });
   });
 });
