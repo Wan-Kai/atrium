@@ -18,7 +18,7 @@ import { createIndexCommands } from "./sessions/index-commands";
 import { createLayouts } from "./sessions/layouts";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createSessionManager } from "./sessions/session-manager";
-import { acquireHostLock, processExists } from "./store/host-lock";
+import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
 import { createPreferenceStore } from "./store/preferences";
 import { loadTurnStarts } from "./store/turn-starts";
@@ -115,7 +115,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     pid: process.pid,
     now,
     bootedAt: now - uptime() * 1000,
-    isAlive: processExists,
+    processStartedAt,
   });
   const { stream: destination, currentPath: logFile } = await openLogFile(home.logs);
   const resources = new ResourceTracker();

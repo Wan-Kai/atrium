@@ -1,23 +1,45 @@
 import { createTempDir, present } from "@atrium/testkit";
+import { spawn } from "node:child_process";
 import { chmod, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { HostLockedError, type HostLockDeps, acquireHostLock, processExists } from "./host-lock";
+import { HostLockedError, type HostLockDeps, acquireHostLock, processStartedAt } from "./host-lock";
 
 const BOOTED_AT = 1_000_000;
 
 /**
- * The lock's dependencies for a process that started after boot, with every process alive.
+ * The lock's dependencies for a process that started after boot.
  *
  * @remarks
- * Tests override the liveness check and times to describe the holder they need.
+ * By default every process id belongs to a process that started at boot, so any recorded holder
+ * is live; tests override the start times to describe the holder they need.
  *
  * @sideEffects none
  * @param overrides - Fields to change.
  * @returns The dependencies.
  */
 function deps(overrides: Partial<HostLockDeps> = {}): HostLockDeps {
-  return { pid: 4242, now: BOOTED_AT + 5_000, bootedAt: BOOTED_AT, isAlive: () => true, ...overrides };
+  return {
+    pid: 4242,
+    now: BOOTED_AT + 5_000,
+    bootedAt: BOOTED_AT,
+    processStartedAt: async () => BOOTED_AT,
+    ...overrides,
+  };
+}
+
+/**
+ * Start times of the processes that exist; every other id has none.
+ *
+ * @remarks
+ * Describes which holders are alive.
+ *
+ * @sideEffects none
+ * @param started - Start times by process id.
+ * @returns The lookup.
+ */
+function startTimes(started: Record<number, number>): HostLockDeps["processStartedAt"] {
+  return async (pid) => started[pid] ?? null;
 }
 
 /**
@@ -41,12 +63,13 @@ async function home(): Promise<string> {
  * @remarks
  * Describes the holder whose lock is found.
  *
- * @sideEffects Writes `host.lock`.
+ * @sideEffects Writes the file.
  * @param directory - The home directory.
  * @param record - What the file holds.
+ * @param name - The file's name.
  */
-async function writeLock(directory: string, record: unknown): Promise<void> {
-  await writeFile(join(directory, "host.lock"), typeof record === "string" ? record : JSON.stringify(record));
+async function writeLock(directory: string, record: unknown, name = "host.lock"): Promise<void> {
+  await writeFile(join(directory, name), typeof record === "string" ? record : JSON.stringify(record));
 }
 
 describe("acquireHostLock", () => {
@@ -63,39 +86,90 @@ describe("acquireHostLock", () => {
     });
   });
 
-  it("refuses while a live host started since boot holds it", async () => {
+  it("refuses while the host that wrote the lock still runs", async () => {
     const directory = await home();
-    const held = { pid: 77, startedAt: BOOTED_AT, token: "other" };
+    const held = { pid: 77, startedAt: BOOTED_AT + 2_000, token: "other" };
     await writeLock(directory, held);
-    const checked: number[] = [];
+    const asked: number[] = [];
 
-    const acquiring = acquireHostLock(directory, deps({ isAlive: (pid) => (checked.push(pid), true) }));
+    const acquiring = acquireHostLock(
+      directory,
+      deps({
+        processStartedAt: async (pid) => {
+          asked.push(pid);
+          // Reported a second after it wrote the lock, which the slack for whole seconds covers.
+          return startTimes({ 77: BOOTED_AT + 3_000 })(pid);
+        },
+      }),
+    );
 
     await expect(acquiring).rejects.toThrow(HostLockedError);
     await expect(acquiring).rejects.toMatchObject({ pid: 77 });
-    expect(checked).toStrictEqual([77]);
+    expect(asked).toStrictEqual([77]);
     expect(JSON.parse(await readFile(join(directory, "host.lock"), "utf8"))).toStrictEqual(held);
     expect(await readdir(directory)).toStrictEqual(["host.lock"]);
   });
 
   it.each([
-    ["a holder whose process is gone", { pid: 77, startedAt: BOOTED_AT + 1, token: "old" }, false],
-    ["a holder from before the system started", { pid: 77, startedAt: BOOTED_AT - 1, token: "old" }, true],
-    ["a damaged file", "{ pid", true],
-    ["a file of another shape", { pid: "77", startedAt: BOOTED_AT + 1, token: "old" }, true],
-    ["a process group's id", { pid: 0, startedAt: BOOTED_AT + 1, token: "old" }, true],
-    ["a negative id", { pid: -5, startedAt: BOOTED_AT + 1, token: "old" }, true],
-    ["a fractional id", { pid: 7.5, startedAt: BOOTED_AT + 1, token: "old" }, true],
-    ["no start time", { pid: 77, token: "old" }, true],
-    ["no token", { pid: 77, startedAt: BOOTED_AT + 1 }, true],
-    ["JSON null", "null", true],
-  ])("takes over %s", async (_case, record, alive) => {
+    ["a holder whose process is gone", { pid: 77, startedAt: BOOTED_AT + 1, token: "old" }, null],
+    [
+      "a holder whose id now belongs to a later process",
+      { pid: 77, startedAt: BOOTED_AT + 1, token: "old" },
+      BOOTED_AT + 1_002,
+    ],
+    ["a holder from before the system started", { pid: 77, startedAt: BOOTED_AT - 1, token: "old" }, BOOTED_AT],
+    ["a damaged file", "{ pid", BOOTED_AT],
+    ["a file of another shape", { pid: "77", startedAt: BOOTED_AT + 1, token: "old" }, BOOTED_AT],
+    ["a process group's id", { pid: 0, startedAt: BOOTED_AT + 1, token: "old" }, BOOTED_AT],
+    ["a negative id", { pid: -5, startedAt: BOOTED_AT + 1, token: "old" }, BOOTED_AT],
+    ["a fractional id", { pid: 7.5, startedAt: BOOTED_AT + 1, token: "old" }, BOOTED_AT],
+    ["no start time", { pid: 77, token: "old" }, BOOTED_AT],
+    ["no token", { pid: 77, startedAt: BOOTED_AT + 1 }, BOOTED_AT],
+    ["JSON null", "null", BOOTED_AT],
+  ])("takes over %s, leaving no takeover lock", async (_case, record, started) => {
     const directory = await home();
     await writeLock(directory, record);
 
-    await acquireHostLock(directory, deps({ isAlive: () => alive }));
+    await acquireHostLock(directory, deps({ processStartedAt: async () => started }));
 
     expect(JSON.parse(await readFile(join(directory, "host.lock"), "utf8"))).toMatchObject({ pid: 4242 });
+    expect(await readdir(directory)).toStrictEqual(["host.lock"]);
+  });
+
+  it("refuses to take over while another live host is taking over, naming the holder", async () => {
+    const directory = await home();
+    await writeLock(directory, { pid: 77, startedAt: BOOTED_AT + 1, token: "old" });
+    await writeLock(directory, { pid: 88, startedAt: BOOTED_AT + 10, token: "taking" }, "host.lock.takeover");
+
+    const acquiring = acquireHostLock(directory, deps({ processStartedAt: startTimes({ 88: BOOTED_AT + 5 }) }));
+
+    await expect(acquiring).rejects.toMatchObject({ pid: 77 });
+    expect((await readdir(directory)).toSorted()).toStrictEqual(["host.lock", "host.lock.takeover"]);
+  });
+
+  it("takes over a takeover lock left by a host that died while taking over", async () => {
+    const directory = await home();
+    await writeLock(directory, { pid: 77, startedAt: BOOTED_AT + 1, token: "old" });
+    await writeLock(directory, "{ damaged", "host.lock.takeover");
+
+    await acquireHostLock(directory, deps({ processStartedAt: async () => null }));
+
+    expect(await readdir(directory)).toStrictEqual(["host.lock"]);
+  });
+
+  it("lets only one of two hosts taking over the same dead lock at once win", async () => {
+    const directory = await home();
+    await writeLock(directory, { pid: 77, startedAt: BOOTED_AT + 1, token: "old" });
+    // Process 77 is gone; the two hosts are alive, started at boot.
+    const both = deps({ processStartedAt: startTimes({ 1: BOOTED_AT, 2: BOOTED_AT }) });
+
+    const results = await Promise.allSettled([
+      acquireHostLock(directory, { ...both, pid: 1 }),
+      acquireHostLock(directory, { ...both, pid: 2 }),
+    ]);
+
+    expect(results.map((result) => result.status).toSorted()).toStrictEqual(["fulfilled", "rejected"]);
+    expect(await readdir(directory)).toStrictEqual(["host.lock"]);
   });
 
   it("refuses a second host in the same home", async () => {
@@ -128,7 +202,7 @@ describe("HostLock.release", () => {
   it("leaves a lock another host has taken over", async () => {
     const directory = await home();
     const lock = await acquireHostLock(directory, deps({ pid: 1 }));
-    await acquireHostLock(directory, deps({ pid: 2, isAlive: () => false }));
+    await acquireHostLock(directory, deps({ pid: 2, processStartedAt: async () => null }));
 
     await lock.release();
 
@@ -144,19 +218,16 @@ describe("HostLockedError", () => {
   });
 });
 
-describe("processExists", () => {
-  it("finds this process and not one that has ended", async () => {
-    const { spawn } = await import("node:child_process");
+describe("processStartedAt", () => {
+  it("tells when this process started, and nothing for one that has ended", async () => {
     const child = spawn(process.execPath, ["-e", ""]);
     const pid = present(child.pid, "child pid");
     await new Promise((done) => child.once("exit", done));
 
-    expect(processExists(process.pid)).toBe(true);
-    expect(processExists(pid)).toBe(false);
-  });
+    const mine = present(await processStartedAt(process.pid), "this process's start");
 
-  it("counts a process of another user as existing", () => {
-    // launchd, pid 1, belongs to root; signalling it is refused with EPERM.
-    expect(processExists(1)).toBe(true);
+    expect(mine).toBeLessThanOrEqual(Date.now());
+    expect(Date.now() - mine).toBeLessThan(10 * 60_000);
+    expect(await processStartedAt(pid)).toBeNull();
   });
 });
