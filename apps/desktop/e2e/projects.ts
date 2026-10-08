@@ -78,8 +78,8 @@ export async function writeTerminalSession(
  * page's `focus` event.
  *
  * @sideEffects Dispatches a `focus` event in the page.
- * @param window - The window.
+ * @param page - The window's page.
  */
-export async function focusWindow(window: Page): Promise<void> {
-  await window.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+export async function focusWindow(page: Page): Promise<void> {
+  await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
 }
