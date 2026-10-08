@@ -1,5 +1,5 @@
 import { GIT_SCENE_ENV, type GitScene, createGitScene } from "@atrium/testkit";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { systemClock } from "../platform/clock";
@@ -295,8 +295,12 @@ describe("MergeInspector.inspect", () => {
     const repo = await scene();
     const dir = await repo.worktree("work");
     const good = await target(repo, dir);
+    // A worktree whose `.git` points nowhere fails `git status`, wherever the test's files are.
+    const broken = join(repo.root, "broken");
+    await mkdir(broken);
+    await writeFile(join(broken, ".git"), "gitdir: /nonexistent/atrium-test\n");
 
-    expect(await inspector().inspect({ ...good, dir: repo.root })).toStrictEqual({
+    expect(await inspector().inspect({ ...good, dir: broken })).toStrictEqual({
       dirty: false,
       ahead: 0,
       verdict: "unknown",
