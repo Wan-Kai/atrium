@@ -308,7 +308,7 @@ Electron 主进程
 **运行出错与停止**
 
 - **失败自动重试 3 次，还不行再告诉用户**：
-  - 模型调用失败（限流、过载、网络、5xx 等可重试的错误）：交给 pi 自带的重试，宿主启动 pi 时确保自动重试开启、次数为 3（pi 默认 `retry.maxRetries = 3`，指数退避）。重试期间显示一行灰色"正在重试（第 N / 3 次）"。上下文超长由 pi 先压缩再重试一次。
+  - 模型调用失败（限流、过载、网络、5xx 等可重试的错误）：交给 pi 自带的重试，宿主启动 pi 时确保自动重试开启；次数沿用 pi 的设置（默认 `retry.maxRetries = 3`，指数退避，2026-10-09 定：RPC 改不了次数）。重试期间显示一行灰色"正在重试（第 N / M 次）"，M 是 pi 给的上限。上下文超长由 pi 先压缩再重试一次。
   - pi 进程崩溃：宿主自动重启进程并重新打开会话，最多连续 3 次；一次运行正常结束（`agent_settled` 且没有失败）后连续计数归零（2026-10-09 定）。崩溃时如果正在运行：上一条输入还没写进会话，就重新提交它；已经写进会话，就补发一条"继续"（界面上标为系统自动发出），让 agent 接着做。
   - 认证失败、目录不存在等重试无用的错误不重试，直接提示。
   - 3 次都失败后，在消息流里显示红色错误卡片：一句话说明，可展开看原始报错，带"重试"按钮；会话进入"出错"，进收件箱。点"重试"按上面同样的规则再来一轮。
@@ -601,29 +601,32 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `paused`：排队是否暂停，`reason` 为 `stopped`（你点了停止）或 `crashed`（pi 崩溃后还没恢复）；压缩期间出队也会等，但那不算暂停，不显示。
 - `steers`：已经交给 pi、还没送达的插话，`{ id, text }`。pi 的 `queue_update` 每次带完整的内部队列，宿主按它确认哪些已送达，界面据此显示"N 条插话将在下一步前送达"。
 - `stopping`：停止已发出、pi 还没确认停下。
+- `restarting`：pi 崩溃后宿主正在重新启动它（2026-10-09 审查后补）；这期间界面不提供"重试"。
 - `interactions`：未回答的对话框，见下文。
 - `failure`：连续崩溃 3 次后为 `{ reason: "crashed", attempts }`，会话进入"出错"；下一次运行开始时清掉。
+
+**一个会话只有一个 pi**（2026-10-09 审查后补）：自动重启、打开、发消息、"重试"、"继续发送"都经同一个启动入口；重启没结束前会话仍算在运行，期间收到的消息进排队，不另起 pi。换上新 pi 时旧的必须已经退出。归档、移除工作区、宿主关闭会打断进行中的重启：新起的 pi 停掉，不再续做。
 
 **提交**
 
 - `prompt(text)`：空闲（没有运行、没在压缩、没在停止）时直接发给 pi，应答 pi 的结果 `started` / `handled`；正在运行或压缩时加到排队末尾，应答 `queued` 和排队项的 `itemId`。排队暂停时（停止之后）空闲状态下发的新消息直接发出，排队保持暂停，由你点"继续发送"或清掉（2026-10-09 定）。
-- 出队：运行结束（`agent_settled`）或上一条被 `handled` 后，宿主把排队的第一条作为 `prompt` 发给 pi；压缩期间等 `compaction_end`。出队和停止由会话控制器串行处理。
-- `steer(text)`：运行中调用 pi 的 `steer`，应答 `queued`（pi 已收下）或 `handled`；空闲时等同 `prompt`。pi 的 `steer` 在空闲时不会启动运行，消息只会留在 pi 的队列里（按 pi 1.0.2 源码核实），所以宿主必须把空闲时的插话改成普通发送。插话不接受 extension 的 `/` 命令，pi 会拒绝，应答 `pi_rejected`。
+- 出队：运行结束（`agent_settled`）、上一条被 `handled`、压缩结束（`compaction_end`）、换上新 pi 或"继续发送"后，宿主把排队的第一条作为 `prompt` 发给 pi，一次一条。出队和停止由会话控制器串行处理。出队的那条被 pi 拒绝时：pi 忙就放回最前、等下一次机会；pi 退出就放回最前、交给重启；其他原因放回最前并暂停排队（`stopped`），后面的不会先发出去（2026-10-09 审查后补）。
+- `steer(text)`：有运行（已收到 `agent_start`）时调用 pi 的 `steer`，应答 `queued`（pi 已收下）或 `handled`；没有运行时（空闲、消息还在发送、单独的压缩中、重启中）等同 `prompt`，该排队就排队（2026-10-09 审查后补）。插话在发给 pi 之前就记进 `steers`，pi 的 `queue_update` 先到也能对上。pi 的 `steer` 在空闲时不会启动运行，消息只会留在 pi 的队列里（按 pi 1.0.2 源码核实），所以宿主必须把空闲时的插话改成普通发送。插话不接受 extension 的 `/` 命令，pi 会拒绝，应答 `pi_rejected`。
 - `prompt_handled(clientMessageId)` 事件：输入被 extension 直接处理、没有启动运行，界面去掉这条消息的待发副本。
 
-**停止**：`stop()` 先暂停出队，再对 pi `clear_queue`、`abort`。`clear_queue` 退回的还没送达的插话放回排队最前面（和崩溃时一样，不丢）。`abort` 等 pi 真正停下才应答：2 秒内应答时 `stop` 应答 `{ confirmed: true }`；否则应答 `{ confirmed: false }`，会话保持 `stopping`，一直等到 pi 确认或退出（2026-10-09 定，不设上限）。`stopping` 期间 `prompt`、`steer`、`steer_queued`、`resume_queue`、`retry_run` 应答 `session_stopping`；编辑、删除、清空排队照常。
+**停止**：`stop()` 先暂停出队，再对 pi `clear_queue`、`abort`（两条同时发出，2 秒从发出 `stop` 算起）。`clear_queue` 退回的还没送达的插话放回排队最前面（和崩溃时一样，不丢）。`abort` 等 pi 真正停下才应答：2 秒内应答时 `stop` 应答 `{ confirmed: true }`；否则应答 `{ confirmed: false }`，会话保持 `stopping`，一直等到 pi 确认或退出（2026-10-09 定，不设上限）；`abort` 出错不算确认，照样等 pi 退出。pi 已回应 `started`、`agent_start` 还没到，或正在重启，也算有运行要停；只有确实什么都没在跑时才直接应答 `{ confirmed: true }`。停止之后 pi 若崩溃，重启后不续做被打断的那条，它放回排队最前、保持暂停，由你决定（2026-10-09 审查后补）。`stopping` 期间 `prompt`、`steer`、`steer_queued`、`resume_queue`、`retry_run` 应答 `session_stopping`；编辑、删除、清空排队照常。
 
-**排队的编辑**：`update_queued(itemId, text)`、`remove_queued(itemId)`、`steer_queued(itemId)`（取出这一项作为插话发出，空闲时直接发出）、`resume_queue()`（解除暂停并立即开始出队）、`clear_queue()`（清空宿主的排队）。不认识的 `itemId` 应答 `queue_item_not_found`。
+**排队的编辑**：`update_queued(itemId, text)`、`remove_queued(itemId)`、`steer_queued(itemId)`（取出这一项作为插话发出，空闲时直接发出）、`resume_queue()`（解除暂停并立即开始出队；pi 不在时先启动它）、`clear_queue()`（清空宿主的排队）。不认识的 `itemId` 应答 `queue_item_not_found`。
 
-**对话框**：pi 的 `extension_ui_request` 里的 `select`、`confirm`、`input`、`editor` 成为对话框 `{ id, kind, title, message?, options?, placeholder?, prefill?, deadline? }`，推 `control_updated`；`deadline` 由宿主收到时加上 pi 给的 `timeout` 算出。`answer_interaction(interactionId, answer)` 的 `answer` 是 `{ value }`、`{ confirmed }` 或 `{ cancelled: true }`，宿主转成 `extension_ui_response` 发给 pi。只接受第一个回答，之后的回答和已作废的应答 `interaction_closed`。到期时宿主把它标为超时（pi 自己会按默认值继续）；pi 退出时一律作废。`notify` 等单向通知不显示，原文写日志。对话框在宿主存活期间保留，不跨重启。
+**对话框**：pi 的 `extension_ui_request` 里的 `select`、`confirm`、`input`、`editor` 成为对话框 `{ id, kind, title, message?, options?, placeholder?, prefill?, deadline? }`，推 `control_updated`；`deadline` 由宿主收到时加上 pi 给的 `timeout` 算出。`answer_interaction(interactionId, answer)` 的 `answer` 是 `{ value }`、`{ confirmed }` 或 `{ cancelled: true }`，宿主转成 `extension_ui_response` 发给 pi。只接受第一个回答，之后的回答和已作废的应答 `interaction_closed`。到期时宿主把它标为超时（pi 自己会按默认值继续）；pi 退出时一律作废。对话框结束（回答、取消、超时、作废）后，对话记录里在当时的位置留一行"问题 → 结果"（`interaction` 提示，和重启提示一样只在宿主存活期间保留，2026-10-09 定）。`notify` 等单向通知不显示，截断到 4 KB、照常脱敏后写日志（2026-10-09 定，见 security.md"凭据与日志"）。对话框在宿主存活期间保留，不跨重启。
 
 **失败与重启**
 
-- 模型调用失败交给 pi 自带的重试（`retry.maxRetries = 3`），重试在对话记录里显示为 `retry` 步骤（M1.4 已有）。用尽后这一轮以 `failed` 结束，带 pi 的报错原文，界面显示错误卡片。
-- pi 崩溃：本轮以 `failed` 结束，排队暂停（`reason: crashed`），还没送达的插话退回排队最前面，对话框作废，发 `session_exited`。宿主随即用 `--session` 重新启动 pi，会话的 `epoch` 加一、推新的快照，对话记录里加一条宿主的提示"进程已自动重启（第 N / 3 次）"（`restarted` 提示，只在宿主存活期间保留）。重启后：崩溃时正在运行的那条输入还没写进会话（pi 还没回显这条用户消息），就重新提交它；已经写进会话，就补发一条"上一次运行意外中断了，请从中断的地方继续。"（2026-10-09 定），这条在界面上标为"系统自动发出"（`Turn.user.auto`，记在 `~/.atrium/turns/` 里，重建后仍在）。然后解除暂停、继续出队。
-- 连续 3 次重启都失败（再次崩溃，或启动不起来）后不再重启：会话进入"出错"（`control.failure`），排队保持暂停，界面显示错误卡片。一次运行正常结束（`agent_settled` 且这一轮没有失败）后连续计数归零（2026-10-09 定）。
-- `retry_run()`：错误卡片上的"重试"。pi 没在运行就先启动；然后按上面"重启后"同样的规则再来一轮：最后一轮的输入没写进会话就重新提交，写进了就补发那句话。
-- 出错状态在标签和侧栏一直显示到下一次运行开始；写进索引的关注状态和收件箱在 M1.9。
+- 模型调用失败交给 pi 自带的重试：宿主启动 pi 时用 `set_auto_retry` 确保开启，次数沿用 pi 的设置（`retry.maxRetries`，默认 3），RPC 改不了（2026-10-09 定）。重试在对话记录里显示为 `retry` 步骤（M1.4 已有），当场看到的带上 pi 给的上限，显示为"正在重试（第 N / M 次）"；从文件重建的不知道上限，只显示"第 N 次"。用尽后这一轮以 `failed` 结束，带 pi 的报错原文，界面显示错误卡片。
+- pi 崩溃：本轮以 `failed` 结束，排队暂停（`reason: crashed`），还没送达的插话退回排队最前面，对话框作废，发 `session_exited`。宿主随即用 `--session` 重新启动 pi，会话的 `epoch` 加一、推新的快照，对话记录里加一条宿主的提示"进程已自动重启（第 N / 3 次）"（`restarted` 提示，只在宿主存活期间保留）。重启后：崩溃时正在运行或正在提交（已发给 pi、还没回显，包括 `agent_start` 之前和重启后的续做）的那条输入还没写进会话，就重新提交它；已经写进会话，就补发一条"上一次运行意外中断了，请从中断的地方继续。"（2026-10-09 定），这条在界面上标为"系统自动发出"（`Turn.user.auto`，记在 `~/.atrium/turns/` 里，重建后仍在）。然后解除暂停、继续出队。
+- 连续 3 次重启都失败（再次崩溃，或启动不起来）后不再重启：会话进入"出错"（`control.failure`），排队保持暂停，界面显示错误卡片。一次运行结束且这一轮没有失败（完成或被停止都算）后连续计数归零（2026-10-09 定）。
+- `retry_run()`：错误卡片上的"重试"。pi 没在运行就先启动；然后按上面"重启后"同样的规则再来一轮：被打断的那条（重启用尽时记下的）没写进会话就重新提交，写进了就补发那句话；没有被打断的，就对最后一轮失败的补发那句话。正在运行、提交或重启时什么也不做。失败状态在新的 pi 换上之后才清掉。
+- 出错状态在标签和侧栏一直显示到下一次运行开始：会话摘要 `SessionSummary` 多一个 `failed`（最后一次运行失败，或连续崩溃用尽），下一次运行开始时清掉；写进索引的关注状态和收件箱在 M1.9。
 
 新增命令：`steer`、`stop`、`resume_queue`、`clear_queue`、`update_queued`、`remove_queued`、`steer_queued`、`answer_interaction`、`retry_run`。新增事件：`control_updated`、`prompt_handled`。新增错误码：`session_stopping`、`queue_item_not_found`、`interaction_closed`。`prompt` 的应答多了 `queued`（带 `itemId`）。
 
