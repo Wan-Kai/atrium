@@ -132,6 +132,36 @@ describe("loadIndexFile", () => {
     expect(await readFile(aside, "utf8")).toBe(text);
   });
 
+  it("sets aside a version below 1 even when there is an upgrade from it", async () => {
+    const directory = await indexDirectory();
+    await writeFile(join(directory, "things.json"), JSON.stringify({ version: 0, item: "a" }));
+    const fromZero = {
+      ...spec,
+      migrations: { ...spec.migrations, 0: (document: Record<string, unknown>) => document },
+    };
+
+    const { file, setAside } = await loadIndexFile(directory, fromZero, NOW);
+
+    expect(setAside).toBe(join(directory, "things.corrupt-2026-10-08T01-02-03.004Z.json"));
+    expect(file.read()).toStrictEqual({ items: [] });
+  });
+
+  it("sets aside an older version when the spec has no upgrades at all", async () => {
+    const directory = await indexDirectory();
+    await writeFile(join(directory, "things.json"), JSON.stringify({ version: 2, names: ["a"] }));
+    const bare: IndexFileSpec<Document> = {
+      name: "things",
+      version: 3,
+      schema: Document,
+      empty: () => ({ items: [] }),
+    };
+
+    const { file, setAside } = await loadIndexFile(directory, bare, NOW);
+
+    expect(setAside).toBe(join(directory, "things.corrupt-2026-10-08T01-02-03.004Z.json"));
+    expect(file.read()).toStrictEqual({ items: [] });
+  });
+
   it("names a file in a subdirectory by its path", async () => {
     const directory = await indexDirectory();
     const { file } = await loadIndexFile(directory, { ...spec, name: "turns/s1" }, NOW);
