@@ -81,21 +81,21 @@ async function pushMain(repo: GitScene): Promise<void> {
 }
 
 /**
- * Real git whose first run of one subcommand fails, as git does when a lock is held.
+ * Real git whose first run of one command fails, as git does when a lock is held.
  *
  * @remarks
  * For telling a failure that passes from a verdict.
  *
  * @sideEffects none until it runs git.
- * @param subcommand - The subcommand that fails once.
+ * @param fails - Whether a command's arguments are those of the command that fails once.
  * @returns The runner.
  */
-function failingOnce(subcommand: string): GitRunner {
+function failingOnce(fails: (args: readonly string[]) => boolean): GitRunner {
   const real = countingGit();
   let failed = false;
   return {
     run: (args, options) => {
-      if (args[0] !== subcommand || failed) return real.run(args, options);
+      if (!fails(args) || failed) return real.run(args, options);
       failed = true;
       return Promise.resolve({ code: 128, stdout: "" });
     },
@@ -250,6 +250,55 @@ describe("MergeInspector.inspect", () => {
     expect(await inspector().inspect(await target(repo, dir))).toMatchObject({ verdict: "noChange" });
   });
 
+  it("calls an external worktree that made a merge commit itself and was merged by fast-forward merged", async () => {
+    const repo = await scene();
+    const topic = await repo.worktree("topic");
+    await repo.commit(topic, "a.txt", "a");
+    const dir = await repo.worktree("external");
+    await repo.git(dir, "merge", "--quiet", "--no-ff", "--no-edit", "topic");
+    await repo.git(repo.repo, "merge", "--quiet", "--ff-only", "external");
+    await pushMain(repo);
+
+    expect(await inspector().inspect(await target(repo, dir))).toStrictEqual({
+      dirty: false,
+      ahead: 0,
+      verdict: "merged",
+      reason: null,
+    });
+  });
+
+  it.each([
+    ["a branch whose name starts like a revert", "revert-typo"],
+    ["a commit found by a message that reads like a merge", ":/merge topic: Merge made by"],
+  ])("calls an external worktree started from %s, with nothing committed since, unchanged", async (_case, from) => {
+    const repo = await scene();
+    await repo.commit(repo.repo, "other.txt", "on main", "merge topic: Merge made by hand");
+    await pushMain(repo);
+    await repo.git(repo.repo, "branch", "revert-typo");
+    // The branch's only reflog entry, `branch: Created from <from>`, mentions a commit or a merge.
+    const dir = await repo.worktree("external", from);
+
+    expect(await inspector().inspect(await target(repo, dir))).toStrictEqual({
+      dirty: false,
+      ahead: 0,
+      verdict: "noChange",
+      reason: null,
+    });
+  });
+
+  it("does not ask git for a main branch it was not given", async () => {
+    const repo = await scene();
+    const dir = await repo.worktree("work");
+    const git = countingGit();
+
+    const inspected = await createMergeInspector({ git, version: [2, 50] }).inspect(
+      await target(repo, dir, { mainRef: null }),
+    );
+
+    expect(inspected).toStrictEqual({ dirty: false, ahead: 0, verdict: "unknown", reason: "no_main_branch" });
+    expect(git.commands).toStrictEqual(["status"]);
+  });
+
   it("cannot tell where an external worktree started without a branch or a reflog", async () => {
     const repo = await scene();
     const detached = await repo.worktree("detached");
@@ -364,11 +413,13 @@ describe("parseGitVersion", () => {
   it("reads the major and minor version, with or without a vendor's suffix", () => {
     expect(parseGitVersion("git version 2.50.1 (Apple Git-155)\n")).toStrictEqual([2, 50]);
     expect(parseGitVersion("git version 2.38.0")).toStrictEqual([2, 38]);
+    expect(parseGitVersion("git version 10.2.0")).toStrictEqual([10, 2]);
   });
 
   it("finds none in other output", () => {
     expect(parseGitVersion("")).toBeNull();
     expect(parseGitVersion("version 2.38")).toBeNull();
+    expect(parseGitVersion("jgit version 5.13.0.202109080827-r")).toBeNull();
   });
 });
 
@@ -386,14 +437,23 @@ describe("MergeInspector caching (after the review)", () => {
     expect(await inspect.inspect(await target(repo, fresh))).toMatchObject({ verdict: "noChange" });
   });
 
-  it("does not keep a verdict git failed to give, and asks again next time", async () => {
+  it.each([
+    ["telling ancestry", (args: readonly string[]) => args[0] === "merge-base"],
+    ["simulating the merge", (args: readonly string[]) => args[0] === "merge-tree"],
+    ["reading the main branch's tree", (args: readonly string[]) => args.at(-1)?.endsWith("^{tree}") === true],
+  ])("does not keep a verdict git failed to give while %s, and asks again next time", async (_case, fails) => {
     const repo = await scene();
     const dir = await repo.worktree("work");
     await repo.commit(dir, "a.txt", "a");
-    const inspect = createMergeInspector({ git: failingOnce("merge-base"), version: [2, 50] });
+    const inspect = createMergeInspector({ git: failingOnce(fails), version: [2, 50] });
     const work = await target(repo, dir);
 
-    expect(await inspect.inspect(work)).toMatchObject({ verdict: "unknown", reason: "git_failed" });
-    expect(await inspect.inspect(work)).toMatchObject({ verdict: "pending", reason: null });
+    expect(await inspect.inspect(work)).toStrictEqual({
+      dirty: false,
+      ahead: 1,
+      verdict: "unknown",
+      reason: "git_failed",
+    });
+    expect(await inspect.inspect(work)).toStrictEqual({ dirty: false, ahead: 1, verdict: "pending", reason: null });
   });
 });

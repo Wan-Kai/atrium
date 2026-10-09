@@ -46,9 +46,18 @@ describe("parseWorktreeList", () => {
     expect(parseWorktreeList("")).toStrictEqual([]);
   });
 
-  it("keeps a branch that is not under refs/heads as it is", () => {
-    expect(parseWorktreeList("worktree /w/x\nHEAD 1\nbranch refs/remotes/origin/x\n")[0]?.branch).toBe(
-      "refs/remotes/origin/x",
-    );
+  it("keeps a branch that is not under refs/heads as it is, even one with refs/heads further on", () => {
+    expect(parseWorktreeList("worktree /w/x\nHEAD 1\nbranch refs/remotes/origin/x\n\n")).toStrictEqual([
+      { dir: "/w/x", head: "1", branch: "refs/remotes/origin/x", prunable: false, bare: false },
+    ]);
+    expect(parseWorktreeList("worktree /w/y\nHEAD 2\nbranch refs/backup/refs/heads/y\n\n")).toStrictEqual([
+      { dir: "/w/y", head: "2", branch: "refs/backup/refs/heads/y", prunable: false, bare: false },
+    ]);
+  });
+
+  it("reads a last record that is not followed by an empty line", () => {
+    expect(parseWorktreeList("worktree /w/x\nHEAD 1\nbranch refs/heads/x\n")).toStrictEqual([
+      { dir: "/w/x", head: "1", branch: "x", prunable: false, bare: false },
+    ]);
   });
 });

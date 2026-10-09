@@ -167,6 +167,12 @@ describe("SessionFileReader.scanFolder", () => {
     await sessionFile(folder, "b.jsonl", [header("b"), info("named"), info("   ")]);
     await sessionFile(folder, "c.jsonl", [header("c"), info("named"), info(7)]);
     await sessionFile(folder, "d.jsonl", [header("d"), user('mentions "session_info"'), { type: "label", name: "x" }]);
+    // An entry of another type that holds the word "session_info" leaves the name alone.
+    await sessionFile(folder, "e.jsonl", [
+      header("e"),
+      info("kept"),
+      { type: "custom", customType: "audit", data: { seen: "session_info" } },
+    ]);
 
     const found = await scanOnce(folder);
 
@@ -175,6 +181,7 @@ describe("SessionFileReader.scanFolder", () => {
       ["b", null, null],
       ["c", null, null],
       ["d", null, 'mentions "session_info"'],
+      ["e", "kept", null],
     ]);
   });
 
@@ -214,6 +221,7 @@ describe("SessionFileReader.scanFolder", () => {
       "{}",
       '{"type":"session"}',
       '{"type":"session","id":7}',
+      '{"type":"message","id":"s0"}',
       "not json",
     ];
     for (const [index, first] of firsts.entries()) {
@@ -365,6 +373,24 @@ describe("SessionFileReader across scans", () => {
     expect(await reader.scanFolder(folder)).toStrictEqual([]);
     await appendFile(path, `${first.slice(10)}\n`);
     expect((await reader.scanFolder(folder)).map((file) => file.sessionId)).toStrictEqual(["s1"]);
+  });
+
+  it("reads a file again from its start after a scan that could not read it", async () => {
+    const folder = await tempDir("sessions");
+    const path = await sessionFile(folder, "a.jsonl", [header("s1"), user("first")], 100);
+    const reader = createSessionFileReader();
+    await reader.scanFolder(folder);
+
+    // While it cannot be read, it may change in any way, not only grow.
+    await sessionFile(folder, "a.jsonl", [header("s1"), user("FIRST"), info("named")], 200);
+    await chmod(path, 0o000);
+    onTestFinished(() => chmod(path, 0o644));
+    expect(await reader.scanFolder(folder)).toStrictEqual([]);
+    await chmod(path, 0o644);
+
+    expect((await reader.scanFolder(folder)).map((file) => [file.firstPrompt, file.name])).toStrictEqual([
+      ["FIRST", "named"],
+    ]);
   });
 
   it("forgets a file that went away, and reads a new one at the same path whole", async () => {
