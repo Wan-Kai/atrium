@@ -92,13 +92,17 @@ export function projectTranscript(
         close();
         const known = facts.get(entry.id);
         draft = {
-          turn: new TurnDraft(known?.turnId ?? historyId(sessionId, entry.id), {
-            text: entry.text,
-            images: entry.images,
-            clientMessageId: known?.clientMessageId ?? null,
-            auto: known?.auto ?? auto.has(entry.id),
-            timestamp: entry.timestamp,
-          }),
+          turn: new TurnDraft(
+            known?.turnId ?? historyId(sessionId, entry.id),
+            {
+              text: entry.text,
+              images: entry.images,
+              clientMessageId: known?.clientMessageId ?? null,
+              auto: known?.auto ?? auto.has(entry.id),
+              timestamp: entry.timestamp,
+            },
+            known?.retryLimit ?? null,
+          ),
           entryId: entry.id,
         };
         turnEntryIds.push(entry.id);

@@ -340,12 +340,16 @@ describe("createSessionTranscript live", () => {
     expect(session.live).toBe(true);
   });
 
-  it("adds a retry step where pi reports one", () => {
+  it("adds a retry step where pi reports one, with pi's limit, and keeps the limit through a rebuild", () => {
     const { transcript: session } = transcript();
     session.apply(userMessage("go"), noClient);
 
-    expect(session.apply({ kind: "retry_started", attempt: 2, error: "503" }, noClient)).toStrictEqual([
-      { type: "step_added", turnId: "live-1", step: { kind: "retry", id: "0", attempt: 2, error: "503" } },
+    expect(session.apply({ kind: "retry_started", attempt: 2, maxAttempts: 5, error: "503" }, noClient)).toStrictEqual([
+      {
+        type: "step_added",
+        turnId: "live-1",
+        step: { kind: "retry", id: "0", attempt: 2, maxAttempts: 5, error: "503" },
+      },
     ]);
   });
 });

@@ -79,6 +79,21 @@ describe("Composer", () => {
 
     expect(sent).toStrictEqual(["你好"]);
   });
+
+  it("keeps the text while a stop waits for pi, and sends it once the stop ends", async () => {
+    const sent: string[] = [];
+    const screen = await render(<Composer onSend={(text) => sent.push(text)} stopping />);
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "下一步{Enter}");
+    expect(sent).toStrictEqual([]);
+    await expect.element(box).toHaveValue("下一步");
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    await screen.rerender(<Composer onSend={(text) => sent.push(text)} />);
+    await userEvent.type(box, "{Enter}");
+
+    expect(sent).toStrictEqual(["下一步"]);
+  });
 });
 
 describe("messages", () => {

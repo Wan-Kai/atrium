@@ -114,6 +114,8 @@ export function createSessionManager(options: {
   const running = new Set<{ stop(): Promise<unknown> }>();
   /** Sessions with a run in progress. */
   const busy = new Set<string>();
+  /** Sessions whose last run failed or whose pi kept crashing, until the next run starts. */
+  const failed = new Set<string>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
   /** Sessions being started, so a second start waits for the first. */
@@ -202,7 +204,8 @@ export function createSessionManager(options: {
    */
   function live(sessionId: string): Running | undefined {
     const found = sessions.get(sessionId);
-    return found === undefined || found.controller.exited ? undefined : found;
+    // A session whose pi is being started again counts as running: nothing else may start one.
+    return found === undefined || (found.controller.exited && !found.controller.restarting) ? undefined : found;
   }
 
   /**
@@ -224,21 +227,31 @@ export function createSessionManager(options: {
   }
 
   /**
-   * Keeps track of runs for the list, and looks at the session's files once a run ends.
+   * Keeps track of runs and failures for the list, and looks at the session's files once a run ends.
    *
    * @remarks
-   * A run's end may have written the file, a name or commits in the workspace.
+   * A run's end may have written the file, a name or commits in the workspace. A session counts as
+   * failed from a failed run or pi crashing too often until its next run starts (SPEC-0001,
+   * "运行控制").
    *
-   * @sideEffects Updates `busy`; calls `onChange`; may start background scans.
+   * @sideEffects Updates `busy` and `failed`; calls `onChange`; may start background scans.
    * @param sessionId - The session.
    * @param event - An event it published.
    */
   function observe(sessionId: string, event: SessionEvent): void {
     if (event.type === "run_started") {
       busy.add(sessionId);
+      failed.delete(sessionId);
       options.onChange();
+    } else if (event.type === "control_updated") {
+      if (event.control.failure !== null && !failed.has(sessionId)) {
+        failed.add(sessionId);
+        options.onChange();
+      }
     } else if (event.type === "run_settled" || event.type === "session_exited") {
-      if (busy.delete(sessionId)) options.onChange();
+      const ran = busy.delete(sessionId);
+      if (event.type === "run_settled" && event.outcome === "failed") failed.add(sessionId);
+      if (ran || event.type === "run_settled") options.onChange();
       if (event.type === "run_settled") {
         const containerId = options.catalog.find(sessionId)?.containerId;
         if (containerId !== undefined && containerId !== CHATS) options.workspaces.refresh(containerId);
@@ -349,6 +362,11 @@ export function createSessionManager(options: {
     const { sessionId, traced, view, entries } = spawned;
     const known = sessions.get(sessionId);
     if (known !== undefined) {
+      if (!known.controller.exited) {
+        // Another start handed the session its pi first; one session, one pi (pi-internals.md §3).
+        await traced.process.stop();
+        return known;
+      }
       known.pi = traced;
       known.controller.attach({ pi: view, entries });
       return known;
@@ -394,16 +412,35 @@ export function createSessionManager(options: {
    * Starts a known session's pi again for its controller, after a crash or for "重试".
    *
    * @remarks
-   * Started as `ensureRunning` would; the controller takes it over.
+   * Started as `ensureRunning` would, and registered with it, so only one start per session is
+   * ever under way (SPEC-0001, "运行控制"). When a start is already under way the controller gets
+   * `null`: that start hands it its pi.
    *
    * @sideEffects Spawns pi; updates the session's pi.
    * @param sessionId - The session.
-   * @returns The pi and its entries.
+   * @returns The pi and its entries, or `null`.
    */
-  async function respawn(sessionId: string): Promise<Respawned> {
-    const spawned = await spawn(await readyTools(), await launchOf(sessionId));
-    const known = sessions.get(sessionId);
-    if (known !== undefined) known.pi = spawned.traced;
+  async function respawn(sessionId: string): Promise<Respawned | null> {
+    const going = starting.get(sessionId);
+    if (going !== undefined) {
+      await going.catch(() => undefined);
+      return null;
+    }
+    const started = (async () => {
+      const spawned = await spawn(await readyTools(), await launchOf(sessionId));
+      const known = sessions.get(sessionId);
+      if (known === undefined) throw new CommandError("session_not_found", { sessionId });
+      known.pi = spawned.traced;
+      return { running: known, spawned };
+    })();
+    const registered = started.then(({ running: known }) => known);
+    starting.set(sessionId, registered);
+    // Fire and forget: removing itself cannot fail.
+    void registered.then(
+      () => starting.delete(sessionId),
+      () => starting.delete(sessionId),
+    );
+    const { spawned } = await started;
     return { pi: spawned.view, entries: spawned.entries };
   }
 
@@ -503,7 +540,8 @@ export function createSessionManager(options: {
    * @param sessionId - The session.
    */
   async function stopSession(sessionId: string): Promise<void> {
-    await live(sessionId)?.controller.shutdown();
+    // Also a session whose pi is being started again: the restart stops instead of carrying on.
+    await sessions.get(sessionId)?.controller.shutdown();
   }
 
   return {
@@ -634,7 +672,12 @@ export function createSessionManager(options: {
       }
     },
     stop: async (sessionId) => controllerOf(sessionId).stop(),
-    resumeQueue: async (sessionId) => controllerOf(sessionId).resumeQueue(),
+    async resumeQueue(sessionId) {
+      const controller = controllerOf(sessionId);
+      // The queue moves only with a pi to take it.
+      if (live(sessionId) === undefined) await ensureRunning(sessionId);
+      return controller.resumeQueue();
+    },
     clearQueue: async (sessionId) => controllerOf(sessionId).clearQueue(),
     updateQueued: async (sessionId, itemId, text) => controllerOf(sessionId).updateQueued(itemId, text),
     removeQueued: async (sessionId, itemId) => controllerOf(sessionId).removeQueued(itemId),
@@ -655,9 +698,11 @@ export function createSessionManager(options: {
       return controllerOf(command.sessionId).fetchTranscript(command);
     },
     summaries() {
-      return options.catalog
-        .list()
-        .map(({ cwd: _cwd, ...entry }) => ({ ...entry, running: busy.has(entry.sessionId) }));
+      return options.catalog.list().map(({ cwd: _cwd, ...entry }) => ({
+        ...entry,
+        running: busy.has(entry.sessionId),
+        failed: failed.has(entry.sessionId),
+      }));
     },
     async forgetWorkspaces(workspaceIds) {
       const gone = options.catalog.list().filter((entry) => workspaceIds.includes(entry.containerId));
@@ -670,6 +715,8 @@ export function createSessionManager(options: {
     },
     async close() {
       closed = true;
+      // Controllers first, so restarts under way stop rather than start pi again.
+      await Promise.all([...sessions.values()].map(({ controller }) => controller.shutdown()));
       await Promise.all([...running].map((pi) => pi.stop()));
       await Promise.all(background);
     },

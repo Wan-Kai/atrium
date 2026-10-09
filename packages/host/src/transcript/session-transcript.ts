@@ -83,6 +83,18 @@ export interface SessionTranscript {
    */
   noteRestart(attempt: number): TranscriptEvent;
   /**
+   * Adds the host's notice of how an extension's question ended, after the items so far.
+   *
+   * @param ended - The question's title, how it ended and the answer, if any.
+   * @returns The event to publish.
+   */
+  noteInteraction(ended: {
+    readonly title: string;
+    readonly outcome: "answered" | "cancelled" | "timed_out" | "stale";
+    readonly value: string | null;
+    readonly confirmed: boolean | null;
+  }): TranscriptEvent;
+  /**
    * Ends the turn running now, when the run settles or pi goes away.
    *
    * @param crashed - Whether pi went away mid-run.
@@ -166,6 +178,29 @@ export function createSessionTranscript(options: {
   let seen: (SeenTurn | null)[] = [];
   /** The host's notices, each with the id of the item it follows (`null` for the start). */
   const hostNotices: { readonly notice: Notice; readonly after: string | null }[] = [];
+  /** Host notices added while a turn runs; they follow it. */
+  let afterLive: Notice[] = [];
+
+  /**
+   * Adds a host notice after everything so far, the running turn included.
+   *
+   * @remarks
+   * See `createSessionTranscript`. A question answered while a turn runs follows that turn.
+   *
+   * @sideEffects Records the notice and adds it to the items.
+   * @param notice - The notice.
+   * @returns The event to publish.
+   */
+  function note(notice: Notice): TranscriptEvent {
+    if (live === null) {
+      hostNotices.push({ notice, after: items.at(-1)?.id ?? null });
+      items.push(notice);
+    } else {
+      hostNotices.push({ notice, after: live.draft.id });
+      afterLive.push(notice);
+    }
+    return { type: "notice_added", notice, before: null };
+  }
   let live: {
     readonly draft: TurnDraft;
     readonly record: SeenTurn;
@@ -212,6 +247,7 @@ export function createSessionTranscript(options: {
       turnId: live.draft.id,
       clientMessageId: live.draft.user.clientMessageId,
       auto: live.draft.user.auto,
+      retryLimit: live.draft.retryLimit,
       durationMs: Math.max(0, now() - live.startedAt),
       thinkingMs: live.thinkingMs,
     };
@@ -227,7 +263,8 @@ export function createSessionTranscript(options: {
       changes: turn.changes,
     });
     live.record.facts = facts;
-    items.push(turn);
+    items.push(turn, ...afterLive);
+    afterLive = [];
     live = null;
     return events;
   }
@@ -254,13 +291,17 @@ export function createSessionTranscript(options: {
       }
       const events = finishLive(false);
       const { clientMessageId, auto } = origin();
-      const draft = new TurnDraft(newId(), {
-        text: message.text,
-        images: message.images,
-        clientMessageId,
-        auto,
-        timestamp: message.timestamp,
-      });
+      const draft = new TurnDraft(
+        newId(),
+        {
+          text: message.text,
+          images: message.images,
+          clientMessageId,
+          auto,
+          timestamp: message.timestamp,
+        },
+        null,
+      );
       // Stryker disable next-line ObjectLiteral: the turn's end sets its facts before any rebuild reads them.
       const record: SeenTurn = { facts: null };
       seen.push(record);
@@ -315,7 +356,7 @@ export function createSessionTranscript(options: {
     get live() {
       return live !== null;
     },
-    items: () => (live === null ? [...items] : [...items, live.draft.running()]),
+    items: () => (live === null ? [...items] : [...items, live.draft.running(), ...afterLive]),
     apply(event, origin) {
       if (event.kind === "message_finished") return finished(event.message, origin);
       if (live === null) return [];
@@ -341,17 +382,17 @@ export function createSessionTranscript(options: {
         return step === null ? [] : [{ type: "step_updated", turnId, step: forTransport(step) }];
       }
       if (event.kind === "retry_started") {
-        return [{ type: "step_added", turnId, step: live.draft.retry(event.attempt, event.error) }];
+        return [{ type: "step_added", turnId, step: live.draft.retry(event.attempt, event.error, event.maxAttempts) }];
       }
       // Runs and compactions are the controller's business.
       return [];
     },
     settle: (crashed = false) => finishLive(crashed),
     noteRestart(attempt) {
-      const notice: Notice = { kind: "notice", id: newId(), notice: "restarted", attempt, timestamp: now() };
-      hostNotices.push({ notice, after: items.at(-1)?.id ?? null });
-      items.push(notice);
-      return { type: "notice_added", notice, before: null };
+      return note({ kind: "notice", id: newId(), notice: "restarted", attempt, timestamp: now() });
+    },
+    noteInteraction(ended) {
+      return note({ kind: "notice", id: newId(), notice: "interaction", ...ended, timestamp: now() });
     },
     rebuild(page, reset) {
       if (reset) log.clear();

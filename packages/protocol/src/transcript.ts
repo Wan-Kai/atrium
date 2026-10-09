@@ -62,7 +62,14 @@ export const Step = z.discriminatedUnion("kind", [
     partial: z.boolean(),
   }),
   z.strictObject({ kind: z.literal("steer"), ...stepFields, text: z.string() }),
-  z.strictObject({ kind: z.literal("retry"), ...stepFields, attempt: z.number().int().positive(), error: z.string() }),
+  z.strictObject({
+    kind: z.literal("retry"),
+    ...stepFields,
+    attempt: z.number().int().positive(),
+    /** pi's limit, seen live; null when rebuilt from its file, which does not keep it. */
+    maxAttempts: z.number().int().positive().nullable(),
+    error: z.string(),
+  }),
 ]);
 export type Step = z.infer<typeof Step>;
 
@@ -116,6 +123,19 @@ export const Notice = z.discriminatedUnion("notice", [
     notice: z.literal("restarted"),
     /** Which restart in a row, from 1 to 3. */
     attempt: z.number().int().positive(),
+    timestamp: Timestamp,
+  }),
+  /** An extension's question and how it ended; seen only by the host that asked (SPEC-0001, "运行控制"). */
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("interaction"),
+    title: z.string(),
+    outcome: z.enum(["answered", "cancelled", "timed_out", "stale"]),
+    /** The value given to a selection, input or editor. */
+    value: z.string().nullable(),
+    /** The answer to a confirmation. */
+    confirmed: z.boolean().nullable(),
     timestamp: Timestamp,
   }),
 ]);

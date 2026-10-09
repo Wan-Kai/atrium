@@ -271,7 +271,10 @@ export function describeStep(step: Step, live: boolean): StepLine {
   }
   if (step.kind === "text") return { verb: "说明", object: opening(step.text), end: null };
   if (step.kind === "steer") return { verb: "插话已送达", object: step.text, end: null };
-  if (step.kind === "retry") return { verb: `自动重试 · 第 ${step.attempt} 次`, object: step.error, end: null };
+  if (step.kind === "retry") {
+    const limit = step.maxAttempts === null ? "" : ` / ${step.maxAttempts}`;
+    return { verb: `自动重试 · 第 ${step.attempt}${limit} 次`, object: step.error, end: null };
+  }
   return describeTool(step);
 }
 
@@ -377,6 +380,32 @@ function turnMarkdown(turn: Turn): string {
  * @returns The Markdown.
  */
 function noticeMarkdown(notice: Notice): string {
-  if (notice.notice === "restarted") return `> 进程已自动重启（第 ${notice.attempt} / 3 次）`;
-  return `> 上下文已压缩 · 压缩前 ${formatTokens(notice.tokensBefore)} tokens`;
+  if (notice.notice === "compacted") return `> 上下文已压缩 · 压缩前 ${formatTokens(notice.tokensBefore)} tokens`;
+  return `> ${hostNoticeText(notice)}`;
+}
+
+/** How an extension's question ended, in words, when there was no answer to show. */
+const UNANSWERED: Readonly<Record<"cancelled" | "timed_out" | "stale", string>> = {
+  cancelled: "已取消",
+  timed_out: "已超时",
+  stale: "已作废（pi 已退出）",
+};
+
+/**
+ * A notice of the host's own, in words: a restart, or an extension's question and its result.
+ *
+ * @remarks
+ * "进程已自动重启（第 N / 3 次）" and "问题 → 回答" (SPEC-0001, "运行控制").
+ *
+ * @sideEffects none
+ * @param notice - The notice.
+ * @returns The line.
+ */
+export function hostNoticeText(notice: Exclude<Notice, { notice: "compacted" }>): string {
+  if (notice.notice === "restarted") return `进程已自动重启（第 ${notice.attempt} / 3 次）`;
+  const result =
+    notice.outcome === "answered"
+      ? (notice.value ?? (notice.confirmed === true ? "是" : "否"))
+      : UNANSWERED[notice.outcome];
+  return `${notice.title} → ${result}`;
 }

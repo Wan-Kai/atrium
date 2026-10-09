@@ -900,6 +900,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         updatedAt: 1,
         archived: false,
         running: false,
+        failed: false,
       },
     ],
     layout: { container: null, tabs: {} },

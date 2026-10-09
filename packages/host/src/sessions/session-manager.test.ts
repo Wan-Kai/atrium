@@ -132,6 +132,35 @@ async function manage(
   };
 }
 
+type Manager = ReturnType<typeof createSessionManager>;
+
+/**
+ * Does something once, as a session's restart begins.
+ *
+ * @remarks
+ * The restart begins before pi's crash is published, so `act` runs while the new pi starts.
+ *
+ * @sideEffects Connects client `c2`, which must then subscribe to the session.
+ * @param subscriptions - Where sessions publish.
+ * @param act - What to do.
+ * @returns What `act` returned, once it is done.
+ */
+function whenRestarting(subscriptions: SubscriptionRegistry, act: () => Promise<unknown>): Promise<unknown> {
+  const done = Promise.withResolvers<unknown>();
+  let acted = false;
+  subscriptions.connect(
+    "c2",
+    (raw) => {
+      const event = raw as SessionEvent;
+      if (acted || event.type !== "session_exited") return;
+      acted = true;
+      done.resolve(act());
+    },
+    "client-1",
+  );
+  return done.promise;
+}
+
 /**
  * Writes a session file where pi would, as a terminal session.
  *
@@ -368,9 +397,10 @@ describe("SessionManager opening sessions", () => {
     expect(received).toMatchObject([{ type: "session_snapshot", epoch: 1, exited: false }]);
   });
 
-  it("starts pi again with the session's file after it crashed, in a new epoch", async () => {
+  it("starts pi again with the session's file after a crash, resending what pi had not taken, three times at most", async () => {
     const at = await place();
     const file = await terminalSession(at, "pi-session-1", at.workspace);
+    // Each pi answers the prompt and dies before any run starts, so each restart sends it again.
     const { manager, catalog, received, starts } = await manage(
       { argvToStderr: true, rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
       at,
@@ -380,16 +410,93 @@ describe("SessionManager opening sessions", () => {
     await manager.subscribe("c1", ["pi-session-1"]);
     await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
 
-    // Its subscribers get the new pi's snapshot right away, then the note of the restart.
-    await vi.waitFor(() => expect(received.at(-1)?.type).toBe("notice_added"));
-    expect(received.slice(-3)).toMatchObject([
-      { type: "session_exited", epoch: 1, reason: "crashed" },
-      { type: "session_snapshot", epoch: 2, seq: 0, exited: false },
-      { type: "notice_added", epoch: 2, notice: { notice: "restarted", attempt: 1 } },
+    await vi.waitFor(() =>
+      expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { failure: { attempts: 3 } } }),
+    );
+    expect(received.filter((event) => event.type === "notice_added")).toMatchObject(
+      [1, 2, 3].map((attempt) => ({ epoch: attempt + 1, notice: { notice: "restarted", attempt } })),
+    );
+    expect(received.filter((event) => event.type === "session_snapshot").map((event) => event.epoch)).toStrictEqual([
+      1, 2, 3, 4,
     ]);
-    expect(starts().map((start) => start.argv)).toStrictEqual([
-      ["--mode", "rpc", "--session", file],
-      ["--mode", "rpc", "--session", file],
+    expect(starts().map((start) => start.argv)).toStrictEqual(
+      Array.from({ length: 4 }, () => ["--mode", "rpc", "--session", file]),
+    );
+    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false, failed: true }]);
+  });
+
+  it("starts pi for a session that gave up restarting when its queue is resumed", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, received, starts } = await manage(
+      { argvToStderr: true, rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+    await vi.waitFor(() =>
+      expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { failure: { attempts: 3 } } }),
+    );
+
+    expect(await manager.resumeQueue("pi-session-1")).toStrictEqual({});
+
+    expect(starts()).toHaveLength(5);
+    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 5, exited: false });
+  });
+
+  it("starts no second pi for a message or an open while pi starts again, queueing the message", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, received, starts, subscriptions } = await manage(
+      { argvToStderr: true, rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    const meanwhile = whenRestarting(subscriptions, () =>
+      Promise.all([
+        manager.prompt({ type: "prompt", requestId: "q2", traceparent, sessionId: "pi-session-1", text: "two" }),
+        manager.openSession("client-1", "pi-session-1"),
+      ]),
+    );
+    await manager.subscribe("c2", ["pi-session-1"]);
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+
+    expect(await meanwhile).toMatchObject([{ disposition: "queued" }, {}]);
+    await vi.waitFor(() =>
+      expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { failure: { attempts: 3 } } }),
+    );
+    expect(starts()).toHaveLength(4);
+    expect(received.at(-1)).toMatchObject({ control: { queue: [{ text: "two" }] } });
+  });
+
+  it.each([
+    { how: "archive", act: (manager: Manager) => manager.archiveSession("pi-session-1") },
+    { how: "close", act: (manager: Manager) => manager.close() },
+  ])("stops a restart under way when the session is closed by $how, starting no more pi", async ({ act }) => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, received, starts, subscriptions, resources } = await manage(
+      { argvToStderr: true, rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    const closed = whenRestarting(subscriptions, () => act(manager));
+    await manager.subscribe("c2", ["pi-session-1"]);
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+    await closed;
+
+    expect(starts()).toHaveLength(2);
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+    expect(received.filter((event) => event.type === "session_snapshot").map((event) => event.epoch)).toStrictEqual([
+      1,
     ]);
   });
 
@@ -628,6 +735,7 @@ describe("SessionManager workspaces", () => {
         updatedAt: expect.any(Number),
         archived: false,
         running: false,
+        failed: false,
       },
     ]);
   });

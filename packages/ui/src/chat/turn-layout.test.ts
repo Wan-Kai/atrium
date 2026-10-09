@@ -6,6 +6,7 @@ import {
   describeStep,
   formatDuration,
   formatTokens,
+  hostNoticeText,
   layoutTurn,
   opening,
   parseDisplayDiff,
@@ -198,8 +199,13 @@ describe("describeStep", () => {
       object: "also b",
       end: null,
     });
-    expect(describeStep({ kind: "retry", id: "2", attempt: 2, error: "503" }, false)).toStrictEqual({
+    expect(describeStep({ kind: "retry", id: "2", attempt: 2, maxAttempts: null, error: "503" }, false)).toStrictEqual({
       verb: "自动重试 · 第 2 次",
+      object: "503",
+      end: null,
+    });
+    expect(describeStep({ kind: "retry", id: "2", attempt: 2, maxAttempts: 5, error: "503" }, false)).toStrictEqual({
+      verb: "自动重试 · 第 2 / 5 次",
       object: "503",
       end: null,
     });
@@ -291,5 +297,40 @@ describe("transcriptMarkdown", () => {
     ).toBe(
       "> list\n> files\n\n- 运行 · ls（通过）\n\n**Done.**\n\n---\n\n> 上下文已压缩 · 压缩前 152K tokens\n\n---\n\n> do it\n\n> 出错：429\n",
     );
+  });
+});
+
+/** The notice of an extension's question that ended so. */
+function ended(
+  title: string,
+  outcome: "answered" | "cancelled" | "timed_out" | "stale",
+  value: string | null,
+  confirmed: boolean | null,
+) {
+  return { kind: "notice", id: "n", notice: "interaction", title, outcome, value, confirmed, timestamp: 0 } as const;
+}
+
+describe("hostNoticeText", () => {
+  it("says how pi was restarted, and how each question ended, with its answer", () => {
+    expect(
+      [
+        { kind: "notice", id: "n", notice: "restarted", attempt: 2, timestamp: 0 } as const,
+        ended("用哪个？", "answered", "vitest", null),
+        ended("删掉吗？", "answered", null, true),
+        ended("真的吗？", "answered", null, false),
+        ended("名字", "cancelled", null, null),
+        ended("继续？", "timed_out", null, null),
+        ended("还在吗？", "stale", null, null),
+      ].map(hostNoticeText),
+    ).toStrictEqual([
+      "进程已自动重启（第 2 / 3 次）",
+      "用哪个？ → vitest",
+      "删掉吗？ → 是",
+      "真的吗？ → 否",
+      "名字 → 已取消",
+      "继续？ → 已超时",
+      "还在吗？ → 已作废（pi 已退出）",
+    ]);
+    expect(transcriptMarkdown([ended("用哪个？", "answered", "vitest", null)])).toBe("> 用哪个？ → vitest\n");
   });
 });

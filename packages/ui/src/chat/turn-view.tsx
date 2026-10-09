@@ -7,6 +7,7 @@ import {
   DotsThree,
   FileText,
   PencilSimple,
+  Question,
   Stop,
   Warning,
 } from "@phosphor-icons/react";
@@ -23,6 +24,7 @@ import {
   describeStep,
   formatDuration,
   formatTokens,
+  hostNoticeText,
   layoutTurn,
   processParts,
   processSteps,
@@ -453,8 +455,8 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
 }
 
 /**
- * A notice between turns: "上下文已压缩 · 压缩前 152K tokens", opening its summary, or the host's
- * "进程已自动重启（第 N / 3 次）".
+ * A notice between turns: "上下文已压缩 · 压缩前 152K tokens", opening its summary, or one of the
+ * host's: "进程已自动重启（第 N / 3 次）", or an extension's question and its result.
  *
  * @remarks
  * A centred grey line between thin rules (design-language, "消息流"); the summary is what pi
@@ -466,7 +468,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
  */
 export function NoticeView({ notice }: { readonly notice: Notice }) {
   const [open, setOpen] = useState(false);
-  if (notice.notice === "restarted") {
+  if (notice.notice !== "compacted") {
     return (
       <div
         data-testid="notice"
@@ -474,8 +476,8 @@ export function NoticeView({ notice }: { readonly notice: Notice }) {
         className="flex w-full items-center gap-2.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] before:h-px before:flex-1 before:bg-[var(--line)] after:h-px after:flex-1 after:bg-[var(--line)]"
       >
         <span className="flex items-center gap-1.5">
-          <ArrowClockwise size={13} />
-          进程已自动重启（第 {notice.attempt} / 3 次）
+          {notice.notice === "restarted" ? <ArrowClockwise size={13} /> : <Question size={13} />}
+          {hostNoticeText(notice)}
         </span>
       </div>
     );

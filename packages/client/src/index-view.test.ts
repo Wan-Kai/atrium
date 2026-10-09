@@ -22,6 +22,7 @@ const session = (sessionId: string, containerId: string) => ({
   updatedAt: 0,
   archived: false,
   running: false,
+  failed: false,
 });
 
 /** A view whose list has sessions s1–s3 in workspace A and c1 in the chats, with `tabs` open in A. */

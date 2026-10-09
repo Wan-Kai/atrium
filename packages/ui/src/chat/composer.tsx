@@ -25,7 +25,8 @@ export interface ComposerProps {
  * filled circle when there is text and pale when empty. Enter while an input method is composing
  * only picks a candidate (`isComposing`). While a run goes on the button is "停止" and Esc stops
  * too; Enter puts the message in the queue and ⌘+Enter sends it as a steer, which the hint under
- * the box says. While a stop waits for pi the button shows "停止中" and does nothing. Models,
+ * the box says. While a stop waits for pi the button shows "停止中" and nothing is sent; the text
+ * stays in the box. Models,
  * attachments, `@` and `/` come with M1.7.
  *
  * @sideEffects Calls `onSend`, `onSteer` or `onStop` as the user acts.
@@ -47,7 +48,8 @@ export function Composer({ onSend, onSteer, onStop, running = false, stopping = 
    * @param steer - Whether to send it as a steer.
    */
   const send = (steer: boolean): void => {
-    if (empty) return;
+    // A message sent while a stop waits for pi would be refused; the text stays to send later.
+    if (empty || stopping) return;
     (steer ? (onSteer ?? onSend) : onSend)(text);
     setText("");
   };
@@ -101,7 +103,7 @@ export function Composer({ onSend, onSteer, onStop, running = false, stopping = 
             <button
               type="button"
               aria-label="发送"
-              disabled={empty}
+              disabled={empty || stopping}
               onClick={() => send(false)}
               className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
             >

@@ -69,6 +69,8 @@ export const SessionSummary = z.strictObject({
   archived: z.boolean(),
   /** A run is in progress. */
   running: z.boolean(),
+  /** The last run failed, or pi kept crashing; cleared when the next run starts (SPEC-0001, "运行控制"). */
+  failed: z.boolean(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

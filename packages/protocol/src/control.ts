@@ -55,6 +55,8 @@ export const Control = z.strictObject({
   steers: z.array(PendingSteer),
   /** A stop was sent and pi has not confirmed it yet. */
   stopping: z.boolean(),
+  /** pi crashed and the host is starting it again. */
+  restarting: z.boolean(),
   /** Questions from extensions waiting for an answer, oldest first. */
   interactions: z.array(Interaction),
   /** Set once pi crashed three times in a row; cleared when the next run starts. */
@@ -68,6 +70,7 @@ export const IDLE_CONTROL: Control = {
   paused: null,
   steers: [],
   stopping: false,
+  restarting: false,
   interactions: [],
   failure: null,
 };

@@ -4,7 +4,7 @@ import { CaretDown, ClockCounterClockwise, Plus, X } from "@phosphor-icons/react
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { sessionTitle, timeAgo } from "../sidebar/names";
-import { StatusIcon } from "../sidebar/status-icon";
+import { StatusIcon, sessionStatus } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
 import { DisplayModeMenu, SessionMenu } from "./session-menus";
 
@@ -121,7 +121,7 @@ export function TabBar({
                     <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
                       {timeAgo(session.updatedAt, now)}
                     </span>
-                    <StatusIcon running={session.running} />
+                    <StatusIcon status={sessionStatus(session)} />
                   </button>
                 ))}
               </div>
@@ -172,7 +172,7 @@ function Tab({
       }}
       className="group flex h-[30px] max-w-[200px] min-w-24 shrink items-center gap-1.5 rounded-[var(--r)] pr-1 pl-2.5 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-selected:bg-[var(--selected)] aria-selected:text-[var(--text)]"
     >
-      <StatusIcon running={session.running} />
+      <StatusIcon status={sessionStatus(session)} />
       <span className="min-w-0 flex-1 truncate">{title}</span>
       <button
         type="button"

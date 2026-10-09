@@ -311,7 +311,7 @@ function InteractionCard({
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.nativeEvent.isComposing) onAnswer({ value });
           }}
-          className="mt-2.5 h-8 w-full rounded-[var(--r)] bg-[var(--main)] px-2.5 text-[length:var(--fs-meta)] outline-none shadow-[inset_0_0_0_0.5px_var(--line-strong)]"
+          className="mt-2.5 h-8 w-full rounded-[var(--r)] bg-[var(--main)] px-2.5 text-[length:var(--fs-meta)] outline-none shadow-[inset_0_0_0_0.5px_var(--line-strong)] focus-visible:shadow-[inset_0_0_0_1px_var(--tint),var(--focus-ring)]"
         />
       ) : null}
       {interaction.kind === "editor" ? (
@@ -320,7 +320,7 @@ function InteractionCard({
           value={value}
           onChange={(event) => setValue(event.target.value)}
           rows={6}
-          className="mt-2.5 w-full resize-y rounded-[var(--r)] bg-[var(--main)] px-2.5 py-2 font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] outline-none shadow-[inset_0_0_0_0.5px_var(--line-strong)]"
+          className="mt-2.5 w-full resize-y rounded-[var(--r)] bg-[var(--main)] px-2.5 py-2 font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] outline-none shadow-[inset_0_0_0_0.5px_var(--line-strong)] focus-visible:shadow-[inset_0_0_0_1px_var(--tint),var(--focus-ring)]"
         />
       ) : null}
       <div className="mt-2.5 flex flex-wrap gap-1.5">

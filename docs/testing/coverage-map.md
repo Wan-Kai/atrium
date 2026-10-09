@@ -165,16 +165,16 @@
 | 行为 | 测试 | 状态 |
 |---|---|---|
 | 协议：控制状态、`control_updated`、`prompt_handled`、九条新命令及其应答（`prompt` 的 `queued` 带 `itemId`、`stop` 的 `confirmed`）、三个新错误码；对话框回答只能是值、确认或取消之一；自动发出的标记和重启提示 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
-| pi 的事件翻译：压缩开始、插话队列（每次完整，只取插话）、四种对话框（超时为 0 或没有即不限时）、通知及其级别；终端专用的请求不翻译 | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
+| pi 的事件翻译：压缩开始、插话队列（每次完整，只取插话）、四种对话框（超时为 0 或没有即不限时）、通知及其级别；重试带 pi 的上限；终端专用的请求不翻译 | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
 | pi 契约（1.1.0）：运行中插话在 `queue_update` 里列出，工具这一批跑完后送达再清空；空闲时插话只进 pi 的队列、不开始运行 | `packages/pi/src/contract/steer.pi.test.ts` | 已覆盖 |
-| 排队：运行或压缩期间的消息进宿主排队，运行结束、`handled` 后、压缩结束后逐条发出；编辑、删除、清空；不认识的项应答 `queue_item_not_found`；pi 说忙的消息排队等下一次，其他拒绝放回最前并暂停 | `packages/host/src/sessions/session-controller.test.ts` "queueing messages" | 已覆盖 |
-| 插话：运行中交给 pi，按 `queue_update` 的文字确认送达；空闲时当消息发；被扩展处理时去掉待发副本；排队项改为插话，失败时放回原处 | session-controller.test.ts "steering" | 已覆盖 |
-| 停止：暂停排队，pi 退回的插话放回最前，`abort`；2 秒内确认即结束，否则保持"停止中"、拒收消息和继续发送，直到 pi 确认或退出；空闲时直接确认；停止后空闲时新消息直接发出，排队仍暂停 | session-controller.test.ts "stopping" | 已覆盖 |
-| 对话框：保留到回答，只收第一个、类型要对得上；到期移除；pi 退出时作废；通知写日志 | session-controller.test.ts "answering dialogs" | 已覆盖 |
-| 崩溃：重启 pi（新 epoch 快照 + "进程已自动重启"提示），pi 没收下的消息重发，收下了就补发"系统自动发出"的续做；未送达的插话回到排队；连续 3 次失败后出错；运行正常结束后计数归零；宿主要求的停止不重启；"重试"续做失败的一轮、或重发重启用尽时丢失的消息 | session-controller.test.ts "after pi crashes"、"retrying"；`session-manager.test.ts`（崩溃后用会话文件重启、启动时开启自动重试） | 已覆盖 |
-| 对话记录：自动发出的标记当场和重建后都在，记进 `turns/`；重启提示在重建后回到它跟着的那一项后面 | `packages/host/src/transcript/session-transcript.test.ts`、`store/turn-starts.test.ts` | 已覆盖 |
+| 排队：运行或压缩期间的消息进宿主排队，运行结束、`handled` 后、压缩结束后逐条发出；编辑、删除、清空；不认识的项应答 `queue_item_not_found`；出队的那条被拒绝时先放回最前、后面的不抢先：pi 忙就等它自己的运行结束，pi 退出就交给重启后由排队发出（只发一次），其他拒绝暂停 | `packages/host/src/sessions/session-controller.test.ts` "queueing messages" | 已覆盖 |
+| 插话：运行中交给 pi，发出前先记下，`queue_update` 先到也对得上，送达后应答才到也不残留；按 `queue_update` 的文字确认送达；没有运行时（空闲、消息发送中）按消息走、该排队就排队；被扩展处理时去掉待发副本；排队项改为插话，失败时放回原处 | session-controller.test.ts "steering" | 已覆盖 |
+| 停止：暂停排队，pi 退回的插话放回最前，`abort`；2 秒内确认即结束，否则保持"停止中"、拒收消息和继续发送，直到 pi 确认或退出；空闲时直接确认；pi 已应答、`agent_start` 未到时也中止；`abort` 失败不算确认，等到 pi 退出；停止后空闲时新消息直接发出，排队仍暂停 | session-controller.test.ts "stopping" | 已覆盖 |
+| 对话框：保留到回答，只收第一个、类型要对得上；到期移除；pi 退出时作废；结束时在对话记录里留一行（回答、取消、超时、作废），运行中结束的跟在这一轮后面、重建后仍在；通知截断到 4 KB 写日志，带原长度 | session-controller.test.ts "answering dialogs" | 已覆盖 |
+| 崩溃：重启 pi（新 epoch 快照 + "进程已自动重启"提示），pi 没收下的消息重发，收下了就补发"系统自动发出"的续做；未送达的插话回到排队；连续 3 次失败后出错；运行正常结束后计数归零；宿主要求的停止不重启；pi 应答后、`agent_start` 前崩溃也重发；重发时 pi 又走了，被打断的那条留给下一次重启；停止后崩溃不发出，没收下的那条进暂停的排队；重启中消息排队、停止让它和被打断的那条留在暂停的排队；另一处启动换上的 pi 直接用；停止的运行也让计数归零；"重试"续做失败的一轮、或重发重启用尽时丢失的消息（收下了就补发续做），启动失败时保留失败状态，启动期间算作重启中、再点重试不起作用、关闭会话停掉新 pi；续做的那一轮记为自动发出 | session-controller.test.ts "after pi crashes"、"retrying"；`session-manager.test.ts`（崩溃后用会话文件重启、用尽后列为出错；继续发送时启动放弃重启的 pi；重启中发消息或打开会话不另起 pi；重启中归档或关闭宿主不再启动；启动时开启自动重试） | 已覆盖 |
+| 对话记录：自动发出的标记当场和重建后都在，记进 `turns/`；重启提示在重建后回到它跟着的那一项后面；重试步骤带 pi 的上限，重建后保留 | `packages/host/src/transcript/session-transcript.test.ts`、`store/turn-starts.test.ts` | 已覆盖 |
 | 客户端：控制状态、`prompt_handled` 去掉待发副本；排队或被插话收下的消息去掉待发副本；运行控制命令的字段与结果 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` | 已覆盖 |
-| 界面：运行中回车排队、⌘回车插话、Esc 和按钮停止，停止中按钮不可用；胶囊条（排队、已暂停与继续发送、编辑删除插话清空、待送达插话数）；四种对话框卡片与倒计时；连续崩溃的错误卡片；最后一轮失败时的"重试"；重启提示与"系统自动发出" | `packages/ui/src/chat/run-control.browser.test.tsx`、`chat.browser.test.tsx` | 已覆盖 |
+| 界面：运行中回车排队、⌘回车插话、Esc 和按钮停止，停止中按钮不可用；胶囊条（排队、已暂停与继续发送、编辑删除插话清空、待送达插话数）；四种对话框卡片与倒计时；连续崩溃的错误卡片；最后一轮失败时的"重试"，重启中不给；重启提示、对话框结果提示与"系统自动发出"；停止中输入框保留文字、不发送；重试显示"第 N / M 次"或"第 N 次"；出错的会话在标签、工作区上显示"出错"，高于运行中 | `packages/ui/src/chat/run-control.browser.test.tsx`、`chat.browser.test.tsx`、`turn-layout.test.ts`、`app/workbench.browser.test.tsx` | 已覆盖 |
 | 杀掉 pi 后自动恢复（端到端） | `apps/desktop/e2e/run-control.spec.ts` | 已覆盖 |
 | 测试工具：faux 写下 pi 的进程号；夹具把工具耗时规范化为 0 | `packages/testkit/src/faux/faux.pi.test.ts`、`pi-fixtures/normalize.test.ts` | 已覆盖 |
 
@@ -216,6 +216,7 @@
 |---|---|---|
 | 200 次连接（每次都订阅索引）、50 次拒绝后资源计数和 Node 真实定时器都回到基线；常驻的只有资源报告和后台 fetch 两个定时器，git 进程为 0 | connections.leak.test.ts | 已覆盖 |
 | 真实 pi 启动、停止 200 次后，资源计数、定时器、子进程、管道句柄都回到基线，每个 pi 进程及其进程组都已消失 | `packages/pi/src/process/pi-process.leak.test.ts` | 已覆盖 |
+| 会话控制器 200 轮对话框（回答、取消、超时、作废）、停止（立即确认、超时后确认）、崩溃重启后，没有待触发的定时器，旧 pi 上没有留下监听 | `packages/host/src/sessions/session-controller.leak.test.ts` | 已覆盖 |
 | 测试失败、超时或被杀时不留临时目录 | 根目录 `test-temp-root.ts`（Vitest、Playwright 全局初始化）；验证方法见 testing.md"临时文件与残留进程" | 已覆盖 |
 | 定时器计数与释放 | `packages/host/src/platform/clock.test.ts` | 已覆盖 |
 | 外观来回切换不留下脱离的 DOM | `apps/desktop/e2e/appearance.leak.spec.ts`。这个测试看不到事件监听器泄漏；外观监听器的移除由 appearance.browser.test.ts 断言 | 已覆盖 |

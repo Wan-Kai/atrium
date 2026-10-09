@@ -20,7 +20,8 @@ export type TranslatedEvent =
   | { readonly kind: "message_finished"; readonly message: LogMessage }
   /** A running tool's output so far, all of it, not just what is new. */
   | { readonly kind: "tool_output"; readonly callId: string; readonly text: string }
-  | { readonly kind: "retry_started"; readonly attempt: number; readonly error: string }
+  /** `maxAttempts` is pi's own limit, from its settings (SPEC-0001, "运行控制"). */
+  | { readonly kind: "retry_started"; readonly attempt: number; readonly maxAttempts: number; readonly error: string }
   | { readonly kind: "compaction_started" }
   | { readonly kind: "compaction_finished" }
   /** The steers pi holds that have not reached the model yet, all of them. */
@@ -157,7 +158,9 @@ export function createEventTranslator(now: () => number): EventTranslator {
       return [{ kind: "tool_output", callId: event.toolCallId, text: outputText(partial) }];
     }
     if (event.type === "auto_retry_start") {
-      return [{ kind: "retry_started", attempt: event.attempt, error: event.errorMessage }];
+      return [
+        { kind: "retry_started", attempt: event.attempt, maxAttempts: event.maxAttempts, error: event.errorMessage },
+      ];
     }
     if (event.type === "compaction_start") return [{ kind: "compaction_started" }];
     if (event.type === "compaction_end") return [{ kind: "compaction_finished" }];

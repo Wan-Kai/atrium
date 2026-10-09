@@ -100,6 +100,26 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0)).toHaveAttribute("title", "本地工作区（项目目录）");
   });
 
+  it("marks a failed session as such on its tab and its workspace, above another's running work", async () => {
+    const initial = list();
+    const { screen } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          session({ sessionId: "s1", containerId: LOCAL, prompt: "重构宿主", failed: true }),
+          ...initial.sessions.slice(1),
+        ],
+      },
+    });
+
+    const row = screen.getByTestId("workspace-row").nth(0);
+    await expect.element(row.getByRole("img", { name: "出错" })).toBeVisible();
+    await expect.element(row.getByRole("img", { name: "运行中" })).not.toBeInTheDocument();
+    const tabs = screen.getByRole("tab");
+    await expect.element(tabs.nth(0).getByRole("img", { name: "出错" })).toBeVisible();
+    await expect.element(tabs.nth(1).getByRole("img", { name: "运行中" })).toBeVisible();
+  });
+
   it("goes to a workspace when clicked, and collapses a project to a summary it remembers", async () => {
     const { screen, calls } = await workbench();
     onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));

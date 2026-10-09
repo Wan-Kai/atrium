@@ -238,6 +238,53 @@ describe("Transcript after an interruption", () => {
     await expect.element(screen.getByRole("button", { name: "重试" })).not.toBeInTheDocument();
   });
 
+  it("offers no 重试 while pi starts again", async () => {
+    const screen = await render(
+      <div style={{ height: 600, display: "flex" }}>
+        <Transcript
+          view={view({
+            items: [turn("t1", { outcome: "failed", error: "pi exited" })],
+            control: { ...IDLE_CONTROL, restarting: true },
+          })}
+          onLoadOlder={() => undefined}
+          onLoadStep={() => undefined}
+          onRetry={() => undefined}
+        />
+      </div>,
+    );
+
+    await expect.element(screen.getByText("回复出错")).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "重试" })).not.toBeInTheDocument();
+  });
+
+  it("notes how an extension's question ended", async () => {
+    const screen = await render(
+      <div style={{ height: 600, display: "flex" }}>
+        <Transcript
+          view={view({
+            items: [
+              turn("t1"),
+              {
+                kind: "notice",
+                id: "n1",
+                notice: "interaction",
+                title: "用哪个？",
+                outcome: "answered",
+                value: "vitest",
+                confirmed: null,
+                timestamp: 0,
+              },
+            ],
+          })}
+          onLoadOlder={() => undefined}
+          onLoadStep={() => undefined}
+        />
+      </div>,
+    );
+
+    await expect.element(screen.getByTestId("notice")).toHaveTextContent("用哪个？ → vitest");
+  });
+
   it("notes a restart between turns and marks the message the host sent", async () => {
     const screen = await render(
       <div style={{ height: 600, display: "flex" }}>

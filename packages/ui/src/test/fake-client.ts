@@ -54,6 +54,7 @@ export function session(
     updatedAt: Date.now() - 60_000,
     archived: false,
     running: false,
+    failed: false,
     ...fields,
   };
 }

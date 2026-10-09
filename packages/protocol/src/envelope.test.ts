@@ -88,6 +88,7 @@ const control: Control = {
   paused: "stopped",
   steers: [{ id: "r28", text: "also b" }],
   stopping: true,
+  restarting: false,
   interactions: [
     {
       id: "d1",
@@ -166,7 +167,7 @@ const steps: Step[] = [
     partial: true,
   },
   { kind: "steer", id: "7", text: "also b" },
-  { kind: "retry", id: "8", attempt: 1, error: "503" },
+  { kind: "retry", id: "8", attempt: 1, maxAttempts: 3, error: "503" },
   { kind: "text", id: "9", text: "done" },
 ];
 
@@ -496,6 +497,7 @@ const snapshot: IndexSnapshotEvent = {
       updatedAt: 5,
       archived: false,
       running: true,
+      failed: false,
     },
     {
       sessionId: "s2",
@@ -507,6 +509,7 @@ const snapshot: IndexSnapshotEvent = {
       updatedAt: 6,
       archived: true,
       running: false,
+      failed: true,
     },
   ],
   layout: {

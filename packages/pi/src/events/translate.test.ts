@@ -131,7 +131,7 @@ describe("createEventTranslator against recorded pi output", () => {
       user("one"),
       started,
       reply([], "error", unavailable),
-      { kind: "retry_started", attempt: 1, error: unavailable },
+      { kind: "retry_started", attempt: 1, maxAttempts: 3, error: unavailable },
       // The automatic retry starts the agent again.
       run,
       started,
@@ -223,7 +223,7 @@ describe("createEventTranslator against recorded pi output", () => {
       user("two"),
       started,
       reply([], "error", unavailable),
-      { kind: "retry_started", attempt: 1, error: unavailable },
+      { kind: "retry_started", attempt: 1, maxAttempts: 3, error: unavailable },
       run,
       started,
       start(0, "text"),

@@ -15,7 +15,7 @@ export interface ContainerDir {
 }
 
 /** What the catalog knows of one session; the manager adds whether it runs. */
-export type CatalogEntry = Omit<SessionSummary, "running"> & {
+export type CatalogEntry = Omit<SessionSummary, "running" | "failed"> & {
   /** The working directory pi starts in. */
   readonly cwd: string;
 };

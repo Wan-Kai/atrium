@@ -152,7 +152,13 @@ describe("projectTranscript on a recorded session", () => {
         firstTurn,
         turn("e16", "two", {
           steps: [
-            { kind: "retry", id: "0", attempt: 1, error: "upstream returned 503 service unavailable" },
+            {
+              kind: "retry",
+              id: "0",
+              attempt: 1,
+              maxAttempts: null,
+              error: "upstream returned 503 service unavailable",
+            },
             { kind: "text", id: "1", text: "second answer" },
           ],
         }),
@@ -229,12 +235,12 @@ describe("projectTranscript", () => {
     );
 
     expect((items[0] as Turn).steps).toStrictEqual([
-      { kind: "retry", id: "0", attempt: 1, error: "503" },
+      { kind: "retry", id: "0", attempt: 1, maxAttempts: null, error: "503" },
       // What the failed reply had already said stays, and the retry follows it.
       { kind: "text", id: "1", text: "par" },
-      { kind: "retry", id: "2", attempt: 2, error: "overloaded" },
+      { kind: "retry", id: "2", attempt: 2, maxAttempts: null, error: "overloaded" },
       expect.objectContaining({ kind: "tool", id: "3", status: "done" }),
-      { kind: "retry", id: "4", attempt: 1, error: "503" },
+      { kind: "retry", id: "4", attempt: 1, maxAttempts: null, error: "503" },
       { kind: "text", id: "5", text: "done" },
     ]);
   });
@@ -256,8 +262,8 @@ describe("projectTranscript", () => {
     );
 
     expect(items.map((item) => (item as Turn).steps.filter((step) => step.kind === "retry"))).toStrictEqual([
-      [{ kind: "retry", id: "0", attempt: 1, error: "503" }],
-      [{ kind: "retry", id: "0", attempt: 1, error: "503" }],
+      [{ kind: "retry", id: "0", attempt: 1, maxAttempts: null, error: "503" }],
+      [{ kind: "retry", id: "0", attempt: 1, maxAttempts: null, error: "503" }],
     ]);
     expect(items[0]).toMatchObject({ outcome: "failed", error: "503" });
   });
@@ -276,6 +282,7 @@ describe("projectTranscript", () => {
     const facts: TurnFacts = {
       turnId: "live",
       clientMessageId: null,
+      retryLimit: null,
       auto: false,
       durationMs: 1,
       thinkingMs: new Map(),
@@ -327,8 +334,8 @@ describe("projectTranscript", () => {
 
     expect((items[0] as Turn).steps.map((step) => step.kind)).toStrictEqual(["tool", "retry", "retry", "text"]);
     expect((items[0] as Turn).steps.slice(1, 3)).toStrictEqual([
-      { kind: "retry", id: "1", attempt: 1, error: "Unknown error" },
-      { kind: "retry", id: "2", attempt: 2, error: "Unknown error" },
+      { kind: "retry", id: "1", attempt: 1, maxAttempts: null, error: "Unknown error" },
+      { kind: "retry", id: "2", attempt: 2, maxAttempts: null, error: "Unknown error" },
     ]);
     expect(items.map((item) => item.kind)).toStrictEqual(["turn", "notice"]);
   });
@@ -346,7 +353,13 @@ describe("projectTranscript", () => {
       none,
     );
 
-    expect((items[0] as Turn).steps[0]).toStrictEqual({ kind: "retry", id: "0", attempt: 1, error: "503" });
+    expect((items[0] as Turn).steps[0]).toStrictEqual({
+      kind: "retry",
+      id: "0",
+      attempt: 1,
+      maxAttempts: null,
+      error: "503",
+    });
   });
 
   it("does not take a reply that was taken out of the context but had not failed for a retry", () => {
@@ -471,6 +484,7 @@ describe("projectTranscript", () => {
       turnId: "live-7",
       clientMessageId: "client-3",
       auto: false,
+      retryLimit: null,
       durationMs: 42,
       thinkingMs: new Map([["0", 1_200]]),
     };

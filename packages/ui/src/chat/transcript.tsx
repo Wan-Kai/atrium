@@ -209,7 +209,7 @@ export interface TranscriptProps {
  * once something new arrived (SPEC-0001, "滚动与长会话"); reaching the top loads older items.
  * Pending messages are the ones sent but not yet confirmed by the host (domain-model §7); until
  * the run's turn arrives the run shows on its own line. A failed last turn offers "重试" while no
- * run goes on (SPEC-0001, "运行出错与停止").
+ * run goes on and pi is not being restarted (SPEC-0001, "运行控制").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
  * @param props - The session's view, how to load older items, how to fetch a step whole, and how
@@ -241,7 +241,9 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
                   key={item.id}
                   turn={item}
                   runStartedAt={view.run?.startedAt ?? null}
-                  {...(item === last && view.run === null && onRetry !== undefined ? { onRetry } : {})}
+                  {...(item === last && view.run === null && !view.control.restarting && onRetry !== undefined
+                    ? { onRetry }
+                    : {})}
                 />
               ) : (
                 <NoticeView key={item.id} notice={item} />
