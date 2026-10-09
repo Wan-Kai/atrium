@@ -30,7 +30,7 @@ function feed() {
       container: null,
       tabs: { [`wks_${String(version).padStart(16, "0")}`]: { open: [clientId], active: null } },
     },
-    preferences: { appearance: "system", displayMode: "summary" },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
     resets: [],
   });
   const index = createIndexFeed({ registry, generation: "h1", build, clock, resources });

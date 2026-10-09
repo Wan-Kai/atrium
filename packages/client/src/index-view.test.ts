@@ -98,6 +98,8 @@ describe("withContainer and withPreferences", () => {
     expect(withPreferences(emptyIndex(), { appearance: "dark" }).preferences).toStrictEqual({
       appearance: "dark",
       displayMode: "summary",
+      lastModel: null,
+      thinkingByModel: {},
     });
   });
 });

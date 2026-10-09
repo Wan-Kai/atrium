@@ -81,6 +81,7 @@ function sessionView(sessionId: string, fields: Partial<SessionView> = {}): Sess
     run: null,
     pending: [],
     control: IDLE_CONTROL,
+    model: null,
     ...fields,
   };
 }
@@ -118,7 +119,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     workspaces: [],
     sessions: [],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary" },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
     resets: [],
     ...initial,
   }));

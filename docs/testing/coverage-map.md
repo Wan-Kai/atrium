@@ -179,6 +179,23 @@
 | 杀掉 pi 后自动恢复（端到端） | `apps/desktop/e2e/run-control.spec.ts` | 已覆盖 |
 | 测试工具：faux 写下 pi 的进程号；夹具把工具耗时规范化为 0 | `packages/testkit/src/faux/faux.pi.test.ts`、`pi-fixtures/normalize.test.ts` | 已覆盖 |
 
+## 模型与输入框（M1.7）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议：推理档位、模型、目录里的模型、会话的模型；`list_models`、`set_model`、`set_thinking_level` 及其应答；快照的 `model`、`model_updated`；`models_unavailable`；偏好的 `lastModel`、`thinkingByModel` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 推理档位按模型元数据算出（照抄 pi-ai 的规则），模型的基本数据，pi 的占位模型算作没有模型 | `packages/pi/src/catalog/models.test.ts` | 已覆盖 |
+| 短启 pi 查模型：不带会话、在指定目录、查完停掉；默认模型必须在列表里；pi 退出带 stderr、中止时停掉 pi、中止在先不启动 | `packages/pi/src/catalog/query.test.ts`；真实 pi：`query.pi.test.ts`（faux 的模型与默认、没有凭据时列表为空） | 已覆盖 |
+| 模型目录：按目录缓存、同一目录同时只查一次、刷新重查（期间的请求共用）、失败丢掉旧答案、120 秒期限、关闭时中止并等待 | `packages/pi/src/catalog/model-catalog.test.ts` | 已覆盖 |
+| pi 契约（1.1.0）：模型列表、换模型和推理强度、换到不支持推理的模型时档位降到 off、未知模型被拒绝、档位规则与 pi 一致 | `packages/pi/src/contract/models.pi.test.ts` | 已覆盖 |
+| 事件翻译：`thinking_level_changed` | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
+| 控制器：快照带模型，换模型和推理强度后读回、只在变化时发 `model_updated`、报告选择、再读条目；pi 拒绝时原样转出、什么也不变；停止中和退出后拒绝；跟随 pi 自己改档位；重启后换成新 pi 的模型 | `packages/host/src/sessions/session-controller.test.ts` "model" | 已覆盖 |
+| 会话管理器：新会话先设上一次的模型和档位再读会话；没记住档位、没选过模型、记住的模型已不在（只记命令和原因）时的处理；从文件打开的会话不设；转发换模型和推理强度；未知会话 | `packages/host/src/sessions/session-manager.test.ts` "models" | 已覆盖 |
+| `list_models`：工作区在其目录、对话在 `~/.atrium`；未知工作区；pi 失败给 `models_unavailable` 带最后 4 KB；其他失败原样转出；路由 | `packages/host/src/sessions/model-lister.test.ts`、`index-commands.test.ts`、`server/router.test.ts` | 已覆盖 |
+| 偏好：记住上一次的模型和每个模型的档位，新会话用它们，第 1 版文件升级 | `packages/host/src/store/preferences.test.ts`、`load-index.test.ts` | 已覆盖 |
+| 客户端：快照和 `model_updated` 的模型；容器的模型列表（加载中保留旧列表、失败带错误）；换模型和推理强度先在视图里生效，被拒绝时放回、宿主报告过的不动 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` "models" | 已覆盖 |
+| 测试工具：faux 可加模型（名字、推理、图片、档位表）；脚本化的 pi 可把收到的命令写到 stderr；faux 的确定性测试把工具耗时规范化 | `packages/testkit/src/faux/faux.pi.test.ts`（修了 pi 1.1.0 的 `durationMs` 让它时有时无失败的问题） | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

@@ -39,7 +39,11 @@ export {
   SteerQueuedCommand,
   AnswerInteractionCommand,
   RetryRunCommand,
+  ListModelsCommand,
+  SetModelCommand,
+  SetThinkingLevelCommand,
 } from "./commands";
+export { CatalogModel, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
 export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
@@ -58,6 +62,7 @@ export {
 } from "./listing";
 export {
   ControlUpdatedEvent,
+  ModelUpdatedEvent,
   NoticeAddedEvent,
   PromptHandledEvent,
   RunSettledEvent,

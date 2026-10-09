@@ -28,11 +28,25 @@ export interface FauxReply {
   readonly waitFor?: string;
 }
 
+/** A model the faux provider offers besides `FAUX_MODEL`, which is always first. */
+interface FauxModel {
+  readonly id: string;
+  readonly name?: string;
+  readonly reasoning?: boolean;
+  readonly input?: readonly ("text" | "image")[];
+  /** pi's per-model thinking map: `null` drops a level; `xhigh` and `max` exist only when named. */
+  readonly thinkingLevelMap?: Readonly<
+    Partial<Record<"off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max", string | null>>
+  >;
+}
+
 /** Everything the faux model will say, in order, for one pi process. */
 export interface FauxScript {
   /** Slows streaming down to this pace, so a test can interrupt a reply mid-stream. */
   readonly tokensPerSecond?: number;
   readonly replies: readonly FauxReply[];
+  /** More models after `FAUX_MODEL`, for switching models. */
+  readonly models?: readonly FauxModel[];
 }
 
 /** Provider name the faux extension registers. */

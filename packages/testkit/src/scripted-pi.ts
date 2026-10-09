@@ -39,6 +39,8 @@ export interface ScriptedPiBehavior {
   readonly announceArgv?: true;
   /** Write the same `{argv, cwd}` as one JSON line to stderr, for callers that only see logs. */
   readonly argvToStderr?: true;
+  /** Write every command it receives as `{received}`, one JSON line on stderr, for callers that only see logs. */
+  readonly receivedToStderr?: true;
   /** Print `{type: "env", values}` with these variables (`null` when unset). */
   readonly announceEnv?: readonly string[];
   /** Close its own stdin right away but keep running, then print `{type: "stdin-closed"}`. */
@@ -139,6 +141,7 @@ function ruleFor(type) {
 }
 function handle(record) {
   print({ type: "received", record });
+  if (behavior.receivedToStderr) process.stderr.write(JSON.stringify({ received: record }) + "\\n");
   if (record.type === "extension_ui_response") return;
   const rule = ruleFor(record.type);
   if (rule.exit !== undefined) process.exit(rule.exit);

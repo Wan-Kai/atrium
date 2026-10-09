@@ -1,5 +1,5 @@
 import type { LogEntry, PiEvent } from "@atrium/pi";
-import { CommandError, IDLE_CONTROL, type SessionEvent } from "@atrium/protocol";
+import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel } from "@atrium/protocol";
 import { FakeClock, ReplayRequestError, present, replayPi } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { fixtureEntries, readPiFixture } from "../../test/pi-fixtures";
@@ -40,7 +40,7 @@ const empty: EntriesPage = { entries: [], leafId: null };
 function control(
   pi: SessionPi,
   entries: EntriesPage = empty,
-  extra: Pick<Parameters<typeof createSessionController>[0], "respawn" | "turnStarts"> = {},
+  extra: Pick<Parameters<typeof createSessionController>[0], "respawn" | "turnStarts" | "model" | "onModelChosen"> = {},
 ) {
   const events: SessionEvent[] = [];
   const failures: unknown[] = [];
@@ -102,6 +102,9 @@ function replayedHistory() {
       since.push(cursor);
       return page(since.length);
     },
+    model: async () => null,
+    setModel: async () => undefined,
+    setThinkingLevel: async () => undefined,
     stop: () => raw.stop(),
   };
   return { pi, raw, since, initial: page(0) };
@@ -119,6 +122,10 @@ function manualPi() {
   const sent: string[] = [];
   const responses: unknown[] = [];
   let held: string[] = [];
+  /** What `get_state` reports as the model, in order; the last one repeats. */
+  const states: (SessionModel | null)[] = [];
+  /** Failures for the next `set_model` or `set_thinking_level`, in order. */
+  const settingFailures: unknown[] = [];
   const abortGate = Promise.withResolvers<void>();
   let abortWaits = false;
   const pi: SessionPi = {
@@ -150,6 +157,18 @@ function manualPi() {
       since.push(cursor);
       return (pages.shift() ?? (async () => empty))();
     },
+    model: async () => {
+      sent.push("get_state");
+      return states.length > 1 ? (states.shift() ?? null) : (states[0] ?? null);
+    },
+    setModel: async ({ providerId, modelId }) => {
+      sent.push(`set_model ${providerId}/${modelId}`);
+      if (settingFailures.length > 0) throw settingFailures.shift();
+    },
+    setThinkingLevel: async (level) => {
+      sent.push(`set_thinking_level ${level}`);
+      if (settingFailures.length > 0) throw settingFailures.shift();
+    },
     stop: async () => exit.resolve({ code: 0, signal: null, requested: true }),
   };
   return {
@@ -169,6 +188,8 @@ function manualPi() {
     },
     pages,
     since,
+    states,
+    settingFailures,
     emit: (...events: unknown[]) => {
       for (const event of events) for (const listener of listeners) listener(event as PiEvent);
     },
@@ -336,6 +357,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
       run: { runId: "id1", startedAt: 1000 },
       exited: false,
       control: IDLE_CONTROL,
+      model: null,
     });
   });
 
@@ -1734,5 +1756,144 @@ describe("createSessionController retrying", () => {
     await settle();
 
     await expect(controller.retryRun()).rejects.toStrictEqual(new CommandError("pi_unavailable", { status: "exited" }));
+  });
+});
+
+/** A model pi may report. */
+const opus: SessionModel = { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" };
+
+describe("createSessionController's model", () => {
+  it("carries the model pi started with, or none", () => {
+    expect(control(manualPi().pi, empty, { model: opus }).controller.snapshot().model).toStrictEqual(opus);
+    expect(control(manualPi().pi).controller.snapshot().model).toBeNull();
+  });
+
+  it("switches the model, reads back what pi uses, publishes it, reports the choice and reads pi's entries", async () => {
+    const { pi, sent, states, since } = manualPi();
+    const chosen: SessionModel[] = [];
+    const { controller, events } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
+    const haiku: SessionModel = { providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" };
+    states.push(haiku);
+
+    expect(await controller.setModel({ providerId: "anthropic", modelId: "haiku" })).toStrictEqual({});
+    await settle();
+
+    expect(sent).toStrictEqual(["set_model anthropic/haiku", "get_state"]);
+    expect(events).toStrictEqual([{ type: "model_updated", ...at(1, null), model: haiku }]);
+    expect(controller.snapshot().model).toStrictEqual(haiku);
+    expect(chosen).toStrictEqual([haiku]);
+    expect(since).toStrictEqual([undefined]);
+  });
+
+  it("sets the thinking level the same way", async () => {
+    const { pi, sent, states } = manualPi();
+    const chosen: SessionModel[] = [];
+    const { controller, events } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
+    states.push({ ...opus, thinkingLevel: "low" });
+
+    expect(await controller.setThinkingLevel("low")).toStrictEqual({});
+
+    expect(sent).toStrictEqual(["set_thinking_level low", "get_state"]);
+    expect(events).toStrictEqual([{ type: "model_updated", ...at(1, null), model: { ...opus, thinkingLevel: "low" } }]);
+    expect(chosen).toStrictEqual([{ ...opus, thinkingLevel: "low" }]);
+  });
+
+  it("publishes nothing when pi's model stays the same, yet still reports the choice", async () => {
+    const { pi, states } = manualPi();
+    const chosen: SessionModel[] = [];
+    const { controller, events } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
+    states.push(opus);
+
+    await controller.setModel({ providerId: "anthropic", modelId: "claude-opus-5-5" });
+
+    expect(events).toStrictEqual([]);
+    expect(chosen).toStrictEqual([opus]);
+  });
+
+  it("passes pi's refusal on, changing nothing", async () => {
+    const { pi, sent, settingFailures } = manualPi();
+    const chosen: SessionModel[] = [];
+    const { controller, events } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
+    settingFailures.push(new ReplayRequestError("set_model", "rejected", "Model not found: x/y"));
+
+    await expect(controller.setModel({ providerId: "x", modelId: "y" })).rejects.toStrictEqual(
+      new CommandError("pi_rejected", { detail: "Model not found: x/y" }),
+    );
+    expect(sent).toStrictEqual(["set_model x/y"]);
+    expect(events).toStrictEqual([]);
+    expect(chosen).toStrictEqual([]);
+    expect(controller.snapshot().model).toStrictEqual(opus);
+  });
+
+  it("reports no choice when pi has no model to report", async () => {
+    const { pi } = manualPi();
+    const chosen: SessionModel[] = [];
+    const { controller } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
+
+    await controller.setThinkingLevel("low");
+
+    expect(controller.snapshot().model).toBeNull();
+    expect(chosen).toStrictEqual([]);
+  });
+
+  it("refuses while a stop waits for pi, and once pi has exited", async () => {
+    const { pi, emit, crash, holdAbort } = manualPi();
+    const { controller } = control(pi, empty, { model: opus });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    holdAbort();
+    // Fire and forget: the stop stays pending while abort is held.
+    void controller.stop();
+
+    await expect(controller.setModel({ providerId: "a", modelId: "b" })).rejects.toStrictEqual(
+      new CommandError("session_stopping"),
+    );
+    await expect(controller.setThinkingLevel("low")).rejects.toStrictEqual(new CommandError("session_stopping"));
+    crash();
+    await settle();
+    await expect(controller.setModel({ providerId: "a", modelId: "b" })).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    await expect(controller.setThinkingLevel("low")).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+  });
+
+  it("follows pi changing the thinking level by itself", () => {
+    const { pi, emit } = manualPi();
+    const { controller, events } = control(pi, empty, { model: opus });
+
+    emit({ type: "thinking_level_changed", level: "high" }, { type: "thinking_level_changed", level: "minimal" });
+
+    expect(events).toStrictEqual([
+      { type: "model_updated", ...at(1, null), model: { ...opus, thinkingLevel: "minimal" } },
+    ]);
+    expect(controller.snapshot().model).toStrictEqual({ ...opus, thinkingLevel: "minimal" });
+  });
+
+  it("ignores a thinking level change while it knows no model", () => {
+    const { pi, emit } = manualPi();
+    const { controller, events } = control(pi);
+
+    emit({ type: "thinking_level_changed", level: "high" });
+
+    expect(events).toStrictEqual([]);
+    expect(controller.snapshot().model).toBeNull();
+  });
+
+  it("takes the model of the pi started after a crash", async () => {
+    const first = manualPi();
+    const second = manualPi();
+    const haiku: SessionModel = { providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" };
+    const { controller, events } = control(first.pi, empty, {
+      model: opus,
+      respawn: async () => ({ pi: second.pi, entries: empty, model: haiku }),
+    });
+
+    first.crash();
+    await settle();
+
+    expect(events.find((event) => event.type === "session_snapshot")).toMatchObject({ epoch: 2, model: haiku });
+    expect(controller.snapshot().model).toStrictEqual(haiku);
   });
 });

@@ -148,7 +148,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 
 **退出**（2026-10-04 在 pi 1.0.2 上实测）：bash 工具的子进程用 `detached: true` 启动，各有自己的进程组，pi 记录它们的 pid。关闭 stdin（退出码 0）或 SIGTERM（143）时，pi 会先杀掉这些子进程再退出，约 0.3 秒。SIGKILL 时 pi 来不及清理，子进程被过继给 1 号进程继续运行，杀 pi 的进程组也够不到它们。所以强杀前要趁 pi 还活着按父进程关系找出后代，连同它们的进程组一起杀。
 
-**启动**：没有可用模型（没有凭据）时 **RPC 模式直接报错退出**；模型目录在后台刷新，最多 15 秒。
+**启动**：没有可用模型（没有凭据）时 RPC 模式**照常启动，不退出**（2026-10-10 在 1.1.0 上实测，原先记的"直接报错退出"不对）：`get_state` 的模型是 pi-agent-core 的占位模型（`provider`、`id`、`api` 都是 `unknown`，档位 `off`），`get_available_models` 为空，`prompt` 报错 "No API key found for the selected model."。模型目录在后台刷新，最多 15 秒。
 
 ## 4. 模型、认证（`packages/ai/src/types.ts`、`src/core/model-runtime.ts`、`src/core/auth-storage.ts`）
 

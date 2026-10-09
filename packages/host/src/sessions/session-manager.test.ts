@@ -1,5 +1,5 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import { CHATS, CommandError, IDLE_CONTROL, type SessionEvent } from "@atrium/protocol";
+import { CHATS, CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -49,6 +49,7 @@ async function place() {
  * @param where - The directories, to share between managers.
  * @param turnStarts - Where turn starts are read from, if not the default.
  * @param location - Where pi keeps sessions, when a test holds back the first scan.
+ * @param models - The model new sessions start with and where choices go, if a test needs them.
  * @returns The manager and what tests look at.
  */
 async function manage(
@@ -56,6 +57,7 @@ async function manage(
   where?: Awaited<ReturnType<typeof place>>,
   turnStarts?: (sessionId: string) => Promise<TurnStarts>,
   location?: Promise<SessionsLocation | null>,
+  models?: Parameters<typeof createSessionManager>[0]["models"],
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -106,6 +108,7 @@ async function manage(
     logger: recording.logger,
     newId: () => `id${++next}`,
     ...(turnStarts === undefined ? {} : { turnStarts }),
+    ...(models === undefined ? {} : { models }),
   });
   cleanups.push(
     () => manager.close(),
@@ -127,6 +130,12 @@ async function manage(
       recording.records
         .filter((record) => record["msg"] === "pi stderr")
         .map((record) => JSON.parse(String(record["line"])) as { argv: string[]; cwd: string }),
+    /** The commands pi received, whole, when it writes them to stderr (`receivedToStderr`). */
+    piReceived: () =>
+      recording.records
+        .filter((record) => record["msg"] === "pi stderr")
+        .map((record) => JSON.parse(String(record["line"])) as { received?: Record<string, unknown> })
+        .flatMap((line) => (line.received === undefined ? [] : [line.received])),
     /** The commands pi was sent, by type. */
     sent: () => recording.records.filter((record) => record["msg"] === "pi request").map((record) => record["command"]),
   };
@@ -216,7 +225,7 @@ describe("SessionManager creating sessions", () => {
 
     await manager.createChat("client-1");
 
-    expect(sent()).toStrictEqual(["get_state", "set_auto_retry", "get_entries"]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries"]);
   });
 
   it("creates a session in a workspace's directory, and refuses an unknown workspace", async () => {
@@ -546,6 +555,7 @@ describe("SessionManager opening sessions", () => {
         run: null,
         exited: false,
         control: IDLE_CONTROL,
+        model: null,
       },
     ]);
 
@@ -895,6 +905,164 @@ describe("SessionManager after the review (2026-10-08)", () => {
 
     await expect(manager.renameSession(sessionId, "名字")).rejects.toStrictEqual(
       new CommandError("session_is_draft", { sessionId }),
+    );
+  });
+});
+
+/** A model as pi's `get_state` reports it; the host reads only its provider and id. */
+const HAIKU = { id: "haiku", provider: "anthropic" };
+
+/** The choices a manager reported, and a remembered model to start new sessions with. */
+function remembering(
+  preferred: { providerId: string; modelId: string; thinkingLevel: SessionModel["thinkingLevel"] | null } | null,
+) {
+  const chosen: SessionModel[] = [];
+  return {
+    chosen,
+    models: {
+      preferred: () =>
+        preferred === null
+          ? null
+          : {
+              model: { providerId: preferred.providerId, modelId: preferred.modelId },
+              thinkingLevel: preferred.thinkingLevel,
+            },
+      chosen: (model: SessionModel) => chosen.push(model),
+    },
+  };
+}
+
+/** The commands pi received, without their ids. */
+function withoutIds(commands: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  return commands.map(({ id: _id, ...rest }) => rest);
+}
+
+describe("SessionManager models", () => {
+  it("starts a new session on the model chosen last, with its thinking level, before reading the session", async () => {
+    const { models } = remembering({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    const { manager, piReceived, received } = await manage(
+      {
+        receivedToStderr: true,
+        rules: {
+          ...SESSION_ONE,
+          get_state: { data: { sessionId: "pi-session-1", model: HAIKU, thinkingLevel: "low" } },
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      models,
+    );
+
+    await manager.createChat("client-1");
+
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived())).toStrictEqual([
+        { type: "set_auto_retry", enabled: true },
+        { type: "set_model", provider: "anthropic", modelId: "haiku" },
+        { type: "set_thinking_level", level: "low" },
+        { type: "get_state" },
+        { type: "get_entries" },
+      ]),
+    );
+    await manager.subscribe("c1", ["pi-session-1"]);
+    expect(received).toMatchObject([
+      { type: "session_snapshot", model: { providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" } },
+    ]);
+  });
+
+  it("sets no thinking level when none was remembered for the model", async () => {
+    const { models } = remembering({ providerId: "anthropic", modelId: "haiku", thinkingLevel: null });
+    const { manager, sent } = await manage({ rules: SESSION_ONE }, undefined, undefined, undefined, models);
+
+    await manager.createChat("client-1");
+
+    expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries"]);
+  });
+
+  it("leaves pi's own model when none was chosen yet", async () => {
+    const { models } = remembering(null);
+    const { manager, sent } = await manage({ rules: SESSION_ONE }, undefined, undefined, undefined, models);
+
+    await manager.createChat("client-1");
+
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries"]);
+  });
+
+  it("starts the session on pi's own model when the remembered one is gone, logging only that", async () => {
+    const { models } = remembering({ providerId: "anthropic", modelId: "gone", thinkingLevel: "low" });
+    const { manager, sent, records } = await manage(
+      { rules: { ...SESSION_ONE, set_model: { fail: "Model not found: anthropic/gone" } } },
+      undefined,
+      undefined,
+      undefined,
+      models,
+    );
+
+    expect(await manager.createChat("client-1")).toStrictEqual({ sessionId: "pi-session-1" });
+
+    expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries"]);
+    expect(records.filter((record) => record["msg"] === "remembered model not set")).toStrictEqual([
+      expect.objectContaining({ level: "warn", command: "set_model", reason: "rejected" }),
+    ]);
+    expect(JSON.stringify(records)).not.toContain("Model not found");
+  });
+
+  it("opens a session on file on its own model", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { models } = remembering({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    const { manager, catalog, sent } = await manage({ rules: SESSION_ONE }, at, undefined, undefined, models);
+    await catalog.scan();
+
+    await manager.openSession("client-1", "pi-session-1");
+
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries"]);
+  });
+
+  it("switches a session's model and thinking level, reporting what pi then uses", async () => {
+    const { models, chosen } = remembering(null);
+    const { manager, piReceived } = await manage(
+      {
+        receivedToStderr: true,
+        rules: {
+          ...SESSION_ONE,
+          get_state: { data: { sessionId: "pi-session-1", model: HAIKU, thinkingLevel: "off" } },
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      models,
+    );
+    await manager.createChat("client-1");
+
+    expect(await manager.setModel("pi-session-1", { providerId: "anthropic", modelId: "haiku" })).toStrictEqual({});
+    expect(await manager.setThinkingLevel("pi-session-1", "off")).toStrictEqual({});
+
+    // Entries are read after each change too, in the background; stderr may lag behind the answers.
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived().filter((command) => command["type"] !== "get_entries")).slice(2)).toStrictEqual([
+        { type: "set_model", provider: "anthropic", modelId: "haiku" },
+        { type: "get_state" },
+        { type: "set_thinking_level", level: "off" },
+        { type: "get_state" },
+      ]),
+    );
+    expect(chosen).toStrictEqual([
+      { providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" },
+      { providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" },
+    ]);
+  });
+
+  it("refuses to switch the model of an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+
+    await expect(manager.setModel("nope", { providerId: "a", modelId: "b" })).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+    await expect(manager.setThinkingLevel("nope", "low")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
     );
   });
 });

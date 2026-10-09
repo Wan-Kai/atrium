@@ -4,8 +4,10 @@ import type {
   FetchStepCommand,
   FetchTranscriptCommand,
   InteractionAnswer,
+  ModelRef,
   PromptCommand,
   SteerCommand,
+  ThinkingLevel,
 } from "@atrium/protocol";
 
 /**
@@ -50,6 +52,10 @@ export interface SessionCommands {
     interactionId: string,
     answer: InteractionAnswer,
   ): Promise<CommandResult<"answer_interaction">>;
+  /** Switches a session's model, starting its pi first if it has none. */
+  setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
+  /** Sets how hard a session's model thinks, starting its pi first if it has none. */
+  setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /** The error card's "重试", starting the session's pi first if it has none. */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** Items of a session's transcript before one the client has. */

@@ -3,6 +3,7 @@ import { parseTraceparent } from "./trace";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode } from "./listing";
+import { CatalogModel, ModelRef, ThinkingLevel } from "./models";
 import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -221,6 +222,37 @@ export const SetPreferencesCommand = z.strictObject({
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 
+/**
+ * Lists the models pi can use in a workspace's directory, or for the chats.
+ *
+ * @remarks
+ * The host asks a short-lived pi once per directory and keeps the answer until `refresh`
+ * (SPEC-0001, "模型与输入框").
+ */
+export const ListModelsCommand = z.strictObject({
+  type: z.literal("list_models"),
+  ...commandFields,
+  containerId: ContainerId,
+  refresh: z.boolean().optional(),
+});
+export type ListModelsCommand = z.infer<typeof ListModelsCommand>;
+
+/** Switches a session's model; it takes effect from the next request to the model. */
+export const SetModelCommand = z.strictObject({
+  type: z.literal("set_model"),
+  ...sessionCommandFields,
+  ...ModelRef.shape,
+});
+export type SetModelCommand = z.infer<typeof SetModelCommand>;
+
+/** Sets how hard a session's model thinks; pi keeps it within what the model supports. */
+export const SetThinkingLevelCommand = z.strictObject({
+  type: z.literal("set_thinking_level"),
+  ...sessionCommandFields,
+  level: ThinkingLevel,
+});
+export type SetThinkingLevelCommand = z.infer<typeof SetThinkingLevelCommand>;
+
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
 
@@ -296,6 +328,9 @@ export const Command = z.discriminatedUnion("type", [
   SteerQueuedCommand,
   AnswerInteractionCommand,
   RetryRunCommand,
+  ListModelsCommand,
+  SetModelCommand,
+  SetThinkingLevelCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -355,5 +390,9 @@ export const CommandResult = {
   steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
   answer_interaction: z.strictObject({}),
   retry_run: z.strictObject({}),
+  /** `defaultModel` is the one pi picks by its own settings, `null` when it reported none. */
+  list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),
+  set_model: z.strictObject({}),
+  set_thinking_level: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

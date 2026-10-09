@@ -8,12 +8,15 @@ import {
   type FetchTranscriptCommand,
   type Interaction,
   type InteractionAnswer,
+  type ModelRef,
   type PendingSteer,
   type PromptCommand,
   type RunSettledEvent,
   type SessionEvent,
+  type SessionModel,
   type SessionSnapshotEvent,
   type SteerCommand,
+  type ThinkingLevel,
   parseTraceparent,
 } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
@@ -50,14 +53,22 @@ export interface SessionPi {
   respond(response: DialogResponse): void;
   /** Reads the session's entries after `since`, or all of them, converted. */
   getEntries(since: string | undefined): Promise<EntriesPage>;
+  /** The model pi uses now, from `get_state`; `null` when it has none. */
+  model(): Promise<SessionModel | null>;
+  /** Sends `set_model`. */
+  setModel(model: ModelRef): Promise<void>;
+  /** Sends `set_thinking_level`. */
+  setThinkingLevel(level: ThinkingLevel): Promise<void>;
   /** Stops pi; resolves once it has exited. */
   stop(): Promise<unknown>;
 }
 
-/** A pi just started for the session again, with the entries it has. */
+/** A pi just started for the session again, with the entries it has and the model it uses. */
 export interface Respawned {
   readonly pi: SessionPi;
   readonly entries: EntriesPage;
+  /** Unknown, and taken as none, when left out. */
+  readonly model?: SessionModel | null;
 }
 
 /** One session's live state and the commands on it (domain-model §3). */
@@ -84,6 +95,10 @@ export interface SessionController {
   /** Takes a message out of the queue and sends it as a steer. */
   steerQueued(itemId: string): Promise<CommandResult<"steer_queued">>;
   answerInteraction(interactionId: string, answer: InteractionAnswer): CommandResult<"answer_interaction">;
+  /** Switches pi's model, from its next request to the model on. */
+  setModel(model: ModelRef): Promise<CommandResult<"set_model">>;
+  /** Sets how hard pi's model thinks. */
+  setThinkingLevel(level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
   retryRun(): Promise<CommandResult<"retry_run">>;
   /** Items before one the client has, for scrolling back. */
@@ -344,6 +359,10 @@ export function createSessionController(options: {
    * start, already under way, hands the session its pi instead.
    */
   readonly respawn?: () => Promise<Respawned | null>;
+  /** The model pi started with; none when left out. */
+  readonly model?: SessionModel | null;
+  /** Told the model and thinking level pi uses after you chose one, to remember for new sessions. */
+  readonly onModelChosen?: (model: SessionModel) => void;
 }): SessionController {
   const { sessionId, clock, newId } = options;
   const log = options.log ?? (() => undefined);
@@ -408,6 +427,8 @@ export function createSessionController(options: {
   let shuttingDown = false;
   /** The control last published, to send `control_updated` only on change. */
   let sentControl = JSON.stringify(control());
+  /** The model pi uses, as last read or reported. */
+  let model = options.model ?? null;
 
   /**
    * Numbers an event and sends it to the session's viewers.
@@ -480,7 +501,50 @@ export function createSessionController(options: {
       run: run === null ? null : { runId: run.runId, startedAt: run.startedAt },
       exited,
       control: control(),
+      model,
     };
+  }
+
+  /**
+   * Takes the model pi reports, publishing it if it changed.
+   *
+   * @remarks
+   * pi sends no event for a new model (pi-internals.md §3), so the controller reads it after
+   * every change it asks for.
+   *
+   * @sideEffects May publish `model_updated`.
+   * @param now - The model pi uses.
+   */
+  function modelIs(now: SessionModel | null): void {
+    if (JSON.stringify(now) === JSON.stringify(model)) return;
+    model = now;
+    emit({ type: "model_updated", model });
+  }
+
+  /**
+   * Changes pi's model or thinking level as you chose, then reads back what pi uses.
+   *
+   * @remarks
+   * pi keeps the thinking level within what the model supports, so the level read back may differ
+   * from the one asked for. What pi then uses is reported as your choice; the entry pi wrote for
+   * it is read like any other (SPEC-0001, "模型与输入框").
+   *
+   * @sideEffects Calls pi; may publish `model_updated`; reports the choice; starts a refresh.
+   * @param change - The request to pi.
+   * @throws {CommandError} `session_stopping`, `pi_unavailable`, or pi's refusal.
+   */
+  async function choose(change: () => Promise<void>): Promise<void> {
+    refuseWhenExited();
+    refuseWhileStopping();
+    try {
+      await change();
+    } catch (error) {
+      throw promptFailure(error);
+    }
+    modelIs(await pi.model());
+    if (model !== null) options.onModelChosen?.(model);
+    // Fire and forget: `refresh` reports its own failures.
+    void refresh();
   }
 
   /**
@@ -624,6 +688,9 @@ export function createSessionController(options: {
         return;
       case "steering_changed":
         delivered(event.steering);
+        return;
+      case "thinking_changed":
+        if (model !== null) modelIs({ ...model, thinkingLevel: event.level });
         return;
       case "dialog_requested":
         ask(event.dialog);
@@ -1015,6 +1082,7 @@ export function createSessionController(options: {
     // Fire and forget: `exited` never rejects.
     void watchExit(pi);
     transcript.rebuild(started.entries, true);
+    model = started.model ?? null;
     newEpoch();
   }
 
@@ -1294,6 +1362,14 @@ export function createSessionController(options: {
       if (!fits(open.interaction.kind, answer)) throw new CommandError("invalid_message");
       pi.respond({ id: interactionId, ...answer });
       close(interactionId, "cancelled" in answer ? "cancelled" : "answered", answer);
+      return {};
+    },
+    async setModel(ref) {
+      await choose(() => pi.setModel(ref));
+      return {};
+    },
+    async setThinkingLevel(level) {
+      await choose(() => pi.setThinkingLevel(level));
       return {};
     },
     async retryRun() {

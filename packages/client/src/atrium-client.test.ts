@@ -97,7 +97,15 @@ function event(seq: number, fields: Record<string, unknown>): string {
 
 /** A snapshot of s1 at `seq` with `items`. */
 function snapshot(seq: number, items: unknown[] = [], hasOlder = false): string {
-  return event(seq, { type: "session_snapshot", items, hasOlder, run: null, exited: false, control: IDLE_CONTROL });
+  return event(seq, {
+    type: "session_snapshot",
+    items,
+    hasOlder,
+    run: null,
+    exited: false,
+    control: IDLE_CONTROL,
+    model: null,
+  });
 }
 
 /** How many `subscribe_sessions` the client sent. */
@@ -904,7 +912,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       },
     ],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary" },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
     resets: [],
     ...fields,
   });
@@ -957,7 +965,12 @@ describe("createAtriumClient: the list", () => {
     const selected = client.selectContainer("chats");
     expect(client.index.getState().layout.container).toBe("chats");
     const preferred = client.setPreferences({ displayMode: "detailed" });
-    expect(client.index.getState().preferences).toStrictEqual({ appearance: "system", displayMode: "detailed" });
+    expect(client.index.getState().preferences).toStrictEqual({
+      appearance: "system",
+      displayMode: "detailed",
+      lastModel: null,
+      thinkingByModel: {},
+    });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
     expect(await Promise.all([opened, closed, selected, preferred])).toStrictEqual([{}, {}, {}, {}]);
@@ -972,5 +985,140 @@ describe("createAtriumClient: the list", () => {
       { type: "select_container", containerId: "chats" },
       { type: "set_preferences", displayMode: "detailed" },
     ]);
+  });
+});
+
+/** A connected client watching s1, whose snapshot says pi uses `model`. */
+async function watchingWithModel(model: unknown) {
+  const setup = await connected();
+  const watched = setup.client.watch(["s1"]);
+  setup.latest().answer("subscribe_sessions");
+  await watched;
+  setup.latest().receive(
+    event(1, {
+      type: "session_snapshot",
+      items: [],
+      hasOlder: false,
+      run: null,
+      exited: false,
+      control: IDLE_CONTROL,
+      model,
+    }),
+  );
+  return setup;
+}
+
+describe("createAtriumClient: models", () => {
+  const WORKSPACE = "wks_0123456789abcdef";
+  const opus = { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" } as const;
+  const listed = {
+    providerId: "anthropic",
+    modelId: "haiku",
+    name: "Haiku",
+    contextWindow: 200_000,
+    maxOutput: 64_000,
+    supportsImage: true,
+    thinkingLevels: ["off"],
+  };
+
+  it("lists a container's models into its view, keeping them shown while it asks again", async () => {
+    const { client, latest } = await connected();
+    const list = client.models(WORKSPACE);
+    expect(list.getState()).toStrictEqual({ status: "idle", models: [], defaultModel: null, error: null });
+    expect(client.models(WORKSPACE)).toBe(list);
+
+    const loading = client.loadModels(WORKSPACE);
+    expect(list.getState()).toStrictEqual({ status: "loading", models: [], defaultModel: null, error: null });
+    latest().answer("list_models", { models: [listed], defaultModel: { providerId: "anthropic", modelId: "haiku" } });
+    await loading;
+    const ready = {
+      status: "ready",
+      models: [listed],
+      defaultModel: { providerId: "anthropic", modelId: "haiku" },
+      error: null,
+    };
+    expect(list.getState()).toStrictEqual(ready);
+    const again = client.loadModels(WORKSPACE, true);
+    expect(list.getState()).toStrictEqual({ ...ready, status: "loading" });
+    latest().answer("list_models", { models: [], defaultModel: null });
+    await again;
+
+    expect(list.getState()).toStrictEqual({ status: "ready", models: [], defaultModel: null, error: null });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "list_models")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_models", containerId: WORKSPACE, refresh: false },
+      { type: "list_models", containerId: WORKSPACE, refresh: true },
+    ]);
+  });
+
+  it("shows a list that failed with its error and no models", async () => {
+    const { client, latest } = await connected();
+    const first = client.loadModels("chats");
+    latest().answer("list_models", { models: [listed], defaultModel: null });
+    await first;
+
+    const failing = client.loadModels("chats", true);
+    latest().fail("list_models", "models_unavailable");
+    await failing;
+
+    expect(client.models("chats").getState()).toStrictEqual({
+      status: "failed",
+      models: [],
+      defaultModel: null,
+      error: new CommandError("models_unavailable"),
+    });
+  });
+
+  it("switches a session's model at once in its view, and puts it back when the host refuses", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    expect(view.getState().model).toStrictEqual({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "high" });
+    latest().fail("set_model", "pi_rejected");
+
+    await expect(switching).rejects.toStrictEqual(new CommandError("pi_rejected"));
+    expect(view.getState().model).toStrictEqual(opus);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "set_model"),
+    ).toStrictEqual([
+      { type: "set_model", requestId: expect.any(String), sessionId: "s1", providerId: "anthropic", modelId: "haiku" },
+    ]);
+  });
+
+  it("sets a session's thinking level at once in its view, keeping what the host reported since", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const setting = client.setThinkingLevel("s1", "low");
+    expect(view.getState().model).toStrictEqual({ ...opus, thinkingLevel: "low" });
+    latest().receive(event(2, { type: "model_updated", model: { ...opus, thinkingLevel: "minimal" } }));
+    latest().fail("set_thinking_level", "pi_rejected");
+
+    await expect(setting).rejects.toStrictEqual(new CommandError("pi_rejected"));
+    expect(view.getState().model).toStrictEqual({ ...opus, thinkingLevel: "minimal" });
+    const succeeding = client.setThinkingLevel("s1", "max");
+    latest().answer("set_thinking_level");
+    await succeeding;
+    expect(view.getState().model).toStrictEqual({ ...opus, thinkingLevel: "max" });
+  });
+
+  it("changes nothing at once for a session whose model it does not know", async () => {
+    const { client, latest } = await watchingWithModel(null);
+
+    const setting = client.setThinkingLevel("s1", "low");
+    const switching = client.setModel("s2", { providerId: "a", modelId: "b" });
+    expect(client.session("s1")?.getState().model).toBeNull();
+    latest().answer("set_thinking_level");
+    latest().answer("set_model");
+
+    expect(await setting).toStrictEqual({});
+    expect(await switching).toStrictEqual({});
   });
 });

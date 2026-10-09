@@ -5,6 +5,7 @@ import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexSnapshotEvent } from "./listing";
+import { type CatalogModel, ThinkingLevel } from "./models";
 import type { Step, Turn } from "./transcript";
 import { PROTOCOL_VERSION } from "./version";
 
@@ -88,7 +89,29 @@ const commands: Command[] = [
     interactionId: "d1",
     answer: { value: "v".repeat(1024 * 1024) },
   },
+  { type: "list_models", requestId: "r40", traceparent, containerId: WORKSPACE },
+  { type: "list_models", requestId: "r41", traceparent, containerId: "chats", refresh: true },
+  {
+    type: "set_model",
+    requestId: "r42",
+    traceparent,
+    sessionId: "s1",
+    providerId: "openrouter",
+    modelId: "anthropic/claude-opus-5.5",
+  },
+  { type: "set_thinking_level", requestId: "r43", traceparent, sessionId: "s1", level: "xhigh" },
 ];
+
+/** A model as the catalog lists it. */
+const model: CatalogModel = {
+  providerId: "anthropic",
+  modelId: "claude-opus-5-5",
+  name: "Claude Opus 5.5",
+  contextWindow: 1_000_000,
+  maxOutput: 128_000,
+  supportsImage: true,
+  thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+};
 
 /** An extension's selection. */
 const pick: Interaction = {
@@ -227,6 +250,7 @@ const events: SessionEvent[] = [
     run: { runId: "run-1", startedAt: 3 },
     exited: false,
     control,
+    model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" },
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
   { type: "turn_started", ...at, turn: { ...turn, steps: [], outcome: "running", durationMs: null, usage: null } },
@@ -260,6 +284,8 @@ const events: SessionEvent[] = [
     before: null,
   },
   { type: "notice_added", ...at, notice: asked, before: null },
+  { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
+  { type: "model_updated", ...at, model: null },
 ];
 
 describe("parseClientMessage", () => {
@@ -280,6 +306,7 @@ describe("parseClientMessage", () => {
       "create_session",
       "fetch_step",
       "fetch_transcript",
+      "list_models",
       "open_session",
       "ping",
       "prompt",
@@ -292,7 +319,9 @@ describe("parseClientMessage", () => {
       "resume_queue",
       "retry_run",
       "select_container",
+      "set_model",
       "set_preferences",
+      "set_thinking_level",
       "steer",
       "steer_queued",
       "stop",
@@ -448,6 +477,18 @@ describe("parseClientMessage", () => {
       { type: "fetch_transcript", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, before: "x", limit: 101 },
       "r1",
     ],
+    [
+      "an unknown thinking level",
+      { type: "set_thinking_level", requestId: "r1", traceparent, sessionId: "s1", level: "extreme" },
+      "r1",
+    ],
+    [
+      "a model without a provider",
+      { type: "set_model", requestId: "r1", traceparent, sessionId: "s1", providerId: "", modelId: "m" },
+      "r1",
+    ],
+    ["models of no container", { type: "list_models", requestId: "r1", traceparent }, "r1"],
+    ["models of a project", { type: "list_models", requestId: "r1", traceparent, containerId: PROJECT }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
   });
@@ -494,6 +535,21 @@ describe("CommandResult", () => {
       items: [turn],
       hasOlder: false,
     });
+    expect(CommandResult.list_models.parse({ models: [model], defaultModel: null })).toStrictEqual({
+      models: [model],
+      defaultModel: null,
+    });
+    expect(
+      CommandResult.list_models.parse({ models: [], defaultModel: { providerId: "faux", modelId: "faux-1" } }),
+    ).toStrictEqual({ models: [], defaultModel: { providerId: "faux", modelId: "faux-1" } });
+    expect(
+      CommandResult.list_models.safeParse({ models: [{ ...model, thinkingLevels: [] }], defaultModel: null }).success,
+    ).toBe(false);
+    expect(
+      CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
+    ).toBe(false);
+    expect(CommandResult.set_model.parse({})).toStrictEqual({});
+    expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
@@ -560,7 +616,12 @@ const snapshot: IndexSnapshotEvent = {
     container: WORKSPACE,
     tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, chats: { open: [], active: null } },
   },
-  preferences: { appearance: "system", displayMode: "summary" },
+  preferences: {
+    appearance: "system",
+    displayMode: "summary",
+    lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
+    thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
+  },
   resets: ["layouts"],
 };
 
@@ -611,6 +672,12 @@ describe("HostMessage", () => {
         preferences: { ...snapshot.preferences, displayMode },
       })),
       { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "sessions", "preferences"] },
+      { ...snapshot, preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {} } },
+      ...ThinkingLevel.options.map((thinkingLevel) => ({
+        type: "model_updated",
+        ...at,
+        model: { providerId: "faux", modelId: "faux-1", thinkingLevel },
+      })),
       { ...snapshot, workspaces: [local] },
       ...ErrorCode.options.map((code) => ({ type: "response", requestId: "r1", ok: false, error: { code } })),
       ...["running", "done", "stopped", "failed"].map((outcome) => ({ ...events[2], turn: { ...turn, outcome } })),
@@ -655,9 +722,11 @@ describe("HostMessage", () => {
       "session_stopping",
       "queue_item_not_found",
       "interaction_closed",
+      "models_unavailable",
       "pi_rejected",
       "internal_error",
     ]);
+    expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
     for (const variant of variants) expect(HostMessage.parse(variant)).toStrictEqual(variant);
   });
 

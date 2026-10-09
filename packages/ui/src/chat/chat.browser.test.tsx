@@ -25,6 +25,7 @@ function view(fields: Partial<SessionView> = {}): SessionView {
     run: null,
     pending: [],
     control: IDLE_CONTROL,
+    model: null,
     ...fields,
   };
 }

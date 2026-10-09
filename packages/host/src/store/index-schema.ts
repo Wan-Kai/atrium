@@ -1,4 +1,4 @@
-import { Appearance, DisplayMode } from "@atrium/protocol";
+import { Appearance, DisplayMode, ModelRef, ThinkingLevel } from "@atrium/protocol";
 import { z } from "zod";
 import type { IndexFileSpec } from "./index-file";
 
@@ -87,15 +87,26 @@ export const LAYOUTS_FILE: IndexFileSpec<LayoutsDocument> = {
   empty: () => ({ clients: [] }),
 };
 
-const PreferencesDocument = z.looseObject({ appearance: Appearance, displayMode: DisplayMode });
+const PreferencesDocument = z.looseObject({
+  appearance: Appearance,
+  displayMode: DisplayMode,
+  /** The model last chosen in any session; `null` until one is (SPEC-0001, "模型与输入框"). */
+  lastModel: ModelRef.nullable(),
+  /** Each model's last thinking level, keyed `providerId/modelId`. */
+  thinkingByModel: z.record(z.string(), ThinkingLevel),
+});
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 
 /** `preferences.json`: global preferences, the same for every client (domain-model §5). */
 export const PREFERENCES_FILE: IndexFileSpec<PreferencesDocument> = {
   name: "preferences",
-  version: 1,
+  version: 2,
   schema: PreferencesDocument,
-  empty: () => ({ appearance: "system", displayMode: "summary" }),
+  empty: () => ({ appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} }),
+  migrations: {
+    // M1.7 remembers models; before, none was chosen.
+    1: (document) => ({ ...document, lastModel: null, thinkingByModel: {} }),
+  },
 };
 
 const TurnStartsDocument = z.looseObject({

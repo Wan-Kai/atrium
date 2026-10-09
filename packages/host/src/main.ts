@@ -1,4 +1,12 @@
-import { type PiInspection, createSessionFileReader, inspectPi, sessionsLocation } from "@atrium/pi";
+import {
+  type PiInspection,
+  createModelCatalog,
+  createSessionFileReader,
+  inspectPi,
+  queryModels,
+  sessionsLocation,
+} from "@atrium/pi";
+import { CommandError } from "@atrium/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import { uptime } from "node:os";
 import { join } from "node:path";
@@ -7,6 +15,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
 import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
+import { createPiDeps } from "./platform/pi-deps";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
 import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platform/logger";
@@ -16,6 +25,7 @@ import { createProjectService } from "./projects/project-service";
 import { startWsServer } from "./server/ws-server";
 import { createIndexCommands } from "./sessions/index-commands";
 import { createLayouts } from "./sessions/layouts";
+import { createModelLister } from "./sessions/model-lister";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createSessionManager } from "./sessions/session-manager";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
@@ -199,6 +209,16 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     tracer: tracing.tracer,
     logger,
     newId: () => randomUUID(),
+    models: {
+      preferred: () => preferences.preferred(),
+      chosen: (model) => {
+        // Fire and forget: a failed write is logged; the index flushes before the host stops.
+        void preferences.remember(model).then(
+          () => feed.changed(),
+          (error: unknown) => logger.warn({ err: error }, "model choice not remembered"),
+        );
+      },
+    },
     turnStarts: async (sessionId) => {
       const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
@@ -212,7 +232,32 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     // New worktrees may hold sessions started in a terminal.
     sessions.rescan();
   });
-  const indexCommands = createIndexCommands({ projects, workspaces, sessions, preferences, feed });
+  const models = createModelCatalog({
+    query: async (dir, signal) => {
+      const found = await toolsFound.promise;
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return queryModels(
+        { piPath: found.pi.piPath, args: [], cwd: dir },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        signal,
+      );
+    },
+    clock,
+  });
+  const indexCommands = createIndexCommands({
+    projects,
+    workspaces,
+    sessions,
+    preferences,
+    feed,
+    listModels: createModelLister({
+      catalog: models,
+      dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+      chatsDir: home.root,
+    }),
+  });
 
   let server: Awaited<ReturnType<typeof startWsServer>>;
   try {
@@ -339,6 +384,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await server.close();
     await workspaces.close();
     await sessions.close();
+    await models.close();
     await catalog.close();
     // After the sessions, whose stopping still reports changes.
     feed.close();

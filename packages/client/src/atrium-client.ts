@@ -9,9 +9,12 @@ import {
   type HelloMessage,
   HostMessage,
   type InteractionAnswer,
+  type ModelRef,
   PROTOCOL_VERSION,
   type Preferences,
   type SessionEvent,
+  type SessionModel,
+  type ThinkingLevel,
   type TraceContext,
   createTraceContext,
   formatTraceparent,
@@ -26,6 +29,7 @@ import {
   withTabClosed,
   withTabOpen,
 } from "./index-view";
+import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
 /** Connection state exposed to the UI. */
@@ -147,6 +151,14 @@ export interface AtriumClient {
   ): Promise<CommandResult<"answer_interaction">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
+  /** The models of a container, as far as asked; the same store every time. */
+  models(containerId: ContainerId): StoreApi<ModelListView>;
+  /** Asks the host for a container's models; `refresh` makes pi look again. Failures land in the list. */
+  loadModels(containerId: ContainerId, refresh?: boolean): Promise<void>;
+  /** Switches a session's model, at once in its view; put back if the host refuses. */
+  setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
+  /** Sets a session's thinking level, at once in its view; put back if the host refuses. */
+  setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -259,6 +271,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const clock = options.clock ?? systemClock;
   const delays = options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS;
   const views = new Map<string, StoreApi<SessionView>>();
+  /** Each container's model list, once asked for. */
+  const modelLists = new Map<string, StoreApi<ModelListView>>();
   /** Fetches of older items on their way, by session. */
   const olderLoading = new Map<string, Promise<void>>();
   let watched: readonly string[] = [];
@@ -328,6 +342,57 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     });
     live.send(JSON.stringify({ type, requestId, traceparent: formatTraceparent(createTrace()), ...fields }));
     return answer.promise;
+  }
+
+  /**
+   * A container's model list, created empty on first use.
+   *
+   * @remarks
+   * Kept for as long as the client lives; lists are small and few.
+   *
+   * @sideEffects May create the list's store.
+   * @param containerId - The container.
+   * @returns Its store.
+   */
+  function modelList(containerId: ContainerId): StoreApi<ModelListView> {
+    let list = modelLists.get(containerId);
+    if (list === undefined) {
+      list = createStore<ModelListView>(() => UNASKED_MODELS);
+      modelLists.set(containerId, list);
+    }
+    return list;
+  }
+
+  /**
+   * Changes a model setting at once in the session's view, and puts it back if the host refuses.
+   *
+   * @remarks
+   * The host reports the model pi then uses with `model_updated`, which may differ (pi keeps the
+   * thinking level within what the model supports); the guess only bridges the round trip. A view
+   * that changed since, by the host's report, is left alone. A session whose model the client does
+   * not know shows nothing at once.
+   *
+   * @sideEffects Updates the session's view; sends the command.
+   * @param sessionId - The session.
+   * @param guess - The view's model as it will likely be.
+   * @param send - The command.
+   * @returns The command's result.
+   */
+  async function withGuessedModel<R>(
+    sessionId: string,
+    guess: (model: SessionModel) => SessionModel,
+    send: () => Promise<R>,
+  ): Promise<R> {
+    const view = views.get(sessionId);
+    const before = view?.getState().model ?? null;
+    const guessed = before === null ? null : guess(before);
+    if (guessed !== null) view?.setState({ model: guessed });
+    try {
+      return await send();
+    } catch (error) {
+      if (guessed !== null && view?.getState().model === guessed) view.setState({ model: before });
+      throw error;
+    }
   }
 
   /**
@@ -691,6 +756,31 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
+    models: (containerId) => modelList(containerId),
+    async loadModels(containerId, refresh = false) {
+      const list = modelList(containerId);
+      list.setState({ status: "loading", error: null });
+      try {
+        const { models, defaultModel } = await request("list_models", { containerId, refresh });
+        list.setState({ status: "ready", models, defaultModel, error: null });
+      } catch (error) {
+        // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
+        const failure = error instanceof Error ? error : new Error(String(error));
+        list.setState({ status: "failed", models: [], defaultModel: null, error: failure });
+      }
+    },
+    setModel: (sessionId, model) =>
+      withGuessedModel(
+        sessionId,
+        (current) => ({ ...current, ...model }),
+        () => request("set_model", { sessionId, ...model }),
+      ),
+    setThinkingLevel: (sessionId, level) =>
+      withGuessedModel(
+        sessionId,
+        (current) => ({ ...current, thinkingLevel: level }),
+        () => request("set_thinking_level", { sessionId, level }),
+      ),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

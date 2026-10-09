@@ -67,7 +67,7 @@ async function assemble() {
       workspaces: [],
       sessions: [],
       layout: { container: null, tabs: {} },
-      preferences: { appearance: "system", displayMode: "summary" },
+      preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
       resets: [],
     }),
     clock: systemClock,
@@ -75,6 +75,7 @@ async function assemble() {
   });
   onTestFinished(() => feed.close());
   const sessionChanges = { count: 0 };
+  const listed: [string, boolean][] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
     tools: Promise.resolve({
@@ -103,8 +104,12 @@ async function assemble() {
     sessions,
     preferences,
     feed,
+    listModels: async (containerId, refresh) => {
+      listed.push([containerId, refresh]);
+      return { models: [], defaultModel: null };
+    },
   });
-  return { commands, projects, sessions, layouts, received, root, sessionChanges };
+  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed };
 }
 
 describe("IndexCommands.removeProject", () => {
@@ -155,5 +160,14 @@ describe("IndexCommands.renameProject", () => {
     await expect(commands.renameProject(projectId, "应用")).resolves.toStrictEqual({});
 
     expect(projects.projects().map((project) => project.name)).toStrictEqual(["应用"]);
+  });
+});
+
+describe("IndexCommands.listModels", () => {
+  it("hands the container and whether to ask pi again to the model lister", async () => {
+    const { commands, listed } = await assemble();
+
+    expect(await commands.listModels("chats", true)).toStrictEqual({ models: [], defaultModel: null });
+    expect(listed).toStrictEqual([["chats", true]]);
   });
 });

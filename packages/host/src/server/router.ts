@@ -121,6 +121,15 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.answerInteraction(command.sessionId, command.interactionId, command.answer);
       case "retry_run":
         return options.sessions.retryRun(command.sessionId);
+      case "set_model":
+        return options.sessions.setModel(command.sessionId, {
+          providerId: command.providerId,
+          modelId: command.modelId,
+        });
+      case "set_thinking_level":
+        return options.sessions.setThinkingLevel(command.sessionId, command.level);
+      case "list_models":
+        return options.index.listModels(command.containerId, command.refresh ?? false);
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

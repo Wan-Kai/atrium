@@ -393,6 +393,12 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
     ]);
   });
 
+  it("reports a change of thinking level", () => {
+    expect(translateAll([{ type: "thinking_level_changed", level: "xhigh" }])).toStrictEqual([
+      { kind: "thinking_changed", level: "xhigh" },
+    ]);
+  });
+
   it("reports the four kinds of dialog with what each shows and its timeout", () => {
     expect(
       translateAll([

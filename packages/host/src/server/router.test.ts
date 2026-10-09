@@ -61,6 +61,8 @@ function fakeCommands() {
     steerQueued: record("steerQueued", { disposition: "handled" }),
     answerInteraction: record("answerInteraction", {}),
     retryRun: record("retryRun", {}),
+    setModel: record("setModel", {}),
+    setThinkingLevel: record("setThinkingLevel", {}),
   };
   const index: IndexCommands = {
     subscribeIndex: record("subscribeIndex", {}),
@@ -70,6 +72,7 @@ function fakeCommands() {
     renameWorkspace: record("renameWorkspace", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
+    listModels: record("listModels", { models: [], defaultModel: null }),
   };
   return { sessions, index, calls };
 }
@@ -217,6 +220,11 @@ describe("createRouter", () => {
       }),
     );
     await route(connection, withTrace({ type: "retry_run", requestId: "r9", ...session }));
+    await route(
+      connection,
+      withTrace({ type: "set_model", requestId: "r10", ...session, providerId: "anthropic", modelId: "haiku" }),
+    );
+    await route(connection, withTrace({ type: "set_thinking_level", requestId: "r11", ...session, level: "max" }));
 
     expect(calls).toStrictEqual([
       ["steer", "s1", "also"],
@@ -228,13 +236,15 @@ describe("createRouter", () => {
       ["steerQueued", "s1", "q3"],
       ["answerInteraction", "s1", "d1", { value: "a" }],
       ["retryRun", "s1"],
+      ["setModel", "s1", { providerId: "anthropic", modelId: "haiku" }],
+      ["setThinkingLevel", "s1", "max"],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
       { type: "response", requestId: "r2", ok: true, result: { confirmed: false } },
       ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
-      ...["r8", "r9"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
     ]);
   });
 
@@ -253,6 +263,8 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "set_preferences", requestId: "r7", appearance: "dark" }));
     await route(connection, withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking" }));
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7"],
@@ -264,8 +276,16 @@ describe("createRouter", () => {
       ["setPreferences", { appearance: "dark" }],
       ["setPreferences", { displayMode: "thinking" }],
       ["setPreferences", {}],
+      ["listModels", WORKSPACE, false],
+      ["listModels", "chats", true],
     ]);
     expect(sent[1]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
+    expect(sent[9]).toStrictEqual({
+      type: "response",
+      requestId: "r10",
+      ok: true,
+      result: { models: [], defaultModel: null },
+    });
   });
 
   it("answers a CommandError with its code and parameters", async () => {

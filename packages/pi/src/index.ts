@@ -35,3 +35,6 @@ export {
   sessionFolder,
   sessionsLocation,
 } from "./sessions/session-files";
+export { type ModelList, queryModels } from "./catalog/query";
+export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
+export { sessionModelOf } from "./catalog/models";

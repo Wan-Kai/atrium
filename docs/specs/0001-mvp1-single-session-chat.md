@@ -411,7 +411,7 @@ Electron 主进程
 - 订阅登录是一张分组列表，每行：官方图标（白底圆角）、名称与说明、右侧"登录"。顺序：ChatGPT（Plus / Pro，可用 Codex 模型）、Claude（Pro / Max）、GitHub Copilot、Kimi Code、Grok（SuperGrok / X Premium）、OpenRouter，以 pi 支持的为准。
 - 点"登录"后这一行描蓝边，显示"在浏览器中完成登录"和"取消"；完成后显示"✓ 已登录"。至少登录一个，"继续"才可用。
 - API Key：选择服务商、粘贴 Key、保存，附"去哪里获取 API Key"链接；说明 Key 只写在本机的 `~/.pi/agent/auth.json`。
-- 凭据写在 pi 里，终端里的 pi 也能用。pi 的 RPC 没有登录命令，而且没有可用模型时 RPC 模式会直接退出，所以登录状态用 `pi auth check --json` 或在锁下读 `~/.pi/agent/auth.json` 判断；登录由宿主调用 pi 的 OAuth 实现（`@earendil-works/pi-ai`）完成，实施时确认。
+- 凭据写在 pi 里，终端里的 pi 也能用。pi 的 RPC 没有登录命令，没有可用模型时 RPC 模式只给一个占位模型（2026-10-10 实测），所以登录状态用 `pi auth check --json` 或在锁下读 `~/.pi/agent/auth.json` 判断；登录由宿主调用 pi 的 OAuth 实现（`@earendil-works/pi-ai`）完成，实施时确认。
 - 图标一律用各家官方资源，来源记录在 `prototypes/brand/SOURCES.md`；发布前按各家品牌规范核对用法。
 
 **第 3 步：添加项目**
@@ -636,12 +636,13 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **模型列表**
 
-- 宿主的 PiCatalog 为一个目录短启一个 `pi --mode rpc`（不带 `--session`），调 `get_available_models` 和 `get_state`，然后停掉它。`get_state` 里的模型是 pi 按自己的设置选出的默认模型。不借正在运行的会话的 pi。工作区用工作区目录；对话用家目录（对话各自的目录是空的，和家目录一样只有全局设置）。
+- 宿主的 PiCatalog 为一个目录短启一个 `pi --mode rpc`（不带 `--session`），调 `get_available_models` 和 `get_state`，然后停掉它。`get_state` 里的模型是 pi 按自己的设置选出的默认模型。不借正在运行的会话的 pi。工作区用工作区目录；对话用 Atrium 的目录 `~/.atrium`（Paseo 用家目录；对话各自的目录就在它下面，是空的，和它一样只有全局设置）。
 - 结果按目录缓存在宿主内存里，没有期限，不落盘。项目自己的 `.pi/settings.json` 可能改变可用的模型，所以按目录分开。同一目录同时只查一次，后到的请求等同一次结果。宿主启动时不查，界面进入一个工作区或对话时预取一次。
 - `list_models(containerId, refresh?)`：有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。
 - 应答 `{ models, defaultModel }`。每个模型 `{ providerId, modelId, name, contextWindow, maxOutput, supportsImage, thinkingLevels }`。pi 只返回有凭据的服务商的模型。
 - 推理档位按模型的元数据算出，不调 `get_available_thinking_levels`（它只回答当前模型）：不支持推理的只有 `off`；其余从 off / minimal / low / medium / high / xhigh / max 里去掉 `thinkingLevelMap` 标为 `null` 的，`xhigh`、`max` 只在 `thinkingLevelMap` 里明确给出时才有。规则照抄 pi-ai 的 `getSupportedThinkingLevels`，写在 `packages/pi` 里（运行时不依赖 pi 的包），pi 改了规则时契约测试会发现。
-- 查询失败（pi 退出、比如没有任何凭据，或者启动不起来）应答 `models_unavailable`，`params.detail` 是 pi 的报错原文（截断到 4 KB，照常脱敏），只供"展开看原始报错"。
+- 没有任何凭据时 pi 照常回答，列表为空；`get_state` 给的是占位模型（`unknown/unknown`），不算默认模型。默认模型必须在列表里。会话的模型是占位模型时也当作没有（`null`）。
+- 查询失败（pi 退出、超时，或者启动不起来）应答 `models_unavailable`，`params.detail` 是 pi 的报错原文（stderr 的最后一段，截断到 4 KB），和 `pi_rejected` 一样只供"展开看原始报错"；它只发给界面，不写日志。
 
 **会话的模型**
 
