@@ -10,11 +10,11 @@
 |---|---|---|---|
 | 1 | 侧栏按项目和工作区组织，显示运行、待处理、合并状态；标签页切换会话 | `apps/desktop/e2e/workspaces.spec.ts`；组件与宿主见"项目、工作区与会话（M1.5）"。待处理的状态随 M1.6、M1.9 | 部分覆盖 |
 | 2 | 流式输出回复和推理过程 | `apps/desktop/e2e/chat.spec.ts`、`chat.perf.spec.ts`；组件与渲染见"协议、客户端与流式显示（M1.3）" | 已覆盖 |
-| 3 | 粘贴或拖入截图随消息发出 | — | 待 M1.7 |
+| 3 | 粘贴或拖入截图随消息发出 | 组件与宿主见"模型与输入框（M1.7）"的图片两行（压缩、上传、暂存、带图片发出、过期重传）；端到端没有：Playwright 造不出系统剪贴板里的图片 | 部分覆盖 |
 | 4 | 看到工具调用：命令和输出、读的文件、diff、写入的文件 | — | 待 M1.4 |
 | 5 | 随时中断 | `apps/desktop/e2e/run-control.spec.ts`（停止后排队暂停，继续发送）；控制器与界面见"运行控制（M1.6）" | 已覆盖 |
 | 6 | 运行中默认排队，可插话 | `apps/desktop/e2e/run-control.spec.ts`（回车排队、⌘回车插话、插话在下一步前送达）；见"运行控制（M1.6）" | 已覆盖 |
-| 7 | 输入框旁切换模型和推理强度 | — | 待 M1.7 |
+| 7 | 输入框旁切换模型和推理强度 | `apps/desktop/e2e/models.spec.ts`（换模型、⌘⇧E 调推理强度到最高、新对话沿用上一次的模型和档位）；组件与宿主见"模型与输入框（M1.7）" | 已覆盖 |
 | 8 | 重启后恢复之前的会话 | `apps/desktop/e2e/history.spec.ts`（从 pi 的文件恢复）、`workspaces.spec.ts`（重启后标签页、当前标签和草稿还在）、`app.spec.ts`（页面存储跨重启） | 已覆盖 |
 | 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | — | 待 M1.8 |
 | 10 | 在 Atrium 里回答 extension 的对话框 | `apps/desktop/e2e/run-control.spec.ts`（`/faux-confirm` 的卡片上作答）；见"运行控制（M1.6）" | 已覆盖 |
@@ -205,6 +205,8 @@
 | 图片：协议（`upload_attachment`、`attachmentIds` 最多 20 张、只有图片时文字可为空、什么都没有不行、排队项的图片数、两个错误码）；宿主暂存（按连接、32 MiB / 20 张、全部在才取、30 分钟释放、断开和关闭时释放）；路由取出图片交给会话；控制器带图片发出、排队、插话、停止退回、崩溃重发；客户端上传、带图片发送、待发副本带图片数 | `packages/protocol/src/envelope.test.ts`、`packages/host/src/server/attachments.test.ts`、`router.test.ts` "attachments"、`session-controller.test.ts` "images"、`packages/client/src/atrium-client.test.ts` "images" | 已覆盖 |
 | 图片：压缩（WebP、长边 2048、放进一条消息、先降质量再缩小、很小的图照原样、放不下时拒绝、不是图片时报错）；输入框（粘贴、"+"菜单、拖入、上传完才能发、只有图片也能发、模型不支持时不添加、换到不支持的模型时提示但照发、上传失败的说明、移除、切标签保留）；拖入的其他文件按工作区目录变成引用；对话区上传、过期时重传一次再发、模型不支持时拒绝；排队面板显示图片数 | `packages/ui/src/chat/images.browser.test.ts`、`composer.browser.test.tsx` "images"、`chat.browser.test.tsx` "images"、`run-control.browser.test.tsx` | 已覆盖 |
 | 本会话改动：按文件累计编辑量、写入不编数字、记住最后改它的一轮；胶囊显示文件数和增删，点开列出文件，点文件跳到那一轮并展开它的改动；没有改动时不显示 | `packages/ui/src/chat/session-changes.test.ts`、`chat.browser.test.tsx` "session changes" | 已覆盖 |
+| `/` 命令端到端：输入时列出 pi 的命令，回车选中，完整的命令回车直接发出，extension 命令处理后没有运行 | `apps/desktop/e2e/models.spec.ts` | 已覆盖 |
+| 空状态输入 `/` 建会话后，打的字、图片转到新会话的输入框并获得焦点；模型列表在连上后才请求、重连后再请求；列表还没东西可选时回车照常发送 | `packages/ui/src/chat/chat.browser.test.tsx` "before it is connected"、"handing the first words"；`composer.browser.test.tsx` | 已覆盖 |
 
 ## 安全（security.md）
 

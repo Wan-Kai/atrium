@@ -86,6 +86,22 @@ describe("Composer's / commands", () => {
     expect(sent).toStrictEqual([]);
   });
 
+  it("sends a command typed whole with Enter, the list open or not", async () => {
+    const { box, sent } = await composer();
+
+    await userEvent.type(box, "/review{Enter}");
+
+    expect(sent).toStrictEqual(["/review"]);
+  });
+
+  it("sends with Enter while the list has nothing to choose yet", async () => {
+    const { box, sent } = await composer({ onListCommands: () => new Promise(() => undefined) });
+
+    await userEvent.type(box, "/faux-confirm{Enter}");
+
+    expect(sent).toStrictEqual(["/faux-confirm"]);
+  });
+
   it("moves through the list with ↑ ↓, chooses with Tab, and closes on Escape", async () => {
     const { screen, box } = await composer();
 

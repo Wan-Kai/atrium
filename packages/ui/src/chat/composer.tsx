@@ -81,6 +81,8 @@ export interface ComposerProps {
   readonly baseDir?: string | null;
   /** A dropped file's path, which only the desktop shell can tell. */
   readonly pathForFile?: (file: File) => string | null;
+  /** Takes the focus when it appears, with the caret after the draft. */
+  readonly autoFocus?: boolean;
 }
 
 /**
@@ -154,6 +156,7 @@ export function Composer({
   imagesAllowed = true,
   baseDir = null,
   pathForFile,
+  autoFocus = false,
 }: ComposerProps) {
   const [saved] = useState(() => (draftKey === undefined ? null : loadDraft(draftKey)));
   const [text, setText] = useState(saved?.text ?? "");
@@ -197,6 +200,16 @@ export function Composer({
   useEffect(() => {
     if (draftKey !== undefined) saveDraft(draftKey, { text, pastes, files });
   }, [draftKey, text, pastes, files]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    // The words handed over from the empty state go on where they stopped.
+    pendingCaret.current = text.length;
+    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- once, as the box appears.
+    setCaret(text.length);
+    // Only as the box appears.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- see above.
+  }, [autoFocus]);
 
   useEffect(() => {
     if (draftKey !== undefined) keepImages(draftKey, images);
@@ -433,7 +446,11 @@ export function Composer({
         setActive(Math.max(0, Math.min(itemCount - 1, highlighted + step)));
         return;
       }
-      if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      // A command typed whole needs no choosing, and nothing to choose yet is no reason to wait:
+      // Enter sends either way.
+      const typedWhole = commandQuery !== null && commandItems[highlighted]?.name === commandQuery;
+      const sends = event.key === "Enter" && (typedWhole || itemCount === 0);
+      if (((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") && !sends) {
         event.preventDefault();
         choose(event.key === "Tab");
         return;

@@ -5,6 +5,7 @@ import { type StoreApi, useStore } from "zustand";
 import { useDisplayMode } from "../state/display-mode";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
+import { dropDrafts, keepImages, keptImages, loadDraft, saveDraft } from "../state/drafts";
 import { historyOf } from "./composer-text";
 import { type RevealRequest, RevealContext } from "./reveal";
 import { sessionChanges } from "./session-changes";
@@ -68,6 +69,24 @@ export function describeModelError(error: unknown): string {
     return `pi 没有接受这个设置：${String(error.params?.["detail"] ?? "")}`;
   }
   return describeSendError(error);
+}
+
+/**
+ * Moves the empty state's draft and images to a session just created from it.
+ *
+ * @remarks
+ * Typing `/` or `@` before there is a session creates one; what was typed goes on there.
+ *
+ * @sideEffects Moves the draft in the page's storage and the images in memory.
+ * @param from - The empty state's draft key.
+ * @param to - The new session's id.
+ */
+function handOverDraft(from: string, to: string): void {
+  const draft = loadDraft(from);
+  const images = keptImages(from);
+  if (draft !== null) saveDraft(to, draft);
+  keepImages(to, images);
+  dropDrafts([from]);
 }
 
 /** Runs a command, showing why it failed if it does, in the words `describe` picks. */
@@ -151,6 +170,7 @@ function SessionArea({
   session,
   notice,
   attaching,
+  takesFocus,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -163,6 +183,8 @@ function SessionArea({
   readonly notice: ReactNode;
   /** The composer's ways to add images and reference dropped files, for the session's model. */
   readonly attaching: (model: SessionModel | null) => Partial<ComposerProps>;
+  /** Whether the box takes the focus, as for a session just created from the empty state. */
+  readonly takesFocus: boolean;
 }) {
   const view = useStore(store);
   const running = view.run !== null;
@@ -198,6 +220,7 @@ function SessionArea({
         {...attaching(view.model)}
         key={sessionId}
         draftKey={sessionId}
+        autoFocus={takesFocus}
         history={historyOf(view.items)}
         onOlderHistory={() => {
           // Fire and forget: a failed page leaves ↑ where it is.
@@ -300,11 +323,16 @@ export function ConversationArea({
   // only read in event handlers.
   const creating = useRef(new Map<string, Promise<string>>());
 
+  // Each connection has a trace of its own, so a reconnect counts as a new one.
+  const connection = useStore(client.connection, (state) => (state.status === "connected" ? state.traceId : null));
   useEffect(() => {
     // Fire and forget: a failed list shows in the model panel. Asked for as the container shows,
-    // as Paseo prefetches it, so the panel opens on a ready list (SPEC-0001, "模型与输入框").
-    void client.loadModels(containerId ?? "chats");
-  }, [client, containerId]);
+    // as Paseo prefetches it, so the panel opens on a ready list (SPEC-0001, "模型与输入框"); and
+    // again on every connection, as a request without one fails at once.
+    if (connection !== null) void client.loadModels(containerId ?? "chats");
+  }, [client, containerId, connection]);
+  /** The session just created here, whose box takes over the empty state's words and the focus. */
+  const [handedOver, setHandedOver] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
@@ -344,6 +372,10 @@ export function ConversationArea({
       if (going !== undefined) return going;
       const created = create()
         .then(async (id) => {
+          // What was typed before the session existed goes on in its box, as when `/` or `@`
+          // created it (SPEC-0001, "模型与输入框").
+          handOverDraft(`new:${containerId ?? "chats"}`, id);
+          setHandedOver(id);
           await client.watch([id]);
           return id;
         })
@@ -551,6 +583,7 @@ export function ConversationArea({
           session={target}
           notice={notice}
           attaching={attaching}
+          takesFocus={handedOver === sessionId}
         />
       )}
     </div>

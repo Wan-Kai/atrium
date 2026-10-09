@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { fauxPiEnvironment } from "./faux-pi";
 import { launchApp } from "./launch";
+import { sep } from "node:path";
 
 test("queues a message during a run, stops the run, and sends the queue once resumed", async () => {
   const pi = await fauxPiEnvironment({
@@ -93,6 +94,26 @@ test("answers an extension's question on its card", async () => {
   }
 });
 
+/**
+ * The process id of the session's pi the host started last.
+ *
+ * @remarks
+ * Not the short-lived pi the model list asks, which runs in Atrium's own directory: the session's
+ * runs in the chat's.
+ *
+ * @sideEffects Reads the host's log.
+ * @param launched - The app.
+ * @returns The pid, or `undefined` before one started.
+ */
+async function sessionPid(launched: {
+  readHostLog(): Promise<Record<string, unknown>[]>;
+}): Promise<number | undefined> {
+  const started = (await launched.readHostLog()).filter(
+    (line) => line["msg"] === "pi started" && String(line["cwd"]).includes(`${sep}chats${sep}`),
+  );
+  return started.length === 0 ? undefined : Number(started.at(-1)?.["pid"]);
+}
+
 test("starts pi again after it is killed mid-run, and asks the agent to go on", async () => {
   const pi = await fauxPiEnvironment({
     replies: [{ waitFor: "first", blocks: [{ type: "text", text: "接着做完了" }] }],
@@ -107,12 +128,14 @@ test("starts pi again after it is killed mid-run, and asks the agent to go on", 
     await expect(window.locator('[data-testid="user-message"][data-pending="false"]')).toHaveCount(1, {
       timeout: 30_000,
     });
-    const first = await pi.pid();
+    const sessionPi = () => sessionPid(launched);
+    const first = await sessionPi();
+    expect(first).toBeDefined();
 
-    process.kill(first, "SIGKILL");
+    process.kill(Number(first), "SIGKILL");
 
     await expect(window.getByTestId("notice")).toHaveText("进程已自动重启（第 1 / 3 次）", { timeout: 30_000 });
-    await expect.poll(() => pi.pid(), { timeout: 30_000 }).not.toBe(first);
+    await expect.poll(sessionPi, { timeout: 30_000 }).not.toBe(first);
     await pi.release("first");
     await expect(window.locator('[data-testid="reply"][data-streaming="false"]')).toHaveText(["接着做完了"], {
       timeout: 30_000,

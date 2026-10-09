@@ -862,3 +862,42 @@ describe("ConversationArea's session changes", () => {
     await expect.element(screen.getByRole("button", { name: /本会话改动/ })).not.toBeInTheDocument();
   });
 });
+
+describe("ConversationArea before it is connected", () => {
+  it("asks for the models once connected, and again after a reconnect", async () => {
+    const { client, connection, modelCalls } = fakeClient();
+    connection.setState({ status: "connecting" });
+    await render(tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />));
+    expect(modelCalls).toStrictEqual([]);
+
+    connection.setState({ status: "connected", traceId: "t", hostVersion: "0", hostInstanceId: "h1" });
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats"]));
+    connection.setState({ status: "connecting" });
+    connection.setState({ status: "connected", traceId: "t2", hostVersion: "0", hostInstanceId: "h1" });
+
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats", "loadModels chats"]));
+  });
+});
+
+describe("ConversationArea handing the first words to a new session", () => {
+  it("keeps what was typed before / created the session, in its box, focused, with the list open", async () => {
+    const { client, index } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await expect.element(box).toHaveValue("/");
+    await expect.element(box).toHaveFocus();
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+    await userEvent.keyboard("rev");
+    await expect.element(box).toHaveValue("/rev");
+  });
+});
