@@ -79,7 +79,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 **规范化**（录制时做，保证同一台机器上重录结果逐字节相同）：
 
 - 时间：名为 `timestamp` 的数字字段 → `0`；ISO 时间字符串 → `"1970-01-01T00:00:00.000Z"`；会话文件名里的时间 → `1970-01-01T00-00-00-000Z`。
-- 度量：`usage` 里的所有数字（含 `cost`）、`tokensBefore`、`estimatedTokensAfter`、`wall_time_seconds` → `0`。token 数受系统提示词长度影响，而系统提示词里有本机路径；耗时取决于机器。
+- 度量：`usage` 里的所有数字（含 `cost`）、`tokensBefore`、`estimatedTokensAfter`、`wall_time_seconds`、`durationMs`（pi 1.1.0 起工具结果带的执行时长）→ `0`。token 数受系统提示词长度影响，而系统提示词里有本机路径；耗时取决于机器。
 - 路径：临时工作目录 → `<cwd>`，pi 配置目录 → `<agent>`，会话目录 → `<sessions>`，faux 扩展目录 → `<faux>`，用户主目录 → `<home>`（系统提示词里有 pi 的安装路径）。长的路径先换。
 - 随机 id：UUID（会话 id 等）按首次出现的顺序换成 `<uuid-1>`、`<uuid-2>`……；条目 id 只在 `id`、`parentId`、`leafId`、`since`、`targetId`、`firstKeptEntryId` 这几个键下识别，按首次出现的顺序换成 `e1`、`e2`……，引用同一个 id 的地方一起换，树的结构不变；已经认出的条目 id 出现在别的文字里（比如 `/faux-navigate <id>` 这样的命令参数）时，按完整的词一并替换；正文里碰巧是 8 位十六进制、但不是已知 id 的文字不动。请求 id 由录制时注入的 `nextRequestId` 生成，本来就是 `r1`、`r2`……。
 - 工具调用 id 本来就由 faux 脚本固定，不用处理。
@@ -87,6 +87,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 **录制与漂移检查**：
 
 - `pnpm fixtures:record`：用本机的 pi 重录全部场景，写到 `pi-<本机版本>/`，并删掉其他版本的目录。
+- 2026-10-09 本机 pi 升到 1.1.0：另录了 `pi-1.1.0/`（直接以 `RECORD_FIXTURES=1` 跑契约测试，不删旧目录），`pi-1.0.2/` 暂时保留，因为第 1 层的回放测试还按它写；两版的差别见 pi-internals"版本"。第 1 层改用新版本时，再用 `pnpm fixtures:record` 只留一个版本。
 - `pnpm test:pi`：先对真实 pi 做契约断言，再把这次的输出规范化后和同版本的夹具比较，不一致就失败，提示重录并审查 diff。本机 pi 版本没有对应的夹具时也失败，要求先录制。这样升级 pi 后，第一次跑 `test:pi` 就会逼着人看 pi 的输出变了什么。
 - 比较时只忽略系统消息里的文字（role 除外）：系统提示词写着本机的路径，换台机器就不同。系统消息的键和 `sections` 的结构仍要一致，pi 改了系统提示词的组织方式也能发现。夹具本身保存录到的文字。
 

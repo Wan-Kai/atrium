@@ -48,7 +48,7 @@ describe("createNormalizer", () => {
     ]);
   });
 
-  it("fixes measurements: every number inside usage, token counts and wall time", () => {
+  it("fixes measurements: every number inside usage, token counts, wall time and durations", () => {
     const normalize = createNormalizer({});
 
     expect(
@@ -56,12 +56,14 @@ describe("createNormalizer", () => {
         usage: { input: 1455, totalTokens: 2917, cost: { input: 0.5, total: 1.25 } },
         result: { tokensBefore: 2917, estimatedTokensAfter: 1468, messageCount: 4 },
         details: { wall_time_seconds: 0.4, exit_code: 3 },
+        message: { role: "toolResult", durationMs: 23 },
         contextWindow: 128000,
       }),
     ).toStrictEqual({
       usage: { input: 0, totalTokens: 0, cost: { input: 0, total: 0 } },
       result: { tokensBefore: 0, estimatedTokensAfter: 0, messageCount: 4 },
       details: { wall_time_seconds: 0, exit_code: 3 },
+      message: { role: "toolResult", durationMs: 0 },
       contextWindow: 128000,
     });
   });

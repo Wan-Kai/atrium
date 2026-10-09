@@ -16,9 +16,15 @@ const ENTRY_ID_KEYS: ReadonlySet<string> = new Set([
 ]);
 /**
  * Numbers that measure the run rather than describe it: token counts depend on the system prompt,
- * which contains the working directory's path, and wall time on the machine.
+ * which contains the working directory's path, and wall time and durations (a tool's, from pi
+ * 1.1.0) on the machine.
  */
-const MEASURED_KEYS: ReadonlySet<string> = new Set(["tokensBefore", "estimatedTokensAfter", "wall_time_seconds"]);
+const MEASURED_KEYS: ReadonlySet<string> = new Set([
+  "tokensBefore",
+  "estimatedTokensAfter",
+  "wall_time_seconds",
+  "durationMs",
+]);
 const FIXED_TIME = "1970-01-01T00:00:00.000Z";
 /** The time pi puts in session file names, with `-` for `:` and `.` (pi-internals.md §1). */
 const FILE_NAME_TIME = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g;
@@ -30,7 +36,7 @@ const FILE_NAME_TIME = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g;
  * Fixtures must come out byte for byte the same when re-recorded on the same machine, so only
  * real changes in pi show up in a diff (testing.md, "pi 夹具"). Timestamps, including the one in
  * session file names, become fixed values, and so do measurements: every number in `usage`, token
- * counts and wall time become 0. Paths become named placeholders; UUIDs (the session id) and 8-hex
+ * counts, wall time and durations become 0. Paths become named placeholders; UUIDs (the session id) and 8-hex
  * entry ids become numbered tokens in order of first appearance. Entry ids are recognized only
  * under the keys that hold them, so text that happens to be 8 hex digits stays as it is. The
  * numbering is shared by every value the function sees, so an id and every reference to it

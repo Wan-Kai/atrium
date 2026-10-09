@@ -4,6 +4,8 @@
 >
 > 本地源码：`~/.cache/pi-src`（`git clone --depth 1 https://github.com/earendil-works/pi`）。
 
+**版本**：本机 pi 2026-10-08 升到 1.1.0。和 1.0.2 相比，Atrium 依赖的 `prompt`、`steer`、`abort`、`clear_queue`、`queue_update`、RPC 模式本身逐字相同（2026-10-09 对照两版的 `agent-session.js`、`rpc-mode.js`）；输出多了两个字段：`agent_settled` 带 `aborted`（这次运行是否被停止），工具结果的消息、条目和 `tool_execution_end` 带 `durationMs`（工具执行时长）。契约测试在 1.1.0 上全部通过，夹具见 testing.md"pi 夹具"。
+
 Atrium 用的是 pi 的**稳定模型**：`pi --mode rpc` + JSONL 会话文件。pi 仓库里另有一套实验性的多客户端服务端（第 6 节），存储不兼容，不直接用，只借鉴设计。
 
 ## 1. 会话文件（`src/core/session-manager.ts`）
