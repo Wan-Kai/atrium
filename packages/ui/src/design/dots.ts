@@ -1,0 +1,235 @@
+/**
+ * The rounded square dots that are Atrium's mark (design-language, "点阵"): 3.6 px dots, 1 px
+ * corners, 6 px apart, their shade from two layers of smooth noise seeded per install.
+ */
+
+/** Distance between dots. */
+const PITCH = 6;
+/** Side of a dot. */
+const SIZE = 3.6;
+/** Corner radius of a dot. */
+const RADIUS = 1;
+/** Brand colours across the width when full: blue → teal → peach. */
+const BLUE = [94, 132, 255] as const;
+const TEAL = [120, 214, 214] as const;
+const PEACH = [255, 170, 120] as const;
+/** How often a sweep crosses a full field, and how long it takes (design-language, "点阵"). */
+const SWEEP_EVERY_MS = 3_600;
+const SWEEP_MS = 900;
+
+/** One frame of a dot field. */
+export interface DotFrame {
+  readonly width: number;
+  readonly height: number;
+  /** How far from the left the dots reach, 0 to 1; a dragged box may go slightly past either end. */
+  readonly coverage: number;
+  /** The top level: brand colours, twinkle and sweeps. */
+  readonly full: boolean;
+  readonly dark: boolean;
+  /** Milliseconds, for the twinkle; a fixed value paints a still frame. */
+  readonly now: number;
+  /** Where a sweep is, 0 to 1, or `null` for none. */
+  readonly sweep: number | null;
+  /** The model button's faint dots, or the thinking level box's stronger ones. */
+  readonly variant: "chip" | "box";
+}
+
+/** Reads and writes the seed. */
+export interface SeedStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+const SEED_KEY = "atrium-dot-seed";
+
+/**
+ * The seed of this install's dot pattern, made once.
+ *
+ * @remarks
+ * The pattern differs from person to person and stays the same for each (design-language,
+ * "点阵"). Kept in the page's storage until M1.10 moves it to the install id in `~/.atrium/`
+ * (roadmap, M1.10).
+ *
+ * @sideEffects Writes a new seed to `storage` the first time.
+ * @param storage - Where the seed is kept.
+ * @returns The seed, a positive integer.
+ */
+export function dotSeed(storage: SeedStorage = localStorage): number {
+  const kept = Number(storage.getItem(SEED_KEY));
+  if (Number.isInteger(kept) && kept > 0) return kept;
+  const seed = Math.floor(Math.random() * 1e9) + 1;
+  storage.setItem(SEED_KEY, String(seed));
+  return seed;
+}
+
+/**
+ * Whether the user asked for less motion.
+ *
+ * @remarks
+ * Dots then keep a still pattern and edges move at once (design-language, "动效").
+ *
+ * @sideEffects none
+ * @returns Whether motion is reduced.
+ */
+export function reducedMotion(): boolean {
+  return matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Where a sweep across a full field is.
+ *
+ * @remarks
+ * A `\` sweep every 3.6 s, lasting 0.9 s, easing in and out (design-language, "点阵").
+ *
+ * @sideEffects none
+ * @param now - The time, in milliseconds.
+ * @param start - When the first sweep starts.
+ * @returns Its progress from 0 to 1, or `null` between sweeps.
+ */
+export function sweepProgress(now: number, start: number): number | null {
+  if (now < start) return null;
+  const into = (now - start) % SWEEP_EVERY_MS;
+  if (into >= SWEEP_MS) return null;
+  const x = into / SWEEP_MS;
+  return x < 0.5 ? 2 * x * x : 1 - (-2 * x + 2) ** 2 / 2;
+}
+
+/**
+ * Paints a frame of dots.
+ *
+ * @remarks
+ * Prototyped in `app-prototype.html` (`dotField`, `effortBox`). Each dot's shade comes from two
+ * layers of value noise, so the pattern has large patches and fine grain; the edge of the
+ * coverage is feathered rather than cut. Normally the dots are black in the light and white in
+ * the dark at low opacity, denser on the button as the level rises; full, they take the brand
+ * colours by their horizontal place, twinkle with `now`, and brighten under a sweep.
+ *
+ * @sideEffects Clears and draws on `context`.
+ * @param context - The canvas, already scaled to CSS pixels.
+ * @param frame - What to paint.
+ * @param seed - The pattern's seed.
+ */
+export function paintDots(context: CanvasRenderingContext2D, frame: DotFrame, seed: number): void {
+  const { width, height, coverage, full, dark, now, sweep, variant } = frame;
+  context.clearRect(0, 0, width, height);
+  const box = variant === "box";
+  const ink = dark ? 255 : 0;
+  const cols = Math.ceil(width / PITCH);
+  const rows = Math.ceil(height / PITCH);
+  const left = (width - (cols - 1) * PITCH - SIZE) / 2;
+  const top = (height - (rows - 1) * PITCH - SIZE) / 2;
+  const feather = box ? 0.09 : 0.14;
+  const hash = hasher(seed);
+  const noise = valueNoise(hash);
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const x = (col + 0.5) / cols;
+      const reach = Math.max(0, Math.min(1, (coverage - x) / feather + 0.5));
+      if (reach <= 0) continue;
+      const tone =
+        (box ? 0.5 : 0.45) +
+        (box ? 0.5 : 0.55) * (0.6 * noise(col / 3, row / 3) + 0.4 * noise(col / 1.3 + 9, row / 1.3 + 4));
+      let alpha: number;
+      let rgb: readonly [number, number, number];
+      if (full) {
+        const twinkle = 0.8 + 0.2 * Math.sin(now / 280 + hash(col, row) * 6.28);
+        let boost = 0;
+        if (sweep !== null) {
+          const centre = -0.4 + sweep * 1.8;
+          const off = x - centre - (row / rows - 0.5) * 0.35;
+          boost = Math.max(0, 1 - Math.abs(off) / (box ? 0.16 : 0.18));
+        }
+        const base = box ? (dark ? 0.4 : 0.32) : dark ? 0.34 : 0.26;
+        alpha = Math.min(0.95, base * tone * twinkle * reach + boost * (box ? 0.6 : 0.65) * tone);
+        rgb = tint(x);
+      } else {
+        alpha = box
+          ? (dark ? 0.32 : 0.24) * tone * reach * (0.7 + 0.3 * coverage)
+          : (dark ? 0.07 : 0.05) * (1 + 4 * coverage) * tone * reach;
+        rgb = [ink, ink, ink];
+      }
+      if (alpha < 0.015) continue;
+      context.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${alpha.toFixed(3)})`;
+      context.beginPath();
+      context.roundRect(left + col * PITCH, top + row * PITCH, SIZE, SIZE, RADIUS);
+      context.fill();
+    }
+  }
+}
+
+/**
+ * A hash of a grid point, 0 to 1, fixed by the seed.
+ *
+ * @remarks
+ * Integer mixing, so the same seed gives the same pattern on every machine.
+ *
+ * @sideEffects none
+ * @param seed - The seed.
+ * @returns The hash function.
+ */
+function hasher(seed: number): (x: number, y: number) => number {
+  return (x, y) => {
+    let h = (x * 374_761_393 + y * 668_265_263 + seed * 2_147_483_647) | 0;
+    h = Math.imul(h ^ (h >>> 13), 1_274_126_177);
+    return ((h ^ (h >>> 16)) >>> 0) / 4_294_967_295;
+  };
+}
+
+/**
+ * Eases 0 to 1 with zero slope at both ends.
+ *
+ * @remarks
+ * Smoothstep, so the noise has no creases at grid lines.
+ *
+ * @sideEffects none
+ * @param t - From 0 to 1.
+ * @returns The eased value.
+ */
+function smooth(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Smooth value noise over a hash.
+ *
+ * @remarks
+ * Bilinear between grid points with smoothstep, which is enough for the patches the dots need.
+ *
+ * @sideEffects none
+ * @param hash - The grid's hash.
+ * @returns The noise function, 0 to 1.
+ */
+function valueNoise(hash: (x: number, y: number) => number): (x: number, y: number) => number {
+  return (x, y) => {
+    const xi = Math.floor(x);
+    const yi = Math.floor(y);
+    const xf = smooth(x - xi);
+    const yf = smooth(y - yi);
+    const a = hash(xi, yi);
+    const b = hash(xi + 1, yi);
+    const c = hash(xi, yi + 1);
+    const d = hash(xi + 1, yi + 1);
+    return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf;
+  };
+}
+
+/**
+ * The brand colour at a horizontal place.
+ *
+ * @remarks
+ * Blue at the left, teal in the middle, peach at the right.
+ *
+ * @sideEffects none
+ * @param x - The place, 0 to 1.
+ * @returns The colour.
+ */
+function tint(x: number): readonly [number, number, number] {
+  const k = Math.min(2, Math.max(0, x) * 2);
+  const [from, to] = k < 1 ? [BLUE, TEAL] : [TEAL, PEACH];
+  const f = k < 1 ? k : k - 1;
+  return [
+    Math.round(from[0] + (to[0] - from[0]) * f),
+    Math.round(from[1] + (to[1] - from[1]) * f),
+    Math.round(from[2] + (to[2] - from[2]) * f),
+  ];
+}

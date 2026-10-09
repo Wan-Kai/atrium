@@ -1,3 +1,4 @@
+import { agentDirectory, expandTilde } from "../env/agent-dir";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -40,22 +41,6 @@ export interface SessionFileReader {
 
 /** How much of a file is read at a time. */
 const CHUNK_BYTES = 1024 * 1024;
-
-/**
- * Expands a leading `~` as pi does.
- *
- * @remarks
- * pi accepts `~` in its directory variables (pi 1.0.2, `config.js` `expandTildePath`).
- *
- * @sideEffects none
- * @param path - The path.
- * @param home - The home directory.
- * @returns The expanded path.
- */
-function expandTilde(path: string, home: string): string {
-  if (path === "~") return home;
-  return path.startsWith("~/") ? join(home, path.slice(2)) : path;
-}
 
 /**
  * Reads one field of a JSON value.
@@ -113,8 +98,7 @@ export async function sessionsLocation(env: Readonly<Record<string, string>>): P
   const home = env["HOME"] ?? homedir();
   const fromEnv = env["PI_CODING_AGENT_SESSION_DIR"];
   if (fromEnv !== undefined && fromEnv !== "") return { directory: expandTilde(fromEnv, home), perCwd: false };
-  const agentEnv = env["PI_CODING_AGENT_DIR"];
-  const agentDir = agentEnv === undefined || agentEnv === "" ? join(home, ".pi", "agent") : expandTilde(agentEnv, home);
+  const agentDir = agentDirectory(env);
   // Stryker disable next-line StringLiteral: without an encoding the bytes parse the same.
   const text = await unlessUnreadable(readFile(join(agentDir, "settings.json"), "utf8"));
   // No file reads as JSON `null`, which has no field.

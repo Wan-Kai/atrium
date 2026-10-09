@@ -27,6 +27,31 @@ async function flush(): Promise<void> {
   for (let i = 0; i < 5; i += 1) await Promise.resolve();
 }
 
+/**
+ * A query that answers `/done` at once and takes its time to end any other once aborted, as
+ * stopping pi does.
+ *
+ * @remarks
+ * For `close`, which must wait for the queries it aborted.
+ *
+ * @sideEffects none
+ * @returns The query, the signals of the slow calls, and what lets them end.
+ */
+function slowToStop() {
+  const calls: AbortSignal[] = [];
+  const ended = Promise.withResolvers<void>();
+  const query = (dir: string, signal: AbortSignal): Promise<ModelList> => {
+    if (dir === "/done") return Promise.resolve(listFor(dir, 1));
+    return new Promise<ModelList>((_resolve, reject) => {
+      calls.push(signal);
+      signal.addEventListener("abort", () => {
+        void ended.promise.then(() => reject(new PiRequestError("get_available_models", "aborted")));
+      });
+    });
+  };
+  return { query, calls, ended };
+}
+
 describe("createModelCatalog", () => {
   it("asks pi once per directory and keeps the answer", async () => {
     const { query, calls, answers } = scriptedQuery();
@@ -81,10 +106,10 @@ describe("createModelCatalog", () => {
     expect(calls).toHaveLength(3);
   });
 
-  it("gives up after the deadline, aborting the query", async () => {
+  it("gives up after 120 seconds, aborting the query", async () => {
     const { query, calls } = scriptedQuery();
     const clock = new FakeClock();
-    const catalog = createModelCatalog({ query, clock, timeoutMs: 120_000 });
+    const catalog = createModelCatalog({ query, clock });
 
     const listing = catalog.list("/a", false);
     clock.advance(119_999);
@@ -110,19 +135,29 @@ describe("createModelCatalog", () => {
     expect(clock.pendingTimers()).toBe(0);
   });
 
-  it("aborts the queries under way on close and waits for them", async () => {
-    const { query, calls } = scriptedQuery();
+  it("aborts the queries under way on close and waits for them to end", async () => {
+    const { query, calls, ended } = slowToStop();
     const clock = new FakeClock();
     const catalog = createModelCatalog({ query, clock });
-    const listing = catalog.list("/a", false);
-    const failed = listing.catch((error: unknown) => error);
+    await catalog.list("/done", false);
+    const failed = catalog.list("/a", false).catch((error: unknown) => error);
+    let closed = false;
 
-    await catalog.close();
+    const closing = catalog.close();
+    void closing.then(() => (closed = true));
+    await flush();
+    expect(calls[0]?.aborted).toBe(true);
+    expect(closed).toBe(false);
+    ended.resolve();
+    await closing;
 
-    expect(calls[0]?.signal.aborted).toBe(true);
     expect(await failed).toMatchObject({ reason: "aborted" });
     expect(clock.pendingTimers()).toBe(0);
-    await expect(catalog.list("/b", false)).rejects.toMatchObject({ reason: "aborted" });
+    await expect(catalog.list("/b", false)).rejects.toMatchObject({
+      name: "PiRequestError",
+      command: "get_available_models",
+      reason: "aborted",
+    });
     expect(calls).toHaveLength(1);
   });
 });

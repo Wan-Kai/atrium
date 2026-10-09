@@ -195,7 +195,13 @@
 | 偏好：记住上一次的模型和每个模型的档位，新会话用它们，第 1 版文件升级 | `packages/host/src/store/preferences.test.ts`、`load-index.test.ts` | 已覆盖 |
 | 客户端：快照和 `model_updated` 的模型；容器的模型列表（加载中保留旧列表、失败带错误）；换模型和推理强度先在视图里生效，被拒绝时放回、宿主报告过的不动 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` "models" | 已覆盖 |
 | 测试工具：faux 可加模型（名字、推理、图片、档位表）；脚本化的 pi 可把收到的命令写到 stderr；faux 的确定性测试把工具耗时规范化 | `packages/testkit/src/faux/faux.pi.test.ts`（修了 pi 1.1.0 的 `durationMs` 让它时有时无失败的问题） | 已覆盖 |
-
+| 界面：模型按钮（服务商图标、模型名、档位字、拉满时发光，没有模型时"选择模型"）；面板（按服务商分组、基础数据、当前模型打勾、点选即关、刷新、加载中保留旧列表、失败可展开原始报错并重试、没有可用模型的提示）；推理强度框（档位名、"3 / 4"、说明、每档 56px、拖动吸附、点格子跳档、方向键、到头不动、外部改档跟随、聚焦）；⌘⇧I / ⌘⇧E；停止中不能用；空状态显示上一次的模型、选模型时先建会话；被拒绝时说明原因 | `packages/ui/src/chat/model-picker.browser.test.tsx`、`effort-box.browser.test.tsx`、`chat.browser.test.tsx` "model button"；逻辑：`model-choice.test.ts` | 已覆盖 |
+| 点阵：覆盖度、档位越高越密、拉满变彩色、同种子同图案、扫光、深浅色、扫光节奏、种子只生成一次 | `packages/ui/src/design/dots.browser.test.ts` | 已覆盖 |
+| 协议：`list_commands`、`search_files` 及其应答，`fd_missing` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| `/` 命令：pi 契约（1.1.0：extension 命令、pi 自带的 `/llama` `/mcp`、模板、skill 的顺序；模板发出时展开；插话不收 extension 命令）；映射；控制器和会话管理器（草稿先启动 pi）；路由；客户端 | `packages/pi/src/contract/commands.pi.test.ts`、`catalog/commands.test.ts`、`session-controller.test.ts` "commands"、`session-manager.test.ts` "commands"、`router.test.ts`、`atrium-client.test.ts` | 已覆盖 |
+| `@` 文件：找 fd（pi 的目录优先、`PI_CODING_AGENT_DIR`、PATH 上 fd 再 fdfind、跳过不能运行的）；打分、排序、子目录范围、不出工作目录、fd 参数（字面匹配）、解析输出；真实 fd（先一层再递归、隐藏文件、`.ignore`、不含 `.git`、特殊字符、取消和 5 秒期限时停掉 fd）；同一会话的新查询取消旧的；没有 fd 时 `fd_missing` | `packages/pi/src/locate/fd.test.ts`、`packages/host/src/files/fd-query.test.ts`、`file-search.host.test.ts`、`session-manager.test.ts` "file search" | 已覆盖 |
+| 输入框：`/` 列表（过滤、方向键、回车或 Tab 选中、Esc 关闭、只在开头、读不到时提示）；`@` 列表（变成小胶囊、Tab 进入目录、带空格的路径加引号、去掉胶囊、fd 缺失提示、邮箱不算、中文后面的 `@` 算）；长粘贴收成胶囊；↑↓ 历史（到最早时加载更早的）；草稿按会话存取、发送后清掉；展开；"+" 菜单；提示文字；对话区接上命令、文件、历史和草稿，空状态先建会话 | `packages/ui/src/chat/composer.browser.test.tsx`、`chat.browser.test.tsx` "composer"；逻辑：`composer-text.test.ts` | 已覆盖 |
+| 草稿：按会话存取、清空即删、存不下时只留在内存、坏数据当没有；归档的会话、运行中从列表消失的会话清掉草稿，新宿主的第一份列表不清 | `packages/ui/src/state/drafts.test.ts`、`app/workbench.browser.test.tsx` "drafts" | 已覆盖 |
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

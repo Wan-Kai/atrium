@@ -105,6 +105,7 @@ function replayedHistory() {
     model: async () => null,
     setModel: async () => undefined,
     setThinkingLevel: async () => undefined,
+    commands: async () => [],
     stop: () => raw.stop(),
   };
   return { pi, raw, since, initial: page(0) };
@@ -126,6 +127,8 @@ function manualPi() {
   const states: (SessionModel | null)[] = [];
   /** Failures for the next `set_model` or `set_thinking_level`, in order. */
   const settingFailures: unknown[] = [];
+  /** Failures for the next `get_commands`, in order. */
+  const commandFailures: unknown[] = [];
   const abortGate = Promise.withResolvers<void>();
   let abortWaits = false;
   const pi: SessionPi = {
@@ -169,6 +172,11 @@ function manualPi() {
       sent.push(`set_thinking_level ${level}`);
       if (settingFailures.length > 0) throw settingFailures.shift();
     },
+    commands: async () => {
+      sent.push("get_commands");
+      if (commandFailures.length > 0) throw commandFailures.shift();
+      return [{ name: "review", description: null, source: "prompt" as const }];
+    },
     stop: async () => exit.resolve({ code: 0, signal: null, requested: true }),
   };
   return {
@@ -190,6 +198,7 @@ function manualPi() {
     since,
     states,
     settingFailures,
+    commandFailures,
     emit: (...events: unknown[]) => {
       for (const event of events) for (const listener of listeners) listener(event as PiEvent);
     },
@@ -1810,6 +1819,15 @@ describe("createSessionController's model", () => {
     expect(chosen).toStrictEqual([opus]);
   });
 
+  it("switches the model with no one to tell of the choice", async () => {
+    const { pi, states } = manualPi();
+    const { controller } = control(pi, empty, { model: opus });
+    states.push({ ...opus, modelId: "haiku" });
+
+    expect(await controller.setModel({ providerId: "anthropic", modelId: "haiku" })).toStrictEqual({});
+    expect(controller.snapshot().model).toStrictEqual({ ...opus, modelId: "haiku" });
+  });
+
   it("passes pi's refusal on, changing nothing", async () => {
     const { pi, sent, settingFailures } = manualPi();
     const chosen: SessionModel[] = [];
@@ -1895,5 +1913,32 @@ describe("createSessionController's model", () => {
 
     expect(events.find((event) => event.type === "session_snapshot")).toMatchObject({ epoch: 2, model: haiku });
     expect(controller.snapshot().model).toStrictEqual(haiku);
+  });
+});
+
+describe("createSessionController's commands", () => {
+  it("lists pi's slash commands", async () => {
+    const { pi, sent } = manualPi();
+    const { controller } = control(pi);
+
+    expect(await controller.listCommands()).toStrictEqual({
+      commands: [{ name: "review", description: null, source: "prompt" }],
+    });
+    expect(sent).toStrictEqual(["get_commands"]);
+  });
+
+  it("passes pi going away on as pi_unavailable, and refuses once it has exited", async () => {
+    const { pi, commandFailures, crash } = manualPi();
+    const { controller } = control(pi);
+    commandFailures.push(new ReplayRequestError("get_commands", "exited", ""));
+
+    await expect(controller.listCommands()).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    crash();
+    await settle();
+    await expect(controller.listCommands()).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
   });
 });

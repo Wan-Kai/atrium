@@ -131,6 +131,48 @@ describe("queryModels", () => {
     expect(outcome).toMatchObject({ list: { defaultModel: null } });
   });
 
+  it("has no default when pi's model is not listed by both its provider and id", async () => {
+    const { outcome } = await query({
+      rules: {
+        get_available_models: {
+          data: {
+            models: [
+              { ...opus, provider: "other" },
+              { ...opus, id: "other" },
+            ],
+          },
+        },
+        get_state: { data: { model: opus, thinkingLevel: "off", sessionId: "probe" } },
+      },
+    });
+
+    expect(outcome).toMatchObject({ list: { defaultModel: null } });
+  });
+
+  it("has no default when pi reports no model though it lists some", async () => {
+    const { outcome } = await query({
+      rules: {
+        get_available_models: { data: { models: [opus] } },
+        get_state: { data: { thinkingLevel: "off", sessionId: "probe" } },
+      },
+    });
+
+    expect(outcome).toMatchObject({ list: { defaultModel: null } });
+  });
+
+  it("stops pi when aborted while it reads pi's state", async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 200);
+
+    const { outcome, open } = await query(
+      { rules: { get_available_models: { data: { models: [] } }, get_state: { silent: true } } },
+      controller.signal,
+    );
+
+    expect(outcome).toMatchObject({ error: { name: "PiRequestError", command: "get_state", reason: "aborted" } });
+    expect(open.get("pi-process")).toBe(0);
+  });
+
   it("has no default when pi reports no model", async () => {
     const { outcome } = await query({
       rules: {

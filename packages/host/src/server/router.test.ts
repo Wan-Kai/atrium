@@ -63,6 +63,8 @@ function fakeCommands() {
     retryRun: record("retryRun", {}),
     setModel: record("setModel", {}),
     setThinkingLevel: record("setThinkingLevel", {}),
+    listCommands: record("listCommands", { commands: [] }),
+    searchFiles: record("searchFiles", { files: [] }),
   };
   const index: IndexCommands = {
     subscribeIndex: record("subscribeIndex", {}),
@@ -225,6 +227,8 @@ describe("createRouter", () => {
       withTrace({ type: "set_model", requestId: "r10", ...session, providerId: "anthropic", modelId: "haiku" }),
     );
     await route(connection, withTrace({ type: "set_thinking_level", requestId: "r11", ...session, level: "max" }));
+    await route(connection, withTrace({ type: "list_commands", requestId: "r12", ...session }));
+    await route(connection, withTrace({ type: "search_files", requestId: "r13", ...session, query: "src/" }));
 
     expect(calls).toStrictEqual([
       ["steer", "s1", "also"],
@@ -238,6 +242,8 @@ describe("createRouter", () => {
       ["retryRun", "s1"],
       ["setModel", "s1", { providerId: "anthropic", modelId: "haiku" }],
       ["setThinkingLevel", "s1", "max"],
+      ["listCommands", "s1"],
+      ["searchFiles", "s1", "src/"],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
@@ -245,6 +251,8 @@ describe("createRouter", () => {
       ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
       ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
+      { type: "response", requestId: "r13", ok: true, result: { files: [] } },
     ]);
   });
 

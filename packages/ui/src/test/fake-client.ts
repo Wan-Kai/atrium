@@ -1,7 +1,8 @@
-import type { AtriumClient, ConnectionState, IndexView, SessionView } from "@atrium/client";
+import type { AtriumClient, ConnectionState, IndexView, ModelListView, SessionView } from "@atrium/client";
 import {
   IDLE_CONTROL,
   type IndexSnapshotEvent,
+  type ModelRef,
   type Project,
   type SessionSummary,
   type Workspace,
@@ -93,6 +94,8 @@ export interface FakeAnswers {
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
+  /** The list `loadModels` puts in a container's model list; empty and ready when left out. */
+  readonly models?: ModelListView;
 }
 
 /**
@@ -101,7 +104,8 @@ export interface FakeAnswers {
  * @remarks
  * Browser tests cannot run a host (the host needs Node); this fake keeps the parts the UI reads
  * real: the list is a real store that commands change as the host's snapshot would, and every
- * watched session has a real view store. Commands are recorded as short strings.
+ * watched session has a real view store. Commands are recorded as short strings; model commands
+ * apart, in `modelCalls`, as the conversation area asks for models whenever it shows.
  *
  * @sideEffects none until a command; then updates its stores.
  * @param initial - The list to start from.
@@ -110,6 +114,8 @@ export interface FakeAnswers {
  */
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
+  const modelCalls: string[] = [];
+  const modelLists = new Map<string, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
   const index = createStore<IndexView>(() => ({
     ready: true,
@@ -299,9 +305,39 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     loadOlder: async () => undefined,
     loadStep: async () => undefined,
+    models(containerId: string) {
+      let list = modelLists.get(containerId);
+      if (list === undefined) {
+        list = createStore<ModelListView>(() => ({ status: "idle", models: [], defaultModel: null, error: null }));
+        modelLists.set(containerId, list);
+      }
+      return list;
+    },
+    async loadModels(containerId: string, refresh = false) {
+      modelCalls.push(`loadModels ${containerId}${refresh ? " refresh" : ""}`);
+      client
+        .models(containerId)
+        .setState(answers.models ?? { status: "ready", models: [], defaultModel: null, error: null });
+    },
+    async setModel(sessionId: string, model: ModelRef) {
+      modelCalls.push(`setModel ${sessionId} ${model.providerId}/${model.modelId}`);
+      return {};
+    },
+    async listCommands(sessionId: string) {
+      calls.push(`listCommands ${sessionId}`);
+      return { commands: [{ name: "review", description: "Reviews", source: "prompt" }] };
+    },
+    async searchFiles(sessionId: string, query: string) {
+      calls.push(`searchFiles ${sessionId} ${query}`);
+      return { files: [{ path: "src/a.ts", directory: false }] };
+    },
+    async setThinkingLevel(sessionId: string, level: string) {
+      modelCalls.push(`setThinkingLevel ${sessionId} ${level}`);
+      return {};
+    },
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
-  return { client, calls, views, index, connection };
+  return { client, calls, modelCalls, views, index, connection };
 }
 
 /** Project `prj_a` named "atrium". */

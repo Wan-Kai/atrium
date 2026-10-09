@@ -75,3 +75,70 @@ body {
   color: transparent;
   animation: atrium-shimmer 2.2s linear infinite;
 }
+
+/* The model button and the thinking level box (design-language, "点阵", "推理强度框"). Text on the
+   dots gets a shadow of the background so it stays clear. */
+.atrium-effort-box:hover {
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.atrium-effort-box:focus-visible {
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    0 0 0 3px var(--focus-ring);
+}
+
+.atrium-effort-box[data-full] {
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 132, 255, 0.5),
+    0 0 18px -6px rgba(94, 132, 255, 0.6);
+}
+
+.atrium-effort-name,
+.atrium-model-text {
+  text-shadow:
+    0 0 8px var(--surface-1),
+    0 0 2px var(--surface-1);
+}
+
+.atrium-effort-box[data-full] .atrium-effort-name,
+.atrium-model-chip[data-full] .atrium-model-level {
+  background: linear-gradient(90deg, #5e84ff, #3fb6b6 60%, #f08a5d);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: none;
+}
+
+.atrium-effort-box[data-full] .atrium-effort-count {
+  color: var(--accent);
+}
+
+/* The new level's name slides in from the side dragged to. */
+@keyframes atrium-level-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes atrium-level-down {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+}
+
+.atrium-effort-name[data-direction="up"] {
+  animation: atrium-level-up 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15);
+}
+
+.atrium-effort-name[data-direction="down"] {
+  animation: atrium-level-down 0.42s cubic-bezier(0.2, 0.9, 0.25, 1.15);
+}
+
+.atrium-model-chip[data-full] {
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 132, 255, 0.45),
+    0 0 16px -4px rgba(94, 132, 255, 0.5);
+}

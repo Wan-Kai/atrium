@@ -50,6 +50,7 @@ async function place() {
  * @param turnStarts - Where turn starts are read from, if not the default.
  * @param location - Where pi keeps sessions, when a test holds back the first scan.
  * @param models - The model new sessions start with and where choices go, if a test needs them.
+ * @param files - The file search behind `@`, if a test needs it.
  * @returns The manager and what tests look at.
  */
 async function manage(
@@ -58,6 +59,7 @@ async function manage(
   turnStarts?: (sessionId: string) => Promise<TurnStarts>,
   location?: Promise<SessionsLocation | null>,
   models?: Parameters<typeof createSessionManager>[0]["models"],
+  files?: Parameters<typeof createSessionManager>[0]["files"],
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -109,6 +111,7 @@ async function manage(
     newId: () => `id${++next}`,
     ...(turnStarts === undefined ? {} : { turnStarts }),
     ...(models === undefined ? {} : { models }),
+    ...(files === undefined ? {} : { files }),
   });
   cleanups.push(
     () => manager.close(),
@@ -1064,5 +1067,97 @@ describe("SessionManager models", () => {
     await expect(manager.setThinkingLevel("nope", "low")).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
+  });
+});
+
+describe("SessionManager commands", () => {
+  it("lists a restored draft's commands by starting its pi with its id", async () => {
+    const at = await place();
+    const first = await manage({ rules: SESSION_ONE }, at);
+    await first.manager.createSession("client-1", WORKSPACE);
+    await first.manager.close();
+    await first.catalog.close();
+    const listed = {
+      commands: [
+        { name: "review", description: "Reviews", source: "prompt", sourceInfo: {} },
+        { name: "skill:tdd", source: "skill", sourceInfo: {} },
+      ],
+    };
+    const { manager, starts } = await manage(
+      { argvToStderr: true, rules: { ...SESSION_ONE, get_commands: { data: listed } } },
+      at,
+    );
+
+    expect(await manager.listCommands("pi-session-1")).toStrictEqual({
+      commands: [
+        { name: "review", description: "Reviews", source: "prompt" },
+        { name: "skill:tdd", description: null, source: "skill" },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(starts()).toStrictEqual([{ argv: ["--mode", "rpc", "--session-id", "pi-session-1"], cwd: at.workspace }]),
+    );
+  });
+
+  it("refuses the commands of an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+
+    await expect(manager.listCommands("nope")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+});
+
+/** A search that records what it was asked, answering only when told. */
+function recordingSearch() {
+  const asked: { readonly cwd: string; readonly query: string; readonly signal: AbortSignal }[] = [];
+  const answers: ((files: { path: string; directory: boolean }[]) => void)[] = [];
+  return {
+    asked,
+    answers,
+    files: {
+      search: (cwd: string, query: string, signal: AbortSignal) =>
+        new Promise<{ path: string; directory: boolean }[]>((resolve) => {
+          asked.push({ cwd, query, signal });
+          answers.push(resolve);
+        }),
+    },
+  };
+}
+
+describe("SessionManager file search", () => {
+  it("searches the session's directory, calling off the session's previous search", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { files, asked, answers } = recordingSearch();
+    const { manager, catalog } = await manage({ rules: SESSION_ONE }, at, undefined, undefined, undefined, files);
+    await catalog.scan();
+
+    const first = manager.searchFiles("pi-session-1", "se");
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    const second = manager.searchFiles("pi-session-1", "ses");
+    await vi.waitFor(() => expect(asked).toHaveLength(2));
+    answers[1]?.([{ path: "session.ts", directory: false }]);
+    answers[0]?.([]);
+
+    expect(await second).toStrictEqual({ files: [{ path: "session.ts", directory: false }] });
+    expect(await first).toStrictEqual({ files: [] });
+    expect(asked.map(({ cwd, query }) => [cwd, query])).toStrictEqual([
+      [at.workspace, "se"],
+      [at.workspace, "ses"],
+    ]);
+    expect(asked.map(({ signal }) => signal.aborted)).toStrictEqual([true, false]);
+  });
+
+  it("refuses an unknown session, and answers fd_missing with no search", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog } = await manage({ rules: SESSION_ONE }, at);
+    await catalog.scan();
+
+    await expect(manager.searchFiles("nope", "x")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+    await expect(manager.searchFiles("pi-session-1", "x")).rejects.toStrictEqual(new CommandError("fd_missing"));
   });
 });

@@ -101,7 +101,8 @@ async function sessionLines(sessionsDir: string): Promise<JsonObject[]> {
  * apart from machine-specific parts, so a pi upgrade cannot slip past unreviewed.
  *
  * @sideEffects Creates and deletes a temporary directory; runs pi; reads or writes the fixture file.
- * @param options - Scenario name, faux script, whether to keep a session file, pi settings.
+ * @param options - Scenario name, faux script, whether to keep a session file, pi settings, and
+ * files to put in place first.
  * @param body - The scenario's steps and assertions.
  * @returns The recorded records.
  */
@@ -112,6 +113,8 @@ export async function runScenario(
     readonly session?: boolean;
     /** Contents of pi's `settings.json`, such as compaction thresholds. */
     readonly settings?: object;
+    /** Files to write before pi starts, by path relative to the working directory. */
+    readonly files?: Readonly<Record<string, string>>;
   },
   body: (context: ScenarioContext) => Promise<void>,
 ): Promise<FixtureRecord[]> {
@@ -121,6 +124,10 @@ export async function runScenario(
     const launch = await fauxPi(options.script, cwd);
     if (options.settings !== undefined) {
       await writeFile(join(cwd, "pi-agent", "settings.json"), JSON.stringify(options.settings));
+    }
+    for (const [path, content] of Object.entries(options.files ?? {})) {
+      await mkdir(dirname(join(cwd, path)), { recursive: true });
+      await writeFile(join(cwd, path), content);
     }
     const path = present(process.env["PATH"], "PATH");
     const piPath = present(await findPi(path), "pi on PATH");

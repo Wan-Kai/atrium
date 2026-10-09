@@ -100,6 +100,9 @@ const commands: Command[] = [
     modelId: "anthropic/claude-opus-5.5",
   },
   { type: "set_thinking_level", requestId: "r43", traceparent, sessionId: "s1", level: "xhigh" },
+  { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
+  { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
+  { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
 ];
 
 /** A model as the catalog lists it. */
@@ -306,6 +309,7 @@ describe("parseClientMessage", () => {
       "create_session",
       "fetch_step",
       "fetch_transcript",
+      "list_commands",
       "list_models",
       "open_session",
       "ping",
@@ -318,6 +322,7 @@ describe("parseClientMessage", () => {
       "report_client_issue",
       "resume_queue",
       "retry_run",
+      "search_files",
       "select_container",
       "set_model",
       "set_preferences",
@@ -488,6 +493,12 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["models of no container", { type: "list_models", requestId: "r1", traceparent }, "r1"],
+    ["commands of no session", { type: "list_commands", requestId: "r1", traceparent }, "r1"],
+    [
+      "a file search over 1024 characters",
+      { type: "search_files", requestId: "r1", traceparent, sessionId: "s1", query: "q".repeat(1025) },
+      "r1",
+    ],
     ["models of a project", { type: "list_models", requestId: "r1", traceparent, containerId: PROJECT }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
@@ -548,6 +559,22 @@ describe("CommandResult", () => {
     expect(
       CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
     ).toBe(false);
+    const slashCommands = [
+      { name: "review", description: "Reviews the change", source: "prompt" },
+      { name: "skill:tdd", description: null, source: "skill" },
+      { name: "mcp", description: "MCP servers", source: "extension" },
+    ];
+    expect(CommandResult.list_commands.parse({ commands: slashCommands })).toStrictEqual({ commands: slashCommands });
+    expect(
+      CommandResult.list_commands.safeParse({ commands: [{ name: "x", description: null, source: "builtin" }] })
+        .success,
+    ).toBe(false);
+    const files = [
+      { path: "src/sessions/", directory: true },
+      { path: "src/session.ts", directory: false },
+    ];
+    expect(CommandResult.search_files.parse({ files })).toStrictEqual({ files });
+    expect(CommandResult.search_files.safeParse({ files: [{ path: "", directory: false }] }).success).toBe(false);
     expect(CommandResult.set_model.parse({})).toStrictEqual({});
     expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
@@ -723,6 +750,7 @@ describe("HostMessage", () => {
       "queue_item_not_found",
       "interaction_closed",
       "models_unavailable",
+      "fd_missing",
       "pi_rejected",
       "internal_error",
     ]);

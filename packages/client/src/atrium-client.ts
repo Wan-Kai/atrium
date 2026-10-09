@@ -159,6 +159,10 @@ export interface AtriumClient {
   setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets a session's thinking level, at once in its view; put back if the host refuses. */
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** The `/` commands of a session's pi, which starts if it has not. */
+  listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
+  /** Files and directories for `@` in a session's directory. */
+  searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -384,13 +388,15 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     send: () => Promise<R>,
   ): Promise<R> {
     const view = views.get(sessionId);
-    const before = view?.getState().model ?? null;
-    const guessed = before === null ? null : guess(before);
-    if (guessed !== null) view?.setState({ model: guessed });
+    if (view === undefined) return send();
+    const before = view.getState().model;
+    if (before === null) return send();
+    const guessed = guess(before);
+    view.setState({ model: guessed });
     try {
       return await send();
     } catch (error) {
-      if (guessed !== null && view?.getState().model === guessed) view.setState({ model: before });
+      if (view.getState().model === guessed) view.setState({ model: before });
       throw error;
     }
   }
@@ -775,6 +781,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         (current) => ({ ...current, ...model }),
         () => request("set_model", { sessionId, ...model }),
       ),
+    listCommands: (sessionId) => request("list_commands", { sessionId }),
+    searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
     setThinkingLevel: (sessionId, level) =>
       withGuessedModel(
         sessionId,

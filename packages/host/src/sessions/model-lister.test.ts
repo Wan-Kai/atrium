@@ -30,7 +30,20 @@ function lister(answer: () => Promise<ModelList>) {
   return { list, calls };
 }
 
-const LIST: ModelList = { models: [], defaultModel: { providerId: "anthropic", modelId: "haiku" } };
+const LIST: ModelList = {
+  models: [
+    {
+      providerId: "anthropic",
+      modelId: "haiku",
+      name: "Haiku",
+      contextWindow: 200_000,
+      maxOutput: 64_000,
+      supportsImage: true,
+      thinkingLevels: ["off"],
+    },
+  ],
+  defaultModel: { providerId: "anthropic", modelId: "haiku" },
+};
 
 describe("createModelLister", () => {
   it("lists a workspace's models in its directory, and the chats' in the chats' directory", async () => {

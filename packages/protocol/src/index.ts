@@ -42,7 +42,10 @@ export {
   ListModelsCommand,
   SetModelCommand,
   SetThinkingLevelCommand,
+  ListCommandsCommand,
+  SearchFilesCommand,
 } from "./commands";
+export { FileCandidate, SlashCommand } from "./composer";
 export { CatalogModel, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
 export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";

@@ -1107,6 +1107,14 @@ describe("createAtriumClient: models", () => {
     latest().answer("set_thinking_level");
     await succeeding;
     expect(view.getState().model).toStrictEqual({ ...opus, thinkingLevel: "max" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "set_thinking_level"),
+    ).toStrictEqual([
+      { type: "set_thinking_level", requestId: expect.any(String), sessionId: "s1", level: "low" },
+      { type: "set_thinking_level", requestId: expect.any(String), sessionId: "s1", level: "max" },
+    ]);
   });
 
   it("changes nothing at once for a session whose model it does not know", async () => {
@@ -1120,5 +1128,30 @@ describe("createAtriumClient: models", () => {
 
     expect(await setting).toStrictEqual({});
     expect(await switching).toStrictEqual({});
+  });
+});
+
+describe("createAtriumClient: the composer's lists", () => {
+  it("asks for a session's commands and for files, returning what the host lists", async () => {
+    const { client, latest } = await connected();
+    const commands = [{ name: "review", description: null, source: "prompt" }];
+    const files = [{ path: "src/", directory: true }];
+
+    const listing = client.listCommands("s1");
+    latest().answer("list_commands", { commands });
+    const searching = client.searchFiles("s1", "src");
+    latest().answer("search_files", { files });
+
+    expect(await listing).toStrictEqual({ commands });
+    expect(await searching).toStrictEqual({ files });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["list_commands", "search_files"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_commands", sessionId: "s1" },
+      { type: "search_files", sessionId: "s1", query: "src" },
+    ]);
   });
 });

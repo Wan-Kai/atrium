@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseTraceparent } from "./trace";
+import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode } from "./listing";
@@ -253,6 +254,19 @@ export const SetThinkingLevelCommand = z.strictObject({
 });
 export type SetThinkingLevelCommand = z.infer<typeof SetThinkingLevelCommand>;
 
+/** Lists the `/` commands of a session's pi, starting it if it has none (SPEC-0001, "模型与输入框"). */
+export const ListCommandsCommand = z.strictObject({ type: z.literal("list_commands"), ...sessionCommandFields });
+export type ListCommandsCommand = z.infer<typeof ListCommandsCommand>;
+
+/** Finds files and directories for `@` in a session's directory, as pi's terminal does with `fd`. */
+export const SearchFilesCommand = z.strictObject({
+  type: z.literal("search_files"),
+  ...sessionCommandFields,
+  /** What follows `@`; empty lists the directory's own entries first. */
+  query: z.string().max(1024),
+});
+export type SearchFilesCommand = z.infer<typeof SearchFilesCommand>;
+
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
 
@@ -331,6 +345,8 @@ export const Command = z.discriminatedUnion("type", [
   ListModelsCommand,
   SetModelCommand,
   SetThinkingLevelCommand,
+  ListCommandsCommand,
+  SearchFilesCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -394,5 +410,8 @@ export const CommandResult = {
   list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),
   set_model: z.strictObject({}),
   set_thinking_level: z.strictObject({}),
+  list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
+  /** The best matches first, at most 20. */
+  search_files: z.strictObject({ files: z.array(FileCandidate) }),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

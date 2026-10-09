@@ -1,4 +1,4 @@
-import { type PiInspection, PiRequestError, sessionModelOf, toLogEntry } from "@atrium/pi";
+import { type PiInspection, PiRequestError, sessionModelOf, toLogEntry, toSlashCommand } from "@atrium/pi";
 import {
   CHATS,
   CommandError,
@@ -21,6 +21,7 @@ import type { SubscriptionRegistry } from "../sync/subscriptions";
 import type { EntriesPage } from "../transcript/session-transcript";
 import type { WorkspaceService } from "../workspaces/workspace-service";
 import type { TurnStarts } from "../store/turn-starts";
+import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
 import type { CatalogEntry, SessionCatalog } from "./session-catalog";
 import type { SessionCommands } from "./session-commands";
@@ -128,6 +129,8 @@ export function createSessionManager(options: {
   readonly turnStarts?: (sessionId: string) => Promise<TurnStarts>;
   /** The model new sessions start with; without it pi picks its own and choices go nowhere. */
   readonly models?: SessionModels;
+  /** The file search behind `@`; without it every search answers `fd_missing`. */
+  readonly files?: FileSearch;
 }): SessionManager {
   const sessions = new Map<string, Running>();
   /** The clock for controllers, whose timers count as open resources (testing.md, "泄漏"). */
@@ -149,6 +152,8 @@ export function createSessionManager(options: {
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
   let closed = false;
+  /** Each session's `@` search under way, which the next one calls off. */
+  const searches = new Map<string, AbortController>();
   /** Each client's last tab or place change, which the next one waits for. */
   const clientTurns = new Map<string, Promise<unknown>>();
 
@@ -376,6 +381,7 @@ export function createSessionManager(options: {
       setThinkingLevel: async (level) => {
         await traced.request({ type: "set_thinking_level", level });
       },
+      commands: async () => (await traced.request({ type: "get_commands" })).commands.map(toSlashCommand),
       stop: () => pi.stop(),
     };
     return { sessionId, traced, view, entries, model };
@@ -751,6 +757,21 @@ export function createSessionManager(options: {
       controllerOf(sessionId).answerInteraction(interactionId, answer),
     setModel: async (sessionId, model) => (await commanded(sessionId)).controller.setModel(model),
     setThinkingLevel: async (sessionId, level) => (await commanded(sessionId)).controller.setThinkingLevel(level),
+    listCommands: async (sessionId) => (await commanded(sessionId)).controller.listCommands(),
+    async searchFiles(sessionId, query) {
+      await options.catalog.ready();
+      const { cwd } = entryOf(sessionId);
+      if (options.files === undefined) throw new CommandError("fd_missing");
+      // Typing a character makes the last search useless; only the newest one runs on.
+      searches.get(sessionId)?.abort();
+      const search = new AbortController();
+      searches.set(sessionId, search);
+      try {
+        return { files: await options.files.search(cwd, query, search.signal) };
+      } finally {
+        if (searches.get(sessionId) === search) searches.delete(sessionId);
+      }
+    },
     async retryRun(sessionId) {
       await options.catalog.ready();
       entryOf(sessionId);
@@ -782,6 +803,7 @@ export function createSessionManager(options: {
     },
     async close() {
       closed = true;
+      for (const search of searches.values()) search.abort();
       // Controllers first, so restarts under way stop rather than start pi again.
       await Promise.all([...sessions.values()].map(({ controller }) => controller.shutdown()));
       await Promise.all([...running].map((pi) => pi.stop()));

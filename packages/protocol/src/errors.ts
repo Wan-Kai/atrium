@@ -42,6 +42,8 @@ export const ErrorCode = z.enum([
   "interaction_closed",
   /** pi could not list its models, as when no provider has credentials; `params.detail` is pi's own text. */
   "models_unavailable",
+  /** `@` needs `fd`, found neither where pi keeps it nor on the login shell's PATH. */
+  "fd_missing",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */

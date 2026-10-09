@@ -1,7 +1,8 @@
 import type { AtriumClient, IndexView } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { X } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { dropDrafts } from "../state/drafts";
 import { useStore } from "zustand";
 import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-area";
 import { applyAppearance } from "../design/appearance";
@@ -109,6 +110,30 @@ function useTabShortcuts(client: AtriumClient): void {
 }
 
 /**
+ * Drops the drafts of sessions that went away.
+ *
+ * @remarks
+ * An archived session's draft goes at once; a session gone from the list goes once it leaves
+ * a list it was in, within one host run. A new host's first list may not hold every session yet,
+ * so nothing is dropped for being missing from it (SPEC-0001, "模型与输入框").
+ *
+ * @sideEffects Removes drafts from the page's storage.
+ * @param index - The list.
+ */
+function useDraftCleanup(index: IndexView): void {
+  const seen = useRef<{ readonly generation: string; readonly sessions: ReadonlySet<string> } | null>(null);
+  useEffect(() => {
+    if (!index.ready) return;
+    const live = new Set(index.sessions.filter((one) => !one.archived).map((one) => one.sessionId));
+    const before = seen.current?.generation === index.generation ? seen.current.sessions : new Set<string>();
+    const gone = [...before].filter((id) => !live.has(id));
+    const archived = index.sessions.filter((one) => one.archived).map((one) => one.sessionId);
+    dropDrafts([...gone, ...archived]);
+    seen.current = { generation: index.generation, sessions: live };
+  }, [index.ready, index.generation, index.sessions]);
+}
+
+/**
  * The main window once connected: sidebar, tab bar and conversation area.
  *
  * @remarks
@@ -141,6 +166,7 @@ export function Workbench({
   const appearance = index.preferences.appearance;
   const [dismissed, setDismissed] = useState<string | null>(null);
   useDisplayModeShortcut();
+  useDraftCleanup(index);
 
   useEffect(() => {
     setNativeAppearance?.(appearance);

@@ -67,6 +67,7 @@ export function createModelCatalog(options: {
       throw error;
     } finally {
       cancel();
+      // Stryker disable next-line CallExpression: only frees memory; aborting a finished query does nothing.
       aborts.delete(abort);
       entry.load = null;
     }

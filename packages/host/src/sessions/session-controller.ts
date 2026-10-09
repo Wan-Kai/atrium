@@ -15,6 +15,7 @@ import {
   type SessionEvent,
   type SessionModel,
   type SessionSnapshotEvent,
+  type SlashCommand,
   type SteerCommand,
   type ThinkingLevel,
   parseTraceparent,
@@ -59,6 +60,8 @@ export interface SessionPi {
   setModel(model: ModelRef): Promise<void>;
   /** Sends `set_thinking_level`. */
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
+  /** pi's slash commands, from `get_commands`. */
+  commands(): Promise<SlashCommand[]>;
   /** Stops pi; resolves once it has exited. */
   stop(): Promise<unknown>;
 }
@@ -99,6 +102,8 @@ export interface SessionController {
   setModel(model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets how hard pi's model thinks. */
   setThinkingLevel(level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** pi's `/` commands, asked for each time the list opens. */
+  listCommands(): Promise<CommandResult<"list_commands">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
   retryRun(): Promise<CommandResult<"retry_run">>;
   /** Items before one the client has, for scrolling back. */
@@ -1371,6 +1376,14 @@ export function createSessionController(options: {
     async setThinkingLevel(level) {
       await choose(() => pi.setThinkingLevel(level));
       return {};
+    },
+    async listCommands() {
+      refuseWhenExited();
+      try {
+        return { commands: await pi.commands() };
+      } catch (error) {
+        throw promptFailure(error);
+      }
     },
     async retryRun() {
       refuseWhileStopping();

@@ -1,8 +1,12 @@
 import { type AtriumClient, CommandError, ConnectionLostError, type SessionView } from "@atrium/client";
+import type { SessionModel } from "@atrium/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { useDisplayMode } from "../state/display-mode";
 import { Composer } from "./composer";
+import { historyOf } from "./composer-text";
+import { shownModel } from "./model-choice";
+import { ModelPicker } from "./model-picker";
 import { ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { Transcript } from "./transcript";
 
@@ -45,6 +49,78 @@ export function describeSendError(error: unknown): string {
 }
 
 /**
+ * Explains why a model or thinking level could not be set, in Chinese.
+ *
+ * @remarks
+ * As `describeSendError`, but pi refusing names what it refused.
+ *
+ * @sideEffects none
+ * @param error - What the command rejected with.
+ * @returns The sentence to show.
+ */
+export function describeModelError(error: unknown): string {
+  if (error instanceof CommandError && error.code === "pi_rejected") {
+    return `pi 没有接受这个设置：${String(error.params?.["detail"] ?? "")}`;
+  }
+  return describeSendError(error);
+}
+
+/** Runs a command, showing why it failed if it does, in the words `describe` picks. */
+type Act = (command: () => Promise<unknown>, describe?: (error: unknown) => string) => void;
+
+/**
+ * The model button for the session shown, or for the one the next message creates.
+ *
+ * @remarks
+ * SPEC-0001 ("模型与输入框"): the container's model list, which the area asks for when it
+ * shows, is asked for again when the panel opens, and the host answers from its cache; "刷新"
+ * makes pi look again. Before a session exists, the button shows the model a new session
+ * will start on, and choosing creates the session first, as sending does.
+ *
+ * @sideEffects Subscribes to the container's models and to the preferences; asks for the models
+ * when the panel opens; sends model commands through `act`.
+ * @param props - The client, the container, the session's model, whether it is disabled, the
+ * session to change, and how to run a command.
+ * @returns The button.
+ */
+function SessionModelPicker({
+  client,
+  containerId,
+  model,
+  disabled,
+  session,
+  act,
+}: {
+  readonly client: AtriumClient;
+  readonly containerId: string | null;
+  readonly model: SessionModel | null;
+  readonly disabled: boolean;
+  readonly session: () => Promise<string>;
+  readonly act: Act;
+}) {
+  const key = containerId ?? "chats";
+  const list = useStore(client.models(key));
+  const preferences = useStore(client.index, (index) => index.preferences);
+  return (
+    <ModelPicker
+      shown={shownModel(model, preferences, list)}
+      list={list}
+      disabled={disabled}
+      onOpen={() => {
+        // Fire and forget: see above.
+        void client.loadModels(key);
+      }}
+      onRefresh={() => {
+        // Fire and forget: see above.
+        void client.loadModels(key, true);
+      }}
+      onChooseModel={(ref) => act(async () => client.setModel(await session(), ref), describeModelError)}
+      onChooseLevel={(level) => act(async () => client.setThinkingLevel(await session(), level), describeModelError)}
+    />
+  );
+}
+
+/**
  * The transcript and the input box of a session, subscribed to its view.
  *
  * @remarks
@@ -61,19 +137,23 @@ export function describeSendError(error: unknown): string {
  */
 function SessionArea({
   client,
+  containerId,
   sessionId,
   store,
   onSend,
   onSteer,
   act,
+  session,
   notice,
 }: {
   readonly client: AtriumClient;
+  readonly containerId: string | null;
   readonly sessionId: string;
   readonly store: StoreApi<SessionView>;
   readonly onSend: (text: string) => void;
   readonly onSteer: (text: string) => void;
-  readonly act: (command: () => Promise<unknown>) => void;
+  readonly act: Act;
+  readonly session: () => Promise<string>;
   readonly notice: ReactNode;
 }) {
   const view = useStore(store);
@@ -104,12 +184,31 @@ function SessionArea({
       <ControlCards control={view.control} actions={actions} />
       {notice}
       <Composer
+        key={sessionId}
+        draftKey={sessionId}
+        history={historyOf(view.items)}
+        onOlderHistory={() => {
+          // Fire and forget: a failed page leaves ↑ where it is.
+          if (view.hasOlder) client.loadOlder(sessionId).catch(() => undefined);
+        }}
+        onListCommands={async () => (await client.listCommands(await session())).commands}
+        onSearchFiles={async (query) => (await client.searchFiles(await session(), query)).files}
         onSend={onSend}
         onSteer={onSteer}
         onStop={() => act(() => client.stop(sessionId))}
         running={running}
         stopping={view.control.stopping}
         above={<ControlTrack control={view.control} running={running} actions={actions} />}
+        picker={
+          <SessionModelPicker
+            client={client}
+            containerId={containerId}
+            model={view.model}
+            disabled={view.control.stopping}
+            session={session}
+            act={act}
+          />
+        }
       />
     </>
   );
@@ -180,6 +279,12 @@ export function ConversationArea({
   // The session being created in each container, shared by every send there until it exists;
   // only read in event handlers.
   const creating = useRef(new Map<string, Promise<string>>());
+
+  useEffect(() => {
+    // Fire and forget: a failed list shows in the model panel. Asked for as the container shows,
+    // as Paseo prefetches it, so the panel opens on a ready list (SPEC-0001, "模型与输入框").
+    void client.loadModels(containerId ?? "chats");
+  }, [client, containerId]);
 
   useEffect(() => {
     let current = true;
@@ -258,17 +363,21 @@ export function ConversationArea({
    * Runs a command on the session, showing why it failed if it does.
    *
    * @remarks
-   * For the queue, stop, dialogs and "重试", which need no session to be created first.
+   * For the queue, stop, dialogs, "重试" and the model.
    *
    * @sideEffects Sends the command; updates component state.
    * @param command - The command.
+   * @param describe - How to explain its failure.
    */
-  async function attempt(command: () => Promise<unknown>): Promise<void> {
+  async function attempt(
+    command: () => Promise<unknown>,
+    describe: (error: unknown) => string = describeSendError,
+  ): Promise<void> {
     setFailure(null);
     try {
       await command();
     } catch (error) {
-      setFailure(describeSendError(error));
+      setFailure(describe(error));
     }
   }
 
@@ -306,10 +415,11 @@ export function ConversationArea({
    *
    * @sideEffects Sends the command.
    * @param command - The command.
+   * @param describe - How to explain its failure, if not as a send.
    */
-  const act = (command: () => Promise<unknown>): void => {
+  const act: Act = (command, describe) => {
     // Fire and forget: see above.
-    void attempt(command);
+    void attempt(command, describe);
   };
 
   const notice =
@@ -336,16 +446,34 @@ export function ConversationArea({
             </p>
           </div>
           {notice}
-          <Composer onSend={onSend} />
+          <Composer
+            key={containerId ?? "chats"}
+            draftKey={`new:${containerId ?? "chats"}`}
+            onListCommands={async () => (await client.listCommands(await target())).commands}
+            onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
+            onSend={onSend}
+            picker={
+              <SessionModelPicker
+                client={client}
+                containerId={containerId}
+                model={null}
+                disabled={false}
+                session={target}
+                act={act}
+              />
+            }
+          />
         </>
       ) : (
         <SessionArea
           client={client}
+          containerId={containerId}
           sessionId={sessionId}
           store={store}
           onSend={onSend}
           onSteer={onSteer}
           act={act}
+          session={target}
           notice={notice}
         />
       )}

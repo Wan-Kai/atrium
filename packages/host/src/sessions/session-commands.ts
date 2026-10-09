@@ -56,6 +56,10 @@ export interface SessionCommands {
   setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets how hard a session's model thinks, starting its pi first if it has none. */
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** The `/` commands of a session's pi, starting its pi first if it has none (SPEC-0001, "模型与输入框"). */
+  listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
+  /** Files and directories for `@` in a session's directory; a newer search calls off an older one. */
+  searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
   /** The error card's "重试", starting the session's pi first if it has none. */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** Items of a session's transcript before one the client has. */

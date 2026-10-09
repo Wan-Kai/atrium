@@ -128,6 +128,10 @@ export function createRouter(options: RouterOptions): Route {
         });
       case "set_thinking_level":
         return options.sessions.setThinkingLevel(command.sessionId, command.level);
+      case "list_commands":
+        return options.sessions.listCommands(command.sessionId);
+      case "search_files":
+        return options.sessions.searchFiles(command.sessionId, command.query);
       case "list_models":
         return options.index.listModels(command.containerId, command.refresh ?? false);
     }

@@ -2,6 +2,7 @@ import {
   type PiInspection,
   createModelCatalog,
   createSessionFileReader,
+  findFd,
   inspectPi,
   queryModels,
   sessionsLocation,
@@ -24,6 +25,7 @@ import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
 import { startWsServer } from "./server/ws-server";
 import { createIndexCommands } from "./sessions/index-commands";
+import { createFileSearch } from "./files/file-search";
 import { createLayouts } from "./sessions/layouts";
 import { createModelLister } from "./sessions/model-lister";
 import { createSessionCatalog } from "./sessions/session-catalog";
@@ -209,6 +211,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     tracer: tracing.tracer,
     logger,
     newId: () => randomUUID(),
+    files: createFileSearch({
+      findFd: async () => {
+        const found = await toolsFound.promise;
+        return found === null ? null : findFd(found.env);
+      },
+      clock,
+      resources,
+    }),
     models: {
       preferred: () => preferences.preferred(),
       chosen: (model) => {

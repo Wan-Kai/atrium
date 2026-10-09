@@ -1,12 +1,14 @@
 import type { SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
 import { type TranscriptItem, type Turn, IDLE_CONTROL } from "@atrium/protocol";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { loadDraft } from "../state/drafts";
 import { fakeClient } from "../test/fake-client";
-import { ConversationArea, describeSendError } from "./conversation-area";
+import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
 import { UserBubble } from "./messages";
 import { ClockContext, type UiClock } from "../state/clock";
@@ -494,3 +496,217 @@ describe("ConversationArea", () => {
     expect(describeSendError(error)).toBe(text);
   });
 });
+
+/**
+ * Lays the area out as the window does, the input box at the bottom.
+ *
+ * @remarks
+ * The model panel opens upward, as it does above the input box.
+ *
+ * @sideEffects none
+ * @param area - The area.
+ * @returns The area in a full-height column.
+ */
+function tall(area: ReactNode) {
+  return <div style={{ display: "flex", flexDirection: "column", height: 760 }}>{area}</div>;
+}
+
+describe("ConversationArea's model button", () => {
+  const OPUS = {
+    providerId: "anthropic",
+    modelId: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    contextWindow: 1_000_000,
+    maxOutput: 128_000,
+    supportsImage: true,
+    thinkingLevels: ["off", "low", "medium", "high"] as const,
+  };
+  const HAIKU = { ...OPUS, modelId: "haiku", name: "Haiku", thinkingLevels: ["off"] as const };
+  const LIST = {
+    status: "ready" as const,
+    models: [
+      { ...OPUS, thinkingLevels: [...OPUS.thinkingLevels] },
+      { ...HAIKU, thinkingLevels: [...HAIKU.thinkingLevels] },
+    ],
+    defaultModel: { providerId: "anthropic", modelId: "haiku" },
+    error: null,
+  };
+
+  it("asks for the container's models, and shows the session's model and level", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="wks_000000000000000a" sessionId="s1" create={noCreate} />),
+    );
+    client
+      .session("s1")
+      ?.setState({ model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" } });
+
+    const chip = screen.getByRole("button", { name: /模型与推理强度/ });
+    await expect.element(chip).toHaveTextContent("Claude Opus 5.5高");
+    await expect.element(chip).toHaveAttribute("data-full");
+    expect(modelCalls).toStrictEqual(["loadModels wks_000000000000000a"]);
+  });
+
+  it("switches the session's model and thinking level", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client
+      .session("s1")
+      ?.setState({ model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "low" } });
+
+    await userEvent.click(screen.getByRole("button", { name: /模型与推理强度/ }));
+    (screen.getByRole("slider").element() as HTMLElement).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
+
+    await vi.waitFor(() =>
+      expect(modelCalls).toStrictEqual([
+        "loadModels chats",
+        "loadModels chats",
+        "setThinkingLevel s1 medium",
+        "setModel s1 anthropic/haiku",
+      ]),
+    );
+  });
+
+  it("shows the model chosen last before a session exists, and creates the session to switch it", async () => {
+    const { client, calls, modelCalls } = fakeClient(
+      {
+        preferences: {
+          appearance: "system",
+          displayMode: "summary",
+          lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
+          thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
+        },
+      },
+      { models: LIST },
+    );
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    const chip = screen.getByRole("button", { name: /模型与推理强度/ });
+    await expect.element(chip).toHaveTextContent("Claude Opus 5.5中");
+
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setModel new1 anthropic/haiku"));
+    expect(calls).toContain("createChat");
+  });
+
+  it("cannot change the model while a stop waits for pi", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+
+    client.session("s1")?.setState({
+      run: { runId: "r1", startedAt: 0 },
+      control: { ...IDLE_CONTROL, stopping: true },
+    });
+
+    await expect.element(screen.getByRole("button", { name: /模型与推理强度/ })).toBeDisabled();
+  });
+
+  it("explains a model switch pi refused", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    client.setModel = () => Promise.reject(new CommandError("pi_rejected", { detail: "Model not found" }));
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /模型与推理强度/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 没有接受这个设置：Model not found");
+  });
+});
+
+describe("describeModelError", () => {
+  it("names what pi refused, and words other failures as a send", () => {
+    expect(describeModelError(new CommandError("pi_rejected", { detail: "Model not found: x/y" }))).toBe(
+      "pi 没有接受这个设置：Model not found: x/y",
+    );
+    expect(describeModelError(new CommandError("session_stopping"))).toBe(
+      describeSendError(new CommandError("session_stopping")),
+    );
+  });
+});
+
+describe("ConversationArea's composer", () => {
+  it("lists the session's commands and files, and keeps the draft per session", async () => {
+    localStorage.clear();
+    const { client, calls } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "/");
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+    await userEvent.keyboard("{Enter}看看 @a");
+    await expect.element(screen.getByRole("option", { name: "src/a.ts" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+
+    expect(calls).toContain("listCommands s1");
+    expect(calls).toContain("searchFiles s1 a");
+    await vi.waitFor(() =>
+      expect(loadDraft("s1")).toStrictEqual({
+        text: "/review 看看 ",
+        pastes: [],
+        files: ["src/a.ts"],
+      }),
+    );
+    localStorage.clear();
+  });
+
+  it("goes back through the session's own messages with ↑", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({
+      items: [
+        { ...turnOf("t1", "第一问"), kind: "turn" },
+        { ...turnOf("t2", "第二问"), kind: "turn" },
+      ],
+    });
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "{ArrowUp}");
+
+    await expect.element(box).toHaveValue("第二问");
+  });
+
+  it("creates the session first when / is typed before there is one", async () => {
+    const { client, calls } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["createChat", "listCommands new1"]);
+  });
+});
+
+/** A finished turn opened by `text`. */
+function turnOf(id: string, text: string): Turn {
+  return {
+    kind: "turn",
+    id,
+    user: { text, images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    steps: [],
+    outcome: "done",
+    error: null,
+    startedAt: 0,
+    durationMs: 1,
+    usage: null,
+    changes: [],
+  };
+}
