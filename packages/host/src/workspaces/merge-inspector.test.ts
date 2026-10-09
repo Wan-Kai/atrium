@@ -240,6 +240,40 @@ describe("MergeInspector.inspect", () => {
     expect(await inspector().inspect(await target(repo, dir))).toMatchObject({ verdict: "merged", reason: null });
   });
 
+  it("calls an external worktree that applied a patch with git am and was merged by fast-forward merged", async () => {
+    const repo = await scene();
+    const topic = await repo.worktree("topic");
+    await repo.commit(topic, "a.txt", "a");
+    const patch = join(repo.repo, "..", "a.patch");
+    await writeFile(patch, await repo.git(topic, "format-patch", "-1", "--stdout"));
+    const dir = await repo.worktree("external");
+    await repo.git(dir, "am", "--quiet", patch);
+    await repo.git(repo.repo, "merge", "--quiet", "--ff-only", "external");
+    await pushMain(repo);
+
+    expect(await inspector().inspect(await target(repo, dir))).toMatchObject({ verdict: "merged", reason: null });
+  });
+
+  it.each([
+    [
+      "git pull with options from a named branch",
+      ["pull", "--quiet", "--no-rebase", "--no-ff", "--no-edit", ".", "topic"],
+    ],
+    // Options would follow `pull` in the reflog; set through config, the entry reads `pull: …`.
+    ["a bare git pull from its upstream", ["-c", "pull.rebase=false", "-c", "merge.ff=false", "pull"]],
+  ])("calls an external worktree where %s made a merge commit, merged by fast-forward, merged", async (_case, pull) => {
+    const repo = await scene();
+    const topic = await repo.worktree("topic");
+    await repo.commit(topic, "a.txt", "a");
+    const dir = await repo.worktree("external");
+    await repo.git(dir, "branch", "--quiet", "--set-upstream-to", "topic");
+    await repo.git(dir, ...pull);
+    await repo.git(repo.repo, "merge", "--quiet", "--ff-only", "external");
+    await pushMain(repo);
+
+    expect(await inspector().inspect(await target(repo, dir))).toMatchObject({ verdict: "merged", reason: null });
+  });
+
   it("calls an external worktree unchanged after only fast-forwarding to the main branch", async () => {
     const repo = await scene();
     const dir = await repo.worktree("external");
