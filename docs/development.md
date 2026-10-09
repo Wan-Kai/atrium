@@ -49,5 +49,15 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm fixtures:record` | 用本机 pi 重录全部 pi 夹具，删掉其他版本的夹具目录；提交前审查 diff（testing.md"pi 夹具"） |
 | `pnpm pi:try "<提示词>"` | 用宿主的组件直接驱动真实 pi：读登录 shell 环境、找 pi、发一条提示词，在终端里流式打出回复，结束时给出 trace id（日志在 `~/.atrium/dev-logs`）。`--cwd <目录>` 指定工作目录，`--keep-session` 保留会话文件，`--inherit-env` 跳过登录 shell，`--` 之后的参数原样交给 pi。会真的调用模型 |
 | `pnpm check` | 格式、代码检查（含 JSDoc）、类型检查、knip |
+| `pnpm mutation:nightly:install` | 装上每晚的全量变异测试（见下文）；加 `uninstall` 卸掉 |
 
 测试命令见 [testing.md · 命令](architecture/testing.md#命令)。
+
+## 夜间变异测试
+
+全量变异测试每晚 02:00 在 `main` 上跑一次（2026-10-09 定，规则见 [testing.md · 让每个测试都有效](architecture/testing.md#让每个测试都有效)）。
+
+- 装上：在仓库里运行 `pnpm mutation:nightly:install`。它写 `~/Library/LaunchAgents/com.atrium.nightly-mutation.plist` 并交给 launchd，记下当时 `node` 所在的目录；换了 Node 版本要重新装一次。`pnpm mutation:nightly:install uninstall` 卸掉。
+- 跑什么：launchd 运行 `main` 上的 `scripts/nightly-mutation.sh`，不管当前检出的是哪个分支。它在单独的 worktree（`~/.cache/atrium-mutation`）里检出 `main` 的最新提交，装依赖，用 `caffeinate` 保持唤醒跑 `pnpm test:mutation --force`。`main` 没变就不跑；上一次还没跑完就跳过。
+- 看结果：`~/Library/Logs/Atrium/mutation/latest.txt` 写着提交、起止时间、分数，以及存活和超时的变异；当晚的完整输出在同目录的 `<日期>.log`。跑完会弹一条系统通知。早上先看它，存活的当天处理，超时要说得清为什么会卡住。
+- Mac 在 02:00 睡着时，launchd 在下次唤醒后补跑。想让它准点跑，可以自己用 `sudo pmset repeat wakeorpoweron MTWRFSU 01:55:00` 让 Mac 定时唤醒（需要管理员权限，脚本不替你设）。
