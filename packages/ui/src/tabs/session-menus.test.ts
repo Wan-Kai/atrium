@@ -1,5 +1,5 @@
 import type { AtriumClient, SessionView } from "@atrium/client";
-import type { TranscriptItem } from "@atrium/protocol";
+import { type TranscriptItem, IDLE_CONTROL } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import { wholeTranscript } from "./session-menus";
@@ -19,6 +19,7 @@ function clientWith(shown: TranscriptItem[], pages: (TranscriptItem[] | null)[])
   const store: StoreApi<SessionView> = createStore<SessionView>(() => ({
     sessionId: "s1",
     status: "ready",
+    control: IDLE_CONTROL,
     epoch: 1,
     seq: 0,
     items: shown,

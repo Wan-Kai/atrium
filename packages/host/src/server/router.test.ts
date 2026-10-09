@@ -49,6 +49,18 @@ function fakeCommands() {
       calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
       return { items: [], hasOlder: true };
     },
+    steer: async (command) => {
+      calls.push(["steer", command.sessionId, command.text]);
+      return { disposition: "queued" };
+    },
+    stop: record("stop", { confirmed: false }),
+    resumeQueue: record("resumeQueue", {}),
+    clearQueue: record("clearQueue", {}),
+    updateQueued: record("updateQueued", {}),
+    removeQueued: record("removeQueued", {}),
+    steerQueued: record("steerQueued", { disposition: "handled" }),
+    answerInteraction: record("answerInteraction", {}),
+    retryRun: record("retryRun", {}),
   };
   const index: IndexCommands = {
     subscribeIndex: record("subscribeIndex", {}),
@@ -180,6 +192,49 @@ describe("createRouter", () => {
       { type: "response", requestId: "r6", ok: true, result: {} },
       { type: "response", requestId: "r7", ok: true, result: { sessionId: "s3" } },
       ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+    ]);
+  });
+
+  it("hands run control commands to the session layer and returns their results", async () => {
+    const { route, connection, sent, calls } = setUp();
+    const session = { sessionId: "s1" };
+
+    await route(connection, withTrace({ type: "steer", requestId: "r1", ...session, text: "also" }));
+    await route(connection, withTrace({ type: "stop", requestId: "r2", ...session }));
+    await route(connection, withTrace({ type: "resume_queue", requestId: "r3", ...session }));
+    await route(connection, withTrace({ type: "clear_queue", requestId: "r4", ...session }));
+    await route(connection, withTrace({ type: "update_queued", requestId: "r5", ...session, itemId: "q1", text: "t" }));
+    await route(connection, withTrace({ type: "remove_queued", requestId: "r6", ...session, itemId: "q2" }));
+    await route(connection, withTrace({ type: "steer_queued", requestId: "r7", ...session, itemId: "q3" }));
+    await route(
+      connection,
+      withTrace({
+        type: "answer_interaction",
+        requestId: "r8",
+        ...session,
+        interactionId: "d1",
+        answer: { value: "a" },
+      }),
+    );
+    await route(connection, withTrace({ type: "retry_run", requestId: "r9", ...session }));
+
+    expect(calls).toStrictEqual([
+      ["steer", "s1", "also"],
+      ["stop", "s1"],
+      ["resumeQueue", "s1"],
+      ["clearQueue", "s1"],
+      ["updateQueued", "s1", "q1", "t"],
+      ["removeQueued", "s1", "q2"],
+      ["steerQueued", "s1", "q3"],
+      ["answerInteraction", "s1", "d1", { value: "a" }],
+      ["retryRun", "s1"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
+      { type: "response", requestId: "r2", ok: true, result: { confirmed: false } },
+      ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
+      ...["r8", "r9"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
     ]);
   });
 

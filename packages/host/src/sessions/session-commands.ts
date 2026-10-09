@@ -3,7 +3,9 @@ import type {
   ContainerId,
   FetchStepCommand,
   FetchTranscriptCommand,
+  InteractionAnswer,
   PromptCommand,
+  SteerCommand,
 } from "@atrium/protocol";
 
 /**
@@ -34,6 +36,22 @@ export interface SessionCommands {
   subscribe(connectionId: string, sessionIds: readonly string[]): Promise<CommandResult<"subscribe_sessions">>;
   /** Sends a message to a session, starting a restored draft's pi first. */
   prompt(command: PromptCommand): Promise<CommandResult<"prompt">>;
+  /** Sends a steer, or a message when the session is idle, starting a restored draft's pi first. */
+  steer(command: SteerCommand): Promise<CommandResult<"steer">>;
+  /** Stops a session's run (SPEC-0001, "运行控制"). */
+  stop(sessionId: string): Promise<CommandResult<"stop">>;
+  resumeQueue(sessionId: string): Promise<CommandResult<"resume_queue">>;
+  clearQueue(sessionId: string): Promise<CommandResult<"clear_queue">>;
+  updateQueued(sessionId: string, itemId: string, text: string): Promise<CommandResult<"update_queued">>;
+  removeQueued(sessionId: string, itemId: string): Promise<CommandResult<"remove_queued">>;
+  steerQueued(sessionId: string, itemId: string): Promise<CommandResult<"steer_queued">>;
+  answerInteraction(
+    sessionId: string,
+    interactionId: string,
+    answer: InteractionAnswer,
+  ): Promise<CommandResult<"answer_interaction">>;
+  /** The error card's "重试", starting the session's pi first if it has none. */
+  retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** Items of a session's transcript before one the client has. */
   fetchTranscript(command: FetchTranscriptCommand): Promise<CommandResult<"fetch_transcript">>;
   /** One step of a session's transcript, whole. */

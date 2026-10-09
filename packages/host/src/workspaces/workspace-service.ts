@@ -182,7 +182,9 @@ export function createWorkspaceService(options: {
     const run = (...args: string[]) =>
       git === null ? Promise.resolve(null) : git.run(args, { cwd: project.path, signal });
     const top = await run("rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir");
-    const [topLevel, common] = top?.code === 0 ? top.stdout.trim().split("\n") : [];
+    // One path a line; only the line ends go, as a path may end in a space.
+    // Stryker disable next-line ArrayDeclaration: a made-up top level is not the project's path either, so nothing is listed.
+    const [topLevel, common] = top?.code === 0 ? top.stdout.split("\n") : [];
     /**
      * The project's workspace records, as they are now.
      *
@@ -194,27 +196,37 @@ export function createWorkspaceService(options: {
      */
     const records = () => options.projects.workspaces().filter((workspace) => workspace.projectId === project.id);
     const listing = topLevel === project.path ? await run("worktree", "list", "--porcelain") : null;
-    if (gitProjects.has(project.id) && (common === undefined || listing?.code !== 0)) {
+    // Without the common directory git did not answer, and nothing was listed either.
+    if (gitProjects.has(project.id) && listing?.code !== 0) {
       // A repository git could not read just now (a drive away, a lock held): keep what was known.
       options.logger.info(
-        { projectId: project.id, code: listing?.code ?? top?.code ?? null },
+        // Stryker disable next-line OptionalChaining: `top` is only null without git, and without git no project is ever in `gitProjects`.
+        { projectId: project.id, code: (listing ?? top)?.code ?? null },
         "workspace scan skipped",
       );
       return;
     }
-    if (topLevel !== project.path || common === undefined || listing?.code !== 0) {
+    // Worktrees are only listed for the top of a repository, so this is "not a repository's top,
+    // or one git cannot read".
+    // Stryker disable next-line BlockStatement: a project in `gitProjects` has returned above, and no other project has ever had a workspace with results, so there is nothing to clear.
+    if (listing?.code !== 0) {
+      // Stryker disable next-line CallExpression: a project in `gitProjects` has returned above.
       gitProjects.delete(project.id);
       for (const record of records())
+        // Stryker disable next-line ObjectLiteral,CallExpression: the list shows a workspace with no results, or none recorded, the same way.
         scanned.set(record.id, { branch: null, head: null, createdAt: null, merge: null });
     } else {
       gitProjects.add(project.id);
       const listed = parseWorktreeList(listing.stdout).filter((worktree) => !worktree.bare);
-      // Every worktree but the project's own directory, whichever git lists first.
+      // Only worktrees without a record are recorded; the project's own directory, whichever git
+      // lists first, already has its record as the local workspace.
       await options.projects.recordWorktrees(
         project.id,
-        listed.filter((worktree) => worktree.dir !== project.path).map((worktree) => worktree.dir),
+        listed.map((worktree) => worktree.dir),
       );
-      const created = await creationTimes(common);
+      // git prints the common directory with the top level, so it is known whenever worktrees were listed.
+      // Stryker disable next-line StringLiteral: never used, as the line above says.
+      const created = await creationTimes(common ?? "");
       const mainRef = await mainBranchRef(project, run);
       const inspector = await options.inspector;
       await Promise.all(
@@ -229,6 +241,7 @@ export function createWorkspaceService(options: {
                     dir: record.dir,
                     present: worktree !== undefined && !worktree.prunable && (await isDirectory(record.dir)),
                     branch: worktree?.branch ?? null,
+                    // Stryker disable next-line StringLiteral: an unlisted worktree is not present, and the inspector calls one that is not present removed without reading its head.
                     head: worktree?.head ?? "",
                     baseCommit: record.baseCommit,
                     mainRef,
@@ -285,20 +298,20 @@ export function createWorkspaceService(options: {
        *
        * @sideEffects Runs git.
        * @param args - git's arguments.
-       * @param timeoutMs - The deadline, if not the default.
+       * @param deadline - The deadline, if not the default.
        * @returns git's result.
        */
-      const run = (args: string[], timeoutMs?: number) =>
-        git.run(args, { cwd: project.path, signal: stop.signal, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+      const run = (args: string[], deadline: { readonly timeoutMs?: number } = {}) =>
+        git.run(args, { cwd: project.path, signal: stop.signal, ...deadline });
       try {
         // A folder inside another repository, or one whose repository git cannot read just now,
         // would fetch the repository around it. Only the line end goes: a name may end in a space.
         const top = await run(["rev-parse", "--path-format=absolute", "--show-toplevel"]);
-        // Stryker disable next-line Regex: git prints one line here, so its first line end is its last.
+        // Stryker disable next-line Regex,ConditionalExpression: git prints one line here, so its first line end is its last; when it fails it prints nothing, which is not the project's path either.
         if (top.code !== 0 || top.stdout.replace(/\n$/, "") !== project.path) continue;
         const remote = await run(["remote", "get-url", "origin"]);
         if (remote.code !== 0) continue;
-        const fetched = await run(["fetch", "--quiet", "--prune", "origin"], FETCH_TIMEOUT_MS);
+        const fetched = await run(["fetch", "--quiet", "--prune", "origin"], { timeoutMs: FETCH_TIMEOUT_MS });
         if (fetched.code !== 0) {
           options.logger.info({ projectId: project.id, code: fetched.code }, "fetch failed");
           continue;
@@ -435,6 +448,7 @@ export function createWorkspaceService(options: {
  * @returns The branch and short head.
  */
 function branchOf(worktree: ListedWorktree | undefined): Pick<Scanned, "branch" | "head"> {
+  // Stryker disable next-line ObjectLiteral: the list shows a missing branch and head as `null` too.
   if (worktree === undefined) return { branch: null, head: null };
   return { branch: worktree.branch, head: worktree.branch === null ? worktree.head.slice(0, 7) : null };
 }
@@ -454,10 +468,16 @@ function branchOf(worktree: ListedWorktree | undefined): Pick<Scanned, "branch" 
 async function creationTimes(common: string): Promise<Map<string, number>> {
   const times = new Map<string, number>();
   const admin = join(common, "worktrees");
+  // Stryker disable next-line ArrayDeclaration: when the folder cannot be read, no entry under it can, so any other name is skipped as unreadable.
   for (const name of await readdir(admin).catch(() => [])) {
-    const gitdir = await readFile(join(admin, name, "gitdir"), "utf8").catch(() => null);
-    const info = await stat(join(admin, name)).catch(() => null);
-    if (gitdir !== null && info !== null) times.set(dirname(gitdir.trim()), Math.floor(info.birthtimeMs));
+    try {
+      const gitdir = await readFile(join(admin, name, "gitdir"), "utf8");
+      const info = await stat(join(admin, name));
+      // Stryker disable next-line MethodExpression: the line end is in the last part of the path, which `dirname` drops.
+      times.set(dirname(gitdir.trim()), Math.floor(info.birthtimeMs));
+    } catch {
+      // Not a worktree's entry, or one being removed: skipped.
+    }
   }
   return times;
 }

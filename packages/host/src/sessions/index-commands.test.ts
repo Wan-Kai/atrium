@@ -26,7 +26,8 @@ import { createSessionManager } from "./session-manager";
  * so they are assembled as `main.ts` does.
  *
  * @sideEffects Creates temporary files; everything is closed when the test ends.
- * @returns The commands, the services and the events a connection received.
+ * @returns The commands, the services, the events a connection received and how often the
+ * session manager reported a change.
  */
 async function assemble() {
   const temp = await createTempDir("index-commands");
@@ -73,6 +74,7 @@ async function assemble() {
     resources: recording.resources,
   });
   onTestFinished(() => feed.close());
+  const sessionChanges = { count: 0 };
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
     tools: Promise.resolve({
@@ -86,7 +88,7 @@ async function assemble() {
       dirOf: (id) => projects.workspaces().find((record) => record.id === id)?.dir,
       refresh: () => undefined,
     },
-    onChange: () => undefined,
+    onChange: () => (sessionChanges.count += 1),
     clock: systemClock,
     resources: recording.resources,
     tracer: recording.tracer,
@@ -102,15 +104,17 @@ async function assemble() {
     preferences,
     feed,
   });
-  return { commands, projects, sessions, layouts, received, root };
+  return { commands, projects, sessions, layouts, received, root, sessionChanges };
 }
 
 describe("IndexCommands.removeProject", () => {
-  it("stops the pi of every session in the project and drops its tabs", async () => {
+  it("stops the pi of every session in the project and drops its tabs, leaving other projects", async () => {
     const { commands, projects, sessions, layouts, received, root } = await assemble();
     const dir = join(root, "app");
     await mkdir(dir);
+    await mkdir(join(root, "other"));
     const { projectId } = await commands.addProject(dir);
+    const { projectId: otherId } = await commands.addProject(join(root, "other"));
     const workspaceId = present(projects.workspaces()[0], "the local workspace").id;
     const { sessionId } = await sessions.createSession("client-1", workspaceId);
     await sessions.subscribe("c1", [sessionId]);
@@ -119,22 +123,37 @@ describe("IndexCommands.removeProject", () => {
 
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
     expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
-    expect(projects.projects()).toStrictEqual([]);
+    expect(projects.projects().map((project) => project.id)).toStrictEqual([otherId]);
   });
 });
 
 describe("IndexCommands.removeProject of an unknown project", () => {
-  it("refuses it and stops nothing", async () => {
-    const { commands, projects, sessions, received, root } = await assemble();
+  it("refuses it, and stops and changes nothing", async () => {
+    const { commands, projects, sessions, received, root, sessionChanges } = await assemble();
     const dir = join(root, "app");
     await mkdir(dir);
     await commands.addProject(dir);
     const { sessionId } = await sessions.createSession("client-1", present(projects.workspaces()[0], "workspace").id);
     await sessions.subscribe("c1", [sessionId]);
+    const changes = sessionChanges.count;
 
     await expect(commands.removeProject("prj_ffffffffffffffff")).rejects.toStrictEqual(
       new CommandError("project_not_found", { projectId: "prj_ffffffffffffffff" }),
     );
     expect(received.map((event) => event.type)).toStrictEqual(["session_snapshot"]);
+    expect(sessionChanges.count).toBe(changes);
+  });
+});
+
+describe("IndexCommands.renameProject", () => {
+  it("renames the project", async () => {
+    const { commands, projects, root } = await assemble();
+    const dir = join(root, "app");
+    await mkdir(dir);
+    const { projectId } = await commands.addProject(dir);
+
+    await expect(commands.renameProject(projectId, "应用")).resolves.toStrictEqual({});
+
+    expect(projects.projects().map((project) => project.name)).toStrictEqual(["应用"]);
   });
 });

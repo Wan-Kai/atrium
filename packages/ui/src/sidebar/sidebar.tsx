@@ -18,7 +18,7 @@ import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { useClock } from "../state/clock";
 import { isDone, isPending, mergeLabels, placeOf, sessionTitle, sortWorkspaces, timeAgo, workspaceName } from "./names";
 import { RenameField } from "./rename-field";
-import { StatusIcon } from "./status-icon";
+import { type RowStatus, StatusIcon, sessionStatus, topStatus } from "./status-icon";
 
 /** How many chats the sidebar lists; the rest are in the chats' history (SPEC-0001, "对话"). */
 const RECENT_CHATS = 5;
@@ -93,7 +93,7 @@ function readCollapsed(): ReadonlySet<string> {
  * The sidebar: new chat, projects with their workspaces, search, chats, and the appearance switch.
  *
  * @remarks
- * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.7. Projects can be collapsed; a collapsed
+ * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.9. Projects can be collapsed; a collapsed
  * project shows how many worktrees wait to be merged and whether something runs in it. Workspaces
  * show their merge state and whether a session runs in them, and are selected by clicking.
  * Search matches workspace names and session titles, replacing the projects and chats with its
@@ -271,7 +271,7 @@ export function Sidebar({
                 <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
                   {timeAgo(session.updatedAt, now)}
                 </span>
-                <StatusIcon running={session.running} />
+                <StatusIcon status={sessionStatus(session)} />
               </div>
             ))}
             {chats.length > RECENT_CHATS ? (
@@ -353,17 +353,17 @@ function ProjectRows({
 }) {
   const workspaces = sortWorkspaces(index.workspaces.filter((workspace) => workspace.projectId === project.id));
   /**
-   * Whether a session runs in a workspace.
+   * A workspace's status.
    *
    * @remarks
-   * The workspace's status is the highest of its sessions' (domain-model §4); M1.5 knows running.
+   * The highest of its sessions' (domain-model §4).
    *
    * @sideEffects none
    * @param workspace - The workspace.
-   * @returns Whether one runs.
+   * @returns Its status.
    */
-  const running = (workspace: Workspace) =>
-    index.sessions.some((session) => session.containerId === workspace.id && session.running);
+  const status = (workspace: Workspace): RowStatus =>
+    topStatus(index.sessions.filter((session) => session.containerId === workspace.id).map(sessionStatus));
   const pending = workspaces.filter(isPending).length;
   const holdsCurrent = workspaces.some((workspace) => workspace.id === index.layout.container);
   return (
@@ -400,7 +400,7 @@ function ProjectRows({
             {pending} 待合并
           </span>
         ) : null}
-        {!open ? <StatusIcon running={workspaces.some(running)} /> : null}
+        {!open ? <StatusIcon status={topStatus(workspaces.map(status))} /> : null}
         <span
           className="hidden group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
           // The menu belongs to the row but must not select it.
@@ -444,7 +444,7 @@ function ProjectRows({
               client={client}
               workspace={workspace}
               selected={index.layout.container === workspace.id}
-              running={running(workspace)}
+              status={status(workspace)}
               renaming={renaming === workspace.id}
               setRenaming={setRenaming}
               run={run}
@@ -488,7 +488,7 @@ function WorkspaceRow({
   client,
   workspace,
   selected,
-  running,
+  status,
   renaming,
   setRenaming,
   run,
@@ -496,7 +496,7 @@ function WorkspaceRow({
   readonly client: AtriumClient;
   readonly workspace: Workspace;
   readonly selected: boolean;
-  readonly running: boolean;
+  readonly status: RowStatus;
   readonly renaming: boolean;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
@@ -531,7 +531,7 @@ function WorkspaceRow({
       <span className="flex shrink-0 items-center gap-2.5 group-hover:hidden">
         <MergeLabels workspace={workspace} />
       </span>
-      <StatusIcon running={running} />
+      <StatusIcon status={status} />
       <span
         className="hidden group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
         // The menu belongs to the row but must not select it.
@@ -709,7 +709,7 @@ function SearchResults({
           </span>
           <span className="flex shrink-0 items-center gap-2.5 pt-px text-[length:var(--fs-sm)] text-[var(--text-dim)]">
             {timeAgo(session.updatedAt, now)}
-            <StatusIcon running={session.running} />
+            <StatusIcon status={sessionStatus(session)} />
           </span>
         </button>
       ))}

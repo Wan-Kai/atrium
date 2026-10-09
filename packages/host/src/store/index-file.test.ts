@@ -116,6 +116,7 @@ describe("loadIndexFile", () => {
     ["a version that is not a number", JSON.stringify({ version: "3", items: [] })],
     ["a version below 1", JSON.stringify({ version: 0, items: [] })],
     ["a version that is not whole", JSON.stringify({ version: 2.5, items: [] })],
+    ["a version that is not whole, past the latest", JSON.stringify({ version: 3.5, items: [] })],
     ["a document the schema rejects", JSON.stringify({ version: 3, items: [{ name: 1 }] })],
     ["an older version with no upgrade from it", JSON.stringify({ version: 1, item: "a" })],
   ])("sets aside %s and starts empty", async (_case, text) => {
@@ -130,6 +131,36 @@ describe("loadIndexFile", () => {
     expect(file.read()).toStrictEqual({ items: [] });
     expect(await readdir(directory)).toStrictEqual(["things.corrupt-2026-10-08T01-02-03.004Z.json"]);
     expect(await readFile(aside, "utf8")).toBe(text);
+  });
+
+  it("sets aside a version below 1 even when there is an upgrade from it", async () => {
+    const directory = await indexDirectory();
+    await writeFile(join(directory, "things.json"), JSON.stringify({ version: 0, item: "a" }));
+    const fromZero = {
+      ...spec,
+      migrations: { ...spec.migrations, 0: (document: Record<string, unknown>) => document },
+    };
+
+    const { file, setAside } = await loadIndexFile(directory, fromZero, NOW);
+
+    expect(setAside).toBe(join(directory, "things.corrupt-2026-10-08T01-02-03.004Z.json"));
+    expect(file.read()).toStrictEqual({ items: [] });
+  });
+
+  it("sets aside an older version when the spec has no upgrades at all", async () => {
+    const directory = await indexDirectory();
+    await writeFile(join(directory, "things.json"), JSON.stringify({ version: 2, names: ["a"] }));
+    const bare: IndexFileSpec<Document> = {
+      name: "things",
+      version: 3,
+      schema: Document,
+      empty: () => ({ items: [] }),
+    };
+
+    const { file, setAside } = await loadIndexFile(directory, bare, NOW);
+
+    expect(setAside).toBe(join(directory, "things.corrupt-2026-10-08T01-02-03.004Z.json"));
+    expect(file.read()).toStrictEqual({ items: [] });
   });
 
   it("names a file in a subdirectory by its path", async () => {

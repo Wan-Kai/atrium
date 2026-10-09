@@ -6,11 +6,12 @@ import {
   fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   FAUX_API,
   FAUX_GATES_ENV,
+  FAUX_PID_FILE,
   FAUX_MODEL,
   FAUX_PROVIDER,
   FAUX_SCRIPT_ENV,
@@ -101,12 +102,13 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * the same script produces the same output on every run apart from timestamps, which recorded
  * fixtures rely on (testing.md, "faux 模型").
  *
- * Replies scripted with `waitFor` hold until the test releases them, and two commands cover the
+ * Replies scripted with `waitFor` hold until the test releases them; pi's process id goes into
+ * `pi.pid` beside the gates, so a test can kill that very process. Two commands cover the
  * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具"); a third navigates the
  * session tree, the only way to make a branch inside one session file.
  *
- * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; registers a provider and three
- * commands with pi.
+ * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid`; registers a
+ * provider and three commands with pi.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
  */
@@ -123,6 +125,7 @@ export default function fauxExtension(pi: ExtensionApi): void {
     ...(script.tokensPerSecond === undefined ? {} : { tokensPerSecond: script.tokensPerSecond }),
   });
   const gates = process.env[FAUX_GATES_ENV] ?? "";
+  if (gates !== "") writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
   faux.setResponses(
     script.replies.map((reply) => {
       const message = toAssistantMessage(reply);

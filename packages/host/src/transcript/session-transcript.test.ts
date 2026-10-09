@@ -37,7 +37,10 @@ function toolResult(callId: string, text: string) {
   } as const;
 }
 
-const noClient = () => null;
+const noClient = () => ({ clientMessageId: null, auto: false });
+
+/** A message the host sent on its own. */
+const sentByHost = () => ({ clientMessageId: null, auto: true });
 
 /** A user entry. */
 function userEntry(id: string, parentId: string | null, text: string): LogEntry {
@@ -113,7 +116,8 @@ function playHistory() {
         published.push(...session.settle());
         reread();
       } else if (translated.kind === "compaction_finished") reread();
-      else published.push(...session.apply(translated, () => `client-${++prompts}`));
+      else
+        published.push(...session.apply(translated, () => ({ clientMessageId: `client-${++prompts}`, auto: false })));
     }
   }
   return { session, results, published };
@@ -180,7 +184,7 @@ describe("createSessionTranscript following a recorded session", () => {
       turn: {
         kind: "turn",
         id: "live-1",
-        user: { text: "one", images: 0, clientMessageId: "client-1", timestamp: 0 },
+        user: { text: "one", images: 0, clientMessageId: "client-1", auto: false, timestamp: 0 },
         steps: [],
         outcome: "running",
         error: null,
@@ -256,7 +260,7 @@ describe("createSessionTranscript live", () => {
   it("adds a user message right after a tool result as a steer, without taking a prompt's id", () => {
     const { transcript: session } = transcript();
     let asked = 0;
-    const client = () => `client-${++asked}`;
+    const client = () => ({ clientMessageId: `client-${++asked}`, auto: false });
     session.apply(userMessage("go"), client);
     session.apply({ kind: "assistant_started" }, client);
     session.apply(
@@ -336,12 +340,16 @@ describe("createSessionTranscript live", () => {
     expect(session.live).toBe(true);
   });
 
-  it("adds a retry step where pi reports one", () => {
+  it("adds a retry step where pi reports one, with pi's limit, and keeps the limit through a rebuild", () => {
     const { transcript: session } = transcript();
     session.apply(userMessage("go"), noClient);
 
-    expect(session.apply({ kind: "retry_started", attempt: 2, error: "503" }, noClient)).toStrictEqual([
-      { type: "step_added", turnId: "live-1", step: { kind: "retry", id: "0", attempt: 2, error: "503" } },
+    expect(session.apply({ kind: "retry_started", attempt: 2, maxAttempts: 5, error: "503" }, noClient)).toStrictEqual([
+      {
+        type: "step_added",
+        turnId: "live-1",
+        step: { kind: "retry", id: "0", attempt: 2, maxAttempts: 5, error: "503" },
+      },
     ]);
   });
 });
@@ -489,13 +497,14 @@ describe("createSessionTranscript remembering turn starts", () => {
     userEntry("u2", "r1", "next"),
   ];
 
-  it("tells which entries opened the turns it saw live", () => {
-    const seen: string[][] = [];
+  it("tells which entries opened the turns it saw live, and which of those the host sent", () => {
+    const seen: string[][][] = [];
+    let turns = 0;
     const session = createSessionTranscript({
       sessionId: "s",
-      newId: () => "live",
+      newId: () => `live-${++turns}`,
       now: () => 0,
-      onTurnsSeen: (entryIds) => seen.push([...entryIds]),
+      onTurnsSeen: (entryIds, autoIds) => seen.push([[...entryIds], [...autoIds]]),
     });
     session.apply(userMessage("go"), noClient);
     session.apply(
@@ -504,13 +513,32 @@ describe("createSessionTranscript remembering turn starts", () => {
     );
     session.apply(toolResult("c1", "x"), noClient);
     session.settle();
-    session.apply(userMessage("next"), noClient);
+    const started = session.apply(userMessage("next"), sentByHost);
     session.settle();
 
     session.rebuild({ entries, leafId: "u2" }, false);
     session.rebuild({ entries: [], leafId: "u2" }, false);
 
-    expect(seen).toStrictEqual([["u1", "u2"]]);
+    expect(started).toMatchObject([{ type: "turn_started", turn: { user: { text: "next", auto: true } } }]);
+    expect(seen).toStrictEqual([[["u1", "u2"], ["u2"]]]);
+    expect(session.items().map((item) => (item as Turn).user.auto)).toStrictEqual([false, true]);
+  });
+
+  it("marks the turns an earlier host sent on its own", () => {
+    const recorded = createSessionTranscript({
+      sessionId: "s",
+      newId: () => "x",
+      now: () => 0,
+      opened: new Set(["u2"]),
+      auto: new Set(["u2"]),
+    });
+
+    recorded.rebuild({ entries, leafId: "u2" }, false);
+
+    expect(recorded.items().map((item) => [item.id, (item as Turn).user.auto])).toStrictEqual([
+      ["s:u1", false],
+      ["s:u2", true],
+    ]);
   });
 
   it("follows the turn starts an earlier host recorded, and tells steers by position without them", () => {
@@ -652,5 +680,38 @@ describe("createSessionTranscript pages", () => {
     expect(session.before("s:u1", 10)).toStrictEqual({ items: session.items().slice(0, 2), hasOlder: false });
     expect(session.before("s:u0", 10)).toStrictEqual({ items: [], hasOlder: false });
     expect(session.before("nope", 10)).toBeNull();
+  });
+});
+
+describe("createSessionTranscript noting a restart", () => {
+  const first = [userEntry("u1", null, "one")];
+  const both = [...first, userEntry("u2", "u1", "two")];
+
+  it("adds the notice after the items so far and keeps it there through rebuilds", () => {
+    const { transcript: session, clock } = transcript();
+    session.rebuild({ entries: first, leafId: "u1" }, false);
+    clock.time = 7;
+
+    const added = session.noteRestart(2);
+
+    const notice = { kind: "notice", id: "live-1", notice: "restarted", attempt: 2, timestamp: 7 };
+    expect(added).toStrictEqual({ type: "notice_added", notice, before: null });
+    expect(ids(session.items())).toStrictEqual(["s:u1", "live-1"]);
+    expect(session.rebuild({ entries: both.slice(1), leafId: "u2" }, false)).toStrictEqual({ kind: "changed" });
+    expect(ids(session.items())).toStrictEqual(["s:u1", "live-1", "s:u2"]);
+    expect(session.rebuild({ entries: both, leafId: "u2" }, true)).toStrictEqual({ kind: "same" });
+  });
+
+  it("keeps notices after the same item in order, and moves one whose item went away to the end", () => {
+    const { transcript: session } = transcript();
+    const start = session.noteRestart(1);
+    session.rebuild({ entries: first, leafId: "u1" }, false);
+    session.noteRestart(1);
+    session.noteRestart(2);
+
+    session.rebuild({ entries: [userEntry("x1", null, "other")], leafId: "x1" }, true);
+
+    expect(start).toMatchObject({ notice: { id: "live-1" } });
+    expect(ids(session.items())).toStrictEqual(["live-1", "s:x1", "live-2", "live-3"]);
   });
 });

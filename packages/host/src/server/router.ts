@@ -103,6 +103,24 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.fetchStep(command);
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
+      case "steer":
+        return options.sessions.steer(command);
+      case "stop":
+        return options.sessions.stop(command.sessionId);
+      case "resume_queue":
+        return options.sessions.resumeQueue(command.sessionId);
+      case "clear_queue":
+        return options.sessions.clearQueue(command.sessionId);
+      case "update_queued":
+        return options.sessions.updateQueued(command.sessionId, command.itemId, command.text);
+      case "remove_queued":
+        return options.sessions.removeQueued(command.sessionId, command.itemId);
+      case "steer_queued":
+        return options.sessions.steerQueued(command.sessionId, command.itemId);
+      case "answer_interaction":
+        return options.sessions.answerInteraction(command.sessionId, command.interactionId, command.answer);
+      case "retry_run":
+        return options.sessions.retryRun(command.sessionId);
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

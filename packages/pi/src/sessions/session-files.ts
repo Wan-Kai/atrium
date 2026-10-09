@@ -244,8 +244,11 @@ function readLine(state: FileState, line: string): void {
         : null;
     return;
   }
+  // Stryker disable next-line ConditionalExpression: a fast path; a file that is not a session is left out of every scan, whatever its later lines say.
   if (state.header === null) return;
+  // Stryker disable next-line StringLiteral: a fast path; `userText` finds nothing in a line without a user message anyway.
   if (state.firstPrompt === null && line.includes('"user"')) state.firstPrompt = userText(parseJson(line));
+  // Stryker disable next-line ConditionalExpression,StringLiteral: a fast path; the entry's type is checked below anyway.
   if (line.includes('"session_info"')) {
     const entry = parseJson(line);
     const name = field(entry, "name");
@@ -280,10 +283,14 @@ async function readRange(
   const file = await open(path, "r");
   let position = from;
   try {
+    // Stryker disable next-line MethodExpression,ArithmeticOperator: the buffer's size only changes how much memory a read takes and how often the signal is checked; each read still stops at `to`.
     const buffer = Buffer.alloc(Math.min(CHUNK_BYTES, Math.max(to - from, 1)));
+    // Stryker disable next-line EqualityOperator: at `to` a read asks for no bytes, gets none and stops the loop.
     while (position < to) {
       signal?.throwIfAborted();
+      // Stryker disable next-line ArithmeticOperator: a read only goes past `to` when the file grew between stat and read, which cannot be timed in a test.
       const { bytesRead } = await file.read(buffer, 0, Math.min(buffer.length, to - position), position);
+      // Stryker disable next-line ConditionalExpression: a read before `to` only finds nothing when the file shrank between stat and read, which cannot be timed in a test.
       if (bytesRead === 0) break;
       state.splitter.push(buffer.subarray(0, bytesRead));
       position += bytesRead;
@@ -313,6 +320,7 @@ export function createSessionFileReader(): SessionFileReader {
   return {
     async scanFolder(folder, signal) {
       signal?.throwIfAborted();
+      // Stryker disable next-line ArrayDeclaration: only names ending in `.jsonl` are read, so a stand-in name without it changes nothing.
       const names = (await unlessUnreadable(readdir(folder))) ?? [];
       const found: SessionFileSummary[] = [];
       const seen = new Set<string>();

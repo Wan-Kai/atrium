@@ -108,7 +108,7 @@ export function DisplayModeMenu() {
  * The "···" menu of the active session: rename, archive, copy the file's path, export.
  *
  * @remarks
- * SPEC-0001 ("标签栏"); "在终端中继续" comes with M1.7. Renaming asks for the name in place of the
+ * SPEC-0001 ("标签栏"); "在终端中继续" comes with M1.9. Renaming asks for the name in place of the
  * menu; renaming and copying need the session's file, which a draft does not have yet. Failures are shown
  * next to the menu.
  *

@@ -100,7 +100,14 @@ export function createProjectService(options: {
   async function addNow(requested: string): Promise<ProjectId> {
     const chosen = await realpath(requested).catch(() => null);
     const info = chosen === null ? null : await stat(chosen).catch(() => null);
-    if (chosen === null || info?.isDirectory() !== true) throw new CommandError("path_not_found", { path: requested });
+    if (
+      // Stryker disable next-line ConditionalExpression: `info` is null whenever `chosen` is, so the test below alone throws the same error.
+      chosen === null ||
+      // Stryker disable next-line OptionalChaining: `stat` fails on a path `realpath` just resolved only if it is removed in between, a race no test can set up.
+      info?.isDirectory() !== true
+    ) {
+      throw new CommandError("path_not_found", { path: requested });
+    }
     const git = await options.git;
     const repository = git === null ? null : await repositoryOf(git, chosen);
     const path = repository?.main ?? chosen;

@@ -24,10 +24,14 @@ type AssistantMessage = Extract<LogMessage, { kind: "assistant" }>;
 export interface TurnFacts {
   readonly turnId: string;
   readonly clientMessageId: string | null;
+  /** The host sent the message to have the agent go on (SPEC-0001, "运行控制"). */
+  readonly auto: boolean;
   /** From the user message to the end of the run, by the host's clock. */
   readonly durationMs: number | null;
   /** How long each thinking step took, by step id. */
   readonly thinkingMs: ReadonlyMap<string, number>;
+  /** pi's limit on retries, when one was seen live; pi's file does not keep it. */
+  readonly retryLimit: number | null;
 }
 
 /**
@@ -51,22 +55,40 @@ export class TurnDraft {
   #lastTime: number;
   /** Whether the latest message was a tool result, which makes a following user message a steer. */
   #afterToolResult = false;
+  #retryLimit: number | null;
 
   /**
    * Starts a turn at its user message.
    *
    * @remarks
-   * The turn starts at the user message's own time, as a rebuild sees it too.
+   * The turn starts at the user message's own time, as a rebuild sees it too. A rebuild passes the
+   * retry limit seen live, so its retry steps match the ones sent then.
    *
    * @sideEffects none
    * @param id - The turn's id.
    * @param user - The user message.
+   * @param retryLimit - pi's limit on retries, if known.
    */
   constructor(
     readonly id: string,
     readonly user: Turn["user"],
+    retryLimit: number | null,
   ) {
     this.#lastTime = user.timestamp;
+    this.#retryLimit = retryLimit;
+  }
+
+  /**
+   * pi's limit on retries, once known.
+   *
+   * @remarks
+   * Kept with the turn's facts, so a rebuild shows the limit seen live.
+   *
+   * @sideEffects none
+   * @returns The limit, or null.
+   */
+  get retryLimit(): number | null {
+    return this.#retryLimit;
   }
 
   /**
@@ -250,10 +272,15 @@ export class TurnDraft {
    * @sideEffects Updates the draft.
    * @param attempt - Which attempt this is, counted as pi does.
    * @param error - pi's error text for the failed reply.
+   * @param limit - pi's limit, when it tells it (live); otherwise the one the turn knows.
    * @returns The step.
    */
-  retry(attempt: number, error: string): Step {
-    return this.#push({ kind: "retry", id: stepId(this.#steps.length), attempt, error }, this.#lastTime);
+  retry(attempt: number, error: string, limit: number | null = this.#retryLimit): Step {
+    this.#retryLimit = limit;
+    return this.#push(
+      { kind: "retry", id: stepId(this.#steps.length), attempt, maxAttempts: limit, error },
+      this.#lastTime,
+    );
   }
 
   /**

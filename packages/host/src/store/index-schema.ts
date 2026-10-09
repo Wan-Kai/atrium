@@ -98,7 +98,11 @@ export const PREFERENCES_FILE: IndexFileSpec<PreferencesDocument> = {
   empty: () => ({ appearance: "system", displayMode: "summary" }),
 };
 
-const TurnStartsDocument = z.looseObject({ entries: z.array(z.string()) });
+const TurnStartsDocument = z.looseObject({
+  entries: z.array(z.string()),
+  /** The messages the host sent on its own; absent until there is one. */
+  auto: z.array(z.string()).optional(),
+});
 export type TurnStartsDocument = z.infer<typeof TurnStartsDocument>;
 
 /**

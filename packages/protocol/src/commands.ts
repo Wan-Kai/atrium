@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseTraceparent } from "./trace";
+import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode } from "./listing";
 import { Step, TranscriptItem } from "./transcript";
@@ -19,6 +20,12 @@ const commandFields = { requestId: RequestId, traceparent: Traceparent };
 
 /** Fields every session command carries in addition. */
 const sessionCommandFields = { ...commandFields, sessionId: SessionId };
+
+/** A message's text, as typed. */
+const MessageText = z
+  .string()
+  .min(1)
+  .max(1024 * 1024);
 
 /** Heartbeat: the client sends one every `heartbeatMs` and expects the response within as long. */
 export const PingCommand = z.strictObject({ type: z.literal("ping"), ...commandFields });
@@ -49,9 +56,69 @@ export type SubscribeSessionsCommand = z.infer<typeof SubscribeSessionsCommand>;
 export const PromptCommand = z.strictObject({
   type: z.literal("prompt"),
   ...sessionCommandFields,
-  text: z.string().min(1),
+  text: MessageText,
 });
 export type PromptCommand = z.infer<typeof PromptCommand>;
+
+/**
+ * Sends a steer: delivered before the agent's next step while it runs, sent as a message when it
+ * is idle (SPEC-0001, "运行控制").
+ */
+export const SteerCommand = z.strictObject({ type: z.literal("steer"), ...sessionCommandFields, text: MessageText });
+export type SteerCommand = z.infer<typeof SteerCommand>;
+
+/** Stops the run: pauses the queue, clears pi's queue and aborts. */
+export const StopCommand = z.strictObject({ type: z.literal("stop"), ...sessionCommandFields });
+export type StopCommand = z.infer<typeof StopCommand>;
+
+/** Lets a paused queue move again, starting with its first message at once if idle. */
+export const ResumeQueueCommand = z.strictObject({ type: z.literal("resume_queue"), ...sessionCommandFields });
+export type ResumeQueueCommand = z.infer<typeof ResumeQueueCommand>;
+
+/** Empties the host's queue; pi's own queue is left alone. */
+export const ClearQueueCommand = z.strictObject({ type: z.literal("clear_queue"), ...sessionCommandFields });
+export type ClearQueueCommand = z.infer<typeof ClearQueueCommand>;
+
+/** A queued message, by its id. */
+const QueueItemId = z.string().min(1).max(128);
+
+/** Changes the text of a queued message. */
+export const UpdateQueuedCommand = z.strictObject({
+  type: z.literal("update_queued"),
+  ...sessionCommandFields,
+  itemId: QueueItemId,
+  text: MessageText,
+});
+export type UpdateQueuedCommand = z.infer<typeof UpdateQueuedCommand>;
+
+/** Takes a message out of the queue. */
+export const RemoveQueuedCommand = z.strictObject({
+  type: z.literal("remove_queued"),
+  ...sessionCommandFields,
+  itemId: QueueItemId,
+});
+export type RemoveQueuedCommand = z.infer<typeof RemoveQueuedCommand>;
+
+/** Takes a message out of the queue and sends it as a steer. */
+export const SteerQueuedCommand = z.strictObject({
+  type: z.literal("steer_queued"),
+  ...sessionCommandFields,
+  itemId: QueueItemId,
+});
+export type SteerQueuedCommand = z.infer<typeof SteerQueuedCommand>;
+
+/** Answers an extension's question. */
+export const AnswerInteractionCommand = z.strictObject({
+  type: z.literal("answer_interaction"),
+  ...sessionCommandFields,
+  interactionId: z.string().min(1).max(256),
+  answer: InteractionAnswer,
+});
+export type AnswerInteractionCommand = z.infer<typeof AnswerInteractionCommand>;
+
+/** The error card's "重试": runs the last turn again, as after an automatic restart. */
+export const RetryRunCommand = z.strictObject({ type: z.literal("retry_run"), ...sessionCommandFields });
+export type RetryRunCommand = z.infer<typeof RetryRunCommand>;
 
 /**
  * Opens a session as this client's active tab and goes to its container; starts its pi unless
@@ -220,6 +287,15 @@ export const Command = z.discriminatedUnion("type", [
   RenameSessionCommand,
   SetPreferencesCommand,
   ReportClientIssueCommand,
+  SteerCommand,
+  StopCommand,
+  ResumeQueueCommand,
+  ClearQueueCommand,
+  UpdateQueuedCommand,
+  RemoveQueuedCommand,
+  SteerQueuedCommand,
+  AnswerInteractionCommand,
+  RetryRunCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -240,13 +316,14 @@ export const CommandResult = {
   ping: z.strictObject({}),
   create_chat: z.strictObject({ sessionId: SessionId }),
   subscribe_sessions: z.strictObject({}),
-  prompt: z.strictObject({
-    /**
-     * `started` runs the message; `queued` waits for the run in progress; `handled` means an
-     * extension consumed it without a run.
-     */
-    disposition: z.enum(["started", "queued", "handled"]),
-  }),
+  /**
+   * `started` runs the message; `handled` means an extension consumed it without a run; `queued`
+   * puts it in the host's queue, as `itemId`, behind the run in progress.
+   */
+  prompt: z.discriminatedUnion("disposition", [
+    z.strictObject({ disposition: z.enum(["started", "handled"]) }),
+    z.strictObject({ disposition: z.literal("queued"), itemId: QueueItemId }),
+  ]),
   fetch_transcript: z.strictObject({
     /** The items just before `before`, oldest first. */
     items: z.array(TranscriptItem),
@@ -267,5 +344,16 @@ export const CommandResult = {
   rename_session: z.strictObject({}),
   set_preferences: z.strictObject({}),
   report_client_issue: z.strictObject({}),
+  /** `queued`: pi took the steer and delivers it before the next step; idle, it ran as a message. */
+  steer: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
+  /** Whether pi confirmed it stopped within two seconds; if not, the session stays stopping. */
+  stop: z.strictObject({ confirmed: z.boolean() }),
+  resume_queue: z.strictObject({}),
+  clear_queue: z.strictObject({}),
+  update_queued: z.strictObject({}),
+  remove_queued: z.strictObject({}),
+  steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
+  answer_interaction: z.strictObject({}),
+  retry_run: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

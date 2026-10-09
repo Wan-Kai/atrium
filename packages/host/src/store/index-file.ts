@@ -148,7 +148,14 @@ function storedVersion(text: string): { version: number; document: Record<string
   }
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const version: unknown = Reflect.get(value, "version");
-  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return null;
+  if (
+    // Stryker disable next-line ConditionalExpression: `Number.isInteger` is false for every value that is not a number, so the test below rejects the same values.
+    typeof version !== "number" ||
+    !Number.isInteger(version) ||
+    version < 1
+  ) {
+    return null;
+  }
   return { version, document: Object.fromEntries(Object.entries(value).filter(([key]) => key !== "version")) };
 }
 
@@ -201,6 +208,7 @@ function indexFile<T extends object>(
   write: (path: string, content: string) => Promise<void>,
 ): IndexFile<T> {
   let latest = initial;
+  // Stryker disable next-line BooleanLiteral: `save` sets it before the only call to `drain`, so this value is never read.
   let pending = false;
   let writing: Promise<void> | null = null;
 

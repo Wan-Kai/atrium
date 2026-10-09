@@ -1,4 +1,5 @@
 import { FakeClock, GIT_SCENE_ENV, createTempDir } from "@atrium/testkit";
+import { spawnSync } from "node:child_process";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
@@ -7,22 +8,25 @@ import { GIT_CONCURRENCY, GitError, createGitRunner } from "./git";
 import { ResourceTracker } from "./resources";
 
 /**
- * Whether a process exists.
+ * Whether a process still runs.
  *
  * @remarks
- * Signal 0 checks without sending anything.
+ * Signal 0 checks without sending anything, but a process that has ended and is not yet reaped
+ * still answers it: a helper whose parent was killed goes to launchd, which reaps it a moment
+ * later, longer on a loaded machine. Such a zombie has ended, so `ps` is asked for its state.
  *
- * @sideEffects none
+ * @sideEffects Runs `ps`.
  * @param pid - The process.
- * @returns Whether it exists.
+ * @returns Whether it exists and has not ended.
  */
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
   }
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
+  return state !== "" && !state.startsWith("Z");
 }
 
 /**

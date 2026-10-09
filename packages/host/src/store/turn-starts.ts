@@ -4,8 +4,10 @@ import { type TurnStartsDocument, turnStartsFile } from "./index-schema";
 /** The user message entries a session's host saw open a turn. */
 export interface TurnStarts {
   readonly opened: ReadonlySet<string>;
-  /** Adds entries and writes them. */
-  record(entryIds: readonly string[]): Promise<void>;
+  /** Of those, the messages the host sent on its own to have the agent go on (SPEC-0001, "运行控制"). */
+  readonly auto: ReadonlySet<string>;
+  /** Adds entries, and which of them the host sent, and writes them. */
+  record(entryIds: readonly string[], autoIds?: readonly string[]): Promise<void>;
 }
 
 /** pi's rule for session ids (pi-internals.md §1), which also keeps them safe as file names. */
@@ -47,10 +49,13 @@ export async function loadTurnStarts(
  * @returns The starts.
  */
 function inMemory(opened: Set<string>): TurnStarts {
+  const auto = new Set<string>();
   return {
     opened,
-    async record(entryIds) {
+    auto,
+    async record(entryIds, autoIds = []) {
       for (const id of entryIds) opened.add(id);
+      for (const id of autoIds) auto.add(id);
     },
   };
 }
@@ -59,7 +64,8 @@ function inMemory(opened: Set<string>): TurnStarts {
  * Turn starts backed by their file.
  *
  * @remarks
- * Each new entry is added once; nothing is written when nothing is new.
+ * Each new entry is added once; nothing is written when nothing is new. The host's own messages
+ * are listed only once there is one, so most files keep their old shape.
  *
  * @sideEffects none until `record`; then writes the file.
  * @param file - The loaded file.
@@ -67,13 +73,17 @@ function inMemory(opened: Set<string>): TurnStarts {
  */
 function onFile(file: IndexFile<TurnStartsDocument>): TurnStarts {
   const opened = new Set(file.read().entries);
+  const auto = new Set(file.read().auto);
   return {
     opened,
-    async record(entryIds) {
+    auto,
+    async record(entryIds, autoIds = []) {
       const added = entryIds.filter((id) => !opened.has(id));
-      if (added.length === 0) return;
+      const addedAuto = autoIds.filter((id) => !auto.has(id));
+      if (added.length === 0 && addedAuto.length === 0) return;
       for (const id of added) opened.add(id);
-      await file.save({ ...file.read(), entries: [...opened] });
+      for (const id of addedAuto) auto.add(id);
+      await file.save({ ...file.read(), entries: [...opened], ...(auto.size === 0 ? {} : { auto: [...auto] }) });
     },
   };
 }

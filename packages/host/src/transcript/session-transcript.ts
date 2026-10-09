@@ -42,6 +42,14 @@ export type RebuildResult =
   /** Anything else: clients need a new snapshot in a new epoch. */
   | { readonly kind: "changed" };
 
+/** Who sent the user message that opens a turn. */
+export interface TurnOrigin {
+  /** The `requestId` of the `prompt` that sent it; null when a client did not. */
+  readonly clientMessageId: string | null;
+  /** The host sent it to have the agent go on (SPEC-0001, "运行控制"). */
+  readonly auto: boolean;
+}
+
 /** A window of items, as they travel, with whether earlier ones exist. */
 interface TranscriptPage {
   readonly items: TranscriptItem[];
@@ -63,10 +71,29 @@ export interface SessionTranscript {
    * Applies one of pi's translated events.
    *
    * @param event - The event.
-   * @param clientMessageId - Gives the `requestId` of the `prompt` a new turn answers; called once per turn.
+   * @param origin - Tells who sent the message a new turn answers; called once per turn.
    * @returns The events to publish.
    */
-  apply(event: TranslatedEvent, clientMessageId: () => string | null): TranscriptEvent[];
+  apply(event: TranslatedEvent, origin: () => TurnOrigin): TranscriptEvent[];
+  /**
+   * Adds the host's notice that it restarted pi, after the items so far.
+   *
+   * @param attempt - Which restart in a row.
+   * @returns The event to publish.
+   */
+  noteRestart(attempt: number): TranscriptEvent;
+  /**
+   * Adds the host's notice of how an extension's question ended, after the items so far.
+   *
+   * @param ended - The question's title, how it ended and the answer, if any.
+   * @returns The event to publish.
+   */
+  noteInteraction(ended: {
+    readonly title: string;
+    readonly outcome: "answered" | "cancelled" | "timed_out" | "stale";
+    readonly value: string | null;
+    readonly confirmed: boolean | null;
+  }): TranscriptEvent;
   /**
    * Ends the turn running now, when the run settles or pi goes away.
    *
@@ -115,7 +142,10 @@ interface SeenTurn {
  * rebuild follows them: the turns keep their live ids and timings, and a turn stays a turn even
  * where pi's file would suggest a steer (SPEC-0001, `steer`), so a normal run rebuilds exactly as
  * it was sent. The entries found to open live turns are handed to `onTurnsSeen`, so a host
- * started later still knows them (`opened`; SPEC-0001, `steer`).
+ * started later still knows them (`opened`; SPEC-0001, `steer`), together with those of messages
+ * the host sent on its own (`auto`). The host's own notices (a restart, how an extension's
+ * question ended) are not in pi's file; each keeps the item it followed and goes back after it in
+ * every rebuild, in the order they came, at the end if that item is gone.
  * Events, snapshots and pages carry steps as they travel (`forTransport`); the transcript keeps
  * them whole. Rebuilds only happen between runs; the caller makes sure of that.
  *
@@ -129,8 +159,13 @@ export function createSessionTranscript(options: {
   readonly now: () => number;
   /** Entries earlier host runs saw open a turn. */
   readonly opened?: ReadonlySet<string>;
-  /** Told the entries a rebuild found turns seen live to have opened, to remember them. */
-  readonly onTurnsSeen?: (entryIds: readonly string[]) => void;
+  /** Entries of messages earlier host runs sent on their own. */
+  readonly auto?: ReadonlySet<string>;
+  /**
+   * Told the entries a rebuild found turns seen live to have opened, and which of them the host
+   * sent on its own, to remember them.
+   */
+  readonly onTurnsSeen?: (entryIds: readonly string[], autoIds: readonly string[]) => void;
 }): SessionTranscript {
   const { sessionId, newId, now } = options;
   const log: SessionLog = createSessionLog();
@@ -141,6 +176,31 @@ export function createSessionTranscript(options: {
   /** User messages seen live since the last rebuild, oldest first, not yet tied to entries. */
   // Stryker disable next-line ArrayDeclaration: a made-up record has no facts and only shifts nothing at the start.
   let seen: (SeenTurn | null)[] = [];
+  /** The host's notices, each with the id of the item it follows (`null` for the start). */
+  const hostNotices: { readonly notice: Notice; readonly after: string | null }[] = [];
+  /** Host notices added while a turn runs; they follow it. */
+  let afterLive: Notice[] = [];
+
+  /**
+   * Adds a host notice after everything so far, the running turn included.
+   *
+   * @remarks
+   * See `createSessionTranscript`. A question answered while a turn runs follows that turn.
+   *
+   * @sideEffects Records the notice and adds it to the items.
+   * @param notice - The notice.
+   * @returns The event to publish.
+   */
+  function note(notice: Notice): TranscriptEvent {
+    if (live === null) {
+      hostNotices.push({ notice, after: items.at(-1)?.id ?? null });
+      items.push(notice);
+    } else {
+      hostNotices.push({ notice, after: live.draft.id });
+      afterLive.push(notice);
+    }
+    return { type: "notice_added", notice, before: null };
+  }
   let live: {
     readonly draft: TurnDraft;
     readonly record: SeenTurn;
@@ -186,6 +246,8 @@ export function createSessionTranscript(options: {
     const facts: TurnFacts = {
       turnId: live.draft.id,
       clientMessageId: live.draft.user.clientMessageId,
+      auto: live.draft.user.auto,
+      retryLimit: live.draft.retryLimit,
       durationMs: Math.max(0, now() - live.startedAt),
       thinkingMs: live.thinkingMs,
     };
@@ -201,7 +263,8 @@ export function createSessionTranscript(options: {
       changes: turn.changes,
     });
     live.record.facts = facts;
-    items.push(turn);
+    items.push(turn, ...afterLive);
+    afterLive = [];
     live = null;
     return events;
   }
@@ -214,12 +277,12 @@ export function createSessionTranscript(options: {
    *
    * @sideEffects Updates the live turn and the record of user messages.
    * @param message - The message.
-   * @param clientMessageId - See `SessionTranscript.apply`.
+   * @param origin - See `SessionTranscript.apply`.
    * @returns The events to publish.
    */
   function finished(
     message: Extract<TranslatedEvent, { kind: "message_finished" }>["message"],
-    clientMessageId: () => string | null,
+    origin: () => TurnOrigin,
   ): TranscriptEvent[] {
     if (message.kind === "user") {
       if (live?.draft.takesSteer === true) {
@@ -227,12 +290,18 @@ export function createSessionTranscript(options: {
         return [{ type: "step_added", turnId: live.draft.id, step: live.draft.steer(message.text, message.timestamp) }];
       }
       const events = finishLive(false);
-      const draft = new TurnDraft(newId(), {
-        text: message.text,
-        images: message.images,
-        clientMessageId: clientMessageId(),
-        timestamp: message.timestamp,
-      });
+      const { clientMessageId, auto } = origin();
+      const draft = new TurnDraft(
+        newId(),
+        {
+          text: message.text,
+          images: message.images,
+          clientMessageId,
+          auto,
+          timestamp: message.timestamp,
+        },
+        null,
+      );
       // Stryker disable next-line ObjectLiteral: the turn's end sets its facts before any rebuild reads them.
       const record: SeenTurn = { facts: null };
       seen.push(record);
@@ -265,17 +334,19 @@ export function createSessionTranscript(options: {
     const entries = users.slice(users.length - count);
     const records = seen.slice(seen.length - count);
     const opened: string[] = [];
+    const auto: string[] = [];
     entries.forEach((entry, index) => {
       const facts = records[index]?.facts;
       // Stryker disable next-line ConditionalExpression: rebuilds happen between runs, when every turn has ended and has facts.
       if (facts !== undefined && facts !== null) {
         factsByEntry.set(entry.id, facts);
         opened.push(entry.id);
+        if (facts.auto) auto.push(entry.id);
       }
     });
     // Stryker disable next-line ArrayDeclaration: see `seen`.
     seen = [];
-    if (opened.length > 0) options.onTurnsSeen?.(opened);
+    if (opened.length > 0) options.onTurnsSeen?.(opened, auto);
   }
 
   return {
@@ -285,9 +356,9 @@ export function createSessionTranscript(options: {
     get live() {
       return live !== null;
     },
-    items: () => (live === null ? [...items] : [...items, live.draft.running()]),
-    apply(event, clientMessageId) {
-      if (event.kind === "message_finished") return finished(event.message, clientMessageId);
+    items: () => (live === null ? [...items] : [...items, live.draft.running(), ...afterLive]),
+    apply(event, origin) {
+      if (event.kind === "message_finished") return finished(event.message, origin);
       if (live === null) return [];
       const turnId = live.draft.id;
       if (event.kind === "assistant_started") {
@@ -311,17 +382,24 @@ export function createSessionTranscript(options: {
         return step === null ? [] : [{ type: "step_updated", turnId, step: forTransport(step) }];
       }
       if (event.kind === "retry_started") {
-        return [{ type: "step_added", turnId, step: live.draft.retry(event.attempt, event.error) }];
+        return [{ type: "step_added", turnId, step: live.draft.retry(event.attempt, event.error, event.maxAttempts) }];
       }
       // Runs and compactions are the controller's business.
       return [];
     },
     settle: (crashed = false) => finishLive(crashed),
+    noteRestart(attempt) {
+      return note({ kind: "notice", id: newId(), notice: "restarted", attempt, timestamp: now() });
+    },
+    noteInteraction(ended) {
+      return note({ kind: "notice", id: newId(), notice: "interaction", ...ended, timestamp: now() });
+    },
     rebuild(page, reset) {
       if (reset) log.clear();
       bindSeen(log.append(page.entries, page.leafId));
       const before = items;
-      items = [...projectTranscript(log.branch(), sessionId, factsByEntry, options.opened).items];
+      const projected = projectTranscript(log.branch(), sessionId, factsByEntry, options.opened, options.auto).items;
+      items = withHostNotices(projected, hostNotices);
       return compare(before, items);
     },
     latest() {
@@ -339,6 +417,37 @@ export function createSessionTranscript(options: {
       return turn?.kind === "turn" ? (turn.steps.find((step) => step.id === stepId) ?? null) : null;
     },
   };
+}
+
+/**
+ * Puts the host's notices back among rebuilt items.
+ *
+ * @remarks
+ * Each goes right after the item it followed, in the order they were added; one whose item is
+ * gone goes at the end.
+ *
+ * @sideEffects none
+ * @param rebuilt - The items rebuilt from pi's entries.
+ * @param notices - The host's notices and the ids of the items they follow.
+ * @returns The items with the notices.
+ */
+function withHostNotices(
+  rebuilt: readonly TranscriptItem[],
+  notices: readonly { readonly notice: Notice; readonly after: string | null }[],
+): TranscriptItem[] {
+  const result = [...rebuilt];
+  const placed = new Set<string>();
+  for (const { notice, after } of notices) {
+    const index = after === null ? -1 : result.findIndex((item) => item.id === after);
+    const at = after === null ? 0 : index === -1 ? result.length : index + 1;
+    // Notices already placed after the same item stay before it.
+    let place = at;
+    // Stryker disable next-line StringLiteral: past the end there is no item, and no notice has the stand-in id.
+    while (placed.has(result[place]?.id ?? "")) place += 1;
+    result.splice(place, 0, notice);
+    placed.add(notice.id);
+  }
+  return result;
 }
 
 /**

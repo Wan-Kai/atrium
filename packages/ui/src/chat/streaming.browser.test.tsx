@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import type { SessionView } from "@atrium/client";
-import type { Turn } from "@atrium/protocol";
+import { type Turn, IDLE_CONTROL } from "@atrium/protocol";
 import { Markdown } from "./markdown";
 import { Transcript } from "./transcript";
 import showcase from "./reply-showcase.md?raw";
@@ -60,6 +60,7 @@ function transcriptAt(fields: Partial<SessionView>) {
         view={{
           sessionId: "s1",
           status: "ready",
+          control: IDLE_CONTROL,
           epoch: 1,
           seq: 0,
           items: [],
@@ -91,7 +92,7 @@ function answered(text: string, outcome: Turn["outcome"]): Turn {
   return {
     kind: "turn",
     id: "t1",
-    user: { text: "展示一下", images: 0, clientMessageId: null, timestamp: 0 },
+    user: { text: "展示一下", images: 0, clientMessageId: null, auto: false, timestamp: 0 },
     steps: text === "" ? [] : [{ kind: "text", id: "0", text }],
     outcome,
     error: null,

@@ -20,8 +20,34 @@ export type TranslatedEvent =
   | { readonly kind: "message_finished"; readonly message: LogMessage }
   /** A running tool's output so far, all of it, not just what is new. */
   | { readonly kind: "tool_output"; readonly callId: string; readonly text: string }
-  | { readonly kind: "retry_started"; readonly attempt: number; readonly error: string }
-  | { readonly kind: "compaction_finished" };
+  /** `maxAttempts` is pi's own limit, from its settings (SPEC-0001, "运行控制"). */
+  | { readonly kind: "retry_started"; readonly attempt: number; readonly maxAttempts: number; readonly error: string }
+  | { readonly kind: "compaction_started" }
+  | { readonly kind: "compaction_finished" }
+  /** The steers pi holds that have not reached the model yet, all of them. */
+  | { readonly kind: "steering_changed"; readonly steering: readonly string[] }
+  | { readonly kind: "dialog_requested"; readonly dialog: Dialog }
+  /** A one-way message from an extension, which Atrium only logs. */
+  | { readonly kind: "notified"; readonly level: "info" | "warning" | "error"; readonly text: string };
+
+/** An extension's question, from pi's `extension_ui_request` (pi-internals.md §5). */
+export interface Dialog {
+  readonly id: string;
+  readonly method: "select" | "confirm" | "input" | "editor";
+  readonly title: string;
+  /** What a confirmation asks about. */
+  readonly message: string | null;
+  /** A selection's choices. */
+  readonly options: readonly string[] | null;
+  readonly placeholder: string | null;
+  /** An editor's starting text. */
+  readonly prefill: string | null;
+  /** How long pi waits for the answer; null for no limit. */
+  readonly timeoutMs: number | null;
+}
+
+/** pi's extension UI requests. */
+type UiRequest = Extract<PiEvent, { type: "extension_ui_request" }>;
 
 /** Translates pi's session events one at a time, keeping track of the message that is streaming. */
 export type EventTranslator = (event: PiEvent) => TranslatedEvent[];
@@ -39,8 +65,11 @@ type PiUpdate = Extract<PiEvent, { type: "message_update" }>["assistantMessageEv
  * block whose start was missed reports the start first rather than being dropped. Finished user,
  * assistant and tool result messages are converted by `toLogMessage`, the same conversion session
  * entries get, so live and rebuilt transcripts agree; other messages are dropped. A tool's live
- * output, automatic retries and the end of a compaction pass through, nested tool calls' output
- * does not. `agent_start` and `agent_settled` pass through: the first `agent_start` after idle
+ * output, automatic retries and the start and end of a compaction pass through, nested tool
+ * calls' output does not. pi's queue reports its steers whole each time; its follow-ups are not
+ * used, since the host keeps its own queue (SPEC-0001, "运行中输入"). Of extension UI requests,
+ * the four dialogs pass through and notifications are passed on to be logged; the rest only
+ * mean something in pi's terminal. `agent_start` and `agent_settled` pass through: the first `agent_start` after idle
  * begins a run, and `agent_settled` is the only event that ends it (pi-internals.md §3).
  *
  * @sideEffects none; the returned function updates its own state.
@@ -129,9 +158,14 @@ export function createEventTranslator(now: () => number): EventTranslator {
       return [{ kind: "tool_output", callId: event.toolCallId, text: outputText(partial) }];
     }
     if (event.type === "auto_retry_start") {
-      return [{ kind: "retry_started", attempt: event.attempt, error: event.errorMessage }];
+      return [
+        { kind: "retry_started", attempt: event.attempt, maxAttempts: event.maxAttempts, error: event.errorMessage },
+      ];
     }
+    if (event.type === "compaction_start") return [{ kind: "compaction_started" }];
     if (event.type === "compaction_end") return [{ kind: "compaction_finished" }];
+    if (event.type === "queue_update") return [{ kind: "steering_changed", steering: [...event.steering] }];
+    if (event.type === "extension_ui_request") return uiRequest(event);
     if (event.type === "agent_start") return [{ kind: "agent_started" }];
     if (event.type === "agent_settled") return [{ kind: "agent_settled" }];
     return [];
@@ -168,4 +202,55 @@ function outputText(partial: unknown): string {
 function isBlock(value: unknown): value is { readonly type: string; readonly text?: string } {
   // Stryker disable next-line ConditionalExpression: `contentText` compares the type with "text", which no other type equals.
   return typeof value === "object" && value !== null && "type" in value && typeof value.type === "string";
+}
+
+/**
+ * Translates an extension UI request.
+ *
+ * @remarks
+ * See `createEventTranslator`. A timeout of 0 or none means pi waits as long as it takes.
+ *
+ * @sideEffects none
+ * @param request - pi's request.
+ * @returns The events.
+ */
+function uiRequest(request: UiRequest): TranslatedEvent[] {
+  if (request.method === "notify") {
+    return [{ kind: "notified", level: request.notifyType ?? "info", text: request.message }];
+  }
+  const base = { id: request.id, message: null, options: null, placeholder: null, prefill: null };
+  const timeoutMs =
+    // Stryker disable next-line ConditionalExpression: without the field `timeout` is undefined, which the next test catches; `in` only narrows the type.
+    "timeout" in request && request.timeout !== undefined && request.timeout > 0 ? request.timeout : null;
+  if (request.method === "select") {
+    return [dialog({ ...base, method: "select", title: request.title, options: [...request.options], timeoutMs })];
+  }
+  if (request.method === "confirm") {
+    return [dialog({ ...base, method: "confirm", title: request.title, message: request.message, timeoutMs })];
+  }
+  if (request.method === "input") {
+    return [
+      dialog({ ...base, method: "input", title: request.title, placeholder: request.placeholder ?? null, timeoutMs }),
+    ];
+  }
+  if (request.method === "editor") {
+    return [
+      dialog({ ...base, method: "editor", title: request.title, prefill: request.prefill ?? null, timeoutMs: null }),
+    ];
+  }
+  return [];
+}
+
+/**
+ * Wraps a dialog as an event.
+ *
+ * @remarks
+ * See `uiRequest`.
+ *
+ * @sideEffects none
+ * @param found - The dialog.
+ * @returns The event.
+ */
+function dialog(found: Dialog): TranslatedEvent {
+  return { kind: "dialog_requested", dialog: found };
 }

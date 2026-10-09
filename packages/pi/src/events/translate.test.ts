@@ -23,6 +23,23 @@ function translateAll(events: readonly PiEvent[]): TranslatedEvent[] {
   return events.flatMap((event) => translate(event));
 }
 
+/**
+ * A dialog request as the translator reports it.
+ *
+ * @remarks
+ * Fields a request lacks are null; a timeout of 0 or none is no deadline.
+ *
+ * @sideEffects none
+ * @param fields - The id, kind and title, and what else the dialog has.
+ * @returns The event.
+ */
+function dialog(fields: { id: string; method: string; title: string } & Record<string, unknown>): TranslatedEvent {
+  return {
+    kind: "dialog_requested",
+    dialog: { message: null, options: null, placeholder: null, prefill: null, timeoutMs: null, ...fields },
+  } as TranslatedEvent;
+}
+
 /** A finished message. */
 function finished(message: LogMessage): TranslatedEvent {
   return { kind: "message_finished", message };
@@ -114,7 +131,7 @@ describe("createEventTranslator against recorded pi output", () => {
       user("one"),
       started,
       reply([], "error", unavailable),
-      { kind: "retry_started", attempt: 1, error: unavailable },
+      { kind: "retry_started", attempt: 1, maxAttempts: 3, error: unavailable },
       // The automatic retry starts the agent again.
       run,
       started,
@@ -135,13 +152,17 @@ describe("createEventTranslator against recorded pi output", () => {
     expect(translateFixture("abort")).toStrictEqual([
       run,
       user("one"),
+      // The queue pi reports emptied as the run stops, once for the test's queued follow-up and once
+      // for clear_queue.
+      { kind: "steering_changed", steering: [] },
+      { kind: "steering_changed", steering: [] },
       started,
       reply([], "aborted", "Request was aborted"),
       settled,
     ]);
   });
 
-  it("reports tool calls once complete, live output, results, retries and the end of a compaction", () => {
+  it("reports tool calls once complete, live output, results, retries and a compaction", () => {
     expect(translateFixture("history")).toStrictEqual([
       run,
       user("one"),
@@ -202,7 +223,7 @@ describe("createEventTranslator against recorded pi output", () => {
       user("two"),
       started,
       reply([], "error", unavailable),
-      { kind: "retry_started", attempt: 1, error: unavailable },
+      { kind: "retry_started", attempt: 1, maxAttempts: 3, error: unavailable },
       run,
       started,
       start(0, "text"),
@@ -210,6 +231,7 @@ describe("createEventTranslator against recorded pi output", () => {
       delta(0, "nswer"),
       reply([{ type: "text", text: "second answer" }]),
       settled,
+      { kind: "compaction_started" },
       { kind: "compaction_finished" },
       run,
       user("three"),
@@ -344,10 +366,60 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
         { type: "message_end", message: { role: "system", content: "" } } as never,
         { type: "message_start", message: { role: "user", content: "", timestamp: 0 } } as never,
         { type: "turn_start" } as never,
-        { type: "queue_update", steering: [], followUp: [] } as never,
         { type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: {} } as never,
-        { type: "extension_ui_request", id: "x", method: "notify", message: "hi" } as never,
+        { type: "extension_ui_request", id: "s", method: "setStatus", statusKey: "k", statusText: "x" },
+        { type: "extension_ui_request", id: "w", method: "setWidget", widgetKey: "k", widgetLines: ["x"] },
+        { type: "extension_ui_request", id: "t", method: "setTitle", title: "x" },
+        { type: "extension_ui_request", id: "e", method: "set_editor_text", text: "x" },
       ]),
     ).toStrictEqual([]);
+  });
+
+  it("reports the start of a compaction", () => {
+    expect(translateAll([{ type: "compaction_start", reason: "threshold" } as never])).toStrictEqual([
+      { kind: "compaction_started" },
+    ]);
+  });
+
+  it("reports pi's steering queue whole each time, leaving out its follow-ups", () => {
+    expect(
+      translateAll([
+        { type: "queue_update", steering: ["a", "b"], followUp: ["later"] },
+        { type: "queue_update", steering: [], followUp: [] },
+      ]),
+    ).toStrictEqual([
+      { kind: "steering_changed", steering: ["a", "b"] },
+      { kind: "steering_changed", steering: [] },
+    ]);
+  });
+
+  it("reports the four kinds of dialog with what each shows and its timeout", () => {
+    expect(
+      translateAll([
+        { type: "extension_ui_request", id: "d1", method: "select", title: "Pick", options: ["a", "b"], timeout: 5000 },
+        { type: "extension_ui_request", id: "d2", method: "confirm", title: "Sure?", message: "It deletes" },
+        { type: "extension_ui_request", id: "d3", method: "input", title: "Name", placeholder: "app", timeout: 0 },
+        { type: "extension_ui_request", id: "d4", method: "editor", title: "Edit", prefill: "text" },
+        { type: "extension_ui_request", id: "d5", method: "input", title: "Bare" },
+      ]),
+    ).toStrictEqual([
+      dialog({ id: "d1", method: "select", title: "Pick", options: ["a", "b"], timeoutMs: 5000 }),
+      dialog({ id: "d2", method: "confirm", title: "Sure?", message: "It deletes" }),
+      dialog({ id: "d3", method: "input", title: "Name", placeholder: "app" }),
+      dialog({ id: "d4", method: "editor", title: "Edit", prefill: "text" }),
+      dialog({ id: "d5", method: "input", title: "Bare" }),
+    ]);
+  });
+
+  it("passes on an extension's notification and its level, info when pi gives none", () => {
+    expect(
+      translateAll([
+        { type: "extension_ui_request", id: "n1", method: "notify", message: "careful", notifyType: "warning" },
+        { type: "extension_ui_request", id: "n2", method: "notify", message: "done" },
+      ]),
+    ).toStrictEqual([
+      { kind: "notified", level: "warning", text: "careful" },
+      { kind: "notified", level: "info", text: "done" },
+    ]);
   });
 });

@@ -21,6 +21,10 @@ export default {
   // Process-heavy tests (real child processes, signals) slow down sharply when many mutants run at
   // once; more parallelism turns that slowdown into timeouts that Stryker counts as detected.
   concurrency: 4,
+  // Four suites at once can take far longer than the dry run, and a slow mutant judged a timeout
+  // counts as caught: 4 of 5 sampled timeouts of M1.6's run passed every test. A mutant that truly
+  // hangs a test still times out, a little later.
+  timeoutMS: 30_000,
   mutate: [
     "packages/protocol/src/**/*.ts",
     "packages/client/src/**/*.ts",

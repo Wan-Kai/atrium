@@ -36,6 +36,27 @@ const realGit = (): GitRunner =>
   createGitRunner({ env: GIT_SCENE_ENV, clock: systemClock, resources: new ResourceTracker() });
 
 /**
+ * Real git with the scenes' environment, noting each subcommand run and where.
+ *
+ * @remarks
+ * Shows which directories an add asks git about.
+ *
+ * @sideEffects none until run; then runs git and records the call.
+ * @returns The runner and the calls, as `[subcommand, directory]`.
+ */
+function countingGit(): GitRunner & { readonly commands: Array<[string, string]> } {
+  const git = realGit();
+  const commands: Array<[string, string]> = [];
+  return {
+    commands,
+    run(args, options) {
+      commands.push([args[0] ?? "", options.cwd]);
+      return git.run(args, options);
+    },
+  };
+}
+
+/**
  * A project service over a fresh index, with ids counted up.
  *
  * @remarks
@@ -147,6 +168,36 @@ describe("ProjectService.add", () => {
     const id = await projects.add(repo.repo);
 
     await expect(projects.add(worktree)).rejects.toStrictEqual(new CommandError("project_exists", { projectId: id }));
+  });
+
+  it("refuses a worktree of a registered repository whose git directory is kept apart", async () => {
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    const root = await realpath(scene.root);
+    const app = join(root, "app");
+    // The repository's objects live outside its directory, so its worktrees cannot lead back to it.
+    await scene.git(root, "init", "--quiet", "--initial-branch=main", "--separate-git-dir", join(root, "app-git"), app);
+    await scene.commit(app, "README.md", "start\n");
+    await scene.git(app, "worktree", "add", "--quiet", "-b", "feature", join(root, "app-feature"));
+    const { projects } = await service();
+    const id = await projects.add(app);
+
+    await expect(projects.add(join(root, "app-feature"))).rejects.toStrictEqual(
+      new CommandError("project_exists", { projectId: id }),
+    );
+    expect(projects.projects().map((project) => project.path)).toStrictEqual([app]);
+  });
+
+  it("asks git only about the chosen directory when it is not a repository's top", async () => {
+    const git = countingGit();
+    const { projects } = await service(git);
+    const work = await tempDir("work");
+    await projects.add(await folder(work, "a"));
+    git.commands.length = 0;
+
+    await projects.add(await folder(work, "b"));
+
+    expect(git.commands).toStrictEqual([["rev-parse", join(work, "b")]]);
   });
 
   it("registers the repository a chosen worktree belongs to, and refuses that repository afterwards", async () => {

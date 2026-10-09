@@ -69,6 +69,8 @@ export const SessionSummary = z.strictObject({
   archived: z.boolean(),
   /** A run is in progress. */
   running: z.boolean(),
+  /** The last run failed, or pi kept crashing; cleared when the next run starts (SPEC-0001, "运行控制"). */
+  failed: z.boolean(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -107,7 +109,7 @@ export type IndexFileName = z.infer<typeof IndexFileName>;
  * The whole list, sent to a client that subscribed to it and again after every change.
  *
  * @remarks
- * M1.5 sends only snapshots; M1.7 adds changes after a cursor (SPEC-0001, "项目、工作区与会话").
+ * M1.5 sends only snapshots; M1.9 adds changes after a cursor (SPEC-0001, "项目、工作区与会话").
  */
 export const IndexSnapshotEvent = z.strictObject({
   type: z.literal("index_snapshot"),
