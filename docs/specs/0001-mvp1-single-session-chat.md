@@ -341,19 +341,19 @@ Electron 主进程
 - 模型选择按钮：胶囊形，服务商官方图标 + 模型名 + 档位字。档位由 pi 按模型给出（pi 共有 off / minimal / low / medium / high / xhigh / max，各模型支持的不同），界面按实际档位数画格子，常见的四档显示为低 / 中 / 高 / 极高。推理强度由整个按钮的"点阵密度"表达：按钮里铺一层圆角方点（间距 6px），档位越高从左往右铺得越满、越亮，切换时平滑过渡。
   - 拉满（极高）时有专属效果：点阵变成蓝 → 青 → 桃的彩色，带随机明暗（种子与"开始设置"按钮相同，每人不同）和轻微闪烁；每 3.6 秒有一道"\"方向的光从左扫过（约 0.9 秒，先加速后减速）；按钮外圈泛出淡蓝光，档位字变成渐变色。减弱动态效果时只保留静态彩色点阵。
   - 点开在上方弹出面板：上半部分是模型列表，按已登录的服务商分组（组名带官方图标），每行只写模型名和基础数据（上下文、最大输出、是否支持图片），不写介绍；当前模型带对勾，选中即关闭。下半部分是推理强度：一个横向的框（高 38px，每档约 56px 宽，档位多时框跟着变长），框的背景就是点阵，覆盖到第几格就是第几档；框内用细竖线分出档位数，左侧写当前档位名，右侧写"3 / 4"。框在面板里水平居中，下方说明文字也居中。按住框左右拖动，覆盖边缘跟手移动，拉过两端有橡皮筋阻尼；松手后按弹簧动画（response 0.38s、阻尼 0.72，略带回弹）吸附到最近一档；直接点某一格会弹到那一格；←→ 每次一档，到头再按会轻轻顶一下。档位名切换时新字沿拖动方向滑入。拉满时框内变成彩色点阵、带扫光和外圈淡蓝光。下面一句说明当前档位适合什么。调整不关闭面板，按钮上的点阵同步变化。
-  - 模型来自 pi 的 `get_available_models`，档位来自 `get_available_thinking_levels`，模型不支持的档位不显示。
+  - 模型来自 pi 的 `get_available_models`（宿主短启一个 pi 查询，按目录缓存），档位按模型的元数据算出，模型不支持的档位不显示（见下文"模型与输入框"）。
 
 - 回车发送，Shift+回车换行。输入法正在组字时（`isComposing`）按回车只是选词，不发送。
 - 运行中按钮固定为"停止"；输入框里有字时按回车加入排队；按 Esc 也能停止。
-- 每个会话各自保存草稿，切换标签再回来，内容还在。
-- 模型：新会话默认用上一次用的模型；会话中途换模型，从下一次请求开始生效。
-- `/` 命令：在输入框开头输入 `/` 弹出 pi 的命令列表（`get_commands`：提示词模板、skill、extension 命令），选中后插入输入框。
-- `@` 引用文件和目录（Claude、Zed、Cursor 都有）：输入 `@` 弹出模糊搜索（宿主用 `git ls-files` 列出候选，目录也可选），↑↓ 选择、回车或 Tab 确认；选中后从文字里去掉 `@…`，变成输入框上方的文件小胶囊，随消息发出。发送时写成 `@相对路径`，只放路径、不放文件内容，由 agent 自己读，与 pi 的终端界面一致（2026-10-09 定）。
+- 每个会话各自保存草稿，切换标签再回来，内容还在；草稿存在界面的 localStorage，重启后还在，图片只在页面存活期间保留（2026-10-10 定）。
+- 模型：新会话默认用上一次用的模型，推理强度按模型各记一份；会话中途换模型，从下一次请求开始生效。
+- `/` 命令：在输入框开头输入 `/` 弹出 pi 的命令列表（`get_commands`：提示词模板、skill、extension 命令），选中后插入输入框。会话的 pi 还没启动时，输入 `/` 就启动它（2026-10-10 定）。
+- `@` 引用文件和目录（Claude、Zed、Cursor 都有）：输入 `@` 弹出模糊搜索（宿主和 pi 的终端界面一样用 `fd` 列出候选，目录也可选，2026-10-10 定），↑↓ 选择、回车或 Tab 确认；选中后从文字里去掉 `@…`，变成输入框上方的文件小胶囊，随消息发出。发送时写成 `@相对路径`，只放路径、不放文件内容，由 agent 自己读，与 pi 的终端界面一致（2026-10-09 定）。
 - 粘贴长文本（超过 8 行或 800 字）自动收成"粘贴内容 · N 行"小胶囊；粘贴截图仍作为图片附件。
 - 把文件拖进输入框：图片作为附件，其他文件变成引用；拖入时输入框描边并提示。
 - 左下角"+"是一个菜单：添加图片、引用文件或目录（插入 `@`）、命令（插入 `/`），打开时"+"转成"×"。
 - 右上角"展开"按钮：把输入框展开成大编辑区（约 40% 窗口高），再点收起。
-- 输入框为空时按 ↑ 调出之前发过的提问（可连按往前翻），↓ 往回。
+- 输入框为空时按 ↑ 调出本会话之前发过的提问（可连按往前翻），↓ 往回。历史取自对话记录，不另存（2026-10-10 定）。
 - 快捷键：⌘⇧I 打开模型菜单，⌘⇧E 打开推理强度菜单（MVP 2 加 ⌘⇧M 审批模式）。
 - 胶囊条（参考 Paseo、Zed）：输入框上方一行浮动的小胶囊，替代原来叠在输入框上的排队列表：
   - "● 排队 N"：点开在上方弹出排队面板（编辑、删除、改为插话；停止后显示"继续发送"）；有新消息进入排队时自动展开。
@@ -630,6 +630,47 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 新增命令：`steer`、`stop`、`resume_queue`、`clear_queue`、`update_queued`、`remove_queued`、`steer_queued`、`answer_interaction`、`retry_run`。新增事件：`control_updated`、`prompt_handled`。新增错误码：`session_stopping`、`queue_item_not_found`、`interaction_closed`。`prompt` 的应答多了 `queued`（带 `itemId`）。
 
+### 模型与输入框（M1.7，2026-10-10 定）
+
+模型列表照 Paseo 的做法（`paseo-architecture.md` §3），`@` 候选和 pi 的终端界面一样用 `fd`。产品层面的规则见上文"对话区"的"输入框"，这里写宿主和协议怎么做。
+
+**模型列表**
+
+- 宿主的 PiCatalog 为一个目录短启一个 `pi --mode rpc`（不带 `--session`），调 `get_available_models` 和 `get_state`，然后停掉它。`get_state` 里的模型是 pi 按自己的设置选出的默认模型。不借正在运行的会话的 pi。工作区用工作区目录；对话用家目录（对话各自的目录是空的，和家目录一样只有全局设置）。
+- 结果按目录缓存在宿主内存里，没有期限，不落盘。项目自己的 `.pi/settings.json` 可能改变可用的模型，所以按目录分开。同一目录同时只查一次，后到的请求等同一次结果。宿主启动时不查，界面进入一个工作区或对话时预取一次。
+- `list_models(containerId, refresh?)`：有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。
+- 应答 `{ models, defaultModel }`。每个模型 `{ providerId, modelId, name, contextWindow, maxOutput, supportsImage, thinkingLevels }`。pi 只返回有凭据的服务商的模型。
+- 推理档位按模型的元数据算出，不调 `get_available_thinking_levels`（它只回答当前模型）：不支持推理的只有 `off`；其余从 off / minimal / low / medium / high / xhigh / max 里去掉 `thinkingLevelMap` 标为 `null` 的，`xhigh`、`max` 只在 `thinkingLevelMap` 里明确给出时才有。规则照抄 pi-ai 的 `getSupportedThinkingLevels`，写在 `packages/pi` 里（运行时不依赖 pi 的包），pi 改了规则时契约测试会发现。
+- 查询失败（pi 退出、比如没有任何凭据，或者启动不起来）应答 `models_unavailable`，`params.detail` 是 pi 的报错原文（截断到 4 KB，照常脱敏），只供"展开看原始报错"。
+
+**会话的模型**
+
+- 会话快照新增 `model`：`{ providerId, modelId, thinkingLevel } | null`，变化时推 `model_updated`。宿主在 pi 启动后、`set_model` 和 `set_thinking_level` 之后、收到 pi 的 `thinking_level_changed` 时用 `get_state` 读取。
+- `set_model(providerId, modelId)` / `set_thinking_level(level)`：转给 pi，之后用 `get_state` 读回实际的模型和档位（换模型后 pi 会把档位截到新模型支持的范围），再取一次条目（`model_change` 等条目不发事件）。运行中也可以换，从下一次请求开始生效；`stopping` 期间应答 `session_stopping`。pi 没在运行就先启动它。
+- 记住上一次的选择：Preferences 新增 `lastModel`（`{ providerId, modelId } | null`）和 `thinkingByModel`（键是 `providerId/modelId`）。在任何会话里换模型或推理强度都会更新它们（Paseo 记在客户端，Atrium 的偏好在宿主索引里，所有客户端共用）。pi 的 `set_model` 不写 pi 自己的设置，所以由 Atrium 记。
+- 新会话（工作区里新建、新对话、宿主重启后恢复的草稿第一次启动）启动 pi 后，宿主按 `lastModel` 调 `set_model`，再按 `thinkingByModel` 调 `set_thinking_level`，然后才处理第一条消息。**不照 Paseo 用 `--model` 启动**：pi 解析不出 `--model` 时直接退出，记住的模型后来没了凭据就会让会话起不来；`set_model` 找不到模型只是一条错误应答，宿主忽略它，会话用 pi 自己的默认模型。`lastModel` 为空时什么也不设。从文件打开的会话不设，pi 沿用会话里记录的模型。
+- 当前模型不支持图片时（模型列表里 `supportsImage` 为假）不允许添加图片，提示当前模型不支持；已经添加了图片再换到不支持的模型，发送按钮旁提示，发送时照样发出，由 pi 换成占位文字。
+
+**`/` 命令**
+
+- `list_commands(sessionId)` 调会话自己的 pi 的 `get_commands`，每次弹出列表时请求一次，宿主不缓存。pi 没在运行（宿主重启后恢复的草稿、已退出的会话）就先启动它，和第一次发消息时一样；只输入了 `/` 没发消息的草稿，关掉时照样丢弃。空状态（还没有会话）下输入 `/` 时先新建会话，和在空状态下发送时新建的是同一个。
+- 列表三类：extension 命令、提示词模板、skill（名字形如 `skill:<名字>`），带描述和参数提示。选中后插入 `/名字 `，发送时由 pi 展开或交给 extension 处理（`handled`）。pi 终端界面的内置命令（`/model`、`/compact` 等）在 RPC 里不存在，不列出。插话不接受 extension 命令（pi 拒绝，见"运行控制"）。
+
+**`@` 引用**
+
+- `search_files(sessionId, query)`：在会话的工作目录里调 `fd`，参数和 pi 的终端界面一致：`--type f --type d --follow --hidden --exclude .git`，每次最多 100 个结果；先搜一层、再递归搜，合并后按匹配程度排序（完全匹配 > 前缀 > 文件名包含 > 路径包含，目录略优先，同分按深度、长度、名字），返回前 20 个。查询里带 `/` 时只在那个子目录里搜。`fd` 自己遵守 `.gitignore`、`.ignore`、`.fdignore`，所以 git 仓库和普通目录走同一条路，也包括还没 `git add` 的新文件。只在工作目录之内搜，不支持 `~/` 和绝对路径。
+- `fd` 的位置和 pi 一样：先找 `~/.pi/agent/bin/fd`（`PI_CODING_AGENT_DIR` 可改），再找登录 shell 的 `PATH` 里的 `fd`、`fdfind`。都没有时应答 `fd_missing`，界面提示"没有找到 fd"；宿主不自己下载（pi 的终端界面第一次启动时会下载它）。首次启动的检查在 M1.10 加上 fd。
+- 每次查询最多 5 秒，超时或同一会话来了新的查询时停掉上一次的 `fd`。查询词作为 `fd` 的参数传入（不经 shell）。
+- 发送时文件写成 `@相对路径`，目录写成 `@目录/`，路径里有空白时写成 `@"路径"`，和 pi 的终端界面插入的一样。
+
+**↑ 历史与草稿**
+
+- ↑ 历史是本会话当前分支上你发过的消息（不含"系统自动发出"的），从新到旧，相邻重复的只算一条。取自界面已经加载的对话记录，翻过已加载的最早一轮时按游标取更早的。宿主重启后照样在，Atrium 不另存。
+- 草稿每个会话一份，界面按会话 id 存在 localStorage：文字、文件引用、粘贴内容。图片只放在内存里，刷新页面或重启后不保留。发送后清掉；会话从列表里消失（归档、丢弃）后，界面下次启动时清掉它的草稿。localStorage 写不下时只保留在内存里。
+- 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就重新上传一次再发。
+
+新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`。新增事件：`model_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
+
 ### 命令与事件
 
 **命令（UI → 宿主）**
@@ -655,8 +696,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `answer_interaction(sessionId, interactionId, answer)` | 回答 extension 的对话框；已被回答、超时或作废时应答 `interaction_closed` |
 | `retry_run(sessionId)` | 错误卡片上的"重试"：按崩溃重启后的规则再来一轮（M1.6） |
 | `set_model(sessionId, providerId, modelId)` / `set_thinking_level(sessionId, level)` | 模型和推理强度 |
-| `list_models()` / `list_commands(dir)` | 模型与推理档位、`/` 命令（不依赖会话进程） |
-| `search_files(dir, query)` | `@` 引用的候选文件和目录（git 仓库用 `git ls-files`，其余按忽略规则遍历） |
+| `list_models(containerId, refresh?)` / `list_commands(sessionId)` | 模型与推理档位（短启 pi 查询，按目录缓存）、`/` 命令（问会话自己的 pi，没启动就启动） |
+| `search_files(sessionId, query)` | `@` 引用的候选文件和目录（在会话的工作目录里用 `fd`，与 pi 的终端界面一致） |
 | `check_setup()` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install()` / `login(provider)` / `cancel_login()` / `set_api_key(provider, key)` | 首次启动：检查、一键安装和更新、登录 |
 
 **事件（宿主 → UI）**
@@ -673,6 +714,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `tool_started` / `tool_updated` / `tool_finished` | 工具调用，带调用 id；`tool_finished` 携带 `content` 和 `details` |
 | `control_updated` | 会话的控制状态（排队与暂停、待送达的插话、停止中、未回答的对话框、连续崩溃后的失败），整份推送（M1.6，见上文"运行控制"） |
 | `install_output` / `install_finished` / `login_updated` | 安装、更新、登录的进度和结果 |
+| `model_updated` | 会话当前的模型和推理强度变化（M1.7，见上文"模型与输入框"） |
 | `session_renamed` | 会话标题变化（手动重命名或自动生成） |
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |

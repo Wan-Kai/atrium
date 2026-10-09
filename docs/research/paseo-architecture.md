@@ -52,6 +52,14 @@ Paseo 是"宿主横向接多个 agent"的方案（Claude Code、Codex、pi 等�
 - 文件：`agent.ts`（`PiRpcAgentClient` / `PiRpcAgentSession`）、`cli-runtime.ts`、`runtime.ts`（启动参数）、`history-mapper.ts`、`tool-call-mapper.ts`、`session-descriptor.ts`（可导入会话列表）、`rewind.ts`、`usage-poller.ts`、`extensions/`（pi-subagents、pi-ask-user、pi-mcp-adapter 等的适配）。
 - 启动：`pi --mode rpc [--model p/id] [--thinking lvl] [--session <file> | --no-session] [--mcp-config tmp] --extension <临时 paseo-integration.mjs>`。进程由 `providers/jsonl-rpc-process.ts` 管理：按 id 对应请求，默认超时 30 秒，退出时 SIGTERM 再 SIGKILL 整个进程树，退出转成合成的 `process_exit` 事件。
 - 用到的命令：`prompt`、`steer`、`clear_queue` + `abort`（中断）、`get_state`、`get_messages`、`get_available_models`、`set_model`、`set_thinking_level`、`get_session_stats`（轮询用量）、`get_commands`、`compact`、`set_auto_compaction`、`extension_ui_response`。
+- **模型列表**（2026-10-10 读，`agent.ts` 的 `fetchCatalog`、`server/agent/provider-snapshot-manager.ts`）：
+  - 短启一个探测用的 `pi --mode rpc`（不带其他参数），调 `get_available_models` 和 `get_state`，`get_state` 的模型标为默认，查完就停。工作区用工作区目录，设置页用家目录。从不借正在运行的 agent 的 pi。
+  - 缓存在 daemon 内存里，pi 按目录分开（Claude、Codex 共用一份），没有期限、不落盘、没有定时器。daemon 启动时不查；第一次请求某个目录时预热，App 打开工作区时预取。同一目录同时只查一次。
+  - 只有明确的"刷新"、服务商配置变化、诊断会强制重查；打开模型选择器只重新拉一次快照，不重查。重查期间旧结果照常给出，失败时换成错误状态、旧列表丢掉。整个刷新期限 120 秒。
+  - pi 退出（如没有凭据）时，这个服务商的状态是 `error`，带 pi 的 stderr；找不到 pi 是 `unavailable`。
+  - 推理档位按模型元数据（`reasoning`、`thinkingLevelMap`）从固定的七档里筛出，默认 `medium`，不调 `get_available_thinking_levels`。
+  - 上一次的模型和推理强度记在客户端（全局、按服务商，推理强度按模型各记一份），新 agent 用 `--model p/id --thinking lvl` 启动；记住的模型已不在列表里时照样传给 pi。中途换模型调 `set_model` / `set_thinking_level`，再 `get_state` 读回。
+  - `/` 命令每次都问运行中的 pi 的 `get_commands`，不缓存；草稿 agent 短启一个完整的 pi 去查。`@` 引用用 daemon 自己遍历目录（遵守 gitignore），不经过 pi。
 - 事件映射（`agent.ts` 的 `handleSessionEvent`）：第一个 `turn_start` → `turn_started`（每个 Paseo turn 只一次）；`text_delta` / `thinking_delta` → 助手消息 / 推理；`tool_execution_*` → tool_call；`compaction_*` → compaction；`auto_retry_start` → error 条目；`agent_settled` → `turn_completed`，或最后一条助手消息带错误时 `turn_failed`。**一个 Paseo turn = 一次 `prompt` RPC**，turnId 由 Paseo 生成。
 - **历史重建用 `get_messages`**（加上下面的条目捕获），不读主会话文件，也不用 `get_entries`。Atrium 改用 `get_entries` 沿当前分支重建，见 [pi-internals.md](pi-internals.md)。
 - **"通知加标记"的旁路**：Paseo 注入一个临时 extension，用 `ctx.ui.notify("<MARKER> " + JSON)` 把 RPC 里拿不到的信息送回宿主（宿主收到的是 `extension_ui_request {method: "notify"}`）：
