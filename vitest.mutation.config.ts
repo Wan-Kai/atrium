@@ -28,5 +28,8 @@ export default defineConfig({
     include: [`${packages}/*.test.ts`, `${packages}/*.host.test.ts`],
     exclude: [`${packages}/*.{pi,leak,soak,browser}.test.ts`, "**/node_modules/**"],
     testTimeout: 15_000,
+    // Stryker runs four of these at once; three workers each keeps them within the machine's cores,
+    // so a mutant's tests do not slow down past its timeout and pass for caught (testing.md).
+    maxWorkers: 3,
   },
 });
