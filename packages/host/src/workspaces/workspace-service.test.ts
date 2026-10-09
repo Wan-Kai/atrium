@@ -6,7 +6,7 @@ import { recordingTracing } from "../../test/recording-tracing";
 import { systemClock } from "../platform/clock";
 import { GitError, type GitRunner, createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
-import { createProjectService } from "../projects/project-service";
+import { type ProjectService, createProjectService } from "../projects/project-service";
 import { PROJECTS_FILE, type ProjectsDocument } from "../store/index-schema";
 import { type IndexFile, loadIndexFile } from "../store/index-file";
 import { createMergeInspector } from "./merge-inspector";
@@ -38,14 +38,23 @@ async function scene(): Promise<GitScene> {
   };
 }
 
-/** Real git with the scenes' environment, counting each subcommand run. */
-function countingGit(clock = systemClock): GitRunner & { readonly commands: string[] } {
+/** One git command a test saw, with the deadline it was given. */
+interface SeenRun {
+  readonly command: string;
+  readonly timeoutMs: number | undefined;
+}
+
+/** Real git with the scenes' environment, counting each subcommand run and its deadline. */
+function countingGit(clock = systemClock): GitRunner & { readonly commands: string[]; readonly runs: SeenRun[] } {
   const git = createGitRunner({ env: GIT_SCENE_ENV, clock, resources: new ResourceTracker() });
   const commands: string[] = [];
+  const runs: SeenRun[] = [];
   return {
     commands,
+    runs,
     run(args, options) {
       commands.push(args[0] ?? "");
+      runs.push({ command: args[0] ?? "", timeoutMs: options.timeoutMs });
       return git.run(args, options);
     },
   };
@@ -73,6 +82,25 @@ async function services(options: { clock?: FakeClock; git?: GitRunner | null } =
     git: Promise.resolve(git),
     newId: (prefix) => `${prefix}_${String((next += 1)).padStart(16, "0")}`,
   });
+  const { workspaces, records, resources } = watch(projects, git, clock);
+  let changes = 0;
+  workspaces.onChange(() => (changes += 1));
+  return { projects, workspaces, file, clock, records, resources, git, changes: () => changes };
+}
+
+/**
+ * A workspace service over a project service, with the given git.
+ *
+ * @remarks
+ * A second one over the same projects stands for the host started again.
+ *
+ * @sideEffects Subscribes to the projects; the service is closed when the test ends.
+ * @param projects - The project service.
+ * @param git - git, or `null` for none.
+ * @param clock - The clock.
+ * @returns The service, its log records and its resource tracker.
+ */
+function watch(projects: ProjectService, git: GitRunner | null, clock: FakeClock) {
   const { logger, records } = recordingTracing();
   const resources = new ResourceTracker();
   const workspaces = createWorkspaceService({
@@ -84,9 +112,7 @@ async function services(options: { clock?: FakeClock; git?: GitRunner | null } =
     logger,
   });
   onTestFinished(() => workspaces.close());
-  let changes = 0;
-  workspaces.onChange(() => (changes += 1));
-  return { projects, workspaces, file, clock, records, resources, git, changes: () => changes };
+  return { workspaces, records, resources };
 }
 
 /**
@@ -109,18 +135,45 @@ const clean = (verdict: string, ahead = 0) => ({ dirty: false, ahead, verdict, r
  * Real git that can be made to fail, as when it hangs past its deadline.
  *
  * @remarks
- * Every command fails with a timeout once broken.
+ * Every command fails once broken: with a timeout, or with the error given, as a host bug would.
  *
  * @sideEffects none until it runs git.
  * @returns The runner and how to break it.
  */
-function breakableGit(): GitRunner & { break(): void } {
+function breakableGit(): GitRunner & { break(error?: Error): void } {
   const real = countingGit();
-  let broken = false;
+  let failure: ((command: string) => Error) | null = null;
   return {
-    run: (args, options) => (broken ? Promise.reject(new GitError(args[0] ?? "", "timeout")) : real.run(args, options)),
-    break: () => {
-      broken = true;
+    run: (args, options) => (failure === null ? real.run(args, options) : Promise.reject(failure(args[0] ?? ""))),
+    break: (error) => {
+      failure = (command) => error ?? new GitError(command, "timeout");
+    },
+  };
+}
+
+/**
+ * Real git that runs an action just before a given command starts.
+ *
+ * @remarks
+ * Lets a test act at an exact point of a scan or a fetch, such as closing the service.
+ *
+ * @sideEffects none until it runs git; then runs the actions.
+ * @returns The runner, its commands and how to add an action.
+ */
+function interceptingGit(): GitRunner & {
+  readonly commands: string[];
+  before(command: string, action: () => void): void;
+} {
+  const real = countingGit();
+  const actions = new Map<string, () => void>();
+  return {
+    commands: real.commands,
+    run: (args, options) => {
+      actions.get(args[0] ?? "")?.();
+      return real.run(args, options);
+    },
+    before: (command, action) => {
+      actions.set(command, action);
     },
   };
 }
@@ -214,12 +267,14 @@ describe("WorkspaceService", () => {
     const without = await services({ git: null });
     await without.projects.add(repo.repo);
 
-    for (const { workspaces } of [withGit, without]) {
-      workspaces.start();
+    for (const { workspaces, records } of [withGit, without]) {
+      workspaces.windowFocused();
       await workspaces.idle();
       expect(
         workspaces.list().map(({ branch, head, createdAt, merge }) => [branch, head, createdAt, merge]),
       ).toStrictEqual(workspaces.list().map(() => [null, null, null, null]));
+      // Neither the scans nor the fetches failed: there was nothing to read.
+      expect(records).toStrictEqual([]);
     }
   });
 
@@ -289,7 +344,11 @@ describe("WorkspaceService", () => {
     await repo.git(other, "commit", "--quiet", "-m", "squashed");
     await repo.git(other, "push", "--quiet", "origin", "main");
     await writeFile(join(feature, "edit.txt"), "x");
-    clock.advance(FETCH_INTERVAL_MS - 1);
+    // Every few minutes: not within the first minute.
+    clock.advance(FOCUS_FETCH_GAP_MS);
+    await workspaces.idle();
+    expect(git.commands).not.toContain("fetch");
+    clock.advance(FETCH_INTERVAL_MS - FOCUS_FETCH_GAP_MS - 1);
     await workspaces.idle();
     expect(git.commands).not.toContain("fetch");
     clock.advance(1);
@@ -402,6 +461,30 @@ describe("WorkspaceService", () => {
     expect(records.filter((record) => record["msg"] === "workspace scan failed")).toMatchObject([
       { level: "warn", projectId: id, command: "rev-parse", reason: "timeout" },
     ]);
+    expect(records.filter((record) => record["msg"] === "fetch failed")).toMatchObject([
+      { level: "info", projectId: id, command: "rev-parse", reason: "timeout" },
+    ]);
+  });
+
+  it("logs whole anything else that fails a scan or a fetch, as a host bug", async () => {
+    const repo = await scene();
+    const git = breakableGit();
+    const { projects, workspaces, records } = await services({ git });
+    const id = await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+
+    git.break(new TypeError("a bug"));
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    const bug = { type: "TypeError", message: "a bug" };
+    expect(records.filter((record) => record["msg"] === "workspace scan failed")).toMatchObject([
+      { level: "warn", projectId: id, err: bug },
+    ]);
+    expect(records.filter((record) => record["msg"] === "fetch failed")).toMatchObject([
+      { level: "info", projectId: id, err: bug },
+    ]);
   });
 
   it("stops its fetch timer and git when closed", async () => {
@@ -464,8 +547,251 @@ describe("WorkspaceService after the review", () => {
 
     expect(workspaces.list()).toStrictEqual(before);
     expect(records.filter((record) => record["msg"] === "workspace scan skipped")).toMatchObject([
-      { level: "info", projectId: id },
+      { level: "info", projectId: id, code: 128 },
     ]);
     await rename(join(repo.repo, ".git-away"), join(repo.repo, ".git"));
+  });
+
+  it("keeps what it knew of a repository git now reads as part of the one around it", async () => {
+    const repo = await scene();
+    await repo.worktree("feature");
+    const { projects, workspaces, records } = await services();
+    const id = await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    const before = workspaces.list();
+
+    await rename(join(repo.repo, ".git"), join(repo.repo, ".git-away"));
+    await repo.git(repo.root, "init", "--quiet");
+    workspaces.refresh(present(before[0], "workspace").id);
+    await workspaces.idle();
+
+    expect(workspaces.list()).toStrictEqual(before);
+    // Skipped, not failed: the only record.
+    expect(records).toMatchObject([{ level: "info", msg: "workspace scan skipped", projectId: id, code: 0 }]);
+  });
+});
+
+describe("WorkspaceService at its edges", () => {
+  it("scans only a project just added, not those it already knew", async () => {
+    const repo = await scene();
+    const plain = join(repo.root, "plain");
+    await mkdir(plain);
+    const git = countingGit();
+    const { projects, workspaces } = await services({ git });
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    const before = git.commands.length;
+
+    await projects.add(plain);
+    await workspaces.idle();
+
+    // One to tell what the folder is when adding it, one to scan it.
+    expect(git.commands.slice(before)).toStrictEqual(["rev-parse", "rev-parse"]);
+  });
+
+  it("lists a bare repository's worktrees, but not the bare repository itself", async () => {
+    const repo = await scene();
+    const first = join(repo.root, "first");
+    const second = join(repo.root, "second");
+    await repo.git(repo.origin, "worktree", "add", "--quiet", first, "main");
+    await repo.git(repo.origin, "worktree", "add", "--quiet", "-b", "other", second, "main");
+    const { projects, workspaces } = await services();
+    await projects.add(first);
+
+    workspaces.start();
+    await workspaces.idle();
+
+    expect(workspaces.list().map(({ kind, dir, branch, createdAt }) => [kind, dir, branch, createdAt])).toStrictEqual([
+      ["local", first, "main", null],
+      ["worktree", second, "other", expect.any(Number)],
+    ]);
+  });
+
+  it("finds when worktrees were made in a repository whose folder name ends in a space", async () => {
+    const repo = await scene();
+    const bare = join(repo.root, "bare ");
+    await repo.git(repo.root, "clone", "--quiet", "--bare", repo.origin, bare);
+    const first = join(repo.root, "first");
+    const second = join(repo.root, "second");
+    await repo.git(bare, "worktree", "add", "--quiet", first, "main");
+    await repo.git(bare, "worktree", "add", "--quiet", "-b", "other", second, "main");
+    const { projects, workspaces } = await services();
+    await projects.add(first);
+
+    workspaces.start();
+    await workspaces.idle();
+
+    expect(workspaces.list()[1]?.createdAt).toStrictEqual(expect.any(Number));
+  });
+
+  it("shows as removed a worktree git no longer lists, and a locked one whose directory went", async () => {
+    const repo = await scene();
+    const unlisted = await repo.worktree("unlisted");
+    const locked = await repo.worktree("locked");
+    await repo.git(repo.repo, "worktree", "lock", locked);
+    const { projects, workspaces } = await services();
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+
+    await rm(join(repo.repo, ".git", "worktrees", "wt-unlisted"), { recursive: true });
+    await rm(locked, { recursive: true });
+    workspaces.refresh(present(workspaces.list()[0], "workspace").id);
+    await workspaces.idle();
+
+    // In the order git first listed them.
+    expect(shape(workspaces.list()).slice(1)).toStrictEqual([
+      { kind: "worktree", dir: locked, branch: "locked", head: null, external: true, merge: clean("removed") },
+      { kind: "worktree", dir: unlisted, branch: null, head: null, external: true, merge: clean("removed") },
+    ]);
+  });
+
+  it("works out whether a worktree is dirty after a fetch when it is new or has come back", async () => {
+    const repo = await scene();
+    const back = await repo.worktree("back");
+    const clock = new FakeClock();
+    const { projects, workspaces } = await services({ clock });
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    await rename(back, `${back}-away`);
+    workspaces.refresh(present(workspaces.list()[1], "workspace").id);
+    await workspaces.idle();
+    expect(workspaces.list()[1]?.merge).toStrictEqual(clean("removed"));
+
+    await rename(`${back}-away`, back);
+    await writeFile(join(back, "edit.txt"), "x");
+    const fresh = await repo.worktree("fresh");
+    await writeFile(join(fresh, "edit.txt"), "x");
+    clock.advance(FETCH_INTERVAL_MS);
+    await workspaces.idle();
+
+    const dirty = { dirty: true, ahead: 0, verdict: "noChange", reason: null };
+    expect(workspaces.list().map(({ dir, merge }) => [dir, merge])).toStrictEqual([
+      [repo.repo, null],
+      [back, dirty],
+      [fresh, dirty],
+    ]);
+  });
+
+  it("works merge states out in full after a fetch when, started again, it could not read the repository at first", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    await writeFile(join(feature, "edit.txt"), "x");
+    const clock = new FakeClock();
+    const before = await services({ clock });
+    await before.projects.add(repo.repo);
+    await before.workspaces.idle();
+    await before.workspaces.close();
+
+    await rename(join(repo.repo, ".git"), join(repo.repo, ".git-away"));
+    const { workspaces } = watch(before.projects, countingGit(), clock);
+    workspaces.start();
+    await workspaces.idle();
+    await rename(join(repo.repo, ".git-away"), join(repo.repo, ".git"));
+    clock.advance(FETCH_INTERVAL_MS);
+    await workspaces.idle();
+
+    expect(shape(workspaces.list())).toStrictEqual([
+      { kind: "local", dir: repo.repo, branch: "main", head: null, external: false, merge: null },
+      {
+        kind: "worktree",
+        dir: feature,
+        branch: "feature",
+        head: null,
+        external: true,
+        merge: { dirty: true, ahead: 0, verdict: "noChange", reason: null },
+      },
+    ]);
+  });
+
+  it("runs one fetch at a time, and fetches again every interval", async () => {
+    const repo = await scene();
+    const clock = new FakeClock();
+    const git = countingGit();
+    const { projects, workspaces } = await services({ clock, git });
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    const fetches = () => git.commands.filter((command) => command === "fetch").length;
+
+    workspaces.windowFocused();
+    clock.advance(FETCH_INTERVAL_MS);
+    await workspaces.idle();
+    expect(fetches()).toBe(1);
+    clock.advance(FETCH_INTERVAL_MS);
+    await workspaces.idle();
+    expect(fetches()).toBe(2);
+  });
+
+  it("gives a fetch two minutes, and git's usual deadline to the rest", async () => {
+    const repo = await scene();
+    const git = countingGit();
+    const { projects, workspaces } = await services({ git });
+    await projects.add(repo.repo);
+
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    expect(git.runs.filter(({ command }) => ["remote", "fetch"].includes(command))).toStrictEqual([
+      { command: "remote", timeoutMs: undefined },
+      { command: "fetch", timeoutMs: 120_000 },
+    ]);
+  });
+
+  it("logs nothing of a scan it stopped by closing", async () => {
+    const repo = await scene();
+    const git = interceptingGit();
+    const { projects, workspaces, records } = await services({ git });
+    let closing = Promise.resolve();
+    git.before("worktree", () => {
+      closing = workspaces.close();
+    });
+
+    await projects.add(repo.repo);
+    await workspaces.idle();
+    await closing;
+
+    expect(workspaces.list()[0]?.branch).toBeNull();
+    expect(records).toStrictEqual([]);
+  });
+
+  it("logs nothing of a fetch it stopped by closing", async () => {
+    const repo = await scene();
+    const clock = new FakeClock();
+    const git = interceptingGit();
+    const { projects, workspaces, records } = await services({ clock, git });
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    let closing = Promise.resolve();
+    git.before("remote", () => {
+      closing = workspaces.close();
+    });
+
+    clock.advance(FETCH_INTERVAL_MS);
+    await workspaces.idle();
+    await closing;
+
+    expect(git.commands.filter((command) => command === "fetch")).toStrictEqual([]);
+    expect(records).toStrictEqual([]);
+  });
+
+  it("runs no git for a fetch that was about to start when it closed", async () => {
+    const repo = await scene();
+    const clock = new FakeClock();
+    const git = countingGit();
+    const { projects, workspaces } = await services({ clock, git });
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    const before = git.commands.length;
+
+    clock.advance(FETCH_INTERVAL_MS);
+    await workspaces.close();
+
+    expect(git.commands.slice(before)).toStrictEqual([]);
   });
 });
