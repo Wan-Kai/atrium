@@ -38,8 +38,8 @@ export interface MergeInspector {
 /** The first git version with `merge-tree --write-tree`. */
 const MERGE_TREE_VERSION: readonly [number, number] = [2, 38];
 
-/** Reflog entries that record a commit made on the branch itself. */
-const OWN_COMMIT = /^(?:commit|cherry-pick|revert)\b|^merge .*: Merge made by/;
+/** Reflog entries that record a commit made on the branch itself (SPEC-0001, "worktree 合并状态"). */
+const OWN_COMMIT = /^(?:commit|cherry-pick|revert|am)\b|^(?:merge .*|pull(?: .*)?): Merge made by/;
 
 /**
  * A verdict that cannot be told, with why.
