@@ -17,6 +17,9 @@ interface RunningPi {
   readonly records: PiRecord[];
   /** Lets a reply scripted with `waitFor` continue. */
   release(name: string): Promise<void>;
+  /** The process id pi has, and the one the faux extension wrote down. */
+  readonly pid: number | undefined;
+  written(): Promise<number>;
   send(command: object): void;
   /** Waits until pi has printed a record matching `predicate`. */
   until(predicate: (record: PiRecord) => boolean): Promise<void>;
@@ -61,6 +64,8 @@ async function startPi(script: FauxScript): Promise<RunningPi> {
     dir: dir.path,
     records,
     release: (name) => launch.release(name),
+    pid: child.pid,
+    written: () => launch.pid(),
     send: (command) => child.stdin.write(`${JSON.stringify(command)}\n`),
     until: (predicate) =>
       vi.waitFor(
@@ -230,6 +235,14 @@ describe("faux model in a real pi process", () => {
     await pi.until(settled);
 
     expect(lastAssistant(pi.records)).toMatchObject({ stopReason: "aborted" });
+  });
+
+  it("writes down the process id of the pi that loaded it", async () => {
+    const pi = await startPi({ replies: [] });
+    pi.send({ id: "r1", type: "get_state" });
+    await pi.until((record) => record.type === "response");
+
+    expect(await pi.written()).toBe(pi.pid);
   });
 
   it("answers handled for /faux-noop without starting a run", async () => {

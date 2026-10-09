@@ -251,8 +251,9 @@ export function createSessionManager(options: {
    * Starts pi and reads what it knows of its session.
    *
    * @remarks
-   * The session's id is the one pi reports (domain-model, "已决定 2"); its entries are read at
-   * once, so the first snapshot already holds the transcript. A pi that cannot report its
+   * The session's id is the one pi reports (domain-model, "已决定 2"); automatic retries are
+   * turned on; its entries are read at once, so the first snapshot already holds the transcript.
+   * A pi that cannot report its
    * session is stopped, never left running unowned; one started while the host closes stops
    * itself.
    *
@@ -301,6 +302,9 @@ export function createSessionManager(options: {
     let entries: EntriesPage;
     try {
       ({ sessionId } = await traced.request({ type: "get_state" }));
+      // pi retries failed model calls itself unless the user's settings turned that off; the host
+      // counts on it (SPEC-0001, "运行出错与停止").
+      await traced.request({ type: "set_auto_retry", enabled: true });
       entries = await getEntries(undefined);
     } catch (error) {
       await pi.stop();

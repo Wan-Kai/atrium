@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +43,8 @@ export const FAUX_MODEL = "faux-1";
 export const FAUX_API = "atrium-faux";
 /** Environment variable naming the directory where released gates appear as files. */
 export const FAUX_GATES_ENV = "FAUX_PI_GATES";
+/** The file beside the gates where the faux extension writes the process id of the pi running it. */
+export const FAUX_PID_FILE = "pi.pid";
 /** Environment variable that tells the extension where the script is; not `ATRIUM_*`, which the host keeps from pi. */
 export const FAUX_SCRIPT_ENV = "FAUX_PI_SCRIPT";
 
@@ -56,6 +58,8 @@ export interface FauxPiLaunch {
   readonly agentDir: string;
   /** Lets replies scripted with `waitFor: name` continue. */
   release(name: string): Promise<void>;
+  /** The process id of the pi that loaded the extension last. */
+  pid(): Promise<number>;
 }
 
 /**
@@ -68,7 +72,7 @@ export interface FauxPiLaunch {
  * credentials never reach the test.
  *
  * @sideEffects Creates `dir/pi-agent` and `dir/faux-gates`, and writes `dir/faux-script.json`;
- * `release` writes a file into `dir/faux-gates`.
+ * `release` writes a file into `dir/faux-gates`; `pid` reads `dir/pi.pid`.
  * @param script - Replies the faux model gives, in order.
  * @param dir - A temporary directory owned by the test.
  * @returns Arguments and environment variables for the pi process.
@@ -82,6 +86,7 @@ export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLau
   await writeFile(scriptPath, JSON.stringify(script));
   return {
     release: (name) => writeFile(join(gatesDir, name), ""),
+    pid: async () => Number(await readFile(join(dir, FAUX_PID_FILE), "utf8")),
     agentDir,
     args: [
       "--extension",

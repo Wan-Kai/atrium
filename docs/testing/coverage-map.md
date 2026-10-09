@@ -12,12 +12,12 @@
 | 2 | 流式输出回复和推理过程 | `apps/desktop/e2e/chat.spec.ts`、`chat.perf.spec.ts`；组件与渲染见"协议、客户端与流式显示（M1.3）" | 已覆盖 |
 | 3 | 粘贴或拖入截图随消息发出 | — | 待 M1.7 |
 | 4 | 看到工具调用：命令和输出、读的文件、diff、写入的文件 | — | 待 M1.4 |
-| 5 | 随时中断 | — | 待 M1.6 |
-| 6 | 运行中默认排队，可插话 | — | 待 M1.6 |
+| 5 | 随时中断 | `apps/desktop/e2e/run-control.spec.ts`（停止后排队暂停，继续发送）；控制器与界面见"运行控制（M1.6）" | 已覆盖 |
+| 6 | 运行中默认排队，可插话 | `apps/desktop/e2e/run-control.spec.ts`（回车排队、⌘回车插话、插话在下一步前送达）；见"运行控制（M1.6）" | 已覆盖 |
 | 7 | 输入框旁切换模型和推理强度 | — | 待 M1.7 |
 | 8 | 重启后恢复之前的会话 | `apps/desktop/e2e/history.spec.ts`（从 pi 的文件恢复）、`workspaces.spec.ts`（重启后标签页、当前标签和草稿还在）、`app.spec.ts`（页面存储跨重启） | 已覆盖 |
 | 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | — | 待 M1.8 |
-| 10 | 在 Atrium 里回答 extension 的对话框 | — | 待 M1.6 |
+| 10 | 在 Atrium 里回答 extension 的对话框 | `apps/desktop/e2e/run-control.spec.ts`（`/faux-confirm` 的卡片上作答）；见"运行控制（M1.6）" | 已覆盖 |
 | 11 | 默认只突出回复，可切换显示模式 | — | 待 M1.4 |
 | 12 | 会话在后台继续运行 | — | 待 M1.9 |
 | 13 | 首次启动引导安装 pi、登录、添加项目 | — | 待 M1.10 |
@@ -159,6 +159,24 @@
 | 标签栏与对话区：当前容器的标签、激活、切换、关闭；"历史"按新到旧、标出已打开、不含归档；"+"新建；会话"···"改名、归档、复制路径（草稿不可复制）；快捷键 ⌘N、⌘T（不在任何容器时新建对话）、⌘W、⌘1–9、⌘⇧[ ]；窗口聚焦通知宿主；空状态说明会话建在哪里；第一条消息在当前位置新建会话并等它建好；退出或丢失的会话先重新打开再发 | `packages/ui/src/app/workbench.browser.test.tsx`、`packages/ui/src/chat/chat.browser.test.tsx` | 已覆盖 |
 | 审查后补上（2026-10-08）：pi 没在跑的会话可以先订阅、启动后补快照，消息会先启动它，启动失败时标签还在；重启后的当前标签能显示对话；第一次扫描完成前不把会话当作文件不见了，丢弃草稿前再扫一次、启动中和发送中的不丢；草稿不能改名；正在新建的会话按容器分开；移除项目先停掉其中的会话；`atrium://` 的其他主机不能导航过去；宿主锁按进程启动时间认持有者、接管时只有一个能成、残留的接管锁也能接管；git 去掉 PATH 里的相对项、超时结束整个进程组、输出过大放弃；合并判定按工作区和分支缓存、不缓存失败；git 一时读不了仓库时保留上次结果；选中 worktree 时登记它的主仓库；添加项目串行；写入失败期间保存的内容照样写出；列表推送关闭后不再挂定时器；"状态未知"标签 | `session-manager.test.ts`、`index-commands.test.ts`、`session-catalog.test.ts`、`host-lock.test.ts`、`git.test.ts`、`merge-inspector.test.ts`、`workspace-service.test.ts`、`project-service.test.ts`、`index-file.test.ts`、`index-feed.test.ts`、`chat.browser.test.tsx`、`workbench.browser.test.tsx`、`app.spec.ts`、`workspaces.spec.ts` | 已覆盖 |
 | 端到端：真实 git 项目的 worktree 和普通目录在侧栏里和 git 一致，worktree 里提交后聚焦显示 ↑1，终端里开的会话聚焦后出现在对应工作区的"历史"；新建会话成标签，重启后标签、当前标签和草稿还在，⌘W 丢弃空草稿；从侧栏和"历史"打开 pi 的会话文件 | `apps/desktop/e2e/workspaces.spec.ts`、`history.spec.ts`、`history.perf.spec.ts` | 已覆盖 |
+
+## 运行控制（M1.6）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议：控制状态、`control_updated`、`prompt_handled`、九条新命令及其应答（`prompt` 的 `queued` 带 `itemId`、`stop` 的 `confirmed`）、三个新错误码；对话框回答只能是值、确认或取消之一；自动发出的标记和重启提示 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| pi 的事件翻译：压缩开始、插话队列（每次完整，只取插话）、四种对话框（超时为 0 或没有即不限时）、通知及其级别；终端专用的请求不翻译 | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
+| pi 契约（1.1.0）：运行中插话在 `queue_update` 里列出，工具这一批跑完后送达再清空；空闲时插话只进 pi 的队列、不开始运行 | `packages/pi/src/contract/steer.pi.test.ts` | 已覆盖 |
+| 排队：运行或压缩期间的消息进宿主排队，运行结束、`handled` 后、压缩结束后逐条发出；编辑、删除、清空；不认识的项应答 `queue_item_not_found`；pi 说忙的消息排队等下一次，其他拒绝放回最前并暂停 | `packages/host/src/sessions/session-controller.test.ts` "queueing messages" | 已覆盖 |
+| 插话：运行中交给 pi，按 `queue_update` 的文字确认送达；空闲时当消息发；被扩展处理时去掉待发副本；排队项改为插话，失败时放回原处 | session-controller.test.ts "steering" | 已覆盖 |
+| 停止：暂停排队，pi 退回的插话放回最前，`abort`；2 秒内确认即结束，否则保持"停止中"、拒收消息和继续发送，直到 pi 确认或退出；空闲时直接确认；停止后空闲时新消息直接发出，排队仍暂停 | session-controller.test.ts "stopping" | 已覆盖 |
+| 对话框：保留到回答，只收第一个、类型要对得上；到期移除；pi 退出时作废；通知写日志 | session-controller.test.ts "answering dialogs" | 已覆盖 |
+| 崩溃：重启 pi（新 epoch 快照 + "进程已自动重启"提示），pi 没收下的消息重发，收下了就补发"系统自动发出"的续做；未送达的插话回到排队；连续 3 次失败后出错；运行正常结束后计数归零；宿主要求的停止不重启；"重试"续做失败的一轮、或重发重启用尽时丢失的消息 | session-controller.test.ts "after pi crashes"、"retrying"；`session-manager.test.ts`（崩溃后用会话文件重启、启动时开启自动重试） | 已覆盖 |
+| 对话记录：自动发出的标记当场和重建后都在，记进 `turns/`；重启提示在重建后回到它跟着的那一项后面 | `packages/host/src/transcript/session-transcript.test.ts`、`store/turn-starts.test.ts` | 已覆盖 |
+| 客户端：控制状态、`prompt_handled` 去掉待发副本；排队或被插话收下的消息去掉待发副本；运行控制命令的字段与结果 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` | 已覆盖 |
+| 界面：运行中回车排队、⌘回车插话、Esc 和按钮停止，停止中按钮不可用；胶囊条（排队、已暂停与继续发送、编辑删除插话清空、待送达插话数）；四种对话框卡片与倒计时；连续崩溃的错误卡片；最后一轮失败时的"重试"；重启提示与"系统自动发出" | `packages/ui/src/chat/run-control.browser.test.tsx`、`chat.browser.test.tsx` | 已覆盖 |
+| 杀掉 pi 后自动恢复（端到端） | `apps/desktop/e2e/run-control.spec.ts` | 已覆盖 |
+| 测试工具：faux 写下 pi 的进程号；夹具把工具耗时规范化为 0 | `packages/testkit/src/faux/faux.pi.test.ts`、`pi-fixtures/normalize.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
 

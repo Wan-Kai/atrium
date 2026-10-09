@@ -8,6 +8,10 @@ export interface FauxPiEnvironment {
   readonly env: Record<string, string>;
   /** pi's agent directory, where it keeps its settings and session files. */
   readonly agentDir: string;
+  /** Lets replies scripted with `waitFor: name` continue. */
+  readonly release: (name: string) => Promise<void>;
+  /** The process id of the pi the host started last. */
+  readonly pid: () => Promise<number>;
   readonly cleanup: () => Promise<void>;
 }
 
@@ -71,6 +75,8 @@ export async function fauxPiEnvironment(script: FauxScript): Promise<FauxPiEnvir
       E2E_REAL_PI: await realPi(),
     },
     agentDir: launch.agentDir,
+    release: (name) => launch.release(name),
+    pid: () => launch.pid(),
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
 }

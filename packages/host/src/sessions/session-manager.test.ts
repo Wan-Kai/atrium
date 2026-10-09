@@ -182,6 +182,14 @@ describe("SessionManager creating sessions", () => {
     expect(changes()).toBeGreaterThan(0);
   });
 
+  it("turns pi's automatic retries on before reading the session, whatever pi's settings say", async () => {
+    const { manager, sent } = await manage({ rules: SESSION_ONE });
+
+    await manager.createChat("client-1");
+
+    expect(sent()).toStrictEqual(["get_state", "set_auto_retry", "get_entries"]);
+  });
+
   it("creates a session in a workspace's directory, and refuses an unknown workspace", async () => {
     const { manager, catalog, layouts, at, starts } = await manage({ argvToStderr: true, rules: SESSION_ONE });
 
