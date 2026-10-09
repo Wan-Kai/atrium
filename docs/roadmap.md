@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-08：M1.5 项目、工作区与会话完成，经三方审查修复后合并进 `main`。侧栏按"项目 → 工作区"组织：本地目录和各 worktree 的分支、创建时间、合并状态（未提交、↑N、无改动、已合并、已移除、状态未知），后台 `git fetch`，窗口聚焦后重算；对话区顶部用标签页切换会话，⌘N、⌘T、⌘W、⌘1–9、⌘⇧[ ] 快捷键；终端里开的 pi 会话在窗口聚焦、运行结束时被扫描出来，归到对应工作区；新会话立刻启动 pi，没发过消息就关掉的草稿被丢弃；标签、位置、外观、显示模式和插话记录存在 `~/.atrium/`，重启后恢复。索引文件原子写入，带版本和迁移，损坏时挪开重来；宿主单实例；页面改从固定的 `atrium://app` 加载，存储跨重启保留。全量变异分数 100%。下一步是 [M1.6](#m16-运行控制)。**
+**2026-10-09：M1.6 运行控制完成，经三方审查修复后合并进 `main`。运行中回车进宿主的排队，⌘回车插话，Esc 或按钮停止：停止先暂停排队、取回 pi 手里的插话，再 `abort`，2 秒内没确认就保持"停止中"直到 pi 确认或退出；胶囊条显示排队（编辑、删除、改为插话、继续发送）和待送达的插话；extension 的选择、确认、输入、编辑器四种对话框在卡片里回答，结束后在对话记录里留一行；模型调用失败交给 pi 的重试并显示"第 N / M 次"；pi 崩溃后在新 epoch 自动重启（最多 3 次），没收下的消息重发、收下了就以"系统自动发出"补一句续做，重启期间消息排队、不会起第二个 pi；用尽后错误卡片可"重试"；出错的会话在标签和侧栏显示"出错"。变异测试发现超时会掩盖存活的变异，每个变异多给 30 秒、超时逐个核实后，全量变异分数 100%（含 M1.5 留下的 116 个，顺带修了两个真实缺陷）。下一步是 [M1.7](#m17-模型与输入框)。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -31,6 +31,7 @@
 | M1.3 协议、客户端与流式显示 | `protocol`：信封、每条命令一条应答与错误码、握手与心跳、会话事件（`epoch + seq`、运行的 trace）与快照；宿主：命令分发与 `command <type>` span、心跳、背压、订阅表、pi 事件翻译、SessionController（运行、乐观消息对应、pi 拒绝的错误码）、新建对话；客户端：`createAtriumClient`（重连、心跳、宿主重启、每个会话的 SessionView）；界面：Streamdown 渲染、平滑揭示、滚动跟随、用户气泡与"进行中"、输入框、界面问题上报。决定写回 SPEC-0001"协议细节"、security.md（https 图片）、testing.md、observability.md、pi-internals.md |
 | M1.4 对话记录与过程 | `pi`：条目映射为 LogEntry、按块位置的事件翻译、只读扫描会话目录；`protocol`：轮、步骤、提示条与轮级事件、`fetch_transcript`、`fetch_step`、`list_recent_sessions`、`open_session`；宿主：SessionLog 与 TranscriptProjection（实时与重建共用 TurnDraft，当场数据按轮记录并在重建时合并回去）、运行后重读条目、重建不一致时换 epoch、大内容按预览发送；客户端：按轮的 SessionView、分页与取回完整步骤；界面：过程折叠行、步骤与详情、diff、显示模式、改动汇总、提问导航条、长消息折叠、导出、最近会话。决定写回 SPEC-0001"对话记录"（插话的记录、重试与溢出、大内容、提示条位置）、domain-model §2、pi-internals、testing.md；TTFT、输出速度挪到状态栏（M1.8） |
 | M1.5 项目、工作区与会话 | `protocol`：索引快照与列表命令、`prj_`/`wks_` id、新错误码；宿主：索引文件（原子写入、版本迁移、损坏恢复）、宿主锁（按进程启动时间判断存活、接管锁）、ProjectService、WorkspaceService（worktree 扫描、后台 fetch、聚焦后重算）、MergeInspector（`merge-tree` 模拟合并、按 worktree 缓存）、SessionCatalog（增量读会话目录、去重、草稿）、布局与偏好、按客户端顺序生效的标签命令、IndexFeed；`pi`：会话目录的位置与增量扫描；客户端：IndexView 与乐观更新；界面：侧栏、搜索、标签栏、"历史"、对话、改名与归档、外观切换、快捷键；桌面端：`atrium://` 协议、单实例。决定写回 SPEC-0001"项目、工作区与会话"、domain-model §1"索引的存储"与"已决定 10～15"、security.md、overview.md、testing.md（测试里的 git 带 `GIT_CEILING_DIRECTORIES`）、observability.md；收件箱挪到 M1.9 |
+| M1.6 运行控制 | `protocol`：控制状态（排队、暂停原因、插话、停止中、重启中、对话框、失败）、`control_updated`、`prompt_handled`、九条运行控制命令、对话框结果和重启提示、`SessionSummary.failed`；`pi`：压缩、插话队列、对话框与通知、重试上限的事件翻译，pi 1.1.0 夹具；宿主：SessionController 的排队、插话、停止、对话框、崩溃重启与续做、"重试"，会话管理器的重启单飞、`resume_queue` 启动 pi，宿主提示在重建后保持位置和顺序；界面：胶囊条与排队面板、对话框卡片与倒计时、错误卡片、停止中的输入框、出错状态图标；测试：控制器定时器泄漏测试，变异测试的超时余量与重测办法。决定写回 SPEC-0001"运行控制"、domain-model 已决定 6、security.md（通知截断后写日志）、testing.md |
 | 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
@@ -208,7 +209,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、§7 客户端与一致性、§8 协议与类的对应、[SPEC-0001 · 接口与数据、回复渲染](specs/0001-mvp1-single-session-chat.md#接口与数据)、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"、[design-language](architecture/design-language.md) 的"动效""消息流"、[Streamdown 文档](https://streamdown.ai/docs)（含各插件的 `@source` 写法）、原型 `app-prototype.html`、Paseo 的 `packages/app/src/agent-stream/text-reveal.ts`。
 - **完成标准**：`protocol` 的 schema 测试通过；一轮对话在 UI 里完整显示；准备一份覆盖"回复渲染"全部范围的 Markdown（表格、嵌套列表、代码块与 diff、中文加粗紧挨标点、块公式与行内公式、Mermaid、链接、远程图片、原始 HTML），按真实节奏分片流式输出，过程中不闪烁、不错乱，结束后与一次性渲染结果一致；50 tok/s 流式输出长 Markdown 期间满足性能预算（没有超过 50 毫秒的长任务，帧时间 p95 ≤ 16.7 毫秒）。
 
-##### M1.4 对话记录与过程
+##### M1.4 对话记录与过程 ✅
 
 - **目标**：历史会话能完整恢复，过程（工具、diff、推理）按规格显示。
 - **范围**：
@@ -223,7 +224,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[pi-internals](research/pi-internals.md) §1 会话文件、§3 RPC 协议、[domain-model](architecture/domain-model.md) §2 会话历史、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)、Paseo 的 `packages/server/src/server/agent/providers/pi/history-mapper.ts`、`tool-call-mapper.ts`（Paseo 用 `get_messages`，只借鉴映射，不照搬重建方式）。
 - **完成标准**：用一个带压缩、带分叉的真实会话文件恢复，显示的历史与终端 pi 一致，压缩前的内容不丢；打开 1000 轮的会话到首屏满足预算；2000 轮重建有基准基线。
 
-##### M1.5 项目、工作区与会话
+##### M1.5 项目、工作区与会话 ✅
 
 - **目标**：侧栏按"项目 → 工作区"组织，标签页切换会话，能恢复历史会话和草稿。
 - **范围**：
@@ -237,7 +238,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[ADR-0006](adr/0006-organize-sessions-by-workspace.md)、[domain-model](architecture/domain-model.md) §1 项目、工作区、会话，§6 宿主的组件、[SPEC-0001 · 侧栏](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §1 数据与持久化、§6 git 状态。
 - **完成标准**：添加几个真实项目（含 worktree、非 git 目录）后，侧栏信息和 `git` / pi 的实际情况一致；在终端里开的 pi 会话自动出现在对应工作区。
 
-##### M1.6 运行控制
+##### M1.6 运行控制 ✅
 
 - **目标**：运行中能排队、插话、停止；出错能自动恢复；extension 的对话框能在 Atrium 里回答。
 - **范围**（2026-10-09 把原来的 M1.6 拆成三个：运行控制、模型与输入框、状态栏，后面的里程碑顺延）：
@@ -245,7 +246,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 胶囊条里的"排队 N"（排队面板：编辑、删除、改为插话，停止后"继续发送"）和"N 条插话将在下一步前送达"。
   - 快捷键：回车发送 / 排队，⌘+回车插话，Esc 停止；中文输入法组字时回车不发送。
   - 对话框（PendingInteraction）：选择、确认、输入、编辑器四种卡片，带超时的显示倒计时，多个客户端同时回答只接受第一个。
-  - 失败重试与进程崩溃自动重启（各 3 次；重启计数在一次运行正常结束后归零，2026-10-09 定）、"正在重试"和"进程已自动重启"提示、错误卡片与"重试"。
+  - 失败重试交给 pi（次数按 pi 的设置，界面显示"第 N / M 次"）与进程崩溃自动重启（3 次；重启计数在一次运行没有失败地结束后归零，2026-10-09 定）、"正在重试"和"进程已自动重启"提示、错误卡片与"重试"。
   - 出错状态在标签和侧栏一直显示到下一次运行开始；写进索引的关注状态和收件箱在 M1.9。
 - **参考**：[domain-model](architecture/domain-model.md) §3 会话运行、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"运行中输入""运行出错与停止"和[关键流程](specs/0001-mvp1-single-session-chat.md#关键流程)、[pi-internals](research/pi-internals.md) §2 运行时、§5 extension、[paseo-architecture](research/paseo-architecture.md) §2 生命周期（中断与锁定）、原型 `app-prototype.html`。
 - **完成标准**：对照 SPEC-0001 需求 5、6、10 逐条验证；人为杀掉 pi 进程能自动恢复。
