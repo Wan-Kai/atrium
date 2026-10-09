@@ -1,17 +1,28 @@
-import type { PiEvent, TranslatedEvent } from "@atrium/pi";
+import type { Dialog, PiEvent, TranslatedEvent } from "@atrium/pi";
 import { createEventTranslator, isBusyRejection } from "@atrium/pi";
 import {
   CommandError,
   type CommandResult,
+  type Control,
   type FetchStepCommand,
   type FetchTranscriptCommand,
+  type Interaction,
+  type InteractionAnswer,
+  type PendingSteer,
   type PromptCommand,
   type RunSettledEvent,
   type SessionEvent,
   type SessionSnapshotEvent,
+  type SteerCommand,
   parseTraceparent,
 } from "@atrium/protocol";
-import { type EntriesPage, type TranscriptEvent, createSessionTranscript } from "../transcript/session-transcript";
+import type { Clock } from "../platform/clock";
+import {
+  type EntriesPage,
+  type TranscriptEvent,
+  type TurnOrigin,
+  createSessionTranscript,
+} from "../transcript/session-transcript";
 
 /** How pi ended, as the controller needs it. */
 interface PiEnd {
@@ -20,31 +31,65 @@ interface PiEnd {
   readonly requested: boolean;
 }
 
+/** An answer to an extension dialog as pi takes it. */
+type DialogResponse = { readonly id: string } & InteractionAnswer;
+
 /** The part of a running pi a session controller uses; the manager adapts a traced pi to it. */
 export interface SessionPi {
   onEvent(listener: (event: PiEvent) => void): () => void;
   readonly exited: Promise<PiEnd>;
   /** Sends `prompt` and returns pi's disposition. */
   prompt(message: string): Promise<{ readonly disposition: "started" | "queued" | "handled" }>;
+  /** Sends `steer` and returns pi's disposition. */
+  steer(message: string): Promise<{ readonly disposition: "queued" | "handled" }>;
+  /** Empties pi's own queue and returns the steers it held. */
+  clearQueue(): Promise<{ readonly steering: readonly string[] }>;
+  /** Asks pi to stop; resolves once it has. */
+  abort(): Promise<void>;
+  /** Answers an extension dialog. */
+  respond(response: DialogResponse): void;
   /** Reads the session's entries after `since`, or all of them, converted. */
   getEntries(since: string | undefined): Promise<EntriesPage>;
   /** Stops pi; resolves once it has exited. */
   stop(): Promise<unknown>;
 }
 
+/** A pi just started for the session again, with the entries it has. */
+export interface Respawned {
+  readonly pi: SessionPi;
+  readonly entries: EntriesPage;
+}
+
 /** One session's live state and the commands on it (domain-model §3). */
 export interface SessionController {
   readonly sessionId: string;
+  /** Whether the session's pi has exited and has not been replaced. */
+  readonly exited: boolean;
   /** The session's state now, for a client that just subscribed. */
   snapshot(): SessionSnapshotEvent;
-  /** Sends a message to pi. */
+  /** Hands the session a newly started pi, which carries on in a new epoch. */
+  attach(started: Respawned): void;
+  /** Sends a message, or queues it behind the run in progress. */
   prompt(command: PromptCommand): Promise<CommandResult<"prompt">>;
+  /** Sends a steer, or a message when idle. */
+  steer(command: SteerCommand): Promise<CommandResult<"steer">>;
+  /** Stops the run: pauses the queue, clears pi's queue and aborts. */
+  stop(): Promise<CommandResult<"stop">>;
+  resumeQueue(): CommandResult<"resume_queue">;
+  clearQueue(): CommandResult<"clear_queue">;
+  updateQueued(itemId: string, text: string): CommandResult<"update_queued">;
+  removeQueued(itemId: string): CommandResult<"remove_queued">;
+  /** Takes a message out of the queue and sends it as a steer. */
+  steerQueued(itemId: string): Promise<CommandResult<"steer_queued">>;
+  answerInteraction(interactionId: string, answer: InteractionAnswer): CommandResult<"answer_interaction">;
+  /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
+  retryRun(): Promise<CommandResult<"retry_run">>;
   /** Items before one the client has, for scrolling back. */
   fetchTranscript(command: FetchTranscriptCommand): CommandResult<"fetch_transcript">;
   /** One step whole, for one that traveled as a preview. */
   fetchStep(command: FetchStepCommand): CommandResult<"fetch_step">;
-  /** Stops pi, which publishes `session_exited`. */
-  stop(): Promise<void>;
+  /** Stops pi for good, as the host asks (archiving, closing): no restart follows. */
+  shutdown(): Promise<void>;
 }
 
 /** A session event before the controller numbers it. */
@@ -61,6 +106,15 @@ interface PiFailure {
   readonly detail?: string;
 }
 
+/** How long a stop waits for pi to confirm before the session stays stopping (SPEC-0001, "运行控制"). */
+const STOP_CONFIRM_MS = 2_000;
+
+/** How many restarts in a row the host tries after pi crashes. */
+const MAX_RESTARTS = 3;
+
+/** What the host sends to have the agent go on after an interrupted run (2026-10-09). */
+export const CONTINUE_TEXT = "上一次运行意外中断了，请从中断的地方继续。";
+
 /**
  * Whether an error is a failed pi request.
  *
@@ -76,7 +130,7 @@ function isPiFailure(error: unknown): error is PiFailure {
 }
 
 /**
- * Turns a failed `prompt` into the error code the client gets.
+ * Turns a failed `prompt` or `steer` into the error code the client gets.
  *
  * @remarks
  * pi refusing a message is not a host bug (SPEC-0001, "应答"): busy becomes `session_busy`, any
@@ -95,6 +149,20 @@ function promptFailure(error: unknown): unknown {
   }
   const status = error.reason === "exited" || error.reason === "stopped" ? "exited" : "unresponsive";
   return new CommandError("pi_unavailable", { status });
+}
+
+/**
+ * Whether a failure means pi was busy and the message can wait in the queue.
+ *
+ * @remarks
+ * See `promptFailure`.
+ *
+ * @sideEffects none
+ * @param error - What `promptFailure` made of the failure.
+ * @returns Whether it is `session_busy`.
+ */
+function isBusy(error: unknown): boolean {
+  return error instanceof CommandError && error.code === "session_busy";
 }
 
 /** How a run ended, from how its last turn came out. */
@@ -123,28 +191,103 @@ function isUnknownCursor(error: unknown): boolean {
 }
 
 /**
+ * An extension dialog as clients see it.
+ *
+ * @remarks
+ * The deadline counts from when the host received the request.
+ *
+ * @sideEffects none
+ * @param dialog - pi's request, translated.
+ * @param now - The time it arrived.
+ * @returns The interaction.
+ */
+function toInteraction(dialog: Dialog, now: number): Interaction {
+  return {
+    id: dialog.id,
+    kind: dialog.method,
+    title: dialog.title,
+    message: dialog.message,
+    options: dialog.options === null ? null : [...dialog.options],
+    placeholder: dialog.placeholder,
+    prefill: dialog.prefill,
+    deadline: dialog.timeoutMs === null ? null : now + dialog.timeoutMs,
+  };
+}
+
+/**
+ * Whether an answer fits the kind of question.
+ *
+ * @remarks
+ * A confirmation takes `confirmed`, the others a `value`; any of them may be cancelled
+ * (pi-internals.md §5).
+ *
+ * @sideEffects none
+ * @param kind - The question's kind.
+ * @param answer - The answer.
+ * @returns Whether pi can take it.
+ */
+function fits(kind: Interaction["kind"], answer: InteractionAnswer): boolean {
+  if ("cancelled" in answer) return true;
+  return kind === "confirm" ? "confirmed" in answer : "value" in answer;
+}
+
+/** A message waiting in the queue, with the request that sent it. */
+interface QueueItem {
+  readonly id: string;
+  text: string;
+  readonly createdAt: number;
+  readonly requestId: string | null;
+  readonly traceId: string | null;
+}
+
+/** A message sent to pi that has not opened a turn yet. */
+interface Waiting {
+  readonly requestId: string | null;
+  readonly traceId: string | null;
+  readonly text: string;
+  readonly auto: boolean;
+  /** Set once pi echoed it as the user message opening a turn. */
+  echoed: boolean;
+}
+
+/**
  * Creates the controller of one session, driving its pi and publishing what happens.
  *
  * @remarks
- * The runtime state (the transcript, with the turn being built live, and the run in progress)
- * lives here, and snapshots and events are both made from it, so a client that subscribes gets a
- * snapshot and then exactly the events after it (domain-model §7). Every published event is
- * numbered within the session's epoch and carries the trace of the run it belongs to. A run starts
- * with the first `agent_start` after idle, so its `run_started` comes before the user message pi
- * echoes, and ends only at `agent_settled`, after its turn's `turn_finished`; its trace is the one
- * the `prompt` command carried. A turn pi opens is matched to the oldest `prompt` still waiting
- * and carries that command's `requestId` as `clientMessageId`, so the client can replace its
- * pending copy. After a run and after a compaction the controller reads pi's new entries and
- * rebuilds the transcript, never during a run (SPEC-0001, "快照与分页"): added notices go out as
- * `notice_added`, wherever they are; any other difference starts a new epoch and sends every
- * subscriber a fresh snapshot. When pi exits, a run in progress ends as failed, its turn too,
- * then `session_exited` follows.
+ * The runtime state (the transcript, with the turn being built live, the run in progress and the
+ * run control) lives here, and snapshots and events are both made from it, so a client that
+ * subscribes gets a snapshot and then exactly the events after it (domain-model §7). Every
+ * published event is numbered within the session's epoch and carries the trace of the run it
+ * belongs to. A run starts with the first `agent_start` after idle, so its `run_started` comes
+ * before the user message pi echoes, and ends only at `agent_settled`, after its turn's
+ * `turn_finished`; its trace is the one the `prompt` command carried. A turn pi opens is matched
+ * to the oldest message still waiting and carries that command's `requestId` as
+ * `clientMessageId`, so the client can replace its pending copy. After a run and after a
+ * compaction the controller reads pi's new entries and rebuilds the transcript, never during a run
+ * (SPEC-0001, "快照与分页"): added notices go out as `notice_added`, wherever they are; any other
+ * difference starts a new epoch and sends every subscriber a fresh snapshot.
+ *
+ * Run control follows SPEC-0001 ("运行控制"): a message sent while a run goes on, pi compacts, or
+ * the queue is moving waits in the host's queue and goes out once the run settles or the message
+ * before it was handled, one at a time; a paused queue does not move, but a message sent while
+ * idle goes out at once. A steer goes to pi while a run goes on and is a message otherwise; pi's
+ * queue updates tell which steers were delivered. A stop pauses the queue, puts the steers pi gave
+ * back at the queue's front and aborts; the session stays stopping until pi confirms, taking no
+ * message meanwhile. Extension dialogs wait for one answer and expire at their deadline.
+ *
+ * The controller outlives its pi (domain-model §3): when pi exits, a run in progress ends as
+ * failed, steers go back to the queue, dialogs are dropped, and `session_exited` follows. A crash
+ * starts pi again through `respawn`, up to `MAX_RESTARTS` times in a row; after a restart the
+ * message the run was interrupted on is sent again if pi had not taken it yet, and `CONTINUE_TEXT`
+ * otherwise, and the queue moves on. A run that ends well resets the count; when the restarts are
+ * used up the session is failed until the next run, and "重试" starts over.
  *
  * @sideEffects Subscribes to pi's events; calls `publish` for every event; calls `newId`; reads
- * pi's entries after runs and compactions, reporting failures to `onRefreshFailed`.
- * @param options - The session id, its pi, the entries it had at start, where events go, the clock,
- * an id source, where refresh failures go, the epoch to start in, and the session's turn starts
- * (SPEC-0001, `steer`).
+ * pi's entries after runs and compactions, reporting failures to `onRefreshFailed`; schedules
+ * timers on the clock; starts pi again through `respawn`; logs through `log`.
+ * @param options - The session id, its pi, the entries it had at start, where events go, the
+ * clock, an id source, where refresh failures and log lines go, the epoch to start in, the
+ * session's turn starts (SPEC-0001, `steer`), and how to start pi again.
  * @returns The controller.
  */
 export function createSessionController(options: {
@@ -152,18 +295,25 @@ export function createSessionController(options: {
   readonly pi: SessionPi;
   readonly entries: EntriesPage;
   readonly publish: (event: SessionEvent) => void;
-  readonly clock: { now(): number };
+  readonly clock: Clock;
   readonly newId: () => string;
   readonly onRefreshFailed: (error: unknown) => void;
+  /** Where the controller's log lines go: extension notifications and failed restarts. */
+  readonly log?: (level: "info" | "warn" | "error", message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The epoch to start in; after the session's previous controller, one past its last. */
   readonly epoch?: number;
   /** Entries earlier host runs saw open a turn, and where newly seen ones go. */
   readonly turnStarts?: {
     readonly opened: ReadonlySet<string>;
-    readonly record: (entryIds: readonly string[]) => void;
+    readonly auto?: ReadonlySet<string>;
+    readonly record: (entryIds: readonly string[], autoIds: readonly string[]) => void;
   };
+  /** Starts the session's pi again; without it a crash is final. */
+  readonly respawn?: () => Promise<Respawned>;
 }): SessionController {
-  const { sessionId, pi, clock, newId } = options;
+  const { sessionId, clock, newId } = options;
+  const log = options.log ?? (() => undefined);
+  let pi = options.pi;
   let epoch = options.epoch ?? 1;
   let seq = 0;
   const transcript = createSessionTranscript({
@@ -172,19 +322,56 @@ export function createSessionController(options: {
     now: () => clock.now(),
     ...(options.turnStarts === undefined
       ? {}
-      : { opened: options.turnStarts.opened, onTurnsSeen: options.turnStarts.record }),
+      : {
+          opened: options.turnStarts.opened,
+          ...(options.turnStarts.auto === undefined ? {} : { auto: options.turnStarts.auto }),
+          onTurnsSeen: options.turnStarts.record,
+        }),
   });
   // Stryker disable next-line BooleanLiteral: the log starts empty, so reading everything again changes nothing.
   transcript.rebuild(options.entries, false);
-  let run: { readonly runId: string; readonly startedAt: number; readonly traceId: string | null } | null = null;
-  /** `prompt`s pi has not echoed yet, oldest first. */
-  const waiting: { readonly requestId: string; readonly traceId: string | null }[] = [];
+  let run: {
+    readonly runId: string;
+    readonly startedAt: number;
+    readonly traceId: string | null;
+    /** The message that started it, once pi echoed it; or the first one waiting. */
+    readonly input: Waiting | null;
+  } | null = null;
+  /** Messages sent to pi that have not opened a turn yet, oldest first. */
+  const waiting: Waiting[] = [];
   let exited = false;
   /** Whether a refresh is running, and whether another was asked for meanwhile. */
   let refreshing = false;
   // Stryker disable next-line BooleanLiteral: the loop clears it before each read.
   let refreshAgain = false;
-  const translate = createEventTranslator(() => clock.now());
+  let translate = createEventTranslator(() => clock.now());
+  let unsubscribe = pi.onEvent((event) => {
+    for (const translated of translate(event)) apply(translated);
+  });
+
+  const queue: QueueItem[] = [];
+  let paused: Control["paused"] = null;
+  let steers: PendingSteer[] = [];
+  /** The stop in progress, shared by every caller until pi confirms or exits. */
+  let stopping: Promise<CommandResult<"stop">> | null = null;
+  let compacting = false;
+  /** A message on its way to pi, whose disposition has not come back yet. */
+  let sending = false;
+  /** pi said it started a run whose `agent_start` has not arrived yet. */
+  let starting = false;
+  /** How many runs have started, to tell whether a message's run started before pi answered. */
+  let runsStarted = 0;
+  const interactions = new Map<string, { readonly interaction: Interaction; readonly expire: () => void }>();
+  let restarts = 0;
+  let failure: Control["failure"] = null;
+  /** Whether pi is being started again; the queue waits meanwhile. */
+  let restarting = false;
+  /** The message a crash interrupted before pi took it, for "重试" once restarts are used up. */
+  let lost: Waiting | null = null;
+  /** Set by `shutdown`: pi exits for good. */
+  let shuttingDown = false;
+  /** The control last published, to send `control_updated` only on change. */
+  let sentControl = JSON.stringify(control());
 
   /**
    * Numbers an event and sends it to the session's viewers.
@@ -198,6 +385,42 @@ export function createSessionController(options: {
   function emit(event: Unnumbered): void {
     seq += 1;
     options.publish({ ...event, sessionId, epoch, seq, traceId: run?.traceId ?? null });
+  }
+
+  /**
+   * The run control now.
+   *
+   * @remarks
+   * See `createSessionController`.
+   *
+   * @sideEffects none
+   * @returns The control.
+   */
+  function control(): Control {
+    return {
+      queue: queue.map(({ id, text, createdAt }) => ({ id, text, createdAt })),
+      paused,
+      steers: [...steers],
+      stopping: stopping !== null,
+      interactions: [...interactions.values()].map((open) => open.interaction),
+      failure,
+    };
+  }
+
+  /**
+   * Publishes the run control if it changed since it was last sent.
+   *
+   * @remarks
+   * Snapshots carry it too, so a new epoch's snapshot counts as sending it.
+   *
+   * @sideEffects May publish `control_updated`.
+   */
+  function controlChanged(): void {
+    const now = control();
+    const json = JSON.stringify(now);
+    if (json === sentControl) return;
+    sentControl = json;
+    emit({ type: "control_updated", control: now });
   }
 
   /**
@@ -219,7 +442,24 @@ export function createSessionController(options: {
       ...transcript.latest(),
       run: run === null ? null : { runId: run.runId, startedAt: run.startedAt },
       exited,
+      control: control(),
     };
+  }
+
+  /**
+   * Starts a new epoch and sends every viewer its snapshot.
+   *
+   * @remarks
+   * After a rebuild that changed more than notices, and when a new pi takes over.
+   *
+   * @sideEffects Advances the epoch; publishes the snapshot.
+   */
+  function newEpoch(): void {
+    epoch += 1;
+    seq = 0;
+    const fresh = snapshot();
+    sentControl = JSON.stringify(fresh.control);
+    options.publish(fresh);
   }
 
   /**
@@ -227,7 +467,8 @@ export function createSessionController(options: {
    *
    * @remarks
    * The turn finishes first, so `run_settled` comes after `turn_finished`. Without a turn (pi
-   * started no turn this run) the run counts as completed, unless pi went away.
+   * started no turn this run) the run counts as completed, unless pi went away. A run that
+   * completed resets the restart count.
    *
    * @sideEffects Publishes the turn's last events and `run_settled`.
    * @param crashed - Whether pi exited mid-run.
@@ -239,6 +480,7 @@ export function createSessionController(options: {
     const finished = events.find((event) => event.type === "turn_finished");
     const outcome = crashed ? "failed" : finished === undefined ? "completed" : RUN_OUTCOMES[finished.outcome];
     emit({ type: "run_settled", runId: run.runId, outcome, settledAt: clock.now() });
+    if (outcome === "completed") restarts = 0;
     run = null;
   }
 
@@ -275,11 +517,7 @@ export function createSessionController(options: {
         if (run !== null) return;
         const result = transcript.rebuild(page, reset);
         if (result.kind === "notices") for (const event of result.events) emit(event);
-        if (result.kind === "changed") {
-          epoch += 1;
-          seq = 0;
-          options.publish(snapshot());
-        }
+        if (result.kind === "changed") newEpoch();
       } while (refreshAgain);
     } catch (error) {
       options.onRefreshFailed(error);
@@ -289,85 +527,616 @@ export function createSessionController(options: {
   }
 
   /**
+   * Who sent the message a new turn opens with: the oldest one waiting.
+   *
+   * @remarks
+   * Marks it as taken by pi, which tells a restart not to send it again.
+   *
+   * @sideEffects Takes the message off the waiting list.
+   * @returns Its request and whether the host sent it.
+   */
+  function origin(): TurnOrigin {
+    const next = waiting.shift();
+    if (next === undefined) return { clientMessageId: null, auto: false };
+    next.echoed = true;
+    return { clientMessageId: next.requestId, auto: next.auto };
+  }
+
+  /**
    * Applies one translated pi event to the runtime state and publishes what changed.
    *
    * @remarks
    * See `createSessionController`.
    *
-   * @sideEffects Updates the runtime state; publishes events; may start a refresh.
+   * @sideEffects Updates the runtime state; publishes events; may start a refresh or send the
+   * next queued message.
    * @param event - The translated event.
    */
   function apply(event: TranslatedEvent): void {
-    if (event.kind === "agent_started") {
-      if (run !== null) return;
-      run = { runId: newId(), startedAt: clock.now(), traceId: waiting[0]?.traceId ?? null };
-      emit({ type: "run_started", runId: run.runId, startedAt: run.startedAt });
-      return;
+    switch (event.kind) {
+      case "agent_started":
+        starting = false;
+        if (run !== null) return;
+        runsStarted += 1;
+        run = {
+          runId: newId(),
+          startedAt: clock.now(),
+          traceId: waiting[0]?.traceId ?? null,
+          input: waiting[0] ?? null,
+        };
+        emit({ type: "run_started", runId: run.runId, startedAt: run.startedAt });
+        failure = null;
+        lost = null;
+        controlChanged();
+        return;
+      case "agent_settled":
+        settle(false);
+        // Fire and forget: `refresh` reports its own failures.
+        void refresh();
+        dispatch();
+        return;
+      case "compaction_started":
+        compacting = true;
+        return;
+      case "compaction_finished":
+        compacting = false;
+        // Fire and forget: `refresh` reports its own failures.
+        void refresh();
+        dispatch();
+        return;
+      case "steering_changed":
+        delivered(event.steering);
+        return;
+      case "dialog_requested":
+        ask(event.dialog);
+        return;
+      case "notified":
+        log(event.level === "error" ? "error" : event.level === "warning" ? "warn" : "info", "extension notified", {
+          sessionId,
+          text: event.text,
+        });
+        return;
+      case "assistant_started":
+      case "part_started":
+      case "part_delta":
+      case "message_finished":
+      case "tool_output":
+      case "retry_started":
+        for (const published of transcript.apply(event, origin)) emit(published);
     }
-    if (event.kind === "agent_settled" || event.kind === "compaction_finished") {
-      if (event.kind === "agent_settled") settle(false);
-      // Fire and forget: `refresh` reports its own failures.
-      void refresh();
-      return;
-    }
-    for (const published of transcript.apply(event, () => waiting.shift()?.requestId ?? null)) emit(published);
   }
 
-  pi.onEvent((event) => {
-    for (const translated of translate(event)) apply(translated);
-  });
-
   /**
-   * Reports pi's exit, ending a run that was still going.
+   * Keeps the steers pi still holds; the others were delivered.
    *
    * @remarks
-   * pi will print nothing more, so a run in progress can only have failed.
+   * pi lists its steers' texts whole each time (pi-internals.md §2); one of ours counts as held
+   * while a text equal to it is left in the list, taken in order.
    *
-   * @sideEffects Publishes the turn's last events, `run_settled` and `session_exited`.
+   * @sideEffects Updates the steers; may publish `control_updated`.
+   * @param held - The texts pi holds.
    */
-  async function watchExit(): Promise<void> {
-    const end = await pi.exited;
+  function delivered(held: readonly string[]): void {
+    const left = [...held];
+    steers = steers.filter((steer) => {
+      const at = left.indexOf(steer.text);
+      if (at === -1) return false;
+      left.splice(at, 1);
+      return true;
+    });
+    controlChanged();
+  }
+
+  /**
+   * Keeps an extension's question until it is answered or its deadline passes.
+   *
+   * @remarks
+   * pi goes on with its default at the deadline; the host only takes the question away then.
+   *
+   * @sideEffects Schedules the deadline; publishes `control_updated`.
+   * @param dialog - The question.
+   */
+  function ask(dialog: Dialog): void {
+    const interaction = toInteraction(dialog, clock.now());
+    const expire =
+      dialog.timeoutMs === null
+        ? () => undefined
+        : clock.setTimeout(() => {
+            interactions.delete(dialog.id);
+            controlChanged();
+          }, dialog.timeoutMs);
+    interactions.set(dialog.id, { interaction, expire });
+    controlChanged();
+  }
+
+  /**
+   * Whether a message sent now would go to pi at once.
+   *
+   * @remarks
+   * pi takes a message when no run goes on, nothing is on its way, it does not compact, and the
+   * queue has nothing waiting to go first.
+   *
+   * @sideEffects none
+   * @returns Whether the session is idle.
+   */
+  function idle(): boolean {
+    return run === null && !sending && !starting && !compacting && !restarting && !exited;
+  }
+
+  /**
+   * Sends a message to pi as a prompt.
+   *
+   * @remarks
+   * It waits to open a turn until pi echoes it. A message pi handled without a run is done: its
+   * client drops the pending copy and the queue moves on.
+   *
+   * @sideEffects Calls pi; publishes `prompt_handled`; may send the next queued message.
+   * @param text - The message.
+   * @param from - The request that sent it, its trace, and whether the host sent it.
+   * @returns pi's disposition.
+   * @throws {CommandError} As `promptFailure` makes them.
+   */
+  async function send(
+    text: string,
+    from: { readonly requestId: string | null; readonly traceId: string | null; readonly auto: boolean },
+  ): Promise<"started" | "handled"> {
+    const entry: Waiting = { ...from, text, echoed: false };
+    waiting.push(entry);
+    sending = true;
+    const runsBefore = runsStarted;
+    /**
+     * Stops waiting for pi to echo this message.
+     *
+     * @remarks
+     * The echo may already have taken the entry; then there is nothing to remove, and removing
+     * by index -1 would drop another message's entry.
+     *
+     * @sideEffects Updates the waiting list.
+     */
+    const forget = (): void => {
+      const index = waiting.indexOf(entry);
+      if (index !== -1) waiting.splice(index, 1);
+    };
+    try {
+      const { disposition } = await pi.prompt(text);
+      if (disposition !== "handled") {
+        // pi may answer before or after the run's events; until its `agent_start` arrives, the run
+        // is pi's even though no event says so yet.
+        starting = runsStarted === runsBefore;
+        return "started";
+      }
+      forget();
+      if (from.requestId !== null) emit({ type: "prompt_handled", clientMessageId: from.requestId });
+      return "handled";
+    } catch (error) {
+      forget();
+      throw promptFailure(error);
+    } finally {
+      sending = false;
+      dispatch();
+    }
+  }
+
+  /**
+   * Sends the next queued message if the session can take it.
+   *
+   * @remarks
+   * A queue that is paused, stopping or restarting does not move. A message pi refuses as busy
+   * goes back to the front and waits for the next chance; one it refuses otherwise goes back too,
+   * and the queue pauses, so the user sees it and decides.
+   *
+   * @sideEffects May call pi; publishes `control_updated`.
+   */
+  function dispatch(): void {
+    if (!idle() || paused !== null || stopping !== null) return;
+    const item = queue.shift();
+    if (item === undefined) return;
+    controlChanged();
+    send(item.text, { requestId: item.requestId, traceId: item.traceId, auto: false }).catch((error: unknown) => {
+      queue.unshift(item);
+      if (!isBusy(error)) {
+        paused = "stopped";
+        log("warn", "queued message refused", { sessionId, code: error instanceof CommandError ? error.code : null });
+      }
+      controlChanged();
+    });
+  }
+
+  /**
+   * Adds a message to the end of the queue.
+   *
+   * @remarks
+   * See `createSessionController`.
+   *
+   * @sideEffects Publishes `control_updated`.
+   * @param text - The message.
+   * @param requestId - The command that sent it.
+   * @param traceId - Its trace.
+   * @returns The queued item's id.
+   */
+  function enqueue(text: string, requestId: string | null, traceId: string | null): string {
+    const item: QueueItem = { id: newId(), text, createdAt: clock.now(), requestId, traceId };
+    queue.push(item);
+    controlChanged();
+    return item.id;
+  }
+
+  /**
+   * Ends a stop: the session takes messages again.
+   *
+   * @remarks
+   * When pi confirms the abort, or exits.
+   *
+   * @sideEffects Publishes `control_updated`.
+   */
+  function endStop(): void {
+    stopping = null;
+    controlChanged();
+  }
+
+  /**
+   * Refuses a message while a stop waits for pi.
+   *
+   * @remarks
+   * Keeps the host and pi from disagreeing about what runs (SPEC-0001, "中断").
+   *
+   * @sideEffects none
+   * @throws {CommandError} `session_stopping`.
+   */
+  function refuseWhileStopping(): void {
+    if (stopping !== null) throw new CommandError("session_stopping");
+  }
+
+  /**
+   * Refuses a message when the session's pi has gone and none replaces it.
+   *
+   * @remarks
+   * The manager starts pi for a session that has none before passing a message on.
+   *
+   * @sideEffects none
+   * @throws {CommandError} `pi_unavailable` with status `exited`.
+   */
+  function refuseWhenExited(): void {
+    if (exited && !restarting) throw new CommandError("pi_unavailable", { status: "exited" });
+  }
+
+  /**
+   * Finds a queued message.
+   *
+   * @remarks
+   * Items are named by the id `prompt` answered with.
+   *
+   * @sideEffects none
+   * @param itemId - The item.
+   * @returns It and its place.
+   * @throws {CommandError} `queue_item_not_found`.
+   */
+  function queued(itemId: string): { readonly item: QueueItem; readonly index: number } {
+    const index = queue.findIndex((item) => item.id === itemId);
+    const item = queue[index];
+    if (item === undefined) throw new CommandError("queue_item_not_found", { itemId });
+    return { item, index };
+  }
+
+  /**
+   * Sends a steer to pi, or the message when the session is idle.
+   *
+   * @remarks
+   * pi's `steer` does not start a run when idle; the message would only sit in pi's queue
+   * (SPEC-0001, "运行控制").
+   *
+   * @sideEffects Calls pi; publishes `control_updated` or `prompt_handled`.
+   * @param text - The steer.
+   * @param requestId - The command that sent it.
+   * @param traceId - Its trace.
+   * @returns The disposition.
+   * @throws {CommandError} As `promptFailure` makes them.
+   */
+  async function steerNow(
+    text: string,
+    requestId: string | null,
+    traceId: string | null,
+  ): Promise<CommandResult<"steer">> {
+    if (idle() && (queue.length === 0 || paused !== null)) {
+      return { disposition: await send(text, { requestId, traceId, auto: false }) };
+    }
+    let disposition: "queued" | "handled";
+    try {
+      ({ disposition } = await pi.steer(text));
+    } catch (error) {
+      throw promptFailure(error);
+    }
+    if (disposition === "handled") {
+      if (requestId !== null) emit({ type: "prompt_handled", clientMessageId: requestId });
+    } else {
+      steers.push({ id: requestId ?? newId(), text });
+      controlChanged();
+    }
+    return { disposition };
+  }
+
+  /**
+   * Hands the session a newly started pi.
+   *
+   * @remarks
+   * Its entries are read whole, and every viewer gets a snapshot in a new epoch.
+   *
+   * @sideEffects Subscribes to the new pi; publishes the snapshot.
+   * @param started - The pi and its entries.
+   */
+  function attach(started: Respawned): void {
+    unsubscribe();
+    pi = started.pi;
+    exited = false;
+    compacting = false;
+    translate = createEventTranslator(() => clock.now());
+    unsubscribe = pi.onEvent((event) => {
+      for (const translated of translate(event)) apply(translated);
+    });
+    // Fire and forget: `exited` never rejects.
+    void watchExit(pi);
+    transcript.rebuild(started.entries, true);
+    newEpoch();
+  }
+
+  /**
+   * Starts pi again after a crash and carries on.
+   *
+   * @remarks
+   * See `createSessionController`. A start that fails counts as a restart; the count only resets
+   * when a run completes.
+   *
+   * @sideEffects Starts pi; publishes; may send messages.
+   * @param interrupted - The message the crashed run was on, if any.
+   */
+  async function restart(interrupted: Waiting | null): Promise<void> {
+    const respawn = options.respawn;
+    if (respawn === undefined) return;
+    restarting = true;
+    try {
+      while (restarts < MAX_RESTARTS) {
+        restarts += 1;
+        try {
+          attach(await respawn());
+          emit(transcript.noteRestart(restarts));
+          restarting = false;
+          await carryOn(interrupted);
+          return;
+        } catch (error) {
+          log("warn", "pi restart failed", { sessionId, attempt: restarts, error: String(error) });
+          if (!exited) return;
+        }
+      }
+      lost = interrupted !== null && !interrupted.echoed ? interrupted : null;
+      failure = { reason: "crashed", attempts: restarts };
+      controlChanged();
+    } finally {
+      restarting = false;
+    }
+  }
+
+  /**
+   * Picks up after pi started again: the interrupted message, then the queue.
+   *
+   * @remarks
+   * A message pi had not echoed goes again as it was; one it had gets `CONTINUE_TEXT` after it.
+   *
+   * @sideEffects Calls pi; publishes.
+   * @param interrupted - The message the interrupted run was on, if any.
+   */
+  async function carryOn(interrupted: Waiting | null): Promise<void> {
+    if (paused === "crashed") paused = null;
+    controlChanged();
+    if (interrupted === null) {
+      dispatch();
+      return;
+    }
+    const resend = interrupted.echoed
+      ? { text: CONTINUE_TEXT, from: { requestId: null, traceId: interrupted.traceId, auto: true } }
+      : {
+          text: interrupted.text,
+          from: { requestId: interrupted.requestId, traceId: interrupted.traceId, auto: interrupted.auto },
+        };
+    try {
+      await send(resend.text, resend.from);
+    } catch (error) {
+      log("warn", "resending after a restart failed", {
+        sessionId,
+        code: error instanceof CommandError ? error.code : null,
+      });
+    }
+  }
+
+  /**
+   * Reports pi's exit and carries on without it, or with a new one after a crash.
+   *
+   * @remarks
+   * pi will print nothing more, so a run in progress can only have failed. A pi that was replaced
+   * meanwhile is no longer the session's.
+   *
+   * @sideEffects Publishes the turn's last events, `run_settled`, `control_updated` and
+   * `session_exited`; may start pi again.
+   * @param watched - The pi to watch.
+   */
+  async function watchExit(watched: SessionPi): Promise<void> {
+    const end = await watched.exited;
+    if (watched !== pi) return;
     exited = true;
+    const interrupted = run === null ? null : (run.input ?? null);
     settle(true);
+    waiting.length = 0;
+    sending = false;
+    starting = false;
+    compacting = false;
+    for (const open of interactions.values()) open.expire();
+    interactions.clear();
+    if (steers.length > 0) {
+      queue.unshift(
+        ...steers.map((steer) => ({
+          id: newId(),
+          text: steer.text,
+          createdAt: clock.now(),
+          requestId: null,
+          traceId: null,
+        })),
+      );
+      steers = [];
+    }
+    const crashed = !end.requested && !shuttingDown;
+    if (crashed && queue.length > 0 && paused === null) paused = "crashed";
+    controlChanged();
     emit({
       type: "session_exited",
       reason: end.requested ? "requested" : "crashed",
       code: end.code,
       signal: end.signal,
     });
+    if (crashed) await restart(interrupted);
   }
   // Fire and forget: `exited` never rejects.
-  void watchExit();
+  void watchExit(pi);
 
   return {
     sessionId,
+    get exited() {
+      return exited;
+    },
     snapshot,
+    attach,
     async prompt(command) {
-      if (exited) throw new CommandError("pi_unavailable", { status: "exited" });
+      refuseWhenExited();
+      refuseWhileStopping();
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
-      const entry = { requestId: command.requestId, traceId: parseTraceparent(command.traceparent)?.traceId ?? null };
-      waiting.push(entry);
+      const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
+      if (!idle() || (queue.length > 0 && paused === null)) {
+        return { disposition: "queued", itemId: enqueue(command.text, command.requestId, traceId) };
+      }
+      try {
+        return { disposition: await send(command.text, { requestId: command.requestId, traceId, auto: false }) };
+      } catch (error) {
+        // A run pi began on its own: the message waits its turn.
+        if (!isBusy(error)) throw error;
+        return { disposition: "queued", itemId: enqueue(command.text, command.requestId, traceId) };
+      }
+    },
+    async steer(command) {
+      refuseWhenExited();
+      refuseWhileStopping();
+      // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
+      const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
+      return steerNow(command.text, command.requestId, traceId);
+    },
+    stop() {
+      if (stopping !== null) return stopping;
+      if (run === null && !sending && !compacting) return Promise.resolve({ confirmed: true });
+      paused = "stopped";
       /**
-       * Stops waiting for pi to echo this prompt.
+       * Takes back pi's steers and aborts, waiting `STOP_CONFIRM_MS` for pi to confirm.
        *
        * @remarks
-       * The echo may already have taken the entry; then there is nothing to remove, and removing
-       * by index -1 would drop another prompt's entry.
+       * See `createSessionController`. Unconfirmed, the stop ends when pi confirms later or exits.
        *
-       * @sideEffects Updates the waiting list.
+       * @sideEffects Calls pi; publishes `control_updated`.
+       * @returns Whether pi confirmed in time.
        */
-      const forget = (): void => {
-        const index = waiting.indexOf(entry);
-        if (index !== -1) waiting.splice(index, 1);
+      const halt = async (): Promise<CommandResult<"stop">> => {
+        try {
+          const { steering } = await pi.clearQueue();
+          const back = steering.map((text) => ({
+            id: newId(),
+            text,
+            createdAt: clock.now(),
+            requestId: null,
+            traceId: null,
+          }));
+          queue.unshift(...back);
+          steers = [];
+          controlChanged();
+        } catch {
+          // pi has gone; its exit takes the steers back.
+        }
+        const aborted = pi.abort().then(
+          () => true,
+          () => false,
+        );
+        const timedOut = Promise.withResolvers<false>();
+        const cancel = clock.setTimeout(() => timedOut.resolve(false), STOP_CONFIRM_MS);
+        const confirmed = await Promise.race([aborted, timedOut.promise]);
+        cancel();
+        if (confirmed) endStop();
+        // Fire and forget: the stop ends when pi confirms or exits, whichever comes first.
+        else void Promise.race([aborted, pi.exited]).then(() => endStop());
+        return { confirmed };
       };
+      stopping = halt();
+      controlChanged();
+      return stopping;
+    },
+    resumeQueue() {
+      refuseWhileStopping();
+      paused = null;
+      controlChanged();
+      dispatch();
+      return {};
+    },
+    clearQueue() {
+      queue.length = 0;
+      controlChanged();
+      return {};
+    },
+    updateQueued(itemId, text) {
+      queued(itemId).item.text = text;
+      controlChanged();
+      return {};
+    },
+    removeQueued(itemId) {
+      queue.splice(queued(itemId).index, 1);
+      controlChanged();
+      return {};
+    },
+    async steerQueued(itemId) {
+      refuseWhenExited();
+      refuseWhileStopping();
+      const { item, index } = queued(itemId);
+      queue.splice(index, 1);
+      controlChanged();
       try {
-        const { disposition } = await pi.prompt(command.text);
-        if (disposition === "handled") forget();
-        return { disposition };
+        return await steerNow(item.text, item.requestId, item.traceId);
       } catch (error) {
-        forget();
-        throw promptFailure(error);
+        queue.splice(index, 0, item);
+        controlChanged();
+        throw error;
       }
+    },
+    answerInteraction(interactionId, answer) {
+      const open = interactions.get(interactionId);
+      if (open === undefined) throw new CommandError("interaction_closed", { interactionId });
+      if (!fits(open.interaction.kind, answer)) throw new CommandError("invalid_message");
+      open.expire();
+      interactions.delete(interactionId);
+      pi.respond({ id: interactionId, ...answer });
+      controlChanged();
+      return {};
+    },
+    async retryRun() {
+      refuseWhileStopping();
+      if (run !== null || sending) return {};
+      restarts = 0;
+      failure = null;
+      if (exited) {
+        const respawn = options.respawn;
+        if (respawn === undefined) throw new CommandError("pi_unavailable", { status: "exited" });
+        attach(await respawn());
+      }
+      const last = transcript.items().findLast((item) => item.kind === "turn");
+      const interrupted =
+        lost ??
+        (last?.kind === "turn" && last.outcome === "failed"
+          ? { requestId: null, traceId: null, text: last.user.text, auto: false, echoed: true }
+          : null);
+      lost = null;
+      await carryOn(interrupted);
+      return {};
     },
     fetchTranscript(command) {
       const page = command.epoch === epoch ? transcript.before(command.before, command.limit) : null;
@@ -379,7 +1148,8 @@ export function createSessionController(options: {
       if (step === null) throw new CommandError("transcript_changed");
       return { step };
     },
-    async stop() {
+    async shutdown() {
+      shuttingDown = true;
       await pi.stop();
     },
   };

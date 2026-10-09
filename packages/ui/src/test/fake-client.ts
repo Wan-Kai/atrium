@@ -1,5 +1,11 @@
 import type { AtriumClient, ConnectionState, IndexView, SessionView } from "@atrium/client";
-import type { IndexSnapshotEvent, Project, SessionSummary, Workspace } from "@atrium/protocol";
+import {
+  IDLE_CONTROL,
+  type IndexSnapshotEvent,
+  type Project,
+  type SessionSummary,
+  type Workspace,
+} from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
 
 /**
@@ -73,6 +79,7 @@ function sessionView(sessionId: string, fields: Partial<SessionView> = {}): Sess
     hasOlder: false,
     run: null,
     pending: [],
+    control: IDLE_CONTROL,
     ...fields,
   };
 }
@@ -251,6 +258,42 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       const view = views.get(sessionId);
       view?.setState({ pending: [...view.getState().pending, { clientMessageId: `q${calls.length}`, text }] });
       return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
+    },
+    steer(sessionId: string, text: string) {
+      calls.push(`steer ${sessionId} ${text}`);
+      return Promise.resolve({ disposition: "queued" as const });
+    },
+    async stop(sessionId: string) {
+      calls.push(`stop ${sessionId}`);
+      return { confirmed: true };
+    },
+    async resumeQueue(sessionId: string) {
+      calls.push(`resumeQueue ${sessionId}`);
+      return {};
+    },
+    async clearQueue(sessionId: string) {
+      calls.push(`clearQueue ${sessionId}`);
+      return {};
+    },
+    async updateQueued(sessionId: string, itemId: string, text: string) {
+      calls.push(`updateQueued ${sessionId} ${itemId} ${text}`);
+      return {};
+    },
+    async removeQueued(sessionId: string, itemId: string) {
+      calls.push(`removeQueued ${sessionId} ${itemId}`);
+      return {};
+    },
+    async steerQueued(sessionId: string, itemId: string) {
+      calls.push(`steerQueued ${sessionId} ${itemId}`);
+      return { disposition: "queued" };
+    },
+    async answerInteraction(sessionId: string, interactionId: string, answer: unknown) {
+      calls.push(`answerInteraction ${sessionId} ${interactionId} ${JSON.stringify(answer)}`);
+      return {};
+    },
+    async retryRun(sessionId: string) {
+      calls.push(`retryRun ${sessionId}`);
+      return {};
     },
     loadOlder: async () => undefined,
     loadStep: async () => undefined,

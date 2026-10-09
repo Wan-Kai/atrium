@@ -83,6 +83,8 @@ export const Turn = z.strictObject({
     images: z.number().int().nonnegative(),
     /** The `requestId` of the `prompt` that sent it, so the client can replace its pending copy. */
     clientMessageId: z.string().nullable(),
+    /** Sent by the host to have the agent go on after an interrupted run (SPEC-0001, "运行控制"). */
+    auto: z.boolean(),
     timestamp: Timestamp,
   }),
   steps: z.array(Step),
@@ -97,15 +99,26 @@ export const Turn = z.strictObject({
 });
 export type Turn = z.infer<typeof Turn>;
 
-/** A system event between turns: the context was compacted. */
-export const Notice = z.strictObject({
-  kind: z.literal("notice"),
-  id: z.string().min(1),
-  notice: z.literal("compacted"),
-  tokensBefore: z.number().int().nonnegative(),
-  summary: z.string(),
-  timestamp: Timestamp,
-});
+/** A system event between turns: the context was compacted, or the host restarted a crashed pi. */
+export const Notice = z.discriminatedUnion("notice", [
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("compacted"),
+    tokensBefore: z.number().int().nonnegative(),
+    summary: z.string(),
+    timestamp: Timestamp,
+  }),
+  /** Seen only by the host that restarted pi; gone after the host restarts (SPEC-0001, "运行控制"). */
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("restarted"),
+    /** Which restart in a row, from 1 to 3. */
+    attempt: z.number().int().positive(),
+    timestamp: Timestamp,
+  }),
+]);
 export type Notice = z.infer<typeof Notice>;
 
 /** What the conversation area shows, in order. */

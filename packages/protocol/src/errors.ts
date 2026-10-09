@@ -34,6 +34,12 @@ export const ErrorCode = z.enum([
   "path_not_found",
   /** The session has had no message yet, so pi has no file to keep its name in. */
   "session_is_draft",
+  /** A stop is waiting for pi to confirm; the session takes no new message until then. */
+  "session_stopping",
+  /** The `itemId` names nothing in the session's queue. */
+  "queue_item_not_found",
+  /** The interaction was answered, timed out, or went away with its pi. */
+  "interaction_closed",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */

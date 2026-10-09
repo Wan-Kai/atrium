@@ -1,4 +1,4 @@
-import type { Notice, SessionEvent, Step, Turn } from "@atrium/protocol";
+import { IDLE_CONTROL, type Notice, type SessionEvent, type Step, type Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
@@ -9,7 +9,7 @@ function turn(id: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
-    user: { text: "hi", images: 0, clientMessageId: null, timestamp: 0 },
+    user: { text: "hi", images: 0, clientMessageId: null, auto: false, timestamp: 0 },
     steps: [],
     outcome: "running",
     error: null,
@@ -23,7 +23,7 @@ function turn(id: string, fields: Partial<Turn> = {}): Turn {
 
 /** A turn opened by the pending message `clientMessageId`. */
 function confirming(id: string, clientMessageId: string): Turn {
-  return turn(id, { user: { text: "hi", images: 0, clientMessageId, timestamp: 0 } });
+  return turn(id, { user: { text: "hi", images: 0, clientMessageId, auto: false, timestamp: 0 } });
 }
 
 /** A compaction notice. */
@@ -66,6 +66,7 @@ describe("loadingView", () => {
       hasOlder: false,
       run: null,
       pending: [],
+      control: IDLE_CONTROL,
     });
   });
 });
@@ -96,6 +97,7 @@ describe("applySessionEvent", () => {
       hasOlder: true,
       run: { runId: "r", startedAt: 1 },
       exited: false,
+      control: { ...IDLE_CONTROL, paused: "stopped" },
     });
 
     expect(before).toBe(loading);
@@ -108,6 +110,7 @@ describe("applySessionEvent", () => {
       hasOlder: true,
       run: { runId: "r", startedAt: 1 },
       pending: [{ clientMessageId: "q2", text: "b" }],
+      control: { ...IDLE_CONTROL, paused: "stopped" },
     });
   });
 
@@ -184,7 +187,10 @@ describe("applySessionEvent", () => {
 
   it("goes to the latest turn with the id, and keeps a pending message no turn confirms", () => {
     const view = ready(1, {
-      items: [turn("t1"), turn("t1", { user: { text: "again", images: 0, clientMessageId: null, timestamp: 0 } })],
+      items: [
+        turn("t1"),
+        turn("t1", { user: { text: "again", images: 0, clientMessageId: null, auto: false, timestamp: 0 } }),
+      ],
       pending: [{ clientMessageId: "q9", text: "x" }],
     });
 
@@ -288,8 +294,26 @@ describe("applySessionEvent", () => {
         hasOlder: true,
         run: null,
         exited: true,
+        control: IDLE_CONTROL,
       }),
     ).toStrictEqual({ ...view, status: "exited", epoch: 2, seq: 0, items: [turn("new")], hasOlder: true });
+  });
+
+  it("takes the run control whole, and drops the pending copy of a message an extension handled", () => {
+    const view = ready(3, {
+      pending: [
+        { clientMessageId: "q1", text: "/cmd" },
+        { clientMessageId: "q2", text: "b" },
+      ],
+    });
+    const control = { ...IDLE_CONTROL, queue: [{ id: "i1", text: "later", createdAt: 5 }], stopping: true };
+
+    expect(
+      applyAll(view, [
+        { type: "control_updated", ...envelope, seq: 4, control },
+        { type: "prompt_handled", ...envelope, seq: 5, clientMessageId: "q1" },
+      ]),
+    ).toStrictEqual({ ...view, seq: 5, control, pending: [{ clientMessageId: "q2", text: "b" }] });
   });
 });
 

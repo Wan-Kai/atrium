@@ -377,5 +377,6 @@ function turnMarkdown(turn: Turn): string {
  * @returns The Markdown.
  */
 function noticeMarkdown(notice: Notice): string {
+  if (notice.notice === "restarted") return `> 进程已自动重启（第 ${notice.attempt} / 3 次）`;
   return `> 上下文已压缩 · 压缩前 ${formatTokens(notice.tokensBefore)} tokens`;
 }

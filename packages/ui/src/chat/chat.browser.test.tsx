@@ -1,6 +1,6 @@
 import type { SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
-import type { TranscriptItem, Turn } from "@atrium/protocol";
+import { type TranscriptItem, type Turn, IDLE_CONTROL } from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -24,6 +24,7 @@ function view(fields: Partial<SessionView> = {}): SessionView {
     hasOlder: false,
     run: null,
     pending: [],
+    control: IDLE_CONTROL,
     ...fields,
   };
 }
@@ -33,7 +34,7 @@ function turn(id: string, text: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
-    user: { text: `问 ${id}`, images: 0, clientMessageId: null, timestamp: Date.UTC(2026, 9, 7, 14, 31) },
+    user: { text: `问 ${id}`, images: 0, clientMessageId: null, auto: false, timestamp: Date.UTC(2026, 9, 7, 14, 31) },
     steps: [{ kind: "text", id: "0", text }],
     outcome: "done",
     error: null,
@@ -386,20 +387,42 @@ describe("ConversationArea", () => {
     );
   });
 
-  it("does not send while a run is in progress", async () => {
+  it("queues on Enter while a run goes on, steers on ⌘Enter, and stops with Esc or the button", async () => {
     const { client, calls, views } = fakeClient();
     const screen = await render(
       <ConversationArea client={client} containerId="chats" sessionId="s1" create={async () => ""} />,
     );
     await vi.waitFor(() => expect(views.has("s1")).toBe(true));
     views.get("s1")?.setState({ run: { runId: "r1", startedAt: Date.now() } });
+    const box = screen.getByRole("textbox", { name: "消息" });
 
-    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "二{Enter}");
-    await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
-    views.get("s1")?.setState({ run: null });
-    await screen.getByRole("button", { name: "发送" }).click();
+    await userEvent.type(box, "二{Enter}");
+    await userEvent.type(box, "三{Meta>}{Enter}{/Meta}");
+    await userEvent.type(box, "{Escape}");
+    await screen.getByRole("button", { name: "停止" }).click();
 
-    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 二"]));
+    await expect.element(screen.getByText("回车排队 · ⌘回车插话 · Esc 停止")).toBeVisible();
+    await vi.waitFor(() =>
+      expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 二", "steer s1 三", "stop s1", "stop s1"]),
+    );
+  });
+
+  it("shows a stop waiting for pi as stopping, and takes no stop meanwhile", async () => {
+    const { client, calls, views } = fakeClient();
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId="s1" create={async () => ""} />,
+    );
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    views.get("s1")?.setState({
+      run: { runId: "r1", startedAt: Date.now() },
+      control: { ...IDLE_CONTROL, stopping: true },
+    });
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "{Escape}");
+
+    await expect.element(screen.getByRole("button", { name: "停止中" })).toBeDisabled();
+    await expect.element(screen.getByText("正在停止…")).toBeVisible();
+    expect(calls).toStrictEqual(["watch s1", "openSession s1"]);
   });
 
   it("stops watching when no session is active, and drops an old failure on switching", async () => {
@@ -446,6 +469,9 @@ describe("ConversationArea", () => {
     [new CommandError("session_cwd_missing", { cwd: "/gone/work" }), "恢复失败：会话的目录 /gone/work 不存在"],
     [new CommandError("session_cwd_missing"), "恢复失败：会话的目录  不存在"],
     [new CommandError("workspace_not_found"), "这个工作区已经不在了"],
+    [new CommandError("session_stopping"), "正在等 pi 停下，停下后再发"],
+    [new CommandError("queue_item_not_found"), "这条排队的消息已经发出或删掉了"],
+    [new CommandError("interaction_closed"), "这个问题已经回答过、超时或作废了"],
     [new CommandError("internal_error"), "宿主出错了，消息没有发出"],
     [new Error("other"), "发送失败"],
   ])("describes %s", (error, text) => {

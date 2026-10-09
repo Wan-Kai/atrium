@@ -8,6 +8,7 @@ import {
   type ContainerId,
   type HelloMessage,
   HostMessage,
+  type InteractionAnswer,
   PROTOCOL_VERSION,
   type Preferences,
   type SessionEvent,
@@ -128,8 +129,24 @@ export interface AtriumClient {
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list. */
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
-  /** Sends a message, showing it at once as pending. */
+  /** Sends a message, showing it at once as pending until it opens a turn or goes into the queue. */
   prompt(sessionId: string, text: string): Promise<CommandResult<"prompt">>;
+  /** Sends a steer, delivered before the agent's next step; while idle it is sent as a message, pending meanwhile. */
+  steer(sessionId: string, text: string): Promise<CommandResult<"steer">>;
+  /** Stops the session's run; resolves with whether pi confirmed within two seconds. */
+  stop(sessionId: string): Promise<CommandResult<"stop">>;
+  resumeQueue(sessionId: string): Promise<CommandResult<"resume_queue">>;
+  clearQueue(sessionId: string): Promise<CommandResult<"clear_queue">>;
+  updateQueued(sessionId: string, itemId: string, text: string): Promise<CommandResult<"update_queued">>;
+  removeQueued(sessionId: string, itemId: string): Promise<CommandResult<"remove_queued">>;
+  steerQueued(sessionId: string, itemId: string): Promise<CommandResult<"steer_queued">>;
+  answerInteraction(
+    sessionId: string,
+    interactionId: string,
+    answer: InteractionAnswer,
+  ): Promise<CommandResult<"answer_interaction">>;
+  /** The error card's "重试". */
+  retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -311,6 +328,49 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     });
     live.send(JSON.stringify({ type, requestId, traceparent: formatTraceparent(createTrace()), ...fields }));
     return answer.promise;
+  }
+
+  /**
+   * Sends a message or steer, showing it at once as pending.
+   *
+   * @remarks
+   * The copy stays until the turn it opens arrives with the same id. It goes at once when the
+   * message will open no turn of its own: pi rejected it, an extension consumed it, it went into
+   * the host's queue (shown there instead), or pi took it as a steer to deliver mid-turn.
+   *
+   * @sideEffects Updates the session's view; sends the command.
+   * @param type - `prompt` or `steer`.
+   * @param sessionId - The session.
+   * @param text - The message.
+   * @returns The command's result.
+   */
+  async function sendShown<T extends "prompt" | "steer">(
+    type: T,
+    sessionId: string,
+    text: string,
+  ): Promise<CommandResult<T>> {
+    const requestId = `${options.clientId}-${++nextRequest}`;
+    const view = views.get(sessionId);
+    const shown = { clientMessageId: requestId, text };
+    view?.setState({ pending: [...view.getState().pending, shown] });
+    /**
+     * Takes the optimistic copy back out.
+     *
+     * @remarks
+     * See `sendShown`.
+     *
+     * @sideEffects Updates the session's view.
+     */
+    const withdraw = (): void => view?.setState({ pending: view.getState().pending.filter((item) => item !== shown) });
+    try {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `prompt` and `steer` take the same fields.
+      const result = await request(type, { sessionId, text } as CommandFields<T>, requestId);
+      if (result.disposition !== "started") withdraw();
+      return result;
+    } catch (error) {
+      withdraw();
+      throw error;
+    }
   }
 
   /**
@@ -620,31 +680,17 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       index.setState(withPreferences(index.getState(), changes), true);
       return request("set_preferences", changes);
     },
-    async prompt(sessionId, text) {
-      const requestId = `${options.clientId}-${++nextRequest}`;
-      const view = views.get(sessionId);
-      const shown = { clientMessageId: requestId, text };
-      view?.setState({ pending: [...view.getState().pending, shown] });
-      /**
-       * Takes the optimistic copy back out.
-       *
-       * @remarks
-       * pi will never echo a message it rejected or an extension consumed.
-       *
-       * @sideEffects Updates the session's view.
-       */
-      const withdraw = (): void =>
-        view?.setState({ pending: view.getState().pending.filter((item) => item !== shown) });
-      try {
-        const result = await request("prompt", { sessionId, text }, requestId);
-        // An extension consumed it; pi never echoes it.
-        if (result.disposition === "handled") withdraw();
-        return result;
-      } catch (error) {
-        withdraw();
-        throw error;
-      }
-    },
+    prompt: (sessionId, text) => sendShown("prompt", sessionId, text),
+    steer: (sessionId, text) => sendShown("steer", sessionId, text),
+    stop: (sessionId) => request("stop", { sessionId }),
+    resumeQueue: (sessionId) => request("resume_queue", { sessionId }),
+    clearQueue: (sessionId) => request("clear_queue", { sessionId }),
+    updateQueued: (sessionId, itemId, text) => request("update_queued", { sessionId, itemId, text }),
+    removeQueued: (sessionId, itemId) => request("remove_queued", { sessionId, itemId }),
+    steerQueued: (sessionId, itemId) => request("steer_queued", { sessionId, itemId }),
+    answerInteraction: (sessionId, interactionId, answer) =>
+      request("answer_interaction", { sessionId, interactionId, answer }),
+    retryRun: (sessionId) => request("retry_run", { sessionId }),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

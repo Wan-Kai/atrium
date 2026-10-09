@@ -39,7 +39,8 @@ function historyId(sessionId: string, entryId: string): string {
  * Tool results pair with their calls by call id. A compaction becomes a notice after the turn it happened in, or in place between turns.
  * Model changes, labels, system messages and other entries are skipped. Assistant messages before
  * any user message belong to no turn and are skipped too. A turn the host saw live gets the id,
- * `clientMessageId` and timings it had then, from `facts`.
+ * `clientMessageId`, timings and whether the host sent it on its own that it had then, from
+ * `facts`; one an earlier host run sent on its own is marked from `auto`.
  *
  * @sideEffects none
  * @param branch - The branch's entries, root first.
@@ -47,6 +48,7 @@ function historyId(sessionId: string, entryId: string): string {
  * @param facts - What the host measured of turns it saw live, by the id of the entry opening them.
  * @param opened - Entries an earlier host run saw open a turn; nothing was measured of them then
  * that survived.
+ * @param auto - Entries of messages an earlier host run sent on its own (SPEC-0001, "运行控制").
  * @returns The items and the entries that opened turns.
  */
 export function projectTranscript(
@@ -54,6 +56,7 @@ export function projectTranscript(
   sessionId: string,
   facts: ReadonlyMap<string, TurnFacts>,
   opened: ReadonlySet<string> = new Set(),
+  auto: ReadonlySet<string> = new Set(),
 ): Projection {
   // Stryker disable next-line ConditionalExpression,ArrayDeclaration: only looked up by entry id, which is never undefined or made up.
   const omitted = new Set(branch.flatMap((entry) => (entry.kind === "omission" ? [entry.targetId] : [])));
@@ -93,6 +96,7 @@ export function projectTranscript(
             text: entry.text,
             images: entry.images,
             clientMessageId: known?.clientMessageId ?? null,
+            auto: known?.auto ?? auto.has(entry.id),
             timestamp: entry.timestamp,
           }),
           entryId: entry.id,

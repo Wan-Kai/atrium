@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { useDisplayMode } from "../state/display-mode";
 import { Composer } from "./composer";
+import { ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -37,6 +38,9 @@ export function describeSendError(error: unknown): string {
   if (error.code === "transcript_changed") return "对话记录刚刚更新了，请再试一次";
   if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
   if (error.code === "workspace_not_found") return "这个工作区已经不在了";
+  if (error.code === "session_stopping") return "正在等 pi 停下，停下后再发";
+  if (error.code === "queue_item_not_found") return "这条排队的消息已经发出或删掉了";
+  if (error.code === "interaction_closed") return "这个问题已经回答过、超时或作废了";
   return "宿主出错了，消息没有发出";
 }
 
@@ -44,12 +48,15 @@ export function describeSendError(error: unknown): string {
  * The transcript and the input box of a session, subscribed to its view.
  *
  * @remarks
- * Split out so the store subscription exists only once there is a session. Sending is blocked
- * while a run is in progress (SPEC-0001, "M1.3 先做的部分").
+ * Split out so the store subscription exists only once there is a session. While a run goes on,
+ * a message goes into the host's queue and ⌘+Enter steers; the capsule bar shows the queue and
+ * the steers on their way, and questions from extensions and a failed session wait above the
+ * input box (SPEC-0001, "运行控制").
  *
- * @sideEffects Subscribes to the session's store; loads older items when asked.
- * @param props - The client, the session, its view store, what to do with a message, and a
- * notice to show above the input box.
+ * @sideEffects Subscribes to the session's store; loads older items when asked; sends run control
+ * commands, reporting their failures through `act`.
+ * @param props - The client, the session, its view store, what to do with a message and a steer,
+ * how to run a command whose failure should show, and a notice to show above the input box.
  * @returns The transcript and input box.
  */
 function SessionArea({
@@ -57,15 +64,29 @@ function SessionArea({
   sessionId,
   store,
   onSend,
+  onSteer,
+  act,
   notice,
 }: {
   readonly client: AtriumClient;
   readonly sessionId: string;
   readonly store: StoreApi<SessionView>;
   readonly onSend: (text: string) => void;
+  readonly onSteer: (text: string) => void;
+  readonly act: (command: () => Promise<unknown>) => void;
   readonly notice: ReactNode;
 }) {
   const view = useStore(store);
+  const running = view.run !== null;
+  const actions: RunActions = {
+    resume: () => act(() => client.resumeQueue(sessionId)),
+    clear: () => act(() => client.clearQueue(sessionId)),
+    update: (itemId, text) => act(() => client.updateQueued(sessionId, itemId, text)),
+    remove: (itemId) => act(() => client.removeQueued(sessionId, itemId)),
+    steerQueued: (itemId) => act(() => client.steerQueued(sessionId, itemId)),
+    answer: (interactionId, answer) => act(() => client.answerInteraction(sessionId, interactionId, answer)),
+    retry: () => act(() => client.retryRun(sessionId)),
+  };
   return (
     <>
       <Transcript
@@ -78,9 +99,18 @@ function SessionArea({
           // Fire and forget: a failed fetch leaves the preview, still marked as loading.
           client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
         }}
+        onRetry={actions.retry}
       />
+      <ControlCards control={view.control} actions={actions} />
       {notice}
-      <Composer onSend={onSend} disabled={view.run !== null} />
+      <Composer
+        onSend={onSend}
+        onSteer={onSteer}
+        onStop={() => act(() => client.stop(sessionId))}
+        running={running}
+        stopping={view.control.stopping}
+        above={<ControlTrack control={view.control} running={running} actions={actions} />}
+      />
     </>
   );
 }
@@ -205,18 +235,38 @@ export function ConversationArea({
   }
 
   /**
-   * Sends a message, creating or reopening its session first when needed.
+   * Sends a message or a steer, creating or reopening its session first when needed.
    *
    * @remarks
    * See `ConversationArea`.
    *
    * @sideEffects Sends commands; updates component state.
    * @param text - The message.
+   * @param steer - Whether to send it as a steer.
    */
-  async function send(text: string): Promise<void> {
+  async function send(text: string, steer = false): Promise<void> {
     setFailure(null);
     try {
-      await client.prompt(await target(), text);
+      const id = await target();
+      await (steer ? client.steer(id, text) : client.prompt(id, text));
+    } catch (error) {
+      setFailure(describeSendError(error));
+    }
+  }
+
+  /**
+   * Runs a command on the session, showing why it failed if it does.
+   *
+   * @remarks
+   * For the queue, stop, dialogs and "重试", which need no session to be created first.
+   *
+   * @sideEffects Sends the command; updates component state.
+   * @param command - The command.
+   */
+  async function attempt(command: () => Promise<unknown>): Promise<void> {
+    setFailure(null);
+    try {
+      await command();
     } catch (error) {
       setFailure(describeSendError(error));
     }
@@ -234,6 +284,32 @@ export function ConversationArea({
   const onSend = (text: string): void => {
     // Fire and forget: see above.
     void send(text);
+  };
+  /**
+   * Starts a steer without waiting for it.
+   *
+   * @remarks
+   * See `onSend`.
+   *
+   * @sideEffects Sends commands.
+   * @param text - The steer.
+   */
+  const onSteer = (text: string): void => {
+    // Fire and forget: `send` reports its own failures.
+    void send(text, true);
+  };
+  /**
+   * Starts a command without waiting for it.
+   *
+   * @remarks
+   * `attempt` reports its own failures on screen.
+   *
+   * @sideEffects Sends the command.
+   * @param command - The command.
+   */
+  const act = (command: () => Promise<unknown>): void => {
+    // Fire and forget: see above.
+    void attempt(command);
   };
 
   const notice =
@@ -263,7 +339,15 @@ export function ConversationArea({
           <Composer onSend={onSend} />
         </>
       ) : (
-        <SessionArea client={client} sessionId={sessionId} store={store} onSend={onSend} notice={notice} />
+        <SessionArea
+          client={client}
+          sessionId={sessionId}
+          store={store}
+          onSend={onSend}
+          onSteer={onSteer}
+          act={act}
+          notice={notice}
+        />
       )}
     </div>
   );

@@ -79,7 +79,7 @@ function turn(entryId: string, userText: string, fields: Partial<Turn>): Turn {
   return {
     kind: "turn",
     id: `s:${entryId}`,
-    user: { text: userText, images: 0, clientMessageId: null, timestamp: 0 },
+    user: { text: userText, images: 0, clientMessageId: null, auto: false, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,
@@ -273,7 +273,13 @@ describe("projectTranscript", () => {
       user("u3", "also"),
       reply("a3", [says("done")]),
     ];
-    const facts: TurnFacts = { turnId: "live", clientMessageId: null, durationMs: 1, thinkingMs: new Map() };
+    const facts: TurnFacts = {
+      turnId: "live",
+      clientMessageId: null,
+      auto: false,
+      durationMs: 1,
+      thinkingMs: new Map(),
+    };
 
     expect(stepKinds(projectTranscript(branch, "s", none).items)).toStrictEqual([
       ["tool", "steer", "tool", "steer", "text"],
@@ -464,6 +470,7 @@ describe("projectTranscript", () => {
     const facts: TurnFacts = {
       turnId: "live-7",
       clientMessageId: "client-3",
+      auto: false,
       durationMs: 42,
       thinkingMs: new Map([["0", 1_200]]),
     };
@@ -482,7 +489,7 @@ describe("projectTranscript", () => {
       {
         ...turn("u1", "go", {}),
         id: "live-7",
-        user: { text: "go", images: 0, clientMessageId: "client-3", timestamp: 1_000 },
+        user: { text: "go", images: 0, clientMessageId: "client-3", auto: false, timestamp: 1_000 },
         startedAt: 1_000,
         durationMs: 42,
         steps: [

@@ -20,6 +20,26 @@ async function home(): Promise<string> {
 }
 
 describe("loadTurnStarts", () => {
+  it("records the messages the host sent on its own alongside, only once there is one", async () => {
+    const dir = await home();
+    const { starts } = await loadTurnStarts(dir, "s1", 0);
+    expect([...starts.auto]).toStrictEqual([]);
+
+    await starts.record(["u1"]);
+    const plain: unknown = JSON.parse(await readFile(join(dir, "turns", "s1.json"), "utf8"));
+    await starts.record(["u2", "u3"], ["u3"]);
+    await starts.record(["u3"], ["u3"]);
+
+    expect(plain).toStrictEqual({ version: 1, entries: ["u1"] });
+    expect([...starts.auto]).toStrictEqual(["u3"]);
+    expect(JSON.parse(await readFile(join(dir, "turns", "s1.json"), "utf8"))).toStrictEqual({
+      version: 1,
+      entries: ["u1", "u2", "u3"],
+      auto: ["u3"],
+    });
+    expect([...(await loadTurnStarts(dir, "s1", 0)).starts.auto]).toStrictEqual(["u3"]);
+  });
+
   it("starts empty, records new entries once each, and keeps them for the next host", async () => {
     const dir = await home();
     const { starts, setAside } = await loadTurnStarts(dir, "019a-session.1", 0);
@@ -44,9 +64,10 @@ describe("loadTurnStarts", () => {
       const dir = await home();
       const { starts } = await loadTurnStarts(dir, sessionId, 0);
 
-      await starts.record(["u1"]);
+      await starts.record(["u1"], ["u1"]);
 
       expect([...starts.opened]).toStrictEqual(["u1"]);
+      expect([...starts.auto]).toStrictEqual(["u1"]);
       expect(await readdir(dir)).toStrictEqual([]);
     },
   );

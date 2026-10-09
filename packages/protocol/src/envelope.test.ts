@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COMMAND_TYPES, type Command, CommandResult } from "./commands";
+import { type Control, IDLE_CONTROL } from "./control";
 import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
@@ -47,7 +48,60 @@ const commands: Command[] = [
   { type: "rename_session", requestId: "r25", traceparent, sessionId: "s1", name: "重构" },
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
   { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
+  { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
+  { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
+  { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
+  { type: "clear_queue", requestId: "r31", traceparent, sessionId: "s1" },
+  { type: "update_queued", requestId: "r32", traceparent, sessionId: "s1", itemId: "q1", text: "later" },
+  { type: "remove_queued", requestId: "r33", traceparent, sessionId: "s1", itemId: "q1" },
+  { type: "steer_queued", requestId: "r34", traceparent, sessionId: "s1", itemId: "q1" },
+  {
+    type: "answer_interaction",
+    requestId: "r35",
+    traceparent,
+    sessionId: "s1",
+    interactionId: "d1",
+    answer: { value: "b" },
+  },
+  {
+    type: "answer_interaction",
+    requestId: "r36",
+    traceparent,
+    sessionId: "s1",
+    interactionId: "d1",
+    answer: { confirmed: false },
+  },
+  {
+    type: "answer_interaction",
+    requestId: "r37",
+    traceparent,
+    sessionId: "s1",
+    interactionId: "d1",
+    answer: { cancelled: true },
+  },
+  { type: "retry_run", requestId: "r38", traceparent, sessionId: "s1" },
 ];
+
+/** Run control with something of everything. */
+const control: Control = {
+  queue: [{ id: "q1", text: "later", createdAt: 4 }],
+  paused: "stopped",
+  steers: [{ id: "r28", text: "also b" }],
+  stopping: true,
+  interactions: [
+    {
+      id: "d1",
+      kind: "select",
+      title: "Pick",
+      message: null,
+      options: ["a", "b"],
+      placeholder: null,
+      prefill: null,
+      deadline: 9,
+    },
+  ],
+  failure: { reason: "crashed", attempts: 3 },
+};
 
 /** A finished command. */
 const bashStep: Step = {
@@ -120,7 +174,7 @@ const steps: Step[] = [
 const turn: Turn = {
   kind: "turn",
   id: "s1:e1",
-  user: { text: "hi", images: 1, clientMessageId: "r4", timestamp: 1 },
+  user: { text: "hi", images: 1, clientMessageId: "r4", auto: false, timestamp: 1 },
   steps,
   outcome: "done",
   error: null,
@@ -150,6 +204,7 @@ const events: SessionEvent[] = [
     hasOlder: true,
     run: { runId: "run-1", startedAt: 3 },
     exited: false,
+    control,
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
   { type: "turn_started", ...at, turn: { ...turn, steps: [], outcome: "running", durationMs: null, usage: null } },
@@ -174,6 +229,14 @@ const events: SessionEvent[] = [
   },
   { type: "run_settled", ...at, runId: "run-1", outcome: "failed", settledAt: 5 },
   { type: "session_exited", ...at, traceId: null, reason: "crashed", code: null, signal: "SIGKILL" },
+  { type: "control_updated", ...at, control: IDLE_CONTROL },
+  { type: "prompt_handled", ...at, clientMessageId: "r4" },
+  {
+    type: "notice_added",
+    ...at,
+    notice: { kind: "notice", id: "restart-1", notice: "restarted", attempt: 2, timestamp: 4 },
+    before: null,
+  },
 ];
 
 describe("parseClientMessage", () => {
@@ -186,7 +249,9 @@ describe("parseClientMessage", () => {
   it("knows exactly the commands it accepts", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
       "add_project",
+      "answer_interaction",
       "archive_session",
+      "clear_queue",
       "close_tab",
       "create_chat",
       "create_session",
@@ -196,14 +261,21 @@ describe("parseClientMessage", () => {
       "ping",
       "prompt",
       "remove_project",
+      "remove_queued",
       "rename_project",
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "resume_queue",
+      "retry_run",
       "select_container",
       "set_preferences",
+      "steer",
+      "steer_queued",
+      "stop",
       "subscribe_index",
       "subscribe_sessions",
+      "update_queued",
       "window_focused",
     ]);
   });
@@ -273,6 +345,36 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["an empty project path", { type: "add_project", requestId: "r1", traceparent, path: "" }, "r1"],
+    ["an empty steer", { type: "steer", requestId: "r1", traceparent, sessionId: "s1", text: "" }, "r1"],
+    [
+      "an empty queued message",
+      { type: "update_queued", requestId: "r1", traceparent, sessionId: "s1", itemId: "q1", text: "" },
+      "r1",
+    ],
+    [
+      "an answer that keeps the dialog open",
+      {
+        type: "answer_interaction",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        interactionId: "d1",
+        answer: { cancelled: false },
+      },
+      "r1",
+    ],
+    [
+      "an answer of two kinds at once",
+      {
+        type: "answer_interaction",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        interactionId: "d1",
+        answer: { value: "a", confirmed: true },
+      },
+      "r1",
+    ],
     [
       "a blank project name",
       { type: "rename_project", requestId: "r1", traceparent, projectId: PROJECT, name: "  " },
@@ -329,6 +431,15 @@ describe("CommandResult", () => {
     expect(CommandResult.prompt.parse({ disposition: "handled" })).toStrictEqual({ disposition: "handled" });
     expect(CommandResult.ping.safeParse({ extra: 1 }).success).toBe(false);
     expect(CommandResult.prompt.safeParse({ disposition: "paused" }).success).toBe(false);
+    expect(CommandResult.prompt.parse({ disposition: "queued", itemId: "q1" })).toStrictEqual({
+      disposition: "queued",
+      itemId: "q1",
+    });
+    expect(CommandResult.prompt.safeParse({ disposition: "queued" }).success).toBe(false);
+    expect(CommandResult.prompt.safeParse({ disposition: "started", itemId: "q1" }).success).toBe(false);
+    expect(CommandResult.steer.parse({ disposition: "queued" })).toStrictEqual({ disposition: "queued" });
+    expect(CommandResult.stop.parse({ confirmed: false })).toStrictEqual({ confirmed: false });
+    expect(CommandResult.stop.safeParse({}).success).toBe(false);
     expect(CommandResult.open_session.parse({})).toStrictEqual({});
     expect(CommandResult.add_project.parse({ projectId: PROJECT })).toStrictEqual({ projectId: PROJECT });
     expect(CommandResult.add_project.safeParse({ projectId: "p1" }).success).toBe(false);
@@ -475,6 +586,9 @@ describe("HostMessage", () => {
       "name_taken",
       "path_not_found",
       "session_is_draft",
+      "session_stopping",
+      "queue_item_not_found",
+      "interaction_closed",
       "pi_rejected",
       "internal_error",
     ]);

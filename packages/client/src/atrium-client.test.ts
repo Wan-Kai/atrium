@@ -1,4 +1,4 @@
-import { CloseCode, CommandError, PROTOCOL_VERSION } from "@atrium/protocol";
+import { CloseCode, CommandError, IDLE_CONTROL, PROTOCOL_VERSION } from "@atrium/protocol";
 import { FakeClock, present } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { type AtriumClient, ConnectionLostError, createAtriumClient } from "./atrium-client";
@@ -97,7 +97,7 @@ function event(seq: number, fields: Record<string, unknown>): string {
 
 /** A snapshot of s1 at `seq` with `items`. */
 function snapshot(seq: number, items: unknown[] = [], hasOlder = false): string {
-  return event(seq, { type: "session_snapshot", items, hasOlder, run: null, exited: false });
+  return event(seq, { type: "session_snapshot", items, hasOlder, run: null, exited: false, control: IDLE_CONTROL });
 }
 
 /** How many `subscribe_sessions` the client sent. */
@@ -110,7 +110,7 @@ function turn(id: string, clientMessageId: string | null = null) {
   return {
     kind: "turn",
     id,
-    user: { text: "hi", images: 0, clientMessageId, timestamp: 0 },
+    user: { text: "hi", images: 0, clientMessageId, auto: false, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,
@@ -616,6 +616,65 @@ describe("createAtriumClient: sessions", () => {
     await kept;
   });
 
+  it("takes a pending copy back once the message went into the queue, or pi took it as a steer", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+
+    const queued = client.prompt("s1", "later");
+    latest().answer("prompt", { disposition: "queued", itemId: "i1" });
+    expect(await queued).toStrictEqual({ disposition: "queued", itemId: "i1" });
+    const steered = client.steer("s1", "also");
+    latest().answer("steer", { disposition: "queued" });
+    await steered;
+    const sentIdle = client.steer("s1", "go");
+    latest().answer("steer", { disposition: "started" });
+    await sentIdle;
+
+    expect(client.session("s1")?.getState().pending).toStrictEqual([{ clientMessageId: "client-1-6", text: "go" }]);
+    expect(latest().commands().slice(-1)).toStrictEqual([
+      { type: "steer", requestId: "client-1-6", sessionId: "s1", text: "go" },
+    ]);
+  });
+
+  it("sends the run control commands with their fields and returns their results", async () => {
+    const { client, latest } = await connected();
+    /** Runs a command and answers it with `result`. */
+    const run = async <T>(send: () => Promise<T>, type: string, result: unknown = {}) => {
+      const going = send();
+      latest().answer(type, result);
+      return going;
+    };
+
+    expect(await run(() => client.stop("s1"), "stop", { confirmed: false })).toStrictEqual({ confirmed: false });
+    await run(() => client.resumeQueue("s1"), "resume_queue");
+    await run(() => client.clearQueue("s1"), "clear_queue");
+    await run(() => client.updateQueued("s1", "i1", "new"), "update_queued");
+    await run(() => client.removeQueued("s1", "i2"), "remove_queued");
+    expect(await run(() => client.steerQueued("s1", "i3"), "steer_queued", { disposition: "queued" })).toStrictEqual({
+      disposition: "queued",
+    });
+    await run(() => client.answerInteraction("s1", "d1", { confirmed: true }), "answer_interaction");
+    await run(() => client.retryRun("s1"), "retry_run");
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] !== "ping")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "stop", sessionId: "s1" },
+      { type: "resume_queue", sessionId: "s1" },
+      { type: "clear_queue", sessionId: "s1" },
+      { type: "update_queued", sessionId: "s1", itemId: "i1", text: "new" },
+      { type: "remove_queued", sessionId: "s1", itemId: "i2" },
+      { type: "steer_queued", sessionId: "s1", itemId: "i3" },
+      { type: "answer_interaction", sessionId: "s1", interactionId: "d1", answer: { confirmed: true } },
+      { type: "retry_run", sessionId: "s1" },
+    ]);
+  });
+
   it("sends a prompt for a session it does not watch, without a pending copy", async () => {
     const { client, latest } = await connected();
 
@@ -643,6 +702,7 @@ describe("createAtriumClient: sessions", () => {
         hasOlder: false,
         run: { runId: "r1", startedAt: 1 },
         exited: false,
+        control: IDLE_CONTROL,
       }),
     );
     const shown = client.session("s1")?.getState().items;

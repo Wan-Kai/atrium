@@ -17,7 +17,7 @@ export {
   type PiTap,
   startPiProcess,
 } from "./process/pi-process";
-export { type EventTranslator, type TranslatedEvent, createEventTranslator } from "./events/translate";
+export { type Dialog, type EventTranslator, type TranslatedEvent, createEventTranslator } from "./events/translate";
 export { isBusyRejection } from "./process/rejections";
 export {
   type AssistantPart,

@@ -1,5 +1,5 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import { CHATS, CommandError, type SessionEvent } from "@atrium/protocol";
+import { CHATS, CommandError, IDLE_CONTROL, type SessionEvent } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -360,23 +360,29 @@ describe("SessionManager opening sessions", () => {
     expect(received).toMatchObject([{ type: "session_snapshot", epoch: 1, exited: false }]);
   });
 
-  it("starts another pi once the first exited, in a new epoch", async () => {
+  it("starts pi again with the session's file after it crashed, in a new epoch", async () => {
     const at = await place();
-    await terminalSession(at, "pi-session-1", at.workspace);
-    const { manager, catalog, received } = await manage(
-      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, received, starts } = await manage(
+      { argvToStderr: true, rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
       at,
     );
     await catalog.scan();
     await manager.openSession("client-1", "pi-session-1");
     await manager.subscribe("c1", ["pi-session-1"]);
     await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
-    await vi.waitFor(() => expect(received.at(-1)?.type).toBe("session_exited"));
 
-    await manager.openSession("client-1", "pi-session-1");
-
-    // Its subscribers get the new pi's snapshot right away.
-    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, seq: 0, exited: false });
+    // Its subscribers get the new pi's snapshot right away, then the note of the restart.
+    await vi.waitFor(() => expect(received.at(-1)?.type).toBe("notice_added"));
+    expect(received.slice(-3)).toMatchObject([
+      { type: "session_exited", epoch: 1, reason: "crashed" },
+      { type: "session_snapshot", epoch: 2, seq: 0, exited: false },
+      { type: "notice_added", epoch: 2, notice: { notice: "restarted", attempt: 1 } },
+    ]);
+    expect(starts().map((start) => start.argv)).toStrictEqual([
+      ["--mode", "rpc", "--session", file],
+      ["--mode", "rpc", "--session", file],
+    ]);
   });
 
   it("refuses a session whose directory is gone, or whose file went missing, without starting pi", async () => {
@@ -424,6 +430,7 @@ describe("SessionManager opening sessions", () => {
         hasOlder: false,
         run: null,
         exited: false,
+        control: IDLE_CONTROL,
       },
     ]);
 
@@ -640,7 +647,7 @@ describe("SessionManager turn starts", () => {
       undefined,
       async (sessionId) => {
         asked.push(sessionId);
-        return { opened: new Set(), record: async (entryIds) => void recorded.push([...entryIds]) };
+        return { opened: new Set(), auto: new Set(), record: async (entryIds) => void recorded.push([...entryIds]) };
       },
     );
     const { sessionId } = await manager.createChat("client-1");
@@ -668,7 +675,7 @@ describe("SessionManager turn starts", () => {
     const { manager, records } = await manage(
       { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } } },
       undefined,
-      async () => ({ opened: new Set(), record: () => Promise.reject(new Error("disk full")) }),
+      async () => ({ opened: new Set(), auto: new Set(), record: () => Promise.reject(new Error("disk full")) }),
     );
     const { sessionId } = await manager.createChat("client-1");
 

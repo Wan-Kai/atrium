@@ -196,6 +196,8 @@ export interface TranscriptProps {
   readonly onLoadOlder: () => void;
   /** Fetches a step that arrived as a preview. */
   readonly onLoadStep: (turnId: string, stepId: string) => void;
+  /** The error card's "重试", offered on the last turn when it failed and nothing runs. */
+  readonly onRetry?: () => void;
 }
 
 /**
@@ -206,13 +208,15 @@ export interface TranscriptProps {
  * content while scrolled to the bottom; scrolling up stops that and shows "↓ 回到底部", with a dot
  * once something new arrived (SPEC-0001, "滚动与长会话"); reaching the top loads older items.
  * Pending messages are the ones sent but not yet confirmed by the host (domain-model §7); until
- * the run's turn arrives the run shows on its own line.
+ * the run's turn arrives the run shows on its own line. A failed last turn offers "重试" while no
+ * run goes on (SPEC-0001, "运行出错与停止").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
- * @param props - The session's view, how to load older items and how to fetch a step whole.
+ * @param props - The session's view, how to load older items, how to fetch a step whole, and how
+ * to retry.
  * @returns The scrollable conversation.
  */
-export function Transcript({ view, onLoadOlder, onLoadStep }: TranscriptProps) {
+export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -233,7 +237,12 @@ export function Transcript({ view, onLoadOlder, onLoadStep }: TranscriptProps) {
             </div>
             {view.items.map((item) =>
               item.kind === "turn" ? (
-                <TurnView key={item.id} turn={item} runStartedAt={view.run?.startedAt ?? null} />
+                <TurnView
+                  key={item.id}
+                  turn={item}
+                  runStartedAt={view.run?.startedAt ?? null}
+                  {...(item === last && view.run === null && onRetry !== undefined ? { onRetry } : {})}
+                />
               ) : (
                 <NoticeView key={item.id} notice={item} />
               ),

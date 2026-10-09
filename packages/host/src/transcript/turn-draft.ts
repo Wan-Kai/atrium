@@ -24,6 +24,8 @@ type AssistantMessage = Extract<LogMessage, { kind: "assistant" }>;
 export interface TurnFacts {
   readonly turnId: string;
   readonly clientMessageId: string | null;
+  /** The host sent the message to have the agent go on (SPEC-0001, "运行控制"). */
+  readonly auto: boolean;
   /** From the user message to the end of the run, by the host's clock. */
   readonly durationMs: number | null;
   /** How long each thinking step took, by step id. */

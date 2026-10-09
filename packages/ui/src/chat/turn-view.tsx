@@ -1,5 +1,6 @@
 import type { Notice, Step, Turn } from "@atrium/protocol";
 import {
+  ArrowClockwise,
   ArrowsInLineVertical,
   CaretDown,
   Database,
@@ -285,19 +286,29 @@ function TurnFooter({
  *
  * @remarks
  * A short line, with the raw error behind "展开看原始报错" (SPEC-0001, "运行出错与停止"); a turn
- * pi went away in has no text of pi's. The "重试" button comes with the host's retry rules in M1.6.
+ * pi went away in has no text of pi's. The last turn offers "重试", which runs it again as the
+ * host does after a restart (SPEC-0001, "运行控制").
  *
- * @sideEffects none
- * @param props - pi's error text, if there is any.
+ * @sideEffects Calls `onRetry` when asked.
+ * @param props - pi's error text, if there is any, and what "重试" does, if it is offered.
  * @returns The error card.
  */
-function TurnError({ error }: { readonly error: string | null }) {
+function TurnError({ error, onRetry }: { readonly error: string | null; readonly onRetry?: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="my-1 text-[length:var(--fs-meta)] text-[var(--danger)]" data-testid="turn-error">
       <div className="flex items-center gap-1.5">
         <Warning size={14} />
         <span>回复出错</span>
+        {onRetry === undefined ? null : (
+          <button
+            type="button"
+            className="rounded-[var(--r-pill)] px-2.5 text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]"
+            onClick={onRetry}
+          >
+            重试
+          </button>
+        )}
         {error === null || error === "" ? null : (
           <button
             type="button"
@@ -322,6 +333,8 @@ export interface TurnViewProps {
   readonly turn: Turn;
   /** When the run in progress started by the host's clock, for the running turn's timer. */
   readonly runStartedAt: number | null;
+  /** "重试" for a failed turn, when offered. */
+  readonly onRetry?: () => void;
 }
 
 /**
@@ -338,7 +351,7 @@ export interface TurnViewProps {
  * @param props - The turn and the run's start.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt }: TurnViewProps) {
+export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
   const { mode } = useDisplayMode();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const replyElement = useRef<HTMLDivElement>(null);
@@ -373,7 +386,12 @@ export function TurnView({ turn, runStartedAt }: TurnViewProps) {
       data-turn-id={turn.id}
       data-outcome={turn.outcome}
     >
-      <UserBubble text={turn.user.text} images={turn.user.images} timestamp={turn.user.timestamp} />
+      <UserBubble
+        text={turn.user.text}
+        images={turn.user.images}
+        timestamp={turn.user.timestamp}
+        auto={turn.user.auto}
+      />
       {process.length === 0 ? null : (
         <button
           type="button"
@@ -416,7 +434,9 @@ export function TurnView({ turn, runStartedAt }: TurnViewProps) {
           已停止
         </div>
       ) : null}
-      {turn.outcome === "failed" ? <TurnError error={turn.error} /> : null}
+      {turn.outcome === "failed" ? (
+        <TurnError error={turn.error} {...(onRetry === undefined ? {} : { onRetry })} />
+      ) : null}
       {reply === null ? null : (
         <div
           ref={replyElement}
@@ -433,11 +453,12 @@ export function TurnView({ turn, runStartedAt }: TurnViewProps) {
 }
 
 /**
- * A notice between turns: "上下文已压缩 · 压缩前 152K tokens", opening its summary.
+ * A notice between turns: "上下文已压缩 · 压缩前 152K tokens", opening its summary, or the host's
+ * "进程已自动重启（第 N / 3 次）".
  *
  * @remarks
  * A centred grey line between thin rules (design-language, "消息流"); the summary is what pi
- * kept of the compacted part.
+ * kept of the compacted part. A restart has nothing to open (SPEC-0001, "运行控制").
  *
  * @sideEffects none
  * @param props - The notice.
@@ -445,6 +466,20 @@ export function TurnView({ turn, runStartedAt }: TurnViewProps) {
  */
 export function NoticeView({ notice }: { readonly notice: Notice }) {
   const [open, setOpen] = useState(false);
+  if (notice.notice === "restarted") {
+    return (
+      <div
+        data-testid="notice"
+        data-item-id={notice.id}
+        className="flex w-full items-center gap-2.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] before:h-px before:flex-1 before:bg-[var(--line)] after:h-px after:flex-1 after:bg-[var(--line)]"
+      >
+        <span className="flex items-center gap-1.5">
+          <ArrowClockwise size={13} />
+          进程已自动重启（第 {notice.attempt} / 3 次）
+        </span>
+      </div>
+    );
+  }
   return (
     <div data-testid="notice" data-item-id={notice.id}>
       <button

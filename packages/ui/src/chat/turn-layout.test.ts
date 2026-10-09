@@ -33,7 +33,7 @@ function turn(steps: Step[], fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id: "t1",
-    user: { text: "do it", images: 0, clientMessageId: null, timestamp: 0 },
+    user: { text: "do it", images: 0, clientMessageId: null, auto: false, timestamp: 0 },
     steps,
     outcome: "done",
     error: null,
@@ -284,7 +284,7 @@ describe("transcriptMarkdown", () => {
 
     expect(
       transcriptMarkdown([
-        turn(steps, { user: { text: "list\nfiles", images: 0, clientMessageId: null, timestamp: 0 } }),
+        turn(steps, { user: { text: "list\nfiles", images: 0, clientMessageId: null, auto: false, timestamp: 0 } }),
         { kind: "notice", id: "n", notice: "compacted", tokensBefore: 152_000, summary: "", timestamp: 0 },
         turn([], { outcome: "failed", error: "429" }),
       ]),

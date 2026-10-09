@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Control } from "./control";
 import { SessionId } from "./ids";
 import { Notice, Step, TranscriptItem, Turn } from "./transcript";
 
@@ -40,8 +41,10 @@ export const SessionSnapshotEvent = z.strictObject({
   /** Whether earlier items exist, for `fetch_transcript`. */
   hasOlder: z.boolean(),
   run: RunInfo.nullable(),
-  /** pi has exited; nothing more will happen in this session. */
+  /** pi has exited; nothing more will happen in this session until it starts again. */
   exited: z.boolean(),
+  /** The queue, steers, stop, interactions and failure (SPEC-0001, "运行控制"). */
+  control: Control,
 });
 export type SessionSnapshotEvent = z.infer<typeof SessionSnapshotEvent>;
 
@@ -118,6 +121,22 @@ export const NoticeAddedEvent = z.strictObject({
 });
 export type NoticeAddedEvent = z.infer<typeof NoticeAddedEvent>;
 
+/** The session's run control changed; carries it whole. */
+export const ControlUpdatedEvent = z.strictObject({
+  type: z.literal("control_updated"),
+  ...sessionEventFields,
+  control: Control,
+});
+export type ControlUpdatedEvent = z.infer<typeof ControlUpdatedEvent>;
+
+/** An extension consumed a message without a run; the client drops its pending copy. */
+export const PromptHandledEvent = z.strictObject({
+  type: z.literal("prompt_handled"),
+  ...sessionEventFields,
+  clientMessageId: z.string().min(1),
+});
+export type PromptHandledEvent = z.infer<typeof PromptHandledEvent>;
+
 /** The session's pi process ended. */
 export const SessionExitedEvent = z.strictObject({
   type: z.literal("session_exited"),
@@ -141,5 +160,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   TurnFinishedEvent,
   NoticeAddedEvent,
   SessionExitedEvent,
+  ControlUpdatedEvent,
+  PromptHandledEvent,
 ]);
 export type SessionEvent = z.infer<typeof SessionEvent>;

@@ -1,4 +1,12 @@
-import type { CommandResult, SessionEvent, Step, TranscriptItem, Turn } from "@atrium/protocol";
+import {
+  type CommandResult,
+  type Control,
+  IDLE_CONTROL,
+  type SessionEvent,
+  type Step,
+  type TranscriptItem,
+  type Turn,
+} from "@atrium/protocol";
 
 /** A user message shown before the host confirms it (domain-model §7). */
 export interface PendingMessage {
@@ -21,6 +29,8 @@ export interface SessionView {
   readonly hasOlder: boolean;
   readonly run: { readonly runId: string; readonly startedAt: number } | null;
   readonly pending: readonly PendingMessage[];
+  /** The queue, steers, stop, interactions and failure (SPEC-0001, "运行控制"). */
+  readonly control: Control;
 }
 
 /**
@@ -34,7 +44,17 @@ export interface SessionView {
  * @returns An empty, loading view.
  */
 export function loadingView(sessionId: string): SessionView {
-  return { sessionId, status: "loading", epoch: 0, seq: 0, items: [], hasOlder: false, run: null, pending: [] };
+  return {
+    sessionId,
+    status: "loading",
+    epoch: 0,
+    seq: 0,
+    items: [],
+    hasOlder: false,
+    run: null,
+    pending: [],
+    control: IDLE_CONTROL,
+  };
 }
 
 /**
@@ -148,6 +168,7 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       hasOlder: event.hasOlder,
       run: event.run,
       pending: unconfirmed(view.pending, event.items),
+      control: event.control,
     };
   }
   if (view.status === "loading") return view;
@@ -199,6 +220,10 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
     }
     case "session_exited":
       return { ...next, status: "exited", run: null };
+    case "control_updated":
+      return { ...next, control: event.control };
+    case "prompt_handled":
+      return { ...next, pending: view.pending.filter((message) => message.clientMessageId !== event.clientMessageId) };
   }
   // Stryker disable next-line all: unreachable, since the switch covers every event type.
   throw new Error(`unknown session event ${String((event as { type: unknown }).type)}`);

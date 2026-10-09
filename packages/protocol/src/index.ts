@@ -30,7 +30,17 @@ export {
   ArchiveSessionCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
+  SteerCommand,
+  StopCommand,
+  ResumeQueueCommand,
+  ClearQueueCommand,
+  UpdateQueuedCommand,
+  RemoveQueuedCommand,
+  SteerQueuedCommand,
+  AnswerInteractionCommand,
+  RetryRunCommand,
 } from "./commands";
+export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
 export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
   Appearance,
@@ -47,7 +57,9 @@ export {
   Workspace,
 } from "./listing";
 export {
+  ControlUpdatedEvent,
   NoticeAddedEvent,
+  PromptHandledEvent,
   RunSettledEvent,
   RunStartedEvent,
   SNAPSHOT_TURNS,

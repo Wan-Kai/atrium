@@ -28,12 +28,15 @@
   --tint: #2f6fed;
   --attn: #dd8629;
   --attn-text: #c96509;
+  --attn-soft: rgba(221, 134, 41, 0.12);
   --danger: #e5484d;
+  --danger-soft: rgba(229, 72, 77, 0.1);
   --ok: #16a34a;
   --ok-text: #1e8e3e;
   --diff-add-bg: rgba(22, 163, 74, 0.09);
   --diff-del-bg: rgba(229, 72, 77, 0.08);
   --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+  --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
 
   --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
@@ -98,10 +101,13 @@
   --tint: #7aaaff;
   --attn: #dd8629;
   --attn-text: #f0a24e;
+  --attn-soft: rgba(221, 134, 41, 0.16);
   --danger: #f25a5a;
+  --danger-soft: rgba(242, 90, 90, 0.14);
   --ok: #22c55e;
   --ok-text: #4ade80;
   --diff-add-bg: rgba(34, 197, 94, 0.12);
   --diff-del-bg: rgba(242, 90, 90, 0.12);
   --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+  --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
 }
