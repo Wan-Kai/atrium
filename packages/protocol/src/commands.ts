@@ -29,6 +29,29 @@ const MessageText = z
   .min(1)
   .max(1024 * 1024);
 
+/** A message's text when images may carry it; empty only with an image. */
+const PromptText = z.string().max(1024 * 1024);
+
+/** Uploaded images a message goes with, at most 20 (SPEC-0001, "附件"). */
+const AttachmentIds = z.array(z.string().min(1).max(128)).max(20).optional();
+
+/**
+ * Whether a message has something to send.
+ *
+ * @remarks
+ * An image may go without text; nothing at all is not a message.
+ *
+ * @sideEffects none
+ * @param message - The text and the images.
+ * @returns Whether it has either.
+ */
+function hasContent(message: {
+  readonly text: string;
+  readonly attachmentIds?: readonly string[] | undefined;
+}): boolean {
+  return message.text !== "" || (message.attachmentIds?.length ?? 0) > 0;
+}
+
 /** Heartbeat: the client sends one every `heartbeatMs` and expects the response within as long. */
 export const PingCommand = z.strictObject({ type: z.literal("ping"), ...commandFields });
 export type PingCommand = z.infer<typeof PingCommand>;
@@ -55,18 +78,25 @@ export const SubscribeSessionsCommand = z.strictObject({
 export type SubscribeSessionsCommand = z.infer<typeof SubscribeSessionsCommand>;
 
 /** Sends a message to a session; its `requestId` doubles as the user message's `clientMessageId`. */
-export const PromptCommand = z.strictObject({
-  type: z.literal("prompt"),
-  ...sessionCommandFields,
-  text: MessageText,
-});
+export const PromptCommand = z
+  .strictObject({
+    type: z.literal("prompt"),
+    ...sessionCommandFields,
+    text: PromptText,
+    attachmentIds: AttachmentIds,
+  })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(hasContent);
 export type PromptCommand = z.infer<typeof PromptCommand>;
 
 /**
  * Sends a steer: delivered before the agent's next step while it runs, sent as a message when it
  * is idle (SPEC-0001, "运行控制").
  */
-export const SteerCommand = z.strictObject({ type: z.literal("steer"), ...sessionCommandFields, text: MessageText });
+export const SteerCommand = z
+  .strictObject({ type: z.literal("steer"), ...sessionCommandFields, text: PromptText, attachmentIds: AttachmentIds })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(hasContent);
 export type SteerCommand = z.infer<typeof SteerCommand>;
 
 /** Stops the run: pauses the queue, clears pi's queue and aborts. */
@@ -254,6 +284,21 @@ export const SetThinkingLevelCommand = z.strictObject({
 });
 export type SetThinkingLevelCommand = z.infer<typeof SetThinkingLevelCommand>;
 
+/**
+ * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
+ *
+ * @remarks
+ * Base64 within a million characters, so the message stays under the 1 MiB a WebSocket message
+ * may have; the client compresses to fit.
+ */
+export const UploadAttachmentCommand = z.strictObject({
+  type: z.literal("upload_attachment"),
+  ...commandFields,
+  mimeType: z.enum(["image/webp", "image/png", "image/jpeg", "image/gif"]),
+  data: z.string().min(1).max(1_000_000),
+});
+export type UploadAttachmentCommand = z.infer<typeof UploadAttachmentCommand>;
+
 /** Lists the `/` commands of a session's pi, starting it if it has none (SPEC-0001, "模型与输入框"). */
 export const ListCommandsCommand = z.strictObject({ type: z.literal("list_commands"), ...sessionCommandFields });
 export type ListCommandsCommand = z.infer<typeof ListCommandsCommand>;
@@ -347,6 +392,7 @@ export const Command = z.discriminatedUnion("type", [
   SetThinkingLevelCommand,
   ListCommandsCommand,
   SearchFilesCommand,
+  UploadAttachmentCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -413,5 +459,6 @@ export const CommandResult = {
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),
+  upload_attachment: z.strictObject({ attachmentId: z.string().min(1).max(128) }),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

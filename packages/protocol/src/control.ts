@@ -6,8 +6,11 @@ const Timestamp = z.number().int().nonnegative();
 /** A message waiting in the host's queue for the run in progress to end (SPEC-0001, "运行控制"). */
 export const QueuedPrompt = z.strictObject({
   id: z.string().min(1),
-  text: z.string().min(1),
+  /** Empty when the message is only images. */
+  text: z.string(),
   createdAt: Timestamp,
+  /** How many images go with it. */
+  images: z.number().int().nonnegative(),
 });
 export type QueuedPrompt = z.infer<typeof QueuedPrompt>;
 

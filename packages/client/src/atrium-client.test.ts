@@ -1155,3 +1155,36 @@ describe("createAtriumClient: the composer's lists", () => {
     ]);
   });
 });
+
+describe("createAtriumClient: images", () => {
+  it("uploads an image, and sends a message with it, shown pending with its count", async () => {
+    const { client, latest } = await watchingWithModel(null);
+
+    const uploading = client.uploadAttachment("image/webp", "UklGRg==");
+    latest().answer("upload_attachment", { attachmentId: "a1" });
+    expect(await uploading).toStrictEqual({ attachmentId: "a1" });
+    const sending = client.prompt("s1", "看图", ["a1"]);
+    expect(client.session("s1")?.getState().pending).toStrictEqual([
+      { clientMessageId: expect.any(String), text: "看图", images: 1 },
+    ]);
+    latest().answer("prompt", { disposition: "started" });
+    await sending;
+    const steering = client.steer("s1", "", ["a2"]);
+    latest().answer("steer", { disposition: "queued" });
+    await steering;
+    // Not answered: only what it sends matters.
+    void client.prompt("s1", "只有字").catch(() => undefined);
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["upload_attachment", "prompt", "steer"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "upload_attachment", mimeType: "image/webp", data: "UklGRg==" },
+      { type: "prompt", sessionId: "s1", text: "看图", attachmentIds: ["a1"] },
+      { type: "steer", sessionId: "s1", text: "", attachmentIds: ["a2"] },
+      { type: "prompt", sessionId: "s1", text: "只有字" },
+    ]);
+  });
+});

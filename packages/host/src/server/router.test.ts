@@ -1,10 +1,12 @@
 import { type Command, CommandError, type HostMessage, type PromptCommand } from "@atrium/protocol";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
+import { FakeClock } from "@atrium/testkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import { type Connection, createConnection } from "./connection";
+import { createAttachmentStore } from "./attachments";
 import { createRouter } from "./router";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -35,8 +37,8 @@ function fakeCommands() {
     archiveSession: record("archiveSession", {}),
     renameSession: record("renameSession", {}),
     subscribe: record("subscribe", {}),
-    prompt: async (command: PromptCommand) => {
-      calls.push(["prompt", command.sessionId, command.text]);
+    prompt: async (command: PromptCommand, images = []) => {
+      calls.push(["prompt", command.sessionId, command.text, ...images.map((image) => image.data)]);
       if (command.text === "missing") throw new CommandError("session_not_found", { sessionId: command.sessionId });
       if (command.text === "crash") throw new Error("secret detail");
       return { disposition: "started" };
@@ -49,8 +51,8 @@ function fakeCommands() {
       calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
       return { items: [], hasOlder: true };
     },
-    steer: async (command) => {
-      calls.push(["steer", command.sessionId, command.text]);
+    steer: async (command, images = []) => {
+      calls.push(["steer", command.sessionId, command.text, ...images.map((image) => image.data)]);
       return { disposition: "queued" };
     },
     stop: record("stop", { confirmed: false }),
@@ -100,7 +102,15 @@ function setUp() {
     },
   );
   const { sessions, index, calls } = fakeCommands();
-  const route = createRouter({ sessions, index, tracer: recording.tracer, logger: recording.logger });
+  let nextAttachment = 0;
+  const attachments = createAttachmentStore({
+    clock: new FakeClock(),
+    newId: () => `a${++nextAttachment}`,
+    maxBytes: 1024,
+    maxCount: 4,
+    keepMs: 60_000,
+  });
+  const route = createRouter({ sessions, index, attachments, tracer: recording.tracer, logger: recording.logger });
   return {
     route,
     connection,
@@ -390,5 +400,49 @@ describe("createRouter", () => {
         trace_id: traceId,
       }),
     );
+  });
+});
+
+describe("createRouter's attachments", () => {
+  it("keeps an uploaded image for the connection and hands it to the message that names it", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(
+      connection,
+      withTrace({ type: "upload_attachment", requestId: "u1", mimeType: "image/webp", data: "AAAA" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "upload_attachment", requestId: "u2", mimeType: "image/png", data: "BBBB" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "prompt", requestId: "p1", sessionId: "s1", text: "看图", attachmentIds: ["a1"] }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "steer", requestId: "p2", sessionId: "s1", text: "", attachmentIds: ["a2"] }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "prompt", requestId: "p3", sessionId: "s1", text: "again", attachmentIds: ["a1"] }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["prompt", "s1", "看图", "AAAA"],
+      ["steer", "s1", "", "BBBB"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "u1", ok: true, result: { attachmentId: "a1" } },
+      { type: "response", requestId: "u2", ok: true, result: { attachmentId: "a2" } },
+      { type: "response", requestId: "p1", ok: true, result: { disposition: "started" } },
+      { type: "response", requestId: "p2", ok: true, result: { disposition: "queued" } },
+      {
+        type: "response",
+        requestId: "p3",
+        ok: false,
+        error: { code: "attachment_missing", params: { attachmentId: "a1" } },
+      },
+    ]);
   });
 });

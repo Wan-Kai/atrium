@@ -136,6 +136,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     hostInstanceId: "h1",
   }));
   let created = 0;
+  let uploaded = 0;
 
   /**
    * Opens a session as the active tab of its container.
@@ -261,8 +262,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       index.setState({ preferences: { ...index.getState().preferences, ...changes } });
       return {};
     },
-    prompt(sessionId: string, text: string) {
-      calls.push(`prompt ${sessionId} ${text}`);
+    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = []) {
+      calls.push(`prompt ${sessionId} ${text}${attachmentIds.map((id) => ` +${id}`).join("")}`);
       const view = views.get(sessionId);
       view?.setState({ pending: [...view.getState().pending, { clientMessageId: `q${calls.length}`, text }] });
       return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
@@ -322,6 +323,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async setModel(sessionId: string, model: ModelRef) {
       modelCalls.push(`setModel ${sessionId} ${model.providerId}/${model.modelId}`);
       return {};
+    },
+    async uploadAttachment(mimeType: string) {
+      uploaded += 1;
+      calls.push(`uploadAttachment ${mimeType}`);
+      return { attachmentId: `u${uploaded}` };
     },
     async listCommands(sessionId: string) {
       calls.push(`listCommands ${sessionId}`);

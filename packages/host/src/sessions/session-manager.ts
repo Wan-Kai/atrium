@@ -25,7 +25,13 @@ import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
 import type { CatalogEntry, SessionCatalog } from "./session-catalog";
 import type { SessionCommands } from "./session-commands";
-import { type Respawned, type SessionController, type SessionPi, createSessionController } from "./session-controller";
+import {
+  type PromptImage,
+  type Respawned,
+  type SessionController,
+  type SessionPi,
+  createSessionController,
+} from "./session-controller";
 import { type TracedPi, startTracedPi } from "./traced-pi";
 
 /** What the host found out about pi; `null` when detection did not finish. */
@@ -365,8 +371,9 @@ export function createSessionManager(options: {
       onEvent: (listener) => pi.onEvent(listener),
       exited: pi.exited,
       // No deadline: pi answers only after its preparations, which may include compacting.
-      prompt: (message) => traced.request({ type: "prompt", message }, { timeoutMs: null }),
-      steer: (message) => traced.request({ type: "steer", message }),
+      prompt: (message, images) =>
+        traced.request({ type: "prompt", message, ...piImages(images) }, { timeoutMs: null }),
+      steer: (message, images) => traced.request({ type: "steer", message, ...piImages(images) }),
       clearQueue: () => traced.request({ type: "clear_queue" }),
       // No deadline: pi answers once it has stopped, which the controller waits for (SPEC-0001, "中断").
       abort: async () => {
@@ -713,7 +720,7 @@ export function createSessionManager(options: {
       }
       return {};
     },
-    async prompt(command) {
+    async prompt(command, images) {
       const { sessionId } = command;
       prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
       try {
@@ -721,21 +728,21 @@ export function createSessionManager(options: {
         entryOf(sessionId);
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
-        return await session.controller.prompt(command);
+        return await session.controller.prompt(command, images);
       } finally {
         const left = (prompting.get(sessionId) ?? 1) - 1;
         if (left === 0) prompting.delete(sessionId);
         else prompting.set(sessionId, left);
       }
     },
-    async steer(command) {
+    async steer(command, images) {
       const { sessionId } = command;
       prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
       try {
         await options.catalog.ready();
         entryOf(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
-        return await session.controller.steer(command);
+        return await session.controller.steer(command, images);
       } finally {
         const left = (prompting.get(sessionId) ?? 1) - 1;
         if (left === 0) prompting.delete(sessionId);
@@ -844,6 +851,23 @@ export function createSessionManager(options: {
     if (controller === undefined) throw new CommandError("session_not_found", { sessionId });
     return controller;
   }
+}
+
+/**
+ * Images in the shape pi's `prompt` and `steer` take them.
+ *
+ * @remarks
+ * Left out when there are none, as pi's own clients do (pi-internals.md §3).
+ *
+ * @sideEffects none
+ * @param images - The images.
+ * @returns The `images` field, or nothing.
+ */
+function piImages(images: readonly PromptImage[]): {
+  readonly images?: { type: "image"; data: string; mimeType: string }[];
+} {
+  if (images.length === 0) return {};
+  return { images: images.map(({ data, mimeType }) => ({ type: "image", data, mimeType })) };
 }
 
 /**

@@ -202,6 +202,9 @@
 | `@` 文件：找 fd（pi 的目录优先、`PI_CODING_AGENT_DIR`、PATH 上 fd 再 fdfind、跳过不能运行的）；打分、排序、子目录范围、不出工作目录、fd 参数（字面匹配）、解析输出；真实 fd（先一层再递归、隐藏文件、`.ignore`、不含 `.git`、特殊字符、取消和 5 秒期限时停掉 fd）；同一会话的新查询取消旧的；没有 fd 时 `fd_missing` | `packages/pi/src/locate/fd.test.ts`、`packages/host/src/files/fd-query.test.ts`、`file-search.host.test.ts`、`session-manager.test.ts` "file search" | 已覆盖 |
 | 输入框：`/` 列表（过滤、方向键、回车或 Tab 选中、Esc 关闭、只在开头、读不到时提示）；`@` 列表（变成小胶囊、Tab 进入目录、带空格的路径加引号、去掉胶囊、fd 缺失提示、邮箱不算、中文后面的 `@` 算）；长粘贴收成胶囊；↑↓ 历史（到最早时加载更早的）；草稿按会话存取、发送后清掉；展开；"+" 菜单；提示文字；对话区接上命令、文件、历史和草稿，空状态先建会话 | `packages/ui/src/chat/composer.browser.test.tsx`、`chat.browser.test.tsx` "composer"；逻辑：`composer-text.test.ts` | 已覆盖 |
 | 草稿：按会话存取、清空即删、存不下时只留在内存、坏数据当没有；归档的会话、运行中从列表消失的会话清掉草稿，新宿主的第一份列表不清 | `packages/ui/src/state/drafts.test.ts`、`app/workbench.browser.test.tsx` "drafts" | 已覆盖 |
+| 图片：协议（`upload_attachment`、`attachmentIds` 最多 20 张、只有图片时文字可为空、什么都没有不行、排队项的图片数、两个错误码）；宿主暂存（按连接、32 MiB / 20 张、全部在才取、30 分钟释放、断开和关闭时释放）；路由取出图片交给会话；控制器带图片发出、排队、插话、停止退回、崩溃重发；客户端上传、带图片发送、待发副本带图片数 | `packages/protocol/src/envelope.test.ts`、`packages/host/src/server/attachments.test.ts`、`router.test.ts` "attachments"、`session-controller.test.ts` "images"、`packages/client/src/atrium-client.test.ts` "images" | 已覆盖 |
+| 图片：压缩（WebP、长边 2048、放进一条消息、先降质量再缩小、很小的图照原样、放不下时拒绝、不是图片时报错）；输入框（粘贴、"+"菜单、拖入、上传完才能发、只有图片也能发、模型不支持时不添加、换到不支持的模型时提示但照发、上传失败的说明、移除、切标签保留）；拖入的其他文件按工作区目录变成引用；对话区上传、过期时重传一次再发、模型不支持时拒绝；排队面板显示图片数 | `packages/ui/src/chat/images.browser.test.ts`、`composer.browser.test.tsx` "images"、`chat.browser.test.tsx` "images"、`run-control.browser.test.tsx` | 已覆盖 |
+| 本会话改动：按文件累计编辑量、写入不编数字、记住最后改它的一轮；胶囊显示文件数和增删，点开列出文件，点文件跳到那一轮并展开它的改动；没有改动时不显示 | `packages/ui/src/chat/session-changes.test.ts`、`chat.browser.test.tsx` "session changes" | 已覆盖 |
 
 ## 安全（security.md）
 

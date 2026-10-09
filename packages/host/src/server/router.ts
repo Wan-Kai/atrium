@@ -1,3 +1,4 @@
+import type { AttachmentStore } from "./attachments";
 import {
   type Command,
   CommandError,
@@ -16,6 +17,8 @@ import type { Connection } from "./connection";
 /** What the router needs from the rest of the host. */
 export interface RouterOptions {
   readonly sessions: SessionCommands;
+  /** Images uploaded ahead of their messages. */
+  readonly attachments: AttachmentStore;
   readonly index: IndexCommands;
   readonly tracer: Tracer;
   readonly logger: Logger;
@@ -96,7 +99,7 @@ export function createRouter(options: RouterOptions): Route {
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
       case "prompt":
-        return options.sessions.prompt(command);
+        return options.sessions.prompt(command, options.attachments.take(connection.id, command.attachmentIds ?? []));
       case "fetch_transcript":
         return options.sessions.fetchTranscript(command);
       case "fetch_step":
@@ -104,7 +107,7 @@ export function createRouter(options: RouterOptions): Route {
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
       case "steer":
-        return options.sessions.steer(command);
+        return options.sessions.steer(command, options.attachments.take(connection.id, command.attachmentIds ?? []));
       case "stop":
         return options.sessions.stop(command.sessionId);
       case "resume_queue":
@@ -132,6 +135,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.listCommands(command.sessionId);
       case "search_files":
         return options.sessions.searchFiles(command.sessionId, command.query);
+      case "upload_attachment":
+        return { attachmentId: options.attachments.put(connection.id, command.mimeType, command.data) };
       case "list_models":
         return options.index.listModels(command.containerId, command.refresh ?? false);
     }

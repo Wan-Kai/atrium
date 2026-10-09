@@ -1,4 +1,12 @@
 import type { DraftText } from "../chat/composer-text";
+import type { CompressedImage } from "../chat/images";
+
+/** An image in a session's box; `attachmentId` is `null` while it uploads. */
+export interface KeptImage {
+  readonly id: string;
+  readonly image: CompressedImage;
+  readonly attachmentId: string | null;
+}
 
 /** The part of `localStorage` drafts use. */
 export type DraftStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -98,7 +106,7 @@ export function saveDraft(key: string, draft: DraftText, storage: DraftStorage =
 }
 
 /**
- * Forgets the drafts of sessions that went away.
+ * Forgets the drafts, and kept images, of sessions that went away.
  *
  * @remarks
  * An archived or discarded session's draft would otherwise stay forever (SPEC-0001,
@@ -109,5 +117,45 @@ export function saveDraft(key: string, draft: DraftText, storage: DraftStorage =
  * @param storage - Where drafts are kept.
  */
 export function dropDrafts(sessions: Iterable<string>, storage: DraftStorage = localStorage): void {
-  for (const id of sessions) storage.removeItem(PREFIX + id);
+  for (const id of sessions) {
+    storage.removeItem(PREFIX + id);
+    images.delete(id);
+  }
+}
+
+/**
+ * Each session's images while its tab is away, in the page's memory only.
+ *
+ * @remarks
+ * Images do not outlive a reload (SPEC-0001, "模型与输入框").
+ */
+const images = new Map<string, readonly KeptImage[]>();
+
+/**
+ * Keeps a session's images while its tab is away.
+ *
+ * @remarks
+ * None left forgets the entry.
+ *
+ * @sideEffects Updates the page's memory.
+ * @param key - The session id, or `new:<container>`.
+ * @param kept - The images.
+ */
+export function keepImages(key: string, kept: readonly KeptImage[]): void {
+  if (kept.length === 0) images.delete(key);
+  else images.set(key, kept);
+}
+
+/**
+ * A session's images kept while its tab was away.
+ *
+ * @remarks
+ * See `keepImages`.
+ *
+ * @sideEffects none
+ * @param key - The session id, or `new:<container>`.
+ * @returns The images, or none.
+ */
+export function keptImages(key: string): readonly KeptImage[] {
+  return images.get(key) ?? [];
 }

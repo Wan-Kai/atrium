@@ -9,6 +9,7 @@ import type {
   SteerCommand,
   ThinkingLevel,
 } from "@atrium/protocol";
+import type { PromptImage } from "./session-controller";
 
 /**
  * The session commands the server hands to the session layer.
@@ -36,10 +37,10 @@ export interface SessionCommands {
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
   /** Replaces the sessions a connection watches, sending a snapshot of each new one first. */
   subscribe(connectionId: string, sessionIds: readonly string[]): Promise<CommandResult<"subscribe_sessions">>;
-  /** Sends a message to a session, starting a restored draft's pi first. */
-  prompt(command: PromptCommand): Promise<CommandResult<"prompt">>;
+  /** Sends a message with its images to a session, starting a restored draft's pi first. */
+  prompt(command: PromptCommand, images?: readonly PromptImage[]): Promise<CommandResult<"prompt">>;
   /** Sends a steer, or a message when the session is idle, starting a restored draft's pi first. */
-  steer(command: SteerCommand): Promise<CommandResult<"steer">>;
+  steer(command: SteerCommand, images?: readonly PromptImage[]): Promise<CommandResult<"steer">>;
   /** Stops a session's run (SPEC-0001, "运行控制"). */
   stop(sessionId: string): Promise<CommandResult<"stop">>;
   resumeQueue(sessionId: string): Promise<CommandResult<"resume_queue">>;

@@ -1,6 +1,7 @@
 import type { Control, Interaction, InteractionAnswer } from "@atrium/protocol";
-import { ArrowBendDownRight, CaretUp, Question, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowBendDownRight, CaretUp, FileText, PencilSimple, Question, WarningCircle, X } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import type { SessionChanges } from "./session-changes";
 
 /** What the run control UI can ask of the session. */
 export interface RunActions {
@@ -60,7 +61,12 @@ function QueueRow({
       data-testid="queued"
     >
       {draft === null ? (
-        <span className="min-w-0 flex-1 truncate text-[var(--text-2)]">{item.text}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[var(--text-2)]">{item.text === "" ? "图片" : item.text}</span>
+          {item.images > 0 ? (
+            <span className="shrink-0 text-[length:var(--fs-xs)] text-[var(--text-dim)]">{item.images} 张图片</span>
+          ) : null}
+        </span>
       ) : (
         <input
           aria-label="编辑排队的消息"
@@ -119,11 +125,19 @@ export function ControlTrack({
   control,
   running,
   actions,
+  changes,
+  onReveal,
 }: {
   readonly control: Control;
   readonly running: boolean;
   readonly actions: RunActions;
+  /** What the session changed, for "本会话改动". */
+  readonly changes?: SessionChanges;
+  /** Goes to the turn that last changed a file and opens its changes. */
+  readonly onReveal?: (turnId: string, path: string) => void;
 }) {
+  const [changesOpen, setChangesOpen] = useState(false);
+  const changed = changes !== undefined && changes.files.length > 0;
   const [open, setOpen] = useState(false);
   const count = control.queue.length;
   const before = useRef(count);
@@ -133,7 +147,7 @@ export function ControlTrack({
     if (count > before.current) setOpen(true);
     before.current = count;
   }, [count]);
-  if (count === 0 && control.steers.length === 0) return null;
+  if (count === 0 && control.steers.length === 0 && !changed) return null;
   const paused = control.paused !== null;
   return (
     <>
@@ -178,7 +192,56 @@ export function ControlTrack({
             {control.steers.length} 条插话将在下一步前送达
           </span>
         ) : null}
+        {changed ? (
+          <button
+            type="button"
+            aria-expanded={changesOpen}
+            className={`${CAPSULE} ml-auto`}
+            onClick={() => setChangesOpen(!changesOpen)}
+          >
+            <PencilSimple size={12} className="text-[var(--text-dim)]" />
+            本会话改动 {changes.files.length} 个文件
+            {changes.added + changes.removed === 0 ? null : (
+              <>
+                <span className="text-[var(--ok-text)]">+{changes.added}</span>
+                <span className="text-[var(--danger)]">−{changes.removed}</span>
+              </>
+            )}
+          </button>
+        ) : null}
       </div>
+      {changed && changesOpen ? (
+        <div
+          role="dialog"
+          aria-label="本会话改动"
+          className="absolute right-0 bottom-[calc(100%+44px)] z-10 max-h-[46vh] w-[360px] max-w-full overflow-auto rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
+        >
+          {changes.files.map((file) => (
+            <button
+              key={file.path}
+              type="button"
+              onClick={() => {
+                setChangesOpen(false);
+                onReveal?.(file.turnId, file.path);
+              }}
+              className="flex h-[30px] w-full items-center gap-2 rounded-[var(--r)] px-2 text-left text-[length:var(--fs-meta)] text-[var(--text-2)] hover:bg-[var(--hover)]"
+            >
+              <FileText size={14} className="flex-none text-[var(--text-muted)]" />
+              <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)]">
+                {file.path}
+              </span>
+              {file.added + file.removed > 0 ? (
+                <span className="font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)]">
+                  <span className="text-[var(--ok-text)]">+{file.added}</span>
+                  <span className="text-[var(--danger)]">−{file.removed}</span>
+                </span>
+              ) : (
+                <span className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">写入</span>
+              )}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 }

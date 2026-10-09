@@ -14,6 +14,8 @@ export interface PendingMessage {
   /** The `requestId` of the `prompt` that sent it; the turn it opens carries the same id. */
   readonly clientMessageId: string;
   readonly text: string;
+  /** How many images go with it, when any. */
+  readonly images?: number;
 }
 
 /** What the client knows about one session it watches. */

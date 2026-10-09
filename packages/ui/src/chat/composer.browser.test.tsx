@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
-import { loadDraft } from "../state/drafts";
+import { dropDrafts, loadDraft } from "../state/drafts";
 import { Composer, type ComposerProps } from "./composer";
 
 const COMMANDS: SlashCommand[] = [
@@ -19,7 +19,10 @@ const FILES: FileCandidate[] = [
   { path: "My Notes.md", directory: false },
 ];
 
-afterEach(() => localStorage.clear());
+afterEach(() => {
+  localStorage.clear();
+  dropDrafts(["s1"]);
+});
 
 /**
  * Renders a composer at the bottom of a tall page, recording what it sends and asks for.
@@ -285,5 +288,186 @@ describe("Composer's other controls", () => {
     const { box } = await composer();
 
     await expect.element(box).toHaveAttribute("placeholder", "发消息或描述任务，@ 引用文件，/ 使用命令");
+  });
+});
+
+/** A small PNG, as a pasted screenshot. */
+async function screenshot(name = "shot.png"): Promise<File> {
+  const canvas = new OffscreenCanvas(40, 30);
+  const context = canvas.getContext("2d");
+  if (context === null) throw new Error("no 2d context");
+  context.fillStyle = "#5e84ff";
+  context.fillRect(0, 0, 40, 30);
+  return new File([await canvas.convertToBlob({ type: "image/png" })], name, { type: "image/png" });
+}
+
+/** Pastes files into the box as the clipboard would; whether the box let the paste through. */
+function pasteFiles(box: Element, files: readonly File[]): boolean {
+  const data = new DataTransfer();
+  for (const file of files) data.items.add(file);
+  return box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+}
+
+/** Drops files on an element, as dragging them from the Finder would. */
+function drop(target: Element, files: readonly File[]): void {
+  const data = new DataTransfer();
+  for (const file of files) data.items.add(file);
+  target.dispatchEvent(new DragEvent("dragover", { dataTransfer: data, bubbles: true, cancelable: true }));
+  target.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true }));
+}
+
+/** Where each dropped file is, by name, as the desktop shell would tell. */
+function pathIn(paths: Readonly<Record<string, string>>): (file: File) => string | null {
+  return (file) => paths[file.name] ?? null;
+}
+
+/** A composer whose uploads are answered a1, a2, …, recording what is sent with images. */
+async function withUploads(props: Partial<ComposerProps> = {}) {
+  const sent: [string, string[]][] = [];
+  const uploads: string[] = [];
+  let next = 0;
+  const screen = await render(
+    <div style={{ paddingTop: 480 }}>
+      <Composer
+        onSend={(text, images) => sent.push([text, images.map((image) => image.attachmentId)])}
+        onUpload={async (image) => {
+          uploads.push(image.mimeType);
+          return `a${++next}`;
+        }}
+        {...props}
+      />
+    </div>,
+  );
+  return { screen, box: screen.getByRole("textbox", { name: "消息" }), sent, uploads };
+}
+
+describe("Composer's images", () => {
+  it("uploads a pasted screenshot at once and sends it with the message, even without text", async () => {
+    const { screen, box, sent, uploads } = await withUploads();
+
+    expect(pasteFiles(box.element(), [await screenshot()])).toBe(false);
+    await expect.element(screen.getByRole("img", { name: "图片 1" })).toBeVisible();
+    await vi.waitFor(() => expect(uploads).toStrictEqual(["image/webp"]));
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.type(box, "{Enter}");
+
+    expect(sent).toStrictEqual([["", ["a1"]]]);
+    await expect.element(screen.getByRole("img", { name: "图片 1" })).not.toBeInTheDocument();
+  });
+
+  it("waits for uploads before sending", async () => {
+    const gate = Promise.withResolvers<string>();
+    const { screen, box, sent } = await withUploads({ onUpload: () => gate.promise });
+
+    pasteFiles(box.element(), [await screenshot()]);
+    await userEvent.type(box, "看图{Enter}");
+    expect(sent).toStrictEqual([]);
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    gate.resolve("a9");
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.type(box, "{Enter}");
+
+    expect(sent).toStrictEqual([["看图", ["a9"]]]);
+  });
+
+  it("says when the model takes no images, adding none", async () => {
+    const { screen, box, uploads } = await withUploads({ imagesAllowed: false });
+
+    pasteFiles(box.element(), [await screenshot()]);
+
+    await expect.element(screen.getByText("当前模型不支持图片")).toBeVisible();
+    expect(uploads).toStrictEqual([]);
+    await expect.element(screen.getByRole("img", { name: "图片 1" })).not.toBeInTheDocument();
+  });
+
+  it("warns, without blocking, when the model changes to one that takes no images after they were added", async () => {
+    const { screen, box, sent } = await withUploads();
+    pasteFiles(box.element(), [await screenshot()]);
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+
+    await screen.rerender(
+      <div style={{ paddingTop: 480 }}>
+        <Composer
+          onSend={(text, images) => sent.push([text, images.map((image) => image.attachmentId)])}
+          onUpload={async () => "a1"}
+          imagesAllowed={false}
+        />
+      </div>,
+    );
+
+    await expect.element(screen.getByText("当前模型不支持图片，发出后模型看不到它们")).toBeVisible();
+    await userEvent.type(box, "{Enter}");
+    expect(sent).toStrictEqual([["", ["a1"]]]);
+  });
+
+  it("says when an image cannot be uploaded, and drops it", async () => {
+    const { screen, box } = await withUploads({
+      onUpload: () => Promise.reject(new CommandError("attachment_limit")),
+    });
+
+    pasteFiles(box.element(), [await screenshot()]);
+
+    await expect.element(screen.getByText("图片太多了：一次最多 20 张、共 32 MiB")).toBeVisible();
+    await expect.element(screen.getByRole("img", { name: "图片 1" })).not.toBeInTheDocument();
+  });
+
+  it("removes an image", async () => {
+    const { screen, box, sent } = await withUploads();
+    pasteFiles(box.element(), [await screenshot()]);
+    await expect.element(screen.getByRole("img", { name: "图片 1" })).toBeVisible();
+
+    await screen.getByRole("button", { name: "移除 图片 1" }).click();
+    await userEvent.type(box, "只有字{Enter}");
+
+    expect(sent).toStrictEqual([["只有字", []]]);
+  });
+
+  it("adds images from the + menu", async () => {
+    const { screen, uploads } = await withUploads();
+
+    await screen.getByRole("button", { name: "添加" }).click();
+    await userEvent.upload(screen.getByLabelText("选择图片"), [await screenshot("a.png"), await screenshot("b.png")]);
+
+    await expect.element(screen.getByRole("img", { name: "图片 2" })).toBeVisible();
+    await vi.waitFor(() => expect(uploads).toHaveLength(2));
+  });
+
+  it("takes dropped images as images, and other files as references from the session's directory", async () => {
+    const { screen, box, sent } = await withUploads({
+      baseDir: "/work/app",
+      pathForFile: pathIn({ "notes.md": "/work/app/docs/notes.md", "far.txt": "/elsewhere/far.txt" }),
+    });
+    const card = screen.getByTestId("composer-card");
+
+    drop(card.element(), [await screenshot(), new File(["x"], "notes.md"), new File(["y"], "far.txt")]);
+
+    await expect.element(screen.getByRole("img", { name: "图片 1" })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "移除 docs/notes.md" })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "移除 /elsewhere/far.txt" })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.type(box, "{Enter}");
+    expect(sent).toStrictEqual([["@docs/notes.md @/elsewhere/far.txt", ["a1"]]]);
+  });
+
+  it("outlines the box while files are dragged over it", async () => {
+    const { screen } = await withUploads();
+    const card = screen.getByTestId("composer-card");
+
+    card
+      .element()
+      .dispatchEvent(new DragEvent("dragover", { dataTransfer: new DataTransfer(), bubbles: true, cancelable: true }));
+
+    await expect.element(card).toHaveAttribute("data-dragging");
+    await expect.element(screen.getByText("松开以添加图片或引用文件")).toBeVisible();
+  });
+
+  it("keeps images while the session's tab is away, but not past a reload", async () => {
+    const first = await withUploads({ draftKey: "s1" });
+    pasteFiles(first.box.element(), [await screenshot()]);
+    await vi.waitFor(() => expect(first.uploads).toHaveLength(1));
+
+    await first.screen.rerender(<Composer key="again" onSend={() => undefined} draftKey="s1" />);
+
+    await expect.element(first.screen.getByRole("img", { name: "图片 1" })).toBeVisible();
   });
 });

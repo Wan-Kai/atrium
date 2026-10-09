@@ -7,6 +7,7 @@ import {
   At,
   File,
   Folder,
+  Image as ImageIcon,
   Plus,
   Square,
   Terminal,
@@ -15,6 +16,7 @@ import {
 } from "@phosphor-icons/react";
 import {
   type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -23,7 +25,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { loadDraft, saveDraft } from "../state/drafts";
+import { type KeptImage, keepImages, keptImages, loadDraft, saveDraft } from "../state/drafts";
 import {
   type DraftText,
   type Mention,
@@ -37,13 +39,20 @@ import {
   removeMention,
   slashQuery,
 } from "./composer-text";
+import { type CompressedImage, ImageTooLargeError, compressImage } from "./images";
+
+/** An image sent with a message: its upload and the image itself, to upload again if needed. */
+export interface SentImage {
+  readonly attachmentId: string;
+  readonly image: CompressedImage;
+}
 
 /** Props of {@link Composer}. */
 export interface ComposerProps {
-  /** Sends a message; while a run goes on, the host queues it. */
-  readonly onSend: (text: string) => void;
+  /** Sends a message with its images; while a run goes on, the host queues it. */
+  readonly onSend: (text: string, images: readonly SentImage[]) => void;
   /** Sends a steer (⌘+Enter); without it ⌘+Enter sends as Enter does. */
-  readonly onSteer?: (text: string) => void;
+  readonly onSteer?: (text: string, images: readonly SentImage[]) => void;
   /** Stops the run (the button while running, and Esc). */
   readonly onStop?: () => void;
   /** Whether a run goes on: the button stops, Enter queues and ⌘+Enter steers. */
@@ -64,6 +73,32 @@ export interface ComposerProps {
   readonly onListCommands?: () => Promise<readonly SlashCommand[]>;
   /** Files and directories for `@`. */
   readonly onSearchFiles?: (query: string) => Promise<readonly FileCandidate[]>;
+  /** Uploads an image, resolving with its attachment id; without it images cannot be added. */
+  readonly onUpload?: (image: CompressedImage) => Promise<string>;
+  /** Whether the model takes images; `false` refuses them with a note. */
+  readonly imagesAllowed?: boolean;
+  /** The session's directory, which dropped files are referenced from. */
+  readonly baseDir?: string | null;
+  /** A dropped file's path, which only the desktop shell can tell. */
+  readonly pathForFile?: (file: File) => string | null;
+}
+
+/**
+ * Why an image could not be added, in Chinese.
+ *
+ * @remarks
+ * See `Composer`.
+ *
+ * @sideEffects none
+ * @param error - What compressing or uploading threw.
+ * @returns The note to show.
+ */
+function imageFailure(error: unknown): string {
+  if (error instanceof ImageTooLargeError) return "图片太大了，压缩后还是放不下";
+  if (error instanceof CommandError && error.code === "attachment_limit")
+    return "图片太多了：一次最多 20 张、共 32 MiB";
+  if (error instanceof CommandError) return "图片没能上传";
+  return "读不了这张图片";
 }
 
 /** What the `/` list shows. */
@@ -115,6 +150,10 @@ export function Composer({
   onOlderHistory,
   onListCommands,
   onSearchFiles,
+  onUpload,
+  imagesAllowed = true,
+  baseDir = null,
+  pathForFile,
 }: ComposerProps) {
   const [saved] = useState(() => (draftKey === undefined ? null : loadDraft(draftKey)));
   const [text, setText] = useState(saved?.text ?? "");
@@ -129,6 +168,12 @@ export function Composer({
   const [commands, setCommands] = useState<CommandList | null>(null);
   const [found, setFound] = useState<FileList | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
+  const [images, setImages] = useState<readonly KeptImage[]>(() =>
+    draftKey === undefined ? [] : keptImages(draftKey),
+  );
+  const [note, setNote] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const imageInput = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   /** Where the caret goes once the text just set has rendered. */
   const pendingCaret = useRef<number | null>(null);
@@ -138,7 +183,8 @@ export function Composer({
   const mention = commandQuery === null && onSearchFiles !== undefined ? mentionAt(text, caret) : null;
   const listOpen = dismissed !== text && (commandQuery !== null || mention !== null);
   const message = composeMessage({ text, pastes, files });
-  const empty = message === "";
+  const uploading = images.some((image) => image.attachmentId === null);
+  const empty = message === "" && images.length === 0;
 
   useLayoutEffect(() => {
     const at = pendingCaret.current;
@@ -151,6 +197,79 @@ export function Composer({
   useEffect(() => {
     if (draftKey !== undefined) saveDraft(draftKey, { text, pastes, files });
   }, [draftKey, text, pastes, files]);
+
+  useEffect(() => {
+    if (draftKey !== undefined) keepImages(draftKey, images);
+  }, [draftKey, images]);
+
+  /**
+   * Compresses and uploads images, showing each as soon as it is compressed.
+   *
+   * @remarks
+   * Only when the model takes images (SPEC-0001, "图片"); one that cannot be compressed or
+   * uploaded goes again, with a note why.
+   *
+   * @sideEffects Updates the images; uploads through `onUpload`.
+   * @param added - The image files.
+   */
+  const addImages = (added: readonly Blob[]): void => {
+    if (added.length === 0 || onUpload === undefined) return;
+    if (!imagesAllowed) {
+      setNote("当前模型不支持图片");
+      return;
+    }
+    setNote(null);
+    for (const file of added) {
+      const id = crypto.randomUUID();
+      // Fire and forget: each image reports its own failure in the note.
+      void (async () => {
+        try {
+          const image = await compressImage(file);
+          setImages((all) => [...all, { id, image, attachmentId: null }]);
+          const attachmentId = await onUpload(image);
+          setImages((all) => all.map((one) => (one.id === id ? { ...one, attachmentId } : one)));
+        } catch (error) {
+          setImages((all) => all.filter((one) => one.id !== id));
+          setNote(imageFailure(error));
+        }
+      })();
+    }
+  };
+
+  /**
+   * References dropped files that are not images, from the session's directory when inside it.
+   *
+   * @remarks
+   * Only the desktop shell knows a dropped file's path; without one the file is skipped.
+   *
+   * @sideEffects Updates the capsules.
+   * @param dropped - The files.
+   */
+  const referFiles = (dropped: readonly File[]): void => {
+    const paths = dropped.flatMap((file) => {
+      const path = pathForFile?.(file) ?? null;
+      if (path === null) return [];
+      return [baseDir !== null && path.startsWith(`${baseDir}/`) ? path.slice(baseDir.length + 1) : path];
+    });
+    setFiles((all) => [...all, ...paths.filter((path) => !all.includes(path))]);
+  };
+
+  /**
+   * Takes dropped files: images as images, the rest as references.
+   *
+   * @remarks
+   * SPEC-0001 ("输入框"): dragging files onto the box.
+   *
+   * @sideEffects Adds images and capsules.
+   * @param event - The drop.
+   */
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    event.preventDefault();
+    setDragging(false);
+    const dropped = [...event.dataTransfer.files];
+    addImages(dropped.filter((file) => file.type.startsWith("image/")));
+    referFiles(dropped.filter((file) => !file.type.startsWith("image/")));
+  };
 
   const listingCommands = commandQuery !== null && dismissed !== text;
   useEffect(() => {
@@ -261,11 +380,16 @@ export function Composer({
    */
   const send = (steer: boolean): void => {
     // A message sent while a stop waits for pi would be refused; the text stays to send later.
-    if (empty || stopping) return;
-    (steer ? (onSteer ?? onSend) : onSend)(message);
+    if (empty || stopping || uploading) return;
+    const sent = images.flatMap((one) =>
+      one.attachmentId === null ? [] : [{ attachmentId: one.attachmentId, image: one.image }],
+    );
+    (steer ? (onSteer ?? onSend) : onSend)(message, sent);
     setText("");
     setPastes([]);
     setFiles([]);
+    setImages([]);
+    setNote(null);
     setBrowsing(null);
   };
 
@@ -350,6 +474,12 @@ export function Composer({
    * @param event - The paste.
    */
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>): void => {
+    const pastedImages = [...event.clipboardData.files].filter((file) => file.type.startsWith("image/"));
+    if (pastedImages.length > 0) {
+      event.preventDefault();
+      addImages(pastedImages);
+      return;
+    }
     const pasted = event.clipboardData.getData("text/plain");
     if (!isLongPaste(pasted)) return;
     event.preventDefault();
@@ -414,7 +544,60 @@ export function Composer({
             }}
           />
         ) : null}
-        <div className="flex flex-col gap-[10px] rounded-[var(--r-bubble)] bg-[var(--surface-1)] p-[14px] shadow-[inset_0_0_0_0.5px_var(--line),0_9px_27px_rgba(41,70,122,0.08)]">
+        <div
+          data-testid="composer-card"
+          data-dragging={dragging ? "" : undefined}
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={(event) => {
+            if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+              setDragging(false);
+            }
+          }}
+          onDrop={onDrop}
+          className="relative flex flex-col gap-[10px] rounded-[var(--r-bubble)] bg-[var(--surface-1)] p-[14px] shadow-[inset_0_0_0_0.5px_var(--line),0_9px_27px_rgba(41,70,122,0.08)] data-dragging:shadow-[inset_0_0_0_1.5px_var(--accent),0_9px_27px_rgba(41,70,122,0.08)]"
+        >
+          {dragging ? (
+            <p className="pointer-events-none absolute inset-x-0 -top-7 text-center text-[length:var(--fs-sm)] text-[var(--accent)]">
+              松开以添加图片或引用文件
+            </p>
+          ) : null}
+          {note === null ? null : (
+            <p role="status" className="text-[length:var(--fs-sm)] text-[var(--danger)]">
+              {note}
+            </p>
+          )}
+          {images.length > 0 && !imagesAllowed && note === null ? (
+            // The model changed after the images were added; they still go, as pi shows the model a note instead.
+            <p role="status" className="text-[length:var(--fs-sm)] text-[var(--attn-text)]">
+              当前模型不支持图片，发出后模型看不到它们
+            </p>
+          ) : null}
+          {images.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {images.map((one, index) => (
+                <span key={one.id} className="relative">
+                  <img
+                    src={one.image.preview}
+                    alt={`图片 ${index + 1}`}
+                    className={`size-14 rounded-[var(--r-md)] object-cover shadow-[0_0_0_0.5px_var(--line)] ${
+                      one.attachmentId === null ? "opacity-50" : ""
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    aria-label={`移除 图片 ${index + 1}`}
+                    onClick={() => setImages(images.filter((other) => other.id !== one.id))}
+                    className="absolute -top-1.5 -right-1.5 rounded-full bg-[var(--surface-1)] p-0.5 text-[var(--text-dim)] shadow-[0_0_0_0.5px_var(--line)] hover:text-[var(--text)]"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
           {files.length > 0 || pastes.length > 0 ? (
             <div className="flex flex-wrap gap-1.5">
               {files.map((path) => (
@@ -470,6 +653,19 @@ export function Composer({
           </div>
           <div className="flex items-center justify-between gap-2">
             <div className="relative">
+              <input
+                ref={imageInput}
+                type="file"
+                accept="image/*"
+                multiple
+                aria-label="选择图片"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={(event) => {
+                  addImages([...(event.target.files ?? [])]);
+                  event.target.value = "";
+                }}
+              />
               <button
                 type="button"
                 aria-label="添加"
@@ -484,6 +680,21 @@ export function Composer({
                   role="menu"
                   className="absolute bottom-full left-0 z-30 mb-2 min-w-44 rounded-[var(--r-btn)] bg-[var(--surface-1)] p-1 shadow-[var(--float-shadow)]"
                 >
+                  {onUpload === undefined ? null : (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setPlusOpen(false);
+                        if (imagesAllowed) imageInput.current?.click();
+                        else setNote("当前模型不支持图片");
+                      }}
+                      className={MENU_ITEM}
+                    >
+                      <ImageIcon size={14} />
+                      添加图片
+                    </button>
+                  )}
                   <button type="button" role="menuitem" onClick={() => insert("@")} className={MENU_ITEM}>
                     <At size={14} />
                     引用文件或目录
@@ -511,7 +722,7 @@ export function Composer({
                 <button
                   type="button"
                   aria-label="发送"
-                  disabled={empty || stopping}
+                  disabled={empty || stopping || uploading}
                   onClick={() => send(false)}
                   className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
                 >

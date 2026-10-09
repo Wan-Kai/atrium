@@ -133,10 +133,15 @@ export interface AtriumClient {
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list. */
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
-  /** Sends a message, showing it at once as pending until it opens a turn or goes into the queue. */
-  prompt(sessionId: string, text: string): Promise<CommandResult<"prompt">>;
+  /** Sends a message with uploaded images, showing it at once as pending until it opens a turn or goes into the queue. */
+  prompt(sessionId: string, text: string, attachmentIds?: readonly string[]): Promise<CommandResult<"prompt">>;
   /** Sends a steer, delivered before the agent's next step; while idle it is sent as a message, pending meanwhile. */
-  steer(sessionId: string, text: string): Promise<CommandResult<"steer">>;
+  steer(sessionId: string, text: string, attachmentIds?: readonly string[]): Promise<CommandResult<"steer">>;
+  /** Uploads one compressed image for a later message (SPEC-0001, "附件"). */
+  uploadAttachment(
+    mimeType: "image/webp" | "image/png" | "image/jpeg" | "image/gif",
+    data: string,
+  ): Promise<CommandResult<"upload_attachment">>;
   /** Stops the session's run; resolves with whether pi confirmed within two seconds. */
   stop(sessionId: string): Promise<CommandResult<"stop">>;
   resumeQueue(sessionId: string): Promise<CommandResult<"resume_queue">>;
@@ -413,16 +418,19 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param type - `prompt` or `steer`.
    * @param sessionId - The session.
    * @param text - The message.
+   * @param attachmentIds - Its uploaded images.
    * @returns The command's result.
    */
   async function sendShown<T extends "prompt" | "steer">(
     type: T,
     sessionId: string,
     text: string,
+    attachmentIds: readonly string[],
   ): Promise<CommandResult<T>> {
     const requestId = `${options.clientId}-${++nextRequest}`;
     const view = views.get(sessionId);
-    const shown = { clientMessageId: requestId, text };
+    const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
+    const shown = { clientMessageId: requestId, text, ...images };
     view?.setState({ pending: [...view.getState().pending, shown] });
     /**
      * Takes the optimistic copy back out.
@@ -434,8 +442,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
      */
     const withdraw = (): void => view?.setState({ pending: view.getState().pending.filter((item) => item !== shown) });
     try {
+      const fields = attachmentIds.length === 0 ? { sessionId, text } : { sessionId, text, attachmentIds };
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `prompt` and `steer` take the same fields.
-      const result = await request(type, { sessionId, text } as CommandFields<T>, requestId);
+      const result = await request(type, fields as CommandFields<T>, requestId);
       if (result.disposition !== "started") withdraw();
       return result;
     } catch (error) {
@@ -751,8 +760,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       index.setState(withPreferences(index.getState(), changes), true);
       return request("set_preferences", changes);
     },
-    prompt: (sessionId, text) => sendShown("prompt", sessionId, text),
-    steer: (sessionId, text) => sendShown("steer", sessionId, text),
+    prompt: (sessionId, text, attachmentIds = []) => sendShown("prompt", sessionId, text, attachmentIds),
+    steer: (sessionId, text, attachmentIds = []) => sendShown("steer", sessionId, text, attachmentIds),
+    uploadAttachment: (mimeType, data) => request("upload_attachment", { mimeType, data }),
     stop: (sessionId) => request("stop", { sessionId }),
     resumeQueue: (sessionId) => request("resume_queue", { sessionId }),
     clearQueue: (sessionId) => request("clear_queue", { sessionId }),

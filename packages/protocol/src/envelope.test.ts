@@ -103,6 +103,11 @@ const commands: Command[] = [
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
+  { type: "upload_attachment", requestId: "r47", traceparent, mimeType: "image/webp", data: "UklGRg==" },
+  { type: "prompt", requestId: "r48", traceparent, sessionId: "s1", text: "看图", attachmentIds: ["a1", "a2"] },
+  { type: "prompt", requestId: "r49", traceparent, sessionId: "s1", text: "", attachmentIds: ["a1"] },
+  { type: "steer", requestId: "r50", traceparent, sessionId: "s1", text: "这张", attachmentIds: ["a3"] },
+  { type: "upload_attachment", requestId: "r51", traceparent, mimeType: "image/png", data: "a".repeat(1_000_000) },
 ];
 
 /** A model as the catalog lists it. */
@@ -130,7 +135,7 @@ const pick: Interaction = {
 
 /** Run control with something of everything. */
 const control: Control = {
-  queue: [{ id: "q1", text: "later", createdAt: 4 }],
+  queue: [{ id: "q1", text: "later", createdAt: 4, images: 2 }],
   paused: "stopped",
   steers: [{ id: "r28", text: "also b" }],
   stopping: true,
@@ -333,6 +338,7 @@ describe("parseClientMessage", () => {
       "subscribe_index",
       "subscribe_sessions",
       "update_queued",
+      "upload_attachment",
       "window_focused",
     ]);
   });
@@ -495,6 +501,33 @@ describe("parseClientMessage", () => {
     ["models of no container", { type: "list_models", requestId: "r1", traceparent }, "r1"],
     ["commands of no session", { type: "list_commands", requestId: "r1", traceparent }, "r1"],
     [
+      "an attachment that is not an image",
+      { type: "upload_attachment", requestId: "r1", traceparent, mimeType: "text/plain", data: "aGk=" },
+      "r1",
+    ],
+    [
+      "an attachment over a million characters",
+      { type: "upload_attachment", requestId: "r1", traceparent, mimeType: "image/png", data: "a".repeat(1_000_001) },
+      "r1",
+    ],
+    [
+      "an empty attachment",
+      { type: "upload_attachment", requestId: "r1", traceparent, mimeType: "image/png", data: "" },
+      "r1",
+    ],
+    [
+      "more than 20 images",
+      {
+        type: "prompt",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        text: "x",
+        attachmentIds: Array.from({ length: 21 }, (_, index) => `a${index}`),
+      },
+      "r1",
+    ],
+    [
       "a file search over 1024 characters",
       { type: "search_files", requestId: "r1", traceparent, sessionId: "s1", query: "q".repeat(1025) },
       "r1",
@@ -575,6 +608,8 @@ describe("CommandResult", () => {
     ];
     expect(CommandResult.search_files.parse({ files })).toStrictEqual({ files });
     expect(CommandResult.search_files.safeParse({ files: [{ path: "", directory: false }] }).success).toBe(false);
+    expect(CommandResult.upload_attachment.parse({ attachmentId: "a1" })).toStrictEqual({ attachmentId: "a1" });
+    expect(CommandResult.upload_attachment.safeParse({}).success).toBe(false);
     expect(CommandResult.set_model.parse({})).toStrictEqual({});
     expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
@@ -751,6 +786,8 @@ describe("HostMessage", () => {
       "interaction_closed",
       "models_unavailable",
       "fd_missing",
+      "attachment_limit",
+      "attachment_missing",
       "pi_rejected",
       "internal_error",
     ]);

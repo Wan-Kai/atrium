@@ -310,7 +310,7 @@ describe("applySessionEvent", () => {
         { clientMessageId: "q2", text: "b" },
       ],
     });
-    const control = { ...IDLE_CONTROL, queue: [{ id: "i1", text: "later", createdAt: 5 }], stopping: true };
+    const control = { ...IDLE_CONTROL, queue: [{ id: "i1", text: "later", createdAt: 5, images: 0 }], stopping: true };
 
     expect(
       applyAll(view, [

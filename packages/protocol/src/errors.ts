@@ -44,6 +44,10 @@ export const ErrorCode = z.enum([
   "models_unavailable",
   /** `@` needs `fd`, found neither where pi keeps it nor on the login shell's PATH. */
   "fd_missing",
+  /** The client's uploaded images would pass 32 MiB or 20 images (SPEC-0001, "附件"). */
+  "attachment_limit",
+  /** An image a message names was never uploaded, or was let go after 30 minutes unused. */
+  "attachment_missing",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */

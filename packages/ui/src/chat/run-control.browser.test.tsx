@@ -24,7 +24,10 @@ function recording() {
 
 /** Run control with these queued texts. */
 function queued(...texts: string[]): Control {
-  return { ...IDLE_CONTROL, queue: texts.map((text, index) => ({ id: `i${index + 1}`, text, createdAt: 0 })) };
+  return {
+    ...IDLE_CONTROL,
+    queue: texts.map((text, index) => ({ id: `i${index + 1}`, text, createdAt: 0, images: 0 })),
+  };
 }
 
 /** The capsule bar where it floats: above a box of the input's width. */
@@ -63,6 +66,27 @@ describe("ControlTrack", () => {
 
     await expect.element(screen.getByRole("dialog", { name: "排队" })).not.toBeInTheDocument();
     expect(calls).toStrictEqual([["update", "i1", "ONE"], ["steerQueued", "i2"], ["remove", "i1"], ["clear"]]);
+  });
+
+  it("says how many images a queued message has, and names one that is only images", async () => {
+    const { actions } = recording();
+    const control: Control = {
+      ...IDLE_CONTROL,
+      queue: [
+        { id: "i1", text: "看图", createdAt: 0, images: 2 },
+        { id: "i2", text: "", createdAt: 0, images: 1 },
+      ],
+    };
+
+    const screen = await render(track(control, true, actions));
+    await screen.getByRole("button", { name: "排队 2" }).click();
+
+    expect(
+      screen
+        .getByTestId("queued")
+        .elements()
+        .map((row) => row.textContent?.replace(/插话|编辑|删除/g, "")),
+    ).toStrictEqual(["看图2 张图片", "图片1 张图片"]);
   });
 
   it("keeps an edit unchanged when given up or emptied, and offers no steer while idle", async () => {

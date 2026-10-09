@@ -44,6 +44,7 @@ export {
   SetThinkingLevelCommand,
   ListCommandsCommand,
   SearchFilesCommand,
+  UploadAttachmentCommand,
 } from "./commands";
 export { FileCandidate, SlashCommand } from "./composer";
 export { CatalogModel, ModelRef, SessionModel, ThinkingLevel } from "./models";

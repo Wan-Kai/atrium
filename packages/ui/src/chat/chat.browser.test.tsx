@@ -2,7 +2,7 @@ import type { SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
 import { type TranscriptItem, type Turn, IDLE_CONTROL } from "@atrium/protocol";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
@@ -14,6 +14,9 @@ import { UserBubble } from "./messages";
 import { ClockContext, type UiClock } from "../state/clock";
 import { RunStatus, formatElapsed } from "./run-status";
 import { Transcript } from "./transcript";
+
+// Drafts are kept per session in the page's storage; each test starts without any.
+afterEach(() => localStorage.clear());
 
 /** A ready view of session s1 with the given fields. */
 function view(fields: Partial<SessionView> = {}): SessionView {
@@ -660,7 +663,6 @@ describe("ConversationArea's composer", () => {
         files: ["src/a.ts"],
       }),
     );
-    localStorage.clear();
   });
 
   it("goes back through the session's own messages with ↑", async () => {
@@ -710,3 +712,153 @@ function turnOf(id: string, text: string): Turn {
     changes: [],
   };
 }
+
+/**
+ * Answers with `first` once, then as started.
+ *
+ * @remarks
+ * For a send that fails, then goes through.
+ *
+ * @sideEffects none
+ * @param first - The first answer.
+ * @returns The answers.
+ */
+function inTurn(
+  first: () => Promise<{ disposition: "started" | "queued" | "handled" }>,
+): () => Promise<{ disposition: "started" | "queued" | "handled" }> {
+  let used = false;
+  return () => {
+    if (used) return Promise.resolve({ disposition: "started" });
+    used = true;
+    return first();
+  };
+}
+
+/** A small PNG, as a pasted screenshot. */
+async function shot(): Promise<File> {
+  const canvas = new OffscreenCanvas(20, 20);
+  canvas.getContext("2d")?.fillRect(0, 0, 20, 20);
+  return new File([await canvas.convertToBlob({ type: "image/png" })], "shot.png", { type: "image/png" });
+}
+
+/** Pastes a file into an element as the clipboard would. */
+function pasteFile(target: Element, file: File): void {
+  const data = new DataTransfer();
+  data.items.add(file);
+  target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+}
+
+describe("ConversationArea's images", () => {
+  it("sends a pasted image with the message, uploading it again once when the host has let it go", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      { prompt: inTurn(() => Promise.reject(new CommandError("attachment_missing", { attachmentId: "u1" }))) },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    pasteFile(box.element(), await shot());
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.type(box, "看图{Enter}");
+
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => /^(upload|prompt)/.test(call))).toStrictEqual([
+        "uploadAttachment image/webp",
+        "prompt s1 看图 +u1",
+        "uploadAttachment image/webp",
+        "prompt s1 看图 +u2",
+      ]),
+    );
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("refuses images while the session's model takes none", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      {
+        models: {
+          status: "ready",
+          models: [
+            {
+              providerId: "x",
+              modelId: "text-only",
+              name: "Text Only",
+              contextWindow: 1,
+              maxOutput: 1,
+              supportsImage: false,
+              thinkingLevels: ["off"],
+            },
+          ],
+          defaultModel: null,
+          error: null,
+        },
+      },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: { providerId: "x", modelId: "text-only", thinkingLevel: "off" } });
+    await expect.element(screen.getByRole("button", { name: /Text Only/ })).toBeVisible();
+
+    pasteFile(screen.getByRole("textbox", { name: "消息" }).element(), await shot());
+
+    await expect.element(screen.getByText("当前模型不支持图片")).toBeVisible();
+    expect(calls.filter((call) => call.startsWith("upload"))).toStrictEqual([]);
+  });
+});
+
+describe("ConversationArea's session changes", () => {
+  it("adds up the session's changes in a capsule, and goes to the turn that last changed a file", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({
+      items: [
+        {
+          ...turnOf("t1", "一"),
+          changes: [
+            { path: "a.ts", added: 3, removed: 1 },
+            { path: "b.ts", added: null, removed: null },
+          ],
+        },
+        { ...turnOf("t2", "二"), changes: [{ path: "a.ts", added: 2, removed: 4 }] },
+      ],
+    });
+
+    const capsule = screen.getByRole("button", { name: /本会话改动/ });
+    await expect.element(capsule).toHaveTextContent("本会话改动 2 个文件+5−5");
+    await capsule.click();
+    const list = screen.getByRole("dialog", { name: "本会话改动" });
+    expect(
+      list
+        .getByRole("button")
+        .elements()
+        .map((row) => row.textContent),
+    ).toStrictEqual(["a.ts+5−5", "b.ts写入"]);
+    await list.getByRole("button", { name: /a\.ts/ }).click();
+
+    const second = screen.getByTestId("turn").nth(1);
+    await expect
+      .element(second.getByRole("button", { name: /改了 1 个文件/ }))
+      .toHaveAttribute("aria-expanded", "true");
+    await expect
+      .element(second.getByTestId("files").getByRole("button", { name: /a\.ts/ }))
+      .toHaveAttribute("aria-expanded", "true");
+    await expect.element(screen.getByTestId("turn").nth(0).getByTestId("files")).not.toBeInTheDocument();
+    await expect.element(list).not.toBeInTheDocument();
+  });
+
+  it("shows no capsule while nothing was changed", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ items: [turnOf("t1", "一")] });
+
+    await expect.element(screen.getByText("一")).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: /本会话改动/ })).not.toBeInTheDocument();
+  });
+});

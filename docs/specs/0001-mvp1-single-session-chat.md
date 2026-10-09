@@ -499,9 +499,9 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **附件**（实现在 M1.7）
 
-- 客户端先压缩：长边缩到不超过 2048 像素（主流模型本来就会把更大的图缩小再看），编码成 WebP；单张压缩后仍超过 1 MiB 时降低质量重试，还不行就提示图片太大。
+- 客户端先压缩：长边缩到不超过 2048 像素（主流模型本来就会把更大的图缩小再看），编码成 WebP；base64 超过 100 万字符（约 730 KB，一条 WebSocket 消息要放得下）时按质量 0.9 → 0.5 逐级降低，还放不下就把边长缩到 3/4 再试，直到长边小于 256 像素仍放不下才提示图片太大（2026-10-10 定）。
 - 粘贴或拖入时就用 `upload_attachment(mimeType, data)` 单独上传（`data` 是 base64），应答带 `attachmentId`；`prompt` 和 `steer` 只带 `attachmentIds`。每条 WebSocket 消息仍不超过 1 MiB，一次发好几张图也不受影响，发送时也不用再等上传。
-- 宿主把上传的图片暂存在内存里，按客户端计：最多 32 MiB、20 张，超出时应答 `attachment_limit`。被 `prompt` / `steer` 用掉、连接断开、或 30 分钟没被用到时释放；消息进了宿主的排队时，图片随排队项保存，不再算在客户端头上。宿主发给 pi 时按 pi 的 RPC 格式放进 `prompt` 的 `images`。
+- 宿主把上传的图片暂存在内存里，按连接计：最多 32 MiB、20 张，超出时应答 `attachment_limit`。消息带的图片全部在才发出，缺一张就应答 `attachment_missing`（带缺的那张的 id），一张也不用掉。只有图片的消息 `text` 可以为空，什么都没有的不行（`invalid_message`）；排队项带图片数（`images`），停止或崩溃退回排队的插话也带着它的图片。被 `prompt` / `steer` 用掉、连接断开、或 30 分钟没被用到时释放；消息进了宿主的排队时，图片随排队项保存，不再算在客户端头上。宿主发给 pi 时按 pi 的 RPC 格式放进 `prompt` 的 `images`。
 
 **界面问题上报**：`report_client_issue(kind, message, details?)` 把界面里的未捕获错误和性能问题（长任务、掉帧）写进宿主日志，带客户端 id 和当时的 trace id。`message` 和 `details` 截断到 4 KB，照常脱敏；界面不在里面放对话内容。界面在入口捕获未处理的错误和 Promise 拒绝，并观察超过 50 毫秒的长任务；同一类问题每 10 秒最多报一次，不会触发连接的限流。
 
@@ -674,7 +674,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - ↑ 历史是本会话当前分支上你发过的消息（不含"系统自动发出"的），从新到旧，相邻重复的只算一条。取自界面已经加载的对话记录，翻过已加载的最早一轮时按游标取更早的。宿主重启后照样在，Atrium 不另存。
 - 草稿每个会话一份，界面按会话 id 存在 localStorage：文字、文件引用、粘贴内容。图片只放在内存里，刷新页面或重启后不保留。发送后清掉；会话归档，或在界面开着时从列表里消失（丢弃），界面清掉它的草稿（2026-10-10 定：不在启动时按列表清理，第一份列表可能早于宿主扫完会话目录）。localStorage 写不下时只保留在内存里。
-- 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就重新上传一次再发。
+- 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就把这条消息的图片全部重新上传一次再发。图片在粘贴、拖入或从"+"菜单选中时就压缩并上传，上传完之前不能发送。
+- 拖进输入框的其他文件变成文件引用：路径由桌面端的 preload 用 Electron 的 `webUtils.getPathForFile` 告诉页面，在工作区目录里的写成相对路径，其余写绝对路径；页面自己拿不到路径时（浏览器里）跳过。
 
 新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`。新增事件：`model_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
 

@@ -3,8 +3,11 @@ import type { SessionModel } from "@atrium/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { useDisplayMode } from "../state/display-mode";
-import { Composer } from "./composer";
+import { desktopBridge } from "../app/bootstrap";
+import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { historyOf } from "./composer-text";
+import { type RevealRequest, RevealContext } from "./reveal";
+import { sessionChanges } from "./session-changes";
 import { shownModel } from "./model-choice";
 import { ModelPicker } from "./model-picker";
 import { ControlCards, ControlTrack, type RunActions } from "./run-control";
@@ -42,6 +45,8 @@ export function describeSendError(error: unknown): string {
   if (error.code === "transcript_changed") return "对话记录刚刚更新了，请再试一次";
   if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
   if (error.code === "workspace_not_found") return "这个工作区已经不在了";
+  if (error.code === "attachment_missing") return "图片已经过期，请重新添加";
+  if (error.code === "attachment_limit") return "图片太多了：一次最多 20 张、共 32 MiB";
   if (error.code === "session_stopping") return "正在等 pi 停下，停下后再发";
   if (error.code === "queue_item_not_found") return "这条排队的消息已经发出或删掉了";
   if (error.code === "interaction_closed") return "这个问题已经回答过、超时或作废了";
@@ -145,19 +150,23 @@ function SessionArea({
   act,
   session,
   notice,
+  attaching,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
   readonly sessionId: string;
   readonly store: StoreApi<SessionView>;
-  readonly onSend: (text: string) => void;
-  readonly onSteer: (text: string) => void;
+  readonly onSend: (text: string, images: readonly SentImage[]) => void;
+  readonly onSteer: (text: string, images: readonly SentImage[]) => void;
   readonly act: Act;
   readonly session: () => Promise<string>;
   readonly notice: ReactNode;
+  /** The composer's ways to add images and reference dropped files, for the session's model. */
+  readonly attaching: (model: SessionModel | null) => Partial<ComposerProps>;
 }) {
   const view = useStore(store);
   const running = view.run !== null;
+  const [reveal, setReveal] = useState<RevealRequest | null>(null);
   const actions: RunActions = {
     resume: () => act(() => client.resumeQueue(sessionId)),
     clear: () => act(() => client.clearQueue(sessionId)),
@@ -169,21 +178,24 @@ function SessionArea({
   };
   return (
     <>
-      <Transcript
-        view={view}
-        onLoadOlder={() => {
-          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-          client.loadOlder(sessionId).catch(() => undefined);
-        }}
-        onLoadStep={(turnId, stepId) => {
-          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-        }}
-        onRetry={actions.retry}
-      />
+      <RevealContext value={reveal}>
+        <Transcript
+          view={view}
+          onLoadOlder={() => {
+            // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+            client.loadOlder(sessionId).catch(() => undefined);
+          }}
+          onLoadStep={(turnId, stepId) => {
+            // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+            client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+          }}
+          onRetry={actions.retry}
+        />
+      </RevealContext>
       <ControlCards control={view.control} actions={actions} />
       {notice}
       <Composer
+        {...attaching(view.model)}
         key={sessionId}
         draftKey={sessionId}
         history={historyOf(view.items)}
@@ -198,7 +210,15 @@ function SessionArea({
         onStop={() => act(() => client.stop(sessionId))}
         running={running}
         stopping={view.control.stopping}
-        above={<ControlTrack control={view.control} running={running} actions={actions} />}
+        above={
+          <ControlTrack
+            control={view.control}
+            running={running}
+            actions={actions}
+            changes={sessionChanges(view.items)}
+            onReveal={(turnId, path) => setReveal({ turnId, path, serial: (reveal?.serial ?? 0) + 1 })}
+          />
+        }
         picker={
           <SessionModelPicker
             client={client}
@@ -345,15 +365,38 @@ export function ConversationArea({
    * @remarks
    * See `ConversationArea`.
    *
-   * @sideEffects Sends commands; updates component state.
+   * An image the host has let go after 30 minutes is uploaded again once, from the copy the box
+   * kept (SPEC-0001, "模型与输入框").
+   *
+   * @sideEffects Sends commands; may upload images; updates component state.
    * @param text - The message.
+   * @param images - Its uploaded images.
    * @param steer - Whether to send it as a steer.
    */
-  async function send(text: string, steer = false): Promise<void> {
+  async function send(text: string, images: readonly SentImage[], steer = false): Promise<void> {
     setFailure(null);
     try {
       const id = await target();
-      await (steer ? client.steer(id, text) : client.prompt(id, text));
+      /**
+       * Sends the message with these uploads.
+       *
+       * @remarks
+       * Once, and again with fresh uploads if the host let the first ones go.
+       *
+       * @sideEffects Sends the command.
+       * @param ids - The uploads.
+       * @returns The command's result.
+       */
+      const deliver = (ids: readonly string[]) => (steer ? client.steer(id, text, ids) : client.prompt(id, text, ids));
+      try {
+        await deliver(images.map((image) => image.attachmentId));
+      } catch (error) {
+        if (!(error instanceof CommandError && error.code === "attachment_missing")) throw error;
+        const again = await Promise.all(
+          images.map(async ({ image }) => (await client.uploadAttachment(image.mimeType, image.data)).attachmentId),
+        );
+        await deliver(again);
+      }
     } catch (error) {
       setFailure(describeSendError(error));
     }
@@ -389,10 +432,11 @@ export function ConversationArea({
    *
    * @sideEffects Sends commands.
    * @param text - The message.
+   * @param images - Its uploaded images.
    */
-  const onSend = (text: string): void => {
+  const onSend = (text: string, images: readonly SentImage[]): void => {
     // Fire and forget: see above.
-    void send(text);
+    void send(text, images);
   };
   /**
    * Starts a steer without waiting for it.
@@ -402,11 +446,41 @@ export function ConversationArea({
    *
    * @sideEffects Sends commands.
    * @param text - The steer.
+   * @param images - Its uploaded images.
    */
-  const onSteer = (text: string): void => {
+  const onSteer = (text: string, images: readonly SentImage[]): void => {
     // Fire and forget: `send` reports its own failures.
-    void send(text, true);
+    void send(text, images, true);
   };
+
+  const containerKey = containerId ?? "chats";
+  const modelList = useStore(client.models(containerKey));
+  const preferences = useStore(client.index, (index) => index.preferences);
+  const baseDir = useStore(
+    client.index,
+    (index) => index.workspaces.find((workspace) => workspace.id === containerId)?.dir ?? null,
+  );
+  /**
+   * The composer's ways to add images and reference dropped files.
+   *
+   * @remarks
+   * Images only when the model shown takes them (SPEC-0001, "图片"); a dropped file's path comes
+   * from the desktop shell and is referenced from the workspace's directory.
+   *
+   * @sideEffects none
+   * @param model - The session's model, if known.
+   * @returns The composer's props for images and drops.
+   */
+  const attaching = (model: SessionModel | null) => ({
+    onUpload: async (image: SentImage["image"]) =>
+      (await client.uploadAttachment(image.mimeType, image.data)).attachmentId,
+    imagesAllowed: shownModel(model, preferences, modelList)?.supportsImage !== false,
+    baseDir,
+    pathForFile: (file: File) => {
+      const path = desktopBridge()?.pathForFile?.(file) ?? "";
+      return path === "" ? null : path;
+    },
+  });
   /**
    * Starts a command without waiting for it.
    *
@@ -447,6 +521,7 @@ export function ConversationArea({
           </div>
           {notice}
           <Composer
+            {...attaching(null)}
             key={containerId ?? "chats"}
             draftKey={`new:${containerId ?? "chats"}`}
             onListCommands={async () => (await client.listCommands(await target())).commands}
@@ -475,6 +550,7 @@ export function ConversationArea({
           act={act}
           session={target}
           notice={notice}
+          attaching={attaching}
         />
       )}
     </div>

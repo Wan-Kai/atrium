@@ -23,6 +23,7 @@ import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platfor
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
+import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { createIndexCommands } from "./sessions/index-commands";
 import { createFileSearch } from "./files/file-search";
@@ -269,6 +270,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     }),
   });
 
+  // Up to 32 MiB and 20 images per connection, let go after 30 minutes unused (SPEC-0001, "附件").
+  const attachments = createAttachmentStore({
+    clock,
+    newId: () => randomUUID(),
+    maxBytes: 32 * 1024 * 1024,
+    maxCount: 20,
+    keepMs: 30 * 60_000,
+  });
   let server: Awaited<ReturnType<typeof startWsServer>>;
   try {
     server = await startWsServer({
@@ -286,6 +295,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       subscriptions,
       sessions,
       index: indexCommands,
+      attachments,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -392,6 +402,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     stopDetecting.abort();
     await tools;
     await server.close();
+    attachments.close();
     await workspaces.close();
     await sessions.close();
     await models.close();

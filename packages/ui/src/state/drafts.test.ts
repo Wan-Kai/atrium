@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type DraftStorage, dropDrafts, loadDraft, saveDraft } from "./drafts";
+import { type DraftStorage, dropDrafts, keepImages, keptImages, loadDraft, saveDraft } from "./drafts";
 
 /**
  * Storage in memory, with the keys it holds.
@@ -22,6 +22,11 @@ function memory(full = false): { readonly storage: DraftStorage; readonly store:
     removeItem: (key) => void store.delete(key),
   };
   return { storage, store };
+}
+
+/** An uploaded image named `id`. */
+function kept(id: string) {
+  return { id, image: { mimeType: "image/webp" as const, data: id, preview: id }, attachmentId: id };
 }
 
 const DRAFT = { text: "half a thought", pastes: [{ id: "p1", text: "pasted" }], files: ["src/a.ts"] };
@@ -62,14 +67,28 @@ describe("drafts", () => {
     expect(loadDraft("s2", storage)).toBeNull();
   });
 
-  it("drops the drafts of the sessions named, and nothing else", () => {
+  it("drops the drafts of the sessions named, their images too, and nothing else", () => {
     const { storage, store } = memory();
     saveDraft("s1", DRAFT, storage);
     saveDraft("s2", DRAFT, storage);
+    keepImages("s1", [kept("image")]);
+    keepImages("s2", [kept("other")]);
     store.set("atrium-dot-seed", "7");
 
     dropDrafts(["s1", "s3"], storage);
 
     expect([...store.keys()].toSorted()).toStrictEqual(["atrium-dot-seed", "atrium-draft:s2"]);
+    expect(keptImages("s1")).toStrictEqual([]);
+    expect(keptImages("s2")).toStrictEqual([kept("other")]);
+    dropDrafts(["s2"], storage);
+  });
+
+  it("keeps a session's images in memory only, forgetting them once none are left", () => {
+    keepImages("s1", [kept("a"), kept("b")]);
+    expect(keptImages("s1")).toStrictEqual([kept("a"), kept("b")]);
+
+    keepImages("s1", []);
+
+    expect(keptImages("s1")).toStrictEqual([]);
   });
 });
