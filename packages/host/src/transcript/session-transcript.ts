@@ -442,6 +442,7 @@ function withHostNotices(
     const at = after === null ? 0 : index === -1 ? result.length : index + 1;
     // Notices already placed after the same item stay before it.
     let place = at;
+    // Stryker disable next-line StringLiteral: past the end there is no item, and no notice has the stand-in id.
     while (placed.has(result[place]?.id ?? "")) place += 1;
     result.splice(place, 0, notice);
     placed.add(notice.id);

@@ -183,6 +183,7 @@ export function createWorkspaceService(options: {
       git === null ? Promise.resolve(null) : git.run(args, { cwd: project.path, signal });
     const top = await run("rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir");
     // One path a line; only the line ends go, as a path may end in a space.
+    // Stryker disable next-line ArrayDeclaration: a made-up top level is not the project's path either, so nothing is listed.
     const [topLevel, common] = top?.code === 0 ? top.stdout.split("\n") : [];
     /**
      * The project's workspace records, as they are now.
@@ -195,7 +196,8 @@ export function createWorkspaceService(options: {
      */
     const records = () => options.projects.workspaces().filter((workspace) => workspace.projectId === project.id);
     const listing = topLevel === project.path ? await run("worktree", "list", "--porcelain") : null;
-    if (gitProjects.has(project.id) && (common === undefined || listing?.code !== 0)) {
+    // Without the common directory git did not answer, and nothing was listed either.
+    if (gitProjects.has(project.id) && listing?.code !== 0) {
       // A repository git could not read just now (a drive away, a lock held): keep what was known.
       options.logger.info(
         // Stryker disable next-line OptionalChaining: `top` is only null without git, and without git no project is ever in `gitProjects`.
@@ -211,7 +213,7 @@ export function createWorkspaceService(options: {
       // Stryker disable next-line CallExpression: a project in `gitProjects` has returned above.
       gitProjects.delete(project.id);
       for (const record of records())
-        // Stryker disable next-line ObjectLiteral: the list shows a workspace with no results at all the same way.
+        // Stryker disable next-line ObjectLiteral,CallExpression: the list shows a workspace with no results, or none recorded, the same way.
         scanned.set(record.id, { branch: null, head: null, createdAt: null, merge: null });
     } else {
       gitProjects.add(project.id);
@@ -305,7 +307,7 @@ export function createWorkspaceService(options: {
         // A folder inside another repository, or one whose repository git cannot read just now,
         // would fetch the repository around it. Only the line end goes: a name may end in a space.
         const top = await run(["rev-parse", "--path-format=absolute", "--show-toplevel"]);
-        // Stryker disable next-line Regex: git prints one line here, so its first line end is its last.
+        // Stryker disable next-line Regex,ConditionalExpression: git prints one line here, so its first line end is its last; when it fails it prints nothing, which is not the project's path either.
         if (top.code !== 0 || top.stdout.replace(/\n$/, "") !== project.path) continue;
         const remote = await run(["remote", "get-url", "origin"]);
         if (remote.code !== 0) continue;

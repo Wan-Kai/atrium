@@ -1201,7 +1201,7 @@ export function createSessionController(options: {
       // Fire and forget: the stop ends when pi confirms or exits, whichever comes first.
       void (async () => {
         // A failed abort is no confirmation: then only pi's exit ends the stop.
-        // Stryker disable next-line ArrowFunction: once pi has exited, waiting for its exit again returns at once.
+        // Stryker disable next-line ArrowFunction,BooleanLiteral: once pi has exited, waiting for its exit again returns at once.
         if (!(await Promise.race([aborted, current.exited.then(() => false)]))) await current.exited;
         if (stopping !== null) endStop();
       })();

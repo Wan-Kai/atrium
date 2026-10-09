@@ -116,6 +116,7 @@ describe("loadIndexFile", () => {
     ["a version that is not a number", JSON.stringify({ version: "3", items: [] })],
     ["a version below 1", JSON.stringify({ version: 0, items: [] })],
     ["a version that is not whole", JSON.stringify({ version: 2.5, items: [] })],
+    ["a version that is not whole, past the latest", JSON.stringify({ version: 3.5, items: [] })],
     ["a document the schema rejects", JSON.stringify({ version: 3, items: [{ name: 1 }] })],
     ["an older version with no upgrade from it", JSON.stringify({ version: 1, item: "a" })],
   ])("sets aside %s and starts empty", async (_case, text) => {
