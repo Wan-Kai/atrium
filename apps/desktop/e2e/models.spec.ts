@@ -47,3 +47,27 @@ test("switches the model and thinking level beside the input box, and a new chat
     await pi.cleanup();
   }
 });
+
+test("lists pi's commands as / is typed, and runs the one chosen", async () => {
+  const pi = await fauxPiEnvironment({ replies: [] });
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    const box = window.getByRole("textbox", { name: "消息" });
+    await box.fill("/faux-n");
+
+    const option = window.getByRole("option", { name: /faux-noop/ });
+    await expect(option).toBeVisible({ timeout: 30_000 });
+    await expect(window.getByRole("option", { name: /^\/mcp/ })).toHaveCount(0);
+    await box.press("Enter");
+    await expect(box).toHaveValue("/faux-noop ");
+    await box.press("Enter");
+
+    // The extension handles it without a run: no reply, and the box is empty for the next message.
+    await expect(box).toHaveValue("");
+    await expect(window.getByTestId("user-message")).toHaveCount(0, { timeout: 30_000 });
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});

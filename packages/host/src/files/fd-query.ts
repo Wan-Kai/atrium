@@ -161,7 +161,8 @@ export function fdArguments(baseDir: string, query: string, maxDepth: number | n
  * The entries `fd` printed.
  *
  * @remarks
- * One a line, a directory's ending in `/`; anything in a `.git` directory left out, as pi does.
+ * One a line, a directory's ending in `/`; a `.git` directory and anything in one left out, as pi
+ * does.
  *
  * @sideEffects none
  * @param stdout - What `fd` printed.
@@ -171,9 +172,6 @@ export function parseFdOutput(stdout: string): FdEntry[] {
   return stdout
     .split("\n")
     .filter((line) => line !== "")
-    .filter((line) => {
-      const bare = line.endsWith("/") ? line.slice(0, -1) : line;
-      return bare !== ".git" && !bare.startsWith(".git/") && !bare.includes("/.git/");
-    })
+    .filter((line) => !line.split("/").includes(".git"))
     .map((line) => ({ path: line, isDirectory: line.endsWith("/") }));
 }

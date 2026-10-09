@@ -42,11 +42,23 @@ describe("drafts", () => {
     expect([...store.keys()]).toStrictEqual(["atrium-draft:s1"]);
   });
 
+  it.each([
+    ["only text", { text: "a", pastes: [], files: [] }],
+    ["only a pasted text", { text: "", pastes: [{ id: "p1", text: "x" }], files: [] }],
+    ["only a file", { text: "", pastes: [], files: ["a.ts"] }],
+  ])("keeps a draft with %s", (_case, draft) => {
+    const { storage } = memory();
+
+    expect(saveDraft("s1", draft, storage)).toBe(true);
+
+    expect(loadDraft("s1", storage)).toStrictEqual(draft);
+  });
+
   it("forgets a draft once it is empty", () => {
     const { storage, store } = memory();
     saveDraft("s1", DRAFT, storage);
 
-    saveDraft("s1", { text: "", pastes: [], files: [] }, storage);
+    expect(saveDraft("s1", { text: "", pastes: [], files: [] }, storage)).toBe(true);
 
     expect(store.size).toBe(0);
   });
@@ -58,13 +70,28 @@ describe("drafts", () => {
     expect(loadDraft("s1", storage)).toBeNull();
   });
 
-  it("reads a damaged draft as none", () => {
+  it.each([
+    ["text that is not JSON", "{ not json"],
+    ["JSON null", "null"],
+    ["a number", "7"],
+    ["no text", JSON.stringify({ pastes: [], files: [] })],
+    ["no pastes", JSON.stringify({ text: "", files: [] })],
+    ["no files", JSON.stringify({ text: "", pastes: [] })],
+    ["text that is not a string", JSON.stringify({ text: 1, pastes: [], files: [] })],
+    ["pastes that are not a list", JSON.stringify({ text: "", pastes: {}, files: [] })],
+    ["files that are not a list", JSON.stringify({ text: "", pastes: [], files: "a.ts" })],
+    ["a paste that is null", JSON.stringify({ text: "", pastes: [{ id: "p", text: "x" }, null], files: [] })],
+    ["a paste that is a string", JSON.stringify({ text: "", pastes: ["x"], files: [] })],
+    ["a paste without an id", JSON.stringify({ text: "", pastes: [{ text: "x" }], files: [] })],
+    ["a paste without text", JSON.stringify({ text: "", pastes: [{ id: "p" }], files: [] })],
+    ["a paste whose id is a number", JSON.stringify({ text: "", pastes: [{ id: 1, text: "x" }], files: [] })],
+    ["a paste whose text is a number", JSON.stringify({ text: "", pastes: [{ id: "p", text: 1 }], files: [] })],
+    ["a file that is not a string", JSON.stringify({ text: "", pastes: [], files: ["a.ts", 1] })],
+  ])("reads a draft with %s as none", (_case, stored) => {
     const { storage, store } = memory();
-    store.set("atrium-draft:s1", "{ not json");
-    store.set("atrium-draft:s2", JSON.stringify({ text: 1 }));
+    store.set("atrium-draft:s1", stored);
 
     expect(loadDraft("s1", storage)).toBeNull();
-    expect(loadDraft("s2", storage)).toBeNull();
   });
 
   it("drops the drafts of the sessions named, their images too, and nothing else", () => {

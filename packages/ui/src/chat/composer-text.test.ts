@@ -54,6 +54,20 @@ describe("filterCommands", () => {
     expect(filterCommands(commands, "")).toStrictEqual(commands);
   });
 
+  it("puts the commands that start with the query first even when pi lists them later", () => {
+    const later = [
+      { name: "preview", description: null, source: "prompt" as const },
+      { name: "Review", description: null, source: "prompt" as const },
+      { name: "skill:review-pr", description: null, source: "skill" as const },
+    ];
+
+    expect(filterCommands(later, "rev").map((command) => command.name)).toStrictEqual([
+      "Review",
+      "skill:review-pr",
+      "preview",
+    ]);
+  });
+
   it("matches a skill by its name after skill:", () => {
     expect(filterCommands(commands, "review-").map((command) => command.name)).toStrictEqual(["skill:review-pr"]);
   });
@@ -106,6 +120,10 @@ describe("composeMessage", () => {
     ).toBe('Fix it\n\nline 1\nline 2\n\n@src/a.ts @docs/ @"My Notes.md"');
   });
 
+  it("leaves out a paste of nothing but white space", () => {
+    expect(composeMessage({ text: "hi", pastes: [{ id: "p1", text: " \n " }], files: [] })).toBe("hi");
+  });
+
   it("leaves out what is empty", () => {
     expect(composeMessage({ text: "hi", pastes: [], files: [] })).toBe("hi");
     expect(composeMessage({ text: " ", pastes: [], files: ["a.ts"] })).toBe("@a.ts");
@@ -125,6 +143,8 @@ describe("isLongPaste and lineCount", () => {
     expect(lineCount("a\nb\nc")).toBe(3);
     expect(lineCount("a\nb\n")).toBe(2);
     expect(lineCount("a")).toBe(1);
+    expect(lineCount("\na")).toBe(2);
+    expect(lineCount("")).toBe(1);
   });
 });
 
@@ -156,5 +176,6 @@ describe("historyOf", () => {
     ];
 
     expect(historyOf(items)).toStrictEqual(["one", "two", "one"]);
+    expect(historyOf([turn("t1", "same"), turn("t2", "same"), turn("t3", "same")])).toStrictEqual(["same"]);
   });
 });

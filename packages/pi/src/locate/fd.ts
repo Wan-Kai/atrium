@@ -17,6 +17,7 @@ async function runnable(path: string): Promise<boolean> {
   try {
     await access(path, constants.X_OK);
     return (await stat(path)).isFile();
+    // Stryker disable next-line BlockStatement: without it the function gives undefined, which counts as false too.
   } catch {
     return false;
   }
@@ -37,6 +38,7 @@ async function runnable(path: string): Promise<boolean> {
 export async function findFd(env: Readonly<Record<string, string | undefined>>): Promise<string | null> {
   const own = join(agentDirectory(env), "bin", "fd");
   if (await runnable(own)) return own;
+  // Stryker disable next-line StringLiteral: any text in place of a missing PATH is relative, and filtered out.
   const directories = (env["PATH"] ?? "").split(delimiter).filter((directory) => isAbsolute(directory));
   for (const name of ["fd", "fdfind"]) {
     for (const directory of directories) {

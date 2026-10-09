@@ -1,7 +1,7 @@
 import { findFd } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import { FakeClock, createTempDir, present } from "@atrium/testkit";
-import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -161,6 +161,105 @@ describe("createFileSearch stopping fd", () => {
 
     expect(await searching).toStrictEqual([]);
     expect(resources.snapshot()["fd.process"]).toBe(0);
+    expect(clock.pendingTimers()).toBe(0);
+  });
+});
+
+/** An `fd` that runs `body` as a shell script. */
+async function fakeFd(body: string): Promise<string> {
+  const dir = await workspace({ fd: `#!/bin/sh\n${body}\n` });
+  await chmod(join(dir, "fd"), 0o755);
+  return join(dir, "fd");
+}
+
+describe("createFileSearch when fd misbehaves", () => {
+  it("finds nothing when fd exits with an error, whatever it printed", async () => {
+    const { search } = await searcher(await fakeFd("echo a.ts\nexit 2"));
+
+    expect(await search.search(await workspace({}), "", new AbortController().signal)).toStrictEqual([]);
+  });
+
+  it("finds nothing when fd cannot start", async () => {
+    const { search, resources } = await searcher("/nonexistent/fd");
+
+    expect(await search.search(await workspace({}), "", new AbortController().signal)).toStrictEqual([]);
+    expect(resources.snapshot()["fd.process"]).toBe(0);
+  });
+
+  it("finds nothing when fd prints more than a mebibyte", async () => {
+    const { search } = await searcher(await fakeFd("yes a.ts | head -c 1100000"));
+
+    expect(await search.search(await workspace({}), "", new AbortController().signal)).toStrictEqual([]);
+  });
+
+  it("pays no attention to what fd writes to its error stream", async () => {
+    const { search } = await searcher(await fakeFd("head -c 2000000 /dev/zero >&2\necho a.ts"));
+
+    expect(await search.search(await workspace({}), "", new AbortController().signal)).toStrictEqual([
+      { path: "a.ts", directory: false },
+    ]);
+  });
+
+  it("starts no fd when called off before", async () => {
+    const { search, resources } = await searcher(await fakeFd("echo a.ts"));
+    const controller = new AbortController();
+    controller.abort();
+
+    expect(await search.search(await workspace({}), "", controller.signal)).toStrictEqual([]);
+    expect(resources.snapshot()["fd.process"]).toBeUndefined();
+  });
+
+  it("finds nothing when called off between its two runs, though the first found something", async () => {
+    const marks = await workspace({});
+    const mark = join(marks, "second-run");
+    const fd = await fakeFd(
+      `for a in "$@"; do if [ "$a" = "--max-depth" ]; then echo a.ts; exit 0; fi; done\ntouch '${mark}'\nexec sleep 30`,
+    );
+    const { search } = await searcher(fd);
+    const controller = new AbortController();
+
+    const searching = search.search(await workspace({}), "", controller.signal);
+    await vi.waitFor(() => access(mark));
+    controller.abort();
+
+    expect(await searching).toStrictEqual([]);
+  });
+});
+
+describe("createFileSearch's scope", () => {
+  it("searches inside the directory a query names, finding what the whole path would not", async () => {
+    const cwd = await workspace({ "src/session.ts": "", "src/sub/session.ts": "", "session.ts": "" });
+    const { search } = await searcher();
+
+    expect(await search.search(cwd, "src/ses", new AbortController().signal)).toStrictEqual([
+      { path: "src/session.ts", directory: false },
+      { path: "src/sub/session.ts", directory: false },
+    ]);
+  });
+
+  it("searches the whole path when the directory a query names does not exist", async () => {
+    const cwd = await workspace({ "a/nope/x.ts": "" });
+    const { search } = await searcher();
+
+    expect(await search.search(cwd, "nope/x", new AbortController().signal)).toStrictEqual([
+      { path: "a/nope/x.ts", directory: false },
+    ]);
+  });
+
+  it("finds nothing for an absolute path, though a path below the directory has it", async () => {
+    const cwd = await workspace({ "etc/x.conf": "" });
+    const { search } = await searcher();
+
+    expect(await search.search(cwd, "/etc/", new AbortController().signal)).toStrictEqual([]);
+  });
+
+  it("leaves no deadline behind once fd answers", async () => {
+    const clock = new FakeClock();
+    const fd = await realFd();
+    const search = createFileSearch({ findFd: async () => fd, clock, resources: new ResourceTracker() });
+
+    await search.search(await workspace({ "a.ts": "" }), "", new AbortController().signal);
+
     expect(clock.pendingTimers()).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 import { createTempDir } from "@atrium/testkit";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { findFd } from "./fd";
 
@@ -55,6 +55,12 @@ describe("findFd", () => {
       join(root, "b/fd"),
     );
     expect(await findFd({ HOME: root, PATH: join(root, "a") })).toBe(join(root, "a/fdfind"));
+  });
+
+  it("never takes an fd from a relative PATH entry", async () => {
+    const root = await tree(["rel/fd"]);
+
+    expect(await findFd({ HOME: root, PATH: relative(process.cwd(), join(root, "rel")) })).toBeNull();
   });
 
   it("skips files that cannot run, and finds nothing when there is none", async () => {

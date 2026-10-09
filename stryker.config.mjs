@@ -47,6 +47,7 @@ export default {
     "packages/ui/src/chat/turn-layout.ts",
     "packages/ui/src/chat/model-choice.ts",
     "packages/ui/src/chat/composer-text.ts",
+    "packages/ui/src/chat/session-changes.ts",
     "packages/ui/src/state/drafts.ts",
     "packages/host/src/files/*.ts",
     "packages/ui/src/sidebar/names.ts",

@@ -101,9 +101,12 @@ describe("fdArguments", () => {
 
 describe("parseFdOutput", () => {
   it("reads one entry a line, directories by their trailing slash, leaving .git out", () => {
-    expect(parseFdOutput("src/\nsrc/a.ts\n.git/\nsub/.git/x\nREADME.md\n")).toStrictEqual([
+    expect(
+      parseFdOutput("src/\nsrc/a.ts\n.git/\n.git/HEAD\nsub/.git/\nsub/.git/x\n.github/x.yml\nREADME.md\n"),
+    ).toStrictEqual([
       { path: "src/", isDirectory: true },
       { path: "src/a.ts", isDirectory: false },
+      { path: ".github/x.yml", isDirectory: false },
       { path: "README.md", isDirectory: false },
     ]);
     expect(parseFdOutput("")).toStrictEqual([]);

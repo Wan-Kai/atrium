@@ -112,6 +112,7 @@ export function filterCommands(commands: readonly SlashCommand[], query: string)
 export function mentionAt(text: string, caret: number): Mention | null {
   const found = /(?:^|[^\w.+\-@])@([^\s@]*)$/u.exec(text.slice(0, caret));
   if (found === null) return null;
+  // Stryker disable next-line StringLiteral: the group always matches, if only nothing.
   const query = found[1] ?? "";
   const start = caret - query.length - 1;
   const after = text.slice(caret).search(/\s/);
@@ -198,7 +199,8 @@ export function composeMessage(draft: DraftText): string {
  * @returns The count.
  */
 export function lineCount(text: string): number {
-  return text.replace(/\n$/, "").split("\n").length;
+  const lines = text.split("\n").length;
+  return text.endsWith("\n") ? lines - 1 : lines;
 }
 
 /**

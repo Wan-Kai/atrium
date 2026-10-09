@@ -105,32 +105,34 @@ function runFd(fd: string, args: readonly string[], signal: AbortSignal, resourc
     const child = spawn(fd, [...args], { stdio: ["ignore", "pipe", "ignore"] });
     const chunks: Buffer[] = [];
     let size = 0;
-    let failed = false;
     /**
      * Kills `fd` when the search is called off.
      *
      * @remarks
-     * `fd` starts nothing of its own, so the process is enough.
+     * `fd` starts nothing of its own, so the process is enough; killed, it exits without a code.
      *
      * @sideEffects Sends SIGKILL.
      */
     const kill = (): void => {
-      failed = true;
       child.kill("SIGKILL");
     };
+    // Stryker disable next-line ObjectLiteral,BooleanLiteral: the listener comes off once fd ends anyway.
     signal.addEventListener("abort", kill, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
       size += chunk.length;
+      // Stryker disable next-line EqualityOperator: one byte past a mebibyte of paths decides nothing.
       if (size > MAX_OUTPUT_BYTES) kill();
       else chunks.push(chunk);
     });
-    child.on("error", () => {
-      failed = true;
-    });
+    // A failure to start ends in `close` with a non-zero code too; without a listener the error
+    // event would crash the host.
+    // Stryker disable next-line BlockStatement,StringLiteral: see above; `close` decides.
+    child.on("error", () => undefined);
     child.on("close", (code) => {
+      // Stryker disable next-line StringLiteral: only frees the listener; fd has ended.
       signal.removeEventListener("abort", kill);
       release();
-      resolve(failed || code !== 0 ? "" : Buffer.concat(chunks).toString("utf8"));
+      resolve(code === 0 ? Buffer.concat(chunks).toString("utf8") : "");
     });
   });
 }
