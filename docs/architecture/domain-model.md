@@ -346,6 +346,7 @@ classDiagram
 **职责**
 
 - **SessionController** 管行为，是一个会话唯一的协调者；**SessionRuntime** 是它唯一持有的状态，不是第二个管理者。排队、待交互、条目缓存、指标都在 Runtime 里；进程句柄在 PiAdapter 里。一个会话最多一个 Controller。
+- **Controller 跨过 pi 的重启**（2026-10-09 定，M1.6）：一个会话从第一次启动 pi 起只有一个 Controller；pi 退出后再启动（崩溃自动重启、重新打开、"重试"）时，Controller 换上新进程（`processEpoch + 1`，推新的快照），排队、重启计数、连续失败留在 Runtime 里，不随进程丢失。M1.5 及以前是每个进程一个 Controller。
 - **SessionManager** 负责 Controller 的创建、查找，以及几种"离开"动作。
 - **生命周期**沿用 Paseo 的划分：`initializing`（进程启动中）、`idle`、`running`（从提交到 `agent_settled`，含自动重试和压缩）、`error`（进程异常退出或运行失败）、`closed`（有记录、没有进程，比如宿主重启后还没打开过）。
 - **MVP 1 不回收空闲进程**（与 Paseo 一致）：会话一旦打开，pi 进程就常驻，直到归档、交给终端、宿主退出或进程崩溃。以后会话多了再加回收。

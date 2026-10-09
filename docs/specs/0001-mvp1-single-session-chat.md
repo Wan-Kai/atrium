@@ -591,6 +591,42 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **收件箱**挪到 M1.9，和关注状态一起做（2026-10-08 定）：它收的"待回答、待授权、出错未看"要到 M1.6、M1.9 才有，为空时本来就整块不显示。
 
+### 运行控制（M1.6，2026-10-09 定）
+
+排队、插话、停止、对话框、失败重试和崩溃重启的协议与行为。产品层面的规则见上文"对话区"的"运行中输入""运行出错与停止"和"关键流程"，这里写宿主和协议怎么做。
+
+**控制状态**：会话快照新增 `control`，变化时推 `control_updated`（整份，内容很小）：
+
+- `queue`：宿主的排队，每项 `{ id, text, createdAt }`，按发出顺序；图片附件在 M1.7 加进来。
+- `paused`：排队是否暂停，`reason` 为 `stopped`（你点了停止）或 `crashed`（pi 崩溃后还没恢复）；压缩期间出队也会等，但那不算暂停，不显示。
+- `steers`：已经交给 pi、还没送达的插话，`{ id, text }`。pi 的 `queue_update` 每次带完整的内部队列，宿主按它确认哪些已送达，界面据此显示"N 条插话将在下一步前送达"。
+- `stopping`：停止已发出、pi 还没确认停下。
+- `interactions`：未回答的对话框，见下文。
+- `failure`：连续崩溃 3 次后为 `{ reason: "crashed", attempts }`，会话进入"出错"；下一次运行开始时清掉。
+
+**提交**
+
+- `prompt(text)`：空闲（没有运行、没在压缩、没在停止）时直接发给 pi，应答 pi 的结果 `started` / `handled`；正在运行或压缩时加到排队末尾，应答 `queued` 和排队项的 `itemId`。排队暂停时（停止之后）空闲状态下发的新消息直接发出，排队保持暂停，由你点"继续发送"或清掉（2026-10-09 定）。
+- 出队：运行结束（`agent_settled`）或上一条被 `handled` 后，宿主把排队的第一条作为 `prompt` 发给 pi；压缩期间等 `compaction_end`。出队和停止由会话控制器串行处理。
+- `steer(text)`：运行中调用 pi 的 `steer`，应答 `queued`（pi 已收下）或 `handled`；空闲时等同 `prompt`。pi 的 `steer` 在空闲时不会启动运行，消息只会留在 pi 的队列里（按 pi 1.0.2 源码核实），所以宿主必须把空闲时的插话改成普通发送。插话不接受 extension 的 `/` 命令，pi 会拒绝，应答 `pi_rejected`。
+- `prompt_handled(clientMessageId)` 事件：输入被 extension 直接处理、没有启动运行，界面去掉这条消息的待发副本。
+
+**停止**：`stop()` 先暂停出队，再对 pi `clear_queue`、`abort`。`clear_queue` 退回的还没送达的插话放回排队最前面（和崩溃时一样，不丢）。`abort` 等 pi 真正停下才应答：2 秒内应答时 `stop` 应答 `{ confirmed: true }`；否则应答 `{ confirmed: false }`，会话保持 `stopping`，一直等到 pi 确认或退出（2026-10-09 定，不设上限）。`stopping` 期间 `prompt`、`steer`、`steer_queued`、`resume_queue`、`retry_run` 应答 `session_stopping`；编辑、删除、清空排队照常。
+
+**排队的编辑**：`update_queued(itemId, text)`、`remove_queued(itemId)`、`steer_queued(itemId)`（取出这一项作为插话发出，空闲时直接发出）、`resume_queue()`（解除暂停并立即开始出队）、`clear_queue()`（清空宿主的排队）。不认识的 `itemId` 应答 `queue_item_not_found`。
+
+**对话框**：pi 的 `extension_ui_request` 里的 `select`、`confirm`、`input`、`editor` 成为对话框 `{ id, kind, title, message?, options?, placeholder?, prefill?, deadline? }`，推 `control_updated`；`deadline` 由宿主收到时加上 pi 给的 `timeout` 算出。`answer_interaction(interactionId, answer)` 的 `answer` 是 `{ value }`、`{ confirmed }` 或 `{ cancelled: true }`，宿主转成 `extension_ui_response` 发给 pi。只接受第一个回答，之后的回答和已作废的应答 `interaction_closed`。到期时宿主把它标为超时（pi 自己会按默认值继续）；pi 退出时一律作废。`notify` 等单向通知不显示，原文写日志。对话框在宿主存活期间保留，不跨重启。
+
+**失败与重启**
+
+- 模型调用失败交给 pi 自带的重试（`retry.maxRetries = 3`），重试在对话记录里显示为 `retry` 步骤（M1.4 已有）。用尽后这一轮以 `failed` 结束，带 pi 的报错原文，界面显示错误卡片。
+- pi 崩溃：本轮以 `failed` 结束，排队暂停（`reason: crashed`），还没送达的插话退回排队最前面，对话框作废，发 `session_exited`。宿主随即用 `--session` 重新启动 pi，会话的 `epoch` 加一、推新的快照，对话记录里加一条宿主的提示"进程已自动重启（第 N / 3 次）"（`restarted` 提示，只在宿主存活期间保留）。重启后：崩溃时正在运行的那条输入还没写进会话（pi 还没回显这条用户消息），就重新提交它；已经写进会话，就补发一条"上一次运行意外中断了，请从中断的地方继续。"（2026-10-09 定），这条在界面上标为"系统自动发出"（`Turn.user.auto`，记在 `~/.atrium/turns/` 里，重建后仍在）。然后解除暂停、继续出队。
+- 连续 3 次重启都失败（再次崩溃，或启动不起来）后不再重启：会话进入"出错"（`control.failure`），排队保持暂停，界面显示错误卡片。一次运行正常结束（`agent_settled` 且这一轮没有失败）后连续计数归零（2026-10-09 定）。
+- `retry_run()`：错误卡片上的"重试"。pi 没在运行就先启动；然后按上面"重启后"同样的规则再来一轮：最后一轮的输入没写进会话就重新提交，写进了就补发那句话。
+- 出错状态在标签和侧栏一直显示到下一次运行开始；写进索引的关注状态和收件箱在 M1.9。
+
+新增命令：`steer`、`stop`、`resume_queue`、`clear_queue`、`update_queued`、`remove_queued`、`steer_queued`、`answer_interaction`、`retry_run`。新增事件：`control_updated`、`prompt_handled`。新增错误码：`session_stopping`、`queue_item_not_found`、`interaction_closed`。`prompt` 的应答多了 `queued`（带 `itemId`）。
+
 ### 命令与事件
 
 **命令（UI → 宿主）**
@@ -613,7 +649,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `stop(sessionId)` | 停止：暂停出队，再 `clear_queue` + `abort` |
 | `resume_queue(sessionId)` / `clear_queue(sessionId)` | 继续发送或清空宿主的排队 |
 | `update_queued` / `remove_queued` / `steer_queued(sessionId, itemId, ...)` | 编辑、删除排队消息，或把它改为插话 |
-| `answer_interaction(sessionId, interactionId, value)` | 回答 extension 的对话框；已被别的客户端回答时返回"已回答" |
+| `answer_interaction(sessionId, interactionId, answer)` | 回答 extension 的对话框；已被回答、超时或作废时应答 `interaction_closed` |
+| `retry_run(sessionId)` | 错误卡片上的"重试"：按崩溃重启后的规则再来一轮（M1.6） |
 | `set_model(sessionId, providerId, modelId)` / `set_thinking_level(sessionId, level)` | 模型和推理强度 |
 | `list_models()` / `list_commands(dir)` | 模型与推理档位、`/` 命令（不依赖会话进程） |
 | `search_files(dir, query)` | `@` 引用的候选文件和目录（git 仓库用 `git ls-files`，其余按忽略规则遍历） |
@@ -631,8 +668,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `prompt_handled` | 输入被 extension 直接处理，没有启动运行 |
 | `message_started` / `text_delta` / `reasoning_delta` / `message_finished` | 助手消息的流式输出，`message_finished` 携带完整消息 |
 | `tool_started` / `tool_updated` / `tool_finished` | 工具调用，带调用 id；`tool_finished` 携带 `content` 和 `details` |
-| `queue_updated` | 排队中的消息及暂停状态 |
-| `interaction_requested` / `interaction_resolved` | extension 对话框；`resolved` 带结果：已回答 / 超时 / 作废 |
+| `control_updated` | 会话的控制状态（排队与暂停、待送达的插话、停止中、未回答的对话框、连续崩溃后的失败），整份推送（M1.6，见上文"运行控制"） |
 | `install_output` / `install_finished` / `login_updated` | 安装、更新、登录的进度和结果 |
 | `session_renamed` | 会话标题变化（手动重命名或自动生成） |
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知） |
