@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COMMAND_TYPES, type Command, CommandResult } from "./commands";
-import { type Control, IDLE_CONTROL } from "./control";
+import { type Control, IDLE_CONTROL, type Interaction } from "./control";
 import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
@@ -80,7 +80,27 @@ const commands: Command[] = [
     answer: { cancelled: true },
   },
   { type: "retry_run", requestId: "r38", traceparent, sessionId: "s1" },
+  {
+    type: "answer_interaction",
+    requestId: "r39",
+    traceparent,
+    sessionId: "s1",
+    interactionId: "d1",
+    answer: { value: "v".repeat(1024 * 1024) },
+  },
 ];
+
+/** An extension's selection. */
+const pick: Interaction = {
+  id: "d1",
+  kind: "select",
+  title: "Pick",
+  message: null,
+  options: ["a", "b"],
+  placeholder: null,
+  prefill: null,
+  deadline: 9,
+};
 
 /** Run control with something of everything. */
 const control: Control = {
@@ -89,18 +109,7 @@ const control: Control = {
   steers: [{ id: "r28", text: "also b" }],
   stopping: true,
   restarting: false,
-  interactions: [
-    {
-      id: "d1",
-      kind: "select",
-      title: "Pick",
-      message: null,
-      options: ["a", "b"],
-      placeholder: null,
-      prefill: null,
-      deadline: 9,
-    },
-  ],
+  interactions: [pick],
   failure: { reason: "crashed", attempts: 3 },
 };
 
@@ -192,6 +201,18 @@ const turn: Turn = {
 const at = { sessionId: "s1", epoch: 1, seq: 7, traceId };
 
 /** One valid example of every session event. */
+/** How an extension's question ended. */
+const asked = {
+  kind: "notice",
+  id: "ask-1",
+  notice: "interaction",
+  title: "用哪个？",
+  outcome: "answered",
+  value: "vitest",
+  confirmed: null,
+  timestamp: 5,
+} as const;
+
 const events: SessionEvent[] = [
   {
     type: "session_snapshot",
@@ -238,6 +259,7 @@ const events: SessionEvent[] = [
     notice: { kind: "notice", id: "restart-1", notice: "restarted", attempt: 2, timestamp: 4 },
     before: null,
   },
+  { type: "notice_added", ...at, notice: asked, before: null },
 ];
 
 describe("parseClientMessage", () => {
@@ -379,6 +401,28 @@ describe("parseClientMessage", () => {
     [
       "a blank project name",
       { type: "rename_project", requestId: "r1", traceparent, projectId: PROJECT, name: "  " },
+      "r1",
+    ],
+    [
+      "a project id with something in front",
+      { type: "rename_project", requestId: "r1", traceparent, projectId: `x${PROJECT}`, name: "n" },
+      "r1",
+    ],
+    [
+      "a project id with something after",
+      { type: "rename_project", requestId: "r1", traceparent, projectId: `${PROJECT}0`, name: "n" },
+      "r1",
+    ],
+    [
+      "an answer over 1 MiB",
+      {
+        type: "answer_interaction",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        interactionId: "d1",
+        answer: { value: "v".repeat(1024 * 1024 + 1) },
+      },
       "r1",
     ],
     [
@@ -573,6 +617,25 @@ describe("HostMessage", () => {
       ...["done", "stopped", "failed"].map((outcome) => ({ ...events[6], outcome })),
       ...["completed", "stopped", "failed"].map((outcome) => ({ ...events[8], outcome })),
       ...["requested", "crashed"].map((reason) => ({ ...events[9], reason })),
+      {
+        type: "control_updated",
+        ...at,
+        control: {
+          ...control,
+          paused: "crashed",
+          interactions: (["select", "confirm", "input", "editor"] as const).map((kind) => ({
+            ...pick,
+            id: kind,
+            kind,
+          })),
+        },
+      },
+      ...["answered", "cancelled", "timed_out", "stale"].map((outcome) => ({
+        type: "notice_added",
+        ...at,
+        notice: { ...asked, outcome },
+        before: null,
+      })),
     ];
 
     expect(ErrorCode.options).toStrictEqual([

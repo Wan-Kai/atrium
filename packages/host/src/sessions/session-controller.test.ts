@@ -366,6 +366,20 @@ describe("createSessionController on cases the fixtures do not show", () => {
     expect(controller.snapshot()).toMatchObject({ seq: 0, items: [{ id: "s1:u1", user: { text: "earlier" } }] });
   });
 
+  it("marks the turns an earlier host sent on its own", () => {
+    const { pi } = manualPi();
+    const { controller } = control(
+      pi,
+      { entries: [userEntry("u1", null, "one"), userEntry("u2", "u1", CONTINUE_TEXT)], leafId: "u2" },
+      { turnStarts: { opened: new Set(["u1", "u2"]), auto: new Set(["u2"]), record: () => undefined } },
+    );
+
+    expect(controller.snapshot().items).toMatchObject([
+      { user: { text: "one", auto: false } },
+      { user: { text: CONTINUE_TEXT, auto: true } },
+    ]);
+  });
+
   it("matches echoed user messages to waiting prompts in order, skipping a prompt pi handled itself", async () => {
     const { pi, emit, answers } = manualPi();
     const { controller, events } = control(pi);
@@ -878,6 +892,18 @@ describe("createSessionController steering", () => {
     expect(sent).toStrictEqual(["prompt one", "steer also"]);
   });
 
+  it("keeps a steer through a queue update pi sent before it took the steer", async () => {
+    const { pi, emit } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    await controller.steer(steer("s1", "also"));
+
+    emit({ type: "queue_update", steering: [], followUp: [] });
+
+    expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s1", text: "also" }]);
+  });
+
   it("tells pi's steers apart by text, one held text keeping one steer", async () => {
     const { pi, emit } = manualPi();
     const { controller } = control(pi);
@@ -1164,6 +1190,16 @@ describe("createSessionController answering dialogs", () => {
     ]);
   });
 
+  it("keeps a dialog without a deadline however long it waits", () => {
+    const { pi, emit } = manualPi();
+    const { controller, clock } = control(pi);
+    emit({ type: "extension_ui_request", id: "c1", method: "confirm", title: "Sure?" });
+
+    clock.advance(24 * 60 * 60 * 1000);
+
+    expect(controller.snapshot().control.interactions).toMatchObject([{ id: "c1", deadline: null }]);
+  });
+
   it("takes a dialog away at its deadline", () => {
     const { pi, emit } = manualPi();
     const { controller, clock } = control(pi);
@@ -1223,7 +1259,7 @@ describe("createSessionController answering dialogs", () => {
     expect(controller.snapshot().items.map((item) => item.id)).toStrictEqual(["id1", "id2", "id3", "id4", "id5"]);
   });
 
-  it("places a question answered during a run after that run's turn, also once the transcript is read again", async () => {
+  it("places questions answered during a run after that run's turn in order, also once the transcript is read again", async () => {
     const { pi, emit, pages } = manualPi();
     const { controller } = control(pi);
     const reply: LogEntry = {
@@ -1238,17 +1274,24 @@ describe("createSessionController answering dialogs", () => {
     };
     pages.push(async () => ({ entries: [userEntry("u1", null, "one"), reply], leafId: "a1" }));
     await controller.prompt(prompt("q1", "one"));
-    emit({ type: "agent_start" }, userEnd("one"), select);
+    emit({ type: "agent_start" }, userEnd("one"), select, {
+      type: "extension_ui_request",
+      id: "c1",
+      method: "confirm",
+      title: "Sure?",
+    });
 
     controller.answerInteraction("d1", { value: "a" });
-    expect(controller.snapshot().items.map((item) => item.kind)).toStrictEqual(["turn", "notice"]);
+    controller.answerInteraction("c1", { confirmed: true });
+    expect(controller.snapshot().items.map((item) => item.kind)).toStrictEqual(["turn", "notice", "notice"]);
     emit(replyEnd("stop"), { type: "agent_settled" });
-    expect(controller.snapshot().items.map((item) => item.kind)).toStrictEqual(["turn", "notice"]);
+    expect(controller.snapshot().items.map((item) => item.kind)).toStrictEqual(["turn", "notice", "notice"]);
     await settle();
 
     expect(controller.snapshot().items).toMatchObject([
       { kind: "turn", user: { text: "one" } },
       { kind: "notice", notice: "interaction", title: "Pick", value: "a" },
+      { kind: "notice", notice: "interaction", title: "Sure?", confirmed: true },
     ]);
   });
 
@@ -1409,8 +1452,57 @@ describe("createSessionController after pi crashes", () => {
     expect(present(next[0], "the second pi").sent).toStrictEqual(["prompt one"]);
   });
 
-  it("keeps the interrupted message when pi goes away again as it is sent after a restart", async () => {
+  it.each([
+    ["handled", async () => ({ disposition: "handled" as const })],
+    ["refused", () => Promise.reject(new ReplayRequestError("prompt", "rejected", "No model"))],
+  ])("sends nothing again after a crash for a message pi %s", async (_how, answer) => {
+    const { first, next, controller } = crashing(1);
+    first.answers.push(answer);
+    await controller.prompt(prompt("q1", "/noop")).catch(() => undefined);
+
+    first.crash();
+    await settle();
+
+    expect(present(next[0], "the second pi").sent).toStrictEqual([]);
+  });
+
+  it("sends nothing again after a crash for a message pi handled, then one it refused", async () => {
+    const { first, next, controller } = crashing(1);
+    first.answers.push(
+      async () => ({ disposition: "handled" }),
+      () => Promise.reject(new ReplayRequestError("prompt", "rejected", "No model")),
+    );
+    await controller.prompt(prompt("q1", "/noop"));
+    await expect(controller.prompt(prompt("q2", "two"))).rejects.toStrictEqual(
+      new CommandError("pi_rejected", { detail: "No model" }),
+    );
+
+    first.crash();
+    await settle();
+
+    expect(present(next[0], "the second pi").sent).toStrictEqual([]);
+  });
+
+  it("keeps the message a restart sent again when the gone pi refuses its first copy afterwards", async () => {
     const { first, next, controller } = crashing(2);
+    const [second, third] = next as [ReturnType<typeof manualPi>, ReturnType<typeof manualPi>];
+    const answer = Promise.withResolvers<{ disposition: "started" }>();
+    first.answers.push(() => answer.promise);
+    const sending = controller.prompt(prompt("q1", "one"));
+    first.crash();
+    await settle();
+    expect(second.sent).toStrictEqual(["prompt one"]);
+
+    answer.reject(new ReplayRequestError("prompt", "rejected", "No model"));
+    await expect(sending).rejects.toStrictEqual(new CommandError("pi_rejected", { detail: "No model" }));
+    second.crash();
+    await settle();
+
+    expect(third.sent).toStrictEqual(["prompt one"]);
+  });
+
+  it("keeps the interrupted message when pi goes away again as it is sent after a restart", async () => {
+    const { first, next, controller, logged } = crashing(2);
     const [second, third] = next as [ReturnType<typeof manualPi>, ReturnType<typeof manualPi>];
     second.answers.push(() => Promise.reject(new ReplayRequestError("prompt", "exited")));
     await controller.prompt(prompt("q1", "one"));
@@ -1423,6 +1515,9 @@ describe("createSessionController after pi crashes", () => {
 
     expect(second.sent).toStrictEqual(["prompt one"]);
     expect(third.sent).toStrictEqual(["prompt one"]);
+    expect(logged).toStrictEqual([
+      ["warn", "resending after a restart failed", { sessionId: "s1", code: "pi_unavailable" }],
+    ]);
   });
 
   it("sends nothing after a crash that follows a stop, the message pi had not taken waiting in the paused queue", async () => {
@@ -1442,7 +1537,7 @@ describe("createSessionController after pi crashes", () => {
     const first = manualPi();
     const second = manualPi();
     const gate = Promise.withResolvers<void>();
-    const { controller } = control(first.pi, empty, {
+    const { controller, events } = control(first.pi, empty, {
       respawn: async () => {
         await gate.promise;
         return { pi: second.pi, entries: empty };
@@ -1456,6 +1551,7 @@ describe("createSessionController after pi crashes", () => {
 
     expect(await controller.prompt(prompt("q2", "two"))).toMatchObject({ disposition: "queued" });
     expect(await controller.stop()).toStrictEqual({ confirmed: true });
+    expect(events.at(-1)).toMatchObject({ type: "control_updated", control: { paused: "stopped", restarting: true } });
     gate.resolve();
     await settle();
 
@@ -1574,11 +1670,18 @@ describe("createSessionController retrying", () => {
 
   it("keeps the failure when pi does not start for a retry", async () => {
     const first = manualPi();
-    const { controller } = control(first.pi, empty, { respawn: failing });
+    const { controller, logged } = control(first.pi, empty, { respawn: failing });
     first.crash();
     await settle();
 
     await expect(controller.retryRun()).rejects.toStrictEqual(new Error("pi did not start"));
+    expect(logged).toStrictEqual(
+      [1, 2, 3].map((attempt) => [
+        "warn",
+        "pi restart failed",
+        { sessionId: "s1", attempt, error: "Error: pi did not start" },
+      ]),
+    );
 
     expect(controller.snapshot().control).toMatchObject({
       failure: { reason: "crashed", attempts: 3 },

@@ -245,6 +245,7 @@ function readLine(state: FileState, line: string): void {
     return;
   }
   if (state.header === null) return;
+  // Stryker disable next-line StringLiteral: a fast path; `userText` finds nothing in a line without a user message anyway.
   if (state.firstPrompt === null && line.includes('"user"')) state.firstPrompt = userText(parseJson(line));
   if (line.includes('"session_info"')) {
     const entry = parseJson(line);

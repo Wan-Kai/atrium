@@ -220,6 +220,7 @@ function uiRequest(request: UiRequest): TranslatedEvent[] {
   }
   const base = { id: request.id, message: null, options: null, placeholder: null, prefill: null };
   const timeoutMs =
+    // Stryker disable next-line ConditionalExpression: without the field `timeout` is undefined, which the next test catches; `in` only narrows the type.
     "timeout" in request && request.timeout !== undefined && request.timeout > 0 ? request.timeout : null;
   if (request.method === "select") {
     return [dialog({ ...base, method: "select", title: request.title, options: [...request.options], timeoutMs })];

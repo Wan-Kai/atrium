@@ -143,9 +143,9 @@ interface SeenTurn {
  * where pi's file would suggest a steer (SPEC-0001, `steer`), so a normal run rebuilds exactly as
  * it was sent. The entries found to open live turns are handed to `onTurnsSeen`, so a host
  * started later still knows them (`opened`; SPEC-0001, `steer`), together with those of messages
- * the host sent on its own (`auto`). The host's own notices (a restart) are not in pi's file;
- * each keeps the item it followed and goes back after it in every rebuild, at the end if that item
- * is gone.
+ * the host sent on its own (`auto`). The host's own notices (a restart, how an extension's
+ * question ended) are not in pi's file; each keeps the item it followed and goes back after it in
+ * every rebuild, in the order they came, at the end if that item is gone.
  * Events, snapshots and pages carry steps as they travel (`forTransport`); the transcript keeps
  * them whole. Rebuilds only happen between runs; the caller makes sure of that.
  *
@@ -436,13 +436,15 @@ function withHostNotices(
   notices: readonly { readonly notice: Notice; readonly after: string | null }[],
 ): TranscriptItem[] {
   const result = [...rebuilt];
+  const placed = new Set<string>();
   for (const { notice, after } of notices) {
     const index = after === null ? -1 : result.findIndex((item) => item.id === after);
     const at = after === null ? 0 : index === -1 ? result.length : index + 1;
     // Notices already placed after the same item stay before it.
     let place = at;
-    while (place < result.length && isRestartNotice(result[place])) place += 1;
+    while (placed.has(result[place]?.id ?? "")) place += 1;
     result.splice(place, 0, notice);
+    placed.add(notice.id);
   }
   return result;
 }
@@ -539,20 +541,6 @@ function stepEvent(turnId: string, change: { readonly step: Step; readonly added
  */
 function sameItem(item: TranscriptItem, sent: TranscriptItem | undefined): boolean {
   return JSON.stringify(item) === JSON.stringify(sent);
-}
-
-/**
- * Whether an item is the host's notice of a restart.
- *
- * @remarks
- * Restart notices after the same item keep the order they were added in.
- *
- * @sideEffects none
- * @param item - The item, if any.
- * @returns Whether it is a restart notice.
- */
-function isRestartNotice(item: TranscriptItem | undefined): boolean {
-  return item?.kind === "notice" && item.notice === "restarted";
 }
 
 /**
