@@ -8,7 +8,7 @@ import { type KeyboardEvent, useState } from "react";
  * M1.3's minimal form of the input box (SPEC-0001, "输入框"): rounded 22 card with 14 px padding,
  * the send button a dark filled circle when there is text and pale when empty. Enter while an
  * input method is composing only picks a candidate (`isComposing`). Models, attachments, `@` and
- * `/` come with M1.6. While sending is not possible, as during a run until M1.6 brings the host's
+ * `/` come with M1.7. While sending is not possible, as during a run until M1.6 brings the host's
  * queue and "停止", the text can still be written but not sent.
  *
  * @sideEffects Calls `onSend` with the text when the user sends.

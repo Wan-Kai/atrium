@@ -93,7 +93,7 @@ function readCollapsed(): ReadonlySet<string> {
  * The sidebar: new chat, projects with their workspaces, search, chats, and the appearance switch.
  *
  * @remarks
- * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.7. Projects can be collapsed; a collapsed
+ * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.9. Projects can be collapsed; a collapsed
  * project shows how many worktrees wait to be merged and whether something runs in it. Workspaces
  * show their merge state and whether a session runs in them, and are selected by clicking.
  * Search matches workspace names and session titles, replacing the projects and chats with its

@@ -5,7 +5,7 @@ import { CircleNotch } from "@phosphor-icons/react";
  *
  * @remarks
  * M1.5 knows only "running": a turning arc in the tint color (design-language, "会话状态").
- * Waiting and error states come with M1.6 and M1.7. A plain line icon, colored, with no
+ * Waiting and error states come with M1.6 and M1.9. A plain line icon, colored, with no
  * background; the label says the state for screen readers and on hover.
  *
  * @sideEffects none

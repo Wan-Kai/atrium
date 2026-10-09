@@ -129,7 +129,7 @@ function breakableGit(): GitRunner & { break(): void } {
  * Sets a project's own main branch in `projects.json`, as the settings page will.
  *
  * @remarks
- * There is no command for it before M1.8.
+ * There is no command for it before M1.10.
  *
  * @sideEffects Writes the file.
  * @param file - The loaded file.

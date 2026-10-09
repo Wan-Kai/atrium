@@ -58,7 +58,7 @@ export interface UserBubbleProps {
  * Shown at once when sent and replaced by the confirmed copy (domain-model §7); a pending one
  * has no time yet. Bubble on `--surface-2` with radius 22 (design-language, "消息流"). A message
  * longer than about 12 lines is folded, with "展开" at its end (SPEC-0001, "消息下方的信息");
- * images are counted, since attachments show from M1.6.
+ * images are counted, since attachments show from M1.7.
  *
  * @sideEffects Observes the bubble's size while folded to know whether it overflows.
  * @param props - The text, images and, once confirmed, its time.

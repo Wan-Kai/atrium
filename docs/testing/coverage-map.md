@@ -8,19 +8,19 @@
 
 | # | 需求 | 测试 | 状态 |
 |---|---|---|---|
-| 1 | 侧栏按项目和工作区组织，显示运行、待处理、合并状态；标签页切换会话 | `apps/desktop/e2e/workspaces.spec.ts`；组件与宿主见"项目、工作区与会话（M1.5）"。待处理的状态随 M1.6、M1.7 | 部分覆盖 |
+| 1 | 侧栏按项目和工作区组织，显示运行、待处理、合并状态；标签页切换会话 | `apps/desktop/e2e/workspaces.spec.ts`；组件与宿主见"项目、工作区与会话（M1.5）"。待处理的状态随 M1.6、M1.9 | 部分覆盖 |
 | 2 | 流式输出回复和推理过程 | `apps/desktop/e2e/chat.spec.ts`、`chat.perf.spec.ts`；组件与渲染见"协议、客户端与流式显示（M1.3）" | 已覆盖 |
-| 3 | 粘贴或拖入截图随消息发出 | — | 待 M1.6 |
+| 3 | 粘贴或拖入截图随消息发出 | — | 待 M1.7 |
 | 4 | 看到工具调用：命令和输出、读的文件、diff、写入的文件 | — | 待 M1.4 |
 | 5 | 随时中断 | — | 待 M1.6 |
 | 6 | 运行中默认排队，可插话 | — | 待 M1.6 |
-| 7 | 输入框旁切换模型和推理强度 | — | 待 M1.6 |
+| 7 | 输入框旁切换模型和推理强度 | — | 待 M1.7 |
 | 8 | 重启后恢复之前的会话 | `apps/desktop/e2e/history.spec.ts`（从 pi 的文件恢复）、`workspaces.spec.ts`（重启后标签页、当前标签和草稿还在）、`app.spec.ts`（页面存储跨重启） | 已覆盖 |
-| 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | — | 待 M1.6 |
+| 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | — | 待 M1.8 |
 | 10 | 在 Atrium 里回答 extension 的对话框 | — | 待 M1.6 |
 | 11 | 默认只突出回复，可切换显示模式 | — | 待 M1.4 |
-| 12 | 会话在后台继续运行 | — | 待 M1.7 |
-| 13 | 首次启动引导安装 pi、登录、添加项目 | — | 待 M1.8 |
+| 12 | 会话在后台继续运行 | — | 待 M1.9 |
+| 13 | 首次启动引导安装 pi、登录、添加项目 | — | 待 M1.10 |
 | 14 | 复制消息或回复 | — | 待 M1.4 |
 
 ## 进程与连接（M1.1）
@@ -178,7 +178,7 @@
 | 读不了的文件、中途断开的下载不让宿主崩溃 | ws-server.host.test.ts "answers 404 for a file it cannot read…"、"survives a client that disconnects…" | 已覆盖 |
 | 日志脱敏：凭据键、已知秘密、格式化参数、`Error`、子 logger 绑定 | `packages/host/src/platform/logger.test.ts`、`redact.test.ts`、`redact.prop.test.ts`；e2e "…never logs the token" | 已覆盖 |
 | pi 的环境里名字像凭据的变量值加入脱敏列表，pi 在 stderr 回显也不进日志 | redact.test.ts "picks the values of credential-like variables…"；tools.host.test.ts "scrubs credentials from the tool environment…"；try-pi.test.ts "keeps credentials from the environment out of its log…" | 已覆盖 |
-| pi 从 `auth.json` 读的 Key 被 pi 回显时不进日志（已知缺口，见 security.md"凭据与日志"） | — | 待 M1.8 |
+| pi 从 `auth.json` 读的 Key 被 pi 回显时不进日志（已知缺口，见 security.md"凭据与日志"） | — | 待 M1.10 |
 | 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
 | 索引文件 0600、`turns/` 目录 0700；插话记录的文件名只用 pi 形状的会话 id | `packages/host/src/store/index-file.test.ts`、`turn-starts.test.ts` | 已覆盖 |
 

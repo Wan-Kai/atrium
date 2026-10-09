@@ -77,7 +77,7 @@ atrium/
 │   │   │   │                       PendingInteraction、Attention、计时与指标
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
-│   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.7 加 generation+seq 增量）
+│   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
 │   │   │   ├── setup/              SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件）
@@ -95,7 +95,7 @@ atrium/
 │   │       ├── app/                根组件、工作台（侧栏 + 标签栏 + 对话区）、全局快捷键、连接状态
 │   │       ├── state/              把 client 的 store 包成 hooks；显示模式；ViewState（折叠、以后的草稿，存 localStorage）
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体
-│   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.7）
+│   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
 │   │       ├── tabs/               标签栏、历史、显示模式和会话菜单
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框
 │   │       ├── test/               浏览器测试用的假客户端
