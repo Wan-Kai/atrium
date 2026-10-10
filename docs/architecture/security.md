@@ -37,9 +37,10 @@
 
 ## 凭据与日志
 
-- API Key 只写进 pi 的 `~/.pi/agent/auth.json`，Atrium 不另存；读 `auth.json` 只取"是否已登录"，不把内容放进内存里的其他结构。
+- API Key 只写进 pi 的 `~/.pi/agent/auth.json`，Atrium 不另存；读 `auth.json` 只取"是否已登录"，不把内容放进内存里的其他结构。登录（SPEC-0001"第 2 步"）由登录程序调用 pi 完成，它只向宿主报告每家是否已登录和登录方式，不回传凭据；用户粘贴的 Key 经宿主写进登录程序的标准输入，不进参数、环境和日志，宿主转交后不留副本。登录过程的消息（pi 的提问、授权地址）不进日志。
+- 授权地址只接受 `https`，经桌面端的 `shell.openExternal` 交给系统浏览器；测试里换成记录地址的假实现，不打开真浏览器。
 - 日志统一脱敏：token、API Key、OAuth 令牌、`Authorization` 头一律替换；默认不记录提示词、回复、工具参数和输出、文件内容（[observability.md](observability.md#脱敏)）。例外：extension 的 `notify` 通知不在界面上显示，原文截断到 4 KB 后照常脱敏写进日志，便于排查 extension（2026-10-09 定）；它可能带出 extension 自己选择输出的内容。脱敏在每行日志写盘前对整行进行，消息里的格式化参数、`Error` 的消息、子 logger 的绑定都覆盖到。
-- pi 的 stderr 会逐行进日志，可能带着凭据（例如报错时回显的 Key）。宿主拿到交给 pi 的环境后，把其中名字像凭据的变量（名字含 `key`、`token`、`secret`、`password`、`passwd`、`credential`、`auth`，值至少 8 个字符）的值加入脱敏列表，在记录第一条日志前完成。**没有覆盖的**：pi 自己从 `auth.json` 读的 Key 不在环境里，宿主不读它的内容，所以 pi 回显这类 Key 时日志里拦不住；这是已知缺口，到 M1.10 做登录时再定。
+- pi 的 stderr 会逐行进日志，可能带着凭据（例如报错时回显的 Key）。宿主拿到交给 pi 的环境后，把其中名字像凭据的变量（名字含 `key`、`token`、`secret`、`password`、`passwd`、`credential`、`auth`，值至少 8 个字符）的值加入脱敏列表，在记录第一条日志前完成。**没有覆盖的**：pi 自己从 `auth.json` 读的 Key 不在环境里，宿主不读它的内容，所以 pi 回显这类 Key 时日志里拦不住；这是已知缺口，**接受**（2026-10-10 定）：宿主不碰凭据的内容，不为了脱敏去读 `auth.json`。
 - `PiRequestError` 的 `message` 只有命令名和原因，pi 的原文（错误文字、stderr 末尾）只放在 `detail`，`detail` 只用于界面上"展开看原始报错"。链路追踪记录异常时只取名字、消息和调用栈，碰不到 `detail`；记日志时只记 `command` 和 `reason`，不把整个错误对象交给 logger（pino 会把 `detail` 一起序列化）。
 - `~/.atrium/` 由宿主新建时目录权限 `0700`，日志文件 `0600`。已经存在的目录不改权限（`ATRIUM_HOME` 可能指向 `/tmp` 这类共享目录，改了会影响别人），权限过宽时记一条警告。
 

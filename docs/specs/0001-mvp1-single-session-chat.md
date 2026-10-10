@@ -408,10 +408,15 @@ Electron 主进程
 **第 2 步：登录模型**
 
 - 标题下有"用订阅登录 / 使用 API Key"切换。
-- 订阅登录是一张分组列表，每行：官方图标（白底圆角）、名称与说明、右侧"登录"。顺序：ChatGPT（Plus / Pro，可用 Codex 模型）、Claude（Pro / Max）、GitHub Copilot、Kimi Code、Grok（SuperGrok / X Premium）、OpenRouter，以 pi 支持的为准。
-- 点"登录"后这一行描蓝边，显示"在浏览器中完成登录"和"取消"；完成后显示"✓ 已登录"。至少登录一个，"继续"才可用。
-- API Key：选择服务商、粘贴 Key、保存，附"去哪里获取 API Key"链接；说明 Key 只写在本机的 `~/.pi/agent/auth.json`。
-- 凭据写在 pi 里，终端里的 pi 也能用。pi 的 RPC 没有登录命令，没有可用模型时 RPC 模式只给一个占位模型（2026-10-10 实测），所以登录状态用 `pi auth check --json` 或在锁下读 `~/.pi/agent/auth.json` 判断；登录由宿主调用 pi 的 OAuth 实现（`@earendil-works/pi-ai`）完成，实施时确认。
+- 订阅登录是一张分组列表，每行：官方图标（白底圆角）、名称与说明、右侧"登录"。顺序：ChatGPT（Plus / Pro，可用 Codex 模型；pi 的 `openai`）、Claude（Pro / Max）、GitHub Copilot、Kimi Code、Grok（SuperGrok / X Premium）、OpenRouter、Meta（Muse 订阅），以 pi 支持的为准：pi 没有的不显示，pi 以后新增的、带 OAuth 的服务商排在后面自动出现（名称用 pi 给的 `loginLabel` 或 `name`，图标用通用图标）。不显示 pi 标为 legacy 的 `openai-codex` 和要先配网关的 `radius`（2026-10-10 定）。
+- 点"登录"后这一行描蓝边，显示"在浏览器中完成登录"和"取消"，宿主用系统浏览器打开 pi 给的授权地址（只接受 `https`）；完成后显示"✓ 已登录"。至少登录一个，"继续"才可用。登录过程中 pi 要问的其他内容在这一行下面展开：
+  - 登录方式：自动选浏览器登录（pi 的 `browser`），不问用户。
+  - 浏览器在别的机器上：一个默认收起的"粘贴回调地址"输入框（pi 的 `manual_code`），和本机的回调同时等，哪个先到用哪个。
+  - 设备码（`device_code`）：显示码、"复制"和"打开验证页"。
+  - pi 的其他提问（如 GitHub Copilot 的企业域名）：按 pi 给的文字显示一个输入框或选择框；文字是 pi 的原文（英文），宿主不翻译。
+- API Key：选择服务商、粘贴 Key、保存，附"去哪里获取 API Key"链接；说明 Key 只写在本机的 `~/.pi/agent/auth.json`。服务商列表、保存走 pi 的 API Key 登录（同上，pi 还要问别的，比如账户 id，就接着问）。
+- 凭据写在 pi 里，终端里的 pi 也能用。pi 的 RPC 没有登录命令，没有可用模型时 RPC 模式只给一个占位模型（2026-10-10 实测）。**登录调用用户装的 pi**（2026-10-10 验证并定，见 [pi-internals](../research/pi-internals.md) §4"从外部调用 pi 的登录"）：宿主用系统 Node（pi 用的那个）运行 `packages/pi` 里的登录程序，它 `import` 用户装的 pi 包里的 `ModelRuntime`，查各家的登录状态、走 OAuth 和 API Key 登录、退出，凭据由 pi 在锁下写进 `auth.json`；和宿主之间按行传 JSON，Key 走标准输入。OpenAI 要的设备 ID 用 pi 自己的（`~/.pi/agent/settings.json` 的 `deviceId`），和终端里的 pi 是同一台设备。版本和终端里的 pi 一致，Atrium 不另带一份 pi。取消登录时停掉登录程序，回调端口随之释放。
+- 登录程序加载不了 pi（例如 Nix 装的、pi 的接口变了）：这一步显示"在终端运行 `pi`，输入 `/login`"（命令可复制）和"我登录好了，重新检测"。
 - 图标一律用各家官方资源，来源记录在 `prototypes/brand/SOURCES.md`；发布前按各家品牌规范核对用法。
 
 **第 3 步：添加项目**
