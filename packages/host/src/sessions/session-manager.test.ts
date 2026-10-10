@@ -1,5 +1,12 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import { CHATS, CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel } from "@atrium/protocol";
+import {
+  CHATS,
+  CommandError,
+  IDLE_CONTROL,
+  type SessionEvent,
+  type SessionModel,
+  UNKNOWN_METRICS,
+} from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -228,7 +235,7 @@ describe("SessionManager creating sessions", () => {
 
     await manager.createChat("client-1");
 
-    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries"]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries", "get_session_stats"]);
   });
 
   it("creates a session in a workspace's directory, and refuses an unknown workspace", async () => {
@@ -297,6 +304,8 @@ describe("SessionManager running sessions", () => {
       ["step_delta", 4],
       ["turn_finished", 5],
       ["run_settled", 6],
+      // The entries read after the run hold the reply's tokens (SPEC-0001, "状态栏（M1.8）").
+      ["metrics_updated", 7],
     ]);
     expect(runs).toStrictEqual([false]);
     expect(changes() - before).toBe(2);
@@ -559,6 +568,7 @@ describe("SessionManager opening sessions", () => {
         exited: false,
         control: IDLE_CONTROL,
         model: null,
+        metrics: UNKNOWN_METRICS,
       },
     ]);
 
@@ -945,6 +955,9 @@ function withoutIds(commands: readonly Record<string, unknown>[]): Record<string
   return commands.map(({ id: _id, ...rest }) => rest);
 }
 
+/** What the host reads from pi in the background, after runs and changes. */
+const BACKGROUND_READS = ["get_entries", "get_session_stats"];
+
 describe("SessionManager models", () => {
   it("starts a new session on the model chosen last, with its thinking level, before reading the session", async () => {
     const { models } = remembering({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
@@ -971,6 +984,7 @@ describe("SessionManager models", () => {
         { type: "set_thinking_level", level: "low" },
         { type: "get_state" },
         { type: "get_entries" },
+        { type: "get_session_stats" },
       ]),
     );
     await manager.subscribe("c1", ["pi-session-1"]);
@@ -985,7 +999,7 @@ describe("SessionManager models", () => {
 
     await manager.createChat("client-1");
 
-    expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries"]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries", "get_session_stats"]);
   });
 
   it("leaves pi's own model when none was chosen yet", async () => {
@@ -994,7 +1008,7 @@ describe("SessionManager models", () => {
 
     await manager.createChat("client-1");
 
-    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries"]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries", "get_session_stats"]);
   });
 
   it("starts the session on pi's own model when the remembered one is gone, logging only that", async () => {
@@ -1009,7 +1023,7 @@ describe("SessionManager models", () => {
 
     expect(await manager.createChat("client-1")).toStrictEqual({ sessionId: "pi-session-1" });
 
-    expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries"]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries", "get_session_stats"]);
     expect(records.filter((record) => record["msg"] === "remembered model not set")).toStrictEqual([
       expect.objectContaining({ level: "warn", command: "set_model", reason: "rejected" }),
     ]);
@@ -1025,7 +1039,7 @@ describe("SessionManager models", () => {
 
     await manager.openSession("client-1", "pi-session-1");
 
-    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries"]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries", "get_session_stats"]);
   });
 
   it("switches a session's model and thinking level, reporting what pi then uses", async () => {
@@ -1050,7 +1064,9 @@ describe("SessionManager models", () => {
 
     // Entries are read after each change too, in the background; stderr may lag behind the answers.
     await vi.waitFor(() =>
-      expect(withoutIds(piReceived().filter((command) => command["type"] !== "get_entries")).slice(2)).toStrictEqual([
+      expect(
+        withoutIds(piReceived().filter((command) => !BACKGROUND_READS.includes(String(command["type"])))).slice(2),
+      ).toStrictEqual([
         { type: "set_model", provider: "anthropic", modelId: "haiku" },
         { type: "get_state" },
         { type: "set_thinking_level", level: "off" },

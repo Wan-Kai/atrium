@@ -94,6 +94,8 @@ const PreferencesDocument = z.looseObject({
   lastModel: ModelRef.nullable(),
   /** Each model's last thinking level, keyed `providerId/modelId`. */
   thinkingByModel: z.record(z.string(), ThinkingLevel),
+  /** The status bar groups switched from their default; absent before M1.8 (SPEC-0001, "状态栏（M1.8）"). */
+  statusBar: z.record(z.string(), z.boolean()).optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 

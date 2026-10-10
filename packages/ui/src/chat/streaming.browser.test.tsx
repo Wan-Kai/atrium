@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import type { SessionView } from "@atrium/client";
-import { type Turn, IDLE_CONTROL } from "@atrium/protocol";
+import { type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import { Markdown } from "./markdown";
 import { Transcript } from "./transcript";
 import showcase from "./reply-showcase.md?raw";
@@ -62,6 +62,7 @@ function transcriptAt(fields: Partial<SessionView>) {
           status: "ready",
           control: IDLE_CONTROL,
           model: null,
+          metrics: UNKNOWN_METRICS,
           epoch: 1,
           seq: 0,
           items: [],

@@ -106,7 +106,8 @@ describe("one chat over the WebSocket", () => {
       ok: true,
       result: { disposition: "started" },
     });
-    await vi.waitFor(() => expect(chat.received.map((message) => message.type)).toContain("run_settled"), {
+    // The entries read after the run bring the reply's tokens to the status bar (SPEC-0001, "状态栏（M1.8）").
+    await vi.waitFor(() => expect(chat.received.map((message) => message.type)).toContain("metrics_updated"), {
       timeout: 15_000,
     });
 
@@ -119,10 +120,12 @@ describe("one chat over the WebSocket", () => {
       "step_delta",
       "turn_finished",
       "run_settled",
+      "metrics_updated",
     ]);
-    expect(events.slice(1)).toMatchObject(
+    expect(events.slice(1, 7)).toMatchObject(
       Array.from({ length: 6 }, (_, index) => ({ sessionId: "pi-session-1", epoch: 1, seq: index + 1, traceId })),
     );
+    expect(events[7]).toMatchObject({ seq: 7, traceId: null });
     // The snapshot comes before the response to `subscribe_sessions`.
     expect(chat.received.findIndex((message) => message.type === "session_snapshot")).toBeLessThan(
       responseIndex(chat.received, "r2"),

@@ -12,7 +12,14 @@ function reply(
   parts: Extract<LogMessage, { kind: "assistant" }>["parts"],
   stopReason: "stop" | "toolUse" = "stop",
 ): Extract<LogMessage, { kind: "assistant" }> {
-  return { kind: "assistant", parts, stopReason, errorMessage: null, usage: { input: 1, output: 1 }, timestamp: 0 };
+  return {
+    kind: "assistant",
+    parts,
+    stopReason,
+    errorMessage: null,
+    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: null },
+    timestamp: 0,
+  };
 }
 
 /** A bash call with this id. */

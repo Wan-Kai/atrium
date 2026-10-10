@@ -100,6 +100,15 @@ describe("withContainer and withPreferences", () => {
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      statusBar: {},
+    });
+  });
+
+  it("replaces the status bar's choices whole", () => {
+    const chosen = withPreferences(emptyIndex(), { statusBar: { cost: true, session: false } });
+
+    expect(withPreferences(chosen, { statusBar: { tokens: false } }).preferences.statusBar).toStrictEqual({
+      tokens: false,
     });
   });
 });

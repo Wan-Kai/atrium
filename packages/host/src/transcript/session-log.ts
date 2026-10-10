@@ -20,6 +20,8 @@ export interface SessionLog {
   clear(): void;
   /** The current branch's entries, root first. */
   branch(): LogEntry[];
+  /** Every entry, on any branch, in the order pi first gave them. */
+  all(): LogEntry[];
 }
 
 /**
@@ -71,5 +73,6 @@ export function createSessionLog(): SessionLog {
       }
       return path.toReversed();
     },
+    all: () => [...entries.values()],
   };
 }

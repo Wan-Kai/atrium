@@ -49,6 +49,7 @@ const commands: Command[] = [
   { type: "rename_session", requestId: "r25", traceparent, sessionId: "s1", name: "重构" },
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
   { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
+  { type: "set_preferences", requestId: "r60", traceparent, statusBar: { session: false, cost: true } },
   { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
   { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
   { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
@@ -284,6 +285,30 @@ const turn: Turn = {
 /** Where an event sits in a session's stream. */
 const at = { sessionId: "s1", epoch: 1, seq: 7, traceId };
 
+/** A session's status bar figures with every one known (SPEC-0001, "状态栏（M1.8）"). */
+const metrics = {
+  turns: 3,
+  steps: 7,
+  tokens: { input: 1200, output: 340, cacheRead: 9000, cacheWrite: 500 },
+  cost: 0.45,
+  reasoning: 120,
+  branchTokens: 8000,
+  context: { tokens: 84_000, window: 200_000, system: 3000, tools: 2500 },
+  timing: { modelMs: 4200, ttftMs: 800, tps: 48.5 },
+} as const;
+
+/** The same figures with none known yet. */
+const unknownMetrics = {
+  turns: null,
+  steps: null,
+  tokens: null,
+  cost: null,
+  reasoning: null,
+  branchTokens: 0,
+  context: null,
+  timing: null,
+} as const;
+
 /** One valid example of every session event. */
 /** How an extension's question ended. */
 const asked = {
@@ -312,6 +337,7 @@ const events: SessionEvent[] = [
     exited: false,
     control,
     model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" },
+    metrics,
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
   { type: "turn_started", ...at, turn: { ...turn, steps: [], outcome: "running", durationMs: null, usage: null } },
@@ -347,6 +373,18 @@ const events: SessionEvent[] = [
   { type: "notice_added", ...at, notice: asked, before: null },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },
+  { type: "metrics_updated", ...at, traceId: null, metrics },
+  { type: "metrics_updated", ...at, metrics: unknownMetrics },
+  {
+    type: "metrics_updated",
+    ...at,
+    metrics: {
+      ...metrics,
+      reasoning: null,
+      context: { tokens: null, window: 200_000, system: null, tools: null },
+      timing: { modelMs: 0, ttftMs: null, tps: null },
+    },
+  },
 ];
 
 describe("parseClientMessage", () => {
@@ -527,6 +565,11 @@ describe("parseClientMessage", () => {
     ],
     ["an unknown container", { type: "select_container", requestId: "r1", traceparent, containerId: "inbox" }, "r1"],
     ["an unknown appearance", { type: "set_preferences", requestId: "r1", traceparent, appearance: "sepia" }, "r1"],
+    [
+      "a status bar group id over 64 characters",
+      { type: "set_preferences", requestId: "r1", traceparent, statusBar: { ["g".repeat(65)]: true } },
+      "r1",
+    ],
     ["opening no session", { type: "open_session", requestId: "r1", traceparent }, "r1"],
     [
       "a step fetch without a step",
@@ -757,6 +800,7 @@ const snapshot: IndexSnapshotEvent = {
     displayMode: "summary",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
+    statusBar: { cost: true, session: false },
   },
   resets: ["layouts"],
 };
@@ -853,7 +897,7 @@ describe("HostMessage", () => {
         preferences: { ...snapshot.preferences, displayMode },
       })),
       { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "sessions", "preferences"] },
-      { ...snapshot, preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {} } },
+      { ...snapshot, preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {}, statusBar: {} } },
       ...ThinkingLevel.options.map((thinkingLevel) => ({
         type: "model_updated",
         ...at,
@@ -972,6 +1016,21 @@ describe("HostMessage", () => {
     ],
     ["an unknown reset file", { ...snapshot, resets: ["turns"] }],
     ["a snapshot without preferences", { ...snapshot, preferences: undefined }],
+    [
+      "a status bar group without a name",
+      { ...snapshot, preferences: { ...snapshot.preferences, statusBar: { "": true } } },
+    ],
+    ["a session snapshot without metrics", { ...events[0], metrics: undefined }],
+    [
+      "a negative token count",
+      { type: "metrics_updated", ...at, metrics: { ...metrics, tokens: { ...metrics.tokens, input: -1 } } },
+    ],
+    [
+      "a context window of no tokens",
+      { type: "metrics_updated", ...at, metrics: { ...metrics, context: { ...metrics.context, window: 0 } } },
+    ],
+    ["a fractional step count", { type: "metrics_updated", ...at, metrics: { ...metrics, steps: 1.5 } }],
+    ["a negative cost", { type: "metrics_updated", ...at, metrics: { ...metrics, cost: -0.01 } }],
     ["a welcome without heartbeat", { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1" }],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);

@@ -18,6 +18,16 @@ describe("createSessionLog", () => {
 
     expect(log.cursor).toBeUndefined();
     expect(log.branch()).toStrictEqual([]);
+    expect(log.all()).toStrictEqual([]);
+  });
+
+  it("holds every entry once, in the order pi first gave them, whatever branch they are on", () => {
+    const log = createSessionLog();
+
+    log.append([entry("a", null), entry("b", "a"), entry("c", "a")], "b");
+    log.append([entry("b", "a"), entry("d", "c")], "d");
+
+    expect(log.all()).toStrictEqual([entry("a", null), entry("b", "a"), entry("c", "a"), entry("d", "c")]);
   });
 
   it("walks the branch from the leaf pi reports, root first, leaving other branches out", () => {
@@ -76,6 +86,7 @@ describe("createSessionLog", () => {
 
     expect(log.cursor).toBeUndefined();
     expect(log.branch()).toStrictEqual([]);
+    expect(log.all()).toStrictEqual([]);
     expect([...log.append([entry("a", null)], "a")]).toStrictEqual(["a"]);
   });
 });

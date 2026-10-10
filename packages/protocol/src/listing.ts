@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { StatusGroupId } from "./metrics";
 import { ModelRef, ThinkingLevel } from "./models";
 
 /** An absolute path on the host's machine. */
@@ -98,18 +99,25 @@ export type Appearance = z.infer<typeof Appearance>;
 export const DisplayMode = z.enum(["summary", "thinking", "detailed"]);
 export type DisplayMode = z.infer<typeof DisplayMode>;
 
+/** The status bar groups switched on or off, by id. */
+export const StatusBarChoices = z.record(StatusGroupId, z.boolean());
+export type StatusBarChoices = z.infer<typeof StatusBarChoices>;
+
 /**
  * Global preferences, the same for every client.
  *
  * @remarks
  * `lastModel` and `thinkingByModel` (keyed `providerId/modelId`) follow every model or thinking
  * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框").
+ * `statusBar` holds only the status bar groups you switched from their default, so a group added
+ * later shows as its own default says (SPEC-0001, "状态栏（M1.8）").
  */
 export const Preferences = z.strictObject({
   appearance: Appearance,
   displayMode: DisplayMode,
   lastModel: ModelRef.nullable(),
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
+  statusBar: StatusBarChoices,
 });
 export type Preferences = z.infer<typeof Preferences>;
 

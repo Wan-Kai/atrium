@@ -1,4 +1,4 @@
-import { CloseCode, CommandError, IDLE_CONTROL, PROTOCOL_VERSION } from "@atrium/protocol";
+import { CloseCode, CommandError, IDLE_CONTROL, PROTOCOL_VERSION, UNKNOWN_METRICS } from "@atrium/protocol";
 import { FakeClock, present } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { type AtriumClient, ConnectionLostError, createAtriumClient } from "./atrium-client";
@@ -103,6 +103,7 @@ function snapshot(seq: number, items: unknown[] = [], hasOlder = false): string 
     exited: false,
     control: IDLE_CONTROL,
     model: null,
+    metrics: UNKNOWN_METRICS,
   });
 }
 
@@ -709,9 +710,12 @@ describe("createAtriumClient: sessions", () => {
         run: { runId: "r1", startedAt: 1 },
         exited: false,
         control: IDLE_CONTROL,
+        model: null,
+        metrics: UNKNOWN_METRICS,
       }),
     );
     const shown = client.session("s1")?.getState().items;
+    expect(shown).toStrictEqual([turn("t1")]);
 
     latest().closeWith(1006);
     clock.advance(250);
@@ -910,7 +914,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       },
     ],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {}, statusBar: {} },
     resets: [],
     ...fields,
   });
@@ -968,6 +972,7 @@ describe("createAtriumClient: the list", () => {
       displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
+      statusBar: {},
     });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
@@ -1001,6 +1006,7 @@ async function watchingWithModel(model: unknown) {
       exited: false,
       control: IDLE_CONTROL,
       model,
+      metrics: UNKNOWN_METRICS,
     }),
   );
   return setup;

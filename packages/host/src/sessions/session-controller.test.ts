@@ -1,5 +1,5 @@
-import type { LogEntry, PiEvent } from "@atrium/pi";
-import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel } from "@atrium/protocol";
+import type { LogEntry, PiEvent, PiStats } from "@atrium/pi";
+import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
 import { FakeClock, ReplayRequestError, present, replayPi } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { fixtureEntries, readPiFixture } from "../../test/pi-fixtures";
@@ -106,6 +106,7 @@ function replayedHistory() {
     setModel: async () => undefined,
     setThinkingLevel: async () => undefined,
     commands: async () => [],
+    stats: () => new Promise(() => undefined),
     stop: () => raw.stop(),
   };
   return { pi, raw, since, initial: page(0) };
@@ -133,6 +134,14 @@ function manualPi() {
   const stateFailures: unknown[] = [];
   /** Each message and steer sent, with the data of its images. */
   const withImages: [string, string[]][] = [];
+  /** Answers to `get_session_stats`, in order; with none left, a read waits until pi exits, as pi's would. */
+  const statsAnswers: Array<() => Promise<PiStats>> = [];
+  /** A read nobody answers: it fails once pi exits. */
+  const unanswered = async (): Promise<PiStats> => {
+    await exit.promise;
+    throw new ReplayRequestError("get_session_stats", "exited", "");
+  };
+  let statsReads = 0;
   const abortGate = Promise.withResolvers<void>();
   let abortWaits = false;
   /**
@@ -195,6 +204,10 @@ function manualPi() {
       if (commandFailures.length > 0) throw commandFailures.shift();
       return [{ name: "review", description: null, source: "prompt" as const }];
     },
+    stats: () => {
+      statsReads += 1;
+      return (statsAnswers.shift() ?? unanswered)();
+    },
     stop: async () => exit.resolve({ code: 0, signal: null, requested: true }),
   };
   return {
@@ -219,6 +232,9 @@ function manualPi() {
     commandFailures,
     stateFailures,
     withImages,
+    statsAnswers,
+    /** How many times `get_session_stats` was read. */
+    statsReads: () => statsReads,
     emit,
     crash: () => exit.resolve({ code: null, signal: "SIGKILL", requested: false }),
   };
@@ -238,7 +254,13 @@ function userEnd(text: string) {
 function replyEnd(stopReason: string, content: unknown[] = []) {
   return {
     type: "message_end",
-    message: { role: "assistant", content, stopReason, usage: { input: 1, output: 1 }, timestamp: 0 },
+    message: {
+      role: "assistant",
+      content,
+      stopReason,
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+      timestamp: 0,
+    },
   };
 }
 
@@ -385,6 +407,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
       exited: false,
       control: IDLE_CONTROL,
       model: null,
+      metrics: UNKNOWN_METRICS,
     });
   });
 
@@ -1454,7 +1477,7 @@ describe("createSessionController answering dialogs", () => {
       parts: [],
       stopReason: "stop",
       errorMessage: null,
-      usage: { input: 1, output: 1 },
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: null },
       timestamp: 0,
     };
     pages.push(async () => ({ entries: [userEntry("u1", null, "one"), reply], leafId: "a1" }));
@@ -1804,7 +1827,7 @@ describe("createSessionController retrying", () => {
       parts: [],
       stopReason: "error",
       errorMessage: "overloaded",
-      usage: { input: 0, output: 0 },
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: null },
       timestamp: 0,
     };
     pages.push(async () => ({ entries: [userEntry("u1", null, "one"), failed], leafId: "a1" }));
@@ -2274,5 +2297,218 @@ describe("createSessionController's images", () => {
     await settle();
 
     expect(second.withImages).toContainEqual(["这张", ["x"]]);
+  });
+});
+
+/** pi's statistics, as `get_session_stats` gives them. */
+const piStats: PiStats = {
+  turns: 1,
+  steps: 2,
+  tokens: { input: 10, output: 5, cacheRead: 100, cacheWrite: 1 },
+  cost: 0.01,
+  context: { tokens: 300, window: 1000 },
+};
+
+/** The status bar figures `piStats` makes, before anything else is known. */
+const fromStats = {
+  ...UNKNOWN_METRICS,
+  turns: 1,
+  steps: 2,
+  tokens: { input: 10, output: 5, cacheRead: 100, cacheWrite: 1 },
+  cost: 0.01,
+  context: { tokens: 300, window: 1000, system: null, tools: null },
+};
+
+/** The figures of every `metrics_updated` among the events. */
+function published(events: readonly SessionEvent[]) {
+  return events.flatMap((event) => (event.type === "metrics_updated" ? [event.metrics] : []));
+}
+
+describe("createSessionController's status bar figures", () => {
+  it("reads pi's statistics once pi has started, publishing them and carrying them in snapshots", async () => {
+    const { pi, statsAnswers, statsReads } = manualPi();
+    statsAnswers.push(async () => piStats);
+    const { controller, events } = control(pi);
+    expect(controller.snapshot().metrics).toStrictEqual(UNKNOWN_METRICS);
+
+    await settle();
+
+    expect(statsReads()).toBe(1);
+    expect(events).toStrictEqual([{ type: "metrics_updated", ...at(1, null), metrics: fromStats }]);
+    expect(controller.snapshot().metrics).toStrictEqual(fromStats);
+  });
+
+  it("starts from the entries it was given, publishing nothing for them", () => {
+    const { pi } = manualPi();
+    const assistant: LogEntry = {
+      id: "a1",
+      parentId: "u1",
+      kind: "assistant",
+      parts: [],
+      stopReason: "stop",
+      errorMessage: null,
+      usage: { input: 3, output: 4, cacheRead: 0, cacheWrite: 0, reasoning: 2 },
+      timestamp: 0,
+    };
+
+    const { controller, events } = control(pi, { entries: [userEntry("u1", null, "one"), assistant], leafId: "a1" });
+
+    expect(controller.snapshot().metrics).toStrictEqual({ ...UNKNOWN_METRICS, reasoning: 2, branchTokens: 7 });
+    expect(events).toStrictEqual([]);
+  });
+
+  it("times a request from pi's turn start to its reply, and reads pi's statistics after it", async () => {
+    const { pi, emit, statsAnswers, statsReads } = manualPi();
+    statsAnswers.push(
+      async () => piStats,
+      async () => ({ ...piStats, turns: 2 }),
+    );
+    const { controller, events, clock } = control(pi);
+    await settle();
+    await controller.prompt(prompt("q1", "hi"));
+
+    emit({ type: "agent_start" }, { type: "turn_start" }, userEnd("hi"));
+    clock.advance(400);
+    emit(
+      { type: "message_start", message: { role: "assistant", content: [], stopReason: "pending", timestamp: 0 } },
+      { type: "message_update", assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hel" } },
+    );
+    clock.advance(1000);
+    emit(replyEnd("stop", [{ type: "text", text: "Hel" }]));
+    await settle();
+
+    expect(statsReads()).toBe(2);
+    expect(published(events)).toStrictEqual([
+      fromStats,
+      { ...fromStats, timing: { modelMs: 1400, ttftMs: 400, tps: 1 } },
+      { ...fromStats, turns: 2, timing: { modelMs: 1400, ttftMs: 400, tps: 1 } },
+    ]);
+  });
+
+  it("adds up the tokens of the entries read after a run", async () => {
+    const { pi, emit, pages } = manualPi();
+    const { controller, events } = control(pi);
+    await controller.prompt(prompt("q1", "hi"));
+    emit({ type: "agent_start" }, userEnd("hi"));
+    pages.push(async () => ({
+      entries: [
+        userEntry("u1", null, "hi"),
+        {
+          id: "a1",
+          parentId: "u1",
+          kind: "assistant",
+          parts: [],
+          stopReason: "stop",
+          errorMessage: null,
+          usage: { input: 1, output: 2, cacheRead: 30, cacheWrite: 4, reasoning: null },
+          timestamp: 0,
+        },
+      ],
+      leafId: "a1",
+    }));
+
+    emit(replyEnd("stop"), { type: "agent_settled" });
+    await settle();
+
+    expect(published(events)).toStrictEqual([{ ...UNKNOWN_METRICS, branchTokens: 37 }]);
+  });
+
+  it("reads pi's statistics again after the model changes, as the context window may", async () => {
+    const { pi, statsAnswers, statsReads } = manualPi();
+    statsAnswers.push(
+      async () => piStats,
+      async () => piStats,
+    );
+    const { controller } = control(pi, empty, { model: opus });
+    await settle();
+
+    await controller.setModel({ providerId: "anthropic", modelId: "haiku" });
+    await settle();
+
+    expect(statsReads()).toBe(2);
+  });
+
+  it("logs a read pi failed by its reason only, keeping the figures, but not one that failed as pi went away", async () => {
+    const { pi, emit, statsAnswers } = manualPi();
+    statsAnswers.push(
+      async () => {
+        throw new ReplayRequestError("get_session_stats", "rejected", "secret in pi's text");
+      },
+      async () => {
+        throw new Error("odd");
+      },
+      async () => {
+        throw new ReplayRequestError("get_session_stats", "stopped", "");
+      },
+    );
+    const { controller, logged } = control(pi);
+    await settle();
+
+    emit(replyEnd("stop"));
+    await settle();
+    emit(replyEnd("stop"));
+    await settle();
+
+    expect(logged).toStrictEqual([
+      ["warn", "session stats not read", { sessionId: "s1", reason: "rejected" }],
+      ["warn", "session stats not read", { sessionId: "s1", reason: "unknown" }],
+    ]);
+    expect(controller.snapshot().metrics).toStrictEqual(UNKNOWN_METRICS);
+  });
+
+  it("reads the statistics of the pi that took over after a crash, timing nothing the crashed one began", async () => {
+    const first = manualPi();
+    const second = manualPi();
+    second.statsAnswers.push(async () => piStats);
+    const reply: LogEntry = {
+      id: "a1",
+      parentId: "u1",
+      kind: "assistant",
+      parts: [],
+      stopReason: "stop",
+      errorMessage: null,
+      usage: { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, reasoning: null },
+      timestamp: 0,
+    };
+    const { controller, events } = control(first.pi, empty, {
+      respawn: async () => ({
+        pi: second.pi,
+        entries: { entries: [userEntry("u1", null, "one"), reply], leafId: "a1" },
+      }),
+    });
+    await controller.prompt(prompt("q1", "one"));
+    first.emit({ type: "agent_start" }, { type: "turn_start" }, userEnd("one"));
+
+    first.crash();
+    await settle();
+    second.emit(replyEnd("stop"));
+    await settle();
+
+    // Once as it took over, once after its reply; its entries come with its snapshot.
+    expect(second.statsReads()).toBe(2);
+    expect(published(events)).toStrictEqual([
+      { ...UNKNOWN_METRICS, branchTokens: 5 },
+      { ...fromStats, branchTokens: 5 },
+    ]);
+    const types = events.map((event) => event.type);
+    expect(types.indexOf("metrics_updated")).toBeGreaterThan(types.lastIndexOf("session_snapshot"));
+    expect(published(events).length).toBe(2);
+    expect(events.filter((event) => event.type === "metrics_updated").map((event) => event.epoch)).toStrictEqual([
+      2, 2,
+    ]);
+    expect(controller.snapshot().metrics).toStrictEqual({ ...fromStats, branchTokens: 5 });
+  });
+
+  it("publishes nothing a read brings once shut down", async () => {
+    const { pi, statsAnswers } = manualPi();
+    const read = Promise.withResolvers<PiStats>();
+    statsAnswers.push(() => read.promise);
+    const { controller, events } = control(pi);
+
+    await controller.shutdown();
+    read.resolve(piStats);
+    await settle();
+
+    expect(published(events)).toStrictEqual([]);
   });
 });

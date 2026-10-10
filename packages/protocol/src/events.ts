@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Control } from "./control";
 import { SessionId } from "./ids";
+import { SessionMetrics } from "./metrics";
 import { SessionModel } from "./models";
 import { Notice, Step, TranscriptItem, Turn } from "./transcript";
 
@@ -48,6 +49,8 @@ export const SessionSnapshotEvent = z.strictObject({
   control: Control,
   /** The model and thinking level pi uses; `null` before pi has started. */
   model: SessionModel.nullable(),
+  /** The status bar's figures (SPEC-0001, "状态栏（M1.8）"). */
+  metrics: SessionMetrics,
 });
 export type SessionSnapshotEvent = z.infer<typeof SessionSnapshotEvent>;
 
@@ -148,6 +151,14 @@ export const ModelUpdatedEvent = z.strictObject({
 });
 export type ModelUpdatedEvent = z.infer<typeof ModelUpdatedEvent>;
 
+/** The session's status bar figures changed; all of them, each time (SPEC-0001, "状态栏（M1.8）"). */
+export const MetricsUpdatedEvent = z.strictObject({
+  type: z.literal("metrics_updated"),
+  ...sessionEventFields,
+  metrics: SessionMetrics,
+});
+export type MetricsUpdatedEvent = z.infer<typeof MetricsUpdatedEvent>;
+
 /** The session's pi process ended. */
 export const SessionExitedEvent = z.strictObject({
   type: z.literal("session_exited"),
@@ -174,5 +185,6 @@ export const SessionEvent = z.discriminatedUnion("type", [
   ControlUpdatedEvent,
   PromptHandledEvent,
   ModelUpdatedEvent,
+  MetricsUpdatedEvent,
 ]);
 export type SessionEvent = z.infer<typeof SessionEvent>;

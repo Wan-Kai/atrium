@@ -11,6 +11,36 @@ export type AssistantPart =
 export type LogStopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 
 /**
+ * An assistant message's tokens (pi-internals.md §2, "统计").
+ *
+ * @remarks
+ * `reasoning` is part of `output`, and `null` when the provider does not report it.
+ */
+export interface LogUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly reasoning: number | null;
+}
+
+/**
+ * What a system message states of the system prompt and the tools, by size.
+ *
+ * @remarks
+ * Sizes are all the host estimates the context from (SPEC-0001, "状态栏（M1.8）"), so the prompt's
+ * text and the tools' declarations are not kept. `textChars` is the instruction text, its blocks
+ * joined as pi joins them; a section of `null` is removed; each added tool is its declaration's
+ * JSON length.
+ */
+export interface SystemParts {
+  readonly textChars: number;
+  readonly sections: Readonly<Record<string, number | null>>;
+  readonly toolsAdded: Readonly<Record<string, number>>;
+  readonly toolsRemoved: readonly string[];
+}
+
+/**
  * A message in Atrium's shape: user, assistant or tool result (domain-model §2).
  *
  * @remarks
@@ -25,7 +55,7 @@ export type LogMessage =
       readonly parts: readonly AssistantPart[];
       readonly stopReason: LogStopReason;
       readonly errorMessage: string | null;
-      readonly usage: { readonly input: number; readonly output: number };
+      readonly usage: LogUsage;
       readonly timestamp: number;
     }
   | {
@@ -50,10 +80,18 @@ export type LogMessage =
 export type LogEntry = { readonly id: string; readonly parentId: string | null } & (
   | LogMessage
   | ({ readonly timestamp: number } & (
-      | { readonly kind: "compaction"; readonly summary: string; readonly tokensBefore: number }
+      | {
+          readonly kind: "compaction";
+          readonly summary: string;
+          readonly tokensBefore: number;
+          /** The whole system prompt at the compaction, from which later system messages go on. */
+          readonly system: SystemParts | null;
+        }
+      /** The system prompt or the tools changing (pi-internals.md §2, "系统消息"). */
+      | { readonly kind: "system"; readonly system: SystemParts }
       /** A failed reply taken out of the model's context before a retry. */
       | { readonly kind: "omission"; readonly targetId: string }
-      /** Anything the transcript does not show: model and thinking changes, labels, system messages… */
+      /** Anything the transcript does not show: model and thinking changes, labels, `!bash` messages… */
       | { readonly kind: "other" }
     ))
 );
@@ -61,6 +99,28 @@ export type LogEntry = { readonly id: string; readonly parentId: string | null }
 /** pi's message, as it arrives in a message entry or a `message_end` event. */
 export type PiMessage = Extract<SessionEntry, { type: "message" }>["message"];
 type PiAssistantMessage = Extract<PiMessage, { role: "assistant" }>;
+type PiSystemMessage = Extract<PiMessage, { role: "system" }>;
+
+/**
+ * Sizes a system message.
+ *
+ * @remarks
+ * See `SystemParts`.
+ *
+ * @sideEffects none
+ * @param message - pi's system message.
+ * @returns Its sizes.
+ */
+function systemParts(message: PiSystemMessage): SystemParts {
+  return {
+    textChars: contentText(message.content).text.length,
+    sections: Object.fromEntries(
+      Object.entries(message.sections ?? {}).map(([name, text]) => [name, text === null ? null : text.length]),
+    ),
+    toolsAdded: Object.fromEntries((message.toolsAdded ?? []).map((tool) => [tool.name, JSON.stringify(tool).length])),
+    toolsRemoved: (message.toolsRemoved ?? []).map((tool) => tool.name),
+  };
+}
 
 /**
  * Converts an assistant message's blocks.
@@ -118,7 +178,13 @@ export function toLogMessage(message: PiMessage, fallbackTime: number): LogMessa
       parts: assistantParts(message.content),
       stopReason: stopReason(message.stopReason),
       errorMessage: message.errorMessage ?? null,
-      usage: { input: message.usage.input, output: message.usage.output },
+      usage: {
+        input: message.usage.input,
+        output: message.usage.output,
+        cacheRead: message.usage.cacheRead,
+        cacheWrite: message.usage.cacheWrite,
+        reasoning: message.usage.reasoning ?? null,
+      },
       timestamp,
     };
   }
@@ -140,9 +206,10 @@ export function toLogMessage(message: PiMessage, fallbackTime: number): LogMessa
  * Converts one pi session entry to Atrium's shape.
  *
  * @remarks
- * Message entries become messages (`toLogMessage`). A `context_edit` that removes its target
- * marks a failed reply that pi retried. Everything else keeps only its place in the tree. An entry
- * time that cannot be read becomes 0.
+ * Message entries become messages (`toLogMessage`), and system messages their sizes
+ * (`SystemParts`), as does a compaction's stored system prompt. A `context_edit` that removes its
+ * target marks a failed reply that pi retried. Everything else keeps only its place in the tree.
+ * An entry time that cannot be read becomes 0.
  *
  * @sideEffects none
  * @param entry - pi's entry.
@@ -151,7 +218,8 @@ export function toLogMessage(message: PiMessage, fallbackTime: number): LogMessa
 export function toLogEntry(entry: SessionEntry): LogEntry {
   const base = { id: entry.id, parentId: entry.parentId, timestamp: Date.parse(entry.timestamp) || 0 };
   if (entry.type === "compaction") {
-    return { ...base, kind: "compaction", summary: entry.summary, tokensBefore: entry.tokensBefore };
+    const system = entry.systemMessage === undefined ? null : systemParts(entry.systemMessage);
+    return { ...base, kind: "compaction", summary: entry.summary, tokensBefore: entry.tokensBefore, system };
   }
   if (entry.type === "context_edit") {
     return entry.replacement === null
@@ -159,6 +227,10 @@ export function toLogEntry(entry: SessionEntry): LogEntry {
       : { ...base, kind: "other" };
   }
   if (entry.type !== "message") return { ...base, kind: "other" };
+  if (entry.message.role === "system") {
+    const timestamp = typeof entry.message.timestamp === "number" ? entry.message.timestamp : base.timestamp;
+    return { ...base, timestamp, kind: "system", system: systemParts(entry.message) };
+  }
   const message = toLogMessage(entry.message, base.timestamp);
   return message === null ? { ...base, kind: "other" } : { id: entry.id, parentId: entry.parentId, ...message };
 }

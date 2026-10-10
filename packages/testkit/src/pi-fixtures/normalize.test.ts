@@ -68,6 +68,26 @@ describe("createNormalizer", () => {
     });
   });
 
+  it("fixes the measurements of pi's session statistics, keeping its counts of messages and the model's window", () => {
+    const normalize = createNormalizer({});
+
+    expect(
+      normalize({
+        userMessages: 2,
+        toolCalls: 1,
+        tokens: { input: 1455, output: 30, cacheRead: 9, cacheWrite: 4, total: 1498 },
+        cost: 0.25,
+        contextUsage: { tokens: 1468, contextWindow: 128000, percent: 1.14 },
+      }),
+    ).toStrictEqual({
+      userMessages: 2,
+      toolCalls: 1,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+      contextUsage: { tokens: 0, contextWindow: 128000, percent: 0 },
+    });
+  });
+
   it("treats 8-hex text as an entry id only under the keys that hold entry ids", () => {
     const normalize = createNormalizer({});
 

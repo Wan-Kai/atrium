@@ -97,6 +97,10 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 
 - 用量和费用统计**整个文件**（含废弃分支、压缩消耗）。
 - `contextUsage` 是当前分支的估算；压缩后到下一次助手回复前为 null；没有模型时缺省。
+- 1.1.0 的 `getSessionStats`（2026-10-10 读源码）：`userMessages` 数所有 `role: "user"` 的消息（插话也是），`toolCalls` 数助手消息里的工具调用；用量累加 `usage` 条目、带用量的压缩和分支摘要条目、带用量的工具结果、助手消息。`total` = 四项之和；没有推理 token 这一项。`contextUsage` 在模型没有上下文窗口时也缺省。
+- `usage.reasoning`（推理 token）只有部分服务商报告，是 `output` 的一部分；不报告的服务商留空。
+- 计时：每次请求前 pi 发 `turn_start`，然后准备请求（可能先压缩）再发出；服务商的响应头回来后才发助手消息的 `message_start`（pi-ai 的 Anthropic 实现在拿到响应后才 push `start`；其他服务商没逐个核对），之后是 `message_update` 增量和 `message_end`。所以没有"请求已发出"的事件，测首 token 时间只能从 `turn_start` 算起。
+- 系统消息（1.1.0）：pi 把提示词和工具集写成 `role: "system"` 的消息，`content` 是提示词正文，`sections` 是按名字的分段（之后的系统消息按名字改，`null` 是删除），`toolsAdded` / `toolsRemoved` 增删工具声明；压缩条目的 `systemMessage` 是完整的检查点。pi-ai 的 `getCurrentSystemMessage` 按顺序回放这些消息；`estimateTokens` 按字符数 ÷ 4 估算，工具按声明的 JSON 长度。
 
 ## 3. RPC 协议（`src/modes/rpc/rpc-types.ts`、`rpc-mode.ts`；`docs/rpc.md`、`docs/rpc-commands.md`、`docs/json.md`）
 

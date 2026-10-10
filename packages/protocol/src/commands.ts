@@ -4,7 +4,7 @@ import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
-import { Appearance, DisplayMode } from "./listing";
+import { Appearance, DisplayMode, StatusBarChoices } from "./listing";
 import { CatalogModel, ModelRef, ThinkingLevel } from "./models";
 import { Step, TranscriptItem } from "./transcript";
 
@@ -245,12 +245,13 @@ export const RenameSessionCommand = z.strictObject({
 });
 export type RenameSessionCommand = z.infer<typeof RenameSessionCommand>;
 
-/** Changes global preferences; fields left out stay as they are. */
+/** Changes global preferences; fields left out stay as they are, and `statusBar` is replaced whole. */
 export const SetPreferencesCommand = z.strictObject({
   type: z.literal("set_preferences"),
   ...commandFields,
   appearance: Appearance.optional(),
   displayMode: DisplayMode.optional(),
+  statusBar: StatusBarChoices.optional(),
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 

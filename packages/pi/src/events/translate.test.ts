@@ -56,7 +56,14 @@ function reply(
   stopReason: "stop" | "toolUse" | "error" | "aborted" = "stop",
   errorMessage: string | null = null,
 ): TranslatedEvent {
-  return finished({ kind: "assistant", parts, stopReason, errorMessage, usage: { input: 0, output: 0 }, timestamp: 0 });
+  return finished({
+    kind: "assistant",
+    parts,
+    stopReason,
+    errorMessage,
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: null },
+    timestamp: 0,
+  });
 }
 
 /** A text or thinking block starting. */
@@ -81,7 +88,13 @@ function result(callId: string, tool: string, text: string, details?: unknown): 
 
 /** A pi assistant message with the given content and stop reason. */
 function assistant(content: unknown[], stopReason: string): never {
-  return { role: "assistant", content, stopReason, usage: { input: 3, output: 4 }, timestamp: 5 } as never;
+  return {
+    role: "assistant",
+    content,
+    stopReason,
+    usage: { input: 3, output: 4, cacheRead: 1, cacheWrite: 2 },
+    timestamp: 5,
+  } as never;
 }
 
 /** A pi streaming update. */
@@ -102,6 +115,10 @@ function toolOutput(partialResult: unknown): TranslatedEvent[] {
   ]);
 }
 const run = { kind: "agent_started" } as const;
+/** pi's `turn_start`: a request about to go out. */
+const request = { kind: "request_started" } as const;
+/** An assistant message's first output. */
+const output = { kind: "output_started" } as const;
 const settled = { kind: "agent_settled" } as const;
 const unavailable = "upstream returned 503 service unavailable";
 
@@ -109,9 +126,11 @@ describe("createEventTranslator against recorded pi output", () => {
   it("streams thinking and text by their place in the message, then the finished message", () => {
     expect(translateFixture("prompt-started")).toStrictEqual([
       run,
+      request,
       user("hi"),
       started,
       start(0, "thinking"),
+      output,
       delta(0, "Plan fir"),
       delta(0, "st."),
       start(1, "text"),
@@ -128,19 +147,23 @@ describe("createEventTranslator against recorded pi output", () => {
   it("reports a failed attempt, the retry pi starts, and a failure it does not retry", () => {
     expect(translateFixture("error-retry")).toStrictEqual([
       run,
+      request,
       user("one"),
       started,
       reply([], "error", unavailable),
       { kind: "retry_started", attempt: 1, maxAttempts: 3, error: unavailable },
       // The automatic retry starts the agent again.
       run,
+      request,
       started,
       start(0, "text"),
+      output,
       delta(0, "recovere"),
       delta(0, "d"),
       reply([{ type: "text", text: "recovered" }]),
       settled,
       run,
+      request,
       user("two"),
       started,
       reply([], "error", "scripted failure"),
@@ -151,6 +174,7 @@ describe("createEventTranslator against recorded pi output", () => {
   it("reports an aborted reply as an empty message stopped by abort, with pi's text", () => {
     expect(translateFixture("abort")).toStrictEqual([
       run,
+      request,
       user("one"),
       // The queue pi reports emptied as the run stops, once for the test's queued follow-up and once
       // for clear_queue.
@@ -165,9 +189,11 @@ describe("createEventTranslator against recorded pi output", () => {
   it("reports tool calls once complete, live output, results, retries and a compaction", () => {
     expect(translateFixture("history")).toStrictEqual([
       run,
+      request,
       user("one"),
       started,
       start(0, "thinking"),
+      output,
       delta(0, "Look fir"),
       delta(0, "st."),
       call(1, "call-1", "bash", { command: "printf 'tool-%s' ok" }),
@@ -181,14 +207,18 @@ describe("createEventTranslator against recorded pi output", () => {
       { kind: "tool_output", callId: "call-1", text: "" },
       { kind: "tool_output", callId: "call-1", text: "tool-ok" },
       result("call-1", "bash", "tool-ok"),
+      request,
       started,
+      output,
       call(0, "call-2", "write", { path: "notes.txt", content: "a\nb\n" }),
       reply(
         [{ type: "toolCall", callId: "call-2", tool: "write", args: { path: "notes.txt", content: "a\nb\n" } }],
         "toolUse",
       ),
       result("call-2", "write", "Successfully wrote to notes.txt"),
+      request,
       started,
+      output,
       call(0, "call-3", "edit", { path: "notes.txt", edits: [{ oldText: "b", newText: "c\nd" }] }),
       reply(
         [
@@ -206,27 +236,34 @@ describe("createEventTranslator against recorded pi output", () => {
         patch: "--- notes.txt\n+++ notes.txt\n@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n",
         firstChangedLine: 2,
       }),
+      request,
       started,
+      output,
       call(0, "call-4", "read", { path: "notes.txt", offset: 2, limit: 1 }),
       reply(
         [{ type: "toolCall", callId: "call-4", tool: "read", args: { path: "notes.txt", offset: 2, limit: 1 } }],
         "toolUse",
       ),
       result("call-4", "read", "c\n\n[2 more lines in file. Use offset=3 to continue.]"),
+      request,
       started,
       start(0, "text"),
+      output,
       delta(0, "first an"),
       delta(0, "swer"),
       reply([{ type: "text", text: "first answer" }]),
       settled,
       run,
+      request,
       user("two"),
       started,
       reply([], "error", unavailable),
       { kind: "retry_started", attempt: 1, maxAttempts: 3, error: unavailable },
       run,
+      request,
       started,
       start(0, "text"),
+      output,
       delta(0, "second a"),
       delta(0, "nswer"),
       reply([{ type: "text", text: "second answer" }]),
@@ -234,25 +271,31 @@ describe("createEventTranslator against recorded pi output", () => {
       { kind: "compaction_started" },
       { kind: "compaction_finished" },
       run,
+      request,
       user("three"),
       started,
       start(0, "text"),
+      output,
       delta(0, "third an"),
       delta(0, "swer"),
       reply([{ type: "text", text: "third answer" }]),
       settled,
       run,
+      request,
       user("two, differently"),
       started,
       start(0, "text"),
+      output,
       delta(0, "branch a"),
       delta(0, "nswer"),
       reply([{ type: "text", text: "branch answer" }]),
       settled,
       run,
+      request,
       user("four"),
       started,
       start(0, "text"),
+      output,
       delta(0, "fourth a"),
       delta(0, "nswer"),
       reply([{ type: "text", text: "fourth answer" }]),
@@ -270,7 +313,15 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
         update("thinking_delta", 7, "y"),
         update("text_delta", 3, "z"),
       ]),
-    ).toStrictEqual([started, start(3, "text"), delta(3, "x"), start(7, "thinking"), delta(7, "y"), delta(3, "z")]);
+    ).toStrictEqual([
+      started,
+      output,
+      start(3, "text"),
+      delta(3, "x"),
+      start(7, "thinking"),
+      delta(7, "y"),
+      delta(3, "z"),
+    ]);
   });
 
   it("reports a start once even if pi repeats it, and forgets started blocks with each new message", () => {
@@ -292,26 +343,65 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
         parts: [],
         stopReason: "stop",
         errorMessage: null,
-        usage: { input: 3, output: 4 },
+        usage: { input: 3, output: 4, cacheRead: 1, cacheWrite: 2, reasoning: null },
         timestamp: 5,
       }),
+      output,
       start(0, "text"),
       delta(0, "a"),
       started,
+      output,
       start(0, "thinking"),
       delta(0, "b"),
     ]);
   });
 
-  it("ignores partial tool call arguments and other streaming updates", () => {
+  it("shows no partial tool call arguments or other streaming updates, but takes the arguments' first part as output", () => {
     expect(
       translateAll([
         update("toolcall_start", 0),
-        update("toolcall_delta", 0, "{"),
         update("text_end", 1),
+        update("toolcall_delta", 0, "{"),
+        update("toolcall_delta", 0, "}"),
         update("thinking_end", 2),
       ]),
-    ).toStrictEqual([]);
+    ).toStrictEqual([output]);
+  });
+
+  it("reports each message's first output once, and each request pi is about to send", () => {
+    expect(
+      translateAll([
+        { type: "turn_start" } as never,
+        { type: "message_start", message: assistant([], "pending") } as never,
+        update("text_start", 0),
+        update("text_delta", 0, "a"),
+        update("text_delta", 0, "b"),
+        { type: "message_end", message: assistant([], "stop") } as never,
+        { type: "turn_start" } as never,
+        { type: "message_start", message: assistant([], "pending") } as never,
+        update("thinking_delta", 0, "c"),
+      ]),
+    ).toStrictEqual([
+      request,
+      started,
+      start(0, "text"),
+      output,
+      delta(0, "a"),
+      delta(0, "b"),
+      finished({
+        kind: "assistant",
+        parts: [],
+        stopReason: "stop",
+        errorMessage: null,
+        usage: { input: 3, output: 4, cacheRead: 1, cacheWrite: 2, reasoning: null },
+        timestamp: 5,
+      }),
+      request,
+      started,
+      output,
+      start(0, "thinking"),
+      delta(0, "c"),
+    ]);
   });
 
   it("dates a message pi sent without a time by the translator's clock", () => {
@@ -365,7 +455,6 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
         { type: "message_start", message: { role: "system", content: "" } } as never,
         { type: "message_end", message: { role: "system", content: "" } } as never,
         { type: "message_start", message: { role: "user", content: "", timestamp: 0 } } as never,
-        { type: "turn_start" } as never,
         { type: "tool_execution_start", toolCallId: "c1", toolName: "bash", args: {} } as never,
         { type: "extension_ui_request", id: "s", method: "setStatus", statusKey: "k", statusText: "x" },
         { type: "extension_ui_request", id: "w", method: "setWidget", widgetKey: "k", widgetLines: ["x"] },

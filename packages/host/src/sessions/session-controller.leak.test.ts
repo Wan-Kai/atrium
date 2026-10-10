@@ -37,6 +37,13 @@ function drivenPi() {
     setModel: async () => undefined,
     setThinkingLevel: async () => undefined,
     commands: async () => [],
+    stats: async () => ({
+      turns: 1,
+      steps: 0,
+      tokens: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+      cost: 0,
+      context: { tokens: 2, window: 100 },
+    }),
     stop: async () => exit.resolve({ code: 0, signal: null, requested: true }),
   };
   return {

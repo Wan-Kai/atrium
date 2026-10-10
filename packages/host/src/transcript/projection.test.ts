@@ -39,7 +39,7 @@ function reply(
     parts,
     stopReason: fields.stopReason ?? "stop",
     errorMessage: fields.error ?? null,
-    usage: { input, output },
+    usage: { input, output, cacheRead: 0, cacheWrite: 0, reasoning: null },
     timestamp: fields.timestamp ?? 0,
   };
 }
@@ -61,7 +61,7 @@ function omit(id: string, targetId: string): LogEntry {
 
 /** A compaction entry, summarized as its own id. */
 function compaction(id: string): LogEntry {
-  return { id, parentId: null, timestamp: 4, kind: "compaction", summary: id, tokensBefore: 9 };
+  return { id, parentId: null, timestamp: 4, kind: "compaction", summary: id, tokensBefore: 9, system: null };
 }
 
 /** The kinds of each item's steps; a notice has none. */

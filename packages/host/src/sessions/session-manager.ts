@@ -1,4 +1,4 @@
-import { type PiInspection, PiRequestError, sessionModelOf, toLogEntry, toSlashCommand } from "@atrium/pi";
+import { type PiInspection, PiRequestError, piStatsOf, sessionModelOf, toLogEntry, toSlashCommand } from "@atrium/pi";
 import {
   CHATS,
   CommandError,
@@ -9,6 +9,7 @@ import {
   type SessionSnapshotEvent,
   type SessionSummary,
   type ThinkingLevel,
+  UNKNOWN_METRICS,
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
 import { mkdir, rmdir, stat } from "node:fs/promises";
@@ -400,6 +401,7 @@ export function createSessionManager(options: {
       },
       commands: async () =>
         (await traced.request({ type: "get_commands" })).commands.flatMap((command) => toSlashCommand(command) ?? []),
+      stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
       stop: () => pi.stop(),
     };
     return { sessionId, traced, view, entries, model };
@@ -910,6 +912,7 @@ function draftSnapshot(sessionId: string): SessionSnapshotEvent {
     exited: false,
     control: IDLE_CONTROL,
     model: null,
+    metrics: UNKNOWN_METRICS,
   };
 }
 

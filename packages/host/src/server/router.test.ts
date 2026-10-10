@@ -301,6 +301,7 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
     await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
+    await route(connection, withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true } }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7"],
@@ -314,6 +315,7 @@ describe("createRouter", () => {
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
       ["listModels", "chats", true],
+      ["setPreferences", { statusBar: { cost: true } }],
     ]);
     expect(sent[1]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
     expect(sent[9]).toStrictEqual({

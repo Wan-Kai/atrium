@@ -35,6 +35,9 @@
   --ok-text: #1e8e3e;
   --diff-add-bg: rgba(22, 163, 74, 0.09);
   --diff-del-bg: rgba(229, 72, 77, 0.08);
+  --ctx-sys: #a1a1a7;
+  --ctx-tools: #8b5cf6;
+  --ctx-msgs: #2f6fed;
   --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
   --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
 
@@ -108,6 +111,9 @@
   --ok-text: #4ade80;
   --diff-add-bg: rgba(34, 197, 94, 0.12);
   --diff-del-bg: rgba(242, 90, 90, 0.12);
+  --ctx-sys: #9ca3af;
+  --ctx-tools: #a78bfa;
+  --ctx-msgs: #7aaaff;
   --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
   --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
 }
