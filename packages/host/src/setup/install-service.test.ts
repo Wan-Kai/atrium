@@ -1,4 +1,4 @@
-import { CommandError, type InstallOutputEvent, type InstallUpdatedEvent } from "@atrium/protocol";
+import { CommandError, type InstallKind, type InstallOutputEvent, type InstallUpdatedEvent } from "@atrium/protocol";
 import { createTempDir } from "@atrium/testkit";
 import { access, chmod, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -81,8 +81,10 @@ async function executable(path: string, body: string): Promise<string> {
  *
  * @sideEffects Creates a temporary directory; closes the service and removes the directory after
  * the test.
- * @param options - The tools to change, the script, the sessions, and extra environment.
- * @returns The service, its events, the log records, the folder and the open processes.
+ * @param options - The tools to change, the script, the sessions, extra environment, and what to
+ * do after a job succeeds.
+ * @returns The service, its events, the log records, the folder, the open processes, and the jobs
+ * that succeeded with how many events had been sent then.
  */
 async function service(
   options: {
@@ -90,6 +92,7 @@ async function service(
     script?: string | DownloadError | ((signal: AbortSignal) => Promise<string>);
     sessions?: TestSessions;
     env?: Record<string, string>;
+    afterSuccess?: (kind: InstallKind) => Promise<void>;
   } = {},
 ): Promise<{
   service: InstallService;
@@ -97,6 +100,7 @@ async function service(
   records: Record<string, unknown>[];
   dir: string;
   open: () => number;
+  succeeded: { kind: InstallKind; events: number }[];
 }> {
   const temp = await createTempDir("install-service");
   cleanups.push(temp.cleanup);
@@ -118,6 +122,7 @@ async function service(
   const recording = recordingTracing();
   cleanups.push(recording.shutdown);
   const events: (InstallUpdatedEvent | InstallOutputEvent)[] = [];
+  const succeeded: { kind: InstallKind; events: number }[] = [];
   const script = options.script ?? "echo installing";
   let ids = 0;
   const value = createInstallService({
@@ -131,6 +136,10 @@ async function service(
     broadcast: (event) => events.push(event),
     run: (command, run) =>
       runJob(command, { ...run, clock: systemClock, resources: recording.resources, graceMs: 200 }),
+    afterSuccess: async (kind) => {
+      succeeded.push({ kind, events: events.length });
+      await options.afterSuccess?.(kind);
+    },
     cwd: dir,
     newId: () => `j${++ids}`,
     logger: recording.logger,
@@ -142,6 +151,7 @@ async function service(
     records: recording.records,
     dir,
     open: () => recording.resources.snapshot()["install.process"] ?? 0,
+    succeeded,
   };
 }
 
@@ -192,6 +202,19 @@ function updates(events: readonly (InstallUpdatedEvent | InstallOutputEvent)[]):
  */
 function output(events: readonly (InstallUpdatedEvent | InstallOutputEvent)[]): string {
   return events.flatMap((event) => (event.type === "install_output" ? [event.text] : [])).join("");
+}
+
+/**
+ * Lets everything already settled run first.
+ *
+ * @remarks
+ * For telling a promise still pending from one settled.
+ *
+ * @sideEffects none
+ * @returns `"held"`, after a macrotask.
+ */
+function tick(): Promise<"held"> {
+  return new Promise((resolve) => setImmediate(() => resolve("held")));
 }
 
 /** A job's state with nothing but what every state has. */
@@ -338,6 +361,82 @@ describe("InstallService.start", () => {
     await installs.start("install_pi");
 
     expect((await ended(events)).state).toBe("ok");
+  });
+});
+
+describe("InstallService after a job", () => {
+  it("checks the tools again after a job succeeds, before showing it done", async () => {
+    const { service: installs, events, succeeded } = await service();
+
+    await installs.start("install_node");
+    await ended(events);
+
+    expect(succeeded).toStrictEqual([{ kind: "install_node", events: events.length - 1 }]);
+    expect(events.at(-1)).toMatchObject({ state: "ok" });
+  });
+
+  it("does nothing more after a job that fails or is cancelled", async () => {
+    const { service: installs, events, succeeded } = await service({ env: { BREW_EXIT: "1", PI_WAIT: "60" } });
+    await installs.start("install_node");
+    await ended(events);
+    const { jobId } = await installs.start("update_pi");
+
+    installs.cancel(jobId);
+    await vi.waitFor(() => expect(updates(events).at(-1)).toMatchObject({ jobId, state: "cancelled" }));
+
+    expect(succeeded).toStrictEqual([]);
+  });
+
+  it("shows a job done even when what follows it fails, and logs that", async () => {
+    const {
+      service: installs,
+      events,
+      records,
+    } = await service({
+      afterSuccess: async () => {
+        throw new Error("refresh failed");
+      },
+    });
+
+    await installs.start("install_node");
+
+    expect((await ended(events)).state).toBe("ok");
+    expect(records).toContainEqual(expect.objectContaining({ msg: "after install failed", kind: "install_node" }));
+  });
+});
+
+describe("InstallService.settled", () => {
+  it("holds pi's starts while an update runs, until it is done, but not while it waits", async () => {
+    const sessions = testSessions(1);
+    const after = Promise.withResolvers<void>();
+    const {
+      service: installs,
+      events,
+      succeeded,
+    } = await service({
+      sessions,
+      afterSuccess: () => after.promise,
+    });
+    const before = await Promise.race([installs.settled().then(() => "free"), tick()]);
+
+    await installs.start("update_pi");
+    const waiting = await Promise.race([installs.settled().then(() => "free"), tick()]);
+    sessions.set(0);
+    const held = installs.settled().then(() => events.at(-1));
+    await vi.waitFor(() => expect(output(events)).not.toBe(""));
+    const running = await Promise.race([held.then(() => "free"), tick()]);
+    await vi.waitFor(() => expect(succeeded).toHaveLength(1));
+    after.resolve();
+
+    expect([before, waiting, running]).toStrictEqual(["free", "free", "held"]);
+    expect(await held).toMatchObject({ state: "ok" });
+  });
+
+  it("does not hold pi's starts for an install", async () => {
+    const { service: installs } = await service({ script: "sleep 60" });
+    await installs.start("install_pi");
+
+    expect(await Promise.race([installs.settled().then(() => "free"), tick()])).toBe("free");
   });
 });
 

@@ -444,7 +444,8 @@ Electron 主进程
 - `install_pi()` / `install_node()` / `update_pi()`：应答 `{ jobId }`，同一时刻只有一个安装任务，已有任务时应答 `install_busy`；缺少任务要用的工具时应答 `install_unavailable`（还没检测到工具；装 Node 时没有 Homebrew；更新时找不到 pi）。
   - 安装 pi：宿主从写死的地址下载官方脚本（`https`，不跟随到别的域名；30 秒、1 MiB 为限），交给 `/bin/sh -s` 的标准输入运行，不经过 shell 拼接命令；没有终端，脚本跳过所有提问。
   - 安装 Node：运行找到的 `brew install node`。
-  - 更新 pi：运行 `pi update`（`--self` 是它的别名）；有会话在运行时先处于 `waiting`，等都结束再开始。
+  - 更新 pi：运行 `pi update`（`--self` 是它的别名）；有会话在运行时先处于 `waiting`，等都结束再开始。更新进行中（`running`）要启动 pi 的会话等它结束；更新成功后宿主停掉空闲会话的 pi（会话收到 `session_exited`，`reason` 为 `requested`），界面下次发送时照常重新打开会话，用新版本启动；运行中的会话不动。
+  - 任务成功后，宿主先重新检测工具（同 `check_setup(refresh)`），再报告 `ok`，界面之后用 `check_setup()` 即可拿到新结果。
   - 任务用登录 shell 的环境运行，自成进程组，取消时结束整棵进程树（先 SIGTERM 整个进程组，3 秒不走再强制结束）。任务没有时限。
 - `cancel_install(jobId)`：`jobId` 不是进行中的任务时应答 `install_not_found`。
 - 事件 `install_updated { jobId, kind, state, running, exitCode, reason }`：`kind` 为 `install_pi | install_node | update_pi`；`state` 为 `waiting | running | ok | failed | cancelled`；`waiting` 时 `running` 是还在运行的会话数，其他时候为 `null`；`failed` 带 `reason`：`exit`（`exitCode` 为退出码，被信号结束时为 `null`）、`download_failed`（下载脚本失败）、`spawn_failed`（启动不了），其他状态 `reason`、`exitCode` 为 `null`。每次变化整份推送给所有连接。

@@ -19,6 +19,13 @@ export interface InstallService {
    * @throws {CommandError} `install_not_found` when `jobId` is not the job under way.
    */
   cancel(jobId: string): void;
+  /**
+   * Resolves once no update of pi is running.
+   *
+   * @remarks
+   * A session starting pi waits for it, so it starts the new pi (SPEC-0001, "首次启动 · 接口").
+   */
+  settled(): Promise<void>;
   /** Cancels the job under way and waits for its processes to go; no job starts after. */
   close(): Promise<void>;
 }
@@ -69,14 +76,16 @@ function commandFor(kind: InstallKind, tools: HostTools | null, cwd: string): Jo
  *
  * @remarks
  * One job at a time. An update first waits for the running sessions to finish, showing how many
- * still run. Each change of state goes whole to every connection, and so does the output, as it
+ * still run; while it runs, sessions starting pi wait for it ({@link InstallService.settled}). A
+ * job that succeeds shows done only after `afterSuccess`, which checks the tools again and, after
+ * an update, stops idle sessions' pi so their next use starts the new one. Each change of state goes whole to every connection, and so does the output, as it
  * comes; the output is never logged, only the job's kind, outcome, exit code and failure reason
  * (SPEC-0001, "首次启动 · 接口").
  *
  * @sideEffects none until asked; then downloads the install script, runs commands and broadcasts.
  * @param options - Where the tools come from, how to download the install script, the sessions an
- * update waits for, how to reach every connection, how to run a command, the folder jobs run in,
- * how to make a job id, and the logger.
+ * update waits for, how to reach every connection, how to run a command, what to do after a job
+ * succeeds and before it shows done, the folder jobs run in, how to make a job id, and the logger.
  * @returns The service.
  */
 export function createInstallService(options: {
@@ -88,11 +97,14 @@ export function createInstallService(options: {
     command: JobCommand,
     run: { readonly signal: AbortSignal; readonly onOutput: (text: string) => void },
   ) => Promise<JobEnd>;
+  readonly afterSuccess: (kind: InstallKind) => Promise<void>;
   readonly cwd: string;
   readonly newId: () => string;
   readonly logger: Logger;
 }): InstallService {
   let current: Job | null = null;
+  /** Released once the update of pi under way has ended; holds only while it runs. */
+  let updating: PromiseWithResolvers<void> | null = null;
   let closed = false;
   const finishing = new Set<Promise<void>>();
 
@@ -112,12 +124,14 @@ export function createInstallService(options: {
   }
 
   /**
-   * Waits until no session runs, showing how many still do.
+   * Waits until no session runs, showing how many still do, then shows the update running.
    *
    * @remarks
-   * Stops waiting when the job is cancelled.
+   * Stops waiting when the job is cancelled. The update shows running at once, so a session that
+   * starts pi from then on waits for it.
    *
-   * @sideEffects Listens to the sessions until done; broadcasts the count when it changes.
+   * @sideEffects Listens to the sessions until done; broadcasts the count when it changes, and the
+   * update running.
    * @param job - The update.
    * @returns Once no session runs or the job is cancelled.
    */
@@ -140,6 +154,7 @@ export function createInstallService(options: {
       }
       stop();
       signal.removeEventListener("abort", check);
+      if (!signal.aborted) publish(job, { state: "running", running: null });
       resolve();
     };
     const stop = options.sessions.onChange(check);
@@ -166,7 +181,6 @@ export function createInstallService(options: {
     if (job.state.state === "waiting") {
       await idle(job);
       if (signal.aborted) return cancelled;
-      publish(job, { state: "running", running: null });
     }
     let input = command.input;
     if (kind === "install_pi") {
@@ -185,8 +199,14 @@ export function createInstallService(options: {
     );
     if (signal.aborted) return cancelled;
     if (!end.started) return { state: "failed", exitCode: null, reason: "spawn_failed" };
-    if (end.exitCode === 0) return { state: "ok", exitCode: 0, reason: null };
-    return { state: "failed", exitCode: end.exitCode, reason: "exit" };
+    if (end.exitCode !== 0) return { state: "failed", exitCode: end.exitCode, reason: "exit" };
+    try {
+      await options.afterSuccess(kind);
+    } catch (error) {
+      // The job itself succeeded; what follows it is the host's own work.
+      options.logger.error({ err: error, kind }, "after install failed");
+    }
+    return { state: "ok", exitCode: 0, reason: null };
   }
 
   /**
@@ -204,6 +224,8 @@ export function createInstallService(options: {
     const { kind } = job.state;
     options.logger.info({ kind, ...outcome }, "install finished");
     publish(job, { ...outcome, running: null });
+    updating?.resolve();
+    updating = null;
   }
 
   return {
@@ -229,6 +251,7 @@ export function createInstallService(options: {
         current = null;
         throw new CommandError("install_unavailable");
       }
+      if (kind === "update_pi") updating = Promise.withResolvers();
       const running = kind === "update_pi" ? options.sessions.running() : 0;
       if (running > 0) job.state = { ...job.state, state: "waiting", running };
       options.logger.info({ kind }, "install started");
@@ -245,6 +268,7 @@ export function createInstallService(options: {
       void done.finally(() => finishing.delete(done));
       return { jobId: job.state.jobId };
     },
+    settled: () => (updating !== null && current?.state.state === "running" ? updating.promise : Promise.resolve()),
     cancel(jobId) {
       if (current === null || current.state.jobId !== jobId) throw new CommandError("install_not_found");
       current.stop.abort();

@@ -227,7 +227,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const sessionListeners = new Set<() => void>();
   const sessions = createSessionManager({
     chatsRoot: join(home.root, "chats"),
-    tools: () => toolbox.current(),
+    // A pi started while pi is being updated waits, so it is the new one.
+    tools: async () => {
+      await installs.settled();
+      return toolbox.current();
+    },
     subscriptions,
     catalog,
     layouts,
@@ -338,6 +342,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     },
     broadcast: (event) => subscriptions.broadcast(event),
     run: (command, run) => runJob(command, { ...run, clock, resources }),
+    afterSuccess: async (kind) => {
+      await toolbox.refresh();
+      if (kind === "update_pi") await sessions.stopIdle();
+    },
     cwd: homedir(),
     newId: () => randomUUID(),
     logger,

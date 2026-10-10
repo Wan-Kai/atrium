@@ -59,6 +59,8 @@ export interface SessionManager extends SessionCommands {
   forgetWorkspaces(workspaceIds: readonly string[]): Promise<void>;
   /** Looks at the containers' session files again: the window gained focus, or containers changed. */
   rescan(): void;
+  /** Stops the pi of every session with nothing going on; resolves once they have exited. */
+  stopIdle(): Promise<void>;
   /** Stops every pi; resolves once all have exited and background scans have stopped. */
   close(): Promise<void>;
 }
@@ -1068,6 +1070,12 @@ export function createSessionManager(options: {
         running: busy.has(entry.sessionId),
         asking: askingSince(entry.sessionId),
       }));
+    },
+    async stopIdle() {
+      // pi was updated: a session's next use starts the new one (SPEC-0001, "首次启动 · 接口").
+      // Stopping a pi already gone does nothing.
+      const idle = [...sessions.keys()].filter((sessionId) => !occupied(sessionId));
+      await Promise.all(idle.map((sessionId) => stopSession(sessionId)));
     },
     async forgetWorkspaces(workspaceIds) {
       const gone = options.catalog.list().filter((entry) => workspaceIds.includes(entry.containerId));

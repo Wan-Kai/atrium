@@ -1839,3 +1839,31 @@ describe("SessionManager titles (M1.9)", () => {
     expect(resources.snapshot()["pi-oneshot"]).toBe(0);
   });
 });
+
+describe("SessionManager after pi is updated (M1.10)", () => {
+  it("stops the pi of idle sessions, and starts it again when the session is next opened", async () => {
+    const { manager, received, starts, run } = await opened([turn]);
+    await run();
+
+    await manager.stopIdle();
+    await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
+    await manager.stopIdle();
+    await manager.openSession("client-1", "pi-session-1");
+
+    expect(starts()).toHaveLength(2);
+    expect(received.filter((event) => event.type === "session_exited")).toHaveLength(1);
+    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false }]);
+  });
+
+  it("leaves running sessions alone", async () => {
+    const { manager, received, starts } = await opened([[{ type: "agent_start" }]]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
+
+    await manager.stopIdle();
+
+    expect(received.map((event) => event.type)).not.toContain("session_exited");
+    expect(manager.summaries()[0]?.running).toBe(true);
+    expect(starts()).toHaveLength(1);
+  });
+});

@@ -217,4 +217,24 @@ describe("installing over the WebSocket", () => {
     expect(starter.installJob.getState()).toStrictEqual(other.installJob.getState());
     await expect(starter.cancelInstall(jobId)).rejects.toMatchObject({ code: "install_not_found" });
   });
+
+  it("updates pi, and has found the new version by the time the update shows done", async () => {
+    const { bin, home } = await installedPi();
+    const pi = await realpath(join(bin, "pi"));
+    await writeFile(
+      pi,
+      `#!/bin/sh\nif [ "$1" = update ]; then printf '#!/bin/sh\\necho 1.0.3\\n' > "${pi}"; echo updated; else echo 1.0.2; fi\n`,
+    );
+    testHost = await startTestHost({ toolEnv: { PATH: bin, HOME: home, FAKE_PI: "status" }, loginWorker: WORKER });
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+    expect((await client.checkSetup()).pi.version).toBe("1.0.2");
+
+    await client.updatePi();
+    await vi.waitFor(() => expect(client.installJob.getState()?.job.state).toBe("ok"), { timeout: 10_000 });
+
+    expect(present(client.installJob.getState(), "the update").output).toBe("updated\n");
+    expect((await client.checkSetup()).pi).toMatchObject({ state: "ready", version: "1.0.3" });
+  });
 });
