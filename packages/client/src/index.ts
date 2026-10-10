@@ -4,6 +4,7 @@ export {
   type ClientClock,
   ConnectionLostError,
   type ConnectionState,
+  type InstallJob,
   type RejectionReason,
   createAtriumClient,
 } from "./atrium-client";

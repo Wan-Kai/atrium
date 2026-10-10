@@ -58,6 +58,12 @@ export const ErrorCode = z.enum([
   "login_not_found",
   /** pi did not remove the credential; `params.reason` says why and `params.detail` is pi's own text. */
   "logout_failed",
+  /** Another install job is under way; one runs at a time. */
+  "install_busy",
+  /** The job's tool is missing: no tools found yet, no Homebrew for Node, or no pi to update. */
+  "install_unavailable",
+  /** The `jobId` names no install job under way. */
+  "install_not_found",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

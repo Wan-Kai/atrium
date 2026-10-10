@@ -176,6 +176,15 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         calls.push(["logout", providerId]);
       },
     },
+    installs: {
+      start: async (kind) => {
+        calls.push(["install", kind]);
+        return { jobId: "j1" };
+      },
+      cancel: (jobId) => {
+        calls.push(["cancelInstall", jobId]);
+      },
+    },
     attachments,
     changes,
     tracer: recording.tracer,
@@ -510,6 +519,28 @@ describe("createRouter", () => {
       { type: "response", requestId: "r3", ok: true, result: {} },
       { type: "response", requestId: "r4", ok: true, result: {} },
       { type: "response", requestId: "r5", ok: true, result: {} },
+    ]);
+  });
+
+  it("hands the install commands to the installs", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "install_pi", requestId: "r1" }));
+    await route(connection, withTrace({ type: "install_node", requestId: "r2" }));
+    await route(connection, withTrace({ type: "update_pi", requestId: "r3" }));
+    await route(connection, withTrace({ type: "cancel_install", requestId: "r4", jobId: "j1" }));
+
+    expect(calls).toStrictEqual([
+      ["install", "install_pi"],
+      ["install", "install_node"],
+      ["install", "update_pi"],
+      ["cancelInstall", "j1"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { jobId: "j1" } },
+      { type: "response", requestId: "r2", ok: true, result: { jobId: "j1" } },
+      { type: "response", requestId: "r3", ok: true, result: { jobId: "j1" } },
+      { type: "response", requestId: "r4", ok: true, result: {} },
     ]);
   });
 

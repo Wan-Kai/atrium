@@ -113,3 +113,35 @@ export const LoginUpdatedEvent = z.strictObject({
   error: z.strictObject({ reason: LoginFailureReason, detail: PiText.nullable() }).nullable(),
 });
 export type LoginUpdatedEvent = z.infer<typeof LoginUpdatedEvent>;
+
+/** What an install job does: run pi's install script, `brew install node` or `pi update`. */
+export const InstallKind = z.enum(["install_pi", "install_node", "update_pi"]);
+export type InstallKind = z.infer<typeof InstallKind>;
+
+/**
+ * The whole state of the install job, sent to every connection each time it changes.
+ *
+ * @remarks
+ * `running` is the number of sessions still running while an update waits, `null` otherwise. A
+ * failed job has a `reason`: `exit` with the exit code (`null` when a signal ended it),
+ * `download_failed` when the install script could not be fetched, `spawn_failed` when the
+ * command could not start (SPEC-0001, "首次启动 · 接口").
+ */
+export const InstallUpdatedEvent = z.strictObject({
+  type: z.literal("install_updated"),
+  jobId: z.string().min(1).max(64),
+  kind: InstallKind,
+  state: z.enum(["waiting", "running", "ok", "failed", "cancelled"]),
+  running: z.number().int().nonnegative().nullable(),
+  exitCode: z.number().int().nullable(),
+  reason: z.enum(["exit", "download_failed", "spawn_failed"]).nullable(),
+});
+export type InstallUpdatedEvent = z.infer<typeof InstallUpdatedEvent>;
+
+/** A piece of an install job's output, stdout and stderr together, as the command wrote it. */
+export const InstallOutputEvent = z.strictObject({
+  type: z.literal("install_output"),
+  jobId: z.string().min(1).max(64),
+  text: z.string().min(1).max(1_048_576),
+});
+export type InstallOutputEvent = z.infer<typeof InstallOutputEvent>;

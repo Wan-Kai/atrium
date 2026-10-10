@@ -13,6 +13,7 @@ import type { Logger } from "../platform/logger";
 import { contextFromTraceparent, inSpan } from "../platform/tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
+import type { InstallService } from "../setup/install-service";
 import type { LoginService } from "../setup/login-service";
 import type { SetupService } from "../setup/setup-service";
 import type { Connection } from "./connection";
@@ -29,6 +30,8 @@ export interface RouterOptions {
   readonly setup: Pick<SetupService, "check">;
   /** Signing in and out through pi. */
   readonly logins: Pick<LoginService, "login" | "answer" | "cancel" | "logout">;
+  /** Installing and updating pi and Node. */
+  readonly installs: Pick<InstallService, "start" | "cancel">;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -186,6 +189,13 @@ export function createRouter(options: RouterOptions): Route {
         return {};
       case "logout":
         await options.logins.logout(command.providerId);
+        return {};
+      case "install_pi":
+      case "install_node":
+      case "update_pi":
+        return options.installs.start(command.type);
+      case "cancel_install":
+        options.installs.cancel(command.jobId);
         return {};
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.

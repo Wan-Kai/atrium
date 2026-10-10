@@ -135,7 +135,22 @@ const commands: Command[] = [
   { type: "answer_login", requestId: "r67", traceparent, loginId: "l1", promptId: 0, value: "code#state" },
   { type: "cancel_login", requestId: "r68", traceparent, loginId: "l1" },
   { type: "logout", requestId: "r69", traceparent, providerId: "anthropic" },
+  { type: "install_pi", requestId: "r70", traceparent },
+  { type: "install_node", requestId: "r71", traceparent },
+  { type: "update_pi", requestId: "r72", traceparent },
+  { type: "cancel_install", requestId: "r73", traceparent, jobId: "j1" },
 ];
+
+/** An update waiting for two sessions to finish. */
+const installUpdated = {
+  type: "install_updated",
+  jobId: "j1",
+  kind: "update_pi",
+  state: "waiting",
+  running: 2,
+  exitCode: null,
+  reason: null,
+};
 
 /** A login under way with everything pi can show. */
 const loginUpdated = {
@@ -442,6 +457,7 @@ describe("parseClientMessage", () => {
       "answer_interaction",
       "answer_login",
       "archive_session",
+      "cancel_install",
       "cancel_login",
       "check_setup",
       "clear_attention",
@@ -452,6 +468,8 @@ describe("parseClientMessage", () => {
       "fetch_step",
       "fetch_transcript",
       "hand_off",
+      "install_node",
+      "install_pi",
       "list_commands",
       "list_models",
       "login",
@@ -478,6 +496,7 @@ describe("parseClientMessage", () => {
       "subscribe_index",
       "subscribe_sessions",
       "take_back",
+      "update_pi",
       "update_queued",
       "upload_attachment",
       "watch_changes",
@@ -698,6 +717,8 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a diff without a target", { type: "watch_diff", requestId: "r1", traceparent }, "r1"],
+    ["a cancel without the job", { type: "cancel_install", requestId: "r1", traceparent }, "r1"],
+    ["an install of a given command", { type: "install_pi", requestId: "r1", traceparent, command: "sh" }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
   });
@@ -819,6 +840,11 @@ describe("CommandResult", () => {
     expect(CommandResult.answer_login.parse({})).toStrictEqual({});
     expect(CommandResult.cancel_login.parse({})).toStrictEqual({});
     expect(CommandResult.logout.parse({})).toStrictEqual({});
+    for (const kind of ["install_pi", "install_node", "update_pi"] as const) {
+      expect(CommandResult[kind].parse({ jobId: "j1" })).toStrictEqual({ jobId: "j1" });
+      expect(CommandResult[kind].safeParse({}).success).toBe(false);
+    }
+    expect(CommandResult.cancel_install.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
@@ -1004,6 +1030,15 @@ describe("HostMessage", () => {
       },
       { ...loginUpdated, state: "ok", error: null },
       { ...loginUpdated, state: "cancelled", error: { reason: "failed", detail: "auth.json is corrupt" } },
+      installUpdated,
+      { ...installUpdated, kind: "install_pi", state: "running", running: null },
+      { ...installUpdated, kind: "install_node", state: "failed", running: null, exitCode: 1, reason: "exit" },
+      { ...installUpdated, state: "failed", running: null, reason: "exit" },
+      { ...installUpdated, state: "failed", running: null, reason: "download_failed" },
+      { ...installUpdated, state: "failed", running: null, reason: "spawn_failed" },
+      { ...installUpdated, state: "ok", running: null },
+      { ...installUpdated, state: "cancelled", running: null },
+      { type: "install_output", jobId: "j1", text: "\u001b[1m  Pi Installer\u001b[0m\r\n" },
     ];
 
     for (const message of messages) {
@@ -1091,6 +1126,9 @@ describe("HostMessage", () => {
       "login_unavailable",
       "login_not_found",
       "logout_failed",
+      "install_busy",
+      "install_unavailable",
+      "install_not_found",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -1218,6 +1256,11 @@ describe("HostMessage", () => {
       { ...loginUpdated, deviceCode: { ...loginUpdated.deviceCode, verificationUri: "javascript:alert(1)" } },
     ],
     ["a login in a state it cannot be in", { ...loginUpdated, state: "waiting" }],
+    ["an install job of a kind there is not", { ...installUpdated, kind: "install_fd" }],
+    ["an install job in a state it cannot be in", { ...installUpdated, state: "starting" }],
+    ["a failure for a reason there is not", { ...installUpdated, state: "failed", reason: "timeout" }],
+    ["a negative number of running sessions", { ...installUpdated, running: -1 }],
+    ["empty install output", { type: "install_output", jobId: "j1", text: "" }],
     [
       "a question of a kind pi does not ask",
       { ...loginUpdated, questions: [{ ...loginUpdated.questions[0], kind: "file" }] },

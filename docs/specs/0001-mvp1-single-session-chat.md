@@ -441,14 +441,14 @@ Electron 主进程
   - `login`：`{ state: unavailable }`（登录程序加载不了 pi，或 pi 不可用）或 `{ state: ready, providers }`，每个服务商：`providerId`、`name`（pi 给的原文）、`oauth`（`{ label, subscription } | null`）、`apiKey`（能否存 Key）、`signedIn`（`{ method: oauth | api_key, stored } | null`，`stored` 为假表示 Key 来自环境变量）；只列 SPEC 上面定的订阅服务商、pi 新增的带 OAuth 的服务商，以及能存 Key 的服务商；
   - `projects`：已添加的项目数。
   - `refresh` 为真时先重新读取登录 shell 的环境（装好 pi、Node 后 shell 配置文件可能改了 `PATH`），之后启动的 pi 都用新环境。
-- `install_pi()` / `install_node()` / `update_pi()`：应答 `{ jobId }`，同一时刻只有一个安装任务，已有任务时应答 `install_busy`。
-  - 安装 pi：宿主从写死的地址下载官方脚本（`https`，不跟随到别的域名），交给 `/bin/sh -s` 的标准输入运行，不经过 shell 拼接命令；没有终端，脚本跳过所有提问。
+- `install_pi()` / `install_node()` / `update_pi()`：应答 `{ jobId }`，同一时刻只有一个安装任务，已有任务时应答 `install_busy`；缺少任务要用的工具时应答 `install_unavailable`（还没检测到工具；装 Node 时没有 Homebrew；更新时找不到 pi）。
+  - 安装 pi：宿主从写死的地址下载官方脚本（`https`，不跟随到别的域名；30 秒、1 MiB 为限），交给 `/bin/sh -s` 的标准输入运行，不经过 shell 拼接命令；没有终端，脚本跳过所有提问。
   - 安装 Node：运行找到的 `brew install node`。
   - 更新 pi：运行 `pi update`（`--self` 是它的别名）；有会话在运行时先处于 `waiting`，等都结束再开始。
-  - 任务用登录 shell 的环境运行，自成进程组，取消时结束整棵进程树。
-- `cancel_install(jobId)`。
-- 事件 `install_updated { jobId, kind, state, running?, exitCode? }`：`state` 为 `waiting | running | ok | failed | cancelled`；`waiting` 时 `running` 是还在运行的会话数；`failed` 带退出码。
-- 事件 `install_output { jobId, text }`：输出原文，按块推送；颜色和"\r"覆盖由界面处理。输出不进日志，日志只记任务种类、结果和退出码。
+  - 任务用登录 shell 的环境运行，自成进程组，取消时结束整棵进程树（先 SIGTERM 整个进程组，3 秒不走再强制结束）。任务没有时限。
+- `cancel_install(jobId)`：`jobId` 不是进行中的任务时应答 `install_not_found`。
+- 事件 `install_updated { jobId, kind, state, running, exitCode, reason }`：`kind` 为 `install_pi | install_node | update_pi`；`state` 为 `waiting | running | ok | failed | cancelled`；`waiting` 时 `running` 是还在运行的会话数，其他时候为 `null`；`failed` 带 `reason`：`exit`（`exitCode` 为退出码，被信号结束时为 `null`）、`download_failed`（下载脚本失败）、`spawn_failed`（启动不了），其他状态 `reason`、`exitCode` 为 `null`。每次变化整份推送给所有连接。
+- 事件 `install_output { jobId, text }`：输出原文（标准输出和标准错误合在一起），按块推送给所有连接；颜色和"\r"覆盖由界面处理。输出不进日志，日志只记任务种类、结果和退出码。
 - `login(providerId, method, key?)`：应答 `{ loginId }`。同一时刻只有一个登录，新的登录先取消进行中的。`key` 只在 `api_key` 时给，交给 pi 的第一个密码类提问。登录不可用（`check_setup` 的 `login` 为 `unavailable`）时应答 `login_unavailable`。
 - `answer_login(loginId, promptId, value)` / `cancel_login(loginId)`：`loginId` 不是进行中的登录时应答 `login_not_found`；回答已经撤回的提问时丢掉。`logout(providerId)`：pi 拒绝或超时时应答 `logout_failed`（`reason`，`detail` 为 pi 的原文）。
 - 事件 `login_updated`：登录的完整状态，每次变化整份推送给所有连接：`loginId`、`providerId`、`method`、`state`（`running | ok | failed | cancelled`）、`authUrl`（`{ url, instructions } | null`，只放 `https` 的，其他的地址让登录以 `failed` 结束、`reason` 为 `insecure_url`）、`deviceCode`（`{ userCode, verificationUri, expiresInSeconds } | null`，`verificationUri` 同样只放 `https` 的）、`questions`（pi 正在问的：`promptId`、`kind`、`message`、`placeholder`、`options`）、`progress`（pi 最近一条进度或提示文字，提示里的链接不带）、`error`（`{ reason: unavailable | failed | timed_out | insecure_url, detail } | null`，`detail` 为 pi 的原文）。只有发起登录的那个客户端打开授权地址。日志只记服务商、方式和结果，不记 Key、地址、提问和 pi 的原文。

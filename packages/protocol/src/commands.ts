@@ -461,6 +461,40 @@ export const LogoutCommand = z.strictObject({
 });
 export type LogoutCommand = z.infer<typeof LogoutCommand>;
 
+/**
+ * Runs pi's official install script.
+ *
+ * @remarks
+ * One install job at a time (SPEC-0001, "首次启动 · 接口").
+ */
+export const InstallPiCommand = z.strictObject({
+  type: z.literal("install_pi"),
+  ...commandFields,
+});
+export type InstallPiCommand = z.infer<typeof InstallPiCommand>;
+
+/** Installs Node.js with the Homebrew found. */
+export const InstallNodeCommand = z.strictObject({
+  type: z.literal("install_node"),
+  ...commandFields,
+});
+export type InstallNodeCommand = z.infer<typeof InstallNodeCommand>;
+
+/** Runs `pi update`, once no session is running. */
+export const UpdatePiCommand = z.strictObject({
+  type: z.literal("update_pi"),
+  ...commandFields,
+});
+export type UpdatePiCommand = z.infer<typeof UpdatePiCommand>;
+
+/** Cancels the install job under way, ending its whole process tree. */
+export const CancelInstallCommand = z.strictObject({
+  type: z.literal("cancel_install"),
+  ...commandFields,
+  jobId: z.string().min(1).max(64),
+});
+export type CancelInstallCommand = z.infer<typeof CancelInstallCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -508,6 +542,10 @@ export const Command = z.discriminatedUnion("type", [
   AnswerLoginCommand,
   CancelLoginCommand,
   LogoutCommand,
+  InstallPiCommand,
+  InstallNodeCommand,
+  UpdatePiCommand,
+  CancelInstallCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -586,5 +624,9 @@ export const CommandResult = {
   answer_login: z.strictObject({}),
   cancel_login: z.strictObject({}),
   logout: z.strictObject({}),
+  install_pi: z.strictObject({ jobId: z.string().min(1).max(64) }),
+  install_node: z.strictObject({ jobId: z.string().min(1).max(64) }),
+  update_pi: z.strictObject({ jobId: z.string().min(1).max(64) }),
+  cancel_install: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

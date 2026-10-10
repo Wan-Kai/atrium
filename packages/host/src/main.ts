@@ -9,7 +9,7 @@ import {
 } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
-import { uptime } from "node:os";
+import { homedir, uptime } from "node:os";
 import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
@@ -28,6 +28,9 @@ import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
 import { findHomebrew } from "./setup/homebrew";
 import { createLoginService } from "./setup/login-service";
+import { runJob } from "./setup/install-job";
+import { INSTALL_SCRIPT_URL, downloadScript } from "./setup/install-script";
+import { createInstallService } from "./setup/install-service";
 import { createLogins } from "./setup/logins";
 import { createSetupService } from "./setup/setup-service";
 import { type HostTools, createToolbox } from "./setup/toolbox";
@@ -220,6 +223,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
   });
+  // Who else wants to know the sessions changed: an update waits for running sessions to finish.
+  const sessionListeners = new Set<() => void>();
   const sessions = createSessionManager({
     chatsRoot: join(home.root, "chats"),
     tools: () => toolbox.current(),
@@ -234,7 +239,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         changes.refresh(workspaceId);
       },
     },
-    onChange: () => feed.changed(),
+    onChange: () => {
+      feed.changed();
+      for (const listener of sessionListeners) listener();
+    },
     clock,
     resources,
     tracer: tracing.tracer,
@@ -318,6 +326,22 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     newId: () => randomUUID(),
     logger,
   });
+  const installs = createInstallService({
+    toolbox,
+    script: (signal) => downloadScript(INSTALL_SCRIPT_URL, { signal, clock }),
+    sessions: {
+      running: () => sessions.summaries().filter((summary) => summary.running).length,
+      onChange: (listener) => {
+        sessionListeners.add(listener);
+        return () => sessionListeners.delete(listener);
+      },
+    },
+    broadcast: (event) => subscriptions.broadcast(event),
+    run: (command, run) => runJob(command, { ...run, clock, resources }),
+    cwd: homedir(),
+    newId: () => randomUUID(),
+    logger,
+  });
 
   // Up to 32 MiB and 20 images per connection, let go after 30 minutes unused (SPEC-0001, "附件").
   const attachments = createAttachmentStore({
@@ -349,6 +373,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       index: indexCommands,
       setup,
       logins: loginService,
+      installs,
       attachments,
       changes,
       logger,
@@ -454,7 +479,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; cancels the login under way; stops login checks, scans,
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; cancels the login and the install job under way; stops login checks, scans,
    * fetches and every session's pi; finishes writing the index; flushes spans and logs; closes
    * the log file; releases the host lock.
    */
@@ -463,6 +488,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await toolbox.close();
     await server.close();
     await loginService.close();
+    await installs.close();
     await logins.close();
     attachments.close();
     await changes.close();

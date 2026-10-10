@@ -3,6 +3,8 @@ import type {
   DiffUpdatedEvent,
   IndexChangesEvent,
   IndexSnapshotEvent,
+  InstallOutputEvent,
+  InstallUpdatedEvent,
   LoginUpdatedEvent,
   SessionEvent,
 } from "@atrium/protocol";
@@ -18,7 +20,10 @@ type SinkEvent =
   | IndexChangesEvent
   | ChangesUpdatedEvent
   | DiffUpdatedEvent
-  | LoginUpdatedEvent;
+  | BroadcastEvent;
+
+/** What goes to every connection, whatever it watches. */
+type BroadcastEvent = LoginUpdatedEvent | InstallUpdatedEvent | InstallOutputEvent;
 
 /** A connection that subscribed to the list, and the client behind it. */
 export interface IndexSubscriber {
@@ -200,13 +205,13 @@ export class SubscriptionRegistry {
    * Delivers an event to every connection.
    *
    * @remarks
-   * For what every window shows whatever it watches, as a login under way (SPEC-0001, "首次启动 ·
-   * 接口").
+   * For what every window shows whatever it watches, as a login or an install job under way
+   * (SPEC-0001, "首次启动 · 接口").
    *
    * @sideEffects Calls every connection's sink.
    * @param event - The event.
    */
-  broadcast(event: LoginUpdatedEvent): void {
+  broadcast(event: BroadcastEvent): void {
     for (const { sink } of this.#sinks.values()) sink(event);
   }
 }

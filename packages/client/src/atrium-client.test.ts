@@ -1426,6 +1426,80 @@ describe("createAtriumClient: first launch", () => {
       { type: "logout", providerId: "acme" },
     ]);
   });
+
+  it("installs and updates through the host, and keeps the job under way with its output", async () => {
+    const { client, latest } = await connected();
+    const waiting = {
+      type: "install_updated",
+      jobId: "j1",
+      kind: "update_pi",
+      state: "waiting",
+      running: 1,
+      exitCode: null,
+      reason: null,
+    };
+    const before = client.installJob.getState();
+
+    const results = [client.installPi(), client.installNode(), client.updatePi(), client.cancelInstall("j1")];
+    latest().answer("install_pi", { jobId: "j1" });
+    latest().answer("install_node", { jobId: "j2" });
+    latest().answer("update_pi", { jobId: "j3" });
+    latest().answer("cancel_install");
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j0", text: "not this job" }));
+    latest().receive(JSON.stringify(waiting));
+    const shown = client.installJob.getState();
+    latest().receive(JSON.stringify({ ...waiting, state: "running", running: null }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "one\r" }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j0", text: "not this job" }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "two\n" }));
+    latest().receive(JSON.stringify({ ...waiting, state: "ok", running: null, exitCode: 0 }));
+    const done = client.installJob.getState();
+    latest().receive(JSON.stringify({ ...waiting, jobId: "j2", kind: "install_pi", state: "running", running: null }));
+
+    expect(before).toBeNull();
+    expect(await Promise.all(results)).toStrictEqual([{ jobId: "j1" }, { jobId: "j2" }, { jobId: "j3" }, {}]);
+    expect(shown).toStrictEqual({ job: waiting, output: "" });
+    expect(done).toStrictEqual({ job: { ...waiting, state: "ok", running: null, exitCode: 0 }, output: "one\rtwo\n" });
+    expect(client.installJob.getState()).toStrictEqual({
+      job: { ...waiting, jobId: "j2", kind: "install_pi", state: "running", running: null },
+      output: "",
+    });
+    expect(
+      latest()
+        .commands()
+        .filter((command) =>
+          ["install_pi", "install_node", "update_pi", "cancel_install"].includes(String(command["type"])),
+        )
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "install_pi" },
+      { type: "install_node" },
+      { type: "update_pi" },
+      { type: "cancel_install", jobId: "j1" },
+    ]);
+  });
+
+  it("keeps only the last mebibyte of a job's output", async () => {
+    const { client, latest } = await connected();
+    latest().receive(
+      JSON.stringify({
+        type: "install_updated",
+        jobId: "j1",
+        kind: "install_node",
+        state: "running",
+        running: null,
+        exitCode: null,
+        reason: null,
+      }),
+    );
+
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "a".repeat(1_048_576) }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "bc" }));
+
+    const { output } = present(client.installJob.getState(), "the job");
+    expect(output.length).toBe(1_048_576);
+    expect(output.slice(-3)).toBe("abc");
+  });
 });
 
 describe("createAtriumClient: images", () => {

@@ -9,6 +9,7 @@ import {
   type DiffTarget,
   type HelloMessage,
   HostMessage,
+  type InstallUpdatedEvent,
   type InteractionAnswer,
   type LoginMethod,
   type LoginUpdatedEvent,
@@ -108,6 +109,16 @@ export interface AtriumClientOptions {
   readonly reconnectDelaysMs?: readonly number[];
 }
 
+/** An install job as the host last reported it, with its output so far. */
+export interface InstallJob {
+  readonly job: InstallUpdatedEvent;
+  /** Raw, with colours and carriage returns, for the UI to render. */
+  readonly output: string;
+}
+
+/** How much of an install job's output a client keeps: the last 1 MiB of characters. */
+const MAX_INSTALL_OUTPUT = 1_048_576;
+
 /** The one entry point to the host: connection state, session views and commands. */
 export interface AtriumClient {
   /** Connection state, as a Zustand vanilla store the UI subscribes to. */
@@ -199,6 +210,19 @@ export interface AtriumClient {
   cancelLogin(loginId: string): Promise<CommandResult<"cancel_login">>;
   /** Removes the credential pi stored for a provider. */
   logout(providerId: string): Promise<CommandResult<"logout">>;
+  /**
+   * The install job the host last reported, whichever window started it, and its output since
+   * this client heard of it (the last {@link MAX_INSTALL_OUTPUT} characters); `null` until then.
+   */
+  readonly installJob: StoreApi<InstallJob | null>;
+  /** Runs pi's official install script. */
+  installPi(): Promise<CommandResult<"install_pi">>;
+  /** Installs Node.js with Homebrew. */
+  installNode(): Promise<CommandResult<"install_node">>;
+  /** Runs `pi update` once no session is running. */
+  updatePi(): Promise<CommandResult<"update_pi">>;
+  /** Cancels the install job under way. */
+  cancelInstall(jobId: string): Promise<CommandResult<"cancel_install">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -315,6 +339,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const connection = createStore<ConnectionState>(() => ({ status: "idle" }));
   const index = createStore<IndexView>(emptyIndex);
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
+  const installJob = createStore<InstallJob | null>(() => null);
   const openSocket: (url: string) => SocketLike = options.openSocket ?? ((url: string) => new WebSocket(url));
   const createTrace = options.createTrace ?? createTraceContext;
   const clock = options.clock ?? systemClock;
@@ -693,6 +718,19 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       changesOf(workspaceId).setState(changes, true);
       return;
     }
+    if (message.type === "install_updated") {
+      const shown = installJob.getState();
+      const output = shown?.job.jobId === message.jobId ? shown.output : "";
+      installJob.setState({ job: message, output }, true);
+      return;
+    }
+    if (message.type === "install_output") {
+      const shown = installJob.getState();
+      // Output of a job this client has not heard of has no state to show it with.
+      if (shown?.job.jobId !== message.jobId) return;
+      installJob.setState({ job: shown.job, output: (shown.output + message.text).slice(-MAX_INSTALL_OUTPUT) }, true);
+      return;
+    }
     if (message.type === "login_updated") {
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       loginState.setState(message, true);
@@ -976,6 +1014,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     answerLogin: (loginId, promptId, value) => request("answer_login", { loginId, promptId, value }),
     cancelLogin: (loginId) => request("cancel_login", { loginId }),
     logout: (providerId) => request("logout", { providerId }),
+    installJob,
+    installPi: () => request("install_pi", {}),
+    installNode: () => request("install_node", {}),
+    updatePi: () => request("update_pi", {}),
+    cancelInstall: (jobId) => request("cancel_install", { jobId }),
     setThinkingLevel: (sessionId, level) =>
       withGuessedModel(
         sessionId,

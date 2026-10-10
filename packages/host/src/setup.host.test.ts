@@ -185,3 +185,36 @@ describe("signing in and out over the WebSocket", () => {
     await expect(starter.logout("acme")).resolves.toStrictEqual({});
   });
 });
+
+describe("installing over the WebSocket", () => {
+  it("installs Node with the Homebrew found, showing its output in every window", async () => {
+    const { bin, home } = await installedPi();
+    await writeFile(join(bin, "brew"), '#!/bin/sh\necho "brew $*"\n');
+    await chmod(join(bin, "brew"), 0o755);
+    testHost = await startTestHost({ toolEnv: { PATH: bin, HOME: home, FAKE_PI: "status" }, loginWorker: WORKER });
+    const starter = testHost.connect();
+    const other = testHost.connect();
+    onTestFinished(() => starter.disconnect());
+    onTestFinished(() => other.disconnect());
+    await starter.connect();
+    await other.connect();
+
+    const { jobId } = await starter.installNode();
+    await vi.waitFor(() => expect(other.installJob.getState()?.job.state).toBe("ok"), { timeout: 10_000 });
+
+    expect(other.installJob.getState()).toStrictEqual({
+      job: {
+        type: "install_updated",
+        jobId,
+        kind: "install_node",
+        state: "ok",
+        running: null,
+        exitCode: 0,
+        reason: null,
+      },
+      output: "brew install node\n",
+    });
+    expect(starter.installJob.getState()).toStrictEqual(other.installJob.getState());
+    await expect(starter.cancelInstall(jobId)).rejects.toMatchObject({ code: "install_not_found" });
+  });
+});

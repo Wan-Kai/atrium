@@ -55,6 +55,10 @@ export {
   AnswerLoginCommand,
   CancelLoginCommand,
   LogoutCommand,
+  InstallPiCommand,
+  InstallNodeCommand,
+  UpdatePiCommand,
+  CancelInstallCommand,
 } from "./commands";
 export {
   ChangesUpdatedEvent,
@@ -69,6 +73,9 @@ export {
 export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
 export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export {
+  InstallKind,
+  InstallOutputEvent,
+  InstallUpdatedEvent,
   LoginFailureReason,
   LoginMethod,
   LoginQuestion,
