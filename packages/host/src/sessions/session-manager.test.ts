@@ -102,7 +102,7 @@ async function manage(
   let next = 0;
   const manager = createSessionManager({
     chatsRoot: join(at.home, "chats"),
-    tools: Promise.resolve(found),
+    tools: () => Promise.resolve(found),
     subscriptions,
     catalog,
     layouts,

@@ -60,7 +60,7 @@ atrium/
 │   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
 │   │   │   ├── auth/               登录：系统 Node 运行的登录程序（加载用户装的 pi 的 ModelRuntime）
 │   │   │   │                       和宿主这边的调用（登录状态、OAuth、API Key、退出）
-│   │   │   └── locate/             找到 pi、检查版本；找到 `@` 用的 fd
+│   │   │   └── locate/             找到 pi 和它用的 Node、检查版本；找到 `@` 用的 fd
 │   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
 │   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
 │   ├── host/                       宿主：Atrium 自己的业务
@@ -79,7 +79,7 @@ atrium/
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
-│   │   │   ├── setup/              SetupService、安装和登录任务
+│   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、改动面板的 diff，监听有人看的工作区）

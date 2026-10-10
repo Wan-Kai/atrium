@@ -19,7 +19,7 @@ export const MUTATION_GROUPS = {
       "packages/pi/src/events/*.ts",
       "packages/pi/src/history/*.ts",
       "packages/pi/src/sessions/*.ts",
-      "packages/pi/src/locate/{version,locate,inspect,fd}.ts",
+      "packages/pi/src/locate/{version,locate,inspect,fd,node}.ts",
       "packages/pi/src/process/*.ts",
       "packages/pi/src/catalog/*.ts",
       "packages/pi/src/stats/*.ts",
@@ -39,6 +39,7 @@ export const MUTATION_GROUPS = {
       "packages/host/src/sync/*.ts",
       "packages/host/src/transcript/*.ts",
       "packages/host/src/files/*.ts",
+      "packages/host/src/setup/*.ts",
     ],
     tests: ["packages/host"],
     skip: [

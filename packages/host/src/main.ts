@@ -1,8 +1,8 @@
 import {
-  type PiInspection,
   createModelCatalog,
   createSessionFileReader,
   findFd,
+  inspectNode,
   inspectPi,
   queryModels,
   sessionsLocation,
@@ -25,6 +25,8 @@ import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platfor
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
+import { findHomebrew } from "./setup/homebrew";
+import { type HostTools, createToolbox } from "./setup/toolbox";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { createIndexCommands } from "./sessions/index-commands";
@@ -68,15 +70,8 @@ export interface HostConfig {
    * tests set it so no shell runs.
    */
   readonly toolEnv?: Readonly<Record<string, string>>;
-}
-
-/** The tools the host found after starting. */
-export interface HostTools {
-  /** Environment for pi and the tools it runs; its PATH is where pi was looked for. */
-  readonly env: Readonly<Record<string, string>>;
-  /** Where `env` came from: the login shell, the host's own environment, or `HostConfig.toolEnv`. */
-  readonly envSource: ToolEnv["source"] | "configured";
-  readonly pi: PiInspection;
+  /** Where to look for Homebrew after PATH; defaults to where its installer puts it, tests set none. */
+  readonly homebrewPlaces?: readonly string[];
 }
 
 /** A running host. */
@@ -87,7 +82,7 @@ export interface RunningHost {
   readonly address: string;
   /** Live resource counts, for leak tests and diagnostics. */
   readonly resources: ResourceTracker;
-  /** Resolves once PATH is known and pi has been looked for; `null` if the host closed first or detection failed. */
+  /** Resolves once PATH is known and the tools have been looked for; `null` if the host closed first or detection failed. */
   readonly tools: Promise<HostTools | null>;
   /** Path that always points at the log file being written. */
   readonly logFile: string;
@@ -147,8 +142,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
   const subscriptions = new SubscriptionRegistry(resources);
   const hostInstanceId = randomBytes(8).toString("hex");
-  // Settled with the detection below once the server listens; commands can only arrive after that.
-  const toolsFound = Promise.withResolvers<HostTools | null>();
+  // Detection starts once the server listens; commands can only arrive after that.
+  const toolbox = createToolbox(detectTools);
   const index = await loadIndex(home.root, clock.now(), logger).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     await tracing.shutdown();
@@ -156,9 +151,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await lock.release();
     throw error;
   });
-  const git = toolsFound.promise.then((tools) =>
-    tools === null ? null : createGitRunner({ env: tools.env, clock, resources }),
-  );
+  // git keeps the first environment: its PATH only has to reach git, which installing pi or Node does not move.
+  const git = toolbox
+    .current()
+    .then((tools) => (tools === null ? null : createGitRunner({ env: tools.env, clock, resources })));
   const projects = createProjectService({
     file: index.projects,
     git,
@@ -178,7 +174,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   });
   const catalog = createSessionCatalog({
     file: index.sessions,
-    location: toolsFound.promise.then((tools) => (tools === null ? null : sessionsLocation(tools.env))),
+    location: toolbox.current().then((tools) => (tools === null ? null : sessionsLocation(tools.env))),
     chatsRoot: join(home.root, "chats"),
     workspaces: () => workspaces.list().map((workspace) => ({ id: workspace.id, dir: workspace.dir })),
     reader: createSessionFileReader(),
@@ -217,7 +213,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   });
   const sessions = createSessionManager({
     chatsRoot: join(home.root, "chats"),
-    tools: toolsFound.promise,
+    tools: () => toolbox.current(),
     subscriptions,
     catalog,
     layouts,
@@ -237,7 +233,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     newId: () => randomUUID(),
     files: createFileSearch({
       findFd: async () => {
-        const found = await toolsFound.promise;
+        const found = await toolbox.current();
         return found === null ? null : findFd(found.env);
       },
       clock,
@@ -270,7 +266,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   });
   const models = createModelCatalog({
     query: async (dir, signal) => {
-      const found = await toolsFound.promise;
+      const found = await toolbox.current();
       if (found?.pi.status !== "ready") {
         throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
       }
@@ -344,26 +340,26 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   workspaces.start();
   sessions.rescan();
   let cancelReport = scheduleReport();
-  const stopDetecting = new AbortController();
-  const tools = detectTools();
-  toolsFound.resolve(tools);
+  toolbox.start();
+  const tools = toolbox.current();
 
   /**
-   * Reads the login shell's environment, then looks for pi on its PATH.
+   * Reads the login shell's environment, then looks for pi, Node, Homebrew and fd on its PATH.
    *
    * @remarks
    * Runs in the background after the server listens: an interactive login shell can take seconds,
    * which would blow the startup budget (testing.md, "性能预算"). The whole environment is taken so
    * pi behaves as in the user's terminal (SPEC-0001, "第 1 步：安装 pi"); only its source, PATH and
    * size are logged, because it may hold API keys. Closing the host aborts it, and it is counted
-   * as a resource, so it cannot outlive the host unnoticed. It never rejects.
+   * as a resource, so it cannot outlive the host unnoticed. It never rejects. The toolbox runs it
+   * again when first launch asks to refresh.
    *
-   * @sideEffects Spawns the login shell and `pi --version`; logs the outcome.
+   * @sideEffects Spawns the login shell, `pi --version` and `node --version`; logs the outcome.
+   * @param signal - Aborted when the host closes.
    * @returns The tools found, or `null` if the host closed first or detection failed.
    */
-  async function detectTools(): Promise<HostTools | null> {
+  async function detectTools(signal: AbortSignal): Promise<HostTools | null> {
     const release = resources.acquire("tools.detect");
-    const signal = stopDetecting.signal;
     try {
       const found: ToolEnv | { source: "configured"; env: Readonly<Record<string, string>> } =
         config.toolEnv === undefined
@@ -381,10 +377,16 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       environmentSecrets = secretsInEnvironment(env);
       logger.info({ ...origin, path, variables: Object.keys(env).length }, "tool environment resolved");
       if (signal.aborted) return null;
-      const pi = await inspectPi(path, { env, clock, signal });
+      const [pi, node, homebrew, fd] = await Promise.all([
+        inspectPi(path, { env, clock, signal }),
+        inspectNode(path, { env, clock, signal }),
+        findHomebrew(path, config.homebrewPlaces),
+        findFd(env),
+      ]);
       if (signal.aborted) return null;
       logger[pi.status === "ready" ? "info" : "warn"]({ ...pi }, "pi inspected");
-      return { env, envSource: found.source, pi };
+      logger.info({ node: node.status, homebrew: homebrew !== null, fd: fd !== null }, "setup tools inspected");
+      return { env, envSource: found.source, pi, node, homebrew, fd };
     } catch (error) {
       // Nothing above is expected to throw; if something does, the host keeps running without pi.
       logger.error({ err: error }, "tool detection failed");
@@ -431,8 +433,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    */
   async function close(): Promise<void> {
     cancelReport();
-    stopDetecting.abort();
-    await tools;
+    await toolbox.close();
     await server.close();
     attachments.close();
     await changes.close();

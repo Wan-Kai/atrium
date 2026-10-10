@@ -52,29 +52,29 @@ export async function findPi(searchPath: string): Promise<string | null> {
 }
 
 /**
- * Asks a pi executable for its version.
+ * Asks an executable, pi or the Node it runs on, for its version.
  *
  * @remarks
- * Uses `execFile` with an argument array so no shell is involved (security.md, "子进程与文件").
- * The environment goes through `piEnvironment`, so a relative PATH entry cannot pick the `node`
- * pi's launcher runs. Aborting kills with SIGKILL and the promise settles only once pi has exited,
- * so a pi that ignores SIGTERM can neither keep the caller waiting nor outlive the check; the
- * caller sets the deadline through the signal.
+ * Runs `<executable> --version` with `execFile` and an argument array, so no shell is involved
+ * (security.md, "子进程与文件"). The environment goes through `piEnvironment`, so a relative PATH
+ * entry cannot pick the `node` pi's launcher runs. Aborting kills with SIGKILL and the promise
+ * settles only once the process has exited, so one that ignores SIGTERM can neither keep the
+ * caller waiting nor outlive the check; the caller sets the deadline through the signal.
  *
- * @sideEffects Runs `pi --version` as a child process; kills it if the signal aborts.
- * @param piPath - Absolute path of the pi executable.
- * @param options - Environment for the child (its PATH must reach Node) and an abort signal.
+ * @sideEffects Runs `<executable> --version` as a child process; kills it if the signal aborts.
+ * @param executable - Absolute path of the executable.
+ * @param options - Environment for the child (for pi, its PATH must reach Node) and an abort signal.
  * @returns The reported version, or `null` if the output has none.
  * @throws {Error} When the process cannot start, exits non-zero or is aborted.
  */
-export async function readPiVersion(
-  piPath: string,
+export async function readVersion(
+  executable: string,
   options: { readonly env: Readonly<Record<string, string | undefined>>; readonly signal?: AbortSignal },
 ): Promise<Version | null> {
   // Not `execFile`'s own `signal` option: on abort it sends SIGTERM whatever `killSignal` says.
-  const running = run(piPath, ["--version"], { env: piEnvironment(options.env) });
+  const running = run(executable, ["--version"], { env: piEnvironment(options.env) });
   /**
-   * Kills `pi --version` outright.
+   * Kills the check outright.
    *
    * @remarks
    * SIGKILL, because a hung pi may ignore SIGTERM.

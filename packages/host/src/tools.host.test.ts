@@ -67,13 +67,18 @@ describe("tool detection at startup", () => {
     );
   });
 
-  it("finds no pi on an empty PATH and logs that", async () => {
-    testHost = await startTestHost();
+  it("finds no pi, Node, Homebrew or fd on an empty PATH and logs that", async () => {
+    const home = await createTempDir("tools-home");
+    onTestFinished(home.cleanup);
+    testHost = await startTestHost({ toolEnv: { PATH: "", HOME: home.path } });
 
     expect(await testHost.host.tools).toStrictEqual({
-      env: { PATH: "" },
+      env: { PATH: "", HOME: home.path },
       envSource: "configured",
       pi: { status: "missing" },
+      node: { status: "missing" },
+      homebrew: null,
+      fd: null,
     });
     expect(await testHost.readLog()).toContainEqual(
       expect.objectContaining({ level: "warn", msg: "pi inspected", status: "missing" }),

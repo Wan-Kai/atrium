@@ -80,7 +80,7 @@ async function assemble() {
   const listed: [string, boolean][] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
-    tools: Promise.resolve({
+    tools: async () => ({
       env: { PATH: process.env["PATH"] ?? "", ...scripted.env },
       pi: { status: "ready", piPath: scripted.piPath, version: [1, 0, 2] },
     }),

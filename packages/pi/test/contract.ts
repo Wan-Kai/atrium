@@ -16,7 +16,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, vi } from "vitest";
 import type { PiDeps } from "../src/deps";
-import { findPi, readPiVersion } from "../src/locate/locate";
+import { findPi, readVersion } from "../src/locate/locate";
 import { type PiEvent, type PiProcess, startPiProcess } from "../src/process/pi-process";
 
 /** Where fixtures live, one directory per pi version (testing.md, "pi 夹具"). */
@@ -131,7 +131,7 @@ export async function runScenario(
     }
     const path = present(process.env["PATH"], "PATH");
     const piPath = present(await findPi(path), "pi on PATH");
-    const version = present(await readPiVersion(piPath, { env: process.env }), "pi version").join(".");
+    const version = present(await readVersion(piPath, { env: process.env }), "pi version").join(".");
     const sessionsDir = join(cwd, "sessions");
     await mkdir(sessionsDir);
     const sessionArgs = options.session === true ? ["--session-dir", sessionsDir] : ["--no-session"];

@@ -252,6 +252,9 @@
 
 | 行为 | 测试 | 状态 |
 |---|---|---|
+| 找 Node：PATH 上没有为缺失；22.19.0 可用、22.18.9 版本过低；运行不了、不报版本、超时（杀掉）、中止都算缺失；用搜索路径作 PATH 运行 | `packages/pi/src/locate/node.test.ts` | 已覆盖 |
+| 找 Homebrew：先找 PATH，再按顺序找安装位置；都没有为空 | `packages/host/src/setup/homebrew.test.ts` | 已覆盖 |
+| 宿主的工具（Toolbox）：启动前不检测，之前问的拿到第一次的结果；重新检测排在进行中的之后，之后都用新结果；同时请求的共用一次；没找到时保留之前的；关闭时中止进行中的并等它，之后不再检测；没启动就关闭为空。启动时一并查 pi、Node、Homebrew、fd，空 PATH 下都没有 | `packages/host/src/setup/toolbox.test.ts`、`packages/host/src/tools.host.test.ts` | 已覆盖 |
 | 登录程序找 pi 包：从 `pi` 的真实路径往上找名为 pi 的包，跳过别的名字、没有入口的、不是 JSON 或不是对象的 `package.json`，找不到、命令不存在时为空；真实 pi 的入口 | `packages/pi/src/auth/login.test.ts` "piPackageEntry"、`login.pi.test.ts` | 已覆盖 |
 | 登录状态：列出服务商、OAuth 的名称、按钮文字和是否订阅、能否存 Key、已登录的方式和是否存在 `auth.json`（环境变量的 Key 不算存的）；真实 pi 的 anthropic、openai、openrouter 和环境变量里的 DeepSeek Key | `login.test.ts` "lists providers"、`login.pi.test.ts` | 已覆盖 |
 | 登录过程：pi 的设备码、进度、提示、授权地址和提问原样转出，按 id 回答；pi 问登录方式时自动选浏览器；API Key 交给第一个密码类提问，其余提问照常转出，没给 Key 时全部转出；pi 撤回提问时告知，迟到的回答丢掉；pi 打印的非 JSON 行忽略，stderr 不读也不堵；设备 ID 用 pi 自己的；真实 pi：anthropic 的浏览器登录给出授权地址和粘贴回调的提问，取消后释放回调端口，Cloudflare 的账户 ID 提问，存 Key（权限 600）和退出 | `login.test.ts`、`login.pi.test.ts` | 已覆盖 |

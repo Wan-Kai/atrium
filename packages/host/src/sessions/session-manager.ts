@@ -141,7 +141,8 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  */
 export function createSessionManager(options: {
   readonly chatsRoot: string;
-  readonly tools: Promise<SessionTools | null>;
+  /** The tools as last detected; asked again whenever pi starts, so a refresh reaches new pi processes. */
+  readonly tools: () => Promise<SessionTools | null>;
   readonly subscriptions: SubscriptionRegistry;
   readonly catalog: SessionCatalog;
   readonly layouts: Layouts;
@@ -311,7 +312,7 @@ export function createSessionManager(options: {
    * @throws {CommandError} `pi_unavailable` with pi's status otherwise.
    */
   async function readyTools(): Promise<ReadyTools> {
-    const tools = await options.tools;
+    const tools = await options.tools();
     if (tools?.pi.status !== "ready") {
       throw new CommandError("pi_unavailable", { status: tools?.pi.status ?? "unknown" });
     }

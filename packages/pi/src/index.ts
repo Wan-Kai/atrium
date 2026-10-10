@@ -1,7 +1,8 @@
 export type { PiDeps } from "./deps";
 export { absolutePathEntries, piEnvironment } from "./env/pi-env";
 export { PI_VERSION_TIMEOUT_MS, type PiInspection, inspectPi } from "./locate/inspect";
-export { findExecutable, findPi, readPiVersion } from "./locate/locate";
+export { findExecutable, findPi, readVersion } from "./locate/locate";
+export { MIN_NODE_VERSION, type NodeInspection, inspectNode } from "./locate/node";
 export { type ProcessSystem, killProcessTree } from "./process/kill-tree";
 export { MIN_PI_VERSION, type Version, isAtLeast, parseVersion } from "./locate/version";
 export {
