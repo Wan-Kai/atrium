@@ -135,6 +135,7 @@ describe("droppedReference", () => {
     expect(droppedReference("/elsewhere/x", "/w", true)).toBe("/elsewhere/x/");
     expect(droppedReference("/w2/x", "/w", false)).toBe("/w2/x");
     expect(droppedReference("/w/x", null, false)).toBe("/w/x");
+    expect(droppedReference("null/x", null, false)).toBe("null/x");
   });
 });
 
@@ -213,6 +214,7 @@ describe("historyOf", () => {
       ...turn("t1", "one"),
       steps: [
         { kind: "steer", id: "s1", text: "also" },
+        { kind: "text", id: "r1", text: "a reply is not sent by you" },
         { kind: "steer", id: "s2", text: "and" },
       ],
     };

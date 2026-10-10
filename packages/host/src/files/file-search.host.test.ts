@@ -117,6 +117,13 @@ describe("createFileSearch against fd", () => {
     expect(await search.search(cwd, "/etc/", new AbortController().signal)).toStrictEqual([]);
   });
 
+  it("finds nothing for an absolute path, though the directory has one by that name inside", async () => {
+    const cwd = await workspace({ "etc/hosts": "" });
+    const { search } = await searcher();
+
+    expect(await search.search(cwd, "/etc/", new AbortController().signal)).toStrictEqual([]);
+  });
+
   it("takes a query that looks like an fd option as text, never searching elsewhere", async () => {
     const outside = await workspace({ "secret.txt": "" });
     const cwd = await workspace({ "-notes.txt": "", "a.ts": "" });

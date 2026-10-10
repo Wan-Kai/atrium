@@ -7,6 +7,8 @@ import {
   parseDiffOutput,
   parseShortstat,
   splitPatch,
+  type Unweighed,
+  weighFiles,
 } from "./diff-text";
 
 describe("parseShortstat", () => {
@@ -17,6 +19,10 @@ describe("parseShortstat", () => {
     });
     expect(parseShortstat(" 1 file changed, 1 insertion(+)\n")).toStrictEqual({ added: 1, removed: 0 });
     expect(parseShortstat(" 1 file changed, 2 deletions(-)\n")).toStrictEqual({ added: 0, removed: 2 });
+    expect(parseShortstat(" 9 files changed, 120 insertions(+), 345 deletions(-)\n")).toStrictEqual({
+      added: 120,
+      removed: 345,
+    });
     expect(parseShortstat("")).toStrictEqual({ added: 0, removed: 0 });
   });
 });
@@ -38,7 +44,7 @@ describe("parseDiffOutput", () => {
       "g.ts",
       ":100644 000000 fff 000 D",
       "gone.ts",
-      "3\t1\tsrc/a.ts",
+      "13\t21\tsrc/a.ts",
       "0\t0\t",
       "old name.ts",
       "new\tname.ts",
@@ -59,8 +65,8 @@ describe("parseDiffOutput", () => {
           oldPath: null,
           status: "modified",
           typeChanged: false,
-          added: 3,
-          removed: 1,
+          added: 13,
+          removed: 21,
           binary: false,
         },
         {
@@ -84,8 +90,8 @@ describe("parseDiffOutput", () => {
 });
 
 describe("splitPatch", () => {
-  it("splits a patch into one section a file", () => {
-    const first = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-x\n+y\n";
+  it("splits a patch into one section a file, at a header's start only", () => {
+    const first = "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-x\n+y says diff --git a/b b/b\n";
     const second = "diff --git a/b b/b\nBinary files a/b and b/b differ\n";
 
     expect(splitPatch(first + second)).toStrictEqual([first, second]);
@@ -138,6 +144,18 @@ describe("parseHunks", () => {
     ]);
   });
 
+  it("reads counts of more than one digit, and a hunk header written as a line's text as text", () => {
+    const context = Array.from({ length: 12 }, (_, at) => ` line ${at}`);
+    const section = ["diff --git a/x b/x", "--- a/x", "+++ b/x", "@@ -10,12 +10,13 @@", "+@@ -1 +1 @@", ...context, ""];
+    const [hunk] = parseHunks(section.join("\n"));
+
+    expect([hunk?.oldStart, hunk?.oldCount, hunk?.newStart, hunk?.newCount, hunk?.lines.length]).toStrictEqual([
+      10, 12, 10, 13, 13,
+    ]);
+    expect(hunk?.lines[0]).toStrictEqual({ kind: "add", oldNumber: null, newNumber: 10, text: "@@ -1 +1 @@" });
+    expect(hunk?.lines.at(-1)).toStrictEqual({ kind: "context", oldNumber: 21, newNumber: 22, text: "line 11" });
+  });
+
   it("takes a line that looks like a header inside a hunk as a line", () => {
     const section = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n--- not a header\n++++ nor this\n";
 
@@ -173,6 +191,16 @@ describe("isLikelyBinary", () => {
     expect(isLikelyBinary(Buffer.from("中文也是文字"))).toBe(false);
     expect(isLikelyBinary(Buffer.alloc(0))).toBe(false);
   });
+
+  it("calls one zero byte binary however much text is around it, and counts control bytes at their edges", () => {
+    expect(isLikelyBinary(Buffer.from("plenty of text around\0"))).toBe(true);
+    expect(isLikelyBinary(Buffer.from([7, 7, 7, 0x61]))).toBe(false);
+    expect(isLikelyBinary(Buffer.from([20, 20, 20, 0x61]))).toBe(true);
+    expect(isLikelyBinary(Buffer.from("\r\n\r\n\r\n"))).toBe(false);
+    expect(isLikelyBinary(Buffer.from("a    b    c"))).toBe(false);
+    // Exactly three in ten is not more than 30%.
+    expect(isLikelyBinary(Buffer.from([1, 2, 3, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67]))).toBe(false);
+  });
 });
 
 describe("countLines", () => {
@@ -199,5 +227,53 @@ describe("addedFileHunks", () => {
       },
     ]);
     expect(addedFileHunks("")).toStrictEqual([]);
+    expect(addedFileHunks("a\r\nb\r\n")[0]?.lines.map((line) => line.text)).toStrictEqual(["a", "b"]);
+  });
+});
+
+/** A file whose body is `size` bytes and shows one hunk, or the body given. */
+function unweighed(path: string, body: number | "binary" | null): Unweighed {
+  const hunk = { oldStart: 0, oldCount: 0, newStart: 1, newCount: 1, lines: [] };
+  return {
+    path,
+    oldPath: null,
+    status: "added",
+    added: 1,
+    removed: 0,
+    body: typeof body === "number" ? { size: body, hunks: () => [hunk] } : body,
+  };
+}
+
+describe("weighFiles", () => {
+  it("shows files by path while each fits and all shown so far fit, binary ones taking nothing", () => {
+    const files = weighFiles(
+      [unweighed("d", 1), unweighed("b", "binary"), unweighed("a", 10), unweighed("c", 6), unweighed("e", null)],
+      { fileBytes: 10, totalBytes: 16 },
+    );
+
+    expect(files.map((file) => [file.path, file.content, file.hunks.length])).toStrictEqual([
+      ["a", "text", 1],
+      ["b", "binary", 0],
+      ["c", "text", 1],
+      ["d", "too_large", 0],
+      ["e", "too_large", 0],
+    ]);
+    expect(files[0]).toStrictEqual({
+      path: "a",
+      oldPath: null,
+      status: "added",
+      added: 1,
+      removed: 0,
+      content: "text",
+      hunks: [{ oldStart: 0, oldCount: 0, newStart: 1, newCount: 1, lines: [] }],
+    });
+  });
+
+  it("shows no file over the limit for one, and goes on with smaller ones", () => {
+    expect(
+      weighFiles([unweighed("a", 11), unweighed("b", 5)], { fileBytes: 10, totalBytes: 100 }).map(
+        (file) => file.content,
+      ),
+    ).toStrictEqual(["too_large", "text"]);
   });
 });

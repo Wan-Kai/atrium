@@ -1,7 +1,7 @@
 import { GIT_SCENE_ENV, type GitScene, createGitScene, createTempDir } from "@atrium/testkit";
 import { chmod, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { systemClock } from "../platform/clock";
 import { GitError, createGitRunner } from "../platform/git";
@@ -122,6 +122,44 @@ describe("workspaceChanges", () => {
     await symlink(join(repo, "README.md"), join(repo, "link.md"));
 
     expect((await workspaceChanges(git, repo, null, signal)).stat).toStrictEqual({ added: 1, removed: 0 });
+  });
+});
+
+describe("workspaceChanges, more", () => {
+  it("compares with origin's own branch when origin names no main branch", async () => {
+    const made = await scene();
+    const { repo } = made;
+    await made.git(repo, "remote", "set-head", "origin", "--delete");
+    await writeFile(join(repo, "README.md"), "start\nmore\n");
+
+    expect(await workspaceChanges(git, repo, null, signal)).toMatchObject({
+      stat: { added: 1, removed: 0 },
+      base: "origin/main",
+    });
+  });
+
+  it("shows nothing for a branch with no history in common with the main branch", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+    await made.git(tree, "checkout", "--quiet", "--orphan", "alone");
+    await made.commit(tree, "alone.txt", "a\n");
+
+    expect(await workspaceChanges(git, tree, null, signal)).toMatchObject({ stat: null, branch: "alone", base: null });
+  });
+
+  it("counts lines removed alone", async () => {
+    const { repo } = await scene();
+    await writeFile(join(repo, "README.md"), "");
+
+    expect((await workspaceChanges(git, repo, null, signal)).stat).toStrictEqual({ added: 0, removed: 1 });
+  });
+
+  it("counts the lines of the first 500 untracked files only", async () => {
+    const { repo } = await scene();
+    await mkdir(join(repo, "many"));
+    for (let at = 0; at < 501; at++) await writeFile(join(repo, "many", `f${String(at).padStart(3, "0")}.txt`), "x\n");
+
+    expect((await workspaceChanges(git, repo, null, signal)).stat).toStrictEqual({ added: 500, removed: 0 });
   });
 });
 
@@ -403,6 +441,59 @@ describe("workspaceDiff", () => {
 
     expect((await workspaceDiff(git, empty, null, "uncommitted", signal)).files).toMatchObject([
       { path: "staged.txt", status: "added", added: 1, content: "text" },
+    ]);
+  });
+
+  it("shows no untracked file among a branch's commits", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+    await made.commit(tree, "feature.txt", "x\n");
+    await writeFile(join(tree, "loose.txt"), "y\n");
+
+    expect((await workspaceDiff(git, tree, null, "base", signal)).files.map((file) => file.path)).toStrictEqual([
+      "feature.txt",
+    ]);
+  });
+
+  it("says git failed when the diff itself cannot be read, as with an object gone", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+    await made.commit(tree, "feature.txt", "only here\n");
+    const blob = await made.git(tree, "rev-parse", "HEAD:feature.txt");
+    const common = await made.git(tree, "rev-parse", "--git-common-dir");
+    await rm(resolve(tree, common, "objects", blob.slice(0, 2), blob.slice(2)));
+
+    expect(await workspaceDiff(git, tree, null, "base", signal)).toStrictEqual({
+      files: [],
+      tooLarge: false,
+      error: "failed",
+    });
+  });
+
+  it("gives up rather than answering when called off", async () => {
+    const { repo } = await scene();
+    const stop = new AbortController();
+    stop.abort();
+
+    await expect(workspaceDiff(git, repo, null, "uncommitted", stop.signal)).rejects.toStrictEqual(
+      new GitError("rev-parse", "aborted"),
+    );
+  });
+
+  it("counts the lines of an untracked file too large to read, a chunk at a time, ending with a line break or not", async () => {
+    const { repo } = await scene();
+    await writeFile(join(repo, "ends.txt"), "hh\n".repeat(30_000));
+    await writeFile(join(repo, "open.txt"), `${"hh\n".repeat(29_999)}hh`);
+    const limits = { fileBytes: 700, totalBytes: 700, patchBytes: 100_000 };
+
+    expect(
+      (await workspaceDiff(git, repo, null, "uncommitted", signal, limits)).files.map(({ path, added }) => [
+        path,
+        added,
+      ]),
+    ).toStrictEqual([
+      ["ends.txt", 30_000],
+      ["open.txt", 30_000],
     ]);
   });
 

@@ -25,7 +25,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { type Draft, type KeptImage, pageDrafts, useDraft } from "../state/drafts";
+import { type Draft, type KeptImage } from "../state/drafts";
+import { pageDrafts, useDraft } from "../state/use-draft";
 import {
   type DraftText,
   type Mention,

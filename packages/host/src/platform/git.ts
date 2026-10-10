@@ -191,6 +191,7 @@ function runGit(
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly tooLarge: boolean }> {
   return new Promise((resolve) => {
     if (signal.aborted) {
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral: the caller sees the signal aborted first.
       resolve({ code: null, stdout: "", tooLarge: false });
       return;
     }
@@ -228,6 +229,7 @@ function runGit(
     child.stdout.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > maxOutputBytes) {
+        // Stryker disable next-line BooleanLiteral: too large is checked before the exit code.
         failed = true;
         tooLarge = true;
         killGroup();

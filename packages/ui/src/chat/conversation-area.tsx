@@ -12,7 +12,7 @@ import { createStore } from "zustand/vanilla";
 import { useDisplayMode } from "../state/display-mode";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
-import { pageDrafts } from "../state/drafts";
+import { pageDrafts } from "../state/use-draft";
 import { historyOf } from "./composer-text";
 import { ChangesPanel } from "./changes-panel";
 import { shownModel } from "./model-choice";

@@ -51,26 +51,36 @@ export function parseDiffOutput(output: string): { readonly entries: DiffEntry[]
   const fields = output.split("\0");
   const raw: { status: string; path: string; oldPath: string | null }[] = [];
   let at = 0;
+  // Fields past the end read as "", which ends the loop too.
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: see above.
   for (; at < fields.length && (fields[at] ?? "").startsWith(":"); at++) {
+    // Stryker disable next-line OptionalChaining,StringLiteral: a raw record always ends in its status.
     const status = (fields[at] ?? "").split(" ").at(-1)?.charAt(0) ?? "M";
     if (status === "R" || status === "C") {
+      // Stryker disable next-line StringLiteral: git always gives both paths.
       raw.push({ status, oldPath: fields[at + 1] ?? "", path: fields[at + 2] ?? "" });
       at += 2;
     } else {
+      // Stryker disable next-line StringLiteral: git always gives the path.
       raw.push({ status, oldPath: null, path: fields[at + 1] ?? "" });
       at += 1;
     }
   }
   const counts: { added: number; removed: number; binary: boolean }[] = [];
+  // Stryker disable next-line EqualityOperator: a field past the end matches nothing, which ends the loop too.
   for (; at < fields.length; at++) {
+    // The empty field before the patch ends the records, so the patch is never read as one.
+    // Stryker disable next-line Regex,StringLiteral: see above; `.*` with the `s` flag runs to the end anyway.
     const match = /^(-|\d+)\t(-|\d+)\t(.*)$/s.exec(fields[at] ?? "");
     if (match === null) break;
+    // Stryker disable next-line StringLiteral: every group matches when the expression does.
     const [, added = "", removed = "", path = ""] = match;
     const binary = added === "-";
     counts.push({ added: binary ? 0 : Number(added), removed: binary ? 0 : Number(removed), binary });
     if (path === "") at += 2;
   }
   const entries = raw.map(({ status, path, oldPath }, index): DiffEntry => {
+    // Stryker disable next-line ObjectLiteral,BooleanLiteral: git gives counts for every raw record.
     const count = counts[index] ?? { added: 0, removed: 0, binary: false };
     return {
       path,
@@ -80,6 +90,7 @@ export function parseDiffOutput(output: string): { readonly entries: DiffEntry[]
       ...count,
     };
   });
+  // Stryker disable next-line StringLiteral: a patch has no NUL in it, binary files being left out.
   return { entries, patch: fields.slice(at + 1).join("\0") };
 }
 
@@ -121,6 +132,7 @@ export function parseHunks(section: string): DiffHunk[] {
   for (const line of section.split("\n")) {
     const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (header !== null) {
+      // Stryker disable next-line StringLiteral: the starts always match; `Number("")` is 0 anyway.
       const [, oldStart = "0", oldCount = "1", newStart = "0", newCount = "1"] = header;
       lines = [];
       oldNumber = Number(oldStart);
@@ -144,6 +156,7 @@ export function parseHunks(section: string): DiffHunk[] {
     } else if (mark === "-") {
       lines.push({ kind: "del", oldNumber, newNumber: null, text });
       oldNumber += 1;
+      // Stryker disable next-line ConditionalExpression: git writes no other line before a hunk's old lines run out.
     } else if (mark === " " || (line === "" && oldNumber < oldEnd)) {
       // git writes an empty context line with no space when `diff.suppressBlankEmpty` is on.
       lines.push({ kind: "context", oldNumber, newNumber, text });
@@ -169,6 +182,7 @@ export const BINARY_SNIFF_BYTES = 16 * 1024;
  * @returns Whether it is binary.
  */
 export function isLikelyBinary(start: Uint8Array): boolean {
+  // Stryker disable next-line ConditionalExpression: nothing divided by nothing is not over 0.3 either.
   if (start.length === 0) return false;
   let control = 0;
   for (const byte of start) {
@@ -213,4 +227,49 @@ export function addedFileHunks(text: string): DiffHunk[] {
     .slice(0, count)
     .map((line, index): DiffLine => ({ kind: "add", oldNumber: null, newNumber: index + 1, text: line }));
   return [{ oldStart: 0, oldCount: 0, newStart: 1, newCount: count, lines }];
+}
+
+/** A changed file before its lines are weighed against the panel's allowance. */
+export interface Unweighed {
+  readonly path: string;
+  readonly oldPath: string | null;
+  readonly status: DiffFile["status"];
+  readonly added: number;
+  readonly removed: number;
+  /**
+   * `binary`; or the text whose size counts, a patch's sections or a new file's text, with how to
+   * read its hunks; or `null` when it is too large to show at all.
+   */
+  readonly body: { readonly size: number; readonly hunks: () => DiffHunk[] } | "binary" | null;
+}
+
+/**
+ * The panel's files, each with its lines while they fit.
+ *
+ * @remarks
+ * In the panel's order, by path: a file shows its lines when they are at most `fileBytes` and,
+ * with the ones shown before it, at most `totalBytes`; otherwise it keeps its counts but no lines
+ * (SPEC-0001, "工作区改动"). Binary files show none and take none of the allowance.
+ *
+ * @sideEffects none
+ * @param files - The files, in any order.
+ * @param limits - How much to show.
+ * @returns The files, by path.
+ */
+export function weighFiles(
+  files: readonly Unweighed[],
+  limits: { readonly fileBytes: number; readonly totalBytes: number },
+): DiffFile[] {
+  let shown = 0;
+  return files
+    .toSorted((a, b) => (a.path < b.path ? -1 : 1))
+    .map(({ path, oldPath, status, added, removed, body }): DiffFile => {
+      const counts = { path, oldPath, status, added, removed };
+      if (body === "binary") return { ...counts, content: "binary", hunks: [] };
+      if (body === null || body.size > limits.fileBytes || shown + body.size > limits.totalBytes) {
+        return { ...counts, content: "too_large", hunks: [] };
+      }
+      shown += body.size;
+      return { ...counts, content: "text", hunks: body.hunks() };
+    });
 }

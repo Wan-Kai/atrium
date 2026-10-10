@@ -428,6 +428,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       return await send();
     } catch (error) {
       const shown = view.getState().model;
+      // Stryker disable next-line ConditionalExpression: `null` is never one of the guesses.
       if (guessing.pending === 1 && shown !== null && guessing.ours.has(shown)) {
         view.setState({ model: guessing.reported });
       }
@@ -608,6 +609,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     }
     if (message.type === "changes_updated") {
       const { type: _type, workspaceId, ...changes } = message;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       changesOf(workspaceId).setState(changes, true);
       return;
     }
@@ -615,6 +617,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       const { target } = diff.getState();
       if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;
       const { files, tooLarge, error } = message;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       diff.setState({ target, status: "ready", files, tooLarge, error }, true);
       return;
     }

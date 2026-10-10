@@ -172,6 +172,18 @@ describe("queryModels", () => {
     expect(outcome).toMatchObject({ list: { defaultModel: null } });
   });
 
+  it("leaves out a model whose id is too long to send, and has no default when it was pi's", async () => {
+    const long = { ...opus, id: "x".repeat(513) };
+    const { outcome } = await query({
+      rules: {
+        get_available_models: { data: { models: [long] } },
+        get_state: { data: { model: long, thinkingLevel: "off", sessionId: "probe" } },
+      },
+    });
+
+    expect(outcome).toStrictEqual({ list: { models: [], defaultModel: null } });
+  });
+
   it("has no default when pi reports no model though it lists some", async () => {
     const { outcome } = await query({
       rules: {

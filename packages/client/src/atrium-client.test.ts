@@ -40,12 +40,10 @@ function scriptedSocket() {
       );
       socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: true, result }));
     },
-    /** Answers the last command of `type` with the error `code`. */
-    fail: (type: string, code: string) => {
-      const command = present(
-        socket.sent.findLast((sent) => sent["type"] === type),
-        `a ${type} command`,
-      );
+    /** Answers the last command of `type`, or the one numbered `at` from 0, with the error `code`. */
+    fail: (type: string, code: string, at?: number) => {
+      const ofType = socket.sent.filter((sent) => sent["type"] === type);
+      const command = present(ofType.at(at ?? -1), `a ${type} command`);
       socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: false, error: { code } }));
     },
     /** The commands sent after the hello, without their trace or the list subscription every welcome brings. */
@@ -1133,6 +1131,37 @@ describe("createAtriumClient: models", () => {
     expect(view.getState().model).toStrictEqual(opus);
   });
 
+  it("goes back to the host's model, not a guess, after a third change joins two on their way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    const lowering = client.setThinkingLevel("s1", "low");
+    latest().answer("set_model");
+    await switching;
+    const raising = client.setThinkingLevel("s1", "max");
+    latest().fail("set_thinking_level", "pi_rejected", 0);
+    await Promise.allSettled([lowering]);
+    latest().fail("set_thinking_level", "pi_rejected", 1);
+    await Promise.allSettled([raising]);
+
+    expect(view.getState().model).toStrictEqual(opus);
+  });
+
+  it("counts a change the host took as the model to go back to, once none is on its way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    latest().answer("set_model");
+    await switching;
+
+    const lowering = client.setThinkingLevel("s1", "low");
+    latest().fail("set_thinking_level", "pi_rejected");
+    await expect(lowering).rejects.toStrictEqual(new CommandError("pi_rejected"));
+
+    expect(view.getState().model).toStrictEqual({ ...opus, modelId: "haiku" });
+  });
+
   it("goes back to what the host reported between two changes, not to the first guess", async () => {
     const { client, latest } = await watchingWithModel(opus);
     const view = present(client.session("s1"), "the view of s1");
@@ -1345,6 +1374,67 @@ describe("createAtriumClient: workspace changes", () => {
       { type: "watch_diff", target },
       { type: "watch_diff", target },
     ]);
+  });
+
+  it("ignores another workspace's diff for the same mode, and any diff while the panel is closed", async () => {
+    const { client, latest } = await connected();
+    void client.watchDiff({ workspaceId: W1, mode: "base" });
+
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W2,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+    expect(client.diff.getState().status).toBe("loading");
+    void client.watchDiff(null);
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: null,
+      status: "idle",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+  });
+
+  it("shows nothing of one workspace's files once the panel moves to another in the same mode", async () => {
+    const { client, latest } = await connected();
+    void client.watchDiff({ workspaceId: W1, mode: "base" });
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    void client.watchDiff({ workspaceId: W2, mode: "base" });
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: { workspaceId: W2, mode: "base" },
+      status: "loading",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
   });
 
   it("asks again on every connection for what it shows, and asks nothing before one", async () => {

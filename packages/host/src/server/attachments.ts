@@ -80,6 +80,7 @@ export function createAttachmentStore(options: {
       if (missing !== undefined) throw new CommandError("attachment_missing", { attachmentId: missing });
       const images = ids.flatMap((id) => {
         const one = kept.get(id);
+        // Stryker disable next-line ConditionalExpression,ArrayDeclaration: every id was found just above.
         return one === undefined ? [] : [one.image];
       });
       for (const id of ids) inUse.add(id);

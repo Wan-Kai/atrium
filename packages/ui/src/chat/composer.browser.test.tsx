@@ -5,7 +5,7 @@ import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import type { CatalogModel } from "@atrium/protocol";
-import { pageDrafts } from "../state/drafts";
+import { pageDrafts } from "../state/use-draft";
 import { Composer, type ComposerProps } from "./composer";
 import { compressImage } from "./images";
 import { ModelPicker } from "./model-picker";

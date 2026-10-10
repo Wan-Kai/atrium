@@ -1,4 +1,3 @@
-import { useCallback, useSyncExternalStore } from "react";
 import type { DraftText } from "../chat/composer-text";
 import type { CompressedImage } from "../chat/images";
 
@@ -30,6 +29,7 @@ const PREFIX = "atrium-draft:";
  * @returns Whether it is one.
  */
 function isPaste(value: unknown): value is DraftText["pastes"][number] {
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: `in` throws on anything not an object, which reads as no draft too.
   return (
     typeof value === "object" &&
     value !== null &&
@@ -51,7 +51,9 @@ function isPaste(value: unknown): value is DraftText["pastes"][number] {
  * @returns Whether it is a draft.
  */
 function isDraft(value: unknown): value is DraftText {
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: `in` throws on anything not an object, which reads as no draft too.
   if (typeof value !== "object" || value === null) return false;
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a missing field is then not a string or list, so no draft either.
   if (!("text" in value) || !("pastes" in value) || !("files" in value)) return false;
   const { text, pastes, files } = value;
   return (
@@ -117,6 +119,7 @@ function isEmpty(draft: Draft): boolean {
  * @returns The draft's text and capsules.
  */
 function parseStored(stored: string | null): DraftText {
+  // Stryker disable next-line ConditionalExpression: `null` parses as JSON `null`, which is no draft either.
   if (stored === null) return EMPTY;
   try {
     const parsed: unknown = JSON.parse(stored);
@@ -176,9 +179,11 @@ export function createDrafts(storage: DraftStorage): Drafts {
   const unstore = (key: string): void => {
     try {
       storage.removeItem(PREFIX + key);
+      // Stryker disable BlockStatement: there is nothing to do either way.
     } catch {
       // Nothing to do: see above.
     }
+    // Stryker restore BlockStatement
   };
 
   /**
@@ -243,6 +248,7 @@ export function createDrafts(storage: DraftStorage): Drafts {
       listeners.set(key, heard);
       return () => {
         heard.delete(listener);
+        // Stryker disable next-line ConditionalExpression,CallExpression: an empty set left behind hears nothing.
         if (heard.size === 0) listeners.delete(key);
       };
     },
@@ -267,44 +273,10 @@ export function createDrafts(storage: DraftStorage): Drafts {
     drop(keys) {
       for (const key of keys) {
         unstore(key);
-        const had = entries.delete(key);
-        if (had) changed(key);
+        entries.delete(key);
+        changed(key);
       }
     },
   };
   return drafts;
-}
-
-/** The page's drafts, made on first use; see `pageDrafts`. */
-let page: Drafts | undefined;
-
-/**
- * The page's drafts, mirrored into `localStorage`.
- *
- * @remarks
- * One for the page, so every box, the area that hands the empty state's draft over and the
- * cleanup of sessions gone share it. Made on first use, as `localStorage` exists only in a page.
- *
- * @sideEffects Creates the drafts on first use.
- * @returns The drafts.
- */
-export function pageDrafts(): Drafts {
-  page ??= createDrafts(localStorage);
-  return page;
-}
-
-/**
- * The page's draft under a key, rendering again as it changes.
- *
- * @remarks
- * See `createDrafts`.
- *
- * @sideEffects Subscribes to the draft while mounted.
- * @param key - The session id, or `new:<container>` before the session exists.
- * @returns The draft.
- */
-export function useDraft(key: string): Draft {
-  const subscribe = useCallback((listener: () => void) => pageDrafts().subscribe(key, listener), [key]);
-  const read = useCallback(() => pageDrafts().read(key), [key]);
-  return useSyncExternalStore(subscribe, read);
 }

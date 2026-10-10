@@ -108,6 +108,8 @@ const commands: Command[] = [
   { type: "prompt", requestId: "r49", traceparent, sessionId: "s1", text: "", attachmentIds: ["a1"] },
   { type: "steer", requestId: "r50", traceparent, sessionId: "s1", text: "这张", attachmentIds: ["a3"] },
   { type: "upload_attachment", requestId: "r51", traceparent, mimeType: "image/png", data: "a".repeat(1_000_000) },
+  { type: "upload_attachment", requestId: "r57", traceparent, mimeType: "image/jpeg", data: "/9j/" },
+  { type: "upload_attachment", requestId: "r58", traceparent, mimeType: "image/gif", data: "R0lG" },
   { type: "watch_changes", requestId: "r52", traceparent, workspaceIds: [WORKSPACE] },
   { type: "watch_changes", requestId: "r53", traceparent, workspaceIds: [] },
   { type: "watch_diff", requestId: "r54", traceparent, target: { workspaceId: WORKSPACE, mode: "uncommitted" } },
@@ -824,6 +826,7 @@ describe("HostMessage", () => {
       diffUpdated,
       { ...diffUpdated, mode: "base", files: [], tooLarge: true, error: null },
       { ...diffUpdated, files: [], error: "not_git" },
+      { ...diffUpdated, files: [], error: "failed" },
     ];
 
     for (const message of messages) {

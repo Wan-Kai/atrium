@@ -1,11 +1,10 @@
-import type { ChangesUpdatedEvent, DiffFile, DiffMode, DiffUpdatedEvent } from "@atrium/protocol";
+import type { ChangesUpdatedEvent, DiffMode, DiffUpdatedEvent } from "@atrium/protocol";
 import { constants } from "node:fs";
 import { type FileHandle, open, readlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { GitError, type GitRunner } from "../platform/git";
 import {
   BINARY_SNIFF_BYTES,
-  type DiffEntry,
   addedFileHunks,
   countLines,
   isLikelyBinary,
@@ -13,6 +12,8 @@ import {
   parseHunks,
   parseShortstat,
   splitPatch,
+  type Unweighed,
+  weighFiles,
 } from "./diff-text";
 
 /** A workspace's changes, without the event's type and workspace. */
@@ -96,6 +97,7 @@ async function output(git: GitRunner, cwd: string, signal: AbortSignal, ...args:
  */
 async function required(git: GitRunner, cwd: string, signal: AbortSignal, ...args: string[]): Promise<string> {
   const printed = await output(git, cwd, signal, ...args);
+  // Stryker disable next-line LogicalOperator,StringLiteral: every call names a git command.
   if (printed === null) throw new GitError(args[0] ?? "", "exit");
   return printed;
 }
@@ -140,18 +142,25 @@ async function repoFacts(
    * @returns Whether it exists.
    */
   const exists = async (ref: string): Promise<boolean> =>
+    // Stryker disable next-line StringLiteral: a full ref name matches only itself either way.
     (await output(git, top, signal, "show-ref", "--verify", "--quiet", ref)) !== null;
   const originHead = (await output(git, top, signal, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"))?.trim();
+  // Stryker disable next-line Regex: the name always starts so.
   const main = mainBranch ?? originHead?.replace(/^refs\/remotes\/origin\//, "") ?? null;
   let baseRef: string | null = null;
   if (main !== null && main !== branch) {
     if (await exists(`refs/remotes/origin/${main}`)) baseRef = `refs/remotes/origin/${main}`;
+    // A ref that does not exist has no merge base, which shows nothing as no ref does.
+    // Stryker disable next-line ConditionalExpression: see above.
     else if (await exists(`refs/heads/${main}`)) baseRef = `refs/heads/${main}`;
+    // Stryker disable next-line ConditionalExpression: see above.
   } else if (await exists(`refs/remotes/origin/${branch}`)) {
     baseRef = `refs/remotes/origin/${branch}`;
   }
   const mergeBase =
+    // Stryker disable next-line ConditionalExpression: git finds no ref named "null" either.
     baseRef === null ? null : ((await output(git, top, signal, "merge-base", "HEAD", baseRef))?.trim() ?? null);
+  // Stryker disable next-line Regex: the name always starts so.
   const base = baseRef?.replace(/^refs\/(?:heads|remotes)\//, "") ?? null;
   return { top, born, branch, baseRef, base, mergeBase };
 }
@@ -170,6 +179,7 @@ async function repoFacts(
  */
 async function untrackedFiles(git: GitRunner, top: string, signal: AbortSignal): Promise<string[]> {
   const listed = await required(git, top, signal, "ls-files", "--others", "--exclude-standard", "-z");
+  // Stryker disable next-line MethodExpression,ConditionalExpression,StringLiteral: an empty name is the top, a directory, which is skipped.
   return listed.split("\0").filter((path) => path !== "");
 }
 
@@ -201,8 +211,8 @@ async function readUntracked(path: string, fileBytes: number, signal: AbortSigna
   let file: FileHandle;
   try {
     file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ELOOP")) return { kind: "other" };
+  } catch {
+    // Refused as a link, it is shown by where it points; anything else unreadable is not there.
     return readlink(path).then(
       (target): Untracked => ({ kind: "link", target }),
       (): Untracked => ({ kind: "other" }),
@@ -210,24 +220,34 @@ async function readUntracked(path: string, fileBytes: number, signal: AbortSigna
   }
   try {
     const info = await file.stat();
+    // git lists only files and links; a directory, as a nested repository, fails to read anyway.
+    // Stryker disable next-line ConditionalExpression,ObjectLiteral,StringLiteral: see above.
     if (!info.isFile()) return { kind: "other" };
     if (info.size > fileBytes)
+      // Stryker disable next-line ObjectLiteral,StringLiteral: the count reads only text, which this is not.
       return count ? { kind: "too_large", lines: await countFileLines(file, signal) } : { kind: "other" };
     const content = Buffer.alloc(info.size);
     let filled = 0;
+    // A file is read in one go; the loop is for one that gives less, or shrinks meanwhile.
+    // Stryker disable next-line EqualityOperator: see above.
     while (filled < content.length) {
+      // Stryker disable next-line ArithmeticOperator: see above.
       const { bytesRead } = await file.read(content, filled, content.length - filled, filled);
+      // Stryker disable next-line ConditionalExpression: see above.
       if (bytesRead === 0) break;
       filled += bytesRead;
     }
     const read = content.subarray(0, filled);
     if (isLikelyBinary(read.subarray(0, BINARY_SNIFF_BYTES))) return { kind: "binary" };
     return { kind: "text", text: read.toString("utf8") };
+    // A read failing midway, as a disk error, is the only way here.
+    // Stryker disable BlockStatement,ObjectLiteral,StringLiteral: see above.
   } catch {
     return { kind: "other" };
   } finally {
     await file.close();
   }
+  // Stryker restore BlockStatement,ObjectLiteral,StringLiteral
 }
 
 /**
@@ -248,6 +268,7 @@ async function countFileLines(file: FileHandle, signal: AbortSignal): Promise<nu
   let last = 0x0a;
   let position = 0;
   for (;;) {
+    // Stryker disable next-line CallExpression: an abort midway only saves the reading.
     signal.throwIfAborted();
     const { bytesRead } = await file.read(chunk, 0, chunk.length, position);
     if (bytesRead === 0) break;
@@ -290,33 +311,17 @@ export async function workspaceChanges(
   const tracked = parseShortstat(await required(git, top, signal, "diff", "--shortstat", mergeBase));
   let untracked = 0;
   for (const path of (await untrackedFiles(git, top, signal)).slice(0, UNTRACKED_COUNTED)) {
+    // Stryker disable next-line CallExpression: an abort between files only saves the reading.
     signal.throwIfAborted();
+    // Stryker disable next-line BooleanLiteral: only text is counted, which a file too large to read is not.
     const read = await readUntracked(join(top, path), LIMITS.fileBytes, signal, false);
     if (read.kind === "text") untracked += countLines(read.text);
   }
+  // Stryker disable next-line MethodExpression: `Number` skips the line break anyway.
   const ahead = Number((await required(git, top, signal, "rev-list", "--count", `${mergeBase}..HEAD`)).trim());
   const added = tracked.added + untracked;
   const stat = added === 0 && tracked.removed === 0 ? null : { added, removed: tracked.removed };
   return { stat, dirty, ahead, branch, base: facts.base };
-}
-
-/** A file the panel may show, before its lines are weighed against the allowance. */
-type Candidate =
-  | { readonly kind: "tracked"; readonly entry: DiffEntry; readonly sections: readonly string[] | null }
-  | { readonly kind: "untracked"; readonly path: string };
-
-/**
- * Where a candidate file is, which orders the panel.
- *
- * @remarks
- * See `workspaceDiff`.
- *
- * @sideEffects none
- * @param candidate - The file.
- * @returns Its path.
- */
-function pathOf(candidate: Candidate): string {
-  return candidate.kind === "tracked" ? candidate.entry.path : candidate.path;
 }
 
 /**
@@ -377,53 +382,43 @@ export async function workspaceDiff(
     const sections = splitPatch(patch);
     const wanted = entries.reduce((sum, entry) => sum + (entry.typeChanged ? 2 : 1), 0);
     // One run agrees with itself; should it not, no file shows lines until the next look.
+    // Stryker disable next-line ConditionalExpression: only a git that disagrees with itself takes the other way.
+    const lined = wanted === sections.length;
     let next = 0;
-    const candidates: Candidate[] = entries.map((entry) => {
-      const count = entry.typeChanged ? 2 : 1;
-      const own = wanted === sections.length ? sections.slice(next, next + count) : null;
-      next += count;
-      return { kind: "tracked", entry, sections: own };
+    const unweighed: Unweighed[] = entries.map((entry) => {
+      const own = sections.slice(next, next + (entry.typeChanged ? 2 : 1));
+      next += own.length;
+      const size = own.reduce((sum, section) => sum + Buffer.byteLength(section), 0);
+      const { path, oldPath, status, added, removed } = entry;
+      return {
+        path,
+        oldPath,
+        status,
+        added,
+        removed,
+        body: entry.binary ? "binary" : lined ? { size, hunks: () => own.flatMap(parseHunks) } : null,
+      };
     });
     if (mode === "uncommitted") {
-      for (const path of await untrackedFiles(git, top, signal)) candidates.push({ kind: "untracked", path });
-    }
-    let shown = 0;
-    const files: DiffFile[] = [];
-    for (const candidate of candidates.toSorted((a, b) => (pathOf(a) < pathOf(b) ? -1 : 1))) {
-      signal.throwIfAborted();
-      if (candidate.kind === "tracked") {
-        const { entry } = candidate;
-        const size = (candidate.sections ?? []).reduce((sum, section) => sum + Buffer.byteLength(section), 0);
-        const fits =
-          candidate.sections !== null && !entry.binary && size <= limits.fileBytes && shown + size <= limits.totalBytes;
-        if (fits) shown += size;
-        files.push({
-          path: entry.path,
-          oldPath: entry.oldPath,
-          status: entry.status,
-          added: entry.added,
-          removed: entry.removed,
-          content: entry.binary ? "binary" : fits ? "text" : "too_large",
-          hunks: fits ? (candidate.sections ?? []).flatMap(parseHunks) : [],
-        });
-        continue;
+      for (const path of await untrackedFiles(git, top, signal)) {
+        // Stryker disable next-line CallExpression: an abort between files only saves the reading.
+        signal.throwIfAborted();
+        const read = await readUntracked(join(top, path), limits.fileBytes, signal, true);
+        if (read.kind === "other") continue;
+        const text = read.kind === "text" ? read.text : read.kind === "link" ? read.target : "";
+        const counts = { path, oldPath: null, status: "added" as const, removed: 0 };
+        if (read.kind === "binary") unweighed.push({ ...counts, added: 0, body: "binary" });
+        else if (read.kind === "too_large") unweighed.push({ ...counts, added: read.lines, body: null });
+        else {
+          unweighed.push({
+            ...counts,
+            added: countLines(text),
+            body: { size: Buffer.byteLength(text), hunks: () => addedFileHunks(text) },
+          });
+        }
       }
-      const read = await readUntracked(join(top, candidate.path), limits.fileBytes, signal, true);
-      if (read.kind === "other") continue;
-      const text = read.kind === "text" ? read.text : read.kind === "link" ? read.target : "";
-      const size = Buffer.byteLength(text);
-      const fits = (read.kind === "text" || read.kind === "link") && shown + size <= limits.totalBytes;
-      if (fits) shown += size;
-      files.push({
-        path: candidate.path,
-        oldPath: null,
-        status: "added",
-        added: read.kind === "too_large" ? read.lines : countLines(text),
-        removed: 0,
-        content: read.kind === "binary" ? "binary" : fits ? "text" : "too_large",
-        hunks: fits ? addedFileHunks(text) : [],
-      });
     }
+    const files = weighFiles(unweighed, limits);
     return { files, tooLarge: false, error: null };
   } catch (error) {
     if (signal.aborted) throw error;
@@ -456,6 +451,7 @@ export interface WatchRoots {
 export async function watchRoots(git: GitRunner, dir: string, signal: AbortSignal): Promise<WatchRoots | null> {
   const top = (await output(git, dir, signal, "rev-parse", "--show-toplevel"))?.trim();
   if (top === undefined) return null;
+  // Stryker disable next-line StringLiteral: git answers this wherever it found the top.
   const dirs = (await output(git, top, signal, "rev-parse", "--absolute-git-dir", "--git-common-dir")) ?? "";
   const gitDirs = [
     ...new Set(
@@ -493,6 +489,7 @@ export async function ignoredDirs(git: GitRunner, top: string, signal: AbortSign
     "--exclude-standard",
     "-z",
   );
+  // Stryker disable next-line StringLiteral: as above.
   return (listed ?? "").split("\0").filter((path) => path.endsWith("/"));
 }
 

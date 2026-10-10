@@ -77,6 +77,27 @@ describe("createAttachmentStore", () => {
     expect(await take("c1", [mine])).toHaveLength(1);
   });
 
+  it("refuses an upload past a connection's count alone, with bytes to spare", async () => {
+    const { attachments } = store({ bytes: 1000, count: 2 });
+    attachments.put("c1", "image/png", data(1));
+    attachments.put("c1", "image/png", data(1));
+
+    expect(() => attachments.put("c1", "image/png", data(1))).toThrow(new CommandError("attachment_limit"));
+  });
+
+  it("lets an upload go when it expired while its message was on its way", async () => {
+    const { attachments, clock } = store();
+    const id = attachments.put("c1", "image/png", data(1));
+
+    const sent = await attachments.use("c1", [id], async (images) => {
+      clock.advance(30 * 60_000);
+      return images.length;
+    });
+
+    expect(sent).toBe(1);
+    expect(clock.pendingTimers()).toBe(0);
+  });
+
   it("refuses an upload past a connection's limit in bytes or count, counting what was taken off", async () => {
     const { attachments, take } = store({ bytes: 30, count: 2 });
     const first = attachments.put("c1", "image/png", data(20));
@@ -108,11 +129,14 @@ describe("createAttachmentStore", () => {
 
     attachments.drop("c1");
     expect(clock.pendingTimers()).toBe(1);
+    // Another connection's upload stays.
+    expect(await take("c2", [kept])).toHaveLength(1);
+    const again = attachments.put("c2", "image/png", data(1));
     attachments.close();
 
     expect(clock.pendingTimers()).toBe(0);
-    await expect(take("c2", [kept])).rejects.toStrictEqual(
-      new CommandError("attachment_missing", { attachmentId: kept }),
+    await expect(take("c2", [again])).rejects.toStrictEqual(
+      new CommandError("attachment_missing", { attachmentId: again }),
     );
   });
 });

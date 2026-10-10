@@ -50,9 +50,10 @@ export type WatchDirectory = (dir: string, onEvent: (path: string | null) => voi
  * @param onError - Told when watching fails.
  * @returns How to stop.
  */
-const watchDirectory: WatchDirectory = (dir, onEvent, onError) => {
+export const watchDirectory: WatchDirectory = (dir, onEvent, onError) => {
   try {
     const watcher = watch(dir, { recursive: true }, (_event, path) => onEvent(path));
+    // Stryker disable next-line StringLiteral,ArrowFunction: no test can make a running watch fail.
     watcher.on("error", () => onError());
     return () => watcher.close();
   } catch {
@@ -157,10 +158,10 @@ export function createChangesService(options: {
 }): ChangesService {
   const watchDir = options.watch ?? watchDirectory;
   const watched = new Map<string, Watched>();
-  /** The workspaces each connection shows. */
-  const showing = new Map<string, readonly string[]>();
-  /** The workspace each connection's panel shows. */
-  const panelOf = new Map<string, string>();
+  /** The workspaces each connection shows, by id. */
+  const showing = new Map<string, ReadonlyMap<string, Watched>>();
+  /** The workspace each connection's panel shows; it is watched while the panel is open. */
+  const panelOf = new Map<string, Watched>();
   const looks = new Set<Promise<void>>();
   let closed = false;
 
@@ -205,6 +206,7 @@ export function createChangesService(options: {
       running: null,
       stop: new AbortController(),
       unwatch: [],
+      // Stryker disable next-line ArrayDeclaration: the list is read before any watcher starts.
       ignored: [],
       cancelChanges: null,
       cancelDiff: null,
@@ -266,12 +268,14 @@ export function createChangesService(options: {
   async function startWatching(entry: Watched, degradeOnFailure: boolean): Promise<boolean> {
     const reader = await options.reader;
     const place = options.resolve(entry.workspaceId);
+    // Stryker disable next-line BooleanLiteral: only a try at a workspace removed meanwhile, which its connections stop showing.
     if (reader === null || place === undefined) return false;
     let roots: WatchRoots | null;
     try {
       roots = await reader.roots(place.dir, entry.stop.signal);
       if (roots !== null) entry.ignored = await reader.ignored(roots.top, entry.stop.signal);
     } catch (error) {
+      // Stryker disable next-line BooleanLiteral: a try at a workspace let go is over either way (`current`).
       if (entry.stop.signal.aborted) return false;
       failed(entry, error);
       if (degradeOnFailure) degrade(entry);
@@ -350,6 +354,8 @@ export function createChangesService(options: {
       // Fire and forget: a failure keeps the old list.
       void (async () => {
         const reader = await options.reader;
+        // Watchers start only with a reader, and `?? entry.ignored` takes `undefined` as it does `null`.
+        // Stryker disable next-line OptionalChaining,ArrowFunction: see above.
         entry.ignored = (await reader?.ignored(top, entry.stop.signal).catch(() => null)) ?? entry.ignored;
         changed(entry);
       })();
@@ -393,6 +399,7 @@ export function createChangesService(options: {
    */
   function degrade(entry: Watched): void {
     unwatch(entry);
+    // Stryker disable next-line AssignmentOperator: counting down tells the rounds apart as well.
     entry.generation += 1;
     const generation = entry.generation;
     /**
@@ -450,6 +457,7 @@ export function createChangesService(options: {
             // The new watchers failing at once has started another round, which goes on.
             if (!current()) return;
             if (working) {
+              // Stryker disable next-line OptionalChaining: `current` has just found it set.
               entry.stopPolling?.();
               entry.stopPolling = null;
             } else {
@@ -462,7 +470,10 @@ export function createChangesService(options: {
     };
     entry.stopPolling?.();
     entry.stopPolling = () => {
+      // Both are scheduled just below, before anything can call this.
+      // Stryker disable next-line OptionalChaining: see above.
       cancelLook?.();
+      // Stryker disable next-line OptionalChaining: see above.
       cancelTry?.();
     };
     nextLook();
@@ -481,12 +492,16 @@ export function createChangesService(options: {
    * @param modes - The panels' modes to work out.
    */
   function ask(entry: Watched, changes: boolean, modes: readonly DiffMode[]): void {
+    // Only a finished look's leftover asks come after a stop, and a look at a stopped workspace ends
+    // at once.
+    // Stryker disable next-line ConditionalExpression: see above.
     if (entry.stop.signal.aborted) return;
     entry.wantChanges ||= changes;
     for (const mode of modes) entry.wantDiffs.add(mode);
     if (entry.running !== null) return;
     const look = lookLoop(entry).finally(() => {
       entry.running = null;
+      // Stryker disable next-line CallExpression: a finished look kept costs `close` nothing but memory.
       looks.delete(look);
       // Asked for after the loop's last check but before it ended: look again.
       if (entry.wantChanges || entry.wantDiffs.size > 0) ask(entry, false, []);
@@ -598,19 +613,23 @@ export function createChangesService(options: {
     watchChanges(connectionId, workspaceIds) {
       if (closed) return;
       for (const workspaceId of workspaceIds) checkKnown(workspaceId);
-      const before = showing.get(connectionId) ?? [];
-      showing.set(connectionId, [...new Set(workspaceIds)]);
-      for (const workspaceId of workspaceIds) {
-        if (before.includes(workspaceId)) continue;
+      const before = showing.get(connectionId) ?? new Map<string, Watched>();
+      const after = new Map<string, Watched>();
+      for (const workspaceId of new Set(workspaceIds)) {
+        const shown = before.get(workspaceId);
+        if (shown !== undefined) {
+          after.set(workspaceId, shown);
+          continue;
+        }
         const entry = ensure(workspaceId);
         entry.viewers.add(connectionId);
         entry.owedChanges.add(connectionId);
+        after.set(workspaceId, entry);
         ask(entry, true, []);
       }
-      for (const workspaceId of before) {
-        if (workspaceIds.includes(workspaceId)) continue;
-        const entry = watched.get(workspaceId);
-        if (entry === undefined) continue;
+      showing.set(connectionId, after);
+      for (const [workspaceId, entry] of before) {
+        if (after.has(workspaceId)) continue;
         entry.viewers.delete(connectionId);
         releaseIfUnseen(entry);
       }
@@ -620,17 +639,16 @@ export function createChangesService(options: {
       if (target !== null) checkKnown(target.workspaceId);
       const before = panelOf.get(connectionId);
       if (before !== undefined) {
-        const entry = watched.get(before);
-        entry?.panels.delete(connectionId);
-        entry?.owedDiffs.delete(connectionId);
+        before.panels.delete(connectionId);
+        before.owedDiffs.delete(connectionId);
         panelOf.delete(connectionId);
-        if (entry !== undefined && before !== target?.workspaceId) releaseIfUnseen(entry);
+        if (before.workspaceId !== target?.workspaceId) releaseIfUnseen(before);
       }
       if (target === null) return;
       const entry = ensure(target.workspaceId);
       entry.panels.set(connectionId, target.mode);
       entry.owedDiffs.add(connectionId);
-      panelOf.set(connectionId, target.workspaceId);
+      panelOf.set(connectionId, entry);
       ask(entry, false, [target.mode]);
     },
     refresh(workspaceId) {
@@ -640,20 +658,21 @@ export function createChangesService(options: {
       }
     },
     disconnect(connectionId) {
-      for (const workspaceId of showing.get(connectionId) ?? []) {
-        const entry = watched.get(workspaceId);
-        entry?.viewers.delete(connectionId);
-        entry?.owedChanges.delete(connectionId);
-        if (entry !== undefined) releaseIfUnseen(entry);
+      for (const entry of showing.get(connectionId)?.values() ?? []) {
+        entry.viewers.delete(connectionId);
+        entry.owedChanges.delete(connectionId);
+        releaseIfUnseen(entry);
       }
+      // A closed connection's id is never used again: forgetting it frees memory only.
+      // Stryker disable next-line CallExpression: see above.
       showing.delete(connectionId);
       const panel = panelOf.get(connectionId);
       if (panel !== undefined) {
-        const entry = watched.get(panel);
-        entry?.panels.delete(connectionId);
-        entry?.owedDiffs.delete(connectionId);
-        if (entry !== undefined) releaseIfUnseen(entry);
+        panel.panels.delete(connectionId);
+        panel.owedDiffs.delete(connectionId);
+        // Stryker disable next-line CallExpression: see above.
         panelOf.delete(connectionId);
+        releaseIfUnseen(panel);
       }
     },
     async close() {
@@ -663,7 +682,10 @@ export function createChangesService(options: {
         entry.panels.clear();
         releaseIfUnseen(entry);
       }
+      // Nothing reads them once closed: clearing them frees memory only.
+      // Stryker disable next-line CallExpression: see above.
       showing.clear();
+      // Stryker disable next-line CallExpression: see above.
       panelOf.clear();
       await Promise.allSettled(looks);
     },

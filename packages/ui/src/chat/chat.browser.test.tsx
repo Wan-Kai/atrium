@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
-import { pageDrafts } from "../state/drafts";
+import { pageDrafts } from "../state/use-draft";
 import { fakeClient } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";

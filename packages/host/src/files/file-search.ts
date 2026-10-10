@@ -80,6 +80,7 @@ export function createFileSearch(options: {
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
+    // Stryker disable next-line BlockStatement: without it the function gives undefined, which counts as false too.
   } catch {
     return false;
   }
@@ -101,6 +102,7 @@ function isDirectory(path: string): boolean {
  * @returns What it printed, or `""`.
  */
 function runFd(fd: string, args: readonly string[], signal: AbortSignal, resources: ResourceTracker): Promise<string> {
+  // Stryker disable next-line StringLiteral: a search called off finds nothing whatever fd gave.
   if (signal.aborted) return Promise.resolve("");
   return new Promise((resolve) => {
     const release = resources.acquire("fd.process");
@@ -110,6 +112,7 @@ function runFd(fd: string, args: readonly string[], signal: AbortSignal, resourc
     } catch {
       // Node refuses some arguments outright, such as one holding a NUL; fd never starts.
       release();
+      // Stryker disable next-line StringLiteral: such a query, NUL and all, matches no path anyway.
       resolve("");
       return;
     }
@@ -139,7 +142,7 @@ function runFd(fd: string, args: readonly string[], signal: AbortSignal, resourc
     // Stryker disable next-line BlockStatement,StringLiteral: see above; `close` decides.
     child.on("error", () => undefined);
     child.on("close", (code) => {
-      // Stryker disable next-line StringLiteral: only frees the listener; fd has ended.
+      // Stryker disable next-line StringLiteral,CallExpression: only frees the listener; fd has ended.
       signal.removeEventListener("abort", kill);
       release();
       resolve(code === 0 ? Buffer.concat(chunks).toString("utf8") : "");

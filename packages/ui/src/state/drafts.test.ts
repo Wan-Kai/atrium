@@ -196,4 +196,78 @@ describe("createDrafts", () => {
     expect(drafts.read("s2")).toStrictEqual({ ...DRAFT, images: [kept("b")] });
     expect(heard).toStrictEqual(["s1"]);
   });
+
+  it.each([
+    ["text", { ...EMPTY, text: "mine" }],
+    ["a pasted text", { ...EMPTY, pastes: [{ id: "p1", text: "x" }] }],
+    ["a file", { ...EMPTY, files: ["a.ts"] }],
+    ["an image", { ...EMPTY, images: [kept("a")] }],
+  ])("puts nothing back into a draft holding %s", (_case, draft) => {
+    const drafts = createDrafts(memory().storage);
+    drafts.update("s1", () => draft);
+
+    drafts.restore("s1", "去了又回", [kept("b")]);
+
+    expect(drafts.read("s1")).toStrictEqual(draft);
+  });
+
+  it("hands over a draft of images alone", () => {
+    const drafts = createDrafts(memory().storage);
+    drafts.update("new:chats", () => ({ ...EMPTY, images: [kept("a")] }));
+
+    drafts.handOver("new:chats", "s1");
+
+    expect(drafts.read("s1")).toStrictEqual({ ...EMPTY, images: [kept("a")] });
+  });
+
+  it("follows storage changed elsewhere after a draft was read or emptied", () => {
+    const { storage, store } = memory();
+    const drafts = createDrafts(storage);
+    store.set("atrium-draft:s1", JSON.stringify(TEXT));
+    drafts.read("s1");
+    drafts.update("s2", () => DRAFT);
+    drafts.update("s2", () => EMPTY);
+
+    store.set("atrium-draft:s1", JSON.stringify({ ...TEXT, text: "changed" }));
+    store.set("atrium-draft:s2", JSON.stringify(TEXT));
+
+    expect(drafts.read("s1")).toStrictEqual({ ...DRAFT, text: "changed" });
+    expect(drafts.read("s2")).toStrictEqual(DRAFT);
+  });
+
+  it("keeps a draft storage could not take over what storage gets later", () => {
+    const { storage, store, fill } = memory();
+    const drafts = createDrafts(storage);
+    fill();
+    drafts.update("s1", () => DRAFT);
+
+    store.set("atrium-draft:s1", JSON.stringify({ ...TEXT, text: "from elsewhere" }));
+
+    expect(drafts.read("s1")).toStrictEqual(DRAFT);
+  });
+
+  it("keeps telling the other listeners of a key when one stops", () => {
+    const drafts = createDrafts(memory().storage);
+    const heard: string[] = [];
+    const stop = drafts.subscribe("s1", () => heard.push("first"));
+    drafts.subscribe("s1", () => heard.push("second"));
+
+    stop();
+    drafts.update("s1", () => DRAFT);
+
+    expect(heard).toStrictEqual(["second"]);
+  });
+
+  it("changes an image only in the draft holding it, telling no one else", () => {
+    const drafts = createDrafts(memory().storage);
+    drafts.update("s1", () => ({ ...EMPTY, images: [kept("a", null)] }));
+    drafts.update("s2", () => ({ ...EMPTY, images: [kept("b")] }));
+    const heard: string[] = [];
+    drafts.subscribe("s2", () => heard.push("s2"));
+
+    drafts.updateImage("a", (image) => ({ ...image, attachmentId: "up-a" }));
+
+    expect(heard).toStrictEqual([]);
+    expect(drafts.read("s1").images).toStrictEqual([kept("a", "up-a")]);
+  });
 });

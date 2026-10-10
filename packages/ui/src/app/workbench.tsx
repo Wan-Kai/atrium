@@ -2,7 +2,7 @@ import type { AtriumClient, IndexView } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { X } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { pageDrafts } from "../state/drafts";
+import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
 import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-area";
 import { applyAppearance } from "../design/appearance";

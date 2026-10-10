@@ -301,8 +301,8 @@ interface Steer {
   /** As it was sent: what the client shows, and what goes again if it comes back. */
   readonly text: string;
   readonly images: readonly PromptImage[];
-  /** pi's text for it, expanded as pi expands skills and templates; `null` until listed. */
-  listed: string | null;
+  /** Whether pi's queue has listed it; pi's text may differ, expanded as pi expands skills and templates. */
+  listed: boolean;
 }
 
 /**
@@ -783,8 +783,7 @@ export function createSessionController(options: {
    * pi lists its steers' texts whole each time, one change an update: it adds the steers it takes
    * at the back and delivers from the front (pi-internals.md §2). Its texts are expanded and need
    * not be what the host sent, so steers are counted, not matched: a longer list took the earliest
-   * steers not listed yet, whose texts pi's are from then on; a shorter one delivered the earliest
-   * listed. Steers go to pi one at a time, so they reach its queue in the order sent. While a stop
+   * steers not listed yet; a shorter one delivered the earliest listed. Steers go to pi one at a time, so they reach its queue in the order sent. While a stop
    * takes the steers back, pi's emptied queue says nothing about delivery, so updates wait for the
    * stop's answer.
    *
@@ -793,14 +792,15 @@ export function createSessionController(options: {
    */
   function delivered(held: readonly string[]): void {
     if (clearing) return;
-    const listed = steers.filter((steer) => steer.listed !== null);
+    const listed = steers.filter((steer) => steer.listed);
+    // Stryker disable next-line EqualityOperator: a list as long as before adds none and delivers none either way.
     if (held.length > listed.length) {
-      const taken = held.slice(listed.length);
+      let taken = held.length - listed.length;
       for (const steer of steers) {
-        if (steer.listed !== null) continue;
-        const text = taken.shift();
-        if (text === undefined) break;
-        steer.listed = text;
+        if (steer.listed) continue;
+        if (taken === 0) break;
+        steer.listed = true;
+        taken -= 1;
       }
     } else {
       const gone = new Set(listed.slice(0, listed.length - held.length));
@@ -1027,7 +1027,7 @@ export function createSessionController(options: {
    * @returns The messages.
    */
   function steersFor(texts: readonly string[]): Outgoing[] {
-    const listed = steers.filter((steer) => steer.listed !== null);
+    const listed = steers.filter((steer) => steer.listed);
     const ours = listed.slice(Math.max(0, listed.length - texts.length));
     const others = texts.slice(0, texts.length - ours.length).map((text) => ({ text, images: [] }));
     return [...others, ...ours.map(({ text, images }) => ({ text, images }))];
@@ -1140,7 +1140,7 @@ export function createSessionController(options: {
       const { disposition } = await submit(message, requestId, traceId);
       return { disposition };
     }
-    const steer: Steer = { id: requestId ?? newId(), text: message.text, images: message.images, listed: null };
+    const steer: Steer = { id: requestId ?? newId(), text: message.text, images: message.images, listed: false };
     steers.push(steer);
     controlChanged();
     const before = steerTurn;
@@ -1177,6 +1177,7 @@ export function createSessionController(options: {
           const { disposition } = await submit(message, requestId, traceId);
           return { disposition };
         }
+        // Stryker disable next-line EqualityOperator: a message has text or images, never neither (`hasContent`).
         const text = message.text === "" && message.images.length > 0 ? IMAGES_ONLY : message.text;
         const { disposition } = await pi.steer(text, message.images);
         if (disposition === "handled") {
@@ -1566,7 +1567,9 @@ export function createSessionController(options: {
               requestId: null,
               traceId: null,
               text: last.user.text,
+              // Stryker disable next-line ArrayDeclaration: an echoed message is never sent again; "继续" goes instead.
               images: [],
+              // Stryker disable next-line BooleanLiteral: as above.
               auto: false,
               echoed: true,
               requeued: false,

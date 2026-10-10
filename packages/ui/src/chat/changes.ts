@@ -7,14 +7,15 @@ const COMPACT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFra
  * A count of lines as the changes capsule writes it.
  *
  * @remarks
- * Past 999 compactly, as Paseo: `1.2k`, `12.3k`, `1.3m` (SPEC-0001, "工作区改动").
+ * Past 999 compactly, as Paseo: `1.2k`, `12.3k`, `1.3m`; smaller counts are written whole
+ * (SPEC-0001, "工作区改动").
  *
  * @sideEffects none
  * @param count - The count.
  * @returns The text.
  */
 export function formatDiffCount(count: number): string {
-  return count < 1000 ? String(count) : COMPACT.format(count).toLowerCase();
+  return COMPACT.format(count).toLowerCase();
 }
 
 /** A mode chosen in the changes panel, and whether the tree had uncommitted changes then. */
