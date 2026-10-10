@@ -481,7 +481,7 @@ Electron 主进程
 - 偏好和 `set_preferences` 多了 `titleModel`（`{ providerId, modelId } | null`，`null` 为跟随会话的模型，M1.10 之前的偏好文件读作 `null`）和 `setupDone`（见"首次启动 · 什么时候显示"）。
 - `set_main_branch(projectId, branch | null)`：`null` 恢复自动；`branch` 必须是 `origin` 上存在的分支，否则应答 `branch_not_found`。
 - `list_branches(projectId)`：应答 `origin` 上的分支名（不带 `origin/`，去掉 `HEAD`），供主干下拉用。
-- `check_setup` 的 `pi` 多了 `latest`（npm 上的最新版本，没查过或查不到为 `null`）和 `checkedAt`。宿主启动后和之后每天查一次；`check_pi_update()` 立刻查。查到的结果用事件 `pi_latest { latest, checkedAt }` 推给所有客户端。
+- `check_setup` 的 `pi` 多了 `latest`（npm 上的最新版本）和 `checkedAt`（查到它的时间，毫秒）：从没查到时都为 `null`，之后某次没查到保留上次的结果。宿主启动后和之后每天查一次；`check_pi_update()` 立刻查（同时只查一次），应答 `{ latest, checkedAt }`。每次查到用事件 `pi_latest { latest, checkedAt }` 推给所有客户端。查的是 pi 自己检查新版本用的 `https://pi.dev/api/latest-version`（返回 npm 上的版本和包名，10 秒为限），和终端里的 pi 看到的一致；pi 的环境里设了 `PI_OFFLINE` 时不查（2026-10-11 定）。日志只记查到的版本或没查到的原因。
 - 握手的 `welcome` 多了 `logDir`。"在访达中显示"走桌面壳的 `reveal(path)`，只接受存在的绝对路径。
 
 ### 关键流程

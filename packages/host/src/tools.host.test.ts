@@ -24,7 +24,7 @@ async function hostWithShell(rcFiles: Readonly<Record<string, string>>): Promise
   for (const [name, content] of Object.entries(rcFiles)) await writeFile(join(dir.path, name), content);
   vi.stubEnv("SHELL", "/bin/zsh");
   vi.stubEnv("ZDOTDIR", dir.path);
-  const host = await startHost({ home: join(dir.path, "home"), token: TOKEN });
+  const host = await startHost({ home: join(dir.path, "home"), token: TOKEN, piLatestUrl: null });
   onTestFinished(() => host.close());
   return host;
 }

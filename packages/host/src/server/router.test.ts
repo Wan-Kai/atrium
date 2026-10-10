@@ -95,7 +95,7 @@ function fakeCommands() {
 const PROJECT = "prj_0123456789abcdef";
 
 const SETUP: SetupState = {
-  pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null },
+  pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null, latest: null, checkedAt: null },
   node: { state: "missing", version: null },
   homebrew: false,
   fd: false,
@@ -183,6 +183,12 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
       cancel: (jobId) => {
         calls.push(["cancelInstall", jobId]);
+      },
+    },
+    piLatest: {
+      check: async () => {
+        calls.push(["checkPiUpdate"]);
+        return { latest: "1.1.0", checkedAt: 7 };
       },
     },
     attachments,
@@ -522,25 +528,28 @@ describe("createRouter", () => {
     ]);
   });
 
-  it("hands the install commands to the installs", async () => {
+  it("hands the install commands to the installs, and the update check to the latest pi", async () => {
     const { route, connection, sent, calls } = setUp();
 
     await route(connection, withTrace({ type: "install_pi", requestId: "r1" }));
     await route(connection, withTrace({ type: "install_node", requestId: "r2" }));
     await route(connection, withTrace({ type: "update_pi", requestId: "r3" }));
     await route(connection, withTrace({ type: "cancel_install", requestId: "r4", jobId: "j1" }));
+    await route(connection, withTrace({ type: "check_pi_update", requestId: "r5" }));
 
     expect(calls).toStrictEqual([
       ["install", "install_pi"],
       ["install", "install_node"],
       ["install", "update_pi"],
       ["cancelInstall", "j1"],
+      ["checkPiUpdate"],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { jobId: "j1" } },
       { type: "response", requestId: "r2", ok: true, result: { jobId: "j1" } },
       { type: "response", requestId: "r3", ok: true, result: { jobId: "j1" } },
       { type: "response", requestId: "r4", ok: true, result: {} },
+      { type: "response", requestId: "r5", ok: true, result: { latest: "1.1.0", checkedAt: 7 } },
     ]);
   });
 

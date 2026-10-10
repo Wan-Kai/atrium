@@ -139,6 +139,7 @@ const commands: Command[] = [
   { type: "install_node", requestId: "r71", traceparent },
   { type: "update_pi", requestId: "r72", traceparent },
   { type: "cancel_install", requestId: "r73", traceparent, jobId: "j1" },
+  { type: "check_pi_update", requestId: "r74", traceparent },
 ];
 
 /** An update waiting for two sessions to finish. */
@@ -459,6 +460,7 @@ describe("parseClientMessage", () => {
       "archive_session",
       "cancel_install",
       "cancel_login",
+      "check_pi_update",
       "check_setup",
       "clear_attention",
       "clear_queue",
@@ -779,7 +781,15 @@ describe("CommandResult", () => {
       CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
     ).toBe(false);
     const setup = {
-      pi: { state: "broken", path: "/opt/bin/pi", version: null, minimum: "1.0.1", detail: "node: not found" },
+      pi: {
+        state: "broken",
+        path: "/opt/bin/pi",
+        version: null,
+        minimum: "1.0.1",
+        detail: "node: not found",
+        latest: "1.2.0-beta.1",
+        checkedAt: 1_760_000_000_000,
+      },
       node: { state: "outdated", version: "20.11.0" },
       homebrew: true,
       fd: false,
@@ -807,6 +817,18 @@ describe("CommandResult", () => {
       false,
     );
     expect(CommandResult.check_setup.safeParse({ ...setup, projects: -1 }).success).toBe(false);
+    expect(CommandResult.check_setup.safeParse({ ...setup, pi: { ...setup.pi, latest: "latest" } }).success).toBe(
+      false,
+    );
+    expect(CommandResult.check_pi_update.parse({ latest: null, checkedAt: null })).toStrictEqual({
+      latest: null,
+      checkedAt: null,
+    });
+    expect(CommandResult.check_pi_update.parse({ latest: "1.1.0", checkedAt: 5 })).toStrictEqual({
+      latest: "1.1.0",
+      checkedAt: 5,
+    });
+    expect(CommandResult.check_pi_update.safeParse({ latest: "1.1.0" }).success).toBe(false);
     const slashCommands = [
       { name: "review", description: "Reviews the change", source: "prompt" },
       { name: "skill:tdd", description: null, source: "skill" },
@@ -1039,6 +1061,9 @@ describe("HostMessage", () => {
       { ...installUpdated, state: "ok", running: null },
       { ...installUpdated, state: "cancelled", running: null },
       { type: "install_output", jobId: "j1", text: "\u001b[1m  Pi Installer\u001b[0m\r\n" },
+      { type: "pi_latest", latest: "1.1.0", checkedAt: 1_760_000_000_000 },
+      { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
+      { type: "pi_latest", latest: null, checkedAt: null },
     ];
 
     for (const message of messages) {
@@ -1261,6 +1286,8 @@ describe("HostMessage", () => {
     ["a failure for a reason there is not", { ...installUpdated, state: "failed", reason: "timeout" }],
     ["a negative number of running sessions", { ...installUpdated, running: -1 }],
     ["empty install output", { type: "install_output", jobId: "j1", text: "" }],
+    ["a latest pi that is not a version", { type: "pi_latest", latest: "v1.1.0", checkedAt: 1 }],
+    ["a check at a time before 1970", { type: "pi_latest", latest: "1.1.0", checkedAt: -1 }],
     [
       "a question of a kind pi does not ask",
       { ...loginUpdated, questions: [{ ...loginUpdated.questions[0], kind: "file" }] },

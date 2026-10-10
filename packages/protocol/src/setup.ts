@@ -4,12 +4,31 @@ import { MODEL_LIMITS } from "./models";
 /** A `major.minor.patch` version, as the host reports it. */
 const VersionText = z.string().regex(/^\d+\.\d+\.\d+$/);
 
+/** A released version of pi, which may be a pre-release. */
+const ReleaseText = z
+  .string()
+  .max(128)
+  .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
+
+/**
+ * The latest pi the host found, and when (SPEC-0001, "设置 · 接口").
+ *
+ * @remarks
+ * Both are `null` until a check has found it; a later check that finds nothing keeps the last.
+ */
+export const PiLatest = z.strictObject({
+  latest: ReleaseText.nullable(),
+  checkedAt: z.number().int().nonnegative().nullable(),
+});
+export type PiLatest = z.infer<typeof PiLatest>;
+
 /**
  * pi as first launch sees it (SPEC-0001, "首次启动 · 接口").
  *
  * @remarks
  * `broken` is a pi that is there but does not run; `detail` is then pi's own error output, shown
- * as it is under "展开看原始报错".
+ * as it is under "展开看原始报错". `latest` and `checkedAt` are the latest pi found, for the
+ * settings.
  */
 export const SetupPi = z.strictObject({
   state: z.enum(["missing", "broken", "outdated", "ready"]),
@@ -17,6 +36,7 @@ export const SetupPi = z.strictObject({
   version: VersionText.nullable(),
   minimum: VersionText,
   detail: z.string().max(16_384).nullable(),
+  ...PiLatest.shape,
 });
 export type SetupPi = z.infer<typeof SetupPi>;
 
@@ -113,6 +133,13 @@ export const LoginUpdatedEvent = z.strictObject({
   error: z.strictObject({ reason: LoginFailureReason, detail: PiText.nullable() }).nullable(),
 });
 export type LoginUpdatedEvent = z.infer<typeof LoginUpdatedEvent>;
+
+/** The latest pi found, sent to every connection each time a check finds it. */
+export const PiLatestEvent = z.strictObject({
+  type: z.literal("pi_latest"),
+  ...PiLatest.shape,
+});
+export type PiLatestEvent = z.infer<typeof PiLatestEvent>;
 
 /** What an install job does: run pi's install script, `brew install node` or `pi update`. */
 export const InstallKind = z.enum(["install_pi", "install_node", "update_pi"]);

@@ -47,7 +47,8 @@ export function median(values: readonly number[]): number {
  * @remarks
  * End-to-end means the real launch path (testing.md, layer 6): Electron starts the bundled host
  * in its utility process and loads the UI the host serves. Only `ATRIUM_HOME` is redirected, so
- * the test never touches the developer's `~/.atrium`.
+ * the test never touches the developer's `~/.atrium`, and the host looks up no latest pi unless
+ * `env` says where, so it stays off the network.
  *
  * @sideEffects Creates a temp directory unless given one; launches Electron; waits for the page to
  * connect.
@@ -61,7 +62,7 @@ export async function launchApp(env: Record<string, string> = {}, existingHome?:
   const app = await electron.launch({
     args: ["."],
     cwd: join(import.meta.dirname, ".."),
-    env: { ...process.env, ...env, ATRIUM_HOME: home },
+    env: { ...process.env, ATRIUM_PI_LATEST_URL: "", ...env, ATRIUM_HOME: home },
     // Playwright emulates a light scheme by default, which would hide the real system appearance.
     colorScheme: null,
   });

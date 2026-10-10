@@ -6,6 +6,7 @@ import type {
   InstallOutputEvent,
   InstallUpdatedEvent,
   LoginUpdatedEvent,
+  PiLatestEvent,
   SessionEvent,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
@@ -23,7 +24,7 @@ type SinkEvent =
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */
-type BroadcastEvent = LoginUpdatedEvent | InstallUpdatedEvent | InstallOutputEvent;
+type BroadcastEvent = LoginUpdatedEvent | InstallUpdatedEvent | InstallOutputEvent | PiLatestEvent;
 
 /** A connection that subscribed to the list, and the client behind it. */
 export interface IndexSubscriber {

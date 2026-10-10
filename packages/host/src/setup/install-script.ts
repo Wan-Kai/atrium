@@ -101,23 +101,25 @@ async function follow(start: URL, signal: AbortSignal): Promise<string> {
       await response.body?.cancel();
       throw new DownloadError("status");
     }
-    return readLimited(response);
+    const script = await readLimited(response, MAX_BYTES);
+    if (script === null) throw new DownloadError("too_large");
+    return script;
   }
   throw new DownloadError("redirect");
 }
 
 /**
- * Reads a response's body as UTF-8, up to the size limit.
+ * Reads a response's body as UTF-8, up to a size limit.
  *
  * @remarks
  * Reads as it arrives, so a huge body is cut off rather than held in memory.
  *
  * @sideEffects Reads the body.
  * @param response - The response.
- * @returns The body.
- * @throws {DownloadError} `too_large` past the limit.
+ * @param maxBytes - The limit.
+ * @returns The body, or `null` past the limit.
  */
-async function readLimited(response: Response): Promise<string> {
+export async function readLimited(response: Response, maxBytes: number): Promise<string | null> {
   const chunks: Uint8Array[] = [];
   let size = 0;
   if (response.body !== null) {
@@ -125,10 +127,9 @@ async function readLimited(response: Response): Promise<string> {
     for await (const chunk of response.body) {
       size += chunk.byteLength;
       // Stryker disable next-line ConditionalExpression,EqualityOperator: stopping early only saves reading the rest; the size is checked after the loop.
-      if (size > MAX_BYTES) break;
+      if (size > maxBytes) break;
       chunks.push(chunk);
     }
   }
-  if (size > MAX_BYTES) throw new DownloadError("too_large");
-  return Buffer.concat(chunks).toString("utf8");
+  return size > maxBytes ? null : Buffer.concat(chunks).toString("utf8");
 }

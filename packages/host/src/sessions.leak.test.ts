@@ -126,8 +126,8 @@ async function backToBaseline(
  *
  * @remarks
  * The list's push, a run's reads and the host's first look at the workspaces end within a moment;
- * until then their timers and git processes count. Three timers stay: the next resource report,
- * the background fetch, and the client's heartbeat.
+ * until then their timers and git processes count. Four timers stay: the next resource report,
+ * the background fetch, the daily look for the latest pi, and the client's heartbeat.
  *
  * @sideEffects Waits.
  * @param host - The host.
@@ -136,7 +136,7 @@ async function backToBaseline(
 async function baseline(host: TestHost) {
   await vi.waitFor(() => {
     const now = host.host.resources.snapshot();
-    expect([now["timer"], now["git.process"] ?? 0]).toStrictEqual([3, 0]);
+    expect([now["timer"], now["git.process"] ?? 0]).toStrictEqual([4, 0]);
   });
   return { before: host.host.resources.snapshot(), handles: liveHandles(), processes: children() };
 }

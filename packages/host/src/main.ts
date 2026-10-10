@@ -32,6 +32,7 @@ import { runJob } from "./setup/install-job";
 import { INSTALL_SCRIPT_URL, downloadScript } from "./setup/install-script";
 import { createInstallService } from "./setup/install-service";
 import { createLogins } from "./setup/logins";
+import { LATEST_VERSION_URL, createPiLatest, fetchLatestPi } from "./setup/pi-latest";
 import { createSetupService } from "./setup/setup-service";
 import { type HostTools, createToolbox } from "./setup/toolbox";
 import { createAttachmentStore } from "./server/attachments";
@@ -81,6 +82,8 @@ export interface HostConfig {
   readonly loginWorker?: string;
   /** Where to look for Homebrew after PATH; defaults to where its installer puts it, tests set none. */
   readonly homebrewPlaces?: readonly string[];
+  /** Where to look up the latest pi; defaults to pi.dev, as pi does; `null` never looks (tests). */
+  readonly piLatestUrl?: string | null;
 }
 
 /** A running host. */
@@ -322,7 +325,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     deps: (env) => createPiDeps({ clock, resources, logger, env }),
     logger,
   });
-  const setup = createSetupService({ toolbox, logins, projects: () => projects.projects().length });
+  const piLatest = createPiLatest({
+    lookup: (signal) => fetchLatestPi(config.piLatestUrl ?? LATEST_VERSION_URL, { signal, clock }),
+    // As pi, which looks for nothing with PI_OFFLINE set.
+    offline: async () => config.piLatestUrl === null || Boolean((await toolbox.current())?.env["PI_OFFLINE"]),
+    clock,
+    resources,
+    broadcast: (event) => subscriptions.broadcast(event),
+    logger,
+  });
+  const setup = createSetupService({
+    toolbox,
+    logins,
+    projects: () => projects.projects().length,
+    latest: () => piLatest.current(),
+  });
   const loginService = createLoginService({
     toolbox,
     logins,
@@ -382,6 +399,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       setup,
       logins: loginService,
       installs,
+      piLatest,
       attachments,
       changes,
       logger,
@@ -401,6 +419,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   sessions.rescan();
   let cancelReport = scheduleReport();
   toolbox.start();
+  piLatest.start();
   const tools = toolbox.current();
 
   /**
@@ -487,7 +506,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; cancels the login and the install job under way; stops login checks, scans,
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; cancels the login, the install job and the update check under way; stops login checks, scans,
    * fetches and every session's pi; finishes writing the index; flushes spans and logs; closes
    * the log file; releases the host lock.
    */
@@ -497,6 +516,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await server.close();
     await loginService.close();
     await installs.close();
+    await piLatest.close();
     await logins.close();
     attachments.close();
     await changes.close();

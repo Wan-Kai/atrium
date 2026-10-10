@@ -415,8 +415,9 @@ describe("host connection handshake", () => {
     socket.close(1000);
     await ended;
 
-    // The timers left are the host's resource report and the workspaces' background fetch.
-    await vi.waitFor(() => expect(testHost?.host.resources.snapshot()).toMatchObject({ timer: 2, "ws.connection": 0 }));
+    // The timers left are the host's resource report, the workspaces' background fetch and the
+    // daily look for the latest pi.
+    await vi.waitFor(() => expect(testHost?.host.resources.snapshot()).toMatchObject({ timer: 3, "ws.connection": 0 }));
   });
 
   it("releases the handshake timer as soon as the hello is accepted", async () => {
@@ -424,9 +425,9 @@ describe("host connection handshake", () => {
 
     await testHost.connect().connect();
 
-    // The timers left are the host's resource report, the workspaces' background fetch and the
-    // connection's heartbeat.
-    expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 3, "ws.connection": 1 });
+    // The timers left are the host's resource report, the workspaces' background fetch, the daily
+    // look for the latest pi and the connection's heartbeat.
+    expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 4, "ws.connection": 1 });
   });
 
   it("welcomes with the heartbeat, an instance id new on every host start, the install's seed and the log folder", async () => {
@@ -552,7 +553,7 @@ describe("host lifecycle", () => {
     const home = await createTempDir("failed-home");
     onTestFinished(home.cleanup);
 
-    const started = startHost({ home: home.path, token: testHost.token, port: testHost.host.port });
+    const started = startHost({ home: home.path, token: testHost.token, port: testHost.host.port, piLatestUrl: null });
 
     await expect(started).rejects.toThrow(/EADDRINUSE/);
     const log = await readFile(`${home.path}/logs/current.log`, "utf8");
@@ -564,15 +565,15 @@ describe("host lifecycle", () => {
     const home = await createTempDir("shared-home");
     onTestFinished(home.cleanup);
     const token = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
-    const first = await startHost({ home: home.path, token, toolEnv: { PATH: "" } });
+    const first = await startHost({ home: home.path, token, toolEnv: { PATH: "" }, piLatestUrl: null });
     onTestFinished(first.close);
 
-    const second = startHost({ home: home.path, token, toolEnv: { PATH: "" } });
+    const second = startHost({ home: home.path, token, toolEnv: { PATH: "" }, piLatestUrl: null });
 
     await expect(second).rejects.toThrow(HostLockedError);
     await expect(second).rejects.toMatchObject({ pid: process.pid });
     await first.close();
-    const third = await startHost({ home: home.path, token, toolEnv: { PATH: "" } });
+    const third = await startHost({ home: home.path, token, toolEnv: { PATH: "" }, piLatestUrl: null });
     await third.close();
     expect(await readdir(home.path)).toStrictEqual(["install-id", "logs"]);
   });

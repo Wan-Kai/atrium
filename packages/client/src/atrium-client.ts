@@ -14,6 +14,7 @@ import {
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
+  type PiLatest,
   PROTOCOL_VERSION,
   type Preferences,
   type SessionEvent,
@@ -224,6 +225,13 @@ export interface AtriumClient {
   /** Cancels the install job under way. */
   cancelInstall(jobId: string): Promise<CommandResult<"cancel_install">>;
   /**
+   * The latest pi the host last found, from its daily look or any window's; `null` until it
+   * reports one. Before then, {@link checkSetup} tells what the host knew.
+   */
+  readonly piLatest: StoreApi<PiLatest | null>;
+  /** Has the host look for the latest pi now. */
+  checkPiUpdate(): Promise<CommandResult<"check_pi_update">>;
+  /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
    */
@@ -340,6 +348,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const index = createStore<IndexView>(emptyIndex);
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const installJob = createStore<InstallJob | null>(() => null);
+  const piLatest = createStore<PiLatest | null>(() => null);
   const openSocket: (url: string) => SocketLike = options.openSocket ?? ((url: string) => new WebSocket(url));
   const createTrace = options.createTrace ?? createTraceContext;
   const clock = options.clock ?? systemClock;
@@ -731,6 +740,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       installJob.setState({ job: shown.job, output: (shown.output + message.text).slice(-MAX_INSTALL_OUTPUT) }, true);
       return;
     }
+    if (message.type === "pi_latest") {
+      const { type: _type, ...found } = message;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      piLatest.setState(found, true);
+      return;
+    }
     if (message.type === "login_updated") {
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       loginState.setState(message, true);
@@ -1019,6 +1034,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     installNode: () => request("install_node", {}),
     updatePi: () => request("update_pi", {}),
     cancelInstall: (jobId) => request("cancel_install", { jobId }),
+    piLatest,
+    checkPiUpdate: () => request("check_pi_update", {}),
     setThinkingLevel: (sessionId, level) =>
       withGuessedModel(
         sessionId,

@@ -59,6 +59,7 @@ export {
   InstallNodeCommand,
   UpdatePiCommand,
   CancelInstallCommand,
+  CheckPiUpdateCommand,
 } from "./commands";
 export {
   ChangesUpdatedEvent,
@@ -80,6 +81,8 @@ export {
   LoginMethod,
   LoginQuestion,
   LoginUpdatedEvent,
+  PiLatest,
+  PiLatestEvent,
   SetupLogin,
   SetupNode,
   SetupPi,

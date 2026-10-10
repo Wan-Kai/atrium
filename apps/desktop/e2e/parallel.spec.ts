@@ -190,6 +190,7 @@ async function standaloneHost(env: Record<string, string>) {
           ...process.env,
           ...env,
           ATRIUM_HOME: home,
+          ATRIUM_PI_LATEST_URL: "",
           ATRIUM_PORT: String(port),
           ATRIUM_TOKEN: token,
           ATRIUM_UI_DIR: join(repo, "packages", "ui", "dist"),

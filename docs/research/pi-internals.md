@@ -178,6 +178,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
   - `interaction.signal` 中止后 `login` 以 `AbortError` 拒绝，回调端口立即释放；`state` 不对的回调得到 400，流程继续等。
   - 终端里的 pi 用 `SettingsManager.getOrCreateDeviceId()`（`~/.pi/agent/settings.json` 的 `deviceId`，没有就生成 UUID）作为 `getDeviceId`。
   - `ModelRuntime.create` 在 `auth.json` 不存在时写一个 `{}`。
+- **新版本检查**（1.1.0 bundle 的 `getLatestPiRelease`，2026-10-11 核实）：pi 请求 `https://pi.dev/api/latest-version`（`accept: application/json`，10 秒为限），应答形如 `{"ok":true,"version":"1.1.0","packageName":"@earendil-works/pi-coding-agent"}`，可能带 `note`；`version` 不是非空字符串时当作没查到。环境变量 `PI_OFFLINE` 设了就不查。另有 `https://pi.dev/api/installer/releases`（`PI_INSTALLER_API_BASE`）给安装脚本和托管安装用。
 
 ## 5. extension 与宿主相关的部分（`src/core/extensions/types.ts`、`docs/rpc-extension-ui.md`）
 

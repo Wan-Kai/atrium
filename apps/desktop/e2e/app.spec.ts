@@ -152,7 +152,7 @@ test("a second launch on the same home quits and brings the first window back", 
 
   const second = spawn(electronPath, ["."], {
     cwd: join(import.meta.dirname, ".."),
-    env: { ...process.env, ATRIUM_HOME: launched.home },
+    env: { ...process.env, ATRIUM_HOME: launched.home, ATRIUM_PI_LATEST_URL: "" },
     stdio: "ignore",
   });
   const code = await new Promise<number | null>((done) => second.once("exit", done));

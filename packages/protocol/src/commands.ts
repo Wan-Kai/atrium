@@ -6,7 +6,7 @@ import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
-import { LoginMethod, SetupState } from "./setup";
+import { LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -495,6 +495,13 @@ export const CancelInstallCommand = z.strictObject({
 });
 export type CancelInstallCommand = z.infer<typeof CancelInstallCommand>;
 
+/** Looks for the latest pi now, sharing a check under way. */
+export const CheckPiUpdateCommand = z.strictObject({
+  type: z.literal("check_pi_update"),
+  ...commandFields,
+});
+export type CheckPiUpdateCommand = z.infer<typeof CheckPiUpdateCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -546,6 +553,7 @@ export const Command = z.discriminatedUnion("type", [
   InstallNodeCommand,
   UpdatePiCommand,
   CancelInstallCommand,
+  CheckPiUpdateCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -628,5 +636,6 @@ export const CommandResult = {
   install_node: z.strictObject({ jobId: z.string().min(1).max(64) }),
   update_pi: z.strictObject({ jobId: z.string().min(1).max(64) }),
   cancel_install: z.strictObject({}),
+  check_pi_update: PiLatest,
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

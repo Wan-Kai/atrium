@@ -15,6 +15,7 @@ import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import type { InstallService } from "../setup/install-service";
 import type { LoginService } from "../setup/login-service";
+import type { PiLatestService } from "../setup/pi-latest";
 import type { SetupService } from "../setup/setup-service";
 import type { Connection } from "./connection";
 
@@ -32,6 +33,8 @@ export interface RouterOptions {
   readonly logins: Pick<LoginService, "login" | "answer" | "cancel" | "logout">;
   /** Installing and updating pi and Node. */
   readonly installs: Pick<InstallService, "start" | "cancel">;
+  /** The latest pi. */
+  readonly piLatest: Pick<PiLatestService, "check">;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -197,6 +200,8 @@ export function createRouter(options: RouterOptions): Route {
       case "cancel_install":
         options.installs.cancel(command.jobId);
         return {};
+      case "check_pi_update":
+        return options.piLatest.check();
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

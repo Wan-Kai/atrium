@@ -51,7 +51,7 @@ async function place() {
  * @returns The host and the client.
  */
 async function hostAndClient(at: Awaited<ReturnType<typeof place>>) {
-  const host = await startHost({ home: at.home, token: TOKEN, toolEnv: at.toolEnv });
+  const host = await startHost({ home: at.home, token: TOKEN, toolEnv: at.toolEnv, piLatestUrl: null });
   onTestFinished(host.close);
   const client: AtriumClient = createAtriumClient({
     url: `ws://127.0.0.1:${host.port}`,
@@ -144,11 +144,13 @@ describe("the list over the WebSocket", () => {
     const newer = JSON.stringify({ version: 99, sessions: "new shape" });
     await writeFile(join(home.path, "sessions.json"), newer);
 
-    await expect(startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" } })).rejects.toThrow(IndexTooNewError);
+    await expect(
+      startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" }, piLatestUrl: null }),
+    ).rejects.toThrow(IndexTooNewError);
 
     expect(await readFile(join(home.path, "sessions.json"), "utf8")).toBe(newer);
     await writeFile(join(home.path, "sessions.json"), JSON.stringify({ version: 1, sessions: [] }));
-    const host = await startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" } });
+    const host = await startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" }, piLatestUrl: null });
     await host.close();
   });
 });

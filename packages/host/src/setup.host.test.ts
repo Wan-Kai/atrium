@@ -2,6 +2,8 @@ import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import type { LoginUpdatedEvent } from "@atrium/protocol";
 import { createTempDir, present, writeFakePiPackage } from "@atrium/testkit";
 import { chmod, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { LOGIN_WORKER as WORKER } from "../test/fake-pi-tools";
@@ -72,7 +74,15 @@ describe("first launch's checks over the WebSocket", () => {
     await client.connect();
 
     expect(await client.checkSetup()).toStrictEqual({
-      pi: { state: "ready", path: join(bin, "pi"), version: "1.0.2", minimum: "1.0.1", detail: null },
+      pi: {
+        state: "ready",
+        path: join(bin, "pi"),
+        version: "1.0.2",
+        minimum: "1.0.1",
+        detail: null,
+        latest: null,
+        checkedAt: null,
+      },
       node: { state: "ready", version: process.versions.node },
       homebrew: false,
       fd: false,
@@ -97,6 +107,7 @@ describe("first launch's checks over the WebSocket", () => {
       token: TOKEN,
       homebrewPlaces: [],
       loginWorker: WORKER,
+      piLatestUrl: null,
     });
     onTestFinished(() => host.close());
     const client = createAtriumClient({
@@ -236,5 +247,66 @@ describe("installing over the WebSocket", () => {
 
     expect(present(client.installJob.getState(), "the update").output).toBe("updated\n");
     expect((await client.checkSetup()).pi).toMatchObject({ state: "ready", version: "1.0.3" });
+  });
+});
+
+/**
+ * A local stand-in for pi.dev's latest-version address, giving `versions` in order.
+ *
+ * @remarks
+ * Keeps the host off the network while it looks up the latest pi as it would at pi.dev.
+ *
+ * @sideEffects Listens on a port of 127.0.0.1, closed after the test.
+ * @param versions - The version each request gets; the last repeats.
+ * @returns The address, and how many requests came.
+ */
+async function latestServer(versions: readonly string[]): Promise<{ url: string; requests: () => number }> {
+  let requests = 0;
+  const server = createServer((_request, response) => {
+    const version = versions[Math.min(requests, versions.length - 1)];
+    requests += 1;
+    response.end(JSON.stringify({ version }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  onTestFinished(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const { port } = server.address() as AddressInfo;
+  return { url: `http://127.0.0.1:${port}/api/latest-version`, requests: () => requests };
+}
+
+describe("the latest pi over the WebSocket", () => {
+  it("looks once started and when asked, showing what it found in every window and in the checks", async () => {
+    const { url, requests } = await latestServer(["1.1.0", "1.2.0"]);
+    testHost = await startTestHost({ piLatestUrl: url });
+    const asker = testHost.connect();
+    const other = testHost.connect();
+    onTestFinished(() => asker.disconnect());
+    onTestFinished(() => other.disconnect());
+    await asker.connect();
+    await other.connect();
+    await vi.waitFor(async () => expect((await asker.checkSetup()).pi.latest).toBe("1.1.0"));
+
+    const checked = await asker.checkPiUpdate();
+
+    expect(checked).toStrictEqual({ latest: "1.2.0", checkedAt: expect.any(Number) as number });
+    await vi.waitFor(() => expect(other.piLatest.getState()).toStrictEqual(checked));
+    expect((await other.checkSetup()).pi).toMatchObject(checked);
+    expect(requests()).toBe(2);
+  });
+
+  it("looks nowhere while pi is told to stay offline", async () => {
+    const { url, requests } = await latestServer(["1.1.0"]);
+    testHost = await startTestHost({ piLatestUrl: url, toolEnv: { PATH: "", PI_OFFLINE: "1" } });
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+
+    const checked = await client.checkPiUpdate();
+
+    expect(checked).toStrictEqual({ latest: null, checkedAt: null });
+    expect((await client.checkSetup()).pi).toMatchObject(checked);
+    expect(requests()).toBe(0);
   });
 });

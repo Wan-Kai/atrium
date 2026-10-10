@@ -25,6 +25,9 @@ const LOGGED_IN: SetupLogin = {
   ],
 };
 
+/** The latest pi the service is told was found. */
+const LATEST = { latest: "1.1.0", checkedAt: 7 } as const;
+
 /**
  * A setup service over tools a test sets.
  *
@@ -58,6 +61,7 @@ function service(current: HostTools | null, refreshed: HostTools | null = curren
       },
     },
     projects: () => 3,
+    latest: () => LATEST,
   });
   return { value, asked, loginsAsked };
 }
@@ -67,7 +71,7 @@ describe("SetupService.check", () => {
     const { value, asked, loginsAsked } = service(READY);
 
     expect(await value.check(false)).toStrictEqual({
-      pi: { state: "ready", path: "/bin/pi", version: "1.0.2", minimum: "1.0.1", detail: null },
+      pi: { state: "ready", path: "/bin/pi", version: "1.0.2", minimum: "1.0.1", detail: null, ...LATEST },
       node: { state: "ready", version: "22.19.1" },
       homebrew: true,
       fd: true,
@@ -103,7 +107,7 @@ describe("SetupService.check", () => {
     });
 
     expect(await value.check(false)).toMatchObject({
-      pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null },
+      pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null, ...LATEST },
       node: { state: "missing", version: null },
       homebrew: false,
       fd: false,
@@ -127,9 +131,10 @@ describe("SetupService.check", () => {
       version: null,
       minimum: "1.0.1",
       detail: "env: node: No such file",
+      ...LATEST,
     });
     expect(await old.value.check(false)).toMatchObject({
-      pi: { state: "outdated", path: "/bin/pi", version: "0.9.3", minimum: "1.0.1", detail: null },
+      pi: { state: "outdated", path: "/bin/pi", version: "0.9.3", minimum: "1.0.1", detail: null, ...LATEST },
       node: { state: "outdated", version: "20.11.0" },
     });
   });
@@ -138,7 +143,7 @@ describe("SetupService.check", () => {
     const { value, loginsAsked } = service(null);
 
     expect(await value.check(false)).toStrictEqual({
-      pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null },
+      pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null, ...LATEST },
       node: { state: "missing", version: null },
       homebrew: false,
       fd: false,

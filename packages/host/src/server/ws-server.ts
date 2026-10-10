@@ -65,6 +65,8 @@ export interface WsServerOptions {
   readonly logins: RouterOptions["logins"];
   /** Installing and updating pi and Node. */
   readonly installs: RouterOptions["installs"];
+  /** The latest pi. */
+  readonly piLatest: RouterOptions["piLatest"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
@@ -127,6 +129,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     setup: options.setup,
     logins: options.logins,
     installs: options.installs,
+    piLatest: options.piLatest,
     attachments: options.attachments,
     changes: options.changes,
     tracer: options.tracer,

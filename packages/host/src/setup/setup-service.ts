@@ -1,5 +1,5 @@
 import { MIN_PI_VERSION, type NodeInspection, type PiInspection, type Version } from "@atrium/pi";
-import type { SetupNode, SetupPi, SetupState } from "@atrium/protocol";
+import type { PiLatest, SetupNode, SetupPi, SetupState } from "@atrium/protocol";
 import type { Logins } from "./logins";
 import type { Toolbox } from "./toolbox";
 
@@ -32,9 +32,9 @@ function versionText(version: Version): string {
  *
  * @sideEffects none
  * @param pi - What detection found, if it ran.
- * @returns The protocol's pi.
+ * @returns The protocol's pi, but for the latest pi found.
  */
-function setupPi(pi: PiInspection | undefined): SetupPi {
+function setupPi(pi: PiInspection | undefined): Omit<SetupPi, keyof PiLatest> {
   const minimum = versionText(MIN_PI_VERSION);
   if (pi === undefined || pi.status === "missing") {
     return { state: "missing", path: null, version: null, minimum, detail: null };
@@ -66,19 +66,20 @@ function setupNode(node: NodeInspection | undefined): SetupNode {
  * (SPEC-0001, "首次启动 · 接口"). The logins are checked each time: they change in the terminal too.
  *
  * @sideEffects none until asked; then may detect the tools again and runs the login program.
- * @param options - The toolbox, the logins and the number of projects added.
+ * @param options - The toolbox, the logins, the number of projects added, and the latest pi found.
  * @returns The service.
  */
 export function createSetupService(options: {
   readonly toolbox: Pick<Toolbox, "current" | "refresh">;
   readonly logins: Pick<Logins, "status">;
   readonly projects: () => number;
+  readonly latest: () => PiLatest;
 }): SetupService {
   return {
     check: async (refresh) => {
       const tools = await (refresh ? options.toolbox.refresh() : options.toolbox.current());
       return {
-        pi: setupPi(tools?.pi),
+        pi: { ...setupPi(tools?.pi), ...options.latest() },
         node: setupNode(tools?.node),
         homebrew: (tools?.homebrew ?? null) !== null,
         fd: (tools?.fd ?? null) !== null,

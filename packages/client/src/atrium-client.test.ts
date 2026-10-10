@@ -1347,7 +1347,15 @@ describe("createAtriumClient: first launch", () => {
   it("asks what first launch checks, reading the login shell again only when asked", async () => {
     const { client, latest } = await connected();
     const setup = {
-      pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null },
+      pi: {
+        state: "missing",
+        path: null,
+        version: null,
+        minimum: "1.0.1",
+        detail: null,
+        latest: null,
+        checkedAt: null,
+      },
       node: { state: "missing", version: null },
       homebrew: false,
       fd: false,
@@ -1477,6 +1485,26 @@ describe("createAtriumClient: first launch", () => {
       { type: "update_pi" },
       { type: "cancel_install", jobId: "j1" },
     ]);
+  });
+
+  it("looks for the latest pi when asked, and keeps the latest the host found from any look", async () => {
+    const { client, latest } = await connected();
+    const found = { latest: "1.2.0", checkedAt: 7 };
+    const before = client.piLatest.getState();
+
+    const checking = client.checkPiUpdate();
+    latest().receive(JSON.stringify({ type: "pi_latest", ...found }));
+    latest().answer("check_pi_update", found);
+
+    expect(before).toBeNull();
+    expect(await checking).toStrictEqual(found);
+    expect(client.piLatest.getState()).toStrictEqual(found);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "check_pi_update")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "check_pi_update" }]);
   });
 
   it("keeps only the last mebibyte of a job's output", async () => {

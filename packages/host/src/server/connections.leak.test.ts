@@ -17,11 +17,13 @@ describe("connection resources", () => {
   it("returns every resource count to its baseline after 200 accepted and 50 rejected connections", async () => {
     testHost = await startTestHost({ logLevel: "warn" });
     const host = testHost.host;
-    // Two timers stay: the next resource report and the background fetch's next run.
+    // Three timers stay: the next resource report, the background fetch's next run and the daily
+    // look for the latest pi. Finding the tools may still be under way when the host is up.
     const baseline = {
       ...host.resources.snapshot(),
       span: 0,
-      timer: 2,
+      timer: 3,
+      "tools.detect": 0,
       "git.process": 0,
       "ws.connection": 0,
       "sync.connection": 0,
