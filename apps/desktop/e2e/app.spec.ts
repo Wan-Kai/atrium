@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { present } from "@atrium/testkit";
+import { createTempDir, present } from "@atrium/testkit";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -37,7 +37,7 @@ test("keeps the page's storage across a restart, since its origin stays the same
   expect(before[0]).toBe("atrium://app");
 });
 
-test("gives the page no Node access and only the bridge: bootstrap, folder choice, appearance and dropped files' paths", async () => {
+test("gives the page no Node access and only the bridge: bootstrap, folder choice, appearance, dropped files' paths and showing in the Finder", async () => {
   const exposed = await launched.window.evaluate(() => ({
     require: typeof (globalThis as { require?: unknown }).require,
     process: typeof (globalThis as { process?: unknown }).process,
@@ -47,8 +47,37 @@ test("gives the page no Node access and only the bridge: bootstrap, folder choic
   expect(exposed).toStrictEqual({
     require: "undefined",
     process: "undefined",
-    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile"],
+    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile", "reveal"],
   });
+});
+
+test("shows in the Finder only an absolute path that exists", async () => {
+  const dir = await createTempDir("reveal");
+  try {
+    await launched.app.evaluate(({ shell }) => {
+      const revealed: string[] = [];
+      Object.assign(globalThis, { revealed });
+      // Record instead of opening the real Finder during tests.
+      shell.showItemInFolder = (path: string) => {
+        revealed.push(path);
+      };
+    });
+
+    await launched.window.evaluate(async (path) => {
+      const { reveal } = window.atrium as unknown as { reveal: (path: unknown) => Promise<void> };
+      await reveal(path);
+      await reveal(`${path}/missing`);
+      // Exists, from wherever the app runs.
+      await reveal(".");
+      await reveal(42);
+    }, dir.path);
+
+    expect(await launched.app.evaluate(() => (globalThis as unknown as { revealed: string[] }).revealed)).toStrictEqual(
+      [dir.path],
+    );
+  } finally {
+    await dir.cleanup();
+  }
 });
 
 test("keeps the page on its own origin and refuses new windows", async () => {

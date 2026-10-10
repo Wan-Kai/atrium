@@ -281,9 +281,10 @@
 | 只认第一条 hello；格式错误、版本不符、超时各有关闭码 | ws-server.host.test.ts "closes the socket on …"、"drops a client that never says hello…"、"answers only the first of two hellos" | 已覆盖 |
 | 连接数、消息速率、字节速率、单条大小的上限 | ws-server.host.test.ts "disconnects a client that sends more than 200 messages…"、"allows exactly 32 MiB per second…"、"closes a connection that sends a message over 1 MiB…"、"refuses connections beyond 32 at once" | 已覆盖 |
 | token 强度（单独运行与 Electron 两条路径） | `packages/host/src/server/auth.test.ts`；host-standalone.spec.ts "refuses a weak token…" | 已覆盖 |
-| 渲染进程拿不到 Node，桥上只有 bootstrap、选择文件夹、窗口外观 | e2e "gives the page no Node access and only the bridge…" | 已覆盖 |
+| 渲染进程拿不到 Node，桥上只有 bootstrap、选择文件夹、窗口外观、拖入文件的路径、在访达中显示 | e2e "gives the page no Node access and only the bridge…" | 已覆盖 |
 | 窗口页面从固定的 `atrium://app` 加载，CSP 只多允许连宿主端口，存储跨重启保留 | e2e "opens a window on the host's UI at a fixed origin…"、"keeps the page's storage across a restart…" | 已覆盖 |
 | git 的输出、fetch 失败的原文不进日志，只记命令和原因；索引文件损坏只记文件名 | `workspace-service.test.ts` "logs a scan git could not run by its reason…"、"skips projects without an origin and logs a fetch that fails"；`index.host.test.ts` | 已覆盖 |
+| 在访达中显示（`reveal`）只接受存在的绝对路径：相对路径、不存在的路径、不是字符串的都不理 | e2e `app.spec.ts` "shows in the Finder only an absolute path that exists"（`shell.showItemInFolder` 被替换，不打开真的访达） | 已覆盖 |
 | 不能导航到别的源、不能开新窗口，链接交给系统浏览器 | e2e "keeps the page on its own origin…"（目标服务器零请求，`shell.openExternal` 被调用） | 已覆盖 |
 | 宿主页面带 CSP、nosniff；开发页面也带 CSP | ws-server.host.test.ts "serves the UI with the full content security policy…"；`apps/desktop/e2e/dev.spec.ts` | 已覆盖 |
 | 静态文件不越出 UI 目录：路径穿越、符号链接 | `packages/host/src/server/static-files.test.ts`；ws-server.host.test.ts "does not follow a symlink out of the UI directory…" | 已覆盖 |
