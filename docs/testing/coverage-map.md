@@ -248,6 +248,15 @@
 | 变异测试补测（2026-10-10，M1.9）· OneShotPi：最后一行没有换行也读到，跳过不是助手 `message_end` 的记录（缺 `message`、为 null 或字符串、用户消息、`message_update`），没有内容的回复算没有回复；stderr 再多也读掉；pi 没读内容就退出算 `exited`；pi 起的进程攥着管道时 pi 退出 1 秒后照样应答；结束后不留定时器、不再理会中止；错误名。列表同步：删除也算进变化数，变化数正好到上限时仍发变化；`flush` 只发给那个连接，没有待发的变化时不重建列表；项目、工作区按 id 区分。客户端：列表到达前选的容器在应答后保留；失败的命令回到宿主的布局，不被别的宿主的变化带偏。停止：pi 不回应清队列时，pi 退出后停止照样结束（确认了的和没确认的）；长期存在的 pi 被停 200 次后不留住任何一次停止的上下文（泄漏测试）。会话目录：丢弃草稿只丢那一个，工作区不在了的草稿不归到对话下。标题：只有一个引号不算标题，引号里的空白去掉，标题要求的原文。收件箱：标为已看的"待授权"仍在收件箱。`windowFocused` 通知工作区 | `oneshot.test.ts` "without a line break"、"however much"、"without reading"、"keeps its pipes open"、"leaves the signal alone"、"OneShotError"；`index-feed.test.ts` "counts removals"、"only the connection flushed"；`index-view.test.ts` "by their ids"；`atrium-client.test.ts` "before the first list"、"not to one changes of another host left"；`session-controller.test.ts` "ends a stop once pi exits"；`session-controller.leak.test.ts` "context of each of 200 stops"；`session-catalog.test.ts` "and only it"、"once its workspace is gone"；`titles.test.ts`；`status.test.ts`；`index-commands.test.ts` "windowFocused" | 已覆盖 |
 | 三方审查后补（2026-10-10，M1.9）· 交接：交接停 pi 的途中拿回来，等交接做完再起新 pi；pi 应答 `started`、运行还没开始时不让交接；菜单在消息发送中、运行中、停止中、重启中、宿主排队里有消息时置灰。归档：pi 第一次启动途中归档，启动完就停掉，不留控制器和进程。标题：改名后、重扫找到名字之前生成好的标题丢弃。关注：同一次运行里前一轮失败、最后完成或被停止的运行不标记；`asking` 是还没回答的对话框里最早那个出现的时间。列表同步：订阅者上次收到的序号早于已经忘掉的删除时推快照，正好在边界上照常推增量；宿主推送前一批失败时命令照样应答并记日志；客户端：布局命令失败时回到宿主发来的布局，不被期间不带布局的增量带偏。宿主重启而页面一直开着：页面在新宿主上立刻重新打开显示的对话，之后照常对话 | `session-manager.test.ts` "only once its hand-off has stopped pi"、"before the run begins"、"archived while it started"、"renamed meanwhile, though its file"、"after one of its turns failed"、"oldest dialog still unanswered"；`workbench.browser.test.tsx` "cannot hand off a session with"；`index-feed.test.ts` "removed more than it keeps"；`router.test.ts` "though sending the list changes"；`atrium-client.test.ts` "without a layout came meanwhile"；e2e `parallel.spec.ts` "opens the chat shown again when its host restarts under a page that stays" | 已覆盖 |
 
+## 首次启动与设置（M1.10）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 登录程序找 pi 包：从 `pi` 的真实路径往上找名为 pi 的包，跳过别的名字、没有入口的、不是 JSON 或不是对象的 `package.json`，找不到、命令不存在时为空；真实 pi 的入口 | `packages/pi/src/auth/login.test.ts` "piPackageEntry"、`login.pi.test.ts` | 已覆盖 |
+| 登录状态：列出服务商、OAuth 的名称、按钮文字和是否订阅、能否存 Key、已登录的方式和是否存在 `auth.json`（环境变量的 Key 不算存的）；真实 pi 的 anthropic、openai、openrouter 和环境变量里的 DeepSeek Key | `login.test.ts` "lists providers"、`login.pi.test.ts` | 已覆盖 |
+| 登录过程：pi 的设备码、进度、提示、授权地址和提问原样转出，按 id 回答；pi 问登录方式时自动选浏览器；API Key 交给第一个密码类提问，其余提问照常转出，没给 Key 时全部转出；pi 撤回提问时告知，迟到的回答丢掉；pi 打印的非 JSON 行忽略，stderr 不读也不堵；设备 ID 用 pi 自己的；真实 pi：anthropic 的浏览器登录给出授权地址和粘贴回调的提问，取消后释放回调端口，Cloudflare 的账户 ID 提问，存 Key（权限 600）和退出 | `login.test.ts`、`login.pi.test.ts` | 已覆盖 |
+| 登录失败与结束：带 pi 原文失败（报错、抛出的不是 Error、`auth.json` 坏了）；程序没说结果就退出算失败；pi 包缺少要用的接口算不可用；退出登录被拒带原文；查询和退出超时杀掉；取消后 3 秒不走就杀整棵进程树，读不到进程树时只杀程序；超时后再取消仍算超时；信号已中止时不启动，中途中止算取消，结束后不再理会信号；宿主走掉（标准输入关闭）时程序中止并退出、释放端口；资源计数回到 0 | `login.test.ts`、`login.pi.test.ts` "when the host goes away" | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

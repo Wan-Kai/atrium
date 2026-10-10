@@ -28,4 +28,30 @@ async function bundle(entryPoint, outfile) {
   });
 }
 
-await Promise.all([bundle("src/entry.ts", "dist/entry.cjs"), bundle("src/dev/try-pi.ts", "dist/try-pi.cjs")]);
+/**
+ * Writes the login program next to the host's bundle.
+ *
+ * @remarks
+ * The system Node runs it, not the host, and it imports only Node built-ins and the user's pi at run
+ * time (overview.md, "登录程序的例外"), so it is only stripped of types, not bundled. The host finds
+ * it beside `entry.cjs`.
+ *
+ * @sideEffects Writes `dist/login-worker.mjs`.
+ * @returns {Promise<void>} Once it is written.
+ */
+async function loginWorker() {
+  await build({
+    entryPoints: ["../pi/src/auth/login-worker.ts"],
+    outfile: "dist/login-worker.mjs",
+    platform: "node",
+    format: "esm",
+    target: "node22",
+    logLevel: "warning",
+  });
+}
+
+await Promise.all([
+  bundle("src/entry.ts", "dist/entry.cjs"),
+  bundle("src/dev/try-pi.ts", "dist/try-pi.cjs"),
+  loginWorker(),
+]);

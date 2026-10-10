@@ -24,6 +24,7 @@ export const MUTATION_GROUPS = {
       "packages/pi/src/catalog/*.ts",
       "packages/pi/src/stats/*.ts",
       "packages/pi/src/oneshot/oneshot.ts",
+      "packages/pi/src/auth/login.ts",
       "packages/testkit/src/clock.ts",
     ],
     tests: ["packages/pi", "packages/testkit", "packages/host/src/sessions"],

@@ -1,7 +1,7 @@
 export type { PiDeps } from "./deps";
 export { absolutePathEntries, piEnvironment } from "./env/pi-env";
 export { PI_VERSION_TIMEOUT_MS, type PiInspection, inspectPi } from "./locate/inspect";
-export { findPi, readPiVersion } from "./locate/locate";
+export { findExecutable, findPi, readPiVersion } from "./locate/locate";
 export { type ProcessSystem, killProcessTree } from "./process/kill-tree";
 export { MIN_PI_VERSION, type Version, isAtLeast, parseVersion } from "./locate/version";
 export {
@@ -51,3 +51,19 @@ export {
   type OneShotRequest,
   runOneShot,
 } from "./oneshot/oneshot";
+export {
+  LOGIN_QUERY_TIMEOUT_MS,
+  type LoginEvent,
+  LoginError,
+  type LoginFailure,
+  type LoginProgram,
+  type LoginPrompt,
+  type LoginProvider,
+  type LoginRequest,
+  type LoginRun,
+  type LoginUpdate,
+  logout,
+  piPackageEntry,
+  readLogins,
+  startLogin,
+} from "./auth/login";

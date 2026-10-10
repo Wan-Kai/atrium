@@ -9,23 +9,24 @@ import { type Version, parseVersion } from "./version";
 const run = promisify(execFile);
 
 /**
- * Finds the `pi` executable on a search path.
+ * Finds an executable on a search path.
  *
  * @remarks
  * The caller passes the PATH read from the user's login shell, because Electron started from the
  * Finder does not inherit it (SPEC-0001, "第 1 步：安装 pi"). Relative entries, including the empty
- * entry that POSIX reads as the current directory, are skipped: the host must never run a `pi`
- * from whatever directory it happens to be in. Like a shell, it skips a directory named `pi`,
+ * entry that POSIX reads as the current directory, are skipped: the host must never run a program
+ * from whatever directory it happens to be in. Like a shell, it skips a directory with the name,
  * which passes the execute check too.
  *
  * @sideEffects Checks file permissions on disk.
  * @param searchPath - A PATH-style list of directories.
- * @returns The absolute path of the first executable `pi`, or `null` if none is found.
+ * @param name - The executable's name, such as `node`.
+ * @returns The absolute path of the first executable found, or `null` if none is found.
  */
-export async function findPi(searchPath: string): Promise<string | null> {
+export async function findExecutable(searchPath: string, name: string): Promise<string | null> {
   for (const directory of searchPath.split(delimiter)) {
     if (!isAbsolute(directory)) continue;
-    const candidate = join(directory, "pi");
+    const candidate = join(directory, name);
     try {
       await access(candidate, constants.X_OK);
       if ((await stat(candidate)).isFile()) return candidate;
@@ -34,6 +35,20 @@ export async function findPi(searchPath: string): Promise<string | null> {
     }
   }
   return null;
+}
+
+/**
+ * Finds the `pi` executable on a search path.
+ *
+ * @remarks
+ * See {@link findExecutable}.
+ *
+ * @sideEffects Checks file permissions on disk.
+ * @param searchPath - A PATH-style list of directories.
+ * @returns The absolute path of the first executable `pi`, or `null` if none is found.
+ */
+export async function findPi(searchPath: string): Promise<string | null> {
+  return findExecutable(searchPath, "pi");
 }
 
 /**
