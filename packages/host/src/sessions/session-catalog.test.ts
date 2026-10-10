@@ -185,14 +185,24 @@ describe("SessionCatalog", () => {
     expect(sessions.find("s1")).toMatchObject({ state: "missing", file: null, prompt: null, updatedAt: 5_000 });
   });
 
-  it("forgets a discarded draft", async () => {
+  it("forgets a discarded draft, and only it", async () => {
     const { sessions, dirs, changes } = await catalog();
     await sessions.record({ sessionId: "s1", containerId: A, cwd: dirs.a });
+    await sessions.record({ sessionId: "s2", containerId: B, cwd: dirs.b });
 
     await sessions.forget("s1");
 
+    expect(sessions.list().map((entry) => entry.sessionId)).toStrictEqual(["s2"]);
+    expect(changes()).toBe(3);
+  });
+
+  it("files a draft under no container once its workspace is gone, not under the chats", async () => {
+    const { sessions, dirs, setWorkspaces } = await catalog();
+    await sessions.record({ sessionId: "s1", containerId: A, cwd: dirs.a });
+
+    setWorkspaces([{ id: B, dir: dirs.b }]);
+
     expect(sessions.list()).toStrictEqual([]);
-    expect(changes()).toBe(2);
   });
 
   it("archives a session, recording one from the terminal, and ignores one it does not list", async () => {

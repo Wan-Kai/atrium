@@ -115,10 +115,14 @@ function feed(limits: { readonly removalsKept?: number; readonly changesLimit?: 
   };
   const layouts: Record<string, Layout> = {};
   const layoutOf = (clientId: string): Layout => layouts[clientId] ?? { container: null, tabs: {} };
+  const built = { count: 0 };
   const index = createIndexFeed({
     registry,
     generation: "h1",
-    build: () => content,
+    build: () => {
+      built.count += 1;
+      return content;
+    },
     layoutOf,
     clock,
     resources,
@@ -129,7 +133,7 @@ function feed(limits: { readonly removalsKept?: number; readonly changesLimit?: 
     index.changed();
     clock.advance(INDEX_PUSH_DELAY_MS);
   };
-  return { index, received, content, layouts, clock, resources, registry, push };
+  return { index, received, content, layouts, clock, resources, registry, push, built };
 }
 
 /**
@@ -331,6 +335,35 @@ describe("IndexFeed", () => {
     expect(received["a"]?.map(gist)).toStrictEqual([[reason, 1, 1]]);
   });
 
+  it("sends only the connection flushed its waiting batch, and builds nothing when no batch waits", () => {
+    const { index, received, content, built } = feed();
+    index.subscribe("a");
+    index.subscribe("b");
+    const builds = built.count;
+    index.flush("b");
+    expect(built.count).toBe(builds);
+
+    content.sessions = [session("s1"), session("s2")];
+    index.changed();
+    index.flush("b");
+
+    expect([received["a"]?.length, received["b"]?.slice(1)]).toStrictEqual([
+      1,
+      [
+        {
+          type: "index_changes",
+          generation: "h1",
+          seq: 2,
+          projects: none,
+          workspaces: none,
+          sessions: { upsert: [session("s2")], remove: [] },
+          layout: null,
+          preferences: null,
+        },
+      ],
+    ]);
+  });
+
   it("keeps the last thousand removals and serves changes up to two hundred items", () => {
     expect([INDEX_REMOVALS_KEPT, INDEX_CHANGES_LIMIT]).toStrictEqual([1000, 200]);
   });
@@ -385,6 +418,41 @@ describe("IndexFeed", () => {
         preferences: PREFERENCES,
       },
       ["too_many_changes", 3, 4],
+    ]);
+  });
+
+  it("counts removals among the changes, and serves as many changes as the limit", () => {
+    const { index, received, content, push } = feed({ changesLimit: 2 });
+    index.subscribe("a");
+    content.sessions = [session("s2")];
+    push();
+    index.subscribe("b", { generation: "h1", seq: 1 });
+    content.sessions = [session("s3")];
+    push();
+    index.subscribe("b", { generation: "h1", seq: 1 });
+
+    expect(received["b"]?.map(gist)).toStrictEqual([
+      {
+        type: "index_changes",
+        generation: "h1",
+        seq: 2,
+        projects: none,
+        workspaces: none,
+        sessions: { upsert: [session("s2")], remove: ["s1"] },
+        layout: { container: null, tabs: {} },
+        preferences: PREFERENCES,
+      },
+      {
+        type: "index_changes",
+        generation: "h1",
+        seq: 3,
+        projects: none,
+        workspaces: none,
+        sessions: { upsert: [session("s3")], remove: ["s2"] },
+        layout: null,
+        preferences: null,
+      },
+      ["too_many_changes", 3, 1],
     ]);
   });
 

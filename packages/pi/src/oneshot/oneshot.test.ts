@@ -66,9 +66,10 @@ function alive(pid: number): boolean {
  *
  * @sideEffects Creates a temporary directory, removed after the test; runs the fake pi.
  * @param print - What the fake pi does in `-p` mode.
- * @param options - The deadline, an abort signal, a process system for killing, and another pi
- * path.
- * @returns The outcome, what pi saw, the logs, the open resources and the directory.
+ * @param options - The deadline, an abort signal, a process system for killing, another pi path
+ * and other content.
+ * @returns The outcome, what pi saw, the logs, the open resources, how many timers are still set
+ * and the directory.
  */
 async function oneShot(
   print: NonNullable<ScriptedPiBehavior["print"]>,
@@ -77,6 +78,7 @@ async function oneShot(
     readonly signal?: AbortSignal;
     readonly processSystem?: ProcessSystem;
     readonly piPath?: string;
+    readonly input?: string;
   } = {},
 ) {
   const dir = await createTempDir("oneshot");
@@ -88,12 +90,20 @@ async function oneShot(
     logs.push({ fields, message });
   };
   const open = new Map<string, number>();
+  const timers = new Set<NodeJS.Timeout>();
   const deps: PiDeps = {
     clock: {
       now: () => Date.now(),
       setTimeout(callback, ms) {
-        const timer = setTimeout(callback, ms);
-        return () => clearTimeout(timer);
+        const timer = setTimeout(() => {
+          timers.delete(timer);
+          callback();
+        }, ms);
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+          clearTimeout(timer);
+        };
       },
     },
     track(kind) {
@@ -111,7 +121,7 @@ async function oneShot(
       env: fake.env,
       model: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
       systemPrompt: "Name it.",
-      input: "User: fix the login bug\n\nAssistant: Fixed.",
+      input: options.input ?? "User: fix the login bug\n\nAssistant: Fixed.",
     },
     deps,
     options,
@@ -121,12 +131,12 @@ async function oneShot(
   );
   /** What the fake pi was started with, once it read its stdin. */
   const seen = async (): Promise<unknown> => JSON.parse(await readFile(recordTo, "utf8"));
-  return { outcome, seen, logs, open, dir: await realpath(dir.path) };
+  return { outcome, seen, logs, open, timers: timers.size, dir: await realpath(dir.path) };
 }
 
 describe("runOneShot", () => {
   it("runs pi once in print mode without a session or tools, the content on stdin, and answers its last reply's text", async () => {
-    const { outcome, seen, open, dir } = await oneShot({
+    const { outcome, seen, open, timers, dir } = await oneShot({
       lines: [{ type: "session" }, reply("draft"), { type: "agent_end" }, reply("Login|fix")],
     });
 
@@ -148,7 +158,7 @@ describe("runOneShot", () => {
       cwd: dir,
       stdin: "User: fix the login bug\n\nAssistant: Fixed.",
     });
-    expect(open.get("pi-oneshot")).toBe(0);
+    expect([open.get("pi-oneshot"), timers]).toStrictEqual([0, 0]);
   });
 
   it.each([
@@ -161,6 +171,11 @@ describe("runOneShot", () => {
       "no_reply",
     ],
     ["the reply had no text", { lines: [reply("   ")] }, "no_reply"],
+    [
+      "the reply had no content",
+      { lines: [{ type: "message_end", message: { role: "assistant", stopReason: "stop" } }] },
+      "no_reply",
+    ],
   ] as const)("fails when %s, and logs only why", async (_, print, reason) => {
     const { outcome, logs, open } = await oneShot(print);
 
@@ -171,10 +186,68 @@ describe("runOneShot", () => {
     expect(open.get("pi-oneshot")).toBe(0);
   });
 
-  it("skips lines that are not JSON records", async () => {
-    const { outcome } = await oneShot({ lines: ["not json", "", "42", "null", reply("Title")] });
+  it("skips lines that are not JSON records, and records that do not end an assistant message", async () => {
+    const { outcome } = await oneShot({
+      lines: [
+        "not json",
+        "",
+        "42",
+        "null",
+        { type: "message_end" },
+        { type: "message_end", message: null },
+        { type: "message_end", message: "Other" },
+        reply("Title"),
+        { type: "message_update", message: { role: "assistant", content: [{ type: "text", text: "Other" }] } },
+        { type: "message_end", message: { role: "user", content: [{ type: "text", text: "Other" }] } },
+      ],
+    });
 
     expect(outcome).toStrictEqual({ text: "Title" });
+  });
+
+  it("reads a last line without a line break", async () => {
+    const { outcome } = await oneShot({ lines: [reply("draft")], unterminated: JSON.stringify(reply("Title")) });
+
+    expect(outcome).toStrictEqual({ text: "Title" });
+  });
+
+  it("reads and drops what pi writes to stderr, however much", async () => {
+    const { outcome } = await oneShot({ stderrBytes: 1 << 20, lines: [reply("Title")] }, { timeoutMs: 3_000 });
+
+    expect(outcome).toStrictEqual({ text: "Title" });
+  });
+
+  it("fails as exited when pi exits without reading its content", async () => {
+    const { outcome } = await oneShot({ ignoreStdin: true, exitCode: 1 }, { input: "x".repeat(1 << 20) });
+
+    expect(outcome).toStrictEqual({ error: new OneShotError("exited") });
+  });
+
+  it("answers once pi exited, even while a process it started keeps its pipes open", async () => {
+    const { outcome, seen } = await oneShot({ holdPipes: true, lines: [reply("Title")] }, { timeoutMs: 3_000 });
+    const { grandchild } = (await seen()) as { grandchild: number };
+    process.kill(grandchild, "SIGKILL");
+
+    expect(outcome).toStrictEqual({ text: "Title" });
+  });
+
+  it("leaves the signal alone once pi is done", async () => {
+    const controller = new AbortController();
+    const calls: string[] = [];
+    const processSystem: ProcessSystem = {
+      listProcesses: async () => {
+        calls.push("list");
+        return "";
+      },
+      kill: () => calls.push("kill"),
+      ownPid: process.pid,
+    };
+
+    const { outcome } = await oneShot({ lines: [reply("Title")] }, { signal: controller.signal, processSystem });
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect([outcome, calls]).toStrictEqual([{ text: "Title" }, []]);
   });
 
   it("fails as exited when pi cannot be started", async () => {
@@ -229,5 +302,13 @@ describe("runOneShot", () => {
 
     expect(outcome).toStrictEqual({ error: new OneShotError("aborted") });
     expect(open.get("pi-oneshot")).toBeUndefined();
+  });
+});
+
+describe("OneShotError", () => {
+  it("names itself and carries the reason", () => {
+    const error = new OneShotError("timed_out");
+
+    expect([error.name, error.reason, error.message]).toStrictEqual(["OneShotError", "timed_out", "timed_out"]);
   });
 });

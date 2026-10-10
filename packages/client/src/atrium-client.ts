@@ -778,6 +778,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         beat(current, heartbeatMs);
         // Each connection subscribes anew, from where the list was; the host answers at once.
         const cursor = cursorOf(index.getState());
+        // Stryker disable next-line ConditionalExpression: JSON drops a key whose value is undefined, so both send `{}`.
         request("subscribe_index", cursor === undefined ? {} : { cursor }).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);

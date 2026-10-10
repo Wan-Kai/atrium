@@ -26,8 +26,8 @@ import { createSessionManager } from "./session-manager";
  * so they are assembled as `main.ts` does.
  *
  * @sideEffects Creates temporary files; everything is closed when the test ends.
- * @returns The commands, the services, the events a connection received and how often the
- * session manager reported a change.
+ * @returns The commands, the services, the events a connection received, how often the session
+ * manager reported a change and how often the workspaces heard the window was focused.
  */
 async function assemble() {
   const temp = await createTempDir("index-commands");
@@ -76,6 +76,7 @@ async function assemble() {
   });
   onTestFinished(() => feed.close());
   const sessionChanges = { count: 0 };
+  const focused = { count: 0 };
   const listed: [string, boolean][] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
@@ -100,7 +101,7 @@ async function assemble() {
   onTestFinished(() => sessions.close());
   const commands = createIndexCommands({
     projects,
-    workspaces: { windowFocused: () => undefined },
+    workspaces: { windowFocused: () => (focused.count += 1) },
     sessions,
     preferences,
     feed,
@@ -109,7 +110,7 @@ async function assemble() {
       return { models: [], defaultModel: null };
     },
   });
-  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed };
+  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed, focused };
 }
 
 describe("IndexCommands.removeProject", () => {
@@ -169,6 +170,15 @@ describe("IndexCommands.listModels", () => {
 
     expect(await commands.listModels("chats", true)).toStrictEqual({ models: [], defaultModel: null });
     expect(listed).toStrictEqual([["chats", true]]);
+  });
+});
+
+describe("IndexCommands.windowFocused", () => {
+  it("tells the workspaces the window was focused", async () => {
+    const { commands, focused } = await assemble();
+
+    expect(await commands.windowFocused()).toStrictEqual({});
+    expect(focused.count).toBe(1);
   });
 });
 

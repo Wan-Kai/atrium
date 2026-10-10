@@ -70,16 +70,18 @@ export function titleInput(user: string, reply: string): string {
  * @remarks
  * SPEC-0001 ("自动生成标题"): models do not always follow the instructions, so the host takes the
  * first line, drops quotes around it and punctuation at its end, and keeps at most 50 characters.
+ * A quote alone is no title.
  *
  * @sideEffects none
  * @param raw - The model's answer.
  * @returns The title, or `null` when nothing is left.
  */
 export function cleanTitle(raw: string): string | null {
-  let title = raw.trim().split("\n", 1)[0]?.trim() ?? "";
+  // Stryker disable next-line StringLiteral: splitting always gives at least one part.
+  let title = raw.trim().split("\n", 1)[0] ?? "";
   for (let unwrapped = true; unwrapped;) {
     title = title.replace(TRAILING, "");
-    const pair = QUOTES.find(([open, close]) => title.length >= 2 && title.startsWith(open) && title.endsWith(close));
+    const pair = QUOTES.find(([open, close]) => title.startsWith(open) && title.endsWith(close));
     unwrapped = pair !== undefined;
     if (pair !== undefined) title = title.slice(pair[0].length, -pair[1].length).trim();
   }

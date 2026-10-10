@@ -1,5 +1,6 @@
 import type { PiEvent } from "@atrium/pi";
 import { FakeClock, present } from "@atrium/testkit";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { describe, expect, it } from "vitest";
 import type { EntriesPage } from "../transcript/session-transcript";
 import { type SessionPi, createSessionController } from "./session-controller";
@@ -135,6 +136,44 @@ describe("session controller resources", () => {
     expect(clock.pendingTimers()).toBe(0);
     expect(pis.slice(0, -1).map((pi) => pi.listeners())).toStrictEqual(Array.from({ length: 200 }, () => 0));
     expect(present(pis.at(-1), "the latest pi").listeners()).toBe(1);
+    await controller.shutdown();
+  });
+
+  it("lets go of the context of each of 200 stops while the same pi lives on", async () => {
+    const pi = drivenPi();
+    const controller = createSessionController({
+      sessionId: "s1",
+      pi: pi.pi,
+      entries: empty,
+      publish: () => undefined,
+      clock: new FakeClock(1000),
+      newId: () => "id",
+      onRefreshFailed: () => undefined,
+      log: () => undefined,
+      respawn: () => Promise.reject(new Error("pi lives on")),
+    });
+    // The context a command runs in, as the tracer's span is (found by the sessions soak).
+    const storage = new AsyncLocalStorage<object>();
+    const contexts: WeakRef<object>[] = [];
+    const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    /** Stops the run in a context of its own; only the returned weak hold outlives the call. */
+    const stopIn = async (): Promise<WeakRef<object>> => {
+      const context = {};
+      expect(await storage.run(context, () => controller.stop())).toStrictEqual({ confirmed: true });
+      return new WeakRef(context);
+    };
+
+    for (let round = 0; round < 200; round++) {
+      await controller.prompt({ type: "prompt", requestId: `q${round}`, traceparent, sessionId: "s1", text: "x" });
+      pi.emit({ type: "agent_start" });
+      contexts.push(await stopIn());
+      pi.emit({ type: "agent_settled" });
+      controller.resumeQueue();
+    }
+    await settle();
+    globalThis.gc?.();
+
+    expect(contexts.filter((context) => context.deref() !== undefined)).toHaveLength(0);
     await controller.shutdown();
   });
 });

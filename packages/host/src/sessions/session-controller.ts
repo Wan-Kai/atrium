@@ -473,7 +473,7 @@ export function createSessionController(options: {
   let lost: Waiting | null = null;
   /** Set by `shutdown`: pi exits for good. */
   let shuttingDown = false;
-  /** Who waits for each pi's exit alongside other work, woken once it exits. */
+  /** Who waits for each pi's exit alongside other work, by pi until it exits; `watchExit` wakes them. */
   const exitWakers = new Map<SessionPi, Set<(value: undefined) => void>>();
   /** The control last published, to send `control_updated` only on change. */
   let sentControl = JSON.stringify(control());
@@ -1359,7 +1359,11 @@ export function createSessionController(options: {
    * @param watched - The pi to watch.
    */
   async function watchExit(watched: SessionPi): Promise<void> {
+    const wakers = new Set<(value: undefined) => void>();
+    exitWakers.set(watched, wakers);
     const end = await watched.exited;
+    exitWakers.delete(watched);
+    for (const wake of wakers) wake(undefined);
     if (watched !== pi) return;
     exited = true;
     metrics.piChanged();
@@ -1423,30 +1427,21 @@ export function createSessionController(options: {
    * @remarks
    * `Promise.race` with `current.exited` would leave a reaction on it every time, holding the
    * caller's context and trace until pi exits; a long-lived pi stopped again and again piles them
-   * up (found by the sessions soak). Here each pi's exit is watched once, and a wait that ends
-   * first takes itself off.
+   * up (found by the sessions soak). Here `watchExit`, which waits for each pi's exit anyway, wakes
+   * the waits, and a wait that ends first takes itself off.
    *
-   * @sideEffects Watches `current`'s exit the first time.
+   * @sideEffects none
    * @param work - What to wait for; it must not reject.
    * @param current - The pi.
-   * @returns What `work` gave, or `undefined` once pi exited first.
+   * @returns What `work` gave, or `undefined` once pi has exited.
    */
   async function untilExit<T>(work: Promise<T>, current: SessionPi): Promise<T | undefined> {
-    let wakers = exitWakers.get(current);
-    if (wakers === undefined) {
-      const watched = new Set<(value: undefined) => void>();
-      wakers = watched;
-      exitWakers.set(current, watched);
-      // Fire and forget: `exited` never rejects.
-      void (async () => {
-        await current.exited;
-        exitWakers.delete(current);
-        for (const wake of watched) wake(undefined);
-      })();
-    }
+    const wakers = exitWakers.get(current);
+    if (wakers === undefined) return undefined;
     const gone = Promise.withResolvers<undefined>();
     wakers.add(gone.resolve);
     const result = await Promise.race([work, gone.promise]);
+    // Stryker disable next-line all: left in, each wait would hold its caller's context until pi exits; only the leak test (session-controller.leak.test.ts) sees that, and leak tests do not run per mutant.
     wakers.delete(gone.resolve);
     return result;
   }

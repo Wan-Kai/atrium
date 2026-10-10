@@ -1295,6 +1295,40 @@ describe("createSessionController stopping", () => {
     expect(waits()).toBe(afterOne);
   });
 
+  it("ends a stop once pi exits, when pi confirmed but never answers the clear", async () => {
+    const { pi, emit, crash } = manualPi();
+    const { controller } = control({ ...pi, clearQueue: () => new Promise(() => undefined) });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+
+    const stopping = controller.stop();
+    await settle();
+    expect(controller.snapshot().control.stopping).toBe(true);
+    crash();
+
+    expect(await stopping).toStrictEqual({ confirmed: true });
+    expect(controller.snapshot().control.stopping).toBe(false);
+  });
+
+  it("ends a stop once pi exits, when pi neither confirms nor answers the clear", async () => {
+    const { pi, emit, crash, holdAbort } = manualPi();
+    const { controller, clock } = control({ ...pi, clearQueue: () => new Promise(() => undefined) });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    holdAbort();
+
+    const stopping = controller.stop();
+    await settle();
+    clock.advance(2000);
+    await settle();
+    expect(controller.snapshot().control.stopping).toBe(true);
+    crash();
+
+    expect(await stopping).toStrictEqual({ confirmed: false });
+    await settle();
+    expect(controller.snapshot().control.stopping).toBe(false);
+  });
+
   it("stays stopping while pi takes over two seconds, refusing messages, until pi confirms", async () => {
     const { pi, emit, holdAbort } = manualPi();
     const { controller, clock } = control(pi);

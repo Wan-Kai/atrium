@@ -75,7 +75,7 @@ function replyOf(line: string): Reply | undefined {
   try {
     record = JSON.parse(line);
   } catch {
-    return undefined;
+    // Not JSON: `record` stays undefined, which the check below skips.
   }
   if (typeof record !== "object" || record === null || Reflect.get(record, "type") !== "message_end") return undefined;
   const message: unknown = Reflect.get(record, "message");
@@ -187,7 +187,8 @@ export async function runOneShot(
    * @sideEffects Kills processes.
    */
   const onAbort = (): void => void kill("aborted");
-  options.signal?.addEventListener("abort", onAbort, { once: true });
+  // Removed once pi has closed, before an abort could come twice.
+  options.signal?.addEventListener("abort", onAbort);
   let cancelDrain: (() => void) | undefined;
   child.on("exit", () => {
     // A process that inherited pi's pipes could keep them open; closing them lets `close` fire.
@@ -197,7 +198,8 @@ export async function runOneShot(
     }, PIPE_DRAIN_MS);
   });
   const { promise: closed, resolve } = Promise.withResolvers<number | null>();
-  child.on("error", () => resolve(null));
+  // A pi that cannot be started closes after its `error`, which would be thrown without a listener.
+  child.on("error", () => undefined);
   child.on("close", (code) => resolve(code));
   const code = await closed;
   cancelTimer();

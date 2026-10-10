@@ -59,6 +59,16 @@ describe("titleInput", () => {
   });
 });
 
+describe("TITLE_INSTRUCTIONS", () => {
+  it("asks for a short title in the user's language, without punctuation or quotes, and nothing else", () => {
+    expect(TITLE_INSTRUCTIONS).toBe(
+      "Write a title for the conversation you are given. Use the language of the user's message. " +
+        "Keep it short: at most 16 characters in Chinese, Japanese or Korean, at most 6 words otherwise. " +
+        "No punctuation, no quotes. Output the title only.",
+    );
+  });
+});
+
 describe("cleanTitle", () => {
   it.each([
     ["登录修复", "登录修复"],
@@ -74,6 +84,8 @@ describe("cleanTitle", () => {
     ["`Login fix`", "Login fix"],
     ['"“Login fix”"', "Login fix"],
     ['"Login fix', '"Login fix'],
+    ['Login fix"', 'Login fix"'],
+    ['" Login fix "', "Login fix"],
     ["登录修复。", "登录修复"],
     ["Login fix...", "Login fix"],
     ["Why login fails?!", "Why login fails"],
@@ -86,7 +98,7 @@ describe("cleanTitle", () => {
     expect(cleanTitle(raw)).toBe(title);
   });
 
-  it.each(["", "   ", '""', "。", "“”"])("finds no title in %j", (raw) => {
+  it.each(["", "   ", '""', '"', "。", "“”"])("finds no title in %j", (raw) => {
     expect(cleanTitle(raw)).toBeNull();
   });
 });

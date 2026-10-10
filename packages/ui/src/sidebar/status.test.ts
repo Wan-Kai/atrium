@@ -33,8 +33,8 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
 
 /** An error set at `at`, seen or not. */
 const error = (at: number, cleared = false) => ({ attention: { reason: "error", at, cleared } as const });
-/** A sign-in problem set at `at`. */
-const auth = (at: number) => ({ attention: { reason: "auth", at, cleared: false } as const });
+/** A sign-in problem set at `at`; a look does not clear it, but the list may say so. */
+const auth = (at: number, cleared = false) => ({ attention: { reason: "auth", at, cleared } as const });
 
 describe("sessionStatus", () => {
   it("puts a question above sign-in, sign-in above an error seen or not, and an error above running", () => {
@@ -63,7 +63,7 @@ describe("topStatus", () => {
 });
 
 describe("inboxOf", () => {
-  it("collects sessions waiting for an answer, a sign-in or a look at an error, by priority then newest", () => {
+  it("collects sessions waiting for an answer, a sign-in (seen or not) or a look at an error, by priority then newest", () => {
     const inbox = inboxOf([
       session("old-error", error(10)),
       session("seen", error(50, true)),
@@ -71,12 +71,14 @@ describe("inboxOf", () => {
       session("new-error", error(40)),
       session("archived", { ...error(60), archived: true }),
       session("signin", auth(5)),
+      session("signin-seen", auth(3, true)),
       session("question", { asking: 1, ...error(70) }),
     ]);
 
     expect(inbox.map((entry) => [entry.session.sessionId, entry.status, entry.at])).toStrictEqual([
       ["question", "asking", 1],
       ["signin", "auth", 5],
+      ["signin-seen", "auth", 3],
       ["new-error", "error", 40],
       ["old-error", "error", 10],
     ]);

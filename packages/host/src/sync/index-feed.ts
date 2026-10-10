@@ -105,7 +105,9 @@ export function createIndexFeed(options: {
     workspaces: new Map(),
     sessions: new Map(),
   };
+  // Stryker disable next-line ObjectLiteral,StringLiteral: no JSON of the preferences is empty, so the first build always records them.
   let preferences: Known = { json: "", seq: 0 };
+  // Stryker disable next-line ArrayDeclaration: an entry that is no removal matches no collection and, dropped first, moves nothing.
   const removals: { readonly collection: CollectionName; readonly id: string; readonly seq: number }[] = [];
   /** Cursors older than this may have missed a removal no longer remembered. */
   let forgottenUpTo = 0;
@@ -148,6 +150,7 @@ export function createIndexFeed(options: {
       preferences = { json, seq: at };
       changed = true;
     }
+    // Stryker disable next-line OptionalChaining: the loop only shifts while there is an entry.
     while (removals.length > removalsKept) forgottenUpTo = removals.shift()?.seq ?? forgottenUpTo;
     if (changed) seq = at;
     return next;
@@ -178,6 +181,7 @@ export function createIndexFeed(options: {
      */
     const of = <C extends CollectionName>(collection: C) => {
       const items: readonly Item<C>[] = list[collection];
+      // Stryker disable next-line OptionalChaining: the list was just built, so every item in it is known.
       const upsert = items.filter((item) => (known[collection].get(idOf(item))?.seq ?? 0) > after);
       const remove = removals
         .filter((removal) => removal.collection === collection && removal.seq > after)
@@ -253,8 +257,7 @@ export function createIndexFeed(options: {
    * @param cursor - The client's cursor.
    * @returns The reason, or `null` when changes will do.
    */
-  function unservable(cursor: IndexCursor | undefined): SnapshotReason | null {
-    if (cursor === undefined) return "no_cursor";
+  function unservable(cursor: IndexCursor): SnapshotReason | null {
     if (cursor.generation !== options.generation) return "generation_changed";
     return cursor.seq > seq || cursor.seq < forgottenUpTo ? "cursor_expired" : null;
   }
@@ -271,6 +274,7 @@ export function createIndexFeed(options: {
     const list = refresh();
     const subscribers = options.registry.indexSubscribers();
     const live = new Set(subscribers.map((subscriber) => subscriber.connectionId));
+    // Stryker disable next-line ConditionalExpression,CallExpression: only memory; a connection subscribes anew, and is sent its first answer, before it is sent changes.
     for (const connectionId of sent.keys()) if (!live.has(connectionId)) sent.delete(connectionId);
     for (const subscriber of subscribers) deliver(subscriber, list);
   }
@@ -306,9 +310,13 @@ export function createIndexFeed(options: {
       const list = refresh();
       const layout = options.layoutOf(subscriber.clientId);
       sent.set(connectionId, { seq, layout: JSON.stringify(layout) });
+      if (cursor === undefined) {
+        sendSnapshot(connectionId, list, layout, "no_cursor");
+        return;
+      }
       const reason = unservable(cursor);
-      if (reason !== null || cursor === undefined) {
-        sendSnapshot(connectionId, list, layout, reason ?? "no_cursor");
+      if (reason !== null) {
+        sendSnapshot(connectionId, list, layout, reason);
         return;
       }
       const { changes, size } = changesAfter(list, cursor.seq);

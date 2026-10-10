@@ -61,12 +61,21 @@ export interface ScriptedPiBehavior {
   readonly grandchildren?: readonly ("detached" | "attached" | "holds-pipes")[];
   /**
    * What it does when started with `-p`, as pi's one-shot print mode: reads stdin to its end,
-   * writes `{argv, cwd, stdin, pid}` to the file `recordTo` names, prints `lines` (records as JSON,
-   * strings as they are) once the file `waitFor` names exists, if it names one, then exits with
-   * `exitCode` (0 by default), or keeps running with `hang`. Without it, `-p` changes nothing.
+   * writes `{argv, cwd, stdin, pid, grandchild}` to the file `recordTo` names, prints `lines`
+   * (records as JSON, strings as they are) once the file `waitFor` names exists, if it names one,
+   * then exits with `exitCode` (0 by default), or keeps running with `hang`. Without it, `-p`
+   * changes nothing.
    */
   readonly print?: {
     readonly lines?: readonly (object | string)[];
+    /** Raw text printed after `lines` without a line break. */
+    readonly unterminated?: string;
+    /** Bytes written to stderr, waiting until they are read, before `lines`. */
+    readonly stderrBytes?: number;
+    /** Exit with `exitCode` at once, without reading stdin. */
+    readonly ignoreStdin?: true;
+    /** Start a `sleep` that keeps stdout and stderr open after it exits; its pid is recorded. */
+    readonly holdPipes?: true;
     readonly exitCode?: number;
     readonly hang?: true;
     readonly recordTo?: string;
@@ -93,17 +102,25 @@ setInterval(() => {
 }, 500).unref();
 const print = (record) => process.stdout.write(JSON.stringify(record) + "\\n");
 if (behavior.print !== undefined && process.argv.includes("-p")) {
+  if (behavior.print.ignoreStdin) process.exit(behavior.print.exitCode ?? 0);
   let input = "";
   process.stdin.on("data", (chunk) => (input += chunk));
   process.stdin.on("end", async () => {
-    const seen = { argv: process.argv.slice(2), cwd: process.cwd(), stdin: input, pid: process.pid };
+    const grandchild = behavior.print.holdPipes
+      ? spawn("sleep", ["60"], { stdio: ["ignore", "inherit", "inherit"] }).pid
+      : null;
+    const seen = { argv: process.argv.slice(2), cwd: process.cwd(), stdin: input, pid: process.pid, grandchild };
     if (behavior.print.recordTo !== undefined) writeFileSync(behavior.print.recordTo, JSON.stringify(seen));
     const gate = behavior.print.waitFor;
     while (gate !== undefined && !existsSync(gate)) await new Promise((resolve) => setTimeout(resolve, 20));
+    if (behavior.print.stderrBytes !== undefined) {
+      await new Promise((resolve) => process.stderr.write("x".repeat(behavior.print.stderrBytes), resolve));
+    }
     for (const line of behavior.print.lines ?? []) {
       if (typeof line === "string") process.stdout.write(line + "\\n");
       else print(line);
     }
+    if (behavior.print.unterminated !== undefined) process.stdout.write(behavior.print.unterminated);
     if (behavior.print.hang) setInterval(() => {}, 1 << 30);
     else process.stdout.write("", () => process.exit(behavior.print.exitCode ?? 0));
   });

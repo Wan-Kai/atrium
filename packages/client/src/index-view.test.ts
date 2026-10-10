@@ -90,6 +90,40 @@ describe("applyIndexChanges", () => {
     });
   });
 
+  it("tells projects and workspaces apart by their ids", () => {
+    const second = { id: "prj_0000000000000002", path: "/work/lib", name: "lib" };
+    /** A local workspace of the first project. */
+    const workspace = (id: string, dir: string) => ({
+      id,
+      projectId: project.id,
+      kind: "local" as const,
+      dir,
+      alias: null,
+      branch: null,
+      head: null,
+      external: false,
+      createdAt: null,
+      merge: null,
+    });
+    const [w1, w2, w3] = [
+      workspace("wks_0000000000000001", "/work/app"),
+      workspace("wks_0000000000000002", "/work/app-2"),
+      workspace("wks_0000000000000003", "/work/app-3"),
+    ];
+    const view = { ...viewWith([], null), generation: "h1", seq: 4, projects: [project, second], workspaces: [w1, w2] };
+
+    const next = applyIndexChanges(view, {
+      ...nothing,
+      projects: { upsert: [{ ...second, name: "renamed" }], remove: [] },
+      workspaces: { upsert: [w3, { ...w2, alias: "two" }], remove: [w1.id] },
+    });
+
+    expect([next.projects, next.workspaces]).toStrictEqual([
+      [project, { ...second, name: "renamed" }],
+      [{ ...w2, alias: "two" }, w3],
+    ]);
+  });
+
   it("takes the layout and preferences when they come, and keeps its own otherwise", () => {
     const view = { ...viewWith(["s1"], "s1"), generation: "h1", seq: 4 };
     const layout = { container: null, tabs: {} };
