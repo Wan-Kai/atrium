@@ -312,6 +312,14 @@ describe("createMetricsTracker: timing", () => {
     expect(tracker.current().timing).toStrictEqual({ modelMs: 6200, ttftMs: 600, tps: 25 });
   });
 
+  it("takes the end of a compaction whose start it did not see as no pause", () => {
+    const { tracker, feed } = harness();
+
+    feed(request, 100, { kind: "compaction_finished" }, 100, output, 1000, reply({ output: 10 }));
+
+    expect(tracker.current().timing).toStrictEqual({ modelMs: 1200, ttftMs: 200, tps: 10 });
+  });
+
   it("leaves a compaction within a request out of its time", () => {
     const { tracker, feed } = harness();
 
