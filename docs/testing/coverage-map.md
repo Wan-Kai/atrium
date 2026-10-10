@@ -226,6 +226,23 @@
 | 客户端：快照和 `metrics_updated` 的指标、`statusBar` 整份替换 | `packages/client/src/session-view.test.ts` "status bar figures"、`index-view.test.ts` | 已覆盖 |
 | 界面：数字格式（K、M、千分位、秒、tok/s、≈ $）、缓存命中、上下文比例与 70%/85% 变色、分段（不小于 0）、分组注册表与默认、只记与默认不同的选择；状态栏默认三组、按选择显示、未知显示"—"、悬停卡片（会话统计、Token 用量含推理与当前分支、上下文分段、没有窗口和刚压缩、费用）、调节面板（预览、开关、恢复默认、Esc 和点外面关闭、Esc 不传给输入框）；对话区里显示会话的指标、空状态不显示、选择发给宿主 | `packages/ui/src/chat/status-figures.test.ts`、`status-bar.browser.test.tsx`、`chat.browser.test.tsx` "status bar" | 已覆盖 |
 
+## 并行、同步与关注（M1.9）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 列表同步 · 宿主：整份列表按 id 比出变化，每批变化取下一个 `seq`、各客户端共用；30 毫秒内的变化合成一批；布局只发给自己、不占 `seq`；带游标订阅时补发游标之后的变化（布局和偏好整份），别的宿主、早于记住的删除、比游标落后超过 200 项、游标超前时发快照并写明原因；断开的连接不再发，关闭后不再推 | `packages/host/src/sync/index-feed.test.ts`、`sessions/index-commands.test.ts` | 已覆盖 |
+| 列表同步 · 客户端：快照整份收下，变化只在同一 generation 上应用（原位替换、新的放末尾）；重连时带上自己的游标订阅 | `packages/client/src/index-view.test.ts`、`atrium-client.test.ts` | 已覆盖 |
+| 关注 · 宿主：运行失败（轮次自己失败、有错误原文）标"出错"，像凭据问题的标"待授权"；崩溃重启用尽也标；一次运行只标一次；下次运行开始时去掉；看过只清"出错"，标记写进索引、重启后还在；等待回答的时间在对话框出现时记、没有对话框或 pi 退出时去掉 | `session-manager.test.ts` "SessionManager attention (M1.9)"、`session-catalog.test.ts`（标记）、`server/router.test.ts` | 已覆盖 |
+| 关注 · 界面：状态优先级（待回答 > 待授权 > 出错 > 运行中）和图标；工作区状态不算归档的；收件箱跨项目汇总、按优先级再按时间排、最多显示 5 条可展开；显示出错的会话时（窗口有焦点或获得焦点）发 `clear_attention` | `packages/ui/src/sidebar/status.test.ts`、`workbench.browser.test.tsx` "status"、"inbox"、"attention and hand-off" | 已覆盖 |
+| 交给终端 · 宿主：草稿、忙（运行、提交、停止、重启、排队里还有消息）、不认识的会话被拒；标记写进索引后停掉 pi、应答文件；之后打开不启动 pi，会启动或写 pi 的命令应答 `session_handed_off`；重启后标记还在；`take_back` 去掉标记并在新 epoch 启动 pi | `session-manager.test.ts` "SessionManager handing off (M1.9)"、`server/router.test.ts` | 部分覆盖：排队、停止、提交中的拒绝没有单独的测试 |
+| 交给终端 · 客户端与界面：`hand_off`、`take_back`、`clear_attention` 命令；菜单项（草稿、运行中置灰），复制 `pi --session '<文件>'`（单引号转义），失败提示；交接后的面板（再复制、"在 Atrium 里继续"） | `atrium-client.test.ts`、`packages/ui/src/tabs/hand-off.test.ts`、`workbench.browser.test.tsx` "attention and hand-off" | 已覆盖 |
+| 宿主重启后（`hostInstanceId` 变了）界面重新打开、重新订阅正在显示的会话 | `chat.browser.test.tsx` "ConversationArea after the host restarted" | 已覆盖 |
+| OneShotPi：`--mode json -p --no-session --no-tools --thinking off --model … --system-prompt …`，内容从标准输入给；取最后一条回复的文字；回复出错或中止、退出码非 0、没有回复或没有文字、超时（停掉整棵进程树，读不到进程树时只杀 pi）、中止都算失败，只记原因；中止在先时不启动；契约：真实 pi 的 print 模式 | `packages/pi/src/oneshot/oneshot.test.ts`、`oneshot.pi.test.ts` | 已覆盖 |
+| faux 模型在 `-p` 下用脚本的 `title` 回答，没写时回错误，不写 `pi.pid` | `packages/testkit/src/faux/faux.pi.test.ts` "print mode" | 已覆盖 |
+| 自动标题：输入（用户消息最多 1200、总共 2000，按字符截）、整理（第一行、成对引号、末尾标点、50 个字符、整理后为空算失败）、第一轮的文字和回复的最后一段；一个会话同时只生成一个，失败只记原因、下次运行结束再试，写不进去只记原因，关闭时取消；宿主：运行结束重扫后、会话已写出文件、没名字、有模型时在会话目录用会话的模型调用，经会话自己的 pi 写回；生成期间有了名字或交给终端时丢弃；关闭时停掉一次性的 pi；控制器给出从头开始的全部条目 | `packages/host/src/sessions/titles.test.ts`、`session-manager.test.ts` "SessionManager titles (M1.9)"、`session-controller.test.ts` "beyond what a snapshot holds" | 已覆盖 |
+| 端到端：三个会话并行，切换标签、断网重连、宿主重启后状态和对话记录正确；收件箱、交给终端、自动标题 | — | 待 M1.9 |
+| 泄漏：打开关闭会话、订阅退订、断连、停止、崩溃重启各 200 次；切换会话不留脱离的 DOM；30 分钟浸泡 | — | 待 M1.9 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

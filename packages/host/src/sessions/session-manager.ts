@@ -1,4 +1,12 @@
-import { type PiInspection, PiRequestError, piStatsOf, sessionModelOf, toLogEntry, toSlashCommand } from "@atrium/pi";
+import {
+  type PiInspection,
+  PiRequestError,
+  piStatsOf,
+  runOneShot,
+  sessionModelOf,
+  toLogEntry,
+  toSlashCommand,
+} from "@atrium/pi";
 import {
   type Attention,
   CHATS,
@@ -34,6 +42,7 @@ import {
   type SessionPi,
   createSessionController,
 } from "./session-controller";
+import { type TitleSubject, createTitleGenerator, firstExchange, titleInput } from "./titles";
 import { type TracedPi, startTracedPi } from "./traced-pi";
 
 /** What the host found out about pi; `null` when detection did not finish. */
@@ -293,6 +302,56 @@ export function createSessionManager(options: {
   }
 
   /**
+   * A session that needs a title now, if it does.
+   *
+   * @remarks
+   * SPEC-0001 ("自动生成标题"): a session on file, without a name, not handed off, whose pi runs
+   * on a known model, and whose first turn has text. The title is written through the same pi
+   * only if, when it comes, the session still has no name, is not handed off and that pi still
+   * runs; the list then learns the name from the session's file.
+   *
+   * @sideEffects none; the subject's `write` calls pi and scans the session files.
+   * @param sessionId - The session.
+   * @returns The subject, or `null`.
+   */
+  function titleSubject(sessionId: string): TitleSubject | null {
+    const entry = options.catalog.find(sessionId);
+    const found = live(sessionId);
+    if (entry?.name !== null || entry.state !== "persisted" || entry.handedOff || found === undefined) return null;
+    const model = found.controller.snapshot().model;
+    const exchange = firstExchange(found.controller.items());
+    if (model === null || exchange === null) return null;
+    const { pi } = found;
+    return {
+      cwd: entry.cwd,
+      model: { providerId: model.providerId, modelId: model.modelId },
+      input: titleInput(exchange.user, exchange.reply),
+      async write(title) {
+        const now = options.catalog.find(sessionId);
+        if (now?.name !== null || now.handedOff || live(sessionId)?.pi !== pi) return false;
+        await pi.request({ type: "set_session_name", name: title });
+        await options.catalog.scan();
+        return true;
+      },
+    };
+  }
+
+  const titles = createTitleGenerator({
+    subject: titleSubject,
+    oneShot: async (request, signal) => {
+      const tools = await readyTools();
+      const deps = createPiDeps({
+        clock: options.clock,
+        resources: options.resources,
+        logger: options.logger,
+        env: tools.env,
+      });
+      return runOneShot({ piPath: tools.pi.piPath, ...request }, deps, { signal });
+    },
+    logger: options.logger,
+  });
+
+  /**
    * Keeps track of runs, failures and dialogs for the list, and looks at the session's files once
    * a run ends.
    *
@@ -301,7 +360,8 @@ export function createSessionManager(options: {
    * look from a run that failed after pi's retries, or pi crashing too often, until its next run
    * starts; a failure whose text looks like a credentials problem asks to sign in (SPEC-0001,
    * "会话状态"). A crash also ends its run as failed but is not marked until the restarts are used
-   * up, so only a turn's own failure marks a run.
+   * up, so only a turn's own failure marks a run. Once the scan after a run is done, the session
+   * may be given a title (`titleSubject`).
    *
    * @sideEffects Updates the run, failure and dialog records; writes attention to the index; calls
    * `onChange`; may start background scans.
@@ -349,7 +409,11 @@ export function createSessionManager(options: {
       if (event.type === "run_settled") {
         const containerId = options.catalog.find(sessionId)?.containerId;
         if (containerId !== undefined && containerId !== CHATS) options.workspaces.refresh(containerId);
-        inBackground("session scan", () => options.catalog.scan());
+        inBackground("session scan", async () => {
+          await options.catalog.scan();
+          // After the scan, which finds the file a first run wrote.
+          titles.settled(sessionId);
+        });
       }
     }
   }
@@ -914,10 +978,11 @@ export function createSessionManager(options: {
     async close() {
       closed = true;
       for (const search of searches.values()) search.abort();
+      const titlesClosed = titles.close();
       // Controllers first, so restarts under way stop rather than start pi again.
       await Promise.all([...sessions.values()].map(({ controller }) => controller.shutdown()));
       await Promise.all([...running].map((pi) => pi.stop()));
-      await Promise.all(background);
+      await Promise.all([...background, titlesClosed]);
     },
   };
 

@@ -18,6 +18,7 @@ import {
   type SlashCommand,
   type SteerCommand,
   type ThinkingLevel,
+  type TranscriptItem,
   parseTraceparent,
 } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
@@ -101,6 +102,8 @@ export interface SessionController {
   readonly restarting: boolean;
   /** The session's state now, for a client that just subscribed. */
   snapshot(): SessionSnapshotEvent;
+  /** Every item from the session's start, whole, unlike a snapshot's latest ones. */
+  items(): TranscriptItem[];
   /** Hands a session whose pi exited a newly started one, which carries on in a new epoch. */
   attach(started: Respawned): void;
   /** Sends a message with its images, or queues it behind the run in progress. */
@@ -1471,6 +1474,7 @@ export function createSessionController(options: {
       return restarting !== null;
     },
     snapshot,
+    items: () => transcript.items(),
     attach(started) {
       attachPi(started);
       // Started anew after the host stopped it for good, as when a session is opened again.

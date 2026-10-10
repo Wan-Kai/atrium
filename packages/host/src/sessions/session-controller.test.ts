@@ -1,5 +1,12 @@
 import type { LogEntry, PiEvent, PiStats } from "@atrium/pi";
-import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
+import {
+  CommandError,
+  IDLE_CONTROL,
+  SNAPSHOT_TURNS,
+  type SessionEvent,
+  type SessionModel,
+  UNKNOWN_METRICS,
+} from "@atrium/protocol";
 import { FakeClock, ReplayRequestError, present, replayPi } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { fixtureEntries, readPiFixture } from "../../test/pi-fixtures";
@@ -436,6 +443,18 @@ describe("createSessionController on cases the fixtures do not show", () => {
     const { controller } = control(pi, { entries: [userEntry("u1", null, "earlier")], leafId: "u1" });
 
     expect(controller.snapshot()).toMatchObject({ seq: 0, items: [{ id: "s1:u1", user: { text: "earlier" } }] });
+  });
+
+  it("gives every item from the session's start, beyond what a snapshot holds", () => {
+    const { pi } = manualPi();
+    const entries = [
+      userEntry("u0", null, "message 0"),
+      ...Array.from({ length: SNAPSHOT_TURNS }, (_, n) => userEntry(`u${n + 1}`, `u${n}`, `message ${n + 1}`)),
+    ];
+    const { controller } = control(pi, { entries, leafId: `u${SNAPSHOT_TURNS}` });
+
+    expect(controller.snapshot().items).toHaveLength(SNAPSHOT_TURNS);
+    expect(controller.items()).toMatchObject(entries.map((_, n) => ({ kind: "turn", user: { text: `message ${n}` } })));
   });
 
   it("marks the turns an earlier host sent on its own", () => {

@@ -103,11 +103,13 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * fixtures rely on (testing.md, "faux 模型").
  *
  * Replies scripted with `waitFor` hold until the test releases them; pi's process id goes into
- * `pi.pid` beside the gates, so a test can kill that very process. Two commands cover the
+ * `pi.pid` beside the gates, so a test can kill that very process. A pi in print mode (`-p`), as
+ * the host's one-shot call for a title, answers the script's `title` instead, or an error without
+ * one, and leaves `pi.pid` to the session's pi (SPEC-0001, "自动生成标题"). Two commands cover the
  * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具"); a third navigates the
  * session tree, the only way to make a branch inside one session file.
  *
- * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid`; registers a
+ * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid` unless printing; registers a
  * provider and three commands with pi.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
@@ -133,9 +135,15 @@ export default function fauxExtension(pi: ExtensionApi): void {
     ...(script.tokensPerSecond === undefined ? {} : { tokensPerSecond: script.tokensPerSecond }),
   });
   const gates = process.env[FAUX_GATES_ENV] ?? "";
-  if (gates !== "") writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
+  // A one-shot pi in print mode asks for a title; it must not pass for the session's pi.
+  const printing = process.argv.includes("-p");
+  if (gates !== "" && !printing) writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
+  const titled: FauxReply =
+    script.title === undefined
+      ? { blocks: [], error: "faux script has no title" }
+      : { blocks: [{ type: "text", text: script.title }] };
   faux.setResponses(
-    script.replies.map((reply) => {
+    (printing ? [titled] : script.replies).map((reply) => {
       const message = toAssistantMessage(reply);
       const gate = reply.waitFor;
       if (gate === undefined) return message;

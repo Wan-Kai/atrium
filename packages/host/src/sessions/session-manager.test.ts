@@ -8,7 +8,7 @@ import {
   UNKNOWN_METRICS,
 } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
-import { mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -1270,14 +1270,20 @@ function failingTurn(error: string): readonly object[] {
  * @sideEffects Writes the session's file; starts its pi.
  * @param turns - What pi prints for each prompt.
  * @param rules - More of pi's answers.
+ * @param more - More of pi's behavior.
  * @returns The manager and what tests look at.
  */
-async function opened(turns: readonly (readonly object[])[], rules: Record<string, object> = {}) {
+async function opened(
+  turns: readonly (readonly object[])[],
+  rules: Record<string, object> = {},
+  more: Omit<ScriptedPiBehavior, "rules"> = {},
+) {
   const at = await place();
   const file = await terminalSession(at, "pi-session-1", at.workspace);
   const managed = await manage(
     {
       argvToStderr: true,
+      ...more,
       rules: {
         ...SESSION_ONE,
         prompt: { sequence: turns.map((events) => ({ data: { disposition: "started" }, events })) },
@@ -1461,5 +1467,145 @@ describe("SessionManager handing off (M1.9)", () => {
       { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
     ]);
     expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, exited: false });
+  });
+});
+
+/** pi's answers that give the session a model and take its name. */
+const NAMEABLE = {
+  get_state: { data: { sessionId: "pi-session-1", model: HAIKU, thinkingLevel: "low" } },
+  set_session_name: { data: {} },
+};
+
+/**
+ * A one-shot pi's reply in json mode.
+ *
+ * @remarks
+ * See `runOneShot` in `packages/pi`.
+ *
+ * @sideEffects none
+ * @param text - The reply's text.
+ * @returns The `message_end` record.
+ */
+function titleReply(text: string): object {
+  return { type: "message_end", message: { role: "assistant", content: [{ type: "text", text }], stopReason: "stop" } };
+}
+
+/**
+ * A watched session on file whose pi answers one-shot calls with `title`, held until released.
+ *
+ * @remarks
+ * The one-shot pi writes what it was started with to `seen.json` and waits for `release.flag`.
+ *
+ * @sideEffects Writes the session's file; starts its pi.
+ * @param title - The model's answer.
+ * @param rules - More of pi's answers.
+ * @returns The manager, what tests look at, what the one-shot pi saw and how to release it.
+ */
+async function titled(title: string, rules: Record<string, object> = NAMEABLE) {
+  const gates = await createTempDir("titles");
+  cleanups.push(gates.cleanup);
+  const seenAt = join(gates.path, "seen.json");
+  const gate = join(gates.path, "release.flag");
+  const managed = await opened([turn], rules, {
+    receivedToStderr: true,
+    print: { lines: [titleReply(title)], recordTo: seenAt, waitFor: gate },
+  });
+  return {
+    ...managed,
+    /** What the one-shot pi was started with, once it runs. */
+    seen: () => vi.waitFor(async () => JSON.parse(await readFile(seenAt, "utf8")) as Record<string, unknown>),
+    /** Whether a one-shot pi was started. */
+    asked: () =>
+      readFile(seenAt).then(
+        () => true,
+        () => false,
+      ),
+    /** Lets the one-shot pi answer. */
+    release: () => writeFile(gate, ""),
+    /** The names pi was told to take. */
+    names: () =>
+      managed.piReceived().flatMap((command) => (command["type"] === "set_session_name" ? [command["name"]] : [])),
+  };
+}
+
+describe("SessionManager titles (M1.9)", () => {
+  it("names a session once its run ends: asks a one-shot pi in its directory on its model, and writes the title through its pi", async () => {
+    const { run, seen, release, names, resources, at, records } = await titled("“修复 ping”。");
+
+    await run();
+    const asked = await seen();
+    await release();
+    await vi.waitFor(() => expect(names()).toStrictEqual(["修复 ping"]));
+    await vi.waitFor(() => expect(resources.snapshot()["pi-oneshot"]).toBe(0));
+
+    expect(asked).toMatchObject({
+      argv: expect.arrayContaining(["-p", "--no-session", "--model", "anthropic/haiku"]),
+      cwd: at.workspace,
+      stdin: "User:\nping\n\nAssistant:\npong",
+    });
+    expect(records.filter((record) => record["msg"] === "session title not made")).toStrictEqual([]);
+  });
+
+  it("asks for no title for a session pi reports no model for", async () => {
+    const plain = await titled("Ping", { set_session_name: { data: {} } });
+    await plain.run();
+    await plain.manager.close();
+
+    expect(await plain.asked()).toBe(false);
+  });
+
+  it("asks for no title for a session that has a name", async () => {
+    const { run, asked, manager, file, catalog } = await titled("Ping");
+    await appendFile(
+      file,
+      `${JSON.stringify({ type: "session_info", id: "i1", parentId: null, timestamp: "", name: "Mine" })}\n`,
+    );
+    await catalog.scan();
+
+    await run();
+    await manager.close();
+
+    expect(await asked()).toBe(false);
+  });
+
+  it.each([
+    [
+      "the session got a name meanwhile",
+      async (file: string, managed: Awaited<ReturnType<typeof titled>>) => {
+        await appendFile(
+          file,
+          `${JSON.stringify({ type: "session_info", id: "i1", parentId: null, timestamp: "", name: "Mine" })}\n`,
+        );
+        await managed.catalog.scan();
+      },
+    ],
+    [
+      "it was handed off meanwhile",
+      async (_: string, managed: Awaited<ReturnType<typeof titled>>) => managed.manager.handOff("pi-session-1"),
+    ],
+  ])("discards the title when %s", async (_, act) => {
+    const managed = await titled("Ping");
+    await managed.run();
+    await managed.seen();
+
+    await act(managed.file, managed);
+    await managed.release();
+    await vi.waitFor(() =>
+      expect(managed.records.filter((record) => record["msg"] === "session title not made")).toMatchObject([
+        { sessionId: "pi-session-1", reason: "discarded" },
+      ]),
+    );
+
+    expect(managed.names()).toStrictEqual([]);
+  });
+
+  it("stops a one-shot pi under way when it closes", async () => {
+    const { run, seen, manager, resources } = await titled("Ping");
+    await run();
+    await seen();
+
+    await manager.close();
+
+    expect(resources.snapshot()["pi-oneshot"]).toBe(0);
   });
 });
