@@ -103,6 +103,7 @@ const SETUP: SetupState = {
   projects: 0,
 };
 const WORKSPACE = "wks_0123456789abcdef";
+const MODEL = { providerId: "anthropic", modelId: "claude-haiku-4-5" };
 
 /**
  * A router over fake sessions, a connection whose handshake span is recorded, and what it sends.
@@ -344,12 +345,21 @@ describe("createRouter", () => {
       withTrace({ type: "rename_workspace", requestId: "r5", workspaceId: WORKSPACE, name: null }),
     );
     await route(connection, withTrace({ type: "window_focused", requestId: "r6" }));
-    await route(connection, withTrace({ type: "set_preferences", requestId: "r7", appearance: "dark" }));
-    await route(connection, withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking" }));
+    await route(
+      connection,
+      withTrace({ type: "set_preferences", requestId: "r7", appearance: "dark", titleModel: null }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true }),
+    );
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
     await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
-    await route(connection, withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true } }));
+    await route(
+      connection,
+      withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true }, titleModel: MODEL }),
+    );
     await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
     await route(connection, withTrace({ type: "check_setup", requestId: "r14", refresh: true }));
 
@@ -361,12 +371,12 @@ describe("createRouter", () => {
       ["renameProject", PROJECT, "app"],
       ["renameWorkspace", WORKSPACE, null],
       ["windowFocused"],
-      ["setPreferences", { appearance: "dark" }],
-      ["setPreferences", { displayMode: "thinking" }],
+      ["setPreferences", { appearance: "dark", titleModel: null }],
+      ["setPreferences", { displayMode: "thinking", setupDone: true }],
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
       ["listModels", "chats", true],
-      ["setPreferences", { statusBar: { cost: true } }],
+      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL }],
       ["checkSetup", false],
       ["checkSetup", true],
     ]);

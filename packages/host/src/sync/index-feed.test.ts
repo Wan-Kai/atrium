@@ -12,11 +12,13 @@ import {
 import { type EventSink, SubscriptionRegistry } from "./subscriptions";
 
 const PREFERENCES: Preferences = {
+  setupDone: false,
   appearance: "system",
   displayMode: "summary",
   lastModel: null,
   thinkingByModel: {},
   statusBar: {},
+  titleModel: null,
 };
 
 /**

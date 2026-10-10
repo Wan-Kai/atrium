@@ -54,6 +54,14 @@ const commands: Command[] = [
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
   { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
   { type: "set_preferences", requestId: "r60", traceparent, statusBar: { session: false, cost: true } },
+  {
+    type: "set_preferences",
+    requestId: "r63",
+    traceparent,
+    setupDone: true,
+    titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+  },
+  { type: "set_preferences", requestId: "r64", traceparent, titleModel: null },
   { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
   { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
   { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
@@ -846,11 +854,13 @@ const snapshot: IndexSnapshotEvent = {
     tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, chats: { open: [], active: null } },
   },
   preferences: {
+    setupDone: true,
     appearance: "system",
     displayMode: "summary",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
     statusBar: { cost: true, session: false },
+    titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
   },
   resets: ["layouts"],
 };

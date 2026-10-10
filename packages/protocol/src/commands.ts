@@ -274,9 +274,11 @@ export type RenameSessionCommand = z.infer<typeof RenameSessionCommand>;
 export const SetPreferencesCommand = z.strictObject({
   type: z.literal("set_preferences"),
   ...commandFields,
+  setupDone: z.boolean().optional(),
   appearance: Appearance.optional(),
   displayMode: DisplayMode.optional(),
   statusBar: StatusBarChoices.optional(),
+  titleModel: ModelRef.nullable().optional(),
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 

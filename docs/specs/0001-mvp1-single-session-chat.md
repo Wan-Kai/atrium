@@ -431,7 +431,7 @@ Electron 主进程
 - 以后 pi 出新版本：宿主每天查一次 npm 上的最新版本，有更新时在设置里显示"更新 pi"按钮，不打断使用。有会话在运行时，更新等它们结束再开始；更新后，空闲会话的 pi 进程在下次使用时用新版本重启。
 - 字体、品牌图标正式打包进应用，不依赖网络。汇文明朝体等"免费商用"字体，在开源发布前核实许可。
 
-**什么时候显示**（2026-10-10 定）：偏好里新增 `setupDone`（默认假）。为假时打开窗口先进首次启动；走完第 3 步（添加项目或"先新建一个对话"）后设为真。之后只在 pi 不可用（找不到、不能运行、版本过低）时再进首次启动，直接从第 1 步开始，不显示欢迎页；登录失效等由对话里的错误卡片和关注状态提示，不打断。
+**什么时候显示**（2026-10-10 定）：偏好里新增 `setupDone`（默认假，M1.10 之前的偏好文件读作假）。为假时打开窗口先进首次启动；走完第 3 步（添加项目或"先新建一个对话"）后界面用 `set_preferences` 把它设为真。之后只在 pi 不可用（找不到、不能运行、版本过低）时再进首次启动，直接从第 1 步开始，不显示欢迎页；登录失效等由对话里的错误卡片和关注状态提示，不打断。
 
 **接口**（2026-10-10 定，M1.10）：
 
@@ -477,7 +477,7 @@ Electron 主进程
 
 **接口**（2026-10-10 定，M1.10）：
 
-- `set_preferences` 多了 `titleModel`（`{ providerId, modelId } | null`，`null` 为跟随会话的模型）。
+- 偏好和 `set_preferences` 多了 `titleModel`（`{ providerId, modelId } | null`，`null` 为跟随会话的模型，M1.10 之前的偏好文件读作 `null`）和 `setupDone`（见"首次启动 · 什么时候显示"）。
 - `set_main_branch(projectId, branch | null)`：`null` 恢复自动；`branch` 必须是 `origin` 上存在的分支，否则应答 `branch_not_found`。
 - `list_branches(projectId)`：应答 `origin` 上的分支名（不带 `origin/`，去掉 `HEAD`），供主干下拉用。
 - `check_setup` 的 `pi` 多了 `latest`（npm 上的最新版本，没查过或查不到为 `null`）和 `checkedAt`。宿主启动后和之后每天查一次；`check_pi_update()` 立刻查。查到的结果用事件 `pi_latest { latest, checkedAt }` 推给所有客户端。

@@ -582,11 +582,13 @@ describe("ConversationArea's model button", () => {
     const { client, calls, modelCalls } = fakeClient(
       {
         preferences: {
+          setupDone: true,
           appearance: "system",
           displayMode: "summary",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
           statusBar: {},
+          titleModel: null,
         },
       },
       { models: LIST },

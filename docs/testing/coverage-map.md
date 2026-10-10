@@ -261,6 +261,7 @@
 | 登录失败与结束：带 pi 原文失败（报错、抛出的不是 Error、`auth.json` 坏了）；程序没说结果就退出算失败；pi 包缺少要用的接口算不可用；退出登录被拒带原文；查询和退出超时杀掉；取消后 3 秒不走就杀整棵进程树，读不到进程树时只杀程序；超时后再取消仍算超时；信号已中止时不启动，中途中止算取消，结束后不再理会信号；宿主走掉（标准输入关闭）时程序中止并退出、释放端口；资源计数回到 0 | `login.test.ts`、`login.pi.test.ts` "when the host goes away" | 已覆盖 |
 | 宿主的登录状态（Logins）：列出能 OAuth 或能存 Key 的服务商，隐藏 `openai-codex` 和 `radius`，按钮文字没有时用 OAuth 名称；没有登录程序、没检测到工具、pi 或 Node 不可用、pi 不是能加载的包时不可用；查询失败时不可用，日志只记原因不记 pi 原文；关闭时中止进行中的查询并等程序退出 | `packages/host/src/setup/logins.test.ts` | 已覆盖 |
 | 首次启动的检查（`check_setup`）：pi 就绪、损坏（带原文）、版本过低、缺失，Node 就绪、过低、缺失，Homebrew、fd 有无，登录状态和项目数；`refresh` 时重新读登录 shell、找到期间装好的 pi，不带时沿用上次的结果；检测失败时都算缺失；协议校验命令和结果，客户端发出 | `packages/host/src/setup/setup-service.test.ts`、`packages/host/src/setup.host.test.ts`、`packages/host/src/server/router.test.ts`、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts` "first launch" | 已覆盖 |
+| 偏好里的 `setupDone`、`titleModel`：默认首次启动未完成、跟随会话的模型，M1.10 之前的文件读作这样；`set_preferences` 改它们（`titleModel` 可设回 `null`），写进文件；协议校验 | `packages/host/src/store/preferences.test.ts`、`packages/host/src/server/router.test.ts`、`packages/protocol/src/envelope.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
 

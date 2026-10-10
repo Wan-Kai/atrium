@@ -929,7 +929,15 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       },
     ],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {}, statusBar: {} },
+    preferences: {
+      setupDone: false,
+      appearance: "system",
+      displayMode: "summary",
+      lastModel: null,
+      thinkingByModel: {},
+      statusBar: {},
+      titleModel: null,
+    },
     resets: [],
     ...fields,
   });
@@ -1073,11 +1081,13 @@ describe("createAtriumClient: the list", () => {
     expect(client.index.getState().layout.container).toBe("chats");
     const preferred = client.setPreferences({ displayMode: "detailed" });
     expect(client.index.getState().preferences).toStrictEqual({
+      setupDone: false,
       appearance: "system",
       displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
       statusBar: {},
+      titleModel: null,
     });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);

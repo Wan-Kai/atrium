@@ -145,7 +145,15 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     workspaces: [],
     sessions: [],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {}, statusBar: {} },
+    preferences: {
+      setupDone: false,
+      appearance: "system",
+      displayMode: "summary",
+      lastModel: null,
+      thinkingByModel: {},
+      statusBar: {},
+      titleModel: null,
+    },
     resets: [],
     ...initial,
   }));

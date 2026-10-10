@@ -206,11 +206,13 @@ describe("withContainer and withPreferences", () => {
       tabs: { [A]: { open: [], active: null } },
     });
     expect(withPreferences(emptyIndex(), { appearance: "dark" }).preferences).toStrictEqual({
+      setupDone: false,
       appearance: "dark",
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       statusBar: {},
+      titleModel: null,
     });
   });
 
