@@ -15,6 +15,7 @@ import {
   type Project,
   type SessionSummary,
   type Workspace,
+  UNKNOWN_METRICS,
 } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
 
@@ -92,6 +93,7 @@ function sessionView(sessionId: string, fields: Partial<SessionView> = {}): Sess
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    metrics: UNKNOWN_METRICS,
     ...fields,
   };
 }
@@ -140,7 +142,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     workspaces: [],
     sessions: [],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {}, statusBar: {} },
     resets: [],
     ...initial,
   }));

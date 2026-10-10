@@ -1,4 +1,10 @@
-import type { ModelRef, Preferences, SessionModel, ThinkingLevel } from "@atrium/protocol";
+import {
+  type ModelRef,
+  type Preferences,
+  type SessionModel,
+  StatusGroupId,
+  type ThinkingLevel,
+} from "@atrium/protocol";
 import type { IndexFile } from "./index-file";
 import type { PreferencesDocument } from "./index-schema";
 
@@ -19,7 +25,9 @@ export interface PreferenceStore {
  * @remarks
  * Appearance follows the system and the display mode is the summary until changed (SPEC-0001,
  * "外观", "显示模式"). The model chosen last in any session, and each model's thinking level, are
- * what new sessions start with (SPEC-0001, "模型与输入框").
+ * what new sessions start with (SPEC-0001, "模型与输入框"). The status bar's choices, an optional
+ * field added in M1.8 without a new version, read as none; an id no group could have, as a hand
+ * may write, is left out of what is read (SPEC-0001, "状态栏（M1.8）").
  *
  * @sideEffects none until `set`; then writes `preferences.json`.
  * @param file - The loaded file.
@@ -28,8 +36,9 @@ export interface PreferenceStore {
 export function createPreferenceStore(file: IndexFile<PreferencesDocument>): PreferenceStore {
   return {
     read() {
-      const { appearance, displayMode, lastModel, thinkingByModel } = file.read();
-      return { appearance, displayMode, lastModel, thinkingByModel };
+      const { appearance, displayMode, lastModel, thinkingByModel, statusBar = {} } = file.read();
+      const groups = Object.entries(statusBar).filter(([id]) => StatusGroupId.safeParse(id).success);
+      return { appearance, displayMode, lastModel, thinkingByModel, statusBar: Object.fromEntries(groups) };
     },
     set: (changes) => file.save({ ...file.read(), ...changes }),
     remember({ providerId, modelId, thinkingLevel }) {

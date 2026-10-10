@@ -31,6 +31,7 @@ describe("PreferenceStore", () => {
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      statusBar: {},
     });
 
     await store.set({ appearance: "dark" });
@@ -41,6 +42,7 @@ describe("PreferenceStore", () => {
       displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
+      statusBar: {},
     });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
       version: 2,
@@ -64,6 +66,7 @@ describe("PreferenceStore", () => {
       displayMode: "summary",
       lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
       thinkingByModel: { "anthropic/claude-opus-5-5": "max", "openai/gpt-6": "low" },
+      statusBar: {},
     });
   });
 
@@ -96,6 +99,41 @@ describe("PreferenceStore", () => {
       displayMode: "thinking",
       lastModel: null,
       thinkingByModel: {},
+      statusBar: {},
     });
+  });
+
+  it("keeps the status bar groups switched from their default, replacing them whole", async () => {
+    const index = await indexDirectory();
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+
+    await store.set({ statusBar: { cost: true, session: false } });
+    await store.set({ statusBar: { tokens: false } });
+
+    expect(store.read().statusBar).toStrictEqual({ tokens: false });
+    expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
+      version: 2,
+      appearance: "system",
+      displayMode: "summary",
+      lastModel: null,
+      thinkingByModel: {},
+      statusBar: { tokens: false },
+    });
+  });
+
+  it("reads a file from before the status bar could be set as all defaults, and leaves out ids no group could have", async () => {
+    const index = await indexDirectory();
+    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
+    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    expect(store.read().statusBar).toStrictEqual({});
+
+    await writeFile(
+      join(index, "preferences.json"),
+      JSON.stringify({ ...before, statusBar: { "": true, ["g".repeat(65)]: false, later: true } }),
+    );
+    const again = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+
+    expect(again.read().statusBar).toStrictEqual({ later: true });
   });
 });

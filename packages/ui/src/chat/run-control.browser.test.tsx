@@ -1,5 +1,5 @@
 import type { SessionView } from "@atrium/client";
-import { type Control, IDLE_CONTROL, type Interaction, type Turn } from "@atrium/protocol";
+import { type Control, IDLE_CONTROL, type Interaction, type Turn, UNKNOWN_METRICS } from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -227,6 +227,7 @@ function view(fields: Partial<SessionView>): SessionView {
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    metrics: UNKNOWN_METRICS,
     ...fields,
   };
 }

@@ -3,10 +3,12 @@ import {
   type Control,
   IDLE_CONTROL,
   type SessionEvent,
+  type SessionMetrics,
   type SessionModel,
   type Step,
   type TranscriptItem,
   type Turn,
+  UNKNOWN_METRICS,
 } from "@atrium/protocol";
 
 /** A user message shown before the host confirms it (domain-model §7). */
@@ -36,6 +38,8 @@ export interface SessionView {
   readonly control: Control;
   /** The model and thinking level pi uses; `null` before pi has started (SPEC-0001, "模型与输入框"). */
   readonly model: SessionModel | null;
+  /** The status bar's figures (SPEC-0001, "状态栏（M1.8）"). */
+  readonly metrics: SessionMetrics;
 }
 
 /**
@@ -60,6 +64,7 @@ export function loadingView(sessionId: string): SessionView {
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    metrics: UNKNOWN_METRICS,
   };
 }
 
@@ -176,6 +181,7 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       pending: unconfirmed(view.pending, event.items),
       control: event.control,
       model: event.model,
+      metrics: event.metrics,
     };
   }
   if (view.status === "loading") return view;
@@ -231,6 +237,8 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       return { ...next, control: event.control };
     case "model_updated":
       return { ...next, model: event.model };
+    case "metrics_updated":
+      return { ...next, metrics: event.metrics };
     case "prompt_handled":
       return { ...next, pending: view.pending.filter((message) => message.clientMessageId !== event.clientMessageId) };
   }

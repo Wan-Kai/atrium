@@ -25,7 +25,14 @@ function assistantMessage(
 ) {
   return {
     kind: "message_finished",
-    message: { kind: "assistant", parts, stopReason, errorMessage: null, usage: { input: 1, output: 2 }, timestamp: 0 },
+    message: {
+      kind: "assistant",
+      parts,
+      stopReason,
+      errorMessage: null,
+      usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: null },
+      timestamp: 0,
+    },
   } as const;
 }
 
@@ -60,6 +67,7 @@ function longSession(turns: number) {
       kind: "compaction",
       summary: "",
       tokensBefore: 0,
+      system: null,
       timestamp: 0,
     });
   }
@@ -378,14 +386,14 @@ function callEntry(id: string, parentId: string, callId: string): LogEntry {
     parts: [{ type: "toolCall", callId, tool: "bash", args: { command: "ls" } }],
     stopReason: "toolUse",
     errorMessage: null,
-    usage: { input: 1, output: 2 },
+    usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, reasoning: null },
     timestamp: 0,
   };
 }
 
 /** A compaction entry. */
 function compactionEntry(id: string, parentId: string): LogEntry {
-  return { id, parentId, kind: "compaction", summary: "", tokensBefore: 0, timestamp: 0 };
+  return { id, parentId, kind: "compaction", summary: "", tokensBefore: 0, system: null, timestamp: 0 };
 }
 
 /** User entries u0, u1, … each under the one before, with these texts. */
@@ -713,5 +721,16 @@ describe("createSessionTranscript noting a restart", () => {
 
     expect(start).toMatchObject({ notice: { id: "live-1" } });
     expect(ids(session.items())).toStrictEqual(["live-1", "s:x1", "live-2", "live-3"]);
+  });
+});
+
+describe("createSessionTranscript's entries", () => {
+  it("gives every entry it read and the current branch's, as the status bar adds them up", () => {
+    const { transcript: session } = transcript();
+    const entries = [userEntry("u1", null, "one"), userEntry("u2", "u1", "two"), userEntry("u3", "u1", "three")];
+
+    session.rebuild({ entries, leafId: "u3" }, false);
+
+    expect(session.entries()).toStrictEqual({ all: entries, branch: [entries[0], entries[2]] });
   });
 });

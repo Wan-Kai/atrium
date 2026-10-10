@@ -1,6 +1,6 @@
 import type { SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
-import { type TranscriptItem, type Turn, IDLE_CONTROL } from "@atrium/protocol";
+import { type TranscriptItem, type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
@@ -31,6 +31,7 @@ function view(fields: Partial<SessionView> = {}): SessionView {
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    metrics: UNKNOWN_METRICS,
     ...fields,
   };
 }
@@ -585,6 +586,7 @@ describe("ConversationArea's model button", () => {
           displayMode: "summary",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
+          statusBar: {},
         },
       },
       { models: LIST },

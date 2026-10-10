@@ -1,4 +1,4 @@
-import type { Dialog, PiEvent, TranslatedEvent } from "@atrium/pi";
+import type { Dialog, PiEvent, PiStats, TranslatedEvent } from "@atrium/pi";
 import { createEventTranslator, isBusyRejection } from "@atrium/pi";
 import {
   CommandError,
@@ -21,6 +21,7 @@ import {
   parseTraceparent,
 } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
+import { createMetricsTracker } from "./session-metrics";
 import {
   type EntriesPage,
   type TranscriptEvent,
@@ -77,6 +78,8 @@ export interface SessionPi {
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   /** pi's slash commands, from `get_commands`. */
   commands(): Promise<SlashCommand[]>;
+  /** pi's statistics for the status bar, from `get_session_stats`. */
+  stats(): Promise<PiStats>;
   /** Stops pi; resolves once it has exited. */
   stop(): Promise<unknown>;
 }
@@ -471,6 +474,18 @@ export function createSessionController(options: {
   let sentControl = JSON.stringify(control());
   /** The model pi uses, as last read or reported. */
   let model = options.model ?? null;
+  const metrics = createMetricsTracker({
+    clock,
+    entries: transcript.entries(),
+    readStats: () => pi.stats(),
+    onChange: (now) => emit({ type: "metrics_updated", metrics: now }),
+    onReadFailed: (error) => {
+      // pi going away fails every request; its exit is reported as such.
+      if (isPiFailure(error) && (error.reason === "exited" || error.reason === "stopped")) return;
+      log("warn", "session stats not read", { sessionId, reason: isPiFailure(error) ? error.reason : "unknown" });
+    },
+  });
+  metrics.refresh();
 
   /**
    * Numbers an event and sends it to the session's viewers.
@@ -544,6 +559,7 @@ export function createSessionController(options: {
       exited,
       control: control(),
       model,
+      metrics: metrics.current(),
     };
   }
 
@@ -590,6 +606,8 @@ export function createSessionController(options: {
     } catch {
       // pi took the change; the model is read again after the entries (SPEC-0001, "模型与输入框").
     }
+    // Another model has another context window (SPEC-0001, "状态栏（M1.8）").
+    metrics.refresh();
     // Fire and forget: `refresh` reports its own failures.
     void refresh();
   }
@@ -683,6 +701,8 @@ export function createSessionController(options: {
         const result = transcript.rebuild(page, reset);
         if (result.kind === "notices") for (const event of result.events) emit(event);
         if (result.kind === "changed") newEpoch();
+        const { all, branch } = transcript.entries();
+        metrics.entriesChanged(all, branch);
         if (choiceToRead) await readChoice();
       } while (refreshAgain);
     } catch (error) {
@@ -720,6 +740,7 @@ export function createSessionController(options: {
    * @param event - The translated event.
    */
   function apply(event: TranslatedEvent): void {
+    metrics.observe(event);
     switch (event.kind) {
       case "agent_started":
         starting = false;
@@ -759,6 +780,9 @@ export function createSessionController(options: {
         return;
       case "dialog_requested":
         ask(event.dialog);
+        return;
+      case "request_started":
+      case "output_started":
         return;
       case "notified":
         log(event.level === "error" ? "error" : event.level === "warning" ? "warn" : "info", "extension notified", {
@@ -1231,7 +1255,10 @@ export function createSessionController(options: {
     void watchExit(pi);
     transcript.rebuild(started.entries, true);
     model = started.model ?? null;
+    const { all, branch } = transcript.entries();
+    metrics.entriesChanged(all, branch);
     newEpoch();
+    metrics.refresh();
   }
 
   /**
@@ -1326,6 +1353,7 @@ export function createSessionController(options: {
     const end = await watched.exited;
     if (watched !== pi) return;
     exited = true;
+    metrics.piChanged();
     const interrupted = run?.input ?? unconfirmed;
     unconfirmed = null;
     settle(true);
@@ -1595,6 +1623,7 @@ export function createSessionController(options: {
     },
     async shutdown() {
       shuttingDown = true;
+      metrics.close();
       if (!exited) await pi.stop();
       await restarting;
     },

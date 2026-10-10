@@ -67,6 +67,8 @@ export interface SessionTranscript {
   readonly live: boolean;
   /** Every item, whole, the turn running now included. */
   items(): TranscriptItem[];
+  /** The entries read so far, every one and the current branch's, for the status bar. */
+  entries(): { readonly all: LogEntry[]; readonly branch: LogEntry[] };
   /**
    * Applies one of pi's translated events.
    *
@@ -357,6 +359,7 @@ export function createSessionTranscript(options: {
       return live !== null;
     },
     items: () => (live === null ? [...items] : [...items, live.draft.running(), ...afterLive]),
+    entries: () => ({ all: log.all(), branch: log.branch() }),
     apply(event, origin) {
       if (event.kind === "message_finished") return finished(event.message, origin);
       if (live === null) return [];

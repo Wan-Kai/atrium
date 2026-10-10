@@ -57,14 +57,22 @@ function userEntry(content: unknown): SessionEntry {
   } as SessionEntry;
 }
 
-const none = { input: 0, output: 0 };
+const none = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: null };
+
+/** The system prompt the recorded session's pi stated, by size. */
+const recordedSystem = {
+  textChars: 0,
+  sections: { preamble: 169, tools: 339, rules: 839, docs: 1328, cwd: 18 },
+  toolsAdded: { read: 716, bash: 575, edit: 1211, write: 462 },
+  toolsRemoved: [],
+};
 
 describe("toLogEntry", () => {
   it("maps a recorded session with tools, a retry, a compaction and a branch", () => {
     expect(recordedEntries().map(toLogEntry)).toStrictEqual([
       { id: "e3", parentId: null, timestamp: 0, kind: "other" },
       { id: "e4", parentId: "e3", timestamp: 0, kind: "other" },
-      { id: "e5", parentId: "e4", timestamp: 0, kind: "other" },
+      { id: "e5", parentId: "e4", timestamp: 0, kind: "system", system: recordedSystem },
       { id: "e6", parentId: "e5", timestamp: 0, kind: "user", text: "one", images: 0 },
       {
         id: "e7",
@@ -204,6 +212,7 @@ describe("toLogEntry", () => {
         summary:
           "A short summary.\n\n---\n\n**Turn Context (split turn):**\n\nThe turn so far.\n\n<modified-files>\nnotes.txt\n</modified-files>",
         tokensBefore: 0,
+        system: recordedSystem,
       },
       { id: "e19", parentId: "e18", timestamp: 0, kind: "user", text: "three", images: 0 },
       {
@@ -272,14 +281,76 @@ describe("toLogEntry", () => {
     expect(toLogEntry(assistantEntry({ stopReason: "aborted" }))).toMatchObject({ stopReason: "aborted" });
   });
 
-  it("keeps the input and output token counts of an assistant message", () => {
+  it("keeps an assistant message's token counts, and its reasoning tokens when the provider reports them", () => {
     expect(
       toLogEntry(
         assistantEntry({
-          usage: { input: 120, output: 30, cacheRead: 5, cacheWrite: 0, totalTokens: 155, cost: {} },
+          usage: { input: 120, output: 30, cacheRead: 5, cacheWrite: 2, totalTokens: 157, cost: {} },
         }),
       ),
-    ).toMatchObject({ usage: { input: 120, output: 30 } });
+    ).toMatchObject({ usage: { input: 120, output: 30, cacheRead: 5, cacheWrite: 2, reasoning: null } });
+    expect(
+      toLogEntry(
+        assistantEntry({
+          usage: { input: 1, output: 9, cacheRead: 0, cacheWrite: 0, reasoning: 4, totalTokens: 10, cost: {} },
+        }),
+      ),
+    ).toMatchObject({ usage: { input: 1, output: 9, cacheRead: 0, cacheWrite: 0, reasoning: 4 } });
+  });
+
+  it("keeps a system message's sizes: its text, its sections, the tools it adds and those it takes away", () => {
+    expect(
+      toLogEntry({
+        type: "message",
+        id: "s2",
+        parentId: "a1",
+        timestamp: "1970-01-01T00:00:00.009Z",
+        message: {
+          role: "system",
+          content: [
+            { type: "text", text: "more" },
+            { type: "text", text: "rules" },
+          ],
+          sections: { cwd: "/w", skills: null },
+          toolsAdded: [{ name: "grep", description: "Search", parameters: { type: "object" } }],
+          toolsRemoved: [{ name: "bash" }],
+          timestamp: 7,
+        },
+      } as unknown as SessionEntry),
+    ).toStrictEqual({
+      id: "s2",
+      parentId: "a1",
+      timestamp: 7,
+      kind: "system",
+      system: {
+        textChars: 10,
+        sections: { cwd: 2, skills: null },
+        toolsAdded: { grep: 69 },
+        toolsRemoved: ["bash"],
+      },
+    });
+  });
+
+  it("keeps no system prompt for a compaction that stored none, as before pi kept one", () => {
+    expect(
+      toLogEntry({
+        type: "compaction",
+        id: "c1",
+        parentId: "a1",
+        timestamp: "1970-01-01T00:00:00.000Z",
+        summary: "so far",
+        firstKeptEntryId: "a1",
+        tokensBefore: 900,
+      }),
+    ).toStrictEqual({
+      id: "c1",
+      parentId: "a1",
+      timestamp: 0,
+      kind: "compaction",
+      summary: "so far",
+      tokensBefore: 900,
+      system: null,
+    });
   });
 
   it("counts the images of a user message and keeps a string message as its text", () => {

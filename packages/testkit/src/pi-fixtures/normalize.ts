@@ -15,16 +15,21 @@ const ENTRY_ID_KEYS: ReadonlySet<string> = new Set([
   "firstKeptEntryId",
 ]);
 /**
- * Numbers that measure the run rather than describe it: token counts depend on the system prompt,
- * which contains the working directory's path, and wall time and durations (a tool's, from pi
- * 1.1.0) on the machine.
+ * Numbers that measure the run rather than describe it: token counts and costs depend on the
+ * system prompt, which contains the working directory's path, and wall time and durations (a
+ * tool's, from pi 1.1.0) on the machine. `tokens` and `percent` are `get_session_stats`'s.
  */
 const MEASURED_KEYS: ReadonlySet<string> = new Set([
   "tokensBefore",
   "estimatedTokensAfter",
   "wall_time_seconds",
   "durationMs",
+  "tokens",
+  "cost",
+  "percent",
 ]);
+/** Objects every number of which is a measurement: a message's `usage` and the statistics' `tokens`. */
+const MEASURED_OBJECTS: ReadonlySet<string> = new Set(["usage", "tokens"]);
 const FIXED_TIME = "1970-01-01T00:00:00.000Z";
 /** The time pi puts in session file names, with `-` for `:` and `.` (pi-internals.md §1). */
 const FILE_NAME_TIME = /\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z/g;
@@ -84,13 +89,14 @@ export function createNormalizer(paths: Readonly<Record<string, string>>): (valu
    * Normalizes any JSON value.
    *
    * @remarks
-   * Numbers under a `timestamp` key are times, and numbers inside `usage` or under a measured key
-   * are measurements; other numbers (exit codes, counts of messages) are kept.
+   * Numbers under a `timestamp` key are times, and numbers inside a measured object or under a
+   * measured key are measurements; other numbers (exit codes, counts of messages, a model's
+   * context window) are kept.
    *
    * @sideEffects Records new tokens.
    * @param value - The value.
    * @param key - The key it sits under, if any.
-   * @param inUsage - Whether the value sits somewhere inside a `usage` object.
+   * @param inUsage - Whether the value sits somewhere inside a measured object.
    * @returns The normalized value.
    */
   function normalize(value: Json, key: string | undefined, inUsage: boolean): Json {
@@ -101,7 +107,10 @@ export function createNormalizer(paths: Readonly<Record<string, string>>): (valu
     if (Array.isArray(value)) return value.map((item: Json) => normalize(item, undefined, inUsage));
     if (value !== null && typeof value === "object") {
       return Object.fromEntries(
-        Object.entries(value).map(([name, item]) => [name, normalize(item, name, inUsage || name === "usage")]),
+        Object.entries(value).map(([name, item]) => [
+          name,
+          normalize(item, name, inUsage || MEASURED_OBJECTS.has(name)),
+        ]),
       );
     }
     return value;

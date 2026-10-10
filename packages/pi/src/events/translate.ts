@@ -14,7 +14,11 @@ import type { PiEvent } from "../process/pi-process";
 export type TranslatedEvent =
   | { readonly kind: "agent_started" }
   | { readonly kind: "agent_settled" }
+  /** pi is about to prepare and send a request to the model (its `turn_start`). */
+  | { readonly kind: "request_started" }
   | { readonly kind: "assistant_started" }
+  /** The streaming message's first output: text, thinking or a tool call's arguments. */
+  | { readonly kind: "output_started" }
   /** A text or thinking block starts empty; a tool call arrives once its arguments are complete. */
   | { readonly kind: "part_started"; readonly index: number; readonly part: AssistantPart }
   | { readonly kind: "part_delta"; readonly index: number; readonly delta: string }
@@ -72,8 +76,11 @@ type PiUpdate = Extract<PiEvent, { type: "message_update" }>["assistantMessageEv
  * calls' output does not. pi's queue reports its steers whole each time; its follow-ups are not
  * used, since the host keeps its own queue (SPEC-0001, "运行中输入"). Of extension UI requests,
  * the four dialogs pass through and notifications are passed on to be logged; the rest only
- * mean something in pi's terminal. `agent_start` and `agent_settled` pass through: the first `agent_start` after idle
- * begins a run, and `agent_settled` is the only event that ends it (pi-internals.md §3).
+ * mean something in pi's terminal. `agent_start` and `agent_settled` pass through: the first
+ * `agent_start` after idle begins a run, and `agent_settled` is the only event that ends it
+ * (pi-internals.md §3). For the status bar's timing, pi's `turn_start` says a request is about to
+ * go out, and the first delta of an assistant message, of text, thinking or a tool call's
+ * arguments, is its first output (SPEC-0001, "状态栏（M1.8）").
  *
  * @sideEffects none; the returned function updates its own state.
  * @param now - The time to give a message pi sent without one.
@@ -82,6 +89,8 @@ type PiUpdate = Extract<PiEvent, { type: "message_update" }>["assistantMessageEv
 export function createEventTranslator(now: () => number): EventTranslator {
   /** Indexes of the streaming message's blocks reported so far. */
   let started = new Set<number>();
+  /** Whether the streaming message has output anything yet. */
+  let output = false;
 
   /**
    * Reports a text or thinking block's growth, starting it first if its start was missed.
@@ -116,6 +125,24 @@ export function createEventTranslator(now: () => number): EventTranslator {
    * @returns The events.
    */
   function streamed(update: PiUpdate): TranslatedEvent[] {
+    const first =
+      !output && (update.type === "text_delta" || update.type === "thinking_delta" || update.type === "toolcall_delta");
+    if (first) output = true;
+    const events = streamedParts(update);
+    return first ? [{ kind: "output_started" }, ...events] : events;
+  }
+
+  /**
+   * Translates one streaming update into the blocks it starts or grows.
+   *
+   * @remarks
+   * See `createEventTranslator`.
+   *
+   * @sideEffects Records started blocks.
+   * @param update - pi's update.
+   * @returns The events.
+   */
+  function streamedParts(update: PiUpdate): TranslatedEvent[] {
     if (update.type === "text_start" || update.type === "thinking_start") {
       if (started.has(update.contentIndex)) return [];
       started.add(update.contentIndex);
@@ -143,6 +170,7 @@ export function createEventTranslator(now: () => number): EventTranslator {
    */
   function finished(message: PiMessage): TranslatedEvent[] {
     started = new Set();
+    output = false;
     const converted = toLogMessage(message, now());
     return converted === null ? [] : [{ kind: "message_finished", message: converted }];
   }
@@ -151,6 +179,7 @@ export function createEventTranslator(now: () => number): EventTranslator {
     if (event.type === "message_start") {
       if (event.message.role !== "assistant") return [];
       started = new Set();
+      output = false;
       return [{ kind: "assistant_started" }];
     }
     if (event.type === "message_update") return streamed(event.assistantMessageEvent);
@@ -171,6 +200,7 @@ export function createEventTranslator(now: () => number): EventTranslator {
     if (event.type === "thinking_level_changed") return [{ kind: "thinking_changed", level: event.level }];
     if (event.type === "extension_ui_request") return uiRequest(event);
     if (event.type === "agent_start") return [{ kind: "agent_started" }];
+    if (event.type === "turn_start") return [{ kind: "request_started" }];
     if (event.type === "agent_settled") return [{ kind: "agent_settled" }];
     return [];
   };

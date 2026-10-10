@@ -141,6 +141,8 @@ export function projectTranscript(
       // Stryker disable next-line StringLiteral,ConditionalExpression: these cases do nothing, as no case does for other kinds.
       case "omission":
       // Stryker disable next-line StringLiteral,ConditionalExpression: see above.
+      case "system":
+      // Stryker disable next-line StringLiteral,ConditionalExpression: see above.
       case "other":
         break;
     }

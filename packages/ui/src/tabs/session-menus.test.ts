@@ -1,5 +1,5 @@
 import type { AtriumClient, SessionView } from "@atrium/client";
-import { type TranscriptItem, IDLE_CONTROL } from "@atrium/protocol";
+import { type TranscriptItem, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import { wholeTranscript } from "./session-menus";
@@ -21,6 +21,7 @@ function clientWith(shown: TranscriptItem[], pages: (TranscriptItem[] | null)[])
     status: "ready",
     control: IDLE_CONTROL,
     model: null,
+    metrics: UNKNOWN_METRICS,
     epoch: 1,
     seq: 0,
     items: shown,

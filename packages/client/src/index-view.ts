@@ -24,7 +24,7 @@ export function emptyIndex(): IndexView {
     workspaces: [],
     sessions: [],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {}, statusBar: {} },
     resets: [],
   };
 }

@@ -104,6 +104,7 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.setPreferences({
           ...(command.appearance === undefined ? {} : { appearance: command.appearance }),
           ...(command.displayMode === undefined ? {} : { displayMode: command.displayMode }),
+          ...(command.statusBar === undefined ? {} : { statusBar: command.statusBar }),
         });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);

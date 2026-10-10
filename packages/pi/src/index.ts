@@ -24,8 +24,12 @@ export {
   type LogEntry,
   type LogMessage,
   type LogStopReason,
+  type LogUsage,
+  type SystemParts,
   toLogEntry,
 } from "./history/log-entry";
+export { type ContextShares, contextShares } from "./history/system-prompt";
+export { type PiStats, piStatsOf } from "./stats/session-stats";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {
   type SessionFileReader,

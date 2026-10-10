@@ -704,14 +704,14 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **会话的指标**
 
-- 会话快照新增 `metrics`，变化时推整份 `metrics_updated { sessionId, metrics }`。和 `changes_updated` 一样不带序号：整份最新状态，丢了一条下一条照样对。
+- 会话快照新增 `metrics`，变化时推整份 `metrics_updated { metrics }`。和 `model_updated` 一样是会话事件（带 `epoch + seq`，只发给订阅了这个会话的连接），快照之后的按序号接上。
 - `metrics` 各项都允许未知（`null`），界面显示"—"：
-  - `turns`、`steps`：`get_session_stats` 的 `userMessages`、`toolCalls`。
-  - `tokens`：`{ input, output, cacheRead, cacheWrite, reasoning, branch }`。前四项是 `get_session_stats` 的 `tokens`（整个会话文件，含其他分支和压缩消耗），卡片标"本会话累计"；总量是四项之和，缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`），分母为 0 时未知。`reasoning` 是会话文件里所有助手消息 `usage.reasoning` 之和（pi 的统计没有这一项；它已经算在 `output` 里），没有一条消息报告时为 `null`，卡片不显示"其中推理"。`branch` 是当前分支上助手消息 `usage` 四项之和，卡片另起一行"当前分支"。
-  - `cost`：`get_session_stats` 的 `cost`（美元，按 API 价格折算）。
+  - `turns`、`steps`、`tokens`、`cost`：来自 `get_session_stats`，还没读到时为 `null`。`turns`、`steps` 是 `userMessages`、`toolCalls`；`tokens` 是 `{ input, output, cacheRead, cacheWrite }`（整个会话文件，含其他分支和压缩消耗），卡片标"本会话累计"；总量是四项之和，缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`），分母为 0 时未知；`cost` 是美元，按 API 价格折算。
+  - `reasoning`：会话文件里所有助手消息 `usage.reasoning` 之和（pi 的统计没有这一项；它已经算在输出里），没有一条消息报告时为 `null`，卡片不显示"其中推理"。
+  - `branchTokens`：当前分支上助手消息 `usage` 四项之和，卡片另起一行"当前分支"。
   - `context`：`{ tokens, window, system, tools }`。`tokens`、`window` 是 `get_session_stats` 的 `contextUsage.tokens`、`contextWindow`；pi 没给 `contextUsage` 时（没有模型、模型没有上下文窗口）整项为 `null`；压缩后到下一次回复前 `tokens` 为 `null`。`system`、`tools` 见下文"上下文分段"，还原不出来时为 `null`，卡片只显示总量。
   - `timing`：`{ modelMs, ttftMs, tps }`，宿主存活期间这个会话一次请求都没测到时整项为 `null`（宿主重启后、刚打开的会话）。
-- **什么时候读**：会话的 pi 启动后、每条助手消息的 `message_end`、`compaction_end`、`agent_settled`、换模型或推理强度之后，宿主调一次 `get_session_stats`。同一会话同时只读一次，读的期间又要读时，读完再读一次。读失败只记日志（命令和原因），保留上一次的值；pi 退出后指标保留最后的值。`reasoning`、`branch` 和上下文分段在取条目之后重算，不问 pi。算出的 `metrics` 和上一次推的一样时不推。
+- **什么时候读**：会话的 pi 启动后、每条助手消息的 `message_end`、`compaction_end`、`agent_settled`、换模型或推理强度之后，宿主调一次 `get_session_stats`。同一会话同时只读一次，读的期间又要读时，读完再读一次。读失败只记日志（命令和原因；pi 退出或被停掉造成的不记，它的退出另有记录），保留上一次的值；pi 退出后指标保留最后的值。`reasoning`、`branch` 和上下文分段在取条目之后重算，不问 pi。算出的 `metrics` 和上一次推的一样时不推。
 
 **宿主计时**
 

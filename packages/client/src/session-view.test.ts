@@ -1,4 +1,4 @@
-import { IDLE_CONTROL, type Notice, type SessionEvent, type Step, type Turn } from "@atrium/protocol";
+import { IDLE_CONTROL, type Notice, type SessionEvent, type Step, type Turn, UNKNOWN_METRICS } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
@@ -68,6 +68,7 @@ describe("loadingView", () => {
       pending: [],
       control: IDLE_CONTROL,
       model: null,
+      metrics: UNKNOWN_METRICS,
     });
   });
 });
@@ -100,6 +101,7 @@ describe("applySessionEvent", () => {
       exited: false,
       control: { ...IDLE_CONTROL, paused: "stopped" },
       model: { providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" },
+      metrics: { ...UNKNOWN_METRICS, turns: 4 },
     });
 
     expect(before).toBe(loading);
@@ -114,6 +116,7 @@ describe("applySessionEvent", () => {
       pending: [{ clientMessageId: "q2", text: "b" }],
       control: { ...IDLE_CONTROL, paused: "stopped" },
       model: { providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" },
+      metrics: { ...UNKNOWN_METRICS, turns: 4 },
     });
   });
 
@@ -299,6 +302,7 @@ describe("applySessionEvent", () => {
         exited: true,
         control: IDLE_CONTROL,
         model: null,
+        metrics: UNKNOWN_METRICS,
       }),
     ).toStrictEqual({ ...view, status: "exited", epoch: 2, seq: 0, items: [turn("new")], hasOlder: true });
   });
@@ -335,6 +339,19 @@ describe("applySessionEvent following the model", () => {
     expect(
       applyAll(view, [{ type: "model_updated", ...envelope, seq: 4, model: { ...haiku, thinkingLevel: "off" } }]).model,
     ).toStrictEqual({ ...haiku, thinkingLevel: "off" });
+  });
+});
+
+describe("applySessionEvent following the status bar figures", () => {
+  it("takes the figures whole from metrics_updated", () => {
+    const view = ready(3);
+
+    expect(
+      applyAll(view, [
+        { type: "metrics_updated", ...envelope, seq: 4, metrics: { ...UNKNOWN_METRICS, turns: 1 } },
+        { type: "metrics_updated", ...envelope, seq: 5, metrics: { ...UNKNOWN_METRICS, steps: 2 } },
+      ]),
+    ).toStrictEqual({ ...view, seq: 5, metrics: { ...UNKNOWN_METRICS, steps: 2 } });
   });
 });
 
