@@ -155,6 +155,8 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 
 **启动**：没有可用模型（没有凭据）时 RPC 模式**照常启动，不退出**（2026-10-10 在 1.1.0 上实测，原先记的"直接报错退出"不对）：`get_state` 的模型是 pi-agent-core 的占位模型（`provider`、`id`、`api` 都是 `unknown`，档位 `off`），`get_available_models` 为空，`prompt` 报错 "No API key found for the selected model."。模型目录在后台刷新，最多 15 秒。
 
+**一次性调用**（`src/modes/print-mode.ts`、`json-event.ts`、`main.ts`，2026-10-10 按 `4c6fb7c` 核实，自动生成标题用）：`pi --mode json -p --no-session` 先输出会话头一行，之后每个会话事件一行 JSON（形状和 RPC 的事件相同，`message_update` 去掉了累积的 `partial`）。标准输入不是终端时，pi 读完整个标准输入作为第一条消息（参数里的消息接在后面），所以对话内容可以不放进参数。助手消息的结果看 `message_end` 里 `role: "assistant"` 的 `stopReason`（`error` / `aborted` 时 `errorMessage` 是原文）；`text` 模式出错时退出码为 1。`--no-tools` 关掉所有工具，`--system-prompt` 换掉默认的编程提示词，`--model <服务商>/<模型>` 解析不出时 pi 直接退出。认证问题的原文常见 `No API key found for …`（没有凭据，后面附"Use /login …"）、`OAuth refresh failed for …`（OAuth 刷新失败）、服务商的 401 / `unauthorized` / `invalid_api_key`，部分服务商写"Run `/login …` to sign in again"。
+
 ## 4. 模型、认证（`packages/ai/src/types.ts`、`src/core/model-runtime.ts`、`src/core/auth-storage.ts`）
 
 - `Model`：`id, name, api, provider, baseUrl, input: ("text" | "image")[], cost {input, output, cacheRead, cacheWrite}（美元 / 百万 token）, reasoning, thinkingLevelMap?, contextWindow, maxTokens, …`。

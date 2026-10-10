@@ -282,6 +282,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 后台运行、关注状态（error / auth）与收件箱（2026-10-08 从 M1.5 挪来）、工作区与项目的状态汇总。
   - 列表同步（`generation + seq`，快照 / 增量）、会话订阅、对话记录按游标分页、重连流程、`clientMessageId` 对齐。
   - 自动生成标题（OneShotPi）、交给终端。
+  - 开工前已定（2026-10-10，见 SPEC-0001"并行、同步与关注"）：列表增量由 IndexFeed 每批和上一批逐项比较得出，重连带游标；对话记录不按序号补拉，缺口就重拿快照；会话状态、收件箱和工作区汇总在界面从摘要派生，摘要的 `failed` 换成写进索引的 `attention`，加上 `asking`、`handedOff`；交给终端后记在索引里，点"在 Atrium 里继续"才重新启动 pi；宿主重启后界面对当前会话重新打开并订阅；标题用 `pi --mode json -p --no-session`，对话内容走标准输入。
 - **参考**：[domain-model](architecture/domain-model.md) §4 状态的派生、§7 客户端与一致性、[paseo-architecture](research/paseo-architecture.md) §4 同步、§5 状态与关注、pi 实验版的 Chord 设计（[pi-internals](research/pi-internals.md) §6）。
 - **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过；打开关闭会话、订阅退订、连接断开、停止、崩溃重启各 200 次的泄漏测试通过；界面在会话间切换后没有多出脱离文档的 DOM 节点；30 分钟长时间运行通过。
 

@@ -114,7 +114,7 @@ classDiagram
 ~/.atrium/                    目录 0700，文件 0600（security.md）
 ├── host.lock                 宿主单实例锁：{ pid, startedAt }
 ├── projects.json             项目与工作区登记
-├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态（M1.9）
+├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
 ├── preferences.json          全局偏好：外观、显示模式……
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"）；
@@ -259,7 +259,7 @@ classDiagram
     direction TB
     class SessionManager {
       open() create() find()
-      closeTab() handOff() archive()
+      closeTab() handOff() takeBack() archive()
     }
     class SessionController {
       submit() steer() stop()
@@ -368,7 +368,7 @@ classDiagram
 | 停止 `stop` | 宿主先暂停出队，再对 pi `clear_queue` → `abort`；排队保留并暂停。`abort` 2 秒内没确认停下，就保持 `stopping`，拒绝新的提交、切换模型等写操作，直到确认或进程退出（参照 Paseo，避免状态分裂） | 不关进程 |
 | 归档 `archive` | 记归档标记，关掉进程，丢掉 Controller | 不删 pi 的会话文件 |
 | 打开 `open` | 对 `closed` 的会话以 `--session` 启动进程（`processEpoch + 1`），重建 SessionLog | 不自动重放结果未知的上一条输入 |
-| 交给终端 `handOff` | 停止接受这个会话的写命令，关掉进程（进入 `closed`），给出 `pi --session <文件>`；回来时重新打开 | Atrium 与终端不同时写同一个会话 |
+| 交给终端 `handOff` | 停止接受这个会话的写命令，关掉进程（进入 `closed`），在索引里记下交接（宿主重启后仍在），给出 `pi --session <文件>`；回来时由用户点"在 Atrium 里继续"（`takeBack`）重新打开，切到标签不自动启动 pi（2026-10-10 定） | Atrium 与终端不同时写同一个会话；运行中、排队里还有消息时不交接 |
 
 **排队与提交**
 
@@ -438,11 +438,11 @@ classDiagram
     WorkspaceSummary ..> ProjectSummary
 ```
 
-- **Attention（关注状态）** 参照 Paseo 的设计，持久化在索引里，按"边沿"设上：运行失败或进程崩溃时设 `error`，认证失败时设 `auth`，以后"不在看时跑完"设 `finished`（即已完成未读）。某个客户端打开该会话时把它标为已清除；下一次事件会重新设上，旧的清除不会吞掉新的失败。打开会话、恢复进程不改它。
+- **Attention（关注状态）** 参照 Paseo 的设计，持久化在索引里，按"边沿"设上：运行失败（pi 的重试用尽）或连续崩溃用尽时设 `error`，失败原文像认证问题时设 `auth`，以后"不在看时跑完"设 `finished`（即已完成未读）；下一次运行开始时去掉。某个客户端显示该会话时把 `error` 标为已清除；`auth` 看了不算，要等下一次运行开始。下一次事件会重新设上，旧的清除不会吞掉新的失败。打开会话、恢复进程不改它（SPEC-0001"并行、同步与关注"）。
 - **SessionStatus** 按优先级取第一个成立的：待审批（MVP 2）、待回答（有 `pending` 的 PendingInteraction，只在内存）、待授权（关注原因为 `auth`）、出错（关注原因为 `error`，直到下一次运行开始，不论是否已清除）、运行中、空闲。
 - **出错图标与收件箱分开**：出错图标看"上一次运行是否失败"，一直显示到下一次运行；收件箱只收关注状态未清除的会话，以及正在等回答的会话。
 - **InboxEntry** 带上所在容器，界面才能显示"项目 · 工作区"或"对话"。
-- **工作区汇总**由宿主计算：取工作区内会话状态的最高优先级（参照 Paseo 的 `deriveAgentStateBucket`）。
+- **工作区汇总**由界面从会话摘要算出：取工作区内没归档的会话状态的最高优先级（参照 Paseo 的 `deriveAgentStateBucket`）。2026-10-10 改，原先打算由宿主计算：客户端本来就有全部摘要，算法只有一处；SessionStatus、InboxEntry、ProjectSummary 同样在界面派生。
 - **会话标题** `piName ?? 第一条用户消息的第一行`；**工作区名** `alias ?? branch ?? 目录名`。
 
 ## 5. 模型、设置与首次启动
@@ -666,13 +666,15 @@ classDiagram
 
 - 项目、工作区、会话摘要三个集合，各带 `generation`（宿主进程每次启动生成一个）和单调递增的 `seq`。
 - 客户端带上自己的游标 `{generation, afterSeq}` 请求；宿主按情况返回 `snapshot`（附原因：无游标、generation 变了、游标过期、增量太大）或 `changes`（含删除）。之后用 `upsert / remove` 推送变化。
+- 变化由 IndexFeed 比较得出（2026-10-10 定，M1.9）：每批重新算出整份列表，和上一批按 id 逐项比较；宿主记住每一项最后改动时的 `seq` 和最近 1000 次删除，重连时据此回增量。业务模块只说"有变化"，不必各自报告改了什么。
 
 **对话记录的同步**（参照 Paseo 的 timeline 同步和 pi 实验版的 ReplicatedState）
 
 - 每个会话的对话记录在宿主内存里，带 `epoch`（进程代次，重建时变）和 `seq`（逐条递增）。
 - 客户端只订阅打开着或可见的会话；宿主只给订阅者推实时增量。
-- 拉取按游标分页：`tail`（最近 N 轮，打开会话时用）、`before`（往上翻时加载更早的）、`after`（发现序号缺口时补齐）。`epoch` 变了或中间有缺口，整段替换为最新的一页。
-- 快照由 SessionController 从同一份 Runtime 状态生成，带 `epoch + seq`，包含流式中的消息、工具状态、排队、待交互、指标、关注状态；客户端只应用之后的事件。
+- 拉取按游标分页：快照带最近 20 轮（打开会话时），`before` 往上翻时加载更早的。`epoch` 变了或中间有缺口，重新订阅拿一份新的快照。不做按 `seq` 往后补拉（原先打算的 `after`，2026-10-10 定不做）：宿主不留事件历史，补拉和重拿快照代价相当。
+- 快照由 SessionController 从同一份 Runtime 状态生成，带 `epoch + seq`，包含流式中的消息、工具状态、排队、待交互、指标；关注状态在列表的会话摘要里。客户端只应用之后的事件。
+- 宿主重启后（`hostInstanceId` 变了）客户端对当前会话重新 `open_session` 并订阅；宿主内存里的排队、待交互、当场计时随旧宿主丢失。
 - 用户刚发的消息先在本地乐观显示，带 `clientMessageId`（即 `requestId`）；宿主确认后的正式消息带同一个 id，用来对上，不重复显示。
 - 断线不重发结果未知的写命令；重连后重新拿游标对齐即可，不需要持久化的事件总线。
 
@@ -690,7 +692,8 @@ classDiagram
 |---|---|
 | `list_projects` / `add_project` / `remove_project` / `rename_project` | ProjectService |
 | `list_workspaces` / `rename_workspace` / `window_focused` | WorkspaceService |
-| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `clear_attention` | SessionManager |
+| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` | SessionManager |
+| `subscribe_index(cursor?)` | IndexFeed |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
 | `prompt` / `steer` / `stop` / `resume_queue` / `clear_queue` / `update_queued` / `remove_queued` / `steer_queued` / `answer_interaction` / `set_model` / `set_thinking_level` | SessionController |
 | `list_models(containerId)` | PiCatalog |
@@ -703,7 +706,7 @@ classDiagram
 
 | 事件 | 来源 |
 |---|---|
-| `index_snapshot` / `project_update` / `workspace_update` / `session_update`（带 `generation + seq`） | ProjectService、WorkspaceService、SessionManager |
+| `index_snapshot` / `index_changes`（带 `generation + seq`） | IndexFeed，内容来自 ProjectService、WorkspaceService、SessionManager |
 | `session_snapshot` / `message_*` / `tool_*` / `run_started` / `run_settled` / `interaction_*` / `notice` / `session_exited` | SessionController（经 EventTranslator） |
 | `session_bound` | SessionManager：草稿会话拿到文件后通知 |
 | `session_changed_externally` | SessionCatalog：预留，文件被外部改过 |
@@ -729,6 +732,9 @@ classDiagram
 13. **没发过消息就关掉的草稿丢弃**（2026-10-08 定）：停掉 pi、删掉索引记录，对话的空目录一并删掉（只删空的），"历史"里不堆积空会话。
 14. **工作区里新建会话也立刻启动 pi**（2026-10-08 定）：和"已决定 9"的新对话一样。
 15. **主干只认覆盖值或 `origin/HEAD`**（2026-10-08 定）：都没有时合并状态为 `unknown`（主干引用缺失），不猜本地的 main / master。
+16. **交给终端后点了才继续**（2026-10-10 定）：交接记在索引里，宿主重启后仍在；切到标签不自动启动 pi，用户点"在 Atrium 里继续"才重新加载。pi 没有跨进程的写锁，两边同时写会悄悄分叉。
+17. **会话状态、收件箱、工作区汇总在界面派生**（2026-10-10 定）：宿主只在会话摘要里给出运行、关注状态、待回答、已交接，界面按 §4 的优先级算。
+18. **对话记录不按序号补拉**（2026-10-10 定）：缺口或 `epoch` 变了就重拿快照。
 
 ## 待定
 

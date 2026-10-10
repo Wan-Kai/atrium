@@ -54,6 +54,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 - 验证过的行为：推理和文本分片流式输出，以 `agent_settled` 结束；工具调用会被 pi 真实执行（bash 工具跑了命令，结果回到下一轮）；`tokensPerSecond` 放慢输出后，`abort` 能在中途打断（`stopReason: "aborted"`）；`stopReason: "error"` 且消息像 5xx 时，pi 会自动重试（`auto_retry_start`）。
 - **结果确定**：faux 默认每片长度随机、`api` 和工具调用 id 带时间戳和随机数。固定 `api`、`tokenSize` 的 `min` 等于 `max`、工具调用传固定 `id` 后，同一脚本跑两次的输出，去掉时间戳字段后逐行相同。夹具录制时只需要规范化时间戳类字段。
 - 回复脚本放在文件里，路径由环境变量传给扩展；每个场景启动一个新的 pi 进程。
+- 自动生成标题的一次性 pi（`-p`）也加载这个扩展，但它不按回复脚本回答：脚本里写了 `title` 就回这个标题，没写就回一个错误，标题保持兜底（2026-10-10 定，M1.9）。这样每个 pi 进程各自从第一条回复开始的脚本不会被标题调用打乱，没关心标题的测试也不受影响。
 - 实现在 `packages/testkit/src/faux/`：`extension.ts` 是交给 pi 加载的扩展（为什么它能 import pi-ai，见 [架构总览 · 包之间的依赖](overview.md#包之间的依赖)），`fauxPi(script)` 写好脚本并返回启动参数和环境变量，三层测试用同一个入口。
 
 没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
