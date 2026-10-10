@@ -20,6 +20,25 @@ afterEach(async () => {
 });
 
 /**
+ * Asks a client what first launch checks.
+ *
+ * @remarks
+ * Through the client's setup store, as the UI does.
+ *
+ * @sideEffects Sends `check_setup`.
+ * @param client - The client.
+ * @param refresh - Whether the host reads the login shell again first.
+ * @returns The host's answer.
+ * @throws {Error} When the host refuses.
+ */
+async function checkSetup(client: AtriumClient, refresh = false) {
+  await client.loadSetup(refresh);
+  const { state, error } = client.setup.getState();
+  if (error !== null) throw error;
+  return present(state, "the setup");
+}
+
+/**
  * A `bin` directory with a `pi` that links into a fake pi package and a `node` that is this Node.
  *
  * @remarks
@@ -73,7 +92,7 @@ describe("first launch's checks over the WebSocket", () => {
     onTestFinished(() => client.disconnect());
     await client.connect();
 
-    expect(await client.checkSetup()).toStrictEqual({
+    expect(await checkSetup(client)).toStrictEqual({
       pi: {
         state: "ready",
         path: join(bin, "pi"),
@@ -118,14 +137,14 @@ describe("first launch's checks over the WebSocket", () => {
     });
     onTestFinished(() => client.disconnect());
     await client.connect();
-    const before = await client.checkSetup();
+    const before = await checkSetup(client);
     await writeFile(
       join(zdotdir.path, ".zshrc"),
       `export PATH=${bin}:/usr/bin:/bin\nexport HOME=${home}\nexport FAKE_PI=status\n`,
     );
 
-    const unchanged = await client.checkSetup();
-    const refreshed = await client.checkSetup(true);
+    const unchanged = await checkSetup(client);
+    const refreshed = await checkSetup(client, true);
 
     expect(before).toMatchObject({ pi: { state: "missing" }, login: { state: "unavailable" } });
     expect(unchanged).toStrictEqual(before);
@@ -240,13 +259,13 @@ describe("installing over the WebSocket", () => {
     const client = testHost.connect();
     onTestFinished(() => client.disconnect());
     await client.connect();
-    expect((await client.checkSetup()).pi.version).toBe("1.0.2");
+    expect((await checkSetup(client)).pi.version).toBe("1.0.2");
 
     await client.updatePi();
     await vi.waitFor(() => expect(client.installJob.getState()?.job.state).toBe("ok"), { timeout: 10_000 });
 
     expect(present(client.installJob.getState(), "the update").output).toBe("updated\n");
-    expect((await client.checkSetup()).pi).toMatchObject({ state: "ready", version: "1.0.3" });
+    expect((await checkSetup(client)).pi).toMatchObject({ state: "ready", version: "1.0.3" });
   });
 });
 
@@ -286,13 +305,14 @@ describe("the latest pi over the WebSocket", () => {
     onTestFinished(() => other.disconnect());
     await asker.connect();
     await other.connect();
-    await vi.waitFor(async () => expect((await asker.checkSetup()).pi.latest).toBe("1.1.0"));
+    await vi.waitFor(async () => expect((await checkSetup(asker)).pi.latest).toBe("1.1.0"));
+    await other.loadSetup();
 
     const checked = await asker.checkPiUpdate();
 
     expect(checked).toStrictEqual({ latest: "1.2.0", checkedAt: expect.any(Number) as number });
-    await vi.waitFor(() => expect(other.piLatest.getState()).toStrictEqual(checked));
-    expect((await other.checkSetup()).pi).toMatchObject(checked);
+    await vi.waitFor(() => expect(other.setup.getState().state?.pi).toMatchObject(checked));
+    expect((await checkSetup(other)).pi).toMatchObject(checked);
     expect(requests()).toBe(2);
   });
 
@@ -306,7 +326,7 @@ describe("the latest pi over the WebSocket", () => {
     const checked = await client.checkPiUpdate();
 
     expect(checked).toStrictEqual({ latest: null, checkedAt: null });
-    expect((await client.checkSetup()).pi).toMatchObject(checked);
+    expect((await checkSetup(client)).pi).toMatchObject(checked);
     expect(requests()).toBe(0);
   });
 });

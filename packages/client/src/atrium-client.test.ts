@@ -80,6 +80,52 @@ function clientWith(options: { reconnectDelaysMs?: number[] } = {}) {
   return { client, sockets, clock, latest: () => present(sockets.at(-1), "a socket") };
 }
 
+/**
+ * What first launch checks, with pi in `state`.
+ *
+ * @remarks
+ * pi's version goes with a ready pi only.
+ *
+ * @sideEffects none
+ * @param state - pi's state.
+ * @returns The answer to `check_setup`.
+ */
+function setupState(state: "missing" | "ready") {
+  return {
+    pi: {
+      state,
+      path: state === "ready" ? "/bin/pi" : null,
+      version: state === "ready" ? "1.1.0" : null,
+      minimum: "1.0.1",
+      detail: null,
+      latest: null,
+      checkedAt: null,
+    },
+    node: { state: "ready", version: "22.19.0" },
+    homebrew: false,
+    fd: false,
+    login: { state: "unavailable" },
+    projects: 0,
+  } as const;
+}
+
+/**
+ * Answers the command of `type` numbered `at` from 0 with `result`.
+ *
+ * @remarks
+ * For answers that arrive out of order.
+ *
+ * @sideEffects Delivers the answer to the client.
+ * @param socket - The socket.
+ * @param type - The command type.
+ * @param at - Which of its commands.
+ * @param result - The result.
+ */
+function answerAt(socket: ScriptedSocket, type: string, at: number, result: unknown): void {
+  const command = present(socket.sent.filter((sent) => sent["type"] === type).at(at), `a ${type} command`);
+  socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: true, result }));
+}
+
 /** A client connected over its first socket. */
 async function connected() {
   const setup = clientWith();
@@ -1344,32 +1390,30 @@ describe("createAtriumClient: the composer's lists", () => {
 });
 
 describe("createAtriumClient: first launch", () => {
-  it("asks what first launch checks, reading the login shell again only when asked", async () => {
+  it("asks what first launch checks, keeping the last answer while asking again, and lands only the latest ask's answer", async () => {
     const { client, latest } = await connected();
-    const setup = {
-      pi: {
-        state: "missing",
-        path: null,
-        version: null,
-        minimum: "1.0.1",
-        detail: null,
-        latest: null,
-        checkedAt: null,
-      },
-      node: { state: "missing", version: null },
-      homebrew: false,
-      fd: false,
-      login: { state: "unavailable" },
-      projects: 0,
-    };
+    const missing = setupState("missing");
+    const ready = setupState("ready");
+    const before = client.setup.getState();
 
-    const checking = client.checkSetup();
-    latest().answer("check_setup", setup);
-    const refreshing = client.checkSetup(true);
-    latest().answer("check_setup", setup);
+    const first = client.loadSetup();
+    const asking = client.setup.getState();
+    latest().answer("check_setup", missing);
+    await first;
+    const answered = client.setup.getState();
+    const older = client.loadSetup(true);
+    const again = client.setup.getState();
+    const newer = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await newer;
+    answerAt(latest(), "check_setup", 1, missing);
+    await older;
 
-    expect(await checking).toStrictEqual(setup);
-    expect(await refreshing).toStrictEqual(setup);
+    expect(before).toStrictEqual({ status: "idle", state: null, error: null });
+    expect(asking).toStrictEqual({ status: "loading", state: null, error: null });
+    expect(answered).toStrictEqual({ status: "ready", state: missing, error: null });
+    expect(again).toStrictEqual({ status: "loading", state: missing, error: null });
+    expect(client.setup.getState()).toStrictEqual({ status: "ready", state: ready, error: null });
     expect(
       latest()
         .commands()
@@ -1378,6 +1422,91 @@ describe("createAtriumClient: first launch", () => {
     ).toStrictEqual([
       { type: "check_setup", refresh: false },
       { type: "check_setup", refresh: true },
+      { type: "check_setup", refresh: false },
+    ]);
+  });
+
+  it("keeps a failed ask's reason with the last answer, and drops a failure an ask since has overtaken", async () => {
+    const { client, latest } = await connected();
+    const ready = setupState("ready");
+
+    const first = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await first;
+    const failing = client.loadSetup();
+    latest().fail("check_setup", "internal_error");
+    await failing;
+    const failed = client.setup.getState();
+    const overtaken = client.loadSetup();
+    const latestAsk = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await latestAsk;
+    latest().fail("check_setup", "internal_error", 2);
+    await overtaken;
+
+    expect(failed).toMatchObject({ status: "failed", state: ready });
+    expect(failed.error).toBeInstanceOf(CommandError);
+    expect(client.setup.getState()).toStrictEqual({ status: "ready", state: ready, error: null });
+  });
+
+  it("asks again once asked before, when a login or install succeeds, after a logout and on a new host", async () => {
+    const { client, latest, clock } = await connected();
+    const job = {
+      type: "install_updated",
+      jobId: "j1",
+      kind: "install_pi",
+      running: null,
+      exitCode: null,
+      reason: null,
+    };
+    const login = {
+      type: "login_updated",
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      authUrl: null,
+      deviceCode: null,
+      questions: [],
+      progress: null,
+      error: null,
+    };
+    /** How many `check_setup` the client sent on the latest socket. */
+    const asks = (): number =>
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "check_setup").length;
+
+    latest().receive(JSON.stringify({ ...job, state: "ok", exitCode: 0 }));
+    latest().receive(JSON.stringify({ ...login, state: "ok" }));
+    const unasked = asks();
+    const first = client.loadSetup();
+    latest().answer("check_setup", setupState("ready"));
+    await first;
+    latest().receive(JSON.stringify({ ...job, state: "running" }));
+    latest().receive(JSON.stringify({ ...job, state: "failed", exitCode: 1, reason: "exit" }));
+    latest().receive(JSON.stringify({ ...login, state: "running" }));
+    latest().receive(JSON.stringify({ ...login, state: "failed", error: { reason: "failed", detail: null } }));
+    const unchanged = asks();
+    latest().receive(JSON.stringify({ ...job, state: "ok", exitCode: 0 }));
+    const afterInstall = asks();
+    latest().receive(JSON.stringify({ ...login, state: "ok" }));
+    const afterLogin = asks();
+    const loggedOut = client.logout("acme");
+    latest().answer("logout");
+    await loggedOut;
+    const afterLogout = asks();
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h1"));
+    const sameHost = asks();
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+
+    expect([unasked, unchanged, afterInstall, afterLogin, afterLogout, sameHost, asks()]).toStrictEqual([
+      0, 1, 2, 3, 4, 0, 1,
     ]);
   });
 
@@ -1487,18 +1616,27 @@ describe("createAtriumClient: first launch", () => {
     ]);
   });
 
-  it("looks for the latest pi when asked, and keeps the latest the host found from any look", async () => {
+  it("looks for the latest pi when asked, and puts the latest the host found from any look into the setup", async () => {
     const { client, latest } = await connected();
     const found = { latest: "1.2.0", checkedAt: 7 };
-    const before = client.piLatest.getState();
+    const ready = setupState("ready");
 
+    latest().receive(JSON.stringify({ type: "pi_latest", ...found }));
+    const unasked = client.setup.getState();
+    const first = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await first;
     const checking = client.checkPiUpdate();
     latest().receive(JSON.stringify({ type: "pi_latest", ...found }));
     latest().answer("check_pi_update", found);
 
-    expect(before).toBeNull();
+    expect(unasked).toStrictEqual({ status: "idle", state: null, error: null });
     expect(await checking).toStrictEqual(found);
-    expect(client.piLatest.getState()).toStrictEqual(found);
+    expect(client.setup.getState()).toStrictEqual({
+      status: "ready",
+      state: { ...ready, pi: { ...ready.pi, ...found } },
+      error: null,
+    });
     expect(
       latest()
         .commands()

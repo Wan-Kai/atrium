@@ -14,7 +14,6 @@ import {
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
-  type PiLatest,
   PROTOCOL_VERSION,
   type Preferences,
   type SessionEvent,
@@ -38,6 +37,7 @@ import {
 } from "./index-view";
 import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
+import { type SetupView, UNASKED_SETUP } from "./setup-view";
 import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
 /** Connection state exposed to the UI. */
@@ -196,8 +196,14 @@ export interface AtriumClient {
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
   searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
-  /** What first launch checks; `refresh` has the host read the login shell again first. */
-  checkSetup(refresh?: boolean): Promise<CommandResult<"check_setup">>;
+  /**
+   * What first launch checks, as far as asked. Asked again on its own once asked before: when a
+   * login or install job succeeds, after a logout, and on reaching a new host; the latest pi the
+   * host finds is put in at once.
+   */
+  readonly setup: StoreApi<SetupView>;
+  /** Asks the host what first launch checks; `refresh` has it read the login shell again first. Failures land in the store. */
+  loadSetup(refresh?: boolean): Promise<void>;
   /**
    * The latest state of a login, whichever window started it; `null` until the host reports one.
    * Only the window whose `login` returned its id opens its address.
@@ -224,12 +230,7 @@ export interface AtriumClient {
   updatePi(): Promise<CommandResult<"update_pi">>;
   /** Cancels the install job under way. */
   cancelInstall(jobId: string): Promise<CommandResult<"cancel_install">>;
-  /**
-   * The latest pi the host last found, from its daily look or any window's; `null` until it
-   * reports one. Before then, {@link checkSetup} tells what the host knew.
-   */
-  readonly piLatest: StoreApi<PiLatest | null>;
-  /** Has the host look for the latest pi now. */
+  /** Has the host look for the latest pi now; what it finds lands in {@link setup}. */
   checkPiUpdate(): Promise<CommandResult<"check_pi_update">>;
   /** The working directories of pi's past sessions that could become projects. */
   discoverProjects(): Promise<CommandResult<"discover_projects">>;
@@ -354,7 +355,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const index = createStore<IndexView>(emptyIndex);
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const installJob = createStore<InstallJob | null>(() => null);
-  const piLatest = createStore<PiLatest | null>(() => null);
+  const setup = createStore<SetupView>(() => UNASKED_SETUP);
+  let setupAsks = 0;
   const openSocket: (url: string) => SocketLike = options.openSocket ?? ((url: string) => new WebSocket(url));
   const createTrace = options.createTrace ?? createTraceContext;
   const clock = options.clock ?? systemClock;
@@ -669,6 +671,43 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * Asks what first launch checks.
+   *
+   * @remarks
+   * Only the answer to the latest ask lands, so an older answer arriving late does not undo a
+   * newer one.
+   *
+   * @sideEffects Sends `check_setup`; updates the setup store.
+   * @param refresh - Whether the host reads the login shell again first.
+   */
+  async function loadSetup(refresh: boolean): Promise<void> {
+    setupAsks += 1;
+    const ask = setupAsks;
+    setup.setState({ status: "loading", error: null });
+    try {
+      const state = await request("check_setup", { refresh });
+      if (ask === setupAsks) setup.setState({ status: "ready", state, error: null });
+    } catch (error) {
+      // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
+      const failure = error instanceof Error ? error : new Error(String(error));
+      if (ask === setupAsks) setup.setState({ status: "failed", error: failure });
+    }
+  }
+
+  /**
+   * Asks what first launch checks again, once something may have changed it.
+   *
+   * @remarks
+   * Only when asked before: nothing shows a setup no one asked for.
+   *
+   * @sideEffects May send `check_setup`.
+   */
+  function askSetupAgain(): void {
+    // Fire and forget: the failure lands in the store.
+    if (setup.getState().status !== "idle") void loadSetup(false);
+  }
+
+  /**
    * Gets a fresh snapshot of one session after the client missed an event.
    *
    * @remarks
@@ -737,6 +776,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       const shown = installJob.getState();
       const output = shown?.job.jobId === message.jobId ? shown.output : "";
       installJob.setState({ job: message, output }, true);
+      if (message.state === "ok") askSetupAgain();
       return;
     }
     if (message.type === "install_output") {
@@ -747,14 +787,16 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       return;
     }
     if (message.type === "pi_latest") {
-      const { type: _type, ...found } = message;
-      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
-      piLatest.setState(found, true);
+      const { state } = setup.getState();
+      if (state === null) return;
+      const { latest, checkedAt } = message;
+      setup.setState({ state: { ...state, pi: { ...state.pi, latest, checkedAt } } });
       return;
     }
     if (message.type === "login_updated") {
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       loginState.setState(message, true);
+      if (message.state === "ok") askSetupAgain();
       return;
     }
     if (message.type === "diff_updated") {
@@ -859,7 +901,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         live = current;
         attempt = 0;
         const { hostVersion, hostInstanceId, heartbeatMs, installSeed, logDir } = parsed.data;
-        if (hostInstance !== undefined && hostInstance !== hostInstanceId) loseSessions();
+        if (hostInstance !== undefined && hostInstance !== hostInstanceId) {
+          loseSessions();
+          askSetupAgain();
+        }
         hostInstance = hostInstanceId;
         // Stryker disable next-line BooleanLiteral: "connected" has every key "connecting" has, so merging equals replacing.
         connection.setState(
@@ -1028,19 +1073,23 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       ),
     listCommands: (sessionId) => request("list_commands", { sessionId }),
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
-    checkSetup: (refresh = false) => request("check_setup", { refresh }),
+    setup,
+    loadSetup: (refresh = false) => loadSetup(refresh),
     loginState,
     login: (providerId, method, key) =>
       request("login", key === undefined ? { providerId, method } : { providerId, method, key }),
     answerLogin: (loginId, promptId, value) => request("answer_login", { loginId, promptId, value }),
     cancelLogin: (loginId) => request("cancel_login", { loginId }),
-    logout: (providerId) => request("logout", { providerId }),
+    async logout(providerId) {
+      const done = await request("logout", { providerId });
+      askSetupAgain();
+      return done;
+    },
     installJob,
     installPi: () => request("install_pi", {}),
     installNode: () => request("install_node", {}),
     updatePi: () => request("update_pi", {}),
     cancelInstall: (jobId) => request("cancel_install", { jobId }),
-    piLatest,
     checkPiUpdate: () => request("check_pi_update", {}),
     discoverProjects: () => request("discover_projects", {}),
     listBranches: (projectId) => request("list_branches", { projectId }),
