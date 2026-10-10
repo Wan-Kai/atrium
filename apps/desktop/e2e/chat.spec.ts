@@ -38,3 +38,21 @@ test("sends a message and streams the reply, reasoning first, until the run sett
     await pi.cleanup();
   }
 });
+
+test("names a chat with the model once its first run ends", async () => {
+  const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "pong" }] }], title: "乒乓测试" });
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    await window.getByRole("textbox", { name: "消息" }).fill("ping");
+    await window.getByRole("textbox", { name: "消息" }).press("Enter");
+
+    await expect(window.getByTestId("reply")).toHaveText("pong", { timeout: 30_000 });
+    await expect(window.getByRole("tab")).toHaveText(["乒乓测试"], { timeout: 30_000 });
+    await window.getByRole("button", { name: "历史" }).click();
+    await expect(window.getByRole("menuitem")).toHaveText([/^乒乓测试已打开/]);
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});
