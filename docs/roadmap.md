@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-10：M1.7 模型与输入框完成，经两轮三方审查修复后合并进 `main`。模型按目录短启 pi 查询、缓存到点"刷新"，输入框旁是点阵模型按钮和按模型给档位的推理强度框，⌘⇧I、⌘⇧E 打开菜单，新会话默认用上一次的模型；输入框能贴图（压缩后上传，模型不支持图片时提示）、`@` 引用文件（和 pi 一样用 `fd`，只发路径）、`/` 命令、长文本粘贴、拖入、↑ 历史，草稿按会话保存；插话按 pi 队列的增减条数对应、逐条发给 pi。原计划的"本会话改动"改为照抄 Paseo 的工作区改动：输入框上方的胶囊显示工作树相对 merge-base 的行数，右侧抽屉分"未提交""已提交"看 diff，文件监听坏了退回轮询。变异测试按模块分成五组、每组只跑自己的测试，测试里的 git 场景从模板复制，一轮从数小时降到约 50 分钟；发现增量模式看不到新补的测试，现在每次重测上次存活的变异；Stryker 只认紧挨语法节点的注释，放错位置的几处已改正。五组变异分数都是 100%（超时的都是循环被改成死循环）。可选的 ⌘F 会话内搜索和"引用"没做。下一步是 [M1.8](#m18-状态栏)。**
+**2026-10-10：M1.8 状态栏完成，合并进 `main`（改动较小，没有做三方审查）。输入框下方居中显示会话统计（轮、步、输出速度）、Token 用量（总量、缓存命中率）、上下文（圆环与百分比，超过 70% 变黄、85% 变红），费用默认不显示；悬停弹出详情卡片，上下文卡片按系统提示词、工具定义、对话消息分段；末尾的调节按钮打开面板选择显示哪些分组，全局保存，只记和默认不同的选择。轮、步照 pi 的 `get_session_stats` 按整个会话文件数；pi 没有"请求已发出"的事件，首 token 时间从 `turn_start` 算起；推理 token、当前分支用量和上下文分段由宿主从条目算，分段的回放和估算与 pi 自己的函数核对过。五组变异分数都是 100%。下一步是 [M1.9](#m19-并行同步与关注)。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -33,6 +33,7 @@
 | M1.5 项目、工作区与会话 | `protocol`：索引快照与列表命令、`prj_`/`wks_` id、新错误码；宿主：索引文件（原子写入、版本迁移、损坏恢复）、宿主锁（按进程启动时间判断存活、接管锁）、ProjectService、WorkspaceService（worktree 扫描、后台 fetch、聚焦后重算）、MergeInspector（`merge-tree` 模拟合并、按 worktree 缓存）、SessionCatalog（增量读会话目录、去重、草稿）、布局与偏好、按客户端顺序生效的标签命令、IndexFeed；`pi`：会话目录的位置与增量扫描；客户端：IndexView 与乐观更新；界面：侧栏、搜索、标签栏、"历史"、对话、改名与归档、外观切换、快捷键；桌面端：`atrium://` 协议、单实例。决定写回 SPEC-0001"项目、工作区与会话"、domain-model §1"索引的存储"与"已决定 10～15"、security.md、overview.md、testing.md（测试里的 git 带 `GIT_CEILING_DIRECTORIES`）、observability.md；收件箱挪到 M1.9 |
 | M1.6 运行控制 | `protocol`：控制状态（排队、暂停原因、插话、停止中、重启中、对话框、失败）、`control_updated`、`prompt_handled`、九条运行控制命令、对话框结果和重启提示、`SessionSummary.failed`；`pi`：压缩、插话队列、对话框与通知、重试上限的事件翻译，pi 1.1.0 夹具；宿主：SessionController 的排队、插话、停止、对话框、崩溃重启与续做、"重试"，会话管理器的重启单飞、`resume_queue` 启动 pi，宿主提示在重建后保持位置和顺序；界面：胶囊条与排队面板、对话框卡片与倒计时、错误卡片、停止中的输入框、出错状态图标；测试：控制器定时器泄漏测试，变异测试的超时余量与重测办法。决定写回 SPEC-0001"运行控制"、domain-model 已决定 6、security.md（通知截断后写日志）、testing.md |
 | M1.7 模型与输入框 | `protocol`：`list_models`、`set_model`、`set_thinking_level`、`model_updated`、`upload_attachment`、`search_files`、`list_commands`，带图片的 `prompt` 与 `steer`，工作区改动的 `watch_changes`、`watch_diff`、`changes_updated`、`diff_updated`；`pi`：按目录查询模型与命令、`fd` 的位置；宿主：模型列表缓存与上次的模型、附件存储（按连接限额、30 分钟过期）、`fd` 文件搜索、插话按队列增减计数并逐条发送、工作区改动（一次 git 运行读出状态、行数和补丁，文件监听与轮询）；客户端：模型、附件、文件搜索、工作区改动；界面：模型按钮与推理强度框、图片附件、`@` 与 `/` 菜单、长文本粘贴、拖入、↑ 历史、草稿、改动胶囊与右侧抽屉；测试：变异测试分组并重测存活的变异、git 场景模板。决定写回 SPEC-0001"模型与输入框""工作区改动""运行控制"、testing.md、pi-internals.md |
+| M1.8 状态栏 | `protocol`：会话指标（允许未知）、快照的 `metrics`、`metrics_updated`、偏好的 `statusBar`；`pi`：条目里的四种 token 和推理 token、系统消息与压缩检查点的大小、系统提示词与工具定义的回放和估算、`get_session_stats` 的映射、`request_started` / `output_started` 事件，统计的契约夹具；宿主：每个会话的指标跟踪（读统计的时机、一次只读一次、按 `turn_start` 计时、从条目算推理与分段），偏好的 `statusBar`；客户端：会话视图的指标；界面：状态栏、悬停卡片、调节面板。决定写回 SPEC-0001"状态栏（M1.8）"、domain-model §3、pi-internals §2、design-language（上下文分段颜色）、testing.md（每次重测存活变异、Stryker 注释的位置） |
 | 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
@@ -263,7 +264,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[domain-model](architecture/domain-model.md) §5 模型与设置、[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"输入框"、关键流程的"图片"、[协议细节](specs/0001-mvp1-single-session-chat.md#协议细节2026-10-07-定)的"附件"、[pi-internals](research/pi-internals.md) §4 模型与认证、原型 `app-prototype.html` 的 `effortBox`、`chipDots`。
 - **完成标准**：对照 SPEC-0001 需求 3、7 逐条验证。
 
-##### M1.8 状态栏
+##### M1.8 状态栏 ✅
 
 - **目标**：输入框下方随时看到上下文用量、缓存命中率、token 用量、输出速度，并能选择显示哪些。
 - **范围**：
