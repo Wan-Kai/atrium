@@ -100,6 +100,11 @@ export interface SessionController {
   readonly exited: boolean;
   /** Whether pi is being started again after a crash; the session counts as running meanwhile. */
   readonly restarting: boolean;
+  /**
+   * Whether a message is on its way to pi, or pi said it started a run that has not begun yet;
+   * the run is known only once pi reports it began.
+   */
+  readonly submitting: boolean;
   /** The session's state now, for a client that just subscribed. */
   snapshot(): SessionSnapshotEvent;
   /** Every item from the session's start, whole, unlike a snapshot's latest ones. */
@@ -1502,6 +1507,9 @@ export function createSessionController(options: {
     },
     get restarting() {
       return restarting !== null;
+    },
+    get submitting() {
+      return sending || starting;
     },
     snapshot,
     items: () => transcript.items(),

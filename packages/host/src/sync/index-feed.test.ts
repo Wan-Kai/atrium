@@ -364,8 +364,34 @@ describe("IndexFeed", () => {
     ]);
   });
 
-  it("keeps the last thousand removals and serves changes up to two hundred items", () => {
+  it("has the limits SPEC-0001 sets: a thousand removals kept, two hundred changes served", () => {
     expect([INDEX_REMOVALS_KEPT, INDEX_CHANGES_LIMIT]).toStrictEqual([1000, 200]);
+  });
+
+  it("sends the whole list to a subscriber whose batch removed more than it keeps", () => {
+    const { index, received, content, push } = feed({ removalsKept: 3 });
+    index.subscribe("a");
+    content.sessions = [session("t0"), session("t1"), session("t2"), session("t3")];
+    push();
+
+    content.sessions = [];
+    push();
+    content.sessions = [session("t4")];
+    push();
+
+    expect(received["a"]?.slice(2).map(gist)).toStrictEqual([
+      ["cursor_expired", 3, 0],
+      {
+        type: "index_changes",
+        generation: "h1",
+        seq: 4,
+        projects: none,
+        workspaces: none,
+        sessions: { upsert: [session("t4")], remove: [] },
+        layout: null,
+        preferences: null,
+      },
+    ]);
   });
 
   it("forgets the oldest removals past the limit, and sends the whole list to a cursor before them", () => {

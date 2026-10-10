@@ -175,8 +175,10 @@ export function createSessionManager(options: {
   const failures = new Map<string, string>();
   /** Sessions marked for attention since their last run started, so a mark is set once. */
   const marked = new Set<string>();
-  /** When each session's oldest unanswered dialog appeared, as the host saw it. */
-  const asking = new Map<string, number>();
+  /** Sessions renamed here, which have a name before a scan finds it in their files. */
+  const renamed = new Set<string>();
+  /** When each of a session's unanswered dialogs appeared, as the host saw it, by dialog id. */
+  const asking = new Map<string, ReadonlyMap<string, number>>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
   /** Sessions being started, so a second start waits for the first. */
@@ -189,6 +191,8 @@ export function createSessionManager(options: {
   const searches = new Map<string, AbortController>();
   /** Each client's last tab or place change, which the next one waits for. */
   const clientTurns = new Map<string, Promise<unknown>>();
+  /** Each session's last hand-off or take-back, which the next one waits for. */
+  const handTurns = new Map<string, Promise<unknown>>();
 
   /**
    * Runs a change to a client's tabs or place after the changes it asked for earlier.
@@ -213,6 +217,31 @@ export function createSessionManager(options: {
     } finally {
       // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
       if (clientTurns.get(clientId) === settled) clientTurns.delete(clientId);
+    }
+  }
+
+  /**
+   * Runs a session's hand-off or take-back after the one asked for before it.
+   *
+   * @remarks
+   * SPEC-0001 ("交给终端"): a take-back while the hand-off still stops pi would find that pi
+   * running, start none, and let the next message start one beside pi in the terminal. A failed
+   * one does not hold up the next.
+   *
+   * @sideEffects Runs `work` once the session's earlier hand-off or take-back is done.
+   * @param sessionId - The session.
+   * @param work - The hand-off or take-back.
+   * @returns What `work` returns.
+   */
+  async function inHandOrder<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+    const turn = (handTurns.get(sessionId) ?? Promise.resolve()).then(work);
+    const settled = turn.catch(() => undefined);
+    handTurns.set(sessionId, settled);
+    try {
+      return await turn;
+    } finally {
+      // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
+      if (handTurns.get(sessionId) === settled) handTurns.delete(sessionId);
     }
   }
 
@@ -290,6 +319,21 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Since when a session's oldest unanswered dialog waits.
+   *
+   * @remarks
+   * SPEC-0001 ("会话状态"): once an older dialog is answered, the oldest still open counts.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns The time, or `null` when no dialog waits.
+   */
+  function askingSince(sessionId: string): number | null {
+    const open = asking.get(sessionId);
+    return open === undefined ? null : Math.min(...open.values());
+  }
+
+  /**
    * Sets or removes a session's attention in the index, in the background.
    *
    * @remarks
@@ -310,7 +354,8 @@ export function createSessionManager(options: {
    * SPEC-0001 ("自动生成标题"): a session on file, without a name, not handed off, whose pi runs
    * on a known model, and whose first turn has text. The title is written through the same pi
    * only if, when it comes, the session still has no name, is not handed off and that pi still
-   * runs; the list then learns the name from the session's file.
+   * runs; the list then learns the name from the session's file. A session renamed here counts as
+   * named from then on, though no scan has found the name yet.
    *
    * @sideEffects none; the subject's `write` calls pi and scans the session files.
    * @param sessionId - The session.
@@ -330,7 +375,7 @@ export function createSessionManager(options: {
       input: titleInput(exchange.user, exchange.reply),
       async write(title) {
         const now = options.catalog.find(sessionId);
-        if (now?.name !== null || now.handedOff || live(sessionId)?.pi !== pi) return false;
+        if (now?.name !== null || now.handedOff || renamed.has(sessionId) || live(sessionId)?.pi !== pi) return false;
         await pi.request({ type: "set_session_name", name: title });
         await options.catalog.scan();
         return true;
@@ -390,12 +435,12 @@ export function createSessionManager(options: {
         marked.add(sessionId);
         attend(sessionId, { reason: "error", at: options.clock.now(), cleared: false });
       }
-      const waiting = event.control.interactions.length > 0;
-      if (waiting !== asking.has(sessionId)) {
-        if (waiting) asking.set(sessionId, options.clock.now());
-        else asking.delete(sessionId);
-        options.onChange();
-      }
+      const shown = askingSince(sessionId);
+      const seen = asking.get(sessionId);
+      const open = new Map(event.control.interactions.map(({ id }) => [id, seen?.get(id) ?? options.clock.now()]));
+      if (open.size > 0) asking.set(sessionId, open);
+      else asking.delete(sessionId);
+      if (askingSince(sessionId) !== shown) options.onChange();
     } else if (event.type === "run_settled" || event.type === "session_exited") {
       const ran = busy.delete(sessionId);
       const failure = failures.get(sessionId);
@@ -768,27 +813,36 @@ export function createSessionManager(options: {
    *
    * @remarks
    * For a session no one will see again here: discarded, archived, or its workspace gone. An
-   * exited controller is otherwise kept, so subscribers keep its state.
+   * exited controller is otherwise kept, so subscribers keep its state. What was kept of its runs
+   * and names goes with it.
    *
-   * @sideEffects Updates the sessions held and the resource counts.
+   * @sideEffects Updates the sessions held, the run and name records and the resource counts.
    * @param sessionId - The session.
    */
   function forget(sessionId: string): void {
     held.get(sessionId)?.();
     held.delete(sessionId);
     sessions.delete(sessionId);
+    // Stryker disable next-line all: only frees memory; a session forgotten here runs no more, and its next run would clear them first.
+    for (const kept of [failures, marked, renamed]) kept.delete(sessionId);
   }
 
   /**
    * Stops a session's pi, if it runs.
    *
    * @remarks
-   * Subscribers see a requested exit.
+   * Subscribers see a requested exit. A restart under way stops instead of carrying on; any other
+   * start under way is waited for and its pi stopped, or it would come up for a session already
+   * archived or gone (SPEC-0001, "项目、工作区与会话" and "一个会话只有一个 pi").
    *
-   * @sideEffects Stops pi.
+   * @sideEffects Waits for a start under way; stops pi.
    * @param sessionId - The session.
    */
   async function stopSession(sessionId: string): Promise<void> {
+    if (sessions.get(sessionId)?.controller.restarting !== true) {
+      // A start that fails leaves nothing to stop.
+      await starting.get(sessionId)?.catch(() => undefined);
+    }
     // Also a session whose pi is being started again: the restart stops instead of carrying on.
     await sessions.get(sessionId)?.controller.shutdown();
   }
@@ -873,6 +927,7 @@ export function createSessionManager(options: {
       if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
       notHandedOff(sessionId);
       const { pi } = await ensureRunning(sessionId);
+      renamed.add(sessionId);
       await pi.request({ type: "set_session_name", name });
       inBackground("session scan", () => options.catalog.scan());
       return {};
@@ -987,25 +1042,30 @@ export function createSessionManager(options: {
       if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
       if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
       if (occupied(sessionId)) throw new CommandError("session_busy");
-      // Marked first, so nothing starts the session's pi again while it stops.
-      await options.catalog.mark(sessionId, { handedOff: true });
-      await stopSession(sessionId);
-      return { file: entry.file };
+      const { file } = entry;
+      return inHandOrder(sessionId, async () => {
+        // Marked first, so nothing starts the session's pi again while it stops.
+        await options.catalog.mark(sessionId, { handedOff: true });
+        await stopSession(sessionId);
+        return { file };
+      });
     },
     async takeBack(sessionId) {
       await options.catalog.ready();
       entryOf(sessionId);
-      await options.catalog.mark(sessionId, { handedOff: false });
-      // pi in the terminal has written to the file since.
-      await options.catalog.scan();
-      await ensureRunning(sessionId);
-      return {};
+      return inHandOrder(sessionId, async () => {
+        await options.catalog.mark(sessionId, { handedOff: false });
+        // pi in the terminal has written to the file since.
+        await options.catalog.scan();
+        await ensureRunning(sessionId);
+        return {};
+      });
     },
     summaries() {
       return options.catalog.list().map(({ cwd: _cwd, ...entry }) => ({
         ...entry,
         running: busy.has(entry.sessionId),
-        asking: asking.get(entry.sessionId) ?? null,
+        asking: askingSince(entry.sessionId),
       }));
     },
     async forgetWorkspaces(workspaceIds) {
@@ -1068,8 +1128,9 @@ export function createSessionManager(options: {
    * Whether a session has something going on that handing it off would cut short.
    *
    * @remarks
-   * A run (a stop under way is one), a message on its way, a restart under way, or messages in
-   * the host's queue, which only Atrium would send (SPEC-0001, "交给终端").
+   * A run (a stop under way is one), a message on its way, a run pi said it started that has not
+   * begun yet, a restart under way, or messages in the host's queue, which only Atrium would send
+   * (SPEC-0001, "交给终端").
    *
    * @sideEffects none
    * @param sessionId - The session.
@@ -1077,8 +1138,10 @@ export function createSessionManager(options: {
    */
   function occupied(sessionId: string): boolean {
     if (busy.has(sessionId) || starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0) return true;
-    const control = sessions.get(sessionId)?.controller.snapshot().control;
-    return control !== undefined && (control.restarting || control.queue.length > 0);
+    const controller = sessions.get(sessionId)?.controller;
+    if (controller === undefined) return false;
+    const { control } = controller.snapshot();
+    return controller.submitting || control.restarting || control.queue.length > 0;
   }
 
   /**

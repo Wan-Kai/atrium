@@ -360,15 +360,17 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * Shows a new state of the list, keeping the layout chosen while layout commands are pending.
    *
    * @remarks
-   * See `layoutCommand`. The host's layout is remembered for when they are answered.
+   * See `layoutCommand`. The host's layout is remembered for when they are answered; changes
+   * without one leave it, for the list's layout then is the one shown, perhaps not the host's.
    *
    * @sideEffects Updates the list.
    * @param next - The list as the host sent it.
+   * @param sentLayout - Whether the host sent a layout with it.
    */
-  function showIndex(next: IndexView): void {
+  function showIndex(next: IndexView, sentLayout: boolean): void {
     const current = index.getState();
     if (next === current) return;
-    hostLayout = next.layout;
+    if (sentLayout) hostLayout = next.layout;
     // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
     index.setState(layoutsPending > 0 ? { ...next, layout: current.layout } : next, true);
   }
@@ -656,11 +658,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     // Stryker disable next-line ConditionalExpression,StringLiteral: a second welcome names no session, so no view would take it.
     if (message.type === "welcome") return;
     if (message.type === "index_snapshot") {
-      showIndex(applyIndexSnapshot(index.getState(), message));
+      showIndex(applyIndexSnapshot(index.getState(), message), true);
       return;
     }
     if (message.type === "index_changes") {
-      showIndex(applyIndexChanges(index.getState(), message));
+      showIndex(applyIndexChanges(index.getState(), message), message.layout !== null);
       return;
     }
     if (message.type === "changes_updated") {

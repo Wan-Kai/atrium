@@ -723,6 +723,29 @@ describe("SessionManager archiving and renaming", () => {
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
   });
 
+  it("stops the pi of a session archived while it started, keeping no controller", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const reading = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<TurnStarts>();
+    const { manager, catalog, resources } = await manage({ rules: SESSION_ONE }, at, () => {
+      reading.resolve();
+      return read.promise;
+    });
+    await catalog.scan();
+    const opening = manager.openSession("client-1", "pi-session-1").catch((error: unknown) => error);
+    await reading.promise;
+
+    const archiving = manager.archiveSession("pi-session-1");
+    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    await archiving;
+    await opening;
+
+    expect(catalog.find("pi-session-1")?.archived).toBe(true);
+    expect(resources.snapshot()["session.controller"]).toBe(0);
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
   it("renames a session in pi, starting its pi first when it is not running", async () => {
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
@@ -1333,6 +1356,53 @@ async function opened(
   return { ...managed, file, run };
 }
 
+/**
+ * pi's record of a user message it took.
+ *
+ * @remarks
+ * As in `failingTurn`.
+ *
+ * @sideEffects none
+ * @param text - The message.
+ * @param timestamp - When.
+ * @returns The `message_end` record.
+ */
+function userEnd(text: string, timestamp: number): object {
+  return { type: "message_end", message: { role: "user", content: [{ type: "text", text }], timestamp } };
+}
+
+/**
+ * pi's record of a reply that ended.
+ *
+ * @remarks
+ * As in `failingTurn`; `ended` says how.
+ *
+ * @sideEffects none
+ * @param timestamp - When.
+ * @param ended - `stopReason`, and `errorMessage` for a failure.
+ * @returns The `message_end` record.
+ */
+function replyEnd(timestamp: number, ended: Record<string, unknown>): object {
+  return {
+    type: "message_end",
+    message: { role: "assistant", content: [], usage: { input: 3, output: 0 }, timestamp, ...ended },
+  };
+}
+
+/**
+ * An extension's confirmation dialog, as pi asks it.
+ *
+ * @remarks
+ * Its title is its id, so tests can tell dialogs apart.
+ *
+ * @sideEffects none
+ * @param id - The dialog's id.
+ * @returns The `extension_ui_request` record.
+ */
+function confirmation(id: string): object {
+  return { type: "extension_ui_request", id, method: "confirm", title: id, message: "?" };
+}
+
 /** The one session's summary fields this suite looks at. */
 const marks = (manager: Manager) =>
   manager.summaries().map(({ attention, asking, handedOff }) => ({ attention, asking, handedOff }));
@@ -1400,6 +1470,32 @@ describe("SessionManager attention (M1.9)", () => {
     );
   });
 
+  it.each([
+    ["completed", "stop", "done"],
+    ["stopped", "aborted", "stopped"],
+  ])("does not mark a run that %s after one of its turns failed", async (outcome, stopReason, last) => {
+    const { manager, received } = await opened([
+      [
+        { type: "agent_start" },
+        userEnd("ping", 1),
+        replyEnd(2, { stopReason: "error", errorMessage: "overloaded" }),
+        userEnd("again", 3),
+        replyEnd(4, { stopReason }),
+        { type: "agent_settled" },
+      ],
+    ]);
+
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
+
+    expect(received.filter((event) => event.type === "turn_finished")).toMatchObject([
+      { outcome: "failed" },
+      { outcome: last },
+    ]);
+    expect(received.find((event) => event.type === "run_settled")).toMatchObject({ outcome });
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+
   it("says since when a session waits for an answer, until it has none", async () => {
     const ask = { type: "extension_ui_request", id: "d1", method: "select", title: "Pick", options: ["a", "b"] };
     const { manager, received } = await opened([[{ type: "agent_start" }, ask]]);
@@ -1414,6 +1510,29 @@ describe("SessionManager attention (M1.9)", () => {
     expect(asking[0]?.asking).toBeGreaterThanOrEqual(before);
     expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { interactions: [] } });
     expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+
+  it("says since when the oldest dialog still unanswered waits, once an older one is answered", async () => {
+    const { manager, received } = await opened([[{ type: "agent_start" }, confirmation("d1")]], {
+      steer: { data: { disposition: "queued" }, events: [confirmation("d2")] },
+    });
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.asking).not.toBeNull());
+    const first = present(manager.summaries()[0]?.asking, "the time the first dialog appeared");
+    await vi.waitFor(() => expect(Date.now()).toBeGreaterThan(first));
+    const before = Date.now();
+    await manager.steer({ type: "steer", requestId: "s", traceparent, sessionId: "pi-session-1", text: "and" });
+    await vi.waitFor(() =>
+      expect(received.findLast((event) => event.type === "control_updated")).toMatchObject({
+        control: { interactions: [{ id: "d1" }, { id: "d2" }] },
+      }),
+    );
+    const both = manager.summaries()[0]?.asking;
+
+    await manager.answerInteraction("pi-session-1", "d1", { confirmed: true });
+
+    expect(both).toBe(first);
+    expect(manager.summaries()[0]?.asking).toBeGreaterThanOrEqual(before);
   });
 });
 
@@ -1495,6 +1614,17 @@ describe("SessionManager handing off (M1.9)", () => {
     await sending;
   });
 
+  it("refuses to hand off a session pi said it started a run for, before the run begins", async () => {
+    const { manager } = await opened([[]]);
+    expect(
+      await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "one" }),
+    ).toMatchObject({ disposition: "started" });
+
+    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
+    expect(manager.summaries()[0]?.running).toBe(false);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+
   it("refuses to hand off a session while pi starts again after a crash", async () => {
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
@@ -1535,6 +1665,20 @@ describe("SessionManager handing off (M1.9)", () => {
       { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
       { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
     ]);
+    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, exited: false });
+  });
+
+  it("takes a session back only once its hand-off has stopped pi, then starts pi again", async () => {
+    // pi stays after its stdin closes, so the hand-off's stop takes its grace time.
+    const { manager, received, starts } = await opened([turn], {}, { ignoreStdinEnd: true });
+
+    const handing = manager.handOff("pi-session-1");
+    const taking = manager.takeBack("pi-session-1");
+    await handing;
+    expect(await taking).toStrictEqual({});
+
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(starts()).toHaveLength(2);
     expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, exited: false });
   });
 });
@@ -1666,6 +1810,23 @@ describe("SessionManager titles (M1.9)", () => {
     );
 
     expect(managed.names()).toStrictEqual([]);
+  });
+
+  it("discards the title when the session was renamed meanwhile, though its file does not show the name yet", async () => {
+    // The scripted pi takes the name without writing it, as if the scan had not seen it yet.
+    const managed = await titled("Ping");
+    await managed.run();
+    await managed.seen();
+
+    await managed.manager.renameSession("pi-session-1", "Mine");
+    await managed.release();
+    await vi.waitFor(() =>
+      expect(managed.records.filter((record) => record["msg"] === "session title not made")).toMatchObject([
+        { sessionId: "pi-session-1", reason: "discarded" },
+      ]),
+    );
+
+    expect(managed.names()).toStrictEqual(["Mine"]);
   });
 
   it("stops a one-shot pi under way when it closes", async () => {

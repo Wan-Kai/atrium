@@ -188,6 +188,24 @@ export function createRouter(options: RouterOptions): Route {
     return { code: "internal_error" };
   }
 
+  /**
+   * Sends a connection the list changes waiting for it, before a command's answer.
+   *
+   * @remarks
+   * SPEC-0001 ("先读到自己的写"). The answer goes out even when this fails: a command without one
+   * leaves the client waiting for good.
+   *
+   * @sideEffects Sends events; logs a failure.
+   * @param connection - The connection.
+   */
+  function flush(connection: Connection): void {
+    try {
+      options.index.answering(connection.id);
+    } catch (error) {
+      options.logger.warn({ err: error }, "list changes not sent before an answer");
+    }
+  }
+
   return async (connection, message) => {
     const parsed = parseClientMessage(message);
     if (!parsed.ok) {
@@ -206,12 +224,12 @@ export function createRouter(options: RouterOptions): Route {
         span.setAttribute("client.id", connection.clientId);
         try {
           const result = await run(connection, command);
-          options.index.answering(connection.id);
+          flush(connection);
           connection.send({ type: "response", requestId: command.requestId, ok: true, result });
         } catch (error) {
           const info = failure(error, command);
           span.setAttribute("command.error", info.code);
-          options.index.answering(connection.id);
+          flush(connection);
           connection.send({ type: "response", requestId: command.requestId, ok: false, error: info });
         }
       },

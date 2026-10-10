@@ -283,7 +283,9 @@ export function createIndexFeed(options: {
    * Sends one subscriber what changed since it was last sent anything, if anything did.
    *
    * @remarks
-   * Its own layout counts as a change; another client's does not.
+   * Its own layout counts as a change; another client's does not. A subscriber last sent
+   * something before removals already forgotten, as when one batch removed more than are kept,
+   * gets the whole list (SPEC-0001, "列表的增量").
    *
    * @sideEffects Sends an event; updates what was sent.
    * @param subscriber - The connection and its client.
@@ -298,9 +300,13 @@ export function createIndexFeed(options: {
     const layoutJson = JSON.stringify(layout);
     const layoutChanged = layoutJson !== last.layout;
     if (last.seq === seq && !layoutChanged) return;
+    sent.set(connectionId, { seq, layout: layoutJson });
+    if (last.seq < forgottenUpTo) {
+      sendSnapshot(connectionId, list, layout, "cursor_expired");
+      return;
+    }
     const { changes } = changesAfter(list, last.seq);
     sendChanges(connectionId, changes, layoutChanged ? layout : null, preferences.seq > last.seq, list);
-    sent.set(connectionId, { seq, layout: layoutJson });
   }
 
   return {

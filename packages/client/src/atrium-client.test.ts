@@ -1045,6 +1045,19 @@ describe("createAtriumClient: the list", () => {
     expect(client.index.getState().layout).toStrictEqual(tabs("s1"));
   });
 
+  it("goes back to the host's layout when a command fails, though list changes without a layout came meanwhile", async () => {
+    const { client, latest } = await connected();
+    latest().receive(indexSnapshot(1, "h1", { layout: tabs("s1") }));
+
+    const closed = client.closeTab("s1");
+    latest().receive(indexChanges(2, "s9"));
+    expect(client.index.getState().layout.tabs).toStrictEqual({ chats: { open: ["s2"], active: "s2" } });
+    latest().fail("close_tab", "session_not_found");
+    await expect(closed).rejects.toStrictEqual(new CommandError("session_not_found"));
+
+    expect(client.index.getState().layout).toStrictEqual(tabs("s1"));
+  });
+
   it("shows tab and preference changes at once, before the host confirms them", async () => {
     const { client, latest } = await connected();
     latest().receive(indexSnapshot(1));

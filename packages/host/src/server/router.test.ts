@@ -376,6 +376,27 @@ describe("createRouter", () => {
     expect(setup.sent).toHaveLength(3);
   });
 
+  it("answers a command though sending the list changes waiting for it failed, logging that", async () => {
+    const setup = setUp(() => {
+      throw new Error("feed broke");
+    });
+
+    await setup.route(setup.connection, withTrace({ type: "open_session", requestId: "r1", sessionId: "s1" }));
+    await setup.route(
+      setup.connection,
+      withTrace({ type: "prompt", requestId: "r2", sessionId: "s9", text: "missing" }),
+    );
+
+    expect(setup.sent).toMatchObject([
+      { type: "response", requestId: "r1", ok: true },
+      { type: "response", requestId: "r2", ok: false, error: { code: "session_not_found" } },
+    ]);
+    expect(setup.records.filter((record) => record["msg"] === "list changes not sent before an answer")).toMatchObject([
+      { level: "warn", err: { message: "feed broke" } },
+      { level: "warn", err: { message: "feed broke" } },
+    ]);
+  });
+
   it("hands what a connection shows of workspaces' changes to the changes service", async () => {
     const { route, connection, sent, calls } = setUp();
 

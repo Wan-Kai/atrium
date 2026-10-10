@@ -1,4 +1,5 @@
-import { CommandError } from "@atrium/client";
+import { CommandError, type SessionView } from "@atrium/client";
+import { IDLE_CONTROL } from "@atrium/protocol";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -580,6 +581,27 @@ describe("Workbench attention and hand-off (M1.9)", () => {
     await screen.getByRole("button", { name: "当前会话" }).click();
 
     await expect.element(screen.getByRole("menuitem", { name: "在终端中继续" })).toBeDisabled();
+  });
+
+  it.each<[string, Partial<SessionView>]>([
+    ["a message on its way", { pending: [{ clientMessageId: "r1", text: "two" }] }],
+    ["a run pi reported", { run: { runId: "run-1", startedAt: 1 } }],
+    ["a stop under way", { control: { ...IDLE_CONTROL, stopping: true } }],
+    ["pi starting again", { control: { ...IDLE_CONTROL, restarting: true } }],
+    [
+      "messages in the queue",
+      { control: { ...IDLE_CONTROL, queue: [{ id: "q1", text: "two", createdAt: 1, images: 0 }] } },
+    ],
+  ])("cannot hand off a session with %s, which the host would refuse", async (_, state) => {
+    const { screen, views } = await workbench();
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    views.get("s1")?.setState(state);
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    const item = screen.getByRole("menuitem", { name: "在终端中继续" });
+
+    await expect.element(item).toBeDisabled();
+    await expect.element(item).toHaveAttribute("title", "先停止运行或清空排队，再交给终端");
   });
 
   it("says why a hand-off was refused", async () => {
