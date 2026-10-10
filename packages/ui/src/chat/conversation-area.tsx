@@ -18,6 +18,7 @@ import { ChangesPanel } from "./changes-panel";
 import { shownModel } from "./model-choice";
 import { ModelPicker } from "./model-picker";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
+import { StatusBar } from "./status-bar";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -139,10 +140,11 @@ function SessionModelPicker({
  * Split out so the store subscription exists only once there is a session. While a run goes on,
  * a message goes into the host's queue and ⌘+Enter steers; the capsule bar shows the queue and
  * the steers on their way, and questions from extensions and a failed session wait above the
- * input box (SPEC-0001, "运行控制").
+ * input box (SPEC-0001, "运行控制"). The status bar under it shows the session's figures, with
+ * the groups chosen in the global preferences (SPEC-0001, "状态栏").
  *
- * @sideEffects Subscribes to the session's store; loads older items when asked; sends run control
- * commands, reporting their failures through `act`.
+ * @sideEffects Subscribes to the session's store and the preferences; loads older items when
+ * asked; sends run control commands and status bar choices, reporting their failures through `act`.
  * @param props - The client, the session, its view store, what to do with a message and a steer,
  * how to run a command whose failure should show, and a notice to show above the input box.
  * @returns The transcript and input box.
@@ -181,6 +183,7 @@ function SessionArea({
   readonly changes: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void } | undefined;
 }) {
   const view = useStore(store);
+  const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -248,6 +251,11 @@ function SessionArea({
             act={act}
           />
         }
+      />
+      <StatusBar
+        metrics={view.metrics}
+        choices={statusBar}
+        onChoose={(choices) => act(() => client.setPreferences({ statusBar: choices }))}
       />
     </>
   );

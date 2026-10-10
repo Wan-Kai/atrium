@@ -936,6 +936,30 @@ describe("ConversationArea's workspace changes", () => {
   });
 });
 
+describe("ConversationArea's status bar", () => {
+  it("shows the open session's figures under the input box, none in the empty state, and saves the groups chosen", async () => {
+    const { client, calls, views } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+
+    views.get("s1")?.setState({ metrics: { ...UNKNOWN_METRICS, turns: 2, steps: 5 } });
+    await expect.element(screen.getByRole("button", { name: /^2 轮 5 步/ })).toBeVisible();
+    await screen.getByRole("button", { name: "自定义状态栏" }).click();
+    await screen.getByRole("switch", { name: "费用" }).click();
+
+    expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
+      'setPreferences {"statusBar":{"cost":true}}',
+    ]);
+    await expect.element(screen.getByRole("switch", { name: "费用" })).toHaveAttribute("aria-checked", "true");
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />),
+    );
+    await expect.element(screen.getByRole("group", { name: "状态栏" })).not.toBeInTheDocument();
+  });
+});
+
 describe("ConversationArea before it is connected", () => {
   it("asks for the models once connected, and again after a reconnect", async () => {
     const { client, connection, modelCalls } = fakeClient();
