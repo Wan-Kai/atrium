@@ -23,7 +23,9 @@ import {
 import { type StoreApi, createStore } from "zustand/vanilla";
 import {
   type IndexView,
+  applyIndexChanges,
   applyIndexSnapshot,
+  cursorOf,
   emptyIndex,
   withContainer,
   withPreferences,
@@ -607,6 +609,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       index.setState(applyIndexSnapshot(index.getState(), message), true);
       return;
     }
+    if (message.type === "index_changes") {
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      index.setState(applyIndexChanges(index.getState(), message), true);
+      return;
+    }
     if (message.type === "changes_updated") {
       const { type: _type, workspaceId, ...changes } = message;
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
@@ -720,8 +727,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         // Stryker disable next-line BooleanLiteral: "connected" has every key "connecting" has, so merging equals replacing.
         connection.setState({ status: "connected", traceId: trace.traceId, hostVersion, hostInstanceId }, true);
         beat(current, heartbeatMs);
-        // Each connection subscribes anew; the host sends the list at once.
-        request("subscribe_index", {}).catch(() => undefined);
+        // Each connection subscribes anew, from where the list was; the host answers at once.
+        const cursor = cursorOf(index.getState());
+        request("subscribe_index", cursor === undefined ? {} : { cursor }).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
         watchShown().catch(() => undefined);
         settle(connection.getState());

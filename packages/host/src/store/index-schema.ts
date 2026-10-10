@@ -1,4 +1,4 @@
-import { Appearance, DisplayMode, ModelRef, ThinkingLevel } from "@atrium/protocol";
+import { Appearance, Attention, DisplayMode, ModelRef, ThinkingLevel } from "@atrium/protocol";
 import { z } from "zod";
 import type { IndexFileSpec } from "./index-file";
 
@@ -50,6 +50,10 @@ const SessionRecord = z.looseObject({
   draft: z.boolean(),
   archived: z.boolean(),
   createdAt: z.number(),
+  /** Why it needs a look, until its next run starts (SPEC-0001, "会话状态"); added in M1.9. */
+  attention: Attention.nullable().optional(),
+  /** It was handed to pi in a terminal (SPEC-0001, "交给终端"); added in M1.9. */
+  handedOff: z.boolean().optional(),
 });
 export type SessionRecord = z.infer<typeof SessionRecord>;
 

@@ -4,7 +4,7 @@ import { type Control, IDLE_CONTROL, type Interaction } from "./control";
 import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
-import type { IndexSnapshotEvent } from "./listing";
+import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
 import type { Step, Turn } from "./transcript";
 import { PROTOCOL_VERSION } from "./version";
@@ -34,6 +34,7 @@ const commands: Command[] = [
   { type: "fetch_step", requestId: "r11", traceparent, sessionId: "s1", epoch: 1, turnId: "s1:e1", stepId: "12" },
   { type: "open_session", requestId: "r10", traceparent, sessionId: "019a-session" },
   { type: "subscribe_index", requestId: "r12", traceparent },
+  { type: "subscribe_index", requestId: "r12b", traceparent, cursor: { generation: "h1", seq: 7 } },
   { type: "add_project", requestId: "r13", traceparent, path: "/work/app" },
   { type: "remove_project", requestId: "r14", traceparent, projectId: PROJECT },
   { type: "rename_project", requestId: "r15", traceparent, projectId: PROJECT, name: "app" },
@@ -46,6 +47,9 @@ const commands: Command[] = [
   { type: "select_container", requestId: "r22", traceparent, containerId: "chats" },
   { type: "select_container", requestId: "r23", traceparent, containerId: null },
   { type: "archive_session", requestId: "r24", traceparent, sessionId: "s1" },
+  { type: "clear_attention", requestId: "r24a", traceparent, sessionId: "s1" },
+  { type: "hand_off", requestId: "r24b", traceparent, sessionId: "s1" },
+  { type: "take_back", requestId: "r24c", traceparent, sessionId: "s1" },
   { type: "rename_session", requestId: "r25", traceparent, sessionId: "s1", name: "重构" },
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
   { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
@@ -399,12 +403,14 @@ describe("parseClientMessage", () => {
       "add_project",
       "answer_interaction",
       "archive_session",
+      "clear_attention",
       "clear_queue",
       "close_tab",
       "create_chat",
       "create_session",
       "fetch_step",
       "fetch_transcript",
+      "hand_off",
       "list_commands",
       "list_models",
       "open_session",
@@ -428,6 +434,7 @@ describe("parseClientMessage", () => {
       "stop",
       "subscribe_index",
       "subscribe_sessions",
+      "take_back",
       "update_queued",
       "upload_attachment",
       "watch_changes",
@@ -729,6 +736,12 @@ describe("CommandResult", () => {
     expect(CommandResult.watch_diff.safeParse({ files: [] }).success).toBe(false);
     expect(CommandResult.set_model.parse({})).toStrictEqual({});
     expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
+    expect(CommandResult.hand_off.parse({ file: "/pi/sessions/s1.jsonl" })).toStrictEqual({
+      file: "/pi/sessions/s1.jsonl",
+    });
+    expect(CommandResult.hand_off.safeParse({}).success).toBe(false);
+    expect(CommandResult.take_back.parse({})).toStrictEqual({});
+    expect(CommandResult.clear_attention.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
@@ -738,6 +751,7 @@ const snapshot: IndexSnapshotEvent = {
   type: "index_snapshot",
   generation: "h1",
   seq: 3,
+  reason: "no_cursor",
   projects: [{ id: PROJECT, path: "/work/app", name: "app" }],
   workspaces: [
     {
@@ -776,7 +790,9 @@ const snapshot: IndexSnapshotEvent = {
       updatedAt: 5,
       archived: false,
       running: true,
-      failed: false,
+      attention: null,
+      asking: null,
+      handedOff: false,
     },
     {
       sessionId: "s2",
@@ -788,7 +804,9 @@ const snapshot: IndexSnapshotEvent = {
       updatedAt: 6,
       archived: true,
       running: false,
-      failed: true,
+      attention: { reason: "error", at: 7, cleared: false },
+      asking: 8,
+      handedOff: true,
     },
   ],
   layout: {
@@ -803,6 +821,18 @@ const snapshot: IndexSnapshotEvent = {
     statusBar: { cost: true, session: false },
   },
   resets: ["layouts"],
+};
+
+/** Changes to the list with one of everything. */
+const changes: IndexChangesEvent = {
+  type: "index_changes",
+  generation: "h1",
+  seq: 4,
+  projects: { upsert: snapshot.projects, remove: ["prj_fedcba9876543210"] },
+  workspaces: { upsert: snapshot.workspaces, remove: [WORKSPACE] },
+  sessions: { upsert: snapshot.sessions, remove: ["s3"] },
+  layout: snapshot.layout,
+  preferences: snapshot.preferences,
 };
 
 describe("HostMessage: changes", () => {
@@ -865,6 +895,15 @@ describe("HostMessage", () => {
       },
       ...events,
       snapshot,
+      changes,
+      {
+        ...changes,
+        projects: { upsert: [], remove: [] },
+        workspaces: { upsert: [], remove: [] },
+        sessions: { upsert: [], remove: [] },
+        layout: null,
+        preferences: null,
+      },
       changesUpdated,
       { ...changesUpdated, stat: null, dirty: false, ahead: 0, branch: null, base: null },
       diffUpdated,
@@ -891,6 +930,8 @@ describe("HostMessage", () => {
         workspaces: [{ ...worktree, merge: { dirty: false, ahead: 0, verdict: "unknown", reason } }],
       })),
       ...["missing"].map((state) => ({ ...snapshot, sessions: [{ ...session, state }] })),
+      ...["generation_changed", "cursor_expired", "too_many_changes"].map((reason) => ({ ...snapshot, reason })),
+      { ...snapshot, sessions: [{ ...session, attention: { reason: "auth", at: 0, cleared: true } }] },
       ...["light", "dark"].map((appearance) => ({ ...snapshot, preferences: { ...snapshot.preferences, appearance } })),
       ...["thinking", "detailed"].map((displayMode) => ({
         ...snapshot,
@@ -952,6 +993,7 @@ describe("HostMessage", () => {
       "attachment_limit",
       "attachment_missing",
       "pi_rejected",
+      "session_handed_off",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -1015,6 +1057,18 @@ describe("HostMessage", () => {
       { ...snapshot, layout: { container: null, tabs: { inbox: { open: [], active: null } } } },
     ],
     ["an unknown reset file", { ...snapshot, resets: ["turns"] }],
+    ["a snapshot without a reason", { ...snapshot, reason: undefined }],
+    ["an unknown snapshot reason", { ...snapshot, reason: "asked" }],
+    [
+      "an unknown attention reason",
+      {
+        ...snapshot,
+        sessions: [{ ...snapshot.sessions[0], attention: { reason: "finished", at: 1, cleared: false } }],
+      },
+    ],
+    ["a session still marked failed", { ...snapshot, sessions: [{ ...snapshot.sessions[0], failed: false }] }],
+    ["changes without a layout", { ...changes, layout: undefined }],
+    ["changes that remove a session by an empty id", { ...changes, sessions: { upsert: [], remove: [""] } }],
     ["a snapshot without preferences", { ...snapshot, preferences: undefined }],
     [
       "a status bar group without a name",

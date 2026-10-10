@@ -1,13 +1,13 @@
 import type { CommandResult, ContainerId, Preferences } from "@atrium/protocol";
 import type { ProjectService } from "../projects/project-service";
 import type { PreferenceStore } from "../store/preferences";
-import type { IndexFeed } from "../sync/index-feed";
+import type { IndexCursor, IndexFeed } from "../sync/index-feed";
 import type { WorkspaceService } from "../workspaces/workspace-service";
 import type { SessionManager } from "./session-manager";
 
 /** The list commands the server hands on: projects, workspaces and preferences. */
 export interface IndexCommands {
-  subscribeIndex(connectionId: string): Promise<CommandResult<"subscribe_index">>;
+  subscribeIndex(connectionId: string, cursor?: IndexCursor): Promise<CommandResult<"subscribe_index">>;
   addProject(path: string): Promise<CommandResult<"add_project">>;
   removeProject(projectId: string): Promise<CommandResult<"remove_project">>;
   renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
@@ -41,8 +41,8 @@ export function createIndexCommands(options: {
   readonly listModels: IndexCommands["listModels"];
 }): IndexCommands {
   return {
-    async subscribeIndex(connectionId) {
-      options.feed.subscribe(connectionId);
+    async subscribeIndex(connectionId, cursor) {
+      options.feed.subscribe(connectionId, cursor);
       return {};
     },
     async addProject(path) {

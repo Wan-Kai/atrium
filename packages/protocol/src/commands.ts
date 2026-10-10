@@ -164,8 +164,16 @@ export const OpenSessionCommand = z.strictObject({
 });
 export type OpenSessionCommand = z.infer<typeof OpenSessionCommand>;
 
-/** Subscribes to the list: a snapshot at once, and another after every change (SPEC-0001, "项目、工作区与会话"). */
-export const SubscribeIndexCommand = z.strictObject({ type: z.literal("subscribe_index"), ...commandFields });
+/**
+ * Subscribes to the list: the changes after `cursor`, or a snapshot, at once, and changes after
+ * that (SPEC-0001, "并行、同步与关注").
+ */
+export const SubscribeIndexCommand = z.strictObject({
+  type: z.literal("subscribe_index"),
+  ...commandFields,
+  /** The last list position the client has. */
+  cursor: z.strictObject({ generation: z.string().min(1), seq: z.number().int().nonnegative() }).optional(),
+});
 export type SubscribeIndexCommand = z.infer<typeof SubscribeIndexCommand>;
 
 /** An absolute path on the host's machine. */
@@ -235,6 +243,22 @@ export const ArchiveSessionCommand = z.strictObject({
   sessionId: SessionId,
 });
 export type ArchiveSessionCommand = z.infer<typeof ArchiveSessionCommand>;
+
+/** Marks a session's error as seen, which takes it out of the inbox (SPEC-0001, "并行、同步与关注"). */
+export const ClearAttentionCommand = z.strictObject({
+  type: z.literal("clear_attention"),
+  ...commandFields,
+  sessionId: SessionId,
+});
+export type ClearAttentionCommand = z.infer<typeof ClearAttentionCommand>;
+
+/** Stops a session's pi so pi in a terminal can go on with it; Atrium starts none until taken back. */
+export const HandOffCommand = z.strictObject({ type: z.literal("hand_off"), ...commandFields, sessionId: SessionId });
+export type HandOffCommand = z.infer<typeof HandOffCommand>;
+
+/** Goes on with a session handed to a terminal: reads its file again and starts pi. */
+export const TakeBackCommand = z.strictObject({ type: z.literal("take_back"), ...commandFields, sessionId: SessionId });
+export type TakeBackCommand = z.infer<typeof TakeBackCommand>;
 
 /** Names a session, written back to pi. */
 export const RenameSessionCommand = z.strictObject({
@@ -398,6 +422,9 @@ export const Command = z.discriminatedUnion("type", [
   CloseTabCommand,
   SelectContainerCommand,
   ArchiveSessionCommand,
+  ClearAttentionCommand,
+  HandOffCommand,
+  TakeBackCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
   ReportClientIssueCommand,
@@ -463,6 +490,10 @@ export const CommandResult = {
   close_tab: z.strictObject({}),
   select_container: z.strictObject({}),
   archive_session: z.strictObject({}),
+  clear_attention: z.strictObject({}),
+  /** The session file, for `pi --session`. */
+  hand_off: z.strictObject({ file: z.string().min(1).max(4096) }),
+  take_back: z.strictObject({}),
   rename_session: z.strictObject({}),
   set_preferences: z.strictObject({}),
   report_client_issue: z.strictObject({}),

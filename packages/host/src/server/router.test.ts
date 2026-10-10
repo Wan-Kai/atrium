@@ -36,6 +36,9 @@ function fakeCommands() {
     selectContainer: record("selectContainer", {}),
     archiveSession: record("archiveSession", {}),
     renameSession: record("renameSession", {}),
+    clearAttention: record("clearAttention", {}),
+    handOff: record("handOff", { file: "/s.jsonl" }),
+    takeBack: record("takeBack", {}),
     subscribe: record("subscribe", {}),
     prompt: async (command: PromptCommand, images = []) => {
       calls.push(["prompt", command.sessionId, command.text, ...images.map((image) => image.data)]);
@@ -202,6 +205,9 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: "chats" }));
     await route(connection, withTrace({ type: "archive_session", requestId: "r10", sessionId: "s2" }));
     await route(connection, withTrace({ type: "rename_session", requestId: "r11", sessionId: "s2", name: "名字" }));
+    await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
+    await route(connection, withTrace({ type: "hand_off", requestId: "r13", sessionId: "s2" }));
+    await route(connection, withTrace({ type: "take_back", requestId: "r14", sessionId: "s2" }));
 
     expect(calls).toStrictEqual([
       ["createChat", "client-1"],
@@ -215,6 +221,9 @@ describe("createRouter", () => {
       ["selectContainer", "client-1", "chats"],
       ["archiveSession", "s2"],
       ["renameSession", "s2", "名字"],
+      ["clearAttention", "s2"],
+      ["handOff", "s2"],
+      ["takeBack", "s2"],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { sessionId: "s1" } },
@@ -224,7 +233,9 @@ describe("createRouter", () => {
       { type: "response", requestId: "r5", ok: true, result: { step: { kind: "text", id: "3", text: "whole" } } },
       { type: "response", requestId: "r6", ok: true, result: {} },
       { type: "response", requestId: "r7", ok: true, result: { sessionId: "s3" } },
-      ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r9", "r10", "r11", "r12"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl" } },
+      { type: "response", requestId: "r14", ok: true, result: {} },
     ]);
   });
 
@@ -288,6 +299,10 @@ describe("createRouter", () => {
     const { route, connection, sent, calls } = setUp();
 
     await route(connection, withTrace({ type: "subscribe_index", requestId: "r1" }));
+    await route(
+      connection,
+      withTrace({ type: "subscribe_index", requestId: "r1b", cursor: { generation: "h1", seq: 4 } }),
+    );
     await route(connection, withTrace({ type: "add_project", requestId: "r2", path: "/work/app" }));
     await route(connection, withTrace({ type: "remove_project", requestId: "r3", projectId: PROJECT }));
     await route(connection, withTrace({ type: "rename_project", requestId: "r4", projectId: PROJECT, name: "app" }));
@@ -304,7 +319,8 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true } }));
 
     expect(calls).toStrictEqual([
-      ["subscribeIndex", "connection-7"],
+      ["subscribeIndex", "connection-7", undefined],
+      ["subscribeIndex", "connection-7", { generation: "h1", seq: 4 }],
       ["addProject", "/work/app"],
       ["removeProject", PROJECT],
       ["renameProject", PROJECT, "app"],
@@ -317,8 +333,8 @@ describe("createRouter", () => {
       ["listModels", "chats", true],
       ["setPreferences", { statusBar: { cost: true } }],
     ]);
-    expect(sent[1]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
-    expect(sent[9]).toStrictEqual({
+    expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
+    expect(sent[10]).toStrictEqual({
       type: "response",
       requestId: "r10",
       ok: true,

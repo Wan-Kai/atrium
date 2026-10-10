@@ -443,7 +443,9 @@ describe("SessionManager opening sessions", () => {
     expect(starts().map((start) => start.argv)).toStrictEqual(
       Array.from({ length: 4 }, () => ["--mode", "rpc", "--session", file]),
     );
-    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false, failed: true }]);
+    expect(manager.summaries()).toMatchObject([
+      { sessionId: "pi-session-1", running: false, attention: { reason: "error", cleared: false } },
+    ]);
   });
 
   it("starts pi for a session that gave up restarting when its queue is resumed", async () => {
@@ -758,7 +760,9 @@ describe("SessionManager workspaces", () => {
         updatedAt: expect.any(Number),
         archived: false,
         running: false,
-        failed: false,
+        attention: null,
+        asking: null,
+        handedOff: false,
       },
     ]);
   });
@@ -1224,5 +1228,238 @@ describe("SessionManager file search", () => {
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
     await expect(manager.searchFiles("pi-session-1", "x")).rejects.toStrictEqual(new CommandError("fd_missing"));
+  });
+});
+
+/**
+ * What pi prints for a prompt whose run fails with `error` once pi's retries are used up.
+ *
+ * @remarks
+ * pi reports the failure on the reply's `message_end` (pi-internals.md §3).
+ *
+ * @sideEffects none
+ * @param error - pi's own text.
+ * @returns The events.
+ */
+function failingTurn(error: string): readonly object[] {
+  return [
+    { type: "agent_start" },
+    { type: "message_end", message: { role: "user", content: [{ type: "text", text: "ping" }], timestamp: 1 } },
+    { type: "message_start", message: { role: "assistant", content: [], stopReason: "pending", timestamp: 2 } },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "error",
+        errorMessage: error,
+        usage: { input: 3, output: 0 },
+        timestamp: 2,
+      },
+    },
+    { type: "agent_settled" },
+  ];
+}
+
+/**
+ * A terminal session opened and watched, whose pi answers successive prompts with `turns`.
+ *
+ * @remarks
+ * The last of `turns` repeats.
+ *
+ * @sideEffects Writes the session's file; starts its pi.
+ * @param turns - What pi prints for each prompt.
+ * @param rules - More of pi's answers.
+ * @returns The manager and what tests look at.
+ */
+async function opened(turns: readonly (readonly object[])[], rules: Record<string, object> = {}) {
+  const at = await place();
+  const file = await terminalSession(at, "pi-session-1", at.workspace);
+  const managed = await manage(
+    {
+      argvToStderr: true,
+      rules: {
+        ...SESSION_ONE,
+        prompt: { sequence: turns.map((events) => ({ data: { disposition: "started" }, events })) },
+        ...rules,
+      },
+    },
+    at,
+  );
+  await managed.catalog.scan();
+  await managed.manager.openSession("client-1", "pi-session-1");
+  await managed.manager.subscribe("c1", ["pi-session-1"]);
+  /** Sends a message and waits for its run to end. */
+  const run = async () => {
+    const settled = managed.received.filter((event) => event.type === "run_settled").length;
+    await managed.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "ping",
+    });
+    await vi.waitFor(() =>
+      expect(managed.received.filter((event) => event.type === "run_settled")).toHaveLength(settled + 1),
+    );
+  };
+  return { ...managed, file, run };
+}
+
+/** The one session's summary fields this suite looks at. */
+const marks = (manager: Manager) =>
+  manager.summaries().map(({ attention, asking, handedOff }) => ({ attention, asking, handedOff }));
+
+describe("SessionManager attention (M1.9)", () => {
+  it("marks a session whose run failed on credentials for sign-in, which a look does not clear, until its next run starts", async () => {
+    const { manager, catalog, run, changes } = await opened([
+      failingTurn("No API key found for anthropic. Use /login to sign in."),
+      turn,
+    ]);
+    const before = Date.now();
+
+    await run();
+    const marked = marks(manager);
+    await manager.clearAttention("pi-session-1");
+    const looked = marks(manager);
+    const changed = changes();
+    await run();
+
+    expect(marked).toStrictEqual([
+      { attention: { reason: "auth", at: expect.any(Number), cleared: false }, asking: null, handedOff: false },
+    ]);
+    expect(marked[0]?.attention?.at).toBeGreaterThanOrEqual(before);
+    expect(looked).toStrictEqual(marked);
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(catalog.find("pi-session-1")?.attention).toBeNull();
+    expect(changes()).toBeGreaterThan(changed);
+  });
+
+  it.each([
+    "OAuth refresh failed for openai-codex",
+    "401 Unauthorized",
+    "Authentication failed",
+    "invalid_api_key: Incorrect API key provided",
+    "Invalid API Key",
+    "Run `/login anthropic` to sign in again",
+  ])("takes %s for a sign-in problem", async (error) => {
+    const { manager, run } = await opened([failingTurn(error)]);
+
+    await run();
+
+    expect(marks(manager)[0]?.attention?.reason).toBe("auth");
+  });
+
+  it("marks any other failure as an error, which a look clears, kept in the index", async () => {
+    const { manager, catalog, run } = await opened([failingTurn("overloaded")]);
+    await run();
+    const marked = marks(manager)[0]?.attention;
+
+    expect(marked).toStrictEqual({ reason: "error", at: expect.any(Number), cleared: false });
+    expect(await manager.clearAttention("pi-session-1")).toStrictEqual({});
+    expect(marks(manager)[0]?.attention).toStrictEqual({ ...marked, cleared: true });
+    expect(catalog.find("pi-session-1")?.attention).toStrictEqual({ ...marked, cleared: true });
+  });
+
+  it("does not mark a run that was stopped or completed, nor clear a session that needs no look", async () => {
+    const { manager, run } = await opened([turn]);
+
+    await run();
+    await manager.clearAttention("pi-session-1");
+
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    await expect(manager.clearAttention("nope")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+
+  it("says since when a session waits for an answer, until it has none", async () => {
+    const ask = { type: "extension_ui_request", id: "d1", method: "select", title: "Pick", options: ["a", "b"] };
+    const { manager, received } = await opened([[{ type: "agent_start" }, ask]]);
+    const before = Date.now();
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.asking).not.toBeNull());
+    const asking = marks(manager);
+
+    await manager.answerInteraction("pi-session-1", "d1", { value: "a" });
+
+    expect(asking).toStrictEqual([{ attention: null, asking: expect.any(Number), handedOff: false }]);
+    expect(asking[0]?.asking).toBeGreaterThanOrEqual(before);
+    expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { interactions: [] } });
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+});
+
+/** Every command that starts or writes pi, for a session handed off. */
+const writes = (manager: Manager) => [
+  manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" }),
+  manager.steer({ type: "steer", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" }),
+  manager.resumeQueue("pi-session-1"),
+  manager.retryRun("pi-session-1"),
+  manager.renameSession("pi-session-1", "x"),
+  manager.setModel("pi-session-1", { providerId: "p", modelId: "m" }),
+  manager.setThinkingLevel("pi-session-1", "low"),
+  manager.listCommands("pi-session-1"),
+];
+
+describe("SessionManager handing off (M1.9)", () => {
+  it("records the hand-off, stops pi and answers its file; then opens it without pi and refuses to write it", async () => {
+    const { manager, catalog, received, starts, file, at } = await opened([turn]);
+
+    expect(await manager.handOff("pi-session-1")).toStrictEqual({ file });
+    await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
+    await manager.openSession("client-1", "pi-session-1");
+
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: true }]);
+    expect(catalog.find("pi-session-1")?.handedOff).toBe(true);
+    for (const refused of await Promise.allSettled(writes(manager))) {
+      expect(refused).toStrictEqual({
+        status: "rejected",
+        reason: new CommandError("session_handed_off", { sessionId: "pi-session-1" }),
+      });
+    }
+    expect(starts()).toHaveLength(1);
+
+    // A host started again keeps the hand-off, and opens the session without pi too.
+    await manager.close();
+    const again = await manage({ argvToStderr: true, rules: SESSION_ONE }, at);
+    await again.manager.openSession("client-1", "pi-session-1");
+    expect(marks(again.manager)).toStrictEqual([{ attention: null, asking: null, handedOff: true }]);
+    expect(again.starts()).toStrictEqual([]);
+  });
+
+  it("refuses to hand off a session busy, or one it does not know", async () => {
+    const { manager } = await opened([[{ type: "agent_start" }]]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
+
+    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
+    await expect(manager.handOff("nope")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+
+  it("refuses to hand off a draft, which has no file for pi to go on with", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await manager.createSession("client-1", WORKSPACE);
+
+    await expect(manager.handOff(sessionId)).rejects.toStrictEqual(new CommandError("session_is_draft", { sessionId }));
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+
+  it("takes a session back: clears the mark and starts pi on its file in a new epoch", async () => {
+    const { manager, received, starts, file, at } = await opened([turn]);
+    await manager.handOff("pi-session-1");
+    await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited" }));
+
+    expect(await manager.takeBack("pi-session-1")).toStrictEqual({});
+
+    expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+    expect(starts()).toStrictEqual([
+      { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
+      { argv: ["--mode", "rpc", "--session", file], cwd: at.workspace },
+    ]);
+    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, exited: false });
   });
 });

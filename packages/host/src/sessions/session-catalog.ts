@@ -1,5 +1,5 @@
 import { type SessionFileReader, type SessionFileSummary, type SessionsLocation, sessionFolder } from "@atrium/pi";
-import { CHATS, type SessionSummary } from "@atrium/protocol";
+import { type Attention, CHATS, type SessionSummary } from "@atrium/protocol";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
@@ -14,8 +14,8 @@ export interface ContainerDir {
   readonly dir: string;
 }
 
-/** What the catalog knows of one session; the manager adds whether it runs. */
-export type CatalogEntry = Omit<SessionSummary, "running" | "failed"> & {
+/** What the catalog knows of one session; the manager adds whether it runs or asks. */
+export type CatalogEntry = Omit<SessionSummary, "running" | "asking"> & {
   /** The working directory pi starts in. */
   readonly cwd: string;
 };
@@ -31,6 +31,8 @@ export interface SessionCatalog {
   forget(sessionId: string): Promise<void>;
   /** Hides a session in Atrium; pi's file stays. */
   archive(sessionId: string): Promise<void>;
+  /** Sets a session's attention or hand-off, as given. */
+  mark(sessionId: string, change: SessionMarks): Promise<void>;
   /**
    * Resolves once the first scan has ended, starting one if none has.
    *
@@ -45,6 +47,12 @@ export interface SessionCatalog {
   onChange(listener: () => void): () => void;
   /** Stops scanning. */
   close(): Promise<void>;
+}
+
+/** The marks Atrium keeps on a session besides archiving it. */
+interface SessionMarks {
+  readonly attention?: Attention | null;
+  readonly handedOff?: boolean;
 }
 
 /**
@@ -147,6 +155,8 @@ export function createSessionCatalog(options: {
         state: "persisted",
         updatedAt: file.modifiedAt,
         archived: record?.archived ?? false,
+        attention: record?.attention ?? null,
+        handedOff: record?.handedOff ?? false,
       });
     }
     for (const record of records.values()) {
@@ -164,6 +174,8 @@ export function createSessionCatalog(options: {
         state: record.draft ? "draft" : scanned ? "missing" : "persisted",
         updatedAt: record.createdAt,
         archived: record.archived,
+        attention: record.attention ?? null,
+        handedOff: record.handedOff ?? false,
       });
     }
     return entries;
@@ -240,6 +252,42 @@ export function createSessionCatalog(options: {
     await saving;
   }
 
+  /**
+   * Changes a listed session's record, adding one for a session from the terminal.
+   *
+   * @remarks
+   * Atrium keeps records only of the sessions it created or marked (domain-model §1), so a change
+   * the session already has writes nothing; a session not listed is ignored.
+   *
+   * @sideEffects May write `sessions.json` and call the listeners.
+   * @param sessionId - The session.
+   * @param change - The fields to set.
+   */
+  async function update(sessionId: string, change: SessionMarks & { readonly archived?: boolean }): Promise<void> {
+    const entry = list().find((candidate) => candidate.sessionId === sessionId);
+    if (entry === undefined) return;
+    const marks = { archived: entry.archived, attention: entry.attention, handedOff: entry.handedOff };
+    if (JSON.stringify({ ...marks, ...change }) === JSON.stringify(marks)) return;
+    const sessions = options.file.read().sessions;
+    const recorded = sessions.some((record) => record.sessionId === sessionId);
+    await save(
+      recorded
+        ? sessions.map((record) => (record.sessionId === sessionId ? { ...record, ...change } : record))
+        : [
+            ...sessions,
+            {
+              sessionId,
+              containerId: entry.containerId,
+              cwd: entry.cwd,
+              draft: false,
+              archived: false,
+              createdAt: options.clock.now(),
+              ...change,
+            },
+          ],
+    );
+  }
+
   return {
     list,
     find: (sessionId) => list().find((entry) => entry.sessionId === sessionId),
@@ -252,27 +300,8 @@ export function createSessionCatalog(options: {
       ]);
     },
     forget: (sessionId) => save(options.file.read().sessions.filter((record) => record.sessionId !== sessionId)),
-    async archive(sessionId) {
-      const entry = list().find((candidate) => candidate.sessionId === sessionId);
-      if (entry === undefined) return;
-      const sessions = options.file.read().sessions;
-      const recorded = sessions.some((record) => record.sessionId === sessionId);
-      await save(
-        recorded
-          ? sessions.map((record) => (record.sessionId === sessionId ? { ...record, archived: true } : record))
-          : [
-              ...sessions,
-              {
-                sessionId,
-                containerId: entry.containerId,
-                cwd: entry.cwd,
-                draft: false,
-                archived: true,
-                createdAt: options.clock.now(),
-              },
-            ],
-      );
-    },
+    archive: (sessionId) => update(sessionId, { archived: true }),
+    mark: (sessionId, change) => update(sessionId, change),
     scan() {
       if (scanning !== null) {
         again = true;

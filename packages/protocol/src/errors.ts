@@ -50,6 +50,8 @@ export const ErrorCode = z.enum([
   "attachment_missing",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
+  /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
+  "session_handed_off",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

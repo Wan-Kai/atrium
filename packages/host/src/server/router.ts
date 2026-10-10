@@ -82,8 +82,14 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.archiveSession(command.sessionId);
       case "rename_session":
         return options.sessions.renameSession(command.sessionId, command.name);
+      case "clear_attention":
+        return options.sessions.clearAttention(command.sessionId);
+      case "hand_off":
+        return options.sessions.handOff(command.sessionId);
+      case "take_back":
+        return options.sessions.takeBack(command.sessionId);
       case "subscribe_index":
-        return options.index.subscribeIndex(connection.id);
+        return options.index.subscribeIndex(connection.id, command.cursor);
       case "add_project":
         return options.index.addProject(command.path);
       case "remove_project":

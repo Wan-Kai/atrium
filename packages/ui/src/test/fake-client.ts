@@ -65,7 +65,9 @@ export function session(
     updatedAt: Date.now() - 60_000,
     archived: false,
     running: false,
-    failed: false,
+    attention: null,
+    asking: null,
+    handedOff: false,
     ...fields,
   };
 }

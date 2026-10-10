@@ -66,7 +66,6 @@ async function assemble() {
       projects: [],
       workspaces: [],
       sessions: [],
-      layout: { container: null, tabs: {} },
       preferences: {
         appearance: "system",
         displayMode: "summary",
@@ -76,6 +75,7 @@ async function assemble() {
       },
       resets: [],
     }),
+    layoutOf: (clientId) => layouts.of(clientId),
     clock: systemClock,
     resources: recording.resources,
   });

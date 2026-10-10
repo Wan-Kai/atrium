@@ -1,7 +1,7 @@
-import type { ContainerId, ContainerTabs, IndexSnapshotEvent, Preferences } from "@atrium/protocol";
+import type { ContainerId, ContainerTabs, IndexChangesEvent, IndexSnapshotEvent, Preferences } from "@atrium/protocol";
 
-/** The list as the client holds it: the latest snapshot, with this client's own changes on top. */
-export interface IndexView extends Omit<IndexSnapshotEvent, "type"> {
+/** The list as the client holds it: the latest snapshot and changes, with this client's own on top. */
+export interface IndexView extends Omit<IndexSnapshotEvent, "type" | "reason"> {
   /** A snapshot has arrived. */
   readonly ready: boolean;
 }
@@ -30,21 +30,91 @@ export function emptyIndex(): IndexView {
 }
 
 /**
- * Takes in a snapshot unless an older one of the same host instance.
+ * Takes in a snapshot.
  *
  * @remarks
  * A snapshot replaces everything, this client's own changes included: the host has them by then
- * (SPEC-0001, "项目、工作区与会话").
+ * (SPEC-0001, "项目、工作区与会话"). The host sends one only in answer to a subscription, after
+ * which a connection's events come in order, so none is stale.
  *
  * @sideEffects none
  * @param view - The view.
  * @param event - The snapshot.
- * @returns The new view, or the same one for a stale snapshot.
+ * @returns The new view.
  */
 export function applyIndexSnapshot(view: IndexView, event: IndexSnapshotEvent): IndexView {
-  if (view.ready && view.generation === event.generation && event.seq <= view.seq) return view;
-  const { type: _type, ...rest } = event;
+  const { type: _type, reason: _reason, ...rest } = event;
   return { ready: true, ...rest };
+}
+
+/**
+ * Applies one collection's changes.
+ *
+ * @remarks
+ * A changed item stays where it is and a new one goes at the end, as on the host, so the list
+ * keeps its order without one.
+ *
+ * @sideEffects none
+ * @param items - The collection.
+ * @param changes - Its changes.
+ * @param idOf - An item's id.
+ * @returns The new collection.
+ */
+function withChanges<T>(
+  items: readonly T[],
+  changes: { readonly upsert: readonly T[]; readonly remove: readonly string[] },
+  idOf: (item: T) => string,
+): T[] {
+  const upserts = new Map(changes.upsert.map((item) => [idOf(item), item]));
+  const removed = new Set(changes.remove);
+  const kept = items
+    .filter((item) => !removed.has(idOf(item)))
+    .map((item) => {
+      const changed = upserts.get(idOf(item));
+      upserts.delete(idOf(item));
+      return changed ?? item;
+    });
+  return [...kept, ...upserts.values()];
+}
+
+/**
+ * Applies a batch of list changes.
+ *
+ * @remarks
+ * SPEC-0001 ("列表的增量"): the layout and preferences come whole when they changed and as `null`
+ * otherwise. Changes before the first snapshot, or of another host instance, have nothing to apply
+ * to; the snapshot that answers the next subscription sets things right.
+ *
+ * @sideEffects none
+ * @param view - The view.
+ * @param event - The changes.
+ * @returns The new view, or the same one when the changes do not apply.
+ */
+export function applyIndexChanges(view: IndexView, event: IndexChangesEvent): IndexView {
+  if (!view.ready || view.generation !== event.generation) return view;
+  return {
+    ...view,
+    seq: event.seq,
+    projects: withChanges(view.projects, event.projects, (project) => project.id),
+    workspaces: withChanges(view.workspaces, event.workspaces, (workspace) => workspace.id),
+    sessions: withChanges(view.sessions, event.sessions, (session) => session.sessionId),
+    layout: event.layout ?? view.layout,
+    preferences: event.preferences ?? view.preferences,
+  };
+}
+
+/**
+ * Where the client is in the list, to subscribe again from.
+ *
+ * @remarks
+ * Before the first snapshot there is nothing to come back to.
+ *
+ * @sideEffects none
+ * @param view - The view.
+ * @returns The cursor, or `undefined` before the first snapshot.
+ */
+export function cursorOf(view: IndexView): { generation: string; seq: number } | undefined {
+  return view.ready ? { generation: view.generation, seq: view.seq } : undefined;
 }
 
 /**

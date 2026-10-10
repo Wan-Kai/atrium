@@ -897,6 +897,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
     type: "index_snapshot",
     generation,
     seq,
+    reason: "no_cursor",
     projects: [],
     workspaces: [],
     sessions: [
@@ -910,7 +911,9 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         updatedAt: 1,
         archived: false,
         running: false,
-        failed: false,
+        attention: null,
+        asking: null,
+        handedOff: false,
       },
     ],
     layout: { container: null, tabs: {} },
@@ -920,37 +923,55 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
   });
 }
 
+/** List changes of host instance `h1` at `seq`, removing session `remove`. */
+function indexChanges(seq: number, remove: string): string {
+  return JSON.stringify({
+    type: "index_changes",
+    generation: "h1",
+    seq,
+    projects: { upsert: [], remove: [] },
+    workspaces: { upsert: [], remove: [] },
+    sessions: { upsert: [], remove: [remove] },
+    layout: null,
+    preferences: null,
+  });
+}
+
 describe("createAtriumClient: the list", () => {
-  it("subscribes to the list on every connection", async () => {
+  it("subscribes to the list on every connection, from where it was once it had a snapshot", async () => {
     const { latest, clock } = await connected();
-    const subscribed = () => latest().sent.filter((sent) => sent["type"] === "subscribe_index");
-    expect(subscribed()).toHaveLength(1);
+    /** The list subscriptions the latest socket sent. */
+    const subscribed = () =>
+      latest()
+        .sent.filter((sent) => sent["type"] === "subscribe_index")
+        .map(({ requestId: _id, traceparent: _trace, ...command }) => command);
+    expect(subscribed()).toStrictEqual([{ type: "subscribe_index" }]);
+    latest().receive(indexSnapshot(4));
+    latest().receive(indexChanges(5, "s9"));
 
     latest().closeWith(1006);
     clock.advance(250);
     latest().open();
     latest().receive(welcome());
 
-    expect(subscribed()).toHaveLength(1);
+    expect(subscribed()).toStrictEqual([{ type: "subscribe_index", cursor: { generation: "h1", seq: 5 } }]);
   });
 
-  it("is empty until the first snapshot, then holds the latest, ignoring older ones of the same host", async () => {
+  it("is empty until the first snapshot, takes every snapshot whole and applies changes", async () => {
     const { client, latest } = await connected();
     expect(client.index.getState()).toMatchObject({ ready: false, sessions: [], seq: 0 });
+    latest().receive(indexChanges(1, "s1"));
+    expect(client.index.getState()).toMatchObject({ ready: false, seq: 0 });
 
     latest().receive(indexSnapshot(2));
-    latest().receive(indexSnapshot(1, "h1", { sessions: [] }));
-    latest().receive(indexSnapshot(2, "h1", { sessions: [] }));
-    expect(client.index.getState()).toMatchObject({
-      ready: true,
-      generation: "h1",
-      seq: 2,
-      sessions: [{ sessionId: "s1" }],
-    });
+    expect(client.index.getState()).toMatchObject({ ready: true, seq: 2, sessions: [{ sessionId: "s1" }] });
+    latest().receive(indexChanges(3, "s1"));
+    expect(client.index.getState()).toMatchObject({ generation: "h1", seq: 3, sessions: [] });
 
-    latest().receive(indexSnapshot(1, "h2", { sessions: [] }));
-    expect(client.index.getState()).toMatchObject({ generation: "h2", seq: 1, sessions: [] });
+    latest().receive(indexSnapshot(1, "h2"));
+    expect(client.index.getState()).toMatchObject({ generation: "h2", seq: 1, sessions: [{ sessionId: "s1" }] });
     expect(client.index.getState()).not.toHaveProperty("type");
+    expect(client.index.getState()).not.toHaveProperty("reason");
   });
 
   it("shows tab and preference changes at once, before the host confirms them", async () => {

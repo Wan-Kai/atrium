@@ -1,7 +1,9 @@
-import type { IndexSnapshotEvent } from "@atrium/protocol";
+import type { IndexChangesEvent, IndexSnapshotEvent } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  applyIndexChanges,
   applyIndexSnapshot,
+  cursorOf,
   emptyIndex,
   withContainer,
   withPreferences,
@@ -22,7 +24,9 @@ const session = (sessionId: string, containerId: string) => ({
   updatedAt: 0,
   archived: false,
   running: false,
-  failed: false,
+  attention: null,
+  asking: null,
+  handedOff: false,
 });
 
 /** A view whose list has sessions s1–s3 in workspace A and c1 in the chats, with `tabs` open in A. */
@@ -36,11 +40,83 @@ function viewWith(open: string[], active: string | null) {
 }
 
 describe("applyIndexSnapshot", () => {
-  it("takes the first snapshot whatever its number", () => {
+  it("takes every snapshot whole, whatever its number", () => {
     const { ready: _ready, ...fields } = emptyIndex();
-    const event: IndexSnapshotEvent = { type: "index_snapshot", ...fields, generation: "h1", seq: 0 };
+    const event: IndexSnapshotEvent = {
+      type: "index_snapshot",
+      ...fields,
+      generation: "h1",
+      seq: 0,
+      reason: "cursor_expired",
+    };
 
-    expect(applyIndexSnapshot(emptyIndex(), event)).toStrictEqual({ ...fields, ready: true, generation: "h1", seq: 0 });
+    expect(applyIndexSnapshot(viewWith(["s1"], "s1"), event)).toStrictEqual({
+      ...fields,
+      ready: true,
+      generation: "h1",
+      seq: 0,
+    });
+  });
+});
+
+describe("applyIndexChanges", () => {
+  /** Changes of host `h1` at `seq` 5 that change nothing. */
+  const nothing: IndexChangesEvent = {
+    type: "index_changes",
+    generation: "h1",
+    seq: 5,
+    projects: { upsert: [], remove: [] },
+    workspaces: { upsert: [], remove: [] },
+    sessions: { upsert: [], remove: [] },
+    layout: null,
+    preferences: null,
+  };
+  const project = { id: "prj_0000000000000001", path: "/work/app", name: "app" };
+
+  it("replaces changed items where they are, adds new ones at the end and drops removed ones", () => {
+    const view = { ...viewWith(["s1"], "s1"), generation: "h1", seq: 4, projects: [project] };
+
+    const next = applyIndexChanges(view, {
+      ...nothing,
+      projects: { upsert: [{ ...project, name: "renamed" }], remove: [] },
+      sessions: { upsert: [{ ...session("s4", A) }, { ...session("s2", A), running: true }], remove: ["s1", "s9"] },
+    });
+
+    expect(next).toStrictEqual({
+      ...view,
+      seq: 5,
+      projects: [{ ...project, name: "renamed" }],
+      sessions: [{ ...session("s2", A), running: true }, session("s3", A), session("c1", "chats"), session("s4", A)],
+    });
+  });
+
+  it("takes the layout and preferences when they come, and keeps its own otherwise", () => {
+    const view = { ...viewWith(["s1"], "s1"), generation: "h1", seq: 4 };
+    const layout = { container: null, tabs: {} };
+    const preferences = { ...view.preferences, appearance: "dark" as const };
+
+    expect(applyIndexChanges(view, { ...nothing, layout, preferences })).toStrictEqual({
+      ...view,
+      seq: 5,
+      layout,
+      preferences,
+    });
+    expect(applyIndexChanges(view, nothing)).toStrictEqual({ ...view, seq: 5 });
+  });
+
+  it("ignores changes before the first snapshot or from another host", () => {
+    const view = { ...viewWith(["s1"], "s1"), generation: "h1", seq: 4 };
+    const changes = { ...nothing, sessions: { upsert: [], remove: ["s1"] } };
+
+    expect(applyIndexChanges(emptyIndex(), changes)).toStrictEqual(emptyIndex());
+    expect(applyIndexChanges(view, { ...changes, generation: "h2" })).toBe(view);
+  });
+});
+
+describe("cursorOf", () => {
+  it("is the list's position once a snapshot arrived", () => {
+    expect(cursorOf(emptyIndex())).toBeUndefined();
+    expect(cursorOf({ ...viewWith([], null), generation: "h1", seq: 4 })).toStrictEqual({ generation: "h1", seq: 4 });
   });
 });
 

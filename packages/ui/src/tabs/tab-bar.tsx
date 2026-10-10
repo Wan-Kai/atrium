@@ -4,7 +4,8 @@ import { CaretDown, ClockCounterClockwise, Plus, X } from "@phosphor-icons/react
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { sessionTitle, timeAgo } from "../sidebar/names";
-import { StatusIcon, sessionStatus } from "../sidebar/status-icon";
+import { sessionStatus } from "../sidebar/status";
+import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
 import { DisplayModeMenu, SessionMenu } from "./session-menus";
 

@@ -1,5 +1,6 @@
 import { type PiInspection, PiRequestError, piStatsOf, sessionModelOf, toLogEntry, toSlashCommand } from "@atrium/pi";
 import {
+  type Attention,
   CHATS,
   CommandError,
   IDLE_CONTROL,
@@ -159,8 +160,12 @@ export function createSessionManager(options: {
   const running = new Set<{ stop(): Promise<unknown> }>();
   /** Sessions with a run in progress. */
   const busy = new Set<string>();
-  /** Sessions whose last run failed or whose pi kept crashing, until the next run starts. */
-  const failed = new Set<string>();
+  /** pi's text of each session's last failed turn in the run in progress. */
+  const failures = new Map<string, string>();
+  /** Sessions marked for attention since their last run started, so a mark is set once. */
+  const marked = new Set<string>();
+  /** When each session's oldest unanswered dialog appeared, as the host saw it. */
+  const asking = new Map<string, number>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
   /** Sessions being started, so a second start waits for the first. */
@@ -274,30 +279,72 @@ export function createSessionManager(options: {
   }
 
   /**
-   * Keeps track of runs and failures for the list, and looks at the session's files once a run ends.
+   * Sets or removes a session's attention in the index, in the background.
    *
    * @remarks
-   * A run's end may have written the file, a name or commits in the workspace. A session counts as
-   * failed from a failed run or pi crashing too often until its next run starts (SPEC-0001,
-   * "运行控制").
+   * The catalog tells the list; a write that fails is logged.
    *
-   * @sideEffects Updates `busy` and `failed`; calls `onChange`; may start background scans.
+   * @sideEffects Writes `sessions.json` in the background.
+   * @param sessionId - The session.
+   * @param attention - The attention, or `null` to remove it.
+   */
+  function attend(sessionId: string, attention: Attention | null): void {
+    inBackground("attention", () => options.catalog.mark(sessionId, { attention }));
+  }
+
+  /**
+   * Keeps track of runs, failures and dialogs for the list, and looks at the session's files once
+   * a run ends.
+   *
+   * @remarks
+   * A run's end may have written the file, a name or commits in the workspace. A session needs a
+   * look from a run that failed after pi's retries, or pi crashing too often, until its next run
+   * starts; a failure whose text looks like a credentials problem asks to sign in (SPEC-0001,
+   * "会话状态"). A crash also ends its run as failed but is not marked until the restarts are used
+   * up, so only a turn's own failure marks a run.
+   *
+   * @sideEffects Updates the run, failure and dialog records; writes attention to the index; calls
+   * `onChange`; may start background scans.
    * @param sessionId - The session.
    * @param event - An event it published.
    */
   function observe(sessionId: string, event: SessionEvent): void {
     if (event.type === "run_started") {
       busy.add(sessionId);
-      failed.delete(sessionId);
+      failures.delete(sessionId);
+      marked.delete(sessionId);
+      if ((options.catalog.find(sessionId)?.attention ?? null) !== null) attend(sessionId, null);
       options.onChange();
+    } else if (event.type === "turn_finished") {
+      if (event.outcome === "failed" && event.error !== null) failures.set(sessionId, event.error);
     } else if (event.type === "control_updated") {
-      if (event.control.failure !== null && !failed.has(sessionId)) {
-        failed.add(sessionId);
+      if (event.control.failure !== null && !marked.has(sessionId)) {
+        marked.add(sessionId);
+        attend(sessionId, { reason: "error", at: options.clock.now(), cleared: false });
+      }
+      const waiting = event.control.interactions.length > 0;
+      if (waiting !== asking.has(sessionId)) {
+        if (waiting) asking.set(sessionId, options.clock.now());
+        else asking.delete(sessionId);
         options.onChange();
       }
     } else if (event.type === "run_settled" || event.type === "session_exited") {
       const ran = busy.delete(sessionId);
-      if (event.type === "run_settled" && event.outcome === "failed") failed.add(sessionId);
+      const failure = failures.get(sessionId);
+      if (
+        event.type === "run_settled" &&
+        event.outcome === "failed" &&
+        failure !== undefined &&
+        !marked.has(sessionId)
+      ) {
+        marked.add(sessionId);
+        attend(sessionId, {
+          reason: isAuthFailure(failure) ? "auth" : "error",
+          at: options.clock.now(),
+          cleared: false,
+        });
+      }
+      if (event.type === "session_exited" && asking.delete(sessionId)) options.onChange();
       if (ran || event.type === "run_settled") options.onChange();
       if (event.type === "run_settled") {
         const containerId = options.catalog.find(sessionId)?.containerId;
@@ -672,7 +719,10 @@ export function createSessionManager(options: {
       if (entry === undefined) return {};
       // Starting needs the session's file, which only a scan finds.
       await options.catalog.ready();
-      if (entryOf(sessionId).state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
+      const found = entryOf(sessionId);
+      // A session handed off waits for "在 Atrium 里继续" (SPEC-0001, "交给终端").
+      if (found.handedOff) return {};
+      if (found.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
       return {};
     },
     async closeTab(clientId, sessionId) {
@@ -715,6 +765,7 @@ export function createSessionManager(options: {
       await options.catalog.ready();
       // pi writes no file before the first message, so a draft's name has nowhere to go.
       if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
+      notHandedOff(sessionId);
       const { pi } = await ensureRunning(sessionId);
       await pi.request({ type: "set_session_name", name });
       inBackground("session scan", () => options.catalog.scan());
@@ -745,6 +796,7 @@ export function createSessionManager(options: {
       try {
         await options.catalog.ready();
         entryOf(sessionId);
+        notHandedOff(sessionId);
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.prompt(command, images);
@@ -760,6 +812,7 @@ export function createSessionManager(options: {
       try {
         await options.catalog.ready();
         entryOf(sessionId);
+        notHandedOff(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.steer(command, images);
       } finally {
@@ -770,6 +823,7 @@ export function createSessionManager(options: {
     },
     stop: async (sessionId) => controllerOf(sessionId).stop(),
     async resumeQueue(sessionId) {
+      notHandedOff(sessionId);
       const controller = controllerOf(sessionId);
       // The queue moves only with a pi to take it.
       if (live(sessionId) === undefined) await ensureRunning(sessionId);
@@ -801,6 +855,7 @@ export function createSessionManager(options: {
     async retryRun(sessionId) {
       await options.catalog.ready();
       entryOf(sessionId);
+      notHandedOff(sessionId);
       // A session this host never ran has no controller yet; starting it makes one.
       const session = sessions.get(sessionId) ?? (await ensureRunning(sessionId));
       return session.controller.retryRun();
@@ -811,11 +866,40 @@ export function createSessionManager(options: {
     async fetchTranscript(command) {
       return controllerOf(command.sessionId).fetchTranscript(command);
     },
+    async clearAttention(sessionId) {
+      await options.catalog.ready();
+      const { attention } = entryOf(sessionId);
+      // A sign-in problem stays until a run starts: only then is it solved.
+      if (attention?.reason === "error" && !attention.cleared) {
+        await options.catalog.mark(sessionId, { attention: { ...attention, cleared: true } });
+      }
+      return {};
+    },
+    async handOff(sessionId) {
+      await options.catalog.ready();
+      const entry = entryOf(sessionId);
+      if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
+      if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
+      if (occupied(sessionId)) throw new CommandError("session_busy");
+      // Marked first, so nothing starts the session's pi again while it stops.
+      await options.catalog.mark(sessionId, { handedOff: true });
+      await stopSession(sessionId);
+      return { file: entry.file };
+    },
+    async takeBack(sessionId) {
+      await options.catalog.ready();
+      entryOf(sessionId);
+      await options.catalog.mark(sessionId, { handedOff: false });
+      // pi in the terminal has written to the file since.
+      await options.catalog.scan();
+      await ensureRunning(sessionId);
+      return {};
+    },
     summaries() {
       return options.catalog.list().map(({ cwd: _cwd, ...entry }) => ({
         ...entry,
         running: busy.has(entry.sessionId),
-        failed: failed.has(entry.sessionId),
+        asking: asking.get(entry.sessionId) ?? null,
       }));
     },
     async forgetWorkspaces(workspaceIds) {
@@ -846,12 +930,47 @@ export function createSessionManager(options: {
    * @sideEffects May spawn pi.
    * @param sessionId - The session.
    * @returns The running session.
-   * @throws {CommandError} `session_not_found`, `session_cwd_missing`, `pi_unavailable`.
+   * @throws {CommandError} `session_not_found`, `session_handed_off`, `session_cwd_missing`,
+   * `pi_unavailable`.
    */
   async function commanded(sessionId: string): Promise<Running> {
     await options.catalog.ready();
     entryOf(sessionId);
+    notHandedOff(sessionId);
     return live(sessionId) ?? (await ensureRunning(sessionId));
+  }
+
+  /**
+   * Refuses a command that would start or write pi on a session handed off.
+   *
+   * @remarks
+   * Two pi writing one session fork it without telling (SPEC-0001, "交给终端").
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @throws {CommandError} `session_handed_off`.
+   */
+  function notHandedOff(sessionId: string): void {
+    if (options.catalog.find(sessionId)?.handedOff === true) {
+      throw new CommandError("session_handed_off", { sessionId });
+    }
+  }
+
+  /**
+   * Whether a session has something going on that handing it off would cut short.
+   *
+   * @remarks
+   * A run, a message on its way, a stop or restart under way, or messages in the host's queue,
+   * which only Atrium would send (SPEC-0001, "交给终端").
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns Whether it is busy.
+   */
+  function occupied(sessionId: string): boolean {
+    if (busy.has(sessionId) || starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0) return true;
+    const control = sessions.get(sessionId)?.controller.snapshot().control;
+    return control !== undefined && (control.stopping || control.restarting || control.queue.length > 0);
   }
 
   /**
@@ -931,4 +1050,21 @@ function draftSnapshot(sessionId: string): SessionSnapshotEvent {
 function failureFields(error: unknown): Record<string, unknown> {
   if (error instanceof PiRequestError) return { command: error.command, reason: error.reason };
   return { err: error };
+}
+
+/** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
+const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
+
+/**
+ * Whether a failure looks like a credentials problem.
+ *
+ * @remarks
+ * A best guess on pi's own text (SPEC-0001, "会话状态"): a wrong guess only changes the icon.
+ *
+ * @sideEffects none
+ * @param text - pi's text.
+ * @returns Whether to ask the user to sign in.
+ */
+function isAuthFailure(text: string): boolean {
+  return AUTH_FAILURE.test(text);
 }

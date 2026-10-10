@@ -55,6 +55,21 @@ export const Workspace = z.strictObject({
 });
 export type Workspace = z.infer<typeof Workspace>;
 
+/**
+ * Why a session needs you, kept in the index until its next run starts (SPEC-0001, "并行、同步与关注").
+ *
+ * @remarks
+ * `error` is cleared once a client showed the session, and stays as the error icon until the next
+ * run; `auth` is not cleared by a look, only by a run starting.
+ */
+export const Attention = z.strictObject({
+  reason: z.enum(["error", "auth"]),
+  /** When it was set. */
+  at: Timestamp,
+  cleared: z.boolean(),
+});
+export type Attention = z.infer<typeof Attention>;
+
 /** A session as the sidebar, tabs and history list it. */
 export const SessionSummary = z.strictObject({
   sessionId: SessionId,
@@ -71,8 +86,12 @@ export const SessionSummary = z.strictObject({
   archived: z.boolean(),
   /** A run is in progress. */
   running: z.boolean(),
-  /** The last run failed, or pi kept crashing; cleared when the next run starts (SPEC-0001, "运行控制"). */
-  failed: z.boolean(),
+  /** The last run failed, or pi kept crashing; `null` once the next run starts. */
+  attention: Attention.nullable(),
+  /** Since when the oldest unanswered dialog has waited; `null` without one. */
+  asking: Timestamp.nullable(),
+  /** Handed to pi in a terminal; Atrium starts no pi for it until taken back. */
+  handedOff: z.boolean(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 
@@ -125,18 +144,27 @@ export type Preferences = z.infer<typeof Preferences>;
 export const IndexFileName = z.enum(["projects", "sessions", "layouts", "preferences"]);
 export type IndexFileName = z.infer<typeof IndexFileName>;
 
+/** Why the host sent the whole list rather than changes after the client's cursor. */
+export const SnapshotReason = z.enum(["no_cursor", "generation_changed", "cursor_expired", "too_many_changes"]);
+export type SnapshotReason = z.infer<typeof SnapshotReason>;
+
+/** The host instance; changes when the host restarts. */
+const Generation = z.string().min(1);
+
+/** Increases by one with every batch of changes within a generation; a client's cursor. */
+const ListSeq = z.number().int().nonnegative();
+
 /**
- * The whole list, sent to a client that subscribed to it and again after every change.
+ * The whole list, sent to a client that subscribed without a cursor the host can serve.
  *
  * @remarks
- * M1.5 sends only snapshots; M1.9 adds changes after a cursor (SPEC-0001, "项目、工作区与会话").
+ * After it come `index_changes` (SPEC-0001, "并行、同步与关注").
  */
 export const IndexSnapshotEvent = z.strictObject({
   type: z.literal("index_snapshot"),
-  /** The host instance; changes when the host restarts. */
-  generation: z.string().min(1),
-  /** Increases by one with every snapshot within a generation. */
-  seq: z.number().int().nonnegative(),
+  generation: Generation,
+  seq: ListSeq,
+  reason: SnapshotReason,
   projects: z.array(Project),
   workspaces: z.array(Workspace),
   sessions: z.array(SessionSummary),
@@ -146,3 +174,37 @@ export const IndexSnapshotEvent = z.strictObject({
   resets: z.array(IndexFileName),
 });
 export type IndexSnapshotEvent = z.infer<typeof IndexSnapshotEvent>;
+
+/**
+ * The changes to one collection: items that changed, whole, and the ids of those that went.
+ *
+ * @remarks
+ * The three collections change alike.
+ *
+ * @sideEffects none
+ * @param item - An item's schema.
+ * @param id - An id's schema.
+ * @returns The changes' schema.
+ */
+function collectionChanges<T extends z.ZodType, I extends z.ZodType>(item: T, id: I) {
+  return z.strictObject({ upsert: z.array(item), remove: z.array(id) });
+}
+
+/**
+ * What changed in the list since the client's cursor, or since the last batch.
+ *
+ * @remarks
+ * Upserted items replace the client's whole; new ones go at the end. `layout` is the receiving
+ * client's own, and `layout` and `preferences` are `null` when unchanged (SPEC-0001, "并行、同步与关注").
+ */
+export const IndexChangesEvent = z.strictObject({
+  type: z.literal("index_changes"),
+  generation: Generation,
+  seq: ListSeq,
+  projects: collectionChanges(Project, ProjectId),
+  workspaces: collectionChanges(Workspace, WorkspaceId),
+  sessions: collectionChanges(SessionSummary, SessionId),
+  layout: Layout.nullable(),
+  preferences: Preferences.nullable(),
+});
+export type IndexChangesEvent = z.infer<typeof IndexChangesEvent>;

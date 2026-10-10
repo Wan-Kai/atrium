@@ -104,6 +104,8 @@ describe("SessionCatalog", () => {
         state: "persisted",
         updatedAt: 100_000,
         archived: false,
+        attention: null,
+        handedOff: false,
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
     ]);
@@ -159,6 +161,8 @@ describe("SessionCatalog", () => {
         state: "draft",
         updatedAt: 5_001,
         archived: false,
+        attention: null,
+        handedOff: false,
       },
     ]);
 
@@ -209,6 +213,63 @@ describe("SessionCatalog", () => {
       { sessionId: "ours", archived: true, draft: true },
       { sessionId: "terminal", containerId: A, cwd: dirs.a, archived: true, draft: false, createdAt: 5_000 },
     ]);
+  });
+
+  it("marks a session's attention and hand-off, recording one from the terminal, and writes only a change", async () => {
+    const { sessions, dirs, file, write, changes } = await catalog();
+    await write(dirs.a, "terminal", [user("hi")]);
+    await sessions.record({ sessionId: "ours", containerId: A, cwd: dirs.a });
+    await sessions.scan();
+    const before = changes();
+
+    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false } });
+    await sessions.mark("ours", { handedOff: true });
+    await sessions.mark("ours", { handedOff: true });
+    await sessions.mark("terminal", { attention: { reason: "auth", at: 7, cleared: false } });
+    await sessions.mark("unknown", { handedOff: true });
+
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention, entry.handedOff])).toStrictEqual([
+      ["terminal", { reason: "auth", at: 7, cleared: false }, false],
+      ["ours", null, true],
+    ]);
+    expect(file.read().sessions).toStrictEqual([
+      {
+        sessionId: "ours",
+        containerId: A,
+        cwd: dirs.a,
+        draft: true,
+        archived: false,
+        createdAt: 5_000,
+        handedOff: true,
+      },
+      {
+        sessionId: "terminal",
+        containerId: A,
+        cwd: dirs.a,
+        draft: false,
+        archived: false,
+        createdAt: 5_000,
+        attention: { reason: "auth", at: 7, cleared: false },
+      },
+    ]);
+    expect(changes() - before).toBe(2);
+
+    await sessions.mark("terminal", { attention: null });
+    await sessions.mark("ours", { handedOff: false });
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.attention, entry.handedOff])).toStrictEqual([
+      ["terminal", null, false],
+      ["ours", null, false],
+    ]);
+  });
+
+  it("does not record a session from the terminal for a mark it already has", async () => {
+    const { sessions, dirs, file, write } = await catalog();
+    await write(dirs.a, "terminal", [user("hi")]);
+    await sessions.scan();
+
+    await sessions.mark("terminal", { attention: null, handedOff: false });
+
+    expect(file.read().sessions).toStrictEqual([]);
   });
 
   it("lists a new chat's draft before any scan", async () => {

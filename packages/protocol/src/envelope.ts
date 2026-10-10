@@ -3,7 +3,7 @@ import { COMMAND_TYPES, Command, RequestId } from "./commands";
 import { ErrorInfo } from "./errors";
 import { SessionEvent } from "./events";
 import { ChangesUpdatedEvent, DiffUpdatedEvent } from "./changes";
-import { IndexSnapshotEvent } from "./listing";
+import { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { HelloMessage, WelcomeMessage } from "./handshake";
 
 /** A response to a command that succeeded; `result` is checked against `CommandResult`. */
@@ -36,6 +36,7 @@ export const HostMessage = z.union([
   ResponseMessage,
   SessionEvent,
   IndexSnapshotEvent,
+  IndexChangesEvent,
   ChangesUpdatedEvent,
   DiffUpdatedEvent,
 ]);

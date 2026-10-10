@@ -18,7 +18,8 @@ import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { useClock } from "../state/clock";
 import { isDone, isPending, mergeLabels, placeOf, sessionTitle, sortWorkspaces, timeAgo, workspaceName } from "./names";
 import { RenameField } from "./rename-field";
-import { type RowStatus, StatusIcon, sessionStatus, topStatus } from "./status-icon";
+import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
+import { StatusIcon } from "./status-icon";
 
 /** How many chats the sidebar lists; the rest are in the chats' history (SPEC-0001, "对话"). */
 const RECENT_CHATS = 5;
@@ -173,6 +174,7 @@ export function Sidebar({
         新建对话
       </button>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+        <Inbox client={client} index={index} now={now} />
         <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
           <span className="flex-1">项目</span>
           <button
@@ -356,14 +358,16 @@ function ProjectRows({
    * A workspace's status.
    *
    * @remarks
-   * The highest of its sessions' (domain-model §4).
+   * The highest of its sessions' not archived (SPEC-0001, "会话状态").
    *
    * @sideEffects none
    * @param workspace - The workspace.
    * @returns Its status.
    */
   const status = (workspace: Workspace): RowStatus =>
-    topStatus(index.sessions.filter((session) => session.containerId === workspace.id).map(sessionStatus));
+    topStatus(
+      index.sessions.filter((session) => session.containerId === workspace.id && !session.archived).map(sessionStatus),
+    );
   const pending = workspaces.filter(isPending).length;
   const holdsCurrent = workspaces.some((workspace) => workspace.id === index.layout.container);
   return (
@@ -695,24 +699,124 @@ function SearchResults({
         <div className="px-2 pt-2 pb-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">会话</div>
       ) : null}
       {sessions.map((session) => (
-        <button
+        <SessionLine
           key={session.sessionId}
-          type="button"
-          onClick={() => open(session)}
-          className={`${ROW} h-auto w-full items-start py-[7px] text-left`}
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate">{sessionTitle(session)}</span>
-            <span className="block text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-              {placeOf(index, session.containerId)}
-            </span>
-          </span>
-          <span className="flex shrink-0 items-center gap-2.5 pt-px text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-            {timeAgo(session.updatedAt, now)}
-            <StatusIcon status={sessionStatus(session)} />
-          </span>
-        </button>
+          index={index}
+          session={session}
+          when={timeAgo(session.updatedAt, now)}
+          status={sessionStatus(session)}
+          onOpen={() => open(session)}
+        />
       ))}
     </div>
+  );
+}
+
+/**
+ * A session on two lines: its title and where it lives, with a time and its status.
+ *
+ * @remarks
+ * The inbox and the search results show sessions alike (SPEC-0001, "收件箱", "搜索").
+ *
+ * @sideEffects Calls `onOpen` when clicked.
+ * @param props - The list, the session, the time to show, its status, whether it is the one
+ * shown, and what opening it does.
+ * @returns The row.
+ */
+function SessionLine({
+  index,
+  session,
+  when,
+  status,
+  current,
+  onOpen,
+  testId,
+}: {
+  readonly index: IndexView;
+  readonly session: SessionSummary;
+  readonly when: string;
+  readonly status: RowStatus;
+  readonly current?: boolean;
+  readonly onOpen: () => void;
+  readonly testId?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-current={current}
+      data-testid={testId}
+      className={`${ROW} h-auto w-full items-start py-[7px] text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{sessionTitle(session)}</span>
+        <span className="block text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+          {placeOf(index, session.containerId)}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-2.5 pt-px text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+        {when}
+        <StatusIcon status={status} />
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The inbox: the sessions waiting for the user, across every project and the chats.
+ *
+ * @remarks
+ * SPEC-0001 ("收件箱"): left out when empty; five at most until "还有 N 条" opens the rest, which
+ * "收起" closes again. A row is lit while its session is the one shown.
+ *
+ * @sideEffects Sends `open_session` when a row is clicked.
+ * @param props - The client, the list and the time now.
+ * @returns The inbox, or nothing.
+ */
+function Inbox({
+  client,
+  index,
+  now,
+}: {
+  readonly client: AtriumClient;
+  readonly index: IndexView;
+  readonly now: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const entries = inboxOf(index.sessions);
+  if (entries.length === 0) return null;
+  const shown = expanded ? entries : entries.slice(0, INBOX_SHOWN);
+  const active = activeOf(index);
+  return (
+    <section aria-label="等你处理" className="mb-1">
+      <div className="mt-1.5 flex h-[34px] items-center pr-2 pl-2 text-[var(--text-muted)]">
+        <span className="flex-1">等你处理</span>
+        <span className="text-[length:var(--fs-sm)] tabular-nums">{entries.length}</span>
+      </div>
+      {shown.map(({ session, status, at }) => (
+        <SessionLine
+          key={session.sessionId}
+          index={index}
+          session={session}
+          when={timeAgo(at, now)}
+          status={status}
+          current={index.layout.container === session.containerId && active === session.sessionId}
+          testId="inbox-row"
+          onOpen={() => {
+            // Fire and forget: opening shows the session or its failure there.
+            void client.openSession(session.sessionId).catch(() => undefined);
+          }}
+        />
+      ))}
+      {entries.length > INBOX_SHOWN ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+        >
+          {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
+        </button>
+      ) : null}
+    </section>
   );
 }

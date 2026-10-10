@@ -1,74 +1,305 @@
-import type { IndexSnapshotEvent } from "@atrium/protocol";
+import type { IndexChangesEvent, IndexSnapshotEvent, Layout, SnapshotReason } from "@atrium/protocol";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { ResourceTracker } from "../platform/resources";
 import type { SubscriptionRegistry } from "./subscriptions";
 
-/** What a list snapshot holds, apart from its envelope. */
-export type IndexContent = Omit<IndexSnapshotEvent, "type" | "generation" | "seq">;
+/** What the list holds for every client: all but the envelope and each client's own layout. */
+export type IndexContent = Omit<IndexSnapshotEvent, "type" | "generation" | "seq" | "reason" | "layout">;
 
-/** How long changes are gathered before one snapshot goes out. */
+/** How long changes are gathered before one batch goes out. */
 export const INDEX_PUSH_DELAY_MS = 30;
+
+/** How many removals the feed remembers for clients coming back with a cursor. */
+export const INDEX_REMOVALS_KEPT = 1000;
+
+/** The most items a batch of changes after a cursor may hold; more go as a snapshot. */
+export const INDEX_CHANGES_LIMIT = 200;
+
+/** A client's position in the list. */
+export interface IndexCursor {
+  readonly generation: string;
+  readonly seq: number;
+}
 
 /** Pushes the list to the clients that subscribed to it. */
 export interface IndexFeed {
-  /** Subscribes a connection and sends it a snapshot at once. */
-  subscribe(connectionId: string): void;
-  /** Something in the list changed; a snapshot goes to every subscriber shortly. */
+  /** Subscribes a connection and sends it what it lacks at once: changes after its cursor, or a snapshot. */
+  subscribe(connectionId: string, cursor?: IndexCursor): void;
+  /** Something in the list changed; the changes go to every subscriber shortly. */
   changed(): void;
   /** Cancels a pending push and ignores later changes. */
   close(): void;
+}
+
+/** The collections the list holds, each item named by its id. */
+const COLLECTIONS = ["projects", "workspaces", "sessions"] as const;
+type CollectionName = (typeof COLLECTIONS)[number];
+type Item<C extends CollectionName> = IndexContent[C][number];
+
+/** One item as the feed last saw it. */
+interface Known {
+  readonly json: string;
+  /** The batch it last changed in. */
+  readonly seq: number;
+}
+
+/** What the feed last sent a subscriber. */
+interface Sent {
+  seq: number;
+  layout: string;
+}
+
+/**
+ * An item's id.
+ *
+ * @remarks
+ * Sessions are named by `sessionId`, the rest by `id`.
+ *
+ * @sideEffects none
+ * @param item - The item.
+ * @returns Its id.
+ */
+function idOf(item: Item<CollectionName>): string {
+  return "sessionId" in item ? item.sessionId : item.id;
 }
 
 /**
  * Creates the list feed.
  *
  * @remarks
- * M1.5 sends only whole snapshots (domain-model, "已决定 11"): a subscriber gets one at once, and
- * after changes all subscribers get one, changes within `INDEX_PUSH_DELAY_MS` merged into one.
- * Each snapshot carries the layout of the subscriber's own client, so it is built per
- * subscriber. `generation` is the host instance; `seq` counts snapshots in it. The content comes
- * from `build`, so this module needs no business module (overview.md, "宿主内部的依赖").
+ * SPEC-0001 ("并行、同步与关注"): business modules only say something changed; the feed builds
+ * the whole list again and compares it with the last one item by item, by id, so they need not
+ * report what. Every batch with a change gets the next `seq`, shared by all subscribers. The feed
+ * remembers each item's last change and the last `removalsKept` removals, so a client coming back
+ * with a cursor gets just what changed after it; a cursor of another host, older than the
+ * removals remembered, or behind more than `changesLimit` changes gets a snapshot. A client's
+ * layout is its own: a change to it goes only to that client and takes no `seq`, and a cursor's
+ * answer always carries the layout and preferences whole. Changes within `INDEX_PUSH_DELAY_MS`
+ * merge into one batch. The content comes from `build` and `layoutOf`, so this module needs no
+ * business module (overview.md, "宿主内部的依赖").
  *
  * @sideEffects none until a call; then sends events and schedules a tracked timer.
- * @param options - The registry, the generation, how to build a client's content, the clock and
- * the resource tracker.
+ * @param options - The registry, the generation, how to build the list and a client's layout, the
+ * clock, the resource tracker, and limits smaller than the host's for tests.
  * @returns The feed.
  */
 export function createIndexFeed(options: {
   readonly registry: SubscriptionRegistry;
   readonly generation: string;
-  readonly build: (clientId: string) => IndexContent;
+  readonly build: () => IndexContent;
+  readonly layoutOf: (clientId: string) => Layout;
   readonly clock: Clock;
   readonly resources: ResourceTracker;
+  readonly removalsKept?: number;
+  readonly changesLimit?: number;
 }): IndexFeed {
+  const removalsKept = options.removalsKept ?? INDEX_REMOVALS_KEPT;
+  const changesLimit = options.changesLimit ?? INDEX_CHANGES_LIMIT;
   let seq = 0;
+  const known: Record<CollectionName, Map<string, Known>> = {
+    projects: new Map(),
+    workspaces: new Map(),
+    sessions: new Map(),
+  };
+  let preferences: Known = { json: "", seq: 0 };
+  const removals: { readonly collection: CollectionName; readonly id: string; readonly seq: number }[] = [];
+  /** Cursors older than this may have missed a removal no longer remembered. */
+  let forgottenUpTo = 0;
+  const sent = new Map<string, Sent>();
   let cancel: (() => void) | null = null;
   let closed = false;
 
   /**
-   * Sends one connection a snapshot.
+   * Builds the list again and records what changed since the last time.
    *
    * @remarks
-   * Numbered in the order snapshots go out.
+   * Any change takes the next `seq`.
+   *
+   * @sideEffects Updates the feed's record of the list.
+   * @returns The list.
+   */
+  function refresh(): IndexContent {
+    const next = options.build();
+    const at = seq + 1;
+    let changed = false;
+    for (const collection of COLLECTIONS) {
+      const seen = new Set<string>();
+      for (const item of next[collection]) {
+        const id = idOf(item);
+        seen.add(id);
+        const json = JSON.stringify(item);
+        if (known[collection].get(id)?.json === json) continue;
+        known[collection].set(id, { json, seq: at });
+        changed = true;
+      }
+      for (const id of known[collection].keys()) {
+        if (seen.has(id)) continue;
+        known[collection].delete(id);
+        removals.push({ collection, id, seq: at });
+        changed = true;
+      }
+    }
+    const json = JSON.stringify(next.preferences);
+    if (json !== preferences.json) {
+      preferences = { json, seq: at };
+      changed = true;
+    }
+    while (removals.length > removalsKept) forgottenUpTo = removals.shift()?.seq ?? forgottenUpTo;
+    if (changed) seq = at;
+    return next;
+  }
+
+  /**
+   * The items that changed after a position, and those removed since.
+   *
+   * @remarks
+   * In the list's order, so new items land at the end as they do on the host.
+   *
+   * @sideEffects none
+   * @param list - The list.
+   * @param after - The position.
+   * @returns The changes, and how many items they hold.
+   */
+  function changesAfter(list: IndexContent, after: number) {
+    let size = 0;
+    /**
+     * One collection's changes.
+     *
+     * @remarks
+     * See `changesAfter`.
+     *
+     * @sideEffects Adds to `size`.
+     * @param collection - The collection.
+     * @returns Its upserts and removals.
+     */
+    const of = <C extends CollectionName>(collection: C) => {
+      const items: readonly Item<C>[] = list[collection];
+      const upsert = items.filter((item) => (known[collection].get(idOf(item))?.seq ?? 0) > after);
+      const remove = removals
+        .filter((removal) => removal.collection === collection && removal.seq > after)
+        .map((removal) => removal.id);
+      size += upsert.length + remove.length;
+      return { upsert, remove };
+    };
+    // Stryker disable next-line ObjectLiteral: each collection is checked by the tests' whole events.
+    const changes = { projects: of("projects"), workspaces: of("workspaces"), sessions: of("sessions") };
+    return { changes, size };
+  }
+
+  /**
+   * Sends one connection the whole list.
+   *
+   * @remarks
+   * See `createIndexFeed`.
    *
    * @sideEffects Sends an event.
    * @param connectionId - The connection.
-   * @param clientId - Its client.
+   * @param list - The list.
+   * @param layout - The client's layout.
+   * @param reason - Why the whole list.
    */
-  function send(connectionId: string, clientId: string): void {
-    seq += 1;
+  function sendSnapshot(connectionId: string, list: IndexContent, layout: Layout, reason: SnapshotReason): void {
     options.registry.sendTo(connectionId, {
       type: "index_snapshot",
       generation: options.generation,
       seq,
-      ...options.build(clientId),
+      reason,
+      ...list,
+      layout,
     });
   }
 
+  /**
+   * Sends one connection a batch of changes.
+   *
+   * @remarks
+   * See `createIndexFeed`.
+   *
+   * @sideEffects Sends an event.
+   * @param connectionId - The connection.
+   * @param changes - The collections' changes.
+   * @param layout - The client's layout, or `null` when unchanged.
+   * @param withPreferences - Whether the preferences go along.
+   * @param list - The list.
+   */
+  function sendChanges(
+    connectionId: string,
+    changes: Pick<IndexChangesEvent, CollectionName>,
+    layout: Layout | null,
+    withPreferences: boolean,
+    list: IndexContent,
+  ): void {
+    options.registry.sendTo(connectionId, {
+      type: "index_changes",
+      generation: options.generation,
+      seq,
+      ...changes,
+      layout,
+      preferences: withPreferences ? list.preferences : null,
+    });
+  }
+
+  /**
+   * Why a cursor cannot be served with changes, if it cannot.
+   *
+   * @remarks
+   * See `createIndexFeed`. A cursor ahead of the feed cannot come from this host's list either.
+   *
+   * @sideEffects none
+   * @param cursor - The client's cursor.
+   * @returns The reason, or `null` when changes will do.
+   */
+  function unservable(cursor: IndexCursor | undefined): SnapshotReason | null {
+    if (cursor === undefined) return "no_cursor";
+    if (cursor.generation !== options.generation) return "generation_changed";
+    return cursor.seq > seq || cursor.seq < forgottenUpTo ? "cursor_expired" : null;
+  }
+
+  /**
+   * Sends every subscriber what changed since it was last sent anything.
+   *
+   * @remarks
+   * Subscribers that went away are forgotten.
+   *
+   * @sideEffects Sends events; updates what was sent.
+   */
+  function push(): void {
+    const list = refresh();
+    const subscribers = options.registry.indexSubscribers();
+    const live = new Set(subscribers.map((subscriber) => subscriber.connectionId));
+    for (const connectionId of sent.keys()) if (!live.has(connectionId)) sent.delete(connectionId);
+    for (const { connectionId, clientId } of subscribers) {
+      const last = sent.get(connectionId);
+      // Stryker disable next-line ConditionalExpression: a subscriber is always sent its first answer before any push.
+      if (last === undefined) continue;
+      const layout = options.layoutOf(clientId);
+      const layoutJson = JSON.stringify(layout);
+      const layoutChanged = layoutJson !== last.layout;
+      if (last.seq === seq && !layoutChanged) continue;
+      const { changes } = changesAfter(list, last.seq);
+      sendChanges(connectionId, changes, layoutChanged ? layout : null, preferences.seq > last.seq, list);
+      sent.set(connectionId, { seq, layout: layoutJson });
+    }
+  }
+
   return {
-    subscribe(connectionId) {
+    subscribe(connectionId, cursor) {
       const subscriber = options.registry.subscribeIndex(connectionId);
-      if (subscriber !== undefined) send(subscriber.connectionId, subscriber.clientId);
+      if (subscriber === undefined) return;
+      const list = refresh();
+      const layout = options.layoutOf(subscriber.clientId);
+      sent.set(connectionId, { seq, layout: JSON.stringify(layout) });
+      const reason = unservable(cursor);
+      if (reason !== null || cursor === undefined) {
+        sendSnapshot(connectionId, list, layout, reason ?? "no_cursor");
+        return;
+      }
+      const { changes, size } = changesAfter(list, cursor.seq);
+      if (size > changesLimit) {
+        sendSnapshot(connectionId, list, layout, "too_many_changes");
+        return;
+      }
+      sendChanges(connectionId, changes, layout, true, list);
     },
     changed() {
       // Sessions stopping while the host closes still report changes; nobody is left to tell.
@@ -78,7 +309,7 @@ export function createIndexFeed(options: {
         options.resources,
         () => {
           cancel = null;
-          for (const { connectionId, clientId } of options.registry.indexSubscribers()) send(connectionId, clientId);
+          push();
         },
         INDEX_PUSH_DELAY_MS,
       );
