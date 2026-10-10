@@ -105,6 +105,8 @@ export interface FakeAnswers {
   readonly openSession?: () => Promise<void>;
   /** The list `loadModels` puts in a container's model list; empty and ready when left out. */
   readonly models?: ModelListView;
+  /** Holds back an upload, given its number counting from 1. */
+  readonly upload?: (number: number) => Promise<void>;
 }
 
 /**
@@ -339,8 +341,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async uploadAttachment(mimeType: string) {
       uploaded += 1;
+      const number = uploaded;
       calls.push(`uploadAttachment ${mimeType}`);
-      return { attachmentId: `u${uploaded}` };
+      await answers.upload?.(number);
+      return { attachmentId: `u${number}` };
     },
     async listCommands(sessionId: string) {
       calls.push(`listCommands ${sessionId}`);

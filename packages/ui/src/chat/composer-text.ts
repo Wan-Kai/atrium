@@ -103,7 +103,8 @@ export function filterCommands(commands: readonly SlashCommand[], query: string)
  * The `@` must not follow a letter, digit or `._+-`, so a mail address does not count; Chinese
  * has no spaces between words, so it may follow a character or punctuation. The query is what is
  * typed between it and the caret, as in pi's terminal. A word opened with `@"`, as going into a
- * directory with white space in its name writes it, runs to its closing quote, spaces and all.
+ * directory with white space in its name writes it, runs to its closing quote, spaces and all; a
+ * quote past a space or line break belongs to other words.
  *
  * @sideEffects none
  * @param text - The box's text.
@@ -115,8 +116,9 @@ export function mentionAt(text: string, caret: number): Mention | null {
   if (quoted !== null) {
     // Stryker disable next-line StringLiteral: the group always matches, if only nothing.
     const query = quoted[1] ?? "";
-    const close = text.indexOf('"', caret);
-    return { start: caret - query.length - 2, end: close === -1 ? caret : close + 1, query };
+    // The closing quote counts only right after the word, before any space or other word.
+    const closing = /^[^"\s]*"/.exec(text.slice(caret))?.[0].length ?? 0;
+    return { start: caret - query.length - 2, end: caret + closing, query };
   }
   const found = /(?:^|[^\w.+\-@])@([^\s@]*)$/u.exec(text.slice(0, caret));
   if (found === null) return null;

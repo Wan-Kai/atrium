@@ -1,9 +1,10 @@
 import { GIT_SCENE_ENV, type GitScene, createGitScene, createTempDir } from "@atrium/testkit";
-import { mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { systemClock } from "../platform/clock";
-import { createGitRunner } from "../platform/git";
+import { GitError, createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
 import { ignoredDirs, watchRoots, workspaceChanges, workspaceDiff } from "./checkout";
 
@@ -305,6 +306,104 @@ describe("workspaceDiff", () => {
     expect(
       await workspaceDiff(git, repo, null, "uncommitted", signal, { fileBytes: 600, totalBytes: 700, patchBytes: 100 }),
     ).toStrictEqual({ files: [], tooLarge: true, error: null });
+  });
+
+  it("shows a file turned into a link as one change, the other files still with their lines", async () => {
+    const made = await scene();
+    await made.commit(made.repo, "t", "x\n");
+    await rm(join(made.repo, "t"));
+    await symlink("README.md", join(made.repo, "t"));
+    await writeFile(join(made.repo, "README.md"), "start\nmore\n");
+
+    expect(
+      (await workspaceDiff(git, made.repo, null, "uncommitted", signal)).files.map(
+        ({ path, status, content, hunks }) => ({
+          path,
+          status,
+          content,
+          lines: hunks.flatMap((hunk) => hunk.lines.map((line) => `${line.kind} ${line.text}`)),
+        }),
+      ),
+    ).toStrictEqual([
+      { path: "README.md", status: "modified", content: "text", lines: ["context start", "add more"] },
+      { path: "t", status: "modified", content: "text", lines: ["del x", "add README.md"] },
+    ]);
+  });
+
+  it("skips an untracked file it cannot read, or one that is not a file, showing the rest", async () => {
+    const { repo } = await scene();
+    await writeFile(join(repo, "locked.txt"), "secret\n");
+    // Removing the scene removes it too: unlinking needs only the directory's permission.
+    await chmod(join(repo, "locked.txt"), 0o000);
+    execFileSync("mkfifo", [join(repo, "pipe")]);
+    await writeFile(join(repo, "open.txt"), "fine\n");
+
+    expect((await workspaceDiff(git, repo, null, "uncommitted", signal)).files.map((file) => file.path)).toStrictEqual([
+      "open.txt",
+    ]);
+    expect((await workspaceChanges(git, repo, null, signal)).stat).toStrictEqual({ added: 1, removed: 0 });
+  });
+
+  it("says git failed rather than that nothing changed, as with a damaged index", async () => {
+    const { repo } = await scene();
+    await writeFile(join(repo, "README.md"), "changed\n");
+    await writeFile(join(repo, ".git", "index"), "not an index");
+
+    expect(await workspaceDiff(git, repo, null, "uncommitted", signal)).toStrictEqual({
+      files: [],
+      tooLarge: false,
+      error: "failed",
+    });
+    await expect(workspaceChanges(git, repo, null, signal)).rejects.toThrow(GitError);
+  });
+
+  it("spends the size allowance in the panel's order, and counts the lines of an untracked file too large to read", async () => {
+    const { repo } = await scene();
+    await writeFile(join(repo, "README.md"), "z\n".repeat(200));
+    await writeFile(join(repo, "a.txt"), "a\n".repeat(10));
+    await writeFile(join(repo, "huge.txt"), "h\n".repeat(400));
+    const limits = { fileBytes: 700, totalBytes: 600, patchBytes: 100_000 };
+
+    expect(
+      (await workspaceDiff(git, repo, null, "uncommitted", signal, limits)).files.map(({ path, content, added }) => ({
+        path,
+        content,
+        added,
+      })),
+    ).toStrictEqual([
+      { path: "README.md", content: "too_large", added: 200 },
+      { path: "a.txt", content: "text", added: 10 },
+      { path: "huge.txt", content: "too_large", added: 400 },
+    ]);
+  });
+
+  it("compares with origin's main branch by its full name, not a local branch named like it", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+    await made.commit(tree, "f.txt", "f\n");
+    // A local branch named origin/main, at the feature's own commit, would hide every change.
+    await made.git(made.repo, "branch", "origin/main", "feat");
+
+    expect(await workspaceChanges(git, tree, null, signal)).toMatchObject({
+      stat: { added: 1, removed: 0 },
+      ahead: 1,
+      base: "origin/main",
+    });
+    expect((await workspaceDiff(git, tree, null, "base", signal)).files.map((file) => file.path)).toStrictEqual([
+      "f.txt",
+    ]);
+  });
+
+  it("shows a file staged in a repository without a commit", async () => {
+    const empty = await lonely(true);
+    const made = await createGitScene("changes-staged-tools");
+    cleanups.push(made.cleanup);
+    await writeFile(join(empty, "staged.txt"), "s\n");
+    await made.git(empty, "add", "staged.txt");
+
+    expect((await workspaceDiff(git, empty, null, "uncommitted", signal)).files).toMatchObject([
+      { path: "staged.txt", status: "added", added: 1, content: "text" },
+    ]);
   });
 
   it("says a directory that is not a repository is not one", async () => {

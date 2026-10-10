@@ -8,7 +8,8 @@ export const MENU_ITEM =
  * A button that opens a small menu below it.
  *
  * @remarks
- * Closes on choosing, on Escape and on a click elsewhere.
+ * Closes on choosing, on Escape and on a click elsewhere. Its Escape goes no further, so a panel
+ * holding the menu stays open.
  *
  * @sideEffects Listens for clicks and keys on the document while open.
  * @param props - The button's content, label, size and alignment, and the menu's items given a way to close it.
@@ -34,23 +35,37 @@ export function MenuButton({
   useEffect(() => {
     if (!open) return undefined;
     /**
-     * Closes the menu on Escape or a click outside it.
+     * Closes the menu on a click outside it.
      *
      * @remarks
      * See `MenuButton`.
      *
      * @sideEffects May close the menu.
-     * @param event - The key or pointer event.
+     * @param event - The pointer event.
      */
     const close = (event: Event): void => {
-      const outside = !(event.target instanceof Node && root.current?.contains(event.target) === true);
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : outside) setOpen(false);
+      if (!(event.target instanceof Node && root.current?.contains(event.target) === true)) setOpen(false);
+    };
+    /**
+     * Closes the menu on Escape, before anything else hears it.
+     *
+     * @remarks
+     * Caught on its way down, so what holds the menu does not take the Escape for itself.
+     *
+     * @sideEffects May close the menu; stops the event.
+     * @param event - The key event.
+     */
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
     };
     document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
+    document.addEventListener("keydown", escape, true);
     return () => {
       document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
+      document.removeEventListener("keydown", escape, true);
     };
   }, [open]);
   return (

@@ -4,8 +4,7 @@ import {
   countLines,
   isLikelyBinary,
   parseHunks,
-  parseNameStatus,
-  parseNumstat,
+  parseDiffOutput,
   parseShortstat,
   splitPatch,
 } from "./diff-text";
@@ -22,29 +21,65 @@ describe("parseShortstat", () => {
   });
 });
 
-describe("parseNumstat", () => {
-  it("reads -z numstat: counts, binary files, and renames with both paths", () => {
-    expect(parseNumstat("3\t1\tsrc/a.ts\0-\t-\tlogo.png\x000\t0\t\0old name.ts\0new\tname.ts\0")).toStrictEqual([
-      { path: "src/a.ts", oldPath: null, added: 3, removed: 1, binary: false },
-      { path: "logo.png", oldPath: null, added: 0, removed: 0, binary: true },
-      { path: "new\tname.ts", oldPath: "old name.ts", added: 0, removed: 0, binary: false },
-    ]);
-    expect(parseNumstat("")).toStrictEqual([]);
-  });
-});
+describe("parseDiffOutput", () => {
+  it("reads one run's raw and numstat records in order, then the patch after them", () => {
+    const output = [
+      ":100644 100644 aaa 000 M",
+      "src/a.ts",
+      ":100644 100644 bbb bbb R087",
+      "old name.ts",
+      "new\tname.ts",
+      ":100644 120000 ccc 000 T",
+      "t",
+      ":000000 100644 000 ddd A",
+      "logo.png",
+      ":100644 100644 eee eee C100",
+      "f.ts",
+      "g.ts",
+      ":100644 000000 fff 000 D",
+      "gone.ts",
+      "3\t1\tsrc/a.ts",
+      "0\t0\t",
+      "old name.ts",
+      "new\tname.ts",
+      "1\t1\tt",
+      "-\t-\tlogo.png",
+      "0\t0\t",
+      "f.ts",
+      "g.ts",
+      "0\t2\tgone.ts",
+      "",
+      "diff --git a/src/a.ts b/src/a.ts\n",
+    ].join("\0");
 
-describe("parseNameStatus", () => {
-  it("reads -z name-status into each new path's status, renames and copies by their new path", () => {
-    expect(parseNameStatus("M\0a.ts\0A\0b.ts\0D\0c.ts\0R087\0d.ts\0e.ts\0C100\0f.ts\0g.ts\0T\0h\0")).toStrictEqual(
-      new Map([
-        ["a.ts", "modified"],
-        ["b.ts", "added"],
-        ["c.ts", "deleted"],
-        ["e.ts", "renamed"],
-        ["g.ts", "added"],
-        ["h", "modified"],
-      ]),
-    );
+    expect(parseDiffOutput(output)).toStrictEqual({
+      entries: [
+        {
+          path: "src/a.ts",
+          oldPath: null,
+          status: "modified",
+          typeChanged: false,
+          added: 3,
+          removed: 1,
+          binary: false,
+        },
+        {
+          path: "new\tname.ts",
+          oldPath: "old name.ts",
+          status: "renamed",
+          typeChanged: false,
+          added: 0,
+          removed: 0,
+          binary: false,
+        },
+        { path: "t", oldPath: null, status: "modified", typeChanged: true, added: 1, removed: 1, binary: false },
+        { path: "logo.png", oldPath: null, status: "added", typeChanged: false, added: 0, removed: 0, binary: true },
+        { path: "g.ts", oldPath: null, status: "added", typeChanged: false, added: 0, removed: 0, binary: false },
+        { path: "gone.ts", oldPath: null, status: "deleted", typeChanged: false, added: 0, removed: 2, binary: false },
+      ],
+      patch: "diff --git a/src/a.ts b/src/a.ts\n",
+    });
+    expect(parseDiffOutput("")).toStrictEqual({ entries: [], patch: "" });
   });
 });
 
@@ -104,12 +139,23 @@ describe("parseHunks", () => {
   });
 
   it("takes a line that looks like a header inside a hunk as a line", () => {
-    const section = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n--- not a header\n++++ nor this\n";
+    const section = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n--- not a header\n++++ nor this\n";
 
     expect(parseHunks(section)[0]?.lines).toStrictEqual([
       { kind: "del", oldNumber: 1, newNumber: null, text: "-- not a header" },
       { kind: "add", oldNumber: null, newNumber: 1, text: "+++ nor this" },
     ]);
+  });
+
+  it("takes an empty line in a hunk as an empty context line, as git writes it with diff.suppressBlankEmpty", () => {
+    expect(parseHunks("diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n a\n\n-b\n+c\n")[0]?.lines).toStrictEqual(
+      [
+        { kind: "context", oldNumber: 1, newNumber: 1, text: "a" },
+        { kind: "context", oldNumber: 2, newNumber: 2, text: "" },
+        { kind: "del", oldNumber: 3, newNumber: null, text: "b" },
+        { kind: "add", oldNumber: null, newNumber: 3, text: "c" },
+      ],
+    );
   });
 
   it("finds no hunks in a binary file's section", () => {

@@ -53,6 +53,19 @@ describe("createAttachmentStore", () => {
     expect(await take("c1", [id])).toStrictEqual([{ data: data(10), mimeType: "image/webp" }]);
   });
 
+  it("lets one message at a time use an upload, freeing it again when that message fails", async () => {
+    const { attachments, take } = store();
+    const id = attachments.put("c1", "image/webp", data(10));
+    const sending = Promise.withResolvers<string>();
+    const first = attachments.use("c1", [id], () => sending.promise);
+
+    await expect(take("c1", [id])).rejects.toStrictEqual(new CommandError("attachment_missing", { attachmentId: id }));
+    sending.reject(new CommandError("session_stopping"));
+    await expect(first).rejects.toStrictEqual(new CommandError("session_stopping"));
+
+    expect(await take("c1", [id])).toHaveLength(1);
+  });
+
   it("gives a connection only its own uploads, and takes none when one is missing", async () => {
     const { attachments, take } = store();
     const mine = attachments.put("c1", "image/png", data(1));

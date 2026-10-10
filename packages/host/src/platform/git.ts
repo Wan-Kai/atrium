@@ -29,11 +29,12 @@ export class GitError extends Error {
    * @sideEffects none
    * @param command - The git subcommand.
    * @param reason - `spawn` when git could not start or died by a signal, `timeout`, `aborted`,
-   * or `too_large` when it printed more than allowed.
+   * `too_large` when it printed more than allowed, or `exit` when a caller needed it to succeed
+   * and it exited with an error.
    */
   constructor(
     readonly command: string,
-    readonly reason: "spawn" | "timeout" | "aborted" | "too_large",
+    readonly reason: "spawn" | "timeout" | "aborted" | "too_large" | "exit",
   ) {
     super(`git ${command} ${reason}`);
     this.name = "GitError";

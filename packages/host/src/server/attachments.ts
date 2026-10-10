@@ -28,7 +28,8 @@ interface Kept {
  * @remarks
  * SPEC-0001 ("附件"): images are kept in memory per connection, up to a total size and count; a
  * message taken by its session takes them off, and so does the connection closing or 30 minutes
- * passing unused. A message the session refuses leaves them, so it can go again. Once
+ * passing unused. A message the session refuses leaves them, so it can go again. While one message
+ * is on its way with them, another naming them is told they are missing, so no image goes twice. Once
  * a message is queued its images go with the queue item, no longer counted here. A message naming
  * an image not here takes none, so it is not sent short of one.
  *
@@ -44,6 +45,8 @@ export function createAttachmentStore(options: {
   readonly keepMs: number;
 }): AttachmentStore {
   const kept = new Map<string, Kept>();
+  /** Uploads a message is being sent with; another message cannot have them meanwhile. */
+  const inUse = new Set<string>();
 
   /**
    * Lets one upload go.
@@ -73,15 +76,20 @@ export function createAttachmentStore(options: {
       return id;
     },
     async use(connectionId, ids, send) {
-      const missing = ids.find((id) => kept.get(id)?.connectionId !== connectionId);
+      const missing = ids.find((id) => kept.get(id)?.connectionId !== connectionId || inUse.has(id));
       if (missing !== undefined) throw new CommandError("attachment_missing", { attachmentId: missing });
       const images = ids.flatMap((id) => {
         const one = kept.get(id);
         return one === undefined ? [] : [one.image];
       });
-      const sent = await send(images);
-      for (const id of ids) release(id);
-      return sent;
+      for (const id of ids) inUse.add(id);
+      try {
+        const sent = await send(images);
+        for (const id of ids) release(id);
+        return sent;
+      } finally {
+        for (const id of ids) inUse.delete(id);
+      }
     },
     drop(connectionId) {
       for (const [id, one] of kept) if (one.connectionId === connectionId) release(id);

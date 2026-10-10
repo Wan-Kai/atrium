@@ -319,8 +319,10 @@ export function Composer({
     event.preventDefault();
     setDragging(false);
     const dropped = [...event.dataTransfer.files];
-    // Only the drop's entries tell a directory from a file.
-    const directories = [...event.dataTransfer.items].map((item) => item.webkitGetAsEntry()?.isDirectory === true);
+    // Only the drop's entries tell a directory from a file; its file entries line up with its files.
+    const directories = [...event.dataTransfer.items]
+      .filter((item) => item.kind === "file")
+      .map((item) => item.webkitGetAsEntry()?.isDirectory === true);
     addImages(dropped.filter((file) => file.type.startsWith("image/")));
     referFiles(
       dropped.flatMap((file, at) =>

@@ -188,21 +188,65 @@ export function ControlTrack({
             {control.steers.length} 条插话将在下一步前送达
           </span>
         ) : null}
-        {changes === undefined ? null : (
-          <button
-            type="button"
-            aria-label="查看改动"
-            title="查看改动"
-            aria-expanded={changes.open}
-            className={`${CAPSULE} ml-auto`}
-            onClick={changes.onToggle}
-          >
-            <GitDiff size={12} className="text-[var(--text-dim)]" />
-            <DiffCounts {...changes.stat} />
-          </button>
-        )}
+        {changes === undefined ? null : <ChangesCapsule {...changes} />}
       </div>
     </>
+  );
+}
+
+/**
+ * The workspace's changes capsule alone, as the empty state shows it with no session open.
+ *
+ * @remarks
+ * Where the capsule bar would be (SPEC-0001, "工作区改动").
+ *
+ * @sideEffects none
+ * @param props - The changes and the panel.
+ * @returns The capsule.
+ */
+export function ChangesTrack({
+  changes,
+}: {
+  readonly changes: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void };
+}) {
+  return (
+    <div className="pointer-events-none absolute right-1 bottom-[calc(100%+8px)] left-1 flex gap-1.5">
+      <ChangesCapsule {...changes} />
+    </div>
+  );
+}
+
+/**
+ * The "+A −D" capsule that opens the changes panel.
+ *
+ * @remarks
+ * On the bar's right (SPEC-0001, "工作区改动").
+ *
+ * @sideEffects Calls `onToggle` when clicked.
+ * @param props - The counts, whether the panel is open, and how to toggle it.
+ * @returns The capsule.
+ */
+function ChangesCapsule({
+  stat,
+  open,
+  onToggle,
+}: {
+  readonly stat: DiffStat;
+  readonly open: boolean;
+  readonly onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label="查看改动"
+      title="查看改动"
+      aria-expanded={open}
+      className={`${CAPSULE} ml-auto`}
+      onClick={onToggle}
+    >
+      <GitDiff size={12} className="text-[var(--text-dim)]" />
+      <DiffCounts {...stat} />
+    </button>
   );
 }
 

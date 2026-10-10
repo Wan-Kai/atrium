@@ -17,7 +17,7 @@ import { historyOf } from "./composer-text";
 import { ChangesPanel } from "./changes-panel";
 import { shownModel } from "./model-choice";
 import { ModelPicker } from "./model-picker";
-import { ControlCards, ControlTrack, type RunActions } from "./run-control";
+import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -372,6 +372,18 @@ export function ConversationArea({
     setPanelFor(null);
   }
   const panelOpen = panelFor !== null && panelFor === workspaceId;
+  /** The capsule's counts and toggle, when the workspace has changes to show. */
+  const capsule =
+    workspaceId === null || changes === null || changes.stat === null
+      ? undefined
+      : { stat: changes.stat, open: panelOpen, onToggle: () => setPanelFor(panelOpen ? null : workspaceId) };
+  useEffect(() => {
+    if (handing === null || handing.container === containerKey) return;
+    // The area went elsewhere before the session the words went to showed; its own box has them.
+    handingNow.current = null;
+    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- follows the container shown.
+    setHanding(null);
+  }, [handing, containerKey]);
   /**
    * Where the empty state's words go now: its own draft, or the session it handed them to.
    *
@@ -449,7 +461,8 @@ export function ConversationArea({
    * See `ConversationArea`.
    *
    * An image the host has let go after 30 minutes is uploaded again once, from the copy the box
-   * kept (SPEC-0001, "模型与输入框").
+   * kept, one image at a time (SPEC-0001, "模型与输入框"). A message that still does not go goes
+   * back into its box with its latest uploads.
    *
    * @sideEffects Sends commands; may upload images; updates component state.
    * @param text - The message.
@@ -459,6 +472,7 @@ export function ConversationArea({
   async function send(text: string, images: readonly SentImage[], steer = false): Promise<void> {
     setFailure(null);
     let id: string | null = null;
+    let latest = images;
     try {
       id = await target();
       const to = id;
@@ -477,10 +491,13 @@ export function ConversationArea({
         await deliver(images.map((image) => image.attachmentId));
       } catch (error) {
         if (!(error instanceof CommandError && error.code === "attachment_missing")) throw error;
-        const again = await Promise.all(
-          images.map(async ({ image }) => (await client.uploadAttachment(image.mimeType, image.data)).attachmentId),
-        );
-        await deliver(again);
+        const again: SentImage[] = [];
+        for (const { image } of images) {
+          const { attachmentId } = await client.uploadAttachment(image.mimeType, image.data);
+          again.push({ attachmentId, image });
+        }
+        latest = again;
+        await deliver(again.map((image) => image.attachmentId));
       }
     } catch (error) {
       setFailure(describeSendError(error));
@@ -488,7 +505,7 @@ export function ConversationArea({
       pageDrafts().restore(
         id ?? (sessionId === null ? emptyDraftKey() : sessionId),
         text,
-        images.map(({ attachmentId, image }) => ({ id: crypto.randomUUID(), image, attachmentId })),
+        latest.map(({ attachmentId, image }) => ({ id: crypto.randomUUID(), image, attachmentId })),
       );
     }
   }
@@ -618,6 +635,7 @@ export function ConversationArea({
               onListCommands={async () => (await client.listCommands(await target())).commands}
               onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
               onSend={onSend}
+              above={capsule === undefined ? undefined : <ChangesTrack changes={capsule} />}
               picker={
                 <SessionModelPicker
                   client={client}
@@ -644,15 +662,7 @@ export function ConversationArea({
             attaching={attaching}
             takesFocus={handing?.sessionId === sessionId}
             onFocusTaken={() => handTo(null)}
-            changes={
-              workspaceId === null || changes === null || changes.stat === null
-                ? undefined
-                : {
-                    stat: changes.stat,
-                    open: panelOpen,
-                    onToggle: () => setPanelFor(panelOpen ? null : workspaceId),
-                  }
-            }
+            changes={capsule}
           />
         )}
       </div>

@@ -953,19 +953,67 @@ describe("createSessionController steering", () => {
     expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s1", text: "also" }]);
   });
 
-  it("tells pi's steers apart by text, one held text keeping the latest steer with it, as pi delivers from the front", async () => {
+  it("counts pi's steers by its queue growing and shrinking from the front, not by their texts", async () => {
     const { pi, emit } = manualPi();
     const { controller } = control(pi);
     await controller.prompt(prompt("q1", "one"));
     emit({ type: "agent_start" });
     await controller.steer(steer("s1", "same"));
+    emit({ type: "queue_update", steering: ["same"], followUp: [] });
     await controller.steer(steer("s2", "same"));
+    emit({ type: "queue_update", steering: ["same", "same"], followUp: [] });
     await controller.steer(steer("s3", "other"));
     emit({ type: "queue_update", steering: ["same", "same", "other"], followUp: [] });
 
-    emit({ type: "queue_update", steering: ["same", "unknown"], followUp: [] });
+    emit({ type: "queue_update", steering: ["same", "other"], followUp: [] });
 
-    expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s2", text: "same" }]);
+    expect(controller.snapshot().control.steers).toStrictEqual([
+      { id: "s2", text: "same" },
+      { id: "s3", text: "other" },
+    ]);
+  });
+
+  it("follows a steer pi listed by another text, as a skill it expanded, and those after it", async () => {
+    const { pi, emit, hold } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    await controller.steer(steer("s1", "/skill:review"));
+    emit({ type: "queue_update", steering: ["<skill review>…"], followUp: [] });
+    await controller.steer(steer("s2", "and this"));
+    emit({ type: "queue_update", steering: ["<skill review>…", "and this"], followUp: [] });
+
+    emit({ type: "queue_update", steering: ["and this"], followUp: [] });
+    expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s2", text: "and this" }]);
+    await controller.steer(steer("s3", "/skill:review"));
+    emit({ type: "queue_update", steering: ["and this", "<skill review>…"], followUp: [] });
+    hold(["and this", "<skill review>…"]);
+    await controller.stop();
+
+    // Given back as they were sent, so sending them again expands the skill again.
+    expect(controller.snapshot().control.queue.map((item) => item.text)).toStrictEqual(["and this", "/skill:review"]);
+    expect(controller.snapshot().control.steers).toStrictEqual([]);
+  });
+
+  it("sends a steer only once pi has answered the one before, as pi may take steers sent together out of order", async () => {
+    const { pi, emit, sent, steerAnswers } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    const first = Promise.withResolvers<{ disposition: "queued" }>();
+    steerAnswers.push(() => first.promise);
+
+    const steering = [controller.steer(steer("s1", "a")), controller.steer(steer("s2", "b"))];
+    await settle();
+    expect(sent).toStrictEqual(["prompt one", "steer a"]);
+    expect(controller.snapshot().control.steers).toStrictEqual([
+      { id: "s1", text: "a" },
+      { id: "s2", text: "b" },
+    ]);
+    first.resolve({ disposition: "queued" });
+
+    expect(await Promise.all(steering)).toStrictEqual([{ disposition: "queued" }, { disposition: "queued" }]);
+    expect(sent).toStrictEqual(["prompt one", "steer a", "steer b"]);
   });
 
   it("sends a steer as a message when idle, and tells the client when pi handled a steer", async () => {
@@ -1861,17 +1909,22 @@ describe("createSessionController's model", () => {
     expect(controller.snapshot().model).toStrictEqual(opus);
   });
 
-  it("answers as pi failed when the model cannot be read back, its words kept out of the error's message", async () => {
-    const { pi, stateFailures } = manualPi();
+  it("answers a switch pi took though the model could not be read back, reading it after the entries", async () => {
+    const { pi, sent, states, stateFailures } = manualPi();
     const chosen: SessionModel[] = [];
-    const { controller } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
-    stateFailures.push(new ReplayRequestError("get_state", "exited", "fatal: secret-ish words"));
+    const { controller, events } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
+    stateFailures.push(new ReplayRequestError("get_state", "exited"));
+    states.push({ ...opus, modelId: "haiku" });
 
-    await expect(controller.setModel({ providerId: "anthropic", modelId: "haiku" })).rejects.toStrictEqual(
-      new CommandError("pi_unavailable", { status: "exited" }),
-    );
-    expect(chosen).toStrictEqual([]);
-    expect(controller.snapshot().model).toStrictEqual(opus);
+    expect(await controller.setModel({ providerId: "anthropic", modelId: "haiku" })).toStrictEqual({});
+    await settle();
+
+    expect(sent).toStrictEqual(["set_model anthropic/haiku", "get_state", "get_state"]);
+    expect(controller.snapshot().model).toStrictEqual({ ...opus, modelId: "haiku" });
+    expect(events.filter((event) => event.type === "model_updated")).toMatchObject([
+      { model: { ...opus, modelId: "haiku" } },
+    ]);
+    expect(chosen).toStrictEqual([{ ...opus, modelId: "haiku" }]);
   });
 
   it("reports no choice when pi has no model to report", async () => {
@@ -2015,16 +2068,32 @@ describe("createSessionController's images", () => {
     expect(withImages.at(-1)).toStrictEqual(["这张", ["x"]]);
   });
 
+  it("sends a steer of images alone with a placeholder text, which pi can take off its queue once delivered", async () => {
+    const { pi, emit, withImages } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "一"));
+    emit({ type: "agent_start" });
+
+    await controller.steer(steer("s1", ""), [image("x")]);
+    emit({ type: "queue_update", steering: ["（见图片）"], followUp: [] });
+    expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s1", text: "" }]);
+    emit({ type: "queue_update", steering: [], followUp: [] });
+
+    expect(withImages.at(-1)).toStrictEqual(["（见图片）", ["x"]]);
+    expect(controller.snapshot().control.steers).toStrictEqual([]);
+  });
+
   it("gives back the images of the steers pi still holds when two share a text", async () => {
     const { pi, emit, hold, withImages } = manualPi();
     const { controller } = control(pi);
     await controller.prompt(prompt("q1", "一"));
     emit({ type: "agent_start" });
     await controller.steer(steer("s1", ""), [image("a")]);
+    emit({ type: "queue_update", steering: ["（见图片）"], followUp: [] });
     await controller.steer(steer("s2", ""), [image("b")]);
-    emit({ type: "queue_update", steering: ["", ""], followUp: [] });
-    emit({ type: "queue_update", steering: [""], followUp: [] });
-    hold([""]);
+    emit({ type: "queue_update", steering: ["（见图片）", "（见图片）"], followUp: [] });
+    emit({ type: "queue_update", steering: ["（见图片）"], followUp: [] });
+    hold(["（见图片）"]);
 
     await controller.stop();
     expect(controller.snapshot().control.queue).toMatchObject([{ text: "", images: 1 }]);
@@ -2043,6 +2112,7 @@ describe("createSessionController's images", () => {
     const answer = Promise.withResolvers<{ disposition: "queued" }>();
     steerAnswers.push(() => answer.promise);
     const steering = controller.steer(steer("s1", "晚"), [image("x")]);
+    await settle();
 
     const stopping = controller.stop();
     await settle();
@@ -2055,6 +2125,28 @@ describe("createSessionController's images", () => {
     expect(await steering).toStrictEqual({ disposition: "queued" });
     expect(sent).toStrictEqual(["prompt 一", "steer 晚", "abort", "clear_queue"]);
     expect(controller.snapshot().control).toMatchObject({ queue: [{ text: "晚", images: 1 }], steers: [] });
+  });
+
+  it("sends no steer whose turn comes once a stop began, refusing it so it can go again", async () => {
+    const { pi, emit, sent, steerAnswers } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "一"));
+    emit({ type: "agent_start" });
+    const first = Promise.withResolvers<{ disposition: "queued" }>();
+    steerAnswers.push(() => first.promise);
+    const earlier = controller.steer(steer("s1", "先"));
+    const later = controller.steer(steer("s2", "后"), [image("y")]);
+    await settle();
+
+    const stopping = controller.stop();
+    emit({ type: "queue_update", steering: ["先"], followUp: [] });
+    first.resolve({ disposition: "queued" });
+
+    await expect(later).rejects.toStrictEqual(new CommandError("session_stopping"));
+    expect(await earlier).toStrictEqual({ disposition: "queued" });
+    await stopping;
+    expect(sent).toStrictEqual(["prompt 一", "steer 先", "abort", "clear_queue"]);
+    expect(controller.snapshot().control.steers).toStrictEqual([]);
   });
 
   it("sends a message with its images again after a crash, when pi had not taken it", async () => {

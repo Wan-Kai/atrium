@@ -738,6 +738,21 @@ function inTurn(
   };
 }
 
+/** Fails a prompt with `first`, then every later one with `then`. */
+function failing(first: Error, then: Error): () => Promise<never> {
+  let used = false;
+  return () => {
+    const error = used ? then : first;
+    used = true;
+    return Promise.reject(error);
+  };
+}
+
+/** Holds back the upload numbered `number` until `until` settles. */
+function holding(number: number, until: Promise<void>): (uploaded: number) => Promise<void> {
+  return (uploaded) => (uploaded === number ? until : Promise.resolve());
+}
+
 /** A small PNG, as a pasted screenshot. */
 async function shot(): Promise<File> {
   const canvas = new OffscreenCanvas(20, 20);
@@ -776,6 +791,46 @@ describe("ConversationArea's images", () => {
       ]),
     );
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("uploads the images again one at a time, and puts the message back with the new uploads when it still fails", async () => {
+    const third = Promise.withResolvers<void>();
+    const { client, calls } = fakeClient(
+      {},
+      {
+        prompt: failing(
+          new CommandError("attachment_missing", { attachmentId: "u1" }),
+          new CommandError("session_busy"),
+        ),
+        upload: holding(3, third.promise),
+      },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    pasteFile(box.element(), await shot());
+    pasteFile(box.element(), await shot());
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+
+    await userEvent.type(box, "两张{Enter}");
+    await vi.waitFor(() => expect(calls.filter((call) => call.startsWith("upload"))).toHaveLength(3));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.filter((call) => call.startsWith("upload"))).toHaveLength(3);
+    third.resolve();
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 正在忙，等这一轮结束再发");
+    await expect.element(box).toHaveValue("两张");
+    await expect.element(screen.getByRole("img", { name: "图片 2" })).toBeVisible();
+    await userEvent.type(box, "{Enter}");
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.startsWith("prompt"))).toStrictEqual([
+        "prompt s1 两张 +u1 +u2",
+        "prompt s1 两张 +u3 +u4",
+        "prompt s1 两张 +u3 +u4",
+      ]),
+    );
+    pageDrafts().drop(["s1"]);
   });
 
   it("refuses images while the session's model takes none", async () => {
@@ -845,6 +900,18 @@ describe("ConversationArea's workspace changes", () => {
         "watchChanges ",
       ]),
     );
+  });
+
+  it("shows the capsule in the empty state too, with no session open", async () => {
+    const { client } = fakeClient();
+    client.changes(W).setState(changed);
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId={null} create={noCreate} />),
+    );
+
+    await screen.getByRole("button", { name: "查看改动" }).click();
+
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
   });
 
   it("closes the panel on going to another container, and with its own button", async () => {
@@ -934,6 +1001,33 @@ describe("ConversationArea handing the first words to a new session", () => {
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("/rev");
     await expect.element(screen.getByRole("textbox", { name: "消息" })).not.toHaveFocus();
     pageDrafts().drop(["new1"]);
+  });
+
+  it("forgets the session the words went to once the area goes to another container before it shows", async () => {
+    const { client, calls, index } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="wks_0000000000000002" sessionId={null} create={create} />),
+    );
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "新的{Enter}");
+
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => /^(createChat|prompt)/.test(call))).toStrictEqual([
+        "createChat",
+        "createChat",
+        "prompt new2 新的",
+      ]),
+    );
+    pageDrafts().drop(["new1", "new2"]);
   });
 
   it("hands the words over even when the new session shows before its creation is answered", async () => {

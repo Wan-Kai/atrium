@@ -10,7 +10,7 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import { GitError } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
-import type { CheckoutReader, WatchRoots } from "./checkout";
+import type { CheckoutReader, WatchRoots, WorkspaceChanges, WorkspaceDiff } from "./checkout";
 
 /** How long after a file changes the capsule's count is worked out again (SPEC-0001, "工作区改动"). */
 export const CHANGES_DEBOUNCE_MS = 1_000;
@@ -104,6 +104,8 @@ interface Watched {
   cancelDiff: (() => void) | null;
   /** Stops the looks taken while the watcher has failed, and the tries to watch again. */
   stopPolling: (() => void) | null;
+  /** Counts the rounds of looking, so an earlier round's callbacks know they are over. */
+  generation: number;
 }
 
 /**
@@ -207,10 +209,11 @@ export function createChangesService(options: {
       cancelChanges: null,
       cancelDiff: null,
       stopPolling: null,
+      generation: 0,
     };
     watched.set(workspaceId, fresh);
     // Fire and forget: `startWatching` reports its own failures.
-    void startWatching(fresh);
+    void startWatching(fresh, true);
     return fresh;
   }
 
@@ -250,14 +253,17 @@ export function createChangesService(options: {
    * Watches a workspace's tree and git directories.
    *
    * @remarks
-   * Nothing is watched outside a repository, whose changes are always none. A watcher failing
-   * switches to looking now and then (`degrade`).
+   * Nothing is watched outside a repository, whose changes are always none. A watcher failing,
+   * or git failing to say what to watch when `degradeOnFailure`, switches to looking now and then
+   * (`degrade`). Once watching, it looks again, for what changed before.
    *
-   * @sideEffects Runs git; watches files.
+   * @sideEffects Runs git; watches files; may look.
    * @param entry - The workspace.
+   * @param degradeOnFailure - Whether git failing switches to looking now and then; a try to
+   * watch again does not, as its looks go on.
    * @returns Whether it is watched.
    */
-  async function startWatching(entry: Watched): Promise<boolean> {
+  async function startWatching(entry: Watched, degradeOnFailure: boolean): Promise<boolean> {
     const reader = await options.reader;
     const place = options.resolve(entry.workspaceId);
     if (reader === null || place === undefined) return false;
@@ -266,7 +272,9 @@ export function createChangesService(options: {
       roots = await reader.roots(place.dir, entry.stop.signal);
       if (roots !== null) entry.ignored = await reader.ignored(roots.top, entry.stop.signal);
     } catch (error) {
+      if (entry.stop.signal.aborted) return false;
       failed(entry, error);
+      if (degradeOnFailure) degrade(entry);
       return false;
     }
     if (roots === null || entry.stop.signal.aborted) return false;
@@ -293,6 +301,8 @@ export function createChangesService(options: {
         ),
       ),
     );
+    // What changed before the watchers were up would otherwise wait for the next change.
+    ask(entry, entry.viewers.size > 0, [...new Set(entry.panels.values())]);
     return true;
   }
 
@@ -383,6 +393,19 @@ export function createChangesService(options: {
    */
   function degrade(entry: Watched): void {
     unwatch(entry);
+    entry.generation += 1;
+    const generation = entry.generation;
+    /**
+     * Whether this round of looking is still the one in force.
+     *
+     * @remarks
+     * A later failure starts another round, and a stop or the watchers coming back ends it.
+     *
+     * @sideEffects none
+     * @returns Whether it is.
+     */
+    const current = (): boolean =>
+      entry.generation === generation && entry.stopPolling !== null && !entry.stop.signal.aborted;
     options.logger.warn({ workspaceId: entry.workspaceId }, "changes watch failed, looking now and then");
     let wait = POLL_START_MS;
     let tries = 0;
@@ -403,7 +426,7 @@ export function createChangesService(options: {
         // Fire and forget: the look reports its own failures.
         void (async () => {
           await entry.running;
-          if (entry.stopPolling === null || entry.stop.signal.aborted) return;
+          if (!current()) return;
           wait = entry.sentChanges === before ? Math.min(POLL_MAX_MS, wait * 2) : POLL_START_MS;
           nextLook();
         })();
@@ -423,12 +446,12 @@ export function createChangesService(options: {
           tries += 1;
           // Fire and forget: a failed try schedules the next.
           void (async () => {
-            const working = await startWatching(entry);
-            if (entry.stop.signal.aborted || entry.stopPolling === null) return;
+            const working = await startWatching(entry, false);
+            // The new watchers failing at once has started another round, which goes on.
+            if (!current()) return;
             if (working) {
-              entry.stopPolling();
+              entry.stopPolling?.();
               entry.stopPolling = null;
-              changed(entry);
             } else {
               nextTry();
             }
@@ -465,6 +488,8 @@ export function createChangesService(options: {
     const look = lookLoop(entry).finally(() => {
       entry.running = null;
       looks.delete(look);
+      // Asked for after the loop's last check but before it ended: look again.
+      if (entry.wantChanges || entry.wantDiffs.size > 0) ask(entry, false, []);
     });
     entry.running = look;
     looks.add(look);
@@ -487,10 +512,14 @@ export function createChangesService(options: {
       entry.wantChanges = false;
       entry.wantDiffs.clear();
       const place = options.resolve(entry.workspaceId);
-      if (reader === null || place === undefined) return;
-      try {
-        if (changes) {
-          const now = await reader.changes(place.dir, place.mainBranch, entry.stop.signal);
+      if (place === undefined) return;
+      if (changes) {
+        try {
+          // Without git there is nothing to count.
+          const now: WorkspaceChanges =
+            reader === null
+              ? { stat: null, dirty: false, ahead: 0, branch: null, base: null }
+              : await reader.changes(place.dir, place.mainBranch, entry.stop.signal);
           const json = JSON.stringify(now);
           const fresh = json !== entry.sentChanges;
           entry.sentChanges = json;
@@ -499,9 +528,17 @@ export function createChangesService(options: {
           for (const connectionId of to) {
             options.send(connectionId, { type: "changes_updated", workspaceId: entry.workspaceId, ...now });
           }
+        } catch (error) {
+          if (!entry.stop.signal.aborted) failed(entry, error);
         }
-        for (const mode of modes) {
-          const now = await reader.diff(place.dir, place.mainBranch, mode, entry.stop.signal);
+      }
+      for (const mode of modes) {
+        try {
+          // Without git the panel says it could not read the changes (SPEC-0001, "工作区改动").
+          const now: WorkspaceDiff =
+            reader === null
+              ? { files: [], tooLarge: false, error: "failed" }
+              : await reader.diff(place.dir, place.mainBranch, mode, entry.stop.signal);
           const json = JSON.stringify(now);
           const fresh = json !== entry.sentDiffs.get(mode);
           entry.sentDiffs.set(mode, json);
@@ -511,9 +548,9 @@ export function createChangesService(options: {
             entry.owedDiffs.delete(connectionId);
             options.send(connectionId, { type: "diff_updated", workspaceId: entry.workspaceId, mode, ...now });
           }
+        } catch (error) {
+          if (!entry.stop.signal.aborted) failed(entry, error);
         }
-      } catch (error) {
-        if (!entry.stop.signal.aborted) failed(entry, error);
       }
     }
   }
@@ -606,6 +643,7 @@ export function createChangesService(options: {
       for (const workspaceId of showing.get(connectionId) ?? []) {
         const entry = watched.get(workspaceId);
         entry?.viewers.delete(connectionId);
+        entry?.owedChanges.delete(connectionId);
         if (entry !== undefined) releaseIfUnseen(entry);
       }
       showing.delete(connectionId);
@@ -613,6 +651,7 @@ export function createChangesService(options: {
       if (panel !== undefined) {
         const entry = watched.get(panel);
         entry?.panels.delete(connectionId);
+        entry?.owedDiffs.delete(connectionId);
         if (entry !== undefined) releaseIfUnseen(entry);
         panelOf.delete(connectionId);
       }

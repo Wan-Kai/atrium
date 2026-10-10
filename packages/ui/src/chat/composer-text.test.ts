@@ -98,6 +98,11 @@ describe("mentionAt", () => {
     expect(mentionAt('x @"a b/c" y', 9)).toStrictEqual({ start: 2, end: 10, query: "a b/c" });
     expect(mentionAt('x @"a b" y', 10)).toBeNull();
   });
+
+  it("ends a quoted @ word at the caret when its closing quote is past other words", () => {
+    expect(mentionAt('看 @"my dir/ 然后说 "好"', 11)).toStrictEqual({ start: 2, end: 11, query: "my dir/" });
+    expect(mentionAt('@"a b/c\n"', 7)).toStrictEqual({ start: 0, end: 7, query: "a b/c" });
+  });
 });
 
 describe("removeMention and enterDirectory", () => {

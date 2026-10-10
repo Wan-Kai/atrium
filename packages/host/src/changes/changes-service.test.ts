@@ -62,12 +62,15 @@ function diff(mode: DiffMode, version: number): WorkspaceDiff {
  * @sideEffects none
  * @returns The service and what a test drives and checks.
  */
-function harness() {
+function harness(options: { readonly reader?: "none" } = {}) {
   const clock = new FakeClock();
   const { logger, records, resources } = recordingTracing();
   const now = { changes: changes(1), version: 1, roots: { top: "/top", gitDirs: ["/git/worktrees/w", "/git"] } };
   const reads: string[] = [];
   const failures: unknown[] = [];
+  const rootFailures: unknown[] = [];
+  /** Whether the next watchers fail as soon as they start, as `fs.watch` throwing does. */
+  const watching = { fails: false };
   const reader: CheckoutReader = {
     async changes(dir, mainBranch) {
       reads.push(`changes ${dir} ${String(mainBranch)}`);
@@ -80,6 +83,7 @@ function harness() {
     },
     async roots(dir) {
       reads.push(`roots ${dir}`);
+      if (rootFailures.length > 0) throw rootFailures.shift();
       return now.roots;
     },
     async ignored(top) {
@@ -91,13 +95,14 @@ function harness() {
   const watch: WatchDirectory = (dir, onEvent, onError) => {
     const watcher = { dir, onEvent, onError, open: true };
     watchers.push(watcher);
+    if (watching.fails) queueMicrotask(onError);
     return () => {
       watcher.open = false;
     };
   };
   const sent: [string, unknown][] = [];
   const service = createChangesService({
-    reader: Promise.resolve(reader),
+    reader: Promise.resolve(options.reader === "none" ? null : reader),
     resolve: (workspaceId) =>
       workspaceId === W1
         ? { dir: "/top/w1", mainBranch: null }
@@ -117,7 +122,20 @@ function harness() {
     if (found === undefined) throw new Error(`no open watcher of ${dir}`);
     return found;
   };
-  return { service, clock, records, resources, now, reads, failures, watchers, watcherOf, sent };
+  return {
+    service,
+    clock,
+    records,
+    resources,
+    now,
+    reads,
+    failures,
+    rootFailures,
+    watching,
+    watchers,
+    watcherOf,
+    sent,
+  };
 }
 
 /** The event a connection is sent for W1's changes. */
@@ -132,7 +150,8 @@ describe("ChangesService: the capsule's count", () => {
     service.watchChanges("c1", [W1]);
     await settle();
     expect(sent).toStrictEqual([["c1", updated(1)]]);
-    expect(reads).toStrictEqual(["roots /top/w1", "changes /top/w1 null", "ignored /top"]);
+    // Once the watchers are up it looks again, for what changed before they were.
+    expect(reads).toStrictEqual(["roots /top/w1", "changes /top/w1 null", "ignored /top", "changes /top/w1 null"]);
 
     now.changes = changes(2);
     watcherOf("/top").onEvent("src/a.ts");
@@ -148,7 +167,7 @@ describe("ChangesService: the capsule's count", () => {
       ["c1", updated(1)],
       ["c1", updated(2)],
     ]);
-    expect(reads.filter((read) => read.startsWith("changes"))).toHaveLength(2);
+    expect(reads.filter((read) => read.startsWith("changes"))).toHaveLength(3);
   });
 
   it("does not send the same changes twice, but sends a newly showing connection what it has not had", async () => {
@@ -221,6 +240,7 @@ describe("ChangesService: the capsule's count", () => {
       "roots /top/w1",
       "changes /top/w1 null",
       "ignored /top",
+      "changes /top/w1 null",
       "ignored /top",
       "changes /top/w1 null",
     ]);
@@ -266,6 +286,8 @@ describe("ChangesService: the capsule's count", () => {
       ["c1", updated(4)],
     ]);
     expect(reads.filter((read) => read.startsWith("changes"))).toStrictEqual([
+      "changes /top/w1 null",
+      "changes /w2 trunk",
       "changes /top/w1 null",
       "changes /w2 trunk",
       "changes /w2 trunk",
@@ -352,7 +374,7 @@ describe("ChangesService: the panel", () => {
     service.watchDiff("c1", null);
 
     expect(watchers.map((watcher) => watcher.open)).toStrictEqual([false, false, false]);
-    expect(reads).toStrictEqual(["roots /w2", "diff /w2 base", "ignored /top"]);
+    expect(reads).toStrictEqual(["roots /w2", "diff /w2 base", "ignored /top", "diff /w2 base"]);
     expect(sent).toHaveLength(1);
   });
 
@@ -365,7 +387,97 @@ describe("ChangesService: the panel", () => {
   });
 });
 
+describe("ChangesService without git, or when git fails", () => {
+  it("tells a panel git could not be read, and the capsule there is nothing, when there is no git", async () => {
+    const { service, sent } = harness({ reader: "none" });
+
+    service.watchChanges("c1", [W1]);
+    service.watchDiff("c1", { workspaceId: W1, mode: "base" });
+    await settle();
+
+    expect(sent).toStrictEqual([
+      [
+        "c1",
+        { type: "changes_updated", workspaceId: W1, stat: null, dirty: false, ahead: 0, branch: null, base: null },
+      ],
+      ["c1", { type: "diff_updated", workspaceId: W1, mode: "base", files: [], tooLarge: false, error: "failed" }],
+    ]);
+  });
+
+  it("still sends the panel's diff when the count cannot be read", async () => {
+    const { service, sent, failures } = harness();
+    failures.push(new GitError("status", "exit"));
+
+    service.watchChanges("c1", [W1]);
+    service.watchDiff("c1", { workspaceId: W1, mode: "uncommitted" });
+    await settle();
+
+    expect(sent.map(([, event]) => (event as { type: string }).type)).toStrictEqual([
+      "diff_updated",
+      "changes_updated",
+    ]);
+  });
+
+  it("forgets what a connection was owed once it goes", async () => {
+    const { service, sent, now, watcherOf, clock } = harness();
+    service.watchChanges("c1", [W1]);
+    service.watchDiff("c2", { workspaceId: W1, mode: "base" });
+    service.watchChanges("c2", [W1]);
+    service.disconnect("c2");
+    await settle();
+    now.version = 2;
+    watcherOf("/top").onEvent("a.ts");
+    clock.advance(CHANGES_DEBOUNCE_MS);
+    await settle();
+
+    expect(sent.filter(([connection]) => connection === "c2")).toStrictEqual([]);
+  });
+});
+
 describe("ChangesService when watching fails", () => {
+  it("looks now and then when the watchers cannot be set up at all, and watches once they can", async () => {
+    const { service, clock, reads, rootFailures, watchers } = harness();
+    rootFailures.push(new GitError("rev-parse", "timeout"));
+    service.watchChanges("c1", [W1]);
+    await settle();
+    const looks = () => reads.filter((read) => read.startsWith("changes")).length;
+
+    clock.advance(POLL_START_MS);
+    await settle();
+    expect(looks()).toBe(2);
+    clock.advance(RECOVER_START_MS - POLL_START_MS);
+    await settle();
+
+    expect(watchers.filter((watcher) => watcher.open).map((watcher) => watcher.dir)).toStrictEqual([
+      "/top",
+      "/git/worktrees/w",
+      "/git",
+    ]);
+  });
+
+  it("keeps looking when watching again fails at once, and watches once it can", async () => {
+    const { service, clock, reads, watching, watchers, watcherOf } = harness();
+    service.watchChanges("c1", [W1]);
+    await settle();
+    watcherOf("/top").onError();
+    watching.fails = true;
+    const looks = () => reads.filter((read) => read.startsWith("changes")).length;
+
+    clock.advance(RECOVER_START_MS);
+    await settle();
+    const before = looks();
+    clock.advance(4 * POLL_START_MS);
+    await settle();
+    expect(looks()).toBeGreaterThan(before);
+    watching.fails = false;
+    clock.advance(2 * RECOVER_START_MS);
+    await settle();
+
+    expect(watchers.filter((watcher) => watcher.open)).toHaveLength(3);
+    service.disconnect("c1");
+    expect(clock.pendingTimers()).toBe(0);
+  });
+
   it("looks every 5 seconds, doubling while nothing changes, and watches again after 30 seconds", async () => {
     const { service, clock, now, reads, watchers, watcherOf, records } = harness();
     service.watchChanges("c1", [W1]);
@@ -381,21 +493,21 @@ describe("ChangesService when watching fails", () => {
     watchers[1]?.onError();
     expect(watchers.map((watcher) => watcher.open)).toStrictEqual([false, false, false]);
     await pass(POLL_START_MS - 1);
-    expect(looks()).toBe(1);
-    await pass(1);
     expect(looks()).toBe(2);
-    // Nothing changed, so the next look waits twice as long.
-    await pass(2 * POLL_START_MS - 1);
-    expect(looks()).toBe(2);
-    now.changes = changes(9);
     await pass(1);
     expect(looks()).toBe(3);
+    // Nothing changed, so the next look waits twice as long.
+    await pass(2 * POLL_START_MS - 1);
+    expect(looks()).toBe(3);
+    now.changes = changes(9);
+    await pass(1);
+    expect(looks()).toBe(4);
     // Something changed, so the next look is 5 seconds on again, and the one after too.
     now.changes = changes(10);
     await pass(POLL_START_MS);
-    expect(looks()).toBe(4);
-    await pass(POLL_START_MS);
     expect(looks()).toBe(5);
+    await pass(POLL_START_MS);
+    expect(looks()).toBe(6);
     // 30 seconds after the failure the tree is watched again, and the look due at 35 is called off.
     await pass(RECOVER_START_MS - 5 * POLL_START_MS - 1);
     expect(watchers.filter((watcher) => watcher.open)).toStrictEqual([]);
@@ -405,11 +517,11 @@ describe("ChangesService when watching fails", () => {
       "/git/worktrees/w",
       "/git",
     ]);
-    expect(clock.pendingTimers()).toBe(1);
-    await pass(CHANGES_DEBOUNCE_MS);
-    expect(looks()).toBe(6);
+    // The new watchers looked at once; the next scheduled look and try are gone.
+    expect(clock.pendingTimers()).toBe(0);
+    expect(looks()).toBe(7);
     await pass(10 * POLL_START_MS);
-    expect(looks()).toBe(6);
+    expect(looks()).toBe(7);
     expect(records.filter((record) => record["msg"] === "changes watch failed, looking now and then")).toHaveLength(1);
     service.disconnect("c1");
     expect(clock.pendingTimers()).toBe(0);

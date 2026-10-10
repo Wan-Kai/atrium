@@ -221,6 +221,18 @@ describe("ChangesPanel", () => {
     await expect.element(screen.getByText(text)).toBeVisible();
   });
 
+  it("closes only the menu on Esc while the menu is open", async () => {
+    const { screen, client, onClose } = await panel();
+    answer(client);
+
+    await screen.getByRole("button", { name: "比较" }).click();
+    await expect.element(screen.getByRole("menu")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("asks for the same target again to refresh, keeping the files shown, and closes on Esc inside it", async () => {
     const { screen, client, changeCalls, onClose } = await panel();
     answer(client);

@@ -295,39 +295,24 @@ interface QueueItem {
   readonly traceId: string | null;
 }
 
-/** A steer pi was given, and whether one of its queue updates has listed it yet. */
+/** A steer pi was given, and the text its queue lists it by once it has. */
 interface Steer {
   readonly id: string;
+  /** As it was sent: what the client shows, and what goes again if it comes back. */
   readonly text: string;
   readonly images: readonly PromptImage[];
-  seen: boolean;
+  /** pi's text for it, expanded as pi expands skills and templates; `null` until listed. */
+  listed: string | null;
 }
 
 /**
- * The steers pi still holds, by the texts it lists.
+ * The text a steer of images alone goes to pi with.
  *
  * @remarks
- * pi delivers steers from the front of its queue, so what it holds is the latest of those it took:
- * each text, from the last, goes to the latest steer with that text not matched yet. Two steers of
- * one text, an image-only pair say, are told apart this way, which matters once their images
- * differ.
- *
- * @sideEffects none
- * @param steers - The steers pi took, oldest first.
- * @param texts - The texts it lists, oldest first.
- * @returns For each text, its steer or `undefined`.
+ * pi takes a delivered steer off its queue by its text, and never one whose text is empty; such a
+ * steer would stay listed for good (pi-internals.md §2; SPEC-0001, "运行控制").
  */
-function latestHolding(steers: readonly Steer[], texts: readonly string[]): (Steer | undefined)[] {
-  const left = [...steers];
-  return texts
-    .toReversed()
-    .map((text) => {
-      const at = left.findLastIndex((steer) => steer.text === text);
-      const [found] = at === -1 ? [] : left.splice(at, 1);
-      return found;
-    })
-    .toReversed();
-}
+const IMAGES_ONLY = "（见图片）";
 
 /** A message sent to pi that has not opened a turn yet. */
 interface Waiting {
@@ -456,13 +441,17 @@ export function createSessionController(options: {
   const queue: QueueItem[] = [];
   let paused: Control["paused"] = null;
   let steers: Steer[] = [];
-  /** Steers sent to pi that it has not answered yet. */
+  /** Steers sent, or waiting to be sent, that pi has not answered yet. */
   const steering = new Set<Promise<unknown>>();
+  /** Settles once the last steer asked for has been answered; the next one waits for it. */
+  let steerTurn: Promise<void> = Promise.resolve();
   /** A stop is taking pi's steers back; its answer, not pi's queue updates, says which pi held. */
   let clearing = false;
   /** The stop in progress, shared by every caller until pi confirms or exits. */
   let stopping: Promise<CommandResult<"stop">> | null = null;
   let compacting = false;
+  /** A model was chosen whose result pi has not reported yet; read after the next entries. */
+  let choiceToRead = false;
   /** A message on its way to pi, whose disposition has not come back yet. */
   let sending = false;
   /** pi said it started a run whose `agent_start` has not arrived yet. */
@@ -580,26 +569,45 @@ export function createSessionController(options: {
    * @remarks
    * pi keeps the thinking level within what the model supports, so the level read back may differ
    * from the one asked for. What pi then uses is reported as your choice; the entry pi wrote for
-   * it is read like any other (SPEC-0001, "模型与输入框").
+   * it is read like any other (SPEC-0001, "模型与输入框"). A change pi took stands even when the
+   * model cannot be read back; it is read again after the next entries.
    *
    * @sideEffects Calls pi; may publish `model_updated`; reports the choice; starts a refresh.
    * @param change - The request to pi.
-   * @throws {CommandError} `session_stopping`, `pi_unavailable`, or pi's refusal.
+   * @throws {CommandError} `session_stopping`, `pi_unavailable`, or pi's refusal of the change.
    */
   async function choose(change: () => Promise<void>): Promise<void> {
     refuseWhenExited();
     refuseWhileStopping();
-    let now: SessionModel | null;
     try {
       await change();
-      now = await pi.model();
     } catch (error) {
       throw promptFailure(error);
     }
-    modelIs(now);
-    if (model !== null) options.onModelChosen?.(model);
+    choiceToRead = true;
+    try {
+      await readChoice();
+    } catch {
+      // pi took the change; the model is read again after the entries (SPEC-0001, "模型与输入框").
+    }
     // Fire and forget: `refresh` reports its own failures.
     void refresh();
+  }
+
+  /**
+   * Reads the model pi uses after a choice, and reports it as chosen.
+   *
+   * @remarks
+   * Once read, it is not read again.
+   *
+   * @sideEffects Calls pi; may publish `model_updated`; reports the choice.
+   * @throws {Error} When pi does not answer.
+   */
+  async function readChoice(): Promise<void> {
+    const now = await pi.model();
+    choiceToRead = false;
+    modelIs(now);
+    if (model !== null) options.onModelChosen?.(model);
   }
 
   /**
@@ -674,6 +682,7 @@ export function createSessionController(options: {
         const result = transcript.rebuild(page, reset);
         if (result.kind === "notices") for (const event of result.events) emit(event);
         if (result.kind === "changed") newEpoch();
+        if (choiceToRead) await readChoice();
       } while (refreshAgain);
     } catch (error) {
       options.onRefreshFailed(error);
@@ -771,28 +780,32 @@ export function createSessionController(options: {
    * Keeps the steers pi still holds; the others were delivered.
    *
    * @remarks
-   * pi lists its steers' texts whole each time (pi-internals.md §2), delivering from the front and
-   * adding at the back, one change an update. So the steers it held before are the first it lists,
-   * the latest of them by `latestHolding`; any texts past them are steers it has taken since, in
-   * the order sent. A steer pi has not listed yet (its update not read yet) stays; one it listed
-   * before and no longer does was delivered. While a stop takes the steers back, pi's emptied
-   * queue says nothing about delivery, so updates wait for the stop's answer.
+   * pi lists its steers' texts whole each time, one change an update: it adds the steers it takes
+   * at the back and delivers from the front (pi-internals.md §2). Its texts are expanded and need
+   * not be what the host sent, so steers are counted, not matched: a longer list took the earliest
+   * steers not listed yet, whose texts pi's are from then on; a shorter one delivered the earliest
+   * listed. Steers go to pi one at a time, so they reach its queue in the order sent. While a stop
+   * takes the steers back, pi's emptied queue says nothing about delivery, so updates wait for the
+   * stop's answer.
    *
-   * @sideEffects Updates the steers; may publish `control_updated`.
+   * @sideEffects Updates the steers; publishes `control_updated`.
    * @param held - The texts pi holds.
    */
   function delivered(held: readonly string[]): void {
     if (clearing) return;
-    const listed = steers.filter((steer) => steer.seen);
-    const kept = new Set(latestHolding(listed, held.slice(0, listed.length)));
-    const taken = held.slice(listed.length);
-    steers = steers.filter((steer) => {
-      if (steer.seen) return kept.has(steer);
-      if (steer.text !== taken[0]) return true;
-      taken.shift();
-      steer.seen = true;
-      return true;
-    });
+    const listed = steers.filter((steer) => steer.listed !== null);
+    if (held.length > listed.length) {
+      const taken = held.slice(listed.length);
+      for (const steer of steers) {
+        if (steer.listed !== null) continue;
+        const text = taken.shift();
+        if (text === undefined) break;
+        steer.listed = text;
+      }
+    } else {
+      const gone = new Set(listed.slice(0, listed.length - held.length));
+      steers = steers.filter((steer) => !gone.has(steer));
+    }
     controlChanged();
   }
 
@@ -1002,19 +1015,22 @@ export function createSessionController(options: {
   }
 
   /**
-   * The steers pi gave back, with the images the host sent them with.
+   * The steers pi gave back, as the host sent them, with their images.
    *
    * @remarks
-   * pi gives back only their texts, matched to the host's steers by `latestHolding`; every steer
-   * has reached pi by then. A text the host never sent goes without images.
+   * pi gives back the last of the steers it listed, by its own texts; each goes back as it was
+   * sent, so a skill is expanded again when it goes. Every steer has reached pi by then. A text
+   * past the host's steers, which pi had from elsewhere, goes as pi gave it, without images.
    *
    * @sideEffects none
    * @param texts - The texts pi gave back.
    * @returns The messages.
    */
   function steersFor(texts: readonly string[]): Outgoing[] {
-    const found = latestHolding(steers, texts);
-    return texts.map((text, at) => ({ text, images: found[at]?.images ?? [] }));
+    const listed = steers.filter((steer) => steer.listed !== null);
+    const ours = listed.slice(Math.max(0, listed.length - texts.length));
+    const others = texts.slice(0, texts.length - ours.length).map((text) => ({ text, images: [] }));
+    return [...others, ...ours.map(({ text, images }) => ({ text, images }))];
   }
 
   /**
@@ -1101,8 +1117,12 @@ export function createSessionController(options: {
    *
    * @remarks
    * pi's `steer` starts no run and is only delivered into one, so without a run the steer would
-   * sit in pi's queue (SPEC-0001, "运行控制"). The steer is listed before pi answers, so a queue
-   * update read first still matches it; one pi handled or refused goes off the list again.
+   * sit in pi's queue (SPEC-0001, "运行控制"). The steer is listed at once, so a queue update read
+   * before pi answers still counts it; one pi handled or refused goes off the list again. Steers go
+   * to pi one at a time, each once pi has answered the one before: pi runs extensions' input
+   * handlers before queueing, which could reorder steers sent together. One whose turn comes after
+   * the run ended goes as a message, and one whose turn comes once a stop began is refused. Images
+   * alone go with `IMAGES_ONLY` as their text.
    *
    * @sideEffects Calls pi or updates the queue; publishes `control_updated` or `prompt_handled`.
    * @param message - The steer and its images.
@@ -1120,9 +1140,12 @@ export function createSessionController(options: {
       const { disposition } = await submit(message, requestId, traceId);
       return { disposition };
     }
-    const steer: Steer = { id: requestId ?? newId(), text: message.text, images: message.images, seen: false };
+    const steer: Steer = { id: requestId ?? newId(), text: message.text, images: message.images, listed: null };
     steers.push(steer);
     controlChanged();
+    const before = steerTurn;
+    const turn = Promise.withResolvers<void>();
+    steerTurn = turn.promise;
     /**
      * Takes the steer off the list again.
      *
@@ -1135,18 +1158,43 @@ export function createSessionController(options: {
       steers = steers.filter((candidate) => candidate !== steer);
       controlChanged();
     };
-    const answer = pi.steer(message.text, message.images);
+    /**
+     * Sends the steer once the one before has been answered.
+     *
+     * @remarks
+     * See `steerNow`.
+     *
+     * @sideEffects Calls pi; may withdraw the steer or send it as a message.
+     * @returns The disposition.
+     */
+    const sendInTurn = async (): Promise<CommandResult<"steer">> => {
+      try {
+        await before;
+        // A stop has begun: the steer never reached pi, so it goes back to whoever sent it.
+        if (stopping !== null) throw new CommandError("session_stopping");
+        if (run === null) {
+          withdraw();
+          const { disposition } = await submit(message, requestId, traceId);
+          return { disposition };
+        }
+        const text = message.text === "" && message.images.length > 0 ? IMAGES_ONLY : message.text;
+        const { disposition } = await pi.steer(text, message.images);
+        if (disposition === "handled") {
+          withdraw();
+          if (requestId !== null) emit({ type: "prompt_handled", clientMessageId: requestId });
+        }
+        return { disposition };
+      } catch (error) {
+        withdraw();
+        throw promptFailure(error);
+      } finally {
+        turn.resolve();
+      }
+    };
+    const answer = sendInTurn();
     steering.add(answer);
     try {
-      const { disposition } = await answer;
-      if (disposition === "handled") {
-        withdraw();
-        if (requestId !== null) emit({ type: "prompt_handled", clientMessageId: requestId });
-      }
-      return { disposition };
-    } catch (error) {
-      withdraw();
-      throw promptFailure(error);
+      return await answer;
     } finally {
       steering.delete(answer);
     }
