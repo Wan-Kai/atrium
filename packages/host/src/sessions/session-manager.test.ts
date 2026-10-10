@@ -920,15 +920,20 @@ function remembering(
   preferred: { providerId: string; modelId: string; thinkingLevel: SessionModel["thinkingLevel"] | null } | null,
 ) {
   const chosen: SessionModel[] = [];
+  let remembered = preferred;
   return {
     chosen,
+    /** Remembers another model, as a choice in another session would. */
+    prefer: (next: typeof preferred) => {
+      remembered = next;
+    },
     models: {
       preferred: () =>
-        preferred === null
+        remembered === null
           ? null
           : {
-              model: { providerId: preferred.providerId, modelId: preferred.modelId },
-              thinkingLevel: preferred.thinkingLevel,
+              model: { providerId: remembered.providerId, modelId: remembered.modelId },
+              thinkingLevel: remembered.thinkingLevel,
             },
       chosen: (model: SessionModel) => chosen.push(model),
     },
@@ -1056,6 +1061,50 @@ describe("SessionManager models", () => {
       { providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" },
       { providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" },
     ]);
+  });
+
+  it("starts a draft's pi again on the model it had, not one chosen since elsewhere, and goes on reporting it", async () => {
+    const memory = remembering(null);
+    const { manager, received, piReceived } = await manage(
+      {
+        receivedToStderr: true,
+        rules: {
+          ...SESSION_ONE,
+          get_state: { data: { sessionId: "pi-session-1", model: HAIKU, thinkingLevel: "low" } },
+          prompt: { data: { disposition: "started" }, exitAfter: 1 },
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      memory.models,
+    );
+    await manager.createChat("client-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    memory.prefer({ providerId: "openai", modelId: "gpt", thinkingLevel: null });
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+    await vi.waitFor(() =>
+      expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { failure: { attempts: 3 } } }),
+    );
+    expect(await manager.resumeQueue("pi-session-1")).toStrictEqual({});
+
+    await vi.waitFor(() =>
+      expect(
+        withoutIds(piReceived()).filter((command) =>
+          ["set_model", "set_thinking_level"].includes(String(command["type"])),
+        ),
+      ).toStrictEqual(
+        Array.from({ length: 4 }, () => [
+          { type: "set_model", provider: "anthropic", modelId: "haiku" },
+          { type: "set_thinking_level", level: "low" },
+        ]).flat(),
+      ),
+    );
+    expect(received.at(-1)).toMatchObject({
+      type: "session_snapshot",
+      model: { providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" },
+    });
   });
 
   it("refuses to switch the model of an unknown session", async () => {

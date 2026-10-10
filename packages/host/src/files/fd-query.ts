@@ -153,7 +153,8 @@ export function fdArguments(baseDir: string, query: string, maxDepth: number | n
   ];
   if (maxDepth !== null) args.push("--max-depth", String(maxDepth));
   if (query.includes("/")) args.push("--full-path");
-  if (query !== "") args.push("--fixed-strings", query);
+  // `--` ends the options: a query starting with `-` is text, never an option of fd's.
+  if (query !== "") args.push("--fixed-strings", "--", query);
   return args;
 }
 
@@ -162,7 +163,8 @@ export function fdArguments(baseDir: string, query: string, maxDepth: number | n
  *
  * @remarks
  * One a line, a directory's ending in `/`; a `.git` directory and anything in one left out, as pi
- * does.
+ * does. fd writes a name starting with `-` as `./-name`, so it cannot pass for an option; the
+ * `./` goes.
  *
  * @sideEffects none
  * @param stdout - What `fd` printed.
@@ -173,5 +175,6 @@ export function parseFdOutput(stdout: string): FdEntry[] {
     .split("\n")
     .filter((line) => line !== "")
     .filter((line) => !line.split("/").includes(".git"))
+    .map((line) => (line.startsWith("./") ? line.slice(2) : line))
     .map((line) => ({ path: line, isDirectory: line.endsWith("/") }));
 }

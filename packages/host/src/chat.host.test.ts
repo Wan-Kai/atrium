@@ -196,3 +196,32 @@ describe("one chat over the WebSocket", () => {
     });
   });
 });
+
+describe("uploading images", () => {
+  it("takes a connection's whole allowance of images sent at once, without closing it", async () => {
+    testHost = await startTestHost();
+    const chat = await openClient(testHost, "client-1");
+    const data = Buffer.alloc(750_000, 7).toString("base64");
+
+    for (let index = 0; index < 20; index++) {
+      chat.socket.send(
+        JSON.stringify({
+          traceparent,
+          type: "upload_attachment",
+          requestId: `u${index}`,
+          mimeType: "image/webp",
+          data,
+        }),
+      );
+    }
+
+    await vi.waitFor(
+      () =>
+        expect(
+          chat.received.filter((message) => message.type === "response").map((message) => message.ok),
+        ).toStrictEqual(Array.from({ length: 20 }, () => true)),
+      { timeout: 10_000 },
+    );
+    expect(chat.socket.readyState).toBe(WebSocket.OPEN);
+  });
+});

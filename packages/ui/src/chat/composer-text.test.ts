@@ -1,6 +1,7 @@
-import type { TranscriptItem } from "@atrium/protocol";
+import type { TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import {
+  droppedReference,
   acceptCommand,
   composeMessage,
   enterDirectory,
@@ -91,6 +92,12 @@ describe("mentionAt", () => {
     expect(mentionAt("@src", 0)).toBeNull();
     expect(mentionAt("@src and", 8)).toBeNull();
   });
+
+  it("runs a quoted @ word to its closing quote, spaces and all", () => {
+    expect(mentionAt('看 @"my docs/re', 14)).toStrictEqual({ start: 2, end: 14, query: "my docs/re" });
+    expect(mentionAt('x @"a b/c" y', 9)).toStrictEqual({ start: 2, end: 10, query: "a b/c" });
+    expect(mentionAt('x @"a b" y', 10)).toBeNull();
+  });
 });
 
 describe("removeMention and enterDirectory", () => {
@@ -106,6 +113,23 @@ describe("removeMention and enterDirectory", () => {
       text: "see @src/ now",
       caret: 9,
     });
+  });
+
+  it("goes into a directory with a space in its name by quoting the @ word", () => {
+    expect(enterDirectory("see @my now", { start: 4, end: 7, query: "my" }, "my docs/")).toStrictEqual({
+      text: 'see @"my docs/ now',
+      caret: 14,
+    });
+  });
+});
+
+describe("droppedReference", () => {
+  it("is a path from the session's directory when inside it, a directory's ending in /", () => {
+    expect(droppedReference("/w/src/a.ts", "/w", false)).toBe("src/a.ts");
+    expect(droppedReference("/w/src", "/w", true)).toBe("src/");
+    expect(droppedReference("/elsewhere/x", "/w", true)).toBe("/elsewhere/x/");
+    expect(droppedReference("/w2/x", "/w", false)).toBe("/w2/x");
+    expect(droppedReference("/w/x", null, false)).toBe("/w/x");
   });
 });
 
@@ -149,7 +173,7 @@ describe("isLongPaste and lineCount", () => {
 });
 
 /** A turn opened by `text`. */
-function turn(id: string, text: string, auto = false): TranscriptItem {
+function turn(id: string, text: string, auto = false): Turn {
   return {
     kind: "turn",
     id,
@@ -177,5 +201,17 @@ describe("historyOf", () => {
 
     expect(historyOf(items)).toStrictEqual(["one", "two", "one"]);
     expect(historyOf([turn("t1", "same"), turn("t2", "same"), turn("t3", "same")])).toStrictEqual(["same"]);
+  });
+
+  it("has the steers too, in the order sent", () => {
+    const steered: TranscriptItem = {
+      ...turn("t1", "one"),
+      steps: [
+        { kind: "steer", id: "s1", text: "also" },
+        { kind: "steer", id: "s2", text: "and" },
+      ],
+    };
+
+    expect(historyOf([steered, turn("t2", "two")])).toStrictEqual(["two", "and", "also", "one"]);
   });
 });

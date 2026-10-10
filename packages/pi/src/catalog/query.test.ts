@@ -42,15 +42,21 @@ const opus = {
  * @sideEffects Creates a temporary directory, removed after the test; runs the fake pi.
  * @param behavior - What the fake pi does.
  * @param signal - Aborts the query.
+ * @param onLog - Sees each log record as it is written.
  * @returns The query's outcome, the logs, the open resources and the directory.
  */
-async function query(behavior: ScriptedPiBehavior, signal = new AbortController().signal) {
+async function query(
+  behavior: ScriptedPiBehavior,
+  signal = new AbortController().signal,
+  onLog: (fields: Readonly<Record<string, unknown>>) => void = () => undefined,
+) {
   const dir = await createTempDir("query-models");
   cleanups.push(dir.cleanup);
   const fake = await writeScriptedPi(dir.path, behavior);
   const logs: LogRecord[] = [];
   const record = (fields: object, message: string): void => {
     logs.push({ fields: fields as Record<string, unknown>, message });
+    onLog(fields as Record<string, unknown>);
   };
   const open = new Map<string, number>();
   const deps: PiDeps = {
@@ -77,6 +83,23 @@ async function query(behavior: ScriptedPiBehavior, signal = new AbortController(
     (error: unknown) => ({ error }),
   );
   return { outcome, logs, open, dir: await realpath(dir.path) };
+}
+
+/**
+ * Aborts once pi's stderr says it received a command.
+ *
+ * @remarks
+ * For a fake pi that prints what it receives; the abort then lands while that command waits.
+ *
+ * @sideEffects Aborts the controller.
+ * @param controller - What to abort.
+ * @param type - The command.
+ * @returns A log watcher for `query`.
+ */
+function abortOnReceipt(controller: AbortController, type: string) {
+  return (fields: Readonly<Record<string, unknown>>): void => {
+    if (String(fields["line"]).includes(`"type":"${type}"`)) controller.abort();
+  };
 }
 
 describe("queryModels", () => {
@@ -162,11 +185,15 @@ describe("queryModels", () => {
 
   it("stops pi when aborted while it reads pi's state", async () => {
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 200);
 
     const { outcome, open } = await query(
-      { rules: { get_available_models: { data: { models: [] } }, get_state: { silent: true } } },
+      {
+        receivedToStderr: true,
+        rules: { get_available_models: { data: { models: [] } }, get_state: { silent: true } },
+      },
       controller.signal,
+      // Aborted once pi has the request, however long it took to start.
+      abortOnReceipt(controller, "get_state"),
     );
 
     expect(outcome).toMatchObject({ error: { name: "PiRequestError", command: "get_state", reason: "aborted" } });

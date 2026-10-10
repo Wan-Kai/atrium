@@ -280,6 +280,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const clock = options.clock ?? systemClock;
   const delays = options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS;
   const views = new Map<string, StoreApi<SessionView>>();
+  /**
+   * Each session's model changes on their way: the model the host reported last, how many are on
+   * their way, and the guesses shown for them.
+   */
+  const guesses = new Map<string, { reported: SessionModel; pending: number; readonly ours: Set<SessionModel> }>();
   /** Each container's model list, once asked for. */
   const modelLists = new Map<string, StoreApi<ModelListView>>();
   /** Fetches of older items on their way, by session. */
@@ -377,9 +382,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    *
    * @remarks
    * The host reports the model pi then uses with `model_updated`, which may differ (pi keeps the
-   * thinking level within what the model supports); the guess only bridges the round trip. A view
-   * that changed since, by the host's report, is left alone. A session whose model the client does
-   * not know shows nothing at once.
+   * thinking level within what the model supports); the guess only bridges the round trip. A
+   * refused change goes back to the model the host reported last, once no other change is on its
+   * way; one still on its way decides instead. A view the host changed since is left alone. A
+   * session whose model the client does not know shows nothing at once.
    *
    * @sideEffects Updates the session's view; sends the command.
    * @param sessionId - The session.
@@ -396,13 +402,25 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     if (view === undefined) return send();
     const before = view.getState().model;
     if (before === null) return send();
+    const guessing = guesses.get(sessionId) ?? { reported: before, pending: 0, ours: new Set<SessionModel>() };
+    // What the view shows is the host's unless it is one of the guesses.
+    if (!guessing.ours.has(before)) guessing.reported = before;
+    guesses.set(sessionId, guessing);
+    guessing.pending += 1;
     const guessed = guess(before);
+    guessing.ours.add(guessed);
     view.setState({ model: guessed });
     try {
       return await send();
     } catch (error) {
-      if (view.getState().model === guessed) view.setState({ model: before });
+      const shown = view.getState().model;
+      if (guessing.pending === 1 && shown !== null && guessing.ours.has(shown)) {
+        view.setState({ model: guessing.reported });
+      }
       throw error;
+    } finally {
+      guessing.pending -= 1;
+      if (guessing.pending === 0) guesses.delete(sessionId);
     }
   }
 

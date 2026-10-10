@@ -1,6 +1,7 @@
 import { CommandError, type FileCandidate } from "@atrium/protocol";
-import { spawn } from "node:child_process";
+import { type ChildProcessByStdio, spawn } from "node:child_process";
 import { statSync } from "node:fs";
+import type { Readable } from "node:stream";
 import type { Clock } from "../platform/clock";
 import type { ResourceTracker } from "../platform/resources";
 import { type FdEntry, fdArguments, parseFdOutput, rankEntries, scopeOf } from "./fd-query";
@@ -88,8 +89,9 @@ function isDirectory(path: string): boolean {
  * Runs `fd` and collects what it prints.
  *
  * @remarks
- * Killed at once when the signal aborts. A failed or killed run, or one printing past
- * `MAX_OUTPUT_BYTES`, gives nothing, as in pi's terminal.
+ * Killed at once when the signal aborts. A failed or killed run, one printing past
+ * `MAX_OUTPUT_BYTES`, or one Node will not start (an argument holding a NUL), gives nothing, as in
+ * pi's terminal.
  *
  * @sideEffects Spawns `fd`, counted as an `fd.process` resource; may kill it.
  * @param fd - The executable.
@@ -102,7 +104,15 @@ function runFd(fd: string, args: readonly string[], signal: AbortSignal, resourc
   if (signal.aborted) return Promise.resolve("");
   return new Promise((resolve) => {
     const release = resources.acquire("fd.process");
-    const child = spawn(fd, [...args], { stdio: ["ignore", "pipe", "ignore"] });
+    let child: ChildProcessByStdio<null, Readable, null>;
+    try {
+      child = spawn(fd, [...args], { stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      // Node refuses some arguments outright, such as one holding a NUL; fd never starts.
+      release();
+      resolve("");
+      return;
+    }
     const chunks: Buffer[] = [];
     let size = 0;
     /**

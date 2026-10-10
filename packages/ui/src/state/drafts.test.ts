@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { type DraftStorage, dropDrafts, keepImages, keptImages, loadDraft, saveDraft } from "./drafts";
+import { type DraftStorage, type KeptImage, createDrafts } from "./drafts";
 
 /**
  * Storage in memory, with the keys it holds.
  *
  * @remarks
- * `full` makes every write fail, as a full localStorage does.
+ * `fill` makes every later write fail, as a full localStorage does.
  *
  * @sideEffects none
- * @param full - Whether writes fail.
- * @returns The storage and its map.
+ * @returns The storage, its map, and how to fill it.
  */
-function memory(full = false): { readonly storage: DraftStorage; readonly store: Map<string, string> } {
+function memory() {
   const store = new Map<string, string>();
+  let full = false;
   const storage: DraftStorage = {
     getItem: (key) => store.get(key) ?? null,
     setItem: (key, value) => {
@@ -21,53 +21,106 @@ function memory(full = false): { readonly storage: DraftStorage; readonly store:
     },
     removeItem: (key) => void store.delete(key),
   };
-  return { storage, store };
+  return {
+    storage,
+    store,
+    fill: () => {
+      full = true;
+    },
+  };
 }
 
-/** An uploaded image named `id`. */
-function kept(id: string) {
-  return { id, image: { mimeType: "image/webp" as const, data: id, preview: id }, attachmentId: id };
+/** An image named `id`, uploaded as `attachmentId`. */
+function kept(id: string, attachmentId: string | null = id): KeptImage {
+  return { id, image: { mimeType: "image/webp", data: id, preview: id }, attachmentId };
 }
 
-const DRAFT = { text: "half a thought", pastes: [{ id: "p1", text: "pasted" }], files: ["src/a.ts"] };
+const TEXT = { text: "half a thought", pastes: [{ id: "p1", text: "pasted" }], files: ["src/a.ts"] };
+const DRAFT = { ...TEXT, images: [] };
+const EMPTY = { text: "", pastes: [], files: [], images: [] };
 
-describe("drafts", () => {
-  it("keeps a session's draft under its own key and gives it back", () => {
+describe("createDrafts", () => {
+  it("keeps a session's draft under its own key, in memory and in storage, telling those listening", () => {
     const { storage, store } = memory();
+    const drafts = createDrafts(storage);
+    const heard: string[] = [];
+    drafts.subscribe("s1", () => heard.push("s1"));
+    drafts.subscribe("s2", () => heard.push("s2"));
 
-    expect(saveDraft("s1", DRAFT, storage)).toBe(true);
+    drafts.update("s1", () => DRAFT);
 
-    expect(loadDraft("s1", storage)).toStrictEqual(DRAFT);
-    expect(loadDraft("s2", storage)).toBeNull();
-    expect([...store.keys()]).toStrictEqual(["atrium-draft:s1"]);
+    expect(drafts.read("s1")).toStrictEqual(DRAFT);
+    expect(drafts.read("s2")).toStrictEqual(EMPTY);
+    expect(store).toStrictEqual(new Map([["atrium-draft:s1", JSON.stringify(TEXT)]]));
+    expect(heard).toStrictEqual(["s1"]);
+  });
+
+  it("gives back the same draft until it changes, and stops telling a listener gone", () => {
+    const drafts = createDrafts(memory().storage);
+    const heard: number[] = [];
+    const stop = drafts.subscribe("s1", () => heard.push(1));
+    const before = drafts.read("s1");
+
+    expect(drafts.read("s1")).toBe(before);
+    drafts.update("s1", (draft) => draft);
+    stop();
+    drafts.update("s1", () => DRAFT);
+
+    expect(heard).toStrictEqual([]);
+    expect(drafts.read("s1")).toStrictEqual(DRAFT);
+  });
+
+  it("reads a draft an earlier page left in storage", () => {
+    const { storage, store } = memory();
+    store.set("atrium-draft:s1", JSON.stringify(TEXT));
+
+    expect(createDrafts(storage).read("s1")).toStrictEqual(DRAFT);
   });
 
   it.each([
     ["only text", { text: "a", pastes: [], files: [] }],
     ["only a pasted text", { text: "", pastes: [{ id: "p1", text: "x" }], files: [] }],
     ["only a file", { text: "", pastes: [], files: ["a.ts"] }],
-  ])("keeps a draft with %s", (_case, draft) => {
-    const { storage } = memory();
+  ])("stores a draft with %s", (_case, text) => {
+    const { storage, store } = memory();
 
-    expect(saveDraft("s1", draft, storage)).toBe(true);
+    createDrafts(storage).update("s1", () => ({ ...text, images: [] }));
 
-    expect(loadDraft("s1", storage)).toStrictEqual(draft);
+    expect(createDrafts(storage).read("s1")).toStrictEqual({ ...text, images: [] });
+    expect(store.size).toBe(1);
   });
 
-  it("forgets a draft once it is empty", () => {
+  it("lets the stored copy go once the draft is empty, images or not", () => {
     const { storage, store } = memory();
-    saveDraft("s1", DRAFT, storage);
+    const drafts = createDrafts(storage);
+    drafts.update("s1", () => DRAFT);
 
-    expect(saveDraft("s1", { text: "", pastes: [], files: [] }, storage)).toBe(true);
+    drafts.update("s1", () => ({ ...EMPTY, images: [kept("a")] }));
 
+    expect(store.size).toBe(0);
+    expect(drafts.read("s1")).toStrictEqual({ ...EMPTY, images: [kept("a")] });
+  });
+
+  it("keeps a draft in memory when storage is full, letting the older stored copy go", () => {
+    const { storage, store, fill } = memory();
+    const drafts = createDrafts(storage);
+    drafts.update("s1", () => ({ ...EMPTY, text: "older" }));
+    fill();
+
+    drafts.update("s1", () => DRAFT);
+
+    expect(drafts.read("s1")).toStrictEqual(DRAFT);
     expect(store.size).toBe(0);
   });
 
-  it("says when storage is full, so the draft stays only in memory", () => {
-    const { storage } = memory(true);
+  it("reads storage again once it changed elsewhere, keeping the images", () => {
+    const { storage, store } = memory();
+    const drafts = createDrafts(storage);
+    drafts.update("s1", () => ({ ...DRAFT, images: [kept("a")] }));
 
-    expect(saveDraft("s1", DRAFT, storage)).toBe(false);
-    expect(loadDraft("s1", storage)).toBeNull();
+    store.clear();
+
+    expect(drafts.read("s1")).toStrictEqual({ ...EMPTY, images: [kept("a")] });
   });
 
   it.each([
@@ -87,35 +140,60 @@ describe("drafts", () => {
     ["a paste whose id is a number", JSON.stringify({ text: "", pastes: [{ id: 1, text: "x" }], files: [] })],
     ["a paste whose text is a number", JSON.stringify({ text: "", pastes: [{ id: "p", text: 1 }], files: [] })],
     ["a file that is not a string", JSON.stringify({ text: "", pastes: [], files: ["a.ts", 1] })],
-  ])("reads a draft with %s as none", (_case, stored) => {
+  ])("reads a draft with %s as empty", (_case, stored) => {
     const { storage, store } = memory();
     store.set("atrium-draft:s1", stored);
 
-    expect(loadDraft("s1", storage)).toBeNull();
+    expect(createDrafts(storage).read("s1")).toStrictEqual(EMPTY);
   });
 
-  it("drops the drafts of the sessions named, their images too, and nothing else", () => {
+  it("changes an image wherever its draft has gone, and takes it off when told", () => {
     const { storage, store } = memory();
-    saveDraft("s1", DRAFT, storage);
-    saveDraft("s2", DRAFT, storage);
-    keepImages("s1", [kept("image")]);
-    keepImages("s2", [kept("other")]);
-    store.set("atrium-dot-seed", "7");
+    const drafts = createDrafts(storage);
+    drafts.update("new:chats", () => ({ ...DRAFT, images: [kept("a", null), kept("b")] }));
+    drafts.handOver("new:chats", "s1");
 
-    dropDrafts(["s1", "s3"], storage);
+    drafts.updateImage("a", (image) => ({ ...image, attachmentId: "up-a" }));
+    expect(drafts.read("s1").images).toStrictEqual([kept("a", "up-a"), kept("b")]);
+    drafts.updateImage("b", () => null);
+
+    expect(drafts.read("s1")).toStrictEqual({ ...DRAFT, images: [kept("a", "up-a")] });
+    expect(drafts.read("new:chats")).toStrictEqual(EMPTY);
+    expect([...store.keys()]).toStrictEqual(["atrium-draft:s1"]);
+  });
+
+  it("hands nothing over from an empty draft, keeping what the other one has", () => {
+    const drafts = createDrafts(memory().storage);
+    drafts.update("s1", () => DRAFT);
+
+    drafts.handOver("new:chats", "s1");
+
+    expect(drafts.read("s1")).toStrictEqual(DRAFT);
+  });
+
+  it("puts a message that did not go back into its draft, only when the draft is empty", () => {
+    const drafts = createDrafts(memory().storage);
+
+    drafts.restore("s1", "去了又回", [kept("a")]);
+    drafts.restore("s1", "不会覆盖", []);
+
+    expect(drafts.read("s1")).toStrictEqual({ ...EMPTY, text: "去了又回", images: [kept("a")] });
+  });
+
+  it("drops the drafts named, their images too, and nothing else", () => {
+    const { storage, store } = memory();
+    const drafts = createDrafts(storage);
+    drafts.update("s1", () => ({ ...DRAFT, images: [kept("a")] }));
+    drafts.update("s2", () => ({ ...DRAFT, images: [kept("b")] }));
+    store.set("atrium-dot-seed", "7");
+    const heard: string[] = [];
+    drafts.subscribe("s1", () => heard.push("s1"));
+
+    drafts.drop(["s1", "s3"]);
 
     expect([...store.keys()].toSorted()).toStrictEqual(["atrium-dot-seed", "atrium-draft:s2"]);
-    expect(keptImages("s1")).toStrictEqual([]);
-    expect(keptImages("s2")).toStrictEqual([kept("other")]);
-    dropDrafts(["s2"], storage);
-  });
-
-  it("keeps a session's images in memory only, forgetting them once none are left", () => {
-    keepImages("s1", [kept("a"), kept("b")]);
-    expect(keptImages("s1")).toStrictEqual([kept("a"), kept("b")]);
-
-    keepImages("s1", []);
-
-    expect(keptImages("s1")).toStrictEqual([]);
+    expect(drafts.read("s1")).toStrictEqual(EMPTY);
+    expect(drafts.read("s2")).toStrictEqual({ ...DRAFT, images: [kept("b")] });
+    expect(heard).toStrictEqual(["s1"]);
   });
 });

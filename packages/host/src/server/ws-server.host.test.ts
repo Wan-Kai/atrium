@@ -289,16 +289,16 @@ describe("host connection handshake", () => {
     );
   });
 
-  it("allows exactly 8 MiB per second and drops the next byte", async () => {
+  it("allows exactly 32 MiB per second and drops the next byte", async () => {
     testHost = await startTestHost({ clock: new FakeClock() });
     const { socket, opened, ended, messages } = openRaw(testHost.url);
     await opened;
     const first = hello({ token: testHost.token });
     const mib = 1024 * 1024;
     socket.send(first);
-    for (let count = 0; count < 7; count++) socket.send("y".repeat(mib));
+    for (let count = 0; count < 31; count++) socket.send("y".repeat(mib));
     socket.send("y".repeat(mib - Buffer.byteLength(first)));
-    await vi.waitFor(() => expect(messages).toHaveLength(9));
+    await vi.waitFor(() => expect(messages).toHaveLength(33));
     expect(socket.readyState).toBe(WebSocket.OPEN);
 
     socket.send("y");

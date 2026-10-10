@@ -207,6 +207,9 @@
 | 本会话改动：按文件累计编辑量、写入不编数字、记住最后改它的一轮；胶囊显示文件数和增删，点开列出文件，点文件跳到那一轮并展开它的改动；没有改动时不显示 | `packages/ui/src/chat/session-changes.test.ts`、`chat.browser.test.tsx` "session changes" | 已覆盖 |
 | `/` 命令端到端：输入时列出 pi 的命令，回车选中，完整的命令回车直接发出，extension 命令处理后没有运行 | `apps/desktop/e2e/models.spec.ts` | 已覆盖 |
 | 空状态输入 `/` 建会话后，打的字、图片转到新会话的输入框并获得焦点；模型列表在连上后才请求、重连后再请求；列表还没东西可选时回车照常发送 | `packages/ui/src/chat/chat.browser.test.tsx` "before it is connected"、"handing the first words"；`composer.browser.test.tsx` | 已覆盖 |
+| 审查后修复（2026-10-10）· 宿主：`@` 的查询词放在 `--` 之后，`--search-path=…` 这类查询搜不出工作目录外的东西，以 `-` 开头的名字找得到（fd 输出的 `./` 去掉）；含 NUL 的查询什么也不找、不占 fd 进程计数；停止时 pi 先发的空队列更新不丢插话，同文字的插话按"pi 从队头送达"配对图片，还在途中的插话等它到了再收回；会话拒绝的消息不释放它的图片；一次上传 20 张图不触发限流（每秒 32 MiB）；重启用尽后再启动、还没写出文件的会话重启时用它原来的模型；换模型后读回失败按 pi 的错误应答 | `file-search.host.test.ts` "looks like an fd option"、"cannot be given"；`fd-query.test.ts` "./"；`session-controller.test.ts` "share a text"、"on its way"、"read back"、"latest steer"；`attachments.test.ts` "fails"；`chat.host.test.ts` "whole allowance"；`ws-server.host.test.ts` "32 MiB"；`session-manager.test.ts` "model it had" | 已覆盖 |
+| 审查后修复（2026-10-10）· pi 包与客户端：过长的命令描述和模型名截断，名字或 id 过长的整条不列；中止测试等 pi 收到命令再中止，不靠计时；两次换模型重叠且都失败时回到宿主最后报告的模型 | `catalog/commands.test.ts`、`catalog/models.test.ts` "too long"；`query.test.ts` "aborted while it reads"；`atrium-client.test.ts` "goes back" | 已覆盖 |
+| 审查后修复（2026-10-10）· 界面：草稿以页面内存为准、同步写进 localStorage，写不下时留在内存并删掉旧的、存储被别处改了时重读；上传在输入框离开后完成也记进草稿；压缩中的图片显示占位、不能发送；发送失败时消息和图片回到空的输入框；空状态转交后继续打的字记在新会话、新会话先显示也能收到转交，新会话的输入框只抢一次焦点；⌘⇧I 打开模型面板后的 Esc 只关面板；新查询没回来时不选旧结果；有小胶囊或图片时 ↑ 不调历史；↑ 历史含插话；带空格的目录 Tab 进入时加引号继续找；拖入的目录带 `/` | `state/drafts.test.ts`；`composer.browser.test.tsx` "went away"、"compressed"、"model panel"、"query before"、"capsule"；`chat.browser.test.tsx` "old failure"、"before it shows"、"before its creation is answered"；`composer-text.test.ts` "quoted"、"space"、"steers"、"droppedReference"（拖入目录的判断取自拖放条目，浏览器测试造不出目录条目，只测了路径规则） | 已覆盖 |
 
 ## 安全（security.md）
 
@@ -215,7 +218,7 @@
 | 错误 token 被拒绝（4401），日志里没有真 token；同源页面也必须带对 token | ws-server.host.test.ts "rejects a wrong token…"、"lets a page served by the host itself connect, but still requires the token" | 已覆盖 |
 | 外来 Origin 在升级时被拒（403） | ws-server.host.test.ts "refuses a browser from a foreign origin…" | 已覆盖 |
 | 只认第一条 hello；格式错误、版本不符、超时各有关闭码 | ws-server.host.test.ts "closes the socket on …"、"drops a client that never says hello…"、"answers only the first of two hellos" | 已覆盖 |
-| 连接数、消息速率、字节速率、单条大小的上限 | ws-server.host.test.ts "disconnects a client that sends more than 200 messages…"、"…more than 8 MiB…"、"closes a connection that sends a message over 1 MiB…"、"refuses connections beyond 32 at once" | 已覆盖 |
+| 连接数、消息速率、字节速率、单条大小的上限 | ws-server.host.test.ts "disconnects a client that sends more than 200 messages…"、"allows exactly 32 MiB per second…"、"closes a connection that sends a message over 1 MiB…"、"refuses connections beyond 32 at once" | 已覆盖 |
 | token 强度（单独运行与 Electron 两条路径） | `packages/host/src/server/auth.test.ts`；host-standalone.spec.ts "refuses a weak token…" | 已覆盖 |
 | 渲染进程拿不到 Node，桥上只有 bootstrap、选择文件夹、窗口外观 | e2e "gives the page no Node access and only the bridge…" | 已覆盖 |
 | 窗口页面从固定的 `atrium://app` 加载，CSP 只多允许连宿主端口，存储跨重启保留 | e2e "opens a window on the host's UI at a fixed origin…"、"keeps the page's storage across a restart…" | 已覆盖 |
@@ -227,6 +230,7 @@
 | 日志脱敏：凭据键、已知秘密、格式化参数、`Error`、子 logger 绑定 | `packages/host/src/platform/logger.test.ts`、`redact.test.ts`、`redact.prop.test.ts`；e2e "…never logs the token" | 已覆盖 |
 | pi 的环境里名字像凭据的变量值加入脱敏列表，pi 在 stderr 回显也不进日志 | redact.test.ts "picks the values of credential-like variables…"；tools.host.test.ts "scrubs credentials from the tool environment…"；try-pi.test.ts "keeps credentials from the environment out of its log…" | 已覆盖 |
 | pi 从 `auth.json` 读的 Key 被 pi 回显时不进日志（已知缺口，见 security.md"凭据与日志"） | — | 待 M1.10 |
+| `@` 搜索不返回工作区之外的文件：`~/`、绝对路径、`..` 找不到；像 fd 选项的查询词（`--search-path=…`）只当文字；工作区里的符号链接照 pi 跟进去（2026-10-10 定） | `packages/host/src/files/file-search.host.test.ts` "finds nothing outside the working directory"、"takes a query that looks like an fd option as text…"；`fd-query.test.ts` "scopeOf" | 已覆盖 |
 | 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
 | 索引文件 0600、`turns/` 目录 0700；插话记录的文件名只用 pi 形状的会话 id | `packages/host/src/store/index-file.test.ts`、`turn-starts.test.ts` | 已覆盖 |
 

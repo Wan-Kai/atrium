@@ -501,7 +501,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - 客户端先压缩：长边缩到不超过 2048 像素（主流模型本来就会把更大的图缩小再看），编码成 WebP；base64 超过 100 万字符（约 730 KB，一条 WebSocket 消息要放得下）时按质量 0.9 → 0.5 逐级降低，还放不下就把边长缩到 3/4 再试，直到长边小于 256 像素仍放不下才提示图片太大（2026-10-10 定）。
 - 粘贴或拖入时就用 `upload_attachment(mimeType, data)` 单独上传（`data` 是 base64），应答带 `attachmentId`；`prompt` 和 `steer` 只带 `attachmentIds`。每条 WebSocket 消息仍不超过 1 MiB，一次发好几张图也不受影响，发送时也不用再等上传。
-- 宿主把上传的图片暂存在内存里，按连接计：最多 32 MiB、20 张，超出时应答 `attachment_limit`。消息带的图片全部在才发出，缺一张就应答 `attachment_missing`（带缺的那张的 id），一张也不用掉。只有图片的消息 `text` 可以为空，什么都没有的不行（`invalid_message`）；排队项带图片数（`images`），停止或崩溃退回排队的插话也带着它的图片。被 `prompt` / `steer` 用掉、连接断开、或 30 分钟没被用到时释放；消息进了宿主的排队时，图片随排队项保存，不再算在客户端头上。宿主发给 pi 时按 pi 的 RPC 格式放进 `prompt` 的 `images`。
+- 宿主把上传的图片暂存在内存里，按连接计：最多 32 MiB、20 张，超出时应答 `attachment_limit`。消息带的图片全部在才发出，缺一张就应答 `attachment_missing`（带缺的那张的 id），一张也不用掉。只有图片的消息 `text` 可以为空，什么都没有的不行（`invalid_message`）；排队项带图片数（`images`），停止或崩溃退回排队的插话也带着它的图片。会话收下这条消息（发给了 pi 或进了宿主的排队）、连接断开、或 30 分钟没被用到时释放；会话拒绝这条消息时（例如 `session_stopping`）图片留着，界面可以再发一次（2026-10-10 定）。消息进了宿主的排队时，图片随排队项保存，不再算在客户端头上。宿主发给 pi 时按 pi 的 RPC 格式放进 `prompt` 的 `images`。
 
 **界面问题上报**：`report_client_issue(kind, message, details?)` 把界面里的未捕获错误和性能问题（长任务、掉帧）写进宿主日志，带客户端 id 和当时的 trace id。`message` 和 `details` 截断到 4 KB，照常脱敏；界面不在里面放对话内容。界面在入口捕获未处理的错误和 Promise 拒绝，并观察超过 50 毫秒的长任务；同一类问题每 10 秒最多报一次，不会触发连接的限流。
 
@@ -642,14 +642,14 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 应答 `{ models, defaultModel }`。每个模型 `{ providerId, modelId, name, contextWindow, maxOutput, supportsImage, thinkingLevels }`。pi 只返回有凭据的服务商的模型。
 - 推理档位按模型的元数据算出，不调 `get_available_thinking_levels`（它只回答当前模型）：不支持推理的只有 `off`；其余从 off / minimal / low / medium / high / xhigh / max 里去掉 `thinkingLevelMap` 标为 `null` 的，`xhigh`、`max` 只在 `thinkingLevelMap` 里明确给出时才有。规则照抄 pi-ai 的 `getSupportedThinkingLevels`，写在 `packages/pi` 里（运行时不依赖 pi 的包），pi 改了规则时契约测试会发现。
 - 没有任何凭据时 pi 照常回答，列表为空；`get_state` 给的是占位模型（`unknown/unknown`），不算默认模型。默认模型必须在列表里。会话的模型是占位模型时也当作没有（`null`）。
-- 查询失败（pi 退出、超时，或者启动不起来）应答 `models_unavailable`，`params.detail` 是 pi 的报错原文（stderr 的最后一段，截断到 4 KB），和 `pi_rejected` 一样只供"展开看原始报错"；它只发给界面，不写日志。
+- 查询失败（pi 退出、超时，或者启动不起来）应答 `models_unavailable`，`params.detail` 是 pi 的报错原文（stderr 的最后一段，截断到 4 KB），和 `pi_rejected` 一样只供"展开看原始报错"；宿主不把 `detail` 写进日志。探测用的 pi 的 stderr 和会话的 pi 一样按 observability.md 逐行、脱敏记录（2026-10-10 定）。
 
 **会话的模型**
 
-- 会话快照新增 `model`：`{ providerId, modelId, thinkingLevel } | null`，变化时推 `model_updated`。宿主在 pi 启动后、`set_model` 和 `set_thinking_level` 之后、收到 pi 的 `thinking_level_changed` 时用 `get_state` 读取。
+- 会话快照新增 `model`：`{ providerId, modelId, thinkingLevel } | null`，变化时推 `model_updated`。宿主在 pi 启动后、`set_model` 和 `set_thinking_level` 之后用 `get_state` 读取；pi 的 `thinking_level_changed` 事件自己带着新档位，直接用它。读取失败按 pi 的错误应答（`pi_unavailable` 等），不当宿主的错误。pi 退出后重新启动时，模型按新 pi 读到的为准。
 - `set_model(providerId, modelId)` / `set_thinking_level(level)`：转给 pi，之后用 `get_state` 读回实际的模型和档位（换模型后 pi 会把档位截到新模型支持的范围），再取一次条目（`model_change` 等条目不发事件）。运行中也可以换，从下一次请求开始生效；`stopping` 期间应答 `session_stopping`。pi 没在运行就先启动它。
 - 记住上一次的选择：Preferences 新增 `lastModel`（`{ providerId, modelId } | null`）和 `thinkingByModel`（键是 `providerId/modelId`）。在任何会话里换模型或推理强度都会更新它们（Paseo 记在客户端，Atrium 的偏好在宿主索引里，所有客户端共用）。pi 的 `set_model` 不写 pi 自己的设置，所以由 Atrium 记。
-- 新会话（工作区里新建、新对话、宿主重启后恢复的草稿第一次启动）启动 pi 后，宿主按 `lastModel` 调 `set_model`，再按 `thinkingByModel` 调 `set_thinking_level`，然后才处理第一条消息。**不照 Paseo 用 `--model` 启动**：pi 解析不出 `--model` 时直接退出，记住的模型后来没了凭据就会让会话起不来；`set_model` 找不到模型只是一条错误应答，宿主忽略它，会话用 pi 自己的默认模型。`lastModel` 为空时什么也不设。从文件打开的会话不设，pi 沿用会话里记录的模型。
+- 新会话（工作区里新建、新对话、宿主重启后恢复的草稿第一次启动）启动 pi 后，宿主按 `lastModel` 调 `set_model`，再按 `thinkingByModel` 调 `set_thinking_level`，然后才处理第一条消息。**不照 Paseo 用 `--model` 启动**：pi 解析不出 `--model` 时直接退出，记住的模型后来没了凭据就会让会话起不来；`set_model` 找不到模型只是一条错误应答，宿主忽略它，会话用 pi 自己的默认模型。`lastModel` 为空时什么也不设。从文件打开的会话不设，pi 沿用会话里记录的模型。还没写出文件的会话重新启动时（崩溃后重启、退出后再打开），新的 pi 不知道它原来的模型，宿主按它原来的模型和档位设，不用 `lastModel`（2026-10-10 定）。
 - 当前模型不支持图片时（模型列表里 `supportsImage` 为假）不允许添加图片，提示当前模型不支持；已经添加了图片再换到不支持的模型，发送按钮旁提示，发送时照样发出，由 pi 换成占位文字。
 
 **`/` 命令**
@@ -659,23 +659,24 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **`@` 引用**
 
-- `search_files(sessionId, query)`：在会话的工作目录里调 `fd`，参数和 pi 的终端界面一致：`--type f --type d --follow --hidden --exclude .git`，每次最多 100 个结果；先搜一层、再递归搜，合并后按匹配程度排序（完全匹配 > 前缀 > 文件名包含 > 路径包含，目录略优先，同分按深度、长度、名字），返回前 20 个。查询里带 `/` 时只在那个子目录里搜。`fd` 自己遵守 `.gitignore`、`.ignore`、`.fdignore`，所以 git 仓库和普通目录走同一条路，也包括还没 `git add` 的新文件。只在工作目录之内搜，不支持 `~/` 和绝对路径。
+- `search_files(sessionId, query)`：在会话的工作目录里调 `fd`，参数和 pi 的终端界面一致：`--type f --type d --follow --hidden --exclude .git`，每次最多 100 个结果；先搜一层、再递归搜，合并后按匹配程度排序（完全匹配 > 前缀 > 文件名包含 > 路径包含，目录略优先，同分按深度、长度、名字），返回前 20 个。查询里带 `/` 时只在那个子目录里搜。`fd` 自己遵守 `.gitignore`、`.ignore`、`.fdignore`，所以 git 仓库和普通目录走同一条路，也包括还没 `git add` 的新文件。只在工作目录之内搜，不支持 `~/`、绝对路径和 `..`；工作目录里的符号链接和 pi 一样跟进去（`--follow`），它指向的内容算工作目录的一部分（2026-10-10 定）。
 - `fd` 的位置和 pi 一样：先找 `~/.pi/agent/bin/fd`（`PI_CODING_AGENT_DIR` 可改），再找登录 shell 的 `PATH` 里的 `fd`、`fdfind`。都没有时应答 `fd_missing`，界面提示"没有找到 fd"；宿主不自己下载（pi 的终端界面第一次启动时会下载它）。首次启动的检查在 M1.10 加上 fd。
-- 每次查询最多 5 秒，超时或同一会话来了新的查询时停掉上一次的 `fd`。查询词作为 `fd` 的参数传入（不经 shell）。
+- 每次查询最多 5 秒，超时或同一会话来了新的查询时停掉上一次的 `fd`。查询词作为 `fd` 的参数传入（不经 shell），放在 `--` 之后，以 `-` 开头的查询词不会被当成 `fd` 的选项；`fd` 把以 `-` 开头的名字输出成 `./-名字`，宿主去掉 `./`。
 - 发送时文件写成 `@相对路径`，目录写成 `@目录/`，路径里有空白时写成 `@"路径"`，和 pi 的终端界面插入的一样。
-- 什么时候算在输入 `@`：`@` 前面不是字母、数字或 `._+-` 时（所以邮箱不算）；中文词之间没有空格，跟在汉字或中文标点后面也算。查询词是 `@` 到光标之间的字。列表里回车把它变成文件小胶囊，Tab 在目录上是进入这个目录继续找。查询词按字面匹配（pi 当正则用，名字里的 `+`、`(` 会出错）。
+- 什么时候算在输入 `@`：`@` 前面不是字母、数字或 `._+-` 时（所以邮箱不算）；中文词之间没有空格，跟在汉字或中文标点后面也算。查询词是 `@` 到光标之间的字。列表里回车把它变成文件小胶囊，Tab 在目录上是进入这个目录继续找（名字带空白的目录写成 `@"目录/` 继续找，引号里的字是查询词）。列表显示的结果还是上一个查询词的时（新的还没回来），回车不选。查询词按字面匹配（pi 当正则用，名字里的 `+`、`(` 会出错）。
 
 **发出的消息**（2026-10-10 定）
 
 - 文件引用和长粘贴都显示成文字框上方的小胶囊，发送时拼进 `text`：先是文字框里的字（去掉末尾空白），再是各段粘贴内容（按粘贴顺序），最后一行是文件引用（空格隔开），各部分之间空一行。空的部分不出现；只有胶囊没有文字也能发送。
 - ↑ 历史显示的就是这样拼出来的整条消息。
+- 发送失败（宿主或 pi 没收下这条消息）时，输入框还是空的，就把这条消息和它的图片放回输入框，并在上方说明原因（2026-10-10 定）。
 
 **↑ 历史与草稿**
 
-- ↑ 历史是本会话当前分支上你发过的消息（不含"系统自动发出"的），从新到旧，相邻重复的只算一条。取自界面已经加载的对话记录，翻过已加载的最早一轮时按游标取更早的。宿主重启后照样在，Atrium 不另存。
-- 草稿每个会话一份，界面按会话 id 存在 localStorage：文字、文件引用、粘贴内容。图片只放在内存里，刷新页面或重启后不保留。发送后清掉；会话归档，或在界面开着时从列表里消失（丢弃），界面清掉它的草稿（2026-10-10 定：不在启动时按列表清理，第一份列表可能早于宿主扫完会话目录）。localStorage 写不下时只保留在内存里。
-- 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就把这条消息的图片全部重新上传一次再发。图片在粘贴、拖入或从"+"菜单选中时就压缩并上传，上传完之前不能发送。
-- 拖进输入框的其他文件变成文件引用：路径由桌面端的 preload 用 Electron 的 `webUtils.getPathForFile` 告诉页面，在工作区目录里的写成相对路径，其余写绝对路径；页面自己拿不到路径时（浏览器里）跳过。
+- ↑ 历史是本会话当前分支上你发过的消息和插话（不含"系统自动发出"的），按发出顺序从新到旧，相邻重复的只算一条。输入框完全为空（没有文字、小胶囊和图片）时 ↑ 才调历史。取自界面已经加载的对话记录，翻过已加载的最早一轮时按游标取更早的。宿主重启后照样在，Atrium 不另存。
+- 草稿每个会话一份，界面按会话 id 存在 localStorage：文字、文件引用、粘贴内容。图片只放在内存里，刷新页面或重启后不保留。发送后清掉；会话归档，或在界面开着时从列表里消失（丢弃），界面清掉它的草稿（2026-10-10 定：不在启动时按列表清理，第一份列表可能早于宿主扫完会话目录）。草稿以页面内存为准、同步写进 localStorage；localStorage 写不下时只保留在内存里，并删掉 localStorage 里那份旧的。空状态下打的字在新会话建好时转给它：转交之后空状态的输入框（还没切到新会话时）继续打的字也记在新会话的草稿里；新会话的输入框只在这一次抢焦点。
+- 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就把这条消息的图片全部重新上传一次再发。图片在粘贴、拖入或从"+"菜单选中时就压缩并上传，压缩和上传完之前不能发送（压缩中的图片先显示占位）。上传的结果记在草稿里，上传途中切走标签再回来也不受影响。多张图片逐张上传。
+- 拖进输入框的其他文件变成文件引用：路径由桌面端的 preload 用 Electron 的 `webUtils.getPathForFile` 告诉页面，在工作区目录里的写成相对路径，其余写绝对路径，目录结尾带 `/`；页面自己拿不到路径时（浏览器里）跳过。
 
 新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`。新增事件：`model_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
 

@@ -102,7 +102,8 @@ export function filterCommands(commands: readonly SlashCommand[], query: string)
  * @remarks
  * The `@` must not follow a letter, digit or `._+-`, so a mail address does not count; Chinese
  * has no spaces between words, so it may follow a character or punctuation. The query is what is
- * typed between it and the caret, as in pi's terminal.
+ * typed between it and the caret, as in pi's terminal. A word opened with `@"`, as going into a
+ * directory with white space in its name writes it, runs to its closing quote, spaces and all.
  *
  * @sideEffects none
  * @param text - The box's text.
@@ -110,6 +111,13 @@ export function filterCommands(commands: readonly SlashCommand[], query: string)
  * @returns The word, or `null` when the caret is not in one.
  */
 export function mentionAt(text: string, caret: number): Mention | null {
+  const quoted = /(?:^|[^\w.+\-@])@"([^"]*)$/u.exec(text.slice(0, caret));
+  if (quoted !== null) {
+    // Stryker disable next-line StringLiteral: the group always matches, if only nothing.
+    const query = quoted[1] ?? "";
+    const close = text.indexOf('"', caret);
+    return { start: caret - query.length - 2, end: close === -1 ? caret : close + 1, query };
+  }
   const found = /(?:^|[^\w.+\-@])@([^\s@]*)$/u.exec(text.slice(0, caret));
   if (found === null) return null;
   // Stryker disable next-line StringLiteral: the group always matches, if only nothing.
@@ -138,7 +146,8 @@ export function removeMention(text: string, mention: Mention): { readonly text: 
  * The box with an `@` word turned into a directory's path, to look inside it.
  *
  * @remarks
- * Tab on a directory goes into it, as pi's terminal completes `@dir/`.
+ * Tab on a directory goes into it, as pi's terminal completes `@dir/`; a name with white space
+ * opens a quoted word, `@"my dir/`, which `mentionAt` reads to the caret.
  *
  * @sideEffects none
  * @param text - The box's text.
@@ -151,8 +160,26 @@ export function enterDirectory(
   mention: Mention,
   path: string,
 ): { readonly text: string; readonly caret: number } {
-  const word = `@${path}`;
+  const word = /\s/.test(path) ? `@"${path}` : `@${path}`;
   return { text: text.slice(0, mention.start) + word + text.slice(mention.end), caret: mention.start + word.length };
+}
+
+/**
+ * How a file dropped on the box is referenced.
+ *
+ * @remarks
+ * From the session's directory when inside it, else whole; a directory ends in `/`, as `@` writes
+ * it (SPEC-0001, "模型与输入框").
+ *
+ * @sideEffects none
+ * @param path - The file's absolute path.
+ * @param baseDir - The session's directory, if known.
+ * @param directory - Whether it is a directory.
+ * @returns The path to reference.
+ */
+export function droppedReference(path: string, baseDir: string | null, directory: boolean): string {
+  const shown = baseDir !== null && path.startsWith(`${baseDir}/`) ? path.slice(baseDir.length + 1) : path;
+  return directory ? `${shown}/` : shown;
 }
 
 /**
@@ -221,8 +248,8 @@ export function isLongPaste(text: string): boolean {
  * What ↑ goes back through: the messages you sent in the session, newest first.
  *
  * @remarks
- * The current branch's turns as far back as loaded, without the host's own messages, a repeat in
- * a row counted once (SPEC-0001, "模型与输入框").
+ * The current branch's turns as far back as loaded, each its message and then its steers,
+ * without the host's own messages, a repeat in a row counted once (SPEC-0001, "模型与输入框").
  *
  * @sideEffects none
  * @param items - The transcript, oldest first.
@@ -231,8 +258,11 @@ export function isLongPaste(text: string): boolean {
 export function historyOf(items: readonly TranscriptItem[]): string[] {
   const sent: string[] = [];
   for (const item of items.toReversed()) {
-    if (item.kind !== "turn" || item.user.auto) continue;
-    if (sent.at(-1) !== item.user.text) sent.push(item.user.text);
+    if (item.kind !== "turn") continue;
+    const steers = item.steps.flatMap((step) => (step.kind === "steer" ? [step.text] : []));
+    for (const text of [...(item.user.auto ? [] : [item.user.text]), ...steers].toReversed()) {
+      if (sent.at(-1) !== text) sent.push(text);
+    }
   }
   return sent;
 }

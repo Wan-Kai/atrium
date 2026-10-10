@@ -2,7 +2,7 @@ import type { AtriumClient, IndexView } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { X } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { dropDrafts } from "../state/drafts";
+import { pageDrafts } from "../state/drafts";
 import { useStore } from "zustand";
 import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-area";
 import { applyAppearance } from "../design/appearance";
@@ -128,7 +128,7 @@ function useDraftCleanup(index: IndexView): void {
     const before = seen.current?.generation === index.generation ? seen.current.sessions : new Set<string>();
     const gone = [...before].filter((id) => !live.has(id));
     const archived = index.sessions.filter((one) => one.archived).map((one) => one.sessionId);
-    dropDrafts([...gone, ...archived]);
+    pageDrafts().drop([...gone, ...archived]);
     seen.current = { generation: index.generation, sessions: live };
   }, [index.ready, index.generation, index.sessions]);
 }

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
-import { loadDraft } from "../state/drafts";
+import { pageDrafts } from "../state/drafts";
 import { fakeClient } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
@@ -55,7 +55,7 @@ function turn(id: string, text: string, fields: Partial<Turn> = {}): Turn {
 describe("Composer", () => {
   it("sends on Enter, keeps Shift+Enter as a new line, and clears the box", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} />);
+    const screen = await render(<Composer draftKey="composer-1" onSend={(text) => sent.push(text)} />);
     const box = screen.getByRole("textbox", { name: "消息" });
 
     await userEvent.type(box, "第一行{Shift>}{Enter}{/Shift}第二行{Enter}");
@@ -66,7 +66,7 @@ describe("Composer", () => {
 
   it("does not send while an input method is composing, nor when empty", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} />);
+    const screen = await render(<Composer draftKey="composer-2" onSend={(text) => sent.push(text)} />);
     const box = screen.getByRole("textbox", { name: "消息" }).element() as HTMLTextAreaElement;
 
     box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
@@ -78,7 +78,7 @@ describe("Composer", () => {
 
   it("sends with the button", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} />);
+    const screen = await render(<Composer draftKey="composer-3" onSend={(text) => sent.push(text)} />);
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好");
 
     await screen.getByRole("button", { name: "发送" }).click();
@@ -88,14 +88,14 @@ describe("Composer", () => {
 
   it("keeps the text while a stop waits for pi, and sends it once the stop ends", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} stopping />);
+    const screen = await render(<Composer draftKey="composer-4" onSend={(text) => sent.push(text)} stopping />);
     const box = screen.getByRole("textbox", { name: "消息" });
 
     await userEvent.type(box, "下一步{Enter}");
     expect(sent).toStrictEqual([]);
     await expect.element(box).toHaveValue("下一步");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
-    await screen.rerender(<Composer onSend={(text) => sent.push(text)} />);
+    await screen.rerender(<Composer draftKey="composer-4" onSend={(text) => sent.push(text)} />);
     await userEvent.type(box, "{Enter}");
 
     expect(sent).toStrictEqual(["下一步"]);
@@ -453,6 +453,9 @@ describe("ConversationArea", () => {
     );
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "一{Enter}");
     await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 正在忙，等这一轮结束再发");
+    // The message did not go, so it is back in the box.
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("一");
+    pageDrafts().drop(["s1"]);
 
     await screen.rerender(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />);
 
@@ -657,10 +660,11 @@ describe("ConversationArea's composer", () => {
     expect(calls).toContain("listCommands s1");
     expect(calls).toContain("searchFiles s1 a");
     await vi.waitFor(() =>
-      expect(loadDraft("s1")).toStrictEqual({
+      expect(pageDrafts().read("s1")).toStrictEqual({
         text: "/review 看看 ",
         pastes: [],
         files: ["src/a.ts"],
+        images: [],
       }),
     );
   });
@@ -899,5 +903,58 @@ describe("ConversationArea handing the first words to a new session", () => {
     await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
     await userEvent.keyboard("rev");
     await expect.element(box).toHaveValue("/rev");
+    pageDrafts().drop(["new1"]);
+  });
+
+  it("keeps the words typed after the session was created but before it shows, and focuses only once", async () => {
+    const { client, index } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.type(box, "/");
+    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+
+    await userEvent.keyboard("rev");
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+    await expect.element(box).toHaveValue("/rev");
+    await expect.element(box).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    (document.activeElement as HTMLElement | null)?.blur();
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s9" create={create} />),
+    );
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("/rev");
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).not.toHaveFocus();
+    pageDrafts().drop(["new1"]);
+  });
+
+  it("hands the words over even when the new session shows before its creation is answered", async () => {
+    const { client } = fakeClient();
+    const answered = Promise.withResolvers<void>();
+    const create = async () => {
+      await answered.promise;
+      return (await client.createChat()).sessionId;
+    };
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+    answered.resolve();
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("/");
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveFocus();
+    pageDrafts().drop(["new1"]);
   });
 });

@@ -6,8 +6,8 @@ import type { PromptImage } from "../sessions/session-controller";
 export interface AttachmentStore {
   /** Keeps an upload for a connection; returns its id. */
   put(connectionId: string, mimeType: string, data: string): string;
-  /** Takes uploads off for a message, all or none. */
-  take(connectionId: string, ids: readonly string[]): PromptImage[];
+  /** Sends a message with uploads, all or none, taking them off once the message is taken. */
+  use<T>(connectionId: string, ids: readonly string[], send: (images: PromptImage[]) => Promise<T>): Promise<T>;
   /** Lets a closed connection's uploads go. */
   drop(connectionId: string): void;
   /** Lets every upload go. */
@@ -27,7 +27,8 @@ interface Kept {
  *
  * @remarks
  * SPEC-0001 ("附件"): images are kept in memory per connection, up to a total size and count; a
- * message takes them off, and so does the connection closing or 30 minutes passing unused. Once
+ * message taken by its session takes them off, and so does the connection closing or 30 minutes
+ * passing unused. A message the session refuses leaves them, so it can go again. Once
  * a message is queued its images go with the queue item, no longer counted here. A message naming
  * an image not here takes none, so it is not sent short of one.
  *
@@ -71,15 +72,16 @@ export function createAttachmentStore(options: {
       kept.set(id, { connectionId, image: { data, mimeType }, bytes, expire });
       return id;
     },
-    take(connectionId, ids) {
+    async use(connectionId, ids, send) {
       const missing = ids.find((id) => kept.get(id)?.connectionId !== connectionId);
       if (missing !== undefined) throw new CommandError("attachment_missing", { attachmentId: missing });
       const images = ids.flatMap((id) => {
         const one = kept.get(id);
         return one === undefined ? [] : [one.image];
       });
+      const sent = await send(images);
       for (const id of ids) release(id);
-      return images;
+      return sent;
     },
     drop(connectionId) {
       for (const [id, one] of kept) if (one.connectionId === connectionId) release(id);

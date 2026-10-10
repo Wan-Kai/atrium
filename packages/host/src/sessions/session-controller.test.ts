@@ -129,10 +129,21 @@ function manualPi() {
   const settingFailures: unknown[] = [];
   /** Failures for the next `get_commands`, in order. */
   const commandFailures: unknown[] = [];
+  /** Failures for the next `get_state`, in order. */
+  const stateFailures: unknown[] = [];
   /** Each message and steer sent, with the data of its images. */
   const withImages: [string, string[]][] = [];
   const abortGate = Promise.withResolvers<void>();
   let abortWaits = false;
+  /**
+   * Hands pi's events to the controller.
+   *
+   * @sideEffects Calls the listeners.
+   * @param events - The events, in order.
+   */
+  const emit = (...events: unknown[]): void => {
+    for (const event of events) for (const listener of listeners) listener(event as PiEvent);
+  };
   const pi: SessionPi = {
     onEvent: (listener) => {
       listeners.add(listener);
@@ -153,6 +164,8 @@ function manualPi() {
       sent.push("clear_queue");
       const steering = held;
       held = [];
+      // As pi does: the emptied queue's update comes before the answer (fixtures/pi-1.1.0/abort.jsonl).
+      emit({ type: "queue_update", steering: [], followUp: [] });
       return { steering };
     },
     abort: async () => {
@@ -166,6 +179,7 @@ function manualPi() {
     },
     model: async () => {
       sent.push("get_state");
+      if (stateFailures.length > 0) throw stateFailures.shift();
       return states.length > 1 ? (states.shift() ?? null) : (states[0] ?? null);
     },
     setModel: async ({ providerId, modelId }) => {
@@ -203,10 +217,9 @@ function manualPi() {
     states,
     settingFailures,
     commandFailures,
+    stateFailures,
     withImages,
-    emit: (...events: unknown[]) => {
-      for (const event of events) for (const listener of listeners) listener(event as PiEvent);
-    },
+    emit,
     crash: () => exit.resolve({ code: null, signal: "SIGKILL", requested: false }),
   };
 }
@@ -940,7 +953,7 @@ describe("createSessionController steering", () => {
     expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s1", text: "also" }]);
   });
 
-  it("tells pi's steers apart by text, one held text keeping one steer", async () => {
+  it("tells pi's steers apart by text, one held text keeping the latest steer with it, as pi delivers from the front", async () => {
     const { pi, emit } = manualPi();
     const { controller } = control(pi);
     await controller.prompt(prompt("q1", "one"));
@@ -952,7 +965,7 @@ describe("createSessionController steering", () => {
 
     emit({ type: "queue_update", steering: ["same", "unknown"], followUp: [] });
 
-    expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s1", text: "same" }]);
+    expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s2", text: "same" }]);
   });
 
   it("sends a steer as a message when idle, and tells the client when pi handled a steer", async () => {
@@ -1848,6 +1861,19 @@ describe("createSessionController's model", () => {
     expect(controller.snapshot().model).toStrictEqual(opus);
   });
 
+  it("answers as pi failed when the model cannot be read back, its words kept out of the error's message", async () => {
+    const { pi, stateFailures } = manualPi();
+    const chosen: SessionModel[] = [];
+    const { controller } = control(pi, empty, { model: opus, onModelChosen: (model) => chosen.push(model) });
+    stateFailures.push(new ReplayRequestError("get_state", "exited", "fatal: secret-ish words"));
+
+    await expect(controller.setModel({ providerId: "anthropic", modelId: "haiku" })).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(chosen).toStrictEqual([]);
+    expect(controller.snapshot().model).toStrictEqual(opus);
+  });
+
   it("reports no choice when pi has no model to report", async () => {
     const { pi } = manualPi();
     const chosen: SessionModel[] = [];
@@ -1978,6 +2004,7 @@ describe("createSessionController's images", () => {
     await controller.prompt(prompt("q1", "一"));
     emit({ type: "agent_start" });
     await controller.steer(steer("s1", "这张"), [image("x")]);
+    emit({ type: "queue_update", steering: ["这张"], followUp: [] });
     hold(["这张"]);
 
     await controller.stop();
@@ -1986,6 +2013,48 @@ describe("createSessionController's images", () => {
     expect(controller.snapshot().control.queue).toMatchObject([{ text: "这张", images: 1 }]);
     controller.resumeQueue();
     expect(withImages.at(-1)).toStrictEqual(["这张", ["x"]]);
+  });
+
+  it("gives back the images of the steers pi still holds when two share a text", async () => {
+    const { pi, emit, hold, withImages } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "一"));
+    emit({ type: "agent_start" });
+    await controller.steer(steer("s1", ""), [image("a")]);
+    await controller.steer(steer("s2", ""), [image("b")]);
+    emit({ type: "queue_update", steering: ["", ""], followUp: [] });
+    emit({ type: "queue_update", steering: [""], followUp: [] });
+    hold([""]);
+
+    await controller.stop();
+    expect(controller.snapshot().control.queue).toMatchObject([{ text: "", images: 1 }]);
+    emit({ type: "agent_settled" });
+    await settle();
+    controller.resumeQueue();
+
+    expect(withImages.at(-1)).toStrictEqual(["", ["b"]]);
+  });
+
+  it("takes back a steer still on its way to pi when stopped, with its images", async () => {
+    const { pi, emit, hold, sent, steerAnswers } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "一"));
+    emit({ type: "agent_start" });
+    const answer = Promise.withResolvers<{ disposition: "queued" }>();
+    steerAnswers.push(() => answer.promise);
+    const steering = controller.steer(steer("s1", "晚"), [image("x")]);
+
+    const stopping = controller.stop();
+    await settle();
+    expect(sent).toStrictEqual(["prompt 一", "steer 晚", "abort"]);
+    emit({ type: "queue_update", steering: ["晚"], followUp: [] });
+    hold(["晚"]);
+    answer.resolve({ disposition: "queued" });
+
+    expect(await stopping).toStrictEqual({ confirmed: true });
+    expect(await steering).toStrictEqual({ disposition: "queued" });
+    expect(sent).toStrictEqual(["prompt 一", "steer 晚", "abort", "clear_queue"]);
+    expect(controller.snapshot().control).toMatchObject({ queue: [{ text: "晚", images: 1 }], steers: [] });
   });
 
   it("sends a message with its images again after a crash, when pi had not taken it", async () => {

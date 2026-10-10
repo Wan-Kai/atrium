@@ -89,12 +89,18 @@ describe("fdArguments", () => {
       "--max-depth",
       "1",
       "--fixed-strings",
+      "--",
       "ses",
     ]);
   });
 
   it("matches a query with a slash against the whole path, and an empty query against everything", () => {
-    expect(fdArguments("/w", "src/se", null).slice(-3)).toStrictEqual(["--full-path", "--fixed-strings", "src/se"]);
+    expect(fdArguments("/w", "src/se", null).slice(-4)).toStrictEqual([
+      "--full-path",
+      "--fixed-strings",
+      "--",
+      "src/se",
+    ]);
     expect(fdArguments("/w", "", null).at(-1)).toBe(".git/**");
   });
 });
@@ -110,5 +116,13 @@ describe("parseFdOutput", () => {
       { path: "README.md", isDirectory: false },
     ]);
     expect(parseFdOutput("")).toStrictEqual([]);
+  });
+
+  it("drops the ./ fd puts before a name starting with -", () => {
+    expect(parseFdOutput("./-notes.txt\n./-dir/\nsrc/./x\n")).toStrictEqual([
+      { path: "-notes.txt", isDirectory: false },
+      { path: "-dir/", isDirectory: true },
+      { path: "src/./x", isDirectory: false },
+    ]);
   });
 });

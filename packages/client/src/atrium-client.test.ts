@@ -1117,6 +1117,39 @@ describe("createAtriumClient: models", () => {
     ]);
   });
 
+  it("goes back to the model the host last reported when two changes on their way both fail", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    const setting = client.setThinkingLevel("s1", "low");
+    expect(view.getState().model).toStrictEqual({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    latest().fail("set_model", "pi_rejected");
+    await expect(switching).rejects.toStrictEqual(new CommandError("pi_rejected"));
+    expect(view.getState().model).toStrictEqual({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    latest().fail("set_thinking_level", "pi_rejected");
+    await expect(setting).rejects.toStrictEqual(new CommandError("pi_rejected"));
+
+    expect(view.getState().model).toStrictEqual(opus);
+  });
+
+  it("goes back to what the host reported between two changes, not to the first guess", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    latest().receive(
+      event(2, { type: "model_updated", model: { ...opus, modelId: "haiku", thinkingLevel: "medium" } }),
+    );
+    const setting = client.setThinkingLevel("s1", "low");
+    latest().answer("set_model");
+    await switching;
+    latest().fail("set_thinking_level", "pi_rejected");
+    await expect(setting).rejects.toStrictEqual(new CommandError("pi_rejected"));
+
+    expect(view.getState().model).toStrictEqual({ ...opus, modelId: "haiku", thinkingLevel: "medium" });
+  });
+
   it("changes nothing at once for a session whose model it does not know", async () => {
     const { client, latest } = await watchingWithModel(null);
 

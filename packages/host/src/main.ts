@@ -287,7 +287,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       extraOrigins: config.extraOrigins ?? [],
       handshakeTimeoutMs: config.handshakeTimeoutMs ?? 5_000,
       maxPayloadBytes: 1024 * 1024,
-      limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 8 * 1024 * 1024 },
+      // No less than a connection may keep in uploads, so 20 images sent at once fit (security.md).
+      limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 32 * 1024 * 1024 },
       hostVersion: packageJson.version,
       hostInstanceId,
       heartbeatMs: HEARTBEAT_MS,

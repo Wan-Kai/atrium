@@ -9,17 +9,20 @@ import { z } from "zod";
 export const ThinkingLevel = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export type ThinkingLevel = z.infer<typeof ThinkingLevel>;
 
+/** The longest provider id, model id and model name the protocol carries. */
+export const MODEL_LIMITS = { providerId: 256, modelId: 512, name: 512 } as const;
+
 /** A model, named the way pi names it: the provider and the model's id there (domain-model §5). */
 export const ModelRef = z.strictObject({
-  providerId: z.string().min(1).max(256),
-  modelId: z.string().min(1).max(512),
+  providerId: z.string().min(1).max(MODEL_LIMITS.providerId),
+  modelId: z.string().min(1).max(MODEL_LIMITS.modelId),
 });
 export type ModelRef = z.infer<typeof ModelRef>;
 
 /** A model the catalog lists, with what the model panel shows of it. */
 export const CatalogModel = z.strictObject({
   ...ModelRef.shape,
-  name: z.string().max(512),
+  name: z.string().max(MODEL_LIMITS.name),
   /** Tokens. */
   contextWindow: z.number().int().nonnegative(),
   /** Tokens. */

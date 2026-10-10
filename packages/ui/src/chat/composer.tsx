@@ -25,12 +25,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { type KeptImage, keepImages, keptImages, loadDraft, saveDraft } from "../state/drafts";
+import { type Draft, type KeptImage, pageDrafts, useDraft } from "../state/drafts";
 import {
   type DraftText,
   type Mention,
   acceptCommand,
   composeMessage,
+  droppedReference,
   enterDirectory,
   filterCommands,
   isLongPaste,
@@ -40,6 +41,8 @@ import {
   slashQuery,
 } from "./composer-text";
 import { type CompressedImage, ImageTooLargeError, compressImage } from "./images";
+
+const EMPTY_DRAFT: Draft = { text: "", pastes: [], files: [], images: [] };
 
 /** An image sent with a message: its upload and the image itself, to upload again if needed. */
 export interface SentImage {
@@ -64,7 +67,7 @@ export interface ComposerProps {
   /** The model button, beside the send button. */
   readonly picker?: ReactNode;
   /** Where the draft is kept: the session id, or `new:<container>` before the session exists. */
-  readonly draftKey?: string;
+  readonly draftKey: string;
   /** The messages sent earlier, newest first, for ↑. */
   readonly history?: readonly string[];
   /** ↑ reached the oldest message loaded: load older turns. */
@@ -83,6 +86,8 @@ export interface ComposerProps {
   readonly pathForFile?: (file: File) => string | null;
   /** Takes the focus when it appears, with the caret after the draft. */
   readonly autoFocus?: boolean;
+  /** Compresses an image before it uploads; `compressImage` unless a test holds it back. */
+  readonly compress?: (image: Blob) => Promise<CompressedImage>;
 }
 
 /**
@@ -129,8 +134,11 @@ const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
  * directory instead. ↑ ↓ move through a list, Enter or Tab choose, Esc closes it. A paste of
  * more than 8 lines or 800 characters becomes a capsule too. The message goes out as the text,
  * then the pasted texts, then the files as `@path` (`composeMessage`). In an empty box ↑ goes back
- * through the messages sent earlier and ↓ forward. The draft is kept per session in the page's
- * storage. The bottom bar has the "+" menu on the left and the model button and the send button on
+ * through the messages sent earlier and ↓ forward, while nothing at all is in the box. The draft
+ * is the page's (`pageDrafts`), kept per session, so it outlives the box: an image that finishes
+ * uploading after the tab went away is there when it comes back, and nothing goes while an image is
+ * still compressed or uploaded. A file found for an earlier query is not chosen while the new
+ * query's answer is on its way. The bottom bar has the "+" menu on the left and the model button and the send button on
  * the right; the button at the top right opens the box tall.
  *
  * @sideEffects Calls the handlers as the user acts; reads and writes the draft in storage; asks
@@ -157,11 +165,50 @@ export function Composer({
   baseDir = null,
   pathForFile,
   autoFocus = false,
+  compress = compressImage,
 }: ComposerProps) {
-  const [saved] = useState(() => (draftKey === undefined ? null : loadDraft(draftKey)));
-  const [text, setText] = useState(saved?.text ?? "");
-  const [pastes, setPastes] = useState<DraftText["pastes"]>(saved?.pastes ?? []);
-  const [files, setFiles] = useState<DraftText["files"]>(saved?.files ?? []);
+  const drafts = pageDrafts();
+  const { text, pastes, files, images } = useDraft(draftKey);
+  /**
+   * Changes part of the draft.
+   *
+   * @remarks
+   * The draft is the page's, so every box showing it changes too.
+   *
+   * @sideEffects Updates the draft.
+   * @param part - The parts to change.
+   */
+  const change = (part: Partial<Draft>): void => drafts.update(draftKey, (draft) => ({ ...draft, ...part }));
+  /**
+   * Puts new text in the draft.
+   *
+   * @remarks
+   * See `change`.
+   *
+   * @sideEffects Updates the draft.
+   * @param next - The text.
+   */
+  const setText = (next: string): void => change({ text: next });
+  /**
+   * Puts new pasted texts in the draft.
+   *
+   * @remarks
+   * See `change`.
+   *
+   * @sideEffects Updates the draft.
+   * @param next - The pasted texts.
+   */
+  const setPastes = (next: DraftText["pastes"]): void => change({ pastes: next });
+  /**
+   * Puts new file references in the draft.
+   *
+   * @remarks
+   * See `change`.
+   *
+   * @sideEffects Updates the draft.
+   * @param next - The files.
+   */
+  const setFiles = (next: DraftText["files"]): void => change({ files: next });
   const [caret, setCaret] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [browsing, setBrowsing] = useState<number | null>(null);
@@ -171,9 +218,6 @@ export function Composer({
   const [commands, setCommands] = useState<CommandList | null>(null);
   const [found, setFound] = useState<FileList | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
-  const [images, setImages] = useState<readonly KeptImage[]>(() =>
-    draftKey === undefined ? [] : keptImages(draftKey),
-  );
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null);
@@ -198,10 +242,6 @@ export function Composer({
   });
 
   useEffect(() => {
-    if (draftKey !== undefined) saveDraft(draftKey, { text, pastes, files });
-  }, [draftKey, text, pastes, files]);
-
-  useEffect(() => {
     if (!autoFocus) return;
     // The words handed over from the empty state go on where they stopped.
     pendingCaret.current = text.length;
@@ -211,18 +251,15 @@ export function Composer({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- see above.
   }, [autoFocus]);
 
-  useEffect(() => {
-    if (draftKey !== undefined) keepImages(draftKey, images);
-  }, [draftKey, images]);
-
   /**
-   * Compresses and uploads images, showing each as soon as it is compressed.
+   * Compresses and uploads images, showing each at once, its picture once compressed.
    *
    * @remarks
    * Only when the model takes images (SPEC-0001, "图片"); one that cannot be compressed or
-   * uploaded goes again, with a note why.
+   * uploaded goes again, with a note why. Each image is changed in the draft by its id, so the
+   * result lands even when the box has gone or its draft was handed over meanwhile.
    *
-   * @sideEffects Updates the images; uploads through `onUpload`.
+   * @sideEffects Updates the draft's images; uploads through `onUpload`.
    * @param added - The image files.
    */
   const addImages = (added: readonly Blob[]): void => {
@@ -234,15 +271,17 @@ export function Composer({
     setNote(null);
     for (const file of added) {
       const id = crypto.randomUUID();
+      const pending: KeptImage = { id, image: null, attachmentId: null };
+      drafts.update(draftKey, (draft) => ({ ...draft, images: [...draft.images, pending] }));
       // Fire and forget: each image reports its own failure in the note.
       void (async () => {
         try {
-          const image = await compressImage(file);
-          setImages((all) => [...all, { id, image, attachmentId: null }]);
+          const image = await compress(file);
+          drafts.updateImage(id, (one) => ({ ...one, image }));
           const attachmentId = await onUpload(image);
-          setImages((all) => all.map((one) => (one.id === id ? { ...one, attachmentId } : one)));
+          drafts.updateImage(id, (one) => ({ ...one, attachmentId }));
         } catch (error) {
-          setImages((all) => all.filter((one) => one.id !== id));
+          drafts.updateImage(id, () => null);
           setNote(imageFailure(error));
         }
       })();
@@ -253,18 +292,18 @@ export function Composer({
    * References dropped files that are not images, from the session's directory when inside it.
    *
    * @remarks
-   * Only the desktop shell knows a dropped file's path; without one the file is skipped.
+   * Only the desktop shell knows a dropped file's path; without one the file is skipped. A
+   * directory ends in `/` (`droppedReference`).
    *
    * @sideEffects Updates the capsules.
-   * @param dropped - The files.
+   * @param dropped - The files, and whether each is a directory.
    */
-  const referFiles = (dropped: readonly File[]): void => {
-    const paths = dropped.flatMap((file) => {
+  const referFiles = (dropped: readonly { readonly file: File; readonly directory: boolean }[]): void => {
+    const paths = dropped.flatMap(({ file, directory }) => {
       const path = pathForFile?.(file) ?? null;
-      if (path === null) return [];
-      return [baseDir !== null && path.startsWith(`${baseDir}/`) ? path.slice(baseDir.length + 1) : path];
+      return path === null ? [] : [droppedReference(path, baseDir, directory)];
     });
-    setFiles((all) => [...all, ...paths.filter((path) => !all.includes(path))]);
+    setFiles([...files, ...paths.filter((path) => !files.includes(path))]);
   };
 
   /**
@@ -280,8 +319,14 @@ export function Composer({
     event.preventDefault();
     setDragging(false);
     const dropped = [...event.dataTransfer.files];
+    // Only the drop's entries tell a directory from a file.
+    const directories = [...event.dataTransfer.items].map((item) => item.webkitGetAsEntry()?.isDirectory === true);
     addImages(dropped.filter((file) => file.type.startsWith("image/")));
-    referFiles(dropped.filter((file) => !file.type.startsWith("image/")));
+    referFiles(
+      dropped.flatMap((file, at) =>
+        file.type.startsWith("image/") ? [] : [{ file, directory: directories[at] ?? false }],
+      ),
+    );
   };
 
   const listingCommands = commandQuery !== null && dismissed !== text;
@@ -317,6 +362,8 @@ export function Composer({
 
   const commandItems = commandQuery !== null && Array.isArray(commands) ? filterCommands(commands, commandQuery) : [];
   const fileItems = mention !== null && typeof found === "object" && found !== null ? found.files : [];
+  /** The files shown were found for what is typed now, not for an earlier query. */
+  const filesFresh = mention !== null && typeof found === "object" && found !== null && found.query === mention.query;
   const itemCount = commandQuery !== null ? commandItems.length : fileItems.length;
   const highlighted = Math.min(active, Math.max(0, itemCount - 1));
 
@@ -357,7 +404,7 @@ export function Composer({
       return;
     }
     const file = fileItems[highlighted];
-    if (file === undefined || mention === null) return;
+    if (file === undefined || mention === null || !filesFresh) return;
     if (into && file.directory) {
       const entered = enterDirectory(text, mention, file.path);
       place(entered.text, entered.caret);
@@ -395,13 +442,10 @@ export function Composer({
     // A message sent while a stop waits for pi would be refused; the text stays to send later.
     if (empty || stopping || uploading) return;
     const sent = images.flatMap((one) =>
-      one.attachmentId === null ? [] : [{ attachmentId: one.attachmentId, image: one.image }],
+      one.attachmentId === null || one.image === null ? [] : [{ attachmentId: one.attachmentId, image: one.image }],
     );
     (steer ? (onSteer ?? onSend) : onSend)(message, sent);
-    setText("");
-    setPastes([]);
-    setFiles([]);
-    setImages([]);
+    drafts.update(draftKey, () => EMPTY_DRAFT);
     setNote(null);
     setBrowsing(null);
   };
@@ -466,7 +510,7 @@ export function Composer({
       onStop?.();
       return;
     }
-    if (event.key === "ArrowUp" && (text === "" || browsing !== null)) {
+    if (event.key === "ArrowUp" && (empty || browsing !== null)) {
       event.preventDefault();
       browse((browsing ?? -1) + 1);
       return;
@@ -549,7 +593,7 @@ export function Composer({
                 }
               } else {
                 const file = fileItems[index];
-                if (file !== undefined && mention !== null) {
+                if (file !== undefined && mention !== null && filesFresh) {
                   if (into && file.directory) {
                     const entered = enterDirectory(text, mention, file.path);
                     place(entered.text, entered.caret);
@@ -596,17 +640,25 @@ export function Composer({
             <div className="flex flex-wrap gap-2">
               {images.map((one, index) => (
                 <span key={one.id} className="relative">
-                  <img
-                    src={one.image.preview}
-                    alt={`图片 ${index + 1}`}
-                    className={`size-14 rounded-[var(--r-md)] object-cover shadow-[0_0_0_0.5px_var(--line)] ${
-                      one.attachmentId === null ? "opacity-50" : ""
-                    }`}
-                  />
+                  {one.image === null ? (
+                    <span
+                      role="img"
+                      aria-label={`图片 ${index + 1} 正在处理`}
+                      className="block size-14 animate-pulse rounded-[var(--r-md)] bg-[var(--hover)] shadow-[0_0_0_0.5px_var(--line)]"
+                    />
+                  ) : (
+                    <img
+                      src={one.image.preview}
+                      alt={`图片 ${index + 1}`}
+                      className={`size-14 rounded-[var(--r-md)] object-cover shadow-[0_0_0_0.5px_var(--line)] ${
+                        one.attachmentId === null ? "opacity-50" : ""
+                      }`}
+                    />
+                  )}
                   <button
                     type="button"
                     aria-label={`移除 图片 ${index + 1}`}
-                    onClick={() => setImages(images.filter((other) => other.id !== one.id))}
+                    onClick={() => drafts.updateImage(one.id, () => null)}
                     className="absolute -top-1.5 -right-1.5 rounded-full bg-[var(--surface-1)] p-0.5 text-[var(--text-dim)] shadow-[0_0_0_0.5px_var(--line)] hover:text-[var(--text)]"
                   >
                     <X size={10} />

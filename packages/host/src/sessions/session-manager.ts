@@ -59,18 +59,27 @@ interface Running {
   pi: TracedPi;
 }
 
+/** A model to set on a pi just started, with its thinking level when one is known. */
+interface StartModel {
+  readonly model: ModelRef;
+  readonly thinkingLevel: ThinkingLevel | null;
+}
+
 /** How to start pi for a session. */
 interface Launch {
   readonly args: readonly string[];
   readonly cwd: string;
-  /** A session pi has written nothing of yet, which starts on the model chosen last. */
-  readonly fresh: boolean;
+  /**
+   * The model to set once pi runs: the one chosen last for a session pi has written nothing of
+   * yet, the session's own when such a session starts again, or `null` for pi's own.
+   */
+  readonly startOn: StartModel | null;
 }
 
 /** The model new sessions start with, and where the model you choose in a session goes. */
 export interface SessionModels {
   /** The model chosen last, with the thinking level remembered for it; `null` before any was chosen. */
-  preferred(): { readonly model: ModelRef; readonly thinkingLevel: ThinkingLevel | null } | null;
+  preferred(): StartModel | null;
   /** Told the model and level pi uses after you chose one in a session. */
   chosen(model: SessionModel): void;
 }
@@ -103,7 +112,8 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  *   rebuilds steers and turns as they were (SPEC-0001, `steer`);
  * - a session pi has written nothing of starts on the model chosen last, with the thinking level
  *   remembered for it, set through pi's commands rather than `--model`, which makes pi exit when it
- *   cannot find the model; a remembered model pi refuses leaves pi's own; a model chosen in any
+ *   cannot find the model; a remembered model pi refuses leaves pi's own; such a session started
+ *   again goes back to the model it had, which its new pi would not know; a model chosen in any
  *   session is reported to `models` (SPEC-0001, "模型与输入框").
  *
  * Subscribing sends each newly watched session's snapshot to that connection before any later
@@ -354,7 +364,7 @@ export function createSessionManager(options: {
       // pi retries failed model calls itself unless the user's settings turned that off; the host
       // counts on it (SPEC-0001, "运行出错与停止").
       await traced.request({ type: "set_auto_retry", enabled: true });
-      if (launch.fresh) await startOnPreferredModel(traced);
+      if (launch.startOn !== null) await startOnModel(traced, launch.startOn);
       const state = await traced.request({ type: "get_state" });
       sessionId = state.sessionId;
       model = sessionModelOf(state);
@@ -388,14 +398,15 @@ export function createSessionManager(options: {
       setThinkingLevel: async (level) => {
         await traced.request({ type: "set_thinking_level", level });
       },
-      commands: async () => (await traced.request({ type: "get_commands" })).commands.map(toSlashCommand),
+      commands: async () =>
+        (await traced.request({ type: "get_commands" })).commands.flatMap((command) => toSlashCommand(command) ?? []),
       stop: () => pi.stop(),
     };
     return { sessionId, traced, view, entries, model };
   }
 
   /**
-   * Sets a new session's pi to the model chosen last, with the thinking level remembered for it.
+   * Sets a new pi to a model, with its thinking level when one is given.
    *
    * @remarks
    * Through pi's commands, not `--model`: pi exits when it cannot find a model named on its
@@ -405,16 +416,15 @@ export function createSessionManager(options: {
    *
    * @sideEffects Calls pi; may log.
    * @param traced - The new pi.
+   * @param start - The model and level.
    * @throws {PiRequestError} When pi does not answer or exits.
    */
-  async function startOnPreferredModel(traced: TracedPi): Promise<void> {
-    const preferred = options.models?.preferred() ?? null;
-    if (preferred === null) return;
+  async function startOnModel(traced: TracedPi, start: StartModel): Promise<void> {
     try {
-      const { providerId, modelId } = preferred.model;
+      const { providerId, modelId } = start.model;
       await traced.request({ type: "set_model", provider: providerId, modelId });
-      if (preferred.thinkingLevel !== null) {
-        await traced.request({ type: "set_thinking_level", level: preferred.thinkingLevel });
+      if (start.thinkingLevel !== null) {
+        await traced.request({ type: "set_thinking_level", level: start.thinkingLevel });
       }
     } catch (error) {
       if (!(error instanceof PiRequestError) || error.reason !== "rejected") throw error;
@@ -444,7 +454,7 @@ export function createSessionManager(options: {
         return known;
       }
       known.pi = traced;
-      known.controller.attach({ pi: view, entries });
+      known.controller.attach({ pi: view, entries, model });
       return known;
     }
     const starts = await options.turnStarts?.(sessionId).catch((error: unknown) => {
@@ -531,7 +541,7 @@ export function createSessionManager(options: {
    *
    * @sideEffects Looks at the directory.
    * @param sessionId - The session.
-   * @returns pi's arguments, working directory and whether pi has written nothing of the session.
+   * @returns pi's arguments, working directory and the model to start on.
    * @throws {CommandError} `session_not_found` for an unknown or missing session,
    * `session_cwd_missing` when its directory is gone.
    */
@@ -540,8 +550,14 @@ export function createSessionManager(options: {
     if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
     const directory = await stat(entry.cwd).catch(() => null);
     if (directory?.isDirectory() !== true) throw new CommandError("session_cwd_missing", { cwd: entry.cwd });
-    const args = entry.file === null ? ["--session-id", sessionId] : ["--session", entry.file];
-    return { args, cwd: entry.cwd, fresh: entry.file === null };
+    if (entry.file !== null) return { args: ["--session", entry.file], cwd: entry.cwd, startOn: null };
+    // pi has written nothing of the session, so a new pi would not know the model it had.
+    const had = sessions.get(sessionId)?.controller.snapshot().model ?? null;
+    const startOn =
+      had === null
+        ? (options.models?.preferred() ?? null)
+        : { model: { providerId: had.providerId, modelId: had.modelId }, thinkingLevel: had.thinkingLevel };
+    return { args: ["--session-id", sessionId], cwd: entry.cwd, startOn };
   }
 
   /**
@@ -597,7 +613,8 @@ export function createSessionManager(options: {
   async function create(clientId: string, containerId: string, cwd: string): Promise<string> {
     const asked = options.layouts.of(clientId).container;
     const tools = await readyTools();
-    const { sessionId } = (await connect(await spawn(tools, { args: [], cwd, fresh: true }))).controller;
+    const startOn = options.models?.preferred() ?? null;
+    const { sessionId } = (await connect(await spawn(tools, { args: [], cwd, startOn }))).controller;
     await options.catalog.record({ sessionId, containerId, cwd });
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {

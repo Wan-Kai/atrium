@@ -104,23 +104,38 @@ export function ModelPicker({
   useEffect(() => {
     if (mode === null) return undefined;
     /**
-     * Closes the panel on Escape or a click outside it.
+     * Closes the panel on a click outside it.
      *
      * @remarks
      * See `ModelPicker`.
      *
      * @sideEffects May close the panel.
-     * @param event - The key or pointer event.
+     * @param event - The pointer event.
      */
     const close = (event: Event): void => {
-      const outside = !(event.target instanceof Node && root.current?.contains(event.target) === true);
-      if (event instanceof KeyboardEvent ? event.key === "Escape" : outside) setMode(null);
+      if (!(event.target instanceof Node && root.current?.contains(event.target) === true)) setMode(null);
+    };
+    /**
+     * Closes the panel on Escape, and keeps the Escape from anything else.
+     *
+     * @remarks
+     * ⌘⇧I opens the panel with the focus left in the input box, whose Escape stops a run; caught
+     * before it reaches the box, the Escape only closes the panel.
+     *
+     * @sideEffects May close the panel; stops the event.
+     * @param event - The key event.
+     */
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setMode(null);
     };
     document.addEventListener("pointerdown", close);
-    document.addEventListener("keydown", close);
+    document.addEventListener("keydown", escape, true);
     return () => {
       document.removeEventListener("pointerdown", close);
-      document.removeEventListener("keydown", close);
+      document.removeEventListener("keydown", escape, true);
     };
   }, [mode]);
 

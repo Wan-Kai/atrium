@@ -99,7 +99,9 @@ export function createRouter(options: RouterOptions): Route {
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
       case "prompt":
-        return options.sessions.prompt(command, options.attachments.take(connection.id, command.attachmentIds ?? []));
+        return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
+          options.sessions.prompt(command, images),
+        );
       case "fetch_transcript":
         return options.sessions.fetchTranscript(command);
       case "fetch_step":
@@ -107,7 +109,9 @@ export function createRouter(options: RouterOptions): Route {
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
       case "steer":
-        return options.sessions.steer(command, options.attachments.take(connection.id, command.attachmentIds ?? []));
+        return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
+          options.sessions.steer(command, images),
+        );
       case "stop":
         return options.sessions.stop(command.sessionId);
       case "resume_queue":

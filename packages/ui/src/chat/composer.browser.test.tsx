@@ -4,8 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
-import { dropDrafts, loadDraft } from "../state/drafts";
+import type { CatalogModel } from "@atrium/protocol";
+import { pageDrafts } from "../state/drafts";
 import { Composer, type ComposerProps } from "./composer";
+import { compressImage } from "./images";
+import { ModelPicker } from "./model-picker";
 
 const COMMANDS: SlashCommand[] = [
   { name: "mcp", description: "Manage MCP servers", source: "extension" },
@@ -21,8 +24,13 @@ const FILES: FileCandidate[] = [
 
 afterEach(() => {
   localStorage.clear();
-  dropDrafts(["s1"]);
+  pageDrafts().drop(["s1"]);
 });
+
+/** A draft key of its own, so tests never share a draft. */
+function freshKey(): string {
+  return `test:${crypto.randomUUID()}`;
+}
 
 /**
  * Renders a composer at the bottom of a tall page, recording what it sends and asks for.
@@ -40,6 +48,7 @@ async function composer(props: Partial<ComposerProps> = {}) {
   const screen = await render(
     <div style={{ paddingTop: 480 }}>
       <Composer
+        draftKey={freshKey()}
         onSend={(text) => sent.push(text)}
         onListCommands={async () => COMMANDS}
         onSearchFiles={async (query) => {
@@ -132,7 +141,32 @@ describe("Composer's / commands", () => {
   });
 });
 
+/** A search answering each query with its own promise. */
+function answering(
+  answers: Readonly<Record<string, Promise<readonly FileCandidate[]>>>,
+): (query: string) => Promise<readonly FileCandidate[]> {
+  return (query) => answers[query] ?? Promise.resolve([]);
+}
+
 describe("Composer's @ files", () => {
+  it("chooses no file found for the query before, while the new one is on its way", async () => {
+    const later = Promise.withResolvers<readonly FileCandidate[]>();
+    const { screen, box } = await composer({
+      onSearchFiles: answering({ a: Promise.resolve([{ path: "a.ts", directory: false }]), ab: later.promise }),
+    });
+    await userEvent.type(box, "@a");
+    await expect.element(screen.getByRole("option", { name: "a.ts" })).toBeVisible();
+
+    await userEvent.keyboard("b{Enter}");
+
+    await expect.element(box).toHaveValue("@ab");
+    await expect.element(screen.getByRole("button", { name: "移除 a.ts" })).not.toBeInTheDocument();
+    later.resolve([{ path: "ab.ts", directory: false }]);
+    await expect.element(screen.getByRole("option", { name: "ab.ts" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(screen.getByRole("button", { name: "移除 ab.ts" })).toBeVisible();
+  });
+
   it("searches as @ is typed, and turns the chosen file into a capsule above the box", async () => {
     const { screen, box, searched, sent } = await composer();
 
@@ -247,6 +281,18 @@ describe("Composer's history", () => {
 
     await expect.element(box).toHaveValue("a");
   });
+
+  it("leaves ↑ alone while a capsule is above an empty box", async () => {
+    const { screen, box } = await composer({ history: ["二"] });
+    await userEvent.type(box, "@ses");
+    await expect.element(screen.getByRole("option", { name: "src/session.ts" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    await expect.element(screen.getByRole("button", { name: "移除 src/session.ts" })).toBeVisible();
+
+    await userEvent.keyboard("{ArrowUp}");
+
+    await expect.element(box).toHaveValue("");
+  });
 });
 
 describe("Composer's draft", () => {
@@ -254,7 +300,12 @@ describe("Composer's draft", () => {
     const first = await composer({ draftKey: "s1" });
     await userEvent.type(first.box, "半句话@ses{Enter}");
     await vi.waitFor(() =>
-      expect(loadDraft("s1")).toStrictEqual({ text: "半句话", pastes: [], files: ["src/session.ts"] }),
+      expect(pageDrafts().read("s1")).toStrictEqual({
+        text: "半句话",
+        pastes: [],
+        files: ["src/session.ts"],
+        images: [],
+      }),
     );
     // A new composer for the same session, as when its tab shows again.
     await first.screen.rerender(<Composer key="again" onSend={() => undefined} draftKey="s1" />);
@@ -268,7 +319,7 @@ describe("Composer's draft", () => {
 
     await userEvent.type(box, "发出去{Enter}");
 
-    await vi.waitFor(() => expect(loadDraft("s1")).toBeNull());
+    await vi.waitFor(() => expect(localStorage.getItem("atrium-draft:s1")).toBeNull());
   });
 });
 
@@ -345,6 +396,7 @@ async function withUploads(props: Partial<ComposerProps> = {}) {
   const screen = await render(
     <div style={{ paddingTop: 480 }}>
       <Composer
+        draftKey={freshKey()}
         onSend={(text, images) => sent.push([text, images.map((image) => image.attachmentId)])}
         onUpload={async (image) => {
           uploads.push(image.mimeType);
@@ -397,13 +449,14 @@ describe("Composer's images", () => {
   });
 
   it("warns, without blocking, when the model changes to one that takes no images after they were added", async () => {
-    const { screen, box, sent } = await withUploads();
+    const { screen, box, sent } = await withUploads({ draftKey: "s1" });
     pasteFiles(box.element(), [await screenshot()]);
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
 
     await screen.rerender(
       <div style={{ paddingTop: 480 }}>
         <Composer
+          draftKey="s1"
           onSend={(text, images) => sent.push([text, images.map((image) => image.attachmentId)])}
           onUpload={async () => "a1"}
           imagesAllowed={false}
@@ -485,5 +538,90 @@ describe("Composer's images", () => {
     await first.screen.rerender(<Composer key="again" onSend={() => undefined} draftKey="s1" />);
 
     await expect.element(first.screen.getByRole("img", { name: "图片 1" })).toBeVisible();
+  });
+
+  it("lands an upload that ends after the box went away, so the message goes once the box is back", async () => {
+    const gate = Promise.withResolvers<string>();
+    const first = await withUploads({ draftKey: "s1", onUpload: () => gate.promise });
+    pasteFiles(first.box.element(), [await screenshot()]);
+    await expect.element(first.screen.getByRole("img", { name: "图片 1" })).toBeVisible();
+
+    await first.screen.rerender(<div />);
+    gate.resolve("a7");
+    await gate.promise;
+    const sent: [string, string[]][] = [];
+    await first.screen.rerender(
+      <Composer
+        draftKey="s1"
+        onSend={(text, images) => sent.push([text, images.map((image) => image.attachmentId)])}
+      />,
+    );
+
+    await expect.element(first.screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.type(first.screen.getByRole("textbox", { name: "消息" }), "{Enter}");
+    expect(sent).toStrictEqual([["", ["a7"]]]);
+  });
+
+  it("sends nothing while a pasted image is still being compressed, showing where it will be", async () => {
+    const compressing = Promise.withResolvers<void>();
+    const { screen, box, sent } = await withUploads({
+      compress: async (file) => {
+        await compressing.promise;
+        return compressImage(file);
+      },
+    });
+    await userEvent.type(box, "看");
+
+    pasteFiles(box.element(), [await screenshot()]);
+    await expect.element(screen.getByRole("img", { name: "图片 1 正在处理" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+    expect(sent).toStrictEqual([]);
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    compressing.resolve();
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.keyboard("{Enter}");
+
+    expect(sent).toStrictEqual([["看", ["a1"]]]);
+  });
+});
+
+describe("Composer's keys beside the model panel", () => {
+  const listed: CatalogModel = {
+    providerId: "anthropic",
+    modelId: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    contextWindow: 1_000_000,
+    maxOutput: 128_000,
+    supportsImage: true,
+    thinkingLevels: ["off", "low", "high"],
+  };
+
+  it("closes the model panel opened with ⌘⇧I on Esc without stopping the run, and stops on the next", async () => {
+    const onStop = vi.fn<() => void>();
+    const { screen, box } = await composer({
+      running: true,
+      onStop,
+      picker: (
+        <ModelPicker
+          shown={null}
+          list={{ status: "ready", models: [listed], defaultModel: null, error: null }}
+          disabled={false}
+          onOpen={() => undefined}
+          onRefresh={() => undefined}
+          onChooseModel={() => undefined}
+          onChooseLevel={() => undefined}
+        />
+      ),
+    });
+    await userEvent.click(box);
+
+    await userEvent.keyboard("{Meta>}{Shift>}i{/Shift}{/Meta}");
+    await expect.element(screen.getByRole("dialog")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    expect(onStop).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+    expect(onStop).toHaveBeenCalledTimes(1);
   });
 });

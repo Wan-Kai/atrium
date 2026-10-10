@@ -66,11 +66,18 @@ describe("toCatalogModel", () => {
   });
 
   it("says a text-only model takes no images", () => {
-    expect(toCatalogModel(piModel({ input: ["text"] })).supportsImage).toBe(false);
+    expect(toCatalogModel(piModel({ input: ["text"] }))?.supportsImage).toBe(false);
   });
 
   it("names a model without a name by its id", () => {
-    expect(toCatalogModel(piModel({ name: "" })).name).toBe("claude-opus-5-5");
+    expect(toCatalogModel(piModel({ name: "" }))?.name).toBe("claude-opus-5-5");
+  });
+
+  it("cuts a name too long to send, and leaves out a model whose id or provider is", () => {
+    expect(toCatalogModel(piModel({ name: "n".repeat(600) }))?.name).toBe("n".repeat(512));
+    expect(toCatalogModel(piModel({ id: "i".repeat(512), provider: "p".repeat(256) }))).not.toBeNull();
+    expect(toCatalogModel(piModel({ id: "i".repeat(513) }))).toBeNull();
+    expect(toCatalogModel(piModel({ provider: "p".repeat(257) }))).toBeNull();
   });
 });
 

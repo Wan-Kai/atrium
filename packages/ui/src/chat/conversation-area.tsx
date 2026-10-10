@@ -5,7 +5,7 @@ import { type StoreApi, useStore } from "zustand";
 import { useDisplayMode } from "../state/display-mode";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
-import { dropDrafts, keepImages, keptImages, loadDraft, saveDraft } from "../state/drafts";
+import { pageDrafts } from "../state/drafts";
 import { historyOf } from "./composer-text";
 import { type RevealRequest, RevealContext } from "./reveal";
 import { sessionChanges } from "./session-changes";
@@ -69,24 +69,6 @@ export function describeModelError(error: unknown): string {
     return `pi 没有接受这个设置：${String(error.params?.["detail"] ?? "")}`;
   }
   return describeSendError(error);
-}
-
-/**
- * Moves the empty state's draft and images to a session just created from it.
- *
- * @remarks
- * Typing `/` or `@` before there is a session creates one; what was typed goes on there.
- *
- * @sideEffects Moves the draft in the page's storage and the images in memory.
- * @param from - The empty state's draft key.
- * @param to - The new session's id.
- */
-function handOverDraft(from: string, to: string): void {
-  const draft = loadDraft(from);
-  const images = keptImages(from);
-  if (draft !== null) saveDraft(to, draft);
-  keepImages(to, images);
-  dropDrafts([from]);
 }
 
 /** Runs a command, showing why it failed if it does, in the words `describe` picks. */
@@ -171,6 +153,7 @@ function SessionArea({
   notice,
   attaching,
   takesFocus,
+  onFocusTaken,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -185,8 +168,16 @@ function SessionArea({
   readonly attaching: (model: SessionModel | null) => Partial<ComposerProps>;
   /** Whether the box takes the focus, as for a session just created from the empty state. */
   readonly takesFocus: boolean;
+  /** The box has taken the focus, which it does only once. */
+  readonly onFocusTaken: () => void;
 }) {
   const view = useStore(store);
+  useEffect(() => {
+    // The box's own effect has focused it by now, as children's effects run first.
+    if (takesFocus) onFocusTaken();
+    // Only as the box appears.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- see above.
+  }, [takesFocus]);
   const running = view.run !== null;
   const [reveal, setReveal] = useState<RevealRequest | null>(null);
   const actions: RunActions = {
@@ -297,7 +288,8 @@ export function useDisplayModeShortcut(): void {
  * creating another, while one sent after moving to another container starts its own there. The
  * active session is opened whenever it shows, which starts a pi that is not running (as after a
  * restart) and explains here why it cannot. A session whose pi has exited, or that the host lost
- * in a restart, is opened again before the message goes. A failed send is explained above the input box. The empty
+ * in a restart, is opened again before the message goes. A failed send is explained above the input box, and the
+ * message goes back into its box when the box is still empty. The empty
  * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计").
  *
  * @sideEffects Watches the active session; creates and opens sessions and sends messages
@@ -331,8 +323,39 @@ export function ConversationArea({
     // again on every connection, as a request without one fails at once.
     if (connection !== null) void client.loadModels(containerId ?? "chats");
   }, [client, containerId, connection]);
-  /** The session just created here, whose box takes over the empty state's words and the focus. */
-  const [handedOver, setHandedOver] = useState<string | null>(null);
+  /**
+   * The session just created from the empty state of a container, which took over its words. Until
+   * it shows, the empty state's box writes to its draft and sends to it; its box takes the focus
+   * once (SPEC-0001, "模型与输入框").
+   */
+  const [handing, setHanding] = useState<{ readonly container: string; readonly sessionId: string } | null>(null);
+  // Read when sending, which may come before the render that shows `handing`.
+  const handingNow = useRef(handing);
+  /**
+   * Remembers the session the empty state handed its words to, or forgets it.
+   *
+   * @remarks
+   * See `handing`.
+   *
+   * @sideEffects Updates component state.
+   * @param next - The container and session, or `null`.
+   */
+  const handTo = (next: { readonly container: string; readonly sessionId: string } | null): void => {
+    handingNow.current = next;
+    setHanding(next);
+  };
+  const containerKey = containerId ?? "chats";
+  /**
+   * Where the empty state's words go now: its own draft, or the session it handed them to.
+   *
+   * @remarks
+   * Only this container's: another container's empty state has words of its own.
+   *
+   * @sideEffects none
+   * @returns The draft key.
+   */
+  const emptyDraftKey = (): string =>
+    handingNow.current?.container === containerKey ? handingNow.current.sessionId : `new:${containerKey}`;
 
   useEffect(() => {
     let current = true;
@@ -365,6 +388,7 @@ export function ConversationArea({
    * @returns The session id to send to.
    */
   async function target(): Promise<string> {
+    if (sessionId === null && handingNow.current?.container === containerKey) return handingNow.current.sessionId;
     if (sessionId === null) {
       // Per container: a message sent in another one must not wait for, or go to, this session.
       const key = containerId ?? "";
@@ -374,8 +398,8 @@ export function ConversationArea({
         .then(async (id) => {
           // What was typed before the session existed goes on in its box, as when `/` or `@`
           // created it (SPEC-0001, "模型与输入框").
-          handOverDraft(`new:${containerId ?? "chats"}`, id);
-          setHandedOver(id);
+          pageDrafts().handOver(`new:${containerId ?? "chats"}`, id);
+          handTo({ container: containerId ?? "chats", sessionId: id });
           await client.watch([id]);
           return id;
         })
@@ -407,8 +431,10 @@ export function ConversationArea({
    */
   async function send(text: string, images: readonly SentImage[], steer = false): Promise<void> {
     setFailure(null);
+    let id: string | null = null;
     try {
-      const id = await target();
+      id = await target();
+      const to = id;
       /**
        * Sends the message with these uploads.
        *
@@ -419,7 +445,7 @@ export function ConversationArea({
        * @param ids - The uploads.
        * @returns The command's result.
        */
-      const deliver = (ids: readonly string[]) => (steer ? client.steer(id, text, ids) : client.prompt(id, text, ids));
+      const deliver = (ids: readonly string[]) => (steer ? client.steer(to, text, ids) : client.prompt(to, text, ids));
       try {
         await deliver(images.map((image) => image.attachmentId));
       } catch (error) {
@@ -431,6 +457,12 @@ export function ConversationArea({
       }
     } catch (error) {
       setFailure(describeSendError(error));
+      // The message did not go: back into its box, unless something new was typed there meanwhile.
+      pageDrafts().restore(
+        id ?? (sessionId === null ? emptyDraftKey() : sessionId),
+        text,
+        images.map(({ attachmentId, image }) => ({ id: crypto.randomUUID(), image, attachmentId })),
+      );
     }
   }
 
@@ -485,7 +517,6 @@ export function ConversationArea({
     void send(text, images, true);
   };
 
-  const containerKey = containerId ?? "chats";
   const modelList = useStore(client.models(containerKey));
   const preferences = useStore(client.index, (index) => index.preferences);
   const baseDir = useStore(
@@ -554,8 +585,8 @@ export function ConversationArea({
           {notice}
           <Composer
             {...attaching(null)}
-            key={containerId ?? "chats"}
-            draftKey={`new:${containerId ?? "chats"}`}
+            key={containerKey}
+            draftKey={handing?.container === containerKey ? handing.sessionId : `new:${containerKey}`}
             onListCommands={async () => (await client.listCommands(await target())).commands}
             onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
             onSend={onSend}
@@ -583,7 +614,8 @@ export function ConversationArea({
           session={target}
           notice={notice}
           attaching={attaching}
-          takesFocus={handedOver === sessionId}
+          takesFocus={handing?.sessionId === sessionId}
+          onFocusTaken={() => handTo(null)}
         />
       )}
     </div>

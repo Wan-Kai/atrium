@@ -46,8 +46,8 @@ export {
   SearchFilesCommand,
   UploadAttachmentCommand,
 } from "./commands";
-export { FileCandidate, SlashCommand } from "./composer";
-export { CatalogModel, ModelRef, SessionModel, ThinkingLevel } from "./models";
+export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
+export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
 export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {

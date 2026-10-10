@@ -35,10 +35,12 @@ export async function queryModels(launch: PiLaunch, deps: PiDeps, signal: AbortS
     const { models } = await pi.request({ type: "get_available_models" }, { timeoutMs: null, signal });
     const state = await pi.request({ type: "get_state" }, { timeoutMs: null, signal });
     const chosen = sessionModelOf(state);
+    const catalog = models.flatMap((model) => toCatalogModel(model) ?? []);
     const listed =
-      chosen !== null && models.some((model) => model.provider === chosen.providerId && model.id === chosen.modelId);
+      chosen !== null &&
+      catalog.some((model) => model.providerId === chosen.providerId && model.modelId === chosen.modelId);
     return {
-      models: models.map(toCatalogModel),
+      models: catalog,
       defaultModel: listed ? { providerId: chosen.providerId, modelId: chosen.modelId } : null,
     };
   } finally {

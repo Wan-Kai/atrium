@@ -1,4 +1,4 @@
-import type { CatalogModel, SessionModel, ThinkingLevel } from "@atrium/protocol";
+import { type CatalogModel, MODEL_LIMITS, type SessionModel, type ThinkingLevel } from "@atrium/protocol";
 import type { PiResponseData } from "../process/pi-process";
 
 /** A model as pi's `get_available_models` lists it. */
@@ -40,17 +40,20 @@ export function thinkingLevelsOf(model: Pick<PiModel, "reasoning" | "thinkingLev
  *
  * @remarks
  * Only the basics: name, context, longest output, whether it takes images (SPEC-0001, "输入框").
- * A model without a name goes by its id.
+ * A model without a name goes by its id. A name too long for the protocol is cut, so one model
+ * cannot fail the whole list; a model whose id or provider is too long is left out, as it could
+ * not be chosen by a cut one.
  *
  * @sideEffects none
  * @param model - The model as pi lists it.
- * @returns The catalog's model.
+ * @returns The catalog's model, or `null` for one left out.
  */
-export function toCatalogModel(model: PiModel): CatalogModel {
+export function toCatalogModel(model: PiModel): CatalogModel | null {
+  if (model.provider.length > MODEL_LIMITS.providerId || model.id.length > MODEL_LIMITS.modelId) return null;
   return {
     providerId: model.provider,
     modelId: model.id,
-    name: model.name === "" ? model.id : model.name,
+    name: (model.name === "" ? model.id : model.name).slice(0, MODEL_LIMITS.name),
     contextWindow: model.contextWindow,
     maxOutput: model.maxTokens,
     supportsImage: model.input.includes("image"),

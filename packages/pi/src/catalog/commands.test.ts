@@ -25,4 +25,15 @@ describe("toSlashCommand", () => {
       source: "extension",
     });
   });
+
+  it("cuts a description too long to send, and leaves out a command whose name is", () => {
+    const long = "说".repeat(5000);
+    expect(toSlashCommand({ name: "review", description: long, source: "prompt", sourceInfo })).toStrictEqual({
+      name: "review",
+      description: "说".repeat(4096),
+      source: "prompt",
+    });
+    expect(toSlashCommand({ name: "x".repeat(256), source: "prompt", sourceInfo })?.name).toHaveLength(256);
+    expect(toSlashCommand({ name: "x".repeat(257), source: "prompt", sourceInfo })).toBeNull();
+  });
 });

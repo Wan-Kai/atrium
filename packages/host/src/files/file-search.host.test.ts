@@ -117,6 +117,25 @@ describe("createFileSearch against fd", () => {
     expect(await search.search(cwd, "/etc/", new AbortController().signal)).toStrictEqual([]);
   });
 
+  it("takes a query that looks like an fd option as text, never searching elsewhere", async () => {
+    const outside = await workspace({ "secret.txt": "" });
+    const cwd = await workspace({ "-notes.txt": "", "a.ts": "" });
+    const { search } = await searcher();
+
+    expect(await search.search(cwd, `--search-path=${outside}`, new AbortController().signal)).toStrictEqual([]);
+    expect(await search.search(cwd, "-notes", new AbortController().signal)).toStrictEqual([
+      { path: "-notes.txt", directory: false },
+    ]);
+  });
+
+  it("finds nothing for a query fd cannot be given, holding no process", async () => {
+    const cwd = await workspace({ "a.ts": "" });
+    const { search, resources } = await searcher();
+
+    expect(await search.search(cwd, "a\0b", new AbortController().signal)).toStrictEqual([]);
+    expect(resources.snapshot()["fd.process"]).toBe(0);
+  });
+
   it("answers fd_missing without fd", async () => {
     const cwd = await workspace({ "a.ts": "" });
     const search = createFileSearch({ findFd: async () => null, clock: systemClock, resources: new ResourceTracker() });
