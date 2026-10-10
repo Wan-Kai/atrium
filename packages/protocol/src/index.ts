@@ -61,6 +61,8 @@ export {
   CancelInstallCommand,
   CheckPiUpdateCommand,
   DiscoverProjectsCommand,
+  ListBranchesCommand,
+  SetMainBranchCommand,
 } from "./commands";
 export {
   ChangesUpdatedEvent,

@@ -18,6 +18,10 @@ export interface ProjectService {
   rename(projectId: string, name: string): Promise<void>;
   /** Names a workspace, or with `null` goes back to its branch's name. */
   renameWorkspace(workspaceId: string, alias: string | null): Promise<void>;
+  /** The branches on a project's `origin`, by name, and the one `origin/HEAD` points at. */
+  branches(projectId: string): Promise<{ branches: string[]; head: string | null }>;
+  /** Chooses a project's main branch on `origin`, or with `null` follows `origin/HEAD` again. */
+  setMainBranch(projectId: string, branch: string | null): Promise<void>;
   /** Registers worktrees found in a project that have no record yet, as external. */
   recordWorktrees(projectId: string, dirs: readonly string[]): Promise<void>;
   /** Calls `listener` after every change; returns a function that stops it. */
@@ -80,6 +84,40 @@ export function createProjectService(options: {
     const project = options.file.read().projects.find((candidate) => candidate.id === projectId);
     if (project === undefined) throw new CommandError("project_not_found", { projectId });
     return project;
+  }
+
+  /**
+   * The branches on a project's `origin`, and the one `origin/HEAD` points at.
+   *
+   * @remarks
+   * For choosing the main branch in the settings (SPEC-0001, "设置 · 接口"): what was last
+   * fetched, without `HEAD`. A folder that is not a repository, or no git, has none.
+   *
+   * @sideEffects Runs git.
+   * @param projectId - The project.
+   * @returns The branches by name, and `origin/HEAD`'s, or `null`.
+   * @throws {CommandError} `project_not_found`.
+   */
+  async function branchesOf(projectId: string): Promise<{ branches: string[]; head: string | null }> {
+    const { path } = projectOf(projectId);
+    const git = await options.git;
+    if (git === null) return { branches: [], head: null };
+    const prefix = "refs/remotes/origin/";
+    const [refs, head] = await Promise.all([
+      git.run(["for-each-ref", "--format=%(refname)", prefix], { cwd: path }).catch(() => null),
+      git.run(["symbolic-ref", "--quiet", `${prefix}HEAD`], { cwd: path }).catch(() => null),
+    ]);
+    const branches =
+      refs?.code === 0
+        ? refs.stdout
+            .split("\n")
+            .filter((ref) => ref.startsWith(prefix))
+            .map((ref) => ref.slice(prefix.length))
+            .filter((branch) => branch !== "HEAD")
+            .toSorted()
+        : [];
+    const target = head?.code === 0 ? head.stdout.trim() : "";
+    return { branches, head: target.startsWith(prefix) ? target.slice(prefix.length) : null };
   }
 
   /** The last add, which the next one waits for. */
@@ -176,6 +214,20 @@ export function createProjectService(options: {
         ...document,
         workspaces: document.workspaces.map((workspace) =>
           workspace.id === workspaceId ? { ...workspace, alias } : workspace,
+        ),
+      });
+    },
+    branches: branchesOf,
+    async setMainBranch(projectId, branch) {
+      if (branch !== null && !(await branchesOf(projectId)).branches.includes(branch)) {
+        throw new CommandError("branch_not_found", { branch });
+      }
+      projectOf(projectId);
+      const document = options.file.read();
+      await save({
+        ...document,
+        projects: document.projects.map((project) =>
+          project.id === projectId ? { ...project, mainBranch: branch } : project,
         ),
       });
     },

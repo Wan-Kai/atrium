@@ -1507,20 +1507,35 @@ describe("createAtriumClient: first launch", () => {
     ).toStrictEqual([{ type: "check_pi_update" }]);
   });
 
-  it("asks for the directories of pi's history that could become projects", async () => {
+  it("asks for the directories of pi's history that could become projects, and chooses main branches", async () => {
     const { client, latest } = await connected();
     const directories = [{ path: "/work/app", sessions: 2, lastUsedAt: 5 }];
+    const project = "prj_0123456789abcdef";
 
     const discovering = client.discoverProjects();
     latest().answer("discover_projects", { directories });
+    const listing = client.listBranches(project);
+    latest().answer("list_branches", { branches: ["main"], head: "main" });
+    const choosing = client.setMainBranch(project, "main");
+    latest().answer("set_main_branch");
 
-    expect(await discovering).toStrictEqual({ directories });
+    expect(await Promise.all([discovering, listing, choosing])).toStrictEqual([
+      { directories },
+      { branches: ["main"], head: "main" },
+      {},
+    ]);
     expect(
       latest()
         .commands()
-        .filter((command) => command["type"] === "discover_projects")
+        .filter((command) =>
+          ["discover_projects", "list_branches", "set_main_branch"].includes(String(command["type"])),
+        )
         .map(({ requestId: _id, ...command }) => command),
-    ).toStrictEqual([{ type: "discover_projects" }]);
+    ).toStrictEqual([
+      { type: "discover_projects" },
+      { type: "list_branches", projectId: project },
+      { type: "set_main_branch", projectId: project, branch: "main" },
+    ]);
   });
 
   it("keeps only the last mebibyte of a job's output", async () => {

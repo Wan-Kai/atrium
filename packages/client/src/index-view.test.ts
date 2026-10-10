@@ -71,7 +71,7 @@ describe("applyIndexChanges", () => {
     layout: null,
     preferences: null,
   };
-  const project = { id: "prj_0000000000000001", path: "/work/app", name: "app" };
+  const project = { id: "prj_0000000000000001", path: "/work/app", name: "app", mainBranch: null };
 
   it("replaces changed items where they are, adds new ones at the end and drops removed ones", () => {
     const view = { ...viewWith(["s1"], "s1"), generation: "h1", seq: 4, projects: [project] };
@@ -91,7 +91,7 @@ describe("applyIndexChanges", () => {
   });
 
   it("tells projects and workspaces apart by their ids", () => {
-    const second = { id: "prj_0000000000000002", path: "/work/lib", name: "lib" };
+    const second = { id: "prj_0000000000000002", path: "/work/lib", name: "lib", mainBranch: "trunk" };
     /** A local workspace of the first project. */
     const workspace = (id: string, dir: string) => ({
       id,

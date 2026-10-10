@@ -203,7 +203,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     registry: subscriptions,
     generation: hostInstanceId,
     build: () => ({
-      projects: projects.projects().map(({ id, path, name }) => ({ id, path, name })),
+      projects: projects.projects().map(({ id, path, name, mainBranch }) => ({ id, path, name, mainBranch })),
       workspaces: workspaces.list(),
       sessions: sessions.summaries(),
       preferences: preferences.read(),
@@ -309,6 +309,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       windowFocused: () => {
         workspaces.windowFocused();
         changes.refresh();
+      },
+      refresh: (workspaceId) => {
+        workspaces.refresh(workspaceId);
+        changes.refresh(workspaceId);
       },
     },
     sessions,

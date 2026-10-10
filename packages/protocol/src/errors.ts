@@ -64,6 +64,8 @@ export const ErrorCode = z.enum([
   "install_unavailable",
   /** The `jobId` names no install job under way. */
   "install_not_found",
+  /** `origin` has no branch of that name; `params.branch` repeats it. */
+  "branch_not_found",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

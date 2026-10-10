@@ -9,12 +9,17 @@ const Path = z.string().min(1).max(4096);
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
 
+/** A git branch's name, without `refs/heads/` or `origin/`. */
+export const BranchName = z.string().min(1).max(1024);
+
 /** A registered project (SPEC-0001, "项目、工作区与会话"). */
 export const Project = z.strictObject({
   id: ProjectId,
   /** The real path, symbolic links resolved. */
   path: Path,
   name: z.string().min(1).max(256),
+  /** The main branch the user chose, on `origin`; `null` follows `origin/HEAD` (SPEC-0001, "设置 · 接口"). */
+  mainBranch: BranchName.nullable(),
 });
 export type Project = z.infer<typeof Project>;
 
@@ -43,7 +48,7 @@ export const Workspace = z.strictObject({
   /** The name the user gave it; `null` for none. */
   alias: z.string().min(1).max(256).nullable(),
   /** The branch checked out; `null` when HEAD is detached or the project is not a git repository. */
-  branch: z.string().min(1).max(1024).nullable(),
+  branch: BranchName.nullable(),
   /** The short commit HEAD is at when detached; `null` otherwise. */
   head: z.string().min(1).max(64).nullable(),
   /** A worktree Atrium did not create. */

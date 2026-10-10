@@ -433,4 +433,4 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
 }
 
 /** Project `prj_a` named "atrium". */
-export const PROJECT: Project = { id: "prj_000000000000000a", path: "/work/atrium", name: "atrium" };
+export const PROJECT: Project = { id: "prj_000000000000000a", path: "/work/atrium", name: "atrium", mainBranch: null };

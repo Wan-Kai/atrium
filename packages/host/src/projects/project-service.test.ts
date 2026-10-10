@@ -315,6 +315,75 @@ describe("ProjectService.rename", () => {
   });
 });
 
+describe("ProjectService.branches", () => {
+  it("lists the branches on origin by name, and the one origin/HEAD points at", async () => {
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    await scene.git(scene.repo, "push", "--quiet", "origin", "main:release/1.0", "main:fix");
+    await scene.git(scene.repo, "fetch", "--quiet", "origin");
+    const { projects } = await service();
+    const id = await projects.add(scene.repo);
+
+    expect(await projects.branches(id)).toStrictEqual({ branches: ["fix", "main", "release/1.0"], head: "main" });
+  });
+
+  it("lists none for a folder that is not a repository, or without git", async () => {
+    const work = await tempDir("work");
+    const withGit = await service();
+    const withoutGit = await service(null);
+    const plain = await withGit.projects.add(await folder(work, "plain"));
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    const repo = await withoutGit.projects.add(scene.repo);
+
+    expect(await withGit.projects.branches(plain)).toStrictEqual({ branches: [], head: null });
+    expect(await withoutGit.projects.branches(repo)).toStrictEqual({ branches: [], head: null });
+    await expect(withGit.projects.branches("prj_ffffffffffffffff")).rejects.toStrictEqual(
+      new CommandError("project_not_found", { projectId: "prj_ffffffffffffffff" }),
+    );
+  });
+});
+
+describe("ProjectService.setMainBranch", () => {
+  it("chooses a branch on origin as the main branch, and goes back to origin/HEAD", async () => {
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    await scene.git(scene.repo, "push", "--quiet", "origin", "main:release/1.0");
+    await scene.git(scene.repo, "fetch", "--quiet", "origin");
+    const { projects, changes } = await service();
+    const id = await projects.add(scene.repo);
+    const before = changes.count;
+
+    await projects.setMainBranch(id, "release/1.0");
+    const chosen = projects.projects().map((project) => project.mainBranch);
+    await projects.setMainBranch(id, null);
+
+    expect(chosen).toStrictEqual(["release/1.0"]);
+    expect(projects.projects().map((project) => project.mainBranch)).toStrictEqual([null]);
+    expect(changes.count).toBe(before + 2);
+  });
+
+  it("refuses a branch origin does not have, and an unknown project, changing nothing", async () => {
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    const { projects, changes } = await service();
+    const id = await projects.add(scene.repo);
+    const before = changes.count;
+
+    await expect(projects.setMainBranch(id, "HEAD")).rejects.toStrictEqual(
+      new CommandError("branch_not_found", { branch: "HEAD" }),
+    );
+    await expect(projects.setMainBranch(id, "nope")).rejects.toStrictEqual(
+      new CommandError("branch_not_found", { branch: "nope" }),
+    );
+    await expect(projects.setMainBranch("prj_ffffffffffffffff", null)).rejects.toStrictEqual(
+      new CommandError("project_not_found", { projectId: "prj_ffffffffffffffff" }),
+    );
+    expect(projects.projects().map((project) => project.mainBranch)).toStrictEqual([null]);
+    expect(changes.count).toBe(before);
+  });
+});
+
 describe("ProjectService.renameWorkspace", () => {
   it("names a workspace and clears the name", async () => {
     const { projects } = await service(null);

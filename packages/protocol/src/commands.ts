@@ -4,7 +4,7 @@ import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
-import { Appearance, DisplayMode, StatusBarChoices } from "./listing";
+import { Appearance, BranchName, DisplayMode, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -509,6 +509,23 @@ export const DiscoverProjectsCommand = z.strictObject({
 });
 export type DiscoverProjectsCommand = z.infer<typeof DiscoverProjectsCommand>;
 
+/** Lists the branches on a project's `origin`, for choosing its main branch. */
+export const ListBranchesCommand = z.strictObject({
+  type: z.literal("list_branches"),
+  ...commandFields,
+  projectId: ProjectId,
+});
+export type ListBranchesCommand = z.infer<typeof ListBranchesCommand>;
+
+/** Chooses a project's main branch on `origin`, or with `null` follows `origin/HEAD` again. */
+export const SetMainBranchCommand = z.strictObject({
+  type: z.literal("set_main_branch"),
+  ...commandFields,
+  projectId: ProjectId,
+  branch: BranchName.nullable(),
+});
+export type SetMainBranchCommand = z.infer<typeof SetMainBranchCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -562,6 +579,8 @@ export const Command = z.discriminatedUnion("type", [
   CancelInstallCommand,
   CheckPiUpdateCommand,
   DiscoverProjectsCommand,
+  ListBranchesCommand,
+  SetMainBranchCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -646,5 +665,7 @@ export const CommandResult = {
   cancel_install: z.strictObject({}),
   check_pi_update: PiLatest,
   discover_projects: z.strictObject({ directories: z.array(DiscoveredDirectory) }),
+  list_branches: z.strictObject({ branches: z.array(BranchName), head: BranchName.nullable() }),
+  set_main_branch: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

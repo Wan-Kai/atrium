@@ -141,6 +141,9 @@ const commands: Command[] = [
   { type: "cancel_install", requestId: "r73", traceparent, jobId: "j1" },
   { type: "check_pi_update", requestId: "r74", traceparent },
   { type: "discover_projects", requestId: "r75", traceparent },
+  { type: "list_branches", requestId: "r76", traceparent, projectId: PROJECT },
+  { type: "set_main_branch", requestId: "r77", traceparent, projectId: PROJECT, branch: "release/1.0" },
+  { type: "set_main_branch", requestId: "r78", traceparent, projectId: PROJECT, branch: null },
 ];
 
 /** An update waiting for two sessions to finish. */
@@ -474,6 +477,7 @@ describe("parseClientMessage", () => {
       "hand_off",
       "install_node",
       "install_pi",
+      "list_branches",
       "list_commands",
       "list_models",
       "login",
@@ -491,6 +495,7 @@ describe("parseClientMessage", () => {
       "retry_run",
       "search_files",
       "select_container",
+      "set_main_branch",
       "set_model",
       "set_preferences",
       "set_thinking_level",
@@ -629,6 +634,16 @@ describe("parseClientMessage", () => {
         interactionId: "d1",
         answer: { value: "v".repeat(1024 * 1024 + 1) },
       },
+      "r1",
+    ],
+    [
+      "an empty main branch",
+      { type: "set_main_branch", requestId: "r1", traceparent, projectId: PROJECT, branch: "" },
+      "r1",
+    ],
+    [
+      "a main branch over 1024 characters",
+      { type: "set_main_branch", requestId: "r1", traceparent, projectId: PROJECT, branch: "b".repeat(1025) },
       "r1",
     ],
     [
@@ -835,6 +850,13 @@ describe("CommandResult", () => {
     expect(CommandResult.discover_projects.parse({ directories: [discovered] })).toStrictEqual({
       directories: [discovered],
     });
+    expect(CommandResult.list_branches.parse({ branches: ["main", "release/1.0"], head: "main" })).toStrictEqual({
+      branches: ["main", "release/1.0"],
+      head: "main",
+    });
+    expect(CommandResult.list_branches.parse({ branches: [], head: null })).toStrictEqual({ branches: [], head: null });
+    expect(CommandResult.list_branches.safeParse({ branches: [""], head: null }).success).toBe(false);
+    expect(CommandResult.set_main_branch.parse({})).toStrictEqual({});
     for (const wrong of [
       { ...discovered, path: "" },
       { ...discovered, sessions: 0 },
@@ -890,7 +912,7 @@ const snapshot: IndexSnapshotEvent = {
   generation: "h1",
   seq: 3,
   reason: "no_cursor",
-  projects: [{ id: PROJECT, path: "/work/app", name: "app" }],
+  projects: [{ id: PROJECT, path: "/work/app", name: "app", mainBranch: "trunk" }],
   workspaces: [
     {
       id: WORKSPACE,
@@ -1167,6 +1189,7 @@ describe("HostMessage", () => {
       "install_busy",
       "install_unavailable",
       "install_not_found",
+      "branch_not_found",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);

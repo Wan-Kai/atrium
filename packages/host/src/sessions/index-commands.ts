@@ -18,6 +18,10 @@ export interface IndexCommands {
   listModels(containerId: ContainerId, refresh: boolean): Promise<CommandResult<"list_models">>;
   /** The working directories of pi's past sessions that could become projects. */
   discoverProjects(): Promise<CommandResult<"discover_projects">>;
+  /** The branches on a project's `origin`, and the one `origin/HEAD` points at. */
+  listBranches(projectId: string): Promise<CommandResult<"list_branches">>;
+  /** Chooses a project's main branch, or with `null` follows `origin/HEAD` again. */
+  setMainBranch(projectId: string, branch: string | null): Promise<CommandResult<"set_main_branch">>;
   /** A command of the connection is about to be answered; the list changes waiting go to it first. */
   answering(connectionId: string): void;
 }
@@ -37,7 +41,8 @@ export interface IndexCommands {
  */
 export function createIndexCommands(options: {
   readonly projects: ProjectService;
-  readonly workspaces: Pick<WorkspaceService, "windowFocused">;
+  /** `refresh` works out a workspace's merge state and changes again. */
+  readonly workspaces: Pick<WorkspaceService, "windowFocused" | "refresh">;
   readonly sessions: Pick<SessionManager, "forgetWorkspaces" | "rescan">;
   readonly preferences: PreferenceStore;
   readonly feed: IndexFeed;
@@ -88,6 +93,15 @@ export function createIndexCommands(options: {
       return {};
     },
     listModels: (containerId, refresh) => options.listModels(containerId, refresh),
+    listBranches: (projectId) => options.projects.branches(projectId),
+    async setMainBranch(projectId, branch) {
+      await options.projects.setMainBranch(projectId, branch);
+      // Merge states and "+A −D" are counted against the main branch (SPEC-0001, "设置 · 接口").
+      for (const workspace of options.projects.workspaces()) {
+        if (workspace.projectId === projectId) options.workspaces.refresh(workspace.id);
+      }
+      return {};
+    },
     async discoverProjects() {
       // What `add_project` would refuse as `project_exists`.
       const taken = [

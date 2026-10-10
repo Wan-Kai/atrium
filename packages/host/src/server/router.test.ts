@@ -88,6 +88,8 @@ function fakeCommands() {
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
     discoverProjects: record("discoverProjects", { directories: [DISCOVERED] }),
+    listBranches: record("listBranches", { branches: ["main"], head: "main" }),
+    setMainBranch: record("setMainBranch", {}),
     answering: () => undefined,
   };
   return { sessions, index, calls };
@@ -532,14 +534,21 @@ describe("createRouter", () => {
     ]);
   });
 
-  it("hands looking for projects in pi's history to the list commands", async () => {
+  it("hands looking for projects in pi's history and choosing the main branch to the list commands", async () => {
     const { route, connection, sent, calls } = setUp();
 
     await route(connection, withTrace({ type: "discover_projects", requestId: "r1" }));
+    await route(connection, withTrace({ type: "list_branches", requestId: "r2", projectId: PROJECT }));
+    await route(
+      connection,
+      withTrace({ type: "set_main_branch", requestId: "r3", projectId: PROJECT, branch: "main" }),
+    );
 
-    expect(calls).toStrictEqual([["discoverProjects"]]);
+    expect(calls).toStrictEqual([["discoverProjects"], ["listBranches", PROJECT], ["setMainBranch", PROJECT, "main"]]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { directories: [DISCOVERED] } },
+      { type: "response", requestId: "r2", ok: true, result: { branches: ["main"], head: "main" } },
+      { type: "response", requestId: "r3", ok: true, result: {} },
     ]);
   });
 

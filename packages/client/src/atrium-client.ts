@@ -233,6 +233,10 @@ export interface AtriumClient {
   checkPiUpdate(): Promise<CommandResult<"check_pi_update">>;
   /** The working directories of pi's past sessions that could become projects. */
   discoverProjects(): Promise<CommandResult<"discover_projects">>;
+  /** The branches on a project's `origin`, and the one `origin/HEAD` points at. */
+  listBranches(projectId: string): Promise<CommandResult<"list_branches">>;
+  /** Chooses a project's main branch, or with `null` follows `origin/HEAD` again. */
+  setMainBranch(projectId: string, branch: string | null): Promise<CommandResult<"set_main_branch">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -1039,6 +1043,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     piLatest,
     checkPiUpdate: () => request("check_pi_update", {}),
     discoverProjects: () => request("discover_projects", {}),
+    listBranches: (projectId) => request("list_branches", { projectId }),
+    setMainBranch: (projectId, branch) => request("set_main_branch", { projectId, branch }),
     setThinkingLevel: (sessionId, level) =>
       withGuessedModel(
         sessionId,

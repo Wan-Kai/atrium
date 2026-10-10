@@ -79,6 +79,7 @@ async function assemble() {
   const focused = { count: 0 };
   const listed: [string, boolean][] = [];
   const discovered: (readonly string[])[] = [];
+  const refreshed: string[] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
     tools: async () => ({
@@ -102,7 +103,10 @@ async function assemble() {
   onTestFinished(() => sessions.close());
   const commands = createIndexCommands({
     projects,
-    workspaces: { windowFocused: () => (focused.count += 1) },
+    workspaces: {
+      windowFocused: () => (focused.count += 1),
+      refresh: (workspaceId) => refreshed.push(workspaceId),
+    },
     sessions,
     preferences,
     feed,
@@ -115,7 +119,19 @@ async function assemble() {
       return [{ path: join(root, "found"), sessions: 2, lastUsedAt: 5 }];
     },
   });
-  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed, focused, discovered };
+  return {
+    commands,
+    projects,
+    sessions,
+    layouts,
+    received,
+    root,
+    sessionChanges,
+    listed,
+    focused,
+    discovered,
+    refreshed,
+  };
 }
 
 describe("IndexCommands.removeProject", () => {
@@ -190,6 +206,33 @@ describe("IndexCommands.discoverProjects", () => {
     });
     // The project's path and its local workspace's directory.
     expect(discovered).toStrictEqual([[dir, dir]]);
+  });
+});
+
+describe("IndexCommands.setMainBranch", () => {
+  it("goes back to origin/HEAD and works out the project's workspaces again, leaving other projects", async () => {
+    const { commands, projects, refreshed, root } = await assemble();
+    await mkdir(join(root, "app"));
+    await mkdir(join(root, "other"));
+    const { projectId } = await commands.addProject(join(root, "app"));
+    await commands.addProject(join(root, "other"));
+    const local = present(projects.workspaces()[0], "the local workspace").id;
+
+    expect(await commands.setMainBranch(projectId, null)).toStrictEqual({});
+    expect(await commands.listBranches(projectId)).toStrictEqual({ branches: [], head: null });
+
+    expect(refreshed).toStrictEqual([local]);
+  });
+
+  it("changes and works out nothing when the branch is not on origin", async () => {
+    const { commands, refreshed, root } = await assemble();
+    await mkdir(join(root, "app"));
+    const { projectId } = await commands.addProject(join(root, "app"));
+
+    await expect(commands.setMainBranch(projectId, "main")).rejects.toStrictEqual(
+      new CommandError("branch_not_found", { branch: "main" }),
+    );
+    expect(refreshed).toStrictEqual([]);
   });
 });
 

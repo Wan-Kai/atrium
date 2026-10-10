@@ -33,7 +33,7 @@ const PREFERENCES: Preferences = {
  * @returns The project.
  */
 function project(n: number, name = `p${n}`): Project {
-  return { id: `prj_${n.toString(16).padStart(16, "0")}`, path: `/work/${n}`, name };
+  return { id: `prj_${n.toString(16).padStart(16, "0")}`, path: `/work/${n}`, name, mainBranch: null };
 }
 
 /**
