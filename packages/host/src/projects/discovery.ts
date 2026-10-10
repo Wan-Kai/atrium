@@ -3,7 +3,7 @@ import type { DiscoveredDirectory } from "@atrium/protocol";
 import { realpath, stat } from "node:fs/promises";
 
 /**
- * Whether a path is a directory or inside it.
+ * Whether a path is a directory or inside it, such as a chat's folder in the chats directory.
  *
  * @remarks
  * Compares whole path segments, so `/a/bc` is not inside `/a/b`.
@@ -40,8 +40,9 @@ async function realDirectory(path: string): Promise<string | null> {
  * @remarks
  * For first launch's third step (SPEC-0001, "首次启动 · 接口"). Each directory is its real path,
  * so two paths to one directory count as one. Left out: directories that no longer exist; those
- * that are, or are inside, a registered project or one of its workspaces, which `add_project`
- * refuses; and Atrium's own chats. Most recently used first, then by path.
+ * that are a registered project or one of its workspaces, which `add_project` refuses (a folder
+ * inside one it accepts, so it stays); and what is inside Atrium's own chats. Most recently used
+ * first, then by path.
  *
  * @sideEffects Reads pi's session files and the file system.
  * @param options - Where pi keeps sessions (`null` before the tools are found), the real paths of
@@ -61,7 +62,7 @@ export async function discoverProjects(options: {
   for (const { cwd, sessions, lastUsedAt } of await sessionDirectories(options.location, options.signal)) {
     options.signal?.throwIfAborted();
     const path = await realDirectory(cwd);
-    if (path === null || within(path, chats) || options.taken.some((taken) => within(path, taken))) continue;
+    if (path === null || within(path, chats) || options.taken.includes(path)) continue;
     const before = found.get(path);
     found.set(path, {
       path,

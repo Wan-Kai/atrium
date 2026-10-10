@@ -43,7 +43,7 @@ describe("discoverProjects", () => {
   it("offers the directories pi worked in, most recent first, leaving out what cannot become a project", async () => {
     const root = await tempDir();
     const sessions = join(root, "sessions");
-    const dirs = ["old", "recent", "project", "project/src", "worktree", "chats/c1", "plain"];
+    const dirs = ["old", "recent", "project", "project/src", "worktree", "chats/c1"];
     for (const dir of dirs) await mkdir(join(root, dir), { recursive: true });
     await symlink(join(root, "recent"), join(root, "link"));
     await session(sessions, "s1", join(root, "old"), 100);
@@ -56,9 +56,9 @@ describe("discoverProjects", () => {
     await session(sessions, "s8", join(root, "gone"), 400);
     await writeFile(join(root, "file"), "");
     await session(sessions, "s10", join(root, "file"), 400);
-    // A sibling whose name starts like a project's is not inside it.
-    await mkdir(join(root, "project-two"));
-    await session(sessions, "s9", join(root, "project-two"), 50);
+    // A sibling whose name starts like the chats directory's is not inside it.
+    await mkdir(join(root, "chats-old"));
+    await session(sessions, "s9", join(root, "chats-old"), 50);
 
     const found = await discoverProjects({
       location: { directory: sessions, perCwd: true },
@@ -66,10 +66,12 @@ describe("discoverProjects", () => {
       chatsRoot: join(root, "chats"),
     });
 
+    // A folder inside a project can be added as a project of its own, so it stays.
     expect(found).toStrictEqual([
+      { path: join(root, "project", "src"), sessions: 1, lastUsedAt: 400_000 },
       { path: join(root, "recent"), sessions: 2, lastUsedAt: 300_000 },
       { path: join(root, "old"), sessions: 1, lastUsedAt: 100_000 },
-      { path: join(root, "project-two"), sessions: 1, lastUsedAt: 50_000 },
+      { path: join(root, "chats-old"), sessions: 1, lastUsedAt: 50_000 },
     ]);
   });
 
