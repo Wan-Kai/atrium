@@ -358,7 +358,7 @@ Electron 主进程
 - 胶囊条（参考 Paseo、Zed）：输入框上方一行浮动的小胶囊，替代原来叠在输入框上的排队列表：
   - "● 排队 N"：点开在上方弹出排队面板（编辑、删除、改为插话；停止后显示"继续发送"）；有新消息进入排队时自动展开。
   - "N 条插话将在下一步前送达"。
-  - "本会话改动 +A −D"：点开列出本会话改过的文件，点文件跳到改动它的那一轮并展开 diff。口径同"每轮改动汇总"（已观测到的工具修改）。
+  - "+A −D"：工作区的 git 改动（照抄 Paseo，2026-10-10 定，取代原来的"本会话改动"）。点开在对话区右侧拉出改动面板。口径和面板见"模型与输入框（M1.7）"的"工作区改动"。
   - 消息流在输入框上方约 64px 内渐隐，胶囊浮在渐隐区上。
 - 发送按钮：有内容时是深色实心圆（与正文同色），空时是浅灰。
 - 不做：排队拖拽排序。以后：收藏模型与快速切换、语音输入、新会话时选择"当前工作区 / 新建 worktree"。
@@ -678,7 +678,25 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就把这条消息的图片全部重新上传一次再发。图片在粘贴、拖入或从"+"菜单选中时就压缩并上传，压缩和上传完之前不能发送（压缩中的图片先显示占位）。上传的结果记在草稿里，上传途中切走标签再回来也不受影响。多张图片逐张上传。
 - 拖进输入框的其他文件变成文件引用：路径由桌面端的 preload 用 Electron 的 `webUtils.getPathForFile` 告诉页面，在工作区目录里的写成相对路径，其余写绝对路径，目录结尾带 `/`；页面自己拿不到路径时（浏览器里）跳过。
 
-新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`。新增事件：`model_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
+**工作区改动**（2026-10-10 定：照抄 Paseo，见 [paseo-architecture §6.1](../research/paseo-architecture.md)；取代"本会话改动"）
+
+- 统计的是工作区目录的 git 改动，不是 agent 的工具调用：不分会话，用户自己改的也算，和对话记录加载了多少无关。每轮的"改动汇总"不变，仍是已观测到的工具修改。新对话的目录不是 git 仓库，没有这些。
+- 胶囊条里的"+A −D"：`git merge-base HEAD <比较基准>` 之后 `git diff --shortstat <merge-base>`（工作树对 merge-base：已提交、暂存、未暂存都算），加上未跟踪文件的行数。比较基准：当前分支不是主干时，主干（按领域模型"已决定 15"：项目设置或 `origin/HEAD`）有 `origin/<主干>` 就用它，否则用本地的 `<主干>`；当前分支就是主干、或者没有主干时，用 `origin/<当前分支>`，没有就不显示。HEAD 分离、空仓库也不显示。增删都是 0 时不显示。数字超过 999 时写成 `1.2k` 这样的紧凑格式；减号沿用对话里每轮改动汇总的 `−`。
+- 未跟踪文件的行数：`git ls-files --others --exclude-standard` 的前 500 个，跳过大于 1 MB 的、二进制的（前 16 KB 里有 0 字节，或控制字符超过 30%）和符号链接，数换行（结尾的换行不另算一行）。
+- 宿主只给有界面在看的工作区算：界面在显示某个工作区时用 `watch_changes` 告诉宿主。宿主递归监听工作区目录（`fs.watch`，macOS 下递归），忽略 `.git` 里除 `HEAD`、`index`、`refs/`、`packed-refs` 以外的文件、`*.lock`，以及被 git 忽略的目录（`git ls-files -o -i --directory --exclude-standard`，`.gitignore` 变了重算）；linked worktree 另外监听它在主仓库里的元数据目录。文件变化后 1 秒（尾随防抖）重算；后台 fetch 之后、窗口获得焦点、工作区里一次运行结束时也重算。结果和上次一样就不推送。监听出错时改为轮询：5 秒起，结果没变就把间隔翻倍，最长 60 秒，一有变化回到 5 秒；同时 30 秒后重试监听，再失败就退避（最长 5 分钟）。没有界面在看的工作区停止监听。
+- 改动面板：点胶囊从对话区右侧拉出一栏（约 560px，对话仍可见），Esc 或关闭按钮收起，换到别的容器时收起。
+  - 两种模式："未提交"= HEAD 对工作树（含暂存）加未跟踪文件；"已提交"= `merge-base..HEAD`，只有提交。所以胶囊上的数字和面板的合计可能不同（Paseo 也是这样）。默认：工作区有未提交改动时看"未提交"，否则看"已提交"；手动切换只在"有没有未提交改动"不变时有效，变了就回到默认（照 Paseo）。
+  - 头部：模式菜单（"已提交"带说明"<分支> → <主干>"，两者相同时不写）、面板里各文件增删的合计、刷新按钮、关闭按钮。
+  - 正文按顺序判断：加载中（"正在检查仓库…"）；不是 git 仓库；出错（说明原因）；改动太大（git 的 diff 输出超过 8 MB："改动太大，无法在这里预览"）；没有改动（"没有改动"；"已提交"模式下有未提交改动时附"看未提交的改动"，"未提交"模式下分支领先主干时附"看已提交的改动"）。
+  - 有改动时：先是文件列表（路径、增删、新增 / 删除 / 修改 / 重命名标记），点文件滚到它的 diff；然后逐个文件的 diff：文件头写文件名和灰色的目录、增删、标记（重命名写"旧路径 → 新路径"），点文件头折叠或展开；diff 行带行号和增删竖条，和对话里工具的 diff 一样，hunk 头 `@@ … @@` 显示成灰色一行。二进制文件显示"二进制文件"；单个文件的 diff 超过 1 MB、或前面的文件累计超过 2 MB 之后的文件，显示"改动太大，不显示"（行数照常）。
+  - 不做（Paseo 有的）：并排对比、隐藏空白、换行切换、语法高亮、行内评论、文件右键菜单、撤销改动。
+- 协议：
+  - `watch_changes(workspaceIds)`：设置这个连接在看的工作区（替换上一次的）。宿主马上推每个工作区的 `changes_updated { workspaceId, stat, dirty, ahead, branch, base }`，之后变化时再推。`stat` 是 `{ added, removed }`，不显示时为 `null`；`dirty` 是否有未提交改动；`ahead` 当前分支领先比较基准的提交数；`branch`、`base` 供面板写说明，没有时为 `null`。不是 git 仓库的工作区 `stat` 为 `null`、`dirty` 为假。未知的工作区应答 `workspace_not_found`。连接断开时一并停止；重连后界面重新发。
+  - `watch_diff(target)`：`target` 为 `{ workspaceId, mode: "uncommitted" | "base" }` 或 `null`（关面板）。一个连接同时只看一个面板。宿主推 `diff_updated { workspaceId, mode, files, tooLarge, error }`，变化时再推（150 毫秒防抖）。`error` 为 `null` 或 `not_git` / `failed`。每个文件 `{ path, oldPath, status: added | deleted | modified | renamed, added, removed, content: text | binary | too_large, hunks }`，hunk `{ oldStart, oldCount, newStart, newCount, lines }`，行 `{ kind: add | del | context, oldNumber, newNumber, text }`。
+  - 这两种推送不带序号：都是整份的最新状态，丢了一条下一条照样对。
+- 宿主跑的 git 命令都是固定参数，路径放在 `--` 之后、写成 `:(literal)路径`；git 的输出、文件路径不进日志，失败只记命令和原因（security.md"子进程与文件"）。照抄时避开 Paseo 的三个已知问题：重命名文件的 diff 带上旧路径；未跟踪文件超过累计上限时也保留占位；"未提交"面板也随提交和 reset 刷新（监听元数据目录）。
+
+新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`、`watch_changes`、`watch_diff`。新增事件：`model_updated`、`changes_updated`、`diff_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
 
 ### 命令与事件
 

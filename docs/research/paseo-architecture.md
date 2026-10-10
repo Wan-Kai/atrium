@@ -87,3 +87,13 @@ Paseo 是"宿主横向接多个 agent"的方案（Claude Code、Codex、pi 等�
 - 按 cwd 缓存快照：文件监听（防抖 1 秒）+ 轮询；每 3 分钟后台 `git fetch`；PR 状态每 20 / 120 秒轮询（GitHub、GitLab、Gitea）。
 - 快照：`isGit, currentBranch, isDirty, baseRef, aheadBehind, ahead/behindOfOrigin, diffStat` 和 forge 的 PR 信息（是否合并、检查状态、评审结论）。
 - "已合并"不单独存，始终是 forge 的实时数据；开启设置后，PR 合并时自动归档工作区。worktree 在最后一个引用它的工作区归档后才删除。
+
+### 6.1 工作区改动：输入框上方的 +N −M 与 Changes 面板（2026-10-10 读，Atrium 照抄）
+
+- **数据来源是 git，不是 agent 的工具调用**：按工作区（cwd）统计，不分 agent，用户自己的改动也算；和对话记录加载了多少无关。Codex 的 `turn_diff` 事件直接丢掉。时间线里只有 tool call 分组的"edited N files"，没有行数，和面板没有关联。
+- **胶囊上的数字**（`server/src/utils/checkout-git.ts` 的 `getCheckoutShortstatUncached`）：`merge-base HEAD <比较基准>`，再 `git diff --shortstat <merge-base>`（工作树对 merge-base：已提交、暂存、未暂存都算）加上未跟踪文件的行数。比较基准（`resolveShortstatComparisonRef`）：当前分支不是主干时，用 `origin/<主干>`（有的话）否则本地 `<主干>`；在主干上时用 `origin/<当前分支>`，没有就不显示（有未提交改动也不显示）；HEAD 分离、空仓库、非 git 都不显示。主干：`symbolic-ref refs/remotes/origin/HEAD`，失败时找本地 `main`、`master`。
+- **未跟踪文件的行数**（`countUntrackedAdditions`）：`ls-files --others --exclude-standard` 的前 500 个，跳过大于 1 MB 的和二进制（前 16 KB 有 0 字节，或控制字符超过 30%），按 `\n` 数行（结尾换行不另算一行）。
+- **刷新**（`workspace-git-service.ts`）：只给有界面在看的工作区监听。工作树用 `fs.watch` 递归监听（macOS），忽略 `.git` 和被 git 忽略的目录（`ls-files -o -i --directory --exclude-standard`，`.gitignore` 变了重算）；另监听 git 的元数据目录（忽略 `hooks/` `logs/` `objects/` 和 `*.lock`）。1 秒尾随防抖；同一个快照不重复推送（JSON 指纹）。监听出错时降级轮询：5 秒起，没变化就翻倍到 60 秒；30 秒·2^n（最多 5 分钟）后重试监听。每 3 分钟后台 `fetch origin --prune`，远端引用动了才重算。agent 跑了 `git push`、`git fetch`、`gh pr …` 之后强制刷新。缓存 15 秒，同一目录的并发请求合并。
+- **面板**（`checkout-diff-manager.ts`、`app/src/git/`）：订阅 `(cwd, mode)`，150 毫秒防抖，结果不变不推。两种模式：未提交 = HEAD 对工作树（含暂存）加未跟踪文件；已提交 = `merge-base..HEAD`（只有提交）。所以胶囊和面板的合计可能对不上（Paseo 自己也这样）。默认模式：有未提交改动时"未提交"，否则"已提交"；手动选择只在"是否有未提交改动"不变时有效，翻转后回到默认。每个文件：路径、旧路径、新增 / 删除、增删行数、hunk（`@@` 头和 add / remove / context 行），以及 `binary` / `too_large` 状态。单文件 diff 超过 1 MB、累计超过 2 MB 之后的文件记为 `too_large`（保留行数）；整个结果超过约 23 MB 时整体显示"改动太大"。
+- **界面**：胶囊 `+1.2k -34`（数字用紧凑格式，0/0、非 git 时不显示），点开 Changes 视图。头部：模式菜单（"Uncommitted / Committed"，后者说明"<分支> -> <主干>"）、合计、刷新、选项（分栏、隐藏空白、换行等）。正文依次判断：检查中、出错、不是 git 仓库、加载中、改动太大、没有改动（附"看未提交的 / 看已提交的"按钮）。文件头：文件名加灰色目录、+/−、新增 / 删除 / 修改图标，点击折叠；二进制和过大的文件显示一行占位。点文件列表里的文件滚到它的 diff；不跳到对话里的哪一轮。
+- **已知问题**：重命名文件的单文件 diff 只用新路径做 pathspec，可能显示成整文件新增；累计到 2 MB 之后的未跟踪文件会从列表里消失；只有 diff 订阅、没有工作区订阅时，外部提交可能不刷新"未提交"面板。Atrium 照抄时避开这三处。

@@ -548,6 +548,10 @@ classDiagram
     class FileSearch {
       search(dir, query)
     }
+    class ChangesService {
+      watchChanges(connection, workspaceIds)
+      watchDiff(connection, target)
+    }
     class SetupService {
       check() install() update()
       login() setApiKey() cancel()
@@ -574,6 +578,8 @@ classDiagram
     WsServer --> WorkspaceService
     WsServer --> SessionManager
     WsServer --> FileSearch
+    WsServer --> ChangesService
+    ChangesService --> WorkspaceService
     WsServer --> SetupService
     SessionManager ..> SubscriptionRegistry : 谁在看哪个会话
     Connection ..> SubscriptionRegistry : 登记订阅
@@ -598,6 +604,7 @@ classDiagram
 - **TitleGenerator** 负责标题的提示词、截断和写回规则，调 OneShotPi 单独起一次性进程，不借正在运行的会话。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
 - **FileSearch** 在会话的工作目录里调 `fd`，参数和排序照 pi 的终端界面，git 仓库和普通目录一样（2026-10-10 定，原先打算 git 仓库用 `git ls-files`、其他目录自己遍历）。
+- **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个），主干取自 WorkspaceService。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。
 - 指标的计时和汇总是 SessionController 内部的事，不单独成服务。
 
 ## 7. 客户端与一致性
@@ -679,6 +686,7 @@ classDiagram
 | `list_models(containerId)` | PiCatalog |
 | `list_commands(sessionId)` | SessionController |
 | `search_files(sessionId, query)` | FileSearch |
+| `watch_changes(workspaceIds)` / `watch_diff(target)` | ChangesService |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |
 | `check_setup` / `install_*` / `update_pi` / `cancel_install` / `login` / `cancel_login` / `set_api_key` | SetupService |
@@ -689,6 +697,7 @@ classDiagram
 | `session_snapshot` / `message_*` / `tool_*` / `run_started` / `run_settled` / `interaction_*` / `notice` / `session_exited` | SessionController（经 EventTranslator） |
 | `session_bound` | SessionManager：草稿会话拿到文件后通知 |
 | `session_changed_externally` | SessionCatalog：预留，文件被外部改过 |
+| `changes_updated` / `diff_updated`（整份最新状态，不带序号） | ChangesService |
 | `queue_updated` / `metrics_updated` | SessionController |
 | `session_renamed` | TitleGenerator 或重命名命令 |
 | `install_*` / `login_*` | SetupService |
