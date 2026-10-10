@@ -2460,8 +2460,21 @@ describe("createSessionController's status bar figures", () => {
     const first = manualPi();
     const second = manualPi();
     second.statsAnswers.push(async () => piStats);
+    const reply: LogEntry = {
+      id: "a1",
+      parentId: "u1",
+      kind: "assistant",
+      parts: [],
+      stopReason: "stop",
+      errorMessage: null,
+      usage: { input: 2, output: 3, cacheRead: 0, cacheWrite: 0, reasoning: null },
+      timestamp: 0,
+    };
     const { controller, events } = control(first.pi, empty, {
-      respawn: async () => ({ pi: second.pi, entries: empty }),
+      respawn: async () => ({
+        pi: second.pi,
+        entries: { entries: [userEntry("u1", null, "one"), reply], leafId: "a1" },
+      }),
     });
     await controller.prompt(prompt("q1", "one"));
     first.emit({ type: "agent_start" }, { type: "turn_start" }, userEnd("one"));
@@ -2471,10 +2484,19 @@ describe("createSessionController's status bar figures", () => {
     second.emit(replyEnd("stop"));
     await settle();
 
-    // Once as it took over, once after its reply.
+    // Once as it took over, once after its reply; its entries come with its snapshot.
     expect(second.statsReads()).toBe(2);
-    expect(published(events)).toStrictEqual([fromStats]);
-    expect(controller.snapshot().metrics).toStrictEqual(fromStats);
+    expect(published(events)).toStrictEqual([
+      { ...UNKNOWN_METRICS, branchTokens: 5 },
+      { ...fromStats, branchTokens: 5 },
+    ]);
+    const types = events.map((event) => event.type);
+    expect(types.indexOf("metrics_updated")).toBeGreaterThan(types.lastIndexOf("session_snapshot"));
+    expect(published(events).length).toBe(2);
+    expect(events.filter((event) => event.type === "metrics_updated").map((event) => event.epoch)).toStrictEqual([
+      2, 2,
+    ]);
+    expect(controller.snapshot().metrics).toStrictEqual({ ...fromStats, branchTokens: 5 });
   });
 
   it("publishes nothing a read brings once shut down", async () => {

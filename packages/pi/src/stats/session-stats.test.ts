@@ -54,5 +54,7 @@ describe("piStatsOf", () => {
       tokens: { input: 0, output: 2, cacheRead: 0, cacheWrite: 2 },
       context: { tokens: 0, window: 1001 },
     });
+    expect(piStatsOf(stats({ cost: Number.POSITIVE_INFINITY })).cost).toBe(0);
+    expect(piStatsOf(stats({ cost: -0.5 })).cost).toBe(0);
   });
 });

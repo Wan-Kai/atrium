@@ -331,6 +331,18 @@ describe("toLogEntry", () => {
     });
   });
 
+  it("dates a system message without a time of its own by its entry", () => {
+    expect(
+      toLogEntry({
+        type: "message",
+        id: "s3",
+        parentId: null,
+        timestamp: "1970-01-01T00:00:00.004Z",
+        message: { role: "system", content: "" },
+      } as unknown as SessionEntry),
+    ).toMatchObject({ kind: "system", timestamp: 4 });
+  });
+
   it("keeps no system prompt for a compaction that stored none, as before pi kept one", () => {
     expect(
       toLogEntry({

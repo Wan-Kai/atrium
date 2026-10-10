@@ -77,11 +77,11 @@ describe("the status bar's figures", () => {
 
 describe("the status bar's groups", () => {
   it("are, in order, the session's statistics, tokens and context, shown at first, and the cost, hidden", () => {
-    expect(STATUS_GROUPS.map((group) => [group.id, group.name, group.defaultVisible])).toStrictEqual([
-      ["session", "会话统计", true],
-      ["tokens", "Token 用量", true],
-      ["context", "上下文", true],
-      ["cost", "费用", false],
+    expect(STATUS_GROUPS).toStrictEqual([
+      { id: "session", name: "会话统计", description: "轮数、步数、输出速度", defaultVisible: true },
+      { id: "tokens", name: "Token 用量", description: "总用量与缓存命中率", defaultVisible: true },
+      { id: "context", name: "上下文", description: "已用比例，悬停看分段", defaultVisible: true },
+      { id: "cost", name: "费用", description: "按 API 价格折算，订阅不实际付费", defaultVisible: false },
     ]);
   });
 
@@ -95,5 +95,6 @@ describe("the status bar's groups", () => {
     expect(withChoice({ cost: true }, "cost", false)).toStrictEqual({});
     expect(withChoice({}, "session", false)).toStrictEqual({ session: false });
     expect(withChoice({ session: false }, "session", true)).toStrictEqual({});
+    expect(withChoice({}, "later", true)).toStrictEqual({ later: true });
   });
 });

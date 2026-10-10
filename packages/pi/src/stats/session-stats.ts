@@ -30,7 +30,7 @@ export interface PiStats {
  * @returns The count.
  */
 function count(value: number): number {
-  return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 /**
@@ -57,8 +57,9 @@ export function piStatsOf(stats: SessionStats): PiStats {
       cacheRead: count(tokens.cacheRead),
       cacheWrite: count(tokens.cacheWrite),
     },
-    cost: Number.isFinite(stats.cost) && stats.cost > 0 ? stats.cost : 0,
+    cost: Number.isFinite(stats.cost) ? Math.max(0, stats.cost) : 0,
     context:
+      // Stryker disable next-line ConditionalExpression: a missing context has no window either.
       contextUsage === undefined || window === 0
         ? null
         : { tokens: contextUsage.tokens === null ? null : count(contextUsage.tokens), window },

@@ -155,6 +155,7 @@ export function contextPercent(context: Context): number | null {
  * @returns The level.
  */
 export function contextLevel(percent: number | null): "normal" | "warn" | "danger" {
+  // Stryker disable next-line ConditionalExpression: `null` compares as 0, which is normal too.
   if (percent === null || percent <= 70) return "normal";
   return percent > 85 ? "danger" : "warn";
 }

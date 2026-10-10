@@ -149,6 +149,17 @@ describe("createMetricsTracker: pi's statistics", () => {
     expect(tracker.current().turns).toBe(3);
   });
 
+  it("reads after a compaction alone, and after a run alone", async () => {
+    const { reads, answer, feed } = harness();
+
+    feed({ kind: "compaction_finished" });
+    expect(reads).toHaveLength(1);
+    await answer(stats());
+    feed({ kind: "agent_settled" });
+
+    expect(reads).toHaveLength(1);
+  });
+
   it("reads nothing for a user's message, a tool's result or a stream", () => {
     const { reads, feed } = harness();
 
@@ -317,6 +328,15 @@ describe("createMetricsTracker: timing", () => {
     feed(request, 3000, reply());
 
     expect(tracker.current().timing).toStrictEqual({ modelMs: 4100, ttftMs: 100, tps: 20 });
+  });
+
+  it("knows no first output or speed while no request had output, and times a compaction outside requests not at all", () => {
+    const { tracker, feed } = harness();
+
+    feed({ kind: "compaction_started" }, 500, { kind: "compaction_finished" });
+    feed(request, 700, reply({ output: 10 }));
+
+    expect(tracker.current().timing).toStrictEqual({ modelMs: 700, ttftMs: null, tps: null });
   });
 
   it("keeps the last speed when a reply had no output tokens or took no time to stream", () => {

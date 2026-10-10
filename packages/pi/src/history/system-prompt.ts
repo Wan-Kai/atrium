@@ -35,6 +35,7 @@ export function contextShares(branch: readonly LogEntry[]): ContextShares | null
   for (const part of parts) {
     if (part.textChars > 0) texts.push(part.textChars);
     for (const [name, chars] of Object.entries(part.sections)) {
+      // Stryker disable next-line ConditionalExpression: a section kept as `null` adds nothing to the sum either.
       if (chars === null) sections.delete(name);
       else sections.set(name, chars);
     }

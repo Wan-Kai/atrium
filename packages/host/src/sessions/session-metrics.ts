@@ -82,6 +82,7 @@ export function createMetricsTracker(options: {
   let firstOutputs: number[] = [];
   let tps: number | null = null;
   let reading: Promise<void> | null = null;
+  // Stryker disable next-line BooleanLiteral: every read clears it before it starts.
   let readAgain = false;
   let closed = false;
   if (options.entries !== undefined) takeEntries(options.entries.all, options.entries.branch);

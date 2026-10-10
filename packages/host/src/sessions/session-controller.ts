@@ -781,7 +781,10 @@ export function createSessionController(options: {
       case "dialog_requested":
         ask(event.dialog);
         return;
+      // Only the status bar's timing reads these, above.
+      // Stryker disable next-line StringLiteral: a case left out does nothing either.
       case "request_started":
+      // Stryker disable next-line StringLiteral: see above.
       case "output_started":
         return;
       case "notified":
@@ -1255,9 +1258,10 @@ export function createSessionController(options: {
     void watchExit(pi);
     transcript.rebuild(started.entries, true);
     model = started.model ?? null;
+    newEpoch();
+    // After the snapshot, so what the new pi's entries add follows it in the new epoch.
     const { all, branch } = transcript.entries();
     metrics.entriesChanged(all, branch);
-    newEpoch();
     metrics.refresh();
   }
 
