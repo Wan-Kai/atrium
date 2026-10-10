@@ -11,10 +11,9 @@ import {
   Stop,
   Warning,
 } from "@phosphor-icons/react";
-import { type ReactNode, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useRef, useState } from "react";
 import { useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
-import { RevealContext } from "./reveal";
 import { MENU_ITEM, MenuButton } from "./menu-button";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
 import { RunStatus } from "./run-status";
@@ -74,16 +73,11 @@ function headerText(turn: Turn, process: readonly ProcessRow[]): string {
  * write wrote.
  *
  * @sideEffects none
- * @param props - The turn, and the file to open, as "本会话改动" asks.
+ * @param props - The turn.
  * @returns The list.
  */
-function FilesList({ turn, opened }: { readonly turn: Turn; readonly opened: string | null }) {
-  const [open, setOpen] = useState<string | null>(opened);
-  useEffect(() => {
-    // "本会话改动" asked for this file.
-    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- follows the request from outside.
-    if (opened !== null) setOpen(opened);
-  }, [opened]);
+function FilesList({ turn }: { readonly turn: Turn }) {
+  const [open, setOpen] = useState<string | null>(null);
   return (
     <div className="mt-2 rounded-[var(--r-md)] p-1 shadow-[inset_0_0_0_0.5px_var(--line)]" data-testid="files">
       {turn.changes.map((change) => (
@@ -244,21 +238,11 @@ function TurnFooter({
   readonly replyElement: React.RefObject<HTMLDivElement | null>;
 }) {
   const [filesOpen, setFilesOpen] = useState(false);
-  const reveal = useContext(RevealContext);
-  const revealed = reveal?.turnId === turn.id ? reveal : null;
-  const footer = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (revealed === null) return;
-    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- follows the request from outside.
-    setFilesOpen(true);
-    footer.current?.scrollIntoView({ block: "center" });
-  }, [revealed]);
   const added = turn.changes.reduce((sum, change) => sum + (change.added ?? 0), 0);
   const removed = turn.changes.reduce((sum, change) => sum + (change.removed ?? 0), 0);
   return (
     <>
       <div
-        ref={footer}
         className="-ml-1 flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums"
         data-testid="turn-footer"
       >
@@ -294,7 +278,7 @@ function TurnFooter({
         )}
         <span className="ml-3">{timeOfDay(turn.startedAt + (turn.durationMs ?? 0))}</span>
       </div>
-      {filesOpen ? <FilesList turn={turn} opened={revealed?.path ?? null} /> : null}
+      {filesOpen ? <FilesList turn={turn} /> : null}
     </>
   );
 }

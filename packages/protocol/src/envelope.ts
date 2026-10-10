@@ -2,6 +2,7 @@ import { z } from "zod";
 import { COMMAND_TYPES, Command, RequestId } from "./commands";
 import { ErrorInfo } from "./errors";
 import { SessionEvent } from "./events";
+import { ChangesUpdatedEvent, DiffUpdatedEvent } from "./changes";
 import { IndexSnapshotEvent } from "./listing";
 import { HelloMessage, WelcomeMessage } from "./handshake";
 
@@ -30,7 +31,14 @@ export const ClientMessage = z.union([HelloMessage, Command]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
 /** Everything the host sends: the handshake reply, responses and events. */
-export const HostMessage = z.union([WelcomeMessage, ResponseMessage, SessionEvent, IndexSnapshotEvent]);
+export const HostMessage = z.union([
+  WelcomeMessage,
+  ResponseMessage,
+  SessionEvent,
+  IndexSnapshotEvent,
+  ChangesUpdatedEvent,
+  DiffUpdatedEvent,
+]);
 export type HostMessage = z.infer<typeof HostMessage>;
 
 /** What `parseClientMessage` makes of one message. */

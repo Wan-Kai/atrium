@@ -6,6 +6,7 @@ import {
   CommandResult,
   type CommandType,
   type ContainerId,
+  type DiffTarget,
   type HelloMessage,
   HostMessage,
   type InteractionAnswer,
@@ -29,6 +30,7 @@ import {
   withTabClosed,
   withTabOpen,
 } from "./index-view";
+import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
@@ -177,6 +179,14 @@ export interface AtriumClient {
   loadStep(sessionId: string, turnId: string, stepId: string): Promise<void>;
   /** Reports a UI problem to the host's log. */
   reportIssue(kind: ClientIssueKind, message: string, details?: string): Promise<void>;
+  /** A workspace's git changes as the host sends them, while it is shown (SPEC-0001, "工作区改动"). */
+  changes(workspaceId: string): StoreApi<ChangesView>;
+  /** Says which workspaces are shown, on this connection and every later one. */
+  watchChanges(workspaceIds: readonly string[]): Promise<void>;
+  /** What the changes panel shows. */
+  readonly diff: StoreApi<DiffView>;
+  /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
+  watchDiff(target: DiffTarget | null): Promise<void>;
 }
 
 /**
@@ -290,6 +300,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   /** Fetches of older items on their way, by session. */
   const olderLoading = new Map<string, Promise<void>>();
   let watched: readonly string[] = [];
+  const changeStores = new Map<string, StoreApi<ChangesView>>();
+  /** The workspaces shown, asked for again on each connection. */
+  let showing: readonly string[] = [];
+  const diff = createStore<DiffView>(() => diffViewOf(null));
   const pending = new Map<
     string,
     { readonly type: CommandType; resolve(result: unknown): void; reject(error: Error): void }
@@ -485,6 +499,41 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * Asks again for the workspaces' changes shown and the open panel.
+   *
+   * @remarks
+   * A new connection starts with nothing watched; the host then sends each anew. Both go at once.
+   *
+   * @sideEffects Sends `watch_changes` and `watch_diff`.
+   */
+  async function watchShown(): Promise<void> {
+    const { target } = diff.getState();
+    await Promise.all([
+      showing.length > 0 ? request("watch_changes", { workspaceIds: [...showing] }) : undefined,
+      target === null ? undefined : request("watch_diff", { target }),
+    ]);
+  }
+
+  /**
+   * A workspace's changes store, made on first use.
+   *
+   * @remarks
+   * `null` until the host sends the workspace's changes.
+   *
+   * @sideEffects May create the store.
+   * @param workspaceId - The workspace.
+   * @returns The store.
+   */
+  function changesOf(workspaceId: string): StoreApi<ChangesView> {
+    let store = changeStores.get(workspaceId);
+    if (store === undefined) {
+      store = createStore<ChangesView>(() => null);
+      changeStores.set(workspaceId, store);
+    }
+    return store;
+  }
+
+  /**
    * Marks every watched session as lost after the host restarted.
    *
    * @remarks
@@ -555,6 +604,18 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     if (message.type === "index_snapshot") {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(applyIndexSnapshot(index.getState(), message), true);
+      return;
+    }
+    if (message.type === "changes_updated") {
+      const { type: _type, workspaceId, ...changes } = message;
+      changesOf(workspaceId).setState(changes, true);
+      return;
+    }
+    if (message.type === "diff_updated") {
+      const { target } = diff.getState();
+      if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;
+      const { files, tooLarge, error } = message;
+      diff.setState({ target, status: "ready", files, tooLarge, error }, true);
       return;
     }
     if (message.type !== "response") {
@@ -659,6 +720,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         // Each connection subscribes anew; the host sends the list at once.
         request("subscribe_index", {}).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
+        watchShown().catch(() => undefined);
         settle(connection.getState());
       });
       current.addEventListener("close", (event) => {
@@ -872,6 +934,20 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         message: message.slice(0, MAX_ISSUE_LENGTH),
         ...(details === undefined ? {} : { details: details.slice(0, MAX_ISSUE_LENGTH) }),
       });
+    },
+    changes: changesOf,
+    async watchChanges(workspaceIds) {
+      showing = [...new Set(workspaceIds)];
+      if (live !== undefined) await request("watch_changes", { workspaceIds: [...showing] });
+    },
+    diff,
+    async watchDiff(target) {
+      const shown = diff.getState().target;
+      // The same target asked again, to refresh, keeps what it shows until the answer comes.
+      const same = shown !== null && shown.workspaceId === target?.workspaceId && shown.mode === target.mode;
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      if (!same) diff.setState(diffViewOf(target), true);
+      if (live !== undefined) await request("watch_diff", { target });
     },
   };
 }

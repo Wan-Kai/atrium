@@ -1,4 +1,4 @@
-import { type Command, CommandError, type HostMessage, type PromptCommand } from "@atrium/protocol";
+import { type Command, CommandError, type DiffTarget, type HostMessage, type PromptCommand } from "@atrium/protocol";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { FakeClock } from "@atrium/testkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -110,7 +110,25 @@ function setUp() {
     maxCount: 4,
     keepMs: 60_000,
   });
-  const route = createRouter({ sessions, index, attachments, tracer: recording.tracer, logger: recording.logger });
+  const changes = {
+    watchChanges: (connectionId: string, workspaceIds: readonly string[]) => {
+      calls.push(["watchChanges", connectionId, ...workspaceIds]);
+      if (workspaceIds.includes("wks_ffffffffffffffff")) {
+        throw new CommandError("workspace_not_found", { workspaceId: "wks_ffffffffffffffff" });
+      }
+    },
+    watchDiff: (connectionId: string, target: DiffTarget | null) => {
+      calls.push(["watchDiff", connectionId, target]);
+    },
+  };
+  const route = createRouter({
+    sessions,
+    index,
+    attachments,
+    changes,
+    tracer: recording.tracer,
+    logger: recording.logger,
+  });
   return {
     route,
     connection,
@@ -304,6 +322,39 @@ describe("createRouter", () => {
       ok: true,
       result: { models: [], defaultModel: null },
     });
+  });
+
+  it("hands what a connection shows of workspaces' changes to the changes service", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "watch_changes", requestId: "r1", workspaceIds: [WORKSPACE] }));
+    await route(
+      connection,
+      withTrace({ type: "watch_diff", requestId: "r2", target: { workspaceId: WORKSPACE, mode: "base" } }),
+    );
+    await route(connection, withTrace({ type: "watch_diff", requestId: "r3", target: null }));
+    await route(
+      connection,
+      withTrace({ type: "watch_changes", requestId: "r4", workspaceIds: ["wks_ffffffffffffffff"] }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["watchChanges", "connection-7", WORKSPACE],
+      ["watchDiff", "connection-7", { workspaceId: WORKSPACE, mode: "base" }],
+      ["watchDiff", "connection-7", null],
+      ["watchChanges", "connection-7", "wks_ffffffffffffffff"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r2", ok: true, result: {} },
+      { type: "response", requestId: "r3", ok: true, result: {} },
+      {
+        type: "response",
+        requestId: "r4",
+        ok: false,
+        error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
+      },
+    ]);
   });
 
   it("answers a CommandError with its code and parameters", async () => {

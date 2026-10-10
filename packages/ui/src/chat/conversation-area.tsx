@@ -1,14 +1,20 @@
-import { type AtriumClient, CommandError, ConnectionLostError, type SessionView } from "@atrium/client";
-import type { SessionModel } from "@atrium/protocol";
+import {
+  type AtriumClient,
+  type ChangesView,
+  CommandError,
+  ConnectionLostError,
+  type SessionView,
+} from "@atrium/client";
+import type { DiffStat, SessionModel } from "@atrium/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { useDisplayMode } from "../state/display-mode";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/drafts";
 import { historyOf } from "./composer-text";
-import { type RevealRequest, RevealContext } from "./reveal";
-import { sessionChanges } from "./session-changes";
+import { ChangesPanel } from "./changes-panel";
 import { shownModel } from "./model-choice";
 import { ModelPicker } from "./model-picker";
 import { ControlCards, ControlTrack, type RunActions } from "./run-control";
@@ -154,6 +160,7 @@ function SessionArea({
   attaching,
   takesFocus,
   onFocusTaken,
+  changes,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -170,6 +177,8 @@ function SessionArea({
   readonly takesFocus: boolean;
   /** The box has taken the focus, which it does only once. */
   readonly onFocusTaken: () => void;
+  /** The workspace's git changes for the capsule, when it has some, and the changes panel. */
+  readonly changes: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void } | undefined;
 }) {
   const view = useStore(store);
   useEffect(() => {
@@ -179,7 +188,6 @@ function SessionArea({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- see above.
   }, [takesFocus]);
   const running = view.run !== null;
-  const [reveal, setReveal] = useState<RevealRequest | null>(null);
   const actions: RunActions = {
     resume: () => act(() => client.resumeQueue(sessionId)),
     clear: () => act(() => client.clearQueue(sessionId)),
@@ -191,20 +199,18 @@ function SessionArea({
   };
   return (
     <>
-      <RevealContext value={reveal}>
-        <Transcript
-          view={view}
-          onLoadOlder={() => {
-            // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-            client.loadOlder(sessionId).catch(() => undefined);
-          }}
-          onLoadStep={(turnId, stepId) => {
-            // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-            client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-          }}
-          onRetry={actions.retry}
-        />
-      </RevealContext>
+      <Transcript
+        view={view}
+        onLoadOlder={() => {
+          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+          client.loadOlder(sessionId).catch(() => undefined);
+        }}
+        onLoadStep={(turnId, stepId) => {
+          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+        }}
+        onRetry={actions.retry}
+      />
       <ControlCards control={view.control} actions={actions} />
       {notice}
       <Composer
@@ -229,8 +235,7 @@ function SessionArea({
             control={view.control}
             running={running}
             actions={actions}
-            changes={sessionChanges(view.items)}
-            onReveal={(turnId, path) => setReveal({ turnId, path, serial: (reveal?.serial ?? 0) + 1 })}
+            {...(changes === undefined ? {} : { changes })}
           />
         }
         picker={
@@ -345,6 +350,28 @@ export function ConversationArea({
     setHanding(next);
   };
   const containerKey = containerId ?? "chats";
+  /** The workspace shown, whose git changes the capsule and panel show; `null` for the chats. */
+  const workspaceId = containerId === null || containerId === "chats" ? null : containerId;
+  const changes = useStore(workspaceId === null ? NO_CHANGES : client.changes(workspaceId));
+  useEffect(() => {
+    // Fire and forget: a lost connection asks again when it is back (SPEC-0001, "工作区改动").
+    client.watchChanges(workspaceId === null ? [] : [workspaceId]).catch(() => undefined);
+  }, [client, workspaceId]);
+  useEffect(
+    () => () => {
+      // Fire and forget: see above.
+      client.watchChanges([]).catch(() => undefined);
+    },
+    [client],
+  );
+  /** The workspace whose changes panel is open; going to another container closes it. */
+  const [panelFor, setPanelFor] = useState<string | null>(null);
+  const [panelShownIn, setPanelShownIn] = useState(workspaceId);
+  if (panelShownIn !== workspaceId) {
+    setPanelShownIn(workspaceId);
+    setPanelFor(null);
+  }
+  const panelOpen = panelFor !== null && panelFor === workspaceId;
   /**
    * Where the empty state's words go now: its own draft, or the session it handed them to.
    *
@@ -569,55 +596,72 @@ export function ConversationArea({
       </p>
     );
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {store === undefined || sessionId === null ? (
-        <>
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
-            <p className="text-[20px] font-medium text-[var(--text)]">
-              {containerId === null ? "开始一段对话" : containerId === "chats" ? "新对话" : "新会话"}
-            </p>
-            <p className="text-[length:var(--fs-meta)]">
-              {containerId === "chats" || containerId === null
-                ? "不绑定项目和工作区，直接输入就开始"
-                : "在这个工作区里开始，直接输入就会新建会话"}
-            </p>
-          </div>
-          {notice}
-          <Composer
-            {...attaching(null)}
-            key={containerKey}
-            draftKey={handing?.container === containerKey ? handing.sessionId : `new:${containerKey}`}
-            onListCommands={async () => (await client.listCommands(await target())).commands}
-            onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {store === undefined || sessionId === null ? (
+          <>
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
+              <p className="text-[20px] font-medium text-[var(--text)]">
+                {containerId === null ? "开始一段对话" : containerId === "chats" ? "新对话" : "新会话"}
+              </p>
+              <p className="text-[length:var(--fs-meta)]">
+                {containerId === "chats" || containerId === null
+                  ? "不绑定项目和工作区，直接输入就开始"
+                  : "在这个工作区里开始，直接输入就会新建会话"}
+              </p>
+            </div>
+            {notice}
+            <Composer
+              {...attaching(null)}
+              key={containerKey}
+              draftKey={handing?.container === containerKey ? handing.sessionId : `new:${containerKey}`}
+              onListCommands={async () => (await client.listCommands(await target())).commands}
+              onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
+              onSend={onSend}
+              picker={
+                <SessionModelPicker
+                  client={client}
+                  containerId={containerId}
+                  model={null}
+                  disabled={false}
+                  session={target}
+                  act={act}
+                />
+              }
+            />
+          </>
+        ) : (
+          <SessionArea
+            client={client}
+            containerId={containerId}
+            sessionId={sessionId}
+            store={store}
             onSend={onSend}
-            picker={
-              <SessionModelPicker
-                client={client}
-                containerId={containerId}
-                model={null}
-                disabled={false}
-                session={target}
-                act={act}
-              />
+            onSteer={onSteer}
+            act={act}
+            session={target}
+            notice={notice}
+            attaching={attaching}
+            takesFocus={handing?.sessionId === sessionId}
+            onFocusTaken={() => handTo(null)}
+            changes={
+              workspaceId === null || changes === null || changes.stat === null
+                ? undefined
+                : {
+                    stat: changes.stat,
+                    open: panelOpen,
+                    onToggle: () => setPanelFor(panelOpen ? null : workspaceId),
+                  }
             }
           />
-        </>
-      ) : (
-        <SessionArea
-          client={client}
-          containerId={containerId}
-          sessionId={sessionId}
-          store={store}
-          onSend={onSend}
-          onSteer={onSteer}
-          act={act}
-          session={target}
-          notice={notice}
-          attaching={attaching}
-          takesFocus={handing?.sessionId === sessionId}
-          onFocusTaken={() => handTo(null)}
-        />
-      )}
+        )}
+      </div>
+      {workspaceId !== null && panelOpen ? (
+        <ChangesPanel client={client} workspaceId={workspaceId} onClose={() => setPanelFor(null)} />
+      ) : null}
     </div>
   );
 }
+
+/** The changes of no workspace, for the chats. */
+const NO_CHANGES = createStore<ChangesView>(() => null);

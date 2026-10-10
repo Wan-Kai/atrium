@@ -1,8 +1,11 @@
-import type { IndexSnapshotEvent, SessionEvent } from "@atrium/protocol";
+import type { ChangesUpdatedEvent, DiffUpdatedEvent, IndexSnapshotEvent, SessionEvent } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
 
 /** Delivers events to one connection. */
-export type EventSink = (event: SessionEvent | IndexSnapshotEvent) => void;
+export type EventSink = (event: SinkEvent) => void;
+
+/** What the host sends a connection besides responses. */
+type SinkEvent = SessionEvent | IndexSnapshotEvent | ChangesUpdatedEvent | DiffUpdatedEvent;
 
 /** A connection that subscribed to the list, and the client behind it. */
 export interface IndexSubscriber {
@@ -167,7 +170,7 @@ export class SubscriptionRegistry {
    * @param connectionId - The connection.
    * @param event - The event.
    */
-  sendTo(connectionId: string, event: SessionEvent | IndexSnapshotEvent): void {
+  sendTo(connectionId: string, event: SinkEvent): void {
     this.#sinks.get(connectionId)?.sink(event);
   }
 }

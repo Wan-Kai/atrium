@@ -7,6 +7,7 @@ export {
   type RejectionReason,
   createAtriumClient,
 } from "./atrium-client";
+export { type ChangesView, type DiffView } from "./changes-view";
 export { type IndexView } from "./index-view";
 export { type ModelListView } from "./model-list";
 export { type PendingMessage, type SessionView } from "./session-view";

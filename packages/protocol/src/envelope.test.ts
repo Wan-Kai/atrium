@@ -108,7 +108,58 @@ const commands: Command[] = [
   { type: "prompt", requestId: "r49", traceparent, sessionId: "s1", text: "", attachmentIds: ["a1"] },
   { type: "steer", requestId: "r50", traceparent, sessionId: "s1", text: "这张", attachmentIds: ["a3"] },
   { type: "upload_attachment", requestId: "r51", traceparent, mimeType: "image/png", data: "a".repeat(1_000_000) },
+  { type: "watch_changes", requestId: "r52", traceparent, workspaceIds: [WORKSPACE] },
+  { type: "watch_changes", requestId: "r53", traceparent, workspaceIds: [] },
+  { type: "watch_diff", requestId: "r54", traceparent, target: { workspaceId: WORKSPACE, mode: "uncommitted" } },
+  { type: "watch_diff", requestId: "r55", traceparent, target: { workspaceId: WORKSPACE, mode: "base" } },
+  { type: "watch_diff", requestId: "r56", traceparent, target: null },
 ];
+
+/** A workspace's changes, as the host sends them. */
+const changesUpdated = {
+  type: "changes_updated",
+  workspaceId: WORKSPACE,
+  stat: { added: 12, removed: 3 },
+  dirty: true,
+  ahead: 2,
+  branch: "feat/x",
+  base: "origin/main",
+};
+
+/** The changes panel's files: an edit, a rename, a binary file and one too large. */
+const diffUpdated = {
+  type: "diff_updated",
+  workspaceId: WORKSPACE,
+  mode: "uncommitted",
+  files: [
+    {
+      path: "src/a.ts",
+      oldPath: null,
+      status: "modified",
+      added: 1,
+      removed: 1,
+      content: "text",
+      hunks: [
+        {
+          oldStart: 1,
+          oldCount: 2,
+          newStart: 1,
+          newCount: 2,
+          lines: [
+            { kind: "context", oldNumber: 1, newNumber: 1, text: "keep" },
+            { kind: "del", oldNumber: 2, newNumber: null, text: "old" },
+            { kind: "add", oldNumber: null, newNumber: 2, text: "new" },
+          ],
+        },
+      ],
+    },
+    { path: "b.ts", oldPath: "a.ts", status: "renamed", added: 0, removed: 0, content: "text", hunks: [] },
+    { path: "logo.png", oldPath: null, status: "added", added: 0, removed: 0, content: "binary", hunks: [] },
+    { path: "big.json", oldPath: null, status: "deleted", added: 0, removed: 90_000, content: "too_large", hunks: [] },
+  ],
+  tooLarge: false,
+  error: null,
+};
 
 /** A model as the catalog lists it. */
 const model: CatalogModel = {
@@ -339,6 +390,8 @@ describe("parseClientMessage", () => {
       "subscribe_sessions",
       "update_queued",
       "upload_attachment",
+      "watch_changes",
+      "watch_diff",
       "window_focused",
     ]);
   });
@@ -533,6 +586,23 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["models of a project", { type: "list_models", requestId: "r1", traceparent, containerId: PROJECT }, "r1"],
+    ["changes of the chats", { type: "watch_changes", requestId: "r1", traceparent, workspaceIds: ["chats"] }, "r1"],
+    [
+      "changes of more than 64 workspaces",
+      {
+        type: "watch_changes",
+        requestId: "r1",
+        traceparent,
+        workspaceIds: Array.from({ length: 65 }, () => WORKSPACE),
+      },
+      "r1",
+    ],
+    [
+      "a diff of an unknown mode",
+      { type: "watch_diff", requestId: "r1", traceparent, target: { workspaceId: WORKSPACE, mode: "staged" } },
+      "r1",
+    ],
+    ["a diff without a target", { type: "watch_diff", requestId: "r1", traceparent }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
   });
@@ -610,6 +680,8 @@ describe("CommandResult", () => {
     expect(CommandResult.search_files.safeParse({ files: [{ path: "", directory: false }] }).success).toBe(false);
     expect(CommandResult.upload_attachment.parse({ attachmentId: "a1" })).toStrictEqual({ attachmentId: "a1" });
     expect(CommandResult.upload_attachment.safeParse({}).success).toBe(false);
+    expect(CommandResult.watch_changes.parse({})).toStrictEqual({});
+    expect(CommandResult.watch_diff.safeParse({ files: [] }).success).toBe(false);
     expect(CommandResult.set_model.parse({})).toStrictEqual({});
     expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
@@ -687,6 +759,45 @@ const snapshot: IndexSnapshotEvent = {
   resets: ["layouts"],
 };
 
+describe("HostMessage: changes", () => {
+  it.each([
+    ["a negative count", { ...changesUpdated, stat: { added: -1, removed: 0 } }],
+    ["the chats as a workspace", { ...changesUpdated, workspaceId: "chats" }],
+    ["an unknown error", { ...diffUpdated, error: "denied" }],
+    ["an unknown file status", { ...diffUpdated, files: [{ ...diffUpdated.files[1], status: "copied" }] }],
+    [
+      "an unknown line kind",
+      {
+        ...diffUpdated,
+        files: [
+          {
+            ...diffUpdated.files[0],
+            hunks: [
+              { ...diffUpdated.files[0]?.hunks[0], lines: [{ kind: "same", oldNumber: 1, newNumber: 1, text: "" }] },
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      "a line numbered 0",
+      {
+        ...diffUpdated,
+        files: [
+          {
+            ...diffUpdated.files[0],
+            hunks: [
+              { ...diffUpdated.files[0]?.hunks[0], lines: [{ kind: "add", oldNumber: null, newNumber: 0, text: "" }] },
+            ],
+          },
+        ],
+      },
+    ],
+  ])("rejects changes with %s", (_case, message) => {
+    expect(HostMessage.safeParse(message).success).toBe(false);
+  });
+});
+
 describe("HostMessage", () => {
   it("accepts the welcome, both kinds of response and every session event", () => {
     const messages: unknown[] = [
@@ -708,6 +819,11 @@ describe("HostMessage", () => {
       },
       ...events,
       snapshot,
+      changesUpdated,
+      { ...changesUpdated, stat: null, dirty: false, ahead: 0, branch: null, base: null },
+      diffUpdated,
+      { ...diffUpdated, mode: "base", files: [], tooLarge: true, error: null },
+      { ...diffUpdated, files: [], error: "not_git" },
     ];
 
     for (const message of messages) {

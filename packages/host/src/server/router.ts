@@ -1,3 +1,4 @@
+import type { ChangesService } from "../changes/changes-service";
 import type { AttachmentStore } from "./attachments";
 import {
   type Command,
@@ -19,6 +20,8 @@ export interface RouterOptions {
   readonly sessions: SessionCommands;
   /** Images uploaded ahead of their messages. */
   readonly attachments: AttachmentStore;
+  /** What each connection shows of workspaces' git changes. */
+  readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff">;
   readonly index: IndexCommands;
   readonly tracer: Tracer;
   readonly logger: Logger;
@@ -91,6 +94,12 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.renameWorkspace(command.workspaceId, command.name);
       case "window_focused":
         return options.index.windowFocused();
+      case "watch_changes":
+        options.changes.watchChanges(connection.id, command.workspaceIds);
+        return {};
+      case "watch_diff":
+        options.changes.watchDiff(connection.id, command.target);
+        return {};
       case "set_preferences":
         return options.index.setPreferences({
           ...(command.appearance === undefined ? {} : { appearance: command.appearance }),

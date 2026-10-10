@@ -1,5 +1,14 @@
-import type { AtriumClient, ConnectionState, IndexView, ModelListView, SessionView } from "@atrium/client";
+import type {
+  AtriumClient,
+  ChangesView,
+  ConnectionState,
+  DiffView,
+  IndexView,
+  ModelListView,
+  SessionView,
+} from "@atrium/client";
 import {
+  type DiffTarget,
   IDLE_CONTROL,
   type IndexSnapshotEvent,
   type ModelRef,
@@ -115,6 +124,10 @@ export interface FakeAnswers {
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
   const modelCalls: string[] = [];
+  /** What the area asked of the workspace changes, in order. */
+  const changeCalls: string[] = [];
+  const changeStores = new Map<string, StoreApi<ChangesView>>();
+  const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
   const modelLists = new Map<string, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
   const index = createStore<IndexView>(() => ({
@@ -341,9 +354,27 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       modelCalls.push(`setThinkingLevel ${sessionId} ${level}`);
       return {};
     },
+    changes(workspaceId: string) {
+      let store = changeStores.get(workspaceId);
+      if (store === undefined) {
+        store = createStore<ChangesView>(() => null);
+        changeStores.set(workspaceId, store);
+      }
+      return store;
+    },
+    async watchChanges(workspaceIds: readonly string[]) {
+      changeCalls.push(`watchChanges ${workspaceIds.join(",")}`);
+    },
+    diff,
+    async watchDiff(target: DiffTarget | null) {
+      changeCalls.push(target === null ? "watchDiff null" : `watchDiff ${target.workspaceId} ${target.mode}`);
+      const shown = diff.getState().target;
+      if (shown?.workspaceId === target?.workspaceId && shown?.mode === target?.mode) return;
+      diff.setState({ target, status: target === null ? "idle" : "loading", files: [], tooLarge: false, error: null });
+    },
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
-  return { client, calls, modelCalls, views, index, connection };
+  return { client, calls, modelCalls, changeCalls, views, index, connection };
 }
 
 /** Project `prj_a` named "atrium". */

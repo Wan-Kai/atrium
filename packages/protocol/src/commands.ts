@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { parseTraceparent } from "./trace";
+import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
@@ -312,6 +313,27 @@ export const SearchFilesCommand = z.strictObject({
 });
 export type SearchFilesCommand = z.infer<typeof SearchFilesCommand>;
 
+/**
+ * Says which workspaces this connection shows, whose git changes the host then sends (SPEC-0001, "工作区改动").
+ *
+ * @remarks
+ * Replaces the set given before; the host watches only workspaces someone shows.
+ */
+export const WatchChangesCommand = z.strictObject({
+  type: z.literal("watch_changes"),
+  ...commandFields,
+  workspaceIds: z.array(WorkspaceId).max(64),
+});
+export type WatchChangesCommand = z.infer<typeof WatchChangesCommand>;
+
+/** Opens the changes panel on a workspace and mode, or closes it with `null`; one per connection. */
+export const WatchDiffCommand = z.strictObject({
+  type: z.literal("watch_diff"),
+  ...commandFields,
+  target: DiffTarget.nullable(),
+});
+export type WatchDiffCommand = z.infer<typeof WatchDiffCommand>;
+
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
 
@@ -393,6 +415,8 @@ export const Command = z.discriminatedUnion("type", [
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
+  WatchChangesCommand,
+  WatchDiffCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -460,5 +484,7 @@ export const CommandResult = {
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),
   upload_attachment: z.strictObject({ attachmentId: z.string().min(1).max(128) }),
+  watch_changes: z.strictObject({}),
+  watch_diff: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

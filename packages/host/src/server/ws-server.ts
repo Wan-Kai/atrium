@@ -13,6 +13,7 @@ import type { SessionCommands } from "../sessions/session-commands";
 import type { SubscriptionRegistry } from "../sync/subscriptions";
 import { tokensMatch } from "./auth";
 import { type Connection, createConnection } from "./connection";
+import type { ChangesService } from "../changes/changes-service";
 import type { AttachmentStore } from "./attachments";
 import { type Route, createRouter } from "./router";
 import { serveStatic } from "./static-files";
@@ -56,6 +57,8 @@ export interface WsServerOptions {
   readonly index: IndexCommands;
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
+  /** Workspaces' git changes; a closed connection stops showing them. */
+  readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff" | "disconnect">;
   readonly logger: Logger;
   readonly tracer: Tracer;
   readonly clock: Clock;
@@ -112,6 +115,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     sessions: options.sessions,
     index: options.index,
     attachments: options.attachments,
+    changes: options.changes,
     tracer: options.tracer,
     logger: options.logger,
   });
@@ -317,6 +321,7 @@ function acceptConnection(ws: WebSocket, connectionId: string, route: Route, opt
     if (connection === undefined) return;
     options.subscriptions.disconnect(connectionId);
     options.attachments.drop(connectionId);
+    options.changes.disconnect(connectionId);
     context.with(connectionTrace, () => options.logger.info({ code }, "client disconnected"));
   });
 }

@@ -813,57 +813,57 @@ describe("ConversationArea's images", () => {
   });
 });
 
-describe("ConversationArea's session changes", () => {
-  it("adds up the session's changes in a capsule, and goes to the turn that last changed a file", async () => {
-    const { client } = fakeClient();
+describe("ConversationArea's workspace changes", () => {
+  const W = "wks_0000000000000001";
+  const changed = { stat: { added: 1234, removed: 3 }, dirty: true, ahead: 0, branch: "feat", base: "origin/main" };
+
+  it("watches the shown workspace's changes, none for the chats, and shows them in a capsule that opens the panel", async () => {
+    const { client, changeCalls } = fakeClient();
     const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
+    );
+    await vi.waitFor(() => expect(changeCalls).toStrictEqual([`watchChanges ${W}`]));
+    await expect.element(screen.getByRole("button", { name: "查看改动" })).not.toBeInTheDocument();
+
+    client.changes(W).setState(changed);
+    const capsule = screen.getByRole("button", { name: "查看改动" });
+    await expect.element(capsule).toHaveTextContent("+1.2k−3");
+    await capsule.click();
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "true");
+    await capsule.click();
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+
+    await screen.rerender(
       tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
     );
-    client.session("s1")?.setState({
-      items: [
-        {
-          ...turnOf("t1", "一"),
-          changes: [
-            { path: "a.ts", added: 3, removed: 1 },
-            { path: "b.ts", added: null, removed: null },
-          ],
-        },
-        { ...turnOf("t2", "二"), changes: [{ path: "a.ts", added: 2, removed: 4 }] },
-      ],
-    });
-
-    const capsule = screen.getByRole("button", { name: /本会话改动/ });
-    await expect.element(capsule).toHaveTextContent("本会话改动 2 个文件+5−5");
-    await capsule.click();
-    const list = screen.getByRole("dialog", { name: "本会话改动" });
-    expect(
-      list
-        .getByRole("button")
-        .elements()
-        .map((row) => row.textContent),
-    ).toStrictEqual(["a.ts+5−5", "b.ts写入"]);
-    await list.getByRole("button", { name: /a\.ts/ }).click();
-
-    const second = screen.getByTestId("turn").nth(1);
-    await expect
-      .element(second.getByRole("button", { name: /改了 1 个文件/ }))
-      .toHaveAttribute("aria-expanded", "true");
-    await expect
-      .element(second.getByTestId("files").getByRole("button", { name: /a\.ts/ }))
-      .toHaveAttribute("aria-expanded", "true");
-    await expect.element(screen.getByTestId("turn").nth(0).getByTestId("files")).not.toBeInTheDocument();
-    await expect.element(list).not.toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(changeCalls).toStrictEqual([
+        `watchChanges ${W}`,
+        `watchDiff ${W} uncommitted`,
+        "watchDiff null",
+        "watchChanges ",
+      ]),
+    );
   });
 
-  it("shows no capsule while nothing was changed", async () => {
+  it("closes the panel on going to another container, and with its own button", async () => {
     const { client } = fakeClient();
+    client.changes(W).setState(changed);
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
     );
-    client.session("s1")?.setState({ items: [turnOf("t1", "一")] });
+    await screen.getByRole("button", { name: "查看改动" }).click();
+    await screen.getByRole("button", { name: "关闭改动" }).click();
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "查看改动" }).click();
 
-    await expect.element(screen.getByText("一")).toBeVisible();
-    await expect.element(screen.getByRole("button", { name: /本会话改动/ })).not.toBeInTheDocument();
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="wks_0000000000000002" sessionId="s1" create={noCreate} />),
+    );
+    await screen.rerender(tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />));
+
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
   });
 });
 

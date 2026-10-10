@@ -1221,3 +1221,153 @@ describe("createAtriumClient: images", () => {
     ]);
   });
 });
+
+/** The watch commands a socket carried, without their request ids. */
+function watches(socket: ScriptedSocket): Record<string, unknown>[] {
+  return socket
+    .commands()
+    .filter((command) => String(command["type"]).startsWith("watch_"))
+    .map(({ requestId: _id, ...command }) => command);
+}
+
+describe("createAtriumClient: workspace changes", () => {
+  const W1 = "wks_0000000000000001";
+  const W2 = "wks_0000000000000002";
+  const known = { stat: { added: 3, removed: 1 }, dirty: true, ahead: 0, branch: "main", base: "origin/main" };
+  const file = {
+    path: "a.ts",
+    oldPath: null,
+    status: "modified",
+    added: 1,
+    removed: 0,
+    content: "binary",
+    hunks: [],
+  };
+
+  it("asks for the changes of the workspaces shown, keeping what the host sends in each one's store", async () => {
+    const { client, latest } = await connected();
+
+    expect(client.changes(W1).getState()).toBeNull();
+    const watching = client.watchChanges([W1]);
+    latest().answer("watch_changes");
+    await watching;
+    latest().receive(JSON.stringify({ type: "changes_updated", workspaceId: W1, ...known }));
+
+    expect(client.changes(W1).getState()).toStrictEqual(known);
+    expect(client.changes(W2).getState()).toBeNull();
+    expect(watches(latest())).toStrictEqual([{ type: "watch_changes", workspaceIds: [W1] }]);
+  });
+
+  it("shows the panel's files for the target asked, not another's, and empties it once closed", async () => {
+    const { client, latest } = await connected();
+    const target = { workspaceId: W1, mode: "uncommitted" } as const;
+
+    const opening = client.watchDiff(target);
+    expect(client.diff.getState()).toStrictEqual({
+      target,
+      status: "loading",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+    latest().answer("watch_diff");
+    await opening;
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+    expect(client.diff.getState().status).toBe("loading");
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "uncommitted",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+    expect(client.diff.getState()).toStrictEqual({
+      target,
+      status: "ready",
+      files: [file],
+      tooLarge: false,
+      error: null,
+    });
+    const closing = client.watchDiff(null);
+    latest().answer("watch_diff");
+    await closing;
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: null,
+      status: "idle",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+    expect(watches(latest())).toStrictEqual([
+      { type: "watch_diff", target },
+      { type: "watch_diff", target: null },
+    ]);
+  });
+
+  it("keeps the files shown while the same target is asked for again, as the refresh button does", async () => {
+    const { client, latest } = await connected();
+    const target = { workspaceId: W1, mode: "base" } as const;
+    void client.watchDiff(target);
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    void client.watchDiff({ ...target });
+
+    expect(client.diff.getState()).toStrictEqual({
+      target,
+      status: "ready",
+      files: [file],
+      tooLarge: false,
+      error: null,
+    });
+    expect(watches(latest())).toStrictEqual([
+      { type: "watch_diff", target },
+      { type: "watch_diff", target },
+    ]);
+  });
+
+  it("asks again on every connection for what it shows, and asks nothing before one", async () => {
+    const { client, clock, latest, sockets } = clientWith({ reconnectDelaysMs: [100] });
+    const target = { workspaceId: W2, mode: "base" } as const;
+    await client.watchChanges([W1]);
+    await client.watchDiff(target);
+    expect(sockets).toStrictEqual([]);
+
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome());
+
+    for (const socket of sockets) {
+      expect(watches(socket)).toStrictEqual([
+        { type: "watch_changes", workspaceIds: [W1] },
+        { type: "watch_diff", target },
+      ]);
+    }
+  });
+});

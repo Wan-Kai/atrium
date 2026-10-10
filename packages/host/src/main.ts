@@ -14,6 +14,8 @@ import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
+import { createChangesService } from "./changes/changes-service";
+import { createCheckoutReader } from "./changes/checkout";
 import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
 import { createPiDeps } from "./platform/pi-deps";
@@ -199,13 +201,34 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     clock,
     resources,
   });
+  // Workspaces' git changes, for the workspaces some connection shows (SPEC-0001, "工作区改动").
+  const changes = createChangesService({
+    reader: git.then((runner) => (runner === null ? null : createCheckoutReader(runner))),
+    resolve: (workspaceId) => {
+      const workspace = workspaces.list().find((one) => one.id === workspaceId);
+      if (workspace === undefined) return undefined;
+      const project = projects.projects().find((one) => one.id === workspace.projectId);
+      return { dir: workspace.dir, mainBranch: project?.mainBranch ?? null };
+    },
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    clock,
+    resources,
+    logger,
+  });
   const sessions = createSessionManager({
     chatsRoot: join(home.root, "chats"),
     tools: toolsFound.promise,
     subscriptions,
     catalog,
     layouts,
-    workspaces,
+    // A run ending in a workspace may have changed its files.
+    workspaces: {
+      dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+      refresh: (workspaceId) => {
+        workspaces.refresh(workspaceId);
+        changes.refresh(workspaceId);
+      },
+    },
     onChange: () => feed.changed(),
     clock,
     resources,
@@ -240,6 +263,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   catalog.onChange(() => feed.changed());
   workspaces.onChange(() => {
     feed.changed();
+    // A scan or fetch may have moved a branch or the main branch.
+    changes.refresh();
     // New worktrees may hold sessions started in a terminal.
     sessions.rescan();
   });
@@ -259,7 +284,12 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   });
   const indexCommands = createIndexCommands({
     projects,
-    workspaces,
+    workspaces: {
+      windowFocused: () => {
+        workspaces.windowFocused();
+        changes.refresh();
+      },
+    },
     sessions,
     preferences,
     feed,
@@ -297,6 +327,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       sessions,
       index: indexCommands,
       attachments,
+      changes,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -404,6 +435,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await tools;
     await server.close();
     attachments.close();
+    await changes.close();
     await workspaces.close();
     await sessions.close();
     await models.close();
