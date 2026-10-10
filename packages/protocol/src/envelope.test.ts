@@ -140,6 +140,7 @@ const commands: Command[] = [
   { type: "update_pi", requestId: "r72", traceparent },
   { type: "cancel_install", requestId: "r73", traceparent, jobId: "j1" },
   { type: "check_pi_update", requestId: "r74", traceparent },
+  { type: "discover_projects", requestId: "r75", traceparent },
 ];
 
 /** An update waiting for two sessions to finish. */
@@ -467,6 +468,7 @@ describe("parseClientMessage", () => {
       "close_tab",
       "create_chat",
       "create_session",
+      "discover_projects",
       "fetch_step",
       "fetch_transcript",
       "hand_off",
@@ -829,6 +831,17 @@ describe("CommandResult", () => {
       checkedAt: 5,
     });
     expect(CommandResult.check_pi_update.safeParse({ latest: "1.1.0" }).success).toBe(false);
+    const discovered = { path: "/Users/me/work", sessions: 3, lastUsedAt: 1_700_000_000_000 };
+    expect(CommandResult.discover_projects.parse({ directories: [discovered] })).toStrictEqual({
+      directories: [discovered],
+    });
+    for (const wrong of [
+      { ...discovered, path: "" },
+      { ...discovered, sessions: 0 },
+      { ...discovered, lastUsedAt: -1 },
+    ]) {
+      expect(CommandResult.discover_projects.safeParse({ directories: [wrong] }).success).toBe(false);
+    }
     const slashCommands = [
       { name: "review", description: "Reviews the change", source: "prompt" },
       { name: "skill:tdd", description: null, source: "skill" },

@@ -141,6 +141,20 @@ export const PiLatestEvent = z.strictObject({
 });
 export type PiLatestEvent = z.infer<typeof PiLatestEvent>;
 
+/**
+ * A working directory of pi's past sessions, offered as a project (SPEC-0001, "首次启动 · 接口").
+ *
+ * @remarks
+ * `path` is the directory's real path; `lastUsedAt` is when the latest of its sessions last
+ * changed, in milliseconds.
+ */
+export const DiscoveredDirectory = z.strictObject({
+  path: z.string().min(1).max(4096),
+  sessions: z.number().int().positive(),
+  lastUsedAt: z.number().int().nonnegative(),
+});
+export type DiscoveredDirectory = z.infer<typeof DiscoveredDirectory>;
+
 /** What an install job does: run pi's install script, `brew install node` or `pi update`. */
 export const InstallKind = z.enum(["install_pi", "install_node", "update_pi"]);
 export type InstallKind = z.infer<typeof InstallKind>;

@@ -1,7 +1,7 @@
 import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import type { LoginUpdatedEvent } from "@atrium/protocol";
 import { createTempDir, present, writeFakePiPackage } from "@atrium/testkit";
-import { chmod, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, symlink, utimes, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -308,5 +308,37 @@ describe("the latest pi over the WebSocket", () => {
     expect(checked).toStrictEqual({ latest: null, checkedAt: null });
     expect((await client.checkSetup()).pi).toMatchObject(checked);
     expect(requests()).toBe(0);
+  });
+});
+
+describe("finding projects in pi's history over the WebSocket", () => {
+  it("offers the directories pi worked in that are not projects yet, most recent first", async () => {
+    const { dir, home } = await installedPi();
+    const sessions = join(home, ".pi", "agent", "sessions");
+    for (const [name, modifiedAt] of [
+      ["app", 100],
+      ["lib", 200],
+      ["added", 300],
+    ] as const) {
+      const cwd = join(dir, name);
+      await mkdir(cwd);
+      const folder = join(sessions, `--${name}--`);
+      await mkdir(folder, { recursive: true });
+      const file = join(folder, `${name}.jsonl`);
+      await writeFile(file, `${JSON.stringify({ type: "session", version: 3, id: name, timestamp: "", cwd })}\n`);
+      await utimes(file, modifiedAt, modifiedAt);
+    }
+    testHost = await startTestHost({ toolEnv: { PATH: "", HOME: home } });
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+    await client.addProject(join(dir, "added"));
+
+    expect(await client.discoverProjects()).toStrictEqual({
+      directories: [
+        { path: join(dir, "lib"), sessions: 1, lastUsedAt: 200_000 },
+        { path: join(dir, "app"), sessions: 1, lastUsedAt: 100_000 },
+      ],
+    });
   });
 });

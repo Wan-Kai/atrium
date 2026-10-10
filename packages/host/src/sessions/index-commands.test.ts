@@ -78,6 +78,7 @@ async function assemble() {
   const sessionChanges = { count: 0 };
   const focused = { count: 0 };
   const listed: [string, boolean][] = [];
+  const discovered: (readonly string[])[] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
     tools: async () => ({
@@ -109,8 +110,12 @@ async function assemble() {
       listed.push([containerId, refresh]);
       return { models: [], defaultModel: null };
     },
+    discover: async (taken) => {
+      discovered.push(taken);
+      return [{ path: join(root, "found"), sessions: 2, lastUsedAt: 5 }];
+    },
   });
-  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed, focused };
+  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed, focused, discovered };
 }
 
 describe("IndexCommands.removeProject", () => {
@@ -170,6 +175,21 @@ describe("IndexCommands.listModels", () => {
 
     expect(await commands.listModels("chats", true)).toStrictEqual({ models: [], defaultModel: null });
     expect(listed).toStrictEqual([["chats", true]]);
+  });
+});
+
+describe("IndexCommands.discoverProjects", () => {
+  it("looks for directories that are not a project or one of its workspaces yet", async () => {
+    const { commands, discovered, root } = await assemble();
+    const dir = join(root, "app");
+    await mkdir(dir);
+    await commands.addProject(dir);
+
+    expect(await commands.discoverProjects()).toStrictEqual({
+      directories: [{ path: join(root, "found"), sessions: 2, lastUsedAt: 5 }],
+    });
+    // The project's path and its local workspace's directory.
+    expect(discovered).toStrictEqual([[dir, dir]]);
   });
 });
 

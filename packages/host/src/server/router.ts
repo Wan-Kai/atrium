@@ -202,6 +202,8 @@ export function createRouter(options: RouterOptions): Route {
         return {};
       case "check_pi_update":
         return options.piLatest.check();
+      case "discover_projects":
+        return options.index.discoverProjects();
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

@@ -1507,6 +1507,22 @@ describe("createAtriumClient: first launch", () => {
     ).toStrictEqual([{ type: "check_pi_update" }]);
   });
 
+  it("asks for the directories of pi's history that could become projects", async () => {
+    const { client, latest } = await connected();
+    const directories = [{ path: "/work/app", sessions: 2, lastUsedAt: 5 }];
+
+    const discovering = client.discoverProjects();
+    latest().answer("discover_projects", { directories });
+
+    expect(await discovering).toStrictEqual({ directories });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "discover_projects")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "discover_projects" }]);
+  });
+
   it("keeps only the last mebibyte of a job's output", async () => {
     const { client, latest } = await connected();
     latest().receive(

@@ -87,12 +87,16 @@ function fakeCommands() {
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
+    discoverProjects: record("discoverProjects", { directories: [DISCOVERED] }),
     answering: () => undefined,
   };
   return { sessions, index, calls };
 }
 
 const PROJECT = "prj_0123456789abcdef";
+
+/** A directory of pi's history, as the list commands find it. */
+const DISCOVERED = { path: "/work/app", sessions: 2, lastUsedAt: 5 };
 
 const SETUP: SetupState = {
   pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null, latest: null, checkedAt: null },
@@ -525,6 +529,17 @@ describe("createRouter", () => {
       { type: "response", requestId: "r3", ok: true, result: {} },
       { type: "response", requestId: "r4", ok: true, result: {} },
       { type: "response", requestId: "r5", ok: true, result: {} },
+    ]);
+  });
+
+  it("hands looking for projects in pi's history to the list commands", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "discover_projects", requestId: "r1" }));
+
+    expect(calls).toStrictEqual([["discoverProjects"]]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { directories: [DISCOVERED] } },
     ]);
   });
 

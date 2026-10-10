@@ -60,6 +60,7 @@ export {
   UpdatePiCommand,
   CancelInstallCommand,
   CheckPiUpdateCommand,
+  DiscoverProjectsCommand,
 } from "./commands";
 export {
   ChangesUpdatedEvent,
@@ -74,6 +75,7 @@ export {
 export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
 export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export {
+  DiscoveredDirectory,
   InstallKind,
   InstallOutputEvent,
   InstallUpdatedEvent,

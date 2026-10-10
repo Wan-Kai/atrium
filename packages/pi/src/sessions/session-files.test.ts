@@ -4,7 +4,7 @@ import { appendFile, chmod, mkdir, rm, symlink, utimes, writeFile } from "node:f
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { FIXTURES_DIR } from "../../test/contract";
-import { createSessionFileReader, sessionFolder, sessionsLocation } from "./session-files";
+import { createSessionFileReader, sessionDirectories, sessionFolder, sessionsLocation } from "./session-files";
 
 /**
  * A temporary directory removed after the test.
@@ -486,5 +486,49 @@ describe("sessionsLocation", () => {
     expect((await sessionsLocation({ HOME: "/nowhere/home", PI_CODING_AGENT_DIR: "~/agent" })).directory).toBe(
       "/nowhere/home/agent/sessions",
     );
+  });
+});
+
+describe("sessionDirectories", () => {
+  it("counts the sessions of each working directory in pi's folders, with when each was last used", async () => {
+    const directory = await tempDir("pi-sessions");
+    const folderA = join(directory, "--a--");
+    await sessionFile(folderA, "1_s1.jsonl", [header("s1", "/a"), user("hi")], 300);
+    await sessionFile(folderA, "2_s2.jsonl", [header("s2", "/a")], 100);
+    // `/a` and `/-a` share a folder in pi's naming, so each file's own `cwd` counts.
+    await sessionFile(folderA, "3_s3.jsonl", [header("s3", "/-a")], 200);
+    await sessionFile(join(directory, "--b--"), "1_s4.jsonl", [header("s4", "/b")], 400);
+    await sessionFile(folderA, "not-a-session.jsonl", [{ type: "message" }], 500);
+    await sessionFile(folderA, "no-cwd.jsonl", [{ type: "session", id: "s5" }], 500);
+    await sessionFile(folderA, "notes.txt", [header("s6", "/c")], 500);
+    await writeFile(join(folderA, "4_s7.jsonl"), JSON.stringify(header("s7", "/d")));
+    await sessionFile(directory, "1_s8.jsonl", [header("s8", "/e")], 500);
+
+    const found = await sessionDirectories({ directory, perCwd: true });
+
+    expect(found.toSorted((one, other) => one.cwd.localeCompare(other.cwd))).toStrictEqual([
+      { cwd: "/-a", sessions: 1, lastUsedAt: 200_000 },
+      { cwd: "/a", sessions: 2, lastUsedAt: 300_000 },
+      { cwd: "/b", sessions: 1, lastUsedAt: 400_000 },
+    ]);
+  });
+
+  it("reads the configured directory itself when pi keeps every session in one place", async () => {
+    const directory = await tempDir("pi-sessions");
+    await sessionFile(directory, "1_s1.jsonl", [header("s1", "/a")], 100);
+    await sessionFile(join(directory, "--b--"), "1_s2.jsonl", [header("s2", "/b")], 200);
+
+    expect(await sessionDirectories({ directory, perCwd: false })).toStrictEqual([
+      { cwd: "/a", sessions: 1, lastUsedAt: 100_000 },
+    ]);
+  });
+
+  it("finds nothing where pi has kept no sessions, and stops when cancelled", async () => {
+    const directory = await tempDir("pi-sessions");
+    await sessionFile(join(directory, "--a--"), "1_s1.jsonl", [header("s1", "/a")]);
+
+    expect(await sessionDirectories({ directory: join(directory, "missing"), perCwd: true })).toStrictEqual([]);
+    const reason = new Error("stopped");
+    await expect(sessionDirectories({ directory, perCwd: true }, AbortSignal.abort(reason))).rejects.toBe(reason);
   });
 });

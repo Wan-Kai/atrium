@@ -37,6 +37,7 @@ import { createSetupService } from "./setup/setup-service";
 import { type HostTools, createToolbox } from "./setup/toolbox";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
+import { discoverProjects } from "./projects/discovery";
 import { createIndexCommands } from "./sessions/index-commands";
 import { createFileSearch } from "./files/file-search";
 import { createLayouts } from "./sessions/layouts";
@@ -318,6 +319,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
       chatsDir: home.root,
     }),
+    discover: async (taken) => {
+      const tools = await toolbox.current();
+      return discoverProjects({
+        location: tools === null ? null : await sessionsLocation(tools.env),
+        taken,
+        chatsRoot: join(home.root, "chats"),
+      });
+    },
   });
 
   const logins = createLogins({

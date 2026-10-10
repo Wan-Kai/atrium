@@ -6,7 +6,7 @@ import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
-import { LoginMethod, PiLatest, SetupState } from "./setup";
+import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -502,6 +502,13 @@ export const CheckPiUpdateCommand = z.strictObject({
 });
 export type CheckPiUpdateCommand = z.infer<typeof CheckPiUpdateCommand>;
 
+/** Lists the working directories of pi's past sessions that could become projects. */
+export const DiscoverProjectsCommand = z.strictObject({
+  type: z.literal("discover_projects"),
+  ...commandFields,
+});
+export type DiscoverProjectsCommand = z.infer<typeof DiscoverProjectsCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -554,6 +561,7 @@ export const Command = z.discriminatedUnion("type", [
   UpdatePiCommand,
   CancelInstallCommand,
   CheckPiUpdateCommand,
+  DiscoverProjectsCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -637,5 +645,6 @@ export const CommandResult = {
   update_pi: z.strictObject({ jobId: z.string().min(1).max(64) }),
   cancel_install: z.strictObject({}),
   check_pi_update: PiLatest,
+  discover_projects: z.strictObject({ directories: z.array(DiscoveredDirectory) }),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

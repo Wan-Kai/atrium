@@ -231,6 +231,8 @@ export interface AtriumClient {
   readonly piLatest: StoreApi<PiLatest | null>;
   /** Has the host look for the latest pi now. */
   checkPiUpdate(): Promise<CommandResult<"check_pi_update">>;
+  /** The working directories of pi's past sessions that could become projects. */
+  discoverProjects(): Promise<CommandResult<"discover_projects">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -1036,6 +1038,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     cancelInstall: (jobId) => request("cancel_install", { jobId }),
     piLatest,
     checkPiUpdate: () => request("check_pi_update", {}),
+    discoverProjects: () => request("discover_projects", {}),
     setThinkingLevel: (sessionId, level) =>
       withGuessedModel(
         sessionId,
