@@ -253,6 +253,34 @@ describe("IndexFeed", () => {
     ]);
   });
 
+  it("sends a connection its waiting batch at once when flushed, and the others when the batch is due", () => {
+    const { index, received, layouts, content, clock } = feed();
+    index.subscribe("a");
+    index.subscribe("b");
+    index.flush("a");
+
+    layouts["client-a"] = { container: "chats", tabs: {} };
+    content.sessions = [session("s1"), session("s2")];
+    index.changed();
+    index.flush("a");
+    index.flush("c");
+    const flushed = { a: received["a"]?.slice(1), b: received["b"]?.slice(1) };
+    clock.advance(INDEX_PUSH_DELAY_MS);
+
+    const batch = {
+      type: "index_changes",
+      generation: "h1",
+      seq: 2,
+      projects: none,
+      workspaces: none,
+      sessions: { upsert: [session("s2")], remove: [] },
+      preferences: null,
+    };
+    expect(flushed).toStrictEqual({ a: [{ ...batch, layout: { container: "chats", tabs: {} } }], b: [] });
+    expect(received["a"]?.slice(1)).toStrictEqual([{ ...batch, layout: { container: "chats", tabs: {} } }]);
+    expect(received["b"]?.slice(1)).toStrictEqual([{ ...batch, layout: null }]);
+  });
+
   it("answers a cursor of this host with what changed after it, its layout and the preferences whole", () => {
     const { index, received, content, layouts, push, registry } = feed();
     index.subscribe("a");

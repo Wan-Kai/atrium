@@ -916,6 +916,23 @@ describe("SessionManager after the review (2026-10-08)", () => {
     expect(catalog.find(sessionId)).toMatchObject({ state: "persisted" });
   });
 
+  it("finds a draft's file as soon as pi has its first message, while the run goes on", async () => {
+    const at = await place();
+    const { manager, catalog } = await manage(
+      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn.slice(0, 2) } } },
+      at,
+    );
+    const { sessionId } = await manager.createSession("client-1", WORKSPACE);
+    await catalog.ready();
+    // pi writes the message to the file as it reports it.
+    await terminalSession(at, sessionId, at.workspace);
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+
+    await vi.waitFor(() => expect(catalog.find(sessionId)).toMatchObject({ state: "persisted", prompt: "hi" }));
+    expect(manager.summaries().find((summary) => summary.sessionId === sessionId)?.running).toBe(true);
+  });
+
   it("refuses to rename a draft, which has no file to keep the name in", async () => {
     const { manager } = await manage({ rules: SESSION_ONE });
     const { sessionId } = await manager.createChat("client-1");

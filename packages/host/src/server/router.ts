@@ -41,9 +41,12 @@ export type Route = (connection: Connection, message: unknown) => Promise<void>;
  * parent is the command's own `traceparent`, linked to the connection's trace rather than nested in
  * it, so one long-lived connection does not collect every operation into one trace. `ping` and
  * `report_client_issue` are answered here; session commands go to the session layer, list commands
- * to the index commands (domain-model §8). The returned promise never rejects.
+ * to the index commands (domain-model §8). Before a command is answered, the list changes waiting
+ * go to its connection, so the answer finds the list already changed by it (SPEC-0001, "先读到自己
+ * 的写"). The returned promise never rejects.
  *
- * @sideEffects none until called; then starts a span, runs the handler, sends a response and logs.
+ * @sideEffects none until called; then starts a span, runs the handler, sends list changes and a
+ * response, and logs.
  * @param options - Session commands, tracer and logger.
  * @returns The route function.
  */
@@ -203,10 +206,12 @@ export function createRouter(options: RouterOptions): Route {
         span.setAttribute("client.id", connection.clientId);
         try {
           const result = await run(connection, command);
+          options.index.answering(connection.id);
           connection.send({ type: "response", requestId: command.requestId, ok: true, result });
         } catch (error) {
           const info = failure(error, command);
           span.setAttribute("command.error", info.code);
+          options.index.answering(connection.id);
           connection.send({ type: "response", requestId: command.requestId, ok: false, error: info });
         }
       },

@@ -59,6 +59,7 @@ async function assemble() {
   const received: SessionEvent[] = [];
   subscriptions.connect("c1", (event) => received.push(event as SessionEvent), "client-1");
   const layouts = createLayouts({ file: (await loadIndexFile(index, LAYOUTS_FILE, 0)).file, clock: systemClock });
+  const preferences = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: "h1",
@@ -66,13 +67,7 @@ async function assemble() {
       projects: [],
       workspaces: [],
       sessions: [],
-      preferences: {
-        appearance: "system",
-        displayMode: "summary",
-        lastModel: null,
-        thinkingByModel: {},
-        statusBar: {},
-      },
+      preferences: preferences.read(),
       resets: [],
     }),
     layoutOf: (clientId) => layouts.of(clientId),
@@ -103,7 +98,6 @@ async function assemble() {
     newId: () => `id${(next += 1)}`,
   });
   onTestFinished(() => sessions.close());
-  const preferences = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
   const commands = createIndexCommands({
     projects,
     workspaces: { windowFocused: () => undefined },
@@ -175,5 +169,21 @@ describe("IndexCommands.listModels", () => {
 
     expect(await commands.listModels("chats", true)).toStrictEqual({ models: [], defaultModel: null });
     expect(listed).toStrictEqual([["chats", true]]);
+  });
+});
+
+describe("IndexCommands.answering", () => {
+  it("sends the connection the list changes waiting for it at once", async () => {
+    const { commands, received } = await assemble();
+    await commands.subscribeIndex("c1");
+    await commands.setPreferences({ appearance: "dark" });
+
+    commands.answering("c1");
+
+    expect(received).toMatchObject([
+      { type: "index_snapshot", preferences: { appearance: "system" } },
+      { type: "index_changes", preferences: { appearance: "dark" } },
+    ]);
+    expect(received).toHaveLength(2);
   });
 });

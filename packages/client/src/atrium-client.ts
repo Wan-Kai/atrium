@@ -327,6 +327,51 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   let attempt = 0;
   let nextRequest = 0;
   let cancelTimer: (() => void) | undefined;
+  /** Layout commands not answered yet; while there are any, the view keeps the layout chosen. */
+  let layoutsPending = 0;
+  /** The layout the host sent last. */
+  let hostLayout: IndexView["layout"] | undefined;
+
+  /**
+   * Sends a layout command, whose change the view already shows, and takes the host's layout once
+   * the last such command is answered.
+   *
+   * @remarks
+   * SPEC-0001 ("列表的增量", 先读到自己的写): a layout the host made before it handled the command
+   * may arrive meanwhile and would undo the choice; the host sends the layout the command made
+   * before it answers, so the layout it sent last is the right one once nothing is pending. A
+   * command that failed is undone that way too.
+   *
+   * @sideEffects Sends the command; updates the list's layout once answered.
+   * @param sent - The command on its way.
+   * @returns The command's answer.
+   */
+  function layoutCommand<T>(sent: Promise<T>): Promise<T> {
+    layoutsPending += 1;
+    return sent.finally(() => {
+      layoutsPending -= 1;
+      if (layoutsPending > 0 || hostLayout === undefined) return;
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      index.setState({ ...index.getState(), layout: hostLayout }, true);
+    });
+  }
+
+  /**
+   * Shows a new state of the list, keeping the layout chosen while layout commands are pending.
+   *
+   * @remarks
+   * See `layoutCommand`. The host's layout is remembered for when they are answered.
+   *
+   * @sideEffects Updates the list.
+   * @param next - The list as the host sent it.
+   */
+  function showIndex(next: IndexView): void {
+    const current = index.getState();
+    if (next === current) return;
+    hostLayout = next.layout;
+    // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+    index.setState(layoutsPending > 0 ? { ...next, layout: current.layout } : next, true);
+  }
 
   /**
    * Fails every command still waiting for an answer.
@@ -611,13 +656,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     // Stryker disable next-line ConditionalExpression,StringLiteral: a second welcome names no session, so no view would take it.
     if (message.type === "welcome") return;
     if (message.type === "index_snapshot") {
-      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
-      index.setState(applyIndexSnapshot(index.getState(), message), true);
+      showIndex(applyIndexSnapshot(index.getState(), message));
       return;
     }
     if (message.type === "index_changes") {
-      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
-      index.setState(applyIndexChanges(index.getState(), message), true);
+      showIndex(applyIndexChanges(index.getState(), message));
       return;
     }
     if (message.type === "changes_updated") {
@@ -833,17 +876,17 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     openSession(sessionId) {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withTabOpen(index.getState(), sessionId), true);
-      return request("open_session", { sessionId });
+      return layoutCommand(request("open_session", { sessionId }));
     },
     closeTab(sessionId) {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withTabClosed(index.getState(), sessionId), true);
-      return request("close_tab", { sessionId });
+      return layoutCommand(request("close_tab", { sessionId }));
     },
     selectContainer(containerId) {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withContainer(index.getState(), containerId), true);
-      return request("select_container", { containerId });
+      return layoutCommand(request("select_container", { containerId }));
     },
     archiveSession: (sessionId) => request("archive_session", { sessionId }),
     renameSession: (sessionId, name) => request("rename_session", { sessionId, name }),

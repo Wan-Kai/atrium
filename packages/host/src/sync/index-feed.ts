@@ -27,6 +27,8 @@ export interface IndexFeed {
   subscribe(connectionId: string, cursor?: IndexCursor): void;
   /** Something in the list changed; the changes go to every subscriber shortly. */
   changed(): void;
+  /** Sends one connection the batch waiting to go out, at once, if there is one. */
+  flush(connectionId: string): void;
   /** Cancels a pending push and ignores later changes. */
   close(): void;
 }
@@ -75,7 +77,9 @@ function idOf(item: Item<CollectionName>): string {
  * removals remembered, or behind more than `changesLimit` changes gets a snapshot. A client's
  * layout is its own: a change to it goes only to that client and takes no `seq`, and a cursor's
  * answer always carries the layout and preferences whole. Changes within `INDEX_PUSH_DELAY_MS`
- * merge into one batch. The content comes from `build` and `layoutOf`, so this module needs no
+ * merge into one batch; `flush` sends one connection the waiting batch before the host answers its
+ * command, so the answer finds the list already changed by it (SPEC-0001, "先读到自己的写"). The
+ * content comes from `build` and `layoutOf`, so this module needs no
  * business module (overview.md, "宿主内部的依赖").
  *
  * @sideEffects none until a call; then sends events and schedules a tracked timer.
@@ -268,18 +272,31 @@ export function createIndexFeed(options: {
     const subscribers = options.registry.indexSubscribers();
     const live = new Set(subscribers.map((subscriber) => subscriber.connectionId));
     for (const connectionId of sent.keys()) if (!live.has(connectionId)) sent.delete(connectionId);
-    for (const { connectionId, clientId } of subscribers) {
-      const last = sent.get(connectionId);
-      // Stryker disable next-line ConditionalExpression: a subscriber is always sent its first answer before any push.
-      if (last === undefined) continue;
-      const layout = options.layoutOf(clientId);
-      const layoutJson = JSON.stringify(layout);
-      const layoutChanged = layoutJson !== last.layout;
-      if (last.seq === seq && !layoutChanged) continue;
-      const { changes } = changesAfter(list, last.seq);
-      sendChanges(connectionId, changes, layoutChanged ? layout : null, preferences.seq > last.seq, list);
-      sent.set(connectionId, { seq, layout: layoutJson });
-    }
+    for (const subscriber of subscribers) deliver(subscriber, list);
+  }
+
+  /**
+   * Sends one subscriber what changed since it was last sent anything, if anything did.
+   *
+   * @remarks
+   * Its own layout counts as a change; another client's does not.
+   *
+   * @sideEffects Sends an event; updates what was sent.
+   * @param subscriber - The connection and its client.
+   * @param list - The list as it is now.
+   */
+  function deliver(subscriber: { readonly connectionId: string; readonly clientId: string }, list: IndexContent): void {
+    const { connectionId, clientId } = subscriber;
+    const last = sent.get(connectionId);
+    // Stryker disable next-line ConditionalExpression: a subscriber is always sent its first answer before any push.
+    if (last === undefined) return;
+    const layout = options.layoutOf(clientId);
+    const layoutJson = JSON.stringify(layout);
+    const layoutChanged = layoutJson !== last.layout;
+    if (last.seq === seq && !layoutChanged) return;
+    const { changes } = changesAfter(list, last.seq);
+    sendChanges(connectionId, changes, layoutChanged ? layout : null, preferences.seq > last.seq, list);
+    sent.set(connectionId, { seq, layout: layoutJson });
   }
 
   return {
@@ -313,6 +330,12 @@ export function createIndexFeed(options: {
         },
         INDEX_PUSH_DELAY_MS,
       );
+    },
+    flush(connectionId) {
+      // Nothing changed since the last batch went out.
+      if (cancel === null) return;
+      const subscriber = options.registry.indexSubscribers().find((one) => one.connectionId === connectionId);
+      if (subscriber !== undefined) deliver(subscriber, refresh());
     },
     close() {
       closed = true;

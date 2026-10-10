@@ -14,7 +14,7 @@ Atrium 用的是 pi 的**稳定模型**：`pi --mode rpc` + JSONL 会话文件�
 
 - 路径：`~/.pi/agent/sessions/--<cwd，去掉开头分隔符，/ \ : 换成 ->--/<ISO 时间，: 和 . 换成 ->_<sessionId>.jsonl`。可用 `--session-dir`、`PI_CODING_AGENT_SESSION_DIR` 或设置 `sessionDir` 覆盖。
 - 会话 id：`uuidv7()`，或 `--session-id` 指定（`/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/`）。
-- **延迟写盘**：直到内存里出现 user 或 assistant 消息才用 `openSync(path, "wx")` 创建文件，之后每条 `appendFileSync`。所以 `get_state.sessionFile` 可能指向还不存在的文件；打开就关的会话不留文件；未写盘的会话不能 fork / clone。
+- **延迟写盘**：直到内存里出现 user 或 assistant 消息才用 `openSync(path, "wx")` 创建文件，之后每条 `appendFileSync`。写盘在 `AgentSession._handleAgentEvent` 里紧跟着把 `message_end` 发给监听者（RPC 模式由此输出事件行），同一个同步段里完成，所以宿主读到用户消息的 `message_end` 时文件已经在了（1.0.2 `agent-session.js`，2026-10-10 核实）。所以 `get_state.sessionFile` 可能指向还不存在的文件；打开就关的会话不留文件；未写盘的会话不能 fork / clone。
 - `--no-session` 用内存会话，不写盘（适合标题生成这类一次性调用）。
 
 **文件头**（第一行，不在树里）

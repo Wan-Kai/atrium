@@ -356,12 +356,14 @@ export function createSessionManager(options: {
    * a run ends.
    *
    * @remarks
-   * A run's end may have written the file, a name or commits in the workspace. A session needs a
-   * look from a run that failed after pi's retries, or pi crashing too often, until its next run
-   * starts; a failure whose text looks like a credentials problem asks to sign in (SPEC-0001,
-   * "会话状态"). A crash also ends its run as failed but is not marked until the restarts are used
-   * up, so only a turn's own failure marks a run. Once the scan after a run is done, the session
-   * may be given a title (`titleSubject`).
+   * A draft's first message is in its file once pi reports it (SPEC-0001, "新建会话"), so the
+   * list shows the session by its first message while that run goes on. A run's end may have
+   * written the file, a name or commits in the workspace. A session needs a look from a run that
+   * failed after pi's retries, or pi crashing too often, until its next run starts; a failure
+   * whose text looks like a credentials problem asks to sign in (SPEC-0001, "会话状态"). A crash
+   * also ends its run as failed but is not marked until the restarts are used up, so only a turn's
+   * own failure marks a run. Once the scan after a run is done, the session may be given a title
+   * (`titleSubject`).
    *
    * @sideEffects Updates the run, failure and dialog records; writes attention to the index; calls
    * `onChange`; may start background scans.
@@ -375,6 +377,10 @@ export function createSessionManager(options: {
       marked.delete(sessionId);
       if ((options.catalog.find(sessionId)?.attention ?? null) !== null) attend(sessionId, null);
       options.onChange();
+    } else if (event.type === "turn_started") {
+      // pi writes the message to the file before it reports it; the draft becomes a session now.
+      if (options.catalog.find(sessionId)?.state === "draft")
+        inBackground("session scan", () => options.catalog.scan());
     } else if (event.type === "turn_finished") {
       if (event.outcome === "failed" && event.error !== null) failures.set(sessionId, event.error);
     } else if (event.type === "control_updated") {

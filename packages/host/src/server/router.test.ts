@@ -80,6 +80,7 @@ function fakeCommands() {
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
+    answering: () => undefined,
   };
   return { sessions, index, calls };
 }
@@ -87,8 +88,17 @@ function fakeCommands() {
 const PROJECT = "prj_0123456789abcdef";
 const WORKSPACE = "wks_0123456789abcdef";
 
-/** A router over fake sessions, a connection whose handshake span is recorded, and what it sends. */
-function setUp() {
+/**
+ * A router over fake sessions, a connection whose handshake span is recorded, and what it sends.
+ *
+ * @remarks
+ * `answering` stands in for the feed's flush before each answer.
+ *
+ * @sideEffects Starts a recording tracer, shut down after the test.
+ * @param answering - What happens before an answer goes out.
+ * @returns The router, the connection, what it sent, the calls and the log.
+ */
+function setUp(answering: IndexCommands["answering"] = () => undefined) {
   const recording = recordingTracing();
   shutdowns.push(recording.shutdown);
   const handshake = recording.tracer.startSpan("ws.connect");
@@ -104,7 +114,8 @@ function setUp() {
       logger: recording.logger,
     },
   );
-  const { sessions, index, calls } = fakeCommands();
+  const { sessions, index: fakeIndex, calls } = fakeCommands();
+  const index: IndexCommands = { ...fakeIndex, answering };
   let nextAttachment = 0;
   const attachments = createAttachmentStore({
     clock: new FakeClock(),
@@ -340,6 +351,29 @@ describe("createRouter", () => {
       ok: true,
       result: { models: [], defaultModel: null },
     });
+  });
+
+  it("sends a connection the list changes waiting for it before answering any of its commands", async () => {
+    const answered: [string, number][] = [];
+    const setup = setUp((connectionId) => answered.push([connectionId, setup.sent.length]));
+
+    await setup.route(setup.connection, withTrace({ type: "open_session", requestId: "r1", sessionId: "s1" }));
+    await setup.route(
+      setup.connection,
+      withTrace({ type: "prompt", requestId: "r2", sessionId: "s9", text: "missing" }),
+    );
+    await setup.route(setup.connection, { type: "nonsense", requestId: "r3" });
+
+    expect(answered).toStrictEqual([
+      ["connection-7", 0],
+      ["connection-7", 1],
+    ]);
+    expect(setup.sent).toMatchObject([
+      { type: "response", ok: true },
+      { type: "response", ok: false },
+      { type: "response", ok: false },
+    ]);
+    expect(setup.sent).toHaveLength(3);
   });
 
   it("hands what a connection shows of workspaces' changes to the changes service", async () => {

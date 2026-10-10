@@ -708,11 +708,9 @@ classDiagram
 |---|---|
 | `index_snapshot` / `index_changes`（带 `generation + seq`） | IndexFeed，内容来自 ProjectService、WorkspaceService、SessionManager |
 | `session_snapshot` / `message_*` / `tool_*` / `run_started` / `run_settled` / `interaction_*` / `notice` / `session_exited` | SessionController（经 EventTranslator） |
-| `session_bound` | SessionManager：草稿会话拿到文件后通知 |
 | `session_changed_externally` | SessionCatalog：预留，文件被外部改过 |
 | `changes_updated` / `diff_updated`（整份最新状态，不带序号） | ChangesService |
 | `queue_updated` / `metrics_updated` | SessionController |
-| `session_renamed` | TitleGenerator 或重命名命令 |
 | `install_*` / `login_*` | SetupService |
 
 ## 已决定

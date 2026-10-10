@@ -949,6 +949,16 @@ function indexChanges(seq: number, remove: string): string {
   });
 }
 
+/** A layout of the chats with tabs `s1` and `s2`, `active` shown. */
+function tabs(active: string | null) {
+  return { container: "chats", tabs: { chats: { open: ["s1", "s2"], active } } };
+}
+
+/** List changes of host instance `h1` at `seq` that carry only a layout. */
+function layoutChange(seq: number, layout: unknown): string {
+  return JSON.stringify({ ...JSON.parse(indexChanges(seq, "s9")), sessions: { upsert: [], remove: [] }, layout });
+}
+
 describe("createAtriumClient: the list", () => {
   it("subscribes to the list on every connection, from where it was once it had a snapshot", async () => {
     const { latest, clock } = await connected();
@@ -984,6 +994,32 @@ describe("createAtriumClient: the list", () => {
     expect(client.index.getState()).toMatchObject({ generation: "h2", seq: 1, sessions: [{ sessionId: "s1" }] });
     expect(client.index.getState()).not.toHaveProperty("type");
     expect(client.index.getState()).not.toHaveProperty("reason");
+  });
+
+  it("keeps the tab chosen while a layout the host made before reaches it, and takes the host's once answered", async () => {
+    const { client, latest } = await connected();
+    latest().receive(indexSnapshot(1, "h1", { layout: tabs("s1") }));
+
+    const opened = client.openSession("s2");
+    const closed = client.closeTab("s1");
+    latest().receive(layoutChange(2, tabs("s1")));
+    expect(client.index.getState().layout).toStrictEqual({
+      container: "chats",
+      tabs: { chats: { open: ["s2"], active: "s2" } },
+    });
+    latest().receive(layoutChange(3, tabs("s2")));
+    latest().answer("open_session");
+    await opened;
+    expect(client.index.getState().layout).toStrictEqual({
+      container: "chats",
+      tabs: { chats: { open: ["s2"], active: "s2" } },
+    });
+
+    latest().fail("close_tab", "session_not_found");
+    await expect(closed).rejects.toStrictEqual(new CommandError("session_not_found"));
+    expect(client.index.getState().layout).toStrictEqual(tabs("s2"));
+    latest().receive(layoutChange(4, tabs("s1")));
+    expect(client.index.getState().layout).toStrictEqual(tabs("s1"));
   });
 
   it("shows tab and preference changes at once, before the host confirms them", async () => {

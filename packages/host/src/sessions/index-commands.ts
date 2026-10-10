@@ -16,6 +16,8 @@ export interface IndexCommands {
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
   /** The models pi can use in a container's directory; `refresh` asks pi again. */
   listModels(containerId: ContainerId, refresh: boolean): Promise<CommandResult<"list_models">>;
+  /** A command of the connection is about to be answered; the list changes waiting go to it first. */
+  answering(connectionId: string): void;
 }
 
 /**
@@ -72,6 +74,9 @@ export function createIndexCommands(options: {
       options.workspaces.windowFocused();
       options.sessions.rescan();
       return {};
+    },
+    answering(connectionId) {
+      options.feed.flush(connectionId);
     },
     async setPreferences(changes) {
       await options.preferences.set(changes);
