@@ -15,7 +15,7 @@ import { tokensMatch } from "./auth";
 import { type Connection, createConnection } from "./connection";
 import type { ChangesService } from "../changes/changes-service";
 import type { AttachmentStore } from "./attachments";
-import { type Route, createRouter } from "./router";
+import { type Route, type RouterOptions, createRouter } from "./router";
 import { serveStatic } from "./static-files";
 
 /** Limits that keep one local process from exhausting the host (security.md, "WebSocket 与鉴权"). */
@@ -55,6 +55,8 @@ export interface WsServerOptions {
   /** Handles session commands. */
   readonly sessions: SessionCommands;
   readonly index: IndexCommands;
+  /** First launch and the settings. */
+  readonly setup: RouterOptions["setup"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
@@ -114,6 +116,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
   const route = createRouter({
     sessions: options.sessions,
     index: options.index,
+    setup: options.setup,
     attachments: options.attachments,
     changes: options.changes,
     tracer: options.tracer,

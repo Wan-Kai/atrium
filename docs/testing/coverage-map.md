@@ -259,6 +259,8 @@
 | 登录状态：列出服务商、OAuth 的名称、按钮文字和是否订阅、能否存 Key、已登录的方式和是否存在 `auth.json`（环境变量的 Key 不算存的）；真实 pi 的 anthropic、openai、openrouter 和环境变量里的 DeepSeek Key | `login.test.ts` "lists providers"、`login.pi.test.ts` | 已覆盖 |
 | 登录过程：pi 的设备码、进度、提示、授权地址和提问原样转出，按 id 回答；pi 问登录方式时自动选浏览器；API Key 交给第一个密码类提问，其余提问照常转出，没给 Key 时全部转出；pi 撤回提问时告知，迟到的回答丢掉；pi 打印的非 JSON 行忽略，stderr 不读也不堵；设备 ID 用 pi 自己的；真实 pi：anthropic 的浏览器登录给出授权地址和粘贴回调的提问，取消后释放回调端口，Cloudflare 的账户 ID 提问，存 Key（权限 600）和退出 | `login.test.ts`、`login.pi.test.ts` | 已覆盖 |
 | 登录失败与结束：带 pi 原文失败（报错、抛出的不是 Error、`auth.json` 坏了）；程序没说结果就退出算失败；pi 包缺少要用的接口算不可用；退出登录被拒带原文；查询和退出超时杀掉；取消后 3 秒不走就杀整棵进程树，读不到进程树时只杀程序；超时后再取消仍算超时；信号已中止时不启动，中途中止算取消，结束后不再理会信号；宿主走掉（标准输入关闭）时程序中止并退出、释放端口；资源计数回到 0 | `login.test.ts`、`login.pi.test.ts` "when the host goes away" | 已覆盖 |
+| 宿主的登录状态（Logins）：列出能 OAuth 或能存 Key 的服务商，隐藏 `openai-codex` 和 `radius`，按钮文字没有时用 OAuth 名称；没有登录程序、没检测到工具、pi 或 Node 不可用、pi 不是能加载的包时不可用；查询失败时不可用，日志只记原因不记 pi 原文；关闭时中止进行中的查询并等程序退出 | `packages/host/src/setup/logins.test.ts` | 已覆盖 |
+| 首次启动的检查（`check_setup`）：pi 就绪、损坏（带原文）、版本过低、缺失，Node 就绪、过低、缺失，Homebrew、fd 有无，登录状态和项目数；`refresh` 时重新读登录 shell、找到期间装好的 pi，不带时沿用上次的结果；检测失败时都算缺失；协议校验命令和结果，客户端发出 | `packages/host/src/setup/setup-service.test.ts`、`packages/host/src/setup.host.test.ts`、`packages/host/src/server/router.test.ts`、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts` "first launch" | 已覆盖 |
 
 ## 安全（security.md）
 

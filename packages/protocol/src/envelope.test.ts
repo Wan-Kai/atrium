@@ -120,6 +120,8 @@ const commands: Command[] = [
   { type: "watch_diff", requestId: "r54", traceparent, target: { workspaceId: WORKSPACE, mode: "uncommitted" } },
   { type: "watch_diff", requestId: "r55", traceparent, target: { workspaceId: WORKSPACE, mode: "base" } },
   { type: "watch_diff", requestId: "r56", traceparent, target: null },
+  { type: "check_setup", requestId: "r61", traceparent },
+  { type: "check_setup", requestId: "r62", traceparent, refresh: true },
 ];
 
 /** A workspace's changes, as the host sends them. */
@@ -403,6 +405,7 @@ describe("parseClientMessage", () => {
       "add_project",
       "answer_interaction",
       "archive_session",
+      "check_setup",
       "clear_attention",
       "clear_queue",
       "close_tab",
@@ -714,6 +717,35 @@ describe("CommandResult", () => {
     expect(
       CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
     ).toBe(false);
+    const setup = {
+      pi: { state: "broken", path: "/opt/bin/pi", version: null, minimum: "1.0.1", detail: "node: not found" },
+      node: { state: "outdated", version: "20.11.0" },
+      homebrew: true,
+      fd: false,
+      login: {
+        state: "ready",
+        providers: [
+          {
+            providerId: "anthropic",
+            name: "Anthropic",
+            oauth: { label: "Anthropic (Claude Pro/Max)", subscription: true },
+            apiKey: true,
+            signedIn: { method: "oauth", stored: true },
+          },
+          { providerId: "deepseek", name: "DeepSeek", oauth: null, apiKey: true, signedIn: null },
+        ],
+      },
+      projects: 2,
+    };
+    expect(CommandResult.check_setup.parse(setup)).toStrictEqual(setup);
+    expect(CommandResult.check_setup.parse({ ...setup, login: { state: "unavailable" } })).toStrictEqual({
+      ...setup,
+      login: { state: "unavailable" },
+    });
+    expect(CommandResult.check_setup.safeParse({ ...setup, node: { state: "ready", version: "22.19" } }).success).toBe(
+      false,
+    );
+    expect(CommandResult.check_setup.safeParse({ ...setup, projects: -1 }).success).toBe(false);
     const slashCommands = [
       { name: "review", description: "Reviews the change", source: "prompt" },
       { name: "skill:tdd", description: null, source: "skill" },

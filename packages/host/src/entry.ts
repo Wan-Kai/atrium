@@ -21,6 +21,8 @@ function configFor(token: string, uiDir: string | undefined, extraOrigins: reado
   return {
     home: process.env["ATRIUM_HOME"] ?? join(homedir(), ".atrium"),
     token,
+    // Built next to this bundle (build.mjs).
+    loginWorker: join(__dirname, "login-worker.mjs"),
     ...(uiDir === undefined ? {} : { uiDir }),
     ...(extraOrigins === undefined ? {} : { extraOrigins }),
   };

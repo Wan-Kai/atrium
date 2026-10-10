@@ -1329,6 +1329,37 @@ describe("createAtriumClient: the composer's lists", () => {
   });
 });
 
+describe("createAtriumClient: first launch", () => {
+  it("asks what first launch checks, reading the login shell again only when asked", async () => {
+    const { client, latest } = await connected();
+    const setup = {
+      pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null },
+      node: { state: "missing", version: null },
+      homebrew: false,
+      fd: false,
+      login: { state: "unavailable" },
+      projects: 0,
+    };
+
+    const checking = client.checkSetup();
+    latest().answer("check_setup", setup);
+    const refreshing = client.checkSetup(true);
+    latest().answer("check_setup", setup);
+
+    expect(await checking).toStrictEqual(setup);
+    expect(await refreshing).toStrictEqual(setup);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "check_setup")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "check_setup", refresh: false },
+      { type: "check_setup", refresh: true },
+    ]);
+  });
+});
+
 describe("createAtriumClient: images", () => {
   it("uploads an image, and sends a message with it, shown pending with its count", async () => {
     const { client, latest } = await watchingWithModel(null);

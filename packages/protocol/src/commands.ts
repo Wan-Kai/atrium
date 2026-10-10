@@ -6,6 +6,7 @@ import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode, StatusBarChoices } from "./listing";
 import { CatalogModel, ModelRef, ThinkingLevel } from "./models";
+import { SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -403,6 +404,20 @@ export const ReportClientIssueCommand = z.strictObject({
 });
 export type ReportClientIssueCommand = z.infer<typeof ReportClientIssueCommand>;
 
+/**
+ * Checks pi, Node, Homebrew, fd, the logins and the projects, for first launch and the settings.
+ *
+ * @remarks
+ * `refresh` reads the login shell's environment again first: installing pi or Node may have
+ * changed it (SPEC-0001, "首次启动 · 接口").
+ */
+export const CheckSetupCommand = z.strictObject({
+  type: z.literal("check_setup"),
+  ...commandFields,
+  refresh: z.boolean().optional(),
+});
+export type CheckSetupCommand = z.infer<typeof CheckSetupCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -445,6 +460,7 @@ export const Command = z.discriminatedUnion("type", [
   UploadAttachmentCommand,
   WatchChangesCommand,
   WatchDiffCommand,
+  CheckSetupCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -518,5 +534,6 @@ export const CommandResult = {
   upload_attachment: z.strictObject({ attachmentId: z.string().min(1).max(128) }),
   watch_changes: z.strictObject({}),
   watch_diff: z.strictObject({}),
+  check_setup: SetupState,
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

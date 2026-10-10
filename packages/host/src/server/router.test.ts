@@ -1,4 +1,11 @@
-import { type Command, CommandError, type DiffTarget, type HostMessage, type PromptCommand } from "@atrium/protocol";
+import {
+  type Command,
+  CommandError,
+  type DiffTarget,
+  type HostMessage,
+  type PromptCommand,
+  type SetupState,
+} from "@atrium/protocol";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { FakeClock } from "@atrium/testkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -86,6 +93,15 @@ function fakeCommands() {
 }
 
 const PROJECT = "prj_0123456789abcdef";
+
+const SETUP: SetupState = {
+  pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null },
+  node: { state: "missing", version: null },
+  homebrew: false,
+  fd: false,
+  login: { state: "unavailable" },
+  projects: 0,
+};
 const WORKSPACE = "wks_0123456789abcdef";
 
 /**
@@ -138,6 +154,12 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
   const route = createRouter({
     sessions,
     index,
+    setup: {
+      check: async (refresh) => {
+        calls.push(["checkSetup", refresh]);
+        return SETUP;
+      },
+    },
     attachments,
     changes,
     tracer: recording.tracer,
@@ -328,6 +350,8 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
     await route(connection, withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true } }));
+    await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
+    await route(connection, withTrace({ type: "check_setup", requestId: "r14", refresh: true }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -343,7 +367,10 @@ describe("createRouter", () => {
       ["listModels", WORKSPACE, false],
       ["listModels", "chats", true],
       ["setPreferences", { statusBar: { cost: true } }],
+      ["checkSetup", false],
+      ["checkSetup", true],
     ]);
+    expect(sent[14]).toStrictEqual({ type: "response", requestId: "r14", ok: true, result: SETUP });
     expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
     expect(sent[10]).toStrictEqual({
       type: "response",

@@ -1,4 +1,4 @@
-import { FakeClock, createTempDir, present } from "@atrium/testkit";
+import { FakeClock, createTempDir, present, writeFakePiPackage } from "@atrium/testkit";
 import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -20,127 +20,26 @@ const PATH = present(process.env["PATH"], "PATH");
 const WORKER = fileURLToPath(new URL("login-worker.ts", import.meta.url));
 
 /**
- * A stand-in for pi's package entry, driven by the `FAKE_PI` scenario in its environment.
- *
- * @remarks
- * Real pi cannot finish an OAuth login without a browser and the provider's servers, nor fail one on
- * demand, so these paths run against this module instead: it has the shape of the part of pi the
- * login program uses (`ModelRuntime`, `getAgentDir`, `SettingsManager`). Scenarios that must outlive
- * a deadline keep an interval running, since a pending promise alone lets Node exit.
- */
-const FAKE_PI = `
-import { writeSync } from "node:fs";
-const scenario = process.env.FAKE_PI;
-const keepAlive = () => setInterval(() => undefined, 1000);
-const runtime = {
-  getProviders: () => [
-    { id: "acme", name: "Acme", auth: { oauth: { name: "Acme (Pro)", loginLabel: "Sign in with Acme", isSubscription: true }, apiKey: { name: "Acme key", login: async () => ({}) } } },
-    { id: "ambient", name: "Ambient", auth: { apiKey: { name: "Ambient" } } },
-  ],
-  listCredentials: async () => [{ providerId: "acme", type: "oauth" }],
-  checkAuth: async (id) => (id === "acme" ? { type: "oauth", source: "OAuth" } : id === "ambient" ? { type: "api_key" } : undefined),
-  async login(id, type, interaction, options) {
-    if (scenario === "complete") {
-      interaction.notify({ type: "device_code", userCode: "ABCD-EFGH", verificationUri: "https://acme.test/device", expiresInSeconds: 900 });
-      interaction.notify({ type: "device_code", userCode: "WXYZ", verificationUri: "https://acme.test/d" });
-      interaction.notify({ type: "progress", message: "Waiting" });
-      interaction.notify({ type: "info", message: "Read this", links: [{ url: "https://acme.test/help", label: "Help" }] });
-      interaction.notify({ type: "info", message: "No links" });
-      interaction.notify({ type: "auth_url", url: "https://acme.test/authorize" });
-      const pick = await interaction.prompt({ type: "select", message: "Which?", options: [{ id: "a", label: "A", description: "first" }, { id: "b", label: "B" }] });
-      const code = await interaction.prompt({ type: "text", message: "Code?", placeholder: "123" });
-      if (pick !== "b" || code !== "42" || options.getDeviceId() !== "device-7") throw new Error("wrong answers");
-      return { type: "oauth", refresh: "r", access: "a", expires: 1 };
-    }
-    if (scenario === "withdrawn") {
-      const local = new AbortController();
-      const asked = interaction.prompt({ type: "manual_code", message: "Paste", signal: local.signal }).catch(() => "withdrawn");
-      setTimeout(() => local.abort(), 50);
-      if ((await asked) !== "withdrawn") throw new Error("not withdrawn");
-      return { type: "oauth", refresh: "r", access: "a", expires: 1 };
-    }
-    if (scenario === "browser") {
-      const how = await interaction.prompt({ type: "select", message: "How?", options: [{ id: "copy_code", label: "Copy" }, { id: "browser", label: "Browser" }] });
-      if (how !== "browser") throw new Error("not the browser");
-      return { type: "oauth", refresh: "r", access: "a", expires: 1 };
-    }
-    if (scenario === "api-key") {
-      const account = await interaction.prompt({ type: "text", message: "Account?" });
-      const key = await interaction.prompt({ type: "secret", message: "Key?" });
-      const again = await interaction.prompt({ type: "secret", message: "Again?" });
-      if (type !== "api_key" || account !== "acct" || key !== "sk-1" || again !== "sk-1") throw new Error("wrong answers");
-      return { type: "api_key", key };
-    }
-    if (scenario === "noisy") {
-      process.stdout.write("pi says hello\\n");
-      writeSync(2, "x".repeat(1 << 20));
-      return { type: "oauth", refresh: "r", access: "a", expires: 1 };
-    }
-    if (scenario === "patient") {
-      interaction.notify({ type: "progress", message: "Waiting" });
-      await new Promise((resolve) => interaction.signal.addEventListener("abort", resolve));
-      throw new Error("aborted");
-    }
-    if (scenario === "fail") throw new Error("token exchange failed: 400");
-    if (scenario === "fail-value") throw "plain failure";
-    if (scenario === "deaf") {
-      keepAlive();
-      return new Promise(() => undefined);
-    }
-    if (scenario === "exit") process.exit(3);
-    throw new Error("unknown scenario " + scenario);
-  },
-  async logout(id) {
-    if (scenario === "logout-fails") throw new Error("locked " + id);
-    if (scenario === "logout-hangs") {
-      keepAlive();
-      await new Promise(() => undefined);
-    }
-  },
-};
-export const getAgentDir = () => "/agent";
-export const SettingsManager = { create: (cwd, agentDir) => ({ getOrCreateDeviceId: () => (cwd === "/agent" && agentDir === "/agent" ? "device-7" : "wrong") }) };
-export const ModelRuntime = {
-  async create(options) {
-    if (options.allowModelNetwork !== false) throw new Error("network allowed");
-    if (scenario === "create-fails") throw new Error("auth.json is corrupt");
-    if (scenario === "status-hangs") {
-      keepAlive();
-      await new Promise(() => undefined);
-    }
-    return runtime;
-  },
-};
-`;
-
-/**
  * Writes a fake pi package and gives the login program for it.
  *
  * @remarks
- * The package has pi's name, so {@link piPackageEntry} finds it the way it finds the real one; an
- * empty module stands for a pi without the exports the program needs.
+ * The package has pi's name, so {@link piPackageEntry} finds it the way it finds the real one.
  *
  * @sideEffects Creates a temporary directory, removed after the test.
  * @param source - The entry module's source.
- * @returns The package directory and the program.
+ * @returns The package directory, the temporary directory and the program.
  */
-async function fakePi(source = FAKE_PI) {
+async function fakePi(source?: string) {
   const dir = await createTempDir("login-fake-pi");
   cleanups.push(dir.cleanup);
-  const root = join(await realpath(dir.path), "node_modules", "@earendil-works", "pi-coding-agent");
-  await mkdir(join(root, "dist", "bundle"), { recursive: true });
-  await writeFile(
-    join(root, "package.json"),
-    JSON.stringify({ name: "@earendil-works/pi-coding-agent", type: "module" }),
-  );
-  await writeFile(join(root, "dist", "index.js"), source);
-  await writeFile(join(root, "dist", "bundle", "cli.js"), "");
+  const home = await realpath(dir.path);
+  const fake = await writeFakePiPackage(home, source);
   const program: LoginProgram = {
     node: present(await findExecutable(PATH, "node"), "node on PATH"),
     worker: WORKER,
-    piEntry: pathToFileURL(join(root, "dist", "index.js")).href,
+    piEntry: fake.entry,
   };
-  return { root, home: await realpath(dir.path), program };
+  return { root: fake.root, home, program };
 }
 
 /**
@@ -249,6 +148,21 @@ describe("the login program", () => {
         apiKey: false,
         signedIn: { type: "api_key", stored: false, source: null },
       },
+      {
+        id: "beta",
+        name: "Beta",
+        oauth: { name: "Beta OAuth", label: null, subscription: false },
+        apiKey: false,
+        signedIn: null,
+      },
+      {
+        id: "openai-codex",
+        name: "Codex",
+        oauth: { name: "ChatGPT (Codex)", label: null, subscription: false },
+        apiKey: false,
+        signedIn: null,
+      },
+      { id: "radius", name: "Radius", oauth: null, apiKey: true, signedIn: null },
     ]);
     expect(open()).toBe(0);
   });

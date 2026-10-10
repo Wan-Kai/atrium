@@ -178,6 +178,8 @@ export interface AtriumClient {
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
   searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
+  /** What first launch checks; `refresh` has the host read the login shell again first. */
+  checkSetup(refresh?: boolean): Promise<CommandResult<"check_setup">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -939,6 +941,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       ),
     listCommands: (sessionId) => request("list_commands", { sessionId }),
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
+    checkSetup: (refresh = false) => request("check_setup", { refresh }),
     setThinkingLevel: (sessionId, level) =>
       withGuessedModel(
         sessionId,

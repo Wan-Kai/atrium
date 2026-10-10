@@ -26,6 +26,8 @@ import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
 import { findHomebrew } from "./setup/homebrew";
+import { createLogins } from "./setup/logins";
+import { createSetupService } from "./setup/setup-service";
 import { type HostTools, createToolbox } from "./setup/toolbox";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
@@ -70,6 +72,8 @@ export interface HostConfig {
    * tests set it so no shell runs.
    */
   readonly toolEnv?: Readonly<Record<string, string>>;
+  /** The built login program (`dist/login-worker.mjs`); without it, logins are unavailable. */
+  readonly loginWorker?: string;
   /** Where to look for Homebrew after PATH; defaults to where its installer puts it, tests set none. */
   readonly homebrewPlaces?: readonly string[];
 }
@@ -296,6 +300,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     }),
   });
 
+  const logins = createLogins({
+    worker: config.loginWorker,
+    deps: (env) => createPiDeps({ clock, resources, logger, env }),
+    logger,
+  });
+  const setup = createSetupService({ toolbox, logins, projects: () => projects.projects().length });
+
   // Up to 32 MiB and 20 images per connection, let go after 30 minutes unused (SPEC-0001, "附件").
   const attachments = createAttachmentStore({
     clock,
@@ -322,6 +333,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       subscriptions,
       sessions,
       index: indexCommands,
+      setup,
       attachments,
       changes,
       logger,
@@ -427,7 +439,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; stops scans,
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; stops login checks, scans,
    * fetches and every session's pi; finishes writing the index; flushes spans and logs; closes
    * the log file; releases the host lock.
    */
@@ -435,6 +447,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     cancelReport();
     await toolbox.close();
     await server.close();
+    await logins.close();
     attachments.close();
     await changes.close();
     await workspaces.close();
