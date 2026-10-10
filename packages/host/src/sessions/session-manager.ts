@@ -1025,8 +1025,8 @@ export function createSessionManager(options: {
    * Whether a session has something going on that handing it off would cut short.
    *
    * @remarks
-   * A run, a message on its way, a stop or restart under way, or messages in the host's queue,
-   * which only Atrium would send (SPEC-0001, "交给终端").
+   * A run (a stop under way is one), a message on its way, a restart under way, or messages in
+   * the host's queue, which only Atrium would send (SPEC-0001, "交给终端").
    *
    * @sideEffects none
    * @param sessionId - The session.
@@ -1035,7 +1035,7 @@ export function createSessionManager(options: {
   function occupied(sessionId: string): boolean {
     if (busy.has(sessionId) || starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0) return true;
     const control = sessions.get(sessionId)?.controller.snapshot().control;
-    return control !== undefined && (control.stopping || control.restarting || control.queue.length > 0);
+    return control !== undefined && (control.restarting || control.queue.length > 0);
   }
 
   /**

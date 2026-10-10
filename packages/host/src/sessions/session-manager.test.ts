@@ -290,7 +290,7 @@ describe("SessionManager running sessions", () => {
     await manager.subscribe("c1", [sessionId]);
     const before = changes();
     const answer = await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
-    await vi.waitFor(() => expect(received.at(-1)?.type).toBe("run_settled"));
+    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
     runs.push(...manager.summaries().map((summary) => summary.running));
     // The read after the run finds what was sent, so nothing follows it.
     await vi.waitFor(() => expect(records.filter((record) => record["name"] === "pi.rpc get_entries")).toHaveLength(2));
@@ -580,7 +580,7 @@ describe("SessionManager opening sessions", () => {
       expect(starts()).toStrictEqual([{ argv: ["--mode", "rpc", "--session-id", "pi-session-1"], cwd: at.workspace }]),
     );
     expect(received[1]).toMatchObject({ type: "session_snapshot", epoch: 1 });
-    await vi.waitFor(() => expect(received.at(-1)?.type).toBe("run_settled"));
+    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
   });
 });
 
@@ -610,7 +610,7 @@ describe("SessionManager tabs", () => {
     const chat = await manager.createChat("client-1");
     await manager.subscribe("c1", [chat.sessionId]);
     await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: chat.sessionId, text: "ping" });
-    await vi.waitFor(() => expect(received.at(-1)?.type).toBe("run_settled"));
+    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
 
     await manager.closeTab("client-1", chat.sessionId);
 
@@ -1444,6 +1444,54 @@ describe("SessionManager handing off (M1.9)", () => {
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
     expect(marks(manager)).toStrictEqual([{ attention: null, asking: null, handedOff: false }]);
+  });
+
+  it("refuses to hand off a session with messages in the host's queue, which only Atrium would send", async () => {
+    const { manager, received } = await opened([[{ type: "agent_start" }]], {
+      abort: { data: {}, events: [{ type: "agent_settled" }] },
+    });
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "one" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
+    await manager.prompt({ type: "prompt", requestId: "q2", traceparent, sessionId: "pi-session-1", text: "two" });
+    await manager.stop("pi-session-1");
+    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
+
+    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
+    expect(manager.summaries()[0]?.running).toBe(false);
+    expect(received.findLast((event) => event.type === "control_updated")).toMatchObject({
+      control: { queue: [{ text: "two" }], paused: "stopped" },
+    });
+  });
+
+  it("refuses to hand off a session while a message is on its way to pi", async () => {
+    const { manager } = await opened([], { prompt: { silent: true } });
+    const sending = manager
+      .prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "one" })
+      .catch(() => undefined);
+
+    await expect(manager.handOff("pi-session-1")).rejects.toStrictEqual(new CommandError("session_busy"));
+    await manager.close();
+    await sending;
+  });
+
+  it("refuses to hand off a session while pi starts again after a crash", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, subscriptions } = await manage(
+      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    const meanwhile = whenRestarting(subscriptions, () =>
+      manager.handOff("pi-session-1").catch((error: unknown) => error),
+    );
+    await manager.subscribe("c2", ["pi-session-1"]);
+
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+
+    expect(await meanwhile).toStrictEqual(new CommandError("session_busy"));
   });
 
   it("refuses to hand off a draft, which has no file for pi to go on with", async () => {
