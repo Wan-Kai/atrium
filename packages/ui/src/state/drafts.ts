@@ -31,7 +31,9 @@ const PREFIX = "atrium-draft:";
 function isPaste(value: unknown): value is DraftText["pastes"][number] {
   // Stryker disable next-line ConditionalExpression,LogicalOperator: `in` throws on anything not an object, which reads as no draft too.
   if (typeof value !== "object" || value === null) return false;
-  return "id" in value && "text" in value && typeof value.id === "string" && typeof value.text === "string";
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a missing field is then not a string either.
+  if (!("id" in value) || !("text" in value)) return false;
+  return typeof value.id === "string" && typeof value.text === "string";
 }
 
 /**
