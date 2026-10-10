@@ -17,11 +17,9 @@ async function runnable(path: string): Promise<boolean> {
   try {
     await access(path, constants.X_OK);
     return (await stat(path)).isFile();
-    // Stryker disable BlockStatement: an empty catch gives undefined, which counts as false too.
-  } catch {
+  } /* Stryker disable next-line BlockStatement: an empty catch gives undefined, which counts as false too. */ catch {
     return false;
   }
-  // Stryker restore BlockStatement
 }
 
 /**

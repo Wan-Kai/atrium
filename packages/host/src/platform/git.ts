@@ -191,7 +191,7 @@ function runGit(
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly tooLarge: boolean }> {
   return new Promise((resolve) => {
     if (signal.aborted) {
-      // Stryker disable next-line ObjectLiteral,BooleanLiteral: the caller sees the signal aborted first.
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral,StringLiteral: the caller sees the signal aborted first.
       resolve({ code: null, stdout: "", tooLarge: false });
       return;
     }

@@ -1437,6 +1437,31 @@ describe("createAtriumClient: workspace changes", () => {
     });
   });
 
+  it("shows nothing of one mode's files once the panel switches to the other", async () => {
+    const { client, latest } = await connected();
+    void client.watchDiff({ workspaceId: W1, mode: "base" });
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    void client.watchDiff({ workspaceId: W1, mode: "uncommitted" });
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: { workspaceId: W1, mode: "uncommitted" },
+      status: "loading",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+  });
+
   it("asks again on every connection for what it shows, and asks nothing before one", async () => {
     const { client, clock, latest, sockets } = clientWith({ reconnectDelaysMs: [100] });
     const target = { workspaceId: W2, mode: "base" } as const;

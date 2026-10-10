@@ -75,7 +75,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - 一次运行可能停在工具结果上：一批工具调用都返回 `terminate` 时，agent 循环不再请求模型（`agent-loop.js` `shouldTerminateToolBatch`）。
 - 上下文溢出：pi 用 `context_edit`（`replacement` 为空）屏蔽失败的回复和它的工具结果，紧接着写压缩条目，再重试；不发 `auto_retry_start`（`agent-session.js` `_omitRecoveryAttempt`）。可重试错误的 `auto_retry_start.errorMessage` 是 `errorMessage || "Unknown error"`。
 - `queue_update {steering, followUp}` **每次带完整队列**；`clear_queue` 清空并返回两队内容。
-- 队列里是**展开后的文字**：`steer` 先过 extension 的输入处理（异步，并发的 `steer` 可能因此换了进队顺序），再展开 skill 和提示词模板，然后才进队（1.0.2 `agent-session.js` 的 `_queueUserInput`）。送达时按 `message_start` 的文字在 `_steeringMessages` 里找并移走；**文字为空（只有图片）时不找**，这一项永远留在队列里，之后每次 `queue_update` 和 `clear_queue` 都还有它（1.0.2、1.1.0，2026-10-10 核实）。每次增删各发一次 `queue_update`，不会合并。
+- 队列里是**展开后的文字**：`steer` 先过 extension 的输入处理（异步，并发的 `steer` 可能因此换了进队顺序），再展开 skill 和提示词模板，然后才进队（1.0.2 `agent-session.js` 的 `_queueUserInput`）。送达时按 `message_start` 的文字在 `_steeringMessages` 里找并移走；**文字为空（只有图片）时不找**，这一项永远留在队列里，之后每次 `queue_update` 和 `clear_queue` 都还有它（1.0.2、1.1.0，2026-10-10 核实）。每次增删各发一次 `queue_update`，不会合并；`steer` 先把文字放进队列、发出 `queue_update`，然后才应答（1.0.2 `_queueSteer`，2026-10-10 核实），所以宿主收到应答时，这条插话一定已经列出过。
 - pi 按文本匹配来移除已送达的队列项（不稳）。
 
 **重试**

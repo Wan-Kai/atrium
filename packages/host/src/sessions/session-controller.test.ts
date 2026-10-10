@@ -1020,6 +1020,26 @@ describe("createSessionController steering", () => {
     expect(sent).toStrictEqual(["prompt one", "steer a", "steer b"]);
   });
 
+  it("lists only as many steers as pi's queue grew by, leaving the one still waiting its turn", async () => {
+    const { pi, emit, steerAnswers } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    await controller.steer(steer("s1", "a"));
+    emit({ type: "queue_update", steering: ["a"], followUp: [] });
+    const second = Promise.withResolvers<{ disposition: "queued" }>();
+    steerAnswers.push(() => second.promise);
+    const steering = [controller.steer(steer("s2", "b")), controller.steer(steer("s3", "c"))];
+    await settle();
+
+    emit({ type: "queue_update", steering: ["a", "b"], followUp: [] });
+    emit({ type: "queue_update", steering: [], followUp: [] });
+
+    expect(controller.snapshot().control.steers).toStrictEqual([{ id: "s3", text: "c" }]);
+    second.resolve({ disposition: "queued" });
+    expect(await Promise.all(steering)).toStrictEqual([{ disposition: "queued" }, { disposition: "queued" }]);
+  });
+
   it("sends a steer whose turn comes after the run ended as a message", async () => {
     const { pi, emit, sent, steerAnswers } = manualPi();
     const { controller } = control(pi);

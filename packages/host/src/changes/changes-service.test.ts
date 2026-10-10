@@ -771,7 +771,7 @@ describe("ChangesService: the panel's targets", () => {
   });
 
   it("forgets a closed panel's workspace, which another connection then shows again", async () => {
-    const { service, open } = harness();
+    const { service, open, now, sent } = harness();
     service.watchDiff("c1", { workspaceId: W1, mode: "base" });
     await settle();
 
@@ -780,8 +780,16 @@ describe("ChangesService: the panel's targets", () => {
     await settle();
     service.disconnect("c1");
     expect(open()).toStrictEqual(["/top", "/git/worktrees/w", "/git"]);
+    now.changes = changes(2);
+    service.refresh();
+    await settle();
     service.watchChanges("c2", []);
 
+    expect(sent).toStrictEqual([
+      ["c1", diffUpdated("base", 1)],
+      ["c2", updated(1)],
+      ["c2", updated(2)],
+    ]);
     expect(open()).toStrictEqual([]);
   });
 

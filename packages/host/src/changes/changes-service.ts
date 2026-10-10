@@ -53,7 +53,7 @@ export type WatchDirectory = (dir: string, onEvent: (path: string | null) => voi
 export const watchDirectory: WatchDirectory = (dir, onEvent, onError) => {
   try {
     const watcher = watch(dir, { recursive: true }, (_event, path) => onEvent(path));
-    // Stryker disable next-line StringLiteral,ArrowFunction: no test can make a running watch fail.
+    // Stryker disable next-line StringLiteral,ArrowFunction,CallExpression: no test can make a running watch fail.
     watcher.on("error", () => onError());
     return () => watcher.close();
   } catch {
@@ -640,6 +640,8 @@ export function createChangesService(options: {
       const before = panelOf.get(connectionId);
       if (before !== undefined) {
         before.panels.delete(connectionId);
+        // A connection owed a diff is sent one only while its panel shows the mode.
+        // Stryker disable next-line CallExpression: see above.
         before.owedDiffs.delete(connectionId);
         panelOf.delete(connectionId);
         if (before.workspaceId !== target?.workspaceId) releaseIfUnseen(before);
@@ -660,6 +662,8 @@ export function createChangesService(options: {
     disconnect(connectionId) {
       for (const entry of showing.get(connectionId)?.values() ?? []) {
         entry.viewers.delete(connectionId);
+        // A connection owed changes is sent them only while it shows the workspace.
+        // Stryker disable next-line CallExpression: see above.
         entry.owedChanges.delete(connectionId);
         releaseIfUnseen(entry);
       }
@@ -669,6 +673,7 @@ export function createChangesService(options: {
       const panel = panelOf.get(connectionId);
       if (panel !== undefined) {
         panel.panels.delete(connectionId);
+        // Stryker disable next-line CallExpression: as in `watchDiff`.
         panel.owedDiffs.delete(connectionId);
         // Stryker disable next-line CallExpression: see above.
         panelOf.delete(connectionId);

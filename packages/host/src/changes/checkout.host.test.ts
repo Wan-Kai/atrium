@@ -138,6 +138,36 @@ describe("workspaceChanges, more", () => {
     });
   });
 
+  it("shows no base on main when origin has no main branch, rather than comparing main with itself", async () => {
+    const made = await scene();
+    const { repo } = made;
+    await made.git(repo, "update-ref", "-d", "refs/remotes/origin/main");
+    await writeFile(join(repo, "README.md"), "start\nmore\n");
+
+    expect(await workspaceChanges(git, repo, null, signal)).toStrictEqual({
+      stat: null,
+      dirty: true,
+      ahead: 0,
+      branch: "main",
+      base: null,
+    });
+  });
+
+  it("shows a tracked binary file that changed as binary, without lines", async () => {
+    const made = await scene();
+    const { repo } = made;
+    await made.commit(repo, "blob.bin", "\0\u0001\u0002");
+    await writeFile(join(repo, "blob.bin"), "\0\u0003");
+
+    expect(await workspaceDiff(git, repo, null, "uncommitted", signal)).toStrictEqual({
+      files: [
+        { path: "blob.bin", oldPath: null, status: "modified", added: 0, removed: 0, content: "binary", hunks: [] },
+      ],
+      tooLarge: false,
+      error: null,
+    });
+  });
+
   it("shows nothing for a branch with no history in common with the main branch", async () => {
     const made = await scene();
     const tree = await made.worktree("feat");

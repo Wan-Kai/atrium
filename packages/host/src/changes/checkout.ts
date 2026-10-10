@@ -147,15 +147,17 @@ async function repoFacts(
   const originHead = (await output(git, top, signal, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"))?.trim();
   // Stryker disable next-line Regex: the name always starts so.
   const main = mainBranch ?? originHead?.replace(/^refs\/remotes\/origin\//, "") ?? null;
+  // On the main branch, or not knowing it, a branch is compared with origin's copy of itself.
+  const candidates =
+    main !== null && main !== branch
+      ? [`refs/remotes/origin/${main}`, `refs/heads/${main}`]
+      : [`refs/remotes/origin/${branch}`];
   let baseRef: string | null = null;
-  if (main !== null && main !== branch) {
-    if (await exists(`refs/remotes/origin/${main}`)) baseRef = `refs/remotes/origin/${main}`;
-    // A ref that does not exist has no merge base, which shows nothing as no ref does.
-    // Stryker disable next-line ConditionalExpression: see above.
-    else if (await exists(`refs/heads/${main}`)) baseRef = `refs/heads/${main}`;
-    // Stryker disable next-line ConditionalExpression: see above.
-  } else if (await exists(`refs/remotes/origin/${branch}`)) {
-    baseRef = `refs/remotes/origin/${branch}`;
+  for (const ref of candidates) {
+    if (await exists(ref)) {
+      baseRef = ref;
+      break;
+    }
   }
   const mergeBase =
     // Stryker disable next-line ConditionalExpression: git finds no ref named "null" either.
@@ -218,36 +220,54 @@ async function readUntracked(path: string, fileBytes: number, signal: AbortSigna
       (): Untracked => ({ kind: "other" }),
     );
   }
-  try {
-    const info = await file.stat();
-    // git lists only files and links; a directory, as a nested repository, fails to read anyway.
-    // Stryker disable next-line ConditionalExpression,ObjectLiteral,StringLiteral: see above.
-    if (!info.isFile()) return { kind: "other" };
-    if (info.size > fileBytes)
-      // Stryker disable next-line ObjectLiteral,StringLiteral: the count reads only text, which this is not.
-      return count ? { kind: "too_large", lines: await countFileLines(file, signal) } : { kind: "other" };
-    const content = Buffer.alloc(info.size);
-    let filled = 0;
-    // A file is read in one go; the loop is for one that gives less, or shrinks meanwhile.
-    // Stryker disable next-line EqualityOperator: see above.
-    while (filled < content.length) {
-      // Stryker disable next-line ArithmeticOperator: see above.
-      const { bytesRead } = await file.read(content, filled, content.length - filled, filled);
-      // Stryker disable next-line ConditionalExpression: see above.
-      if (bytesRead === 0) break;
-      filled += bytesRead;
-    }
-    const read = content.subarray(0, filled);
-    if (isLikelyBinary(read.subarray(0, BINARY_SNIFF_BYTES))) return { kind: "binary" };
-    return { kind: "text", text: read.toString("utf8") };
-    // A read failing midway, as a disk error, is the only way here.
-    // Stryker disable BlockStatement,ObjectLiteral,StringLiteral: see above.
-  } catch {
-    return { kind: "other" };
-  } finally {
-    await file.close();
+  // A read failing midway, as a disk error, is the only way to the handler.
+  // Stryker disable next-line ArrowFunction,ObjectLiteral,StringLiteral: see above.
+  const held = await readOpened(file, fileBytes, signal, count).catch((): Untracked => ({ kind: "other" }));
+  // Stryker disable next-line CallExpression: a file left open shows in no test, only in the process's limits.
+  await file.close();
+  return held;
+}
+
+/**
+ * Reads an untracked file opened by `readUntracked`.
+ *
+ * @remarks
+ * See `readUntracked`; the type, size and content all come from the one opening.
+ *
+ * @sideEffects Reads the file.
+ * @param file - The file.
+ * @param fileBytes - The most to read whole.
+ * @param signal - Stops counting a large file.
+ * @param count - Whether to count a large file's lines.
+ * @returns What it holds.
+ */
+async function readOpened(
+  file: FileHandle,
+  fileBytes: number,
+  signal: AbortSignal,
+  count: boolean,
+): Promise<Untracked> {
+  const info = await file.stat();
+  // git lists only files and links; a directory, as a nested repository, fails to read anyway.
+  // Stryker disable next-line ConditionalExpression,ObjectLiteral,StringLiteral: see above.
+  if (!info.isFile()) return { kind: "other" };
+  if (info.size > fileBytes)
+    // Stryker disable next-line ObjectLiteral,StringLiteral: the count reads only text, which this is not.
+    return count ? { kind: "too_large", lines: await countFileLines(file, signal) } : { kind: "other" };
+  const content = Buffer.alloc(info.size);
+  let filled = 0;
+  // A file is read in one go; the loop is for one that gives less, or shrinks meanwhile.
+  // Stryker disable next-line EqualityOperator: see above.
+  while (filled < content.length) {
+    // Stryker disable next-line ArithmeticOperator: see above.
+    const { bytesRead } = await file.read(content, filled, content.length - filled, filled);
+    // Stryker disable next-line ConditionalExpression: see above.
+    if (bytesRead === 0) break;
+    filled += bytesRead;
   }
-  // Stryker restore BlockStatement,ObjectLiteral,StringLiteral
+  const read = content.subarray(0, filled);
+  if (isLikelyBinary(read.subarray(0, BINARY_SNIFF_BYTES))) return { kind: "binary" };
+  return { kind: "text", text: read.toString("utf8") };
 }
 
 /**
@@ -372,6 +392,7 @@ export async function workspaceDiff(
         signal,
         maxOutputBytes: limits.patchBytes,
       });
+      // Stryker disable next-line StringLiteral: this error becomes "failed" below, whatever it says.
       if (run.code !== 0) throw new GitError("diff", "exit");
       printed = run.stdout;
     } catch (error) {

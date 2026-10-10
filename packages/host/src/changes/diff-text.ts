@@ -150,15 +150,17 @@ export function parseHunks(section: string): DiffHunk[] {
     if (lines === null) continue;
     const mark = line.charAt(0);
     const text = line.slice(1);
+    // git writes an empty context line with no space when `diff.suppressBlankEmpty` is on, and no
+    // other line before a hunk's old lines run out ("\ No newline" comes after a side's last line).
+    // Stryker disable next-line ConditionalExpression: see above.
+    const context = mark === " " || (line === "" && oldNumber < oldEnd);
     if (mark === "+") {
       lines.push({ kind: "add", oldNumber: null, newNumber, text });
       newNumber += 1;
     } else if (mark === "-") {
       lines.push({ kind: "del", oldNumber, newNumber: null, text });
       oldNumber += 1;
-      // Stryker disable next-line ConditionalExpression: git writes no other line before a hunk's old lines run out.
-    } else if (mark === " " || (line === "" && oldNumber < oldEnd)) {
-      // git writes an empty context line with no space when `diff.suppressBlankEmpty` is on.
+    } else if (context) {
       lines.push({ kind: "context", oldNumber, newNumber, text });
       oldNumber += 1;
       newNumber += 1;
@@ -261,15 +263,15 @@ export function weighFiles(
   limits: { readonly fileBytes: number; readonly totalBytes: number },
 ): DiffFile[] {
   let shown = 0;
-  return files
-    .toSorted((a, b) => (a.path < b.path ? -1 : 1))
-    .map(({ path, oldPath, status, added, removed, body }): DiffFile => {
-      const counts = { path, oldPath, status, added, removed };
-      if (body === "binary") return { ...counts, content: "binary", hunks: [] };
-      if (body === null || body.size > limits.fileBytes || shown + body.size > limits.totalBytes) {
-        return { ...counts, content: "too_large", hunks: [] };
-      }
-      shown += body.size;
-      return { ...counts, content: "text", hunks: body.hunks() };
-    });
+  // Stryker disable next-line EqualityOperator: paths are unique, so none is equal to another.
+  const sorted = files.toSorted((a, b) => (a.path < b.path ? -1 : 1));
+  return sorted.map(({ path, oldPath, status, added, removed, body }): DiffFile => {
+    const counts = { path, oldPath, status, added, removed };
+    if (body === "binary") return { ...counts, content: "binary", hunks: [] };
+    if (body === null || body.size > limits.fileBytes || shown + body.size > limits.totalBytes) {
+      return { ...counts, content: "too_large", hunks: [] };
+    }
+    shown += body.size;
+    return { ...counts, content: "text", hunks: body.hunks() };
+  });
 }

@@ -30,14 +30,8 @@ const PREFIX = "atrium-draft:";
  */
 function isPaste(value: unknown): value is DraftText["pastes"][number] {
   // Stryker disable next-line ConditionalExpression,LogicalOperator: `in` throws on anything not an object, which reads as no draft too.
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "id" in value &&
-    "text" in value &&
-    typeof value.id === "string" &&
-    typeof value.text === "string"
-  );
+  if (typeof value !== "object" || value === null) return false;
+  return "id" in value && "text" in value && typeof value.id === "string" && typeof value.text === "string";
 }
 
 /**
@@ -162,7 +156,7 @@ export function createDrafts(storage: DraftStorage): Drafts {
   const storedAt = (key: string): string | null => {
     try {
       return storage.getItem(PREFIX + key);
-    } catch {
+    } /* Stryker disable next-line BlockStatement: `undefined` parses as no draft, and matches no stored copy, as `null` does. */ catch {
       return null;
     }
   };
@@ -179,11 +173,9 @@ export function createDrafts(storage: DraftStorage): Drafts {
   const unstore = (key: string): void => {
     try {
       storage.removeItem(PREFIX + key);
-      // Stryker disable BlockStatement: there is nothing to do either way.
     } catch {
-      // Nothing to do: see above.
+      // Nothing to do: storage that cannot be written to keeps no copy either way.
     }
-    // Stryker restore BlockStatement
   };
 
   /**

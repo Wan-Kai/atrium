@@ -605,9 +605,10 @@ export function createSessionController(options: {
    */
   async function readChoice(): Promise<void> {
     const now = await pi.model();
-    choiceToRead = false;
     modelIs(now);
     if (model !== null) options.onModelChosen?.(model);
+    // Done only once reported, so a failure on the way reads it again after the next entries.
+    choiceToRead = false;
   }
 
   /**
@@ -783,9 +784,9 @@ export function createSessionController(options: {
    * pi lists its steers' texts whole each time, one change an update: it adds the steers it takes
    * at the back and delivers from the front (pi-internals.md §2). Its texts are expanded and need
    * not be what the host sent, so steers are counted, not matched: a longer list took the earliest
-   * steers not listed yet; a shorter one delivered the earliest listed. Steers go to pi one at a time, so they reach its queue in the order sent. While a stop
-   * takes the steers back, pi's emptied queue says nothing about delivery, so updates wait for the
-   * stop's answer.
+   * steers not listed yet; a shorter one delivered the earliest listed. Steers go to pi one at a
+   * time, so they reach its queue in the order sent. While a stop takes the steers back, pi's
+   * emptied queue says nothing about delivery, so updates wait for the stop's answer.
    *
    * @sideEffects Updates the steers; publishes `control_updated`.
    * @param held - The texts pi holds.
@@ -1027,6 +1028,9 @@ export function createSessionController(options: {
    * @returns The messages.
    */
   function steersFor(texts: readonly string[]): Outgoing[] {
+    // pi lists a steer before it answers, and a stop waits for every answer, so all are listed by
+    // now (pi-internals.md §2); only those listed count, as SPEC-0001 says.
+    // Stryker disable next-line MethodExpression: see above.
     const listed = steers.filter((steer) => steer.listed);
     const ours = listed.slice(Math.max(0, listed.length - texts.length));
     const others = texts.slice(0, texts.length - ours.length).map((text) => ({ text, images: [] }));

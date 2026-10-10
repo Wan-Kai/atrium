@@ -80,8 +80,7 @@ export function createFileSearch(options: {
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
-    // Stryker disable next-line BlockStatement: without it the function gives undefined, which counts as false too.
-  } catch {
+  } /* Stryker disable next-line BlockStatement: without it the function gives undefined, which counts as false too. */ catch {
     return false;
   }
 }
