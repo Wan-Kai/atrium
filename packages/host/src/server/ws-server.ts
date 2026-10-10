@@ -61,6 +61,8 @@ export interface WsServerOptions {
   readonly index: IndexCommands;
   /** First launch and the settings. */
   readonly setup: RouterOptions["setup"];
+  /** Signing in and out through pi. */
+  readonly logins: RouterOptions["logins"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
@@ -121,6 +123,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     sessions: options.sessions,
     index: options.index,
     setup: options.setup,
+    logins: options.logins,
     attachments: options.attachments,
     changes: options.changes,
     tracer: options.tracer,

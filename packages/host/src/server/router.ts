@@ -13,6 +13,7 @@ import type { Logger } from "../platform/logger";
 import { contextFromTraceparent, inSpan } from "../platform/tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
+import type { LoginService } from "../setup/login-service";
 import type { SetupService } from "../setup/setup-service";
 import type { Connection } from "./connection";
 
@@ -26,6 +27,8 @@ export interface RouterOptions {
   readonly index: IndexCommands;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
+  /** Signing in and out through pi. */
+  readonly logins: Pick<LoginService, "login" | "answer" | "cancel" | "logout">;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -169,6 +172,21 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.listModels(command.containerId, command.refresh ?? false);
       case "check_setup":
         return options.setup.check(command.refresh ?? false);
+      case "login":
+        return options.logins.login({
+          providerId: command.providerId,
+          method: command.method,
+          ...(command.key === undefined ? {} : { key: command.key }),
+        });
+      case "answer_login":
+        options.logins.answer(command.loginId, command.promptId, command.value);
+        return {};
+      case "cancel_login":
+        options.logins.cancel(command.loginId);
+        return {};
+      case "logout":
+        await options.logins.logout(command.providerId);
+        return {};
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

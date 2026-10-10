@@ -3,6 +3,7 @@ import type {
   DiffUpdatedEvent,
   IndexChangesEvent,
   IndexSnapshotEvent,
+  LoginUpdatedEvent,
   SessionEvent,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
@@ -11,7 +12,13 @@ import type { ResourceTracker } from "../platform/resources";
 export type EventSink = (event: SinkEvent) => void;
 
 /** What the host sends a connection besides responses. */
-type SinkEvent = SessionEvent | IndexSnapshotEvent | IndexChangesEvent | ChangesUpdatedEvent | DiffUpdatedEvent;
+type SinkEvent =
+  | SessionEvent
+  | IndexSnapshotEvent
+  | IndexChangesEvent
+  | ChangesUpdatedEvent
+  | DiffUpdatedEvent
+  | LoginUpdatedEvent;
 
 /** A connection that subscribed to the list, and the client behind it. */
 export interface IndexSubscriber {
@@ -187,5 +194,19 @@ export class SubscriptionRegistry {
    */
   sendTo(connectionId: string, event: SinkEvent): void {
     this.#sinks.get(connectionId)?.sink(event);
+  }
+
+  /**
+   * Delivers an event to every connection.
+   *
+   * @remarks
+   * For what every window shows whatever it watches, as a login under way (SPEC-0001, "首次启动 ·
+   * 接口").
+   *
+   * @sideEffects Calls every connection's sink.
+   * @param event - The event.
+   */
+  broadcast(event: LoginUpdatedEvent): void {
+    for (const { sink } of this.#sinks.values()) sink(event);
   }
 }

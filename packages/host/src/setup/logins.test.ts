@@ -1,16 +1,12 @@
-import { createTempDir, present, writeFakePiPackage } from "@atrium/testkit";
-import { realpath, symlink, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { LOGIN_WORKER, fakePiTools } from "../../test/fake-pi-tools";
 import { recordingTracing } from "../../test/recording-tracing";
 import { createPiDeps } from "../platform/pi-deps";
 import { systemClock } from "../platform/clock";
 import { type Logins, createLogins } from "./logins";
 import type { HostTools } from "./toolbox";
-
-/** The login program as tests run it: the source file in `packages/pi`, which Node runs directly. */
-const WORKER = fileURLToPath(new URL("../../../pi/src/auth/login-worker.ts", import.meta.url));
 
 const cleanups: (() => Promise<void>)[] = [];
 
@@ -19,10 +15,10 @@ afterEach(async () => {
 });
 
 /**
- * Tools whose `pi` is a fake pi package run in a scenario, on the Node running the tests.
+ * Tools with a fake pi in a scenario, removed after the test.
  *
  * @remarks
- * The `pi` command links into the package, as an installed one does.
+ * See {@link fakePiTools}.
  *
  * @sideEffects Creates a temporary directory, removed after the test.
  * @param scenario - What the fake pi does.
@@ -30,22 +26,9 @@ afterEach(async () => {
  * @returns The tools and the temporary directory.
  */
 async function fakeTools(scenario: string, source?: string): Promise<{ tools: HostTools; dir: string }> {
-  const temp = await createTempDir("logins");
-  cleanups.push(temp.cleanup);
-  const dir = await realpath(temp.path);
-  const fake = await writeFakePiPackage(dir, source);
-  await symlink(fake.cli, join(dir, "pi"));
-  return {
-    dir,
-    tools: {
-      env: { PATH: present(process.env["PATH"], "PATH"), FAKE_PI: scenario },
-      envSource: "configured",
-      pi: { status: "ready", piPath: join(dir, "pi"), version: [1, 0, 2] },
-      node: { status: "ready", nodePath: process.execPath, version: [22, 19, 0] },
-      homebrew: null,
-      fd: null,
-    },
-  };
+  const { tools, dir, cleanup } = await fakePiTools(scenario, source);
+  cleanups.push(cleanup);
+  return { tools, dir };
 }
 
 /**
@@ -66,7 +49,7 @@ function logins(withWorker = true): {
   const recording = recordingTracing();
   cleanups.push(recording.shutdown);
   const value = createLogins({
-    worker: withWorker ? WORKER : undefined,
+    worker: withWorker ? LOGIN_WORKER : undefined,
     deps: (env) => createPiDeps({ clock: systemClock, resources: recording.resources, logger: recording.logger, env }),
     logger: recording.logger,
   });

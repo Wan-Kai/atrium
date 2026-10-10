@@ -1,14 +1,12 @@
-import { createAtriumClient } from "@atrium/client";
-import { createTempDir, writeFakePiPackage } from "@atrium/testkit";
+import { type AtriumClient, createAtriumClient } from "@atrium/client";
+import type { LoginUpdatedEvent } from "@atrium/protocol";
+import { createTempDir, present, writeFakePiPackage } from "@atrium/testkit";
 import { chmod, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { LOGIN_WORKER as WORKER } from "../test/fake-pi-tools";
 import { type TestHost, startTestHost } from "../test/harness";
 import { startHost } from "./main";
-
-/** The login program as tests run it: the source file in `packages/pi`, which Node runs directly. */
-const WORKER = fileURLToPath(new URL("../../pi/src/auth/login-worker.ts", import.meta.url));
 
 const TOKEN = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
 let testHost: TestHost | undefined;
@@ -125,5 +123,65 @@ describe("first launch's checks over the WebSocket", () => {
       node: { state: "ready" },
       login: LOGINS,
     });
+  });
+});
+
+/**
+ * Waits until a window shows pi asking a question in the login under way.
+ *
+ * @remarks
+ * The login program takes a moment to start and load pi.
+ *
+ * @sideEffects none
+ * @param client - The window's client.
+ * @param message - The question.
+ * @returns The login's state then, and the question's id.
+ */
+async function question(
+  client: AtriumClient,
+  message: string,
+): Promise<{ state: LoginUpdatedEvent; promptId: number }> {
+  return vi.waitFor(
+    () => {
+      const state = present(client.loginState.getState(), "a login");
+      const found = present(
+        state.questions.find((asked) => asked.message === message),
+        message,
+      );
+      return { state, promptId: found.promptId };
+    },
+    { timeout: 10_000 },
+  );
+}
+
+describe("signing in and out over the WebSocket", () => {
+  it("runs a login through the installed pi, showing it in every window, and logs out", async () => {
+    const { bin, home } = await installedPi();
+    testHost = await startTestHost({ toolEnv: { PATH: bin, HOME: home, FAKE_PI: "complete" }, loginWorker: WORKER });
+    const starter = testHost.connect();
+    const other = testHost.connect();
+    onTestFinished(() => starter.disconnect());
+    onTestFinished(() => other.disconnect());
+    await starter.connect();
+    await other.connect();
+
+    const { loginId } = await starter.login("acme", "oauth");
+    const asked = await question(other, "Which?");
+    await starter.answerLogin(loginId, asked.promptId, "b");
+    const code = await question(starter, "Code?");
+    await other.answerLogin(loginId, code.promptId, "42");
+    await vi.waitFor(() => expect(other.loginState.getState()?.state).toBe("ok"), { timeout: 10_000 });
+
+    expect(asked.state).toMatchObject({
+      type: "login_updated",
+      loginId,
+      providerId: "acme",
+      method: "oauth",
+      state: "running",
+      authUrl: { url: "https://acme.test/authorize", instructions: null },
+    });
+    expect(starter.loginState.getState()).toStrictEqual(other.loginState.getState());
+    await expect(starter.cancelLogin(loginId)).rejects.toMatchObject({ code: "login_not_found" });
+    await expect(starter.logout("acme")).resolves.toStrictEqual({});
   });
 });

@@ -68,6 +68,12 @@ const runtime = {
       await new Promise((resolve) => interaction.signal.addEventListener("abort", resolve));
       throw new Error("aborted");
     }
+    if (scenario === "insecure" || scenario === "insecure-device") {
+      if (scenario === "insecure") interaction.notify({ type: "auth_url", url: "http://acme.test/authorize" });
+      else interaction.notify({ type: "device_code", userCode: "ABCD", verificationUri: "http://acme.test/device" });
+      await new Promise((resolve) => interaction.signal.addEventListener("abort", resolve));
+      throw new Error("aborted");
+    }
     if (scenario === "fail") throw new Error("token exchange failed: 400");
     if (scenario === "fail-value") throw "plain failure";
     if (scenario === "deaf") {

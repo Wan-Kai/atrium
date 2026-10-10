@@ -449,9 +449,9 @@ Electron 主进程
 - `cancel_install(jobId)`。
 - 事件 `install_updated { jobId, kind, state, running?, exitCode? }`：`state` 为 `waiting | running | ok | failed | cancelled`；`waiting` 时 `running` 是还在运行的会话数；`failed` 带退出码。
 - 事件 `install_output { jobId, text }`：输出原文，按块推送；颜色和"\r"覆盖由界面处理。输出不进日志，日志只记任务种类、结果和退出码。
-- `login(providerId, method, key?)`：应答 `{ loginId }`。同一时刻只有一个登录，新的登录先取消进行中的。`key` 只在 `api_key` 时给，交给 pi 的第一个密码类提问。
-- `answer_login(loginId, promptId, value)` / `cancel_login(loginId)` / `logout(providerId)`。
-- 事件 `login_updated`：登录的完整状态，每次变化整份推送：`loginId`、`providerId`、`state`（`running | ok | failed | cancelled`）、`authUrl`（只放 `https` 的，其他的地址让登录以 `failed` 结束）、`deviceCode`、`questions`（pi 正在问的：`promptId`、`kind`、`message`、`placeholder`、`options`）、`progress`（pi 最近一条进度文字）、`error`（`reason` 和 pi 的原文）。只有发起登录的那个客户端打开授权地址。
+- `login(providerId, method, key?)`：应答 `{ loginId }`。同一时刻只有一个登录，新的登录先取消进行中的。`key` 只在 `api_key` 时给，交给 pi 的第一个密码类提问。登录不可用（`check_setup` 的 `login` 为 `unavailable`）时应答 `login_unavailable`。
+- `answer_login(loginId, promptId, value)` / `cancel_login(loginId)`：`loginId` 不是进行中的登录时应答 `login_not_found`；回答已经撤回的提问时丢掉。`logout(providerId)`：pi 拒绝或超时时应答 `logout_failed`（`reason`，`detail` 为 pi 的原文）。
+- 事件 `login_updated`：登录的完整状态，每次变化整份推送给所有连接：`loginId`、`providerId`、`method`、`state`（`running | ok | failed | cancelled`）、`authUrl`（`{ url, instructions } | null`，只放 `https` 的，其他的地址让登录以 `failed` 结束、`reason` 为 `insecure_url`）、`deviceCode`（`{ userCode, verificationUri, expiresInSeconds } | null`，`verificationUri` 同样只放 `https` 的）、`questions`（pi 正在问的：`promptId`、`kind`、`message`、`placeholder`、`options`）、`progress`（pi 最近一条进度或提示文字，提示里的链接不带）、`error`（`{ reason: unavailable | failed | timed_out | insecure_url, detail } | null`，`detail` 为 pi 的原文）。只有发起登录的那个客户端打开授权地址。日志只记服务商、方式和结果，不记 Key、地址、提问和 pi 的原文。
 - `discover_projects()`：应答 pi 历史会话里出现过的工作目录（`path`、会话数、最近使用时间），去掉已添加的项目、Atrium 对话目录下的和已经不存在的目录，按最近使用排列。添加用已有的 `add_project`。
 - 握手的 `welcome` 带 `installSeed`：本机安装 ID（`~/.atrium/install-id`，第一次启动时生成的 UUID）算出的正整数，欢迎页按钮和模型按钮拉满时的点阵都用它。界面原先存在 `localStorage` 里的种子不再使用。
 

@@ -10,6 +10,8 @@ import {
   type HelloMessage,
   HostMessage,
   type InteractionAnswer,
+  type LoginMethod,
+  type LoginUpdatedEvent,
   type ModelRef,
   PROTOCOL_VERSION,
   type Preferences,
@@ -185,6 +187,19 @@ export interface AtriumClient {
   /** What first launch checks; `refresh` has the host read the login shell again first. */
   checkSetup(refresh?: boolean): Promise<CommandResult<"check_setup">>;
   /**
+   * The latest state of a login, whichever window started it; `null` until the host reports one.
+   * Only the window whose `login` returned its id opens its address.
+   */
+  readonly loginState: StoreApi<LoginUpdatedEvent | null>;
+  /** Signs in to a provider through pi, cancelling a login under way; `key` is for `api_key`. */
+  login(providerId: string, method: LoginMethod, key?: string): Promise<CommandResult<"login">>;
+  /** Answers one of pi's questions in the login under way. */
+  answerLogin(loginId: string, promptId: number, value: string): Promise<CommandResult<"answer_login">>;
+  /** Cancels the login under way. */
+  cancelLogin(loginId: string): Promise<CommandResult<"cancel_login">>;
+  /** Removes the credential pi stored for a provider. */
+  logout(providerId: string): Promise<CommandResult<"logout">>;
+  /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
    */
@@ -299,6 +314,7 @@ function parseFrame(data: unknown): unknown {
 export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const connection = createStore<ConnectionState>(() => ({ status: "idle" }));
   const index = createStore<IndexView>(emptyIndex);
+  const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const openSocket: (url: string) => SocketLike = options.openSocket ?? ((url: string) => new WebSocket(url));
   const createTrace = options.createTrace ?? createTraceContext;
   const clock = options.clock ?? systemClock;
@@ -677,6 +693,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       changesOf(workspaceId).setState(changes, true);
       return;
     }
+    if (message.type === "login_updated") {
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      loginState.setState(message, true);
+      return;
+    }
     if (message.type === "diff_updated") {
       const { target } = diff.getState();
       if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;
@@ -949,6 +970,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     listCommands: (sessionId) => request("list_commands", { sessionId }),
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
     checkSetup: (refresh = false) => request("check_setup", { refresh }),
+    loginState,
+    login: (providerId, method, key) =>
+      request("login", key === undefined ? { providerId, method } : { providerId, method, key }),
+    answerLogin: (loginId, promptId, value) => request("answer_login", { loginId, promptId, value }),
+    cancelLogin: (loginId) => request("cancel_login", { loginId }),
+    logout: (providerId) => request("logout", { providerId }),
     setThinkingLevel: (sessionId, level) =>
       withGuessedModel(
         sessionId,

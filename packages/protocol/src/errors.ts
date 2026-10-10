@@ -52,6 +52,12 @@ export const ErrorCode = z.enum([
   "pi_rejected",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
   "session_handed_off",
+  /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */
+  "login_unavailable",
+  /** The `loginId` names no login under way. */
+  "login_not_found",
+  /** pi did not remove the credential; `params.reason` says why and `params.detail` is pi's own text. */
+  "logout_failed",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

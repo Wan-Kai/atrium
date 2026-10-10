@@ -1372,6 +1372,60 @@ describe("createAtriumClient: first launch", () => {
       { type: "check_setup", refresh: true },
     ]);
   });
+
+  it("signs in and out through the host, and shows the latest state of a login from any window", async () => {
+    const { client, latest } = await connected();
+    const running = {
+      type: "login_updated",
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      state: "running",
+      authUrl: { url: "https://acme.test/authorize", instructions: null },
+      deviceCode: null,
+      questions: [{ promptId: 2, kind: "text", message: "Code?", placeholder: null, options: [] }],
+      progress: null,
+      error: null,
+    };
+    const before = client.loginState.getState();
+
+    const started = client.login("acme", "oauth");
+    latest().answer("login", { loginId: "l1" });
+    const withKey = client.login("deepseek", "api_key", "sk-1");
+    latest().answer("login", { loginId: "l2" });
+    const answered = client.answerLogin("l1", 2, "42");
+    latest().answer("answer_login");
+    const cancelled = client.cancelLogin("l1");
+    latest().answer("cancel_login");
+    const loggedOut = client.logout("acme");
+    latest().answer("logout");
+    latest().receive(JSON.stringify(running));
+    const shown = client.loginState.getState();
+    latest().receive(JSON.stringify({ ...running, state: "ok", questions: [] }));
+
+    expect(before).toBeNull();
+    expect(await Promise.all([started, withKey, answered, cancelled, loggedOut])).toStrictEqual([
+      { loginId: "l1" },
+      { loginId: "l2" },
+      {},
+      {},
+      {},
+    ]);
+    expect(shown).toStrictEqual(running);
+    expect(client.loginState.getState()).toStrictEqual({ ...running, state: "ok", questions: [] });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["login", "answer_login", "cancel_login", "logout"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "login", providerId: "acme", method: "oauth" },
+      { type: "login", providerId: "deepseek", method: "api_key", key: "sk-1" },
+      { type: "answer_login", loginId: "l1", promptId: 2, value: "42" },
+      { type: "cancel_login", loginId: "l1" },
+      { type: "logout", providerId: "acme" },
+    ]);
+  });
 });
 
 describe("createAtriumClient: images", () => {

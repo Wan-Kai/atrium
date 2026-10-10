@@ -5,6 +5,7 @@ import { SessionEvent } from "./events";
 import { ChangesUpdatedEvent, DiffUpdatedEvent } from "./changes";
 import { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { HelloMessage, WelcomeMessage } from "./handshake";
+import { LoginUpdatedEvent } from "./setup";
 
 /** A response to a command that succeeded; `result` is checked against `CommandResult`. */
 const SuccessResponse = z.strictObject({
@@ -39,6 +40,7 @@ export const HostMessage = z.union([
   IndexChangesEvent,
   ChangesUpdatedEvent,
   DiffUpdatedEvent,
+  LoginUpdatedEvent,
 ]);
 export type HostMessage = z.infer<typeof HostMessage>;
 

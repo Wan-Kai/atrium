@@ -5,8 +5,8 @@ import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode, StatusBarChoices } from "./listing";
-import { CatalogModel, ModelRef, ThinkingLevel } from "./models";
-import { SetupState } from "./setup";
+import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
+import { LoginMethod, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -420,6 +420,47 @@ export const CheckSetupCommand = z.strictObject({
 });
 export type CheckSetupCommand = z.infer<typeof CheckSetupCommand>;
 
+/**
+ * Signs in to a provider through pi; one login at a time, so a new one cancels the one under way.
+ *
+ * @remarks
+ * `key` is only for `api_key`, and goes to pi's first secret question (SPEC-0001, "首次启动 · 接口").
+ */
+export const LoginCommand = z.strictObject({
+  type: z.literal("login"),
+  ...commandFields,
+  providerId: z.string().min(1).max(MODEL_LIMITS.providerId),
+  method: LoginMethod,
+  key: z.string().min(1).max(16_384).optional(),
+});
+export type LoginCommand = z.infer<typeof LoginCommand>;
+
+/** Answers one of pi's questions in the login under way. */
+export const AnswerLoginCommand = z.strictObject({
+  type: z.literal("answer_login"),
+  ...commandFields,
+  loginId: z.string().min(1).max(64),
+  promptId: z.number().int().nonnegative(),
+  value: z.string().max(16_384),
+});
+export type AnswerLoginCommand = z.infer<typeof AnswerLoginCommand>;
+
+/** Cancels the login under way. */
+export const CancelLoginCommand = z.strictObject({
+  type: z.literal("cancel_login"),
+  ...commandFields,
+  loginId: z.string().min(1).max(64),
+});
+export type CancelLoginCommand = z.infer<typeof CancelLoginCommand>;
+
+/** Removes the credential pi stored for a provider. */
+export const LogoutCommand = z.strictObject({
+  type: z.literal("logout"),
+  ...commandFields,
+  providerId: z.string().min(1).max(MODEL_LIMITS.providerId),
+});
+export type LogoutCommand = z.infer<typeof LogoutCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -463,6 +504,10 @@ export const Command = z.discriminatedUnion("type", [
   WatchChangesCommand,
   WatchDiffCommand,
   CheckSetupCommand,
+  LoginCommand,
+  AnswerLoginCommand,
+  CancelLoginCommand,
+  LogoutCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -537,5 +582,9 @@ export const CommandResult = {
   watch_changes: z.strictObject({}),
   watch_diff: z.strictObject({}),
   check_setup: SetupState,
+  login: z.strictObject({ loginId: z.string().min(1).max(64) }),
+  answer_login: z.strictObject({}),
+  cancel_login: z.strictObject({}),
+  logout: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

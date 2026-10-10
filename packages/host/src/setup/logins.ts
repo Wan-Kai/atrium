@@ -1,4 +1,16 @@
-import { LoginError, type LoginProgram, type LoginProvider, type PiDeps, piPackageEntry, readLogins } from "@atrium/pi";
+import {
+  LoginError,
+  type LoginProgram,
+  type LoginProvider,
+  type LoginRequest,
+  type LoginRun,
+  type LoginUpdate,
+  type PiDeps,
+  logout,
+  piPackageEntry,
+  readLogins,
+  startLogin,
+} from "@atrium/pi";
 import type { SetupLogin, SetupProvider } from "@atrium/protocol";
 import type { Logger } from "../platform/logger";
 import type { HostTools } from "./toolbox";
@@ -15,7 +27,19 @@ const UNAVAILABLE: SetupLogin = { state: "unavailable" };
 export interface Logins {
   /** How each provider is signed in, or `unavailable` when the login program cannot use pi. */
   status(tools: HostTools | null): Promise<SetupLogin>;
-  /** Stops the login program runs under way and waits for them. */
+  /** Starts signing in through pi, or `null` when logins are unavailable. */
+  start(
+    tools: HostTools | null,
+    request: LoginRequest,
+    onUpdate: (update: LoginUpdate) => void,
+  ): Promise<LoginRun | null>;
+  /**
+   * Removes a provider's stored credential through pi; `false` when logins are unavailable.
+   *
+   * @throws {LoginError} When pi refuses or takes too long.
+   */
+  logout(tools: HostTools | null, providerId: string): Promise<boolean>;
+  /** Stops the status checks and logouts under way and waits for them. */
   close(): Promise<void>;
 }
 
@@ -76,12 +100,15 @@ export function createLogins(options: {
    *
    * @sideEffects Reads the file system.
    * @param tools - The tools.
-   * @returns The program, or `null` when logins are unavailable.
+   * @returns The program and the infrastructure to run it with the tools' environment, or `null`
+   * when logins are unavailable.
    */
-  async function programFor(tools: HostTools): Promise<LoginProgram | null> {
-    if (options.worker === undefined || tools.pi.status !== "ready" || tools.node.status !== "ready") return null;
+  async function programFor(tools: HostTools | null): Promise<{ program: LoginProgram; deps: PiDeps } | null> {
+    if (tools === null || options.worker === undefined) return null;
+    if (tools.pi.status !== "ready" || tools.node.status !== "ready") return null;
     const piEntry = await piPackageEntry(tools.pi.piPath);
-    return piEntry === null ? null : { node: tools.node.nodePath, worker: options.worker, piEntry };
+    if (piEntry === null) return null;
+    return { program: { node: tools.node.nodePath, worker: options.worker, piEntry }, deps: options.deps(tools.env) };
   }
 
   /**
@@ -95,11 +122,10 @@ export function createLogins(options: {
    * @returns The logins.
    */
   async function check(tools: HostTools | null): Promise<SetupLogin> {
-    if (tools === null) return UNAVAILABLE;
-    const program = await programFor(tools);
-    if (program === null) return UNAVAILABLE;
+    const found = await programFor(tools);
+    if (found === null) return UNAVAILABLE;
     try {
-      const providers = await readLogins(program, options.deps(tools.env), { signal: stop.signal });
+      const providers = await readLogins(found.program, found.deps, { signal: stop.signal });
       return {
         state: "ready",
         providers: providers
@@ -113,16 +139,40 @@ export function createLogins(options: {
     }
   }
 
+  /**
+   * Runs an operation, so closing waits for it.
+   *
+   * @remarks
+   * See {@link createLogins}.
+   *
+   * @sideEffects Records the operation until it settles.
+   * @param operation - The operation.
+   * @returns What it gives.
+   */
+  async function tracked<T>(operation: Promise<T>): Promise<T> {
+    running.add(operation);
+    try {
+      return await operation;
+    } finally {
+      running.delete(operation);
+    }
+  }
+
   return {
-    status: async (tools) => {
-      const checking = check(tools);
-      running.add(checking);
-      try {
-        return await checking;
-      } finally {
-        running.delete(checking);
-      }
+    status: (tools) => tracked(check(tools)),
+    async start(tools, request, onUpdate) {
+      const found = await programFor(tools);
+      return found === null ? null : startLogin(found.program, found.deps, request, onUpdate);
     },
+    logout: (tools, providerId) =>
+      tracked(
+        (async () => {
+          const found = await programFor(tools);
+          if (found === null) return false;
+          await logout(found.program, found.deps, providerId, { signal: stop.signal });
+          return true;
+        })(),
+      ),
     close: async () => {
       stop.abort();
       await Promise.allSettled(running);

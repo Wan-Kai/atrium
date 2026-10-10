@@ -51,6 +51,10 @@ export {
   WatchChangesCommand,
   WatchDiffCommand,
   CheckSetupCommand,
+  LoginCommand,
+  AnswerLoginCommand,
+  CancelLoginCommand,
+  LogoutCommand,
 } from "./commands";
 export {
   ChangesUpdatedEvent,
@@ -64,7 +68,17 @@ export {
 } from "./changes";
 export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
 export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
-export { SetupLogin, SetupNode, SetupPi, SetupProvider, SetupState } from "./setup";
+export {
+  LoginFailureReason,
+  LoginMethod,
+  LoginQuestion,
+  LoginUpdatedEvent,
+  SetupLogin,
+  SetupNode,
+  SetupPi,
+  SetupProvider,
+  SetupState,
+} from "./setup";
 export { SessionMetrics, StatusGroupId, UNKNOWN_METRICS } from "./metrics";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
 export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";

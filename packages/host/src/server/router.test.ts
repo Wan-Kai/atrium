@@ -161,6 +161,21 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         return SETUP;
       },
     },
+    logins: {
+      login: async (request) => {
+        calls.push(["login", request]);
+        return { loginId: "l1" };
+      },
+      answer: (loginId, promptId, value) => {
+        calls.push(["answerLogin", loginId, promptId, value]);
+      },
+      cancel: (loginId) => {
+        calls.push(["cancelLogin", loginId]);
+      },
+      logout: async (providerId) => {
+        calls.push(["logout", providerId]);
+      },
+    },
     attachments,
     changes,
     tracer: recording.tracer,
@@ -464,6 +479,37 @@ describe("createRouter", () => {
         ok: false,
         error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
       },
+    ]);
+  });
+
+  it("hands the login commands to the logins", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "login", requestId: "r1", providerId: "acme", method: "oauth" }));
+    await route(
+      connection,
+      withTrace({ type: "login", requestId: "r2", providerId: "acme", method: "api_key", key: "sk-1" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "answer_login", requestId: "r3", loginId: "l1", promptId: 2, value: "42" }),
+    );
+    await route(connection, withTrace({ type: "cancel_login", requestId: "r4", loginId: "l1" }));
+    await route(connection, withTrace({ type: "logout", requestId: "r5", providerId: "acme" }));
+
+    expect(calls).toStrictEqual([
+      ["login", { providerId: "acme", method: "oauth" }],
+      ["login", { providerId: "acme", method: "api_key", key: "sk-1" }],
+      ["answerLogin", "l1", 2, "42"],
+      ["cancelLogin", "l1"],
+      ["logout", "acme"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { loginId: "l1" } },
+      { type: "response", requestId: "r2", ok: true, result: { loginId: "l1" } },
+      { type: "response", requestId: "r3", ok: true, result: {} },
+      { type: "response", requestId: "r4", ok: true, result: {} },
+      { type: "response", requestId: "r5", ok: true, result: {} },
     ]);
   });
 

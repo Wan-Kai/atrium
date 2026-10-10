@@ -130,7 +130,35 @@ const commands: Command[] = [
   { type: "watch_diff", requestId: "r56", traceparent, target: null },
   { type: "check_setup", requestId: "r61", traceparent },
   { type: "check_setup", requestId: "r62", traceparent, refresh: true },
+  { type: "login", requestId: "r65", traceparent, providerId: "anthropic", method: "oauth" },
+  { type: "login", requestId: "r66", traceparent, providerId: "deepseek", method: "api_key", key: "sk-test" },
+  { type: "answer_login", requestId: "r67", traceparent, loginId: "l1", promptId: 0, value: "code#state" },
+  { type: "cancel_login", requestId: "r68", traceparent, loginId: "l1" },
+  { type: "logout", requestId: "r69", traceparent, providerId: "anthropic" },
 ];
+
+/** A login under way with everything pi can show. */
+const loginUpdated = {
+  type: "login_updated",
+  loginId: "l1",
+  providerId: "anthropic",
+  method: "oauth",
+  state: "running",
+  authUrl: { url: "https://claude.ai/oauth/authorize?code=true", instructions: "Paste the code" },
+  deviceCode: { userCode: "ABCD-EFGH", verificationUri: "https://github.com/login/device", expiresInSeconds: 900 },
+  questions: [
+    { promptId: 2, kind: "manual_code", message: "Paste the authorization code:", placeholder: null, options: [] },
+    {
+      promptId: 3,
+      kind: "select",
+      message: "Region",
+      placeholder: null,
+      options: [{ id: "us", label: "United States" }],
+    },
+  ],
+  progress: "Waiting for the browser…",
+  error: null,
+};
 
 /** A workspace's changes, as the host sends them. */
 const changesUpdated = {
@@ -412,7 +440,9 @@ describe("parseClientMessage", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
       "add_project",
       "answer_interaction",
+      "answer_login",
       "archive_session",
+      "cancel_login",
       "check_setup",
       "clear_attention",
       "clear_queue",
@@ -424,6 +454,8 @@ describe("parseClientMessage", () => {
       "hand_off",
       "list_commands",
       "list_models",
+      "login",
+      "logout",
       "open_session",
       "ping",
       "prompt",
@@ -782,6 +814,11 @@ describe("CommandResult", () => {
     expect(CommandResult.hand_off.safeParse({}).success).toBe(false);
     expect(CommandResult.take_back.parse({})).toStrictEqual({});
     expect(CommandResult.clear_attention.parse({})).toStrictEqual({});
+    expect(CommandResult.login.parse({ loginId: "l1" })).toStrictEqual({ loginId: "l1" });
+    expect(CommandResult.login.safeParse({ loginId: "" }).success).toBe(false);
+    expect(CommandResult.answer_login.parse({})).toStrictEqual({});
+    expect(CommandResult.cancel_login.parse({})).toStrictEqual({});
+    expect(CommandResult.logout.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
@@ -954,6 +991,19 @@ describe("HostMessage", () => {
       { ...diffUpdated, mode: "base", files: [], tooLarge: true, error: null },
       { ...diffUpdated, files: [], error: "not_git" },
       { ...diffUpdated, files: [], error: "failed" },
+      loginUpdated,
+      {
+        ...loginUpdated,
+        method: "api_key",
+        state: "failed",
+        authUrl: null,
+        deviceCode: { ...loginUpdated.deviceCode, expiresInSeconds: null },
+        questions: [],
+        progress: null,
+        error: { reason: "insecure_url", detail: null },
+      },
+      { ...loginUpdated, state: "ok", error: null },
+      { ...loginUpdated, state: "cancelled", error: { reason: "failed", detail: "auth.json is corrupt" } },
     ];
 
     for (const message of messages) {
@@ -1038,6 +1088,9 @@ describe("HostMessage", () => {
       "attachment_missing",
       "pi_rejected",
       "session_handed_off",
+      "login_unavailable",
+      "login_not_found",
+      "logout_failed",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -1155,6 +1208,19 @@ describe("HostMessage", () => {
         heartbeatMs: 15_000,
         installSeed: 1,
       },
+    ],
+    [
+      "a sign-in address that is not https",
+      { ...loginUpdated, authUrl: { url: "http://x.test/", instructions: null } },
+    ],
+    [
+      "a device code page that is not https",
+      { ...loginUpdated, deviceCode: { ...loginUpdated.deviceCode, verificationUri: "javascript:alert(1)" } },
+    ],
+    ["a login in a state it cannot be in", { ...loginUpdated, state: "waiting" }],
+    [
+      "a question of a kind pi does not ask",
+      { ...loginUpdated, questions: [{ ...loginUpdated.questions[0], kind: "file" }] },
     ],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);
