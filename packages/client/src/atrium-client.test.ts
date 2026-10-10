@@ -372,9 +372,13 @@ describe("createAtriumClient: commands", () => {
       client.renameProject("prj_0123456789abcdef", "app"),
       client.renameWorkspace("wks_0123456789abcdef", null),
       client.windowFocused(),
+      client.clearAttention("s1"),
+      client.handOff("s1"),
+      client.takeBack("s1"),
     ];
     latest().answer("create_session", { sessionId: "s9" });
     latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
+    latest().answer("hand_off", { file: "/pi/s1.jsonl" });
     for (const type of [
       "archive_session",
       "rename_session",
@@ -382,6 +386,8 @@ describe("createAtriumClient: commands", () => {
       "rename_project",
       "rename_workspace",
       "window_focused",
+      "clear_attention",
+      "take_back",
     ]) {
       latest().answer(type);
     }
@@ -394,6 +400,9 @@ describe("createAtriumClient: commands", () => {
       {},
       {},
       {},
+      {},
+      {},
+      { file: "/pi/s1.jsonl" },
       {},
     ]);
     expect(
@@ -410,6 +419,9 @@ describe("createAtriumClient: commands", () => {
       { type: "rename_project", projectId: "prj_0123456789abcdef", name: "app" },
       { type: "rename_workspace", workspaceId: "wks_0123456789abcdef", name: null },
       { type: "window_focused" },
+      { type: "clear_attention", sessionId: "s1" },
+      { type: "hand_off", sessionId: "s1" },
+      { type: "take_back", sessionId: "s1" },
     ]);
   });
 

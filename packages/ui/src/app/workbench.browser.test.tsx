@@ -179,10 +179,11 @@ describe("Workbench sidebar", () => {
     await inbox.getByRole("button", { name: "收起" }).click();
     await expect.element(rows.nth(5)).not.toBeInTheDocument();
 
-    await rows.nth(2).click();
-    await vi.waitFor(() => expect(calls).toContain("openSession e2"));
-    await expect.element(rows.nth(2)).toHaveAttribute("aria-current", "true");
-    await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "false");
+    // A question stays until answered; an error would leave once seen.
+    await rows.nth(0).click();
+    await vi.waitFor(() => expect(calls).toContain("openSession a1"));
+    await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
+    await expect.element(rows.nth(1)).toHaveAttribute("aria-current", "false");
   });
 
   it("leaves the inbox out when nothing needs the user", async () => {
@@ -515,5 +516,81 @@ describe("Workbench drafts", () => {
     index.setState({ generation: "h2", seq: 1, sessions: [] });
     await vi.waitFor(() => expect(index.getState().sessions).toStrictEqual([]));
     expect(kept()).toStrictEqual(["s3", "unseen"]);
+  });
+});
+
+describe("Workbench attention and hand-off (M1.9)", () => {
+  it("marks an error seen once its session shows in a focused window, but never a sign-in problem", async () => {
+    const initial = list();
+    const { calls, index } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          session({ sessionId: "s1", containerId: LOCAL, attention: { reason: "error", at: 1, cleared: false } }),
+          session({ sessionId: "s2", containerId: LOCAL, attention: { reason: "auth", at: 1, cleared: false } }),
+        ],
+      },
+    });
+
+    window.dispatchEvent(new FocusEvent("focus"));
+    await vi.waitFor(() => expect(calls).toContain("clearAttention s1"));
+    index.setState({ layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2"], active: "s2" } } } });
+    window.dispatchEvent(new FocusEvent("focus"));
+
+    await vi.waitFor(() => expect(calls.filter((call) => call.startsWith("windowFocused"))).toHaveLength(2));
+    expect(calls.filter((call) => call.startsWith("clearAttention"))).toStrictEqual(["clearAttention s1"]);
+    expect(index.getState().sessions[0]?.attention).toStrictEqual({ reason: "error", at: 1, cleared: true });
+  });
+
+  it("hands the active session to a terminal, then shows only how to go on there, until taken back", async () => {
+    const { screen, calls } = await workbench();
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "在终端中继续" }).click();
+
+    const banner = screen.getByRole("region", { name: "已在终端中继续" });
+    await expect.element(banner).toBeVisible();
+    await expect.element(banner.getByText("pi --session '/pi/s1.jsonl'")).toBeVisible();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).not.toBeInTheDocument();
+    expect(calls).toContain("handOff s1");
+
+    await banner.getByRole("button", { name: "在 Atrium 里继续" }).click();
+
+    await expect.element(banner).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect(calls).toContain("takeBack s1");
+  });
+
+  it("cannot hand off a draft, which has no file, nor a session running", async () => {
+    const initial = list();
+    const { screen } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          session({ sessionId: "s1", containerId: LOCAL, file: null, state: "draft" }),
+          session({ sessionId: "s2", containerId: LOCAL, running: true }),
+        ],
+      },
+    });
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await expect.element(screen.getByRole("menuitem", { name: "在终端中继续" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    await screen.getByRole("tab").nth(1).click();
+    await screen.getByRole("button", { name: "当前会话" }).click();
+
+    await expect.element(screen.getByRole("menuitem", { name: "在终端中继续" })).toBeDisabled();
+  });
+
+  it("says why a hand-off was refused", async () => {
+    const { screen } = await workbench({
+      answers: { handOff: () => Promise.reject(new CommandError("session_busy")) },
+    });
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "在终端中继续" }).click();
+
+    await expect.element(screen.getByText("先停止运行或清空排队，再交给终端")).toBeVisible();
+    await expect.element(screen.getByRole("region", { name: "已在终端中继续" })).not.toBeInTheDocument();
   });
 });

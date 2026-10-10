@@ -134,6 +134,40 @@ function useDraftCleanup(index: IndexView): void {
 }
 
 /**
+ * Marks the error of the session shown as seen while the window has the focus.
+ *
+ * @remarks
+ * SPEC-0001 ("会话状态"): the session is the current container's active tab, the window has the
+ * focus, and its error was not seen yet; looked at again when the window gains the focus. A
+ * sign-in problem is not marked: it goes once a run starts.
+ *
+ * @sideEffects Sends `clear_attention`; listens for focus on the window while there is an error
+ * to mark.
+ * @param client - The client.
+ * @param index - The list.
+ * @param sessionId - The session shown, if any.
+ */
+function useSeenErrors(client: AtriumClient, index: IndexView, sessionId: string | null): void {
+  const attention = index.sessions.find((one) => one.sessionId === sessionId)?.attention ?? null;
+  const unseen = attention?.reason === "error" && !attention.cleared;
+  useEffect(() => {
+    if (sessionId === null || !unseen) return undefined;
+    /**
+     * Marks the error seen.
+     *
+     * @remarks
+     * See `useSeenErrors`.
+     *
+     * @sideEffects Sends `clear_attention`.
+     */
+    const seen = (): void => fireAndForget(client.clearAttention(sessionId));
+    if (document.hasFocus()) seen();
+    window.addEventListener("focus", seen);
+    return () => window.removeEventListener("focus", seen);
+  }, [client, sessionId, unseen]);
+}
+
+/**
  * The main window once connected: sidebar, tab bar and conversation area.
  *
  * @remarks
@@ -191,6 +225,7 @@ export function Workbench({
   }, [client]);
 
   useTabShortcuts(client);
+  useSeenErrors(client, index, sessionId);
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (

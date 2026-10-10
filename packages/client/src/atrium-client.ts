@@ -128,6 +128,12 @@ export interface AtriumClient {
   selectContainer(containerId: ContainerId | null): Promise<CommandResult<"select_container">>;
   archiveSession(sessionId: string): Promise<CommandResult<"archive_session">>;
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
+  /** Marks a session's error as seen (SPEC-0001, "会话状态"). */
+  clearAttention(sessionId: string): Promise<CommandResult<"clear_attention">>;
+  /** Hands a session to pi in a terminal and returns its file (SPEC-0001, "交给终端"). */
+  handOff(sessionId: string): Promise<CommandResult<"hand_off">>;
+  /** Takes a session handed off back into Atrium. */
+  takeBack(sessionId: string): Promise<CommandResult<"take_back">>;
   addProject(path: string): Promise<CommandResult<"add_project">>;
   removeProject(projectId: string): Promise<CommandResult<"remove_project">>;
   renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
@@ -841,6 +847,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     },
     archiveSession: (sessionId) => request("archive_session", { sessionId }),
     renameSession: (sessionId, name) => request("rename_session", { sessionId, name }),
+    clearAttention: (sessionId) => request("clear_attention", { sessionId }),
+    handOff: (sessionId) => request("hand_off", { sessionId }),
+    takeBack: (sessionId) => request("take_back", { sessionId }),
     addProject: (path) => request("add_project", { path }),
     removeProject: (projectId) => request("remove_project", { projectId }),
     renameProject: (projectId, name) => request("rename_project", { projectId, name }),
