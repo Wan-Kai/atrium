@@ -1,12 +1,13 @@
 import type { AtriumClient, IndexView } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { X } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
 import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-area";
 import { applyAppearance } from "../design/appearance";
 import { DotSeedContext } from "../design/dots";
+import { type SettingsSection, SettingsPanel } from "../settings/settings-panel";
 import { useInstallSeed } from "../state/install-seed";
 import { Sidebar } from "../sidebar/sidebar";
 import { TabBar } from "../tabs/tab-bar";
@@ -111,6 +112,74 @@ function useTabShortcuts(client: AtriumClient): void {
   }, [client]);
 }
 
+/** Where the settings' last part shown is remembered in this browser profile (SPEC-0001, "设置"). */
+const SECTION_KEY = "atrium.settings.section";
+
+/** The settings' parts a stored value may name. */
+const SECTIONS: readonly SettingsSection[] = ["appearance", "accounts", "projects", "pi", "about"];
+
+/**
+ * The settings' part shown last time, or the first.
+ *
+ * @remarks
+ * The settings open on the part looked at last (SPEC-0001, "设置"). A value from an older or
+ * newer version that names no part counts as none.
+ *
+ * @sideEffects Reads `localStorage`.
+ * @returns The part.
+ */
+function lastSection(): SettingsSection {
+  const stored = localStorage.getItem(SECTION_KEY);
+  return SECTIONS.find((section) => section === stored) ?? "appearance";
+}
+
+/**
+ * Whether the settings are open, which part they show, and ⌘, to open and close them.
+ *
+ * @remarks
+ * SPEC-0001 ("设置"). The part is remembered across openings and reloads; closing goes back to
+ * where the user was, since nothing else changed.
+ *
+ * @sideEffects Listens for keys on the window while mounted; writes `localStorage` when the part
+ * changes.
+ * @returns Whether open, the part, and what opening, closing and choosing a part do.
+ */
+function useSettings(): {
+  readonly open: boolean;
+  readonly section: SettingsSection;
+  readonly show: () => void;
+  readonly close: () => void;
+  readonly choose: (section: SettingsSection) => void;
+} {
+  const [open, setOpen] = useState(false);
+  const [section, setSection] = useState(lastSection);
+  useEffect(() => {
+    /**
+     * Opens or closes the settings on ⌘,.
+     *
+     * @remarks
+     * See `useSettings`.
+     *
+     * @sideEffects Sets component state; stops the browser's own handling of the key.
+     * @param event - The key event.
+     */
+    const onKey = (event: KeyboardEvent): void => {
+      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.key !== ",") return;
+      setOpen((was) => !was);
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const show = useCallback(() => setOpen(true), []);
+  const close = useCallback(() => setOpen(false), []);
+  const choose = useCallback((next: SettingsSection) => {
+    setSection(next);
+    localStorage.setItem(SECTION_KEY, next);
+  }, []);
+  return { open, section, show, close, choose };
+}
+
 /**
  * Drops the drafts of sessions that went away.
  *
@@ -177,12 +246,13 @@ function useSeenErrors(client: AtriumClient, index: IndexView, sessionId: string
  * (domain-model, "已决定 12"). The appearance follows the user's choice, also in the window's
  * own parts through `setNativeAppearance`. Index files reset at the host's start are mentioned
  * once per host run, until dismissed. Starting a session when the client is nowhere starts a
- * chat.
+ * chat. What first launch checks is asked for once, for the sidebar's and the settings' blue dot;
+ * the client asks again when it may have changed.
  *
  * @sideEffects Subscribes to the client's list; listens for focus and keys; sets the page's
- * appearance; sends commands.
- * @param props - The client, the connection status line, how to choose a folder and how to set
- * the window's own appearance.
+ * appearance; asks for what first launch checks; sends commands.
+ * @param props - The client, the connection status line, how to choose a folder, how to set the
+ * window's own appearance, how to open an address, and how to show a path in the Finder.
  * @returns The workbench.
  */
 export function Workbench({
@@ -190,11 +260,15 @@ export function Workbench({
   status,
   pickDirectory,
   setNativeAppearance,
+  openUrl,
+  reveal,
 }: {
   readonly client: AtriumClient;
   readonly status: ReactNode;
   readonly pickDirectory: (() => Promise<string | null>) | undefined;
   readonly setNativeAppearance: ((appearance: Appearance) => void) | undefined;
+  readonly openUrl: (url: string) => void;
+  readonly reveal: ((path: string) => void) | undefined;
 }) {
   const index = useStore(client.index);
   const container = index.layout.container;
@@ -202,8 +276,14 @@ export function Workbench({
   const appearance = index.preferences.appearance;
   const seed = useInstallSeed(client.connection);
   const [dismissed, setDismissed] = useState<string | null>(null);
+  const settings = useSettings();
   useDisplayModeShortcut();
   useDraftCleanup(index);
+
+  useEffect(() => {
+    // Fire and forget: the answer lands in `client.setup`, a failure there too.
+    void client.loadSetup();
+  }, [client]);
 
   useEffect(() => {
     setNativeAppearance?.(appearance);
@@ -234,7 +314,12 @@ export function Workbench({
   return (
     <DotSeedContext value={seed}>
       <div className="flex h-full">
-        <Sidebar client={client} onNewChat={() => fireAndForget(client.createChat())} pickDirectory={pickDirectory} />
+        <Sidebar
+          client={client}
+          onNewChat={() => fireAndForget(client.createChat())}
+          pickDirectory={pickDirectory}
+          onSettings={settings.show}
+        />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
           {container === null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
@@ -263,6 +348,16 @@ export function Workbench({
           <footer className="flex h-6 shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
         </main>
       </div>
+      {settings.open ? (
+        <SettingsPanel
+          client={client}
+          section={settings.section}
+          onSection={settings.choose}
+          onClose={settings.close}
+          openUrl={openUrl}
+          reveal={reveal}
+        />
+      ) : null}
     </DotSeedContext>
   );
 }

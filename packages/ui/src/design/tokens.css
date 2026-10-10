@@ -24,6 +24,13 @@
   --hover: rgba(0, 0, 0, 0.035);
   --selected: rgba(0, 0, 0, 0.06);
   --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.16);
+  --linked: rgba(47, 111, 237, 0.1);
+  --scrim: rgba(30, 38, 56, 0.3);
+  --nav-bg: rgba(0, 0, 0, 0.022);
+  --term: #17181b;
+  --term-edge: rgba(0, 0, 0, 0.1);
+  --term-text: #d6d9de;
+  --term-dim: #70757d;
 
   --tint: #2f6fed;
   --attn: #dd8629;
@@ -100,6 +107,13 @@
   --hover: rgba(255, 255, 255, 0.05);
   --selected: rgba(255, 255, 255, 0.08);
   --focus-ring: 0 0 0 3px rgba(122, 170, 255, 0.22);
+  --linked: rgba(122, 170, 255, 0.14);
+  --scrim: rgba(6, 8, 12, 0.42);
+  --nav-bg: rgba(255, 255, 255, 0.025);
+  --term: #0c0c0e;
+  --term-edge: rgba(255, 255, 255, 0.08);
+  --term-text: #d6d9de;
+  --term-dim: #6f747c;
 
   --tint: #7aaaff;
   --attn: #dd8629;

@@ -57,7 +57,8 @@ function list() {
  *
  * @sideEffects Renders; installs the display mode subscription until the test ends.
  * @param options - The list, how adding a project answers, and the folder the picker returns.
- * @returns The screen, the fake and the appearances sent to the window.
+ * @returns The screen, the fake, the appearances sent to the window, and the addresses opened and
+ * paths shown in the Finder.
  */
 async function workbench(
   options: {
@@ -74,6 +75,8 @@ async function workbench(
   });
   onTestFinished(followPreferences(displayMode, fake.client));
   const native: string[] = [];
+  const opened: string[] = [];
+  const revealed: string[] = [];
   const screen = await render(
     <DisplayModeContext value={displayMode}>
       <Workbench
@@ -81,10 +84,12 @@ async function workbench(
         status={<span>已连接宿主</span>}
         pickDirectory={async () => options.picked ?? null}
         setNativeAppearance={(appearance) => native.push(appearance)}
+        openUrl={(url) => opened.push(url)}
+        reveal={(path) => revealed.push(path)}
       />
     </DisplayModeContext>,
   );
-  return { screen, ...fake, native };
+  return { screen, ...fake, native, opened, revealed };
 }
 
 describe("Workbench sidebar", () => {

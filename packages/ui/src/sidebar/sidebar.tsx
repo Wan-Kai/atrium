@@ -9,12 +9,15 @@ import {
   MagnifyingGlass,
   Monitor,
   Moon,
+  GearSix,
   PlusCircle,
   Sun,
 } from "@phosphor-icons/react";
 import { type ReactNode, useState } from "react";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
+import { UpdateDot } from "../settings/settings-panel";
+import { piUpdateAvailable } from "../setup/pi-version";
 import { useClock } from "../state/clock";
 import { isDone, isPending, mergeLabels, placeOf, sessionTitle, sortWorkspaces, timeAgo, workspaceName } from "./names";
 import { RenameField } from "./rename-field";
@@ -91,31 +94,37 @@ function readCollapsed(): ReadonlySet<string> {
 }
 
 /**
- * The sidebar: new chat, projects with their workspaces, search, chats, and the appearance switch.
+ * The sidebar: new chat, projects with their workspaces, search, chats, the settings and the
+ * appearance switch.
  *
  * @remarks
  * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.9. Projects can be collapsed; a collapsed
  * project shows how many worktrees wait to be merged and whether something runs in it. Workspaces
  * show their merge state and whether a session runs in them, and are selected by clicking.
  * Search matches workspace names and session titles, replacing the projects and chats with its
- * results while it has text. Renaming happens in place.
+ * results while it has text. Renaming happens in place. "设置" carries a blue dot while a newer pi
+ * is out (SPEC-0001, "设置 · pi").
  *
- * @sideEffects Subscribes to the client's list; sends commands; remembers collapsed projects in
- * `localStorage`.
- * @param props - The client, how to start a new chat, and how to choose a folder.
+ * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
+ * projects in `localStorage`.
+ * @param props - The client, how to start a new chat, how to choose a folder, and how to open the
+ * settings.
  * @returns The sidebar.
  */
 export function Sidebar({
   client,
   onNewChat,
   pickDirectory,
+  onSettings,
 }: {
   readonly client: AtriumClient;
   readonly onNewChat: () => void;
   /** Asks the user for a folder; `undefined` where the app cannot ask. */
   readonly pickDirectory: (() => Promise<string | null>) | undefined;
+  readonly onSettings: () => void;
 }) {
   const index = useStore(client.index);
+  const update = useStore(client.setup, (setup) => setup.state !== null && piUpdateAvailable(setup.state.pi));
   const now = useClock().now();
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [searching, setSearching] = useState(false);
@@ -289,6 +298,16 @@ export function Sidebar({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
+        <button
+          type="button"
+          onClick={onSettings}
+          title="设置（⌘,）"
+          className="inline-flex h-7 items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]"
+        >
+          <GearSix size={16} className="text-[var(--text-muted)]" />
+          设置
+          {update ? <UpdateDot /> : null}
+        </button>
         <span className="flex-1" />
         <button
           type="button"
