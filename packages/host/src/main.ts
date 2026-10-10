@@ -190,14 +190,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: hostInstanceId,
-    build: (clientId) => ({
+    build: () => ({
       projects: projects.projects().map(({ id, path, name }) => ({ id, path, name })),
       workspaces: workspaces.list(),
       sessions: sessions.summaries(),
-      layout: layouts.of(clientId),
       preferences: preferences.read(),
       resets: [...index.resets],
     }),
+    layoutOf: (clientId) => layouts.of(clientId),
     clock,
     resources,
   });

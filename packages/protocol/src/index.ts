@@ -28,6 +28,9 @@ export {
   CloseTabCommand,
   SelectContainerCommand,
   ArchiveSessionCommand,
+  ClearAttentionCommand,
+  HandOffCommand,
+  TakeBackCommand,
   RenameSessionCommand,
   SetPreferencesCommand,
   SteerCommand,
@@ -65,8 +68,10 @@ export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, Qu
 export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
   Appearance,
+  Attention,
   ContainerTabs,
   DisplayMode,
+  IndexChangesEvent,
   IndexFileName,
   IndexSnapshotEvent,
   Layout,
@@ -76,6 +81,7 @@ export {
   Project,
   StatusBarChoices,
   SessionSummary,
+  SnapshotReason,
   Workspace,
 } from "./listing";
 export {

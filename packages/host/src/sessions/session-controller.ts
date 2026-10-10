@@ -18,6 +18,7 @@ import {
   type SlashCommand,
   type SteerCommand,
   type ThinkingLevel,
+  type TranscriptItem,
   parseTraceparent,
 } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
@@ -99,8 +100,15 @@ export interface SessionController {
   readonly exited: boolean;
   /** Whether pi is being started again after a crash; the session counts as running meanwhile. */
   readonly restarting: boolean;
+  /**
+   * Whether a message is on its way to pi, or pi said it started a run that has not begun yet;
+   * the run is known only once pi reports it began.
+   */
+  readonly submitting: boolean;
   /** The session's state now, for a client that just subscribed. */
   snapshot(): SessionSnapshotEvent;
+  /** Every item from the session's start, whole, unlike a snapshot's latest ones. */
+  items(): TranscriptItem[];
   /** Hands a session whose pi exited a newly started one, which carries on in a new epoch. */
   attach(started: Respawned): void;
   /** Sends a message with its images, or queues it behind the run in progress. */
@@ -470,6 +478,8 @@ export function createSessionController(options: {
   let lost: Waiting | null = null;
   /** Set by `shutdown`: pi exits for good. */
   let shuttingDown = false;
+  /** Who waits for each pi's exit alongside other work, by pi until it exits; `watchExit` wakes them. */
+  const exitWakers = new Map<SessionPi, Set<(value: undefined) => void>>();
   /** The control last published, to send `control_updated` only on change. */
   let sentControl = JSON.stringify(control());
   /** The model pi uses, as last read or reported. */
@@ -1354,7 +1364,11 @@ export function createSessionController(options: {
    * @param watched - The pi to watch.
    */
   async function watchExit(watched: SessionPi): Promise<void> {
+    const wakers = new Set<(value: undefined) => void>();
+    exitWakers.set(watched, wakers);
     const end = await watched.exited;
+    exitWakers.delete(watched);
+    for (const wake of wakers) wake(undefined);
     if (watched !== pi) return;
     exited = true;
     metrics.piChanged();
@@ -1413,6 +1427,31 @@ export function createSessionController(options: {
   }
 
   /**
+   * Waits for `work`, or for `current` to exit, whichever comes first.
+   *
+   * @remarks
+   * `Promise.race` with `current.exited` would leave a reaction on it every time, holding the
+   * caller's context and trace until pi exits; a long-lived pi stopped again and again piles them
+   * up (found by the sessions soak). Here `watchExit`, which waits for each pi's exit anyway, wakes
+   * the waits, and a wait that ends first takes itself off.
+   *
+   * @sideEffects none
+   * @param work - What to wait for; it must not reject.
+   * @param current - The pi.
+   * @returns What `work` gave, or `undefined` once pi has exited.
+   */
+  async function untilExit<T>(work: Promise<T>, current: SessionPi): Promise<T | undefined> {
+    const wakers = exitWakers.get(current);
+    if (wakers === undefined) return undefined;
+    const gone = Promise.withResolvers<undefined>();
+    wakers.add(gone.resolve);
+    const result = await Promise.race([work, gone.promise]);
+    // Stryker disable next-line all: left in, each wait would hold its caller's context until pi exits; only the leak test (session-controller.leak.test.ts) sees that, and leak tests do not run per mutant.
+    wakers.delete(gone.resolve);
+    return result;
+  }
+
+  /**
    * Takes back pi's steers and aborts, waiting `STOP_CONFIRM_MS` from the stop for pi to confirm.
    *
    * @remarks
@@ -1447,15 +1486,14 @@ export function createSessionController(options: {
     );
     const confirmed = await Promise.race([aborted, timedOut.promise]);
     cancel();
-    await Promise.race([cleared, current.exited]);
+    await untilExit(cleared, current);
     if (confirmed) {
       endStop();
     } else {
       // Fire and forget: the stop ends when pi confirms or exits, whichever comes first.
       void (async () => {
         // A failed abort is no confirmation: then only pi's exit ends the stop.
-        // Stryker disable next-line ArrowFunction,BooleanLiteral: once pi has exited, waiting for its exit again returns at once.
-        if (!(await Promise.race([aborted, current.exited.then(() => false)]))) await current.exited;
+        if ((await untilExit(aborted, current)) !== true) await current.exited;
         if (stopping !== null) endStop();
       })();
     }
@@ -1470,7 +1508,11 @@ export function createSessionController(options: {
     get restarting() {
       return restarting !== null;
     },
+    get submitting() {
+      return sending || starting;
+    },
     snapshot,
+    items: () => transcript.items(),
     attach(started) {
       attachPi(started);
       // Started anew after the host stopped it for good, as when a session is opened again.

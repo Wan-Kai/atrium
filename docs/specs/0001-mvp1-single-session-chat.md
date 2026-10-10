@@ -431,7 +431,7 @@ Electron 主进程
 对象和关系见 [领域模型](../architecture/domain-model.md)；以下关于 pi 的行为已对照 pi 1.0.1（提交 `4c6fb7c`）的源码核实。
 
 - **工作区与会话列表**：宿主用 `git worktree list` 列出项目的工作区（本地工作区 + 各 worktree）。pi 的 RPC 没有列出历史会话的命令，宿主直接读 `~/.pi/agent/sessions/--<路径>--/*.jsonl`（Paseo 也是这样做的），按文件头里的 `cwd` 归到对应的容器，从中取会话 id、时间、会话名和第一条用户消息（按"侧栏 · 命名"得出标题）。窗口获得焦点、会话的一次运行结束时重扫，按文件大小和修改时间缓存，只重读变化的文件；不常驻监听会话目录（2026-10-08 定）。会话以 pi 的会话 id 为主键，文件路径只做定位；同一个 id 扫到多个文件时报告冲突。Atrium 自己只保存索引（见"侧栏 · 概念关系"）。
-- **新建会话**：pi 创建会话时立即分配 id，但在第一条用户消息之前不写出文件。这期间的会话是"草稿"，只有宿主记得；写出文件后发 `session_bound`。草稿会话记在索引里，宿主重启后照样恢复成空标签（不启动进程，第一次发消息时再启动）；新对话的目录也一直保留，Atrium 不自动清理，用户自己删。
+- **新建会话**：pi 创建会话时立即分配 id，但在第一条用户消息之前不写出文件。这期间的会话是"草稿"，只有宿主记得。pi 报出第一条用户消息时文件已经写出（它先发事件、同一时刻接着写盘，pi-internals §1），宿主这时扫一次会话目录，草稿变成会话，列表经 `index_changes` 更新，运行还没结束标签就显示第一条消息（2026-10-10 定，取代原先打算的 `session_bound` 事件）；没扫到的，运行结束后的那次扫描再补上。草稿会话记在索引里，宿主重启后照样恢复成空标签（不启动进程，第一次发消息时再启动）；新对话的目录也一直保留，Atrium 不自动清理，用户自己删。
 - **恢复会话**：以 `--session <文件>` 启动 pi（一个会话固定一个进程，不用 `switch_session`），用 `get_entries` 取回全部条目，按 `id / parentId` 和 `leafId` 沿当前分支重建对话记录。**不用 `get_messages`**：它返回的是送给模型的上下文，压缩之后旧消息已被摘要替换。之后用 `get_entries(since)` 增量更新，同时单独跟踪 `leafId`（条目没有增加时叶子也可能变）。切换模型、压缩等写入的条目不发事件，所以在 `agent_settled`、`compaction_end` 和宿主自己的命令之后都再取一次。条目 id 只在单个文件内唯一，跨会话用"会话 id + 条目 id"。pi 恢复时使用文件头里的 `cwd`；该目录不存在时报"恢复失败：目录不存在"，不换目录。
 - **流式输出**：`message_update` 里的 `text_delta` 和 `thinking_delta` 追加到对应的内容块；`message_end` 到达时，用完整消息替换拼接结果。
 - **提交输入**：`prompt` 的回应有三种：`started`（启动了运行）、`queued`（运行中被 pi 排进去）、`handled`（被 extension 命令或输入处理器消费，没有运行）。`handled` 视为这条输入已完成。
@@ -449,11 +449,11 @@ Electron 主进程
   - 同一批里的工具调用可能并行，每个调用各自显示状态
 - **上下文分段**：总量用 `get_session_stats` 的 `contextUsage.tokens`，它可能为空，也可能是 pi 的估算值，为空时显示"—"。系统提示词和工具定义从会话记录还原：pi 在第一次请求时把提示词的各个分段（`sections`）和工具声明（`toolsAdded`）写成一条系统消息，之后的变化也写成系统消息（按名字修改分段、`toolsAdded` / `toolsRemoved`）；压缩条目里存有完整的检查点（`systemMessage`）。宿主沿当前分支回放这些条目，得到当前的提示词和工具集，再按字符数估算 token；对话消息 = 总量 − 系统提示词 − 工具定义。分段数字标"~"。新会话在第一次请求前、以及没有系统消息的旧会话，只显示总量。
 - **对话框**：pi 发出 `extension_ui_request` 时，对话框类（`select` / `confirm` / `input` / `editor`）显示为卡片，回答后发 `extension_ui_response`；带超时的显示倒计时。对话框可能出现在一次运行之外，由宿主按会话保存（pi 不把它写进会话文件），所以"问题 → 回答"只在宿主存活期间保留。有未回答对话框的会话不回收进程；多个客户端同时回答，只接受第一个。单向通知类（`notify` 等）保留原文、暂时不显示。
-- **在终端中继续**：pi 没有跨进程的写锁，两个进程同时写一个会话会悄悄分叉。所以这是一次交接：Atrium 停止接受该会话的写命令并回收进程，再给出 `pi --session <文件>`；用户回到 Atrium 时重新加载。会话文件被外部改动后怎么提示，等文件区设计时再定；宿主先预留检测（比较文件大小和修改时间）和 `session_changed_externally` 事件。
+- **在终端中继续**：pi 没有跨进程的写锁，两个进程同时写一个会话会悄悄分叉。所以这是一次交接：Atrium 停止接受该会话的写命令并回收进程，再给出 `pi --session <文件>`；用户回到 Atrium 时重新加载。会话文件被外部改动后怎么提示，等文件区设计时再定；宿主先预留检测（比较文件大小和修改时间）和 `session_changed_externally` 事件。交接之后回到 Atrium 要点"在 Atrium 里继续"，切到标签不会自动启动 pi（M1.9，见下文"并行、同步与关注"）。
 - **同步与断线重连**（参照 Paseo）：
   - 项目、工作区、会话摘要三个列表各带 `generation`（宿主每次启动生成）和递增的 `seq`。客户端带游标请求，宿主返回快照或增量，之后推送 `upsert / remove`。
-  - 会话的对话记录带 `epoch`（进程代次）和 `seq`。客户端只订阅打开着或可见的会话，宿主只给订阅者推增量；按游标分页拉取（最近 / 更早 / 补缺口），`epoch` 变了或有缺口就整段替换。
-  - 重连时先对齐三个列表，再对打开着的会话拉最近一页和会话快照（流式中的消息、工具状态、排队、未回答的对话框、指标、关注状态）。
+  - 会话的对话记录带 `epoch`（进程代次）和 `seq`。客户端只订阅打开着或可见的会话，宿主只给订阅者推增量；往上翻按游标拉更早的，`epoch` 变了或有缺口就重新拿一份快照（M1.9 定不做按序号补拉，见下文"并行、同步与关注"）。
+  - 重连时先对齐三个列表，再对打开着的会话拿会话快照（最近 20 轮、流式中的消息、工具状态、排队、未回答的对话框、指标）；关注状态在列表里。
   - 刚发的消息先在本地显示，带 `clientMessageId`；宿主确认后用同一个 id 对上，不重复。
   - 断线不自动重发结果未知的命令。
 
@@ -488,7 +488,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **事件**
 
 - 会话事件带 `sessionId`、`epoch`、`seq`，以及所属运行的 `traceId`（不在运行中为 `null`）。快照带 `exited`，pi 已退出的会话重连后也显示为已退出。
-- 客户端每次连上都比较 `hostInstanceId`：变了说明宿主重启过，之前订阅的会话在新宿主里不存在（宿主重启后的恢复在 M1.4、M1.9）。M1.3 把这些会话的视图标为"已失效"，保留已显示的消息，清掉运行和流式状态，不再订阅；对话界面在已失效或已退出的会话里发消息时，新建一个对话。
+- 客户端每次连上都比较 `hostInstanceId`：变了说明宿主重启过，之前订阅的会话在新宿主里不存在（宿主重启后的恢复在 M1.4、M1.9）。M1.3 把这些会话的视图标为"已失效"，保留已显示的消息，清掉运行和流式状态，不再订阅；对话界面在已失效或已退出的会话里发消息时，新建一个对话。M1.9 起界面随即对已失效的当前会话重新 `open_session` 并订阅（见"并行、同步与关注"）。
 - 列表事件带 `collection`（`projects`、`workspaces`、`sessions`）、`generation`、`seq`。
 
 **追踪**：宿主为每条命令开一个 `command <type>` span，父 span 是命令自带的 `traceparent`，再用 span link 指向连接的 trace；不挂在连接那条长 trace 下面，否则一个连接上的所有操作会堆进同一条 trace。
@@ -581,7 +581,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 新建的会话在 pi 启动后才打开成标签：它成为所在容器的激活标签；客户端在这期间没换过位置就切过去，换过就留在原处（2026-10-08 定）。
 - 已知问题：关掉一个空草稿的标签后立刻再打开它，标签可能开着而草稿已被丢弃（记录删掉、pi 停掉）。需要两条命令落在丢弃的那几毫秒里，少见，暂不处理。
 - `select_container(containerId | null)`：切换工作区或"对话"。
-- `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。
+- `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。pi 正在启动时等它启动完再停，不让归档后的会话留着一个 pi（2026-10-10 审查后补；移除工作区同样）。
 - `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。
 - `set_preferences(appearance?, displayMode?)`。
 
@@ -626,7 +626,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - pi 崩溃：本轮以 `failed` 结束，排队暂停（`reason: crashed`），还没送达的插话退回排队最前面，对话框作废，发 `session_exited`。宿主随即用 `--session` 重新启动 pi，会话的 `epoch` 加一、推新的快照，对话记录里加一条宿主的提示"进程已自动重启（第 N / 3 次）"（`restarted` 提示，只在宿主存活期间保留）。重启后：崩溃时正在运行或正在提交（已发给 pi、还没回显，包括 `agent_start` 之前和重启后的续做）的那条输入还没写进会话，就重新提交它；已经写进会话，就补发一条"上一次运行意外中断了，请从中断的地方继续。"（2026-10-09 定），这条在界面上标为"系统自动发出"（`Turn.user.auto`，记在 `~/.atrium/turns/` 里，重建后仍在）。然后解除暂停、继续出队。
 - 连续 3 次重启都失败（再次崩溃，或启动不起来）后不再重启：会话进入"出错"（`control.failure`），排队保持暂停，界面显示错误卡片。一次运行结束且这一轮没有失败（完成或被停止都算）后连续计数归零（2026-10-09 定）。
 - `retry_run()`：错误卡片上的"重试"。pi 没在运行就先启动，启动期间算作重启中（消息排队、再点重试不起作用），启动时会话被关闭就停掉刚启动的 pi；然后按上面"重启后"同样的规则再来一轮：被打断的那条（重启用尽时记下的）没写进会话就重新提交，写进了就补发那句话；没有被打断的，就对最后一轮失败的补发那句话。正在运行、提交或重启时什么也不做。失败状态在新的 pi 换上之后才清掉。
-- 出错状态在标签和侧栏一直显示到下一次运行开始：会话摘要 `SessionSummary` 多一个 `failed`（最后一次运行失败，或连续崩溃用尽），下一次运行开始时清掉；写进索引的关注状态和收件箱在 M1.9。
+- 出错状态在标签和侧栏一直显示到下一次运行开始：会话摘要 `SessionSummary` 多一个 `failed`（最后一次运行失败，或连续崩溃用尽），下一次运行开始时清掉；M1.9 换成写进索引的关注状态 `attention`，并加上收件箱（见"并行、同步与关注"）。
 
 新增命令：`steer`、`stop`、`resume_queue`、`clear_queue`、`update_queued`、`remove_queued`、`steer_queued`、`answer_interaction`、`retry_run`。新增事件：`control_updated`、`prompt_handled`。新增错误码：`session_stopping`、`queue_item_not_found`、`interaction_closed`。`prompt` 的应答多了 `queued`（带 `itemId`）。
 
@@ -734,6 +734,66 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 新增事件：`metrics_updated`。`set_preferences` 多了 `statusBar`。会话快照多了 `metrics`。
 
+### 并行、同步与关注（M1.9，2026-10-10 定）
+
+产品层面的规则见上文"侧栏"的"收件箱""会话状态""命名"和"关键流程"的"在终端中继续""同步与断线重连"，这里写宿主和协议怎么做。
+
+**列表的增量**（取代 M1.5 每次推整份快照，界面不用改）
+
+- `subscribe_index({ cursor? })`：`cursor` 是客户端上次收到的 `{ generation, seq }`。宿主按情况回一份快照 `index_snapshot`（带 `reason`：`no_cursor` 没有游标、`generation_changed` 宿主重启过、`cursor_expired` 游标比宿主记得的还早、`too_many_changes` 变化超过 200 项）或一份增量 `index_changes`。
+- 之后有变化就推 `index_changes`：`projects`、`workspaces`、`sessions` 各是 `{ upsert, remove }`（整项替换、按 id 删除），`layout` 是这个客户端自己的布局、`preferences` 是偏好，没变时为 `null`。和快照一样，30 毫秒内的变化合成一批。
+- 宿主不让各个模块报告"改了什么"：IndexFeed 每批重新算出整份列表，和上一批逐项比较（按 id，比较整项内容），得出新增、修改、删除。每批有变化就 `seq` 加一，所有订阅者共用这个序号；一批里没有一个订阅者相关的内容（比如只改了别的客户端的布局），就不发给它，它的序号随之跳过，不算缺口。
+- 宿主记住每一项最后一次改动时的 `seq`，以及最近 1000 次删除；重连时"游标之后的变化"就是改动序号大于游标的项加上之后的删除。更早的删除已经忘掉时回快照（`cursor_expired`）。在线推送也一样：订阅者上次收到的序号早于已经忘掉的删除时，推给它一份快照（`cursor_expired`），不推增量（2026-10-10 审查后补：一批里删除超过 1000 项，比如移除一个有上千会话的工作区，增量会漏掉前面那些删除）。补发的增量总是带上这个客户端当前的布局和偏好。
+- WebSocket 在一条连接里不丢不乱，所以序号只用作重连时的游标，客户端不按它找缺口。客户端收到的增量 `generation` 和自己的不同时丢掉（不会发生，宿主重启必然换连接）。
+- 列表的顺序：项目按登记顺序，新增的项接在末尾；工作区、会话由界面自己排。`resets` 只在快照里。
+- 先读到自己的写（2026-10-10 定，三个会话并行的端到端测试发现：快速切标签时，界面先乐观地切过去，随后到来的、宿主在处理这条命令之前就算好的布局把它切回去，对话区"显示出来就 `open_session`"又把旧标签写回宿主，用户的点击就丢了）：
+  - 宿主在应答任何命令之前，如果有还没推出去的列表变化，先把这个连接的那一批立即推给它（不等 30 毫秒），所以客户端收到应答时，列表和布局已经反映了这条命令。别的连接照旧等这一批。
+  - 客户端在自己的布局命令（`open_session`、`close_tab`、`select_container`）还没应答时，增量和快照里的布局只记下、不采用，界面保持乐观的样子；最后一条应答到了（成功、失败或断线），换成记下的宿主布局。命令失败时乐观的改动也就随之撤回。只记宿主真正发来的布局：增量的 `layout` 为 `null` 时记下的不变（2026-10-10 审查后补：否则会把界面上乐观的布局当成宿主的记下，失败时撤不回去）。
+
+**会话状态**
+
+- `SessionSummary` 去掉 M1.6 的 `failed`，换成：
+  - `attention`：关注状态 `{ reason: "error" | "auth", at, cleared }`，没有为 `null`。
+  - `asking`：最早一个还没回答的对话框是什么时候出现的，没有为 `null`（只在宿主内存）。
+  - `handedOff`：已交给终端（见下文）。
+- 关注状态写进 `sessions.json` 的会话记录（新增可选字段，不升版本；没有记录的会话补一条，和归档一样）。按边沿设上：一次运行以失败结束（pi 的重试用尽）、连续崩溃 3 次用尽时设上，`at` 是设上的时间；下一次运行开始时去掉。失败的原文像认证问题时 `reason` 是 `auth`，否则是 `error`：不分大小写含 `No API key`、`OAuth`、`401`、`unauthorized`、`authentication`、`invalid api key` / `invalid_api_key`、`/login` 之一（pi-internals §3"一次性调用"）（尽量识别，认错了也只是图标不同）。
+- `clear_attention(sessionId)`：把 `error` 标为已清除（`cleared: true`），出错图标留到下一次运行开始；`auth` 不因为看了一眼就清，要等下一次运行开始（问题解决了才能跑起来）。客户端在会话显示出来时发：它是当前容器的激活标签、窗口有焦点、`attention` 是没清除的 `error`；窗口重新获得焦点时再看一次。
+- 状态的优先级（界面从摘要派生）：待回答（`asking`）> 待授权（`attention.reason` 为 `auth`）> 出错（`attention.reason` 为 `error`，不论是否已清除）> 运行中 > 空闲。图标：问号圆圈（橙）、钥匙（橙）、感叹号圆圈（红）、转动的圆弧（强调色）。
+- 工作区和项目（收起时）的状态由界面从会话摘要算出：取其中没归档的会话的最高优先级（2026-10-10 改，原先打算由宿主计算：客户端本来就有全部摘要，算法只有一处）。
+
+**收件箱**
+
+- 收没归档的、待回答、待授权、或出错且没清除的会话；按优先级，再按时间（新的在前）排。时间取 `asking` 或 `attention.at`，显示成"12 分钟前"。
+- 布局、点击、展开收起照上文"侧栏 · 收件箱"。点击发 `open_session`（打开标签、激活、切到它的容器）。
+- 收件箱行选中：它是当前容器的激活标签。收起的项目里有选中的工作区时，项目行带选中底色。
+
+**后台运行**：会话的运行不依赖订阅和标签：切换标签、切换容器、关闭标签都只改布局，运行和 pi 照常（M1.5 起就是这样，本里程碑补上同时运行三个会话的端到端测试）。
+
+**对话记录的同步**
+
+- 客户端只订阅当前容器的激活标签（打开着、看得见的那个）。快照之后按 `seq` 接事件；`epoch` 变了或 `seq` 不连续时，重新订阅这个会话，拿一份新的快照（M1.3 起就是这样）。
+- 不做按 `seq` 往后补拉（原先打算的 `fetch_transcript` 的 `after`，2026-10-10 定不做）：宿主不留事件历史，一个会话的快照本来就只有最近 20 轮，补拉和重拿快照代价相当。往上翻仍用 `before`。
+- 断线重连（宿主没重启）：重新订阅列表（带游标）和当前会话（拿快照）；乐观显示的消息按 `clientMessageId` 和快照里的轮对上，没对上的保留为待发（M1.3 起就是这样）。断线时结果未知的命令不重发。
+- 宿主重启后（`hostInstanceId` 变了）：列表拿新的快照；当前会话的视图先标为已失效，界面随即对它重新 `open_session` 并订阅（取代 M1.3 只标"已失效"、等下一次发消息再开）。重启前正在跑的运行已经随旧宿主结束（宿主退出时停掉了 pi），重建出来那一轮是"已停止"；宿主内存里的排队、对话框、当场计时都没了（"数据归属"）。
+
+**交给终端**
+
+- `hand_off(sessionId)`：把会话交给终端里的 pi。草稿应答 `session_is_draft`；正在运行、提交（消息发出到运行开始之间，包括 pi 已应答 `started` 而运行还没开始）、停止、重启，或宿主排队里还有消息时应答 `session_busy`（先停止或清空）。菜单项在同样的情况下置灰：界面按会话的运行、发送、停止、重启和排队判断（2026-10-10 审查后补）。其余情况：会话记录写上 `handedOff: true`，停掉 pi（没回答的对话框作废），应答 `{ file }`。界面把 `pi --session '<文件>'`（单引号转义）复制到剪贴板。
+- 交接之后：标签照常可以打开，`open_session` 只改布局、不启动 pi；对话区不显示对话记录和输入框，只显示"已在终端中继续"、命令（可再复制）和"在 Atrium 里继续"。会启动 pi 或写会话的命令（`prompt`、`steer`、`resume_queue`、`retry_run`、`rename_session`、`set_model`、`set_thinking_level`、`list_commands`）应答 `session_handed_off`。标记写在索引里，宿主重启后仍在（2026-10-10 定：两个 pi 同时写一个会话会悄悄分叉，不能因为切到标签就自动开起来）。
+- 同一会话的 `hand_off` 和 `take_back` 依次处理，后一条等前一条做完（2026-10-10 审查后补：交接停 pi 的途中拿回来，会拿到正在关闭的旧 pi、不另起，之后再发消息就在 Atrium 里起新 pi，和终端里的 pi 同时写）。
+- `take_back(sessionId)`：去掉标记，重扫会话文件，用 `--session` 启动 pi（`epoch` 加一，订阅者拿到新的快照）。失败的原因和 `open_session` 一样（例如目录不存在）。终端里的 pi 还开着时两边会同时写，界面在按钮旁提示先退出终端里的 pi。
+
+**自动生成标题**
+
+- TitleGenerator（宿主 `sessions/`）：会话一次运行结束（`run_settled`，任何结果）时，会话没有名字、已经写出文件、没交给终端、第一轮有文字，且这个会话没在生成，就生成一次。失败（模型出错、超时、pi 退出）只记日志，下一次运行结束再试。只在 Atrium 里跑过的会话才会触发，历史会话不补。
+- 输入：第一轮的用户消息文字和回复（这一轮最后一段文字），总长截到 2000 个字符，用户消息最多占 1200。
+- 调用 OneShotPi（`packages/pi` 的 `oneshot/`）：在会话的工作目录、用和会话的 pi 相同的环境运行 `pi --mode json -p --no-session --no-tools --thinking off --model <服务商>/<模型> --system-prompt <标题要求>`，对话内容从标准输入给（不放进参数，`ps` 看得到参数）。模型用会话当前的模型；设置里的"生成标题用的模型"在 M1.10。取最后一条助手消息的文字；`stopReason` 为 `error` / `aborted`、退出码不为 0、60 秒没结束（停掉整棵进程树）都算失败。
+- 标题要求：和用户消息同一种语言、中文不超过 16 个字、不带标点和引号、只输出标题。宿主再整理一遍：取第一行，去掉首尾空白、成对的引号和末尾的标点，超过 50 个字符截断；整理后为空算失败。
+- 写回：用会话自己的 pi 发 `set_session_name`，然后重扫会话文件，列表随之更新。写之前再看一次：已经有名字（生成期间手动改过名）、pi 已退出、已交给终端时丢弃结果。手动改名从 `rename_session` 收到就算有名字，不等重扫会话文件（2026-10-10 审查后补：改名应答之后、重扫之前标题刚好生成好，会盖掉手改的名字）。
+- 测试用的 faux 模型：脚本多一个可选的 `title`，`-p` 模式下的 pi 用它回答；没写 `title` 时回一个错误，标题保持兜底，不影响别的测试。
+
+新增命令：`clear_attention`、`hand_off`、`take_back`；`subscribe_index` 多了 `cursor`。新增事件：`index_changes`；`index_snapshot` 多了 `reason`。`SessionSummary` 去掉 `failed`，多了 `attention`、`asking`、`handedOff`。新增错误码：`session_handed_off`。
+
 ### 命令与事件
 
 **命令（UI → 宿主）**
@@ -745,9 +805,9 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话（M1.5 起由 `subscribe_index` 推来的完整列表取代，见上文"项目、工作区与会话"） |
 | `create_session(workspaceId)` / `create_chat()` / `open_session(sessionId)` | 新建或打开会话：新会话以工作区目录为工作目录；新对话新建 `~/.atrium/chats/<dirId>/` |
 | `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |
-| `subscribe_sessions(sessionIds)` / `fetch_transcript(sessionId, tail \| before \| after, cursor, limit)` | 订阅要实时增量的会话；按游标分页拉取对话记录 |
+| `subscribe_index(cursor?)` / `subscribe_sessions(sessionIds)` / `fetch_transcript(sessionId, epoch, before, limit)` | 订阅列表（带游标时回增量）；订阅要实时增量的会话；往上翻拉更早的对话记录 |
 | `clear_attention(sessionId)` | 打开会话时清除关注状态（出错、待授权），移出收件箱 |
-| `archive_session(sessionId)` / `rename_session(sessionId, name)` / `hand_off(sessionId)` | 归档（只改索引）；重命名（写回 pi 的会话名）；交给终端 |
+| `archive_session(sessionId)` / `rename_session(sessionId, name)` / `hand_off(sessionId)` / `take_back(sessionId)` | 归档（只改索引）；重命名（写回 pi 的会话名）；交给终端、从终端拿回来（M1.9） |
 | `prompt(sessionId, text, attachmentIds?)` | 发消息；运行中则进入宿主的排队 |
 | `steer(sessionId, text, attachmentIds?)` | 直接插话（⌘+回车） |
 | `upload_attachment(mimeType, data)` | 上传一张已压缩的图片，应答带 `attachmentId`（见上文"附件"） |
@@ -767,9 +827,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 | 事件 | 说明 |
 |---|---|
-| `index_snapshot` / `project_update` / `workspace_update` / `session_update` | 列表快照与增量（带 `generation + seq`；M1.5 只发快照，有变化就推一份完整的，增量在 M1.9）：项目、工作区、各会话派生状态与关注状态、该客户端的布局 |
+| `index_snapshot` / `index_changes` | 列表快照与增量（带 `generation + seq`；M1.5 只发快照，M1.9 加上增量和游标）：项目、工作区、会话摘要（含运行、关注状态、待回答）、该客户端的布局、偏好 |
 | `session_snapshot` | 打开会话或重连时的会话快照，带 `epoch + seq` |
-| `session_bound` | 草稿会话写出了文件 |
 | `session_changed_externally` | 预留：会话文件被 Atrium 以外的进程改过（处理方式待文件区设计） |
 | `run_started` / `run_settled` | 一次运行的开始与彻底结束（`run_settled` 带结果：完成 / 停止 / 失败） |
 | `prompt_handled` | 输入被 extension 直接处理，没有启动运行 |
@@ -778,7 +837,6 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `control_updated` | 会话的控制状态（排队与暂停、待送达的插话、停止中、未回答的对话框、连续崩溃后的失败），整份推送（M1.6，见上文"运行控制"） |
 | `install_output` / `install_finished` / `login_updated` | 安装、更新、登录的进度和结果 |
 | `model_updated` | 会话当前的模型和推理强度变化（M1.7，见上文"模型与输入框"） |
-| `session_renamed` | 会话标题变化（手动重命名或自动生成） |
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知；M1.8，见上文"状态栏"） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |
 | `session_exited` | pi 进程退出，带原因 |

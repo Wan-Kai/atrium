@@ -1,5 +1,14 @@
-import { type PiInspection, PiRequestError, piStatsOf, sessionModelOf, toLogEntry, toSlashCommand } from "@atrium/pi";
 import {
+  type PiInspection,
+  PiRequestError,
+  piStatsOf,
+  runOneShot,
+  sessionModelOf,
+  toLogEntry,
+  toSlashCommand,
+} from "@atrium/pi";
+import {
+  type Attention,
   CHATS,
   CommandError,
   IDLE_CONTROL,
@@ -33,6 +42,7 @@ import {
   type SessionPi,
   createSessionController,
 } from "./session-controller";
+import { type TitleSubject, createTitleGenerator, firstExchange, titleInput } from "./titles";
 import { type TracedPi, startTracedPi } from "./traced-pi";
 
 /** What the host found out about pi; `null` when detection did not finish. */
@@ -150,6 +160,8 @@ export function createSessionManager(options: {
   readonly files?: FileSearch;
 }): SessionManager {
   const sessions = new Map<string, Running>();
+  /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
+  const held = new Map<string, () => void>();
   /** The clock for controllers, whose timers count as open resources (testing.md, "泄漏"). */
   const timers: Clock = {
     now: () => options.clock.now(),
@@ -159,8 +171,14 @@ export function createSessionManager(options: {
   const running = new Set<{ stop(): Promise<unknown> }>();
   /** Sessions with a run in progress. */
   const busy = new Set<string>();
-  /** Sessions whose last run failed or whose pi kept crashing, until the next run starts. */
-  const failed = new Set<string>();
+  /** pi's text of each session's last failed turn in the run in progress. */
+  const failures = new Map<string, string>();
+  /** Sessions marked for attention since their last run started, so a mark is set once. */
+  const marked = new Set<string>();
+  /** Sessions renamed here, which have a name before a scan finds it in their files. */
+  const renamed = new Set<string>();
+  /** When each of a session's unanswered dialogs appeared, as the host saw it, by dialog id. */
+  const asking = new Map<string, ReadonlyMap<string, number>>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
   /** Sessions being started, so a second start waits for the first. */
@@ -173,6 +191,8 @@ export function createSessionManager(options: {
   const searches = new Map<string, AbortController>();
   /** Each client's last tab or place change, which the next one waits for. */
   const clientTurns = new Map<string, Promise<unknown>>();
+  /** Each session's last hand-off or take-back, which the next one waits for. */
+  const handTurns = new Map<string, Promise<unknown>>();
 
   /**
    * Runs a change to a client's tabs or place after the changes it asked for earlier.
@@ -197,6 +217,31 @@ export function createSessionManager(options: {
     } finally {
       // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
       if (clientTurns.get(clientId) === settled) clientTurns.delete(clientId);
+    }
+  }
+
+  /**
+   * Runs a session's hand-off or take-back after the one asked for before it.
+   *
+   * @remarks
+   * SPEC-0001 ("交给终端"): a take-back while the hand-off still stops pi would find that pi
+   * running, start none, and let the next message start one beside pi in the terminal. A failed
+   * one does not hold up the next.
+   *
+   * @sideEffects Runs `work` once the session's earlier hand-off or take-back is done.
+   * @param sessionId - The session.
+   * @param work - The hand-off or take-back.
+   * @returns What `work` returns.
+   */
+  async function inHandOrder<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+    const turn = (handTurns.get(sessionId) ?? Promise.resolve()).then(work);
+    const settled = turn.catch(() => undefined);
+    handTurns.set(sessionId, settled);
+    try {
+      return await turn;
+    } finally {
+      // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
+      if (handTurns.get(sessionId) === settled) handTurns.delete(sessionId);
     }
   }
 
@@ -274,35 +319,154 @@ export function createSessionManager(options: {
   }
 
   /**
-   * Keeps track of runs and failures for the list, and looks at the session's files once a run ends.
+   * Since when a session's oldest unanswered dialog waits.
    *
    * @remarks
-   * A run's end may have written the file, a name or commits in the workspace. A session counts as
-   * failed from a failed run or pi crashing too often until its next run starts (SPEC-0001,
-   * "运行控制").
+   * SPEC-0001 ("会话状态"): once an older dialog is answered, the oldest still open counts.
    *
-   * @sideEffects Updates `busy` and `failed`; calls `onChange`; may start background scans.
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns The time, or `null` when no dialog waits.
+   */
+  function askingSince(sessionId: string): number | null {
+    const open = asking.get(sessionId);
+    return open === undefined ? null : Math.min(...open.values());
+  }
+
+  /**
+   * Sets or removes a session's attention in the index, in the background.
+   *
+   * @remarks
+   * The catalog tells the list; a write that fails is logged.
+   *
+   * @sideEffects Writes `sessions.json` in the background.
+   * @param sessionId - The session.
+   * @param attention - The attention, or `null` to remove it.
+   */
+  function attend(sessionId: string, attention: Attention | null): void {
+    inBackground("attention", () => options.catalog.mark(sessionId, { attention }));
+  }
+
+  /**
+   * A session that needs a title now, if it does.
+   *
+   * @remarks
+   * SPEC-0001 ("自动生成标题"): a session on file, without a name, not handed off, whose pi runs
+   * on a known model, and whose first turn has text. The title is written through the same pi
+   * only if, when it comes, the session still has no name, is not handed off and that pi still
+   * runs; the list then learns the name from the session's file. A session renamed here counts as
+   * named from then on, though no scan has found the name yet.
+   *
+   * @sideEffects none; the subject's `write` calls pi and scans the session files.
+   * @param sessionId - The session.
+   * @returns The subject, or `null`.
+   */
+  function titleSubject(sessionId: string): TitleSubject | null {
+    const entry = options.catalog.find(sessionId);
+    const found = live(sessionId);
+    if (entry?.name !== null || entry.state !== "persisted" || entry.handedOff || found === undefined) return null;
+    const model = found.controller.snapshot().model;
+    const exchange = firstExchange(found.controller.items());
+    if (model === null || exchange === null) return null;
+    const { pi } = found;
+    return {
+      cwd: entry.cwd,
+      model: { providerId: model.providerId, modelId: model.modelId },
+      input: titleInput(exchange.user, exchange.reply),
+      async write(title) {
+        const now = options.catalog.find(sessionId);
+        if (now?.name !== null || now.handedOff || renamed.has(sessionId) || live(sessionId)?.pi !== pi) return false;
+        await pi.request({ type: "set_session_name", name: title });
+        await options.catalog.scan();
+        return true;
+      },
+    };
+  }
+
+  const titles = createTitleGenerator({
+    subject: titleSubject,
+    oneShot: async (request, signal) => {
+      const tools = await readyTools();
+      const deps = createPiDeps({
+        clock: options.clock,
+        resources: options.resources,
+        logger: options.logger,
+        env: tools.env,
+      });
+      return runOneShot({ piPath: tools.pi.piPath, ...request }, deps, { signal });
+    },
+    logger: options.logger,
+  });
+
+  /**
+   * Keeps track of runs, failures and dialogs for the list, and looks at the session's files once
+   * a run ends.
+   *
+   * @remarks
+   * A draft's first message is in its file once pi reports it (SPEC-0001, "新建会话"), so the
+   * list shows the session by its first message while that run goes on. A run's end may have
+   * written the file, a name or commits in the workspace. A session needs a look from a run that
+   * failed after pi's retries, or pi crashing too often, until its next run starts; a failure
+   * whose text looks like a credentials problem asks to sign in (SPEC-0001, "会话状态"). A crash
+   * also ends its run as failed but is not marked until the restarts are used up, so only a turn's
+   * own failure marks a run. Once the scan after a run is done, the session may be given a title
+   * (`titleSubject`).
+   *
+   * @sideEffects Updates the run, failure and dialog records; writes attention to the index; calls
+   * `onChange`; may start background scans.
    * @param sessionId - The session.
    * @param event - An event it published.
    */
   function observe(sessionId: string, event: SessionEvent): void {
     if (event.type === "run_started") {
       busy.add(sessionId);
-      failed.delete(sessionId);
+      failures.delete(sessionId);
+      marked.delete(sessionId);
+      if ((options.catalog.find(sessionId)?.attention ?? null) !== null) attend(sessionId, null);
       options.onChange();
+    } else if (event.type === "turn_started") {
+      // pi writes the message to the file before it reports it; the draft becomes a session now.
+      if (options.catalog.find(sessionId)?.state === "draft")
+        inBackground("session scan", () => options.catalog.scan());
+    } else if (event.type === "turn_finished") {
+      if (event.outcome === "failed" && event.error !== null) failures.set(sessionId, event.error);
     } else if (event.type === "control_updated") {
-      if (event.control.failure !== null && !failed.has(sessionId)) {
-        failed.add(sessionId);
-        options.onChange();
+      if (event.control.failure !== null && !marked.has(sessionId)) {
+        marked.add(sessionId);
+        attend(sessionId, { reason: "error", at: options.clock.now(), cleared: false });
       }
+      const shown = askingSince(sessionId);
+      const seen = asking.get(sessionId);
+      const open = new Map(event.control.interactions.map(({ id }) => [id, seen?.get(id) ?? options.clock.now()]));
+      if (open.size > 0) asking.set(sessionId, open);
+      else asking.delete(sessionId);
+      if (askingSince(sessionId) !== shown) options.onChange();
     } else if (event.type === "run_settled" || event.type === "session_exited") {
       const ran = busy.delete(sessionId);
-      if (event.type === "run_settled" && event.outcome === "failed") failed.add(sessionId);
+      const failure = failures.get(sessionId);
+      if (
+        event.type === "run_settled" &&
+        event.outcome === "failed" &&
+        failure !== undefined &&
+        !marked.has(sessionId)
+      ) {
+        marked.add(sessionId);
+        attend(sessionId, {
+          reason: isAuthFailure(failure) ? "auth" : "error",
+          at: options.clock.now(),
+          cleared: false,
+        });
+      }
+      if (event.type === "session_exited" && asking.delete(sessionId)) options.onChange();
       if (ran || event.type === "run_settled") options.onChange();
       if (event.type === "run_settled") {
         const containerId = options.catalog.find(sessionId)?.containerId;
         if (containerId !== undefined && containerId !== CHATS) options.workspaces.refresh(containerId);
-        inBackground("session scan", () => options.catalog.scan());
+        inBackground("session scan", async () => {
+          await options.catalog.scan();
+          // After the scan, which finds the file a first run wrote.
+          titles.settled(sessionId);
+        });
       }
     }
   }
@@ -491,7 +655,7 @@ export function createSessionManager(options: {
           }),
     });
     const started: Running = { controller, pi: traced };
-    sessions.set(sessionId, started);
+    hold(sessionId, started);
     for (const viewer of options.subscriptions.viewers(sessionId)) {
       options.subscriptions.sendTo(viewer, controller.snapshot());
     }
@@ -628,15 +792,57 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Keeps a session's controller, in place of any it had before.
+   *
+   * @remarks
+   * Counted as `session.controller` (testing.md, "泄漏测试"): a controller holds the session's
+   * transcript and its pi's process object, so one kept after the session went shows up there.
+   *
+   * @sideEffects Updates the sessions held and the resource counts.
+   * @param sessionId - The session.
+   * @param started - Its controller and pi.
+   */
+  function hold(sessionId: string, started: Running): void {
+    held.get(sessionId)?.();
+    held.set(sessionId, options.resources.acquire("session.controller"));
+    sessions.set(sessionId, started);
+  }
+
+  /**
+   * Lets go of a session's controller.
+   *
+   * @remarks
+   * For a session no one will see again here: discarded, archived, or its workspace gone. An
+   * exited controller is otherwise kept, so subscribers keep its state. What was kept of its runs
+   * and names goes with it.
+   *
+   * @sideEffects Updates the sessions held, the run and name records and the resource counts.
+   * @param sessionId - The session.
+   */
+  function forget(sessionId: string): void {
+    held.get(sessionId)?.();
+    held.delete(sessionId);
+    sessions.delete(sessionId);
+    // Stryker disable next-line all: only frees memory; a session forgotten here runs no more, and its next run would clear them first.
+    for (const kept of [failures, marked, renamed]) kept.delete(sessionId);
+  }
+
+  /**
    * Stops a session's pi, if it runs.
    *
    * @remarks
-   * Subscribers see a requested exit.
+   * Subscribers see a requested exit. A restart under way stops instead of carrying on; any other
+   * start under way is waited for and its pi stopped, or it would come up for a session already
+   * archived or gone (SPEC-0001, "项目、工作区与会话" and "一个会话只有一个 pi").
    *
-   * @sideEffects Stops pi.
+   * @sideEffects Waits for a start under way; stops pi.
    * @param sessionId - The session.
    */
   async function stopSession(sessionId: string): Promise<void> {
+    if (sessions.get(sessionId)?.controller.restarting !== true) {
+      // A start that fails leaves nothing to stop.
+      await starting.get(sessionId)?.catch(() => undefined);
+    }
     // Also a session whose pi is being started again: the restart stops instead of carrying on.
     await sessions.get(sessionId)?.controller.shutdown();
   }
@@ -672,7 +878,10 @@ export function createSessionManager(options: {
       if (entry === undefined) return {};
       // Starting needs the session's file, which only a scan finds.
       await options.catalog.ready();
-      if (entryOf(sessionId).state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
+      const found = entryOf(sessionId);
+      // A session handed off waits for "在 Atrium 里继续" (SPEC-0001, "交给终端").
+      if (found.handedOff) return {};
+      if (found.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
       return {};
     },
     async closeTab(clientId, sessionId) {
@@ -688,7 +897,7 @@ export function createSessionManager(options: {
       const busyNow = starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0;
       if (entry?.state === "draft" && empty && !busyNow && !options.layouts.isOpen(sessionId)) {
         await stopSession(sessionId);
-        sessions.delete(sessionId);
+        forget(sessionId);
         await options.catalog.forget(sessionId);
         // Only a chat's own directory, and only while empty (domain-model, "已决定 13").
         if (entry.containerId === CHATS) await rmdir(entry.cwd).catch(() => undefined);
@@ -706,6 +915,7 @@ export function createSessionManager(options: {
     async archiveSession(sessionId) {
       entryOf(sessionId);
       await stopSession(sessionId);
+      forget(sessionId);
       await options.catalog.archive(sessionId);
       await options.layouts.forgetSessions([sessionId]);
       options.onChange();
@@ -715,7 +925,9 @@ export function createSessionManager(options: {
       await options.catalog.ready();
       // pi writes no file before the first message, so a draft's name has nowhere to go.
       if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
+      notHandedOff(sessionId);
       const { pi } = await ensureRunning(sessionId);
+      renamed.add(sessionId);
       await pi.request({ type: "set_session_name", name });
       inBackground("session scan", () => options.catalog.scan());
       return {};
@@ -745,6 +957,7 @@ export function createSessionManager(options: {
       try {
         await options.catalog.ready();
         entryOf(sessionId);
+        notHandedOff(sessionId);
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.prompt(command, images);
@@ -760,6 +973,7 @@ export function createSessionManager(options: {
       try {
         await options.catalog.ready();
         entryOf(sessionId);
+        notHandedOff(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.steer(command, images);
       } finally {
@@ -770,6 +984,7 @@ export function createSessionManager(options: {
     },
     stop: async (sessionId) => controllerOf(sessionId).stop(),
     async resumeQueue(sessionId) {
+      notHandedOff(sessionId);
       const controller = controllerOf(sessionId);
       // The queue moves only with a pi to take it.
       if (live(sessionId) === undefined) await ensureRunning(sessionId);
@@ -801,6 +1016,7 @@ export function createSessionManager(options: {
     async retryRun(sessionId) {
       await options.catalog.ready();
       entryOf(sessionId);
+      notHandedOff(sessionId);
       // A session this host never ran has no controller yet; starting it makes one.
       const session = sessions.get(sessionId) ?? (await ensureRunning(sessionId));
       return session.controller.retryRun();
@@ -811,16 +1027,51 @@ export function createSessionManager(options: {
     async fetchTranscript(command) {
       return controllerOf(command.sessionId).fetchTranscript(command);
     },
+    async clearAttention(sessionId) {
+      await options.catalog.ready();
+      const { attention } = entryOf(sessionId);
+      // A sign-in problem stays until a run starts: only then is it solved.
+      if (attention?.reason === "error" && !attention.cleared) {
+        await options.catalog.mark(sessionId, { attention: { ...attention, cleared: true } });
+      }
+      return {};
+    },
+    async handOff(sessionId) {
+      await options.catalog.ready();
+      const entry = entryOf(sessionId);
+      if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
+      if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
+      if (occupied(sessionId)) throw new CommandError("session_busy");
+      const { file } = entry;
+      return inHandOrder(sessionId, async () => {
+        // Marked first, so nothing starts the session's pi again while it stops.
+        await options.catalog.mark(sessionId, { handedOff: true });
+        await stopSession(sessionId);
+        return { file };
+      });
+    },
+    async takeBack(sessionId) {
+      await options.catalog.ready();
+      entryOf(sessionId);
+      return inHandOrder(sessionId, async () => {
+        await options.catalog.mark(sessionId, { handedOff: false });
+        // pi in the terminal has written to the file since.
+        await options.catalog.scan();
+        await ensureRunning(sessionId);
+        return {};
+      });
+    },
     summaries() {
       return options.catalog.list().map(({ cwd: _cwd, ...entry }) => ({
         ...entry,
         running: busy.has(entry.sessionId),
-        failed: failed.has(entry.sessionId),
+        asking: askingSince(entry.sessionId),
       }));
     },
     async forgetWorkspaces(workspaceIds) {
       const gone = options.catalog.list().filter((entry) => workspaceIds.includes(entry.containerId));
       await Promise.all(gone.map((entry) => stopSession(entry.sessionId)));
+      for (const entry of gone) forget(entry.sessionId);
       await options.layouts.forgetContainers(workspaceIds);
       options.onChange();
     },
@@ -830,10 +1081,11 @@ export function createSessionManager(options: {
     async close() {
       closed = true;
       for (const search of searches.values()) search.abort();
+      const titlesClosed = titles.close();
       // Controllers first, so restarts under way stop rather than start pi again.
       await Promise.all([...sessions.values()].map(({ controller }) => controller.shutdown()));
       await Promise.all([...running].map((pi) => pi.stop()));
-      await Promise.all(background);
+      await Promise.all([...background, titlesClosed]);
     },
   };
 
@@ -846,12 +1098,50 @@ export function createSessionManager(options: {
    * @sideEffects May spawn pi.
    * @param sessionId - The session.
    * @returns The running session.
-   * @throws {CommandError} `session_not_found`, `session_cwd_missing`, `pi_unavailable`.
+   * @throws {CommandError} `session_not_found`, `session_handed_off`, `session_cwd_missing`,
+   * `pi_unavailable`.
    */
   async function commanded(sessionId: string): Promise<Running> {
     await options.catalog.ready();
     entryOf(sessionId);
+    notHandedOff(sessionId);
     return live(sessionId) ?? (await ensureRunning(sessionId));
+  }
+
+  /**
+   * Refuses a command that would start or write pi on a session handed off.
+   *
+   * @remarks
+   * Two pi writing one session fork it without telling (SPEC-0001, "交给终端").
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @throws {CommandError} `session_handed_off`.
+   */
+  function notHandedOff(sessionId: string): void {
+    if (options.catalog.find(sessionId)?.handedOff === true) {
+      throw new CommandError("session_handed_off", { sessionId });
+    }
+  }
+
+  /**
+   * Whether a session has something going on that handing it off would cut short.
+   *
+   * @remarks
+   * A run (a stop under way is one), a message on its way, a run pi said it started that has not
+   * begun yet, a restart under way, or messages in the host's queue, which only Atrium would send
+   * (SPEC-0001, "交给终端").
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @returns Whether it is busy.
+   */
+  function occupied(sessionId: string): boolean {
+    if (busy.has(sessionId) || starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0) return true;
+    const controller = sessions.get(sessionId)?.controller;
+    if (controller === undefined) return false;
+    const { control } = controller.snapshot();
+    return controller.submitting || control.restarting || control.queue.length > 0;
   }
 
   /**
@@ -931,4 +1221,21 @@ function draftSnapshot(sessionId: string): SessionSnapshotEvent {
 function failureFields(error: unknown): Record<string, unknown> {
   if (error instanceof PiRequestError) return { command: error.command, reason: error.reason };
   return { err: error };
+}
+
+/** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
+const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
+
+/**
+ * Whether a failure looks like a credentials problem.
+ *
+ * @remarks
+ * A best guess on pi's own text (SPEC-0001, "会话状态"): a wrong guess only changes the icon.
+ *
+ * @sideEffects none
+ * @param text - pi's text.
+ * @returns Whether to ask the user to sign in.
+ */
+function isAuthFailure(text: string): boolean {
+  return AUTH_FAILURE.test(text);
 }

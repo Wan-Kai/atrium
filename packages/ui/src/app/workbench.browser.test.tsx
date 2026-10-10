@@ -1,4 +1,5 @@
-import { CommandError } from "@atrium/client";
+import { CommandError, type SessionView } from "@atrium/client";
+import { IDLE_CONTROL } from "@atrium/protocol";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -100,24 +101,97 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0)).toHaveAttribute("title", "本地工作区（项目目录）");
   });
 
-  it("marks a failed session as such on its tab and its workspace, above another's running work", async () => {
+  it("shows each session's highest status on its tab, and the highest of a workspace's live sessions on its row", async () => {
     const initial = list();
     const { screen } = await workbench({
       initial: {
         ...initial,
         sessions: [
-          session({ sessionId: "s1", containerId: LOCAL, prompt: "重构宿主", failed: true }),
+          session({ sessionId: "s1", containerId: LOCAL, attention: { reason: "error", at: 1, cleared: true } }),
           ...initial.sessions.slice(1),
+          session({ sessionId: "s4", containerId: FEATURE, attention: { reason: "auth", at: 1, cleared: false } }),
+          session({ sessionId: "s5", containerId: MERGED, asking: 1, archived: true }),
         ],
       },
     });
 
-    const row = screen.getByTestId("workspace-row").nth(0);
-    await expect.element(row.getByRole("img", { name: "出错" })).toBeVisible();
-    await expect.element(row.getByRole("img", { name: "运行中" })).not.toBeInTheDocument();
+    const rows = screen.getByTestId("workspace-row");
+    await expect.element(rows.nth(0).getByRole("img", { name: "出错" })).toBeVisible();
+    await expect.element(rows.nth(0).getByRole("img", { name: "运行中" })).not.toBeInTheDocument();
+    await expect.element(rows.nth(1).getByRole("img", { name: "待授权" })).toBeVisible();
+    await expect.element(rows.nth(2).getByRole("img", { name: "待回答" })).not.toBeInTheDocument();
     const tabs = screen.getByRole("tab");
     await expect.element(tabs.nth(0).getByRole("img", { name: "出错" })).toBeVisible();
     await expect.element(tabs.nth(1).getByRole("img", { name: "运行中" })).toBeVisible();
+    onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));
+    await screen.getByTestId("project-row").click();
+    await expect.element(screen.getByTestId("project-row").getByRole("img", { name: "待授权" })).toBeVisible();
+  });
+
+  it("collects the sessions that need the user above the projects, five at first, opening one when clicked", async () => {
+    const initial = list();
+    const minute = 60_000;
+    /** An error not seen yet, set `minutesAgo`. */
+    const error = (minutesAgo: number) => ({
+      attention: { reason: "error" as const, at: Date.now() - minutesAgo * minute, cleared: false },
+    });
+    const { screen, calls } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          ...initial.sessions,
+          session({ sessionId: "e1", containerId: FEATURE, name: "错一", ...error(30) }),
+          session({ sessionId: "e2", containerId: LOCAL, name: "错二", ...error(3) }),
+          session({ sessionId: "e3", containerId: "chats", name: "错三", ...error(50) }),
+          session({ sessionId: "e4", containerId: LOCAL, name: "错四", ...error(40) }),
+          session({
+            sessionId: "seen",
+            containerId: LOCAL,
+            ...error(1),
+            attention: { ...error(1).attention, cleared: true },
+          }),
+          session({ sessionId: "gone", containerId: LOCAL, ...error(1), archived: true }),
+          session({ sessionId: "a1", containerId: FEATURE, name: "问一", asking: Date.now() - 12 * minute }),
+          session({
+            sessionId: "k1",
+            containerId: "chats",
+            name: "钥一",
+            attention: { reason: "auth", at: 0, cleared: false },
+          }),
+        ],
+      },
+    });
+
+    const inbox = screen.getByRole("region", { name: "等你处理" });
+    await expect.element(inbox).toBeVisible();
+    expect(inbox.element().firstElementChild?.textContent).toBe("等你处理6");
+    const rows = inbox.getByTestId("inbox-row");
+    expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
+      "问一atrium · feat/sidebar12 分钟前",
+      expect.stringMatching(/^钥一对话/),
+      "错二atrium · main3 分钟前",
+      "错一atrium · feat/sidebar30 分钟前",
+      "错四atrium · main40 分钟前",
+    ]);
+    await expect.element(rows.nth(0).getByRole("img", { name: "待回答" })).toBeVisible();
+    await expect.element(rows.nth(1).getByRole("img", { name: "待授权" })).toBeVisible();
+    await inbox.getByRole("button", { name: "还有 1 条" }).click();
+    await expect.element(rows.nth(5)).toHaveTextContent("错三对话50 分钟前");
+    await inbox.getByRole("button", { name: "收起" }).click();
+    await expect.element(rows.nth(5)).not.toBeInTheDocument();
+
+    // A question stays until answered; an error would leave once seen.
+    await rows.nth(0).click();
+    await vi.waitFor(() => expect(calls).toContain("openSession a1"));
+    await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
+    await expect.element(rows.nth(1)).toHaveAttribute("aria-current", "false");
+  });
+
+  it("leaves the inbox out when nothing needs the user", async () => {
+    const { screen } = await workbench();
+
+    await expect.element(screen.getByTestId("project-row")).toBeVisible();
+    await expect.element(screen.getByRole("region", { name: "等你处理" })).not.toBeInTheDocument();
   });
 
   it("goes to a workspace when clicked, and collapses a project to a summary it remembers", async () => {
@@ -443,5 +517,102 @@ describe("Workbench drafts", () => {
     index.setState({ generation: "h2", seq: 1, sessions: [] });
     await vi.waitFor(() => expect(index.getState().sessions).toStrictEqual([]));
     expect(kept()).toStrictEqual(["s3", "unseen"]);
+  });
+});
+
+describe("Workbench attention and hand-off (M1.9)", () => {
+  it("marks an error seen once its session shows in a focused window, but never a sign-in problem", async () => {
+    const initial = list();
+    const { calls, index } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          session({ sessionId: "s1", containerId: LOCAL, attention: { reason: "error", at: 1, cleared: false } }),
+          session({ sessionId: "s2", containerId: LOCAL, attention: { reason: "auth", at: 1, cleared: false } }),
+        ],
+      },
+    });
+
+    window.dispatchEvent(new FocusEvent("focus"));
+    await vi.waitFor(() => expect(calls).toContain("clearAttention s1"));
+    index.setState({ layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2"], active: "s2" } } } });
+    window.dispatchEvent(new FocusEvent("focus"));
+
+    await vi.waitFor(() => expect(calls.filter((call) => call.startsWith("windowFocused"))).toHaveLength(2));
+    expect(calls.filter((call) => call.startsWith("clearAttention"))).toStrictEqual(["clearAttention s1"]);
+    expect(index.getState().sessions[0]?.attention).toStrictEqual({ reason: "error", at: 1, cleared: true });
+  });
+
+  it("hands the active session to a terminal, then shows only how to go on there, until taken back", async () => {
+    const { screen, calls } = await workbench();
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "在终端中继续" }).click();
+
+    const banner = screen.getByRole("region", { name: "已在终端中继续" });
+    await expect.element(banner).toBeVisible();
+    await expect.element(banner.getByText("pi --session '/pi/s1.jsonl'")).toBeVisible();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).not.toBeInTheDocument();
+    expect(calls).toContain("handOff s1");
+
+    await banner.getByRole("button", { name: "在 Atrium 里继续" }).click();
+
+    await expect.element(banner).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect(calls).toContain("takeBack s1");
+  });
+
+  it("cannot hand off a draft, which has no file, nor a session running", async () => {
+    const initial = list();
+    const { screen } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          session({ sessionId: "s1", containerId: LOCAL, file: null, state: "draft" }),
+          session({ sessionId: "s2", containerId: LOCAL, running: true }),
+        ],
+      },
+    });
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await expect.element(screen.getByRole("menuitem", { name: "在终端中继续" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    await screen.getByRole("tab").nth(1).click();
+    await screen.getByRole("button", { name: "当前会话" }).click();
+
+    await expect.element(screen.getByRole("menuitem", { name: "在终端中继续" })).toBeDisabled();
+  });
+
+  it.each<[string, Partial<SessionView>]>([
+    ["a message on its way", { pending: [{ clientMessageId: "r1", text: "two" }] }],
+    ["a run pi reported", { run: { runId: "run-1", startedAt: 1 } }],
+    ["a stop under way", { control: { ...IDLE_CONTROL, stopping: true } }],
+    ["pi starting again", { control: { ...IDLE_CONTROL, restarting: true } }],
+    [
+      "messages in the queue",
+      { control: { ...IDLE_CONTROL, queue: [{ id: "q1", text: "two", createdAt: 1, images: 0 }] } },
+    ],
+  ])("cannot hand off a session with %s, which the host would refuse", async (_, state) => {
+    const { screen, views } = await workbench();
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    views.get("s1")?.setState(state);
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    const item = screen.getByRole("menuitem", { name: "在终端中继续" });
+
+    await expect.element(item).toBeDisabled();
+    await expect.element(item).toHaveAttribute("title", "先停止运行或清空排队，再交给终端");
+  });
+
+  it("says why a hand-off was refused", async () => {
+    const { screen } = await workbench({
+      answers: { handOff: () => Promise.reject(new CommandError("session_busy")) },
+    });
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "在终端中继续" }).click();
+
+    await expect.element(screen.getByText("先停止运行或清空排队，再交给终端")).toBeVisible();
+    await expect.element(screen.getByRole("region", { name: "已在终端中继续" })).not.toBeInTheDocument();
   });
 });

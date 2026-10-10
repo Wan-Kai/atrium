@@ -1,4 +1,4 @@
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Paths inside the Atrium home directory. */
@@ -17,14 +17,18 @@ export interface AtriumHome {
  * local users cannot read them. Directories are created with that mode, but existing ones are
  * never changed: `ATRIUM_HOME` could point at a shared directory such as `/tmp`, and changing its
  * mode would break it for everyone. Loose modes on existing directories are reported instead.
+ * The paths are real ones: pi names a directory's session folder by its real path, so a chat's
+ * folder is found only when the home is named the same way (a temporary directory on macOS is
+ * under the symlink `/var`).
  *
  * @sideEffects Creates missing directories.
- * @param root - Home directory path, normally `~/.atrium`.
- * @returns The resolved paths and any existing directories whose mode is looser than `0700`.
+ * @param path - Home directory path, normally `~/.atrium`.
+ * @returns The real paths and any existing directories whose mode is looser than `0700`.
  */
-export async function ensureAtriumHome(root: string): Promise<AtriumHome> {
+export async function ensureAtriumHome(path: string): Promise<AtriumHome> {
+  await mkdir(join(path, "logs"), { recursive: true, mode: 0o700 });
+  const root = await realpath(path);
   const logs = join(root, "logs");
-  await mkdir(logs, { recursive: true, mode: 0o700 });
   const looseModes: string[] = [];
   for (const directory of [root, logs]) {
     if (((await stat(directory)).mode & 0o077) !== 0) looseModes.push(directory);

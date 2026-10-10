@@ -41,9 +41,12 @@ export type Route = (connection: Connection, message: unknown) => Promise<void>;
  * parent is the command's own `traceparent`, linked to the connection's trace rather than nested in
  * it, so one long-lived connection does not collect every operation into one trace. `ping` and
  * `report_client_issue` are answered here; session commands go to the session layer, list commands
- * to the index commands (domain-model §8). The returned promise never rejects.
+ * to the index commands (domain-model §8). Before a command is answered, the list changes waiting
+ * go to its connection, so the answer finds the list already changed by it (SPEC-0001, "先读到自己
+ * 的写"). The returned promise never rejects.
  *
- * @sideEffects none until called; then starts a span, runs the handler, sends a response and logs.
+ * @sideEffects none until called; then starts a span, runs the handler, sends list changes and a
+ * response, and logs.
  * @param options - Session commands, tracer and logger.
  * @returns The route function.
  */
@@ -82,8 +85,14 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.archiveSession(command.sessionId);
       case "rename_session":
         return options.sessions.renameSession(command.sessionId, command.name);
+      case "clear_attention":
+        return options.sessions.clearAttention(command.sessionId);
+      case "hand_off":
+        return options.sessions.handOff(command.sessionId);
+      case "take_back":
+        return options.sessions.takeBack(command.sessionId);
       case "subscribe_index":
-        return options.index.subscribeIndex(connection.id);
+        return options.index.subscribeIndex(connection.id, command.cursor);
       case "add_project":
         return options.index.addProject(command.path);
       case "remove_project":
@@ -179,6 +188,24 @@ export function createRouter(options: RouterOptions): Route {
     return { code: "internal_error" };
   }
 
+  /**
+   * Sends a connection the list changes waiting for it, before a command's answer.
+   *
+   * @remarks
+   * SPEC-0001 ("先读到自己的写"). The answer goes out even when this fails: a command without one
+   * leaves the client waiting for good.
+   *
+   * @sideEffects Sends events; logs a failure.
+   * @param connection - The connection.
+   */
+  function flush(connection: Connection): void {
+    try {
+      options.index.answering(connection.id);
+    } catch (error) {
+      options.logger.warn({ err: error }, "list changes not sent before an answer");
+    }
+  }
+
   return async (connection, message) => {
     const parsed = parseClientMessage(message);
     if (!parsed.ok) {
@@ -197,10 +224,12 @@ export function createRouter(options: RouterOptions): Route {
         span.setAttribute("client.id", connection.clientId);
         try {
           const result = await run(connection, command);
+          flush(connection);
           connection.send({ type: "response", requestId: command.requestId, ok: true, result });
         } catch (error) {
           const info = failure(error, command);
           span.setAttribute("command.error", info.code);
+          flush(connection);
           connection.send({ type: "response", requestId: command.requestId, ok: false, error: info });
         }
       },

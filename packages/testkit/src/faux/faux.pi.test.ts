@@ -5,7 +5,7 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type TempDir, createTempDir } from "../temp-dir";
-import { FAUX_MODEL, FAUX_PROVIDER, type FauxScript, fauxPi } from "./script";
+import { FAUX_MODEL, FAUX_PID_FILE, FAUX_PROVIDER, type FauxScript, fauxPi } from "./script";
 
 /** One JSON line pi printed. */
 type PiRecord = { readonly type: string } & Readonly<Record<string, unknown>>;
@@ -107,6 +107,63 @@ async function normalizedRun(script: FauxScript): Promise<string> {
   const json = JSON.stringify(pi.records, (key, value: unknown) => (VARYING.has(key) ? 0 : value));
   return json.replaceAll(pi.dir, "<dir>");
 }
+
+/**
+ * Runs pi once in print mode with the faux model, as a one-shot call does, the input on stdin.
+ *
+ * @remarks
+ * See `runOneShot` in `packages/pi`.
+ *
+ * @sideEffects Creates a temporary directory, removed after the test; runs pi.
+ * @param script - What the faux model answers.
+ * @returns What pi printed, how it exited, and whether the extension wrote its process id.
+ */
+async function printRun(script: FauxScript) {
+  const dir: TempDir = await createTempDir("faux-print");
+  cleanups.push(dir.cleanup);
+  const launch = await fauxPi(script, dir.path);
+  const child = spawn(
+    "pi",
+    [
+      "--mode",
+      "json",
+      "-p",
+      "--no-session",
+      "--no-tools",
+      "--thinking",
+      "off",
+      "--system-prompt",
+      "Name it.",
+      ...launch.args,
+    ],
+    { cwd: dir.path, env: { PATH: process.env["PATH"] ?? "", HOME: dir.path, TMPDIR: tmpdir(), ...launch.env } },
+  );
+  child.stdin.end("User: fix the login bug");
+  let stdout = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+  const [code] = (await once(child, "close")) as [number | null];
+  const records = stdout
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line) => JSON.parse(line) as PiRecord);
+  const wrotePid = (await readdir(dir.path)).includes(FAUX_PID_FILE);
+  return { records, code, wrotePid };
+}
+
+describe("faux model in pi's print mode", () => {
+  it("answers with the script's title, and leaves the process id of the session's pi alone", async () => {
+    const { records, code, wrotePid } = await printRun({ replies: [], title: "登录修复" });
+
+    expect(lastAssistant(records)).toMatchObject({ stopReason: "stop", content: [{ type: "text", text: "登录修复" }] });
+    expect([code, wrotePid]).toStrictEqual([0, false]);
+  });
+
+  it("answers with an error without a title", async () => {
+    const { records } = await printRun({ replies: [] });
+
+    expect(lastAssistant(records)).toMatchObject({ stopReason: "error", errorMessage: "faux script has no title" });
+  });
+});
 
 describe("faux model in a real pi process", () => {
   it("streams scripted thinking and text in several chunks and then settles", async () => {

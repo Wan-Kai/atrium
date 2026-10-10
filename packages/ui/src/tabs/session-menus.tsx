@@ -1,4 +1,4 @@
-import type { AtriumClient } from "@atrium/client";
+import { type AtriumClient, CommandError, type SessionView } from "@atrium/client";
 import type { SessionSummary, TranscriptItem } from "@atrium/protocol";
 import { CaretDown, Check, DotsThree, Eye } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -7,6 +7,7 @@ import { transcriptMarkdown } from "../chat/turn-layout";
 import { sessionTitle } from "../sidebar/names";
 import { RenameField } from "../sidebar/rename-field";
 import { DISPLAY_MODES, useDisplayMode } from "../state/display-mode";
+import { terminalCommand } from "./hand-off";
 
 /** The most pages an export fetches, so a host that keeps saying "more" cannot loop it forever. */
 const MAX_EXPORT_PAGES = 10_000;
@@ -105,12 +106,55 @@ export function DisplayModeMenu() {
 }
 
 /**
- * The "···" menu of the active session: rename, archive, copy the file's path, export.
+ * Why a hand-off to the terminal failed, in words.
  *
  * @remarks
- * SPEC-0001 ("标签栏"); "在终端中继续" comes with M1.9. Renaming asks for the name in place of the
- * menu; renaming and copying need the session's file, which a draft does not have yet. Failures are shown
- * next to the menu.
+ * The host refuses a session with a run or messages queued (SPEC-0001, "交给终端").
+ *
+ * @sideEffects none
+ * @param error - What the hand-off threw.
+ * @returns The words.
+ */
+function describeHandOffError(error: unknown): string {
+  return error instanceof CommandError && error.code === "session_busy"
+    ? "先停止运行或清空排队，再交给终端"
+    : "交给终端失败";
+}
+
+/**
+ * Why the hand-off item is greyed, if it is.
+ *
+ * @remarks
+ * pi in a terminal goes on from the session's file, which a draft does not have yet; a session
+ * running, with a message on its way, stopping, starting pi again or with messages in the
+ * host's queue must be stopped or emptied first, as the host would refuse it (SPEC-0001,
+ * "交给终端"). The session's view says so when the session is watched.
+ *
+ * @sideEffects none
+ * @param session - The session.
+ * @param view - Its view, when watched.
+ * @returns The reason, or `null` when it can be handed off.
+ */
+function handOffBlocked(
+  session: Pick<SessionSummary, "file" | "running">,
+  view: Pick<SessionView, "run" | "pending" | "control"> | undefined,
+): string | null {
+  if (session.file === null) return "发出第一条消息后才能交给终端";
+  if (session.running) return "先停止运行再交给终端";
+  if (view === undefined) return null;
+  const { run, pending, control } = view;
+  const busy = run !== null || pending.length > 0 || control.stopping || control.restarting || control.queue.length > 0;
+  return busy ? "先停止运行或清空排队，再交给终端" : null;
+}
+
+/**
+ * The "···" menu of the active session: rename, archive, copy the file's path, go on in a
+ * terminal, export.
+ *
+ * @remarks
+ * SPEC-0001 ("标签栏", "交给终端"). Renaming asks for the name in place of the menu; renaming,
+ * copying and the terminal need the session's file, which a draft does not have yet. Going on in
+ * a terminal copies the command that does it. Failures are shown next to the menu.
  *
  * @sideEffects Sends commands; writes the clipboard; downloads an export.
  * @param props - The client and the session.
@@ -128,12 +172,12 @@ export function SessionMenu({ client, session }: { readonly client: AtriumClient
    *
    * @sideEffects Runs the action; may set the problem line.
    * @param action - The action.
-   * @param failure - What to say when it fails.
+   * @param failure - What to say when it fails, or how to tell it from the error.
    */
-  const run = (action: () => Promise<unknown>, failure: string): void => {
+  const run = (action: () => Promise<unknown>, failure: string | ((error: unknown) => string)): void => {
     setProblem(null);
     // Fire and forget: a failure is shown.
-    void action().catch(() => setProblem(failure));
+    void action().catch((error: unknown) => setProblem(typeof failure === "string" ? failure : failure(error)));
   };
 
   return (
@@ -156,66 +200,86 @@ export function SessionMenu({ client, session }: { readonly client: AtriumClient
         </span>
       ) : null}
       <MenuButton label="当前会话" content={<DotsThree size={16} weight="bold" />}>
-        {(close) => (
-          <>
-            <button
-              type="button"
-              role="menuitem"
-              className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-              disabled={session.state === "draft"}
-              title={session.state === "draft" ? "发出第一条消息后才能改名" : undefined}
-              onClick={() => {
-                close();
-                setRenaming(true);
-              }}
-            >
-              重命名
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={MENU_ITEM}
-              onClick={() => {
-                close();
-                run(() => client.archiveSession(session.sessionId), "归档失败");
-              }}
-            >
-              归档
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-              disabled={session.file === null}
-              title={session.file === null ? "发出第一条消息后才有会话文件" : session.file}
-              onClick={() => {
-                close();
-                const file = session.file ?? "";
-                run(() => navigator.clipboard.writeText(file), "复制失败");
-              }}
-            >
-              复制会话文件路径
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={MENU_ITEM}
-              onClick={() => {
-                close();
-                run(
-                  async () =>
-                    download(
-                      `atrium-${session.sessionId}.md`,
-                      transcriptMarkdown(await wholeTranscript(client, session.sessionId)),
-                    ),
-                  "导出时对话记录刚好更新了，请再试一次",
-                );
-              }}
-            >
-              导出为 Markdown
-            </button>
-          </>
-        )}
+        {(close) => {
+          // Read as the menu opens, so it shows the session as it is then.
+          const blocked = handOffBlocked(session, client.session(session.sessionId)?.getState());
+          return (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+                disabled={session.state === "draft"}
+                title={session.state === "draft" ? "发出第一条消息后才能改名" : undefined}
+                onClick={() => {
+                  close();
+                  setRenaming(true);
+                }}
+              >
+                重命名
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={MENU_ITEM}
+                onClick={() => {
+                  close();
+                  run(() => client.archiveSession(session.sessionId), "归档失败");
+                }}
+              >
+                归档
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+                disabled={session.file === null}
+                title={session.file === null ? "发出第一条消息后才有会话文件" : session.file}
+                onClick={() => {
+                  close();
+                  const file = session.file ?? "";
+                  run(() => navigator.clipboard.writeText(file), "复制失败");
+                }}
+              >
+                复制会话文件路径
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+                disabled={blocked !== null}
+                title={blocked ?? "复制在终端里接着做的命令"}
+                onClick={() => {
+                  close();
+                  run(async () => {
+                    const { file } = await client.handOff(session.sessionId);
+                    await navigator.clipboard.writeText(terminalCommand(file)).catch(() => undefined);
+                  }, describeHandOffError);
+                }}
+              >
+                在终端中继续
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={MENU_ITEM}
+                onClick={() => {
+                  close();
+                  run(
+                    async () =>
+                      download(
+                        `atrium-${session.sessionId}.md`,
+                        transcriptMarkdown(await wholeTranscript(client, session.sessionId)),
+                      ),
+                    "导出时对话记录刚好更新了，请再试一次",
+                  );
+                }}
+              >
+                导出为 Markdown
+              </button>
+            </>
+          );
+        }}
       </MenuButton>
     </>
   );

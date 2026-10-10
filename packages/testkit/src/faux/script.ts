@@ -45,6 +45,11 @@ export interface FauxScript {
   /** Slows streaming down to this pace, so a test can interrupt a reply mid-stream. */
   readonly tokensPerSecond?: number;
   readonly replies: readonly FauxReply[];
+  /**
+   * What pi answers in print mode (`-p`), as when the host asks for a session's title; without it,
+   * an error, so the title stays the fallback.
+   */
+  readonly title?: string;
   /** More models after `FAUX_MODEL`, for switching models. */
   readonly models?: readonly FauxModel[];
 }

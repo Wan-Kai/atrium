@@ -26,8 +26,8 @@ import { createSessionManager } from "./session-manager";
  * so they are assembled as `main.ts` does.
  *
  * @sideEffects Creates temporary files; everything is closed when the test ends.
- * @returns The commands, the services, the events a connection received and how often the
- * session manager reported a change.
+ * @returns The commands, the services, the events a connection received, how often the session
+ * manager reported a change and how often the workspaces heard the window was focused.
  */
 async function assemble() {
   const temp = await createTempDir("index-commands");
@@ -59,6 +59,7 @@ async function assemble() {
   const received: SessionEvent[] = [];
   subscriptions.connect("c1", (event) => received.push(event as SessionEvent), "client-1");
   const layouts = createLayouts({ file: (await loadIndexFile(index, LAYOUTS_FILE, 0)).file, clock: systemClock });
+  const preferences = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: "h1",
@@ -66,21 +67,16 @@ async function assemble() {
       projects: [],
       workspaces: [],
       sessions: [],
-      layout: { container: null, tabs: {} },
-      preferences: {
-        appearance: "system",
-        displayMode: "summary",
-        lastModel: null,
-        thinkingByModel: {},
-        statusBar: {},
-      },
+      preferences: preferences.read(),
       resets: [],
     }),
+    layoutOf: (clientId) => layouts.of(clientId),
     clock: systemClock,
     resources: recording.resources,
   });
   onTestFinished(() => feed.close());
   const sessionChanges = { count: 0 };
+  const focused = { count: 0 };
   const listed: [string, boolean][] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
@@ -103,10 +99,9 @@ async function assemble() {
     newId: () => `id${(next += 1)}`,
   });
   onTestFinished(() => sessions.close());
-  const preferences = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
   const commands = createIndexCommands({
     projects,
-    workspaces: { windowFocused: () => undefined },
+    workspaces: { windowFocused: () => (focused.count += 1) },
     sessions,
     preferences,
     feed,
@@ -115,7 +110,7 @@ async function assemble() {
       return { models: [], defaultModel: null };
     },
   });
-  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed };
+  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed, focused };
 }
 
 describe("IndexCommands.removeProject", () => {
@@ -175,5 +170,30 @@ describe("IndexCommands.listModels", () => {
 
     expect(await commands.listModels("chats", true)).toStrictEqual({ models: [], defaultModel: null });
     expect(listed).toStrictEqual([["chats", true]]);
+  });
+});
+
+describe("IndexCommands.windowFocused", () => {
+  it("tells the workspaces the window was focused", async () => {
+    const { commands, focused } = await assemble();
+
+    expect(await commands.windowFocused()).toStrictEqual({});
+    expect(focused.count).toBe(1);
+  });
+});
+
+describe("IndexCommands.answering", () => {
+  it("sends the connection the list changes waiting for it at once", async () => {
+    const { commands, received } = await assemble();
+    await commands.subscribeIndex("c1");
+    await commands.setPreferences({ appearance: "dark" });
+
+    commands.answering("c1");
+
+    expect(received).toMatchObject([
+      { type: "index_snapshot", preferences: { appearance: "system" } },
+      { type: "index_changes", preferences: { appearance: "dark" } },
+    ]);
+    expect(received).toHaveLength(2);
   });
 });

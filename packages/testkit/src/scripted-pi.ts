@@ -59,6 +59,28 @@ export interface ScriptedPiBehavior {
   readonly version?: string;
   /** Start `sleep` children; each is announced as `{type: "grandchild", pid, mode}`. */
   readonly grandchildren?: readonly ("detached" | "attached" | "holds-pipes")[];
+  /**
+   * What it does when started with `-p`, as pi's one-shot print mode: reads stdin to its end,
+   * writes `{argv, cwd, stdin, pid, grandchild}` to the file `recordTo` names, prints `lines`
+   * (records as JSON, strings as they are) once the file `waitFor` names exists, if it names one,
+   * then exits with `exitCode` (0 by default), or keeps running with `hang`. Without it, `-p`
+   * changes nothing.
+   */
+  readonly print?: {
+    readonly lines?: readonly (object | string)[];
+    /** Raw text printed after `lines` without a line break. */
+    readonly unterminated?: string;
+    /** Bytes written to stderr, waiting until they are read, before `lines`. */
+    readonly stderrBytes?: number;
+    /** Exit with `exitCode` at once, without reading stdin. */
+    readonly ignoreStdin?: true;
+    /** Start a `sleep` that keeps stdout and stderr open after it exits; its pid is recorded. */
+    readonly holdPipes?: true;
+    readonly exitCode?: number;
+    readonly hang?: true;
+    readonly recordTo?: string;
+    readonly waitFor?: string;
+  };
 }
 
 /** Environment variable the scripted pi reads its behavior from; not `ATRIUM_*`, which the host keeps from pi. */
@@ -67,7 +89,7 @@ const BEHAVIOR_ENV = "SCRIPTED_PI_BEHAVIOR";
 /** The scripted pi, a Node script; every command it receives is announced as `{type: "received", record}`. */
 const SCRIPT = `
 import { spawn } from "node:child_process";
-import { closeSync } from "node:fs";
+import { closeSync, existsSync, writeFileSync } from "node:fs";
 const behavior = JSON.parse(process.env.${BEHAVIOR_ENV} ?? "{}");
 if (process.argv.includes("--version")) {
   process.stdout.write((behavior.version ?? "1.0.2") + "\\n");
@@ -79,6 +101,32 @@ setInterval(() => {
   if (process.ppid === 1) process.exit(0);
 }, 500).unref();
 const print = (record) => process.stdout.write(JSON.stringify(record) + "\\n");
+if (behavior.print !== undefined && process.argv.includes("-p")) {
+  if (behavior.print.ignoreStdin) process.exit(behavior.print.exitCode ?? 0);
+  let input = "";
+  process.stdin.on("data", (chunk) => (input += chunk));
+  process.stdin.on("end", async () => {
+    const grandchild = behavior.print.holdPipes
+      ? spawn("sleep", ["60"], { stdio: ["ignore", "inherit", "inherit"] }).pid
+      : null;
+    const seen = { argv: process.argv.slice(2), cwd: process.cwd(), stdin: input, pid: process.pid, grandchild };
+    if (behavior.print.recordTo !== undefined) writeFileSync(behavior.print.recordTo, JSON.stringify(seen));
+    const gate = behavior.print.waitFor;
+    while (gate !== undefined && !existsSync(gate)) await new Promise((resolve) => setTimeout(resolve, 20));
+    if (behavior.print.stderrBytes !== undefined) {
+      await new Promise((resolve) => process.stderr.write("x".repeat(behavior.print.stderrBytes), resolve));
+    }
+    for (const line of behavior.print.lines ?? []) {
+      if (typeof line === "string") process.stdout.write(line + "\\n");
+      else print(line);
+    }
+    if (behavior.print.unterminated !== undefined) process.stdout.write(behavior.print.unterminated);
+    if (behavior.print.hang) setInterval(() => {}, 1 << 30);
+    else process.stdout.write("", () => process.exit(behavior.print.exitCode ?? 0));
+  });
+  // Nothing below is for print mode.
+  await new Promise(() => {});
+}
 if (behavior.announceArgv) print({ type: "argv", argv: process.argv.slice(2), cwd: process.cwd() });
 if (behavior.announceEnv) {
   print({ type: "env", values: Object.fromEntries(behavior.announceEnv.map((name) => [name, process.env[name] ?? null])) });

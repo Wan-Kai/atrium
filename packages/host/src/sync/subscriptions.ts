@@ -1,11 +1,17 @@
-import type { ChangesUpdatedEvent, DiffUpdatedEvent, IndexSnapshotEvent, SessionEvent } from "@atrium/protocol";
+import type {
+  ChangesUpdatedEvent,
+  DiffUpdatedEvent,
+  IndexChangesEvent,
+  IndexSnapshotEvent,
+  SessionEvent,
+} from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
 
 /** Delivers events to one connection. */
 export type EventSink = (event: SinkEvent) => void;
 
 /** What the host sends a connection besides responses. */
-type SinkEvent = SessionEvent | IndexSnapshotEvent | ChangesUpdatedEvent | DiffUpdatedEvent;
+type SinkEvent = SessionEvent | IndexSnapshotEvent | IndexChangesEvent | ChangesUpdatedEvent | DiffUpdatedEvent;
 
 /** A connection that subscribed to the list, and the client behind it. */
 export interface IndexSubscriber {
@@ -20,7 +26,8 @@ export interface IndexSubscriber {
  * Keyed by an opaque connection id, so business modules can publish to a session's viewers
  * without depending on `server/` (domain-model §6; overview.md, "宿主内部的依赖"). The host pushes
  * live session events only to subscribers (domain-model §7). Each registered connection counts as
- * a `sync.connection` resource, so one never unregistered shows up in the leak tests.
+ * a `sync.connection` resource, and each session it watches as a `sync.subscription`, so one never
+ * let go of shows up in the leak tests.
  *
  * @sideEffects none
  */
@@ -30,7 +37,8 @@ export class SubscriptionRegistry {
     string,
     { readonly sink: EventSink; readonly clientId: string; readonly release: () => void }
   >();
-  readonly #subscriptions = new Map<string, ReadonlySet<string>>();
+  /** Each connection's sessions, each with the release of its count. */
+  readonly #subscriptions = new Map<string, Map<string, () => void>>();
   readonly #indexSubscribers = new Set<string>();
 
   /**
@@ -59,7 +67,7 @@ export class SubscriptionRegistry {
    */
   connect(connectionId: string, sink: EventSink, clientId: string): void {
     this.#sinks.set(connectionId, { sink, clientId, release: this.#resources.acquire("sync.connection") });
-    this.#subscriptions.set(connectionId, new Set());
+    this.#subscriptions.set(connectionId, new Map());
   }
 
   /**
@@ -74,6 +82,7 @@ export class SubscriptionRegistry {
   disconnect(connectionId: string): void {
     this.#sinks.get(connectionId)?.release();
     this.#sinks.delete(connectionId);
+    for (const release of this.#subscriptions.get(connectionId)?.values() ?? []) release();
     this.#subscriptions.delete(connectionId);
     this.#indexSubscribers.delete(connectionId);
   }
@@ -118,17 +127,23 @@ export class SubscriptionRegistry {
    * The caller sends a snapshot of each newly added session before any later event, so the
    * client always starts from a snapshot (domain-model §7).
    *
-   * @sideEffects Updates the connection's subscriptions.
+   * @sideEffects Updates the connection's subscriptions and their resource counts.
    * @param connectionId - The connection's id.
    * @param sessionIds - Every session it now watches.
    * @returns The sessions it did not watch before, in the given order; empty for an unknown connection.
    */
   subscribe(connectionId: string, sessionIds: readonly string[]): string[] {
-    const before = this.#subscriptions.get(connectionId);
-    if (before === undefined) return [];
+    const watched = this.#subscriptions.get(connectionId);
+    if (watched === undefined) return [];
     const after = new Set(sessionIds);
-    this.#subscriptions.set(connectionId, after);
-    return [...after].filter((sessionId) => !before.has(sessionId));
+    for (const [sessionId, release] of watched) {
+      if (after.has(sessionId)) continue;
+      release();
+      watched.delete(sessionId);
+    }
+    const added = [...after].filter((sessionId) => !watched.has(sessionId));
+    for (const sessionId of added) watched.set(sessionId, this.#resources.acquire("sync.subscription"));
+    return added;
   }
 
   /**

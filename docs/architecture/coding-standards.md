@@ -75,6 +75,7 @@ export function EffortBox(props: EffortBoxProps) { … }
 ## 异步与取消
 
 - 不允许悬空的 Promise（oxlint `no-floating-promises`、`no-misused-promises`）。确实要"发出去不等"的，用 `void` 并在上一行写 `// Fire and forget: <为什么>`。
+- 不拿长期不结束的 Promise（例如 pi 进程的 `exited`）做 `Promise.race` 的一方：每次 race 都在它上面挂一个回调，回调带着调用时的异步上下文（连同 trace 的 span）一直留到它结束，反复调用就越积越多。改成对它只挂一次、各次等待自己登记和注销（会话控制器的 `untilExit`，由本来就在等 pi 退出的 `watchExit` 叫醒）；那一次也不要在某条命令里懒创建，否则它带着那条命令的上下文活到 pi 退出。2026-10-10 浸泡测试发现：每次停止都在 pi 的 `exited` 上留一个，会话不归档就不释放。
 - 可能耗时的操作（子进程、git、网络、文件扫描、等待 pi 响应）都接受 `AbortSignal`，取消后释放资源。
 - 定时器、事件监听、订阅、子进程都要有对应的释放路径，并计入资源计数（[testing.md · 性能与资源泄漏](testing.md#性能与资源泄漏)）。
 - 时间一律通过注入的 `Clock` 取，不直接调 `Date.now()` / `setTimeout`，以便测试用假时钟。例外：Electron 主进程和 `scripts/` 是组装层，只靠端到端测试覆盖，可以直接用定时器，并在 JSDoc 里写明。

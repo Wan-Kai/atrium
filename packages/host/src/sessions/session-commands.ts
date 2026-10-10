@@ -35,6 +35,12 @@ export interface SessionCommands {
   archiveSession(sessionId: string): Promise<CommandResult<"archive_session">>;
   /** Names a session in pi. */
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
+  /** Marks a session's error as seen; a sign-in problem stays until the next run (SPEC-0001, "会话状态"). */
+  clearAttention(sessionId: string): Promise<CommandResult<"clear_attention">>;
+  /** Hands a session to pi in a terminal: records it, stops its pi and answers its file. */
+  handOff(sessionId: string): Promise<CommandResult<"hand_off">>;
+  /** Takes a session handed off back into Atrium and starts its pi. */
+  takeBack(sessionId: string): Promise<CommandResult<"take_back">>;
   /** Replaces the sessions a connection watches, sending a snapshot of each new one first. */
   subscribe(connectionId: string, sessionIds: readonly string[]): Promise<CommandResult<"subscribe_sessions">>;
   /** Sends a message with its images to a session, starting a restored draft's pi first. */

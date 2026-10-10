@@ -65,7 +65,9 @@ export function session(
     updatedAt: Date.now() - 60_000,
     archived: false,
     running: false,
-    failed: false,
+    attention: null,
+    asking: null,
+    handedOff: false,
     ...fields,
   };
 }
@@ -105,6 +107,7 @@ export interface FakeAnswers {
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
+  readonly handOff?: () => Promise<void>;
   /** The list `loadModels` puts in a container's model list; empty and ready when left out. */
   readonly models?: ModelListView;
   /** Holds back an upload, given its number counting from 1. */
@@ -172,6 +175,24 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     const open = tabs.open.includes(sessionId) ? tabs.open : [...tabs.open, sessionId];
     index.setState({
       layout: { container: containerId, tabs: { ...view.layout.tabs, [containerId]: { open, active: sessionId } } },
+    });
+  }
+
+  /**
+   * Changes one session in the list.
+   *
+   * @remarks
+   * As the host's next list would.
+   *
+   * @sideEffects Updates the list.
+   * @param sessionId - The session.
+   * @param fields - The fields to change, from the session as it is.
+   */
+  function change(sessionId: string, fields: (session: SessionSummary) => Partial<SessionSummary>): void {
+    index.setState({
+      sessions: index
+        .getState()
+        .sessions.map((one) => (one.sessionId === sessionId ? { ...one, ...fields(one) } : one)),
     });
   }
 
@@ -251,6 +272,24 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async renameSession(sessionId: string, name: string) {
       calls.push(`renameSession ${sessionId} ${name}`);
+      return {};
+    },
+    async clearAttention(sessionId: string) {
+      calls.push(`clearAttention ${sessionId}`);
+      change(sessionId, (one) => ({
+        attention: one.attention === null ? null : { ...one.attention, cleared: one.attention.reason === "error" },
+      }));
+      return {};
+    },
+    async handOff(sessionId: string) {
+      calls.push(`handOff ${sessionId}`);
+      await answers.handOff?.();
+      change(sessionId, () => ({ handedOff: true }));
+      return { file: index.getState().sessions.find((one) => one.sessionId === sessionId)?.file ?? "" };
+    },
+    async takeBack(sessionId: string) {
+      calls.push(`takeBack ${sessionId}`);
+      change(sessionId, () => ({ handedOff: false }));
       return {};
     },
     async addProject(path: string) {

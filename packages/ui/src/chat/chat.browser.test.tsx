@@ -7,7 +7,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
-import { fakeClient } from "../test/fake-client";
+import { fakeClient, session } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
 import { UserBubble } from "./messages";
@@ -973,6 +973,24 @@ describe("ConversationArea before it is connected", () => {
     connection.setState({ status: "connected", traceId: "t2", hostVersion: "0", hostInstanceId: "h1" });
 
     await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats", "loadModels chats"]));
+  });
+});
+
+describe("ConversationArea after the host restarted", () => {
+  it("opens and watches the session shown again under a new host, but not after a reconnect to the same one", async () => {
+    const { client, connection, calls, index } = fakeClient({
+      sessions: [session({ sessionId: "s1", containerId: "chats" })],
+    });
+    await render(tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />));
+    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1"]));
+
+    connection.setState({ status: "connecting" });
+    connection.setState({ status: "connected", traceId: "t2", hostVersion: "0", hostInstanceId: "h1" });
+    connection.setState({ status: "connecting" });
+    connection.setState({ status: "connected", traceId: "t3", hostVersion: "0", hostInstanceId: "h2" });
+
+    await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "openSession s1", "watch s1"]));
+    expect(index.getState().layout.tabs["chats"]?.active).toBe("s1");
   });
 });
 

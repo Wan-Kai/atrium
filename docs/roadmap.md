@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-10：M1.8 状态栏完成，合并进 `main`（改动较小，没有做三方审查）。输入框下方居中显示会话统计（轮、步、输出速度）、Token 用量（总量、缓存命中率）、上下文（圆环与百分比，超过 70% 变黄、85% 变红），费用默认不显示；悬停弹出详情卡片，上下文卡片按系统提示词、工具定义、对话消息分段；末尾的调节按钮打开面板选择显示哪些分组，全局保存，只记和默认不同的选择。轮、步照 pi 的 `get_session_stats` 按整个会话文件数；pi 没有"请求已发出"的事件，首 token 时间从 `turn_start` 算起；推理 token、当前分支用量和上下文分段由宿主从条目算，分段的回放和估算与 pi 自己的函数核对过。五组变异分数都是 100%。下一步是 [M1.9](#m19-并行同步与关注)。**
+**2026-10-10：M1.9 并行、同步与关注完成，三方审查后已合并回 `main`。列表按变化同步（IndexFeed 每批和上一批比出变化，带游标重连，宿主先把列表变化发出去再应答命令，客户端在布局命令应答前保留自己选的布局）；关注状态（出错、待授权、待回答）写进索引，侧栏、标签和收件箱从摘要派生；交给终端与接回；第一次运行结束后用一次性 pi 起标题；宿主重启后界面重新打开并订阅。泄漏：归档和移除工作区时丢掉会话的 Controller，停止不再在 pi 的 `exited` 上留回调（浸泡测试发现，写进编码规范）。三个会话并行、切换、断网、宿主重启的端到端，五类各 200 次的泄漏测试，切换会话后没有脱离的 DOM，30 分钟浸泡（约 1900 轮，每轮堆增长 < 1KB，资源和子进程回到基线）都通过；五组变异分数都是 100%（新代码的存活变异补了测试，等价的注明理由；只有泄漏测试看得出的一个指向它）。合并前三方审查（Astra、Grok、Claude）后修了：交给终端与接回按会话依次处理；pi 已应答 `started`、运行还没开始时不让交接，菜单按会话的发送、运行、停止、重启和排队置灰；pi 第一次启动途中归档会留下它的 pi；改名后、重扫前生成好的标题会盖掉手改的名字；在线推送落后于已忘掉的删除时改发快照；客户端只记宿主真正发来的布局；`asking` 取还没回答的对话框里最早那个；推送列表失败时命令照样应答。补了宿主重启而页面一直开着的端到端。下一步是 [M1.10](#m110-首次启动与设置)。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -34,6 +34,7 @@
 | M1.6 运行控制 | `protocol`：控制状态（排队、暂停原因、插话、停止中、重启中、对话框、失败）、`control_updated`、`prompt_handled`、九条运行控制命令、对话框结果和重启提示、`SessionSummary.failed`；`pi`：压缩、插话队列、对话框与通知、重试上限的事件翻译，pi 1.1.0 夹具；宿主：SessionController 的排队、插话、停止、对话框、崩溃重启与续做、"重试"，会话管理器的重启单飞、`resume_queue` 启动 pi，宿主提示在重建后保持位置和顺序；界面：胶囊条与排队面板、对话框卡片与倒计时、错误卡片、停止中的输入框、出错状态图标；测试：控制器定时器泄漏测试，变异测试的超时余量与重测办法。决定写回 SPEC-0001"运行控制"、domain-model 已决定 6、security.md（通知截断后写日志）、testing.md |
 | M1.7 模型与输入框 | `protocol`：`list_models`、`set_model`、`set_thinking_level`、`model_updated`、`upload_attachment`、`search_files`、`list_commands`，带图片的 `prompt` 与 `steer`，工作区改动的 `watch_changes`、`watch_diff`、`changes_updated`、`diff_updated`；`pi`：按目录查询模型与命令、`fd` 的位置；宿主：模型列表缓存与上次的模型、附件存储（按连接限额、30 分钟过期）、`fd` 文件搜索、插话按队列增减计数并逐条发送、工作区改动（一次 git 运行读出状态、行数和补丁，文件监听与轮询）；客户端：模型、附件、文件搜索、工作区改动；界面：模型按钮与推理强度框、图片附件、`@` 与 `/` 菜单、长文本粘贴、拖入、↑ 历史、草稿、改动胶囊与右侧抽屉；测试：变异测试分组并重测存活的变异、git 场景模板。决定写回 SPEC-0001"模型与输入框""工作区改动""运行控制"、testing.md、pi-internals.md |
 | M1.8 状态栏 | `protocol`：会话指标（允许未知）、快照的 `metrics`、`metrics_updated`、偏好的 `statusBar`；`pi`：条目里的四种 token 和推理 token、系统消息与压缩检查点的大小、系统提示词与工具定义的回放和估算、`get_session_stats` 的映射、`request_started` / `output_started` 事件，统计的契约夹具；宿主：每个会话的指标跟踪（读统计的时机、一次只读一次、按 `turn_start` 计时、从条目算推理与分段），偏好的 `statusBar`；客户端：会话视图的指标；界面：状态栏、悬停卡片、调节面板。决定写回 SPEC-0001"状态栏（M1.8）"、domain-model §3、pi-internals §2、design-language（上下文分段颜色）、testing.md（每次重测存活变异、Stryker 注释的位置） |
+| M1.9 并行、同步与关注 | `protocol`：`index_changes`、`subscribe_index` 的游标、快照的原因，`SessionSummary` 的 `attention`、`asking`、`handedOff`，`clear_attention`、`hand_off`、`take_back` 与 `session_handed_off`；`pi`：OneShotPi（`-p` 模式、内容走标准输入、期限与中止时停掉进程树）；宿主：IndexFeed（逐项比较、合批、按客户端的布局、应答前先发）、关注状态与等待回答的时间、交给终端、TitleGenerator、草稿在第一轮时重扫、会话订阅计数、归档时丢掉 Controller、停止的等待不留在 pi 的退出上；客户端：IndexView 按变化应用、布局命令在途时保留选择；界面：状态图标与优先级、收件箱、清除关注、交接面板、宿主重启后重新打开；测试：并行、收件箱、交接、标题的端到端，会话的泄漏测试（宿主与界面），会话浸泡测试。决定写回 SPEC-0001"并行、同步与关注"（含先读到自己的写）、domain-model（归档丢掉 Controller）、pi-internals（一次性调用）、coding-standards（不拿长期 Promise 做 race）、testing.md（会话浸泡的采样） |
 | 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
@@ -275,13 +276,14 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"状态栏"、关键流程的"上下文分段"、[domain-model](architecture/domain-model.md) §3 指标的范围、§5 Preferences、[pi-internals](research/pi-internals.md) §2 统计。
 - **完成标准**：对照 SPEC-0001 需求 9 逐条验证；数值与 pi 的 `get_session_stats` 一致。
 
-##### M1.9 并行、同步与关注
+##### M1.9 并行、同步与关注 ✅
 
 - **目标**：多个会话同时跑，切走不中断；断线重连不丢不重；收件箱准确。
 - **范围**：
   - 后台运行、关注状态（error / auth）与收件箱（2026-10-08 从 M1.5 挪来）、工作区与项目的状态汇总。
   - 列表同步（`generation + seq`，快照 / 增量）、会话订阅、对话记录按游标分页、重连流程、`clientMessageId` 对齐。
   - 自动生成标题（OneShotPi）、交给终端。
+  - 开工前已定（2026-10-10，见 SPEC-0001"并行、同步与关注"）：列表增量由 IndexFeed 每批和上一批逐项比较得出，重连带游标；对话记录不按序号补拉，缺口就重拿快照；会话状态、收件箱和工作区汇总在界面从摘要派生，摘要的 `failed` 换成写进索引的 `attention`，加上 `asking`、`handedOff`；交给终端后记在索引里，点"在 Atrium 里继续"才重新启动 pi；宿主重启后界面对当前会话重新打开并订阅；标题用 `pi --mode json -p --no-session`，对话内容走标准输入。
 - **参考**：[domain-model](architecture/domain-model.md) §4 状态的派生、§7 客户端与一致性、[paseo-architecture](research/paseo-architecture.md) §4 同步、§5 状态与关注、pi 实验版的 Chord 设计（[pi-internals](research/pi-internals.md) §6）。
 - **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过；打开关闭会话、订阅退订、连接断开、停止、崩溃重启各 200 次的泄漏测试通过；界面在会话间切换后没有多出脱离文档的 DOM 节点；30 分钟长时间运行通过。
 

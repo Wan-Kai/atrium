@@ -372,9 +372,13 @@ describe("createAtriumClient: commands", () => {
       client.renameProject("prj_0123456789abcdef", "app"),
       client.renameWorkspace("wks_0123456789abcdef", null),
       client.windowFocused(),
+      client.clearAttention("s1"),
+      client.handOff("s1"),
+      client.takeBack("s1"),
     ];
     latest().answer("create_session", { sessionId: "s9" });
     latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
+    latest().answer("hand_off", { file: "/pi/s1.jsonl" });
     for (const type of [
       "archive_session",
       "rename_session",
@@ -382,6 +386,8 @@ describe("createAtriumClient: commands", () => {
       "rename_project",
       "rename_workspace",
       "window_focused",
+      "clear_attention",
+      "take_back",
     ]) {
       latest().answer(type);
     }
@@ -394,6 +400,9 @@ describe("createAtriumClient: commands", () => {
       {},
       {},
       {},
+      {},
+      {},
+      { file: "/pi/s1.jsonl" },
       {},
     ]);
     expect(
@@ -410,6 +419,9 @@ describe("createAtriumClient: commands", () => {
       { type: "rename_project", projectId: "prj_0123456789abcdef", name: "app" },
       { type: "rename_workspace", workspaceId: "wks_0123456789abcdef", name: null },
       { type: "window_focused" },
+      { type: "clear_attention", sessionId: "s1" },
+      { type: "hand_off", sessionId: "s1" },
+      { type: "take_back", sessionId: "s1" },
     ]);
   });
 
@@ -897,6 +909,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
     type: "index_snapshot",
     generation,
     seq,
+    reason: "no_cursor",
     projects: [],
     workspaces: [],
     sessions: [
@@ -910,7 +923,9 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         updatedAt: 1,
         archived: false,
         running: false,
-        failed: false,
+        attention: null,
+        asking: null,
+        handedOff: false,
       },
     ],
     layout: { container: null, tabs: {} },
@@ -920,37 +935,127 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
   });
 }
 
+/** List changes of host instance `h1` at `seq`, removing session `remove`. */
+function indexChanges(seq: number, remove: string): string {
+  return JSON.stringify({
+    type: "index_changes",
+    generation: "h1",
+    seq,
+    projects: { upsert: [], remove: [] },
+    workspaces: { upsert: [], remove: [] },
+    sessions: { upsert: [], remove: [remove] },
+    layout: null,
+    preferences: null,
+  });
+}
+
+/** A layout of the chats with tabs `s1` and `s2`, `active` shown. */
+function tabs(active: string | null) {
+  return { container: "chats", tabs: { chats: { open: ["s1", "s2"], active } } };
+}
+
+/** List changes of host instance `h1` at `seq` that carry only a layout. */
+function layoutChange(seq: number, layout: unknown): string {
+  return JSON.stringify({ ...JSON.parse(indexChanges(seq, "s9")), sessions: { upsert: [], remove: [] }, layout });
+}
+
 describe("createAtriumClient: the list", () => {
-  it("subscribes to the list on every connection", async () => {
+  it("subscribes to the list on every connection, from where it was once it had a snapshot", async () => {
     const { latest, clock } = await connected();
-    const subscribed = () => latest().sent.filter((sent) => sent["type"] === "subscribe_index");
-    expect(subscribed()).toHaveLength(1);
+    /** The list subscriptions the latest socket sent. */
+    const subscribed = () =>
+      latest()
+        .sent.filter((sent) => sent["type"] === "subscribe_index")
+        .map(({ requestId: _id, traceparent: _trace, ...command }) => command);
+    expect(subscribed()).toStrictEqual([{ type: "subscribe_index" }]);
+    latest().receive(indexSnapshot(4));
+    latest().receive(indexChanges(5, "s9"));
 
     latest().closeWith(1006);
     clock.advance(250);
     latest().open();
     latest().receive(welcome());
 
-    expect(subscribed()).toHaveLength(1);
+    expect(subscribed()).toStrictEqual([{ type: "subscribe_index", cursor: { generation: "h1", seq: 5 } }]);
   });
 
-  it("is empty until the first snapshot, then holds the latest, ignoring older ones of the same host", async () => {
+  it("is empty until the first snapshot, takes every snapshot whole and applies changes", async () => {
     const { client, latest } = await connected();
     expect(client.index.getState()).toMatchObject({ ready: false, sessions: [], seq: 0 });
+    latest().receive(indexChanges(1, "s1"));
+    expect(client.index.getState()).toMatchObject({ ready: false, seq: 0 });
 
     latest().receive(indexSnapshot(2));
-    latest().receive(indexSnapshot(1, "h1", { sessions: [] }));
-    latest().receive(indexSnapshot(2, "h1", { sessions: [] }));
-    expect(client.index.getState()).toMatchObject({
-      ready: true,
-      generation: "h1",
-      seq: 2,
-      sessions: [{ sessionId: "s1" }],
+    expect(client.index.getState()).toMatchObject({ ready: true, seq: 2, sessions: [{ sessionId: "s1" }] });
+    latest().receive(indexChanges(3, "s1"));
+    expect(client.index.getState()).toMatchObject({ generation: "h1", seq: 3, sessions: [] });
+
+    latest().receive(indexSnapshot(1, "h2"));
+    expect(client.index.getState()).toMatchObject({ generation: "h2", seq: 1, sessions: [{ sessionId: "s1" }] });
+    expect(client.index.getState()).not.toHaveProperty("type");
+    expect(client.index.getState()).not.toHaveProperty("reason");
+  });
+
+  it("keeps the tab chosen while a layout the host made before reaches it, and takes the host's once answered", async () => {
+    const { client, latest } = await connected();
+    latest().receive(indexSnapshot(1, "h1", { layout: tabs("s1") }));
+
+    const opened = client.openSession("s2");
+    const closed = client.closeTab("s1");
+    latest().receive(layoutChange(2, tabs("s1")));
+    expect(client.index.getState().layout).toStrictEqual({
+      container: "chats",
+      tabs: { chats: { open: ["s2"], active: "s2" } },
+    });
+    latest().receive(layoutChange(3, tabs("s2")));
+    latest().answer("open_session");
+    await opened;
+    expect(client.index.getState().layout).toStrictEqual({
+      container: "chats",
+      tabs: { chats: { open: ["s2"], active: "s2" } },
     });
 
-    latest().receive(indexSnapshot(1, "h2", { sessions: [] }));
-    expect(client.index.getState()).toMatchObject({ generation: "h2", seq: 1, sessions: [] });
-    expect(client.index.getState()).not.toHaveProperty("type");
+    latest().fail("close_tab", "session_not_found");
+    await expect(closed).rejects.toStrictEqual(new CommandError("session_not_found"));
+    expect(client.index.getState().layout).toStrictEqual(tabs("s2"));
+    latest().receive(layoutChange(4, tabs("s1")));
+    expect(client.index.getState().layout).toStrictEqual(tabs("s1"));
+  });
+
+  it("keeps a container chosen before the first list arrives once the host answers", async () => {
+    const { client, latest } = await connected();
+
+    const selected = client.selectContainer("chats");
+    latest().answer("select_container");
+    await selected;
+
+    expect(client.index.getState().layout).toStrictEqual({ container: "chats", tabs: {} });
+  });
+
+  it("goes back to the host's layout when a command fails, not to one changes of another host left", async () => {
+    const { client, latest } = await connected();
+    latest().receive(indexSnapshot(1, "h1", { layout: tabs("s1") }));
+
+    const closed = client.closeTab("s1");
+    expect(client.index.getState().layout.tabs).toStrictEqual({ chats: { open: ["s2"], active: "s2" } });
+    latest().receive(JSON.stringify({ ...JSON.parse(layoutChange(2, tabs("s2"))), generation: "h2" }));
+    latest().fail("close_tab", "session_not_found");
+    await expect(closed).rejects.toStrictEqual(new CommandError("session_not_found"));
+
+    expect(client.index.getState().layout).toStrictEqual(tabs("s1"));
+  });
+
+  it("goes back to the host's layout when a command fails, though list changes without a layout came meanwhile", async () => {
+    const { client, latest } = await connected();
+    latest().receive(indexSnapshot(1, "h1", { layout: tabs("s1") }));
+
+    const closed = client.closeTab("s1");
+    latest().receive(indexChanges(2, "s9"));
+    expect(client.index.getState().layout.tabs).toStrictEqual({ chats: { open: ["s2"], active: "s2" } });
+    latest().fail("close_tab", "session_not_found");
+    await expect(closed).rejects.toStrictEqual(new CommandError("session_not_found"));
+
+    expect(client.index.getState().layout).toStrictEqual(tabs("s1"));
   });
 
   it("shows tab and preference changes at once, before the host confirms them", async () => {

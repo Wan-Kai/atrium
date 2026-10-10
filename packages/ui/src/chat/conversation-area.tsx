@@ -7,6 +7,7 @@ import {
 } from "@atrium/client";
 import type { DiffStat, SessionModel } from "@atrium/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { useDisplayMode } from "../state/display-mode";
@@ -425,6 +426,30 @@ export function ConversationArea({
     };
   }, [client, sessionId]);
 
+  /** The file of the session shown when it was handed to a terminal, else `null`. */
+  const handedOff = useStore(client.index, (index) => {
+    const shown = index.sessions.find((one) => one.sessionId === sessionId);
+    return shown?.handedOff === true ? (shown.file ?? "") : null;
+  });
+  // The host instance last connected to; a new one has lost every session's view.
+  const hostInstance = useStore(client.connection, (state) =>
+    state.status === "connected" ? state.hostInstanceId : null,
+  );
+  const lastHost = useRef<string | null>(null);
+  useEffect(() => {
+    if (hostInstance === null) return;
+    const before = lastHost.current;
+    lastHost.current = hostInstance;
+    if (before === null || before === hostInstance || sessionId === null) return;
+    // The host restarted: the session shown is opened and watched again at once, rather than on
+    // the next message (SPEC-0001, "对话记录的同步").
+    client.openSession(sessionId).catch((error: unknown) => setFailure(describeSendError(error)));
+    // Fire and forget: a lost connection resubscribes on reconnect.
+    client.watch([sessionId]).catch(() => undefined);
+    // Only when the host changes; a session shown later is opened by the effect above.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- see above.
+  }, [client, hostInstance]);
+
   /**
    * Picks the session a message goes to, creating or reopening one as needed.
    *
@@ -655,6 +680,11 @@ export function ConversationArea({
                 />
               }
             />
+          </>
+        ) : handedOff !== null ? (
+          <>
+            <HandedOff file={handedOff} onTakeBack={() => act(() => client.takeBack(sessionId))} />
+            {notice}
           </>
         ) : (
           <SessionArea

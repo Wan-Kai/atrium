@@ -14,7 +14,7 @@ Atrium 用的是 pi 的**稳定模型**：`pi --mode rpc` + JSONL 会话文件�
 
 - 路径：`~/.pi/agent/sessions/--<cwd，去掉开头分隔符，/ \ : 换成 ->--/<ISO 时间，: 和 . 换成 ->_<sessionId>.jsonl`。可用 `--session-dir`、`PI_CODING_AGENT_SESSION_DIR` 或设置 `sessionDir` 覆盖。
 - 会话 id：`uuidv7()`，或 `--session-id` 指定（`/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/`）。
-- **延迟写盘**：直到内存里出现 user 或 assistant 消息才用 `openSync(path, "wx")` 创建文件，之后每条 `appendFileSync`。所以 `get_state.sessionFile` 可能指向还不存在的文件；打开就关的会话不留文件；未写盘的会话不能 fork / clone。
+- **延迟写盘**：直到内存里出现 user 或 assistant 消息才用 `openSync(path, "wx")` 创建文件，之后每条 `appendFileSync`。写盘在 `AgentSession._handleAgentEvent` 里紧跟着把 `message_end` 发给监听者（RPC 模式由此输出事件行），同一个同步段里完成，所以宿主读到用户消息的 `message_end` 时文件已经在了（1.0.2 `agent-session.js`，2026-10-10 核实）。所以 `get_state.sessionFile` 可能指向还不存在的文件；打开就关的会话不留文件；未写盘的会话不能 fork / clone。
 - `--no-session` 用内存会话，不写盘（适合标题生成这类一次性调用）。
 
 **文件头**（第一行，不在树里）
@@ -154,6 +154,8 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 **退出**（2026-10-04 在 pi 1.0.2 上实测）：bash 工具的子进程用 `detached: true` 启动，各有自己的进程组，pi 记录它们的 pid。关闭 stdin（退出码 0）或 SIGTERM（143）时，pi 会先杀掉这些子进程再退出，约 0.3 秒。SIGKILL 时 pi 来不及清理，子进程被过继给 1 号进程继续运行，杀 pi 的进程组也够不到它们。所以强杀前要趁 pi 还活着按父进程关系找出后代，连同它们的进程组一起杀。
 
 **启动**：没有可用模型（没有凭据）时 RPC 模式**照常启动，不退出**（2026-10-10 在 1.1.0 上实测，原先记的"直接报错退出"不对）：`get_state` 的模型是 pi-agent-core 的占位模型（`provider`、`id`、`api` 都是 `unknown`，档位 `off`），`get_available_models` 为空，`prompt` 报错 "No API key found for the selected model."。模型目录在后台刷新，最多 15 秒。
+
+**一次性调用**（`src/modes/print-mode.ts`、`json-event.ts`、`main.ts`，2026-10-10 按 `4c6fb7c` 核实，自动生成标题用）：`pi --mode json -p --no-session` 先输出会话头一行，之后每个会话事件一行 JSON（形状和 RPC 的事件相同，`message_update` 去掉了累积的 `partial`）。标准输入不是终端时，pi 读完整个标准输入作为第一条消息（参数里的消息接在后面），所以对话内容可以不放进参数。助手消息的结果看 `message_end` 里 `role: "assistant"` 的 `stopReason`（`error` / `aborted` 时 `errorMessage` 是原文）；`text` 模式出错时退出码为 1。`--no-tools` 关掉所有工具，`--system-prompt` 换掉默认的编程提示词，`--model <服务商>/<模型>` 解析不出时 pi 直接退出。认证问题的原文常见 `No API key found for …`（没有凭据，后面附"Use /login …"）、`OAuth refresh failed for …`（OAuth 刷新失败）、服务商的 401 / `unauthorized` / `invalid_api_key`，部分服务商写"Run `/login …` to sign in again"。
 
 ## 4. 模型、认证（`packages/ai/src/types.ts`、`src/core/model-runtime.ts`、`src/core/auth-storage.ts`）
 

@@ -44,3 +44,10 @@ export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
 export { sessionModelOf } from "./catalog/models";
 export { toSlashCommand } from "./catalog/commands";
 export { findFd } from "./locate/fd";
+export {
+  ONESHOT_TIMEOUT_MS,
+  OneShotError,
+  type OneShotFailure,
+  type OneShotRequest,
+  runOneShot,
+} from "./oneshot/oneshot";

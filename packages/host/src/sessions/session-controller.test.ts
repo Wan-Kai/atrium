@@ -1,5 +1,12 @@
 import type { LogEntry, PiEvent, PiStats } from "@atrium/pi";
-import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
+import {
+  CommandError,
+  IDLE_CONTROL,
+  SNAPSHOT_TURNS,
+  type SessionEvent,
+  type SessionModel,
+  UNKNOWN_METRICS,
+} from "@atrium/protocol";
 import { FakeClock, ReplayRequestError, present, replayPi } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { fixtureEntries, readPiFixture } from "../../test/pi-fixtures";
@@ -436,6 +443,18 @@ describe("createSessionController on cases the fixtures do not show", () => {
     const { controller } = control(pi, { entries: [userEntry("u1", null, "earlier")], leafId: "u1" });
 
     expect(controller.snapshot()).toMatchObject({ seq: 0, items: [{ id: "s1:u1", user: { text: "earlier" } }] });
+  });
+
+  it("gives every item from the session's start, beyond what a snapshot holds", () => {
+    const { pi } = manualPi();
+    const entries = [
+      userEntry("u0", null, "message 0"),
+      ...Array.from({ length: SNAPSHOT_TURNS }, (_, n) => userEntry(`u${n + 1}`, `u${n}`, `message ${n + 1}`)),
+    ];
+    const { controller } = control(pi, { entries, leafId: `u${SNAPSHOT_TURNS}` });
+
+    expect(controller.snapshot().items).toHaveLength(SNAPSHOT_TURNS);
+    expect(controller.items()).toMatchObject(entries.map((_, n) => ({ kind: "turn", user: { text: `message ${n}` } })));
   });
 
   it("marks the turns an earlier host sent on its own", () => {
@@ -1206,6 +1225,31 @@ describe("createSessionController steering", () => {
   });
 });
 
+/**
+ * The same exit, counting how many times something started waiting on it.
+ *
+ * @remarks
+ * Whatever waits on a promise asks it for `then`; a wait left behind on a pi that lives on holds
+ * its command's context and trace until pi exits.
+ *
+ * @sideEffects none
+ * @param exited - pi's exit.
+ * @returns The counting exit, and the count so far.
+ */
+function countingWaits<T>(exited: Promise<T>): { readonly exited: Promise<T>; readonly waits: () => number } {
+  let waits = 0;
+  return {
+    exited: new Proxy(exited, {
+      get: (target, key) => {
+        if (key !== "then") return Reflect.get(target, key);
+        waits += 1;
+        return target.then.bind(target);
+      },
+    }),
+    waits: () => waits,
+  };
+}
+
 describe("createSessionController stopping", () => {
   it("pauses the queue, puts pi's steers back at its front, aborts, and confirms", async () => {
     const { pi, emit, sent, hold } = manualPi();
@@ -1228,6 +1272,61 @@ describe("createSessionController stopping", () => {
     emit({ type: "agent_settled" });
     await settle();
     expect(sent).toHaveLength(4);
+  });
+
+  it("leaves nothing waiting on pi's exit after a stop, however many runs a long-lived pi stops", async () => {
+    const { pi, emit } = manualPi();
+    const { exited, waits } = countingWaits(pi.exited);
+    const { controller } = control({ ...pi, exited });
+    /** Starts a run and stops it. */
+    const stopRun = async (requestId: string) => {
+      await controller.prompt(prompt(requestId, "go"));
+      emit({ type: "agent_start" });
+      expect(await controller.stop()).toStrictEqual({ confirmed: true });
+      emit({ type: "agent_settled" });
+      await settle();
+    };
+
+    await stopRun("q1");
+    const afterOne = waits();
+    await stopRun("q2");
+    await stopRun("q3");
+
+    expect(waits()).toBe(afterOne);
+  });
+
+  it("ends a stop once pi exits, when pi confirmed but never answers the clear", async () => {
+    const { pi, emit, crash } = manualPi();
+    const { controller } = control({ ...pi, clearQueue: () => new Promise(() => undefined) });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+
+    const stopping = controller.stop();
+    await settle();
+    expect(controller.snapshot().control.stopping).toBe(true);
+    crash();
+
+    expect(await stopping).toStrictEqual({ confirmed: true });
+    expect(controller.snapshot().control.stopping).toBe(false);
+  });
+
+  it("ends a stop once pi exits, when pi neither confirms nor answers the clear", async () => {
+    const { pi, emit, crash, holdAbort } = manualPi();
+    const { controller, clock } = control({ ...pi, clearQueue: () => new Promise(() => undefined) });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    holdAbort();
+
+    const stopping = controller.stop();
+    await settle();
+    clock.advance(2000);
+    await settle();
+    expect(controller.snapshot().control.stopping).toBe(true);
+    crash();
+
+    expect(await stopping).toStrictEqual({ confirmed: false });
+    await settle();
+    expect(controller.snapshot().control.stopping).toBe(false);
   });
 
   it("stays stopping while pi takes over two seconds, refusing messages, until pi confirms", async () => {

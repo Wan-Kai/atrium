@@ -19,7 +19,7 @@
 | 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | `apps/desktop/e2e/status-bar.spec.ts`（真实宿主和 pi 下回复后显示轮、步、token、上下文，悬停看分段，打开费用后新对话也显示）；组件与宿主见"状态栏（M1.8）" | 已覆盖 |
 | 10 | 在 Atrium 里回答 extension 的对话框 | `apps/desktop/e2e/run-control.spec.ts`（`/faux-confirm` 的卡片上作答）；见"运行控制（M1.6）" | 已覆盖 |
 | 11 | 默认只突出回复，可切换显示模式 | — | 待 M1.4 |
-| 12 | 会话在后台继续运行 | — | 待 M1.9 |
+| 12 | 会话在后台继续运行 | `apps/desktop/e2e/parallel.spec.ts`（三个会话同时运行，切走、断网时照常跑完，宿主重启后状态和对话记录正确）；宿主见"并行、同步与关注（M1.9）" | 已覆盖 |
 | 13 | 首次启动引导安装 pi、登录、添加项目 | — | 待 M1.10 |
 | 14 | 复制消息或回复 | — | 待 M1.4 |
 
@@ -149,7 +149,7 @@
 | 会话文件：真实文件的会话 id、工作目录、会话名（最新的 `session_info`，去空白，空的清除）、第一条带文字的提问；不是会话的文件、坏链接、目录、其他文件、缺的和锁住的目录都跳过；只按 LF 分行；跨块的大文件；文件只增长时只读新增部分，没变的不重读，变小或没变长却改过的从头读；写了一半的行和文件头等写完；文件没了忘掉，同一路径的新文件整个读；只清理扫描的那个目录；可中止；不留打开的文件；会话目录按 pi 的顺序、目录名按 pi 的规则 | `packages/pi/src/sessions/session-files.test.ts` | 已覆盖 |
 | 会话目录：只读已登记容器对应的目录并核对 `cwd`；Atrium 建的会话按记录的容器，容器不在了按目录；草稿在文件出现前列出，出现后不再是草稿；文件没了是 `missing`；丢弃草稿；归档（终端会话也记下）；每个对话目录都归"对话"，新对话不等扫描；同一会话多个文件取最新并记日志；pi 全放一个目录时也能分开；不知道目录时只列记录；只在变化时通知、扫描期间的请求合并；关闭后停止 | `packages/host/src/sessions/session-catalog.test.ts`；兜底标题：`prompt-line.test.ts` | 已覆盖 |
 | 布局：每个客户端分开；打开的标签按顺序、激活、切换容器；关掉激活的标签时右边的、再左边的接上；各客户端关掉某会话的标签；去掉消失的容器；只留最近的 10 个客户端 | `packages/host/src/sessions/layouts.test.ts`；客户端的即时更新：`packages/client/src/index-view.test.ts` | 已覆盖 |
-| 会话管理器：新建对话（自己的目录）和工作区会话都立刻启动 pi、记成草稿、打开成标签；pi 不可用时不留目录；打开终端会话用 `--session`、同时只启动一个、退出后在新 epoch 重启并给订阅者快照；目录没了、文件没了时报错不启动；重启后的草稿不启动，第一条消息时用 `--session-id`；没发过消息的草稿关掉最后一个标签时丢弃（对话的空目录一并删、有文件的留下），发过消息的保留；归档停掉 pi 并关掉各处标签；改名先启动 pi；项目移除时停掉其中的会话；运行状态进列表、运行结束重扫；插话记录读入和写回，读写失败只记日志 | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
+| 会话管理器：新建对话（自己的目录）和工作区会话都立刻启动 pi、记成草稿、打开成标签；pi 不可用时不留目录；打开终端会话用 `--session`、同时只启动一个、退出后在新 epoch 重启并给订阅者快照；目录没了、文件没了时报错不启动；重启后的草稿不启动，第一条消息时用 `--session-id`；没发过消息的草稿关掉最后一个标签时丢弃（对话的空目录一并删、有文件的留下），发过消息的保留；归档停掉 pi、关掉各处标签并丢掉 Controller（资源计数 `session.controller` 归零）；改名先启动 pi；项目移除时停掉其中的会话并丢掉它们的 Controller；运行状态进列表、运行结束重扫，草稿在 pi 报告第一轮时就重扫、运行中已能找到文件；插话记录读入和写回，读写失败只记日志 | `packages/host/src/sessions/session-manager.test.ts` | 已覆盖 |
 | 插话记录：存进 `turns/<会话 id>.json`，每个条目只记一次；不适合做文件名的 id 只放内存；损坏时重来；重建时按记录把工具结果之后的消息当新的一轮，没有记录时按位置推断 | `packages/host/src/store/turn-starts.test.ts`、`transcript/projection.test.ts`、`session-transcript.test.ts` | 已覆盖 |
 | 列表推送：订阅时马上给自己客户端的快照；一段时间内的变化合并成一份推给所有订阅者；断开后不再推；关闭时丢掉待推的 | `packages/host/src/sync/index-feed.test.ts`、`subscriptions.test.ts` | 已覆盖 |
 | 协议与路由：新命令、快照的每种取值和越界、新错误码；路由把布局类命令连同客户端交给会话层，列表命令交给索引命令 | `packages/protocol/src/envelope.test.ts`、`packages/host/src/server/router.test.ts` | 已覆盖 |
@@ -170,7 +170,7 @@
 | pi 契约（1.1.0）：运行中插话在 `queue_update` 里列出，工具这一批跑完后送达再清空；空闲时插话只进 pi 的队列、不开始运行 | `packages/pi/src/contract/steer.pi.test.ts` | 已覆盖 |
 | 排队：运行或压缩期间的消息进宿主排队，运行结束、`handled` 后、压缩结束后逐条发出；编辑、删除、清空；不认识的项应答 `queue_item_not_found`；出队的那条被拒绝时先放回最前、后面的不抢先：pi 忙就等它自己的运行结束，pi 退出就交给重启后由排队发出（只发一次），其他拒绝暂停 | `packages/host/src/sessions/session-controller.test.ts` "queueing messages" | 已覆盖 |
 | 插话：运行中交给 pi，发出前先记下，`queue_update` 先到也对得上，送达后应答才到也不残留；按 `queue_update` 的文字确认送达；没有运行时（空闲、消息发送中）按消息走、该排队就排队；被扩展处理时去掉待发副本；排队项改为插话，失败时放回原处 | session-controller.test.ts "steering" | 已覆盖 |
-| 停止：暂停排队，pi 退回的插话放回最前，`abort`；2 秒内确认即结束，否则保持"停止中"、拒收消息和继续发送，直到 pi 确认或退出；空闲时直接确认；pi 已应答、`agent_start` 未到时也中止；`abort` 失败不算确认，等到 pi 退出；停止后空闲时新消息直接发出，排队仍暂停 | session-controller.test.ts "stopping" | 已覆盖 |
+| 停止：暂停排队，pi 退回的插话放回最前，`abort`；2 秒内确认即结束，否则保持"停止中"、拒收消息和继续发送，直到 pi 确认或退出；空闲时直接确认；pi 已应答、`agent_start` 未到时也中止；`abort` 失败不算确认，等到 pi 退出；停止后空闲时新消息直接发出，排队仍暂停；反复停止同一个 pi 的运行，不在它的退出上留下等待 | session-controller.test.ts "stopping" | 已覆盖 |
 | 对话框：保留到回答，只收第一个、类型要对得上；到期移除；pi 退出时作废；结束时在对话记录里留一行（回答、取消、超时、作废），运行中结束的跟在这一轮后面、重建后仍在；通知截断到 4 KB 写日志，带原长度 | session-controller.test.ts "answering dialogs" | 已覆盖 |
 | 崩溃：重启 pi（新 epoch 快照 + "进程已自动重启"提示），pi 没收下的消息重发，收下了就补发"系统自动发出"的续做；未送达的插话回到排队；连续 3 次失败后出错；运行正常结束后计数归零；宿主要求的停止不重启；pi 应答后、`agent_start` 前崩溃也重发；重发时 pi 又走了，被打断的那条留给下一次重启；停止后崩溃不发出，没收下的那条进暂停的排队；重启中消息排队、停止让它和被打断的那条留在暂停的排队；另一处启动换上的 pi 直接用；停止的运行也让计数归零；"重试"续做失败的一轮、或重发重启用尽时丢失的消息（收下了就补发续做），启动失败时保留失败状态，启动期间算作重启中、再点重试不起作用、关闭会话停掉新 pi；续做的那一轮记为自动发出 | session-controller.test.ts "after pi crashes"、"retrying"；`session-manager.test.ts`（崩溃后用会话文件重启、用尽后列为出错；继续发送时启动放弃重启的 pi；重启中发消息或打开会话不另起 pi；重启中归档或关闭宿主不再启动；启动时开启自动重试） | 已覆盖 |
 | 对话记录：自动发出的标记当场和重建后都在，记进 `turns/`；重启提示在重建后回到它跟着的那一项后面；重试步骤带 pi 的上限，重建后保留 | `packages/host/src/transcript/session-transcript.test.ts`、`store/turn-starts.test.ts` | 已覆盖 |
@@ -226,6 +226,28 @@
 | 客户端：快照和 `metrics_updated` 的指标、`statusBar` 整份替换 | `packages/client/src/session-view.test.ts` "status bar figures"、`index-view.test.ts` | 已覆盖 |
 | 界面：数字格式（K、M、千分位、秒、tok/s、≈ $）、缓存命中、上下文比例与 70%/85% 变色、分段（不小于 0）、分组注册表与默认、只记与默认不同的选择；状态栏默认三组、按选择显示、未知显示"—"、悬停卡片（会话统计、Token 用量含推理与当前分支、上下文分段、没有窗口和刚压缩、费用）、调节面板（预览、开关、恢复默认、Esc 和点外面关闭、Esc 不传给输入框）；对话区里显示会话的指标、空状态不显示、选择发给宿主 | `packages/ui/src/chat/status-figures.test.ts`、`status-bar.browser.test.tsx`、`chat.browser.test.tsx` "status bar" | 已覆盖 |
 
+## 并行、同步与关注（M1.9）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 列表同步 · 宿主：整份列表按 id 比出变化，每批变化取下一个 `seq`、各客户端共用；30 毫秒内的变化合成一批；布局只发给自己、不占 `seq`；带游标订阅时补发游标之后的变化（布局和偏好整份），别的宿主、早于记住的删除、比游标落后超过 200 项、游标超前时发快照并写明原因；断开的连接不再发，关闭后不再推 | `packages/host/src/sync/index-feed.test.ts`、`sessions/index-commands.test.ts` | 已覆盖 |
+| 列表同步 · 客户端：快照整份收下，变化只在同一 generation 上应用（原位替换、新的放末尾）；重连时带上自己的游标订阅 | `packages/client/src/index-view.test.ts`、`atrium-client.test.ts` | 已覆盖 |
+| 先读到自己的写：宿主应答一个连接的命令前先把等着发给它的列表变化发出去（解析不了的消息不算）；客户端改布局的命令（打开、关标签、选容器）没应答前保留自己选的布局，全部应答后换成宿主最新的布局，失败的命令也就此回退 | `sync/index-feed.test.ts` "flushed"、`sessions/index-commands.test.ts` "IndexCommands.answering"、`server/router.test.ts` "before answering any of its commands"、`atrium-client.test.ts` "keeps the tab chosen while a layout the host made before reaches it" | 已覆盖 |
+| 关注 · 宿主：运行失败（轮次自己失败、有错误原文）标"出错"，像凭据问题的标"待授权"；崩溃重启用尽也标；一次运行只标一次；下次运行开始时去掉；看过只清"出错"，标记写进索引、重启后还在；等待回答的时间在对话框出现时记、没有对话框或 pi 退出时去掉 | `session-manager.test.ts` "SessionManager attention (M1.9)"、`session-catalog.test.ts`（标记）、`server/router.test.ts` | 已覆盖 |
+| 关注 · 界面：状态优先级（待回答 > 待授权 > 出错 > 运行中）和图标；工作区状态不算归档的；收件箱跨项目汇总、按优先级再按时间排、最多显示 5 条可展开；显示出错的会话时（窗口有焦点或获得焦点）发 `clear_attention` | `packages/ui/src/sidebar/status.test.ts`、`workbench.browser.test.tsx` "status"、"inbox"、"attention and hand-off" | 已覆盖 |
+| 交给终端 · 宿主：草稿、忙（运行、提交、停止、重启、排队里还有消息）、不认识的会话被拒；标记写进索引后停掉 pi、应答文件；之后打开不启动 pi，会启动或写 pi 的命令应答 `session_handed_off`；重启后标记还在；`take_back` 去掉标记并在新 epoch 启动 pi | `session-manager.test.ts` "SessionManager handing off (M1.9)"（含排队、消息在途、重启中）、`server/router.test.ts` | 已覆盖 |
+| 交给终端 · 客户端与界面：`hand_off`、`take_back`、`clear_attention` 命令；菜单项（草稿、运行中置灰），复制 `pi --session '<文件>'`（单引号转义），失败提示；交接后的面板（再复制、"在 Atrium 里继续"） | `atrium-client.test.ts`、`packages/ui/src/tabs/hand-off.test.ts`、`workbench.browser.test.tsx` "attention and hand-off" | 已覆盖 |
+| 宿主重启后（`hostInstanceId` 变了）界面重新打开、重新订阅正在显示的会话 | `chat.browser.test.tsx` "ConversationArea after the host restarted" | 已覆盖 |
+| OneShotPi：`--mode json -p --no-session --no-tools --thinking off --model … --system-prompt …`，内容从标准输入给；取最后一条回复的文字；回复出错或中止、退出码非 0、没有回复或没有文字、超时（停掉整棵进程树，读不到进程树时只杀 pi）、中止都算失败，只记原因；中止在先时不启动；契约：真实 pi 的 print 模式 | `packages/pi/src/oneshot/oneshot.test.ts`、`oneshot.pi.test.ts` | 已覆盖 |
+| faux 模型在 `-p` 下用脚本的 `title` 回答，没写时回错误，不写 `pi.pid` | `packages/testkit/src/faux/faux.pi.test.ts` "print mode" | 已覆盖 |
+| 自动标题：输入（用户消息最多 1200、总共 2000，按字符截）、整理（第一行、成对引号、末尾标点、50 个字符、整理后为空算失败）、第一轮的文字和回复的最后一段；一个会话同时只生成一个，失败只记原因、下次运行结束再试，写不进去只记原因，关闭时取消；宿主：运行结束重扫后、会话已写出文件、没名字、有模型时在会话目录用会话的模型调用，经会话自己的 pi 写回；生成期间有了名字或交给终端时丢弃；关闭时停掉一次性的 pi；控制器给出从头开始的全部条目 | `packages/host/src/sessions/titles.test.ts`、`session-manager.test.ts` "SessionManager titles (M1.9)"、`session-controller.test.ts` "beyond what a snapshot holds" | 已覆盖 |
+| 端到端：三个会话并行，切换标签、断网重连、宿主重启后状态和对话记录正确；后台出错进收件箱，点开后切到它、收件箱清掉、标签上的图标还在；交给终端（复制的命令和面板上的一样，重启后面板还在，接回后能继续对话）；第一次运行结束后用模型起名，标签和历史里都显示 | `apps/desktop/e2e/parallel.spec.ts`、`inbox.spec.ts`、`hand-off.spec.ts`、`chat.spec.ts` "names a chat with the model" | 已覆盖 |
+| 泄漏 · 宿主：真实宿主、真实客户端和脚本 pi 下，新建再关掉对话、订阅再退订运行中的会话、订阅着列表和运行中的会话时连接直接断掉、发消息再停止，各 200 次后资源计数（含新加的会话订阅数 `sync.subscription`）、Node 的定时器、管道、套接字、子进程都回到基线；崩溃重启 200 次见会话控制器的泄漏测试 | `packages/host/src/sessions.leak.test.ts`、`sessions/session-controller.leak.test.ts`、`sync/subscriptions.test.ts` | 已覆盖 |
+| 泄漏 · 界面：在三个带 Markdown 和代码块回复的会话之间来回切换 15 轮，不留脱离的 DOM | `apps/desktop/e2e/sessions.leak.spec.ts` | 已覆盖 |
+| 浸泡：真实宿主和 faux pi，三个对话每轮同时运行，一个中途停止、一个每轮被杀掉 pi（按精确 pid）后自动重启续做、一个跑完，每轮运行中断开连接再换新连接，每 30 轮归档换新；每轮核对三者的结果，结束时资源计数、子进程回到基线，每轮堆增长 < 1KB | `packages/host/test/soak/sessions.soak.test.ts` | 已覆盖 |
+| 变异测试补测（2026-10-10，M1.9）· OneShotPi：最后一行没有换行也读到，跳过不是助手 `message_end` 的记录（缺 `message`、为 null 或字符串、用户消息、`message_update`），没有内容的回复算没有回复；stderr 再多也读掉；pi 没读内容就退出算 `exited`；pi 起的进程攥着管道时 pi 退出 1 秒后照样应答；结束后不留定时器、不再理会中止；错误名。列表同步：删除也算进变化数，变化数正好到上限时仍发变化；`flush` 只发给那个连接，没有待发的变化时不重建列表；项目、工作区按 id 区分。客户端：列表到达前选的容器在应答后保留；失败的命令回到宿主的布局，不被别的宿主的变化带偏。停止：pi 不回应清队列时，pi 退出后停止照样结束（确认了的和没确认的）；长期存在的 pi 被停 200 次后不留住任何一次停止的上下文（泄漏测试）。会话目录：丢弃草稿只丢那一个，工作区不在了的草稿不归到对话下。标题：只有一个引号不算标题，引号里的空白去掉，标题要求的原文。收件箱：标为已看的"待授权"仍在收件箱。`windowFocused` 通知工作区 | `oneshot.test.ts` "without a line break"、"however much"、"without reading"、"keeps its pipes open"、"leaves the signal alone"、"OneShotError"；`index-feed.test.ts` "counts removals"、"only the connection flushed"；`index-view.test.ts` "by their ids"；`atrium-client.test.ts` "before the first list"、"not to one changes of another host left"；`session-controller.test.ts` "ends a stop once pi exits"；`session-controller.leak.test.ts` "context of each of 200 stops"；`session-catalog.test.ts` "and only it"、"once its workspace is gone"；`titles.test.ts`；`status.test.ts`；`index-commands.test.ts` "windowFocused" | 已覆盖 |
+| 三方审查后补（2026-10-10，M1.9）· 交接：交接停 pi 的途中拿回来，等交接做完再起新 pi；pi 应答 `started`、运行还没开始时不让交接；菜单在消息发送中、运行中、停止中、重启中、宿主排队里有消息时置灰。归档：pi 第一次启动途中归档，启动完就停掉，不留控制器和进程。标题：改名后、重扫找到名字之前生成好的标题丢弃。关注：同一次运行里前一轮失败、最后完成或被停止的运行不标记；`asking` 是还没回答的对话框里最早那个出现的时间。列表同步：订阅者上次收到的序号早于已经忘掉的删除时推快照，正好在边界上照常推增量；宿主推送前一批失败时命令照样应答并记日志；客户端：布局命令失败时回到宿主发来的布局，不被期间不带布局的增量带偏。宿主重启而页面一直开着：页面在新宿主上立刻重新打开显示的对话，之后照常对话 | `session-manager.test.ts` "only once its hand-off has stopped pi"、"before the run begins"、"archived while it started"、"renamed meanwhile, though its file"、"after one of its turns failed"、"oldest dialog still unanswered"；`workbench.browser.test.tsx` "cannot hand off a session with"；`index-feed.test.ts` "removed more than it keeps"；`router.test.ts` "though sending the list changes"；`atrium-client.test.ts` "without a layout came meanwhile"；e2e `parallel.spec.ts` "opens the chat shown again when its host restarts under a page that stays" | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |
@@ -246,7 +268,7 @@
 | pi 的环境里名字像凭据的变量值加入脱敏列表，pi 在 stderr 回显也不进日志 | redact.test.ts "picks the values of credential-like variables…"；tools.host.test.ts "scrubs credentials from the tool environment…"；try-pi.test.ts "keeps credentials from the environment out of its log…" | 已覆盖 |
 | pi 从 `auth.json` 读的 Key 被 pi 回显时不进日志（已知缺口，见 security.md"凭据与日志"） | — | 待 M1.10 |
 | `@` 搜索不返回工作区之外的文件：`~/`、绝对路径、`..` 找不到；像 fd 选项的查询词（`--search-path=…`）只当文字；工作区里的符号链接照 pi 跟进去（2026-10-10 定） | `packages/host/src/files/file-search.host.test.ts` "finds nothing outside the working directory"、"takes a query that looks like an fd option as text…"；`fd-query.test.ts` "scopeOf" | 已覆盖 |
-| 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
+| 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限；经符号链接给的目录按真实路径返回（pi 按真实路径给会话目录命名） | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
 | 索引文件 0600、`turns/` 目录 0700；插话记录的文件名只用 pi 形状的会话 id | `packages/host/src/store/index-file.test.ts`、`turn-starts.test.ts` | 已覆盖 |
 
 ## 日志与链路追踪（observability.md）
@@ -270,5 +292,5 @@
 | 定时器计数与释放 | `packages/host/src/platform/clock.test.ts` | 已覆盖 |
 | 外观来回切换不留下脱离的 DOM | `apps/desktop/e2e/appearance.leak.spec.ts`。这个测试看不到事件监听器泄漏；外观监听器的移除由 appearance.browser.test.ts 断言 | 已覆盖 |
 | 启动到连上宿主 ≤ 2 秒 | `apps/desktop/e2e/startup.perf.spec.ts` | 已覆盖 |
-| 长时间运行：资源回到基线，内存增长每次 < 1KB | `packages/host/test/soak/connections.soak.test.ts` | 已覆盖 |
+| 长时间运行：资源回到基线，内存增长每次 < 1KB | `packages/host/test/soak/connections.soak.test.ts`、`sessions.soak.test.ts` | 已覆盖 |
 | 热路径基准 | `packages/protocol/src/trace.bench.ts`（traceparent 解析）；`packages/pi/src/process/jsonl.bench.ts`（分帧：大量小记录、16 MiB 单行，后者能抓住每块重扫整个缓冲的退化） | 已覆盖 |
