@@ -1,10 +1,10 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreBinaries": ["pi"],
+  "ignoreBinaries": ["pi", "mkfifo"],
   "workspaces": {
     ".": {
       "entry": ["scripts/*.mjs", "scripts/lint/*.mjs", "vitest.mutation.config.ts"],
-      "ignoreDependencies": ["@stryker-mutator/command-runner"]
+      "ignoreDependencies": ["@stryker-mutator/core", "@stryker-mutator/command-runner"]
     },
     "packages/host": {
       "entry": ["src/entry.ts", "test/**/*.ts", "src/dev/try-pi.ts"]

@@ -4,9 +4,19 @@
  * @remarks
  * A mutant that survives means no test noticed a deliberate bug. The run fails below an 80%
  * score. Incremental mode reuses earlier results for unchanged code; `pnpm test:mutation --force`
- * re-runs everything, which each milestone requires before it is done. Every mutant runs the
- * whole Node suite, because the command runner has no per-test coverage.
+ * re-runs everything, as the nightly run does (testing.md, "什么时候跑"). Every mutant runs the
+ * Node tests of its group (`mutation-groups.mjs`), because the command runner has no per-test
+ * coverage; `pnpm test:mutation` runs the groups one after another, each with its own incremental
+ * file.
  */
+import { MUTATION_GROUPS } from "./mutation-groups.mjs";
+
+// Without a group, as when a tool loads this file or Stryker runs alone, every file runs every test.
+const name = process.env["ATRIUM_MUTATION_GROUP"] ?? "all";
+const group = Object.entries(MUTATION_GROUPS).find(([key]) => key === name)?.[1] ?? {
+  mutate: Object.values(MUTATION_GROUPS).flatMap((one) => one.mutate),
+};
+
 export default {
   // The command runner activates each mutant through the `__STRYKER_ACTIVE_MUTANT__` variable.
   // Stryker's Vitest plugin activates mutants through Vitest's provide/inject, which no longer
@@ -25,43 +35,12 @@ export default {
   // counts as caught: 4 of 5 sampled timeouts of M1.6's run passed every test. A mutant that truly
   // hangs a test still times out, a little later.
   timeoutMS: 30_000,
-  mutate: [
-    "packages/protocol/src/**/*.ts",
-    "packages/client/src/**/*.ts",
-    "packages/host/src/platform/{redact,resources,clock,login-shell,git,errors}.ts",
-    "packages/host/src/server/*.ts",
-    "packages/host/src/store/*.ts",
-    "packages/host/src/projects/*.ts",
-    "packages/host/src/workspaces/*.ts",
-    "packages/host/src/sessions/{session-controller,session-catalog,layouts,prompt-line,index-commands,model-lister}.ts",
-    "packages/host/src/sync/*.ts",
-    "packages/host/src/transcript/*.ts",
-    "packages/pi/src/env/*.ts",
-    "packages/pi/src/events/*.ts",
-    "packages/pi/src/history/*.ts",
-    "packages/pi/src/sessions/*.ts",
-    "packages/pi/src/locate/{version,locate,inspect,fd}.ts",
-    "packages/pi/src/process/*.ts",
-    "packages/pi/src/catalog/*.ts",
-    "packages/testkit/src/clock.ts",
-    "packages/ui/src/chat/turn-layout.ts",
-    "packages/ui/src/chat/model-choice.ts",
-    "packages/ui/src/chat/composer-text.ts",
-    "packages/ui/src/chat/changes.ts",
-    "packages/ui/src/state/drafts.ts",
-    "packages/host/src/files/*.ts",
-    "packages/host/src/changes/*.ts",
-    "packages/ui/src/sidebar/names.ts",
-    "!**/*.test.ts",
-    "!**/*.bench.ts",
-    "!**/*.d.ts",
-    "!**/index.ts",
-  ],
+  mutate: [...group.mutate, "!**/*.test.ts", "!**/*.bench.ts", "!**/*.d.ts", "!**/index.ts"],
   coverageAnalysis: "off",
   incremental: true,
-  incrementalFile: "reports/stryker-incremental.json",
+  incrementalFile: `reports/stryker-incremental-${name}.json`,
   reporters: ["clear-text", "progress", "html"],
-  htmlReporter: { fileName: "reports/mutation/index.html" },
+  htmlReporter: { fileName: `reports/mutation/${name}.html` },
   thresholds: { high: 90, low: 80, break: 80 },
   tempDirName: ".stryker-tmp",
   // Stryker rewrites tsconfig paths in its sandbox through the TypeScript JS API, which TypeScript 7

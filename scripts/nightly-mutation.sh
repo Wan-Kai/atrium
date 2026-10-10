@@ -46,23 +46,27 @@ started="$(date '+%F %T')"
 status=0
 caffeinate -i pnpm test:mutation --force > "$log" 2>&1 || status=$?
 
-score="$(grep -a 'All files' "$log" | tail -1 | tr -s ' ')"
+scores="$(grep -a -e '=== mutation group' -e 'All files' "$log" | tr -s ' ')"
 {
   echo "main $commit"
   echo "started $started, ended $(date '+%F %T'), exit $status"
-  echo "${score:-no score: see $log}"
+  echo "${scores:-no score: see $log}"
   echo
   echo "Survived and timed out (each timeout must be explained):"
   node -e '
-    const report = JSON.parse(require("node:fs").readFileSync("reports/stryker-incremental.json", "utf8"));
+    const fs = require("node:fs");
     let found = 0;
-    for (const [file, { mutants }] of Object.entries(report.files)) {
-      for (const m of mutants) {
-        if (m.status !== "Survived" && m.status !== "Timeout") continue;
-        const at = m.location.start;
-        const to = String(m.replacement ?? "").replace(/\s+/g, " ").slice(0, 80);
-        console.log(`${m.status} ${file}:${at.line}:${at.column} ${m.mutatorName} -> ${to}`);
-        found += 1;
+    // One incremental file a group (testing.md, "每个变异只跑本组的测试").
+    for (const name of fs.readdirSync("reports").filter((one) => /^stryker-incremental-.+\.json$/.test(one))) {
+      const report = JSON.parse(fs.readFileSync(`reports/${name}`, "utf8"));
+      for (const [file, { mutants }] of Object.entries(report.files)) {
+        for (const m of mutants) {
+          if (m.status !== "Survived" && m.status !== "Timeout") continue;
+          const at = m.location.start;
+          const to = String(m.replacement ?? "").replace(/\s+/g, " ").slice(0, 80);
+          console.log(`${m.status} ${file}:${at.line}:${at.column} ${m.mutatorName} -> ${to}`);
+          found += 1;
+        }
       }
     }
     if (found === 0) console.log("none");

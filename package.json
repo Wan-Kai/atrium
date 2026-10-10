@@ -20,7 +20,7 @@
     "test:e2e": "pnpm build && pnpm --filter @atrium/desktop test:e2e --grep-invert \"@leak|@perf\"",
     "test:stress": "node scripts/stress.mjs",
     "test:soak": "vitest run --project soak",
-    "test:mutation": "stryker run",
+    "test:mutation": "node scripts/mutation.mjs",
     "mutation:nightly:install": "sh scripts/install-nightly-mutation.sh",
     "bench": "vitest bench --run",
     "trace": "node scripts/trace.mjs",
