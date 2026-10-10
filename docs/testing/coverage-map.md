@@ -241,7 +241,8 @@
 | faux 模型在 `-p` 下用脚本的 `title` 回答，没写时回错误，不写 `pi.pid` | `packages/testkit/src/faux/faux.pi.test.ts` "print mode" | 已覆盖 |
 | 自动标题：输入（用户消息最多 1200、总共 2000，按字符截）、整理（第一行、成对引号、末尾标点、50 个字符、整理后为空算失败）、第一轮的文字和回复的最后一段；一个会话同时只生成一个，失败只记原因、下次运行结束再试，写不进去只记原因，关闭时取消；宿主：运行结束重扫后、会话已写出文件、没名字、有模型时在会话目录用会话的模型调用，经会话自己的 pi 写回；生成期间有了名字或交给终端时丢弃；关闭时停掉一次性的 pi；控制器给出从头开始的全部条目 | `packages/host/src/sessions/titles.test.ts`、`session-manager.test.ts` "SessionManager titles (M1.9)"、`session-controller.test.ts` "beyond what a snapshot holds" | 已覆盖 |
 | 端到端：三个会话并行，切换标签、断网重连、宿主重启后状态和对话记录正确；收件箱、交给终端、自动标题 | — | 待 M1.9 |
-| 泄漏：打开关闭会话、订阅退订、断连、停止、崩溃重启各 200 次；切换会话不留脱离的 DOM；30 分钟浸泡 | — | 待 M1.9 |
+| 泄漏 · 宿主：真实宿主、真实客户端和脚本 pi 下，新建再关掉对话、订阅再退订运行中的会话、订阅着列表和运行中的会话时连接直接断掉、发消息再停止，各 200 次后资源计数（含新加的会话订阅数 `sync.subscription`）、Node 的定时器、管道、套接字、子进程都回到基线；崩溃重启 200 次见会话控制器的泄漏测试 | `packages/host/src/sessions.leak.test.ts`、`sessions/session-controller.leak.test.ts`、`sync/subscriptions.test.ts` | 已覆盖 |
+| 泄漏 · 界面：切换会话不留脱离的 DOM；30 分钟浸泡 | — | 待 M1.9 |
 
 ## 安全（security.md）
 

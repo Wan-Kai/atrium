@@ -19,8 +19,8 @@ function twoConnections() {
 }
 
 describe("SubscriptionRegistry", () => {
-  it("replaces a connection's subscriptions and reports which sessions are new to it", () => {
-    const { registry } = twoConnections();
+  it("replaces a connection's subscriptions, counting each, and reports which sessions are new to it", () => {
+    const { registry, resources } = twoConnections();
 
     expect(registry.subscribe("a", ["s1", "s2"])).toStrictEqual(["s1", "s2"]);
     expect(registry.subscribe("a", ["s2", "s3", "s3"])).toStrictEqual(["s3"]);
@@ -29,6 +29,9 @@ describe("SubscriptionRegistry", () => {
     expect(registry.viewers("s1")).toStrictEqual([]);
     expect(registry.viewers("s2")).toStrictEqual(["a", "b"]);
     expect(registry.viewers("s3")).toStrictEqual(["a"]);
+    expect(resources.snapshot()["sync.subscription"]).toBe(3);
+    registry.subscribe("a", []);
+    expect(resources.snapshot()["sync.subscription"]).toBe(1);
   });
 
   it("delivers a session's events only to its viewers, and a snapshot only where it is sent", () => {
@@ -49,12 +52,12 @@ describe("SubscriptionRegistry", () => {
   it("forgets a connection and its subscriptions when it disconnects, releasing its count once", () => {
     const { registry, received, resources } = twoConnections();
     registry.subscribe("a", ["s1"]);
-    expect(resources.snapshot()).toStrictEqual({ "sync.connection": 2 });
+    expect(resources.snapshot()).toStrictEqual({ "sync.connection": 2, "sync.subscription": 1 });
 
     registry.disconnect("a");
     registry.disconnect("a");
     registry.disconnect("never-connected");
-    expect(resources.snapshot()).toStrictEqual({ "sync.connection": 1 });
+    expect(resources.snapshot()).toStrictEqual({ "sync.connection": 1, "sync.subscription": 0 });
     registry.publish(eventOf("s1", 1));
     registry.sendTo("a", eventOf("s1", 2));
 
