@@ -58,6 +58,7 @@ async function place() {
  * @param location - Where pi keeps sessions, when a test holds back the first scan.
  * @param models - The model new sessions start with and where choices go, if a test needs them.
  * @param files - The file search behind `@`, if a test needs it.
+ * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @returns The manager and what tests look at.
  */
 async function manage(
@@ -67,6 +68,7 @@ async function manage(
   location?: Promise<SessionsLocation | null>,
   models?: Parameters<typeof createSessionManager>[0]["models"],
   files?: Parameters<typeof createSessionManager>[0]["files"],
+  titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -119,6 +121,7 @@ async function manage(
     ...(turnStarts === undefined ? {} : { turnStarts }),
     ...(models === undefined ? {} : { models }),
     ...(files === undefined ? {} : { files }),
+    ...(titleModel === undefined ? {} : { titleModel }),
   });
   cleanups.push(
     () => manager.close(),
@@ -1315,12 +1318,14 @@ function failingTurn(error: string): readonly object[] {
  * @param turns - What pi prints for each prompt.
  * @param rules - More of pi's answers.
  * @param more - More of pi's behavior.
+ * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @returns The manager and what tests look at.
  */
 async function opened(
   turns: readonly (readonly object[])[],
   rules: Record<string, object> = {},
   more: Omit<ScriptedPiBehavior, "rules"> = {},
+  titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
 ) {
   const at = await place();
   const file = await terminalSession(at, "pi-session-1", at.workspace);
@@ -1335,6 +1340,11 @@ async function opened(
       },
     },
     at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    titleModel,
   );
   await managed.catalog.scan();
   await managed.manager.openSession("client-1", "pi-session-1");
@@ -1712,17 +1722,24 @@ function titleReply(text: string): object {
  * @sideEffects Writes the session's file; starts its pi.
  * @param title - The model's answer.
  * @param rules - More of pi's answers.
+ * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @returns The manager, what tests look at, what the one-shot pi saw and how to release it.
  */
-async function titled(title: string, rules: Record<string, object> = NAMEABLE) {
+async function titled(
+  title: string,
+  rules: Record<string, object> = NAMEABLE,
+  titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
+) {
   const gates = await createTempDir("titles");
   cleanups.push(gates.cleanup);
   const seenAt = join(gates.path, "seen.json");
   const gate = join(gates.path, "release.flag");
-  const managed = await opened([turn], rules, {
-    receivedToStderr: true,
-    print: { lines: [titleReply(title)], recordTo: seenAt, waitFor: gate },
-  });
+  const managed = await opened(
+    [turn],
+    rules,
+    { receivedToStderr: true, print: { lines: [titleReply(title)], recordTo: seenAt, waitFor: gate } },
+    titleModel,
+  );
   return {
     ...managed,
     /** What the one-shot pi was started with, once it runs. */
@@ -1757,6 +1774,22 @@ describe("SessionManager titles (M1.9)", () => {
       stdin: "User:\nping\n\nAssistant:\npong",
     });
     expect(records.filter((record) => record["msg"] === "session title not made")).toStrictEqual([]);
+  });
+
+  it("asks on the title model chosen when pi can use it in the session's directory", async () => {
+    const asks: string[] = [];
+    const { run, seen, release, names, at } = await titled("Ping", NAMEABLE, async (cwd) => {
+      asks.push(cwd);
+      return { providerId: "openai", modelId: "gpt-5-mini" };
+    });
+
+    await run();
+    const asked = await seen();
+    await release();
+    await vi.waitFor(() => expect(names()).toStrictEqual(["Ping"]));
+
+    expect(asked).toMatchObject({ argv: expect.arrayContaining(["--model", "openai/gpt-5-mini"]) });
+    expect(asks).toStrictEqual([at.workspace]);
   });
 
   it("asks for no title for a session pi reports no model for", async () => {

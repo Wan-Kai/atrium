@@ -66,17 +66,19 @@ function secure(url: string): boolean {
  * client that started it opens the address (SPEC-0001, "首次启动 · 接口"). An address or device code
  * page that is not `https` is never shown: the login is cancelled and ends failed. The log has the
  * provider, the method and the outcome, never the key, the addresses, the questions or pi's words
- * (security.md, "凭据与日志").
+ * (security.md, "凭据与日志"). A login that ends signed in, and a logout that removes the
+ * credential, call `credentialsChanged`, as the models pi can use may have changed.
  *
  * @sideEffects none until asked; then runs the login program and broadcasts.
- * @param options - Where the tools come from, the logins, how to reach every connection, how to
- * make a login id, and the logger.
+ * @param options - Where the tools come from, the logins, how to reach every connection, what to do
+ * once pi's credentials changed, how to make a login id, and the logger.
  * @returns The service.
  */
 export function createLoginService(options: {
   readonly toolbox: Pick<Toolbox, "current">;
   readonly logins: Pick<Logins, "start" | "logout">;
   readonly broadcast: (event: LoginUpdatedEvent) => void;
+  readonly credentialsChanged: () => void;
   readonly newId: () => string;
   readonly logger: Logger;
 }): LoginService {
@@ -186,6 +188,7 @@ export function createLoginService(options: {
     if (current === login) current = null;
     const { providerId, method } = login.state;
     options.logger.info({ providerId, method, state, reason: error?.reason ?? null }, "login finished");
+    if (state === "ok") options.credentialsChanged();
     publish(login, { state, questions: [], error });
   }
 
@@ -280,6 +283,7 @@ export function createLoginService(options: {
       }
       if (!done) throw new CommandError("login_unavailable");
       options.logger.info({ providerId }, "logged out");
+      options.credentialsChanged();
     },
     async close() {
       closed = true;

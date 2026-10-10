@@ -32,6 +32,7 @@ async function service(scenario: string | null): Promise<{
   events: LoginUpdatedEvent[];
   records: Record<string, unknown>[];
   open: () => number;
+  changed: () => number;
 }> {
   let tools: HostTools | null = null;
   if (scenario !== null) {
@@ -49,10 +50,12 @@ async function service(scenario: string | null): Promise<{
   cleanups.push(() => logins.close());
   const events: LoginUpdatedEvent[] = [];
   let ids = 0;
+  let changed = 0;
   const value = createLoginService({
     toolbox: { current: async () => tools },
     logins,
     broadcast: (event) => events.push(event),
+    credentialsChanged: () => (changed += 1),
     newId: () => `l${++ids}`,
     logger: recording.logger,
   });
@@ -62,6 +65,7 @@ async function service(scenario: string | null): Promise<{
     events,
     records: recording.records,
     open: () => recording.resources.snapshot()["pi-login"] ?? 0,
+    changed: () => changed,
   };
 }
 
@@ -144,7 +148,7 @@ const STARTED = {
 
 describe("LoginService.login", () => {
   it("shows what pi tells and asks, takes the answers, and ends signed in", async () => {
-    const { service: logins, events, open } = await service("complete");
+    const { service: logins, events, open, changed } = await service("complete");
 
     const { loginId } = await logins.login({ providerId: "acme", method: "oauth" });
     const asked = await until(events, (event) => event.questions.length > 0);
@@ -190,6 +194,7 @@ describe("LoginService.login", () => {
     ]);
     expect(done).toStrictEqual({ ...asked, state: "ok", questions: [] });
     expect(events.at(-1)).toBe(done);
+    expect(changed()).toBe(1);
     await vi.waitFor(() => expect(open()).toBe(0));
   });
 
@@ -210,7 +215,7 @@ describe("LoginService.login", () => {
   });
 
   it("ends failed with pi's words, and logs only the provider, the method and the reason", async () => {
-    const { service: logins, events, records } = await service("fail");
+    const { service: logins, events, records, changed } = await service("fail");
 
     await logins.login({ providerId: "acme", method: "api_key", key: "sk-secret-1" });
     const done = await until(events, (event) => event.state !== "running");
@@ -233,6 +238,7 @@ describe("LoginService.login", () => {
     );
     expect(JSON.stringify(records)).not.toContain("sk-secret-1");
     expect(JSON.stringify(records)).not.toContain("token exchange");
+    expect(changed()).toBe(0);
   });
 
   it.each([
@@ -260,7 +266,7 @@ describe("LoginService.login", () => {
   });
 
   it("is cancelled when asked, and the program goes", async () => {
-    const { service: logins, events, open } = await service("patient");
+    const { service: logins, events, open, changed } = await service("patient");
     const { loginId } = await logins.login({ providerId: "acme", method: "oauth" });
     await until(events, (event) => event.progress === "Waiting");
 
@@ -268,6 +274,7 @@ describe("LoginService.login", () => {
     const done = await until(events, (event) => event.state !== "running");
 
     expect(done).toMatchObject({ loginId: "l1", state: "cancelled", progress: "Waiting", error: null });
+    expect(changed()).toBe(0);
     await vi.waitFor(() => expect(open()).toBe(0));
   });
 
@@ -321,13 +328,14 @@ describe("LoginService.login", () => {
 
 describe("LoginService.logout", () => {
   it("removes the credential through pi", async () => {
-    const { service: logins } = await service("status");
+    const { service: logins, changed } = await service("status");
 
     await expect(logins.logout("acme")).resolves.toBeUndefined();
+    expect(changed()).toBe(1);
   });
 
   it("fails with pi's words when pi refuses", async () => {
-    const { service: logins } = await service("logout-fails");
+    const { service: logins, changed } = await service("logout-fails");
 
     const failing = logins.logout("acme");
 
@@ -336,5 +344,6 @@ describe("LoginService.logout", () => {
       code: "logout_failed",
       params: { reason: "failed", detail: "locked acme" },
     });
+    expect(changed()).toBe(0);
   });
 });

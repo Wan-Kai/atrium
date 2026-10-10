@@ -88,6 +88,27 @@ describe("createModelCatalog", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("asks pi again for every directory once told to forget, keeping no answer of a query under way", async () => {
+    const { query, calls, answers } = scriptedQuery();
+    const catalog = createModelCatalog({ query, clock: new FakeClock() });
+    const kept = catalog.list("/a", false);
+    answers[0]?.resolve(listFor("/a", 1));
+    await kept;
+    const underWay = catalog.list("/b", false);
+
+    catalog.forget();
+    answers[1]?.resolve(listFor("/b", 1));
+    const afterA = catalog.list("/a", false);
+    answers[2]?.resolve(listFor("/a", 2));
+    const afterB = catalog.list("/b", false);
+    answers[3]?.resolve(listFor("/b", 2));
+
+    expect(await underWay).toStrictEqual(listFor("/b", 1));
+    expect(await afterA).toStrictEqual(listFor("/a", 2));
+    expect(await afterB).toStrictEqual(listFor("/b", 2));
+    expect(calls.map(({ dir }) => dir)).toStrictEqual(["/a", "/b", "/a", "/b"]);
+  });
+
   it("forgets the old answer when asking again fails, and asks once more next time", async () => {
     const { query, calls, answers } = scriptedQuery();
     const catalog = createModelCatalog({ query, clock: new FakeClock() });

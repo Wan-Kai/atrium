@@ -697,7 +697,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - 宿主的 PiCatalog 为一个目录短启一个 `pi --mode rpc`（不带 `--session`），调 `get_available_models` 和 `get_state`，然后停掉它。`get_state` 里的模型是 pi 按自己的设置选出的默认模型。不借正在运行的会话的 pi。工作区用工作区目录；对话用 Atrium 的目录 `~/.atrium`（Paseo 用家目录；对话各自的目录就在它下面，是空的，和它一样只有全局设置）。
 - 结果按目录缓存在宿主内存里，没有期限，不落盘。项目自己的 `.pi/settings.json` 可能改变可用的模型，所以按目录分开。同一目录同时只查一次，后到的请求等同一次结果。宿主启动时不查，界面进入一个工作区或对话时预取一次。
-- `list_models(containerId, refresh?)`：有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。
+- `list_models(containerId, refresh?)`：有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。在 Atrium 里登录成功或退出登录成功后，宿主丢掉所有目录的模型列表缓存，下次请求时重查（2026-10-11 定）。
 - 应答 `{ models, defaultModel }`。每个模型 `{ providerId, modelId, name, contextWindow, maxOutput, supportsImage, thinkingLevels }`。pi 只返回有凭据的服务商的模型。
 - 推理档位按模型的元数据算出，不调 `get_available_thinking_levels`（它只回答当前模型）：不支持推理的只有 `off`；其余从 off / minimal / low / medium / high / xhigh / max 里去掉 `thinkingLevelMap` 标为 `null` 的，`xhigh`、`max` 只在 `thinkingLevelMap` 里明确给出时才有。规则照抄 pi-ai 的 `getSupportedThinkingLevels`，写在 `packages/pi` 里（运行时不依赖 pi 的包），pi 改了规则时契约测试会发现。
 - 没有任何凭据时 pi 照常回答，列表为空；`get_state` 给的是占位模型（`unknown/unknown`），不算默认模型。默认模型必须在列表里。会话的模型是占位模型时也当作没有（`null`）。
@@ -846,7 +846,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - TitleGenerator（宿主 `sessions/`）：会话一次运行结束（`run_settled`，任何结果）时，会话没有名字、已经写出文件、没交给终端、第一轮有文字，且这个会话没在生成，就生成一次。失败（模型出错、超时、pi 退出）只记日志，下一次运行结束再试。只在 Atrium 里跑过的会话才会触发，历史会话不补。
 - 输入：第一轮的用户消息文字和回复（这一轮最后一段文字），总长截到 2000 个字符，用户消息最多占 1200。
-- 调用 OneShotPi（`packages/pi` 的 `oneshot/`）：在会话的工作目录、用和会话的 pi 相同的环境运行 `pi --mode json -p --no-session --no-tools --thinking off --model <服务商>/<模型> --system-prompt <标题要求>`，对话内容从标准输入给（不放进参数，`ps` 看得到参数）。模型用偏好里的 `titleModel`，为空或它的服务商已退出登录时用会话当前的模型（见"设置"）。取最后一条助手消息的文字；`stopReason` 为 `error` / `aborted`、退出码不为 0、60 秒没结束（停掉整棵进程树）都算失败。
+- 调用 OneShotPi（`packages/pi` 的 `oneshot/`）：在会话的工作目录、用和会话的 pi 相同的环境运行 `pi --mode json -p --no-session --no-tools --thinking off --model <服务商>/<模型> --system-prompt <标题要求>`，对话内容从标准输入给（不放进参数，`ps` 看得到参数）。模型用偏好里的 `titleModel`，为空或它的服务商已退出登录时用会话当前的模型（见"设置"）。"已退出登录"按 pi 的模型列表判断：`titleModel` 不在会话目录的模型列表里（对话用对话目录的列表，和模型面板同一份缓存），或查不到列表时，就用会话的模型（2026-10-11 定）。取最后一条助手消息的文字；`stopReason` 为 `error` / `aborted`、退出码不为 0、60 秒没结束（停掉整棵进程树）都算失败。
 - 标题要求：和用户消息同一种语言、中文不超过 16 个字、不带标点和引号、只输出标题。宿主再整理一遍：取第一行，去掉首尾空白、成对的引号和末尾的标点，超过 50 个字符截断；整理后为空算失败。
 - 写回：用会话自己的 pi 发 `set_session_name`，然后重扫会话文件，列表随之更新。写之前再看一次：已经有名字（生成期间手动改过名）、pi 已退出、已交给终端时丢弃结果。手动改名从 `rename_session` 收到就算有名字，不等重扫会话文件（2026-10-10 审查后补：改名应答之后、重扫之前标题刚好生成好，会盖掉手改的名字）。
 - 测试用的 faux 模型：脚本多一个可选的 `title`，`-p` 模式下的 pi 用它回答；没写 `title` 时回一个错误，标题保持兜底，不影响别的测试。

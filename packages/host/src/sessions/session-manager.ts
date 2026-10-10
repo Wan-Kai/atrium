@@ -161,6 +161,11 @@ export function createSessionManager(options: {
   readonly models?: SessionModels;
   /** The file search behind `@`; without it every search answers `fd_missing`. */
   readonly files?: FileSearch;
+  /**
+   * The title model chosen in the settings, if pi can use it in a directory (`createTitleGenerator`);
+   * without it titles are made on each session's own model.
+   */
+  readonly titleModel?: (cwd: string, signal: AbortSignal) => Promise<ModelRef | null>;
 }): SessionManager {
   const sessions = new Map<string, Running>();
   /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
@@ -388,6 +393,7 @@ export function createSessionManager(options: {
 
   const titles = createTitleGenerator({
     subject: titleSubject,
+    titleModel: options.titleModel ?? (async () => null),
     oneShot: async (request, signal) => {
       const tools = await readyTools();
       const deps = createPiDeps({

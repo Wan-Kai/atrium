@@ -44,6 +44,7 @@ import { createLayouts } from "./sessions/layouts";
 import { createModelLister } from "./sessions/model-lister";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createSessionManager } from "./sessions/session-manager";
+import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
 import { createPreferenceStore } from "./store/preferences";
@@ -227,6 +228,20 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
   });
+  const models = createModelCatalog({
+    query: async (dir, signal) => {
+      const found = await toolbox.current();
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return queryModels(
+        { piPath: found.pi.piPath, args: [], cwd: dir },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        signal,
+      );
+    },
+    clock,
+  });
   // Who else wants to know the sessions changed: an update waits for running sessions to finish.
   const sessionListeners = new Set<() => void>();
   const sessions = createSessionManager({
@@ -274,6 +289,13 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         );
       },
     },
+    titleModel: titleModelLookup({
+      chosen: () => preferences.read().titleModel,
+      list: (dir) => models.list(dir, false),
+      chatsRoot: join(home.root, "chats"),
+      // As the model lister asks for chats.
+      chatsDir: home.root,
+    }),
     turnStarts: async (sessionId) => {
       const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
@@ -288,20 +310,6 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     changes.refresh();
     // New worktrees may hold sessions started in a terminal.
     sessions.rescan();
-  });
-  const models = createModelCatalog({
-    query: async (dir, signal) => {
-      const found = await toolbox.current();
-      if (found?.pi.status !== "ready") {
-        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
-      }
-      return queryModels(
-        { piPath: found.pi.piPath, args: [], cwd: dir },
-        createPiDeps({ clock, resources, logger, env: found.env }),
-        signal,
-      );
-    },
-    clock,
   });
   const indexCommands = createIndexCommands({
     projects,
@@ -357,6 +365,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     toolbox,
     logins,
     broadcast: (event) => subscriptions.broadcast(event),
+    // The models pi can use may have changed (SPEC-0001, "模型列表").
+    credentialsChanged: () => models.forget(),
     newId: () => randomUUID(),
     logger,
   });

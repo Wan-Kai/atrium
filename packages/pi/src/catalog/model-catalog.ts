@@ -6,6 +6,11 @@ import type { ModelList } from "./query";
 export interface ModelCatalog {
   /** Lists a directory's models: the kept answer, or pi's; `refresh` asks pi again. */
   list(dir: string, refresh: boolean): Promise<ModelList>;
+  /**
+   * Drops every directory's kept answer, so the next list asks pi; a query under way still
+   * answers those waiting for it, but its answer is not kept.
+   */
+  forget(): void;
   /** Aborts the queries under way and waits for them; later lists fail. */
   close(): Promise<void>;
 }
@@ -85,6 +90,10 @@ export function createModelCatalog(options: {
       if (!refresh && entry.list !== null) return Promise.resolve(entry.list);
       entry.load = load(dir, entry);
       return entry.load;
+    },
+    forget() {
+      // A load under way writes to its own entry, no longer here.
+      entries.clear();
     },
     async close() {
       closed = true;
