@@ -709,15 +709,17 @@ describe("SessionManager tabs", () => {
 });
 
 describe("SessionManager archiving and renaming", () => {
-  it("archives a session: stops its pi and closes its tabs everywhere", async () => {
-    const { manager, catalog, layouts, received } = await manage({ rules: SESSION_ONE });
+  it("archives a session: stops its pi, closes its tabs everywhere and lets go of its controller", async () => {
+    const { manager, catalog, layouts, received, resources } = await manage({ rules: SESSION_ONE });
     const { sessionId } = await manager.createSession("client-1", WORKSPACE);
     await manager.subscribe("c1", [sessionId]);
+    expect(resources.snapshot()["session.controller"]).toBe(1);
 
     await manager.archiveSession(sessionId);
 
     expect(catalog.find(sessionId)?.archived).toBe(true);
     expect(layouts.isOpen(sessionId)).toBe(false);
+    expect(resources.snapshot()["session.controller"]).toBe(0);
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
   });
 
@@ -734,14 +736,16 @@ describe("SessionManager archiving and renaming", () => {
 });
 
 describe("SessionManager workspaces", () => {
-  it("stops the sessions of workspaces that went away and drops them from layouts", async () => {
-    const { manager, layouts, received } = await manage({ rules: SESSION_ONE });
+  it("stops the sessions of workspaces that went away, lets go of their controllers and drops them from layouts", async () => {
+    const { manager, layouts, received, resources } = await manage({ rules: SESSION_ONE });
     const { sessionId } = await manager.createSession("client-1", WORKSPACE);
     await manager.subscribe("c1", [sessionId]);
+    expect(resources.snapshot()["session.controller"]).toBe(1);
 
     await manager.forgetWorkspaces([WORKSPACE]);
 
     expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
+    expect(resources.snapshot()["session.controller"]).toBe(0);
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited" }));
   });
 

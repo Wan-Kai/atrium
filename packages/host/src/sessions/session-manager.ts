@@ -160,6 +160,8 @@ export function createSessionManager(options: {
   readonly files?: FileSearch;
 }): SessionManager {
   const sessions = new Map<string, Running>();
+  /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
+  const held = new Map<string, () => void>();
   /** The clock for controllers, whose timers count as open resources (testing.md, "泄漏"). */
   const timers: Clock = {
     now: () => options.clock.now(),
@@ -608,7 +610,7 @@ export function createSessionManager(options: {
           }),
     });
     const started: Running = { controller, pi: traced };
-    sessions.set(sessionId, started);
+    hold(sessionId, started);
     for (const viewer of options.subscriptions.viewers(sessionId)) {
       options.subscriptions.sendTo(viewer, controller.snapshot());
     }
@@ -745,6 +747,39 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Keeps a session's controller, in place of any it had before.
+   *
+   * @remarks
+   * Counted as `session.controller` (testing.md, "泄漏测试"): a controller holds the session's
+   * transcript and its pi's process object, so one kept after the session went shows up there.
+   *
+   * @sideEffects Updates the sessions held and the resource counts.
+   * @param sessionId - The session.
+   * @param started - Its controller and pi.
+   */
+  function hold(sessionId: string, started: Running): void {
+    held.get(sessionId)?.();
+    held.set(sessionId, options.resources.acquire("session.controller"));
+    sessions.set(sessionId, started);
+  }
+
+  /**
+   * Lets go of a session's controller.
+   *
+   * @remarks
+   * For a session no one will see again here: discarded, archived, or its workspace gone. An
+   * exited controller is otherwise kept, so subscribers keep its state.
+   *
+   * @sideEffects Updates the sessions held and the resource counts.
+   * @param sessionId - The session.
+   */
+  function forget(sessionId: string): void {
+    held.get(sessionId)?.();
+    held.delete(sessionId);
+    sessions.delete(sessionId);
+  }
+
+  /**
    * Stops a session's pi, if it runs.
    *
    * @remarks
@@ -808,7 +843,7 @@ export function createSessionManager(options: {
       const busyNow = starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0;
       if (entry?.state === "draft" && empty && !busyNow && !options.layouts.isOpen(sessionId)) {
         await stopSession(sessionId);
-        sessions.delete(sessionId);
+        forget(sessionId);
         await options.catalog.forget(sessionId);
         // Only a chat's own directory, and only while empty (domain-model, "已决定 13").
         if (entry.containerId === CHATS) await rmdir(entry.cwd).catch(() => undefined);
@@ -826,6 +861,7 @@ export function createSessionManager(options: {
     async archiveSession(sessionId) {
       entryOf(sessionId);
       await stopSession(sessionId);
+      forget(sessionId);
       await options.catalog.archive(sessionId);
       await options.layouts.forgetSessions([sessionId]);
       options.onChange();
@@ -975,6 +1011,7 @@ export function createSessionManager(options: {
     async forgetWorkspaces(workspaceIds) {
       const gone = options.catalog.list().filter((entry) => workspaceIds.includes(entry.containerId));
       await Promise.all(gone.map((entry) => stopSession(entry.sessionId)));
+      for (const entry of gone) forget(entry.sessionId);
       await options.layouts.forgetContainers(workspaceIds);
       options.onChange();
     },

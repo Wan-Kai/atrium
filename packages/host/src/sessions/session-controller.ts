@@ -473,6 +473,8 @@ export function createSessionController(options: {
   let lost: Waiting | null = null;
   /** Set by `shutdown`: pi exits for good. */
   let shuttingDown = false;
+  /** Who waits for each pi's exit alongside other work, woken once it exits. */
+  const exitWakers = new Map<SessionPi, Set<(value: undefined) => void>>();
   /** The control last published, to send `control_updated` only on change. */
   let sentControl = JSON.stringify(control());
   /** The model pi uses, as last read or reported. */
@@ -1416,6 +1418,40 @@ export function createSessionController(options: {
   }
 
   /**
+   * Waits for `work`, or for `current` to exit, whichever comes first.
+   *
+   * @remarks
+   * `Promise.race` with `current.exited` would leave a reaction on it every time, holding the
+   * caller's context and trace until pi exits; a long-lived pi stopped again and again piles them
+   * up (found by the sessions soak). Here each pi's exit is watched once, and a wait that ends
+   * first takes itself off.
+   *
+   * @sideEffects Watches `current`'s exit the first time.
+   * @param work - What to wait for; it must not reject.
+   * @param current - The pi.
+   * @returns What `work` gave, or `undefined` once pi exited first.
+   */
+  async function untilExit<T>(work: Promise<T>, current: SessionPi): Promise<T | undefined> {
+    let wakers = exitWakers.get(current);
+    if (wakers === undefined) {
+      const watched = new Set<(value: undefined) => void>();
+      wakers = watched;
+      exitWakers.set(current, watched);
+      // Fire and forget: `exited` never rejects.
+      void (async () => {
+        await current.exited;
+        exitWakers.delete(current);
+        for (const wake of watched) wake(undefined);
+      })();
+    }
+    const gone = Promise.withResolvers<undefined>();
+    wakers.add(gone.resolve);
+    const result = await Promise.race([work, gone.promise]);
+    wakers.delete(gone.resolve);
+    return result;
+  }
+
+  /**
    * Takes back pi's steers and aborts, waiting `STOP_CONFIRM_MS` from the stop for pi to confirm.
    *
    * @remarks
@@ -1450,15 +1486,14 @@ export function createSessionController(options: {
     );
     const confirmed = await Promise.race([aborted, timedOut.promise]);
     cancel();
-    await Promise.race([cleared, current.exited]);
+    await untilExit(cleared, current);
     if (confirmed) {
       endStop();
     } else {
       // Fire and forget: the stop ends when pi confirms or exits, whichever comes first.
       void (async () => {
         // A failed abort is no confirmation: then only pi's exit ends the stop.
-        // Stryker disable next-line ArrowFunction,BooleanLiteral: once pi has exited, waiting for its exit again returns at once.
-        if (!(await Promise.race([aborted, current.exited.then(() => false)]))) await current.exited;
+        if ((await untilExit(aborted, current)) !== true) await current.exited;
         if (stopping !== null) endStop();
       })();
     }

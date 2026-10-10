@@ -1225,6 +1225,31 @@ describe("createSessionController steering", () => {
   });
 });
 
+/**
+ * The same exit, counting how many times something started waiting on it.
+ *
+ * @remarks
+ * Whatever waits on a promise asks it for `then`; a wait left behind on a pi that lives on holds
+ * its command's context and trace until pi exits.
+ *
+ * @sideEffects none
+ * @param exited - pi's exit.
+ * @returns The counting exit, and the count so far.
+ */
+function countingWaits<T>(exited: Promise<T>): { readonly exited: Promise<T>; readonly waits: () => number } {
+  let waits = 0;
+  return {
+    exited: new Proxy(exited, {
+      get: (target, key) => {
+        if (key !== "then") return Reflect.get(target, key);
+        waits += 1;
+        return target.then.bind(target);
+      },
+    }),
+    waits: () => waits,
+  };
+}
+
 describe("createSessionController stopping", () => {
   it("pauses the queue, puts pi's steers back at its front, aborts, and confirms", async () => {
     const { pi, emit, sent, hold } = manualPi();
@@ -1247,6 +1272,27 @@ describe("createSessionController stopping", () => {
     emit({ type: "agent_settled" });
     await settle();
     expect(sent).toHaveLength(4);
+  });
+
+  it("leaves nothing waiting on pi's exit after a stop, however many runs a long-lived pi stops", async () => {
+    const { pi, emit } = manualPi();
+    const { exited, waits } = countingWaits(pi.exited);
+    const { controller } = control({ ...pi, exited });
+    /** Starts a run and stops it. */
+    const stopRun = async (requestId: string) => {
+      await controller.prompt(prompt(requestId, "go"));
+      emit({ type: "agent_start" });
+      expect(await controller.stop()).toStrictEqual({ confirmed: true });
+      emit({ type: "agent_settled" });
+      await settle();
+    };
+
+    await stopRun("q1");
+    const afterOne = waits();
+    await stopRun("q2");
+    await stopRun("q3");
+
+    expect(waits()).toBe(afterOne);
   });
 
   it("stays stopping while pi takes over two seconds, refusing messages, until pi confirms", async () => {
