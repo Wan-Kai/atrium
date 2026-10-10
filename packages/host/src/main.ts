@@ -1,21 +1,36 @@
-import { type PiInspection, createSessionFileReader, inspectPi, sessionsLocation } from "@atrium/pi";
+import {
+  type PiInspection,
+  createModelCatalog,
+  createSessionFileReader,
+  findFd,
+  inspectPi,
+  queryModels,
+  sessionsLocation,
+} from "@atrium/pi";
+import { CommandError } from "@atrium/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import { uptime } from "node:os";
 import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
+import { createChangesService } from "./changes/changes-service";
+import { createCheckoutReader } from "./changes/checkout";
 import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
+import { createPiDeps } from "./platform/pi-deps";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
 import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platform/logger";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
+import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { createIndexCommands } from "./sessions/index-commands";
+import { createFileSearch } from "./files/file-search";
 import { createLayouts } from "./sessions/layouts";
+import { createModelLister } from "./sessions/model-lister";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createSessionManager } from "./sessions/session-manager";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
@@ -186,19 +201,58 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     clock,
     resources,
   });
+  // Workspaces' git changes, for the workspaces some connection shows (SPEC-0001, "工作区改动").
+  const changes = createChangesService({
+    reader: git.then((runner) => (runner === null ? null : createCheckoutReader(runner))),
+    resolve: (workspaceId) => {
+      const workspace = workspaces.list().find((one) => one.id === workspaceId);
+      if (workspace === undefined) return undefined;
+      const project = projects.projects().find((one) => one.id === workspace.projectId);
+      return { dir: workspace.dir, mainBranch: project?.mainBranch ?? null };
+    },
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    clock,
+    resources,
+    logger,
+  });
   const sessions = createSessionManager({
     chatsRoot: join(home.root, "chats"),
     tools: toolsFound.promise,
     subscriptions,
     catalog,
     layouts,
-    workspaces,
+    // A run ending in a workspace may have changed its files.
+    workspaces: {
+      dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+      refresh: (workspaceId) => {
+        workspaces.refresh(workspaceId);
+        changes.refresh(workspaceId);
+      },
+    },
     onChange: () => feed.changed(),
     clock,
     resources,
     tracer: tracing.tracer,
     logger,
     newId: () => randomUUID(),
+    files: createFileSearch({
+      findFd: async () => {
+        const found = await toolsFound.promise;
+        return found === null ? null : findFd(found.env);
+      },
+      clock,
+      resources,
+    }),
+    models: {
+      preferred: () => preferences.preferred(),
+      chosen: (model) => {
+        // Fire and forget: a failed write is logged; the index flushes before the host stops.
+        void preferences.remember(model).then(
+          () => feed.changed(),
+          (error: unknown) => logger.warn({ err: error }, "model choice not remembered"),
+        );
+      },
+    },
     turnStarts: async (sessionId) => {
       const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
@@ -209,11 +263,51 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   catalog.onChange(() => feed.changed());
   workspaces.onChange(() => {
     feed.changed();
+    // A scan or fetch may have moved a branch or the main branch.
+    changes.refresh();
     // New worktrees may hold sessions started in a terminal.
     sessions.rescan();
   });
-  const indexCommands = createIndexCommands({ projects, workspaces, sessions, preferences, feed });
+  const models = createModelCatalog({
+    query: async (dir, signal) => {
+      const found = await toolsFound.promise;
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return queryModels(
+        { piPath: found.pi.piPath, args: [], cwd: dir },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        signal,
+      );
+    },
+    clock,
+  });
+  const indexCommands = createIndexCommands({
+    projects,
+    workspaces: {
+      windowFocused: () => {
+        workspaces.windowFocused();
+        changes.refresh();
+      },
+    },
+    sessions,
+    preferences,
+    feed,
+    listModels: createModelLister({
+      catalog: models,
+      dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
+      chatsDir: home.root,
+    }),
+  });
 
+  // Up to 32 MiB and 20 images per connection, let go after 30 minutes unused (SPEC-0001, "附件").
+  const attachments = createAttachmentStore({
+    clock,
+    newId: () => randomUUID(),
+    maxBytes: 32 * 1024 * 1024,
+    maxCount: 20,
+    keepMs: 30 * 60_000,
+  });
   let server: Awaited<ReturnType<typeof startWsServer>>;
   try {
     server = await startWsServer({
@@ -223,7 +317,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       extraOrigins: config.extraOrigins ?? [],
       handshakeTimeoutMs: config.handshakeTimeoutMs ?? 5_000,
       maxPayloadBytes: 1024 * 1024,
-      limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 8 * 1024 * 1024 },
+      // No less than a connection may keep in uploads, so 20 images sent at once fit (security.md).
+      limits: { maxConnections: 32, messagesPerSecond: 200, bytesPerSecond: 32 * 1024 * 1024 },
       hostVersion: packageJson.version,
       hostInstanceId,
       heartbeatMs: HEARTBEAT_MS,
@@ -231,6 +326,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       subscriptions,
       sessions,
       index: indexCommands,
+      attachments,
+      changes,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -337,8 +434,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     stopDetecting.abort();
     await tools;
     await server.close();
+    attachments.close();
+    await changes.close();
     await workspaces.close();
     await sessions.close();
+    await models.close();
     await catalog.close();
     // After the sessions, whose stopping still reports changes.
     feed.close();

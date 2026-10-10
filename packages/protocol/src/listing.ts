@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ModelRef, ThinkingLevel } from "./models";
 
 /** An absolute path on the host's machine. */
 const Path = z.string().min(1).max(4096);
@@ -97,8 +98,19 @@ export type Appearance = z.infer<typeof Appearance>;
 export const DisplayMode = z.enum(["summary", "thinking", "detailed"]);
 export type DisplayMode = z.infer<typeof DisplayMode>;
 
-/** Global preferences, the same for every client. */
-export const Preferences = z.strictObject({ appearance: Appearance, displayMode: DisplayMode });
+/**
+ * Global preferences, the same for every client.
+ *
+ * @remarks
+ * `lastModel` and `thinkingByModel` (keyed `providerId/modelId`) follow every model or thinking
+ * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框").
+ */
+export const Preferences = z.strictObject({
+  appearance: Appearance,
+  displayMode: DisplayMode,
+  lastModel: ModelRef.nullable(),
+  thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
+});
 export type Preferences = z.infer<typeof Preferences>;
 
 /** Files of the index that were reset because they were damaged (domain-model §1, "索引的存储"). */

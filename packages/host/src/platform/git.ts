@@ -28,11 +28,13 @@ export class GitError extends Error {
    *
    * @sideEffects none
    * @param command - The git subcommand.
-   * @param reason - `spawn` when git could not start, `timeout`, or `aborted`.
+   * @param reason - `spawn` when git could not start or died by a signal, `timeout`, `aborted`,
+   * `too_large` when it printed more than allowed, or `exit` when a caller needed it to succeed
+   * and it exited with an error.
    */
   constructor(
     readonly command: string,
-    readonly reason: "spawn" | "timeout" | "aborted",
+    readonly reason: "spawn" | "timeout" | "aborted" | "too_large" | "exit",
   ) {
     super(`git ${command} ${reason}`);
     this.name = "GitError";
@@ -49,7 +51,13 @@ export interface GitRunner {
    */
   run(
     args: readonly string[],
-    options: { readonly cwd: string; readonly signal?: AbortSignal | undefined; readonly timeoutMs?: number },
+    options: {
+      readonly cwd: string;
+      readonly signal?: AbortSignal | undefined;
+      readonly timeoutMs?: number;
+      /** The most output to take; more fails the command as `too_large`. 16 MiB by default. */
+      readonly maxOutputBytes?: number;
+    },
   ): Promise<GitResult>;
 }
 
@@ -59,7 +67,7 @@ export const GIT_CONCURRENCY = 4;
 /** How long one git command may take by default. */
 const GIT_TIMEOUT_MS = 30_000;
 
-/** The most output kept from one command. */
+/** The most output kept from one command, unless the caller asks for another limit. */
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
 /**
@@ -141,8 +149,9 @@ export function createGitRunner(options: {
         runOptions.signal === undefined ? deadline.signal : AbortSignal.any([deadline.signal, runOptions.signal]);
       const command = args[0] ?? "";
       try {
-        const ended = await runGit(args, runOptions.cwd, env, signal);
+        const ended = await runGit(args, runOptions.cwd, env, signal, runOptions.maxOutputBytes ?? MAX_OUTPUT_BYTES);
         if (signal.aborted) throw new GitError(command, timedOut ? "timeout" : "aborted");
+        if (ended.tooLarge) throw new GitError(command, "too_large");
         if (ended.code === null) throw new GitError(command, "spawn");
         return { code: ended.code, stdout: ended.stdout };
       } finally {
@@ -161,25 +170,29 @@ export function createGitRunner(options: {
  * git starts helpers of its own, such as ssh for a fetch or a credential helper; ending only git
  * would leave them running (security.md, "子进程与文件"). So git leads a new process group,
  * which is killed when the signal aborts and, once git exits, again for anything it left behind;
- * the run ends only when every holder of git's output has gone. Output past
- * `MAX_OUTPUT_BYTES`, a failure to start and death by a signal give no exit code.
+ * the run ends only when every holder of git's output has gone. Output past the limit kills git
+ * and says so; a failure to start and death by a signal give no exit code.
  *
  * @sideEffects Spawns git; may kill its process group.
  * @param args - git's arguments.
  * @param cwd - Where to run it.
  * @param env - Its environment.
  * @param signal - Stops it.
- * @returns The exit code, or `null` when there is none, and what git printed.
+ * @param maxOutputBytes - The most output to take.
+ * @returns The exit code, or `null` when there is none, what git printed, and whether it printed
+ * too much.
  */
 function runGit(
   args: readonly string[],
   cwd: string,
   env: Readonly<Record<string, string>>,
   signal: AbortSignal,
-): Promise<{ readonly code: number | null; readonly stdout: string }> {
+  maxOutputBytes: number,
+): Promise<{ readonly code: number | null; readonly stdout: string; readonly tooLarge: boolean }> {
   return new Promise((resolve) => {
     if (signal.aborted) {
-      resolve({ code: null, stdout: "" });
+      // Stryker disable next-line ObjectLiteral,BooleanLiteral,StringLiteral: the caller sees the signal aborted first.
+      resolve({ code: null, stdout: "", tooLarge: false });
       return;
     }
     // stdin stays open and unused, as with `execFile`: no git command Atrium runs reads it.
@@ -187,6 +200,7 @@ function runGit(
     const chunks: Buffer[] = [];
     let size = 0;
     let failed = false;
+    let tooLarge = false;
     /**
      * Kills git's whole process group.
      *
@@ -214,8 +228,10 @@ function runGit(
     signal.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > MAX_OUTPUT_BYTES) {
+      if (size > maxOutputBytes) {
+        // Stryker disable next-line BooleanLiteral: too large is checked before the exit code.
         failed = true;
+        tooLarge = true;
         killGroup();
       } else {
         chunks.push(chunk);
@@ -227,7 +243,7 @@ function runGit(
     child.once("exit", () => killGroup());
     child.once("close", (code) => {
       signal.removeEventListener("abort", onAbort);
-      resolve({ code: failed ? null : code, stdout: Buffer.concat(chunks).toString("utf8") });
+      resolve({ code: failed ? null : code, stdout: Buffer.concat(chunks).toString("utf8"), tooLarge });
     });
   });
 }

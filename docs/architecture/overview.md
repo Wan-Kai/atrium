@@ -56,10 +56,10 @@ atrium/
 │   │   │   ├── history/            pi 条目 → 日志条目 LogEntry（纯函数；LogEntry 类型定义在这里）
 │   │   │   ├── sessions/           扫描会话文件、解析文件头、记录大小和修改时间（不做归类）
 │   │   │   ├── context/            ContextEstimator：按 pi 的语义回放系统消息和检查点，只返回各分段的 token 数
-│   │   │   ├── catalog/            PiCatalog：模型、推理档位、`/` 命令
+│   │   │   ├── catalog/            PiCatalog：短启 pi 查模型并按目录缓存、推理档位、`/` 命令的映射
 │   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
 │   │   │   ├── auth/               登录状态检查、OAuth、API Key
-│   │   │   └── locate/             找到 pi、检查版本
+│   │   │   └── locate/             找到 pi、检查版本；找到 `@` 用的 fd
 │   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
 │   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
 │   ├── host/                       宿主：Atrium 自己的业务
@@ -67,7 +67,7 @@ atrium/
 │   │   │   ├── main.ts             startHost：组装依赖、启动；不依赖任何 Electron API
 │   │   │   ├── entry.ts            进程入口：在 Electron 子进程里从 parentPort 收配置，或单独运行时读环境变量
 │   │   │   ├── dev/                开发用命令：`pnpm pi:try`（用宿主的组件驱动真实 pi，终端里看流式输出）
-│   │   │   ├── server/             WsServer、Connection、鉴权、命令路由
+│   │   │   ├── server/             WsServer、Connection、鉴权、命令路由、上传图片的暂存（按连接）
 │   │   │   ├── store/              ~/.atrium：索引文件（原子写入、格式版本与迁移、损坏挪开）、各文件的格式、
 │   │   │   │                       宿主单实例锁、偏好、插话记录
 │   │   │   ├── projects/           ProjectService：项目与工作区的登记（projects.json）
@@ -80,7 +80,8 @@ atrium/
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
 │   │   │   ├── setup/              SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
-│   │   │   ├── files/              FileSearch（`@` 引用的候选文件）
+│   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）
+│   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、改动面板的 diff，监听有人看的工作区）
 │   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具、git 调用（并发上限 4）
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
 │   ├── client/                     客户端层：不依赖 DOM，也不依赖 React
@@ -93,8 +94,8 @@ atrium/
 │   ├── ui/                         React 界面（功能目录直接放在 src 下，2026-10-08 按实际结构改）
 │   │   └── src/
 │   │       ├── app/                根组件、工作台（侧栏 + 标签栏 + 对话区）、全局快捷键、连接状态
-│   │       ├── state/              把 client 的 store 包成 hooks；显示模式；ViewState（折叠、以后的草稿，存 localStorage）
-│   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体
+│   │       ├── state/              把 client 的 store 包成 hooks；显示模式；ViewState（折叠、草稿，存 localStorage；图片只在内存）
+│   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
 │   │       ├── tabs/               标签栏、历史、显示模式和会话菜单
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框

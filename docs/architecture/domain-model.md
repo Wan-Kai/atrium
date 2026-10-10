@@ -462,16 +462,15 @@ classDiagram
     class PiCatalog {
       <<宿主，不隶属会话>>
       providers()
-      models()
-      commands(dir)
+      models(dir)
     }
     class Preferences {
       <<索引，全局>>
       appearance
       displayMode
       statusBar: StatusGroupId[]
-      lastModel: ModelRef
-      lastThinking
+      lastModel: ModelRef?
+      thinkingByModel
       titleModel?
     }
     class StatusGroup {
@@ -509,8 +508,9 @@ classDiagram
 
 - **ModelRef** 用"服务商 + 模型 id"联合标识。推理档位是字符串列表，来自 pi 对该模型的能力查询（pi 的档位包括 off / minimal / low / medium / high / xhigh / max，具体有哪些由模型决定），推理强度框按实际档位数画格子。
 - **Provider** 区分"支持哪些登录方式"和"当前凭据状态"，有凭据不等于登录有效。
-- **PiCatalog** 不依赖任何会话进程：空工作区、首次启动、模型按钮都要用。需要时短时启动 pi 查询，结果缓存。`/` 命令和工作目录有关（项目里的 skill），按目录查询。
-- **没有可用模型时 pi 的 RPC 模式会直接退出**，所以登录状态不能靠 RPC 查：首次启动用 `pi auth check --json`，或在锁下读 `~/.pi/agent/auth.json`。RPC 也没有登录命令，登录由宿主调用 pi 的 OAuth 实现（或在锁下写 `auth.json`）。
+- **PiCatalog** 不依赖任何会话进程：空工作区、首次启动、模型按钮都要用。照 Paseo 的做法，按目录短启一个 pi 查 `get_available_models` 和 `get_state`，结果按目录缓存在内存里，只有"刷新"才重查；推理档位按模型元数据算出（SPEC-0001"模型与输入框"，2026-10-10 定）。`/` 命令不归它：每个会话问自己的 pi，没启动就启动（2026-10-10 定，原先打算按目录短启 pi 查询）。
+- **Preferences** 的 `lastModel` 和 `thinkingByModel`（推理强度按模型各记一份）在任何会话里换模型或推理强度时更新；新会话启动 pi 后由宿主用 `set_model`、`set_thinking_level` 设上，不用 `--model` 启动（pi 解析不出 `--model` 会直接退出）。
+- **没有可用模型时 pi 的 RPC 模式照常启动**，只是模型是占位的 `unknown/unknown`、`prompt` 报错（2026-10-10 实测，原先以为会直接退出），登录状态不适合靠 RPC 查：首次启动用 `pi auth check --json`，或在锁下读 `~/.pi/agent/auth.json`。RPC 也没有登录命令，登录由宿主调用 pi 的 OAuth 实现（或在锁下写 `auth.json`）。
 - **LoginJob**、**InstallJob** 是可查询、可取消的任务。更新 pi 时 InstallJob 先处于 `waiting`，等 SessionManager 报告没有会话在运行再开始。
 
 ## 6. 宿主的组件
@@ -548,6 +548,10 @@ classDiagram
     class FileSearch {
       search(dir, query)
     }
+    class ChangesService {
+      watchChanges(connection, workspaceIds)
+      watchDiff(connection, target)
+    }
     class SetupService {
       check() install() update()
       login() setApiKey() cancel()
@@ -574,6 +578,8 @@ classDiagram
     WsServer --> WorkspaceService
     WsServer --> SessionManager
     WsServer --> FileSearch
+    WsServer --> ChangesService
+    ChangesService --> WorkspaceService
     WsServer --> SetupService
     SessionManager ..> SubscriptionRegistry : 谁在看哪个会话
     Connection ..> SubscriptionRegistry : 登记订阅
@@ -597,7 +603,8 @@ classDiagram
 - **Connection** 属于 `server/`，持有一个客户端的 socket、clientId 和发送方法。客户端订阅了哪些会话（打开着或可见的）记在 `sync/` 的 **SubscriptionRegistry**，以不透明的 connectionId 作键：业务模块（SessionManager）通过它知道"谁在看哪个会话"，又不必依赖 `server/`（overview.md，"宿主内部的依赖"）。宿主只给订阅者推送对话记录的增量（参照 Paseo）；客户端打开会话时清除它的关注状态。
 - **TitleGenerator** 负责标题的提示词、截断和写回规则，调 OneShotPi 单独起一次性进程，不借正在运行的会话。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
-- **FileSearch** 在 git 仓库里用 `git ls-files`；非 git 目录按忽略规则遍历，限制深度和数量。
+- **FileSearch** 在会话的工作目录里调 `fd`，参数和排序照 pi 的终端界面，git 仓库和普通目录一样（2026-10-10 定，原先打算 git 仓库用 `git ls-files`、其他目录自己遍历）。
+- **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个）。主干按"已决定 15"：项目设置（ProjectService）或 `origin/HEAD`；和 WorkspaceService 不同的是，`origin` 上没有主干时退到本地主干（照 Paseo）。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。
 - 指标的计时和汇总是 SessionController 内部的事，不单独成服务。
 
 ## 7. 客户端与一致性
@@ -676,8 +683,10 @@ classDiagram
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `clear_attention` | SessionManager |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
 | `prompt` / `steer` / `stop` / `resume_queue` / `clear_queue` / `update_queued` / `remove_queued` / `steer_queued` / `answer_interaction` / `set_model` / `set_thinking_level` | SessionController |
-| `list_models` / `list_commands(dir)` | PiCatalog |
-| `search_files(dir, query)` | FileSearch |
+| `list_models(containerId)` | PiCatalog |
+| `list_commands(sessionId)` | SessionController |
+| `search_files(sessionId, query)` | FileSearch |
+| `watch_changes(workspaceIds)` / `watch_diff(target)` | ChangesService |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |
 | `check_setup` / `install_*` / `update_pi` / `cancel_install` / `login` / `cancel_login` / `set_api_key` | SetupService |
@@ -688,6 +697,7 @@ classDiagram
 | `session_snapshot` / `message_*` / `tool_*` / `run_started` / `run_settled` / `interaction_*` / `notice` / `session_exited` | SessionController（经 EventTranslator） |
 | `session_bound` | SessionManager：草稿会话拿到文件后通知 |
 | `session_changed_externally` | SessionCatalog：预留，文件被外部改过 |
+| `changes_updated` / `diff_updated`（整份最新状态，不带序号） | ChangesService |
 | `queue_updated` / `metrics_updated` | SessionController |
 | `session_renamed` | TitleGenerator 或重命名命令 |
 | `install_*` / `login_*` | SetupService |

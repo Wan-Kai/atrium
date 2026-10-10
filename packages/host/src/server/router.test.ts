@@ -1,10 +1,12 @@
-import { type Command, CommandError, type HostMessage, type PromptCommand } from "@atrium/protocol";
+import { type Command, CommandError, type DiffTarget, type HostMessage, type PromptCommand } from "@atrium/protocol";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
+import { FakeClock } from "@atrium/testkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
 import { type Connection, createConnection } from "./connection";
+import { createAttachmentStore } from "./attachments";
 import { createRouter } from "./router";
 
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -35,8 +37,8 @@ function fakeCommands() {
     archiveSession: record("archiveSession", {}),
     renameSession: record("renameSession", {}),
     subscribe: record("subscribe", {}),
-    prompt: async (command: PromptCommand) => {
-      calls.push(["prompt", command.sessionId, command.text]);
+    prompt: async (command: PromptCommand, images = []) => {
+      calls.push(["prompt", command.sessionId, command.text, ...images.map((image) => image.data)]);
       if (command.text === "missing") throw new CommandError("session_not_found", { sessionId: command.sessionId });
       if (command.text === "crash") throw new Error("secret detail");
       return { disposition: "started" };
@@ -49,8 +51,8 @@ function fakeCommands() {
       calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
       return { items: [], hasOlder: true };
     },
-    steer: async (command) => {
-      calls.push(["steer", command.sessionId, command.text]);
+    steer: async (command, images = []) => {
+      calls.push(["steer", command.sessionId, command.text, ...images.map((image) => image.data)]);
       return { disposition: "queued" };
     },
     stop: record("stop", { confirmed: false }),
@@ -61,6 +63,10 @@ function fakeCommands() {
     steerQueued: record("steerQueued", { disposition: "handled" }),
     answerInteraction: record("answerInteraction", {}),
     retryRun: record("retryRun", {}),
+    setModel: record("setModel", {}),
+    setThinkingLevel: record("setThinkingLevel", {}),
+    listCommands: record("listCommands", { commands: [] }),
+    searchFiles: record("searchFiles", { files: [] }),
   };
   const index: IndexCommands = {
     subscribeIndex: record("subscribeIndex", {}),
@@ -70,6 +76,7 @@ function fakeCommands() {
     renameWorkspace: record("renameWorkspace", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
+    listModels: record("listModels", { models: [], defaultModel: null }),
   };
   return { sessions, index, calls };
 }
@@ -95,7 +102,33 @@ function setUp() {
     },
   );
   const { sessions, index, calls } = fakeCommands();
-  const route = createRouter({ sessions, index, tracer: recording.tracer, logger: recording.logger });
+  let nextAttachment = 0;
+  const attachments = createAttachmentStore({
+    clock: new FakeClock(),
+    newId: () => `a${++nextAttachment}`,
+    maxBytes: 1024,
+    maxCount: 4,
+    keepMs: 60_000,
+  });
+  const changes = {
+    watchChanges: (connectionId: string, workspaceIds: readonly string[]) => {
+      calls.push(["watchChanges", connectionId, ...workspaceIds]);
+      if (workspaceIds.includes("wks_ffffffffffffffff")) {
+        throw new CommandError("workspace_not_found", { workspaceId: "wks_ffffffffffffffff" });
+      }
+    },
+    watchDiff: (connectionId: string, target: DiffTarget | null) => {
+      calls.push(["watchDiff", connectionId, target]);
+    },
+  };
+  const route = createRouter({
+    sessions,
+    index,
+    attachments,
+    changes,
+    tracer: recording.tracer,
+    logger: recording.logger,
+  });
   return {
     route,
     connection,
@@ -217,6 +250,13 @@ describe("createRouter", () => {
       }),
     );
     await route(connection, withTrace({ type: "retry_run", requestId: "r9", ...session }));
+    await route(
+      connection,
+      withTrace({ type: "set_model", requestId: "r10", ...session, providerId: "anthropic", modelId: "haiku" }),
+    );
+    await route(connection, withTrace({ type: "set_thinking_level", requestId: "r11", ...session, level: "max" }));
+    await route(connection, withTrace({ type: "list_commands", requestId: "r12", ...session }));
+    await route(connection, withTrace({ type: "search_files", requestId: "r13", ...session, query: "src/" }));
 
     expect(calls).toStrictEqual([
       ["steer", "s1", "also"],
@@ -228,13 +268,19 @@ describe("createRouter", () => {
       ["steerQueued", "s1", "q3"],
       ["answerInteraction", "s1", "d1", { value: "a" }],
       ["retryRun", "s1"],
+      ["setModel", "s1", { providerId: "anthropic", modelId: "haiku" }],
+      ["setThinkingLevel", "s1", "max"],
+      ["listCommands", "s1"],
+      ["searchFiles", "s1", "src/"],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
       { type: "response", requestId: "r2", ok: true, result: { confirmed: false } },
       ...["r3", "r4", "r5", "r6"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r7", ok: true, result: { disposition: "handled" } },
-      ...["r8", "r9"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
+      { type: "response", requestId: "r13", ok: true, result: { files: [] } },
     ]);
   });
 
@@ -253,6 +299,8 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "set_preferences", requestId: "r7", appearance: "dark" }));
     await route(connection, withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking" }));
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7"],
@@ -264,8 +312,49 @@ describe("createRouter", () => {
       ["setPreferences", { appearance: "dark" }],
       ["setPreferences", { displayMode: "thinking" }],
       ["setPreferences", {}],
+      ["listModels", WORKSPACE, false],
+      ["listModels", "chats", true],
     ]);
     expect(sent[1]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
+    expect(sent[9]).toStrictEqual({
+      type: "response",
+      requestId: "r10",
+      ok: true,
+      result: { models: [], defaultModel: null },
+    });
+  });
+
+  it("hands what a connection shows of workspaces' changes to the changes service", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "watch_changes", requestId: "r1", workspaceIds: [WORKSPACE] }));
+    await route(
+      connection,
+      withTrace({ type: "watch_diff", requestId: "r2", target: { workspaceId: WORKSPACE, mode: "base" } }),
+    );
+    await route(connection, withTrace({ type: "watch_diff", requestId: "r3", target: null }));
+    await route(
+      connection,
+      withTrace({ type: "watch_changes", requestId: "r4", workspaceIds: ["wks_ffffffffffffffff"] }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["watchChanges", "connection-7", WORKSPACE],
+      ["watchDiff", "connection-7", { workspaceId: WORKSPACE, mode: "base" }],
+      ["watchDiff", "connection-7", null],
+      ["watchChanges", "connection-7", "wks_ffffffffffffffff"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r2", ok: true, result: {} },
+      { type: "response", requestId: "r3", ok: true, result: {} },
+      {
+        type: "response",
+        requestId: "r4",
+        ok: false,
+        error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
+      },
+    ]);
   });
 
   it("answers a CommandError with its code and parameters", async () => {
@@ -362,5 +451,49 @@ describe("createRouter", () => {
         trace_id: traceId,
       }),
     );
+  });
+});
+
+describe("createRouter's attachments", () => {
+  it("keeps an uploaded image for the connection and hands it to the message that names it", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(
+      connection,
+      withTrace({ type: "upload_attachment", requestId: "u1", mimeType: "image/webp", data: "AAAA" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "upload_attachment", requestId: "u2", mimeType: "image/png", data: "BBBB" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "prompt", requestId: "p1", sessionId: "s1", text: "看图", attachmentIds: ["a1"] }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "steer", requestId: "p2", sessionId: "s1", text: "", attachmentIds: ["a2"] }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "prompt", requestId: "p3", sessionId: "s1", text: "again", attachmentIds: ["a1"] }),
+    );
+
+    expect(calls).toStrictEqual([
+      ["prompt", "s1", "看图", "AAAA"],
+      ["steer", "s1", "", "BBBB"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "u1", ok: true, result: { attachmentId: "a1" } },
+      { type: "response", requestId: "u2", ok: true, result: { attachmentId: "a2" } },
+      { type: "response", requestId: "p1", ok: true, result: { disposition: "started" } },
+      { type: "response", requestId: "p2", ok: true, result: { disposition: "queued" } },
+      {
+        type: "response",
+        requestId: "p3",
+        ok: false,
+        error: { code: "attachment_missing", params: { attachmentId: "a1" } },
+      },
+    ]);
   });
 });

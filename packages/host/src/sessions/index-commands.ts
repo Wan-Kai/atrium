@@ -1,4 +1,4 @@
-import type { CommandResult, Preferences } from "@atrium/protocol";
+import type { CommandResult, ContainerId, Preferences } from "@atrium/protocol";
 import type { ProjectService } from "../projects/project-service";
 import type { PreferenceStore } from "../store/preferences";
 import type { IndexFeed } from "../sync/index-feed";
@@ -14,6 +14,8 @@ export interface IndexCommands {
   renameWorkspace(workspaceId: string, name: string | null): Promise<CommandResult<"rename_workspace">>;
   windowFocused(): Promise<CommandResult<"window_focused">>;
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
+  /** The models pi can use in a container's directory; `refresh` asks pi again. */
+  listModels(containerId: ContainerId, refresh: boolean): Promise<CommandResult<"list_models">>;
 }
 
 /**
@@ -26,7 +28,7 @@ export interface IndexCommands {
  * Failures are thrown as `CommandError` by the services.
  *
  * @sideEffects none until a command arrives.
- * @param options - The services and the feed.
+ * @param options - The services, the feed and the model lister.
  * @returns The commands.
  */
 export function createIndexCommands(options: {
@@ -35,6 +37,8 @@ export function createIndexCommands(options: {
   readonly sessions: Pick<SessionManager, "forgetWorkspaces" | "rescan">;
   readonly preferences: PreferenceStore;
   readonly feed: IndexFeed;
+  /** Lists a container's models (`createModelLister`). */
+  readonly listModels: IndexCommands["listModels"];
 }): IndexCommands {
   return {
     async subscribeIndex(connectionId) {
@@ -74,5 +78,6 @@ export function createIndexCommands(options: {
       options.feed.changed();
       return {};
     },
+    listModels: (containerId, refresh) => options.listModels(containerId, refresh),
   };
 }

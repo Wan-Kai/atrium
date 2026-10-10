@@ -10,11 +10,11 @@
 |---|---|---|---|
 | 1 | 侧栏按项目和工作区组织，显示运行、待处理、合并状态；标签页切换会话 | `apps/desktop/e2e/workspaces.spec.ts`；组件与宿主见"项目、工作区与会话（M1.5）"。待处理的状态随 M1.6、M1.9 | 部分覆盖 |
 | 2 | 流式输出回复和推理过程 | `apps/desktop/e2e/chat.spec.ts`、`chat.perf.spec.ts`；组件与渲染见"协议、客户端与流式显示（M1.3）" | 已覆盖 |
-| 3 | 粘贴或拖入截图随消息发出 | — | 待 M1.7 |
+| 3 | 粘贴或拖入截图随消息发出 | 组件与宿主见"模型与输入框（M1.7）"的图片两行（压缩、上传、暂存、带图片发出、过期重传）；端到端没有：Playwright 造不出系统剪贴板里的图片 | 部分覆盖 |
 | 4 | 看到工具调用：命令和输出、读的文件、diff、写入的文件 | — | 待 M1.4 |
 | 5 | 随时中断 | `apps/desktop/e2e/run-control.spec.ts`（停止后排队暂停，继续发送）；控制器与界面见"运行控制（M1.6）" | 已覆盖 |
 | 6 | 运行中默认排队，可插话 | `apps/desktop/e2e/run-control.spec.ts`（回车排队、⌘回车插话、插话在下一步前送达）；见"运行控制（M1.6）" | 已覆盖 |
-| 7 | 输入框旁切换模型和推理强度 | — | 待 M1.7 |
+| 7 | 输入框旁切换模型和推理强度 | `apps/desktop/e2e/models.spec.ts`（换模型、⌘⇧E 调推理强度到最高、新对话沿用上一次的模型和档位）；组件与宿主见"模型与输入框（M1.7）" | 已覆盖 |
 | 8 | 重启后恢复之前的会话 | `apps/desktop/e2e/history.spec.ts`（从 pi 的文件恢复）、`workspaces.spec.ts`（重启后标签页、当前标签和草稿还在）、`app.spec.ts`（页面存储跨重启） | 已覆盖 |
 | 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | — | 待 M1.8 |
 | 10 | 在 Atrium 里回答 extension 的对话框 | `apps/desktop/e2e/run-control.spec.ts`（`/faux-confirm` 的卡片上作答）；见"运行控制（M1.6）" | 已覆盖 |
@@ -179,6 +179,43 @@
 | 杀掉 pi 后自动恢复（端到端） | `apps/desktop/e2e/run-control.spec.ts` | 已覆盖 |
 | 测试工具：faux 写下 pi 的进程号；夹具把工具耗时规范化为 0 | `packages/testkit/src/faux/faux.pi.test.ts`、`pi-fixtures/normalize.test.ts` | 已覆盖 |
 
+## 模型与输入框（M1.7）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议：推理档位、模型、目录里的模型、会话的模型；`list_models`、`set_model`、`set_thinking_level` 及其应答；快照的 `model`、`model_updated`；`models_unavailable`；偏好的 `lastModel`、`thinkingByModel` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 推理档位按模型元数据算出（照抄 pi-ai 的规则），模型的基本数据，pi 的占位模型算作没有模型 | `packages/pi/src/catalog/models.test.ts` | 已覆盖 |
+| 短启 pi 查模型：不带会话、在指定目录、查完停掉；默认模型必须在列表里；pi 退出带 stderr、中止时停掉 pi、中止在先不启动 | `packages/pi/src/catalog/query.test.ts`；真实 pi：`query.pi.test.ts`（faux 的模型与默认、没有凭据时列表为空） | 已覆盖 |
+| 模型目录：按目录缓存、同一目录同时只查一次、刷新重查（期间的请求共用）、失败丢掉旧答案、120 秒期限、关闭时中止并等待 | `packages/pi/src/catalog/model-catalog.test.ts` | 已覆盖 |
+| pi 契约（1.1.0）：模型列表、换模型和推理强度、换到不支持推理的模型时档位降到 off、未知模型被拒绝、档位规则与 pi 一致 | `packages/pi/src/contract/models.pi.test.ts` | 已覆盖 |
+| 事件翻译：`thinking_level_changed` | `packages/pi/src/events/translate.test.ts` | 已覆盖 |
+| 控制器：快照带模型，换模型和推理强度后读回、只在变化时发 `model_updated`、报告选择、再读条目；pi 拒绝时原样转出、什么也不变；停止中和退出后拒绝；跟随 pi 自己改档位；重启后换成新 pi 的模型 | `packages/host/src/sessions/session-controller.test.ts` "model" | 已覆盖 |
+| 会话管理器：新会话先设上一次的模型和档位再读会话；没记住档位、没选过模型、记住的模型已不在（只记命令和原因）时的处理；从文件打开的会话不设；转发换模型和推理强度；未知会话 | `packages/host/src/sessions/session-manager.test.ts` "models" | 已覆盖 |
+| `list_models`：工作区在其目录、对话在 `~/.atrium`；未知工作区；pi 失败给 `models_unavailable` 带最后 4 KB；其他失败原样转出；路由 | `packages/host/src/sessions/model-lister.test.ts`、`index-commands.test.ts`、`server/router.test.ts` | 已覆盖 |
+| 偏好：记住上一次的模型和每个模型的档位，新会话用它们，第 1 版文件升级 | `packages/host/src/store/preferences.test.ts`、`load-index.test.ts` | 已覆盖 |
+| 客户端：快照和 `model_updated` 的模型；容器的模型列表（加载中保留旧列表、失败带错误）；换模型和推理强度先在视图里生效，被拒绝时放回、宿主报告过的不动 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` "models" | 已覆盖 |
+| 测试工具：faux 可加模型（名字、推理、图片、档位表）；脚本化的 pi 可把收到的命令写到 stderr；faux 的确定性测试把工具耗时规范化 | `packages/testkit/src/faux/faux.pi.test.ts`（修了 pi 1.1.0 的 `durationMs` 让它时有时无失败的问题） | 已覆盖 |
+| 界面：模型按钮（服务商图标、模型名、档位字、拉满时发光，没有模型时"选择模型"）；面板（按服务商分组、基础数据、当前模型打勾、点选即关、刷新、加载中保留旧列表、失败可展开原始报错并重试、没有可用模型的提示）；推理强度框（档位名、"3 / 4"、说明、每档 56px、拖动吸附、点格子跳档、方向键、到头不动、外部改档跟随、聚焦）；⌘⇧I / ⌘⇧E；停止中不能用；空状态显示上一次的模型、选模型时先建会话；被拒绝时说明原因 | `packages/ui/src/chat/model-picker.browser.test.tsx`、`effort-box.browser.test.tsx`、`chat.browser.test.tsx` "model button"；逻辑：`model-choice.test.ts` | 已覆盖 |
+| 点阵：覆盖度、档位越高越密、拉满变彩色、同种子同图案、扫光、深浅色、扫光节奏、种子只生成一次 | `packages/ui/src/design/dots.browser.test.ts` | 已覆盖 |
+| 协议：`list_commands`、`search_files` 及其应答，`fd_missing` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| `/` 命令：pi 契约（1.1.0：extension 命令、pi 自带的 `/llama` `/mcp`、模板、skill 的顺序；模板发出时展开；插话不收 extension 命令）；映射；控制器和会话管理器（草稿先启动 pi）；路由；客户端 | `packages/pi/src/contract/commands.pi.test.ts`、`catalog/commands.test.ts`、`session-controller.test.ts` "commands"、`session-manager.test.ts` "commands"、`router.test.ts`、`atrium-client.test.ts` | 已覆盖 |
+| `@` 文件：找 fd（pi 的目录优先、`PI_CODING_AGENT_DIR`、PATH 上 fd 再 fdfind、跳过不能运行的）；打分、排序、子目录范围、不出工作目录、fd 参数（字面匹配）、解析输出；真实 fd（先一层再递归、隐藏文件、`.ignore`、不含 `.git`、特殊字符、取消和 5 秒期限时停掉 fd）；同一会话的新查询取消旧的；没有 fd 时 `fd_missing` | `packages/pi/src/locate/fd.test.ts`、`packages/host/src/files/fd-query.test.ts`、`file-search.host.test.ts`、`session-manager.test.ts` "file search" | 已覆盖 |
+| 输入框：`/` 列表（过滤、方向键、回车或 Tab 选中、Esc 关闭、只在开头、读不到时提示）；`@` 列表（变成小胶囊、Tab 进入目录、带空格的路径加引号、去掉胶囊、fd 缺失提示、邮箱不算、中文后面的 `@` 算）；长粘贴收成胶囊；↑↓ 历史（到最早时加载更早的）；草稿按会话存取、发送后清掉；展开；"+" 菜单；提示文字；对话区接上命令、文件、历史和草稿，空状态先建会话 | `packages/ui/src/chat/composer.browser.test.tsx`、`chat.browser.test.tsx` "composer"；逻辑：`composer-text.test.ts` | 已覆盖 |
+| 草稿：按会话存取、清空即删、存不下时只留在内存、坏数据当没有；归档的会话、运行中从列表消失的会话清掉草稿，新宿主的第一份列表不清 | `packages/ui/src/state/drafts.test.ts`、`app/workbench.browser.test.tsx` "drafts" | 已覆盖 |
+| 图片：协议（`upload_attachment`、`attachmentIds` 最多 20 张、只有图片时文字可为空、什么都没有不行、排队项的图片数、两个错误码）；宿主暂存（按连接、32 MiB / 20 张、全部在才取、30 分钟释放、断开和关闭时释放）；路由取出图片交给会话；控制器带图片发出、排队、插话、停止退回、崩溃重发；客户端上传、带图片发送、待发副本带图片数 | `packages/protocol/src/envelope.test.ts`、`packages/host/src/server/attachments.test.ts`、`router.test.ts` "attachments"、`session-controller.test.ts` "images"、`packages/client/src/atrium-client.test.ts` "images" | 已覆盖 |
+| 图片：压缩（WebP、长边 2048、放进一条消息、先降质量再缩小、很小的图照原样、放不下时拒绝、不是图片时报错）；输入框（粘贴、"+"菜单、拖入、上传完才能发、只有图片也能发、模型不支持时不添加、换到不支持的模型时提示但照发、上传失败的说明、移除、切标签保留）；拖入的其他文件按工作区目录变成引用；对话区上传、过期时重传一次再发、模型不支持时拒绝；排队面板显示图片数 | `packages/ui/src/chat/images.browser.test.ts`、`composer.browser.test.tsx` "images"、`chat.browser.test.tsx` "images"、`run-control.browser.test.tsx` | 已覆盖 |
+| 工作区改动（照抄 Paseo，取代本会话改动）· 协议：`watch_changes`、`watch_diff`、`changes_updated`、`diff_updated`（文件、hunk、行、状态、二进制和过大） | `packages/protocol/src/envelope.test.ts` "changes" | 已覆盖 |
+| 工作区改动 · git：胶囊的数字（工作树对 merge-base，加未跟踪文件的行数，跳过二进制、过大、链接和被忽略的；比较基准：主干上用 `origin/<分支>`、分支上用 `origin/<主干>` 或本地主干、项目自己的主干；没有基准、HEAD 分离、非 git 时不显示）；面板的 diff（未提交 = HEAD 对工作树加未跟踪文件，已提交 = merge-base..HEAD；编辑、删除、重命名带旧路径、二进制、链接；单文件和累计上限保留行数；整个 diff 过大；还没有提交的仓库；非 git）；监听的根目录和被忽略的目录；输出解析；git 执行器的输出上限 | `packages/host/src/changes/checkout.host.test.ts`、`diff-text.test.ts`、`platform/git.test.ts` "too large" | 已覆盖 |
+| 工作区改动 · 服务：只给有人看的工作区算和监听；文件变化 1 秒后重算、面板 150 毫秒；同样的结果不重发、新连接照样收到；`.git` 里只认 HEAD、index、refs，不认锁文件，被忽略目录不算，`.gitignore` 变了重读；linked worktree 的 git 目录；按需重算；未知工作区；没人看时停止监听、计时器和资源归零；git 失败只记命令和原因；监听坏了改为轮询（5 秒起翻倍到 60 秒，有变化回 5 秒），30 秒后重试监听，成功后停止轮询；路由、断开时清理；真实宿主、真实 git 和文件监听下数字和面板随文件变化 | `packages/host/src/changes/changes-service.test.ts`、`server/router.test.ts` "changes"、`changes.host.test.ts` | 已覆盖 |
+| 工作区改动 · 客户端与界面：每个工作区的改动、面板只收自己目标的结果、刷新时保留已显示的文件、重连后重发；胶囊（紧凑数字、没有改动时不显示、对话不看）、右侧抽屉（默认模式、切换、"有没有未提交"变了回到默认、文件列表与跳转、折叠、hunk 与行号、重命名、二进制、过大、没有改动时去另一模式、不是 git、读不到、太大、刷新、Esc 和关闭、换容器时收起）；端到端：真实宿主里改文件后胶囊和面板 | `packages/client/src/atrium-client.test.ts` "workspace changes"、`packages/ui/src/chat/changes.test.ts`、`changes-panel.browser.test.tsx`、`chat.browser.test.tsx` "workspace changes"、`apps/desktop/e2e/changes.spec.ts` | 已覆盖 |
+| 第二轮审查后修复（2026-10-10）· 插话按 pi 队列的增减条数对应（不按文字），skill 展开后照样跟得上，收回时按发出时的文字；同一会话的插话逐条发；轮到时已在停止的不发、应答 `session_stopping`；只有图片的插话带"（见图片）"；换模型被 pi 接受但读回失败时照样成功、取条目后再读；同一张上传不被两条消息同时用；工作区改动：一次 git 运行拿到状态、行数和补丁，文件与链接互换算一个文件，按面板顺序扣大小额度，大于 1 MB 的未跟踪文件只数行，读不了的未跟踪文件跳过，git 读失败显示"读不到改动"，ref 用完整名，`diff.suppressBlankEmpty` 下的空行；服务：一开始建不起监听也轮询，恢复时立刻又失败的照样轮询（按轮次），监听建好后再算一次，收尾时补上漏掉的请求，没有 git 时给结果，胶囊读失败不影响面板；界面：重新上传逐张、仍失败时放回带新上传，带引号的 `@` 不越过别的词，菜单开着时 Esc 只关菜单，空状态也有胶囊，切走容器后不再往转交的会话送字；拖入时只按文件条目对应目录（浏览器测试造不出目录条目，未单独测） | `session-controller.test.ts` "counts pi's steers"、"expanded"、"one at a time"、"placeholder"、"once a stop began"、"could not be read back"；`attachments.test.ts` "one message at a time"；`checkout.host.test.ts` "link"、"cannot read"、"damaged index"、"allowance"、"full name"、"staged"；`diff-text.test.ts` "parseDiffOutput"、"suppressBlankEmpty"；`changes-service.test.ts` "without git"、"cannot be set up"、"fails at once"、"owed"；`chat.browser.test.tsx` "one at a time"、"empty state too"、"forgets the session"；`changes-panel.browser.test.tsx` "only the menu"；`composer-text.test.ts` "past other words" | 已覆盖 |
+| `/` 命令端到端：输入时列出 pi 的命令，回车选中，完整的命令回车直接发出，extension 命令处理后没有运行 | `apps/desktop/e2e/models.spec.ts` | 已覆盖 |
+| 空状态输入 `/` 建会话后，打的字、图片转到新会话的输入框并获得焦点；模型列表在连上后才请求、重连后再请求；列表还没东西可选时回车照常发送 | `packages/ui/src/chat/chat.browser.test.tsx` "before it is connected"、"handing the first words"；`composer.browser.test.tsx` | 已覆盖 |
+| 审查后修复（2026-10-10）· 宿主：`@` 的查询词放在 `--` 之后，`--search-path=…` 这类查询搜不出工作目录外的东西，以 `-` 开头的名字找得到（fd 输出的 `./` 去掉）；含 NUL 的查询什么也不找、不占 fd 进程计数；停止时 pi 先发的空队列更新不丢插话，同文字的插话按"pi 从队头送达"配对图片，还在途中的插话等它到了再收回；会话拒绝的消息不释放它的图片；一次上传 20 张图不触发限流（每秒 32 MiB）；重启用尽后再启动、还没写出文件的会话重启时用它原来的模型；换模型后读回失败按 pi 的错误应答 | `file-search.host.test.ts` "looks like an fd option"、"cannot be given"；`fd-query.test.ts` "./"；`session-controller.test.ts` "share a text"、"on its way"、"read back"、"latest steer"；`attachments.test.ts` "fails"；`chat.host.test.ts` "whole allowance"；`ws-server.host.test.ts` "32 MiB"；`session-manager.test.ts` "model it had" | 已覆盖 |
+| 审查后修复（2026-10-10）· pi 包与客户端：过长的命令描述和模型名截断，名字或 id 过长的整条不列；中止测试等 pi 收到命令再中止，不靠计时；两次换模型重叠且都失败时回到宿主最后报告的模型 | `catalog/commands.test.ts`、`catalog/models.test.ts` "too long"；`query.test.ts` "aborted while it reads"；`atrium-client.test.ts` "goes back" | 已覆盖 |
+| 审查后修复（2026-10-10）· 界面：草稿以页面内存为准、同步写进 localStorage，写不下时留在内存并删掉旧的、存储被别处改了时重读；上传在输入框离开后完成也记进草稿；压缩中的图片显示占位、不能发送；发送失败时消息和图片回到空的输入框；空状态转交后继续打的字记在新会话、新会话先显示也能收到转交，新会话的输入框只抢一次焦点；⌘⇧I 打开模型面板后的 Esc 只关面板；新查询没回来时不选旧结果；有小胶囊或图片时 ↑ 不调历史；↑ 历史含插话；带空格的目录 Tab 进入时加引号继续找；拖入的目录带 `/` | `state/drafts.test.ts`；`composer.browser.test.tsx` "went away"、"compressed"、"model panel"、"query before"、"capsule"；`chat.browser.test.tsx` "old failure"、"before it shows"、"before its creation is answered"；`composer-text.test.ts` "quoted"、"space"、"steers"、"droppedReference"（拖入目录的判断取自拖放条目，浏览器测试造不出目录条目，只测了路径规则） | 已覆盖 |
+| 变异测试补测（2026-10-10）· 插话：pi 的队列多几项就只列出几条、还在等轮到的不算，运行结束后才轮到的作为消息发出，停止收回后重新跟上 pi 的队列，pi 从别处拿到的文字照原样还回、不带图片；没人等模型列表时换模型只读回一次；上传：单个连接的数量上限，消息在途中过期的上传照样能用，断开只清自己的；`@` 的绝对路径即使工作目录里有同名目录也不搜；连接关闭时工作区改动的监听归零；客户端：第三次换模型叠上来时回到宿主的模型，宿主接受的那次算作回退的目标，别的工作区或面板关着时的 diff 不收，面板换工作区或换模式后不显示旧的文件；id 过长的模型不列、没有默认；草稿：恢复不覆盖已有的文字、粘贴、文件或图片，只有图片的草稿也转交，别处改了存储后跟上，存不下的草稿比之后的存储优先，一个监听停了别的照常，换图片只通知所在的草稿；diff 解析：多位数的计数、只在行首切分、像 hunk 头的行、二进制判断的边界、CRLF，按额度给行数的边界和顺序；git：origin/HEAD 没了时比 origin 的同名分支，在主干上而 origin 没有主干时不显示基准（不拿主干和自己比），已跟踪的二进制文件改了显示为二进制，没有共同历史时什么也不显示，只有删除，未跟踪文件只数前 500 个，已提交模式不含未跟踪文件，缺对象时"读不到改动"，预先取消，大文件数行；服务：重复显示不重发、集合变大时原来的照常收，首次结果前不再显示的连接不发，面板还开着时最后一个看数字的离开也继续监听，没人看后再显示时重新开始监听，看的工作区不见了时什么也不做，按模式各发各的、新开的面板收到没收过的，换模式不重新监听、换工作区放掉旧的，断开放掉面板的工作区，关掉的面板不影响别人再看，面板 150 毫秒只算 diff，diff 失败记日志接着算下一个模式，顶层 `.gitignore` 变了照新列表忽略，读的途中放掉的工作区不再排计时、不记日志、不建监听，不在仓库里时不监听，一次只跑一个查看，关闭时停掉一切并等查看结束、之后什么都不做，重试监听 30 秒、60 秒翻倍，不再是仓库时继续重试，轮询时面板的 diff 也更新，git 主动停下不记日志，非 Error 记为 unknown；真实 `fs.watch` 递归报告深处的路径、停止后放掉、监听不了时返回后报错 | `session-controller.test.ts` "as pi's queue grew by"、"after the run ended"、"took the steers back"、"without images"、"nobody listening"；`attachments.test.ts` "count alone"、"on its way"；`file-search.host.test.ts` "though the directory has one"；`ws-server.host.test.ts` "a connection closing"；`atrium-client.test.ts` "a third change"、"the model to go back to"、"another workspace's diff"、"moves to another in the same mode"、"switches to the other"；`query.test.ts` "too long"；`drafts.test.ts`；`diff-text.test.ts` "weighFiles"、"isLikelyBinary"、"at a header's start"、"more than one digit"；`checkout.host.test.ts` "rather than comparing main with itself"、"tracked binary file"、"origin's own branch"、"no history in common"、"lines removed alone"、"first 500"、"among a branch's commits"、"object gone"、"called off"、"a chunk at a time"；`changes-service.test.ts` "who is shown what"、"the panel's targets"、"the ignored directories"、"looks"、"closing"、"watching again"；`watch-directory.host.test.ts` | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |
@@ -186,7 +223,7 @@
 | 错误 token 被拒绝（4401），日志里没有真 token；同源页面也必须带对 token | ws-server.host.test.ts "rejects a wrong token…"、"lets a page served by the host itself connect, but still requires the token" | 已覆盖 |
 | 外来 Origin 在升级时被拒（403） | ws-server.host.test.ts "refuses a browser from a foreign origin…" | 已覆盖 |
 | 只认第一条 hello；格式错误、版本不符、超时各有关闭码 | ws-server.host.test.ts "closes the socket on …"、"drops a client that never says hello…"、"answers only the first of two hellos" | 已覆盖 |
-| 连接数、消息速率、字节速率、单条大小的上限 | ws-server.host.test.ts "disconnects a client that sends more than 200 messages…"、"…more than 8 MiB…"、"closes a connection that sends a message over 1 MiB…"、"refuses connections beyond 32 at once" | 已覆盖 |
+| 连接数、消息速率、字节速率、单条大小的上限 | ws-server.host.test.ts "disconnects a client that sends more than 200 messages…"、"allows exactly 32 MiB per second…"、"closes a connection that sends a message over 1 MiB…"、"refuses connections beyond 32 at once" | 已覆盖 |
 | token 强度（单独运行与 Electron 两条路径） | `packages/host/src/server/auth.test.ts`；host-standalone.spec.ts "refuses a weak token…" | 已覆盖 |
 | 渲染进程拿不到 Node，桥上只有 bootstrap、选择文件夹、窗口外观 | e2e "gives the page no Node access and only the bridge…" | 已覆盖 |
 | 窗口页面从固定的 `atrium://app` 加载，CSP 只多允许连宿主端口，存储跨重启保留 | e2e "opens a window on the host's UI at a fixed origin…"、"keeps the page's storage across a restart…" | 已覆盖 |
@@ -198,6 +235,7 @@
 | 日志脱敏：凭据键、已知秘密、格式化参数、`Error`、子 logger 绑定 | `packages/host/src/platform/logger.test.ts`、`redact.test.ts`、`redact.prop.test.ts`；e2e "…never logs the token" | 已覆盖 |
 | pi 的环境里名字像凭据的变量值加入脱敏列表，pi 在 stderr 回显也不进日志 | redact.test.ts "picks the values of credential-like variables…"；tools.host.test.ts "scrubs credentials from the tool environment…"；try-pi.test.ts "keeps credentials from the environment out of its log…" | 已覆盖 |
 | pi 从 `auth.json` 读的 Key 被 pi 回显时不进日志（已知缺口，见 security.md"凭据与日志"） | — | 待 M1.10 |
+| `@` 搜索不返回工作区之外的文件：`~/`、绝对路径、`..` 找不到；像 fd 选项的查询词（`--search-path=…`）只当文字；工作区里的符号链接照 pi 跟进去（2026-10-10 定） | `packages/host/src/files/file-search.host.test.ts` "finds nothing outside the working directory"、"takes a query that looks like an fd option as text…"；`fd-query.test.ts` "scopeOf" | 已覆盖 |
 | 新建的 `~/.atrium` 权限 0700、日志 0600；已有目录不改权限 | `packages/host/src/platform/home.test.ts`；`logger.test.ts` "creates log files readable only by their owner, rotated ones included" | 已覆盖 |
 | 索引文件 0600、`turns/` 目录 0700；插话记录的文件名只用 pi 形状的会话 id | `packages/host/src/store/index-file.test.ts`、`turn-starts.test.ts` | 已覆盖 |
 

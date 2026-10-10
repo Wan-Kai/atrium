@@ -38,8 +38,16 @@ const DOCUMENTS = {
   layouts: {
     clients: [{ clientId: "client-1", seenAt: 2, container: "wks_1", tabs: { wks_1: { open: ["s1"], active: "s1" } } }],
   },
-  preferences: { appearance: "dark", displayMode: "thinking" },
+  preferences: {
+    appearance: "dark",
+    displayMode: "thinking",
+    lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
+    thinkingByModel: { "anthropic/claude-opus-5-5": "high" },
+  },
 };
+
+/** Each file's current format version. */
+const VERSIONS: Record<keyof typeof DOCUMENTS, number> = { projects: 1, sessions: 1, layouts: 1, preferences: 2 };
 
 /**
  * Creates Atrium's home for one test.
@@ -75,7 +83,8 @@ describe("loadIndex", () => {
   it("loads each file from its own name in the home", async () => {
     const dir = await home();
     for (const [name, document] of Object.entries(DOCUMENTS)) {
-      await writeFile(join(dir, `${name}.json`), JSON.stringify({ version: 1, ...document }));
+      const version = VERSIONS[name as keyof typeof DOCUMENTS];
+      await writeFile(join(dir, `${name}.json`), JSON.stringify({ version, ...document }));
     }
 
     const index = await loadIndex(dir, NOW, recording().logger);
@@ -120,7 +129,7 @@ describe("loadIndex", () => {
       "preferences",
       "an unknown appearance",
       { appearance: "sepia", displayMode: "summary" },
-      { appearance: "system", displayMode: "summary" },
+      { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
     ],
   ] as const)("resets %s with %s, keeping it aside and logging where", async (name, _case, document, empty) => {
     const dir = await home();

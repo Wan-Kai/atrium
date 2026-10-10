@@ -1,7 +1,17 @@
-import type { AtriumClient, ConnectionState, IndexView, SessionView } from "@atrium/client";
+import type {
+  AtriumClient,
+  ChangesView,
+  ConnectionState,
+  DiffView,
+  IndexView,
+  ModelListView,
+  SessionView,
+} from "@atrium/client";
 import {
+  type DiffTarget,
   IDLE_CONTROL,
   type IndexSnapshotEvent,
+  type ModelRef,
   type Project,
   type SessionSummary,
   type Workspace,
@@ -81,6 +91,7 @@ function sessionView(sessionId: string, fields: Partial<SessionView> = {}): Sess
     run: null,
     pending: [],
     control: IDLE_CONTROL,
+    model: null,
     ...fields,
   };
 }
@@ -92,6 +103,10 @@ export interface FakeAnswers {
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
+  /** The list `loadModels` puts in a container's model list; empty and ready when left out. */
+  readonly models?: ModelListView;
+  /** Holds back an upload, given its number counting from 1. */
+  readonly upload?: (number: number) => Promise<void>;
 }
 
 /**
@@ -100,7 +115,8 @@ export interface FakeAnswers {
  * @remarks
  * Browser tests cannot run a host (the host needs Node); this fake keeps the parts the UI reads
  * real: the list is a real store that commands change as the host's snapshot would, and every
- * watched session has a real view store. Commands are recorded as short strings.
+ * watched session has a real view store. Commands are recorded as short strings; model commands
+ * apart, in `modelCalls`, as the conversation area asks for models whenever it shows.
  *
  * @sideEffects none until a command; then updates its stores.
  * @param initial - The list to start from.
@@ -109,6 +125,12 @@ export interface FakeAnswers {
  */
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
+  const modelCalls: string[] = [];
+  /** What the area asked of the workspace changes, in order. */
+  const changeCalls: string[] = [];
+  const changeStores = new Map<string, StoreApi<ChangesView>>();
+  const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
+  const modelLists = new Map<string, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
   const index = createStore<IndexView>(() => ({
     ready: true,
@@ -118,7 +140,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     workspaces: [],
     sessions: [],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary" },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
     resets: [],
     ...initial,
   }));
@@ -129,6 +151,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     hostInstanceId: "h1",
   }));
   let created = 0;
+  let uploaded = 0;
 
   /**
    * Opens a session as the active tab of its container.
@@ -254,8 +277,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       index.setState({ preferences: { ...index.getState().preferences, ...changes } });
       return {};
     },
-    prompt(sessionId: string, text: string) {
-      calls.push(`prompt ${sessionId} ${text}`);
+    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = []) {
+      calls.push(`prompt ${sessionId} ${text}${attachmentIds.map((id) => ` +${id}`).join("")}`);
       const view = views.get(sessionId);
       view?.setState({ pending: [...view.getState().pending, { clientMessageId: `q${calls.length}`, text }] });
       return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
@@ -298,9 +321,64 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     loadOlder: async () => undefined,
     loadStep: async () => undefined,
+    models(containerId: string) {
+      let list = modelLists.get(containerId);
+      if (list === undefined) {
+        list = createStore<ModelListView>(() => ({ status: "idle", models: [], defaultModel: null, error: null }));
+        modelLists.set(containerId, list);
+      }
+      return list;
+    },
+    async loadModels(containerId: string, refresh = false) {
+      modelCalls.push(`loadModels ${containerId}${refresh ? " refresh" : ""}`);
+      client
+        .models(containerId)
+        .setState(answers.models ?? { status: "ready", models: [], defaultModel: null, error: null });
+    },
+    async setModel(sessionId: string, model: ModelRef) {
+      modelCalls.push(`setModel ${sessionId} ${model.providerId}/${model.modelId}`);
+      return {};
+    },
+    async uploadAttachment(mimeType: string) {
+      uploaded += 1;
+      const number = uploaded;
+      calls.push(`uploadAttachment ${mimeType}`);
+      await answers.upload?.(number);
+      return { attachmentId: `u${number}` };
+    },
+    async listCommands(sessionId: string) {
+      calls.push(`listCommands ${sessionId}`);
+      return { commands: [{ name: "review", description: "Reviews", source: "prompt" }] };
+    },
+    async searchFiles(sessionId: string, query: string) {
+      calls.push(`searchFiles ${sessionId} ${query}`);
+      return { files: [{ path: "src/a.ts", directory: false }] };
+    },
+    async setThinkingLevel(sessionId: string, level: string) {
+      modelCalls.push(`setThinkingLevel ${sessionId} ${level}`);
+      return {};
+    },
+    changes(workspaceId: string) {
+      let store = changeStores.get(workspaceId);
+      if (store === undefined) {
+        store = createStore<ChangesView>(() => null);
+        changeStores.set(workspaceId, store);
+      }
+      return store;
+    },
+    async watchChanges(workspaceIds: readonly string[]) {
+      changeCalls.push(`watchChanges ${workspaceIds.join(",")}`);
+    },
+    diff,
+    async watchDiff(target: DiffTarget | null) {
+      changeCalls.push(target === null ? "watchDiff null" : `watchDiff ${target.workspaceId} ${target.mode}`);
+      const shown = diff.getState().target;
+      if (shown?.workspaceId === target?.workspaceId && shown?.mode === target?.mode) return;
+      diff.setState({ target, status: target === null ? "idle" : "loading", files: [], tooLarge: false, error: null });
+    },
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
-  return { client, calls, views, index, connection };
+  return { client, calls, modelCalls, changeCalls, views, index, connection };
 }
 
 /** Project `prj_a` named "atrium". */

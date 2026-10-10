@@ -1,3 +1,4 @@
+import type { ThinkingLevel } from "@atrium/protocol";
 import { type AssistantPart, type LogMessage, type PiMessage, toLogMessage } from "../history/log-entry";
 import { contentText } from "../history/tools";
 import type { PiEvent } from "../process/pi-process";
@@ -26,6 +27,8 @@ export type TranslatedEvent =
   | { readonly kind: "compaction_finished" }
   /** The steers pi holds that have not reached the model yet, all of them. */
   | { readonly kind: "steering_changed"; readonly steering: readonly string[] }
+  /** pi's thinking level changed, as after switching to a model that supports fewer levels. */
+  | { readonly kind: "thinking_changed"; readonly level: ThinkingLevel }
   | { readonly kind: "dialog_requested"; readonly dialog: Dialog }
   /** A one-way message from an extension, which Atrium only logs. */
   | { readonly kind: "notified"; readonly level: "info" | "warning" | "error"; readonly text: string };
@@ -165,6 +168,7 @@ export function createEventTranslator(now: () => number): EventTranslator {
     if (event.type === "compaction_start") return [{ kind: "compaction_started" }];
     if (event.type === "compaction_end") return [{ kind: "compaction_finished" }];
     if (event.type === "queue_update") return [{ kind: "steering_changed", steering: [...event.steering] }];
+    if (event.type === "thinking_level_changed") return [{ kind: "thinking_changed", level: event.level }];
     if (event.type === "extension_ui_request") return uiRequest(event);
     if (event.type === "agent_start") return [{ kind: "agent_started" }];
     if (event.type === "agent_settled") return [{ kind: "agent_settled" }];

@@ -20,6 +20,7 @@ function clientWith(shown: TranscriptItem[], pages: (TranscriptItem[] | null)[])
     sessionId: "s1",
     status: "ready",
     control: IDLE_CONTROL,
+    model: null,
     epoch: 1,
     seq: 0,
     items: shown,

@@ -1,6 +1,7 @@
-import type { Control, Interaction, InteractionAnswer } from "@atrium/protocol";
-import { ArrowBendDownRight, CaretUp, Question, WarningCircle, X } from "@phosphor-icons/react";
+import type { Control, DiffStat, Interaction, InteractionAnswer } from "@atrium/protocol";
+import { ArrowBendDownRight, CaretUp, GitDiff, Question, WarningCircle, X } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { DiffCounts } from "./changes-panel";
 
 /** What the run control UI can ask of the session. */
 export interface RunActions {
@@ -60,7 +61,12 @@ function QueueRow({
       data-testid="queued"
     >
       {draft === null ? (
-        <span className="min-w-0 flex-1 truncate text-[var(--text-2)]">{item.text}</span>
+        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="min-w-0 truncate text-[var(--text-2)]">{item.text === "" ? "图片" : item.text}</span>
+          {item.images > 0 ? (
+            <span className="shrink-0 text-[length:var(--fs-xs)] text-[var(--text-dim)]">{item.images} 张图片</span>
+          ) : null}
+        </span>
       ) : (
         <input
           aria-label="编辑排队的消息"
@@ -108,21 +114,25 @@ function QueueRow({
  * @remarks
  * SPEC-0001 ("胶囊条"): "● 排队 N" opens the queue panel above it, and opens by itself when a
  * message joins the queue; a paused queue says so, with "继续发送" in the panel.
- * "N 条插话将在下一步前送达" lists the steers pi has not delivered yet. Nothing shows when both are
- * empty.
+ * "N 条插话将在下一步前送达" lists the steers pi has not delivered yet. "+A −D" on the right is the
+ * workspace's git changes, opening the changes panel ("工作区改动"). Nothing shows when all three
+ * are empty.
  *
  * @sideEffects Calls the actions as the user acts.
- * @param props - The run control, whether a run goes on, and the actions.
+ * @param props - The run control, whether a run goes on, the actions, and the workspace's changes.
  * @returns The bar, or nothing.
  */
 export function ControlTrack({
   control,
   running,
   actions,
+  changes,
 }: {
   readonly control: Control;
   readonly running: boolean;
   readonly actions: RunActions;
+  /** The workspace's git changes, when it has some, and the changes panel (SPEC-0001, "工作区改动"). */
+  readonly changes?: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const count = control.queue.length;
@@ -133,7 +143,7 @@ export function ControlTrack({
     if (count > before.current) setOpen(true);
     before.current = count;
   }, [count]);
-  if (count === 0 && control.steers.length === 0) return null;
+  if (count === 0 && control.steers.length === 0 && changes === undefined) return null;
   const paused = control.paused !== null;
   return (
     <>
@@ -178,8 +188,65 @@ export function ControlTrack({
             {control.steers.length} 条插话将在下一步前送达
           </span>
         ) : null}
+        {changes === undefined ? null : <ChangesCapsule {...changes} />}
       </div>
     </>
+  );
+}
+
+/**
+ * The workspace's changes capsule alone, as the empty state shows it with no session open.
+ *
+ * @remarks
+ * Where the capsule bar would be (SPEC-0001, "工作区改动").
+ *
+ * @sideEffects none
+ * @param props - The changes and the panel.
+ * @returns The capsule.
+ */
+export function ChangesTrack({
+  changes,
+}: {
+  readonly changes: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void };
+}) {
+  return (
+    <div className="pointer-events-none absolute right-1 bottom-[calc(100%+8px)] left-1 flex gap-1.5">
+      <ChangesCapsule {...changes} />
+    </div>
+  );
+}
+
+/**
+ * The "+A −D" capsule that opens the changes panel.
+ *
+ * @remarks
+ * On the bar's right (SPEC-0001, "工作区改动").
+ *
+ * @sideEffects Calls `onToggle` when clicked.
+ * @param props - The counts, whether the panel is open, and how to toggle it.
+ * @returns The capsule.
+ */
+function ChangesCapsule({
+  stat,
+  open,
+  onToggle,
+}: {
+  readonly stat: DiffStat;
+  readonly open: boolean;
+  readonly onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label="查看改动"
+      title="查看改动"
+      aria-expanded={open}
+      className={`${CAPSULE} ml-auto`}
+      onClick={onToggle}
+    >
+      <GitDiff size={12} className="text-[var(--text-dim)]" />
+      <DiffCounts {...stat} />
+    </button>
   );
 }
 

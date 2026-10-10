@@ -8,12 +8,16 @@ import {
   type FetchTranscriptCommand,
   type Interaction,
   type InteractionAnswer,
+  type ModelRef,
   type PendingSteer,
   type PromptCommand,
   type RunSettledEvent,
   type SessionEvent,
+  type SessionModel,
   type SessionSnapshotEvent,
+  type SlashCommand,
   type SteerCommand,
+  type ThinkingLevel,
   parseTraceparent,
 } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
@@ -34,14 +38,29 @@ interface PiEnd {
 /** An answer to an extension dialog as pi takes it. */
 type DialogResponse = { readonly id: string } & InteractionAnswer;
 
+/** An image as pi's `prompt` and `steer` take it: base64 data and its type (pi-internals.md §3). */
+export interface PromptImage {
+  readonly data: string;
+  readonly mimeType: string;
+}
+
+/** A message as it goes to pi: its text, possibly empty, and its images. */
+interface Outgoing {
+  readonly text: string;
+  readonly images: readonly PromptImage[];
+}
+
 /** The part of a running pi a session controller uses; the manager adapts a traced pi to it. */
 export interface SessionPi {
   onEvent(listener: (event: PiEvent) => void): () => void;
   readonly exited: Promise<PiEnd>;
   /** Sends `prompt` and returns pi's disposition. */
-  prompt(message: string): Promise<{ readonly disposition: "started" | "queued" | "handled" }>;
+  prompt(
+    message: string,
+    images: readonly PromptImage[],
+  ): Promise<{ readonly disposition: "started" | "queued" | "handled" }>;
   /** Sends `steer` and returns pi's disposition. */
-  steer(message: string): Promise<{ readonly disposition: "queued" | "handled" }>;
+  steer(message: string, images: readonly PromptImage[]): Promise<{ readonly disposition: "queued" | "handled" }>;
   /** Empties pi's own queue and returns the steers it held. */
   clearQueue(): Promise<{ readonly steering: readonly string[] }>;
   /** Asks pi to stop; resolves once it has. */
@@ -50,14 +69,24 @@ export interface SessionPi {
   respond(response: DialogResponse): void;
   /** Reads the session's entries after `since`, or all of them, converted. */
   getEntries(since: string | undefined): Promise<EntriesPage>;
+  /** The model pi uses now, from `get_state`; `null` when it has none. */
+  model(): Promise<SessionModel | null>;
+  /** Sends `set_model`. */
+  setModel(model: ModelRef): Promise<void>;
+  /** Sends `set_thinking_level`. */
+  setThinkingLevel(level: ThinkingLevel): Promise<void>;
+  /** pi's slash commands, from `get_commands`. */
+  commands(): Promise<SlashCommand[]>;
   /** Stops pi; resolves once it has exited. */
   stop(): Promise<unknown>;
 }
 
-/** A pi just started for the session again, with the entries it has. */
+/** A pi just started for the session again, with the entries it has and the model it uses. */
 export interface Respawned {
   readonly pi: SessionPi;
   readonly entries: EntriesPage;
+  /** Unknown, and taken as none, when left out. */
+  readonly model?: SessionModel | null;
 }
 
 /** One session's live state and the commands on it (domain-model §3). */
@@ -71,10 +100,10 @@ export interface SessionController {
   snapshot(): SessionSnapshotEvent;
   /** Hands a session whose pi exited a newly started one, which carries on in a new epoch. */
   attach(started: Respawned): void;
-  /** Sends a message, or queues it behind the run in progress. */
-  prompt(command: PromptCommand): Promise<CommandResult<"prompt">>;
-  /** Sends a steer, or a message when idle. */
-  steer(command: SteerCommand): Promise<CommandResult<"steer">>;
+  /** Sends a message with its images, or queues it behind the run in progress. */
+  prompt(command: PromptCommand, images?: readonly PromptImage[]): Promise<CommandResult<"prompt">>;
+  /** Sends a steer with its images, or a message when idle. */
+  steer(command: SteerCommand, images?: readonly PromptImage[]): Promise<CommandResult<"steer">>;
   /** Stops the run: pauses the queue, clears pi's queue and aborts. */
   stop(): Promise<CommandResult<"stop">>;
   resumeQueue(): CommandResult<"resume_queue">;
@@ -84,6 +113,12 @@ export interface SessionController {
   /** Takes a message out of the queue and sends it as a steer. */
   steerQueued(itemId: string): Promise<CommandResult<"steer_queued">>;
   answerInteraction(interactionId: string, answer: InteractionAnswer): CommandResult<"answer_interaction">;
+  /** Switches pi's model, from its next request to the model on. */
+  setModel(model: ModelRef): Promise<CommandResult<"set_model">>;
+  /** Sets how hard pi's model thinks. */
+  setThinkingLevel(level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** pi's `/` commands, asked for each time the list opens. */
+  listCommands(): Promise<CommandResult<"list_commands">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
   retryRun(): Promise<CommandResult<"retry_run">>;
   /** Items before one the client has, for scrolling back. */
@@ -254,23 +289,37 @@ function fits(kind: Interaction["kind"], answer: InteractionAnswer): boolean {
 interface QueueItem {
   readonly id: string;
   text: string;
+  readonly images: readonly PromptImage[];
   readonly createdAt: number;
   readonly requestId: string | null;
   readonly traceId: string | null;
 }
 
-/** A steer pi was given, and whether one of its queue updates has listed it yet. */
+/** A steer pi was given, and the text its queue lists it by once it has. */
 interface Steer {
   readonly id: string;
+  /** As it was sent: what the client shows, and what goes again if it comes back. */
   readonly text: string;
-  seen: boolean;
+  readonly images: readonly PromptImage[];
+  /** Whether pi's queue has listed it; pi's text may differ, expanded as pi expands skills and templates. */
+  listed: boolean;
 }
+
+/**
+ * The text a steer of images alone goes to pi with.
+ *
+ * @remarks
+ * pi takes a delivered steer off its queue by its text, and never one whose text is empty; such a
+ * steer would stay listed for good (pi-internals.md §2; SPEC-0001, "运行控制").
+ */
+const IMAGES_ONLY = "（见图片）";
 
 /** A message sent to pi that has not opened a turn yet. */
 interface Waiting {
   readonly requestId: string | null;
   readonly traceId: string | null;
   readonly text: string;
+  readonly images: readonly PromptImage[];
   readonly auto: boolean;
   /** Set once pi echoed it as the user message opening a turn. */
   echoed: boolean;
@@ -344,6 +393,10 @@ export function createSessionController(options: {
    * start, already under way, hands the session its pi instead.
    */
   readonly respawn?: () => Promise<Respawned | null>;
+  /** The model pi started with; none when left out. */
+  readonly model?: SessionModel | null;
+  /** Told the model and thinking level pi uses after you chose one, to remember for new sessions. */
+  readonly onModelChosen?: (model: SessionModel) => void;
 }): SessionController {
   const { sessionId, clock, newId } = options;
   const log = options.log ?? (() => undefined);
@@ -388,9 +441,17 @@ export function createSessionController(options: {
   const queue: QueueItem[] = [];
   let paused: Control["paused"] = null;
   let steers: Steer[] = [];
+  /** Steers sent, or waiting to be sent, that pi has not answered yet. */
+  const steering = new Set<Promise<unknown>>();
+  /** Settles once the last steer asked for has been answered; the next one waits for it. */
+  let steerTurn: Promise<void> = Promise.resolve();
+  /** A stop is taking pi's steers back; its answer, not pi's queue updates, says which pi held. */
+  let clearing = false;
   /** The stop in progress, shared by every caller until pi confirms or exits. */
   let stopping: Promise<CommandResult<"stop">> | null = null;
   let compacting = false;
+  /** A model was chosen whose result pi has not reported yet; read after the next entries. */
+  let choiceToRead = false;
   /** A message on its way to pi, whose disposition has not come back yet. */
   let sending = false;
   /** pi said it started a run whose `agent_start` has not arrived yet. */
@@ -408,6 +469,8 @@ export function createSessionController(options: {
   let shuttingDown = false;
   /** The control last published, to send `control_updated` only on change. */
   let sentControl = JSON.stringify(control());
+  /** The model pi uses, as last read or reported. */
+  let model = options.model ?? null;
 
   /**
    * Numbers an event and sends it to the session's viewers.
@@ -434,7 +497,7 @@ export function createSessionController(options: {
    */
   function control(): Control {
     return {
-      queue: queue.map(({ id, text, createdAt }) => ({ id, text, createdAt })),
+      queue: queue.map(({ id, text, createdAt, images }) => ({ id, text, createdAt, images: images.length })),
       paused,
       steers: steers.map(({ id, text }): PendingSteer => ({ id, text })),
       stopping: stopping !== null,
@@ -480,7 +543,72 @@ export function createSessionController(options: {
       run: run === null ? null : { runId: run.runId, startedAt: run.startedAt },
       exited,
       control: control(),
+      model,
     };
+  }
+
+  /**
+   * Takes the model pi reports, publishing it if it changed.
+   *
+   * @remarks
+   * pi sends no event for a new model (pi-internals.md §3), so the controller reads it after
+   * every change it asks for.
+   *
+   * @sideEffects May publish `model_updated`.
+   * @param now - The model pi uses.
+   */
+  function modelIs(now: SessionModel | null): void {
+    if (JSON.stringify(now) === JSON.stringify(model)) return;
+    model = now;
+    emit({ type: "model_updated", model });
+  }
+
+  /**
+   * Changes pi's model or thinking level as you chose, then reads back what pi uses.
+   *
+   * @remarks
+   * pi keeps the thinking level within what the model supports, so the level read back may differ
+   * from the one asked for. What pi then uses is reported as your choice; the entry pi wrote for
+   * it is read like any other (SPEC-0001, "模型与输入框"). A change pi took stands even when the
+   * model cannot be read back; it is read again after the next entries.
+   *
+   * @sideEffects Calls pi; may publish `model_updated`; reports the choice; starts a refresh.
+   * @param change - The request to pi.
+   * @throws {CommandError} `session_stopping`, `pi_unavailable`, or pi's refusal of the change.
+   */
+  async function choose(change: () => Promise<void>): Promise<void> {
+    refuseWhenExited();
+    refuseWhileStopping();
+    try {
+      await change();
+    } catch (error) {
+      throw promptFailure(error);
+    }
+    choiceToRead = true;
+    try {
+      await readChoice();
+    } catch {
+      // pi took the change; the model is read again after the entries (SPEC-0001, "模型与输入框").
+    }
+    // Fire and forget: `refresh` reports its own failures.
+    void refresh();
+  }
+
+  /**
+   * Reads the model pi uses after a choice, and reports it as chosen.
+   *
+   * @remarks
+   * Once read, it is not read again.
+   *
+   * @sideEffects Calls pi; may publish `model_updated`; reports the choice.
+   * @throws {Error} When pi does not answer.
+   */
+  async function readChoice(): Promise<void> {
+    const now = await pi.model();
+    modelIs(now);
+    if (model !== null) options.onModelChosen?.(model);
+    // Done only once reported, so a failure on the way reads it again after the next entries.
+    choiceToRead = false;
   }
 
   /**
@@ -555,6 +683,7 @@ export function createSessionController(options: {
         const result = transcript.rebuild(page, reset);
         if (result.kind === "notices") for (const event of result.events) emit(event);
         if (result.kind === "changed") newEpoch();
+        if (choiceToRead) await readChoice();
       } while (refreshAgain);
     } catch (error) {
       options.onRefreshFailed(error);
@@ -625,6 +754,9 @@ export function createSessionController(options: {
       case "steering_changed":
         delivered(event.steering);
         return;
+      case "thinking_changed":
+        if (model !== null) modelIs({ ...model, thinkingLevel: event.level });
+        return;
       case "dialog_requested":
         ask(event.dialog);
         return;
@@ -649,22 +781,32 @@ export function createSessionController(options: {
    * Keeps the steers pi still holds; the others were delivered.
    *
    * @remarks
-   * pi lists its steers' texts whole each time (pi-internals.md §2); one of ours counts as held
-   * while a text equal to it is left in the list, taken in order. A steer pi has not listed yet
-   * (its update not read yet) stays; one it listed before and no longer does was delivered.
+   * pi lists its steers' texts whole each time, one change an update: it adds the steers it takes
+   * at the back and delivers from the front (pi-internals.md §2). Its texts are expanded and need
+   * not be what the host sent, so steers are counted, not matched: a longer list took the earliest
+   * steers not listed yet; a shorter one delivered the earliest listed. Steers go to pi one at a
+   * time, so they reach its queue in the order sent. While a stop takes the steers back, pi's
+   * emptied queue says nothing about delivery, so updates wait for the stop's answer.
    *
-   * @sideEffects Updates the steers; may publish `control_updated`.
+   * @sideEffects Updates the steers; publishes `control_updated`.
    * @param held - The texts pi holds.
    */
   function delivered(held: readonly string[]): void {
-    const left = [...held];
-    steers = steers.filter((steer) => {
-      const at = left.indexOf(steer.text);
-      if (at === -1) return !steer.seen;
-      left.splice(at, 1);
-      steer.seen = true;
-      return true;
-    });
+    if (clearing) return;
+    const listed = steers.filter((steer) => steer.listed);
+    // Stryker disable next-line EqualityOperator: a list as long as before adds none and delivers none either way.
+    if (held.length > listed.length) {
+      let taken = held.length - listed.length;
+      for (const steer of steers) {
+        if (steer.listed) continue;
+        if (taken === 0) break;
+        steer.listed = true;
+        taken -= 1;
+      }
+    } else {
+      const gone = new Set(listed.slice(0, listed.length - held.length));
+      steers = steers.filter((steer) => !gone.has(steer));
+    }
     controlChanged();
   }
 
@@ -742,18 +884,18 @@ export function createSessionController(options: {
    * the caller decided what to do with a refused one.
    *
    * @sideEffects Calls pi; publishes `prompt_handled`.
-   * @param text - The message.
+   * @param message - The message and its images.
    * @param from - The request that sent it, its trace, and whether the host sent it.
    * @param fromQueue - Whether it came from the queue, which takes it back when pi goes away.
    * @returns pi's disposition.
    * @throws {CommandError} As `promptFailure` makes them.
    */
   async function send(
-    text: string,
+    message: Outgoing,
     from: { readonly requestId: string | null; readonly traceId: string | null; readonly auto: boolean },
     fromQueue = false,
   ): Promise<"started" | "handled"> {
-    const entry: Waiting = { ...from, text, echoed: false, requeued: false };
+    const entry: Waiting = { ...from, text: message.text, images: message.images, echoed: false, requeued: false };
     waiting.push(entry);
     unconfirmed = entry;
     sending = true;
@@ -774,7 +916,7 @@ export function createSessionController(options: {
       if (!keep && unconfirmed === entry) unconfirmed = null;
     };
     try {
-      const { disposition } = await pi.prompt(text);
+      const { disposition } = await pi.prompt(message.text, message.images);
       if (disposition !== "handled") {
         // pi may answer before or after the run's events; until its `agent_start` arrives, the run
         // is pi's even though no event says so yet.
@@ -812,7 +954,7 @@ export function createSessionController(options: {
     const item = queue.shift();
     if (item === undefined) return;
     controlChanged();
-    send(item.text, { requestId: item.requestId, traceId: item.traceId, auto: false }, true).then(
+    send(item, { requestId: item.requestId, traceId: item.traceId, auto: false }, true).then(
       () => dispatch(),
       (error: unknown) => {
         queue.unshift(item);
@@ -832,13 +974,20 @@ export function createSessionController(options: {
    * See `createSessionController`.
    *
    * @sideEffects Publishes `control_updated`.
-   * @param text - The message.
+   * @param message - The message and its images.
    * @param requestId - The command that sent it.
    * @param traceId - Its trace.
    * @returns The queued item's id.
    */
-  function enqueue(text: string, requestId: string | null, traceId: string | null): string {
-    const item: QueueItem = { id: newId(), text, createdAt: clock.now(), requestId, traceId };
+  function enqueue(message: Outgoing, requestId: string | null, traceId: string | null): string {
+    const item: QueueItem = {
+      id: newId(),
+      text: message.text,
+      images: message.images,
+      createdAt: clock.now(),
+      requestId,
+      traceId,
+    };
     queue.push(item);
     controlChanged();
     return item.id;
@@ -851,12 +1000,41 @@ export function createSessionController(options: {
    * For steers pi gave back and a message a crash interrupted after a stop.
    *
    * @sideEffects Updates the queue; does not publish.
-   * @param texts - The messages, in order.
+   * @param messages - The messages and their images, in order.
    */
-  function requeue(texts: readonly string[]): void {
+  function requeue(messages: readonly Outgoing[]): void {
     queue.unshift(
-      ...texts.map((text) => ({ id: newId(), text, createdAt: clock.now(), requestId: null, traceId: null })),
+      ...messages.map(({ text, images }) => ({
+        id: newId(),
+        text,
+        images,
+        createdAt: clock.now(),
+        requestId: null,
+        traceId: null,
+      })),
     );
+  }
+
+  /**
+   * The steers pi gave back, as the host sent them, with their images.
+   *
+   * @remarks
+   * pi gives back the last of the steers it listed, by its own texts; each goes back as it was
+   * sent, so a skill is expanded again when it goes. Every steer has reached pi by then. A text
+   * past the host's steers, which pi had from elsewhere, goes as pi gave it, without images.
+   *
+   * @sideEffects none
+   * @param texts - The texts pi gave back.
+   * @returns The messages.
+   */
+  function steersFor(texts: readonly string[]): Outgoing[] {
+    // pi lists a steer before it answers, and a stop waits for every answer, so all are listed by
+    // now (pi-internals.md §2); only those listed count, as SPEC-0001 says.
+    // Stryker disable next-line MethodExpression: see above.
+    const listed = steers.filter((steer) => steer.listed);
+    const ours = listed.slice(Math.max(0, listed.length - texts.length));
+    const others = texts.slice(0, texts.length - ours.length).map((text) => ({ text, images: [] }));
+    return [...others, ...ours.map(({ text, images }) => ({ text, images }))];
   }
 
   /**
@@ -867,26 +1045,26 @@ export function createSessionController(options: {
    * pi refuses as busy waits in the queue: a run pi began on its own goes first.
    *
    * @sideEffects Calls pi or updates the queue; publishes; moves the queue on.
-   * @param text - The message.
+   * @param message - The message and its images.
    * @param requestId - The command that sent it.
    * @param traceId - Its trace.
    * @returns The disposition, with the queued item's id when queued.
    * @throws {CommandError} As `promptFailure` makes them, other than busy.
    */
   async function submit(
-    text: string,
+    message: Outgoing,
     requestId: string | null,
     traceId: string | null,
   ): Promise<CommandResult<"prompt">> {
     if (!idle() || (queue.length > 0 && paused === null)) {
-      return { disposition: "queued", itemId: enqueue(text, requestId, traceId) };
+      return { disposition: "queued", itemId: enqueue(message, requestId, traceId) };
     }
     let disposition: "started" | "handled";
     try {
-      disposition = await send(text, { requestId, traceId, auto: false });
+      disposition = await send(message, { requestId, traceId, auto: false });
     } catch (error) {
       // Busy: pi runs or compacts, and its end moves the queue on.
-      if (isBusy(error)) return { disposition: "queued", itemId: enqueue(text, requestId, traceId) };
+      if (isBusy(error)) return { disposition: "queued", itemId: enqueue(message, requestId, traceId) };
       dispatch();
       throw error;
     }
@@ -943,28 +1121,35 @@ export function createSessionController(options: {
    *
    * @remarks
    * pi's `steer` starts no run and is only delivered into one, so without a run the steer would
-   * sit in pi's queue (SPEC-0001, "运行控制"). The steer is listed before pi answers, so a queue
-   * update read first still matches it; one pi handled or refused goes off the list again.
+   * sit in pi's queue (SPEC-0001, "运行控制"). The steer is listed at once, so a queue update read
+   * before pi answers still counts it; one pi handled or refused goes off the list again. Steers go
+   * to pi one at a time, each once pi has answered the one before: pi runs extensions' input
+   * handlers before queueing, which could reorder steers sent together. One whose turn comes after
+   * the run ended goes as a message, and one whose turn comes once a stop began is refused. Images
+   * alone go with `IMAGES_ONLY` as their text.
    *
    * @sideEffects Calls pi or updates the queue; publishes `control_updated` or `prompt_handled`.
-   * @param text - The steer.
+   * @param message - The steer and its images.
    * @param requestId - The command that sent it.
    * @param traceId - Its trace.
    * @returns The disposition.
    * @throws {CommandError} As `promptFailure` makes them.
    */
   async function steerNow(
-    text: string,
+    message: Outgoing,
     requestId: string | null,
     traceId: string | null,
   ): Promise<CommandResult<"steer">> {
     if (run === null) {
-      const { disposition } = await submit(text, requestId, traceId);
+      const { disposition } = await submit(message, requestId, traceId);
       return { disposition };
     }
-    const steer: Steer = { id: requestId ?? newId(), text, seen: false };
+    const steer: Steer = { id: requestId ?? newId(), text: message.text, images: message.images, listed: false };
     steers.push(steer);
     controlChanged();
+    const before = steerTurn;
+    const turn = Promise.withResolvers<void>();
+    steerTurn = turn.promise;
     /**
      * Takes the steer off the list again.
      *
@@ -977,16 +1162,46 @@ export function createSessionController(options: {
       steers = steers.filter((candidate) => candidate !== steer);
       controlChanged();
     };
-    try {
-      const { disposition } = await pi.steer(text);
-      if (disposition === "handled") {
+    /**
+     * Sends the steer once the one before has been answered.
+     *
+     * @remarks
+     * See `steerNow`.
+     *
+     * @sideEffects Calls pi; may withdraw the steer or send it as a message.
+     * @returns The disposition.
+     */
+    const sendInTurn = async (): Promise<CommandResult<"steer">> => {
+      try {
+        await before;
+        // A stop has begun: the steer never reached pi, so it goes back to whoever sent it.
+        if (stopping !== null) throw new CommandError("session_stopping");
+        if (run === null) {
+          withdraw();
+          const { disposition } = await submit(message, requestId, traceId);
+          return { disposition };
+        }
+        // Stryker disable next-line EqualityOperator: a message has text or images, never neither (`hasContent`).
+        const text = message.text === "" && message.images.length > 0 ? IMAGES_ONLY : message.text;
+        const { disposition } = await pi.steer(text, message.images);
+        if (disposition === "handled") {
+          withdraw();
+          if (requestId !== null) emit({ type: "prompt_handled", clientMessageId: requestId });
+        }
+        return { disposition };
+      } catch (error) {
         withdraw();
-        if (requestId !== null) emit({ type: "prompt_handled", clientMessageId: requestId });
+        throw promptFailure(error);
+      } finally {
+        turn.resolve();
       }
-      return { disposition };
-    } catch (error) {
-      withdraw();
-      throw promptFailure(error);
+    };
+    const answer = sendInTurn();
+    steering.add(answer);
+    try {
+      return await answer;
+    } finally {
+      steering.delete(answer);
     }
   }
 
@@ -1015,6 +1230,7 @@ export function createSessionController(options: {
     // Fire and forget: `exited` never rejects.
     void watchExit(pi);
     transcript.rebuild(started.entries, true);
+    model = started.model ?? null;
     newEpoch();
   }
 
@@ -1071,20 +1287,20 @@ export function createSessionController(options: {
     const message = interrupted?.requeued === true ? null : interrupted;
     if (paused === "crashed") paused = null;
     if (paused === "stopped" && !force) {
-      if (message !== null && !message.echoed) requeue([message.text]);
+      if (message !== null && !message.echoed) requeue([message]);
       controlChanged();
       return;
     }
     controlChanged();
     if (message !== null) {
       const resend = message.echoed
-        ? { text: CONTINUE_TEXT, from: { requestId: null, traceId: message.traceId, auto: true } }
-        : {
-            text: message.text,
-            from: { requestId: message.requestId, traceId: message.traceId, auto: message.auto },
-          };
+        ? {
+            message: { text: CONTINUE_TEXT, images: [] },
+            from: { requestId: null, traceId: message.traceId, auto: true },
+          }
+        : { message, from: { requestId: message.requestId, traceId: message.traceId, auto: message.auto } };
       try {
-        await send(resend.text, resend.from);
+        await send(resend.message, resend.from);
       } catch (error) {
         log("warn", "resending after a restart failed", {
           sessionId,
@@ -1119,7 +1335,7 @@ export function createSessionController(options: {
     compacting = false;
     for (const id of interactions.keys()) close(id, "stale", null);
     if (steers.length > 0) {
-      requeue(steers.map((steer) => steer.text));
+      requeue(steers);
       steers = [];
     }
     stopping = null;
@@ -1180,12 +1396,17 @@ export function createSessionController(options: {
     const current = pi;
     const cleared = (async () => {
       try {
-        const { steering } = await current.clearQueue();
-        requeue(steering);
+        // A steer still on its way would reach pi after the clear and wait there for the next run.
+        if (steering.size > 0) await Promise.allSettled(steering);
+        clearing = true;
+        const { steering: held } = await current.clearQueue();
+        requeue(steersFor(held));
         steers = [];
         controlChanged();
       } catch {
         // pi has gone; its exit takes the steers back.
+      } finally {
+        clearing = false;
       }
     })();
     const aborted = current.abort().then(
@@ -1224,19 +1445,19 @@ export function createSessionController(options: {
       shuttingDown = false;
       dispatch();
     },
-    async prompt(command) {
+    async prompt(command, images = []) {
       refuseWhenExited();
       refuseWhileStopping();
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
       const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
-      return submit(command.text, command.requestId, traceId);
+      return submit({ text: command.text, images }, command.requestId, traceId);
     },
-    async steer(command) {
+    async steer(command, images = []) {
       refuseWhenExited();
       refuseWhileStopping();
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
       const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
-      return steerNow(command.text, command.requestId, traceId);
+      return steerNow({ text: command.text, images }, command.requestId, traceId);
     },
     stop() {
       if (stopping !== null) return stopping;
@@ -1281,7 +1502,7 @@ export function createSessionController(options: {
       queue.splice(index, 1);
       controlChanged();
       try {
-        return await steerNow(item.text, item.requestId, item.traceId);
+        return await steerNow(item, item.requestId, item.traceId);
       } catch (error) {
         queue.splice(index, 0, item);
         controlChanged();
@@ -1295,6 +1516,22 @@ export function createSessionController(options: {
       pi.respond({ id: interactionId, ...answer });
       close(interactionId, "cancelled" in answer ? "cancelled" : "answered", answer);
       return {};
+    },
+    async setModel(ref) {
+      await choose(() => pi.setModel(ref));
+      return {};
+    },
+    async setThinkingLevel(level) {
+      await choose(() => pi.setThinkingLevel(level));
+      return {};
+    },
+    async listCommands() {
+      refuseWhenExited();
+      try {
+        return { commands: await pi.commands() };
+      } catch (error) {
+        throw promptFailure(error);
+      }
     },
     async retryRun() {
       refuseWhileStopping();
@@ -1330,7 +1567,17 @@ export function createSessionController(options: {
       const interrupted =
         lost ??
         (last?.kind === "turn" && last.outcome === "failed"
-          ? { requestId: null, traceId: null, text: last.user.text, auto: false, echoed: true, requeued: false }
+          ? {
+              requestId: null,
+              traceId: null,
+              text: last.user.text,
+              // Stryker disable next-line ArrayDeclaration: an echoed message is never sent again; "继续" goes instead.
+              images: [],
+              // Stryker disable next-line BooleanLiteral: as above.
+              auto: false,
+              echoed: true,
+              requeued: false,
+            }
           : null);
       lost = null;
       await carryOn(interrupted, true);

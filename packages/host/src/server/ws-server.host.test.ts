@@ -1,7 +1,7 @@
 import { createAtriumClient } from "@atrium/client";
 import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
-import { FakeClock, createTempDir, present } from "@atrium/testkit";
-import { chmod, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { FakeClock, GIT_SCENE_ENV, createGitScene, createTempDir, present } from "@atrium/testkit";
+import { chmod, mkdir, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
 import { afterEach, describe, expect, it, vi, onTestFinished } from "vitest";
 import { WebSocket } from "ws";
@@ -289,16 +289,16 @@ describe("host connection handshake", () => {
     );
   });
 
-  it("allows exactly 8 MiB per second and drops the next byte", async () => {
+  it("allows exactly 32 MiB per second and drops the next byte", async () => {
     testHost = await startTestHost({ clock: new FakeClock() });
     const { socket, opened, ended, messages } = openRaw(testHost.url);
     await opened;
     const first = hello({ token: testHost.token });
     const mib = 1024 * 1024;
     socket.send(first);
-    for (let count = 0; count < 7; count++) socket.send("y".repeat(mib));
+    for (let count = 0; count < 31; count++) socket.send("y".repeat(mib));
     socket.send("y".repeat(mib - Buffer.byteLength(first)));
-    await vi.waitFor(() => expect(messages).toHaveLength(9));
+    await vi.waitFor(() => expect(messages).toHaveLength(33));
     expect(socket.readyState).toBe(WebSocket.OPEN);
 
     socket.send("y");
@@ -698,5 +698,28 @@ describe("host static files", () => {
         "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
     );
     expect(escape.status).toBe(404);
+  });
+});
+
+/** The tools' environment for a host over a git scene. */
+const SCENE_TOOLS = { ...GIT_SCENE_ENV, PATH: process.env["PATH"] ?? "" };
+
+describe("a connection closing", () => {
+  it("stops the watch on the workspaces it showed", async () => {
+    const scene = await createGitScene("ws-changes");
+    onTestFinished(scene.cleanup);
+    testHost = await startTestHost({ toolEnv: SCENE_TOOLS });
+    await testHost.host.tools;
+    const client = testHost.connect();
+    await client.connect();
+    await client.addProject(await realpath(scene.repo));
+    await vi.waitFor(() => expect(client.index.getState().workspaces).toHaveLength(1), { timeout: 10_000 });
+    await client.watchChanges([present(client.index.getState().workspaces[0], "the workspace").id]);
+    const resources = testHost.host.resources;
+    await vi.waitFor(() => expect(resources.snapshot()["changes.watch"]).toBe(1), { timeout: 10_000 });
+
+    client.disconnect();
+
+    await vi.waitFor(() => expect(resources.snapshot()["changes.watch"]).toBe(0));
   });
 });

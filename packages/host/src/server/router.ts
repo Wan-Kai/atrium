@@ -1,3 +1,5 @@
+import type { ChangesService } from "../changes/changes-service";
+import type { AttachmentStore } from "./attachments";
 import {
   type Command,
   CommandError,
@@ -16,6 +18,10 @@ import type { Connection } from "./connection";
 /** What the router needs from the rest of the host. */
 export interface RouterOptions {
   readonly sessions: SessionCommands;
+  /** Images uploaded ahead of their messages. */
+  readonly attachments: AttachmentStore;
+  /** What each connection shows of workspaces' git changes. */
+  readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff">;
   readonly index: IndexCommands;
   readonly tracer: Tracer;
   readonly logger: Logger;
@@ -88,6 +94,12 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.renameWorkspace(command.workspaceId, command.name);
       case "window_focused":
         return options.index.windowFocused();
+      case "watch_changes":
+        options.changes.watchChanges(connection.id, command.workspaceIds);
+        return {};
+      case "watch_diff":
+        options.changes.watchDiff(connection.id, command.target);
+        return {};
       case "set_preferences":
         return options.index.setPreferences({
           ...(command.appearance === undefined ? {} : { appearance: command.appearance }),
@@ -96,7 +108,9 @@ export function createRouter(options: RouterOptions): Route {
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
       case "prompt":
-        return options.sessions.prompt(command);
+        return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
+          options.sessions.prompt(command, images),
+        );
       case "fetch_transcript":
         return options.sessions.fetchTranscript(command);
       case "fetch_step":
@@ -104,7 +118,9 @@ export function createRouter(options: RouterOptions): Route {
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
       case "steer":
-        return options.sessions.steer(command);
+        return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
+          options.sessions.steer(command, images),
+        );
       case "stop":
         return options.sessions.stop(command.sessionId);
       case "resume_queue":
@@ -121,6 +137,21 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.answerInteraction(command.sessionId, command.interactionId, command.answer);
       case "retry_run":
         return options.sessions.retryRun(command.sessionId);
+      case "set_model":
+        return options.sessions.setModel(command.sessionId, {
+          providerId: command.providerId,
+          modelId: command.modelId,
+        });
+      case "set_thinking_level":
+        return options.sessions.setThinkingLevel(command.sessionId, command.level);
+      case "list_commands":
+        return options.sessions.listCommands(command.sessionId);
+      case "search_files":
+        return options.sessions.searchFiles(command.sessionId, command.query);
+      case "upload_attachment":
+        return { attachmentId: options.attachments.put(connection.id, command.mimeType, command.data) };
+      case "list_models":
+        return options.index.listModels(command.containerId, command.refresh ?? false);
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

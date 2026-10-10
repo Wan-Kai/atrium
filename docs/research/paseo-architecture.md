@@ -52,6 +52,14 @@ Paseo 是"宿主横向接多个 agent"的方案（Claude Code、Codex、pi 等�
 - 文件：`agent.ts`（`PiRpcAgentClient` / `PiRpcAgentSession`）、`cli-runtime.ts`、`runtime.ts`（启动参数）、`history-mapper.ts`、`tool-call-mapper.ts`、`session-descriptor.ts`（可导入会话列表）、`rewind.ts`、`usage-poller.ts`、`extensions/`（pi-subagents、pi-ask-user、pi-mcp-adapter 等的适配）。
 - 启动：`pi --mode rpc [--model p/id] [--thinking lvl] [--session <file> | --no-session] [--mcp-config tmp] --extension <临时 paseo-integration.mjs>`。进程由 `providers/jsonl-rpc-process.ts` 管理：按 id 对应请求，默认超时 30 秒，退出时 SIGTERM 再 SIGKILL 整个进程树，退出转成合成的 `process_exit` 事件。
 - 用到的命令：`prompt`、`steer`、`clear_queue` + `abort`（中断）、`get_state`、`get_messages`、`get_available_models`、`set_model`、`set_thinking_level`、`get_session_stats`（轮询用量）、`get_commands`、`compact`、`set_auto_compaction`、`extension_ui_response`。
+- **模型列表**（2026-10-10 读，`agent.ts` 的 `fetchCatalog`、`server/agent/provider-snapshot-manager.ts`）：
+  - 短启一个探测用的 `pi --mode rpc`（不带其他参数），调 `get_available_models` 和 `get_state`，`get_state` 的模型标为默认，查完就停。工作区用工作区目录，设置页用家目录。从不借正在运行的 agent 的 pi。
+  - 缓存在 daemon 内存里，pi 按目录分开（Claude、Codex 共用一份），没有期限、不落盘、没有定时器。daemon 启动时不查；第一次请求某个目录时预热，App 打开工作区时预取。同一目录同时只查一次。
+  - 只有明确的"刷新"、服务商配置变化、诊断会强制重查；打开模型选择器只重新拉一次快照，不重查。重查期间旧结果照常给出，失败时换成错误状态、旧列表丢掉。整个刷新期限 120 秒。
+  - pi 退出（如没有凭据）时，这个服务商的状态是 `error`，带 pi 的 stderr；找不到 pi 是 `unavailable`。
+  - 推理档位按模型元数据（`reasoning`、`thinkingLevelMap`）从固定的七档里筛出，默认 `medium`，不调 `get_available_thinking_levels`。
+  - 上一次的模型和推理强度记在客户端（全局、按服务商，推理强度按模型各记一份），新 agent 用 `--model p/id --thinking lvl` 启动；记住的模型已不在列表里时照样传给 pi。中途换模型调 `set_model` / `set_thinking_level`，再 `get_state` 读回。
+  - `/` 命令每次都问运行中的 pi 的 `get_commands`，不缓存；草稿 agent 短启一个完整的 pi 去查。`@` 引用用 daemon 自己遍历目录（遵守 gitignore），不经过 pi。
 - 事件映射（`agent.ts` 的 `handleSessionEvent`）：第一个 `turn_start` → `turn_started`（每个 Paseo turn 只一次）；`text_delta` / `thinking_delta` → 助手消息 / 推理；`tool_execution_*` → tool_call；`compaction_*` → compaction；`auto_retry_start` → error 条目；`agent_settled` → `turn_completed`，或最后一条助手消息带错误时 `turn_failed`。**一个 Paseo turn = 一次 `prompt` RPC**，turnId 由 Paseo 生成。
 - **历史重建用 `get_messages`**（加上下面的条目捕获），不读主会话文件，也不用 `get_entries`。Atrium 改用 `get_entries` 沿当前分支重建，见 [pi-internals.md](pi-internals.md)。
 - **"通知加标记"的旁路**：Paseo 注入一个临时 extension，用 `ctx.ui.notify("<MARKER> " + JSON)` 把 RPC 里拿不到的信息送回宿主（宿主收到的是 `extension_ui_request {method: "notify"}`）：
@@ -79,3 +87,13 @@ Paseo 是"宿主横向接多个 agent"的方案（Claude Code、Codex、pi 等�
 - 按 cwd 缓存快照：文件监听（防抖 1 秒）+ 轮询；每 3 分钟后台 `git fetch`；PR 状态每 20 / 120 秒轮询（GitHub、GitLab、Gitea）。
 - 快照：`isGit, currentBranch, isDirty, baseRef, aheadBehind, ahead/behindOfOrigin, diffStat` 和 forge 的 PR 信息（是否合并、检查状态、评审结论）。
 - "已合并"不单独存，始终是 forge 的实时数据；开启设置后，PR 合并时自动归档工作区。worktree 在最后一个引用它的工作区归档后才删除。
+
+### 6.1 工作区改动：输入框上方的 +N −M 与 Changes 面板（2026-10-10 读，Atrium 照抄）
+
+- **数据来源是 git，不是 agent 的工具调用**：按工作区（cwd）统计，不分 agent，用户自己的改动也算；和对话记录加载了多少无关。Codex 的 `turn_diff` 事件直接丢掉。时间线里只有 tool call 分组的"edited N files"，没有行数，和面板没有关联。
+- **胶囊上的数字**（`server/src/utils/checkout-git.ts` 的 `getCheckoutShortstatUncached`）：`merge-base HEAD <比较基准>`，再 `git diff --shortstat <merge-base>`（工作树对 merge-base：已提交、暂存、未暂存都算）加上未跟踪文件的行数。比较基准（`resolveShortstatComparisonRef`）：当前分支不是主干时，用 `origin/<主干>`（有的话）否则本地 `<主干>`；在主干上时用 `origin/<当前分支>`，没有就不显示（有未提交改动也不显示）；HEAD 分离、空仓库、非 git 都不显示。主干：`symbolic-ref refs/remotes/origin/HEAD`，失败时找本地 `main`、`master`。
+- **未跟踪文件的行数**（`countUntrackedAdditions`）：`ls-files --others --exclude-standard` 的前 500 个，跳过大于 1 MB 的和二进制（前 16 KB 有 0 字节，或控制字符超过 30%），按 `\n` 数行（结尾换行不另算一行）。
+- **刷新**（`workspace-git-service.ts`）：只给有界面在看的工作区监听。工作树用 `fs.watch` 递归监听（macOS），忽略 `.git` 和被 git 忽略的目录（`ls-files -o -i --directory --exclude-standard`，`.gitignore` 变了重算）；另监听 git 的元数据目录（忽略 `hooks/` `logs/` `objects/` 和 `*.lock`）。1 秒尾随防抖；同一个快照不重复推送（JSON 指纹）。监听出错时降级轮询：5 秒起，没变化就翻倍到 60 秒；30 秒·2^n（最多 5 分钟）后重试监听。每 3 分钟后台 `fetch origin --prune`，远端引用动了才重算。agent 跑了 `git push`、`git fetch`、`gh pr …` 之后强制刷新。缓存 15 秒，同一目录的并发请求合并。
+- **面板**（`checkout-diff-manager.ts`、`app/src/git/`）：订阅 `(cwd, mode)`，150 毫秒防抖，结果不变不推。两种模式：未提交 = HEAD 对工作树（含暂存）加未跟踪文件；已提交 = `merge-base..HEAD`（只有提交）。所以胶囊和面板的合计可能对不上（Paseo 自己也这样）。默认模式：有未提交改动时"未提交"，否则"已提交"；手动选择只在"是否有未提交改动"不变时有效，翻转后回到默认。每个文件：路径、旧路径、新增 / 删除、增删行数、hunk（`@@` 头和 add / remove / context 行），以及 `binary` / `too_large` 状态。单文件 diff 超过 1 MB、累计超过 2 MB 之后的文件记为 `too_large`（保留行数）；整个结果超过约 23 MB 时整体显示"改动太大"。
+- **界面**：胶囊 `+1.2k -34`（数字用紧凑格式，0/0、非 git 时不显示），点开 Changes 视图。头部：模式菜单（"Uncommitted / Committed"，后者说明"<分支> -> <主干>"）、合计、刷新、选项（分栏、隐藏空白、换行等）。正文依次判断：检查中、出错、不是 git 仓库、加载中、改动太大、没有改动（附"看未提交的 / 看已提交的"按钮）。文件头：文件名加灰色目录、+/−、新增 / 删除 / 修改图标，点击折叠；二进制和过大的文件显示一行占位。点文件列表里的文件滚到它的 diff；不跳到对话里的哪一轮。
+- **已知问题**：重命名文件的单文件 diff 只用新路径做 pathspec，可能显示成整文件新增；累计到 2 MB 之后的未跟踪文件会从列表里消失；只有 diff 订阅、没有工作区订阅时，外部提交可能不刷新"未提交"面板。Atrium 照抄时避开这三处。

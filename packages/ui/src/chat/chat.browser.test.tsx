@@ -1,17 +1,22 @@
 import type { SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
 import { type TranscriptItem, type Turn, IDLE_CONTROL } from "@atrium/protocol";
-import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { pageDrafts } from "../state/use-draft";
 import { fakeClient } from "../test/fake-client";
-import { ConversationArea, describeSendError } from "./conversation-area";
+import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
 import { UserBubble } from "./messages";
 import { ClockContext, type UiClock } from "../state/clock";
 import { RunStatus, formatElapsed } from "./run-status";
 import { Transcript } from "./transcript";
+
+// Drafts are kept per session in the page's storage; each test starts without any.
+afterEach(() => localStorage.clear());
 
 /** A ready view of session s1 with the given fields. */
 function view(fields: Partial<SessionView> = {}): SessionView {
@@ -25,6 +30,7 @@ function view(fields: Partial<SessionView> = {}): SessionView {
     run: null,
     pending: [],
     control: IDLE_CONTROL,
+    model: null,
     ...fields,
   };
 }
@@ -49,7 +55,7 @@ function turn(id: string, text: string, fields: Partial<Turn> = {}): Turn {
 describe("Composer", () => {
   it("sends on Enter, keeps Shift+Enter as a new line, and clears the box", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} />);
+    const screen = await render(<Composer draftKey="composer-1" onSend={(text) => sent.push(text)} />);
     const box = screen.getByRole("textbox", { name: "消息" });
 
     await userEvent.type(box, "第一行{Shift>}{Enter}{/Shift}第二行{Enter}");
@@ -60,7 +66,7 @@ describe("Composer", () => {
 
   it("does not send while an input method is composing, nor when empty", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} />);
+    const screen = await render(<Composer draftKey="composer-2" onSend={(text) => sent.push(text)} />);
     const box = screen.getByRole("textbox", { name: "消息" }).element() as HTMLTextAreaElement;
 
     box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true }));
@@ -72,7 +78,7 @@ describe("Composer", () => {
 
   it("sends with the button", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} />);
+    const screen = await render(<Composer draftKey="composer-3" onSend={(text) => sent.push(text)} />);
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好");
 
     await screen.getByRole("button", { name: "发送" }).click();
@@ -82,14 +88,14 @@ describe("Composer", () => {
 
   it("keeps the text while a stop waits for pi, and sends it once the stop ends", async () => {
     const sent: string[] = [];
-    const screen = await render(<Composer onSend={(text) => sent.push(text)} stopping />);
+    const screen = await render(<Composer draftKey="composer-4" onSend={(text) => sent.push(text)} stopping />);
     const box = screen.getByRole("textbox", { name: "消息" });
 
     await userEvent.type(box, "下一步{Enter}");
     expect(sent).toStrictEqual([]);
     await expect.element(box).toHaveValue("下一步");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
-    await screen.rerender(<Composer onSend={(text) => sent.push(text)} />);
+    await screen.rerender(<Composer draftKey="composer-4" onSend={(text) => sent.push(text)} />);
     await userEvent.type(box, "{Enter}");
 
     expect(sent).toStrictEqual(["下一步"]);
@@ -447,6 +453,9 @@ describe("ConversationArea", () => {
     );
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "一{Enter}");
     await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 正在忙，等这一轮结束再发");
+    // The message did not go, so it is back in the box.
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("一");
+    pageDrafts().drop(["s1"]);
 
     await screen.rerender(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />);
 
@@ -491,5 +500,555 @@ describe("ConversationArea", () => {
     [new Error("other"), "发送失败"],
   ])("describes %s", (error, text) => {
     expect(describeSendError(error)).toBe(text);
+  });
+});
+
+/**
+ * Lays the area out as the window does, the input box at the bottom.
+ *
+ * @remarks
+ * The model panel opens upward, as it does above the input box.
+ *
+ * @sideEffects none
+ * @param area - The area.
+ * @returns The area in a full-height column.
+ */
+function tall(area: ReactNode) {
+  return <div style={{ display: "flex", flexDirection: "column", height: 760 }}>{area}</div>;
+}
+
+describe("ConversationArea's model button", () => {
+  const OPUS = {
+    providerId: "anthropic",
+    modelId: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    contextWindow: 1_000_000,
+    maxOutput: 128_000,
+    supportsImage: true,
+    thinkingLevels: ["off", "low", "medium", "high"] as const,
+  };
+  const HAIKU = { ...OPUS, modelId: "haiku", name: "Haiku", thinkingLevels: ["off"] as const };
+  const LIST = {
+    status: "ready" as const,
+    models: [
+      { ...OPUS, thinkingLevels: [...OPUS.thinkingLevels] },
+      { ...HAIKU, thinkingLevels: [...HAIKU.thinkingLevels] },
+    ],
+    defaultModel: { providerId: "anthropic", modelId: "haiku" },
+    error: null,
+  };
+
+  it("asks for the container's models, and shows the session's model and level", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="wks_000000000000000a" sessionId="s1" create={noCreate} />),
+    );
+    client
+      .session("s1")
+      ?.setState({ model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" } });
+
+    const chip = screen.getByRole("button", { name: /模型与推理强度/ });
+    await expect.element(chip).toHaveTextContent("Claude Opus 5.5高");
+    await expect.element(chip).toHaveAttribute("data-full");
+    expect(modelCalls).toStrictEqual(["loadModels wks_000000000000000a"]);
+  });
+
+  it("switches the session's model and thinking level", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client
+      .session("s1")
+      ?.setState({ model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "low" } });
+
+    await userEvent.click(screen.getByRole("button", { name: /模型与推理强度/ }));
+    (screen.getByRole("slider").element() as HTMLElement).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
+
+    await vi.waitFor(() =>
+      expect(modelCalls).toStrictEqual([
+        "loadModels chats",
+        "loadModels chats",
+        "setThinkingLevel s1 medium",
+        "setModel s1 anthropic/haiku",
+      ]),
+    );
+  });
+
+  it("shows the model chosen last before a session exists, and creates the session to switch it", async () => {
+    const { client, calls, modelCalls } = fakeClient(
+      {
+        preferences: {
+          appearance: "system",
+          displayMode: "summary",
+          lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
+          thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
+        },
+      },
+      { models: LIST },
+    );
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    const chip = screen.getByRole("button", { name: /模型与推理强度/ });
+    await expect.element(chip).toHaveTextContent("Claude Opus 5.5中");
+
+    await userEvent.click(chip);
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setModel new1 anthropic/haiku"));
+    expect(calls).toContain("createChat");
+  });
+
+  it("cannot change the model while a stop waits for pi", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+
+    client.session("s1")?.setState({
+      run: { runId: "r1", startedAt: 0 },
+      control: { ...IDLE_CONTROL, stopping: true },
+    });
+
+    await expect.element(screen.getByRole("button", { name: /模型与推理强度/ })).toBeDisabled();
+  });
+
+  it("explains a model switch pi refused", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    client.setModel = () => Promise.reject(new CommandError("pi_rejected", { detail: "Model not found" }));
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /模型与推理强度/ }));
+    await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 没有接受这个设置：Model not found");
+  });
+});
+
+describe("describeModelError", () => {
+  it("names what pi refused, and words other failures as a send", () => {
+    expect(describeModelError(new CommandError("pi_rejected", { detail: "Model not found: x/y" }))).toBe(
+      "pi 没有接受这个设置：Model not found: x/y",
+    );
+    expect(describeModelError(new CommandError("session_stopping"))).toBe(
+      describeSendError(new CommandError("session_stopping")),
+    );
+  });
+});
+
+describe("ConversationArea's composer", () => {
+  it("lists the session's commands and files, and keeps the draft per session", async () => {
+    localStorage.clear();
+    const { client, calls } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "/");
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+    await userEvent.keyboard("{Enter}看看 @a");
+    await expect.element(screen.getByRole("option", { name: "src/a.ts" })).toBeVisible();
+    await userEvent.keyboard("{Enter}");
+
+    expect(calls).toContain("listCommands s1");
+    expect(calls).toContain("searchFiles s1 a");
+    await vi.waitFor(() =>
+      expect(pageDrafts().read("s1")).toStrictEqual({
+        text: "/review 看看 ",
+        pastes: [],
+        files: ["src/a.ts"],
+        images: [],
+      }),
+    );
+  });
+
+  it("goes back through the session's own messages with ↑", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({
+      items: [
+        { ...turnOf("t1", "第一问"), kind: "turn" },
+        { ...turnOf("t2", "第二问"), kind: "turn" },
+      ],
+    });
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "{ArrowUp}");
+
+    await expect.element(box).toHaveValue("第二问");
+  });
+
+  it("creates the session first when / is typed before there is one", async () => {
+    const { client, calls } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["createChat", "listCommands new1"]);
+  });
+});
+
+/** A finished turn opened by `text`. */
+function turnOf(id: string, text: string): Turn {
+  return {
+    kind: "turn",
+    id,
+    user: { text, images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    steps: [],
+    outcome: "done",
+    error: null,
+    startedAt: 0,
+    durationMs: 1,
+    usage: null,
+    changes: [],
+  };
+}
+
+/**
+ * Answers with `first` once, then as started.
+ *
+ * @remarks
+ * For a send that fails, then goes through.
+ *
+ * @sideEffects none
+ * @param first - The first answer.
+ * @returns The answers.
+ */
+function inTurn(
+  first: () => Promise<{ disposition: "started" | "queued" | "handled" }>,
+): () => Promise<{ disposition: "started" | "queued" | "handled" }> {
+  let used = false;
+  return () => {
+    if (used) return Promise.resolve({ disposition: "started" });
+    used = true;
+    return first();
+  };
+}
+
+/** Fails a prompt with `first`, then every later one with `then`. */
+function failing(first: Error, then: Error): () => Promise<never> {
+  let used = false;
+  return () => {
+    const error = used ? then : first;
+    used = true;
+    return Promise.reject(error);
+  };
+}
+
+/** Holds back the upload numbered `number` until `until` settles. */
+function holding(number: number, until: Promise<void>): (uploaded: number) => Promise<void> {
+  return (uploaded) => (uploaded === number ? until : Promise.resolve());
+}
+
+/** A small PNG, as a pasted screenshot. */
+async function shot(): Promise<File> {
+  const canvas = new OffscreenCanvas(20, 20);
+  canvas.getContext("2d")?.fillRect(0, 0, 20, 20);
+  return new File([await canvas.convertToBlob({ type: "image/png" })], "shot.png", { type: "image/png" });
+}
+
+/** Pastes a file into an element as the clipboard would. */
+function pasteFile(target: Element, file: File): void {
+  const data = new DataTransfer();
+  data.items.add(file);
+  target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+}
+
+describe("ConversationArea's images", () => {
+  it("sends a pasted image with the message, uploading it again once when the host has let it go", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      { prompt: inTurn(() => Promise.reject(new CommandError("attachment_missing", { attachmentId: "u1" }))) },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    pasteFile(box.element(), await shot());
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    await userEvent.type(box, "看图{Enter}");
+
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => /^(upload|prompt)/.test(call))).toStrictEqual([
+        "uploadAttachment image/webp",
+        "prompt s1 看图 +u1",
+        "uploadAttachment image/webp",
+        "prompt s1 看图 +u2",
+      ]),
+    );
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("uploads the images again one at a time, and puts the message back with the new uploads when it still fails", async () => {
+    const third = Promise.withResolvers<void>();
+    const { client, calls } = fakeClient(
+      {},
+      {
+        prompt: failing(
+          new CommandError("attachment_missing", { attachmentId: "u1" }),
+          new CommandError("session_busy"),
+        ),
+        upload: holding(3, third.promise),
+      },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    pasteFile(box.element(), await shot());
+    pasteFile(box.element(), await shot());
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+
+    await userEvent.type(box, "两张{Enter}");
+    await vi.waitFor(() => expect(calls.filter((call) => call.startsWith("upload"))).toHaveLength(3));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls.filter((call) => call.startsWith("upload"))).toHaveLength(3);
+    third.resolve();
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 正在忙，等这一轮结束再发");
+    await expect.element(box).toHaveValue("两张");
+    await expect.element(screen.getByRole("img", { name: "图片 2" })).toBeVisible();
+    await userEvent.type(box, "{Enter}");
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.startsWith("prompt"))).toStrictEqual([
+        "prompt s1 两张 +u1 +u2",
+        "prompt s1 两张 +u3 +u4",
+        "prompt s1 两张 +u3 +u4",
+      ]),
+    );
+    pageDrafts().drop(["s1"]);
+  });
+
+  it("refuses images while the session's model takes none", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      {
+        models: {
+          status: "ready",
+          models: [
+            {
+              providerId: "x",
+              modelId: "text-only",
+              name: "Text Only",
+              contextWindow: 1,
+              maxOutput: 1,
+              supportsImage: false,
+              thinkingLevels: ["off"],
+            },
+          ],
+          defaultModel: null,
+          error: null,
+        },
+      },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: { providerId: "x", modelId: "text-only", thinkingLevel: "off" } });
+    await expect.element(screen.getByRole("button", { name: /Text Only/ })).toBeVisible();
+
+    pasteFile(screen.getByRole("textbox", { name: "消息" }).element(), await shot());
+
+    await expect.element(screen.getByText("当前模型不支持图片")).toBeVisible();
+    expect(calls.filter((call) => call.startsWith("upload"))).toStrictEqual([]);
+  });
+});
+
+describe("ConversationArea's workspace changes", () => {
+  const W = "wks_0000000000000001";
+  const changed = { stat: { added: 1234, removed: 3 }, dirty: true, ahead: 0, branch: "feat", base: "origin/main" };
+
+  it("watches the shown workspace's changes, none for the chats, and shows them in a capsule that opens the panel", async () => {
+    const { client, changeCalls } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
+    );
+    await vi.waitFor(() => expect(changeCalls).toStrictEqual([`watchChanges ${W}`]));
+    await expect.element(screen.getByRole("button", { name: "查看改动" })).not.toBeInTheDocument();
+
+    client.changes(W).setState(changed);
+    const capsule = screen.getByRole("button", { name: "查看改动" });
+    await expect.element(capsule).toHaveTextContent("+1.2k−3");
+    await capsule.click();
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "true");
+    await capsule.click();
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    await vi.waitFor(() =>
+      expect(changeCalls).toStrictEqual([
+        `watchChanges ${W}`,
+        `watchDiff ${W} uncommitted`,
+        "watchDiff null",
+        "watchChanges ",
+      ]),
+    );
+  });
+
+  it("shows the capsule in the empty state too, with no session open", async () => {
+    const { client } = fakeClient();
+    client.changes(W).setState(changed);
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId={null} create={noCreate} />),
+    );
+
+    await screen.getByRole("button", { name: "查看改动" }).click();
+
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+  });
+
+  it("closes the panel on going to another container, and with its own button", async () => {
+    const { client } = fakeClient();
+    client.changes(W).setState(changed);
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
+    );
+    await screen.getByRole("button", { name: "查看改动" }).click();
+    await screen.getByRole("button", { name: "关闭改动" }).click();
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "查看改动" }).click();
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="wks_0000000000000002" sessionId="s1" create={noCreate} />),
+    );
+    await screen.rerender(tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />));
+
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+  });
+});
+
+describe("ConversationArea before it is connected", () => {
+  it("asks for the models once connected, and again after a reconnect", async () => {
+    const { client, connection, modelCalls } = fakeClient();
+    connection.setState({ status: "connecting" });
+    await render(tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />));
+    expect(modelCalls).toStrictEqual([]);
+
+    connection.setState({ status: "connected", traceId: "t", hostVersion: "0", hostInstanceId: "h1" });
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats"]));
+    connection.setState({ status: "connecting" });
+    connection.setState({ status: "connected", traceId: "t2", hostVersion: "0", hostInstanceId: "h1" });
+
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats", "loadModels chats"]));
+  });
+});
+
+describe("ConversationArea handing the first words to a new session", () => {
+  it("keeps what was typed before / created the session, in its box, focused, with the list open", async () => {
+    const { client, index } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await expect.element(box).toHaveValue("/");
+    await expect.element(box).toHaveFocus();
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+    await userEvent.keyboard("rev");
+    await expect.element(box).toHaveValue("/rev");
+    pageDrafts().drop(["new1"]);
+  });
+
+  it("keeps the words typed after the session was created but before it shows, and focuses only once", async () => {
+    const { client, index } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.type(box, "/");
+    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+
+    await userEvent.keyboard("rev");
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+    await expect.element(box).toHaveValue("/rev");
+    await expect.element(box).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    (document.activeElement as HTMLElement | null)?.blur();
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s9" create={create} />),
+    );
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("/rev");
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).not.toHaveFocus();
+    pageDrafts().drop(["new1"]);
+  });
+
+  it("forgets the session the words went to once the area goes to another container before it shows", async () => {
+    const { client, calls, index } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="wks_0000000000000002" sessionId={null} create={create} />),
+    );
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "新的{Enter}");
+
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => /^(createChat|prompt)/.test(call))).toStrictEqual([
+        "createChat",
+        "createChat",
+        "prompt new2 新的",
+      ]),
+    );
+    pageDrafts().drop(["new1", "new2"]);
+  });
+
+  it("hands the words over even when the new session shows before its creation is answered", async () => {
+    const { client } = fakeClient();
+    const answered = Promise.withResolvers<void>();
+    const create = async () => {
+      await answered.promise;
+      return (await client.createChat()).sessionId;
+    };
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+    );
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
+
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+    );
+    answered.resolve();
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("/");
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveFocus();
+    pageDrafts().drop(["new1"]);
   });
 });

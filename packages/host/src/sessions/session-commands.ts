@@ -4,9 +4,12 @@ import type {
   FetchStepCommand,
   FetchTranscriptCommand,
   InteractionAnswer,
+  ModelRef,
   PromptCommand,
   SteerCommand,
+  ThinkingLevel,
 } from "@atrium/protocol";
+import type { PromptImage } from "./session-controller";
 
 /**
  * The session commands the server hands to the session layer.
@@ -34,10 +37,10 @@ export interface SessionCommands {
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
   /** Replaces the sessions a connection watches, sending a snapshot of each new one first. */
   subscribe(connectionId: string, sessionIds: readonly string[]): Promise<CommandResult<"subscribe_sessions">>;
-  /** Sends a message to a session, starting a restored draft's pi first. */
-  prompt(command: PromptCommand): Promise<CommandResult<"prompt">>;
+  /** Sends a message with its images to a session, starting a restored draft's pi first. */
+  prompt(command: PromptCommand, images?: readonly PromptImage[]): Promise<CommandResult<"prompt">>;
   /** Sends a steer, or a message when the session is idle, starting a restored draft's pi first. */
-  steer(command: SteerCommand): Promise<CommandResult<"steer">>;
+  steer(command: SteerCommand, images?: readonly PromptImage[]): Promise<CommandResult<"steer">>;
   /** Stops a session's run (SPEC-0001, "运行控制"). */
   stop(sessionId: string): Promise<CommandResult<"stop">>;
   resumeQueue(sessionId: string): Promise<CommandResult<"resume_queue">>;
@@ -50,6 +53,14 @@ export interface SessionCommands {
     interactionId: string,
     answer: InteractionAnswer,
   ): Promise<CommandResult<"answer_interaction">>;
+  /** Switches a session's model, starting its pi first if it has none. */
+  setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
+  /** Sets how hard a session's model thinks, starting its pi first if it has none. */
+  setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** The `/` commands of a session's pi, starting its pi first if it has none (SPEC-0001, "模型与输入框"). */
+  listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
+  /** Files and directories for `@` in a session's directory; a newer search calls off an older one. */
+  searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
   /** The error card's "重试", starting the session's pi first if it has none. */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** Items of a session's transcript before one the client has. */

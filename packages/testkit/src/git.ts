@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
-import { realpathSync } from "node:fs";
+import { cp, mkdir, writeFile } from "node:fs/promises";
+import { realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -78,48 +78,78 @@ export interface GitScene {
 }
 
 /**
+ * Writes and commits a file.
+ *
+ * @remarks
+ * See `GitScene.commit`.
+ *
+ * @sideEffects Writes the file; commits.
+ * @param cwd - The working tree.
+ * @param file - The file, relative to it.
+ * @param content - Its content.
+ * @param message - The commit message.
+ * @returns The new commit.
+ */
+async function commit(cwd: string, file: string, content: string, message = `change ${file}`): Promise<string> {
+  await mkdir(dirname(join(cwd, file)), { recursive: true });
+  await writeFile(join(cwd, file), content);
+  await git(cwd, "add", file);
+  await git(cwd, "commit", "--quiet", "-m", message);
+  return git(cwd, "rev-parse", "HEAD");
+}
+
+/** The first scene of this process, which every scene is copied from; see `sceneTemplate`. */
+let template: Promise<string> | undefined;
+
+/**
+ * The directory holding a scene's `origin.git` and `repo`, built once a process.
+ *
+ * @remarks
+ * Building a scene runs six git commands, about a second; copying one takes tens of milliseconds
+ * (testing.md, "临时文件"). It lives in the temporary folder, which each test run removes; it is
+ * also removed when the process exits, for processes outside a test run.
+ *
+ * @sideEffects Builds the template once; registers its removal at exit.
+ * @returns The template's directory.
+ */
+function sceneTemplate(): Promise<string> {
+  template ??= (async () => {
+    const dir = await createTempDir("git-template");
+    process.once("exit", () => rmSync(dir.path, { recursive: true, force: true }));
+    const origin = join(dir.path, "origin.git");
+    const repo = join(dir.path, "repo");
+    // No template: git's sample hooks would only be more files to copy for every scene.
+    await git(dir.path, "init", "--quiet", "--bare", "--template=", "--initial-branch=main", origin);
+    await git(dir.path, "clone", "--quiet", "--template=", origin, repo);
+    await git(repo, "checkout", "--quiet", "-B", "main");
+    await commit(repo, "README.md", "start\n", "start");
+    await git(repo, "push", "--quiet", "-u", "origin", "main");
+    await git(repo, "remote", "set-head", "origin", "main");
+    return dir.path;
+  })();
+  return template;
+}
+
+/**
  * Builds a repository with a remote to test worktrees and merge states against.
  *
  * @remarks
  * Real git, as testing.md asks ("能用真的就用真的"); the scenes cover merging, squashing,
  * rebasing and cherry-picking a worktree's branch into `main` (overview.md, testkit `git.ts`).
+ * Each scene is a copy of the process's template (`sceneTemplate`) whose clone points at its own
+ * copy of the remote, so scenes never share a repository.
  *
  * @sideEffects Creates a temporary directory with a bare repository and a clone.
  * @param prefix - Readable prefix for the directory.
  * @returns The scene.
  */
 export async function createGitScene(prefix: string): Promise<GitScene> {
+  const source = await sceneTemplate();
   const dir = await createTempDir(prefix);
   const origin = join(dir.path, "origin.git");
   const repo = join(dir.path, "repo");
-
-  /**
-   * Writes and commits a file.
-   *
-   * @remarks
-   * See `GitScene.commit`.
-   *
-   * @sideEffects Writes the file; commits.
-   * @param cwd - The working tree.
-   * @param file - The file, relative to it.
-   * @param content - Its content.
-   * @param message - The commit message.
-   * @returns The new commit.
-   */
-  const commit = async (cwd: string, file: string, content: string, message = `change ${file}`): Promise<string> => {
-    await mkdir(dirname(join(cwd, file)), { recursive: true });
-    await writeFile(join(cwd, file), content);
-    await git(cwd, "add", file);
-    await git(cwd, "commit", "--quiet", "-m", message);
-    return git(cwd, "rev-parse", "HEAD");
-  };
-
-  await git(dir.path, "init", "--quiet", "--bare", "--initial-branch=main", origin);
-  await git(dir.path, "clone", "--quiet", origin, repo);
-  await git(repo, "checkout", "--quiet", "-B", "main");
-  await commit(repo, "README.md", "start\n", "start");
-  await git(repo, "push", "--quiet", "-u", "origin", "main");
-  await git(repo, "remote", "set-head", "origin", "main");
+  await cp(source, dir.path, { recursive: true });
+  await git(repo, "remote", "set-url", "origin", origin);
 
   return {
     root: dir.path,

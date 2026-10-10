@@ -10,6 +10,8 @@ interface AtriumBridge {
   getBootstrap(): Promise<Bootstrap>;
   pickDirectory?(): Promise<string | null>;
   setAppearance?(appearance: "system" | "light" | "dark"): Promise<void>;
+  /** A dropped file's path on disk, which the page itself cannot see. */
+  pathForFile?(file: File): string;
 }
 
 /**

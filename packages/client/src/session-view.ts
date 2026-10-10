@@ -3,6 +3,7 @@ import {
   type Control,
   IDLE_CONTROL,
   type SessionEvent,
+  type SessionModel,
   type Step,
   type TranscriptItem,
   type Turn,
@@ -13,6 +14,8 @@ export interface PendingMessage {
   /** The `requestId` of the `prompt` that sent it; the turn it opens carries the same id. */
   readonly clientMessageId: string;
   readonly text: string;
+  /** How many images go with it, when any. */
+  readonly images?: number;
 }
 
 /** What the client knows about one session it watches. */
@@ -31,6 +34,8 @@ export interface SessionView {
   readonly pending: readonly PendingMessage[];
   /** The queue, steers, stop, interactions and failure (SPEC-0001, "运行控制"). */
   readonly control: Control;
+  /** The model and thinking level pi uses; `null` before pi has started (SPEC-0001, "模型与输入框"). */
+  readonly model: SessionModel | null;
 }
 
 /**
@@ -54,6 +59,7 @@ export function loadingView(sessionId: string): SessionView {
     run: null,
     pending: [],
     control: IDLE_CONTROL,
+    model: null,
   };
 }
 
@@ -169,6 +175,7 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       run: event.run,
       pending: unconfirmed(view.pending, event.items),
       control: event.control,
+      model: event.model,
     };
   }
   if (view.status === "loading") return view;
@@ -222,6 +229,8 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       return { ...next, status: "exited", run: null };
     case "control_updated":
       return { ...next, control: event.control };
+    case "model_updated":
+      return { ...next, model: event.model };
     case "prompt_handled":
       return { ...next, pending: view.pending.filter((message) => message.clientMessageId !== event.clientMessageId) };
   }

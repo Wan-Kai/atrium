@@ -250,7 +250,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
               ),
             )}
             {view.pending.map((message) => (
-              <UserBubble key={message.clientMessageId} text={message.text} />
+              <UserBubble key={message.clientMessageId} text={message.text} images={message.images ?? 0} />
             ))}
             {view.run === null || turnRunning ? null : <RunStatus startedAt={view.run.startedAt} />}
           </div>

@@ -175,6 +175,29 @@ describe("GitRunner.run", () => {
     expect(alive(helper)).toBe(false);
   });
 
+  it("gives up on output past the limit asked for, saying it was too large", async () => {
+    const cwd = await tempDir();
+    const bin = join(cwd, "bin");
+    await mkdir(bin);
+    await writeFile(join(bin, "git"), "#!/bin/sh\nhead -c 2000 /dev/zero\n");
+    await chmod(join(bin, "git"), 0o755);
+    const resources = new ResourceTracker();
+    const git = createGitRunner({
+      env: { ...env, PATH: `${bin}${delimiter}/bin${delimiter}/usr/bin` },
+      clock: systemClock,
+      resources,
+    });
+
+    await expect(git.run(["diff"], { cwd, maxOutputBytes: 1999 })).rejects.toStrictEqual(
+      new GitError("diff", "too_large"),
+    );
+    expect(await git.run(["diff"], { cwd, maxOutputBytes: 2000 })).toStrictEqual({
+      code: 0,
+      stdout: "\0".repeat(2000),
+    });
+    expect(resources.snapshot()["git.process"]).toBe(0);
+  });
+
   it("gives up on output past 16 MiB", async () => {
     const cwd = await tempDir();
     const bin = join(cwd, "bin");
@@ -187,7 +210,7 @@ describe("GitRunner.run", () => {
       resources: new ResourceTracker(),
     });
 
-    await expect(git.run(["log"], { cwd })).rejects.toStrictEqual(new GitError("log", "spawn"));
+    await expect(git.run(["log"], { cwd })).rejects.toStrictEqual(new GitError("log", "too_large"));
   });
 
   it("waits 30 seconds by default", async () => {

@@ -6,12 +6,16 @@ import {
   CommandResult,
   type CommandType,
   type ContainerId,
+  type DiffTarget,
   type HelloMessage,
   HostMessage,
   type InteractionAnswer,
+  type ModelRef,
   PROTOCOL_VERSION,
   type Preferences,
   type SessionEvent,
+  type SessionModel,
+  type ThinkingLevel,
   type TraceContext,
   createTraceContext,
   formatTraceparent,
@@ -26,6 +30,8 @@ import {
   withTabClosed,
   withTabOpen,
 } from "./index-view";
+import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
+import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
 
 /** Connection state exposed to the UI. */
@@ -129,10 +135,15 @@ export interface AtriumClient {
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list. */
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
-  /** Sends a message, showing it at once as pending until it opens a turn or goes into the queue. */
-  prompt(sessionId: string, text: string): Promise<CommandResult<"prompt">>;
+  /** Sends a message with uploaded images, showing it at once as pending until it opens a turn or goes into the queue. */
+  prompt(sessionId: string, text: string, attachmentIds?: readonly string[]): Promise<CommandResult<"prompt">>;
   /** Sends a steer, delivered before the agent's next step; while idle it is sent as a message, pending meanwhile. */
-  steer(sessionId: string, text: string): Promise<CommandResult<"steer">>;
+  steer(sessionId: string, text: string, attachmentIds?: readonly string[]): Promise<CommandResult<"steer">>;
+  /** Uploads one compressed image for a later message (SPEC-0001, "附件"). */
+  uploadAttachment(
+    mimeType: "image/webp" | "image/png" | "image/jpeg" | "image/gif",
+    data: string,
+  ): Promise<CommandResult<"upload_attachment">>;
   /** Stops the session's run; resolves with whether pi confirmed within two seconds. */
   stop(sessionId: string): Promise<CommandResult<"stop">>;
   resumeQueue(sessionId: string): Promise<CommandResult<"resume_queue">>;
@@ -147,6 +158,18 @@ export interface AtriumClient {
   ): Promise<CommandResult<"answer_interaction">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
+  /** The models of a container, as far as asked; the same store every time. */
+  models(containerId: ContainerId): StoreApi<ModelListView>;
+  /** Asks the host for a container's models; `refresh` makes pi look again. Failures land in the list. */
+  loadModels(containerId: ContainerId, refresh?: boolean): Promise<void>;
+  /** Switches a session's model, at once in its view; put back if the host refuses. */
+  setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
+  /** Sets a session's thinking level, at once in its view; put back if the host refuses. */
+  setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** The `/` commands of a session's pi, which starts if it has not. */
+  listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
+  /** Files and directories for `@` in a session's directory. */
+  searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
   /**
    * Fetches the page before the earliest item of a watched session; does nothing when there is
    * none, and joins a fetch already on its way.
@@ -156,6 +179,14 @@ export interface AtriumClient {
   loadStep(sessionId: string, turnId: string, stepId: string): Promise<void>;
   /** Reports a UI problem to the host's log. */
   reportIssue(kind: ClientIssueKind, message: string, details?: string): Promise<void>;
+  /** A workspace's git changes as the host sends them, while it is shown (SPEC-0001, "工作区改动"). */
+  changes(workspaceId: string): StoreApi<ChangesView>;
+  /** Says which workspaces are shown, on this connection and every later one. */
+  watchChanges(workspaceIds: readonly string[]): Promise<void>;
+  /** What the changes panel shows. */
+  readonly diff: StoreApi<DiffView>;
+  /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
+  watchDiff(target: DiffTarget | null): Promise<void>;
 }
 
 /**
@@ -259,9 +290,20 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const clock = options.clock ?? systemClock;
   const delays = options.reconnectDelaysMs ?? DEFAULT_RECONNECT_DELAYS_MS;
   const views = new Map<string, StoreApi<SessionView>>();
+  /**
+   * Each session's model changes on their way: the model the host reported last, how many are on
+   * their way, and the guesses shown for them.
+   */
+  const guesses = new Map<string, { reported: SessionModel; pending: number; readonly ours: Set<SessionModel> }>();
+  /** Each container's model list, once asked for. */
+  const modelLists = new Map<string, StoreApi<ModelListView>>();
   /** Fetches of older items on their way, by session. */
   const olderLoading = new Map<string, Promise<void>>();
   let watched: readonly string[] = [];
+  const changeStores = new Map<string, StoreApi<ChangesView>>();
+  /** The workspaces shown, asked for again on each connection. */
+  let showing: readonly string[] = [];
+  const diff = createStore<DiffView>(() => diffViewOf(null));
   const pending = new Map<
     string,
     { readonly type: CommandType; resolve(result: unknown): void; reject(error: Error): void }
@@ -331,6 +373,73 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
+   * A container's model list, created empty on first use.
+   *
+   * @remarks
+   * Kept for as long as the client lives; lists are small and few.
+   *
+   * @sideEffects May create the list's store.
+   * @param containerId - The container.
+   * @returns Its store.
+   */
+  function modelList(containerId: ContainerId): StoreApi<ModelListView> {
+    let list = modelLists.get(containerId);
+    if (list === undefined) {
+      list = createStore<ModelListView>(() => UNASKED_MODELS);
+      modelLists.set(containerId, list);
+    }
+    return list;
+  }
+
+  /**
+   * Changes a model setting at once in the session's view, and puts it back if the host refuses.
+   *
+   * @remarks
+   * The host reports the model pi then uses with `model_updated`, which may differ (pi keeps the
+   * thinking level within what the model supports); the guess only bridges the round trip. A
+   * refused change goes back to the model the host reported last, once no other change is on its
+   * way; one still on its way decides instead. A view the host changed since is left alone. A
+   * session whose model the client does not know shows nothing at once.
+   *
+   * @sideEffects Updates the session's view; sends the command.
+   * @param sessionId - The session.
+   * @param guess - The view's model as it will likely be.
+   * @param send - The command.
+   * @returns The command's result.
+   */
+  async function withGuessedModel<R>(
+    sessionId: string,
+    guess: (model: SessionModel) => SessionModel,
+    send: () => Promise<R>,
+  ): Promise<R> {
+    const view = views.get(sessionId);
+    if (view === undefined) return send();
+    const before = view.getState().model;
+    if (before === null) return send();
+    const guessing = guesses.get(sessionId) ?? { reported: before, pending: 0, ours: new Set<SessionModel>() };
+    // What the view shows is the host's unless it is one of the guesses.
+    if (!guessing.ours.has(before)) guessing.reported = before;
+    guesses.set(sessionId, guessing);
+    guessing.pending += 1;
+    const guessed = guess(before);
+    guessing.ours.add(guessed);
+    view.setState({ model: guessed });
+    try {
+      return await send();
+    } catch (error) {
+      const shown = view.getState().model;
+      // Stryker disable next-line ConditionalExpression: `null` is never one of the guesses.
+      if (guessing.pending === 1 && shown !== null && guessing.ours.has(shown)) {
+        view.setState({ model: guessing.reported });
+      }
+      throw error;
+    } finally {
+      guessing.pending -= 1;
+      if (guessing.pending === 0) guesses.delete(sessionId);
+    }
+  }
+
+  /**
    * Sends a message or steer, showing it at once as pending.
    *
    * @remarks
@@ -342,16 +451,19 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param type - `prompt` or `steer`.
    * @param sessionId - The session.
    * @param text - The message.
+   * @param attachmentIds - Its uploaded images.
    * @returns The command's result.
    */
   async function sendShown<T extends "prompt" | "steer">(
     type: T,
     sessionId: string,
     text: string,
+    attachmentIds: readonly string[],
   ): Promise<CommandResult<T>> {
     const requestId = `${options.clientId}-${++nextRequest}`;
     const view = views.get(sessionId);
-    const shown = { clientMessageId: requestId, text };
+    const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
+    const shown = { clientMessageId: requestId, text, ...images };
     view?.setState({ pending: [...view.getState().pending, shown] });
     /**
      * Takes the optimistic copy back out.
@@ -363,8 +475,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
      */
     const withdraw = (): void => view?.setState({ pending: view.getState().pending.filter((item) => item !== shown) });
     try {
+      const fields = attachmentIds.length === 0 ? { sessionId, text } : { sessionId, text, attachmentIds };
       // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `prompt` and `steer` take the same fields.
-      const result = await request(type, { sessionId, text } as CommandFields<T>, requestId);
+      const result = await request(type, fields as CommandFields<T>, requestId);
       if (result.disposition !== "started") withdraw();
       return result;
     } catch (error) {
@@ -384,6 +497,41 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    */
   async function subscribeWatched(): Promise<void> {
     if (watched.length > 0) await request("subscribe_sessions", { sessionIds: [...watched] });
+  }
+
+  /**
+   * Asks again for the workspaces' changes shown and the open panel.
+   *
+   * @remarks
+   * A new connection starts with nothing watched; the host then sends each anew. Both go at once.
+   *
+   * @sideEffects Sends `watch_changes` and `watch_diff`.
+   */
+  async function watchShown(): Promise<void> {
+    const { target } = diff.getState();
+    await Promise.all([
+      showing.length > 0 ? request("watch_changes", { workspaceIds: [...showing] }) : undefined,
+      target === null ? undefined : request("watch_diff", { target }),
+    ]);
+  }
+
+  /**
+   * A workspace's changes store, made on first use.
+   *
+   * @remarks
+   * `null` until the host sends the workspace's changes.
+   *
+   * @sideEffects May create the store.
+   * @param workspaceId - The workspace.
+   * @returns The store.
+   */
+  function changesOf(workspaceId: string): StoreApi<ChangesView> {
+    let store = changeStores.get(workspaceId);
+    if (store === undefined) {
+      store = createStore<ChangesView>(() => null);
+      changeStores.set(workspaceId, store);
+    }
+    return store;
   }
 
   /**
@@ -457,6 +605,20 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     if (message.type === "index_snapshot") {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(applyIndexSnapshot(index.getState(), message), true);
+      return;
+    }
+    if (message.type === "changes_updated") {
+      const { type: _type, workspaceId, ...changes } = message;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      changesOf(workspaceId).setState(changes, true);
+      return;
+    }
+    if (message.type === "diff_updated") {
+      const { target } = diff.getState();
+      if (target?.workspaceId !== message.workspaceId || target.mode !== message.mode) return;
+      const { files, tooLarge, error } = message;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      diff.setState({ target, status: "ready", files, tooLarge, error }, true);
       return;
     }
     if (message.type !== "response") {
@@ -561,6 +723,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         // Each connection subscribes anew; the host sends the list at once.
         request("subscribe_index", {}).catch(() => undefined);
         subscribeWatched().catch(() => undefined);
+        watchShown().catch(() => undefined);
         settle(connection.getState());
       });
       current.addEventListener("close", (event) => {
@@ -680,8 +843,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       index.setState(withPreferences(index.getState(), changes), true);
       return request("set_preferences", changes);
     },
-    prompt: (sessionId, text) => sendShown("prompt", sessionId, text),
-    steer: (sessionId, text) => sendShown("steer", sessionId, text),
+    prompt: (sessionId, text, attachmentIds = []) => sendShown("prompt", sessionId, text, attachmentIds),
+    steer: (sessionId, text, attachmentIds = []) => sendShown("steer", sessionId, text, attachmentIds),
+    uploadAttachment: (mimeType, data) => request("upload_attachment", { mimeType, data }),
     stop: (sessionId) => request("stop", { sessionId }),
     resumeQueue: (sessionId) => request("resume_queue", { sessionId }),
     clearQueue: (sessionId) => request("clear_queue", { sessionId }),
@@ -691,6 +855,33 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
+    models: (containerId) => modelList(containerId),
+    async loadModels(containerId, refresh = false) {
+      const list = modelList(containerId);
+      list.setState({ status: "loading", error: null });
+      try {
+        const { models, defaultModel } = await request("list_models", { containerId, refresh });
+        list.setState({ status: "ready", models, defaultModel, error: null });
+      } catch (error) {
+        // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
+        const failure = error instanceof Error ? error : new Error(String(error));
+        list.setState({ status: "failed", models: [], defaultModel: null, error: failure });
+      }
+    },
+    setModel: (sessionId, model) =>
+      withGuessedModel(
+        sessionId,
+        (current) => ({ ...current, ...model }),
+        () => request("set_model", { sessionId, ...model }),
+      ),
+    listCommands: (sessionId) => request("list_commands", { sessionId }),
+    searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
+    setThinkingLevel: (sessionId, level) =>
+      withGuessedModel(
+        sessionId,
+        (current) => ({ ...current, thinkingLevel: level }),
+        () => request("set_thinking_level", { sessionId, level }),
+      ),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;
@@ -746,6 +937,20 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         message: message.slice(0, MAX_ISSUE_LENGTH),
         ...(details === undefined ? {} : { details: details.slice(0, MAX_ISSUE_LENGTH) }),
       });
+    },
+    changes: changesOf,
+    async watchChanges(workspaceIds) {
+      showing = [...new Set(workspaceIds)];
+      if (live !== undefined) await request("watch_changes", { workspaceIds: [...showing] });
+    },
+    diff,
+    async watchDiff(target) {
+      const shown = diff.getState().target;
+      // The same target asked again, to refresh, keeps what it shows until the answer comes.
+      const same = shown !== null && shown.workspaceId === target?.workspaceId && shown.mode === target.mode;
+      // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
+      if (!same) diff.setState(diffViewOf(target), true);
+      if (live !== undefined) await request("watch_diff", { target });
     },
   };
 }

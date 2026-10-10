@@ -75,6 +75,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - 一次运行可能停在工具结果上：一批工具调用都返回 `terminate` 时，agent 循环不再请求模型（`agent-loop.js` `shouldTerminateToolBatch`）。
 - 上下文溢出：pi 用 `context_edit`（`replacement` 为空）屏蔽失败的回复和它的工具结果，紧接着写压缩条目，再重试；不发 `auto_retry_start`（`agent-session.js` `_omitRecoveryAttempt`）。可重试错误的 `auto_retry_start.errorMessage` 是 `errorMessage || "Unknown error"`。
 - `queue_update {steering, followUp}` **每次带完整队列**；`clear_queue` 清空并返回两队内容。
+- 队列里是**展开后的文字**：`steer` 先过 extension 的输入处理（异步，并发的 `steer` 可能因此换了进队顺序），再展开 skill 和提示词模板，然后才进队（1.0.2 `agent-session.js` 的 `_queueUserInput`）。送达时按 `message_start` 的文字在 `_steeringMessages` 里找并移走；**文字为空（只有图片）时不找**，这一项永远留在队列里，之后每次 `queue_update` 和 `clear_queue` 都还有它（1.0.2、1.1.0，2026-10-10 核实）。每次增删各发一次 `queue_update`，不会合并；`steer` 先把文字放进队列、发出 `queue_update`，然后才应答（1.0.2 `_queueSteer`，2026-10-10 核实），所以宿主收到应答时，这条插话一定已经列出过。
 - pi 按文本匹配来移除已送达的队列项（不稳）。
 
 **重试**
@@ -125,6 +126,14 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 | `get_commands` | `{commands: [{name, description?, source: extension \| prompt \| skill, sourceInfo}]}` |
 | `fork {entryId}` / `clone` / `new_session` / `switch_session` | 换会话（见第 1 节） |
 
+**`get_commands`**（2026-10-10 核实）：依次是 extension 命令、提示词模板、skill（`skill:<名字>`），不去重。extension 命令要加载 extension 才有（内置的 `/mcp` 等也在）；模板和 skill 来自全局目录（`~/.pi/agent/prompts`、`skills`，`~/.agents/skills`）和项目目录（`.pi/prompts`、`.pi/skills`、各级 `.agents/skills`，项目目录要先被信任）。`prompt` 以 `/名字` 开头时：是 extension 命令就直接执行（应答 `handled`），是 skill 或模板就展开，其他原样发给模型。终端界面的内置命令（`/model`、`/compact`、`/login` 等）只在终端界面里处理，RPC 里会被当成普通文字。`steer` 遇到 extension 命令会报错。
+
+**`@` 文件**（终端界面，2026-10-10 核实，`packages/tui/src/autocomplete.ts`）：用 `fd` 找候选（`--type f --type d --follow --hidden --exclude .git --max-results 100`，先搜一层再递归，按匹配程度排序取前 20）；`fd` 先找 `~/.pi/agent/bin/fd`，再找 `PATH`，没有就从 GitHub 下载，离线时找不到就没有候选。选中后插入 `@相对路径 `，目录插入 `@目录/`，有空白时加引号 `@"路径"`。**发送时 pi 不展开 `@路径`**（终端界面和 RPC 都不），模型自己用工具去读；只有命令行参数里的 `@文件` 会展开（RPC 模式拒绝这种参数）。
+
+**↑ 历史**（终端界面）：只在内存里，最多 100 条，是这个进程发过的消息加上载入过的会话里的用户消息，不落盘；没有草稿保存。
+
+**图片**：`images` 是 `{ type: "image", data（base64，不带 data: 前缀）, mimeType }`。png、jpeg、gif、webp 原样收下，其他格式转成 png；默认自动缩到 2000×2000 以内、base64 不超过 4.5 MB，缩过的在文字后附一句原始尺寸；转不了或缩不下时丢掉图片、在文字里加一句说明，不报错。模型不支持图片时，图片换成占位文字。
+
 **RPC 里没有的**：会话列表、登录 / 登出、设置、标签、会话内树导航、reload。
 
 **事件**
@@ -140,7 +149,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 
 **退出**（2026-10-04 在 pi 1.0.2 上实测）：bash 工具的子进程用 `detached: true` 启动，各有自己的进程组，pi 记录它们的 pid。关闭 stdin（退出码 0）或 SIGTERM（143）时，pi 会先杀掉这些子进程再退出，约 0.3 秒。SIGKILL 时 pi 来不及清理，子进程被过继给 1 号进程继续运行，杀 pi 的进程组也够不到它们。所以强杀前要趁 pi 还活着按父进程关系找出后代，连同它们的进程组一起杀。
 
-**启动**：没有可用模型（没有凭据）时 **RPC 模式直接报错退出**；模型目录在后台刷新，最多 15 秒。
+**启动**：没有可用模型（没有凭据）时 RPC 模式**照常启动，不退出**（2026-10-10 在 1.1.0 上实测，原先记的"直接报错退出"不对）：`get_state` 的模型是 pi-agent-core 的占位模型（`provider`、`id`、`api` 都是 `unknown`，档位 `off`），`get_available_models` 为空，`prompt` 报错 "No API key found for the selected model."。模型目录在后台刷新，最多 15 秒。
 
 ## 4. 模型、认证（`packages/ai/src/types.ts`、`src/core/model-runtime.ts`、`src/core/auth-storage.ts`）
 
@@ -148,6 +157,12 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - 身份是 `provider + modelId`。
 - 推理档位：`off | minimal | low | medium | high | xhigh | max`（`packages/agent/src/types.ts`）；每个模型支持的由 `getSupportedThinkingLevels(model)` 决定，不支持推理的只有 `off`。
 - 凭据：`~/.pi/agent/auth.json`，用 `proper-lockfile` 加锁；`{type: "api_key", key?, env?}` 或 `{type: "oauth", refresh, access, expires, …}`，每个服务商一条。环境变量里的 key 也认。
+- **模型列表**（2026-10-10 核实，1.1.0 的 `dist` 与源码一致）：
+  - 只有 RPC 的 `get_available_models` 能拿到机器可读的列表，返回完整的 `Model`，只含有凭据的服务商的对话模型。`pi --list-models` 只打印文本表格，没有 `--json`。
+  - 模型目录缓存在 `~/.pi/agent/models-store.json`（按服务商，带 ETag）。RPC 模式启动时不联网、只读缓存，会话建好后在后台从 `pi.dev` 刷新（距上次不到 4 小时就跳过，最多 15 秒，出错不报）。目录变化不发任何事件。
+  - `get_available_thinking_levels` 只回答当前模型。任意模型的档位由 pi-ai 的纯函数 `getSupportedThinkingLevels(model)` 按 `reasoning`、`thinkingLevelMap` 算出（`packages/ai/src/models.ts`）。
+  - RPC 的 `set_model`、`set_thinking_level` **不写 pi 的设置**（只有终端界面选模型时选"保存"才写 `defaultProvider` / `defaultModel` / `defaultThinkingLevel`），也不发事件；档位真的变了才发 `thinking_level_changed`。`set_model` 找不到模型时应答错误。
+  - 新进程的模型：`--model`（可带 `--provider`、`:档位` 后缀）> 已有会话里最后的 `model_change` > 设置里的默认模型 > 第一个可用模型。**`--model` 解析不出时 pi 报错退出（退出码 1）**。档位：`--thinking` > 会话里的记录 > 设置 > `medium`，再截到模型支持的范围。
 - **登录只有终端界面的 `/login`，没有 RPC 命令。** 查状态可用 `pi auth check --provider X --json`。宿主可以在锁下写 `auth.json`，或在启动 pi 前设环境变量；OAuth 流程由 `ModelRuntime.login(providerId, type, interaction)` 实现。
 
 ## 5. extension 与宿主相关的部分（`src/core/extensions/types.ts`、`docs/rpc-extension-ui.md`）

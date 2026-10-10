@@ -27,7 +27,7 @@ interface ExtensionApi {
       readonly api: string;
       readonly baseUrl: string;
       readonly apiKey: string;
-      readonly models: ReturnType<typeof fauxProvider>["models"];
+      readonly models: readonly ReturnType<typeof fauxProvider>["models"][number][];
       readonly streamSimple: ReturnType<typeof fauxProvider>["provider"]["streamSimple"];
     },
   ): void;
@@ -120,7 +120,15 @@ export default function fauxExtension(pi: ExtensionApi): void {
   const faux = fauxProvider({
     provider: FAUX_PROVIDER,
     api: FAUX_API,
-    models: [{ id: FAUX_MODEL, reasoning: true }],
+    models: [
+      { id: FAUX_MODEL, reasoning: true },
+      ...(script.models ?? []).map(({ id, name, reasoning, input }) => ({
+        id,
+        ...(name === undefined ? {} : { name }),
+        ...(reasoning === undefined ? {} : { reasoning }),
+        ...(input === undefined ? {} : { input: [...input] }),
+      })),
+    ],
     tokenSize: { min: 2, max: 2 },
     ...(script.tokensPerSecond === undefined ? {} : { tokensPerSecond: script.tokensPerSecond }),
   });
@@ -137,11 +145,16 @@ export default function fauxExtension(pi: ExtensionApi): void {
       };
     }),
   );
+  // The faux provider takes no thinking map, so it is added to the models it made.
+  const models = faux.models.map((model) => {
+    const map = script.models?.find((extra) => extra.id === model.id)?.thinkingLevelMap;
+    return map === undefined ? model : { ...model, thinkingLevelMap: { ...map } };
+  });
   pi.registerProvider(FAUX_PROVIDER, {
     api: faux.api,
     baseUrl: faux.getModel().baseUrl,
     apiKey: "faux-key",
-    models: faux.models,
+    models,
     streamSimple: (model, context, options) => faux.provider.streamSimple(model, context, options),
   });
   // A command that consumes the input without a run, so `prompt` answers `handled`.

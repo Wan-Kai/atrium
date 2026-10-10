@@ -1,7 +1,7 @@
-import type { IndexSnapshotEvent, SessionEvent } from "@atrium/protocol";
+import type { SessionEvent } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { ResourceTracker } from "../platform/resources";
-import { SubscriptionRegistry } from "./subscriptions";
+import { type EventSink, SubscriptionRegistry } from "./subscriptions";
 
 /** An event of a session. */
 function eventOf(sessionId: string, seq: number): SessionEvent {
@@ -12,7 +12,7 @@ function eventOf(sessionId: string, seq: number): SessionEvent {
 function twoConnections() {
   const resources = new ResourceTracker();
   const registry = new SubscriptionRegistry(resources);
-  const received: Record<string, (SessionEvent | IndexSnapshotEvent)[]> = { a: [], b: [] };
+  const received: Record<string, Parameters<EventSink>[0][]> = { a: [], b: [] };
   registry.connect("a", (event) => received["a"]?.push(event), "client-a");
   registry.connect("b", (event) => received["b"]?.push(event), "client-b");
   return { registry, received, resources };

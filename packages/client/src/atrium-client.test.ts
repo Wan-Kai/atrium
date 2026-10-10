@@ -40,12 +40,10 @@ function scriptedSocket() {
       );
       socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: true, result }));
     },
-    /** Answers the last command of `type` with the error `code`. */
-    fail: (type: string, code: string) => {
-      const command = present(
-        socket.sent.findLast((sent) => sent["type"] === type),
-        `a ${type} command`,
-      );
+    /** Answers the last command of `type`, or the one numbered `at` from 0, with the error `code`. */
+    fail: (type: string, code: string, at?: number) => {
+      const ofType = socket.sent.filter((sent) => sent["type"] === type);
+      const command = present(ofType.at(at ?? -1), `a ${type} command`);
       socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: false, error: { code } }));
     },
     /** The commands sent after the hello, without their trace or the list subscription every welcome brings. */
@@ -97,7 +95,15 @@ function event(seq: number, fields: Record<string, unknown>): string {
 
 /** A snapshot of s1 at `seq` with `items`. */
 function snapshot(seq: number, items: unknown[] = [], hasOlder = false): string {
-  return event(seq, { type: "session_snapshot", items, hasOlder, run: null, exited: false, control: IDLE_CONTROL });
+  return event(seq, {
+    type: "session_snapshot",
+    items,
+    hasOlder,
+    run: null,
+    exited: false,
+    control: IDLE_CONTROL,
+    model: null,
+  });
 }
 
 /** How many `subscribe_sessions` the client sent. */
@@ -904,7 +910,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       },
     ],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary" },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
     resets: [],
     ...fields,
   });
@@ -957,7 +963,12 @@ describe("createAtriumClient: the list", () => {
     const selected = client.selectContainer("chats");
     expect(client.index.getState().layout.container).toBe("chats");
     const preferred = client.setPreferences({ displayMode: "detailed" });
-    expect(client.index.getState().preferences).toStrictEqual({ appearance: "system", displayMode: "detailed" });
+    expect(client.index.getState().preferences).toStrictEqual({
+      appearance: "system",
+      displayMode: "detailed",
+      lastModel: null,
+      thinkingByModel: {},
+    });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
     expect(await Promise.all([opened, closed, selected, preferred])).toStrictEqual([{}, {}, {}, {}]);
@@ -972,5 +983,506 @@ describe("createAtriumClient: the list", () => {
       { type: "select_container", containerId: "chats" },
       { type: "set_preferences", displayMode: "detailed" },
     ]);
+  });
+});
+
+/** A connected client watching s1, whose snapshot says pi uses `model`. */
+async function watchingWithModel(model: unknown) {
+  const setup = await connected();
+  const watched = setup.client.watch(["s1"]);
+  setup.latest().answer("subscribe_sessions");
+  await watched;
+  setup.latest().receive(
+    event(1, {
+      type: "session_snapshot",
+      items: [],
+      hasOlder: false,
+      run: null,
+      exited: false,
+      control: IDLE_CONTROL,
+      model,
+    }),
+  );
+  return setup;
+}
+
+describe("createAtriumClient: models", () => {
+  const WORKSPACE = "wks_0123456789abcdef";
+  const opus = { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" } as const;
+  const listed = {
+    providerId: "anthropic",
+    modelId: "haiku",
+    name: "Haiku",
+    contextWindow: 200_000,
+    maxOutput: 64_000,
+    supportsImage: true,
+    thinkingLevels: ["off"],
+  };
+
+  it("lists a container's models into its view, keeping them shown while it asks again", async () => {
+    const { client, latest } = await connected();
+    const list = client.models(WORKSPACE);
+    expect(list.getState()).toStrictEqual({ status: "idle", models: [], defaultModel: null, error: null });
+    expect(client.models(WORKSPACE)).toBe(list);
+
+    const loading = client.loadModels(WORKSPACE);
+    expect(list.getState()).toStrictEqual({ status: "loading", models: [], defaultModel: null, error: null });
+    latest().answer("list_models", { models: [listed], defaultModel: { providerId: "anthropic", modelId: "haiku" } });
+    await loading;
+    const ready = {
+      status: "ready",
+      models: [listed],
+      defaultModel: { providerId: "anthropic", modelId: "haiku" },
+      error: null,
+    };
+    expect(list.getState()).toStrictEqual(ready);
+    const again = client.loadModels(WORKSPACE, true);
+    expect(list.getState()).toStrictEqual({ ...ready, status: "loading" });
+    latest().answer("list_models", { models: [], defaultModel: null });
+    await again;
+
+    expect(list.getState()).toStrictEqual({ status: "ready", models: [], defaultModel: null, error: null });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "list_models")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_models", containerId: WORKSPACE, refresh: false },
+      { type: "list_models", containerId: WORKSPACE, refresh: true },
+    ]);
+  });
+
+  it("shows a list that failed with its error and no models", async () => {
+    const { client, latest } = await connected();
+    const first = client.loadModels("chats");
+    latest().answer("list_models", { models: [listed], defaultModel: null });
+    await first;
+
+    const failing = client.loadModels("chats", true);
+    latest().fail("list_models", "models_unavailable");
+    await failing;
+
+    expect(client.models("chats").getState()).toStrictEqual({
+      status: "failed",
+      models: [],
+      defaultModel: null,
+      error: new CommandError("models_unavailable"),
+    });
+  });
+
+  it("switches a session's model at once in its view, and puts it back when the host refuses", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    expect(view.getState().model).toStrictEqual({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "high" });
+    latest().fail("set_model", "pi_rejected");
+
+    await expect(switching).rejects.toStrictEqual(new CommandError("pi_rejected"));
+    expect(view.getState().model).toStrictEqual(opus);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "set_model"),
+    ).toStrictEqual([
+      { type: "set_model", requestId: expect.any(String), sessionId: "s1", providerId: "anthropic", modelId: "haiku" },
+    ]);
+  });
+
+  it("sets a session's thinking level at once in its view, keeping what the host reported since", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const setting = client.setThinkingLevel("s1", "low");
+    expect(view.getState().model).toStrictEqual({ ...opus, thinkingLevel: "low" });
+    latest().receive(event(2, { type: "model_updated", model: { ...opus, thinkingLevel: "minimal" } }));
+    latest().fail("set_thinking_level", "pi_rejected");
+
+    await expect(setting).rejects.toStrictEqual(new CommandError("pi_rejected"));
+    expect(view.getState().model).toStrictEqual({ ...opus, thinkingLevel: "minimal" });
+    const succeeding = client.setThinkingLevel("s1", "max");
+    latest().answer("set_thinking_level");
+    await succeeding;
+    expect(view.getState().model).toStrictEqual({ ...opus, thinkingLevel: "max" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "set_thinking_level"),
+    ).toStrictEqual([
+      { type: "set_thinking_level", requestId: expect.any(String), sessionId: "s1", level: "low" },
+      { type: "set_thinking_level", requestId: expect.any(String), sessionId: "s1", level: "max" },
+    ]);
+  });
+
+  it("goes back to the model the host last reported when two changes on their way both fail", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    const setting = client.setThinkingLevel("s1", "low");
+    expect(view.getState().model).toStrictEqual({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    latest().fail("set_model", "pi_rejected");
+    await expect(switching).rejects.toStrictEqual(new CommandError("pi_rejected"));
+    expect(view.getState().model).toStrictEqual({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" });
+    latest().fail("set_thinking_level", "pi_rejected");
+    await expect(setting).rejects.toStrictEqual(new CommandError("pi_rejected"));
+
+    expect(view.getState().model).toStrictEqual(opus);
+  });
+
+  it("goes back to the host's model, not a guess, after a third change joins two on their way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    const lowering = client.setThinkingLevel("s1", "low");
+    latest().answer("set_model");
+    await switching;
+    const raising = client.setThinkingLevel("s1", "max");
+    latest().fail("set_thinking_level", "pi_rejected", 0);
+    await Promise.allSettled([lowering]);
+    latest().fail("set_thinking_level", "pi_rejected", 1);
+    await Promise.allSettled([raising]);
+
+    expect(view.getState().model).toStrictEqual(opus);
+  });
+
+  it("counts a change the host took as the model to go back to, once none is on its way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    latest().answer("set_model");
+    await switching;
+
+    const lowering = client.setThinkingLevel("s1", "low");
+    latest().fail("set_thinking_level", "pi_rejected");
+    await expect(lowering).rejects.toStrictEqual(new CommandError("pi_rejected"));
+
+    expect(view.getState().model).toStrictEqual({ ...opus, modelId: "haiku" });
+  });
+
+  it("goes back to what the host reported between two changes, not to the first guess", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setModel("s1", { providerId: "anthropic", modelId: "haiku" });
+    latest().receive(
+      event(2, { type: "model_updated", model: { ...opus, modelId: "haiku", thinkingLevel: "medium" } }),
+    );
+    const setting = client.setThinkingLevel("s1", "low");
+    latest().answer("set_model");
+    await switching;
+    latest().fail("set_thinking_level", "pi_rejected");
+    await expect(setting).rejects.toStrictEqual(new CommandError("pi_rejected"));
+
+    expect(view.getState().model).toStrictEqual({ ...opus, modelId: "haiku", thinkingLevel: "medium" });
+  });
+
+  it("changes nothing at once for a session whose model it does not know", async () => {
+    const { client, latest } = await watchingWithModel(null);
+
+    const setting = client.setThinkingLevel("s1", "low");
+    const switching = client.setModel("s2", { providerId: "a", modelId: "b" });
+    expect(client.session("s1")?.getState().model).toBeNull();
+    latest().answer("set_thinking_level");
+    latest().answer("set_model");
+
+    expect(await setting).toStrictEqual({});
+    expect(await switching).toStrictEqual({});
+  });
+});
+
+describe("createAtriumClient: the composer's lists", () => {
+  it("asks for a session's commands and for files, returning what the host lists", async () => {
+    const { client, latest } = await connected();
+    const commands = [{ name: "review", description: null, source: "prompt" }];
+    const files = [{ path: "src/", directory: true }];
+
+    const listing = client.listCommands("s1");
+    latest().answer("list_commands", { commands });
+    const searching = client.searchFiles("s1", "src");
+    latest().answer("search_files", { files });
+
+    expect(await listing).toStrictEqual({ commands });
+    expect(await searching).toStrictEqual({ files });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["list_commands", "search_files"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_commands", sessionId: "s1" },
+      { type: "search_files", sessionId: "s1", query: "src" },
+    ]);
+  });
+});
+
+describe("createAtriumClient: images", () => {
+  it("uploads an image, and sends a message with it, shown pending with its count", async () => {
+    const { client, latest } = await watchingWithModel(null);
+
+    const uploading = client.uploadAttachment("image/webp", "UklGRg==");
+    latest().answer("upload_attachment", { attachmentId: "a1" });
+    expect(await uploading).toStrictEqual({ attachmentId: "a1" });
+    const sending = client.prompt("s1", "看图", ["a1"]);
+    expect(client.session("s1")?.getState().pending).toStrictEqual([
+      { clientMessageId: expect.any(String), text: "看图", images: 1 },
+    ]);
+    latest().answer("prompt", { disposition: "started" });
+    await sending;
+    const steering = client.steer("s1", "", ["a2"]);
+    latest().answer("steer", { disposition: "queued" });
+    await steering;
+    // Not answered: only what it sends matters.
+    void client.prompt("s1", "只有字").catch(() => undefined);
+
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["upload_attachment", "prompt", "steer"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "upload_attachment", mimeType: "image/webp", data: "UklGRg==" },
+      { type: "prompt", sessionId: "s1", text: "看图", attachmentIds: ["a1"] },
+      { type: "steer", sessionId: "s1", text: "", attachmentIds: ["a2"] },
+      { type: "prompt", sessionId: "s1", text: "只有字" },
+    ]);
+  });
+});
+
+/** The watch commands a socket carried, without their request ids. */
+function watches(socket: ScriptedSocket): Record<string, unknown>[] {
+  return socket
+    .commands()
+    .filter((command) => String(command["type"]).startsWith("watch_"))
+    .map(({ requestId: _id, ...command }) => command);
+}
+
+describe("createAtriumClient: workspace changes", () => {
+  const W1 = "wks_0000000000000001";
+  const W2 = "wks_0000000000000002";
+  const known = { stat: { added: 3, removed: 1 }, dirty: true, ahead: 0, branch: "main", base: "origin/main" };
+  const file = {
+    path: "a.ts",
+    oldPath: null,
+    status: "modified",
+    added: 1,
+    removed: 0,
+    content: "binary",
+    hunks: [],
+  };
+
+  it("asks for the changes of the workspaces shown, keeping what the host sends in each one's store", async () => {
+    const { client, latest } = await connected();
+
+    expect(client.changes(W1).getState()).toBeNull();
+    const watching = client.watchChanges([W1]);
+    latest().answer("watch_changes");
+    await watching;
+    latest().receive(JSON.stringify({ type: "changes_updated", workspaceId: W1, ...known }));
+
+    expect(client.changes(W1).getState()).toStrictEqual(known);
+    expect(client.changes(W2).getState()).toBeNull();
+    expect(watches(latest())).toStrictEqual([{ type: "watch_changes", workspaceIds: [W1] }]);
+  });
+
+  it("shows the panel's files for the target asked, not another's, and empties it once closed", async () => {
+    const { client, latest } = await connected();
+    const target = { workspaceId: W1, mode: "uncommitted" } as const;
+
+    const opening = client.watchDiff(target);
+    expect(client.diff.getState()).toStrictEqual({
+      target,
+      status: "loading",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+    latest().answer("watch_diff");
+    await opening;
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+    expect(client.diff.getState().status).toBe("loading");
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "uncommitted",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+    expect(client.diff.getState()).toStrictEqual({
+      target,
+      status: "ready",
+      files: [file],
+      tooLarge: false,
+      error: null,
+    });
+    const closing = client.watchDiff(null);
+    latest().answer("watch_diff");
+    await closing;
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: null,
+      status: "idle",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+    expect(watches(latest())).toStrictEqual([
+      { type: "watch_diff", target },
+      { type: "watch_diff", target: null },
+    ]);
+  });
+
+  it("keeps the files shown while the same target is asked for again, as the refresh button does", async () => {
+    const { client, latest } = await connected();
+    const target = { workspaceId: W1, mode: "base" } as const;
+    void client.watchDiff(target);
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    void client.watchDiff({ ...target });
+
+    expect(client.diff.getState()).toStrictEqual({
+      target,
+      status: "ready",
+      files: [file],
+      tooLarge: false,
+      error: null,
+    });
+    expect(watches(latest())).toStrictEqual([
+      { type: "watch_diff", target },
+      { type: "watch_diff", target },
+    ]);
+  });
+
+  it("ignores another workspace's diff for the same mode, and any diff while the panel is closed", async () => {
+    const { client, latest } = await connected();
+    void client.watchDiff({ workspaceId: W1, mode: "base" });
+
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W2,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+    expect(client.diff.getState().status).toBe("loading");
+    void client.watchDiff(null);
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: null,
+      status: "idle",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+  });
+
+  it("shows nothing of one workspace's files once the panel moves to another in the same mode", async () => {
+    const { client, latest } = await connected();
+    void client.watchDiff({ workspaceId: W1, mode: "base" });
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    void client.watchDiff({ workspaceId: W2, mode: "base" });
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: { workspaceId: W2, mode: "base" },
+      status: "loading",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+  });
+
+  it("shows nothing of one mode's files once the panel switches to the other", async () => {
+    const { client, latest } = await connected();
+    void client.watchDiff({ workspaceId: W1, mode: "base" });
+    latest().receive(
+      JSON.stringify({
+        type: "diff_updated",
+        workspaceId: W1,
+        mode: "base",
+        files: [file],
+        tooLarge: false,
+        error: null,
+      }),
+    );
+
+    void client.watchDiff({ workspaceId: W1, mode: "uncommitted" });
+
+    expect(client.diff.getState()).toStrictEqual({
+      target: { workspaceId: W1, mode: "uncommitted" },
+      status: "loading",
+      files: [],
+      tooLarge: false,
+      error: null,
+    });
+  });
+
+  it("asks again on every connection for what it shows, and asks nothing before one", async () => {
+    const { client, clock, latest, sockets } = clientWith({ reconnectDelaysMs: [100] });
+    const target = { workspaceId: W2, mode: "base" } as const;
+    await client.watchChanges([W1]);
+    await client.watchDiff(target);
+    expect(sockets).toStrictEqual([]);
+
+    const connecting = client.connect();
+    latest().open();
+    latest().receive(welcome());
+    await connecting;
+    latest().closeWith(1006);
+    clock.advance(100);
+    latest().open();
+    latest().receive(welcome());
+
+    for (const socket of sockets) {
+      expect(watches(socket)).toStrictEqual([
+        { type: "watch_changes", workspaceIds: [W1] },
+        { type: "watch_diff", target },
+      ]);
+    }
   });
 });

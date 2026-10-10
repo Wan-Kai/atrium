@@ -410,3 +410,38 @@ describe("Workbench keys and focus", () => {
     await expect.element(screen.getByText(/文件损坏了/)).not.toBeInTheDocument();
   });
 });
+
+/** Keeps a draft for each session named. */
+function drafts(...sessionIds: string[]): void {
+  for (const id of sessionIds) {
+    localStorage.setItem(`atrium-draft:${id}`, JSON.stringify({ text: id, pastes: [], files: [] }));
+  }
+}
+
+/** The sessions that still have a draft. */
+function kept(): string[] {
+  return Object.keys(localStorage)
+    .filter((key) => key.startsWith("atrium-draft:"))
+    .map((key) => key.slice("atrium-draft:".length))
+    .toSorted();
+}
+
+describe("Workbench drafts", () => {
+  it("drops the drafts of archived sessions, and of sessions gone from the list while it runs", async () => {
+    localStorage.clear();
+    onTestFinished(() => localStorage.clear());
+    drafts("s1", "s2", "s3", "unseen");
+    const initial = list();
+    const { index } = await workbench({
+      initial: { ...initial, sessions: initial.sessions.map((one) => ({ ...one, archived: one.sessionId === "s2" })) },
+    });
+
+    await vi.waitFor(() => expect(kept()).toStrictEqual(["s1", "s3", "unseen"]));
+    index.setState({ seq: 2, sessions: index.getState().sessions.filter((one) => one.sessionId !== "s1") });
+    await vi.waitFor(() => expect(kept()).toStrictEqual(["s3", "unseen"]));
+    // A new host may not have found every session yet: nothing is dropped for being missing.
+    index.setState({ generation: "h2", seq: 1, sessions: [] });
+    await vi.waitFor(() => expect(index.getState().sessions).toStrictEqual([]));
+    expect(kept()).toStrictEqual(["s3", "unseen"]);
+  });
+});

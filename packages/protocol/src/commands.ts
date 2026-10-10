@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { parseTraceparent } from "./trace";
+import { DiffTarget } from "./changes";
+import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, DisplayMode } from "./listing";
+import { CatalogModel, ModelRef, ThinkingLevel } from "./models";
 import { Step, TranscriptItem } from "./transcript";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -26,6 +29,29 @@ const MessageText = z
   .string()
   .min(1)
   .max(1024 * 1024);
+
+/** A message's text when images may carry it; empty only with an image. */
+const PromptText = z.string().max(1024 * 1024);
+
+/** Uploaded images a message goes with, at most 20 (SPEC-0001, "附件"). */
+const AttachmentIds = z.array(z.string().min(1).max(128)).max(20).optional();
+
+/**
+ * Whether a message has something to send.
+ *
+ * @remarks
+ * An image may go without text; nothing at all is not a message.
+ *
+ * @sideEffects none
+ * @param message - The text and the images.
+ * @returns Whether it has either.
+ */
+function hasContent(message: {
+  readonly text: string;
+  readonly attachmentIds?: readonly string[] | undefined;
+}): boolean {
+  return message.text !== "" || (message.attachmentIds?.length ?? 0) > 0;
+}
 
 /** Heartbeat: the client sends one every `heartbeatMs` and expects the response within as long. */
 export const PingCommand = z.strictObject({ type: z.literal("ping"), ...commandFields });
@@ -53,18 +79,25 @@ export const SubscribeSessionsCommand = z.strictObject({
 export type SubscribeSessionsCommand = z.infer<typeof SubscribeSessionsCommand>;
 
 /** Sends a message to a session; its `requestId` doubles as the user message's `clientMessageId`. */
-export const PromptCommand = z.strictObject({
-  type: z.literal("prompt"),
-  ...sessionCommandFields,
-  text: MessageText,
-});
+export const PromptCommand = z
+  .strictObject({
+    type: z.literal("prompt"),
+    ...sessionCommandFields,
+    text: PromptText,
+    attachmentIds: AttachmentIds,
+  })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(hasContent);
 export type PromptCommand = z.infer<typeof PromptCommand>;
 
 /**
  * Sends a steer: delivered before the agent's next step while it runs, sent as a message when it
  * is idle (SPEC-0001, "运行控制").
  */
-export const SteerCommand = z.strictObject({ type: z.literal("steer"), ...sessionCommandFields, text: MessageText });
+export const SteerCommand = z
+  .strictObject({ type: z.literal("steer"), ...sessionCommandFields, text: PromptText, attachmentIds: AttachmentIds })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(hasContent);
 export type SteerCommand = z.infer<typeof SteerCommand>;
 
 /** Stops the run: pauses the queue, clears pi's queue and aborts. */
@@ -221,6 +254,86 @@ export const SetPreferencesCommand = z.strictObject({
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 
+/**
+ * Lists the models pi can use in a workspace's directory, or for the chats.
+ *
+ * @remarks
+ * The host asks a short-lived pi once per directory and keeps the answer until `refresh`
+ * (SPEC-0001, "模型与输入框").
+ */
+export const ListModelsCommand = z.strictObject({
+  type: z.literal("list_models"),
+  ...commandFields,
+  containerId: ContainerId,
+  refresh: z.boolean().optional(),
+});
+export type ListModelsCommand = z.infer<typeof ListModelsCommand>;
+
+/** Switches a session's model; it takes effect from the next request to the model. */
+export const SetModelCommand = z.strictObject({
+  type: z.literal("set_model"),
+  ...sessionCommandFields,
+  ...ModelRef.shape,
+});
+export type SetModelCommand = z.infer<typeof SetModelCommand>;
+
+/** Sets how hard a session's model thinks; pi keeps it within what the model supports. */
+export const SetThinkingLevelCommand = z.strictObject({
+  type: z.literal("set_thinking_level"),
+  ...sessionCommandFields,
+  level: ThinkingLevel,
+});
+export type SetThinkingLevelCommand = z.infer<typeof SetThinkingLevelCommand>;
+
+/**
+ * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
+ *
+ * @remarks
+ * Base64 within a million characters, so the message stays under the 1 MiB a WebSocket message
+ * may have; the client compresses to fit.
+ */
+export const UploadAttachmentCommand = z.strictObject({
+  type: z.literal("upload_attachment"),
+  ...commandFields,
+  mimeType: z.enum(["image/webp", "image/png", "image/jpeg", "image/gif"]),
+  data: z.string().min(1).max(1_000_000),
+});
+export type UploadAttachmentCommand = z.infer<typeof UploadAttachmentCommand>;
+
+/** Lists the `/` commands of a session's pi, starting it if it has none (SPEC-0001, "模型与输入框"). */
+export const ListCommandsCommand = z.strictObject({ type: z.literal("list_commands"), ...sessionCommandFields });
+export type ListCommandsCommand = z.infer<typeof ListCommandsCommand>;
+
+/** Finds files and directories for `@` in a session's directory, as pi's terminal does with `fd`. */
+export const SearchFilesCommand = z.strictObject({
+  type: z.literal("search_files"),
+  ...sessionCommandFields,
+  /** What follows `@`; empty lists the directory's own entries first. */
+  query: z.string().max(1024),
+});
+export type SearchFilesCommand = z.infer<typeof SearchFilesCommand>;
+
+/**
+ * Says which workspaces this connection shows, whose git changes the host then sends (SPEC-0001, "工作区改动").
+ *
+ * @remarks
+ * Replaces the set given before; the host watches only workspaces someone shows.
+ */
+export const WatchChangesCommand = z.strictObject({
+  type: z.literal("watch_changes"),
+  ...commandFields,
+  workspaceIds: z.array(WorkspaceId).max(64),
+});
+export type WatchChangesCommand = z.infer<typeof WatchChangesCommand>;
+
+/** Opens the changes panel on a workspace and mode, or closes it with `null`; one per connection. */
+export const WatchDiffCommand = z.strictObject({
+  type: z.literal("watch_diff"),
+  ...commandFields,
+  target: DiffTarget.nullable(),
+});
+export type WatchDiffCommand = z.infer<typeof WatchDiffCommand>;
+
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
 
@@ -296,6 +409,14 @@ export const Command = z.discriminatedUnion("type", [
   SteerQueuedCommand,
   AnswerInteractionCommand,
   RetryRunCommand,
+  ListModelsCommand,
+  SetModelCommand,
+  SetThinkingLevelCommand,
+  ListCommandsCommand,
+  SearchFilesCommand,
+  UploadAttachmentCommand,
+  WatchChangesCommand,
+  WatchDiffCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -355,5 +476,15 @@ export const CommandResult = {
   steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
   answer_interaction: z.strictObject({}),
   retry_run: z.strictObject({}),
+  /** `defaultModel` is the one pi picks by its own settings, `null` when it reported none. */
+  list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),
+  set_model: z.strictObject({}),
+  set_thinking_level: z.strictObject({}),
+  list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
+  /** The best matches first, at most 20. */
+  search_files: z.strictObject({ files: z.array(FileCandidate) }),
+  upload_attachment: z.strictObject({ attachmentId: z.string().min(1).max(128) }),
+  watch_changes: z.strictObject({}),
+  watch_diff: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

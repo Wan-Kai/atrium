@@ -1,9 +1,8 @@
-import type { IndexSnapshotEvent, SessionEvent } from "@atrium/protocol";
 import { FakeClock } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { ResourceTracker } from "../platform/resources";
 import { INDEX_PUSH_DELAY_MS, type IndexContent, createIndexFeed } from "./index-feed";
-import { SubscriptionRegistry } from "./subscriptions";
+import { type EventSink, SubscriptionRegistry } from "./subscriptions";
 
 /**
  * A feed over two connected clients whose deliveries are recorded.
@@ -17,7 +16,7 @@ import { SubscriptionRegistry } from "./subscriptions";
 function feed() {
   const resources = new ResourceTracker();
   const registry = new SubscriptionRegistry(resources);
-  const received: Record<string, (SessionEvent | IndexSnapshotEvent)[]> = { a: [], b: [] };
+  const received: Record<string, Parameters<EventSink>[0][]> = { a: [], b: [] };
   registry.connect("a", (event) => received["a"]?.push(event), "client-a");
   registry.connect("b", (event) => received["b"]?.push(event), "client-b");
   const clock = new FakeClock();
@@ -30,7 +29,7 @@ function feed() {
       container: null,
       tabs: { [`wks_${String(version).padStart(16, "0")}`]: { open: [clientId], active: null } },
     },
-    preferences: { appearance: "system", displayMode: "summary" },
+    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
     resets: [],
   });
   const index = createIndexFeed({ registry, generation: "h1", build, clock, resources });
@@ -38,7 +37,7 @@ function feed() {
 }
 
 /** The client and version a snapshot was built for, with its seq. */
-function summary(event: SessionEvent | IndexSnapshotEvent) {
+function summary(event: Parameters<EventSink>[0]) {
   if (event.type !== "index_snapshot") return event.type;
   const [container = "", tabs] = Object.entries(event.layout.tabs)[0] ?? [];
   return [event.generation, event.seq, Number(container.slice(4)), tabs?.open[0]];

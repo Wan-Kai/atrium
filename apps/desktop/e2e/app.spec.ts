@@ -37,7 +37,7 @@ test("keeps the page's storage across a restart, since its origin stays the same
   expect(before[0]).toBe("atrium://app");
 });
 
-test("gives the page no Node access and only the bridge: bootstrap, folder choice and appearance", async () => {
+test("gives the page no Node access and only the bridge: bootstrap, folder choice, appearance and dropped files' paths", async () => {
   const exposed = await launched.window.evaluate(() => ({
     require: typeof (globalThis as { require?: unknown }).require,
     process: typeof (globalThis as { process?: unknown }).process,
@@ -47,7 +47,7 @@ test("gives the page no Node access and only the bridge: bootstrap, folder choic
   expect(exposed).toStrictEqual({
     require: "undefined",
     process: "undefined",
-    bridge: ["getBootstrap", "pickDirectory", "setAppearance"],
+    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile"],
   });
 });
 

@@ -5,6 +5,7 @@ import { CommandError, ErrorCode } from "./errors";
 import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexSnapshotEvent } from "./listing";
+import { type CatalogModel, ThinkingLevel } from "./models";
 import type { Step, Turn } from "./transcript";
 import { PROTOCOL_VERSION } from "./version";
 
@@ -88,7 +89,90 @@ const commands: Command[] = [
     interactionId: "d1",
     answer: { value: "v".repeat(1024 * 1024) },
   },
+  { type: "list_models", requestId: "r40", traceparent, containerId: WORKSPACE },
+  { type: "list_models", requestId: "r41", traceparent, containerId: "chats", refresh: true },
+  {
+    type: "set_model",
+    requestId: "r42",
+    traceparent,
+    sessionId: "s1",
+    providerId: "openrouter",
+    modelId: "anthropic/claude-opus-5.5",
+  },
+  { type: "set_thinking_level", requestId: "r43", traceparent, sessionId: "s1", level: "xhigh" },
+  { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
+  { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
+  { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
+  { type: "upload_attachment", requestId: "r47", traceparent, mimeType: "image/webp", data: "UklGRg==" },
+  { type: "prompt", requestId: "r48", traceparent, sessionId: "s1", text: "看图", attachmentIds: ["a1", "a2"] },
+  { type: "prompt", requestId: "r49", traceparent, sessionId: "s1", text: "", attachmentIds: ["a1"] },
+  { type: "steer", requestId: "r50", traceparent, sessionId: "s1", text: "这张", attachmentIds: ["a3"] },
+  { type: "upload_attachment", requestId: "r51", traceparent, mimeType: "image/png", data: "a".repeat(1_000_000) },
+  { type: "upload_attachment", requestId: "r57", traceparent, mimeType: "image/jpeg", data: "/9j/" },
+  { type: "upload_attachment", requestId: "r58", traceparent, mimeType: "image/gif", data: "R0lG" },
+  { type: "watch_changes", requestId: "r52", traceparent, workspaceIds: [WORKSPACE] },
+  { type: "watch_changes", requestId: "r53", traceparent, workspaceIds: [] },
+  { type: "watch_diff", requestId: "r54", traceparent, target: { workspaceId: WORKSPACE, mode: "uncommitted" } },
+  { type: "watch_diff", requestId: "r55", traceparent, target: { workspaceId: WORKSPACE, mode: "base" } },
+  { type: "watch_diff", requestId: "r56", traceparent, target: null },
 ];
+
+/** A workspace's changes, as the host sends them. */
+const changesUpdated = {
+  type: "changes_updated",
+  workspaceId: WORKSPACE,
+  stat: { added: 12, removed: 3 },
+  dirty: true,
+  ahead: 2,
+  branch: "feat/x",
+  base: "origin/main",
+};
+
+/** The changes panel's files: an edit, a rename, a binary file and one too large. */
+const diffUpdated = {
+  type: "diff_updated",
+  workspaceId: WORKSPACE,
+  mode: "uncommitted",
+  files: [
+    {
+      path: "src/a.ts",
+      oldPath: null,
+      status: "modified",
+      added: 1,
+      removed: 1,
+      content: "text",
+      hunks: [
+        {
+          oldStart: 1,
+          oldCount: 2,
+          newStart: 1,
+          newCount: 2,
+          lines: [
+            { kind: "context", oldNumber: 1, newNumber: 1, text: "keep" },
+            { kind: "del", oldNumber: 2, newNumber: null, text: "old" },
+            { kind: "add", oldNumber: null, newNumber: 2, text: "new" },
+          ],
+        },
+      ],
+    },
+    { path: "b.ts", oldPath: "a.ts", status: "renamed", added: 0, removed: 0, content: "text", hunks: [] },
+    { path: "logo.png", oldPath: null, status: "added", added: 0, removed: 0, content: "binary", hunks: [] },
+    { path: "big.json", oldPath: null, status: "deleted", added: 0, removed: 90_000, content: "too_large", hunks: [] },
+  ],
+  tooLarge: false,
+  error: null,
+};
+
+/** A model as the catalog lists it. */
+const model: CatalogModel = {
+  providerId: "anthropic",
+  modelId: "claude-opus-5-5",
+  name: "Claude Opus 5.5",
+  contextWindow: 1_000_000,
+  maxOutput: 128_000,
+  supportsImage: true,
+  thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+};
 
 /** An extension's selection. */
 const pick: Interaction = {
@@ -104,7 +188,7 @@ const pick: Interaction = {
 
 /** Run control with something of everything. */
 const control: Control = {
-  queue: [{ id: "q1", text: "later", createdAt: 4 }],
+  queue: [{ id: "q1", text: "later", createdAt: 4, images: 2 }],
   paused: "stopped",
   steers: [{ id: "r28", text: "also b" }],
   stopping: true,
@@ -227,6 +311,7 @@ const events: SessionEvent[] = [
     run: { runId: "run-1", startedAt: 3 },
     exited: false,
     control,
+    model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" },
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
   { type: "turn_started", ...at, turn: { ...turn, steps: [], outcome: "running", durationMs: null, usage: null } },
@@ -260,6 +345,8 @@ const events: SessionEvent[] = [
     before: null,
   },
   { type: "notice_added", ...at, notice: asked, before: null },
+  { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
+  { type: "model_updated", ...at, model: null },
 ];
 
 describe("parseClientMessage", () => {
@@ -280,6 +367,8 @@ describe("parseClientMessage", () => {
       "create_session",
       "fetch_step",
       "fetch_transcript",
+      "list_commands",
+      "list_models",
       "open_session",
       "ping",
       "prompt",
@@ -291,14 +380,20 @@ describe("parseClientMessage", () => {
       "report_client_issue",
       "resume_queue",
       "retry_run",
+      "search_files",
       "select_container",
+      "set_model",
       "set_preferences",
+      "set_thinking_level",
       "steer",
       "steer_queued",
       "stop",
       "subscribe_index",
       "subscribe_sessions",
       "update_queued",
+      "upload_attachment",
+      "watch_changes",
+      "watch_diff",
       "window_focused",
     ]);
   });
@@ -448,6 +543,68 @@ describe("parseClientMessage", () => {
       { type: "fetch_transcript", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, before: "x", limit: 101 },
       "r1",
     ],
+    [
+      "an unknown thinking level",
+      { type: "set_thinking_level", requestId: "r1", traceparent, sessionId: "s1", level: "extreme" },
+      "r1",
+    ],
+    [
+      "a model without a provider",
+      { type: "set_model", requestId: "r1", traceparent, sessionId: "s1", providerId: "", modelId: "m" },
+      "r1",
+    ],
+    ["models of no container", { type: "list_models", requestId: "r1", traceparent }, "r1"],
+    ["commands of no session", { type: "list_commands", requestId: "r1", traceparent }, "r1"],
+    [
+      "an attachment that is not an image",
+      { type: "upload_attachment", requestId: "r1", traceparent, mimeType: "text/plain", data: "aGk=" },
+      "r1",
+    ],
+    [
+      "an attachment over a million characters",
+      { type: "upload_attachment", requestId: "r1", traceparent, mimeType: "image/png", data: "a".repeat(1_000_001) },
+      "r1",
+    ],
+    [
+      "an empty attachment",
+      { type: "upload_attachment", requestId: "r1", traceparent, mimeType: "image/png", data: "" },
+      "r1",
+    ],
+    [
+      "more than 20 images",
+      {
+        type: "prompt",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        text: "x",
+        attachmentIds: Array.from({ length: 21 }, (_, index) => `a${index}`),
+      },
+      "r1",
+    ],
+    [
+      "a file search over 1024 characters",
+      { type: "search_files", requestId: "r1", traceparent, sessionId: "s1", query: "q".repeat(1025) },
+      "r1",
+    ],
+    ["models of a project", { type: "list_models", requestId: "r1", traceparent, containerId: PROJECT }, "r1"],
+    ["changes of the chats", { type: "watch_changes", requestId: "r1", traceparent, workspaceIds: ["chats"] }, "r1"],
+    [
+      "changes of more than 64 workspaces",
+      {
+        type: "watch_changes",
+        requestId: "r1",
+        traceparent,
+        workspaceIds: Array.from({ length: 65 }, () => WORKSPACE),
+      },
+      "r1",
+    ],
+    [
+      "a diff of an unknown mode",
+      { type: "watch_diff", requestId: "r1", traceparent, target: { workspaceId: WORKSPACE, mode: "staged" } },
+      "r1",
+    ],
+    ["a diff without a target", { type: "watch_diff", requestId: "r1", traceparent }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
   });
@@ -494,6 +651,41 @@ describe("CommandResult", () => {
       items: [turn],
       hasOlder: false,
     });
+    expect(CommandResult.list_models.parse({ models: [model], defaultModel: null })).toStrictEqual({
+      models: [model],
+      defaultModel: null,
+    });
+    expect(
+      CommandResult.list_models.parse({ models: [], defaultModel: { providerId: "faux", modelId: "faux-1" } }),
+    ).toStrictEqual({ models: [], defaultModel: { providerId: "faux", modelId: "faux-1" } });
+    expect(
+      CommandResult.list_models.safeParse({ models: [{ ...model, thinkingLevels: [] }], defaultModel: null }).success,
+    ).toBe(false);
+    expect(
+      CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
+    ).toBe(false);
+    const slashCommands = [
+      { name: "review", description: "Reviews the change", source: "prompt" },
+      { name: "skill:tdd", description: null, source: "skill" },
+      { name: "mcp", description: "MCP servers", source: "extension" },
+    ];
+    expect(CommandResult.list_commands.parse({ commands: slashCommands })).toStrictEqual({ commands: slashCommands });
+    expect(
+      CommandResult.list_commands.safeParse({ commands: [{ name: "x", description: null, source: "builtin" }] })
+        .success,
+    ).toBe(false);
+    const files = [
+      { path: "src/sessions/", directory: true },
+      { path: "src/session.ts", directory: false },
+    ];
+    expect(CommandResult.search_files.parse({ files })).toStrictEqual({ files });
+    expect(CommandResult.search_files.safeParse({ files: [{ path: "", directory: false }] }).success).toBe(false);
+    expect(CommandResult.upload_attachment.parse({ attachmentId: "a1" })).toStrictEqual({ attachmentId: "a1" });
+    expect(CommandResult.upload_attachment.safeParse({}).success).toBe(false);
+    expect(CommandResult.watch_changes.parse({})).toStrictEqual({});
+    expect(CommandResult.watch_diff.safeParse({ files: [] }).success).toBe(false);
+    expect(CommandResult.set_model.parse({})).toStrictEqual({});
+    expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
@@ -560,9 +752,53 @@ const snapshot: IndexSnapshotEvent = {
     container: WORKSPACE,
     tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, chats: { open: [], active: null } },
   },
-  preferences: { appearance: "system", displayMode: "summary" },
+  preferences: {
+    appearance: "system",
+    displayMode: "summary",
+    lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
+    thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
+  },
   resets: ["layouts"],
 };
+
+describe("HostMessage: changes", () => {
+  it.each([
+    ["a negative count", { ...changesUpdated, stat: { added: -1, removed: 0 } }],
+    ["the chats as a workspace", { ...changesUpdated, workspaceId: "chats" }],
+    ["an unknown error", { ...diffUpdated, error: "denied" }],
+    ["an unknown file status", { ...diffUpdated, files: [{ ...diffUpdated.files[1], status: "copied" }] }],
+    [
+      "an unknown line kind",
+      {
+        ...diffUpdated,
+        files: [
+          {
+            ...diffUpdated.files[0],
+            hunks: [
+              { ...diffUpdated.files[0]?.hunks[0], lines: [{ kind: "same", oldNumber: 1, newNumber: 1, text: "" }] },
+            ],
+          },
+        ],
+      },
+    ],
+    [
+      "a line numbered 0",
+      {
+        ...diffUpdated,
+        files: [
+          {
+            ...diffUpdated.files[0],
+            hunks: [
+              { ...diffUpdated.files[0]?.hunks[0], lines: [{ kind: "add", oldNumber: null, newNumber: 0, text: "" }] },
+            ],
+          },
+        ],
+      },
+    ],
+  ])("rejects changes with %s", (_case, message) => {
+    expect(HostMessage.safeParse(message).success).toBe(false);
+  });
+});
 
 describe("HostMessage", () => {
   it("accepts the welcome, both kinds of response and every session event", () => {
@@ -585,6 +821,12 @@ describe("HostMessage", () => {
       },
       ...events,
       snapshot,
+      changesUpdated,
+      { ...changesUpdated, stat: null, dirty: false, ahead: 0, branch: null, base: null },
+      diffUpdated,
+      { ...diffUpdated, mode: "base", files: [], tooLarge: true, error: null },
+      { ...diffUpdated, files: [], error: "not_git" },
+      { ...diffUpdated, files: [], error: "failed" },
     ];
 
     for (const message of messages) {
@@ -611,6 +853,12 @@ describe("HostMessage", () => {
         preferences: { ...snapshot.preferences, displayMode },
       })),
       { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "sessions", "preferences"] },
+      { ...snapshot, preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {} } },
+      ...ThinkingLevel.options.map((thinkingLevel) => ({
+        type: "model_updated",
+        ...at,
+        model: { providerId: "faux", modelId: "faux-1", thinkingLevel },
+      })),
       { ...snapshot, workspaces: [local] },
       ...ErrorCode.options.map((code) => ({ type: "response", requestId: "r1", ok: false, error: { code } })),
       ...["running", "done", "stopped", "failed"].map((outcome) => ({ ...events[2], turn: { ...turn, outcome } })),
@@ -655,9 +903,14 @@ describe("HostMessage", () => {
       "session_stopping",
       "queue_item_not_found",
       "interaction_closed",
+      "models_unavailable",
+      "fd_missing",
+      "attachment_limit",
+      "attachment_missing",
       "pi_rejected",
       "internal_error",
     ]);
+    expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
     for (const variant of variants) expect(HostMessage.parse(variant)).toStrictEqual(variant);
   });
 

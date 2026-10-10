@@ -96,12 +96,15 @@ function lastAssistant(records: readonly PiRecord[]): Readonly<Record<string, un
 
 const settled = (record: PiRecord): boolean => record.type === "agent_settled";
 
-/** Runs one prompt to the end and returns what pi printed, with timestamps and the directory blanked. */
+/** Keys whose numbers differ from run to run: times, and how long a tool took (from pi 1.1.0). */
+const VARYING: ReadonlySet<string> = new Set(["timestamp", "durationMs", "wall_time_seconds"]);
+
+/** Runs one prompt to the end and returns what pi printed, with times, durations and the directory blanked. */
 async function normalizedRun(script: FauxScript): Promise<string> {
   const pi = await startPi(script);
   pi.send({ id: "r1", type: "prompt", message: "go" });
   await pi.until(settled);
-  const json = JSON.stringify(pi.records, (key, value: unknown) => (key === "timestamp" ? 0 : value));
+  const json = JSON.stringify(pi.records, (key, value: unknown) => (VARYING.has(key) ? 0 : value));
   return json.replaceAll(pi.dir, "<dir>");
 }
 
@@ -194,7 +197,7 @@ describe("faux model in a real pi process", () => {
     expect(await readdir(pi.dir)).not.toContain(".pi");
   });
 
-  it("prints the same records on every run apart from timestamps and the working directory", async () => {
+  it("prints the same records on every run apart from times, durations and the working directory", async () => {
     const script: FauxScript = {
       replies: [
         {

@@ -67,6 +67,7 @@ describe("loadingView", () => {
       run: null,
       pending: [],
       control: IDLE_CONTROL,
+      model: null,
     });
   });
 });
@@ -98,6 +99,7 @@ describe("applySessionEvent", () => {
       run: { runId: "r", startedAt: 1 },
       exited: false,
       control: { ...IDLE_CONTROL, paused: "stopped" },
+      model: { providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" },
     });
 
     expect(before).toBe(loading);
@@ -111,6 +113,7 @@ describe("applySessionEvent", () => {
       run: { runId: "r", startedAt: 1 },
       pending: [{ clientMessageId: "q2", text: "b" }],
       control: { ...IDLE_CONTROL, paused: "stopped" },
+      model: { providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" },
     });
   });
 
@@ -295,6 +298,7 @@ describe("applySessionEvent", () => {
         run: null,
         exited: true,
         control: IDLE_CONTROL,
+        model: null,
       }),
     ).toStrictEqual({ ...view, status: "exited", epoch: 2, seq: 0, items: [turn("new")], hasOlder: true });
   });
@@ -306,7 +310,7 @@ describe("applySessionEvent", () => {
         { clientMessageId: "q2", text: "b" },
       ],
     });
-    const control = { ...IDLE_CONTROL, queue: [{ id: "i1", text: "later", createdAt: 5 }], stopping: true };
+    const control = { ...IDLE_CONTROL, queue: [{ id: "i1", text: "later", createdAt: 5, images: 0 }], stopping: true };
 
     expect(
       applyAll(view, [
@@ -314,6 +318,23 @@ describe("applySessionEvent", () => {
         { type: "prompt_handled", ...envelope, seq: 5, clientMessageId: "q1" },
       ]),
     ).toStrictEqual({ ...view, seq: 5, control, pending: [{ clientMessageId: "q2", text: "b" }] });
+  });
+});
+
+describe("applySessionEvent following the model", () => {
+  it("takes the model whole from model_updated", () => {
+    const haiku = { providerId: "anthropic", modelId: "haiku", thinkingLevel: "low" } as const;
+    const view = ready(3, { model: haiku });
+
+    expect(
+      applyAll(view, [
+        { type: "model_updated", ...envelope, seq: 4, model: { ...haiku, thinkingLevel: "off" } },
+        { type: "model_updated", ...envelope, seq: 5, model: null },
+      ]),
+    ).toStrictEqual({ ...view, seq: 5, model: null });
+    expect(
+      applyAll(view, [{ type: "model_updated", ...envelope, seq: 4, model: { ...haiku, thinkingLevel: "off" } }]).model,
+    ).toStrictEqual({ ...haiku, thinkingLevel: "off" });
   });
 });
 

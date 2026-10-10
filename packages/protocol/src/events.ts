@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Control } from "./control";
 import { SessionId } from "./ids";
+import { SessionModel } from "./models";
 import { Notice, Step, TranscriptItem, Turn } from "./transcript";
 
 /** A trace id: 32 lowercase hex characters. */
@@ -45,6 +46,8 @@ export const SessionSnapshotEvent = z.strictObject({
   exited: z.boolean(),
   /** The queue, steers, stop, interactions and failure (SPEC-0001, "运行控制"). */
   control: Control,
+  /** The model and thinking level pi uses; `null` before pi has started. */
+  model: SessionModel.nullable(),
 });
 export type SessionSnapshotEvent = z.infer<typeof SessionSnapshotEvent>;
 
@@ -137,6 +140,14 @@ export const PromptHandledEvent = z.strictObject({
 });
 export type PromptHandledEvent = z.infer<typeof PromptHandledEvent>;
 
+/** The session's model or thinking level changed (SPEC-0001, "模型与输入框"). */
+export const ModelUpdatedEvent = z.strictObject({
+  type: z.literal("model_updated"),
+  ...sessionEventFields,
+  model: SessionModel.nullable(),
+});
+export type ModelUpdatedEvent = z.infer<typeof ModelUpdatedEvent>;
+
 /** The session's pi process ended. */
 export const SessionExitedEvent = z.strictObject({
   type: z.literal("session_exited"),
@@ -162,5 +173,6 @@ export const SessionEvent = z.discriminatedUnion("type", [
   SessionExitedEvent,
   ControlUpdatedEvent,
   PromptHandledEvent,
+  ModelUpdatedEvent,
 ]);
 export type SessionEvent = z.infer<typeof SessionEvent>;
