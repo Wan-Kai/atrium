@@ -162,6 +162,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     traceId: "t",
     hostVersion: "0",
     hostInstanceId: "h1",
+    installSeed: 1,
+    logDir: "/Users/test/.atrium/logs",
   }));
   let created = 0;
   let uploaded = 0;

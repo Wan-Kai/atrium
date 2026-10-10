@@ -48,6 +48,10 @@ export interface WsServerOptions {
   readonly hostInstanceId: string;
   /** How often clients ping and how long they wait for the answer; also the host's ping interval. */
   readonly heartbeatMs: number;
+  /** The seed of this install's dot pattern, sent in the welcome. */
+  readonly installSeed: number;
+  /** The folder of the host's logs, sent in the welcome. */
+  readonly logDir: string;
   /** Bytes that may wait to be sent to one client before it is dropped as too slow. */
   readonly maxBufferedBytes: number;
   /** Where connections register to receive session events. */
@@ -376,6 +380,8 @@ function handleHello(
       hostVersion: options.hostVersion,
       hostInstanceId: options.hostInstanceId,
       heartbeatMs: options.heartbeatMs,
+      installSeed: options.installSeed,
+      logDir: options.logDir,
     };
     ws.send(JSON.stringify(welcome));
     options.logger.info({ client_id: hello.data.clientId }, "client connected");

@@ -18,6 +18,7 @@ import { createChangesService } from "./changes/changes-service";
 import { createCheckoutReader } from "./changes/checkout";
 import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
+import { readInstallSeed } from "./platform/install-id";
 import { createPiDeps } from "./platform/pi-deps";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
@@ -148,7 +149,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const hostInstanceId = randomBytes(8).toString("hex");
   // Detection starts once the server listens; commands can only arrive after that.
   const toolbox = createToolbox(detectTools);
-  const index = await loadIndex(home.root, clock.now(), logger).catch(async (error: unknown) => {
+  const [index, installSeed] = await Promise.all([
+    loadIndex(home.root, clock.now(), logger),
+    readInstallSeed(home.root, randomUUID),
+  ]).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
     await tracing.shutdown();
     await closeLogFile(destination);
@@ -329,6 +333,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       hostVersion: packageJson.version,
       hostInstanceId,
       heartbeatMs: HEARTBEAT_MS,
+      installSeed,
+      logDir: home.logs,
       maxBufferedBytes: MAX_BUFFERED_BYTES,
       subscriptions,
       sessions,

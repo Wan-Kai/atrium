@@ -925,6 +925,8 @@ describe("HostMessage", () => {
         hostVersion: "0.0.0",
         hostInstanceId: "h1",
         heartbeatMs: 15_000,
+        installSeed: 1,
+        logDir: "/Users/test/.atrium/logs",
       },
       { type: "response", requestId: "r2", ok: true, result: { sessionId: "s1" } },
       { type: "response", requestId: "r1", ok: true },
@@ -1127,7 +1129,33 @@ describe("HostMessage", () => {
     ],
     ["a fractional step count", { type: "metrics_updated", ...at, metrics: { ...metrics, steps: 1.5 } }],
     ["a negative cost", { type: "metrics_updated", ...at, metrics: { ...metrics, cost: -0.01 } }],
-    ["a welcome without heartbeat", { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1" }],
+    [
+      "a welcome without heartbeat",
+      { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1", installSeed: 1, logDir: "/l" },
+    ],
+    [
+      "a welcome with a seed of 0",
+      {
+        type: "welcome",
+        protocolVersion: 2,
+        hostVersion: "0",
+        hostInstanceId: "h1",
+        heartbeatMs: 15_000,
+        installSeed: 0,
+        logDir: "/l",
+      },
+    ],
+    [
+      "a welcome without the log folder",
+      {
+        type: "welcome",
+        protocolVersion: 2,
+        hostVersion: "0",
+        hostInstanceId: "h1",
+        heartbeatMs: 15_000,
+        installSeed: 1,
+      },
+    ],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);
   });

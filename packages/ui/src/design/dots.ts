@@ -1,3 +1,5 @@
+import { createContext } from "react";
+
 /**
  * The rounded square dots that are Atrium's mark (design-language, "点阵"): 3.6 px dots, 1 px
  * corners, 6 px apart, their shade from two layers of smooth noise seeded per install.
@@ -34,33 +36,15 @@ export interface DotFrame {
   readonly variant: "chip" | "box";
 }
 
-/** Reads and writes the seed. */
-export interface SeedStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
-
-const SEED_KEY = "atrium-dot-seed";
-
 /**
- * The seed of this install's dot pattern, made once.
+ * The seed of this install's dot pattern, given by the workbench from the host's welcome.
  *
  * @remarks
- * The pattern differs from person to person and stays the same for each (design-language,
- * "点阵"). Kept in the page's storage until M1.10 moves it to the install id in `~/.atrium/`
- * (roadmap, M1.10).
- *
- * @sideEffects Writes a new seed to `storage` the first time.
- * @param storage - Where the seed is kept.
- * @returns The seed, a positive integer.
+ * The pattern differs from install to install and stays the same for each (design-language,
+ * "点阵"); the host makes the seed from the install id in `~/.atrium` (SPEC-0001, "首次启动 · 接口").
+ * Outside a workbench, as in a component's own tests, it is 1.
  */
-export function dotSeed(storage: SeedStorage = localStorage): number {
-  const kept = Number(storage.getItem(SEED_KEY));
-  if (Number.isInteger(kept) && kept > 0) return kept;
-  const seed = Math.floor(Math.random() * 1e9) + 1;
-  storage.setItem(SEED_KEY, String(seed));
-  return seed;
-}
+export const DotSeedContext = createContext(1);
 
 /**
  * Whether the user asked for less motion.

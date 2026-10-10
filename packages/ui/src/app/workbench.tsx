@@ -6,6 +6,8 @@ import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
 import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-area";
 import { applyAppearance } from "../design/appearance";
+import { DotSeedContext } from "../design/dots";
+import { useInstallSeed } from "../state/install-seed";
 import { Sidebar } from "../sidebar/sidebar";
 import { TabBar } from "../tabs/tab-bar";
 
@@ -198,6 +200,7 @@ export function Workbench({
   const container = index.layout.container;
   const sessionId = activeSession(index);
   const appearance = index.preferences.appearance;
+  const seed = useInstallSeed(client.connection);
   const [dismissed, setDismissed] = useState<string | null>(null);
   useDisplayModeShortcut();
   useDraftCleanup(index);
@@ -229,35 +232,37 @@ export function Workbench({
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
-    <div className="flex h-full">
-      <Sidebar client={client} onNewChat={() => fireAndForget(client.createChat())} pickDirectory={pickDirectory} />
-      <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
-        {container === null ? (
-          <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
-        ) : (
-          <TabBar client={client} containerId={container} onNew={() => fireAndForget(createHere(client))} />
-        )}
-        {resets.length > 0 ? (
-          <div
-            role="status"
-            className="mx-auto mt-3 flex w-full max-w-[720px] items-center gap-2 px-6 text-[length:var(--fs-meta)] text-[var(--attn-text)]"
-          >
-            <span className="flex-1">
-              {resets.map((name) => FILE_NAMES[name]).join("、")}的文件损坏了，已经重置；原文件留在 ~/.atrium 里
-            </span>
-            <button type="button" aria-label="知道了" onClick={() => setDismissed(index.generation)}>
-              <X size={12} />
-            </button>
-          </div>
-        ) : null}
-        <ConversationArea
-          client={client}
-          containerId={container}
-          sessionId={sessionId}
-          create={() => createHere(client)}
-        />
-        <footer className="flex h-6 shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
-      </main>
-    </div>
+    <DotSeedContext value={seed}>
+      <div className="flex h-full">
+        <Sidebar client={client} onNewChat={() => fireAndForget(client.createChat())} pickDirectory={pickDirectory} />
+        <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
+          {container === null ? (
+            <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
+          ) : (
+            <TabBar client={client} containerId={container} onNew={() => fireAndForget(createHere(client))} />
+          )}
+          {resets.length > 0 ? (
+            <div
+              role="status"
+              className="mx-auto mt-3 flex w-full max-w-[720px] items-center gap-2 px-6 text-[length:var(--fs-meta)] text-[var(--attn-text)]"
+            >
+              <span className="flex-1">
+                {resets.map((name) => FILE_NAMES[name]).join("、")}的文件损坏了，已经重置；原文件留在 ~/.atrium 里
+              </span>
+              <button type="button" aria-label="知道了" onClick={() => setDismissed(index.generation)}>
+                <X size={12} />
+              </button>
+            </div>
+          ) : null}
+          <ConversationArea
+            client={client}
+            containerId={container}
+            sessionId={sessionId}
+            create={() => createHere(client)}
+          />
+          <footer className="flex h-6 shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
+        </main>
+      </div>
+    </DotSeedContext>
   );
 }

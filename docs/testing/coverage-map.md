@@ -196,7 +196,7 @@
 | 客户端：快照和 `model_updated` 的模型；容器的模型列表（加载中保留旧列表、失败带错误）；换模型和推理强度先在视图里生效，被拒绝时放回、宿主报告过的不动 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` "models" | 已覆盖 |
 | 测试工具：faux 可加模型（名字、推理、图片、档位表）；脚本化的 pi 可把收到的命令写到 stderr；faux 的确定性测试把工具耗时规范化 | `packages/testkit/src/faux/faux.pi.test.ts`（修了 pi 1.1.0 的 `durationMs` 让它时有时无失败的问题） | 已覆盖 |
 | 界面：模型按钮（服务商图标、模型名、档位字、拉满时发光，没有模型时"选择模型"）；面板（按服务商分组、基础数据、当前模型打勾、点选即关、刷新、加载中保留旧列表、失败可展开原始报错并重试、没有可用模型的提示）；推理强度框（档位名、"3 / 4"、说明、每档 56px、拖动吸附、点格子跳档、方向键、到头不动、外部改档跟随、聚焦）；⌘⇧I / ⌘⇧E；停止中不能用；空状态显示上一次的模型、选模型时先建会话；被拒绝时说明原因 | `packages/ui/src/chat/model-picker.browser.test.tsx`、`effort-box.browser.test.tsx`、`chat.browser.test.tsx` "model button"；逻辑：`model-choice.test.ts` | 已覆盖 |
-| 点阵：覆盖度、档位越高越密、拉满变彩色、同种子同图案、扫光、深浅色、扫光节奏、种子只生成一次 | `packages/ui/src/design/dots.browser.test.ts` | 已覆盖 |
+| 点阵：覆盖度、档位越高越密、拉满变彩色、同种子同图案、扫光、深浅色、扫光节奏 | `packages/ui/src/design/dots.browser.test.ts` | 已覆盖 |
 | 协议：`list_commands`、`search_files` 及其应答，`fd_missing` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | `/` 命令：pi 契约（1.1.0：extension 命令、pi 自带的 `/llama` `/mcp`、模板、skill 的顺序；模板发出时展开；插话不收 extension 命令）；映射；控制器和会话管理器（草稿先启动 pi）；路由；客户端 | `packages/pi/src/contract/commands.pi.test.ts`、`catalog/commands.test.ts`、`session-controller.test.ts` "commands"、`session-manager.test.ts` "commands"、`router.test.ts`、`atrium-client.test.ts` | 已覆盖 |
 | `@` 文件：找 fd（pi 的目录优先、`PI_CODING_AGENT_DIR`、PATH 上 fd 再 fdfind、跳过不能运行的）；打分、排序、子目录范围、不出工作目录、fd 参数（字面匹配）、解析输出；真实 fd（先一层再递归、隐藏文件、`.ignore`、不含 `.git`、特殊字符、取消和 5 秒期限时停掉 fd）；同一会话的新查询取消旧的；没有 fd 时 `fd_missing` | `packages/pi/src/locate/fd.test.ts`、`packages/host/src/files/fd-query.test.ts`、`file-search.host.test.ts`、`session-manager.test.ts` "file search" | 已覆盖 |
@@ -262,6 +262,7 @@
 | 宿主的登录状态（Logins）：列出能 OAuth 或能存 Key 的服务商，隐藏 `openai-codex` 和 `radius`，按钮文字没有时用 OAuth 名称；没有登录程序、没检测到工具、pi 或 Node 不可用、pi 不是能加载的包时不可用；查询失败时不可用，日志只记原因不记 pi 原文；关闭时中止进行中的查询并等程序退出 | `packages/host/src/setup/logins.test.ts` | 已覆盖 |
 | 首次启动的检查（`check_setup`）：pi 就绪、损坏（带原文）、版本过低、缺失，Node 就绪、过低、缺失，Homebrew、fd 有无，登录状态和项目数；`refresh` 时重新读登录 shell、找到期间装好的 pi，不带时沿用上次的结果；检测失败时都算缺失；协议校验命令和结果，客户端发出 | `packages/host/src/setup/setup-service.test.ts`、`packages/host/src/setup.host.test.ts`、`packages/host/src/server/router.test.ts`、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts` "first launch" | 已覆盖 |
 | 偏好里的 `setupDone`、`titleModel`：默认首次启动未完成、跟随会话的模型，M1.10 之前的文件读作这样；`set_preferences` 改它们（`titleModel` 可设回 `null`），写进文件；协议校验 | `packages/host/src/store/preferences.test.ts`、`packages/host/src/server/router.test.ts`、`packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 安装 ID 与点阵种子：第一次启动生成 `~/.atrium/install-id`（权限 600），之后沿用，内容不是 UUID 时重新生成；种子为正整数；握手的 `welcome` 带种子和日志文件夹，协议拒绝种子为 0、缺日志文件夹的；客户端连接状态带上；界面在连上前用 1、重连期间沿用，换种子时模型按钮和推理强度框的点阵跟着换 | `packages/host/src/platform/install-id.test.ts`、`packages/host/src/server/ws-server.host.test.ts` "welcomes"、`packages/protocol/src/envelope.test.ts`、`packages/client/src/atrium-client.test.ts`、`packages/ui/src/state/install-seed.browser.test.tsx`、`packages/ui/src/app/workbench.browser.test.tsx` "Workbench dots"、`packages/ui/src/chat/effort-box.browser.test.tsx` | 已覆盖 |
 
 ## 安全（security.md）
 

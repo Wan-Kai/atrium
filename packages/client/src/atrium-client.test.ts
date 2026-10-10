@@ -14,6 +14,8 @@ function welcome(hostVersion = "0.1.0", hostInstanceId = "h1"): string {
     hostVersion,
     hostInstanceId,
     heartbeatMs: 15_000,
+    installSeed: 4242,
+    logDir: "/Users/test/.atrium/logs",
   });
 }
 
@@ -153,6 +155,8 @@ describe("createAtriumClient: the connection", () => {
       traceId: trace.traceId,
       hostVersion: "0.1.0",
       hostInstanceId: "h7",
+      installSeed: 4242,
+      logDir: "/Users/test/.atrium/logs",
     });
   });
 

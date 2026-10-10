@@ -9,7 +9,17 @@ describe("ConnectionStatus", () => {
     [{ status: "bootstrap-failed" }, "无法从桌面应用取得连接信息，请重启 Atrium"],
     [{ status: "idle" }, "尚未连接"],
     [{ status: "connecting", traceId: "t" }, "正在连接宿主…"],
-    [{ status: "connected", traceId: "t", hostVersion: "0.1.0", hostInstanceId: "h1" }, "已连接宿主 0.1.0"],
+    [
+      {
+        status: "connected",
+        traceId: "t",
+        hostVersion: "0.1.0",
+        hostInstanceId: "h1",
+        installSeed: 1,
+        logDir: "/l",
+      },
+      "已连接宿主 0.1.0",
+    ],
     [{ status: "rejected", reason: "unauthorized" }, "宿主拒绝了连接：凭证不对"],
     [{ status: "rejected", reason: "version-mismatch" }, "宿主和界面的版本不一致，请重启 Atrium"],
     [{ status: "rejected", reason: "bad-handshake" }, "宿主拒绝了连接：握手消息无效"],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type DotFrame, dotSeed, paintDots, sweepProgress } from "./dots";
+import { type DotFrame, paintDots, sweepProgress } from "./dots";
 
 const WIDTH = 120;
 const HEIGHT = 32;
@@ -61,18 +61,6 @@ function firstRed(pixels: Uint8ClampedArray): number | undefined {
   return undefined;
 }
 
-/** Storage in memory, and the map behind it. */
-function memoryStorage() {
-  const store = new Map<string, string>();
-  return {
-    store,
-    storage: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => void store.set(key, value),
-    },
-  };
-}
-
 describe("paintDots", () => {
   it("paints nothing at no coverage", () => {
     expect(inkBetween(paint({ coverage: 0 }), 0, WIDTH)).toBe(0);
@@ -122,19 +110,5 @@ describe("sweepProgress", () => {
     expect(sweepProgress(200 + 225, 200)).toBe(0.125);
     expect(sweepProgress(200 + 900, 200)).toBeNull();
     expect(sweepProgress(200 + 3600 + 450, 200)).toBe(0.5);
-  });
-});
-
-describe("dotSeed", () => {
-  it("keeps one seed per install, made once", () => {
-    const { store, storage } = memoryStorage();
-
-    const seed = dotSeed(storage);
-
-    expect(seed).toBeGreaterThan(0);
-    expect(dotSeed(storage)).toBe(seed);
-    expect(store.get("atrium-dot-seed")).toBe(String(seed));
-    store.set("atrium-dot-seed", "42");
-    expect(dotSeed(storage)).toBe(42);
   });
 });

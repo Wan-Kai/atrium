@@ -32,6 +32,8 @@ function answeringSocket() {
             hostVersion: "0",
             hostInstanceId: "h",
             heartbeatMs: 15_000,
+            installSeed: 1,
+            logDir: "/l",
           }),
         } as never),
       ),

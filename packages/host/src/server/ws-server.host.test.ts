@@ -3,6 +3,7 @@ import { CloseCode, PROTOCOL_VERSION } from "@atrium/protocol";
 import { FakeClock, GIT_SCENE_ENV, createGitScene, createTempDir, present } from "@atrium/testkit";
 import { chmod, mkdir, readFile, readdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi, onTestFinished } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../../test/harness";
@@ -35,17 +36,27 @@ function openRaw(url: string, options: { origin?: string; autoPong?: boolean } =
   return { socket, ended, opened, messages };
 }
 
-/** Starts a host, says hello over a raw socket and returns the parsed welcome. */
-async function welcomeOf(): Promise<unknown> {
+/**
+ * Starts a host, says hello over a raw socket and returns the parsed welcome.
+ *
+ * @remarks
+ * Also returns the host's log folder and the install id it made, read before the host's home goes.
+ *
+ * @sideEffects Starts and stops a host.
+ * @returns The welcome, the log folder and the install id.
+ */
+async function welcomeOf(): Promise<{ welcome: unknown; logDir: string; installId: string }> {
   testHost = await startTestHost();
   const { socket, opened, messages } = openRaw(testHost.url);
   await opened;
   socket.send(hello({ token: testHost.token }));
   await vi.waitFor(() => expect(messages).toHaveLength(1));
   socket.close();
+  const logDir = dirname(testHost.host.logFile);
+  const installId = (await readFile(join(dirname(logDir), "install-id"), "utf8")).trim();
   await testHost.dispose();
   testHost = undefined;
-  return JSON.parse(present(messages[0], "welcome"));
+  return { welcome: JSON.parse(present(messages[0], "welcome")), logDir, installId };
 }
 
 /** Writes a small UI build with one file per served content type. */
@@ -136,6 +147,8 @@ describe("host connection handshake", () => {
       traceId: trace.traceId,
       hostVersion: "0.0.0",
       hostInstanceId: expect.stringMatching(/^[0-9a-f]{16}$/),
+      installSeed: expect.any(Number),
+      logDir: dirname(testHost.host.logFile),
     });
     connection.disconnect();
     await vi.waitFor(() => expect(testHost?.host.resources.snapshot()["ws.connection"]).toBe(0));
@@ -416,21 +429,23 @@ describe("host connection handshake", () => {
     expect(testHost.host.resources.snapshot()).toMatchObject({ timer: 3, "ws.connection": 1 });
   });
 
-  it("welcomes with the heartbeat and an instance id that is new on every host start", async () => {
+  it("welcomes with the heartbeat, an instance id new on every host start, the install's seed and the log folder", async () => {
     const first = await welcomeOf();
     const second = await welcomeOf();
 
-    const shape = {
-      type: "welcome",
-      protocolVersion: PROTOCOL_VERSION,
-      hostVersion: "0.0.0",
-      hostInstanceId: expect.stringMatching(/^[0-9a-f]{16}$/),
-      heartbeatMs: 15_000,
-    };
-    expect(first).toStrictEqual(shape);
-    expect(second).toStrictEqual(shape);
-    expect((first as { hostInstanceId: string }).hostInstanceId).not.toBe(
-      (second as { hostInstanceId: string }).hostInstanceId,
+    for (const { welcome, logDir, installId } of [first, second]) {
+      expect(welcome).toStrictEqual({
+        type: "welcome",
+        protocolVersion: PROTOCOL_VERSION,
+        hostVersion: "0.0.0",
+        hostInstanceId: expect.stringMatching(/^[0-9a-f]{16}$/),
+        heartbeatMs: 15_000,
+        installSeed: Number.parseInt(installId.slice(0, 7), 16) + 1,
+        logDir,
+      });
+    }
+    expect((first.welcome as { hostInstanceId: string }).hostInstanceId).not.toBe(
+      (second.welcome as { hostInstanceId: string }).hostInstanceId,
     );
   });
 
@@ -542,7 +557,7 @@ describe("host lifecycle", () => {
     await expect(started).rejects.toThrow(/EADDRINUSE/);
     const log = await readFile(`${home.path}/logs/current.log`, "utf8");
     expect(log).toContain('"msg":"host failed to start"');
-    expect(await readdir(home.path)).toStrictEqual(["logs"]);
+    expect(await readdir(home.path)).toStrictEqual(["install-id", "logs"]);
   });
 
   it("refuses to start on a home another live host is using, and starts once that host has closed", async () => {
@@ -559,7 +574,7 @@ describe("host lifecycle", () => {
     await first.close();
     const third = await startHost({ home: home.path, token, toolEnv: { PATH: "" } });
     await third.close();
-    expect(await readdir(home.path)).toStrictEqual(["logs"]);
+    expect(await readdir(home.path)).toStrictEqual(["install-id", "logs"]);
   });
 
   it("closes promptly while a client has paused in the middle of a download", async () => {

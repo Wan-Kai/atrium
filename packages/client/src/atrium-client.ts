@@ -46,6 +46,10 @@ export type ConnectionState =
       readonly hostVersion: string;
       /** Changes when the host restarts. */
       readonly hostInstanceId: string;
+      /** The seed of this install's dot pattern. */
+      readonly installSeed: number;
+      /** The folder of the host's logs. */
+      readonly logDir: string;
     }
   /** The connection dropped; another attempt is scheduled. */
   | { readonly status: "reconnecting"; readonly attempt: number; readonly code: number }
@@ -774,11 +778,14 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (parsed.data.type !== "welcome") return;
         live = current;
         attempt = 0;
-        const { hostVersion, hostInstanceId, heartbeatMs } = parsed.data;
+        const { hostVersion, hostInstanceId, heartbeatMs, installSeed, logDir } = parsed.data;
         if (hostInstance !== undefined && hostInstance !== hostInstanceId) loseSessions();
         hostInstance = hostInstanceId;
         // Stryker disable next-line BooleanLiteral: "connected" has every key "connecting" has, so merging equals replacing.
-        connection.setState({ status: "connected", traceId: trace.traceId, hostVersion, hostInstanceId }, true);
+        connection.setState(
+          { status: "connected", traceId: trace.traceId, hostVersion, hostInstanceId, installSeed, logDir },
+          true,
+        );
         beat(current, heartbeatMs);
         // Each connection subscribes anew, from where the list was; the host answers at once.
         const cursor = cursorOf(index.getState());
