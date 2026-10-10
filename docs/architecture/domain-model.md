@@ -317,16 +317,24 @@ classDiagram
     }
     class LiveTiming {
       <<宿主观测>>
-      ttft?
+      ttftAverage?
       lastTps?
-      modelTime?
+      modelTime
     }
     class PiStats {
       <<来自 pi>>
-      branchUsage
+      turns
+      steps
       fileUsage
       cost
-      contextTokens?
+      contextUsage?
+    }
+    class EntryUsage {
+      <<宿主从条目算>>
+      branchUsage
+      reasoning?
+      systemTokens?
+      toolTokens?
     }
 
     SessionManager "1" *-- "0..*" SessionController
@@ -340,6 +348,7 @@ classDiagram
     SessionRuntime "1" *-- "1" SessionLog
     SessionRuntime "1" *-- "1" LiveTiming
     SessionRuntime "1" *-- "1" PiStats
+    SessionRuntime "1" *-- "1" EntryUsage
     SessionRuntime "1" o-- "0..1" Attention
 ```
 
@@ -385,7 +394,8 @@ classDiagram
 
 - **PiStats** 来自 `get_session_stats`，统计的是整个会话文件（含其他分支和压缩消耗），与当前分支上各轮相加不等；上下文用量可能为空或是估算。界面上区分"本会话累计"和"当前分支"，未知值显示"—"。
 - **LiveTiming** 是宿主当场测的（TTFT、输出速度、模型用时），宿主存活期间保留，重启后显示"—"。从历史时间戳推算的每轮用时是近似值。
-- 状态栏的"步"只数工具调用。
+- **EntryUsage** 是宿主从条目算的：当前分支的用量、推理 token（pi 的统计没有）、上下文里系统提示词和工具定义的估算（SPEC-0001"状态栏（M1.8）"）。
+- 状态栏的"轮""步"按整个会话文件数，照 pi 的 `userMessages`、`toolCalls`（插话也算一轮）；"步"只数工具调用（2026-10-10 定）。
 
 ## 4. 状态的派生
 

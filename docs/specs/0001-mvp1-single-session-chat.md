@@ -369,14 +369,14 @@ Electron 主进程
 
 | 分组 | 默认 | 摘要 | 详情卡片 | 数据来源 |
 |---|---|---|---|---|
-| 会话统计 | 显示 | "N 轮 N 步 · 48 tok/s" | 模型用时、首 token 平均（TTFT）、输出速度（TPS） | 宿主计时：模型用时累计每次请求从发出到 `message_end`；TTFT 是发出请求到第一个增量；TPS 是最近一次回复的输出 token ÷ 流式输出时长 |
-| Token 用量 | 显示 | "1.3M tok · 缓存命中 73%" | 总量；缓存命中、未缓存输入、缓存读取、缓存写入、输出（其中推理） | `get_session_stats` 的 `tokens`：统计的是整个会话文件，含其他分支和压缩消耗，详情卡片标明"本会话累计"；当前分支各轮之和另算。每条助手消息的 `usage`。缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`） |
+| 会话统计 | 显示 | "N 轮 N 步 · 48 tok/s" | 模型用时、首 token 平均（TTFT）、输出速度（TPS） | 轮、步：`get_session_stats` 的 `userMessages`、`toolCalls`，按整个会话文件数（2026-10-10 定）。宿主计时：模型用时累计每次请求从发出到 `message_end`；TTFT 是发出请求到第一个增量；TPS 是最近一次回复的输出 token ÷ 流式输出时长（细节见"状态栏（M1.8）"） |
+| Token 用量 | 显示 | "1.3M tok · 缓存命中 73%" | 总量；缓存命中、未缓存输入、缓存读取、缓存写入、输出（其中推理，只有服务商报告时才有） | `get_session_stats` 的 `tokens`：统计的是整个会话文件，含其他分支和压缩消耗，详情卡片标明"本会话累计"；当前分支各轮之和另算。每条助手消息的 `usage`。缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`） |
 | 上下文 | 显示 | 圆环 + "42%" | "上下文已用 42% · ~84K / 200K"；分段彩色条与图例：系统提示词、工具定义、对话消息 | 见下文"上下文分段"。超过 70% 变黄、超过 85% 变红；压缩后到下一次回复前显示"—" |
 | 费用 | 不显示 | "≈ $0.45" | 按 API 价格折算，订阅用户不实际付费 | `get_session_stats` 的 `cost` |
 
 - MVP 1 就支持配置显示哪些分组。唯一入口是状态栏末尾的调节按钮（平时半透明，悬停状态栏时变实），点开在上方弹出"状态栏"面板：每行是分组名称和一句说明、下面是这一项此刻的样子（关闭时变淡）、右边是开关；底部"恢复默认"。配置全局保存，对所有会话生效。
 - 分组做成注册表：每组包含 id、名称、摘要、详情卡片、是否默认显示。以后加指标：给某组的卡片加一行，或注册新的一组，不改状态栏本身。
-- "轮"是你发出的消息数，"步"是工具调用次数。
+- "轮"是你发出的消息数（插话也算），"步"是工具调用次数，都按整个会话文件数，和 pi 的统计一致：切过分支或插过话后，和对话区里看到的轮数不一定相同（2026-10-10 定）。
 - 订阅额度不在对话面板里显示。
 
 ### 首次启动
@@ -698,6 +698,42 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`、`watch_changes`、`watch_diff`。新增事件：`model_updated`、`changes_updated`、`diff_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
 
+### 状态栏（M1.8，2026-10-10 定）
+
+产品层面的规则见上文"对话区"的"状态栏"和"关键流程"的"上下文分段"，这里写宿主和协议怎么做。数据对照 pi 1.1.0 源码（pi-internals.md §2"统计"）。
+
+**会话的指标**
+
+- 会话快照新增 `metrics`，变化时推整份 `metrics_updated { sessionId, metrics }`。和 `changes_updated` 一样不带序号：整份最新状态，丢了一条下一条照样对。
+- `metrics` 各项都允许未知（`null`），界面显示"—"：
+  - `turns`、`steps`：`get_session_stats` 的 `userMessages`、`toolCalls`。
+  - `tokens`：`{ input, output, cacheRead, cacheWrite, reasoning, branch }`。前四项是 `get_session_stats` 的 `tokens`（整个会话文件，含其他分支和压缩消耗），卡片标"本会话累计"；总量是四项之和，缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`），分母为 0 时未知。`reasoning` 是会话文件里所有助手消息 `usage.reasoning` 之和（pi 的统计没有这一项；它已经算在 `output` 里），没有一条消息报告时为 `null`，卡片不显示"其中推理"。`branch` 是当前分支上助手消息 `usage` 四项之和，卡片另起一行"当前分支"。
+  - `cost`：`get_session_stats` 的 `cost`（美元，按 API 价格折算）。
+  - `context`：`{ tokens, window, system, tools }`。`tokens`、`window` 是 `get_session_stats` 的 `contextUsage.tokens`、`contextWindow`；pi 没给 `contextUsage` 时（没有模型、模型没有上下文窗口）整项为 `null`；压缩后到下一次回复前 `tokens` 为 `null`。`system`、`tools` 见下文"上下文分段"，还原不出来时为 `null`，卡片只显示总量。
+  - `timing`：`{ modelMs, ttftMs, tps }`，宿主存活期间这个会话一次请求都没测到时整项为 `null`（宿主重启后、刚打开的会话）。
+- **什么时候读**：会话的 pi 启动后、每条助手消息的 `message_end`、`compaction_end`、`agent_settled`、换模型或推理强度之后，宿主调一次 `get_session_stats`。同一会话同时只读一次，读的期间又要读时，读完再读一次。读失败只记日志（命令和原因），保留上一次的值；pi 退出后指标保留最后的值。`reasoning`、`branch` 和上下文分段在取条目之后重算，不问 pi。算出的 `metrics` 和上一次推的一样时不推。
+
+**宿主计时**
+
+- pi 没有"请求已发出"的事件：`message_start` 要等服务商的响应头回来才发。所以一次请求从 pi 的 `turn_start` 算起（pi 发出它之后接着准备并发出请求），其中的上下文压缩（`compaction_start` 到 `compaction_end`）不算。
+- TTFT：请求开始到这条助手消息的第一个增量（文字、推理或工具调用的参数）；卡片显示宿主存活期间这个会话所有请求的平均。没有增量就结束的请求（出错、被停止）不算进平均。
+- 模型用时：每次请求从开始到助手消息的 `message_end`，累加，出错和被停止的请求也算。
+- TPS：最近一次有输出的回复的 `usage.output` ÷（`message_end` − 第一个增量）；时长为 0 时不更新。
+- 计时只在宿主内存里，按会话存，宿主重启后为空。
+
+**上下文分段**
+
+- 宿主沿当前分支回放：从最近一条压缩条目的 `systemMessage`（完整的检查点）开始，没有压缩就从头；之后每条 `role: "system"` 的消息里，`content` 接在提示词后面，`sections` 按名字替换（值为 `null` 的删掉），`toolsAdded` / `toolsRemoved` 按工具名增删。和 pi-ai 的 `getCurrentSystemMessage` 一致，写在 `packages/pi` 里（运行时不依赖 pi 的包）。
+- 估算和 pi 的 `estimateTokens` 一致：系统提示词 = （`content` 加各个 `sections` 的字符数）÷ 4，工具定义 = 工具声明 JSON 的字符数 ÷ 4，向上取整。对话消息 = `tokens` − 系统提示词 − 工具定义，小于 0 时按 0。
+- 分支上没有系统消息（新会话第一次请求之前、pi 写系统消息之前的旧会话）时 `system`、`tools` 为 `null`。
+
+**显示哪些分组**
+
+- Preferences 新增 `statusBar`：`{ [分组 id]: boolean }`，只记你改过的；没记的按注册表里的默认。这样以后新加的分组照它自己的默认显示。`set_preferences` 多了 `statusBar`，整份替换；"恢复默认"发 `{}`。不认识的 id 原样保留（降级再升级不丢）。
+- 注册表在界面包里：每组 `{ id, name, description, defaultVisible, summary, detail }`，按注册顺序显示。摘要和卡片的写法照原型（`prototype/ui` 分支的 `app-prototype.html`）。
+
+新增事件：`metrics_updated`。`set_preferences` 多了 `statusBar`。会话快照多了 `metrics`。
+
 ### 命令与事件
 
 **命令（UI → 宿主）**
@@ -743,7 +779,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `install_output` / `install_finished` / `login_updated` | 安装、更新、登录的进度和结果 |
 | `model_updated` | 会话当前的模型和推理强度变化（M1.7，见上文"模型与输入框"） |
 | `session_renamed` | 会话标题变化（手动重命名或自动生成） |
-| `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知） |
+| `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知；M1.8，见上文"状态栏"） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |
 | `session_exited` | pi 进程退出，带原因 |
 | `response` | 每条命令的应答，带 `requestId`；成功带 `result`，失败带错误码（见上文"应答"） |

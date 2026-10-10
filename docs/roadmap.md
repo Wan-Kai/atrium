@@ -270,6 +270,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 状态栏注册表与四个分组（会话统计、Token 用量、上下文、费用）、悬停详情卡片、自定义入口（全局保存）。
   - `get_session_stats`、`metrics_updated`；上下文分段估算（系统提示词、工具定义、对话消息）。
   - 首 token 时间、输出速度、模型用时由宿主当场测得，宿主重启后显示"—"。
+  - 开工前已定（2026-10-10，见 SPEC-0001"状态栏（M1.8）"）：轮、步照 pi 的统计按整个会话文件数（插话也算一轮）；pi 没有"请求已发出"的事件，首 token 时间从 `turn_start` 算起；推理 token、当前分支用量和上下文分段由宿主从条目算；显示哪些分组只记改过的，新分组照自己的默认。
 - **参考**：[SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"状态栏"、关键流程的"上下文分段"、[domain-model](architecture/domain-model.md) §3 指标的范围、§5 Preferences、[pi-internals](research/pi-internals.md) §2 统计。
 - **完成标准**：对照 SPEC-0001 需求 9 逐条验证；数值与 pi 的 `get_session_stats` 一致。
 
