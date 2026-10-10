@@ -611,7 +611,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - `prompt(text)`：空闲（没有运行、没在压缩、没在停止）时直接发给 pi，应答 pi 的结果 `started` / `handled`；正在运行或压缩时加到排队末尾，应答 `queued` 和排队项的 `itemId`。排队暂停时（停止之后）空闲状态下发的新消息直接发出，排队保持暂停，由你点"继续发送"或清掉（2026-10-09 定）。
 - 出队：运行结束（`agent_settled`）、上一条被 `handled`、压缩结束（`compaction_end`）、换上新 pi 或"继续发送"后，宿主把排队的第一条作为 `prompt` 发给 pi，一次一条。出队和停止由会话控制器串行处理。出队的那条被 pi 拒绝时：pi 忙就放回最前、等下一次机会；pi 退出就放回最前、交给重启（重启后由排队发出，不再当作被打断的那条另发一次）；其他原因放回最前并暂停排队（`stopped`），后面的不会先发出去（2026-10-09 审查后补）。
-- `steer(text)`：有运行（已收到 `agent_start`）时调用 pi 的 `steer`，应答 `queued`（pi 已收下）或 `handled`；没有运行时（空闲、消息还在发送、单独的压缩中、重启中）等同 `prompt`，该排队就排队（2026-10-09 审查后补）。插话在发给 pi 之前就记进 `steers`，pi 的 `queue_update` 先到也能对上。pi 的 `steer` 在空闲时不会启动运行，消息只会留在 pi 的队列里（按 pi 1.0.2 源码核实），所以宿主必须把空闲时的插话改成普通发送。插话不接受 extension 的 `/` 命令，pi 会拒绝，应答 `pi_rejected`。
+- `steer(text)`：有运行（已收到 `agent_start`）时调用 pi 的 `steer`，应答 `queued`（pi 已收下）或 `handled`；没有运行时（空闲、消息还在发送、单独的压缩中、重启中）等同 `prompt`，该排队就排队（2026-10-09 审查后补）。插话在发给 pi 之前就记进 `steers`，pi 的 `queue_update` 先到也能对上。同一会话的插话逐条发给 pi，上一条应答后才发下一条：pi 并发处理命令，extension 的输入处理是异步的，同时发出的插话进队顺序可能和发出顺序不同。pi 队列里列的是展开后的文字（skill、提示词模板展开之后），和宿主发出的不一定相同，所以宿主不按文字认插话：pi 的队列每多一项，就是它收下了最早一条还没被列出的插话，宿主把 pi 列出的文字记在这条插话上；之后 pi 从队头送达，判断送达和停止时收回都按记下的文字从队头对应。只有图片、没有文字的插话发给 pi 时文字写成"（见图片）"：pi 只按文字把送达的消息移出队列，空文字的插话会一直留在它的队列里（pi 1.0.2、1.1.0 的缺陷，见 pi-internals.md）（2026-10-10 第二轮审查后定）。pi 的 `steer` 在空闲时不会启动运行，消息只会留在 pi 的队列里（按 pi 1.0.2 源码核实），所以宿主必须把空闲时的插话改成普通发送。插话不接受 extension 的 `/` 命令，pi 会拒绝，应答 `pi_rejected`。
 - `prompt_handled(clientMessageId)` 事件：输入被 extension 直接处理、没有启动运行，界面去掉这条消息的待发副本。
 
 **停止**：`stop()` 先暂停出队，再对 pi `clear_queue`、`abort`（两条同时发出，2 秒从发出 `stop` 算起）。`clear_queue` 退回的还没送达的插话放回排队最前面（和崩溃时一样，不丢）。`abort` 等 pi 真正停下才应答：2 秒内应答时 `stop` 应答 `{ confirmed: true }`；否则应答 `{ confirmed: false }`，会话保持 `stopping`，一直等到 pi 确认或退出（2026-10-09 定，不设上限）；`abort` 出错不算确认，照样等 pi 退出。pi 已回应 `started`、`agent_start` 还没到，或正在重启，也算有运行要停；只有确实什么都没在跑时才直接应答 `{ confirmed: true }`。停止之后 pi 若崩溃，重启后不续做被打断的那条，它放回排队最前、保持暂停，由你决定（2026-10-09 审查后补）。`stopping` 期间 `prompt`、`steer`、`steer_queued`、`resume_queue`、`retry_run` 应答 `session_stopping`；编辑、删除、清空排队照常。
@@ -646,8 +646,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **会话的模型**
 
-- 会话快照新增 `model`：`{ providerId, modelId, thinkingLevel } | null`，变化时推 `model_updated`。宿主在 pi 启动后、`set_model` 和 `set_thinking_level` 之后用 `get_state` 读取；pi 的 `thinking_level_changed` 事件自己带着新档位，直接用它。读取失败按 pi 的错误应答（`pi_unavailable` 等），不当宿主的错误。pi 退出后重新启动时，模型按新 pi 读到的为准。
-- `set_model(providerId, modelId)` / `set_thinking_level(level)`：转给 pi，之后用 `get_state` 读回实际的模型和档位（换模型后 pi 会把档位截到新模型支持的范围），再取一次条目（`model_change` 等条目不发事件）。运行中也可以换，从下一次请求开始生效；`stopping` 期间应答 `session_stopping`。pi 没在运行就先启动它。
+- 会话快照新增 `model`：`{ providerId, modelId, thinkingLevel } | null`，变化时推 `model_updated`。宿主在 pi 启动后、`set_model` 和 `set_thinking_level` 之后用 `get_state` 读取；pi 的 `thinking_level_changed` 事件自己带着新档位，直接用它。pi 退出后重新启动时，模型按新 pi 读到的为准。
+- `set_model(providerId, modelId)` / `set_thinking_level(level)`：转给 pi，之后用 `get_state` 读回实际的模型和档位（换模型后 pi 会把档位截到新模型支持的范围），再取一次条目（`model_change` 等条目不发事件）。pi 已经接受、只是读回失败时，命令照样应答成功（pi 已经换了），模型留到下次取条目后再读（2026-10-10 第二轮审查后定）。运行中也可以换，从下一次请求开始生效；`stopping` 期间应答 `session_stopping`。pi 没在运行就先启动它。
 - 记住上一次的选择：Preferences 新增 `lastModel`（`{ providerId, modelId } | null`）和 `thinkingByModel`（键是 `providerId/modelId`）。在任何会话里换模型或推理强度都会更新它们（Paseo 记在客户端，Atrium 的偏好在宿主索引里，所有客户端共用）。pi 的 `set_model` 不写 pi 自己的设置，所以由 Atrium 记。
 - 新会话（工作区里新建、新对话、宿主重启后恢复的草稿第一次启动）启动 pi 后，宿主按 `lastModel` 调 `set_model`，再按 `thinkingByModel` 调 `set_thinking_level`，然后才处理第一条消息。**不照 Paseo 用 `--model` 启动**：pi 解析不出 `--model` 时直接退出，记住的模型后来没了凭据就会让会话起不来；`set_model` 找不到模型只是一条错误应答，宿主忽略它，会话用 pi 自己的默认模型。`lastModel` 为空时什么也不设。从文件打开的会话不设，pi 沿用会话里记录的模型。还没写出文件的会话重新启动时（崩溃后重启、退出后再打开），新的 pi 不知道它原来的模型，宿主按它原来的模型和档位设，不用 `lastModel`（2026-10-10 定）。
 - 当前模型不支持图片时（模型列表里 `supportsImage` 为假）不允许添加图片，提示当前模型不支持；已经添加了图片再换到不支持的模型，发送按钮旁提示，发送时照样发出，由 pi 换成占位文字。
@@ -674,27 +674,27 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **↑ 历史与草稿**
 
 - ↑ 历史是本会话当前分支上你发过的消息和插话（不含"系统自动发出"的），按发出顺序从新到旧，相邻重复的只算一条。输入框完全为空（没有文字、小胶囊和图片）时 ↑ 才调历史。取自界面已经加载的对话记录，翻过已加载的最早一轮时按游标取更早的。宿主重启后照样在，Atrium 不另存。
-- 草稿每个会话一份，界面按会话 id 存在 localStorage：文字、文件引用、粘贴内容。图片只放在内存里，刷新页面或重启后不保留。发送后清掉；会话归档，或在界面开着时从列表里消失（丢弃），界面清掉它的草稿（2026-10-10 定：不在启动时按列表清理，第一份列表可能早于宿主扫完会话目录）。草稿以页面内存为准、同步写进 localStorage；localStorage 写不下时只保留在内存里，并删掉 localStorage 里那份旧的。空状态下打的字在新会话建好时转给它：转交之后空状态的输入框（还没切到新会话时）继续打的字也记在新会话的草稿里；新会话的输入框只在这一次抢焦点。
-- 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就把这条消息的图片全部重新上传一次再发。图片在粘贴、拖入或从"+"菜单选中时就压缩并上传，压缩和上传完之前不能发送（压缩中的图片先显示占位）。上传的结果记在草稿里，上传途中切走标签再回来也不受影响。多张图片逐张上传。
+- 草稿每个会话一份，界面按会话 id 存在 localStorage：文字、文件引用、粘贴内容。图片只放在内存里，刷新页面或重启后不保留。发送后清掉；会话归档，或在界面开着时从列表里消失（丢弃），界面清掉它的草稿（2026-10-10 定：不在启动时按列表清理，第一份列表可能早于宿主扫完会话目录）。草稿以页面内存为准、同步写进 localStorage；localStorage 被页面以外改动时（开发者工具、测试清空）以它为准，图片保留（Atrium 只有一个窗口，2026-10-10 定）；localStorage 写不下时只保留在内存里，并删掉 localStorage 里那份旧的。空状态下打的字在新会话建好时转给它：转交之后空状态的输入框（还没切到新会话时）继续打的字也记在新会话的草稿里；新会话的输入框只在这一次抢焦点。
+- 图片附件上传后宿主只保留 30 分钟（见"协议细节 · 附件"）。界面在草稿里留着压缩后的图片，发送时宿主应答 `attachment_missing` 就把这条消息的图片逐张重新上传一次再发；之后仍发送失败时，放回输入框的图片带新的上传。两条消息同时用同一张上传时，先到的用，后到的应答 `attachment_missing`。图片在粘贴、拖入或从"+"菜单选中时就压缩并上传，压缩和上传完之前不能发送（压缩中的图片先显示占位）。上传的结果记在草稿里，上传途中切走标签再回来也不受影响。多张图片逐张上传。
 - 拖进输入框的其他文件变成文件引用：路径由桌面端的 preload 用 Electron 的 `webUtils.getPathForFile` 告诉页面，在工作区目录里的写成相对路径，其余写绝对路径，目录结尾带 `/`；页面自己拿不到路径时（浏览器里）跳过。
 
 **工作区改动**（2026-10-10 定：照抄 Paseo，见 [paseo-architecture §6.1](../research/paseo-architecture.md)；取代"本会话改动"）
 
 - 统计的是工作区目录的 git 改动，不是 agent 的工具调用：不分会话，用户自己改的也算，和对话记录加载了多少无关。每轮的"改动汇总"不变，仍是已观测到的工具修改。新对话的目录不是 git 仓库，没有这些。
-- 胶囊条里的"+A −D"：`git merge-base HEAD <比较基准>` 之后 `git diff --shortstat <merge-base>`（工作树对 merge-base：已提交、暂存、未暂存都算），加上未跟踪文件的行数。比较基准：当前分支不是主干时，主干（按领域模型"已决定 15"：项目设置或 `origin/HEAD`）有 `origin/<主干>` 就用它，否则用本地的 `<主干>`；当前分支就是主干、或者没有主干时，用 `origin/<当前分支>`，没有就不显示。HEAD 分离、空仓库也不显示。增删都是 0 时不显示。数字超过 999 时写成 `1.2k` 这样的紧凑格式；减号沿用对话里每轮改动汇总的 `−`。
-- 未跟踪文件的行数：`git ls-files --others --exclude-standard` 的前 500 个，跳过大于 1 MB 的、二进制的（前 16 KB 里有 0 字节，或控制字符超过 30%）和符号链接，数换行（结尾的换行不另算一行）。
-- 宿主只给有界面在看的工作区算：界面在显示某个工作区时用 `watch_changes` 告诉宿主。宿主递归监听工作区目录（`fs.watch`，macOS 下递归），忽略 `.git` 里除 `HEAD`、`index`、`refs/`、`packed-refs` 以外的文件、`*.lock`，以及被 git 忽略的目录（`git ls-files -o -i --directory --exclude-standard`，`.gitignore` 变了重算）；linked worktree 另外监听它在主仓库里的元数据目录。文件变化后 1 秒（尾随防抖）重算；后台 fetch 之后、窗口获得焦点、工作区里一次运行结束时也重算。结果和上次一样就不推送。监听出错时改为轮询：5 秒起，结果没变就把间隔翻倍，最长 60 秒，一有变化回到 5 秒；同时 30 秒后重试监听，再失败就退避（最长 5 分钟）。没有界面在看的工作区停止监听。
-- 改动面板：点胶囊从对话区右侧拉出一栏（约 560px，对话仍可见），焦点在面板里时按 Esc、或点关闭按钮收起（输入框里的 Esc 仍是停止运行），换到别的容器时收起。
+- 胶囊条里的"+A −D"：`git merge-base HEAD <比较基准>` 之后 `git diff --shortstat <merge-base>`（工作树对 merge-base：已提交、暂存、未暂存都算），加上未跟踪文件的行数。比较基准（git 命令里用完整的 ref 名，如 `refs/remotes/origin/main`，免得被同名的 tag 抢走；界面显示短名）：当前分支不是主干时，主干（按领域模型"已决定 15"：项目设置或 `origin/HEAD`）有 `origin/<主干>` 就用它，否则用本地的 `<主干>`；当前分支就是主干、或者没有主干时，用 `origin/<当前分支>`，没有就不显示。HEAD 分离、空仓库也不显示。增删都是 0 时不显示。数字超过 999 时写成 `1.2k` 这样的紧凑格式；减号沿用对话里每轮改动汇总的 `−`。
+- 未跟踪文件的行数：`git ls-files --others --exclude-standard` 的前 500 个，跳过大于 1 MB 的、二进制的（前 16 KB 里有 0 字节，或控制字符超过 30%）、符号链接和读不了的，数换行（结尾的换行不另算一行）。读文件时不跟随符号链接（打开时就拒绝链接），类型、大小和内容都从同一次打开里取，检查之后文件被换掉也读不到别处。
+- 宿主只给有界面在看的工作区算：界面在显示某个工作区时用 `watch_changes` 告诉宿主（有没有打开的会话都算：空状态里也有这个胶囊，照 Paseo）。宿主递归监听工作区目录（`fs.watch`，macOS 下递归），忽略 `.git` 里除 `HEAD`、`index`、`refs/`、`packed-refs` 以外的文件、`*.lock`，以及被 git 忽略的目录（`git ls-files -o -i --directory --exclude-standard`，`.gitignore` 变了重算）；linked worktree 另外监听它在主仓库里的元数据目录。文件变化后 1 秒（尾随防抖）重算；后台 fetch 之后、窗口获得焦点、工作区里一次运行结束时也重算。结果和上次一样就不推送。监听建好之后再算一次，免得漏掉建好之前的改动。监听出错、或一开始就建不起来时改为轮询：5 秒起，结果没变就把间隔翻倍，最长 60 秒，一有变化回到 5 秒；同时 30 秒后重试监听，再失败就退避（最长 5 分钟）。没有界面在看的工作区停止监听。没有 git 时面板显示"读不到改动"。
+- 改动面板：点胶囊从对话区右侧拉出一栏（约 560px，对话仍可见），焦点在面板里时按 Esc（菜单开着时只关菜单）、或点关闭按钮收起（输入框里的 Esc 仍是停止运行），换到别的容器时收起。
   - 两种模式："未提交"= HEAD 对工作树（含暂存）加未跟踪文件；"已提交"= `merge-base..HEAD`，只有提交。所以胶囊上的数字和面板的合计可能不同（Paseo 也是这样）。默认：工作区有未提交改动时看"未提交"，否则看"已提交"；手动切换只在"有没有未提交改动"不变时有效，变了就回到默认（照 Paseo）。
   - 头部：模式菜单（"已提交"带说明"<分支> → <主干>"，两者相同时不写）、面板里各文件增删的合计、刷新按钮（让宿主重算一次，结果回来前保留正在显示的文件）、关闭按钮。
   - 正文按顺序判断：加载中（"正在检查仓库…"）；不是 git 仓库；出错（说明原因）；改动太大（git 的 diff 输出超过 8 MB："改动太大，无法在这里预览"）；没有改动（"没有改动"；"已提交"模式下有未提交改动时附"看未提交的改动"，"未提交"模式下分支领先主干时附"看已提交的改动"）。
-  - 有改动时：先是文件列表（路径、增删、新增 / 删除 / 修改 / 重命名标记），点文件滚到它的 diff；然后逐个文件的 diff：文件头写文件名和灰色的目录、增删、标记（重命名写"旧路径 → 新路径"），点文件头折叠或展开；diff 行带行号和增删竖条，和对话里工具的 diff 一样，hunk 头 `@@ … @@` 显示成灰色一行。二进制文件显示"二进制文件"；单个文件的 diff 超过 1 MB、或前面的文件累计超过 2 MB 之后的文件，显示"改动太大，不显示"（行数照常）。
+  - 有改动时：先是文件列表（路径、增删、新增 / 删除 / 修改 / 重命名标记），点文件滚到它的 diff；然后逐个文件的 diff：文件头写文件名和灰色的目录、增删、标记（重命名写"旧路径 → 新路径"），点文件头折叠或展开；diff 行带行号和增删竖条，和对话里工具的 diff 一样，hunk 头 `@@ … @@` 显示成灰色一行。二进制文件显示"二进制文件"；单个文件的 diff 超过 1 MB、或按面板顺序（路径）前面的文件累计超过 2 MB 之后的文件，显示"改动太大，不显示"（行数照常，大于 1 MB 的未跟踪文件不读内容、只数行）。宿主按每段 diff 文件头里的路径把它对应到文件（文件和符号链接互换时 git 输出两段，合成一个文件）。git 读改动出错时面板显示"读不到改动"，不显示成"没有改动"；读不了的单个未跟踪文件跳过。
   - 不做（Paseo 有的）：并排对比、隐藏空白、换行切换、语法高亮、行内评论、文件右键菜单、撤销改动。
 - 协议：
   - `watch_changes(workspaceIds)`：设置这个连接在看的工作区（替换上一次的）。宿主马上推每个工作区的 `changes_updated { workspaceId, stat, dirty, ahead, branch, base }`，之后变化时再推。`stat` 是 `{ added, removed }`，不显示时为 `null`；`dirty` 是否有未提交改动；`ahead` 当前分支领先比较基准的提交数；`branch`、`base` 供面板写说明，没有时为 `null`。不是 git 仓库的工作区 `stat` 为 `null`、`dirty` 为假。未知的工作区应答 `workspace_not_found`。连接断开时一并停止；重连后界面重新发。
   - `watch_diff(target)`：`target` 为 `{ workspaceId, mode: "uncommitted" | "base" }` 或 `null`（关面板）。一个连接同时只看一个面板。宿主推 `diff_updated { workspaceId, mode, files, tooLarge, error }`，变化时再推（150 毫秒防抖）。`error` 为 `null` 或 `not_git` / `failed`。每个文件 `{ path, oldPath, status: added | deleted | modified | renamed, added, removed, content: text | binary | too_large, hunks }`，hunk `{ oldStart, oldCount, newStart, newCount, lines }`，行 `{ kind: add | del | context, oldNumber, newNumber, text }`。
   - 这两种推送不带序号：都是整份的最新状态，丢了一条下一条照样对。
-- 宿主跑的 git 命令都是固定参数，路径放在 `--` 之后、写成 `:(literal)路径`；git 的输出、文件路径不进日志，失败只记命令和原因（security.md"子进程与文件"）。照抄时避开 Paseo 的三个已知问题：重命名文件的 diff 带上旧路径；未跟踪文件超过累计上限时也保留占位；"未提交"面板也随提交和 reset 刷新（监听元数据目录）。
+- 宿主跑的 git 命令都是固定参数，不带用户给的路径；git 的输出、文件路径不进日志，失败只记命令和原因（security.md"子进程与文件"）。照抄时避开 Paseo 的三个已知问题：重命名文件的 diff 带上旧路径；未跟踪文件超过累计上限时也保留占位；"未提交"面板也随提交和 reset 刷新（监听元数据目录）。
 
 新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`、`watch_changes`、`watch_diff`。新增事件：`model_updated`、`changes_updated`、`diff_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
 
