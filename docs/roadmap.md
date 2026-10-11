@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-11：M1.10 首次启动与设置的实现完成，在分支 `m1.10-onboarding-settings` 上；等在一个没装 pi 的账户上手动走一遍（完成标准第一条，自动化测试用的都是装好的 pi）再合并回 `main`。登录经用户自己装的 pi：宿主用系统 Node 运行登录程序加载 pi 的包，pi 说的和问的广播给所有窗口，凭据只由 pi 读写（宿主不读 `auth.json`）；`check_setup` 报告 pi、Node、Homebrew、fd、登录和项目数；宿主装 pi（官方脚本）、用 Homebrew 装 Node、`pi update`（等运行中的会话结束，更新后停掉空闲会话的旧 pi），输出广播、不进日志；每天查一次 pi.dev 的最新版本；从 pi 历史发现项目；首次启动四屏（欢迎页、装 pi、登录、添加项目）和设置面板（外观与关于、模型与账户、项目的主干分支、pi）。三方审查（Astra、Grok、Claude）的 14 项都修了：凭据变化的 `credentials_changed` 事件，登录与退出排队，后连上的窗口补上最后一次登录和安装，pi 的文字截到 16 KiB，重新读登录 shell 后旧凭据照样脱敏，Homebrew 不在 PATH 时加到末尾，更新后停空闲会话时等启动中的 pi、跳过等回答的，已在项目里的目录算加好，模型目录关闭时等所有查询。端到端 32 个、泄漏与性能 5 个通过；五组变异分数都是 100%。已知问题：交给终端的端到端约 1/280 次接回后 pi 启动等了 30 秒，疑似上一次启动的 pi 留下 `auth.json` 的锁（pi 的锁 30 秒过期），未证实。下一步：手动验证后合并，然后是 [M1.11](#m111-自用)。**
+**2026-10-11：M1.10 首次启动与设置完成，三方审查后已合并回 `main`。完成标准第一条“在一个没装 pi 的账户上走通”还没手动验证（自动化测试用的都是装好的 pi），挪到 M1.11 自用时做（2026-10-11 定）。登录经用户自己装的 pi：宿主用系统 Node 运行登录程序加载 pi 的包，pi 说的和问的广播给所有窗口，凭据只由 pi 读写（宿主不读 `auth.json`）；`check_setup` 报告 pi、Node、Homebrew、fd、登录和项目数；宿主装 pi（官方脚本）、用 Homebrew 装 Node、`pi update`（等运行中的会话结束，更新后停掉空闲会话的旧 pi），输出广播、不进日志；每天查一次 pi.dev 的最新版本；从 pi 历史发现项目；首次启动四屏（欢迎页、装 pi、登录、添加项目）和设置面板（外观与关于、模型与账户、项目的主干分支、pi）。三方审查（Astra、Grok、Claude）的 14 项都修了：凭据变化的 `credentials_changed` 事件，登录与退出排队，后连上的窗口补上最后一次登录和安装，pi 的文字截到 16 KiB，重新读登录 shell 后旧凭据照样脱敏，Homebrew 不在 PATH 时加到末尾，更新后停空闲会话时等启动中的 pi、跳过等回答的，已在项目里的目录算加好，模型目录关闭时等所有查询。端到端 32 个、泄漏与性能 5 个通过；五组变异分数都是 100%。已知问题：交给终端的端到端约 1/280 次接回后 pi 启动等了 30 秒，疑似上一次启动的 pi 留下 `auth.json` 的锁（pi 的锁 30 秒过期），未证实。下一步是 [M1.11](#m111-自用)。**
 
 | 已完成 | 产出 |
 |---|---|
@@ -35,13 +35,13 @@
 | M1.7 模型与输入框 | `protocol`：`list_models`、`set_model`、`set_thinking_level`、`model_updated`、`upload_attachment`、`search_files`、`list_commands`，带图片的 `prompt` 与 `steer`，工作区改动的 `watch_changes`、`watch_diff`、`changes_updated`、`diff_updated`；`pi`：按目录查询模型与命令、`fd` 的位置；宿主：模型列表缓存与上次的模型、附件存储（按连接限额、30 分钟过期）、`fd` 文件搜索、插话按队列增减计数并逐条发送、工作区改动（一次 git 运行读出状态、行数和补丁，文件监听与轮询）；客户端：模型、附件、文件搜索、工作区改动；界面：模型按钮与推理强度框、图片附件、`@` 与 `/` 菜单、长文本粘贴、拖入、↑ 历史、草稿、改动胶囊与右侧抽屉；测试：变异测试分组并重测存活的变异、git 场景模板。决定写回 SPEC-0001"模型与输入框""工作区改动""运行控制"、testing.md、pi-internals.md |
 | M1.8 状态栏 | `protocol`：会话指标（允许未知）、快照的 `metrics`、`metrics_updated`、偏好的 `statusBar`；`pi`：条目里的四种 token 和推理 token、系统消息与压缩检查点的大小、系统提示词与工具定义的回放和估算、`get_session_stats` 的映射、`request_started` / `output_started` 事件，统计的契约夹具；宿主：每个会话的指标跟踪（读统计的时机、一次只读一次、按 `turn_start` 计时、从条目算推理与分段），偏好的 `statusBar`；客户端：会话视图的指标；界面：状态栏、悬停卡片、调节面板。决定写回 SPEC-0001"状态栏（M1.8）"、domain-model §3、pi-internals §2、design-language（上下文分段颜色）、testing.md（每次重测存活变异、Stryker 注释的位置） |
 | M1.9 并行、同步与关注 | `protocol`：`index_changes`、`subscribe_index` 的游标、快照的原因，`SessionSummary` 的 `attention`、`asking`、`handedOff`，`clear_attention`、`hand_off`、`take_back` 与 `session_handed_off`；`pi`：OneShotPi（`-p` 模式、内容走标准输入、期限与中止时停掉进程树）；宿主：IndexFeed（逐项比较、合批、按客户端的布局、应答前先发）、关注状态与等待回答的时间、交给终端、TitleGenerator、草稿在第一轮时重扫、会话订阅计数、归档时丢掉 Controller、停止的等待不留在 pi 的退出上；客户端：IndexView 按变化应用、布局命令在途时保留选择；界面：状态图标与优先级、收件箱、清除关注、交接面板、宿主重启后重新打开；测试：并行、收件箱、交接、标题的端到端，会话的泄漏测试（宿主与界面），会话浸泡测试。决定写回 SPEC-0001"并行、同步与关注"（含先读到自己的写）、domain-model（归档丢掉 Controller）、pi-internals（一次性调用）、coding-standards（不拿长期 Promise 做 race）、testing.md（会话浸泡的采样） |
+| M1.10 首次启动与设置 | `protocol`：`check_setup`、`login` / `answer_login` / `cancel_login` / `logout`、`install_pi` / `install_node` / `update_pi` / `cancel_install`、`check_pi_update`、`discover_projects`、`list_branches` / `set_main_branch`，`login_updated`、`install_updated`、`install_output`、`pi_latest`、`credentials_changed`，偏好的 `setupDone`、`titleModel`；`pi`：登录程序（系统 Node 加载用户装的 pi 的包）、找 Node、从会话文件头统计工作目录；宿主：SetupService、LoginService（排队、截断 pi 的文字、补给后连上的窗口）、InstallService（官方脚本、Homebrew、`pi update`，等会话结束、更新后停空闲会话的 pi）、pi 最新版本检查、项目发现、主干分支、标题模型；客户端：首次启动、登录、安装状态；界面：欢迎页与点阵按钮、首次启动三步、设置面板（外观与关于、模型与账户、项目、pi）。决定写回 SPEC-0001"首次启动""设置"、security.md（登录程序的例外、脱敏只增不减）、pi-internals（登录、`listAll`） |
 | 工程约束 | 根目录 [AGENTS.md](../AGENTS.md)、[代码结构](architecture/overview.md#代码结构)、[编码规范](architecture/coding-standards.md)、[测试](architecture/testing.md)、[安全](architecture/security.md)、[日志与链路追踪](architecture/observability.md)、[开发环境与流程](development.md) |
 | 源码调研 | [pi-internals.md](research/pi-internals.md)、[paseo-architecture.md](research/paseo-architecture.md)、[pi-extension-capabilities.md](research/pi-extension-capabilities.md) |
 
 MVP 1 里还没设计、做到时先补设计的：
 
 - logo，以及工作区、新会话、新对话的空状态（先用占位）。
-- 设置页：原型里只有入口。SPEC-0001 里散落的设置项见 [M1.10](#m110-首次启动与设置)。
 
 ## 开工前必读
 
@@ -287,7 +287,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：[domain-model](architecture/domain-model.md) §4 状态的派生、§7 客户端与一致性、[paseo-architecture](research/paseo-architecture.md) §4 同步、§5 状态与关注、pi 实验版的 Chord 设计（[pi-internals](research/pi-internals.md) §6）。
 - **完成标准**：三个会话同时运行时切换、断网再连、重启宿主，状态和对话都正确；SPEC-0001 需求 12 通过；打开关闭会话、订阅退订、连接断开、停止、崩溃重启各 200 次的泄漏测试通过；界面在会话间切换后没有多出脱离文档的 DOM 节点；30 分钟长时间运行通过。
 
-##### M1.10 首次启动与设置
+##### M1.10 首次启动与设置 ✅
 
 - **目标**：全新机器上从零走到第一次对话；SPEC-0001 里散落的设置项有地方改。
 - **范围**：
@@ -305,6 +305,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 每天看宿主日志里的资源计数和内存趋势；发现持续上涨就补一个能复现的泄漏测试再修。
 - 记录 pi 比 Codex 明显不够用的地方，作为 H1 的结论，决定是否继续这条路线。
 - 对照 SPEC-0001 的 14 条需求逐条过一遍。
+- 在一个没装 pi 的 macOS 账户上从首次启动走到第一次对话（M1.10 完成标准第一条，合并时还没手动验证）。
 
 #### MVP 2：看得见内部
 
