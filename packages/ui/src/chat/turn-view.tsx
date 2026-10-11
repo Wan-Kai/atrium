@@ -346,7 +346,8 @@ export interface TurnViewProps {
  * "突出结果，折叠过程" (SPEC-0001, "对话区"). The process shows while the turn runs, and when
  * finished folds into its header unless opened or in detailed mode; folded, steers stay visible
  * and, in thinking mode, thinking (SPEC-0001, "显示模式"). A turn without process steps has no
- * header. The reply streams below, revealed smoothly; a stopped turn is marked, a failed one shows
+ * header; while it runs with nothing to show yet, the run's line stands in its place until the
+ * first step or the reply's first text (SPEC-0001, "过程的呈现"). The reply streams below, revealed smoothly; a stopped turn is marked, a failed one shows
  * pi's error.
  *
  * @sideEffects none
@@ -380,6 +381,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
           row.kind === "step" && (row.step.kind === "steer" || (mode === "thinking" && row.step.kind === "thinking")),
       );
   const failedCommands = countProcess(turn.steps).failedCommands;
+  const waiting = running && process.length === 0 && (reply === null || reply.text === "");
   return (
     <div
       className="flex flex-col"
@@ -394,6 +396,11 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
         timestamp={turn.user.timestamp}
         auto={turn.user.auto}
       />
+      {waiting ? (
+        <div className="mt-3 flex h-[30px] items-center" data-testid="run-waiting">
+          <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
+        </div>
+      ) : null}
       {process.length === 0 ? null : (
         <button
           type="button"

@@ -78,6 +78,36 @@ body {
   animation: atrium-shimmer 2.2s linear infinite;
 }
 
+/* The run's cat: Atrium's mark, blinking every 2.6 s (design-language, "标志"). */
+@keyframes atrium-run-cat-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+.atrium-run-cat {
+  flex: none;
+  width: 18px;
+  height: 18px;
+}
+
+.atrium-run-cat-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: atrium-run-cat-blink 2.6s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-run-cat-eyes {
+    animation: none;
+  }
+}
+
 /* The model button and the thinking level box (design-language, "点阵", "推理强度框"). Text on the
    dots gets a shadow of the background so it stays clear. */
 .atrium-effort-box:hover {

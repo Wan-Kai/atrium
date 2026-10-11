@@ -208,7 +208,9 @@ export interface TranscriptProps {
  * content while scrolled to the bottom; scrolling up stops that and shows "↓ 回到底部", with a dot
  * once something new arrived (SPEC-0001, "滚动与长会话"); reaching the top loads older items.
  * Pending messages are the ones sent but not yet confirmed by the host (domain-model §7); until
- * the run's turn arrives the run shows on its own line. A failed last turn offers "重试" while no
+ * the run's turn arrives the run shows on its own line, as soon as a message is sent while idle,
+ * before the host starts the run (SPEC-0001, "过程的呈现"); one sent while a turn runs goes into the
+ * queue and adds no line. A failed last turn offers "重试" while no
  * run goes on and pi is not being restarted (SPEC-0001, "运行控制").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
@@ -252,7 +254,9 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
             {view.pending.map((message) => (
               <UserBubble key={message.clientMessageId} text={message.text} images={message.images ?? 0} />
             ))}
-            {view.run === null || turnRunning ? null : <RunStatus startedAt={view.run.startedAt} />}
+            {turnRunning || (view.run === null && view.pending.length === 0) ? null : (
+              <RunStatus startedAt={view.run?.startedAt ?? null} />
+            )}
           </div>
         </div>
         <QuestionNav items={view.items} scroller={scroller} content={content} />

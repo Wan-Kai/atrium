@@ -155,6 +155,9 @@ describe("messages", () => {
       </ClockContext>,
     );
     await expect.element(screen.getByTestId("run-status")).toHaveTextContent("进行中 · 12s");
+    const cat = screen.getByTestId("run-cat").element();
+    expect(cat.getAttribute("aria-hidden")).toBe("true");
+    expect(cat.querySelectorAll(".atrium-run-cat-eyes ellipse")).toHaveLength(2);
 
     now = 101_000;
     for (const tick of ticks) tick();
@@ -203,6 +206,54 @@ describe("Transcript", () => {
 
     expect(shown).toStrictEqual(["turn", "user-message", "notice", "user-message", "run-status"]);
     expect(screen.container.querySelector('[data-testid="run-status"]')?.textContent).toMatch(/^进行中 · 1[23]s$/);
+  });
+
+  it("shows the run line, without a timer, under a message sent while idle until the run starts", async () => {
+    const screen = await render(at([turn("t1", "答")], { pending: [{ clientMessageId: "q2", text: "再问" }] }));
+    const shown = [
+      ...screen.container.querySelectorAll(
+        '[data-testid="turn"], [data-testid="user-message"], [data-testid="run-status"]',
+      ),
+    ].map((item) => item.getAttribute("data-testid"));
+
+    expect(shown).toStrictEqual(["turn", "user-message", "user-message", "run-status"]);
+    expect(screen.container.querySelector('[data-testid="run-status"]')?.textContent).toBe("进行中");
+  });
+
+  it("shows no run line for a message sent while its turn runs, which goes into the queue", async () => {
+    const running = turn("t1", "答到一半", { outcome: "running" });
+    const screen = await render(
+      at([running], {
+        pending: [{ clientMessageId: "q2", text: "再问" }],
+        run: { runId: "r1", startedAt: Date.now() - 3_000 },
+      }),
+    );
+
+    expect(screen.container.querySelectorAll('[data-testid="user-message"]')).toHaveLength(2);
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(0);
+  });
+
+  it("keeps the run line in a running turn with nothing to show yet, and drops it once the reply begins", async () => {
+    const run = { runId: "r1", startedAt: Date.now() - 3_000 };
+    const screen = await render(at([turn("t1", "", { outcome: "running" })], { run }));
+
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(1);
+    expect(
+      screen.container.querySelector('[data-testid="run-waiting"] [data-testid="run-status"]')?.textContent,
+    ).toMatch(/^进行中 · [34]s$/);
+    expect(screen.container.querySelectorAll('[data-testid="process-header"]')).toHaveLength(0);
+
+    await screen.rerender(at([turn("t1", "答", { outcome: "running" })], { run }));
+
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(0);
+    await expect.element(screen.getByTestId("reply")).toHaveAttribute("data-streaming", "true");
+  });
+
+  it("shows no run line in a turn stopped before it had anything to show", async () => {
+    const screen = await render(at([turn("t1", "", { outcome: "stopped" })]));
+
+    await expect.element(screen.getByText("已停止")).toBeVisible();
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(0);
   });
 
   it("shows the run's timer in its turn once the turn arrives", async () => {
