@@ -1,4 +1,4 @@
-import { Appearance, Attention, DisplayMode, ModelRef, ThinkingLevel } from "@atrium/protocol";
+import { Appearance, Attention, DisplayMode, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
 import { z } from "zod";
 import type { IndexFileSpec } from "./index-file";
 
@@ -104,6 +104,8 @@ const PreferencesDocument = z.looseObject({
   setupDone: z.boolean().optional(),
   /** The model that names sessions, `null` for each session's own; absent before M1.10 (SPEC-0001, "设置"). */
   titleModel: ModelRef.nullable().optional(),
+  /** The network proxy, `null` for the login shell's; absent before M1.11 (SPEC-0001, "设置 · pi"). */
+  proxy: ProxySetting.nullable().optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 

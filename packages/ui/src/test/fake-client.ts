@@ -17,6 +17,7 @@ import {
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
+  type Preferences,
   type Project,
   type SessionSummary,
   type SetupState,
@@ -196,6 +197,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     },
     resets: [],
     ...initial,
@@ -370,11 +372,17 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push("windowFocused");
       return {};
     },
-    async setPreferences(changes: Record<string, string>) {
+    async setPreferences(changes: Partial<Preferences>) {
       calls.push(`setPreferences ${JSON.stringify(changes)}`);
       const held = answers.setPreferences?.();
       if (held !== undefined) await held;
-      index.setState({ preferences: { ...index.getState().preferences, ...changes } });
+      // The host keeps a proxy's address in one form.
+      const { proxy } = changes;
+      const kept =
+        proxy === undefined || proxy === null
+          ? changes
+          : { ...changes, proxy: { ...proxy, url: new URL(proxy.url).origin } };
+      index.setState({ preferences: { ...index.getState().preferences, ...kept } });
       return {};
     },
     prompt(sessionId: string, text: string, attachmentIds: readonly string[] = []) {

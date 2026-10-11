@@ -160,7 +160,7 @@ export interface AtriumClient {
   renameWorkspace(workspaceId: string, name: string | null): Promise<CommandResult<"rename_workspace">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
-  /** Changes preferences, at once in the list. */
+  /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
   /** Sends a message with uploaded images, showing it at once as pending until it opens a turn or goes into the queue. */
   prompt(sessionId: string, text: string, attachmentIds?: readonly string[]): Promise<CommandResult<"prompt">>;
@@ -1111,8 +1111,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     renameWorkspace: (workspaceId, name) => request("rename_workspace", { workspaceId, name }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
+      // A proxy shows once the host has checked it and written its address in one form.
+      const { proxy: _checked, ...shown } = changes;
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
-      index.setState(withPreferences(index.getState(), changes), true);
+      index.setState(withPreferences(index.getState(), shown), true);
       return request("set_preferences", changes);
     },
     prompt: (sessionId, text, attachmentIds = []) => sendShown("prompt", sessionId, text, attachmentIds),

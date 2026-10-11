@@ -275,6 +275,9 @@ importers:
       pino-roll:
         specifier: 4.0.0
         version: 4.0.0
+      undici:
+        specifier: 8.10.2
+        version: 8.10.2
       ws:
         specifier: 8.22.0
         version: 8.22.0

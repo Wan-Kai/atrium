@@ -32,6 +32,7 @@ export function emptyIndex(): IndexView {
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     },
     resets: [],
   };

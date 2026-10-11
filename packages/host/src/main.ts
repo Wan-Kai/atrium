@@ -21,6 +21,7 @@ import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
 import { readInstallSeed } from "./platform/install-id";
 import { createPiDeps } from "./platform/pi-deps";
+import { hasProxy, withProxy } from "./platform/proxy";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
 import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platform/logger";
@@ -35,7 +36,7 @@ import { createInstallService } from "./setup/install-service";
 import { createLogins } from "./setup/logins";
 import { LATEST_VERSION_URL, createPiLatest, fetchLatestPi } from "./setup/pi-latest";
 import { createSetupService } from "./setup/setup-service";
-import { type HostTools, createToolbox } from "./setup/toolbox";
+import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
@@ -159,8 +160,6 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
   const subscriptions = new SubscriptionRegistry(resources);
   const hostInstanceId = randomBytes(8).toString("hex");
-  // Detection starts once the server listens; commands can only arrive after that.
-  const toolbox = createToolbox(detectTools);
   const [index, installSeed] = await Promise.all([
     loadIndex(home.root, clock.now(), logger),
     readInstallSeed(home.root, randomUUID),
@@ -171,6 +170,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await lock.release();
     throw error;
   });
+  const preferences = createPreferenceStore(index.preferences);
+  // Detection starts once the server listens; commands can only arrive after that. Everything that
+  // runs a tool or asks pi.dev sees the proxy set in the settings (SPEC-0001, "设置 · pi").
+  const toolbox = withProxySetting(createToolbox(detectTools), () => preferences.read().proxy);
   // git keeps the first environment: its PATH only has to reach git, which installing pi or Node does not move.
   const git = toolbox
     .current()
@@ -202,7 +205,6 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const layouts = createLayouts({ file: index.layouts, clock });
-  const preferences = createPreferenceStore(index.preferences);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: hostInstanceId,
@@ -351,7 +353,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const piLatest = createPiLatest({
-    lookup: (signal) => fetchLatestPi(config.piLatestUrl ?? LATEST_VERSION_URL, { signal, clock }),
+    // Through the proxy pi would use, as pi looks.
+    lookup: async (signal) =>
+      withProxy((await toolbox.current())?.env ?? {}, (fetch) =>
+        fetchLatestPi(config.piLatestUrl ?? LATEST_VERSION_URL, { fetch, signal, clock }),
+      ),
     // As pi, which looks for nothing with PI_OFFLINE set.
     offline: async () => config.piLatestUrl === null || Boolean((await toolbox.current())?.env["PI_OFFLINE"]),
     clock,
@@ -379,7 +385,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   });
   const installs = createInstallService({
     toolbox,
-    script: (signal) => downloadScript(INSTALL_SCRIPT_URL, { signal, clock }),
+    script: async (signal) =>
+      withProxy((await toolbox.current())?.env ?? {}, (fetch) =>
+        downloadScript(INSTALL_SCRIPT_URL, { fetch, signal, clock }),
+      ),
     sessions: {
       running: () => sessions.summaries().filter((summary) => summary.running).length,
       onChange: (listener) => {
@@ -459,11 +468,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * @remarks
    * Runs in the background after the server listens: an interactive login shell can take seconds,
    * which would blow the startup budget (testing.md, "性能预算"). The whole environment is taken so
-   * pi behaves as in the user's terminal (SPEC-0001, "第 1 步：安装 pi"); only its source, PATH and
-   * size are logged, because it may hold API keys. Closing the host aborts it, and it is counted
-   * as a resource, so it cannot outlive the host unnoticed. It never rejects. The toolbox runs it
-   * again when first launch asks to refresh. A Homebrew found outside PATH joins its end, so the
-   * Node it installs is found (SPEC-0001, "第 1 步：安装 pi").
+   * pi behaves as in the user's terminal (SPEC-0001, "第 1 步：安装 pi"); only its source, PATH,
+   * size and where a proxy comes from are logged, because it may hold API keys. Closing the host
+   * aborts it, and it is counted as a resource, so it cannot outlive the host unnoticed. It never
+   * rejects. The toolbox runs it again when first launch asks to refresh. A Homebrew found outside
+   * PATH joins its end, so the Node it installs is found (SPEC-0001, "第 1 步：安装 pi").
    *
    * @sideEffects Spawns the login shell, `pi --version` and `node --version`; adds the environment's
    * credentials to what the log redacts; logs the outcome.
@@ -490,7 +499,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       const homebrew = await findHomebrew(shellEnv["PATH"] ?? "", config.homebrewPlaces);
       const env = withHomebrewOnPath(shellEnv, homebrew);
       const path = env["PATH"] ?? "";
-      logger.info({ ...origin, path, variables: Object.keys(env).length }, "tool environment resolved");
+      // Only where the proxy comes from: its address stays out of the log (security.md).
+      const proxy = preferences.read().proxy === null ? (hasProxy(env) ? "shell" : "none") : ("setting" as const);
+      logger.info({ ...origin, path, variables: Object.keys(env).length, proxy }, "tool environment resolved");
       if (signal.aborted) return null;
       const [pi, node, fd] = await Promise.all([
         inspectPi(path, { env, clock, signal }),

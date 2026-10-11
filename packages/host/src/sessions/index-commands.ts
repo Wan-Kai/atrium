@@ -1,4 +1,5 @@
 import type { CommandResult, ContainerId, DiscoveredDirectory, Preferences } from "@atrium/protocol";
+import { checkProxy } from "../platform/proxy";
 import type { ProjectService } from "../projects/project-service";
 import type { PreferenceStore } from "../store/preferences";
 import type { IndexCursor, IndexFeed } from "../sync/index-feed";
@@ -33,7 +34,8 @@ export interface IndexCommands {
  * Defined beside the session layer, which removing a project also reaches: the project's
  * sessions stop and leave every layout (SPEC-0001, "项目、工作区与会话"). Changes reach clients
  * through the services' own change listeners, except preferences, which tell the feed here.
- * Failures are thrown as `CommandError` by the services.
+ * Failures are thrown as `CommandError` by the services; a proxy is checked here, before anything
+ * is written, and kept with its address in one form (SPEC-0001, "设置 · 接口").
  *
  * @sideEffects none until a command arrives.
  * @param options - The services, the feed and the model lister.
@@ -88,7 +90,10 @@ export function createIndexCommands(options: {
       options.feed.flush(connectionId);
     },
     async setPreferences(changes) {
-      await options.preferences.set(changes);
+      const { proxy } = changes;
+      await options.preferences.set(
+        proxy === undefined || proxy === null ? changes : { ...changes, proxy: checkProxy(proxy) },
+      );
       options.feed.changed();
       return {};
     },

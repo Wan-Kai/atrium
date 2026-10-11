@@ -7,6 +7,7 @@ import { piUpdateAvailable } from "../setup/pi-version";
 import { AccountsSection } from "./accounts-section";
 import { BUTTON, Group, PiMark, Row } from "./parts";
 import { PiSection } from "./pi-section";
+import { ProxyGroup } from "./proxy-group";
 import { ProjectsSection } from "./projects-section";
 
 /** A part of the settings. */
@@ -27,7 +28,12 @@ const SECTIONS: readonly {
     lead: "登录模型服务商、管理 API Key，选择起标题用的模型。凭据都保存在 pi 里。",
   },
   { id: "projects", name: "项目", icon: <Folder size={16} />, lead: "每个项目的主干分支。" },
-  { id: "pi", name: "pi", icon: <Terminal size={16} />, lead: "Atrium 用的就是你装的 pi：位置、版本和更新。" },
+  {
+    id: "pi",
+    name: "pi",
+    icon: <Terminal size={16} />,
+    lead: "Atrium 用的就是你装的 pi：位置、版本、更新和网络代理。",
+  },
   { id: "about", name: "关于", icon: <Info size={16} />, lead: "版本与日志。" },
 ];
 
@@ -146,7 +152,12 @@ export function SettingsPanel({
             {section === "appearance" ? <AppearanceSection client={client} /> : null}
             {section === "accounts" ? <AccountsSection client={client} openUrl={openUrl} /> : null}
             {section === "projects" ? <ProjectsSection client={client} /> : null}
-            {section === "pi" ? <PiSection client={client} reveal={reveal} /> : null}
+            {section === "pi" ? (
+              <>
+                <PiSection client={client} reveal={reveal} />
+                <ProxyGroup client={client} />
+              </>
+            ) : null}
             {section === "about" ? <AboutSection client={client} reveal={reveal} /> : null}
           </div>
         </div>

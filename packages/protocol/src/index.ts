@@ -111,6 +111,7 @@ export {
   MergeUnknownReason,
   Preferences,
   Project,
+  ProxySetting,
   StatusBarChoices,
   SessionSummary,
   SnapshotReason,

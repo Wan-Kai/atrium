@@ -4,7 +4,7 @@ import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
-import { Appearance, BranchName, DisplayMode, StatusBarChoices } from "./listing";
+import { Appearance, BranchName, DisplayMode, ProxySetting, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -279,6 +279,7 @@ export const SetPreferencesCommand = z.strictObject({
   displayMode: DisplayMode.optional(),
   statusBar: StatusBarChoices.optional(),
   titleModel: ModelRef.nullable().optional(),
+  proxy: ProxySetting.nullable().optional(),
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 

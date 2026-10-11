@@ -125,6 +125,7 @@ async function assemble() {
     projects,
     sessions,
     layouts,
+    preferences,
     received,
     root,
     sessionChanges,
@@ -243,6 +244,37 @@ describe("IndexCommands.windowFocused", () => {
 
     expect(await commands.windowFocused()).toStrictEqual({});
     expect(focused.count).toBe(1);
+  });
+});
+
+describe("IndexCommands.setPreferences", () => {
+  it("keeps a proxy with its address in one form, and clears it", async () => {
+    const { commands, preferences } = await assemble();
+
+    expect(
+      await commands.setPreferences({ appearance: "dark", proxy: { url: "HTTP://127.0.0.1:7897/", noProxy: ["a.b"] } }),
+    ).toStrictEqual({});
+    expect(preferences.read()).toMatchObject({
+      appearance: "dark",
+      proxy: { url: "http://127.0.0.1:7897", noProxy: ["a.b"] },
+    });
+
+    await commands.setPreferences({ proxy: null });
+
+    expect(preferences.read()).toMatchObject({ appearance: "dark", proxy: null });
+  });
+
+  it("refuses a proxy it would not hand on, changing nothing", async () => {
+    const { commands, preferences, received } = await assemble();
+    await commands.subscribeIndex("c1");
+
+    await expect(
+      commands.setPreferences({ appearance: "dark", proxy: { url: "socks5://127.0.0.1:7897", noProxy: [] } }),
+    ).rejects.toMatchObject({ code: "proxy_invalid", params: { reason: "scheme" } });
+    commands.answering("c1");
+
+    expect(preferences.read()).toMatchObject({ appearance: "system", proxy: null });
+    expect(received).toHaveLength(1);
   });
 });
 

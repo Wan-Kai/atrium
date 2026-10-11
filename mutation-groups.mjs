@@ -32,7 +32,7 @@ export const MUTATION_GROUPS = {
   },
   host: {
     mutate: [
-      "packages/host/src/platform/{redact,resources,clock,login-shell,errors}.ts",
+      "packages/host/src/platform/{redact,resources,clock,login-shell,errors,proxy}.ts",
       "packages/host/src/server/*.ts",
       "packages/host/src/store/*.ts",
       "packages/host/src/sessions/{session-controller,session-metrics,session-catalog,layouts,prompt-line,index-commands,model-lister,titles}.ts",

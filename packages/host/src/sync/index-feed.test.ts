@@ -19,6 +19,7 @@ const PREFERENCES: Preferences = {
   thinkingByModel: {},
   statusBar: {},
   titleModel: null,
+  proxy: null,
 };
 
 /**

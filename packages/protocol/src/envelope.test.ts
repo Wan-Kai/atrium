@@ -62,6 +62,13 @@ const commands: Command[] = [
     titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
   },
   { type: "set_preferences", requestId: "r64", traceparent, titleModel: null },
+  {
+    type: "set_preferences",
+    requestId: "r65",
+    traceparent,
+    proxy: { url: "http://127.0.0.1:7897", noProxy: [".example.com", "b".repeat(255)] },
+  },
+  { type: "set_preferences", requestId: "r66", traceparent, proxy: null },
   { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
   { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
   { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
@@ -658,6 +665,31 @@ describe("parseClientMessage", () => {
       { type: "set_preferences", requestId: "r1", traceparent, statusBar: { ["g".repeat(65)]: true } },
       "r1",
     ],
+    [
+      "a proxy address over 2048 characters",
+      { type: "set_preferences", requestId: "r1", traceparent, proxy: { url: "h".repeat(2049), noProxy: [] } },
+      "r1",
+    ],
+    [
+      "a host that goes direct over 255 characters",
+      { type: "set_preferences", requestId: "r1", traceparent, proxy: { url: "http://p", noProxy: ["h".repeat(256)] } },
+      "r1",
+    ],
+    [
+      "more than 100 hosts that go direct",
+      {
+        type: "set_preferences",
+        requestId: "r1",
+        traceparent,
+        proxy: { url: "http://p", noProxy: Array.from({ length: 101 }, () => "h") },
+      },
+      "r1",
+    ],
+    [
+      "a proxy without the hosts that go direct",
+      { type: "set_preferences", requestId: "r1", traceparent, proxy: { url: "http://p" } },
+      "r1",
+    ],
     ["opening no session", { type: "open_session", requestId: "r1", traceparent }, "r1"],
     [
       "a step fetch without a step",
@@ -999,6 +1031,7 @@ const snapshot: IndexSnapshotEvent = {
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
     statusBar: { cost: true, session: false },
     titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+    proxy: { url: "http://127.0.0.1:7897", noProxy: Array.from({ length: 100 }, () => "h") },
   },
   resets: ["layouts"],
 };
@@ -1145,7 +1178,10 @@ describe("HostMessage", () => {
         preferences: { ...snapshot.preferences, displayMode },
       })),
       { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "sessions", "preferences"] },
-      { ...snapshot, preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {}, statusBar: {} } },
+      {
+        ...snapshot,
+        preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {}, statusBar: {}, proxy: null },
+      },
       ...ThinkingLevel.options.map((thinkingLevel) => ({
         type: "model_updated",
         ...at,
@@ -1217,6 +1253,7 @@ describe("HostMessage", () => {
       "install_unavailable",
       "install_not_found",
       "branch_not_found",
+      "proxy_invalid",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);

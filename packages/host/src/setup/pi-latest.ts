@@ -1,6 +1,7 @@
 import type { PiLatest, PiLatestEvent } from "@atrium/protocol";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
+import type { HttpFetch } from "../platform/proxy";
 import type { ResourceTracker } from "../platform/resources";
 import { readLimited } from "./install-script";
 
@@ -52,13 +53,19 @@ export class LatestError extends Error {
  *
  * @sideEffects Makes an HTTP request.
  * @param url - Where, normally {@link LATEST_VERSION_URL}.
- * @param options - The signal that cancels, the clock, and the time limit.
+ * @param options - How to fetch (through the proxy pi would use), the signal that cancels, the clock,
+ * and the time limit.
  * @returns The version.
  * @throws {LatestError} When it cannot be found, or the signal aborts.
  */
 export async function fetchLatestPi(
   url: string,
-  options: { readonly signal: AbortSignal; readonly clock: Clock; readonly timeoutMs?: number },
+  options: {
+    readonly fetch: HttpFetch;
+    readonly signal: AbortSignal;
+    readonly clock: Clock;
+    readonly timeoutMs?: number;
+  },
 ): Promise<string> {
   const deadline = new AbortController();
   const stopTimer = options.clock.setTimeout(() => deadline.abort(), options.timeoutMs ?? TIMEOUT_MS);
@@ -67,7 +74,7 @@ export async function fetchLatestPi(
     let response: Response;
     let body: string | null;
     try {
-      response = await fetch(url, { headers: { accept: "application/json" }, redirect: "manual", signal });
+      response = await options.fetch(url, { headers: { accept: "application/json" }, redirect: "manual", signal });
       body = response.ok ? await readLimited(response, MAX_BYTES) : null;
     } catch {
       if (options.signal.aborted) throw new LatestError("aborted");

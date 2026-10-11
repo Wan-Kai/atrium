@@ -223,6 +223,7 @@ function listWith(setupDone: boolean): Parameters<typeof fakeClient>[0] {
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     },
   };
 }

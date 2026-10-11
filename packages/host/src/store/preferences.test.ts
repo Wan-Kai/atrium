@@ -34,6 +34,7 @@ describe("PreferenceStore", () => {
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     });
 
     await store.set({ appearance: "dark" });
@@ -47,6 +48,7 @@ describe("PreferenceStore", () => {
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
       version: 2,
@@ -73,6 +75,7 @@ describe("PreferenceStore", () => {
       thinkingByModel: { "anthropic/claude-opus-5-5": "max", "openai/gpt-6": "low" },
       statusBar: {},
       titleModel: null,
+      proxy: null,
     });
   });
 
@@ -108,6 +111,7 @@ describe("PreferenceStore", () => {
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     });
   });
 
@@ -164,5 +168,30 @@ describe("PreferenceStore", () => {
       setupDone: true,
       titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
     });
+  });
+
+  it("has no proxy until one is set, also in a file from before it, and reads one the host would refuse as none", async () => {
+    const index = await indexDirectory();
+    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
+    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    const old = store.read();
+
+    await store.set({ proxy: { url: "http://127.0.0.1:7897", noProxy: [".example.com"] } });
+
+    expect(old.proxy).toBeNull();
+    expect(store.read().proxy).toStrictEqual({ url: "http://127.0.0.1:7897", noProxy: [".example.com"] });
+    expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
+      ...before,
+      proxy: { url: "http://127.0.0.1:7897", noProxy: [".example.com"] },
+    });
+
+    await writeFile(
+      join(index, "preferences.json"),
+      JSON.stringify({ ...before, proxy: { url: "http://me:secret@127.0.0.1:7897", noProxy: [] } }),
+    );
+    const handWritten = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+
+    expect(handWritten.read().proxy).toBeNull();
   });
 });

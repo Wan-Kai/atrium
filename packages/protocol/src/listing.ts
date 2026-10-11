@@ -128,6 +128,19 @@ export const StatusBarChoices = z.record(StatusGroupId, z.boolean());
 export type StatusBarChoices = z.infer<typeof StatusBarChoices>;
 
 /**
+ * The network proxy set in the settings: where requests go, and which hosts go direct.
+ *
+ * @remarks
+ * The host checks the address itself and answers `proxy_invalid` (SPEC-0001, "设置 · 接口"); the
+ * schema only bounds the sizes.
+ */
+export const ProxySetting = z.strictObject({
+  url: z.string().max(2048),
+  noProxy: z.array(z.string().max(255)).max(100),
+});
+export type ProxySetting = z.infer<typeof ProxySetting>;
+
+/**
  * Global preferences, the same for every client.
  *
  * @remarks
@@ -136,7 +149,8 @@ export type StatusBarChoices = z.infer<typeof StatusBarChoices>;
  * `statusBar` holds only the status bar groups you switched from their default, so a group added
  * later shows as its own default says (SPEC-0001, "状态栏（M1.8）"). `setupDone` says first launch
  * was gone through; `titleModel` names the model that names sessions, `null` for each session's own
- * (SPEC-0001, "首次启动", "设置").
+ * (SPEC-0001, "首次启动", "设置"). `proxy` is the network proxy pi and the host's own requests go
+ * through, `null` for the login shell's (SPEC-0001, "设置 · pi").
  */
 export const Preferences = z.strictObject({
   setupDone: z.boolean(),
@@ -146,6 +160,7 @@ export const Preferences = z.strictObject({
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
   statusBar: StatusBarChoices,
   titleModel: ModelRef.nullable(),
+  proxy: ProxySetting.nullable(),
 });
 export type Preferences = z.infer<typeof Preferences>;
 

@@ -66,6 +66,8 @@ export const ErrorCode = z.enum([
   "install_not_found",
   /** `origin` has no branch of that name; `params.branch` repeats it. */
   "branch_not_found",
+  /** The proxy setting was refused; `params.reason` is `malformed`, `scheme`, `credentials` or `no_proxy`. */
+  "proxy_invalid",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

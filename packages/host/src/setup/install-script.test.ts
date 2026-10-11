@@ -71,7 +71,7 @@ async function listen(server: Server): Promise<string> {
  * @returns The script.
  */
 function download(url: string, signal = new AbortController().signal): Promise<string> {
-  return downloadScript(url, { signal, clock: systemClock, timeoutMs: 1000 });
+  return downloadScript(url, { fetch, signal, clock: systemClock, timeoutMs: 1000 });
 }
 
 describe("downloadScript", () => {
@@ -80,6 +80,23 @@ describe("downloadScript", () => {
 
     expect(await download(`${base}/install.sh`)).toBe("echo installed\n");
     expect(await download(`${base}/moved`)).toBe("echo installed\n");
+  });
+
+  it("downloads with the fetch it is given, as through a proxy", async () => {
+    const base = await scriptServer();
+    const asked: string[] = [];
+
+    const script = await downloadScript(`${base}/moved`, {
+      fetch: (address, init) => {
+        asked.push(String(address));
+        return fetch(address, init);
+      },
+      signal: new AbortController().signal,
+      clock: systemClock,
+    });
+
+    expect(script).toBe("echo installed\n");
+    expect(asked).toStrictEqual([`${base}/moved`, `${base}/install.sh`]);
   });
 
   it("downloads a script of exactly 1 MiB", async () => {

@@ -57,6 +57,7 @@ describe("emptyIndex", () => {
         thinkingByModel: {},
         statusBar: {},
         titleModel: null,
+        proxy: null,
       },
       resets: [],
     });
@@ -237,6 +238,7 @@ describe("withContainer and withPreferences", () => {
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     });
   });
 

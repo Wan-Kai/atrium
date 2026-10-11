@@ -111,6 +111,9 @@ const SETUP: SetupState = {
 const WORKSPACE = "wks_0123456789abcdef";
 const MODEL = { providerId: "anthropic", modelId: "claude-haiku-4-5" };
 
+/** A proxy setting, passed on as it is; the index commands check it. */
+const PROXY = { url: "http://127.0.0.1:7897", noProxy: [".example.com"] };
+
 /**
  * A router over fake sessions, a connection whose handshake span is recorded, and what it sends.
  *
@@ -387,14 +390,20 @@ describe("createRouter", () => {
     );
     await route(
       connection,
-      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true }),
+      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true, proxy: PROXY }),
     );
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
     await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
     await route(
       connection,
-      withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true }, titleModel: MODEL }),
+      withTrace({
+        type: "set_preferences",
+        requestId: "r12",
+        statusBar: { cost: true },
+        titleModel: MODEL,
+        proxy: null,
+      }),
     );
     await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
     await route(connection, withTrace({ type: "check_setup", requestId: "r14", refresh: true }));
@@ -408,11 +417,11 @@ describe("createRouter", () => {
       ["renameWorkspace", WORKSPACE, null],
       ["windowFocused"],
       ["setPreferences", { appearance: "dark", titleModel: null }],
-      ["setPreferences", { displayMode: "thinking", setupDone: true }],
+      ["setPreferences", { displayMode: "thinking", setupDone: true, proxy: PROXY }],
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
       ["listModels", "chats", true],
-      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL }],
+      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL, proxy: null }],
       ["checkSetup", false],
       ["checkSetup", true],
     ]);

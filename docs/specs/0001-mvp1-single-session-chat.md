@@ -406,7 +406,7 @@ Electron 主进程
 - 找到的 pi 不能运行（`broken`）：和找不到一样重新安装，标题"pi 运行不了"，pi 自己的报错放在默认收起的"展开看原始报错"里（2026-10-11 定）。
 - 失败时显示"没有装好"、完整日志和"重试"，说明按原因区分：下载不了安装脚本（多半是网络问题）、启动不了、被中途结束、退出码 N。宿主拒绝开始时（`install_busy`、`install_unavailable`）在下方说明原因。
 - 手动方式始终显示在终端下面，不用展开（2026-10-11 定）：安装命令（安装脚本 / npm 两种，可切换、可复制；更新时是 `pi update`，装 Node 时是 `brew install node`），底栏的"我已经装好了"（更新时"我已经更新了"）用 `check_setup(refresh)` 重新检测，还是没有时提示"还是没找到（还是旧版本），可能要重开终端"。任务跑完了但重新检测后还是找不到能用的 pi（或 Node.js），提示可能要重开终端，并给"重新检测"。手动选择 pi 的位置暂不做（2026-10-11，待确认）。
-- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现，2026-10-05 定为取完整环境）：取登录 shell 的**完整环境**，不只是 `PATH`，这样 `.zshrc` 里设的 API Key、代理（`HTTPS_PROXY`）、`NODE_OPTIONS` 在 Atrium 里同样生效，和终端里的 pi 一致；实测取完整环境和只取 `PATH` 一样快，时间都花在 shell 启动上。先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设变量），失败或超时（10 秒）再用登录 shell（`-l -c`）；`/usr/bin/env -0` 的输出夹在随机标记之间，rc 文件打印的横幅、回显不影响，值里的换行不会被拆开；shell 自己的 `SHLVL`、`_`、`PWD`、`OLDPWD` 不要。shell 只带宿主的少数变量启动（`HOME`、`USER`、`SHELL`、`TMPDIR`、语言、`SSH_AUTH_SOCK`、`ZDOTDIR`、`PATH`），结果里去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，token 不会进入 pi 的环境。支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用宿主的环境（同样去掉这两类变量）。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 1～2.6 秒）；宿主启动时读一次，之后每个会话的 pi 都用这份环境；首次启动装好 pi 或 Node 后（`check_setup(refresh)`）再读一次，之后启动的 pi 用新的这份（2026-10-10 定）；日志的脱敏只增不减，旧环境里的密钥仍然脱敏，因为已经在跑的 pi 还拿着它们（2026-10-11 定）。环境里可能有密钥，日志只记来源、`PATH` 和变量个数。
+- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现，2026-10-05 定为取完整环境）：取登录 shell 的**完整环境**，不只是 `PATH`，这样 `.zshrc` 里设的 API Key、代理（`HTTPS_PROXY`）、`NODE_OPTIONS` 在 Atrium 里同样生效，和终端里的 pi 一致；实测取完整环境和只取 `PATH` 一样快，时间都花在 shell 启动上。先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设变量），失败或超时（10 秒）再用登录 shell（`-l -c`）；`/usr/bin/env -0` 的输出夹在随机标记之间，rc 文件打印的横幅、回显不影响，值里的换行不会被拆开；shell 自己的 `SHLVL`、`_`、`PWD`、`OLDPWD` 不要。shell 只带宿主的少数变量启动（`HOME`、`USER`、`SHELL`、`TMPDIR`、语言、`SSH_AUTH_SOCK`、`ZDOTDIR`、`PATH`），结果里去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，token 不会进入 pi 的环境。支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用宿主的环境（同样去掉这两类变量）。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 1～2.6 秒）；宿主启动时读一次，之后每个会话的 pi 都用这份环境；首次启动装好 pi 或 Node 后（`check_setup(refresh)`）再读一次，之后启动的 pi 用新的这份（2026-10-10 定）；日志的脱敏只增不减，旧环境里的密钥仍然脱敏，因为已经在跑的 pi 还拿着它们（2026-10-11 定）。环境里可能有密钥，日志只记来源、`PATH` 和变量个数。代理变量（`HTTPS_PROXY` 等）可以在设置里换掉（见"设置 · pi"的网络代理）；宿主自己发出的请求（查 pi 的最新版本、下载安装脚本）也按这份环境里的代理变量走，和 pi 一致（2026-10-11 定，原先宿主自己的请求不走代理，代理环境下查不到最新版本）。
 
 **第 2 步：登录模型**
 
@@ -484,11 +484,13 @@ Electron 主进程
   - 有新版本时显示"更新 pi"，刚更新过、之后又查到更新的版本也一样（2026-10-11 定）；侧栏的"设置"按钮和"pi"分类上各有一个蓝色小圆点，不弹窗、不打断。
   - 更新过程：有会话在运行时显示"等待 N 个会话运行结束"（可取消）；更新中显示终端输出和进度，可取消；失败显示完整输出和"重试"；完成后显示"已更新到 x.y.z"，可查看日志。更新期间新开的会话等更新完成再启动 pi。
   - "手动更新"折叠项：可复制的 `pi update` 和"我更新好了，重新检测"。
+  - 网络代理（2026-10-11 定，参考 Paseo 给服务商设环境变量的做法）：代理地址（如 `http://127.0.0.1:7897`）和"不走代理的地址"（逗号或换行分隔，如 `.anthropic.com`），"保存"和"不用代理"。设了之后，宿主交给 pi（会话、列模型、版本检查）、登录、安装和更新的环境里，`HTTPS_PROXY`、`HTTP_PROXY`（及小写）都是这个地址，`NO_PROXY`（及小写）是 `localhost,127.0.0.1,::1` 加上填的列表，取代登录 shell 里的同名变量；宿主自己查最新版本、下载安装脚本也走它。已经在跑的 pi 不受影响，下次启动时生效，组下面说明这一点。没设时沿用登录 shell 的代理变量。只接受 `http://`、`https://` 的地址，只有主机和端口，不能带用户名和密码（会进 pi 的环境，日志的脱敏也认不出来）；不接受时在输入框下说明原因。
 - **关于**：Atrium 版本、pi 版本、日志文件夹（"在访达中显示"）。
 
 **接口**（2026-10-10 定，M1.10）：
 
 - 偏好和 `set_preferences` 多了 `titleModel`（`{ providerId, modelId } | null`，`null` 为跟随会话的模型，M1.10 之前的偏好文件读作 `null`）和 `setupDone`（见"首次启动 · 什么时候显示"）。
+- 偏好和 `set_preferences` 多了 `proxy`（`{ url, noProxy } | null`，`null` 为不设，之前的偏好文件读作 `null`；2026-10-11 定）。宿主不接受的应答 `proxy_invalid`，`params.reason` 说明原因：`malformed`（不是地址，或除主机和端口外还有路径、查询）、`scheme`（不是 `http` / `https`）、`credentials`（带用户名或密码）、`no_proxy`（"不走代理"里有空项，或带空白、逗号）。日志只记代理来自设置、登录 shell 还是没有，不记地址。
 - `set_main_branch(projectId, branch | null)`：应答 `{}`；`null` 恢复自动；`branch` 必须是 `origin` 上存在的分支，否则应答 `branch_not_found`（`params.branch`）。改了之后宿主重新扫描这个项目的工作区（合并状态），正在显示的改动重新计算。
 - `list_branches(projectId)`：应答 `{ branches, head }`：`branches` 是 `origin` 上的分支名（不带 `origin/`，去掉 `HEAD`，按名字排列），供主干下拉用；`head` 是 `origin/HEAD` 指向的分支，"自动"旁边显示它，没有时为 `null`。不是 git 仓库或没有 git 时两者都为空（2026-10-11 定）。
 - 列表里的项目多了 `mainBranch`：用户选的主干，`null` 为自动（2026-10-11 定）。

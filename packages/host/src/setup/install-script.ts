@@ -1,4 +1,5 @@
 import type { Clock } from "../platform/clock";
+import type { HttpFetch } from "../platform/proxy";
 
 /** pi's official install script (SPEC-0001, "首次启动 · 第 1 步"). */
 export const INSTALL_SCRIPT_URL = "https://pi.dev/install.sh";
@@ -46,19 +47,25 @@ export class DownloadError extends Error {
  *
  * @sideEffects Makes HTTP requests.
  * @param url - The script's address, normally {@link INSTALL_SCRIPT_URL}.
- * @param options - The signal that cancels, the clock, and the time limit.
+ * @param options - How to fetch (through the proxy pi would use), the signal that cancels, the clock,
+ * and the time limit.
  * @returns The script.
  * @throws {DownloadError} When the script cannot be downloaded, or the signal aborts.
  */
 export async function downloadScript(
   url: string,
-  options: { readonly signal: AbortSignal; readonly clock: Clock; readonly timeoutMs?: number },
+  options: {
+    readonly fetch: HttpFetch;
+    readonly signal: AbortSignal;
+    readonly clock: Clock;
+    readonly timeoutMs?: number;
+  },
 ): Promise<string> {
   const deadline = new AbortController();
   const stopTimer = options.clock.setTimeout(() => deadline.abort(), options.timeoutMs ?? TIMEOUT_MS);
   const signal = AbortSignal.any([options.signal, deadline.signal]);
   try {
-    return await follow(new URL(url), signal);
+    return await follow(new URL(url), options.fetch, signal);
   } catch (error) {
     if (options.signal.aborted) throw new DownloadError("aborted");
     if (deadline.signal.aborted) throw new DownloadError("timeout");
@@ -76,11 +83,12 @@ export async function downloadScript(
  *
  * @sideEffects Makes HTTP requests.
  * @param start - The first address.
+ * @param fetch - Makes the requests.
  * @param signal - Aborts the requests.
  * @returns The script.
  * @throws {DownloadError} When the script cannot be downloaded; an abort is passed on as it is.
  */
-async function follow(start: URL, signal: AbortSignal): Promise<string> {
+async function follow(start: URL, fetch: HttpFetch, signal: AbortSignal): Promise<string> {
   let url = start;
   for (let moves = 0; moves <= MAX_REDIRECTS; moves += 1) {
     let response: Response;

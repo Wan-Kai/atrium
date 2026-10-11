@@ -5,6 +5,7 @@ import {
   StatusGroupId,
   type ThinkingLevel,
 } from "@atrium/protocol";
+import { proxyProblem } from "../platform/proxy";
 import type { IndexFile } from "./index-file";
 import type { PreferencesDocument } from "./index-schema";
 
@@ -29,7 +30,8 @@ export interface PreferenceStore {
  * field added in M1.8 without a new version, read as none; an id no group could have, as a hand
  * may write, is left out of what is read (SPEC-0001, "状态栏（M1.8）"). First launch is still to do,
  * and sessions are named with their own model, until told otherwise; a file from before M1.10, without
- * these fields, reads so too (SPEC-0001, "首次启动", "设置").
+ * these fields, reads so too (SPEC-0001, "首次启动", "设置"). No proxy is set until one is; one the
+ * host would refuse, as a hand may write, reads as none (SPEC-0001, "设置 · pi").
  *
  * @sideEffects none until `set`; then writes `preferences.json`.
  * @param file - The loaded file.
@@ -46,6 +48,7 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         thinkingByModel,
         statusBar = {},
         titleModel = null,
+        proxy = null,
       } = file.read();
       const groups = Object.entries(statusBar).filter(([id]) => StatusGroupId.safeParse(id).success);
       return {
@@ -56,6 +59,7 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         thinkingByModel,
         statusBar: Object.fromEntries(groups),
         titleModel,
+        proxy: proxy !== null && proxyProblem(proxy) === null ? proxy : null,
       };
     },
     set: (changes) => file.save({ ...file.read(), ...changes }),

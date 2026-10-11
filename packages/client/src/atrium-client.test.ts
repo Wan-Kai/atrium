@@ -987,6 +987,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     },
     resets: [],
     ...fields,
@@ -1138,6 +1139,7 @@ describe("createAtriumClient: the list", () => {
       thinkingByModel: {},
       statusBar: {},
       titleModel: null,
+      proxy: null,
     });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
@@ -1153,6 +1155,29 @@ describe("createAtriumClient: the list", () => {
       { type: "select_container", containerId: "chats" },
       { type: "set_preferences", displayMode: "detailed" },
     ]);
+  });
+
+  it("shows a proxy only once the host has checked it, and the other preferences at once", async () => {
+    const { client, latest } = await connected();
+    latest().receive(indexSnapshot(1));
+
+    const preferred = client.setPreferences({
+      appearance: "dark",
+      proxy: { url: "HTTP://127.0.0.1:7897/", noProxy: [] },
+    });
+
+    expect(client.index.getState().preferences).toMatchObject({ appearance: "dark", proxy: null });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "set_preferences")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "set_preferences", appearance: "dark", proxy: { url: "HTTP://127.0.0.1:7897/", noProxy: [] } },
+    ]);
+    latest().fail("set_preferences", "proxy_invalid");
+    await expect(preferred).rejects.toStrictEqual(new CommandError("proxy_invalid"));
+    expect(client.index.getState().preferences.proxy).toBeNull();
   });
 });
 

@@ -670,6 +670,7 @@ describe("ConversationArea's model button", () => {
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
           statusBar: {},
           titleModel: null,
+          proxy: null,
         },
       },
       { models: LIST },

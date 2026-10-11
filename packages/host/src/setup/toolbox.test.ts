@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { type HostTools, createToolbox } from "./toolbox";
+import type { ProxySetting } from "@atrium/protocol";
+import { type HostTools, createToolbox, withProxySetting } from "./toolbox";
 
 /**
  * Tools that differ only in their PATH.
@@ -155,3 +156,69 @@ describe("Toolbox", () => {
     expect(detection.calls).toHaveLength(0);
   });
 });
+
+describe("withProxySetting", () => {
+  it("puts the proxy set at each ask into the tools' environment, and leaves it out when none is", async () => {
+    const detection = scriptedDetection();
+    let setting: ProxySetting | null = { url: "http://127.0.0.1:7897", noProxy: [] };
+    const proxied = withProxySetting(createToolbox(detection.detect), () => setting);
+    proxied.start();
+    detection.calls[0]?.resolve(tools("/bin"));
+
+    const first = await proxied.current();
+    setting = null;
+    const second = await proxied.current();
+    setting = { url: "http://proxy.test:8080", noProxy: [".example.com"] };
+    const refreshed = proxied.refresh();
+    await settle();
+    detection.calls[1]?.resolve(tools("/usr/bin"));
+
+    expect(first).toStrictEqual({
+      ...tools("/bin"),
+      env: { PATH: "/bin", ...proxyVariables("http://127.0.0.1:7897", "") },
+    });
+    expect(second).toStrictEqual(tools("/bin"));
+    expect(await refreshed).toStrictEqual({
+      ...tools("/usr/bin"),
+      env: { PATH: "/usr/bin", ...proxyVariables("http://proxy.test:8080", ",.example.com") },
+    });
+  });
+
+  it("finds no tools where the toolbox found none, and closes it", async () => {
+    const detection = scriptedDetection();
+    const proxied = withProxySetting(createToolbox(detection.detect), () => ({
+      url: "http://127.0.0.1:7897",
+      noProxy: [],
+    }));
+    proxied.start();
+    detection.calls[0]?.resolve(null);
+
+    expect(await proxied.current()).toBeNull();
+    const closing = proxied.close();
+    await closing;
+    expect(detection.calls[0]?.signal.aborted).toBe(true);
+  });
+});
+
+/**
+ * The proxy variables a setting puts in the environment.
+ *
+ * @remarks
+ * This machine's hosts always go direct.
+ *
+ * @sideEffects none
+ * @param url - The proxy.
+ * @param more - What follows this machine's hosts in `NO_PROXY`.
+ * @returns The variables.
+ */
+function proxyVariables(url: string, more: string): Record<string, string> {
+  const noProxy = `localhost,127.0.0.1,::1${more}`;
+  return {
+    HTTPS_PROXY: url,
+    https_proxy: url,
+    HTTP_PROXY: url,
+    http_proxy: url,
+    NO_PROXY: noProxy,
+    no_proxy: noProxy,
+  };
+}
