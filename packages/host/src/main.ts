@@ -14,6 +14,7 @@ import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
+import type { AppProcessMetrics } from "./electron-port";
 import { createChangesService } from "./changes/changes-service";
 import { createCheckoutReader } from "./changes/checkout";
 import { createGitRunner } from "./platform/git";
@@ -102,6 +103,8 @@ export interface RunningHost {
   readonly logFile: string;
   /** Resolves once every log record so far is on disk, in order. */
   readonly flushLog: () => Promise<void>;
+  /** Logs one sample of the desktop app's processes, which Electron's main process cannot log itself. */
+  readonly recordAppMetrics: (processes: readonly AppProcessMetrics[]) => void;
   /** Disconnects clients, flushes logs and spans, and stops listening; later calls share the first. */
   readonly close: () => Promise<void>;
 }
@@ -572,6 +575,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     tools,
     logFile,
     flushLog: () => drainLogFile(destination),
+    recordAppMetrics: (processes) => logger.info({ processes }, "app metrics"),
     close: () => (closing ??= close()),
   };
 }

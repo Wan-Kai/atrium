@@ -38,7 +38,7 @@
 | 同一客户端的标签命令按收到的顺序生效：索引里已有的会话不等第一次扫描就打开、切换立刻生效；还不认识的会话等扫描时关掉的标签不会再打开；一条失败不耽误下一条；关闭后排队的命令不再执行；新建会话在 pi 启动后打开成所在容器的激活标签，这期间换过位置就不切过去（2026-10-08 修，原来在机器繁忙时重启后 ⌘W 偶尔无效） | `packages/host/src/sessions/session-manager.test.ts` "closes a tab closed while its opening waited for the first scan…"、"opens a session the index knows…without waiting for the first scan"、"goes on with a client's next tab change after one that failed"、"does nothing more for a client's queued tab changes once it closes"、"opens a new session's tab where it belongs but leaves the client where it went…"；`layouts.test.ts`；`apps/desktop/e2e/workspaces.spec.ts` | 已覆盖 |
 | 测试里的 git 不会穿过临时根目录、操作外面的仓库（`GIT_CEILING_DIRECTORIES`）（2026-10-08 修，变异测试时曾在 atrium 自己的仓库里切分支、建分支和 worktree） | `packages/testkit/src/git.test.ts` | 已覆盖 |
 | 宿主关闭时日志按写入的顺序落盘，最后一行是 "host stopped"；有写入正在进行时也一样；测试读日志前等全部落盘；写日志出错时不再一直等：等落盘的报错，关闭的直接关掉文件（2026-10-08 修，原来在机器繁忙时偶尔乱序） | `packages/host/src/platform/logger.test.ts` "drainLogFile"、"closeLogFile"（占满线程池，让一次写入一定还在进行；把流指向没打开的描述符，让写入一定失败）；`apps/desktop/e2e/shutdown.spec.ts` | 已覆盖 |
-| 宿主启动中途收到退出：不在退出后报"已就绪" | `packages/host/src/electron-port.test.ts` "does not report ready, and closes the host, when shutdown arrives while it is still starting"（启动和退出由测试控制） | 已覆盖 |
+| 宿主启动中途收到退出：不在退出后报"已就绪" | `packages/host/src/electron-port.test.ts` "does not report ready or take app metrics, and closes the host, when shutdown arrives while it is still starting"（启动和退出由测试控制） | 已覆盖 |
 | 重新连接时关闭旧连接，旧连接晚到的事件不改写新状态 | connection.test.ts "closes the previous socket on reconnect…" | 已覆盖 |
 | 界面跟随系统外观 | `packages/ui/src/design/appearance.browser.test.ts`；e2e "follows the system appearance" | 已覆盖 |
 | 连接状态的全部文案，包括启动中、桥接失败 | `packages/ui/src/app/connection-status.browser.test.tsx` | 已覆盖 |
@@ -319,6 +319,9 @@
 | 日志磁盘上最多保留 5 个（含之前运行的）；`current.log` 是普通文件时能自愈；日志流出错不崩溃 | logger.test.ts "openLogFile" | 已覆盖 |
 | 未结束的 span 计入资源计数 | `packages/host/src/server/connections.leak.test.ts` | 已覆盖 |
 | `pnpm trace` 打印链路，跳过不完整的行 | `scripts/trace.test.ts`（跨轮转文件、别的 trace、半行、无记录、用法错误） | 已覆盖 |
+| 宿主每分钟记录资源计数和内存（`resource usage`） | `packages/host/src/usage.host.test.ts` "logs resource counts and memory once a minute"（假时钟） | 已覆盖 |
+| Electron 主进程每分钟把各进程的内存和 CPU 交给宿主记录（`app metrics`）；宿主就绪前、退出后、格式不对或超出上限的丢掉（2026-10-11 定） | `electron-port.test.ts` "hands app metrics to the running host"、"drops app metrics…"、"accepts app metrics at the limits"；`usage.host.test.ts` "logs the desktop app's processes…"；`apps/desktop/e2e/shutdown.spec.ts` "hands samples of the app's processes…"（`ATRIUM_APP_METRICS_INTERVAL_MS` 缩短间隔） | 已覆盖 |
+| `pnpm usage` 按宿主的每次运行列出每小时的用量，比较第一个和最后一个小时的最低值，按规则标 `↑`；跨轮转文件、跳过半行、开头已轮转掉的运行从第一条记录算起（2026-10-11 定） | `scripts/usage.test.ts` | 已覆盖 |
 
 ## 资源与性能（testing.md）
 
