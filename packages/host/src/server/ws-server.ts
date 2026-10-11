@@ -1,5 +1,12 @@
 import { type Context, ROOT_CONTEXT, type Tracer, context } from "@opentelemetry/api";
-import { CloseCode, HelloMessage, PROTOCOL_VERSION, type WelcomeMessage } from "@atrium/protocol";
+import {
+  CloseCode,
+  HelloMessage,
+  type InstallUpdatedEvent,
+  type LoginUpdatedEvent,
+  PROTOCOL_VERSION,
+  type WelcomeMessage,
+} from "@atrium/protocol";
 import { type IncomingMessage, type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
@@ -65,6 +72,11 @@ export interface WsServerOptions {
   readonly logins: RouterOptions["logins"];
   /** Installing and updating pi and Node. */
   readonly installs: RouterOptions["installs"];
+  /**
+   * What a connection is told right after the welcome: the install job and the login under way or
+   * last ended, so a window that was away sees how they went (SPEC-0001, "首次启动 · 接口").
+   */
+  readonly catchUp: () => readonly (InstallUpdatedEvent | LoginUpdatedEvent)[];
   /** The latest pi. */
   readonly piLatest: RouterOptions["piLatest"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
@@ -324,6 +336,7 @@ function acceptConnection(ws: WebSocket, connectionId: string, route: Route, opt
     });
     const open = connection;
     options.subscriptions.connect(connectionId, (event) => open.send(event), accepted.clientId);
+    for (const event of options.catchUp()) open.send(event);
     beat();
   });
   ws.on("pong", () => {

@@ -26,6 +26,8 @@ export interface InstallService {
    * A session starting pi waits for it, so it starts the new pi (SPEC-0001, "首次启动 · 接口").
    */
   settled(): Promise<void>;
+  /** The state of the job under way, or of the last one, for a connection that just came. */
+  last(): InstallUpdatedEvent | null;
   /** Cancels the job under way and waits for its processes to go; no job starts after. */
   close(): Promise<void>;
 }
@@ -80,7 +82,8 @@ function commandFor(kind: InstallKind, tools: HostTools | null, cwd: string): Jo
  * job that succeeds shows done only after `afterSuccess`, which checks the tools again and, after
  * an update, stops idle sessions' pi so their next use starts the new one. Each change of state goes whole to every connection, and so does the output, as it
  * comes; the output is never logged, only the job's kind, outcome, exit code and failure reason
- * (SPEC-0001, "首次启动 · 接口").
+ * (SPEC-0001, "首次启动 · 接口"). The last job's state stays for connections that come later
+ * (`last`), so a window that was away sees how it ended; its output does not.
  *
  * @sideEffects none until asked; then downloads the install script, runs commands and broadcasts.
  * @param options - Where the tools come from, how to download the install script, the sessions an
@@ -103,6 +106,8 @@ export function createInstallService(options: {
   readonly logger: Logger;
 }): InstallService {
   let current: Job | null = null;
+  /** The job started last, under way or ended. */
+  let latest: Job | null = null;
   /** Released once the update of pi under way has ended; holds only while it runs. */
   let updating: PromiseWithResolvers<void> | null = null;
   let closed = false;
@@ -254,6 +259,7 @@ export function createInstallService(options: {
       if (kind === "update_pi") updating = Promise.withResolvers();
       const running = kind === "update_pi" ? options.sessions.running() : 0;
       if (running > 0) job.state = { ...job.state, state: "waiting", running };
+      latest = job;
       options.logger.info({ kind }, "install started");
       options.broadcast(job.state);
       const done = execute(job, command).then(
@@ -268,6 +274,7 @@ export function createInstallService(options: {
       void done.finally(() => finishing.delete(done));
       return { jobId: job.state.jobId };
     },
+    last: () => latest?.state ?? null,
     settled: () => (updating !== null && current?.state.state === "running" ? updating.promise : Promise.resolve()),
     cancel(jobId) {
       if (current === null || current.state.jobId !== jobId) throw new CommandError("install_not_found");

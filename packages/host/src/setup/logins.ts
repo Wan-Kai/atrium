@@ -27,11 +27,18 @@ const UNAVAILABLE: SetupLogin = { state: "unavailable" };
 export interface Logins {
   /** How each provider is signed in, or `unavailable` when the login program cannot use pi. */
   status(tools: HostTools | null): Promise<SetupLogin>;
-  /** Starts signing in through pi, or `null` when logins are unavailable. */
+  /**
+   * Starts signing in through pi, or `null` when logins are unavailable.
+   *
+   * @remarks
+   * `before` runs once the login can start and before its program does, as the login under way must
+   * go first; when logins are unavailable it never runs.
+   */
   start(
     tools: HostTools | null,
     request: LoginRequest,
     onUpdate: (update: LoginUpdate) => void,
+    before: () => Promise<void>,
   ): Promise<LoginRun | null>;
   /**
    * Removes a provider's stored credential through pi; `false` when logins are unavailable.
@@ -160,9 +167,11 @@ export function createLogins(options: {
 
   return {
     status: (tools) => tracked(check(tools)),
-    async start(tools, request, onUpdate) {
+    async start(tools, request, onUpdate, before) {
       const found = await programFor(tools);
-      return found === null ? null : startLogin(found.program, found.deps, request, onUpdate);
+      if (found === null) return null;
+      await before();
+      return startLogin(found.program, found.deps, request, onUpdate);
     },
     logout: (tools, providerId) =>
       tracked(

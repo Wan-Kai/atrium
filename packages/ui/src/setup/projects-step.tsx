@@ -1,4 +1,4 @@
-import type { AtriumClient } from "@atrium/client";
+import { type AtriumClient, CommandError } from "@atrium/client";
 import type { DiscoveredDirectory } from "@atrium/protocol";
 import { Check, FolderPlus } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
@@ -136,7 +136,8 @@ export function ProjectsStep({
    * Adds the ticked folders one by one, finishing once all are in.
    *
    * @remarks
-   * See `ProjectsStep`. A folder added leaves the list; the first failure is shown.
+   * See `ProjectsStep`. A folder added leaves the list, as does one already in a project
+   * (SPEC-0001, "第 3 步"); the first failure is shown.
    *
    * @sideEffects Sends `add_project`; updates the step's state; may finish first launch.
    */
@@ -146,7 +147,10 @@ export function ProjectsStep({
     let failure: string | null = null;
     for (const { path } of offered.filter((one) => ticked.has(one.path))) {
       try {
-        await client.addProject(path);
+        await client.addProject(path).catch((error: unknown) => {
+          // Already in a project, as a worktree or through a link: it is there, as wanted.
+          if (!(error instanceof CommandError) || error.code !== "project_exists") throw error;
+        });
         setOffered((before) => before.filter((one) => one.path !== path));
         setTicked((before) => new Set([...before].filter((one) => one !== path)));
       } catch (error) {

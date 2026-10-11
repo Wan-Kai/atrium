@@ -1,4 +1,4 @@
-import { CommandError, type LoginUpdatedEvent } from "@atrium/protocol";
+import { CommandError, LoginUpdatedEvent, PI_TEXT_MAX } from "@atrium/protocol";
 import { present } from "@atrium/testkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LOGIN_WORKER, fakePiTools } from "../../test/fake-pi-tools";
@@ -25,7 +25,8 @@ afterEach(async () => {
  * @sideEffects Creates a temporary directory; closes the service and removes the directory after
  * the test.
  * @param scenario - What the fake pi does, or `null` for no tools.
- * @returns The service, its events, the log records and the open login programs.
+ * @returns The service, its events, the log records, the open login programs, how often the
+ * credentials changed, and a way to take the tools away.
  */
 async function service(scenario: string | null): Promise<{
   service: LoginService;
@@ -33,6 +34,7 @@ async function service(scenario: string | null): Promise<{
   records: Record<string, unknown>[];
   open: () => number;
   changed: () => number;
+  loseTools: () => void;
 }> {
   let tools: HostTools | null = null;
   if (scenario !== null) {
@@ -66,6 +68,9 @@ async function service(scenario: string | null): Promise<{
     records: recording.records,
     open: () => recording.resources.snapshot()["pi-login"] ?? 0,
     changed: () => changed,
+    loseTools: () => {
+      tools = null;
+    },
   };
 }
 
@@ -278,18 +283,94 @@ describe("LoginService.login", () => {
     await vi.waitFor(() => expect(open()).toBe(0));
   });
 
-  it("cancels the login under way when another starts", async () => {
-    const { service: logins, events } = await service("patient");
+  it("cancels the login under way when another starts, and starts it once the first has gone", async () => {
+    const { service: logins, events, open } = await service("patient");
     await logins.login({ providerId: "acme", method: "oauth" });
     await until(events, (event) => event.progress === "Waiting");
 
     const { loginId } = await logins.login({ providerId: "beta", method: "oauth" });
-    const first = await until(events, endOf("l1"));
+    const programs = open();
     await until(events, waitingIn("l2"));
 
     expect(loginId).toBe("l2");
-    expect(first.state).toBe("cancelled");
-    expect(events.filter((event) => event.loginId === "l2").map(({ state }) => state)).not.toContain("cancelled");
+    // Its callback port is free again, and its end shows before the new login starts.
+    expect(programs).toBe(1);
+    expect(events.map(({ loginId: id, state }) => [id, state])).toStrictEqual([
+      ["l1", "running"],
+      ["l1", "running"],
+      ["l1", "cancelled"],
+      ["l2", "running"],
+      ["l2", "running"],
+    ]);
+  });
+
+  it("starts logins asked at once in the order asked, one at a time", async () => {
+    const { service: logins, events, open } = await service("patient");
+
+    const started = await Promise.all([
+      logins.login({ providerId: "acme", method: "oauth" }),
+      logins.login({ providerId: "beta", method: "oauth" }),
+    ]);
+    const programs = open();
+    await until(events, waitingIn("l2"));
+
+    expect(started).toStrictEqual([{ loginId: "l1" }, { loginId: "l2" }]);
+    expect(programs).toBe(1);
+    expect(
+      events.filter(({ state }) => state !== "running").map(({ loginId, state }) => [loginId, state]),
+    ).toStrictEqual([["l1", "cancelled"]]);
+  });
+
+  it("leaves the login under way alone when the next cannot start", async () => {
+    const { service: logins, events, loseTools } = await service("patient");
+    const { loginId } = await logins.login({ providerId: "acme", method: "oauth" });
+    await until(events, (event) => event.progress === "Waiting");
+    loseTools();
+
+    await expect(logins.login({ providerId: "beta", method: "oauth" })).rejects.toThrow(
+      new CommandError("login_unavailable"),
+    );
+
+    expect(events.map(({ loginId: id, state }) => [id, state])).toStrictEqual([
+      ["l1", "running"],
+      ["l1", "running"],
+    ]);
+    logins.cancel(loginId);
+    await until(events, endOf("l1"));
+  });
+
+  it("cuts pi's words to what the protocol carries", async () => {
+    const { service: logins, events } = await service("long");
+
+    const { loginId } = await logins.login({ providerId: "acme", method: "oauth" });
+    const asked = await until(events, (event) => event.questions.length > 0);
+    logins.answer(loginId, firstPrompt(asked), "a");
+    const done = await until(events, endOf(loginId));
+
+    expect(asked).toMatchObject({
+      authUrl: { url: "https://acme.test/authorize", instructions: "i".repeat(PI_TEXT_MAX) },
+      progress: "p".repeat(PI_TEXT_MAX),
+      questions: [
+        {
+          message: "m".repeat(PI_TEXT_MAX),
+          placeholder: "h".repeat(PI_TEXT_MAX),
+          options: [{ id: "a", label: "l".repeat(PI_TEXT_MAX) }],
+        },
+      ],
+    });
+    expect(done.error).toStrictEqual({ reason: "failed", detail: "e".repeat(PI_TEXT_MAX) });
+    expect(LoginUpdatedEvent.safeParse(done).success).toBe(true);
+  });
+
+  it("keeps the last login's state for connections that come later", async () => {
+    const { service: logins, events } = await service("fail");
+    const before = logins.last();
+
+    const { loginId } = await logins.login({ providerId: "acme", method: "oauth" });
+    const done = await until(events, endOf(loginId));
+
+    expect(before).toBeNull();
+    expect(logins.last()).toBe(done);
   });
 
   it("knows no login but the one under way", async () => {
@@ -327,6 +408,40 @@ describe("LoginService.login", () => {
 });
 
 describe("LoginService.logout", () => {
+  it("cancels a login to the same provider first, and waits for it to go", async () => {
+    const { service: logins, events, open, changed } = await service("patient");
+    await logins.login({ providerId: "acme", method: "oauth" });
+    await until(events, (event) => event.progress === "Waiting");
+
+    await logins.logout("acme");
+
+    expect(events.at(-1)).toMatchObject({ loginId: "l1", state: "cancelled" });
+    expect(open()).toBe(0);
+    expect(changed()).toBe(1);
+  });
+
+  it("waits for a login asked before it to start, then cancels it", async () => {
+    const { service: logins, events, open } = await service("patient");
+
+    const starting = logins.login({ providerId: "acme", method: "oauth" });
+    await logins.logout("acme");
+
+    expect(await starting).toStrictEqual({ loginId: "l1" });
+    expect(events.at(-1)).toMatchObject({ loginId: "l1", state: "cancelled" });
+    expect(open()).toBe(0);
+  });
+
+  it("leaves a login to another provider under way", async () => {
+    const { service: logins, events, changed } = await service("patient");
+    await logins.login({ providerId: "acme", method: "oauth" });
+    await until(events, (event) => event.progress === "Waiting");
+
+    await logins.logout("beta");
+
+    expect(events.map(({ state }) => state)).toStrictEqual(["running", "running"]);
+    expect(changed()).toBe(1);
+  });
+
   it("removes the credential through pi", async () => {
     const { service: logins, changed } = await service("status");
 
@@ -345,5 +460,16 @@ describe("LoginService.logout", () => {
       params: { reason: "failed", detail: "locked acme" },
     });
     expect(changed()).toBe(0);
+  });
+
+  it("cuts pi's words to what the protocol carries when pi refuses", async () => {
+    const { service: logins } = await service("logout-fails");
+    // The fake pi quotes the provider in its refusal.
+    const provider = "x".repeat(PI_TEXT_MAX);
+
+    await expect(logins.logout(provider)).rejects.toMatchObject({
+      code: "logout_failed",
+      params: { reason: "failed", detail: `locked ${provider}`.slice(0, PI_TEXT_MAX) },
+    });
   });
 });

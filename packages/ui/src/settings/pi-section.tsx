@@ -22,7 +22,8 @@ import { BUTTON, GHOST_BUTTON, Group, LINK_BUTTON, PRIMARY_BUTTON, PiMark, Row, 
  *
  * @remarks
  * SPEC-0001 ("设置 · pi"): an update waits for running sessions, shows its output while running,
- * the whole of it with "重试" once failed, and the version reached once done. The manual way is
+ * the whole of it with "重试" once failed, and the version reached once done, until a newer one is
+ * found (2026-10-11 定). The manual way is
  * always there, and opens by itself after a failure. Updating runs the pi the user installed, so
  * the terminal's pi updates too.
  *
@@ -159,6 +160,7 @@ export function PiSection({
         <div className="mx-3">
           <UpdateBlock
             pi={pi}
+            settling={setup.status === "loading"}
             job={job}
             onUpdate={() => run(() => client.updatePi())}
             onCancel={(jobId) => run(() => client.cancelInstall(jobId))}
@@ -237,19 +239,24 @@ function UpToDate() {
  * Where updating pi is: offered, waiting, running, failed or done.
  *
  * @remarks
- * See `PiSection`. A cancelled update shows as if none had started.
+ * See `PiSection`. A cancelled update shows as if none had started. A done update gives way to a
+ * newer pi found since; while the checks after it are on their way, pi still has the old version,
+ * so it shows done without one.
  *
  * @sideEffects none; the buttons call back.
- * @param props - pi, the update job if any, and what the buttons do.
+ * @param props - pi, whether the checks are on their way, the update job if any, and what the
+ * buttons do.
  * @returns The block.
  */
 function UpdateBlock({
   pi,
+  settling,
   job,
   onUpdate,
   onCancel,
 }: {
   readonly pi: SetupPi;
+  readonly settling: boolean;
   readonly job: InstallJob | null;
   readonly onUpdate: () => void;
   readonly onCancel: (jobId: string) => void;
@@ -311,11 +318,11 @@ function UpdateBlock({
       </Block>
     );
   }
-  if (job !== null && state === "ok") {
+  if (job !== null && state === "ok" && (settling || !piUpdateAvailable(pi))) {
     return (
       <Block
         icon={<CheckCircle size={20} className="text-[var(--ok-text)]" />}
-        title={`已更新到 ${pi.version ?? ""}`}
+        title={settling ? "已更新" : `已更新到 ${pi.version ?? ""}`}
         detail="空闲会话的 pi 在下次使用时用新版本重启"
         controls={
           <button type="button" className={GHOST_BUTTON} aria-expanded={showLog} onClick={() => setShowLog(!showLog)}>

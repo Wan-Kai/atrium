@@ -1,6 +1,15 @@
 import { z } from "zod";
 import { MODEL_LIMITS } from "./models";
 
+/**
+ * The longest of pi's own words the protocol carries: its error output, a login's questions and notices.
+ *
+ * @remarks
+ * The host cuts longer text to this before sending, so a message is never dropped for being too long
+ * (SPEC-0001, "首次启动 · 接口").
+ */
+export const PI_TEXT_MAX = 16_384;
+
 /** A `major.minor.patch` version, as the host reports it. */
 const VersionText = z.string().regex(/^\d+\.\d+\.\d+$/);
 
@@ -35,7 +44,7 @@ export const SetupPi = z.strictObject({
   path: z.string().max(4096).nullable(),
   version: VersionText.nullable(),
   minimum: VersionText,
-  detail: z.string().max(16_384).nullable(),
+  detail: z.string().max(PI_TEXT_MAX).nullable(),
   ...PiLatest.shape,
 });
 export type SetupPi = z.infer<typeof SetupPi>;
@@ -90,7 +99,7 @@ export type LoginMethod = z.infer<typeof LoginMethod>;
 const HttpsUrl = z.string().max(8192).startsWith("https://");
 
 /** pi's own words in a login, as pi gives them. */
-const PiText = z.string().max(16_384);
+const PiText = z.string().max(PI_TEXT_MAX);
 
 /** A question pi asks during a login (SPEC-0001, "第 2 步：登录模型"). */
 export const LoginQuestion = z.strictObject({
@@ -133,6 +142,16 @@ export const LoginUpdatedEvent = z.strictObject({
   error: z.strictObject({ reason: LoginFailureReason, detail: PiText.nullable() }).nullable(),
 });
 export type LoginUpdatedEvent = z.infer<typeof LoginUpdatedEvent>;
+
+/**
+ * pi's credentials changed: a login ended signed in, or a logout removed one (SPEC-0001, "首次启动 · 接口").
+ *
+ * @remarks
+ * Sent to every connection, so each window asks `check_setup` again and reloads the models it
+ * showed.
+ */
+export const CredentialsChangedEvent = z.strictObject({ type: z.literal("credentials_changed") });
+export type CredentialsChangedEvent = z.infer<typeof CredentialsChangedEvent>;
 
 /** The latest pi found, sent to every connection each time a check finds it. */
 export const PiLatestEvent = z.strictObject({

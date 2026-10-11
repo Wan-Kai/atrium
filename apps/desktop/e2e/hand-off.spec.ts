@@ -23,7 +23,8 @@ test("hands a chat to the terminal with its command, keeps it there across a res
     await expect(panel()).toBeVisible({ timeout: 30_000 });
     const command = await panel().locator("code").textContent();
     expect(command).toMatch(/^pi --session '\/[^']+\.jsonl'$/);
-    expect(await window.evaluate(() => sessionStorage.getItem("copied"))).toBe(command);
+    // The page copies once the host answers, which may be after the panel shows.
+    await expect.poll(() => window.evaluate(() => sessionStorage.getItem("copied"))).toBe(command);
     await expect(window.getByRole("textbox", { name: "消息" })).toHaveCount(0);
     await launched.quit();
 

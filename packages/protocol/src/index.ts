@@ -77,6 +77,7 @@ export {
 export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
 export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export {
+  CredentialsChangedEvent,
   DiscoveredDirectory,
   InstallKind,
   InstallOutputEvent,
@@ -85,6 +86,7 @@ export {
   LoginMethod,
   LoginQuestion,
   LoginUpdatedEvent,
+  PI_TEXT_MAX,
   PiLatest,
   PiLatestEvent,
   SetupLogin,

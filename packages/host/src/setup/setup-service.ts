@@ -1,6 +1,7 @@
 import { MIN_PI_VERSION, type NodeInspection, type PiInspection, type Version } from "@atrium/pi";
 import type { PiLatest, SetupNode, SetupPi, SetupState } from "@atrium/protocol";
 import type { Logins } from "./logins";
+import { cutPiText } from "./pi-text";
 import type { Toolbox } from "./toolbox";
 
 /** First launch's checks. */
@@ -27,8 +28,9 @@ function versionText(version: Version): string {
  * pi as first launch shows it.
  *
  * @remarks
- * A pi that is there but does not run is `broken`, with its own error output (SPEC-0001, "首次启动 ·
- * 接口"). No tools at all, when detection failed, reads as no pi.
+ * A pi that is there but does not run is `broken`, with its own error output, cut to what the
+ * protocol carries (SPEC-0001, "首次启动 · 接口"). No tools at all, when detection failed, reads as
+ * no pi.
  *
  * @sideEffects none
  * @param pi - What detection found, if it ran.
@@ -39,7 +41,9 @@ function setupPi(pi: PiInspection | undefined): Omit<SetupPi, keyof PiLatest> {
   if (pi === undefined || pi.status === "missing") {
     return { state: "missing", path: null, version: null, minimum, detail: null };
   }
-  if (pi.status === "unusable") return { state: "broken", path: pi.piPath, version: null, minimum, detail: pi.detail };
+  if (pi.status === "unusable") {
+    return { state: "broken", path: pi.piPath, version: null, minimum, detail: cutPiText(pi.detail) };
+  }
   return { state: pi.status, path: pi.piPath, version: versionText(pi.version), minimum, detail: null };
 }
 
@@ -78,12 +82,14 @@ export function createSetupService(options: {
   return {
     check: async (refresh) => {
       const tools = await (refresh ? options.toolbox.refresh() : options.toolbox.current());
+      const login = await options.logins.status(tools);
       return {
+        // Taken after the logins, which take a while: at startup the first look ends meanwhile.
         pi: { ...setupPi(tools?.pi), ...options.latest() },
         node: setupNode(tools?.node),
         homebrew: (tools?.homebrew ?? null) !== null,
         fd: (tools?.fd ?? null) !== null,
-        login: await options.logins.status(tools),
+        login,
         projects: options.projects(),
       };
     },

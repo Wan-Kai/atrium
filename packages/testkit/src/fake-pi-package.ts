@@ -74,6 +74,13 @@ const runtime = {
       await new Promise((resolve) => interaction.signal.addEventListener("abort", resolve));
       throw new Error("aborted");
     }
+    if (scenario === "long") {
+      const page = (letter) => letter.repeat(20000);
+      interaction.notify({ type: "auth_url", url: "https://acme.test/authorize", instructions: page("i") });
+      interaction.notify({ type: "progress", message: page("p") });
+      await interaction.prompt({ type: "select", message: page("m"), placeholder: page("h"), options: [{ id: "a", label: page("l") }] });
+      throw new Error(page("e"));
+    }
     if (scenario === "fail") throw new Error("token exchange failed: 400");
     if (scenario === "fail-value") throw "plain failure";
     if (scenario === "deaf") {

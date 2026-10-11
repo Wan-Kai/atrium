@@ -364,6 +364,22 @@ describe("InstallService.start", () => {
   });
 });
 
+describe("InstallService.last", () => {
+  it("keeps the state of the job under way, then of the last one, but not of one it could not run", async () => {
+    const { service: installs, events } = await service({ tools: (tools) => ({ ...tools, homebrew: null }) });
+    const before = installs.last();
+
+    await installs.start("install_pi");
+    const running = installs.last();
+    const done = await ended(events);
+    await expect(installs.start("install_node")).rejects.toMatchObject({ code: "install_unavailable" });
+
+    expect(before).toBeNull();
+    expect(running).toStrictEqual({ ...UPDATE, jobId: "j1", kind: "install_pi", state: "running" });
+    expect(installs.last()).toBe(done);
+  });
+});
+
 describe("InstallService after a job", () => {
   it("checks the tools again after a job succeeds, before showing it done", async () => {
     const { service: installs, events, succeeded } = await service();

@@ -1,5 +1,6 @@
 import type {
   ChangesUpdatedEvent,
+  CredentialsChangedEvent,
   DiffUpdatedEvent,
   IndexChangesEvent,
   IndexSnapshotEvent,
@@ -24,7 +25,12 @@ type SinkEvent =
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */
-type BroadcastEvent = LoginUpdatedEvent | InstallUpdatedEvent | InstallOutputEvent | PiLatestEvent;
+type BroadcastEvent =
+  | LoginUpdatedEvent
+  | InstallUpdatedEvent
+  | InstallOutputEvent
+  | PiLatestEvent
+  | CredentialsChangedEvent;
 
 /** A connection that subscribed to the list, and the client behind it. */
 export interface IndexSubscriber {

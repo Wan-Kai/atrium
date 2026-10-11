@@ -1888,6 +1888,60 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false }]);
   });
 
+  it("leaves a session alone while one of its dialogs waits for an answer", async () => {
+    const { manager, received, starts, run } = await opened([[...turn, confirmation("d1")]]);
+    await run();
+    await vi.waitFor(() => expect(manager.summaries()[0]?.asking).not.toBeNull());
+
+    await manager.stopIdle();
+
+    expect(received.map((event) => event.type)).not.toContain("session_exited");
+    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false }]);
+    expect(starts()).toHaveLength(1);
+  });
+
+  it("waits for a session's pi starting meanwhile, which may be the old one, and stops it once idle", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const reading = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<TurnStarts>();
+    const { manager, catalog, starts, resources } = await manage({ argvToStderr: true, rules: SESSION_ONE }, at, () => {
+      reading.resolve();
+      return read.promise;
+    });
+    await catalog.scan();
+    const opening = manager.openSession("client-1", "pi-session-1");
+    await reading.promise;
+
+    const stopping = manager.stopIdle();
+    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    await stopping;
+    await opening;
+
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false }]);
+    expect(starts()).toHaveLength(1);
+  });
+
+  it("waits for a new chat's pi starting meanwhile, and stops it once idle", async () => {
+    const reading = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<TurnStarts>();
+    const { manager, starts, resources } = await manage({ argvToStderr: true, rules: SESSION_ONE }, undefined, () => {
+      reading.resolve();
+      return read.promise;
+    });
+    const creating = manager.createChat("client-1");
+    await reading.promise;
+
+    const stopping = manager.stopIdle();
+    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    await stopping;
+
+    expect(await creating).toStrictEqual({ sessionId: "pi-session-1" });
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+    expect(starts()).toHaveLength(1);
+  });
+
   it("leaves running sessions alone", async () => {
     const { manager, received, starts } = await opened([[{ type: "agent_start" }]]);
     await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });

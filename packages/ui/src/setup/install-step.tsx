@@ -132,7 +132,8 @@ function primary(label: string, onClick: () => void) {
  * @remarks
  * SPEC-0001 ("首次启动 · 第 1 步"). The host runs pi's install script, `brew install node` or
  * `pi update`, its output live in the terminal, cancellable; once Node.js is in, pi's install
- * follows by itself, and once pi is ready the step goes on. The manual way is always under the
+ * follows by itself and shows at once, before the checks find Node.js, and once pi is ready the
+ * step goes on. The manual way is always under the
  * terminal: the commands to copy, and "我已经装好了" in the footer to check again, which has the
  * host read the login shell again since the install may have changed `PATH` (2026-10-11 定).
  * Without Homebrew, Node.js is downloaded from nodejs.org. A broken pi shows its own error under
@@ -168,7 +169,9 @@ export function InstallStep({
   const [nodeJob, setNodeJob] = useState<string | null>(null);
   const [detail, setDetail] = useState(false);
   const state = setup.state;
-  const variant = variantOf(setup.status, state);
+  const checked = variantOf(setup.status, state);
+  // pi's install that follows this window's Node.js install shows before the checks find Node.js.
+  const variant = checked === "node" && nodeJob !== null && shown?.job.kind === "install_pi" ? "install" : checked;
   useNextOnceReady(variant === "ready", onNext);
 
   const nodeDone = shown?.job.kind === "install_node" && shown.job.state === "ok" && shown.job.jobId === nodeJob;

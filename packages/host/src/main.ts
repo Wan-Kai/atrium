@@ -26,7 +26,7 @@ import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platfor
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
-import { findHomebrew } from "./setup/homebrew";
+import { findHomebrew, withHomebrewOnPath } from "./setup/homebrew";
 import { createLoginService } from "./setup/login-service";
 import { runJob } from "./setup/install-job";
 import { INSTALL_SCRIPT_URL, downloadScript } from "./setup/install-script";
@@ -132,7 +132,7 @@ const RESOURCE_REPORT_INTERVAL_MS = 60_000;
  */
 export async function startHost(config: HostConfig): Promise<RunningHost> {
   const clock = config.clock ?? systemClock;
-  let environmentSecrets: readonly string[] = [];
+  const environmentSecrets = new Set<string>();
   const home = await ensureAtriumHome(config.home);
   const now = clock.now();
   const lock = await acquireHostLock(home.root, {
@@ -146,7 +146,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const logger = createLogger({
     destination,
     level: config.logLevel ?? "info",
-    // Credentials from the tool environment join once it is known (`detectTools`).
+    // Credentials from the tool environment join once it is known (`detectTools`), and stay.
     secrets: () => [config.token, ...environmentSecrets],
     service: "host",
   });
@@ -365,8 +365,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     toolbox,
     logins,
     broadcast: (event) => subscriptions.broadcast(event),
-    // The models pi can use may have changed (SPEC-0001, "模型列表").
-    credentialsChanged: () => models.forget(),
+    // The models pi can use may have changed (SPEC-0001, "模型列表"), and every window shows them.
+    credentialsChanged: () => {
+      models.forget();
+      subscriptions.broadcast({ type: "credentials_changed" });
+    },
     newId: () => randomUUID(),
     logger,
   });
@@ -422,6 +425,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       setup,
       logins: loginService,
       installs,
+      catchUp: () => [installs.last(), loginService.last()].filter((event) => event !== null),
       piLatest,
       attachments,
       changes,
@@ -454,9 +458,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * pi behaves as in the user's terminal (SPEC-0001, "第 1 步：安装 pi"); only its source, PATH and
    * size are logged, because it may hold API keys. Closing the host aborts it, and it is counted
    * as a resource, so it cannot outlive the host unnoticed. It never rejects. The toolbox runs it
-   * again when first launch asks to refresh.
+   * again when first launch asks to refresh. A Homebrew found outside PATH joins its end, so the
+   * Node it installs is found (SPEC-0001, "第 1 步：安装 pi").
    *
-   * @sideEffects Spawns the login shell, `pi --version` and `node --version`; logs the outcome.
+   * @sideEffects Spawns the login shell, `pi --version` and `node --version`; adds the environment's
+   * credentials to what the log redacts; logs the outcome.
    * @param signal - Aborted when the host closes.
    * @returns The tools found, or `null` if the host closed first or detection failed.
    */
@@ -473,16 +479,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
               onFailure: (failure) => logger.warn({ ...failure }, "login shell attempt failed"),
             })
           : { source: "configured", env: config.toolEnv };
-      const path = found.env["PATH"] ?? "";
-      const { env, ...origin } = found;
-      // Before anything from this environment can reach the log, including the line below.
-      environmentSecrets = secretsInEnvironment(env);
+      const { env: shellEnv, ...origin } = found;
+      // Before anything from this environment can reach the log, including the line below. The
+      // credentials of an earlier one stay: a pi started before still holds them.
+      for (const secret of secretsInEnvironment(shellEnv)) environmentSecrets.add(secret);
+      const homebrew = await findHomebrew(shellEnv["PATH"] ?? "", config.homebrewPlaces);
+      const env = withHomebrewOnPath(shellEnv, homebrew);
+      const path = env["PATH"] ?? "";
       logger.info({ ...origin, path, variables: Object.keys(env).length }, "tool environment resolved");
       if (signal.aborted) return null;
-      const [pi, node, homebrew, fd] = await Promise.all([
+      const [pi, node, fd] = await Promise.all([
         inspectPi(path, { env, clock, signal }),
         inspectNode(path, { env, clock, signal }),
-        findHomebrew(path, config.homebrewPlaces),
         findFd(env),
       ]);
       if (signal.aborted) return null;

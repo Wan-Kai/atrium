@@ -489,17 +489,18 @@ function workPath(file: File): string {
  * An `add_project` answer that fails the `number`th time, counting from 1.
  *
  * @remarks
- * With a plain error, which the step words as a generic failure.
+ * A plain error by default, which the step words as a generic failure.
  *
  * @sideEffects none until called; then counts the calls.
  * @param number - Which call fails.
+ * @param error - What it fails with.
  * @returns The answer.
  */
-function failingAt(number: number): () => Promise<void> {
+function failingAt(number: number, error: Error = new Error("gone")): () => Promise<void> {
   let calls = 0;
   return async () => {
     calls += 1;
-    if (calls === number) throw new Error("gone");
+    if (calls === number) throw error;
   };
 }
 
@@ -675,6 +676,15 @@ describe("First launch · step 1", () => {
     await expect.poll(() => calls).toStrictEqual(["installNode", "installPi"]);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(calls).toStrictEqual(["installNode", "installPi"]);
+
+    // Before the checks find the new Node.js, pi's install shows here all the same.
+    installJob.setState(job({ jobId: "j4" }, "installing pi\n"), true);
+    await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("先装好 pi");
+    await expect.element(screen.getByRole("log", { name: "安装 pi" })).toHaveTextContent("安装 piinstalling pi");
+    await expect.element(screen.getByRole("button", { name: "正在安装" })).toBeDisabled();
+    installJob.setState(job({ jobId: "j4", state: "failed", exitCode: 1, reason: "exit" }, "installing pi\n"), true);
+    await screen.getByRole("button", { name: "重试" }).click();
+    expect(calls).toStrictEqual(["installNode", "installPi", "installPi"]);
   });
 
   it("does not install pi after a Node.js install it did not start", async () => {
@@ -880,6 +890,27 @@ describe("First launch · step 3", () => {
         .map((one) => one.getAttribute("aria-label")),
     ).toStrictEqual(["blog"]);
     expect(finished).toStrictEqual([]);
+  });
+
+  it("counts a folder already in a project as added, finishing when the rest are in", async () => {
+    const answers = {
+      discover: async () => FOUND,
+      addProject: failingAt(2, new CommandError("project_exists", { projectId: "p1" })),
+    };
+    const { screen, calls, finished } = await projectsStep({ answers });
+    const folders = screen.getByRole("group", { name: "要添加的文件夹" });
+
+    await folders.getByRole("checkbox", { name: "blog" }).click();
+    await screen.getByRole("button", { name: "添加 2 个项目" }).click();
+
+    await expect.poll(() => finished).toStrictEqual(["done"]);
+    expect(screen.getByRole("alert").elements()).toStrictEqual([]);
+    expect(calls).toStrictEqual([
+      "discoverProjects",
+      "addProject /work/atrium",
+      "addProject /work/blog",
+      'setPreferences {"setupDone":true}',
+    ]);
   });
 
   it("waits for something ticked, and starts a chat instead with 先新建一个对话", async () => {

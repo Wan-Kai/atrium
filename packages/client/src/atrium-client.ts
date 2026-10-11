@@ -15,6 +15,7 @@ import {
   type LoginUpdatedEvent,
   type ModelRef,
   PROTOCOL_VERSION,
+  type PiLatest,
   type Preferences,
   type SessionEvent,
   type SessionModel,
@@ -333,6 +334,24 @@ function parseFrame(data: unknown): unknown {
 // Stryker restore ConditionalExpression,BlockStatement
 
 /**
+ * The latest pi found later of two.
+ *
+ * @remarks
+ * A `check_setup` answer and a `pi_latest` push can cross; whichever was found later holds
+ * (SPEC-0001, "设置 · 接口"). One never found is older than any found.
+ *
+ * @sideEffects none
+ * @param held - The one held now.
+ * @param other - The other.
+ * @returns The one found later; `held` when neither was.
+ */
+function newerLatest(held: PiLatest, other: PiLatest): PiLatest {
+  // Stryker disable next-line EqualityOperator: two looks at the same moment found the same.
+  const { latest, checkedAt } = (other.checkedAt ?? -1) > (held.checkedAt ?? -1) ? other : held;
+  return { latest, checkedAt };
+}
+
+/**
  * Creates the client: the only way the UI talks to the host.
  *
  * @remarks
@@ -357,6 +376,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const installJob = createStore<InstallJob | null>(() => null);
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   let setupAsks = 0;
+  /** The latest pi the host pushed, kept while no `check_setup` answer holds it. */
+  let pushedLatest: PiLatest = { latest: null, checkedAt: null };
   const openSocket: (url: string) => SocketLike = options.openSocket ?? ((url: string) => new WebSocket(url));
   const createTrace = options.createTrace ?? createTraceContext;
   const clock = options.clock ?? systemClock;
@@ -675,7 +696,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    *
    * @remarks
    * Only the answer to the latest ask lands, so an older answer arriving late does not undo a
-   * newer one.
+   * newer one. A latest pi pushed while the ask was on its way, or before any, stays if it was
+   * found later than the answer's (SPEC-0001, "设置 · 接口").
    *
    * @sideEffects Sends `check_setup`; updates the setup store.
    * @param refresh - Whether the host reads the login shell again first.
@@ -686,11 +708,50 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     setup.setState({ status: "loading", error: null });
     try {
       const state = await request("check_setup", { refresh });
-      if (ask === setupAsks) setup.setState({ status: "ready", state, error: null });
+      const pi = { ...state.pi, ...newerLatest(state.pi, pushedLatest) };
+      if (ask === setupAsks) setup.setState({ status: "ready", state: { ...state, pi }, error: null });
     } catch (error) {
       // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
       const failure = error instanceof Error ? error : new Error(String(error));
       if (ask === setupAsks) setup.setState({ status: "failed", error: failure });
+    }
+  }
+
+  /**
+   * Reloads every model list asked for, once the models pi can use may have changed.
+   *
+   * @remarks
+   * After pi's credentials changed (SPEC-0001, "首次启动 · 接口"); lists never asked for stay so.
+   *
+   * @sideEffects Sends `list_models` for each list asked for; updates their stores.
+   */
+  function reloadModels(): void {
+    for (const [containerId, list] of modelLists) {
+      // Fire and forget: the failure lands in the list.
+      if (list.getState().status !== "idle") void loadModels(containerId, false);
+    }
+  }
+
+  /**
+   * Asks for a container's models.
+   *
+   * @remarks
+   * See {@link AtriumClient.loadModels}.
+   *
+   * @sideEffects Sends `list_models`; updates the list's store.
+   * @param containerId - The container.
+   * @param refresh - Whether pi is asked again.
+   */
+  async function loadModels(containerId: ContainerId, refresh: boolean): Promise<void> {
+    const list = modelList(containerId);
+    list.setState({ status: "loading", error: null });
+    try {
+      const { models, defaultModel } = await request("list_models", { containerId, refresh });
+      list.setState({ status: "ready", models, defaultModel, error: null });
+    } catch (error) {
+      // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
+      const failure = error instanceof Error ? error : new Error(String(error));
+      list.setState({ status: "failed", models: [], defaultModel: null, error: failure });
     }
   }
 
@@ -787,16 +848,22 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       return;
     }
     if (message.type === "pi_latest") {
+      // Each push was found later than all before it, and than any answer that came before it.
+      const { latest, checkedAt } = message;
+      pushedLatest = { latest, checkedAt };
       const { state } = setup.getState();
       if (state === null) return;
-      const { latest, checkedAt } = message;
       setup.setState({ state: { ...state, pi: { ...state.pi, latest, checkedAt } } });
+      return;
+    }
+    if (message.type === "credentials_changed") {
+      askSetupAgain();
+      reloadModels();
       return;
     }
     if (message.type === "login_updated") {
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       loginState.setState(message, true);
-      if (message.state === "ok") askSetupAgain();
       return;
     }
     if (message.type === "diff_updated") {
@@ -903,6 +970,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         const { hostVersion, hostInstanceId, heartbeatMs, installSeed, logDir } = parsed.data;
         if (hostInstance !== undefined && hostInstance !== hostInstanceId) {
           loseSessions();
+          // The new host knows neither; it tells what it has right after the welcome.
+          installJob.setState(null, true);
+          loginState.setState(null, true);
           askSetupAgain();
         }
         hostInstance = hostInstanceId;
@@ -1053,18 +1123,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       request("answer_interaction", { sessionId, interactionId, answer }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
     models: (containerId) => modelList(containerId),
-    async loadModels(containerId, refresh = false) {
-      const list = modelList(containerId);
-      list.setState({ status: "loading", error: null });
-      try {
-        const { models, defaultModel } = await request("list_models", { containerId, refresh });
-        list.setState({ status: "ready", models, defaultModel, error: null });
-      } catch (error) {
-        // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
-        const failure = error instanceof Error ? error : new Error(String(error));
-        list.setState({ status: "failed", models: [], defaultModel: null, error: failure });
-      }
-    },
+    loadModels: (containerId, refresh = false) => loadModels(containerId, refresh),
     setModel: (sessionId, model) =>
       withGuessedModel(
         sessionId,
@@ -1080,11 +1139,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       request("login", key === undefined ? { providerId, method } : { providerId, method, key }),
     answerLogin: (loginId, promptId, value) => request("answer_login", { loginId, promptId, value }),
     cancelLogin: (loginId) => request("cancel_login", { loginId }),
-    async logout(providerId) {
-      const done = await request("logout", { providerId });
-      askSetupAgain();
-      return done;
-    },
+    logout: (providerId) => request("logout", { providerId }),
     installJob,
     installPi: () => request("install_pi", {}),
     installNode: () => request("install_node", {}),

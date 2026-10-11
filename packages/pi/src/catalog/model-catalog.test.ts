@@ -181,4 +181,22 @@ describe("createModelCatalog", () => {
     });
     expect(calls).toHaveLength(1);
   });
+
+  it("waits on close for a query that was under way when told to forget", async () => {
+    const { query, calls, ended } = slowToStop();
+    const catalog = createModelCatalog({ query, clock: new FakeClock() });
+    const failed = catalog.list("/a", false).catch((error: unknown) => error);
+    catalog.forget();
+    let closed = false;
+
+    const closing = catalog.close();
+    void closing.then(() => (closed = true));
+    await flush();
+    expect(calls[0]?.aborted).toBe(true);
+    expect(closed).toBe(false);
+    ended.resolve();
+    await closing;
+
+    expect(await failed).toMatchObject({ reason: "aborted" });
+  });
 });

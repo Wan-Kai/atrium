@@ -400,12 +400,12 @@ Electron 主进程
 **第 1 步：安装 pi**
 
 - 找不到 pi：主按钮"安装 pi"，宿主在后台运行 pi 官方安装脚本（`curl -fsSL https://pi.dev/install.sh | sh`），输出实时显示在页面上的终端窗口里（终端高度随输出增长，最多约 7 行，底边有进度线；开始前显示要运行的命令），可以取消；pi 一变成可用就自动进入下一步，不停在"pi 已就绪"。从后面的步骤返回到第 1 步时，pi 已可用就显示"pi 已就绪"、版本和位置，点"继续"前进（2026-10-11 定）。官方脚本在没有终端时会跳过所有交互提问，可以直接由宿主运行。
-- 缺 Node.js（pi 需要 22.19 以上，安装脚本会先检查）：有 Homebrew 时提供"用 Homebrew 安装 Node.js"（`brew install node`），装好后接着安装 pi；没有 Homebrew 时主按钮是"去 nodejs.org 下载"，装好后点"我已经装好了"重新检测。上方用两枚小标签说明缺什么、找到了什么（"Node.js 22.19+ 未找到"或"Node.js x 太旧"，"Homebrew 已安装"或"没有 Homebrew"）。只有这个窗口发起的 Node 安装成功后才接着安装 pi（2026-10-11 定）。
+- 缺 Node.js（pi 需要 22.19 以上，安装脚本会先检查）：有 Homebrew 时提供"用 Homebrew 安装 Node.js"（`brew install node`），装好后接着安装 pi；没有 Homebrew 时主按钮是"去 nodejs.org 下载"，装好后点"我已经装好了"重新检测。上方用两枚小标签说明缺什么、找到了什么（"Node.js 22.19+ 未找到"或"Node.js x 太旧"，"Homebrew 已安装"或"没有 Homebrew"）。只有这个窗口发起的 Node 安装成功后才接着安装 pi，接着的这次安装同样显示在这一步的终端里（2026-10-11 定）。Homebrew 不在登录 shell 的 `PATH` 上（刚装好 Homebrew、还没把 `brew shellenv` 写进配置）时，宿主把它所在的目录加到工具环境的 `PATH` 末尾，装好的 Node 才找得到、接着安装 pi 时也用得上（2026-10-11 定）。
 - 版本低于要求：主按钮"更新 pi"，运行 `pi update`，同样显示日志。pi 报告"无法自更新这种安装方式"时，退回到手动更新。
 - 找到的 pi 不能运行（`broken`）：和找不到一样重新安装，标题"pi 运行不了"，pi 自己的报错放在默认收起的"展开看原始报错"里（2026-10-11 定）。
 - 失败时显示"没有装好"、完整日志和"重试"，说明按原因区分：下载不了安装脚本（多半是网络问题）、启动不了、被中途结束、退出码 N。宿主拒绝开始时（`install_busy`、`install_unavailable`）在下方说明原因。
 - 手动方式始终显示在终端下面，不用展开（2026-10-11 定）：安装命令（安装脚本 / npm 两种，可切换、可复制；更新时是 `pi update`，装 Node 时是 `brew install node`），底栏的"我已经装好了"（更新时"我已经更新了"）用 `check_setup(refresh)` 重新检测，还是没有时提示"还是没找到（还是旧版本），可能要重开终端"。任务跑完了但重新检测后还是找不到能用的 pi（或 Node.js），提示可能要重开终端，并给"重新检测"。手动选择 pi 的位置暂不做（2026-10-11，待确认）。
-- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现，2026-10-05 定为取完整环境）：取登录 shell 的**完整环境**，不只是 `PATH`，这样 `.zshrc` 里设的 API Key、代理（`HTTPS_PROXY`）、`NODE_OPTIONS` 在 Atrium 里同样生效，和终端里的 pi 一致；实测取完整环境和只取 `PATH` 一样快，时间都花在 shell 启动上。先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设变量），失败或超时（10 秒）再用登录 shell（`-l -c`）；`/usr/bin/env -0` 的输出夹在随机标记之间，rc 文件打印的横幅、回显不影响，值里的换行不会被拆开；shell 自己的 `SHLVL`、`_`、`PWD`、`OLDPWD` 不要。shell 只带宿主的少数变量启动（`HOME`、`USER`、`SHELL`、`TMPDIR`、语言、`SSH_AUTH_SOCK`、`ZDOTDIR`、`PATH`），结果里去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，token 不会进入 pi 的环境。支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用宿主的环境（同样去掉这两类变量）。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 1～2.6 秒）；宿主启动时读一次，之后每个会话的 pi 都用这份环境；首次启动装好 pi 或 Node 后（`check_setup(refresh)`）再读一次，之后启动的 pi 用新的这份（2026-10-10 定）。环境里可能有密钥，日志只记来源、`PATH` 和变量个数。
+- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现，2026-10-05 定为取完整环境）：取登录 shell 的**完整环境**，不只是 `PATH`，这样 `.zshrc` 里设的 API Key、代理（`HTTPS_PROXY`）、`NODE_OPTIONS` 在 Atrium 里同样生效，和终端里的 pi 一致；实测取完整环境和只取 `PATH` 一样快，时间都花在 shell 启动上。先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设变量），失败或超时（10 秒）再用登录 shell（`-l -c`）；`/usr/bin/env -0` 的输出夹在随机标记之间，rc 文件打印的横幅、回显不影响，值里的换行不会被拆开；shell 自己的 `SHLVL`、`_`、`PWD`、`OLDPWD` 不要。shell 只带宿主的少数变量启动（`HOME`、`USER`、`SHELL`、`TMPDIR`、语言、`SSH_AUTH_SOCK`、`ZDOTDIR`、`PATH`），结果里去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，token 不会进入 pi 的环境。支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用宿主的环境（同样去掉这两类变量）。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 1～2.6 秒）；宿主启动时读一次，之后每个会话的 pi 都用这份环境；首次启动装好 pi 或 Node 后（`check_setup(refresh)`）再读一次，之后启动的 pi 用新的这份（2026-10-10 定）；日志的脱敏只增不减，旧环境里的密钥仍然脱敏，因为已经在跑的 pi 还拿着它们（2026-10-11 定）。环境里可能有密钥，日志只记来源、`PATH` 和变量个数。
 
 **第 2 步：登录模型**
 
@@ -425,7 +425,7 @@ Electron 主进程
 
 - 一块大的拖放区"把项目文件夹拖到这里 / 或者点击选择"。
 - 下方列出从 pi 历史会话目录（`~/.pi/agent/sessions`）里发现的工作目录（标题"在 pi 的历史会话里找到"；每行名字、路径、会话数、最近使用时间），带勾选框，最近用过的那个默认勾上；拖进来或选中的文件夹排在最上面、勾上，标"刚选的"，已经在列表里的只勾上（2026-10-11 定）。主按钮显示"添加 N 个项目"，一个都没勾时不可用。
-- 添加时逐个 `add_project`，加好的从列表里去掉；全部加好就结束首次启动。有失败的留在列表里，显示第一个失败的文件夹和原因，停在这一步（2026-10-11 定）。
+- 添加时逐个 `add_project`，加好的从列表里去掉，应答 `project_exists` 的也算加好（同一仓库的 worktree、经符号链接拖进来的同一目录，2026-10-11 定）；全部加好就结束首次启动。有失败的留在列表里，显示第一个失败的文件夹和原因，停在这一步（2026-10-11 定）。
 - 底栏左侧"先新建一个对话"，可以跳过项目直接开始。
 
 **其他**
@@ -451,15 +451,17 @@ Electron 主进程
 - `install_pi()` / `install_node()` / `update_pi()`：应答 `{ jobId }`，同一时刻只有一个安装任务，已有任务时应答 `install_busy`；缺少任务要用的工具时应答 `install_unavailable`（还没检测到工具；装 Node 时没有 Homebrew；更新时找不到 pi）。
   - 安装 pi：宿主从写死的地址下载官方脚本（`https`，不跟随到别的域名；30 秒、1 MiB 为限），交给 `/bin/sh -s` 的标准输入运行，不经过 shell 拼接命令；没有终端，脚本跳过所有提问。
   - 安装 Node：运行找到的 `brew install node`。
-  - 更新 pi：运行 `pi update`（`--self` 是它的别名）；有会话在运行时先处于 `waiting`，等都结束再开始。更新进行中（`running`）要启动 pi 的会话等它结束；更新成功后宿主停掉空闲会话的 pi（会话收到 `session_exited`，`reason` 为 `requested`），界面下次发送时照常重新打开会话，用新版本启动；运行中的会话不动。
+  - 更新 pi：运行 `pi update`（`--self` 是它的别名）；有会话在运行时先处于 `waiting`，等都结束再开始。更新进行中（`running`）要启动 pi 的会话等它结束；更新成功后宿主停掉空闲会话的 pi（会话收到 `session_exited`，`reason` 为 `requested`），界面下次发送时照常重新打开会话，用新版本启动；运行中的会话、有未回答对话框的会话不动。正在启动的 pi 先等它起来再判断，免得用旧版本起来的漏掉（2026-10-11 定）。
   - 任务成功后，宿主先重新检测工具（同 `check_setup(refresh)`），再报告 `ok`，界面之后用 `check_setup()` 即可拿到新结果。
   - 任务用登录 shell 的环境运行，自成进程组，取消时结束整棵进程树（先 SIGTERM 整个进程组，3 秒不走再强制结束）。任务没有时限。
 - `cancel_install(jobId)`：`jobId` 不是进行中的任务时应答 `install_not_found`。
 - 事件 `install_updated { jobId, kind, state, running, exitCode, reason }`：`kind` 为 `install_pi | install_node | update_pi`；`state` 为 `waiting | running | ok | failed | cancelled`；`waiting` 时 `running` 是还在运行的会话数，其他时候为 `null`；`failed` 带 `reason`：`exit`（`exitCode` 为退出码，被信号结束时为 `null`）、`download_failed`（下载脚本失败）、`spawn_failed`（启动不了），其他状态 `reason`、`exitCode` 为 `null`。每次变化整份推送给所有连接。
+- 连接建立后（`welcome` 之后），宿主把进行中的、或最后一个结束的安装任务和登录推给这个连接（`install_updated`、`login_updated`，输出不补发），断线期间结束的任务和登录界面也能看到结果；界面换了宿主实例时先清掉旧实例的（2026-10-11 定）。
 - 事件 `install_output { jobId, text }`：输出原文（标准输出和标准错误合在一起），按块推送给所有连接；颜色和"\r"覆盖由界面处理。输出不进日志，日志只记任务种类、结果和退出码。
-- `login(providerId, method, key?)`：应答 `{ loginId }`。同一时刻只有一个登录，新的登录先取消进行中的。`key` 只在 `api_key` 时给，交给 pi 的第一个密码类提问。登录不可用（`check_setup` 的 `login` 为 `unavailable`）时应答 `login_unavailable`。
-- `answer_login(loginId, promptId, value)` / `cancel_login(loginId)`：`loginId` 不是进行中的登录时应答 `login_not_found`；回答已经撤回的提问时丢掉。`logout(providerId)`：pi 拒绝或超时时应答 `logout_failed`（`reason`，`detail` 为 pi 的原文）。
-- 事件 `login_updated`：登录的完整状态，每次变化整份推送给所有连接：`loginId`、`providerId`、`method`、`state`（`running | ok | failed | cancelled`）、`authUrl`（`{ url, instructions } | null`，只放 `https` 的，其他的地址让登录以 `failed` 结束、`reason` 为 `insecure_url`）、`deviceCode`（`{ userCode, verificationUri, expiresInSeconds } | null`，`verificationUri` 同样只放 `https` 的）、`questions`（pi 正在问的：`promptId`、`kind`、`message`、`placeholder`、`options`）、`progress`（pi 最近一条进度或提示文字，提示里的链接不带）、`error`（`{ reason: unavailable | failed | timed_out | insecure_url, detail } | null`，`detail` 为 pi 的原文）。只有发起登录的那个客户端打开授权地址。日志只记服务商、方式和结果，不记 Key、地址、提问和 pi 的原文。
+- `login(providerId, method, key?)`：应答 `{ loginId }`。同一时刻只有一个登录，新的登录先取消进行中的，等它的登录程序退出（回调端口释放）再开始；登录不可用时不取消进行中的（2026-10-11 定）。`key` 只在 `api_key` 时给，交给 pi 的第一个密码类提问。登录不可用（`check_setup` 的 `login` 为 `unavailable`）时应答 `login_unavailable`。
+- `answer_login(loginId, promptId, value)` / `cancel_login(loginId)`：`loginId` 不是进行中的登录时应答 `login_not_found`；回答已经撤回的提问时丢掉。`logout(providerId)`：pi 拒绝或超时时应答 `logout_failed`（`reason`，`detail` 为 pi 的原文）；正在登录同一个服务商时，先取消那个登录、等它退出再退出，免得两个程序先后写 `auth.json`、后写的盖掉先写的（2026-10-11 定）。
+- 事件 `credentials_changed {}`：登录成功、退出登录后推给所有连接（退出时在应答之前），界面收到后重新问 `check_setup`，并重新加载已经加载过的模型列表；别的窗口这样才知道凭据变了（"最后一个能用的凭据"的确认、生成标题用的模型列表靠它，2026-10-11 定）。
+- 事件 `login_updated`：登录的完整状态，每次变化整份推送给所有连接：`loginId`、`providerId`、`method`、`state`（`running | ok | failed | cancelled`）、`authUrl`（`{ url, instructions } | null`，只放 `https` 的，其他的地址让登录以 `failed` 结束、`reason` 为 `insecure_url`）、`deviceCode`（`{ userCode, verificationUri, expiresInSeconds } | null`，`verificationUri` 同样只放 `https` 的）、`questions`（pi 正在问的：`promptId`、`kind`、`message`、`placeholder`、`options`）、`progress`（pi 最近一条进度或提示文字，提示里的链接不带）、`error`（`{ reason: unavailable | failed | timed_out | insecure_url, detail } | null`，`detail` 为 pi 的原文）。只有发起登录的那个客户端打开授权地址。日志只记服务商、方式和结果，不记 Key、地址、提问和 pi 的原文。pi 的原文（`detail`、`progress`、提问的文字、`authUrl` 的说明，以及 `check_setup` 里 `broken` 的报错）超过协议上限（16 KiB）时宿主截断，整条消息不会因为过长被丢掉（2026-10-11 定）。
 - `discover_projects()`：应答 `{ directories }`，pi 历史会话里出现过的工作目录，每个 `{ path, sessions, lastUsedAt }`（会话数、其中最近一次修改的时间，毫秒），去掉已添加的项目和它们的工作区（`add_project` 会应答 `project_exists` 的）、Atrium 对话目录下的和已经不存在的目录，按最近使用排列。宿主在 pi 存会话的位置（和侧栏找会话同一个，见 pi-internals §1）只读每个会话文件的第一行（文件头里的 `cwd`），`path` 是解析符号链接后的真实路径，指向同一目录的合在一起。还没检测到工具时应答空列表。添加用已有的 `add_project`。
 - 握手的 `welcome` 带 `installSeed`：本机安装 ID（`~/.atrium/install-id`，第一次启动时生成的 UUID）算出的正整数，欢迎页按钮和模型按钮拉满时的点阵都用它。界面原先存在 `localStorage` 里的种子不再使用。
 
@@ -478,7 +480,7 @@ Electron 主进程
 - **项目**：只有主干分支。每个项目一行：名字、路径和主干下拉。默认"自动"（显示 `origin/HEAD` 指向的分支），也可以选 `origin` 上的某个分支覆盖，覆盖后显示"恢复自动"；都没有时提示"找不到主干，worktree 的合并状态显示为未知"（已决定 15）。改了之后这个项目下所有工作区的合并状态和"+A −D"重新计算。添加、移除项目仍在侧栏；pi 的位置不在这里选。
 - **pi**：
   - 位置（"在访达中显示"）、当前版本、最新版本、上次检查和"检查更新"按钮。
-  - 有新版本时显示"更新 pi"；侧栏的"设置"按钮和"pi"分类上各有一个蓝色小圆点，不弹窗、不打断。
+  - 有新版本时显示"更新 pi"，刚更新过、之后又查到更新的版本也一样（2026-10-11 定）；侧栏的"设置"按钮和"pi"分类上各有一个蓝色小圆点，不弹窗、不打断。
   - 更新过程：有会话在运行时显示"等待 N 个会话运行结束"（可取消）；更新中显示终端输出和进度，可取消；失败显示完整输出和"重试"；完成后显示"已更新到 x.y.z"，可查看日志。更新期间新开的会话等更新完成再启动 pi。
   - "手动更新"折叠项：可复制的 `pi update` 和"我更新好了，重新检测"。
 - **关于**：Atrium 版本、pi 版本、日志文件夹（"在访达中显示"）。
@@ -489,7 +491,7 @@ Electron 主进程
 - `set_main_branch(projectId, branch | null)`：应答 `{}`；`null` 恢复自动；`branch` 必须是 `origin` 上存在的分支，否则应答 `branch_not_found`（`params.branch`）。改了之后宿主重新扫描这个项目的工作区（合并状态），正在显示的改动重新计算。
 - `list_branches(projectId)`：应答 `{ branches, head }`：`branches` 是 `origin` 上的分支名（不带 `origin/`，去掉 `HEAD`，按名字排列），供主干下拉用；`head` 是 `origin/HEAD` 指向的分支，"自动"旁边显示它，没有时为 `null`。不是 git 仓库或没有 git 时两者都为空（2026-10-11 定）。
 - 列表里的项目多了 `mainBranch`：用户选的主干，`null` 为自动（2026-10-11 定）。
-- `check_setup` 的 `pi` 多了 `latest`（npm 上的最新版本）和 `checkedAt`（查到它的时间，毫秒）：从没查到时都为 `null`，之后某次没查到保留上次的结果。宿主启动后和之后每天查一次；`check_pi_update()` 立刻查（同时只查一次），应答 `{ latest, checkedAt }`。每次查到用事件 `pi_latest { latest, checkedAt }` 推给所有客户端。查的是 pi 自己检查新版本用的 `https://pi.dev/api/latest-version`（返回 npm 上的版本和包名，10 秒为限），和终端里的 pi 看到的一致；pi 的环境里设了 `PI_OFFLINE` 时不查（2026-10-11 定）。日志只记查到的版本或没查到的原因。
+- `check_setup` 的 `pi` 多了 `latest`（npm 上的最新版本）和 `checkedAt`（查到它的时间，毫秒）：从没查到时都为 `null`，之后某次没查到保留上次的结果。宿主启动后和之后每天查一次；`check_pi_update()` 立刻查（同时只查一次），应答 `{ latest, checkedAt }`。每次查到用事件 `pi_latest { latest, checkedAt }` 推给所有客户端。宿主在 `check_setup` 查完登录状态后才取 `latest`；界面以 `checkedAt` 较新的为准，`check_setup` 还没答复时收到的 `pi_latest` 也留着（2026-10-11 定）。查的是 pi 自己检查新版本用的 `https://pi.dev/api/latest-version`（返回 npm 上的版本和包名，10 秒为限），和终端里的 pi 看到的一致；pi 的环境里设了 `PI_OFFLINE` 时不查（2026-10-11 定）。日志只记查到的版本或没查到的原因。
 - 握手的 `welcome` 多了 `logDir`。"在访达中显示"走桌面壳的 `reveal(path)`，只接受存在的绝对路径。
 
 ### 关键流程
@@ -904,6 +906,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `control_updated` | 会话的控制状态（排队与暂停、待送达的插话、停止中、未回答的对话框、连续崩溃后的失败），整份推送（M1.6，见上文"运行控制"） |
 | `install_output` / `install_updated` / `login_updated` | 安装、更新、登录的输出、状态和结果（M1.10） |
 | `pi_latest` | npm 上 pi 的最新版本和查询时间（M1.10，见上文"设置 · 接口"） |
+| `credentials_changed` | 登录成功或退出登录，凭据变了（M1.10，见上文"首次启动 · 接口"） |
 | `model_updated` | 会话当前的模型和推理强度变化（M1.7，见上文"模型与输入框"） |
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知；M1.8，见上文"状态栏"） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |

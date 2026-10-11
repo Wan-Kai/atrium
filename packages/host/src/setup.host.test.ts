@@ -64,6 +64,35 @@ async function installedPi(): Promise<{ dir: string; bin: string; home: string }
   return { dir, bin, home };
 }
 
+/**
+ * A client of a test host that also records the type of every message the host sends it.
+ *
+ * @remarks
+ * For events the client acts on without keeping, as `credentials_changed`.
+ *
+ * @sideEffects Creates a client, disconnected after the test.
+ * @param host - The host.
+ * @returns The client, not yet connected, and the types received so far.
+ */
+function recordingClient(host: TestHost): { client: AtriumClient; received: () => string[] } {
+  const received: string[] = [];
+  const client = createAtriumClient({
+    url: host.url,
+    token: host.token,
+    clientId: "recording-client",
+    reconnectDelaysMs: [],
+    openSocket: (url) => {
+      const socket = new WebSocket(url);
+      socket.addEventListener("message", (event) => {
+        received.push((JSON.parse(String(event.data)) as { type: string }).type);
+      });
+      return socket;
+    },
+  });
+  onTestFinished(() => client.disconnect());
+  return { client, received: () => [...received] };
+}
+
 const LOGINS = {
   state: "ready",
   providers: [
@@ -195,6 +224,9 @@ describe("signing in and out over the WebSocket", () => {
     await starter.connect();
     await other.connect();
 
+    const watcher = recordingClient(testHost);
+    await watcher.client.connect();
+
     const { loginId } = await starter.login("acme", "oauth");
     const asked = await question(other, "Which?");
     await starter.answerLogin(loginId, asked.promptId, "b");
@@ -213,6 +245,34 @@ describe("signing in and out over the WebSocket", () => {
     expect(starter.loginState.getState()).toStrictEqual(other.loginState.getState());
     await expect(starter.cancelLogin(loginId)).rejects.toMatchObject({ code: "login_not_found" });
     await expect(starter.logout("acme")).resolves.toStrictEqual({});
+    // Signed in, then out: every window hears the credentials changed, each time.
+    await vi.waitFor(() => expect(watcher.received().filter((type) => type === "credentials_changed")).toHaveLength(2));
+  });
+
+  it("tells a window that comes later how the last login and install went, without the output", async () => {
+    const { bin, home } = await installedPi();
+    await writeFile(join(bin, "brew"), '#!/bin/sh\necho "brew $*"\n');
+    await chmod(join(bin, "brew"), 0o755);
+    testHost = await startTestHost({ toolEnv: { PATH: bin, HOME: home, FAKE_PI: "fail" }, loginWorker: WORKER });
+    const starter = testHost.connect();
+    onTestFinished(() => starter.disconnect());
+    await starter.connect();
+    await starter.login("acme", "oauth");
+    await vi.waitFor(() => expect(starter.loginState.getState()?.state).toBe("failed"), { timeout: 10_000 });
+    await starter.installNode();
+    await vi.waitFor(() => expect(starter.installJob.getState()?.job.state).toBe("ok"), { timeout: 10_000 });
+
+    const later = testHost.connect();
+    onTestFinished(() => later.disconnect());
+    await later.connect();
+
+    await vi.waitFor(() => expect(later.loginState.getState()).toStrictEqual(starter.loginState.getState()));
+    await vi.waitFor(() =>
+      expect(later.installJob.getState()).toStrictEqual({
+        job: present(starter.installJob.getState(), "the job").job,
+        output: "",
+      }),
+    );
   });
 });
 

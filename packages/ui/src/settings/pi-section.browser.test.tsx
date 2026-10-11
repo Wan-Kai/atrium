@@ -139,8 +139,14 @@ describe("Settings · pi", () => {
     await expect.element(screen.getByRole("button", { name: "手动更新" })).not.toBeInTheDocument();
     await screen.getByRole("button", { name: "取消" }).click();
 
-    setup.setState({ state: { ...READY_SETUP, pi: { ...READY_SETUP.pi, version: "0.81.0", latest: "0.81.0" } } });
+    // Done, while the checks after it are on their way: pi still has the old version.
+    setup.setState({ status: "loading" });
     installJob.setState(job({ state: "ok", exitCode: 0 }, "added 1 package\n"), true);
+    await expect.element(block).toHaveTextContent("已更新空闲会话的 pi 在下次使用时用新版本重启查看日志");
+    setup.setState({
+      status: "ready",
+      state: { ...READY_SETUP, pi: { ...READY_SETUP.pi, version: "0.81.0", latest: "0.81.0" } },
+    });
     await expect.element(block).toHaveTextContent("已更新到 0.81.0空闲会话的 pi 在下次使用时用新版本重启查看日志");
     await expect.element(screen.getByRole("log")).not.toBeInTheDocument();
     await screen.getByRole("button", { name: "查看日志" }).click();
@@ -148,6 +154,21 @@ describe("Settings · pi", () => {
     await screen.getByRole("button", { name: "收起日志" }).click();
     await expect.element(screen.getByRole("log")).not.toBeInTheDocument();
     expect(calls).toStrictEqual(["updatePi", "cancelInstall j1"]);
+  });
+
+  it("offers the update again once a newer pi is found after one was done", async () => {
+    const { screen, installJob, setup } = await piSection({ version: "0.81.0", latest: "0.81.0" });
+    const block = screen.getByRole("status");
+    installJob.setState(job({ state: "ok", exitCode: 0 }), true);
+    await expect.element(block).toHaveTextContent("已更新到 0.81.0空闲会话的 pi 在下次使用时用新版本重启查看日志");
+
+    setup.setState({
+      state: { ...READY_SETUP, pi: { ...READY_SETUP.pi, version: "0.81.0", latest: "0.82.0", checkedAt: NOW } },
+    });
+
+    await expect
+      .element(block)
+      .toHaveTextContent("有新版本 0.82.0当前 0.81.0。更新的是你装的这个 pi，终端里的 pi 也会一起更新更新 pi");
   });
 
   it("keeps a running update's latest output in view", async () => {

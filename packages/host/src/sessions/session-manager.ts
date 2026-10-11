@@ -191,6 +191,8 @@ export function createSessionManager(options: {
   const prompting = new Map<string, number>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
+  /** New sessions whose pi is starting, before they have an id to be found by. */
+  const creating = new Set<Promise<unknown>>();
   /** Background work, such as scans after a run, that `close` waits for. */
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
@@ -789,7 +791,14 @@ export function createSessionManager(options: {
     const asked = options.layouts.of(clientId).container;
     const tools = await readyTools();
     const startOn = options.models?.preferred() ?? null;
-    const { sessionId } = (await connect(await spawn(tools, { args: [], cwd, startOn }))).controller;
+    const started = (async () => connect(await spawn(tools, { args: [], cwd, startOn })))();
+    creating.add(started);
+    let sessionId: string;
+    try {
+      ({ sessionId } = (await started).controller);
+    } finally {
+      creating.delete(started);
+    }
     await options.catalog.record({ sessionId, containerId, cwd });
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {
@@ -1079,8 +1088,10 @@ export function createSessionManager(options: {
     },
     async stopIdle() {
       // pi was updated: a session's next use starts the new one (SPEC-0001, "首次启动 · 接口").
-      // Stopping a pi already gone does nothing.
-      const idle = [...sessions.keys()].filter((sessionId) => !occupied(sessionId));
+      // A pi starting meanwhile may be the old one, so it is waited for and judged too. A dialog
+      // waiting for an answer keeps its session's pi. Stopping a pi already gone does nothing.
+      await Promise.allSettled([...starting.values(), ...creating]);
+      const idle = [...sessions.keys()].filter((sessionId) => !occupied(sessionId) && askingSince(sessionId) === null);
       await Promise.all(idle.map((sessionId) => stopSession(sessionId)));
     },
     async forgetWorkspaces(workspaceIds) {

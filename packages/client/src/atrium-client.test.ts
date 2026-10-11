@@ -1449,7 +1449,7 @@ describe("createAtriumClient: first launch", () => {
     expect(client.setup.getState()).toStrictEqual({ status: "ready", state: ready, error: null });
   });
 
-  it("asks again once asked before, when a login or install succeeds, after a logout and on a new host", async () => {
+  it("asks again once asked before, when an install succeeds, when pi's credentials change and on a new host", async () => {
     const { client, latest, clock } = await connected();
     const job = {
       type: "install_updated",
@@ -1477,7 +1477,7 @@ describe("createAtriumClient: first launch", () => {
         .filter((command) => command["type"] === "check_setup").length;
 
     latest().receive(JSON.stringify({ ...job, state: "ok", exitCode: 0 }));
-    latest().receive(JSON.stringify({ ...login, state: "ok" }));
+    latest().receive(JSON.stringify({ type: "credentials_changed" }));
     const unasked = asks();
     const first = client.loadSetup();
     latest().answer("check_setup", setupState("ready"));
@@ -1489,12 +1489,15 @@ describe("createAtriumClient: first launch", () => {
     const unchanged = asks();
     latest().receive(JSON.stringify({ ...job, state: "ok", exitCode: 0 }));
     const afterInstall = asks();
+    // The host tells every window that the credentials changed; the login's end or the logout's
+    // answer alone asks nothing more.
     latest().receive(JSON.stringify({ ...login, state: "ok" }));
-    const afterLogin = asks();
     const loggedOut = client.logout("acme");
     latest().answer("logout");
     await loggedOut;
     const afterLogout = asks();
+    latest().receive(JSON.stringify({ type: "credentials_changed" }));
+    const afterChange = asks();
     latest().closeWith(1006);
     clock.advance(250);
     latest().open();
@@ -1505,9 +1508,90 @@ describe("createAtriumClient: first launch", () => {
     latest().open();
     latest().receive(welcome("0.1.0", "h2"));
 
-    expect([unasked, unchanged, afterInstall, afterLogin, afterLogout, sameHost, asks()]).toStrictEqual([
-      0, 1, 2, 3, 4, 0, 1,
+    expect([unasked, unchanged, afterInstall, afterLogout, afterChange, sameHost, asks()]).toStrictEqual([
+      0, 1, 2, 2, 3, 0, 1,
     ]);
+  });
+
+  it("reloads the model lists asked for once pi's credentials change, and leaves the others", async () => {
+    const { client, latest } = await connected();
+    const models = { models: [], defaultModel: null };
+    const signedIn = {
+      providerId: "acme",
+      modelId: "fast",
+      name: "Fast",
+      contextWindow: 200_000,
+      maxOutput: 64_000,
+      supportsImage: false,
+      thinkingLevels: ["off"],
+    };
+    const loading = client.loadModels("chats");
+    latest().answer("list_models", models);
+    await loading;
+    client.models("wks_0123456789abcdef");
+
+    latest().receive(JSON.stringify({ type: "credentials_changed" }));
+    const reloading = client.models("chats").getState();
+    latest().answer("list_models", { models: [signedIn], defaultModel: null });
+
+    expect(reloading.status).toBe("loading");
+    await vi.waitFor(() => expect(client.models("chats").getState().models).toStrictEqual([signedIn]));
+    expect(client.models("wks_0123456789abcdef").getState().status).toBe("idle");
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "list_models")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_models", containerId: "chats", refresh: false },
+      { type: "list_models", containerId: "chats", refresh: false },
+    ]);
+  });
+
+  it("forgets the login and the job of a host that is gone, and keeps them for the same host", async () => {
+    const { client, latest, clock } = await connected();
+    const job = {
+      type: "install_updated",
+      jobId: "j1",
+      kind: "install_pi",
+      state: "running",
+      running: null,
+      exitCode: null,
+      reason: null,
+    };
+    const login = {
+      type: "login_updated",
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      state: "running",
+      authUrl: null,
+      deviceCode: null,
+      questions: [],
+      progress: null,
+      error: null,
+    };
+    latest().receive(JSON.stringify(job));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "one\n" }));
+    latest().receive(JSON.stringify(login));
+
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h1"));
+    // The host tells what it has right after the welcome; the output it does not.
+    latest().receive(JSON.stringify({ ...job, state: "failed", exitCode: 1, reason: "exit" }));
+    const sameJob = client.installJob.getState();
+    const sameLogin = client.loginState.getState();
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+
+    expect(sameJob).toStrictEqual({ job: { ...job, state: "failed", exitCode: 1, reason: "exit" }, output: "one\n" });
+    expect(sameLogin).toStrictEqual(login);
+    expect(client.installJob.getState()).toBeNull();
+    expect(client.loginState.getState()).toBeNull();
   });
 
   it("signs in and out through the host, and shows the latest state of a login from any window", async () => {
@@ -1619,6 +1703,7 @@ describe("createAtriumClient: first launch", () => {
   it("looks for the latest pi when asked, and puts the latest the host found from any look into the setup", async () => {
     const { client, latest } = await connected();
     const found = { latest: "1.2.0", checkedAt: 7 };
+    const later = { latest: "1.3.0", checkedAt: 8 };
     const ready = setupState("ready");
 
     latest().receive(JSON.stringify({ type: "pi_latest", ...found }));
@@ -1626,15 +1711,18 @@ describe("createAtriumClient: first launch", () => {
     const first = client.loadSetup();
     latest().answer("check_setup", ready);
     await first;
+    const kept = client.setup.getState().state?.pi;
     const checking = client.checkPiUpdate();
-    latest().receive(JSON.stringify({ type: "pi_latest", ...found }));
-    latest().answer("check_pi_update", found);
+    latest().receive(JSON.stringify({ type: "pi_latest", ...later }));
+    latest().answer("check_pi_update", later);
 
     expect(unasked).toStrictEqual({ status: "idle", state: null, error: null });
-    expect(await checking).toStrictEqual(found);
+    // Pushed before the answer, which the host gave from before it found it.
+    expect(kept).toStrictEqual({ ...ready.pi, ...found });
+    expect(await checking).toStrictEqual(later);
     expect(client.setup.getState()).toStrictEqual({
       status: "ready",
-      state: { ...ready, pi: { ...ready.pi, ...found } },
+      state: { ...ready, pi: { ...ready.pi, ...later } },
       error: null,
     });
     expect(
@@ -1643,6 +1731,23 @@ describe("createAtriumClient: first launch", () => {
         .filter((command) => command["type"] === "check_pi_update")
         .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([{ type: "check_pi_update" }]);
+  });
+
+  it("keeps whichever latest pi was found later when an answer and a push cross", async () => {
+    const { client, latest } = await connected();
+    const ready = setupState("ready");
+
+    const first = client.loadSetup();
+    latest().receive(JSON.stringify({ type: "pi_latest", latest: "1.3.0", checkedAt: 9 }));
+    latest().answer("check_setup", { ...ready, pi: { ...ready.pi, latest: "1.2.0", checkedAt: 8 } });
+    await first;
+    const crossed = client.setup.getState().state?.pi;
+    const second = client.loadSetup();
+    latest().answer("check_setup", { ...ready, pi: { ...ready.pi, latest: "1.4.0", checkedAt: 10 } });
+    await second;
+
+    expect(crossed).toStrictEqual({ ...ready.pi, latest: "1.3.0", checkedAt: 9 });
+    expect(client.setup.getState().state?.pi).toStrictEqual({ ...ready.pi, latest: "1.4.0", checkedAt: 10 });
   });
 
   it("asks for the directories of pi's history that could become projects, and chooses main branches", async () => {

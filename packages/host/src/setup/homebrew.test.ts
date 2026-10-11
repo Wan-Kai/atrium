@@ -2,7 +2,7 @@ import { createTempDir, present } from "@atrium/testkit";
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { findHomebrew } from "./homebrew";
+import { findHomebrew, withHomebrewOnPath } from "./homebrew";
 
 /**
  * Makes directories, some holding a `brew`.
@@ -47,5 +47,23 @@ describe("findHomebrew", () => {
     const at = await dirs({ path: false, place: false });
 
     expect(await findHomebrew(at("path"), [at("place")])).toBeNull();
+  });
+});
+
+describe("withHomebrewOnPath", () => {
+  it("adds Homebrew's directory at the end of PATH when it was found elsewhere", () => {
+    expect(withHomebrewOnPath({ PATH: "/usr/bin:/bin", HOME: "/h" }, "/opt/homebrew/bin/brew")).toStrictEqual({
+      PATH: "/usr/bin:/bin:/opt/homebrew/bin",
+      HOME: "/h",
+    });
+    expect(withHomebrewOnPath({ PATH: "" }, "/opt/homebrew/bin/brew")).toStrictEqual({ PATH: "/opt/homebrew/bin" });
+    expect(withHomebrewOnPath({}, "/opt/homebrew/bin/brew")).toStrictEqual({ PATH: "/opt/homebrew/bin" });
+  });
+
+  it("leaves the environment as it is when PATH has Homebrew or there is none", () => {
+    const env = { PATH: "/usr/bin:/opt/homebrew/bin" };
+
+    expect(withHomebrewOnPath(env, "/opt/homebrew/bin/brew")).toBe(env);
+    expect(withHomebrewOnPath(env, null)).toBe(env);
   });
 });

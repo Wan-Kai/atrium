@@ -2,12 +2,13 @@ import { LoginError, type LoginRequest, type LoginRun, type LoginUpdate } from "
 import { CommandError, type LoginFailureReason, type LoginUpdatedEvent } from "@atrium/protocol";
 import type { Logger } from "../platform/logger";
 import type { Logins } from "./logins";
+import { cutPiText } from "./pi-text";
 import type { Toolbox } from "./toolbox";
 
 /** Signing in and out through pi, as the commands ask (SPEC-0001, "首次启动 · 接口"). */
 export interface LoginService {
   /**
-   * Starts a login, cancelling the one under way.
+   * Starts a login, once the one under way was cancelled and its program has gone.
    *
    * @throws {CommandError} `login_unavailable` when Atrium cannot sign in through pi now.
    */
@@ -25,11 +26,13 @@ export interface LoginService {
    */
   cancel(loginId: string): void;
   /**
-   * Removes a provider's stored credential.
+   * Removes a provider's stored credential, once a login to that provider under way has gone.
    *
    * @throws {CommandError} `login_unavailable`, or `logout_failed` with pi's reason and words.
    */
   logout(providerId: string): Promise<void>;
+  /** The state of the login under way, or of the last one, for a connection that just came. */
+  last(): LoginUpdatedEvent | null;
   /** Cancels the login under way and waits for its program to go. */
   close(): Promise<void>;
 }
@@ -41,6 +44,8 @@ interface Login {
   state: LoginUpdatedEvent;
   /** Set once pi gave an address that is not `https`; the login then ends failed. */
   insecure: boolean;
+  /** Settles once its program has gone and its end was shown. */
+  ended: Promise<void>;
 }
 
 /**
@@ -61,10 +66,15 @@ function secure(url: string): boolean {
  * Creates the login service.
  *
  * @remarks
- * One login at a time: a new one cancels the one under way, and logins start in the order asked.
- * Each change to a login goes whole to every connection, so another window shows it too; only the
+ * One login at a time: a new one cancels the one under way and starts once its program has gone,
+ * so the callback port is free again and the old login's end is shown before the new one starts.
+ * A login that cannot start leaves the one under way alone. Logins and logouts run in the order
+ * asked; a logout of the provider being signed in cancels that login first, so the two programs
+ * never write pi's credentials one after the other. Each change to a login goes whole to every connection, so another window shows it too; only the
  * client that started it opens the address (SPEC-0001, "首次启动 · 接口"). An address or device code
- * page that is not `https` is never shown: the login is cancelled and ends failed. The log has the
+ * page that is not `https` is never shown: the login is cancelled and ends failed. pi's words are
+ * cut to what the protocol carries. The last login's state stays for connections that come later
+ * (`last`), so a window that was away sees how it ended. The log has the
  * provider, the method and the outcome, never the key, the addresses, the questions or pi's words
  * (security.md, "凭据与日志"). A login that ends signed in, and a logout that removes the
  * credential, call `credentialsChanged`, as the models pi can use may have changed.
@@ -83,9 +93,11 @@ export function createLoginService(options: {
   readonly logger: Logger;
 }): LoginService {
   let current: Login | null = null;
+  /** The login started last, under way or ended. */
+  let latest: Login | null = null;
   let closed = false;
-  /** The logins asked for, in order; each starts once the one before has. */
-  let starting: Promise<unknown> = Promise.resolve();
+  /** The logins and logouts asked for, in order; each runs once the one before has started or ended. */
+  let queue: Promise<unknown> = Promise.resolve();
   const finishing = new Set<Promise<void>>();
 
   /**
@@ -132,7 +144,13 @@ export function createLoginService(options: {
     if (login.insecure) return;
     if (update.kind === "prompt") {
       const { kind, message, placeholder, options: choices } = update.prompt;
-      const question = { promptId: update.promptId, kind, message, placeholder, options: [...choices] };
+      const question = {
+        promptId: update.promptId,
+        kind,
+        message: cutPiText(message),
+        placeholder: placeholder === null ? null : cutPiText(placeholder),
+        options: choices.map(({ id, label }) => ({ id, label: cutPiText(label) })),
+      };
       publish(login, { questions: [...login.state.questions, question] });
       return;
     }
@@ -144,7 +162,9 @@ export function createLoginService(options: {
     switch (event.kind) {
       case "auth_url":
         if (!secure(event.url)) return refuse(login);
-        return publish(login, { authUrl: { url: event.url, instructions: event.instructions } });
+        return publish(login, {
+          authUrl: { url: event.url, instructions: event.instructions === null ? null : cutPiText(event.instructions) },
+        });
       case "device_code": {
         if (!secure(event.verificationUri)) return refuse(login);
         const { userCode, verificationUri, expiresInSeconds } = event;
@@ -152,7 +172,7 @@ export function createLoginService(options: {
       }
       case "progress":
       case "info":
-        return publish(login, { progress: event.message });
+        return publish(login, { progress: cutPiText(event.message) });
     }
   }
 
@@ -177,7 +197,7 @@ export function createLoginService(options: {
       if (reason === "aborted") state = "cancelled";
       else {
         state = "failed";
-        error = { reason, detail };
+        error = { reason, detail: detail === null ? null : cutPiText(detail) };
       }
     } else if (outcome !== null) {
       // The program's run only fails with a LoginError; anything else is a bug, shown as a failure.
@@ -193,24 +213,54 @@ export function createLoginService(options: {
   }
 
   /**
+   * Cancels a login and waits until its program has gone and its end was shown.
+   *
+   * @remarks
+   * See {@link createLoginService}.
+   *
+   * @sideEffects Cancels the login; broadcasts its end.
+   * @param login - The login, or `null` for none.
+   */
+  async function stop(login: Login | null): Promise<void> {
+    login?.run?.cancel();
+    await login?.ended;
+  }
+
+  /**
+   * Runs a login or a logout once those asked before have started or ended.
+   *
+   * @remarks
+   * See {@link createLoginService}.
+   *
+   * @sideEffects Whatever the step does.
+   * @param step - The login or logout.
+   * @returns What it gives.
+   */
+  function queued<T>(step: () => Promise<T>): Promise<T> {
+    const done = queue.then(step);
+    queue = done.catch(() => undefined);
+    return done;
+  }
+
+  /**
    * Starts a login once the ones asked before have started.
    *
    * @remarks
    * See {@link createLoginService}.
    *
-   * @sideEffects Cancels the login under way; runs the login program; broadcasts; logs.
+   * @sideEffects Cancels the login under way and waits for it; runs the login program; broadcasts; logs.
    * @param request - What to sign in to.
    * @returns The new login's id.
    * @throws {CommandError} `login_unavailable` when Atrium cannot sign in through pi now.
    */
   async function begin(request: LoginRequest): Promise<{ loginId: string }> {
-    current?.run?.cancel();
     const tools = await options.toolbox.current();
     if (closed) throw new CommandError("login_unavailable");
     const login: Login = {
       loginId: options.newId(),
       run: null,
       insecure: false,
+      ended: Promise.resolve(),
       state: {
         type: "login_updated",
         loginId: "",
@@ -225,20 +275,56 @@ export function createLoginService(options: {
       },
     };
     login.state = { ...login.state, loginId: login.loginId };
-    const run = await options.logins.start(tools, request, (update) => onUpdate(login, update));
+    const run = await options.logins.start(
+      tools,
+      request,
+      (update) => onUpdate(login, update),
+      () => stop(current),
+    );
     if (run === null) throw new CommandError("login_unavailable");
     login.run = run;
     current = login;
+    latest = login;
     options.logger.info({ providerId: request.providerId, method: request.method }, "login started");
     options.broadcast(login.state);
-    const done = run.finished.then(
+    login.ended = run.finished.then(
       () => end(login, null),
       (error: unknown) => end(login, error),
     );
-    finishing.add(done);
-    void done.finally(() => finishing.delete(done));
+    const { ended } = login;
+    finishing.add(ended);
+    void ended.finally(() => finishing.delete(ended));
     if (closed) run.cancel();
     return { loginId: login.loginId };
+  }
+
+  /**
+   * Removes a provider's stored credential once a login to it under way has gone.
+   *
+   * @remarks
+   * See {@link createLoginService}.
+   *
+   * @sideEffects May cancel the login under way; runs the login program; logs.
+   * @param providerId - The provider.
+   * @throws {CommandError} `login_unavailable`, or `logout_failed` with pi's reason and words.
+   */
+  async function leave(providerId: string): Promise<void> {
+    if (current?.state.providerId === providerId) await stop(current);
+    const tools = await options.toolbox.current();
+    let done: boolean;
+    try {
+      done = await options.logins.logout(tools, providerId);
+    } catch (error) {
+      if (!(error instanceof LoginError)) throw error;
+      options.logger.warn({ providerId, reason: error.reason }, "logout failed");
+      throw new CommandError("logout_failed", {
+        reason: error.reason,
+        detail: error.detail === null ? null : cutPiText(error.detail),
+      });
+    }
+    if (!done) throw new CommandError("login_unavailable");
+    options.logger.info({ providerId }, "logged out");
+    options.credentialsChanged();
   }
 
   /**
@@ -258,11 +344,7 @@ export function createLoginService(options: {
   }
 
   return {
-    login(request) {
-      const started = starting.then(() => begin(request));
-      starting = started.catch(() => undefined);
-      return started;
-    },
+    login: (request) => queued(() => begin(request)),
     answer(loginId, promptId, value) {
       const { login, run } = running(loginId);
       run.answer(promptId, value);
@@ -271,23 +353,11 @@ export function createLoginService(options: {
       if (questions.length !== login.state.questions.length) publish(login, { questions });
     },
     cancel: (loginId) => running(loginId).run.cancel(),
-    async logout(providerId) {
-      const tools = await options.toolbox.current();
-      let done: boolean;
-      try {
-        done = await options.logins.logout(tools, providerId);
-      } catch (error) {
-        if (!(error instanceof LoginError)) throw error;
-        options.logger.warn({ providerId, reason: error.reason }, "logout failed");
-        throw new CommandError("logout_failed", { reason: error.reason, detail: error.detail });
-      }
-      if (!done) throw new CommandError("login_unavailable");
-      options.logger.info({ providerId }, "logged out");
-      options.credentialsChanged();
-    },
+    logout: (providerId) => queued(() => leave(providerId)),
+    last: () => latest?.state ?? null,
     async close() {
       closed = true;
-      await starting;
+      await queue;
       current?.run?.cancel();
       await Promise.allSettled(finishing);
     },

@@ -1,4 +1,4 @@
-import type { SetupLogin } from "@atrium/protocol";
+import { PI_TEXT_MAX, type PiLatest, type SetupLogin } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { createSetupService } from "./setup-service";
 import type { HostTools } from "./toolbox";
@@ -33,14 +33,17 @@ const LATEST = { latest: "1.1.0", checkedAt: 7 } as const;
  *
  * @remarks
  * The toolbox answers `current` with the first tools and `refresh` with the second, and records
- * which was asked; the logins record the tools they were asked about.
+ * which was asked; the logins record the tools they were asked about. A latest pi found while the
+ * logins are checked, as happens at startup, replaces {@link LATEST}.
  *
  * @sideEffects none
  * @param current - What `current` gives.
  * @param refreshed - What `refresh` gives.
+ * @param foundMeanwhile - The latest pi found while the logins are checked, if any.
  * @returns The service and what was asked.
  */
-function service(current: HostTools | null, refreshed: HostTools | null = current) {
+function service(current: HostTools | null, refreshed: HostTools | null = current, foundMeanwhile: PiLatest = LATEST) {
+  let found: PiLatest = LATEST;
   const asked: string[] = [];
   const loginsAsked: (HostTools | null)[] = [];
   const value = createSetupService({
@@ -57,11 +60,12 @@ function service(current: HostTools | null, refreshed: HostTools | null = curren
     logins: {
       status: async (tools) => {
         loginsAsked.push(tools);
+        found = foundMeanwhile;
         return LOGGED_IN;
       },
     },
     projects: () => 3,
-    latest: () => LATEST,
+    latest: () => found,
   });
   return { value, asked, loginsAsked };
 }
@@ -137,6 +141,19 @@ describe("SetupService.check", () => {
       pi: { state: "outdated", path: "/bin/pi", version: "0.9.3", minimum: "1.0.1", detail: null, ...LATEST },
       node: { state: "outdated", version: "20.11.0" },
     });
+  });
+
+  it("reports the latest pi found while it checked the logins", async () => {
+    const later = { latest: "1.2.0", checkedAt: 8 };
+    const { value } = service(READY, READY, later);
+
+    expect((await value.check(false)).pi).toMatchObject(later);
+  });
+
+  it("cuts pi's error output to what the protocol carries", async () => {
+    const { value } = service({ ...READY, pi: { status: "unusable", piPath: "/bin/pi", detail: "e".repeat(20_000) } });
+
+    expect((await value.check(false)).pi.detail).toBe("e".repeat(PI_TEXT_MAX));
   });
 
   it("reports nothing found when detection failed", async () => {
