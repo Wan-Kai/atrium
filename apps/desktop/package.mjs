@@ -40,7 +40,7 @@ async function stageApp() {
  * For use on this Mac only (overview.md, "桌面端怎么启动宿主"): Apple Silicon runs only signed
  * code, and changing the bundle's name and plist breaks Electron's own signature, so the whole app
  * is signed again ad hoc; it is not notarized. No asar: the system Node runs the login program,
- * and it cannot read one.
+ * and it cannot read one. The icon is Atrium's cat (design-language.md, "标志").
  *
  * @sideEffects Replaces `out/Atrium-darwin-<arch>`; runs `codesign`; prints the app's path.
  */
@@ -53,6 +53,7 @@ async function packageApp() {
       out: join(desktop, "out"),
       name: "Atrium",
       appBundleId: "dev.atrium.app",
+      icon: join(desktop, "assets", "icon.icns"),
       platform: "darwin",
       arch: process.arch,
       electronVersion: electron.version,

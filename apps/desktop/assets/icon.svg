@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<defs><linearGradient id="atrium-cat" gradientUnits="userSpaceOnUse" x1="200" y1="150" x2="820" y2="1024"><stop offset="0" stop-color="#fbf5ec"/><stop offset="1" stop-color="#eadcc8"/></linearGradient><clipPath id="plate"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="14"/></filter></defs>
+<rect x="100" y="112" width="824" height="824" rx="185" fill="#000" opacity=".28" filter="url(#shadow)"/>
+<g clip-path="url(#plate)"><g transform="translate(100 100) scale(0.8046875)"><rect width="1024" height="1024" fill="#6c86cc"/><g transform="translate(-50 20)"><path d="M190 1120 Q170 820 200 560 L262 250 L450 410 Q640 360 830 410 L1018 250 L1080 560 Q1110 820 1090 1120 Z" fill="url(#atrium-cat)" stroke="url(#atrium-cat)" stroke-width="120" stroke-linejoin="round"/>
+<ellipse cx="512" cy="730" rx="36" ry="52" fill="#1f2537"/><ellipse cx="768" cy="730" rx="36" ry="52" fill="#1f2537"/>
+<path d="M612 800 h56 q14 0 6 12 l-20 24 q-9 10 -18 0 l-20 -24 q-8 -12 -4 -12z" fill="#1f2537"/></g></g></g>
+</svg>

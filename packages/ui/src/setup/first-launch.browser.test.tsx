@@ -11,6 +11,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import atriumLogo from "../design/brand/atrium.svg";
 import { Workbench } from "../app/workbench";
 import { ClockContext, type UiClock } from "../state/clock";
 import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
@@ -342,6 +343,17 @@ describe("First launch · when it shows", () => {
 });
 
 describe("First launch · welcome and moving between steps", () => {
+  it("shows Atrium's cat in the logo slot, as decoration", async () => {
+    const { screen } = await firstLaunch(SIGNED_OUT);
+    const slot = () => screen.container.querySelector<HTMLImageElement>(".atrium-gmark img");
+
+    await expect.poll(() => slot()?.naturalWidth).toBe(1024);
+    const logo = slot();
+    expect(logo?.getAttribute("src")).toBe(atriumLogo);
+    expect(logo?.getAttribute("alt")).toBe("");
+    expect(logo?.parentElement?.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("opens pi.dev from the pill, and starts with its button, skipping steps already done", async () => {
     const { screen, opened } = await firstLaunch(SIGNED_OUT);
 

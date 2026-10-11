@@ -10,3 +10,5 @@
 | openrouter.svg | OpenRouter 官网品牌资源：https://openrouter.ai/brand/v2/openrouter-glyph-light.svg                             |
 
 正式使用前按各家品牌规范核对用法（尺寸、留白、配色）。
+
+`atrium.svg` 是 Atrium 自己的标志，不是第三方品牌，见 [design-language · 标志](../../../../../docs/architecture/design-language.md#标志)。

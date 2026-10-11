@@ -189,7 +189,7 @@ main.ts 负责组装全部
 - 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后 PWA 和无界面运行都用它。
 - 窗口从固定的来源 `atrium://app/` 加载界面（2026-10-08 定）：主进程用 `protocol.handle` 把这个协议的请求转给宿主的静态文件服务，只把内容安全策略换成允许连接宿主端口的版本；WebSocket 仍连宿主的随机端口，宿主的 `Origin` 白名单里加上 `atrium://app`。宿主端口每次启动都不同，直接加载 `http://127.0.0.1:<端口>` 时页面来源跟着变，`localStorage` 里的客户端 id、折叠状态、草稿重启后就丢了；固定来源让它们保留下来。开发时页面来自 Vite 的固定端口，不受影响。
 - 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。
-- 本机打包（2026-10-11 定）：`pnpm package` 用 `@electron/packager` 生成 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`，不依赖仓库和本机的 Node，可以拷进"应用程序"、拷给同一台机器上的别的账户。应用目录 `Contents/Resources/app/` 里是主进程和预加载脚本（`dist/`）、宿主单文件和登录程序（`host/`）、界面（`ui/`），没有 `node_modules`；主进程按 `app.isPackaged` 在这里找宿主和界面，没打包时在仓库里找。不用 asar：登录程序由系统 Node 运行，读不了 asar，宿主的静态文件服务也按真实路径检查文件。只做 ad-hoc 签名（Apple Silicon 上的程序必须带签名才能运行），不公证：本机生成的文件没有隔离标记，Gatekeeper 不拦。开发版和打包版的应用名都是 Atrium，共用单实例锁和页面存储，同时只能开一个。
+- 本机打包（2026-10-11 定）：`pnpm package` 用 `@electron/packager` 生成 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`，不依赖仓库和本机的 Node，可以拷进"应用程序"、拷给同一台机器上的别的账户。应用目录 `Contents/Resources/app/` 里是主进程和预加载脚本（`dist/`）、宿主单文件和登录程序（`host/`）、界面（`ui/`），没有 `node_modules`；应用图标是 `apps/desktop/assets/icon.icns`（[design-language · 标志](design-language.md#标志)）；主进程按 `app.isPackaged` 在这里找宿主和界面，没打包时在仓库里找。不用 asar：登录程序由系统 Node 运行，读不了 asar，宿主的静态文件服务也按真实路径检查文件。只做 ad-hoc 签名（Apple Silicon 上的程序必须带签名才能运行），不公证：本机生成的文件没有隔离标记，Gatekeeper 不拦。开发版和打包版的应用名都是 Atrium，共用单实例锁和页面存储，同时只能开一个。
 
 ## 进程模型
 
