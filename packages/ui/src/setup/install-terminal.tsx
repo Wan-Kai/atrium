@@ -8,20 +8,23 @@ import { terminalLines } from "./terminal-text";
  * SPEC-0001 ("首次启动 · 第 1 步", "设置 · pi"): while running it grows to about seven lines and
  * shows the newest; once failed it shows the whole output to scroll through. Dark in both
  * appearances (design-language, "设置"). The progress line runs while the job does, and turns
- * green or red at the end.
+ * green or red at the end. Before the job starts, first launch shows the command it will run.
  *
  * @sideEffects Scrolls the output to its end as it grows while running.
- * @param props - The window's title, the job's raw output and where it is.
+ * @param props - The window's title, the job's raw output and where it is, and before it starts,
+ * a hint and the command.
  * @returns The terminal.
  */
 export function InstallTerminal({
   title,
   output,
   phase,
+  idle,
 }: {
   readonly title: string;
   readonly output: string;
-  readonly phase: "running" | "ok" | "failed";
+  readonly phase: "idle" | "running" | "ok" | "failed";
+  readonly idle?: { readonly hint: string; readonly command: string };
 }) {
   const body = useRef<HTMLDivElement>(null);
   const lines = terminalLines(output);
@@ -47,6 +50,15 @@ export function InstallTerminal({
         data-testid="install-output"
         className={`overflow-y-auto px-3.5 py-3 font-mono text-[11.5px] leading-[1.75] ${phase === "failed" ? "max-h-[236px]" : "max-h-[162px]"}`}
       >
+        {phase === "idle" && idle !== undefined ? (
+          <>
+            <div className="text-[var(--term-dim)]"># {idle.hint}</div>
+            <div className="break-all whitespace-pre-wrap">
+              <span className="text-[var(--term-dim)]">$ </span>
+              {idle.command}
+            </div>
+          </>
+        ) : null}
         {lines.map((line, at) => (
           // Lines have no identity but their place; the output only grows.
           // oxlint-disable-next-line react/no-array-index-key
@@ -58,11 +70,13 @@ export function InstallTerminal({
       <div className="h-0.5 bg-white/5">
         <i
           className={`block h-full ${
-            phase === "running"
-              ? "w-1/3 animate-pulse bg-[#7aaaff]"
-              : phase === "ok"
-                ? "w-full bg-[#4ade80]"
-                : "w-full bg-[#f87171]"
+            phase === "idle"
+              ? "w-0"
+              : phase === "running"
+                ? "w-1/3 animate-pulse bg-[#7aaaff]"
+                : phase === "ok"
+                  ? "w-full bg-[#4ade80]"
+                  : "w-full bg-[#f87171]"
           }`}
         />
       </div>

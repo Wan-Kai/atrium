@@ -64,7 +64,7 @@ const ICON_BUTTON =
  * @param projects - The registered projects, to name the one that exists already.
  * @returns The sentence.
  */
-function describeProjectError(error: unknown, projects: readonly Project[]): string {
+export function describeProjectError(error: unknown, projects: readonly Project[]): string {
   if (!(error instanceof CommandError)) return "添加项目失败";
   if (error.code === "project_exists") {
     const name = projects.find((project) => project.id === error.params?.["projectId"])?.name;

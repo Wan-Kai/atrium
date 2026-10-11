@@ -41,6 +41,7 @@ async function workbench(options: { setup?: typeof READY_SETUP; stored?: string 
         setNativeAppearance={undefined}
         openUrl={() => undefined}
         reveal={(path) => revealed.push(path)}
+        pathForFile={undefined}
       />
     </DisplayModeContext>,
   );

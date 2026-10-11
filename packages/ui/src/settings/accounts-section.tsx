@@ -5,9 +5,9 @@ import { useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { groupByProvider, providerOf } from "../chat/model-choice";
-import { type LoginFlow, LoginDetails, SignedIn, SubscriptionList, useLoginFlow } from "../setup/login-flow";
+import { KeyForm, type LoginFlow, SignedIn, SubscriptionList, useLoginFlow } from "../setup/login-flow";
 import { isLastCredential, keyCandidates, keyedProviders } from "../setup/providers";
-import { FIELD, GHOST_BUTTON, Group, LINK_BUTTON, PRIMARY_BUTTON, Row, Tick } from "./parts";
+import { GHOST_BUTTON, Group, LINK_BUTTON, Row, Tick } from "./parts";
 
 /** A credential waiting for "仍要…" before it goes. */
 interface Removing {
@@ -230,94 +230,6 @@ function KeyAdder({
         </button>
       }
     />
-  );
-}
-
-/**
- * The form to save a provider's API key.
- *
- * @remarks
- * Shared by first launch's second step and the settings (SPEC-0001, "首次启动 · 第 2 步"). An
- * empty key is not sent. Closes once the login it started succeeds.
- *
- * @sideEffects Starts a login through `flow`; calls `onClose` once saved or cancelled.
- * @param props - The flow, the providers to choose from, how to open an address, and what
- * closing does (no "取消" without it).
- * @returns The form.
- */
-function KeyForm({
-  flow,
-  candidates,
-  openUrl,
-  onClose,
-}: {
-  readonly flow: LoginFlow;
-  readonly candidates: readonly SetupProvider[];
-  readonly openUrl: (url: string) => void;
-  readonly onClose?: () => void;
-}) {
-  const [providerId, setProviderId] = useState(candidates[0]?.providerId ?? "");
-  const [key, setKey] = useState("");
-  const [empty, setEmpty] = useState(false);
-  const [sent, setSent] = useState<string | null>(null);
-  const { login } = flow;
-  const mine =
-    sent !== null && login !== null && login.loginId === flow.mine && login.method === "api_key" ? login : null;
-  const done = mine?.state === "ok";
-  useEffect(() => {
-    if (done) onClose?.();
-  }, [done, onClose]);
-  return (
-    <div>
-      <form
-        className="flex items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (key.trim() === "") {
-            setEmpty(true);
-            return;
-          }
-          setEmpty(false);
-          setSent(providerId);
-          flow.start(providerId, "api_key", key.trim());
-        }}
-      >
-        <select
-          aria-label="服务商"
-          className={`${FIELD} pr-7`}
-          value={providerId}
-          onChange={(event) => setProviderId(event.target.value)}
-        >
-          {candidates.map((candidate) => (
-            <option key={candidate.providerId} value={candidate.providerId}>
-              {candidate.name}
-            </option>
-          ))}
-        </select>
-        <input
-          aria-label="API Key"
-          className={`${FIELD} flex-1 font-mono text-[length:var(--fs-sm)] ${empty ? "shadow-[inset_0_0_0_1px_var(--danger)]" : ""}`}
-          type="password"
-          placeholder="粘贴 API Key"
-          autoComplete="off"
-          spellCheck={false}
-          value={key}
-          onChange={(event) => setKey(event.target.value)}
-        />
-        <button type="submit" className={PRIMARY_BUTTON} disabled={mine?.state === "running"}>
-          保存
-        </button>
-        {onClose === undefined ? null : (
-          <button type="button" className={GHOST_BUTTON} onClick={onClose}>
-            取消
-          </button>
-        )}
-      </form>
-      <p className={`mt-2 text-[length:var(--fs-sm)] ${empty ? "text-[var(--danger)]" : "text-[var(--text-dim)]"}`}>
-        {empty ? "先粘贴 Key 再保存" : "粘贴后按回车或点“保存”"}
-      </p>
-      {mine === null ? null : <LoginDetails flow={flow} login={mine} openUrl={openUrl} />}
-    </div>
   );
 }
 

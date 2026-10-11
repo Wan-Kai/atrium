@@ -11,6 +11,7 @@ import type {
 } from "@atrium/client";
 import {
   type DiffTarget,
+  type DiscoveredDirectory,
   IDLE_CONTROL,
   type IndexSnapshotEvent,
   type LoginMethod,
@@ -140,10 +141,16 @@ export interface FakeAnswers {
   readonly login?: () => Promise<void>;
   readonly logout?: () => Promise<void>;
   readonly updatePi?: () => Promise<void>;
+  readonly installPi?: () => Promise<void>;
+  readonly installNode?: () => Promise<void>;
+  /** The folders of pi's sessions; none when left out. */
+  readonly discover?: () => Promise<DiscoveredDirectory[]>;
   readonly checkPiUpdate?: () => Promise<void>;
   /** A project's branches; `main` alone, and origin's HEAD, when left out. */
   readonly branches?: (projectId: string) => Promise<{ branches: string[]; head: string | null }>;
   readonly setMainBranch?: () => Promise<void>;
+  /** Holds back the list's change until it settles; changed at once when left out. */
+  readonly setPreferences?: () => Promise<void>;
 }
 
 /**
@@ -151,7 +158,8 @@ export interface FakeAnswers {
  *
  * @remarks
  * Browser tests cannot run a host (the host needs Node); this fake keeps the parts the UI reads
- * real: the list is a real store that commands change as the host's snapshot would, and every
+ * real: the list is a real store that commands change as the host's snapshot would (first launch
+ * done, unless `initial` says otherwise), and every
  * watched session has a real view store. Commands are recorded as short strings; model commands
  * apart, in `modelCalls`, as the conversation area asks for models whenever it shows. Logins and
  * install jobs only answer with their ids: a test plays the host's updates into `loginState` and
@@ -181,7 +189,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     sessions: [],
     layout: { container: null, tabs: {} },
     preferences: {
-      setupDone: false,
+      setupDone: true,
       appearance: "system",
       displayMode: "summary",
       lastModel: null,
@@ -364,6 +372,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async setPreferences(changes: Record<string, string>) {
       calls.push(`setPreferences ${JSON.stringify(changes)}`);
+      const held = answers.setPreferences?.();
+      if (held !== undefined) await held;
       index.setState({ preferences: { ...index.getState().preferences, ...changes } });
       return {};
     },
@@ -496,6 +506,20 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push("updatePi");
       await answers.updatePi?.();
       return { jobId: "j1" };
+    },
+    async installPi() {
+      calls.push("installPi");
+      await answers.installPi?.();
+      return { jobId: "j2" };
+    },
+    async installNode() {
+      calls.push("installNode");
+      await answers.installNode?.();
+      return { jobId: "j3" };
+    },
+    async discoverProjects() {
+      calls.push("discoverProjects");
+      return { directories: (await answers.discover?.()) ?? [] };
     },
     async cancelInstall(jobId: string) {
       calls.push(`cancelInstall ${jobId}`);

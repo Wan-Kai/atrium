@@ -1,0 +1,460 @@
+/*
+ * First launch (SPEC-0001, "首次启动"; design-language, "首次启动"), from the prototype
+ * `onboarding-prototype.html`, scheme A, on the `prototype/ui` branch. Only what Tailwind classes
+ * cannot say lives here: the ambient light, glass, the welcome page's button and product preview,
+ * and their animations. With reduced motion the ambient light, the aurora, the button's glow and
+ * the floating notes stay still.
+ */
+.atrium-onboard {
+  --onb-bg: #f7f7f9;
+  --onb-glow-a: rgba(94, 132, 255, 0.16);
+  --onb-glow-b: rgba(255, 168, 108, 0.14);
+  --onb-glow-c: rgba(80, 200, 180, 0.1);
+  --onb-panel: rgba(255, 255, 255, 0.72);
+  --onb-panel-2: rgba(255, 255, 255, 0.9);
+  --onb-panel-edge: rgba(0, 0, 0, 0.06);
+  --onb-primary: #1d1d1f;
+  --onb-on-primary: #ffffff;
+  --onb-kbd: rgba(255, 255, 255, 0.16);
+  --onb-ok-soft: rgba(30, 142, 62, 0.1);
+  --g-top: rgba(255, 255, 255, 0.82);
+  --g-bot: rgba(255, 255, 255, 0.52);
+  --g-hi: rgba(255, 255, 255, 1);
+  --g-edge: rgba(255, 255, 255, 0.9);
+  --g-shadow: rgba(50, 80, 170, 0.28);
+  --pv-top: rgba(255, 255, 255, 0.62);
+  --pv-bot: rgba(255, 255, 255, 0.34);
+  --aurora-blend: multiply;
+  --aurora-opacity: 0.9;
+  position: relative;
+  display: grid;
+  grid-template-rows: 64px 1fr 72px;
+  height: 100%;
+  overflow: hidden;
+  background: var(--onb-bg);
+  color: var(--text);
+}
+
+.dark .atrium-onboard {
+  --onb-bg: #121214;
+  --onb-glow-a: rgba(94, 132, 255, 0.2);
+  --onb-glow-b: rgba(255, 168, 108, 0.1);
+  --onb-glow-c: rgba(120, 220, 200, 0.08);
+  --onb-panel: rgba(255, 255, 255, 0.045);
+  --onb-panel-2: rgba(255, 255, 255, 0.07);
+  --onb-panel-edge: rgba(255, 255, 255, 0.09);
+  --onb-primary: #f4f5f7;
+  --onb-on-primary: #121214;
+  --onb-kbd: rgba(0, 0, 0, 0.12);
+  --onb-ok-soft: rgba(74, 222, 128, 0.14);
+  --g-top: rgba(255, 255, 255, 0.1);
+  --g-bot: rgba(255, 255, 255, 0.04);
+  --g-hi: rgba(255, 255, 255, 0.18);
+  --g-edge: rgba(255, 255, 255, 0.12);
+  --g-shadow: rgba(0, 0, 0, 0.6);
+  --pv-top: rgba(255, 255, 255, 0.08);
+  --pv-bot: rgba(255, 255, 255, 0.03);
+  --aurora-blend: screen;
+  --aurora-opacity: 0.75;
+}
+
+.atrium-onboard[data-step="0"] {
+  grid-template-rows: 64px 1fr 0;
+}
+
+/* Three faint lights that drift to the right as the steps go on. */
+.atrium-onboard-ambient {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.atrium-onboard-ambient i {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  transition: transform 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.atrium-onboard-ambient i:nth-child(1) {
+  top: -220px;
+  left: -160px;
+  width: 620px;
+  height: 620px;
+  background: var(--onb-glow-a);
+}
+
+.atrium-onboard-ambient i:nth-child(2) {
+  right: -140px;
+  bottom: -200px;
+  width: 520px;
+  height: 520px;
+  background: var(--onb-glow-b);
+}
+
+.atrium-onboard-ambient i:nth-child(3) {
+  top: -180px;
+  right: 18%;
+  width: 420px;
+  height: 420px;
+  background: var(--onb-glow-c);
+}
+
+.atrium-onboard[data-step="1"] .atrium-onboard-ambient i:nth-child(1) {
+  transform: translate(60px, 40px);
+}
+
+.atrium-onboard[data-step="2"] .atrium-onboard-ambient i:nth-child(1) {
+  transform: translate(180px, 60px);
+}
+
+.atrium-onboard[data-step="3"] .atrium-onboard-ambient i:nth-child(1) {
+  transform: translate(320px, 30px);
+}
+
+/* A step's content slides in from the side it comes from. */
+@keyframes atrium-onboard-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+@keyframes atrium-onboard-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+
+.atrium-onboard-screen {
+  animation: atrium-onboard-in 0.5s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+.atrium-onboard-screen[data-back] {
+  animation-name: atrium-onboard-in-back;
+}
+
+/* Titles: Syne for Latin, Huiwen Mincho for Chinese (design-language, "字体"). */
+.atrium-title {
+  font-family: "Syne", "Atrium Title CN", var(--font-sans);
+}
+
+/* A step's showcase panel. */
+.atrium-onboard-show {
+  border-radius: 20px;
+  background: var(--onb-panel);
+  box-shadow:
+    inset 0 0 0 0.5px var(--onb-panel-edge),
+    0 1px 2px rgba(0, 0, 0, 0.03),
+    0 20px 50px -20px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(24px) saturate(1.4);
+}
+
+.atrium-onboard-foot {
+  background: color-mix(in srgb, var(--onb-bg) 70%, transparent);
+  backdrop-filter: blur(20px);
+}
+
+.atrium-onboard-primary {
+  background: var(--onb-primary);
+  color: var(--onb-on-primary);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 6px 16px -8px rgba(0, 0, 0, 0.35);
+}
+
+.atrium-onboard-primary:hover {
+  filter: brightness(1.1);
+}
+
+.atrium-onboard-primary:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.atrium-onboard-primary kbd {
+  background: var(--onb-kbd);
+}
+
+/* Glass: a see-through gradient, blurred behind, a highlight on top and a hairline edge. */
+.atrium-glass {
+  background: linear-gradient(180deg, var(--g-top), var(--g-bot));
+  backdrop-filter: blur(28px) saturate(1.7);
+  box-shadow:
+    inset 0 1px 0 var(--g-hi),
+    inset 0 0 0 0.5px var(--g-edge),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 24px 60px -24px var(--g-shadow);
+}
+
+/* The light behind the product preview, drifting slowly. */
+@keyframes atrium-drift {
+  to {
+    transform: translate(40px, -24px) scale(1.08);
+  }
+}
+
+.atrium-aurora {
+  position: absolute;
+  top: 300px;
+  left: 50%;
+  width: 1100px;
+  height: 560px;
+  transform: translateX(-50%);
+  pointer-events: none;
+  filter: blur(60px);
+  opacity: var(--aurora-opacity);
+}
+
+.atrium-aurora i {
+  position: absolute;
+  border-radius: 50%;
+  mix-blend-mode: var(--aurora-blend);
+  animation: atrium-drift 14s ease-in-out infinite alternate;
+}
+
+.atrium-aurora i:nth-child(1) {
+  top: 18%;
+  left: 12%;
+  width: 46%;
+  height: 70%;
+  background: radial-gradient(closest-side, rgba(92, 140, 255, 0.7), transparent);
+}
+
+.atrium-aurora i:nth-child(2) {
+  top: 8%;
+  right: 10%;
+  width: 44%;
+  height: 72%;
+  background: radial-gradient(closest-side, rgba(120, 214, 214, 0.5), transparent);
+  animation-delay: -5s;
+}
+
+.atrium-aurora i:nth-child(3) {
+  top: 40%;
+  left: 34%;
+  width: 40%;
+  height: 60%;
+  background: radial-gradient(closest-side, rgba(255, 170, 120, 0.42), transparent);
+  animation-delay: -9s;
+}
+
+/* The logo slot: two nested rounded squares until the real logo exists. */
+.atrium-gmark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  margin: 0 auto 18px;
+  border-radius: 22px;
+}
+
+.atrium-gmark::before {
+  content: "";
+  position: absolute;
+  inset: -28px;
+  z-index: -1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(92, 140, 255, 0.28), transparent);
+}
+
+.atrium-gmark i {
+  position: absolute;
+  border: 1.5px solid;
+  border-radius: 30%;
+}
+
+.atrium-gmark i:nth-child(1) {
+  inset: 16px;
+  border-color: rgba(92, 140, 255, 0.85);
+}
+
+.atrium-gmark i:nth-child(2) {
+  inset: 23px;
+  border-color: rgba(120, 200, 210, 0.85);
+  background: linear-gradient(135deg, rgba(92, 140, 255, 0.35), rgba(255, 170, 120, 0.35));
+}
+
+.atrium-hero {
+  font:
+    700 clamp(40px, 4.4vw, 60px) / 1.12 "Syne",
+    "Atrium Title CN",
+    var(--font-sans);
+  letter-spacing: -0.01em;
+  background: linear-gradient(180deg, var(--text) 35%, color-mix(in srgb, var(--text) 62%, transparent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* "开始设置": a near-black capsule with a slow brand-coloured glow inside and the dot band on top. */
+@keyframes atrium-start-flow {
+  to {
+    transform: translateX(14%) rotate(8deg);
+  }
+}
+
+.atrium-start {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  height: 52px;
+  padding: 0 30px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #0f1014;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 14px 34px -14px rgba(60, 90, 200, 0.6);
+  transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+}
+
+.dark .atrium-start {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 14px 34px -14px rgba(90, 130, 255, 0.55);
+}
+
+.atrium-start::before {
+  content: "";
+  position: absolute;
+  inset: -60% -20%;
+  z-index: -1;
+  filter: blur(18px);
+  opacity: 0.55;
+  background:
+    radial-gradient(30% 60% at 25% 70%, #5e84ff, transparent 70%),
+    radial-gradient(28% 60% at 60% 30%, #78d6d6, transparent 70%),
+    radial-gradient(26% 55% at 85% 75%, #ffaa78, transparent 70%);
+  animation: atrium-start-flow 9s ease-in-out infinite alternate;
+  transition: opacity 0.4s;
+}
+
+.atrium-start:hover::before {
+  opacity: 0.8;
+}
+
+.atrium-start:active {
+  transform: scale(0.98);
+}
+
+.atrium-start canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.atrium-start-label {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-shadow: 0 0 10px rgba(15, 16, 20, 0.85);
+  transition: transform 0.6s cubic-bezier(0.2, 0.9, 0.25, 1.2);
+}
+
+.atrium-start:hover .atrium-start-label {
+  transform: scale(1.05);
+}
+
+.atrium-start-arrow {
+  display: inline-block;
+  transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+}
+
+.atrium-start:hover .atrium-start-arrow {
+  transform: translateX(3px);
+}
+
+/* The product preview: a glass window leaning back, fading out at the bottom. */
+.atrium-stage3d {
+  position: relative;
+  width: 860px;
+  margin: clamp(24px, 4vh, 40px) auto 0;
+  perspective: 1600px;
+}
+
+.atrium-preview {
+  --g-top: var(--pv-top);
+  --g-bot: var(--pv-bot);
+  position: relative;
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  height: clamp(240px, 38vh, 360px);
+  overflow: hidden;
+  border-radius: 18px 18px 0 0;
+  text-align: left;
+  transform: rotateX(12deg);
+  transform-origin: 50% 0;
+  mask-image: linear-gradient(#000 45%, transparent 98%);
+}
+
+.atrium-preview-side {
+  padding: 38px 12px 12px;
+  border-right: 0.5px solid var(--g-edge);
+  background: var(--g-bot);
+  font-size: 12.5px;
+}
+
+@keyframes atrium-float {
+  to {
+    transform: translateY(-6px);
+  }
+}
+
+.atrium-callout {
+  position: absolute;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px 0 10px;
+  border-radius: 12px;
+  color: var(--text-2);
+  font-size: 13px;
+  white-space: nowrap;
+  animation: atrium-float 6s ease-in-out infinite alternate;
+}
+
+.atrium-callout:nth-of-type(1) {
+  top: 110px;
+  left: -150px;
+}
+
+.atrium-callout:nth-of-type(2) {
+  top: -14px;
+  right: -170px;
+  animation-delay: -2s;
+}
+
+.atrium-callout:nth-of-type(3) {
+  top: 196px;
+  right: -150px;
+  animation-delay: -4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-onboard-ambient i,
+  .atrium-aurora i,
+  .atrium-start::before,
+  .atrium-callout {
+    animation: none !important;
+    transition: none !important;
+  }
+}

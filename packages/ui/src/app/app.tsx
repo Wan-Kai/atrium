@@ -160,6 +160,9 @@ function Connected({ client }: { readonly client: AtriumClient }) {
         setNativeAppearance={bridge?.setAppearance === undefined ? undefined : setNativeAppearance}
         openUrl={openUrl}
         reveal={bridge?.reveal === undefined ? undefined : reveal}
+        pathForFile={
+          bridge?.pathForFile === undefined ? undefined : (file) => desktopBridge()?.pathForFile?.(file) ?? null
+        }
       />
     </DisplayModeContext>
   );

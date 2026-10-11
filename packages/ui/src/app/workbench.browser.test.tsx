@@ -86,6 +86,7 @@ async function workbench(
         setNativeAppearance={(appearance) => native.push(appearance)}
         openUrl={(url) => opened.push(url)}
         reveal={(path) => revealed.push(path)}
+        pathForFile={undefined}
       />
     </DisplayModeContext>,
   );

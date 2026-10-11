@@ -8,6 +8,7 @@ import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-a
 import { applyAppearance } from "../design/appearance";
 import { DotSeedContext } from "../design/dots";
 import { type SettingsSection, SettingsPanel } from "../settings/settings-panel";
+import { FirstLaunch, type FirstLaunchStart, firstLaunchStart } from "../setup/first-launch";
 import { useInstallSeed } from "../state/install-seed";
 import { Sidebar } from "../sidebar/sidebar";
 import { TabBar } from "../tabs/tab-bar";
@@ -239,21 +240,22 @@ function useSeenErrors(client: AtriumClient, index: IndexView, sessionId: string
 }
 
 /**
- * The main window once connected: sidebar, tab bar and conversation area.
+ * The window once connected: first launch when it shows, the main window otherwise.
  *
  * @remarks
- * SPEC-0001 ("界面"). Focusing the window asks the host to look at workspaces and sessions again
- * (domain-model, "已决定 12"). The appearance follows the user's choice, also in the window's
- * own parts through `setNativeAppearance`. Index files reset at the host's start are mentioned
- * once per host run, until dismissed. Starting a session when the client is nowhere starts a
- * chat. What first launch checks is asked for once, for the sidebar's and the settings' blue dot;
- * the client asks again when it may have changed.
+ * SPEC-0001 ("首次启动 · 什么时候显示"): first launch shows while `setupDone` is false, and later
+ * while pi cannot be used; once it shows it stays until finished, even if pi turns ready on its
+ * way. Nothing shows until the host's first list says which. What first launch checks is asked
+ * for once here, also for the sidebar's and the settings' blue dot; the client asks again when it
+ * may have changed. The appearance follows the user's choice in both, also in the window's own
+ * parts through `setNativeAppearance`.
  *
- * @sideEffects Subscribes to the client's list; listens for focus and keys; sets the page's
- * appearance; asks for what first launch checks; sends commands.
+ * @sideEffects Subscribes to the client's list and setup; sets the page's appearance; asks for
+ * what first launch checks; through what it shows, listens for keys and sends commands.
  * @param props - The client, the connection status line, how to choose a folder, how to set the
- * window's own appearance, how to open an address, and how to show a path in the Finder.
- * @returns The workbench.
+ * window's own appearance, how to open an address, how to show a path in the Finder, and how to
+ * read a dropped file's path.
+ * @returns The window.
  */
 export function Workbench({
   client,
@@ -262,6 +264,7 @@ export function Workbench({
   setNativeAppearance,
   openUrl,
   reveal,
+  pathForFile,
 }: {
   readonly client: AtriumClient;
   readonly status: ReactNode;
@@ -269,16 +272,19 @@ export function Workbench({
   readonly setNativeAppearance: ((appearance: Appearance) => void) | undefined;
   readonly openUrl: (url: string) => void;
   readonly reveal: ((path: string) => void) | undefined;
+  readonly pathForFile: ((file: File) => string | null) | undefined;
 }) {
   const index = useStore(client.index);
-  const container = index.layout.container;
-  const sessionId = activeSession(index);
+  const setup = useStore(client.setup);
   const appearance = index.preferences.appearance;
   const seed = useInstallSeed(client.connection);
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const settings = useSettings();
-  useDisplayModeShortcut();
-  useDraftCleanup(index);
+  const [finished, setFinished] = useState(false);
+  const [shown, setShown] = useState<FirstLaunchStart | null>(null);
+  const wanted = firstLaunchStart(index, setup, finished);
+  const start = shown ?? wanted;
+  // Once shown, first launch stays until finished (adjusting state while rendering, as React
+  // advises for state that follows other values).
+  if (shown === null && (wanted === "welcome" || wanted === "install")) setShown(wanted);
 
   useEffect(() => {
     // Fire and forget: the answer lands in `client.setup`, a failure there too.
@@ -290,12 +296,71 @@ export function Workbench({
     return applyAppearance(document.documentElement, window.matchMedia("(prefers-color-scheme: dark)"), appearance);
   }, [appearance, setNativeAppearance]);
 
+  const done = useCallback(() => {
+    setFinished(true);
+    setShown(null);
+  }, []);
+
+  return (
+    <DotSeedContext value={seed}>
+      {start === "wait" ? (
+        <div className="h-full bg-[var(--main)] [-webkit-app-region:drag]" />
+      ) : start === null ? (
+        <MainWindow client={client} status={status} pickDirectory={pickDirectory} openUrl={openUrl} reveal={reveal} />
+      ) : (
+        <FirstLaunch
+          client={client}
+          start={start}
+          onDone={done}
+          openUrl={openUrl}
+          pickDirectory={pickDirectory}
+          pathForFile={pathForFile}
+        />
+      )}
+    </DotSeedContext>
+  );
+}
+
+/**
+ * The main window: sidebar, tab bar and conversation area.
+ *
+ * @remarks
+ * SPEC-0001 ("界面"). Focusing the window asks the host to look at workspaces and sessions again
+ * (domain-model, "已决定 12"). Index files reset at the host's start are mentioned once per host
+ * run, until dismissed. Starting a session when the client is nowhere starts a chat.
+ *
+ * @sideEffects Subscribes to the client's list; listens for focus and keys; sends commands.
+ * @param props - The client, the connection status line, how to choose a folder, how to open an
+ * address, and how to show a path in the Finder.
+ * @returns The main window.
+ */
+function MainWindow({
+  client,
+  status,
+  pickDirectory,
+  openUrl,
+  reveal,
+}: {
+  readonly client: AtriumClient;
+  readonly status: ReactNode;
+  readonly pickDirectory: (() => Promise<string | null>) | undefined;
+  readonly openUrl: (url: string) => void;
+  readonly reveal: ((path: string) => void) | undefined;
+}) {
+  const index = useStore(client.index);
+  const container = index.layout.container;
+  const sessionId = activeSession(index);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const settings = useSettings();
+  useDisplayModeShortcut();
+  useDraftCleanup(index);
+
   useEffect(() => {
     /**
      * Tells the host the window has focus again.
      *
      * @remarks
-     * See `Workbench`.
+     * See `MainWindow`.
      *
      * @sideEffects Sends `window_focused`.
      */
@@ -312,7 +377,7 @@ export function Workbench({
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
-    <DotSeedContext value={seed}>
+    <>
       <div className="flex h-full">
         <Sidebar
           client={client}
@@ -358,6 +423,6 @@ export function Workbench({
           reveal={reveal}
         />
       ) : null}
-    </DotSeedContext>
+    </>
   );
 }

@@ -141,6 +141,125 @@ export function paintDots(context: CanvasRenderingContext2D, frame: DotFrame, se
   }
 }
 
+/** The start button's dots: larger, rounder and further lit than the model button's (SPEC-0001, "欢迎页"). */
+const BAND_SIZE = 4.4;
+const BAND_RADIUS = 1.3;
+/** How far the band leans: each row down sits this many columns to the right, a `\`. */
+const BAND_SLANT = 0.55;
+
+/**
+ * The start button's sweep timing: once every 6 s, taking 1.1 s, or 0.85 s at once on hover
+ * (SPEC-0001, "欢迎页").
+ */
+const BAND_EVERY_MS = 6_000;
+export const BAND_MS = 1_100;
+export const BAND_HOVER_MS = 850;
+
+/**
+ * Eases the start button's band along `cubic-bezier(.7, 0, .2, 1)`.
+ *
+ * @remarks
+ * SPEC-0001 ("欢迎页"): it gathers at the start, rushes across the button and glides out slowly.
+ * The curve's `x` is solved for its parameter by Newton steps; its slope in `x` stays above zero
+ * for these control points, so they always converge.
+ *
+ * @sideEffects none
+ * @param x - Time into the sweep, 0 to 1.
+ * @returns How far the band has gone, 0 to 1.
+ */
+export function easeBand(x: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const [x1, y1, x2, y2] = [0.7, 0, 0.2, 1];
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  let t = x;
+  for (let step = 0; step < 8; step += 1) {
+    const slope = (3 * ax * t + 2 * bx) * t + cx;
+    t -= (((ax * t + bx) * t + cx) * t - x) / slope;
+  }
+  return ((ay * t + by) * t + cy) * t;
+}
+
+/** A sweep of the start button's band: when it starts and how long it takes, in ms. */
+export interface BandSweep {
+  readonly start: number;
+  readonly duration: number;
+}
+
+/**
+ * The sweep of the start button's band that is under way or comes next at `now`.
+ *
+ * @remarks
+ * SPEC-0001 ("欢迎页"): a sweep every 6 s; one started by hovering is quicker. Once a sweep is
+ * over, the next starts 6 s after it began, at the idle pace; sweeps missed while the page was
+ * away are skipped rather than played.
+ *
+ * @sideEffects none
+ * @param now - The time.
+ * @param sweep - The sweep last known.
+ * @returns The sweep under way or the next.
+ */
+export function nextBandSweep(now: number, sweep: BandSweep): BandSweep {
+  if (now - sweep.start <= sweep.duration) return sweep;
+  const skipped = Math.ceil((now - sweep.start - BAND_MS) / BAND_EVERY_MS);
+  return { start: sweep.start + Math.max(1, skipped) * BAND_EVERY_MS, duration: BAND_MS };
+}
+
+/**
+ * Paints the start button's band of dots at one place of its sweep.
+ *
+ * @remarks
+ * SPEC-0001 ("欢迎页"), prototyped as `dotCta` in `onboarding-prototype.html`: a `\` band of white
+ * dots crosses the button once, narrow coming in, covering the whole button midway and narrow
+ * going out. Every dot inside is lit; only their shades, from the install's noise, make the
+ * pattern, which travels with the band. The band's edges are feathered.
+ *
+ * @sideEffects Clears and draws on `context`.
+ * @param context - The canvas, already scaled to CSS pixels.
+ * @param size - The button's size in CSS pixels.
+ * @param progress - How far the band has gone, 0 to 1; outside that nothing is painted.
+ * @param seed - The pattern's seed.
+ */
+export function paintBand(
+  context: CanvasRenderingContext2D,
+  size: { readonly width: number; readonly height: number },
+  progress: number,
+  seed: number,
+): void {
+  const { width, height } = size;
+  context.clearRect(0, 0, width, height);
+  if (progress < 0 || progress > 1) return;
+  const cols = Math.ceil(width / PITCH);
+  const rows = Math.ceil(height / PITCH);
+  const left = (width - (cols - 1) * PITCH - BAND_SIZE) / 2;
+  const top = (height - (rows - 1) * PITCH - BAND_SIZE) / 2;
+  const middle = (rows - 1) / 2;
+  const widest = cols + rows * BAND_SLANT;
+  const band = widest * (0.45 + 0.55 * Math.sin(Math.PI * progress));
+  const centre = -widest / 2 + progress * (cols + widest);
+  const noise = valueNoise(hasher(seed));
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const local = col - centre - (row - middle) * BAND_SLANT;
+      const edge = Math.abs(local) / (band / 2);
+      if (edge >= 1) continue;
+      const envelope = edge < 0.7 ? 1 : 1 - smooth((edge - 0.7) / 0.3);
+      const pattern =
+        0.62 * noise((local + 50) / 3.2, row / 3.2) + 0.38 * noise((local + 50) / 1.4 + 17, row / 1.4 + 5);
+      const shade = Math.min(1, Math.max(0, (pattern - 0.28) / 0.44));
+      context.fillStyle = `rgba(255,255,255,${(envelope * (0.26 + 0.74 * shade)).toFixed(3)})`;
+      context.beginPath();
+      context.roundRect(left + col * PITCH, top + row * PITCH, BAND_SIZE, BAND_SIZE, BAND_RADIUS);
+      context.fill();
+    }
+  }
+}
+
 /**
  * A hash of a grid point, 0 to 1, fixed by the seed.
  *
