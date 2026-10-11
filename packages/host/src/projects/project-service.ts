@@ -104,7 +104,9 @@ export function createProjectService(options: {
     if (git === null) return { branches: [], head: null };
     const prefix = "refs/remotes/origin/";
     const [refs, head] = await Promise.all([
+      // Stryker disable next-line ArrowFunction: `?.` below treats `undefined` as it does `null`.
       git.run(["for-each-ref", "--format=%(refname)", prefix], { cwd: path }).catch(() => null),
+      // Stryker disable next-line ArrowFunction: `?.` below treats `undefined` as it does `null`.
       git.run(["symbolic-ref", "--quiet", `${prefix}HEAD`], { cwd: path }).catch(() => null),
     ]);
     const branches =
@@ -116,6 +118,7 @@ export function createProjectService(options: {
             .filter((branch) => branch !== "HEAD")
             .toSorted()
         : [];
+    // Stryker disable next-line StringLiteral: any text outside the prefix means no head, as "" does.
     const target = head?.code === 0 ? head.stdout.trim() : "";
     return { branches, head: target.startsWith(prefix) ? target.slice(prefix.length) : null };
   }

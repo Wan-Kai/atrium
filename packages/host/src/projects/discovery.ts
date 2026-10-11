@@ -28,10 +28,13 @@ function within(path: string, directory: string): boolean {
  * @returns The real path, or `null`.
  */
 async function realDirectory(path: string): Promise<string | null> {
-  const real = await realpath(path).catch(() => null);
-  if (real === null) return null;
-  const info = await stat(real).catch(() => null);
-  return info?.isDirectory() === true ? real : null;
+  try {
+    const real = await realpath(path);
+    return (await stat(real)).isDirectory() ? real : null;
+  } catch {
+    // Missing, or gone between the two calls: either way not a directory to offer.
+    return null;
+  }
 }
 
 /**
@@ -57,6 +60,7 @@ export async function discoverProjects(options: {
   readonly signal?: AbortSignal;
 }): Promise<DiscoveredDirectory[]> {
   if (options.location === null) return [];
+  // Stryker disable next-line ArrowFunction: `??` treats `undefined` as it does `null`.
   const chats = (await realpath(options.chatsRoot).catch(() => null)) ?? options.chatsRoot;
   const found = new Map<string, DiscoveredDirectory>();
   for (const { cwd, sessions, lastUsedAt } of await sessionDirectories(options.location, options.signal)) {

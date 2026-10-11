@@ -126,6 +126,7 @@ export function createLoginService(options: {
    */
   function refuse(login: Login): void {
     login.insecure = true;
+    // Stryker disable next-line OptionalChaining: pi's words come from the program's output, which is read only after `start` has given the run.
     login.run?.cancel();
   }
 
@@ -222,6 +223,7 @@ export function createLoginService(options: {
    * @param login - The login, or `null` for none.
    */
   async function stop(login: Login | null): Promise<void> {
+    // Stryker disable next-line OptionalChaining: the login under way always has its run, being set as one only once it has it.
     login?.run?.cancel();
     await login?.ended;
   }

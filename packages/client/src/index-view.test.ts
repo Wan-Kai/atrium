@@ -39,6 +39,30 @@ function viewWith(open: string[], active: string | null) {
   };
 }
 
+describe("emptyIndex", () => {
+  it("is an empty list, not ready, with the default preferences", () => {
+    expect(emptyIndex()).toStrictEqual({
+      ready: false,
+      generation: "",
+      seq: 0,
+      projects: [],
+      workspaces: [],
+      sessions: [],
+      layout: { container: null, tabs: {} },
+      preferences: {
+        setupDone: false,
+        appearance: "system",
+        displayMode: "summary",
+        lastModel: null,
+        thinkingByModel: {},
+        statusBar: {},
+        titleModel: null,
+      },
+      resets: [],
+    });
+  });
+});
+
 describe("applyIndexSnapshot", () => {
   it("takes every snapshot whole, whatever its number", () => {
     const { ready: _ready, ...fields } = emptyIndex();

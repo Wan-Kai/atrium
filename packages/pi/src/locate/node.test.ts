@@ -22,6 +22,16 @@ async function nodeBin(body: string): Promise<string> {
   return dir.path;
 }
 
+/**
+ * A `node` script that answers a good version, but only after 10 seconds.
+ *
+ * @remarks
+ * Answering at all shows the check was not stopped: a stopped one counts as missing. It `exec`s
+ * this test's Node, so killing the script kills the one process holding its output open; the wait
+ * ends on its own, within the test's timeout, if nothing kills it (testing.md).
+ */
+const LATE_NODE = `exec "${process.execPath}" -e "setTimeout(() => console.log('v22.19.0'), 10_432)"`;
+
 describe("inspectNode", () => {
   it("finds no Node on a path without one", async () => {
     const clock = new FakeClock();
@@ -65,7 +75,7 @@ describe("inspectNode", () => {
 
   it("counts a node that does not answer in time as missing, and kills it", async () => {
     const clock = new FakeClock();
-    const bin = await nodeBin("exec sleep 30");
+    const bin = await nodeBin(LATE_NODE);
     const inspecting = inspectNode(bin, { env: {}, clock, timeoutMs: 1_000 });
     await vi.waitFor(() => expect(clock.pendingTimers()).toBe(1));
 
@@ -81,7 +91,7 @@ describe("inspectNode", () => {
   it("stops when its signal aborts", async () => {
     const clock = new FakeClock();
     const controller = new AbortController();
-    const inspecting = inspectNode(await nodeBin("exec sleep 30"), { env: {}, clock, signal: controller.signal });
+    const inspecting = inspectNode(await nodeBin(LATE_NODE), { env: {}, clock, signal: controller.signal });
     await vi.waitFor(() => expect(clock.pendingTimers()).toBe(1));
 
     controller.abort();

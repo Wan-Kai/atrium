@@ -43,6 +43,7 @@ export async function inspectNode(
   },
 ): Promise<NodeInspection> {
   const nodePath = await findExecutable(searchPath, "node");
+  // Stryker disable next-line ConditionalExpression: without the check, running a null path throws before any process starts and the catch below answers missing too.
   if (nodePath === null) return { status: "missing" };
   const deadline = new AbortController();
   const cancel = options.clock.setTimeout(() => deadline.abort(), options.timeoutMs ?? NODE_VERSION_TIMEOUT_MS);

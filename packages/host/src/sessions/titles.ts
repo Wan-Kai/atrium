@@ -185,6 +185,7 @@ export function createTitleGenerator(options: {
       if (!signal.aborted) options.logger.info({ sessionId, reason }, "session title not made");
     };
     const { cwd, input } = subject;
+    // Stryker disable next-line ArrowFunction: `undefined` falls back to the session's model as `null` does.
     const model = (await options.titleModel(cwd, signal).catch(() => null)) ?? subject.model;
     // Closed while the model was looked up: no pi is started.
     if (signal.aborted) return;

@@ -53,6 +53,9 @@ describe("discoverProjects", () => {
     await session(sessions, "s5", join(root, "project", "src"), 400);
     await session(sessions, "s6", join(root, "worktree"), 400);
     await session(sessions, "s7", join(root, "chats", "c1"), 400);
+    await session(sessions, "s11", join(root, "chats"), 400);
+    // Atrium may name its chats directory through a link; what is inside its real path is left out.
+    await symlink(join(root, "chats"), join(root, "chats-link"));
     await session(sessions, "s8", join(root, "gone"), 400);
     await writeFile(join(root, "file"), "");
     await session(sessions, "s10", join(root, "file"), 400);
@@ -63,7 +66,7 @@ describe("discoverProjects", () => {
     const found = await discoverProjects({
       location: { directory: sessions, perCwd: true },
       taken: [join(root, "project"), join(root, "worktree")],
-      chatsRoot: join(root, "chats"),
+      chatsRoot: join(root, "chats-link"),
     });
 
     // A folder inside a project can be added as a project of its own, so it stays.

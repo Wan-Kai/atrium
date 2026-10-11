@@ -1449,8 +1449,8 @@ describe("createAtriumClient: first launch", () => {
     expect(client.setup.getState()).toStrictEqual({ status: "ready", state: ready, error: null });
   });
 
-  it("asks again once asked before, when an install succeeds, when pi's credentials change and on a new host", async () => {
-    const { client, latest, clock } = await connected();
+  it("asks again without reading the login shell once asked before, when an install succeeds, when pi's credentials change and on a new host", async () => {
+    const { client, latest, clock, sockets } = await connected();
     const job = {
       type: "install_updated",
       jobId: "j1",
@@ -1511,6 +1511,29 @@ describe("createAtriumClient: first launch", () => {
     expect([unasked, unchanged, afterInstall, afterLogout, afterChange, sameHost, asks()]).toStrictEqual([
       0, 1, 2, 2, 3, 0, 1,
     ]);
+    expect(
+      sockets
+        .flatMap((socket) => socket.commands())
+        .filter((command) => command["type"] === "check_setup")
+        .map((command) => command["refresh"]),
+    ).toStrictEqual([false, false, false, false]);
+  });
+
+  it("counts a latest pi found at the clock's start as found, and one never found as older", async () => {
+    const { client, latest } = await connected();
+    const ready = setupState("ready");
+
+    const first = client.loadSetup();
+    latest().answer("check_setup", { ...ready, pi: { ...ready.pi, latest: "1.2.0", checkedAt: 0 } });
+    await first;
+    const foundAtStart = client.setup.getState().state?.pi;
+    latest().receive(JSON.stringify({ type: "pi_latest", latest: "1.3.0", checkedAt: 1 }));
+    const second = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await second;
+
+    expect(foundAtStart).toStrictEqual({ ...ready.pi, latest: "1.2.0", checkedAt: 0 });
+    expect(client.setup.getState().state?.pi).toStrictEqual({ ...ready.pi, latest: "1.3.0", checkedAt: 1 });
   });
 
   it("reloads the model lists asked for once pi's credentials change, and leaves the others", async () => {

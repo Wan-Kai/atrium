@@ -59,10 +59,10 @@ function lookUp(url: string, signal = new AbortController().signal): Promise<str
 describe("fetchLatestPi", () => {
   it("reads the version pi.dev gives, asking for JSON", async () => {
     const { url, headers } = await versionServer((response) =>
-      response.end(JSON.stringify({ ok: true, version: " 1.1.0 ", packageName: "@earendil-works/pi-coding-agent" })),
+      response.end(JSON.stringify({ ok: true, version: " 1.12.10 ", packageName: "@earendil-works/pi-coding-agent" })),
     );
 
-    expect(await lookUp(url)).toBe("1.1.0");
+    expect(await lookUp(url)).toBe("1.12.10");
     expect(headers[0]?.accept).toBe("application/json");
   });
 

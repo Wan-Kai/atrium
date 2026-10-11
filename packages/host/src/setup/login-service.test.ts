@@ -25,10 +25,14 @@ afterEach(async () => {
  * @sideEffects Creates a temporary directory; closes the service and removes the directory after
  * the test.
  * @param scenario - What the fake pi does, or `null` for no tools.
+ * @param source - The fake pi package's source, when not the usual fake.
  * @returns The service, its events, the log records, the open login programs, how often the
  * credentials changed, and a way to take the tools away.
  */
-async function service(scenario: string | null): Promise<{
+async function service(
+  scenario: string | null,
+  source?: string,
+): Promise<{
   service: LoginService;
   events: LoginUpdatedEvent[];
   records: Record<string, unknown>[];
@@ -38,7 +42,7 @@ async function service(scenario: string | null): Promise<{
 }> {
   let tools: HostTools | null = null;
   if (scenario !== null) {
-    const fake = await fakePiTools(scenario);
+    const fake = await fakePiTools(scenario, source);
     cleanups.push(fake.cleanup);
     tools = fake.tools;
   }
@@ -201,6 +205,22 @@ describe("LoginService.login", () => {
     expect(events.at(-1)).toBe(done);
     expect(changed()).toBe(1);
     await vi.waitFor(() => expect(open()).toBe(0));
+  });
+
+  it("keeps showing the questions not yet answered", async () => {
+    const { service: logins, events } = await service("two-questions");
+
+    const { loginId } = await logins.login({ providerId: "acme", method: "oauth" });
+    const asked = await until(events, (event) => event.questions.length === 2);
+    const [first, second] = asked.questions;
+    logins.answer(loginId, present(first, "the first question").promptId, "1");
+    const left = events.at(-1);
+    logins.answer(loginId, present(second, "the second question").promptId, "2");
+    const done = await until(events, endOf(loginId));
+
+    expect(asked.questions.map(({ message }) => message)).toStrictEqual(["First?", "Second?"]);
+    expect(left).toStrictEqual({ ...asked, questions: [second] });
+    expect(done).toMatchObject({ state: "ok", error: null });
   });
 
   it("gives the key to pi's first secret question and shows the others", async () => {
@@ -385,6 +405,41 @@ describe("LoginService.login", () => {
     expect(() => logins.cancel(loginId)).toThrow(notFound);
   });
 
+  it("ends failed when its program breaks unexpectedly, and logs it", async () => {
+    const recording = recordingTracing();
+    cleanups.push(recording.shutdown);
+    const finished = Promise.withResolvers<void>();
+    const events: LoginUpdatedEvent[] = [];
+    const logins = createLoginService({
+      toolbox: { current: async () => null },
+      logins: {
+        start: async () => ({ answer: () => undefined, cancel: () => undefined, finished: finished.promise }),
+        logout: async () => true,
+      },
+      broadcast: (event) => events.push(event),
+      credentialsChanged: () => undefined,
+      newId: () => "l1",
+      logger: recording.logger,
+    });
+
+    const { loginId } = await logins.login({ providerId: "acme", method: "oauth" });
+    finished.reject(new Error("broken"));
+    const done = await until(events, endOf(loginId));
+
+    expect(done).toStrictEqual({
+      ...STARTED,
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      state: "failed",
+      error: { reason: "failed", detail: null },
+    });
+    expect(recording.records).toContainEqual(expect.objectContaining({ msg: "login ended unexpectedly" }));
+    expect(recording.records).toContainEqual(
+      expect.objectContaining({ msg: "login finished", providerId: "acme", state: "failed", reason: "failed" }),
+    );
+  });
+
   it("is unavailable without tools", async () => {
     const { service: logins, events } = await service(null);
 
@@ -458,6 +513,17 @@ describe("LoginService.logout", () => {
     await expect(failing).rejects.toMatchObject({
       code: "logout_failed",
       params: { reason: "failed", detail: "locked acme" },
+    });
+    expect(changed()).toBe(0);
+  });
+
+  it("fails without words when pi gives none", async () => {
+    // A pi without what the login program needs cannot sign out, and says nothing of it.
+    const { service: logins, changed } = await service("status", "export {};");
+
+    await expect(logins.logout("acme")).rejects.toMatchObject({
+      code: "logout_failed",
+      params: { reason: "unavailable", detail: null },
     });
     expect(changed()).toBe(0);
   });

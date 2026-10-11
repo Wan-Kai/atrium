@@ -18,7 +18,8 @@ afterEach(async () => {
  *
  * @remarks
  * `/install.sh` is the script; `/moved` sends there; `/away` sends to another server; `/loop` sends
- * to itself; `/missing` is not found; `/big` is over 1 MiB; `/slow` never answers.
+ * to itself; `/missing` is not found; `/full` is exactly 1 MiB; `/big` is over 1 MiB; `/slow` never
+ * answers.
  *
  * @sideEffects Listens on a port of 127.0.0.1, closed after the test.
  * @returns The server's address.
@@ -30,6 +31,7 @@ async function scriptServer(): Promise<string> {
     "/moved": (response) => response.writeHead(302, { location: "/install.sh" }).end(),
     "/away": (response) => response.writeHead(302, { location: `${other}/install.sh` }).end(),
     "/loop": (response) => response.writeHead(301, { location: "/loop" }).end(),
+    "/full": (response) => response.end("#".repeat(1024 * 1024)),
     "/big": (response) => response.end("#".repeat(1024 * 1024 + 1)),
     "/slow": () => undefined,
   };
@@ -78,6 +80,12 @@ describe("downloadScript", () => {
 
     expect(await download(`${base}/install.sh`)).toBe("echo installed\n");
     expect(await download(`${base}/moved`)).toBe("echo installed\n");
+  });
+
+  it("downloads a script of exactly 1 MiB", async () => {
+    const base = await scriptServer();
+
+    expect(await download(`${base}/full`)).toBe("#".repeat(1024 * 1024));
   });
 
   it.each([

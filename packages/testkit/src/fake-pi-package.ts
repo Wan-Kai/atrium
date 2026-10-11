@@ -46,6 +46,11 @@ const runtime = {
       if ((await asked) !== "withdrawn") throw new Error("not withdrawn");
       return { type: "oauth", refresh: "r", access: "a", expires: 1 };
     }
+    if (scenario === "two-questions") {
+      const [first, second] = await Promise.all([interaction.prompt({ type: "text", message: "First?" }), interaction.prompt({ type: "text", message: "Second?" })]);
+      if (first !== "1" || second !== "2") throw new Error("wrong answers");
+      return { type: "oauth", refresh: "r", access: "a", expires: 1 };
+    }
     if (scenario === "browser") {
       const how = await interaction.prompt({ type: "select", message: "How?", options: [{ id: "copy_code", label: "Copy" }, { id: "browser", label: "Browser" }] });
       if (how !== "browser") throw new Error("not the browser");

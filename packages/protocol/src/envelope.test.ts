@@ -833,10 +833,28 @@ describe("CommandResult", () => {
     expect(CommandResult.check_setup.safeParse({ ...setup, node: { state: "ready", version: "22.19" } }).success).toBe(
       false,
     );
+    const [anthropic] = setup.login.providers;
+    const others = [
+      ...["missing", "outdated", "ready"].map((state) => ({ ...setup, pi: { ...setup.pi, state } })),
+      ...["missing", "ready"].map((state) => ({ ...setup, node: { ...setup.node, state } })),
+      { ...setup, pi: { ...setup.pi, version: "10.20.30", minimum: "1.0.12", latest: "10.20.30" } },
+      {
+        ...setup,
+        login: { state: "ready", providers: [{ ...anthropic, signedIn: { method: "api_key", stored: false } }] },
+      },
+    ];
+    for (const other of others) expect(CommandResult.check_setup.parse(other)).toStrictEqual(other);
     expect(CommandResult.check_setup.safeParse({ ...setup, projects: -1 }).success).toBe(false);
-    expect(CommandResult.check_setup.safeParse({ ...setup, pi: { ...setup.pi, latest: "latest" } }).success).toBe(
-      false,
-    );
+    for (const wrong of [
+      { version: "v1.0.1" },
+      { version: "1.0.1-beta" },
+      { minimum: "1.0.1.2" },
+      { latest: "latest" },
+      { latest: "v1.2.0" },
+      { latest: "1.2.0 beta" },
+    ]) {
+      expect(CommandResult.check_setup.safeParse({ ...setup, pi: { ...setup.pi, ...wrong } }).success).toBe(false);
+    }
     expect(CommandResult.check_pi_update.parse({ latest: null, checkedAt: null })).toStrictEqual({
       latest: null,
       checkedAt: null,
@@ -1152,6 +1170,15 @@ describe("HostMessage", () => {
           })),
         },
       },
+      ...["unavailable", "failed", "timed_out", "insecure_url"].map((reason) => ({
+        ...loginUpdated,
+        state: "failed",
+        error: { reason, detail: null },
+      })),
+      ...["text", "secret", "select", "manual_code"].map((kind) => ({
+        ...loginUpdated,
+        questions: [{ promptId: 1, kind, message: "Key", placeholder: null, options: [] }],
+      })),
       ...["answered", "cancelled", "timed_out", "stale"].map((outcome) => ({
         type: "notice_added",
         ...at,

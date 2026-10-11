@@ -50,6 +50,7 @@ export interface SessionFileReader {
 }
 
 /** How much of a file is read at a time. */
+// Stryker disable next-line ArithmeticOperator: a smaller chunk only makes reads slower and smaller; each read still stops at its end.
 const CHUNK_BYTES = 1024 * 1024;
 
 /** The most read of a file to find its header; pi's is well under 1 KiB. */
@@ -382,6 +383,7 @@ async function headerCwd(path: string): Promise<string | null> {
   try {
     const { buffer, bytesRead } = await file.read(Buffer.alloc(HEADER_BYTES), 0, HEADER_BYTES, 0);
     const end = buffer.subarray(0, bytesRead).indexOf(0x0a);
+    // Stryker disable next-line ConditionalExpression,UnaryOperator: without the check, no line break reads as text up to -1, which is empty and names no `cwd`; a first line one byte long names none either.
     if (end === -1) return null;
     const first = parseJson(buffer.toString("utf8", 0, end));
     const cwd = field(first, "cwd");
@@ -403,8 +405,9 @@ async function headerCwd(path: string): Promise<string | null> {
  * For first launch, which offers them as projects (SPEC-0001, "首次启动 · 接口"). Reads only each
  * file's header, so a long history is quick: in a folder per working directory, or the configured
  * directory itself (see {@link sessionsLocation}). A folder can hold more than one working
- * directory's sessions ({@link sessionFolder}), so each file's own `cwd` counts. What the system
- * cannot read is skipped. Read only.
+ * directory's sessions ({@link sessionFolder}), so each file's own `cwd` counts. Like pi (pi 1.0.2,
+ * `SessionManager.listAll`), a link among the folders is followed; any other name there that is
+ * not a folder fails to be read as one. What the system cannot read is skipped. Read only.
  *
  * @sideEffects Reads pi's session folders and the start of each session file.
  * @param location - Where pi keeps sessions.
@@ -418,12 +421,12 @@ export async function sessionDirectories(
 ): Promise<SessionDirectory[]> {
   signal?.throwIfAborted();
   const folders = location.perCwd
-    ? ((await unlessUnreadable(readdir(location.directory, { withFileTypes: true }))) ?? [])
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => join(location.directory, entry.name))
+    ? // Stryker disable next-line ArrayDeclaration: a made-up name is not a folder there either, so it is skipped the same way.
+      ((await unlessUnreadable(readdir(location.directory))) ?? []).map((name) => join(location.directory, name))
     : [location.directory];
   const found = new Map<string, { sessions: number; lastUsedAt: number }>();
   for (const folder of folders) {
+    // Stryker disable next-line ArrayDeclaration: a made-up name does not end in `.jsonl`, so it is left out like none.
     const names = (await unlessUnreadable(readdir(folder))) ?? [];
     for (const name of names.filter((entry) => entry.endsWith(".jsonl"))) {
       signal?.throwIfAborted();

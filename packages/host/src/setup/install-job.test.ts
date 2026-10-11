@@ -8,6 +8,7 @@ import { type JobCommand, type JobEnd, runJob } from "./install-job";
 const cleanups: (() => Promise<void>)[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
@@ -118,6 +119,24 @@ describe("runJob", () => {
   });
 
   it("forces the whole tree to go when it ignores the request to stop", async () => {
+    const stop = new AbortController();
+    const { end, output, open } = await sh('trap "" TERM; sleep 60 & echo $!; wait; wait', {
+      signal: stop.signal,
+      graceMs: 200,
+    });
+    await vi.waitFor(() => expect(output.join("")).toMatch(/^\d+\n$/));
+    const sleeper = Number(output.join(""));
+
+    stop.abort();
+
+    expect(await end).toStrictEqual({ started: true, exitCode: null });
+    expect(alive(sleeper)).toBe(false);
+    expect(open()).toBe(0);
+  });
+
+  it("forces the group to go when the process tree cannot be read", async () => {
+    // Without `ps` on the host's own PATH, the tree cannot be read.
+    vi.stubEnv("PATH", "/nonexistent");
     const stop = new AbortController();
     const { end, output, open } = await sh('trap "" TERM; sleep 60 & echo $!; wait; wait', {
       signal: stop.signal,

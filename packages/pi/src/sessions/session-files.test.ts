@@ -1,4 +1,5 @@
 import { createTempDir, parseFixture, present } from "@atrium/testkit";
+import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { appendFile, chmod, mkdir, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -490,7 +491,7 @@ describe("sessionsLocation", () => {
 });
 
 describe("sessionDirectories", () => {
-  it("counts the sessions of each working directory in pi's folders, with when each was last used", async () => {
+  it("counts the sessions of each working directory in pi's folders, links included, with when each was last used", async () => {
     const directory = await tempDir("pi-sessions");
     const folderA = join(directory, "--a--");
     await sessionFile(folderA, "1_s1.jsonl", [header("s1", "/a"), user("hi")], 300);
@@ -498,11 +499,21 @@ describe("sessionDirectories", () => {
     // `/a` and `/-a` share a folder in pi's naming, so each file's own `cwd` counts.
     await sessionFile(folderA, "3_s3.jsonl", [header("s3", "/-a")], 200);
     await sessionFile(join(directory, "--b--"), "1_s4.jsonl", [header("s4", "/b")], 400);
-    await sessionFile(folderA, "not-a-session.jsonl", [{ type: "message" }], 500);
+    await sessionFile(folderA, "not-a-session.jsonl", [{ ...header("s5", "/m"), type: "message" }], 500);
+    await sessionFile(folderA, "no-id.jsonl", [{ type: "session", cwd: "/n" }], 500);
     await sessionFile(folderA, "no-cwd.jsonl", [{ type: "session", id: "s5" }], 500);
+    await sessionFile(folderA, "empty-cwd.jsonl", [header("s10", "")], 500);
+    await symlink(join(directory, "nowhere.jsonl"), join(folderA, "broken.jsonl"));
+    await mkdir(join(folderA, "folder.jsonl"));
+    // A pipe would keep a reader waiting for a writer that never comes.
+    execFileSync("mkfifo", [join(folderA, "pipe.jsonl")]);
     await sessionFile(folderA, "notes.txt", [header("s6", "/c")], 500);
     await writeFile(join(folderA, "4_s7.jsonl"), JSON.stringify(header("s7", "/d")));
     await sessionFile(directory, "1_s8.jsonl", [header("s8", "/e")], 500);
+    const linked = await tempDir("linked-sessions");
+    await sessionFile(linked, "1_s9.jsonl", [header("s9", "/f")], 600);
+    // pi follows a link among its folders too.
+    await symlink(linked, join(directory, "--f--"));
 
     const found = await sessionDirectories({ directory, perCwd: true });
 
@@ -510,7 +521,18 @@ describe("sessionDirectories", () => {
       { cwd: "/-a", sessions: 1, lastUsedAt: 200_000 },
       { cwd: "/a", sessions: 2, lastUsedAt: 300_000 },
       { cwd: "/b", sessions: 1, lastUsedAt: 400_000 },
+      { cwd: "/f", sessions: 1, lastUsedAt: 600_000 },
     ]);
+  });
+
+  it("closes every file it opens", async () => {
+    const directory = await tempDir("pi-sessions");
+    await sessionFile(join(directory, "--a--"), "1_s1.jsonl", [header("s1", "/a")]);
+    const before = openFiles();
+
+    await sessionDirectories({ directory, perCwd: true });
+
+    expect(openFiles()).toBe(before);
   });
 
   it("reads the configured directory itself when pi keeps every session in one place", async () => {

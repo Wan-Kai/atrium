@@ -377,6 +377,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   let setupAsks = 0;
   /** The latest pi the host pushed, kept while no `check_setup` answer holds it. */
+  // Stryker disable next-line ObjectLiteral: an empty one reads as never found, just as nulls do.
   let pushedLatest: PiLatest = { latest: null, checkedAt: null };
   const openSocket: (url: string) => SocketLike = options.openSocket ?? ((url: string) => new WebSocket(url));
   const createTrace = options.createTrace ?? createTraceContext;
@@ -703,6 +704,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param refresh - Whether the host reads the login shell again first.
    */
   async function loadSetup(refresh: boolean): Promise<void> {
+    // Stryker disable next-line AssignmentOperator: counting down numbers each ask apart just the same.
     setupAsks += 1;
     const ask = setupAsks;
     setup.setState({ status: "loading", error: null });
@@ -836,6 +838,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     if (message.type === "install_updated") {
       const shown = installJob.getState();
       const output = shown?.job.jobId === message.jobId ? shown.output : "";
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       installJob.setState({ job: message, output }, true);
       if (message.state === "ok") askSetupAgain();
       return;
@@ -844,6 +847,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       const shown = installJob.getState();
       // Output of a job this client has not heard of has no state to show it with.
       if (shown?.job.jobId !== message.jobId) return;
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       installJob.setState({ job: shown.job, output: (shown.output + message.text).slice(-MAX_INSTALL_OUTPUT) }, true);
       return;
     }
@@ -976,11 +980,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
           askSetupAgain();
         }
         hostInstance = hostInstanceId;
-        // Stryker disable next-line BooleanLiteral: "connected" has every key "connecting" has, so merging equals replacing.
+        // Stryker disable BooleanLiteral: "connected" has every key "connecting" has, so merging equals replacing.
         connection.setState(
           { status: "connected", traceId: trace.traceId, hostVersion, hostInstanceId, installSeed, logDir },
           true,
         );
+        // Stryker restore BooleanLiteral
         beat(current, heartbeatMs);
         // Each connection subscribes anew, from where the list was; the host answers at once.
         const cursor = cursorOf(index.getState());
@@ -1136,6 +1141,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     loadSetup: (refresh = false) => loadSetup(refresh),
     loginState,
     login: (providerId, method, key) =>
+      // Stryker disable next-line ConditionalExpression: JSON drops a key whose value is undefined, so both send the same.
       request("login", key === undefined ? { providerId, method } : { providerId, method, key }),
     answerLogin: (loginId, promptId, value) => request("answer_login", { loginId, promptId, value }),
     cancelLogin: (loginId) => request("cancel_login", { loginId }),

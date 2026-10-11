@@ -43,7 +43,7 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 - 每次追加都挂在当前 `leafId` 下并移动叶子。`branch(id)` 移叶子；`branchWithSummary` 移叶子并追加 `branch_summary`；`resetLeaf()` 让下一条成为新的根。
 - **叶子不存盘**：加载时取文件最后一条为叶子。
 - 上下文构建：`buildContextEntries`（路径 + 最近的压缩）→ `buildSessionProjection`（应用 context_edit）→ `buildSessionContext`。这就是 `get_messages` 返回的东西，**不是完整历史**。
-- 列表：`SessionManager.list / listAll` 返回 `SessionInfo {path, id, cwd, name?, parentSessionPath?, created, modified, messageCount, firstMessage}`，但**不是 RPC 命令**，宿主要自己扫目录。
+- 列表：`SessionManager.list / listAll` 返回 `SessionInfo {path, id, cwd, name?, parentSessionPath?, created, modified, messageCount, firstMessage}`，但**不是 RPC 命令**，宿主要自己扫目录。`listAll` 列会话文件夹时目录和符号链接都算（`entry.isDirectory() || entry.isSymbolicLink()`，1.0.2 源码）。
 
 **fork / clone**（`src/core/agent-session-runtime.ts`）
 

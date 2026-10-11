@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { systemClock } from "../platform/clock";
-import { runJob } from "./install-job";
+import { type JobEnd, runJob } from "./install-job";
 import { DownloadError } from "./install-script";
 import { type InstallService, createInstallService } from "./install-service";
 import type { HostTools } from "./toolbox";
@@ -81,8 +81,8 @@ async function executable(path: string, body: string): Promise<string> {
  *
  * @sideEffects Creates a temporary directory; closes the service and removes the directory after
  * the test.
- * @param options - The tools to change, the script, the sessions, extra environment, and what to
- * do after a job succeeds.
+ * @param options - The tools to change, the script, the sessions, extra environment, what to do
+ * after a job succeeds, and what runs a command instead of a real job.
  * @returns The service, its events, the log records, the folder, the open processes, and the jobs
  * that succeeded with how many events had been sent then.
  */
@@ -93,6 +93,7 @@ async function service(
     sessions?: TestSessions;
     env?: Record<string, string>;
     afterSuccess?: (kind: InstallKind) => Promise<void>;
+    run?: () => Promise<JobEnd>;
   } = {},
 ): Promise<{
   service: InstallService;
@@ -135,7 +136,7 @@ async function service(
     sessions: options.sessions ?? testSessions(0),
     broadcast: (event) => events.push(event),
     run: (command, run) =>
-      runJob(command, { ...run, clock: systemClock, resources: recording.resources, graceMs: 200 }),
+      options.run?.() ?? runJob(command, { ...run, clock: systemClock, resources: recording.resources, graceMs: 200 }),
     afterSuccess: async (kind) => {
       succeeded.push({ kind, events: events.length });
       await options.afterSuccess?.(kind);
@@ -234,6 +235,7 @@ describe("InstallService.start", () => {
     ]);
     expect(done.state).toBe("ok");
     expect(output(events)).toBe(`installing in ${dir}\n`);
+    expect(records).toContainEqual(expect.objectContaining({ msg: "install started", kind: "install_pi" }));
     expect(records).toContainEqual(
       expect.objectContaining({ msg: "install finished", kind: "install_pi", state: "ok", exitCode: 0, reason: null }),
     );
@@ -269,6 +271,22 @@ describe("InstallService.start", () => {
     ]);
     expect(done).toStrictEqual({ ...UPDATE, jobId: "j1", kind: "update_pi", state: "ok", exitCode: 0 });
     expect(output(events)).toBe(`pi update in ${dir}\n`);
+  });
+
+  it("installs pi and Node at once while sessions run", async () => {
+    const { service: installs, events } = await service({ sessions: testSessions(1) });
+
+    await installs.start("install_pi");
+    await vi.waitFor(() => expect(updates(events)).toHaveLength(2), { timeout: 10_000 });
+    await installs.start("install_node");
+    await vi.waitFor(() => expect(updates(events)).toHaveLength(4), { timeout: 10_000 });
+
+    expect(updates(events).map(({ kind, state, running }) => [kind, state, running])).toStrictEqual([
+      ["install_pi", "running", null],
+      ["install_pi", "ok", null],
+      ["install_node", "running", null],
+      ["install_node", "ok", null],
+    ]);
   });
 
   it("updates pi once the running sessions have finished, showing how many still run", async () => {
@@ -326,6 +344,32 @@ describe("InstallService.start", () => {
       state: "failed",
       reason: "spawn_failed",
     });
+  });
+
+  it("shows a job that breaks unexpectedly as failed to start, and logs it", async () => {
+    const {
+      service: installs,
+      events,
+      records,
+    } = await service({
+      run: async () => {
+        throw new Error("broken");
+      },
+    });
+
+    await installs.start("install_node");
+    const done = await ended(events);
+
+    expect(done).toStrictEqual({
+      ...UPDATE,
+      jobId: "j1",
+      kind: "install_node",
+      state: "failed",
+      reason: "spawn_failed",
+    });
+    expect(records).toContainEqual(
+      expect.objectContaining({ msg: "install ended unexpectedly", kind: "install_node" }),
+    );
   });
 
   it("runs one job at a time", async () => {
