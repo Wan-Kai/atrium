@@ -1,5 +1,5 @@
 import { type ElectronApplication, type Page, _electron as electron, expect } from "@playwright/test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,6 +19,30 @@ export interface LaunchedApp {
   readonly quit: () => Promise<void>;
   /** Deletes the home directory after `quit`. */
   readonly cleanup: () => Promise<void>;
+}
+
+/** `preferences.json` with first launch done and the rest as a new home has it. */
+const DONE_PREFERENCES = `${JSON.stringify({
+  version: 2,
+  appearance: "system",
+  displayMode: "summary",
+  lastModel: null,
+  thinkingByModel: {},
+  setupDone: true,
+})}\n`;
+
+/**
+ * Writes the preferences of a new Atrium home with first launch done.
+ *
+ * @remarks
+ * Tests of the workbench start past first launch, which a new home would otherwise show
+ * (SPEC-0001, "首次启动 · 什么时候显示").
+ *
+ * @sideEffects Writes `preferences.json` in `home`.
+ * @param home - The Atrium home directory, before a host starts on it.
+ */
+export async function markSetupDone(home: string): Promise<void> {
+  await writeFile(join(home, "preferences.json"), DONE_PREFERENCES);
 }
 
 /**
@@ -48,16 +72,25 @@ export function median(values: readonly number[]): number {
  * End-to-end means the real launch path (testing.md, layer 6): Electron starts the bundled host
  * in its utility process and loads the UI the host serves. Only `ATRIUM_HOME` is redirected, so
  * the test never touches the developer's `~/.atrium`, and the host looks up no latest pi unless
- * `env` says where, so it stays off the network.
+ * `env` says where, so it stays off the network. A new home has first launch done already, so the
+ * window opens on the workbench, unless `options.firstLaunch` asks for first launch; then the
+ * launch waits for the welcome page instead, which has no connection status.
  *
- * @sideEffects Creates a temp directory unless given one; launches Electron; waits for the page to
- * connect.
+ * @sideEffects Creates a temp directory unless given one, with the preferences in it; launches
+ * Electron; waits for the page to connect.
  * @param env - Extra environment variables, such as `ATRIUM_DEV_URL` for the development path.
  * @param existingHome - A home an earlier launch used, to start the app again on it.
+ * @param options - Whether a new home begins with first launch.
  * @returns The app, its window and helpers.
  */
-export async function launchApp(env: Record<string, string> = {}, existingHome?: string): Promise<LaunchedApp> {
+export async function launchApp(
+  env: Record<string, string> = {},
+  existingHome?: string,
+  options: { readonly firstLaunch?: boolean } = {},
+): Promise<LaunchedApp> {
+  const firstLaunch = options.firstLaunch === true;
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "atrium-e2e-")));
+  if (existingHome === undefined && !firstLaunch) await markSetupDone(home);
   const started = Date.now();
   const app = await electron.launch({
     args: ["."],
@@ -67,7 +100,8 @@ export async function launchApp(env: Record<string, string> = {}, existingHome?:
     colorScheme: null,
   });
   const window = await app.firstWindow();
-  await expect(window.getByRole("status")).toHaveText(/已连接宿主/, { timeout: 15_000 });
+  if (firstLaunch) await expect(window.getByRole("button", { name: "开始设置" })).toBeVisible({ timeout: 15_000 });
+  else await expect(window.getByRole("status")).toHaveText(/已连接宿主/, { timeout: 15_000 });
   const connectedAfterMs = Date.now() - started;
   return {
     app,

@@ -6,7 +6,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { fauxPiEnvironment } from "./faux-pi";
-import { launchApp } from "./launch";
+import { launchApp, markSetupDone } from "./launch";
 import { send, sentAs } from "./messages";
 
 /** The page's connection to the host, which a test can cut and restore. */
@@ -164,12 +164,13 @@ async function freePort(): Promise<number> {
  * and token, as when its operator restarts it. The token goes to the host as `ATRIUM_TOKEN`, which
  * only a host run on its own reads (security.md, "WebSocket 与鉴权").
  *
- * @sideEffects Creates a home directory; `start` spawns the host, `stop` ends exactly that process.
+ * @sideEffects Creates a home directory, first launch done; `start` spawns the host, `stop` ends exactly that process.
  * @param env - pi's environment.
  * @returns The host's address and token, what it logged, and how to start, stop and clean it up.
  */
 async function standaloneHost(env: Record<string, string>) {
   const home = await mkdtemp(join(tmpdir(), "atrium-e2e-"));
+  await markSetupDone(home);
   const port = await freePort();
   const token = randomBytes(32).toString("base64url");
   let child: ChildProcess | null = null;

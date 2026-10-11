@@ -17,6 +17,16 @@ import { DisplayModeContext, createDisplayMode, followPreferences } from "../sta
 import { READY_SETUP, fakeClient } from "../test/fake-client";
 import { FirstLaunch, type FirstLaunchStart } from "./first-launch";
 
+/** The connection once the host said welcome. */
+const CONNECTED = {
+  status: "connected",
+  traceId: "t",
+  hostVersion: "0",
+  hostInstanceId: "h1",
+  installSeed: 1,
+  logDir: "/logs",
+} as const;
+
 /** The time the tests run at: 2027-01-15 08:00 UTC. */
 const NOW = 1_800_000_000_000;
 
@@ -243,6 +253,40 @@ describe("First launch · when it shows", () => {
     await expect.element(screen.getByRole("button", { name: "设置" })).toBeVisible();
     await expect.element(screen.getByRole("heading", { level: 1 })).not.toBeInTheDocument();
     expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["loadSetup"]);
+  });
+
+  it("asks what first launch checks once connected, and again after reconnecting", async () => {
+    const fake = fakeClient({}, { setup: NO_PI });
+    fake.index.setState({ ready: false });
+    fake.connection.setState({ status: "connecting", traceId: "t" }, true);
+    const displayMode = createDisplayMode("summary", () => undefined);
+    onTestFinished(followPreferences(displayMode, fake.client));
+    const screen = await render(
+      <DisplayModeContext value={displayMode}>
+        <Workbench
+          client={fake.client}
+          status={null}
+          pickDirectory={undefined}
+          setNativeAppearance={undefined}
+          openUrl={() => undefined}
+          reveal={undefined}
+          pathForFile={undefined}
+        />
+      </DisplayModeContext>,
+    );
+
+    expect(fake.calls).toStrictEqual([]);
+    fake.connection.setState(CONNECTED, true);
+    fake.index.setState({ ready: true });
+    await expect.element(screen.getByRole("heading", { level: 1 })).toHaveTextContent("先装好 pi");
+    fake.connection.setState({ status: "reconnecting", attempt: 1, code: 1006 }, true);
+    // Long enough for React to render the connection down, as a real reconnect takes.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    fake.connection.setState(CONNECTED, true);
+
+    await expect
+      .poll(() => fake.calls.filter((call) => !call.startsWith("watch")))
+      .toStrictEqual(["loadSetup", "loadSetup"]);
   });
 
   it("shows the workbench while setup is done and pi is ready, or while the setup is not read yet", async () => {

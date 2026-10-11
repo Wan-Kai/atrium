@@ -246,11 +246,12 @@ function useSeenErrors(client: AtriumClient, index: IndexView, sessionId: string
  * SPEC-0001 ("首次启动 · 什么时候显示"): first launch shows while `setupDone` is false, and later
  * while pi cannot be used; once it shows it stays until finished, even if pi turns ready on its
  * way. Nothing shows until the host's first list says which. What first launch checks is asked
- * for once here, also for the sidebar's and the settings' blue dot; the client asks again when it
- * may have changed. The appearance follows the user's choice in both, also in the window's own
+ * for here, also for the sidebar's and the settings' blue dot, each time the connection is up:
+ * the workbench shows before the host's welcome, when asking would fail, and things may have
+ * changed while it was down. The client asks again when it may have changed otherwise. The appearance follows the user's choice in both, also in the window's own
  * parts through `setNativeAppearance`.
  *
- * @sideEffects Subscribes to the client's list and setup; sets the page's appearance; asks for
+ * @sideEffects Subscribes to the client's connection, list and setup; sets the page's appearance; asks for
  * what first launch checks; through what it shows, listens for keys and sends commands.
  * @param props - The client, the connection status line, how to choose a folder, how to set the
  * window's own appearance, how to open an address, how to show a path in the Finder, and how to
@@ -286,10 +287,11 @@ export function Workbench({
   // advises for state that follows other values).
   if (shown === null && (wanted === "welcome" || wanted === "install")) setShown(wanted);
 
+  const connected = useStore(client.connection, (connection) => connection.status === "connected");
   useEffect(() => {
     // Fire and forget: the answer lands in `client.setup`, a failure there too.
-    void client.loadSetup();
-  }, [client]);
+    if (connected) void client.loadSetup();
+  }, [client, connected]);
 
   useEffect(() => {
     setNativeAppearance?.(appearance);
