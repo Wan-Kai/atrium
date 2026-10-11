@@ -419,6 +419,20 @@ describe("ConversationArea", () => {
     expect(calls).toContain("watch new1");
   });
 
+  it("creates the session as soon as something is typed, once, before anything is sent", async () => {
+    const { client, calls, index } = fakeClient();
+    const create = async () => (await client.createChat()).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId="chats" sessionId={null} create={create} />,
+    );
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好");
+
+    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["createChat"]);
+    pageDrafts().drop(["new1"]);
+  });
+
   it.each([
     ["chats", "不绑定项目和工作区，直接输入就开始"],
     ["wks_000000000000000a", "在这个工作区里开始，直接输入就会新建会话"],
@@ -528,6 +542,22 @@ describe("ConversationArea", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("没有找到 pi，请先安装 pi");
+  });
+
+  it("explains a creation that failed as the first words were typed, before anything is sent", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      { createSession: () => Promise.reject(new CommandError("workspace_not_found", { workspaceId: "wks_a" })) },
+    );
+    const create = async () => (await client.createSession("wks_a")).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId="wks_a" sessionId={null} create={create} />,
+    );
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("这个工作区已经不在了");
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["createSession wks_a"]);
   });
 
   it.each([

@@ -89,6 +89,8 @@ export interface ComposerProps {
   readonly autoFocus?: boolean;
   /** Compresses an image before it uploads; `compressImage` unless a test holds it back. */
   readonly compress?: (image: Blob) => Promise<CompressedImage>;
+  /** The user changed the text, the pasted texts or the files: the empty state creates its session. */
+  readonly onEdit?: () => void;
 }
 
 /**
@@ -145,7 +147,8 @@ const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
  * @sideEffects Calls the handlers as the user acts; reads and writes the draft in storage; asks
  * for commands and files while their lists are open.
  * @param props - What to do with a message, a steer and a stop, the run's state, what floats
- * above, the model button, the draft's key, the history, and where commands and files come from.
+ * above, the model button, the draft's key, the history, where commands and files come from, and
+ * whom to tell of an edit.
  * @returns The input box.
  */
 export function Composer({
@@ -167,6 +170,7 @@ export function Composer({
   pathForFile,
   autoFocus = false,
   compress = compressImage,
+  onEdit,
 }: ComposerProps) {
   const drafts = pageDrafts();
   const { text, pastes, files, images } = useDraft(draftKey);
@@ -174,12 +178,16 @@ export function Composer({
    * Changes part of the draft.
    *
    * @remarks
-   * The draft is the page's, so every box showing it changes too.
+   * The draft is the page's, so every box showing it changes too. Only the user's own edits come
+   * here, so `onEdit` hears of each.
    *
-   * @sideEffects Updates the draft.
+   * @sideEffects Updates the draft; calls `onEdit`.
    * @param part - The parts to change.
    */
-  const change = (part: Partial<Draft>): void => drafts.update(draftKey, (draft) => ({ ...draft, ...part }));
+  const change = (part: Partial<Draft>): void => {
+    drafts.update(draftKey, (draft) => ({ ...draft, ...part }));
+    onEdit?.();
+  };
   /**
    * Puts new text in the draft.
    *

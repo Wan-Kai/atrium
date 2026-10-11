@@ -105,9 +105,10 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  *
  * @remarks
  * Follows SPEC-0001 ("项目、工作区与会话") and domain-model §1:
- * - a new session or chat starts its pi at once (domain-model, "已决定 9, 14"), is recorded as a
- *   draft in its container, and opens as the client's active tab; a chat gets its own directory
- *   under the chats root;
+ * - a new session or chat gets its id here, is recorded as a draft in its container and opens as
+ *   the client's active tab at once; its pi starts in the background with `--session-id <id>`,
+ *   and whatever needs it waits for that start (domain-model, "已决定 9, 14"); a chat gets its own
+ *   directory under the chats root;
  * - opening a session starts pi with `--session <file>` in the directory the session recorded,
  *   unless its pi runs; a draft restored after a restart starts with `--session-id <id>` on its
  *   first message (domain-model, "已决定 7");
@@ -117,10 +118,10 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  * - a client's tab and place changes take effect in the order its commands came, at once for a
  *   session the index knows; one it does not know yet waits for the first scan, and a tab closed
  *   meanwhile must not open again; once closing, queued changes do nothing;
- * - a new session's tab opens once its pi started; the client goes there only if it stayed where
- *   it was when it asked;
+ * - the client goes to a new session's tab only if it stayed where it was when it asked;
  * - pi must have been found and be usable; otherwise starting fails with `pi_unavailable` and
- *   pi's status, which the UI explains;
+ *   pi's status, which the UI explains; a new session's start in the background failing is only
+ *   logged, and its next open, message or command starts it again;
  * - which user messages opened turns is kept per session (`turnStarts`), so a later host
  *   rebuilds steers and turns as they were (SPEC-0001, `steer`);
  * - a session pi has written nothing of starts on the model chosen last, with the thinking level
@@ -138,7 +139,7 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  * index and publishes.
  * @param options - The chats root, the detected tools, the subscription registry, the catalog,
  * layouts and workspaces, a callback for list changes, and the host's clock, resources, tracer,
- * logger and id source.
+ * logger and id sources.
  * @returns The manager.
  */
 export function createSessionManager(options: {
@@ -155,6 +156,8 @@ export function createSessionManager(options: {
   readonly tracer: Tracer;
   readonly logger: Logger;
   readonly newId: () => string;
+  /** Makes a new session's id, which pi takes with `--session-id` (pi-internals §1). */
+  readonly newSessionId: () => string;
   /** Loads a session's turn starts (`turns/<session id>.json`); without it they live in memory. */
   readonly turnStarts?: (sessionId: string) => Promise<TurnStarts>;
   /** The model new sessions start with; without it pi picks its own and choices go nowhere. */
@@ -175,7 +178,7 @@ export function createSessionManager(options: {
     now: () => options.clock.now(),
     setTimeout: (callback, ms) => trackedTimeout(options.clock, options.resources, callback, ms),
   };
-  /** Every pi started, including one still reporting its session id, so `close` stops them all. */
+  /** Every pi started, including one still reading its session, so `close` stops them all. */
   const running = new Set<{ stop(): Promise<unknown> }>();
   /** Sessions with a run in progress. */
   const busy = new Set<string>();
@@ -189,10 +192,10 @@ export function createSessionManager(options: {
   const asking = new Map<string, ReadonlyMap<string, number>>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
+  /** Drafts created by this host, which start on open, unlike drafts restored (domain-model, "已决定 7, 9"). */
+  const created = new Set<string>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
-  /** New sessions whose pi is starting, before they have an id to be found by. */
-  const creating = new Set<Promise<unknown>>();
   /** Background work, such as scans after a run, that `close` waits for. */
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
@@ -486,16 +489,15 @@ export function createSessionManager(options: {
    * Starts pi and reads what it knows of its session.
    *
    * @remarks
-   * The session's id is the one pi reports (domain-model, "已决定 2"); automatic retries are
-   * turned on; its entries are read at once, so the first snapshot already holds the transcript.
-   * A pi that cannot report its
-   * session is stopped, never left running unowned; one started while the host closes stops
-   * itself.
+   * pi is started for a session the host knows, by its file or its id (domain-model, "已决定 2");
+   * automatic retries are turned on; its entries are read at once, so the first snapshot already
+   * holds the transcript. A pi that cannot report its session is stopped, never left running
+   * unowned; one started while the host closes stops itself.
    *
    * @sideEffects Spawns pi.
    * @param tools - The tools to start pi with.
    * @param launch - pi's arguments and working directory.
-   * @returns The session's id, the traced pi, the controller's view of it and its entries.
+   * @returns The traced pi, the controller's view of it, its model and its entries.
    * @throws {CommandError} `pi_unavailable` when pi exits or does not answer.
    */
   async function spawn(tools: ReadyTools, launch: Launch) {
@@ -533,7 +535,6 @@ export function createSessionManager(options: {
       const data = await traced.request(since === undefined ? { type: "get_entries" } : { type: "get_entries", since });
       return { entries: data.entries.map(toLogEntry), leafId: data.leafId };
     };
-    let sessionId: string;
     let model: SessionModel | null;
     let entries: EntriesPage;
     try {
@@ -541,9 +542,7 @@ export function createSessionManager(options: {
       // counts on it (SPEC-0001, "运行出错与停止").
       await traced.request({ type: "set_auto_retry", enabled: true });
       if (launch.startOn !== null) await startOnModel(traced, launch.startOn);
-      const state = await traced.request({ type: "get_state" });
-      sessionId = state.sessionId;
-      model = sessionModelOf(state);
+      model = sessionModelOf(await traced.request({ type: "get_state" }));
       entries = await getEntries(undefined);
     } catch (error) {
       await pi.stop();
@@ -579,7 +578,7 @@ export function createSessionManager(options: {
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
       stop: () => pi.stop(),
     };
-    return { sessionId, traced, view, entries, model };
+    return { traced, view, entries, model };
   }
 
   /**
@@ -618,11 +617,12 @@ export function createSessionManager(options: {
    * snapshot goes to the session's current subscribers.
    *
    * @sideEffects Registers or updates the session; sends snapshots to its viewers.
+   * @param sessionId - The session.
    * @param spawned - What `spawn` returned.
    * @returns The session.
    */
-  async function connect(spawned: Awaited<ReturnType<typeof spawn>>): Promise<Running> {
-    const { sessionId, traced, view, entries, model } = spawned;
+  async function connect(sessionId: string, spawned: Awaited<ReturnType<typeof spawn>>): Promise<Running> {
+    const { traced, view, entries, model } = spawned;
     const known = sessions.get(sessionId);
     if (known !== undefined) {
       if (!known.controller.exited) {
@@ -638,6 +638,11 @@ export function createSessionManager(options: {
       options.logger.warn({ ...failureFields(error), sessionId }, "turn starts could not be read");
       return undefined;
     });
+    if (closed) {
+      // The host began closing meanwhile: it stops this pi with every other it started, and a
+      // controller made now would be kept by no one.
+      throw new CommandError("pi_unavailable", { status: "exited" });
+    }
     const controller = createSessionController({
       sessionId,
       pi: view,
@@ -768,7 +773,7 @@ export function createSessionManager(options: {
     const start = async (): Promise<Running> => {
       entryOf(sessionId);
       const tools = await readyTools();
-      return connect(await spawn(tools, await launchOf(sessionId)));
+      return connect(sessionId, await spawn(tools, await launchOf(sessionId)));
     };
     const started = start().finally(() => starting.delete(sessionId));
     starting.set(sessionId, started);
@@ -781,7 +786,7 @@ export function createSessionManager(options: {
    * @remarks
    * See `createSessionManager`.
    *
-   * @sideEffects Spawns pi; writes the index.
+   * @sideEffects Writes the index; starts pi in the background.
    * @param clientId - The client.
    * @param containerId - Where the session goes.
    * @param cwd - Its working directory.
@@ -789,17 +794,11 @@ export function createSessionManager(options: {
    */
   async function create(clientId: string, containerId: string, cwd: string): Promise<string> {
     const asked = options.layouts.of(clientId).container;
-    const tools = await readyTools();
-    const startOn = options.models?.preferred() ?? null;
-    const started = (async () => connect(await spawn(tools, { args: [], cwd, startOn })))();
-    creating.add(started);
-    let sessionId: string;
-    try {
-      ({ sessionId } = (await started).controller);
-    } finally {
-      creating.delete(started);
-    }
+    const sessionId = options.newSessionId();
     await options.catalog.record({ sessionId, containerId, cwd });
+    created.add(sessionId);
+    // Started as a draft's: whatever needs pi meanwhile waits for this start.
+    inBackground("session start", () => ensureRunning(sessionId));
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {
       const stayed = options.layouts.of(clientId).container === asked;
@@ -842,7 +841,7 @@ export function createSessionManager(options: {
     held.delete(sessionId);
     sessions.delete(sessionId);
     // Stryker disable next-line all: only frees memory; a session forgotten here runs no more, and its next run would clear them first.
-    for (const kept of [failures, marked, renamed]) kept.delete(sessionId);
+    for (const kept of [failures, marked, renamed, created]) kept.delete(sessionId);
   }
 
   /**
@@ -899,7 +898,9 @@ export function createSessionManager(options: {
       const found = entryOf(sessionId);
       // A session handed off waits for "在 Atrium 里继续" (SPEC-0001, "交给终端").
       if (found.handedOff) return {};
-      if (found.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
+      // A restored draft waits for its first message; one created here starts, or its start under
+      // way is waited for.
+      if (found.state !== "draft" || sessions.has(sessionId) || created.has(sessionId)) await ensureRunning(sessionId);
       return {};
     },
     async closeTab(clientId, sessionId) {
@@ -912,7 +913,8 @@ export function createSessionManager(options: {
       await options.catalog.scan();
       const entry = options.catalog.find(sessionId);
       const empty = (sessions.get(sessionId)?.controller.snapshot().items.length ?? 0) === 0;
-      const busyNow = starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0;
+      // A start under way is no message: `stopSession` waits for it and stops its pi.
+      const busyNow = (prompting.get(sessionId) ?? 0) > 0;
       if (entry?.state === "draft" && empty && !busyNow && !options.layouts.isOpen(sessionId)) {
         await stopSession(sessionId);
         forget(sessionId);
@@ -1090,7 +1092,7 @@ export function createSessionManager(options: {
       // pi was updated: a session's next use starts the new one (SPEC-0001, "首次启动 · 接口").
       // A pi starting meanwhile may be the old one, so it is waited for and judged too. A dialog
       // waiting for an answer keeps its session's pi. Stopping a pi already gone does nothing.
-      await Promise.allSettled([...starting.values(), ...creating]);
+      await Promise.allSettled(starting.values());
       const idle = [...sessions.keys()].filter((sessionId) => !occupied(sessionId) && askingSince(sessionId) === null);
       await Promise.all(idle.map((sessionId) => stopSession(sessionId)));
     },

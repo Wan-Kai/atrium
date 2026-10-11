@@ -296,10 +296,10 @@ export function useDisplayModeShortcut(): void {
  * The conversation area: the active session of the current container, or its empty state.
  *
  * @remarks
- * The active session is watched while it shows. With no session open, typing into the input box
- * creates one where the client is, a chat when it is nowhere yet, and sends the message to it
- * (SPEC-0001, "标签栏"); a second message sent while it is being created waits for it instead of
- * creating another, while one sent after moving to another container starts its own there. The
+ * The active session is watched while it shows. With no session open, the first edit in the input
+ * box creates one where the client is, a chat when it is nowhere yet, and the message goes to it
+ * (SPEC-0001, "标签页"); a message or edit while it is being created waits for it instead of
+ * creating another, while one after moving to another container starts its own there. The
  * active session is opened whenever it shows, which starts a pi that is not running (as after a
  * restart) and explains here why it cannot. A session whose pi has exited, or that the host lost
  * in a restart, is opened again before the message goes. A failed send is explained above the input box, and the
@@ -580,6 +580,20 @@ export function ConversationArea({
     void send(text, images);
   };
   /**
+   * Creates the empty state's session as soon as the user edits its box.
+   *
+   * @remarks
+   * SPEC-0001 ("标签页"): pi starts while the user goes on typing, so the first message does not
+   * wait for it; what was typed moves into the new session's box (`target`). Later edits meet
+   * the same creation. One that fails shows here, and the next edit or the send tries again.
+   *
+   * @sideEffects May create a session and watch it; updates component state.
+   */
+  const onEmptyEdit = (): void => {
+    // Fire and forget: a failure shows here.
+    target().catch((error: unknown) => setFailure(describeSendError(error)));
+  };
+  /**
    * Starts a steer without waiting for it.
    *
    * @remarks
@@ -668,6 +682,7 @@ export function ConversationArea({
               onListCommands={async () => (await client.listCommands(await target())).commands}
               onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
               onSend={onSend}
+              onEdit={onEmptyEdit}
               above={capsule === undefined ? undefined : <ChangesTrack changes={capsule} />}
               picker={
                 <SessionModelPicker

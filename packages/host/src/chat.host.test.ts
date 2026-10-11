@@ -87,20 +87,17 @@ describe("one chat over the WebSocket", () => {
   it("creates a chat, sends its snapshot to the subscriber, and streams a reply", async () => {
     const chat = await chatHost();
 
-    expect(await command(chat, { type: "create_chat", requestId: "r1" })).toStrictEqual({
-      type: "response",
-      requestId: "r1",
-      ok: true,
-      result: { sessionId: "pi-session-1" },
-    });
-    expect(
-      await command(chat, { type: "subscribe_sessions", requestId: "r2", sessionIds: ["pi-session-1"] }),
-    ).toMatchObject({
-      ok: true,
-    });
-    expect(
-      await command(chat, { type: "prompt", requestId: "r3", sessionId: "pi-session-1", text: "ping" }),
-    ).toStrictEqual({
+    const created = await command(chat, { type: "create_chat", requestId: "r1" });
+    expect(created).toMatchObject({ type: "response", requestId: "r1", ok: true });
+    const { sessionId } = (created as { result: { sessionId: string } }).result;
+    // As the UI does with the tab it shows: the open waits for the chat's pi to start.
+    expect(await command(chat, { type: "open_session", requestId: "r1b", sessionId })).toMatchObject({ ok: true });
+    expect(await command(chat, { type: "subscribe_sessions", requestId: "r2", sessionIds: [sessionId] })).toMatchObject(
+      {
+        ok: true,
+      },
+    );
+    expect(await command(chat, { type: "prompt", requestId: "r3", sessionId, text: "ping" })).toStrictEqual({
       type: "response",
       requestId: "r3",
       ok: true,
@@ -123,7 +120,7 @@ describe("one chat over the WebSocket", () => {
       "metrics_updated",
     ]);
     expect(events.slice(1, 7)).toMatchObject(
-      Array.from({ length: 6 }, (_, index) => ({ sessionId: "pi-session-1", epoch: 1, seq: index + 1, traceId })),
+      Array.from({ length: 6 }, (_, index) => ({ sessionId, epoch: 1, seq: index + 1, traceId })),
     );
     expect(events[7]).toMatchObject({ seq: 7, traceId: null });
     // The snapshot comes before the response to `subscribe_sessions`.
@@ -145,11 +142,13 @@ describe("one chat over the WebSocket", () => {
   it("delivers a session's events to every client that subscribed to it", async () => {
     const first = await chatHost();
     const second = await openClient(first.host, "client-2");
-    await command(first, { type: "create_chat", requestId: "r1" });
-    await command(first, { type: "subscribe_sessions", requestId: "r2", sessionIds: ["pi-session-1"] });
-    await command(second, { type: "subscribe_sessions", requestId: "r2", sessionIds: ["pi-session-1"] });
+    const created = await command(first, { type: "create_chat", requestId: "r1" });
+    const { sessionId } = (created as { result: { sessionId: string } }).result;
+    await command(first, { type: "open_session", requestId: "r1b", sessionId });
+    await command(first, { type: "subscribe_sessions", requestId: "r2", sessionIds: [sessionId] });
+    await command(second, { type: "subscribe_sessions", requestId: "r2", sessionIds: [sessionId] });
 
-    await command(first, { type: "prompt", requestId: "r3", sessionId: "pi-session-1", text: "ping" });
+    await command(first, { type: "prompt", requestId: "r3", sessionId, text: "ping" });
 
     for (const client of [first, second]) {
       await vi.waitFor(

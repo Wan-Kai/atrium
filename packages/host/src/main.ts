@@ -274,6 +274,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     tracer: tracing.tracer,
     logger,
     newId: () => randomUUID(),
+    newSessionId: () => randomUUID(),
     files: createFileSearch({
       findFd: async () => {
         const found = await toolbox.current();
