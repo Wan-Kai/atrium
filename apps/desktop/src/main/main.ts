@@ -26,18 +26,23 @@ interface Paths {
  * Resolves the host bundle and UI build for this run.
  *
  * @remarks
- * Packaging is out of scope for v0.1 (development.md), so paths point into the repository;
- * `ATRIUM_HOST_ENTRY` overrides the host for tests, and `ATRIUM_APP_METRICS_INTERVAL_MS` the
- * minute between samples of the app's processes, so a test need not wait for one.
+ * A packaged app carries the host and UI next to the main process; otherwise they are in the
+ * repository (overview.md, "桌面端怎么启动宿主"). `ATRIUM_HOST_ENTRY` overrides the host for
+ * tests, and `ATRIUM_APP_METRICS_INTERVAL_MS` the minute between samples of the app's processes,
+ * so a test need not wait for one.
  *
  * @sideEffects Reads environment variables.
  * @returns Absolute paths and the sampling interval.
  */
 function resolvePaths(): Paths {
-  const repoRoot = join(__dirname, "..", "..", "..");
+  const appDir = join(__dirname, "..");
+  const repoRoot = join(appDir, "..", "..");
+  const builtHost = app.isPackaged
+    ? join(appDir, "host", "entry.cjs")
+    : join(repoRoot, "packages", "host", "dist", "entry.cjs");
   return {
-    hostEntry: process.env["ATRIUM_HOST_ENTRY"] ?? join(repoRoot, "packages", "host", "dist", "entry.cjs"),
-    uiDir: join(repoRoot, "packages", "ui", "dist"),
+    hostEntry: process.env["ATRIUM_HOST_ENTRY"] ?? builtHost,
+    uiDir: app.isPackaged ? join(appDir, "ui") : join(repoRoot, "packages", "ui", "dist"),
     metricsIntervalMs: Number(process.env["ATRIUM_APP_METRICS_INTERVAL_MS"] ?? 60_000),
   };
 }

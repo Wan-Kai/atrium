@@ -7,14 +7,17 @@
   "scripts": {
     "build": "node build.mjs",
     "start": "electron .",
+    "package": "node package.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "test:e2e": "playwright test"
   },
   "devDependencies": {
     "@atrium/testkit": "workspace:*",
+    "@electron/packager": "20.3.0",
     "@playwright/test": "1.63.0",
     "@types/node": "26.6.4",
     "electron": "44.5.1",
     "esbuild": "0.28.2"
-  }
+  },
+  "productName": "Atrium"
 }

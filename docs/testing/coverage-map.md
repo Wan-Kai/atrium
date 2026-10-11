@@ -34,6 +34,7 @@
 | 宿主只监听 IPv4 回环 | ws-server.host.test.ts "listens on IPv4 loopback only"（断言实际绑定地址） | 已覆盖 |
 | 端口被占用时启动失败，失败记录写进日志、资源释放 | ws-server.host.test.ts "fails to start when the port is already taken…" | 已覆盖 |
 | 关闭宿主：所有连接断开；保持中的 HTTP 连接和只发了一半的升级请求都不拖住关闭 | ws-server.host.test.ts "host lifecycle" | 已覆盖 |
+| 本机打包的 Atrium.app 不靠仓库运行：签名有效，宿主、登录程序和界面都在应用目录里，窗口照常连上宿主，退出时日志写完（2026-10-11 定） | `apps/desktop/e2e/package.spec.ts`（`pnpm test:package`） | 已覆盖 |
 | 退出应用时等宿主写完日志 | `apps/desktop/e2e/shutdown.spec.ts`："waits for a host that is slow to exit…" 用 `e2e/slow-exit-host.cjs` 包住真实宿主、把退出推迟 1.5 秒，应用不等就留不下标记文件 | 已覆盖 |
 | 同一客户端的标签命令按收到的顺序生效：索引里已有的会话不等第一次扫描就打开、切换立刻生效；还不认识的会话等扫描时关掉的标签不会再打开；一条失败不耽误下一条；关闭后排队的命令不再执行；新建会话在 pi 启动后打开成所在容器的激活标签，这期间换过位置就不切过去（2026-10-08 修，原来在机器繁忙时重启后 ⌘W 偶尔无效） | `packages/host/src/sessions/session-manager.test.ts` "closes a tab closed while its opening waited for the first scan…"、"opens a session the index knows…without waiting for the first scan"、"goes on with a client's next tab change after one that failed"、"does nothing more for a client's queued tab changes once it closes"、"opens a new session's tab where it belongs but leaves the client where it went…"；`layouts.test.ts`；`apps/desktop/e2e/workspaces.spec.ts` | 已覆盖 |
 | 测试里的 git 不会穿过临时根目录、操作外面的仓库（`GIT_CEILING_DIRECTORIES`）（2026-10-08 修，变异测试时曾在 atrium 自己的仓库里切分支、建分支和 worktree） | `packages/testkit/src/git.test.ts` | 已覆盖 |

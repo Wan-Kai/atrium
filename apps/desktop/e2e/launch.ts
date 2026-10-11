@@ -74,27 +74,30 @@ export function median(values: readonly number[]): number {
  * the test never touches the developer's `~/.atrium`, and the host looks up no latest pi unless
  * `env` says where, so it stays off the network. A new home has first launch done already, so the
  * window opens on the workbench, unless `options.firstLaunch` asks for first launch; then the
- * launch waits for the welcome page instead, which has no connection status.
+ * launch waits for the welcome page instead, which has no connection status. With
+ * `options.executablePath` it launches a packaged app instead of the repository's.
  *
  * @sideEffects Creates a temp directory unless given one, with the preferences in it; launches
  * Electron; waits for the page to connect.
  * @param env - Extra environment variables, such as `ATRIUM_DEV_URL` for the development path.
  * @param existingHome - A home an earlier launch used, to start the app again on it.
- * @param options - Whether a new home begins with first launch.
+ * @param options - Whether a new home begins with first launch, and the packaged app to launch.
  * @returns The app, its window and helpers.
  */
 export async function launchApp(
   env: Record<string, string> = {},
   existingHome?: string,
-  options: { readonly firstLaunch?: boolean } = {},
+  options: { readonly firstLaunch?: boolean; readonly executablePath?: string } = {},
 ): Promise<LaunchedApp> {
   const firstLaunch = options.firstLaunch === true;
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "atrium-e2e-")));
   if (existingHome === undefined && !firstLaunch) await markSetupDone(home);
   const started = Date.now();
   const app = await electron.launch({
-    args: ["."],
-    cwd: join(import.meta.dirname, ".."),
+    // A packaged app knows its own code; the repository's is the current directory.
+    ...(options.executablePath === undefined
+      ? { args: ["."], cwd: join(import.meta.dirname, "..") }
+      : { executablePath: options.executablePath, args: [] }),
     env: { ...process.env, ATRIUM_PI_LATEST_URL: "", ...env, ATRIUM_HOME: home },
     // Playwright emulates a light scheme by default, which would hide the real system appearance.
     colorScheme: null,

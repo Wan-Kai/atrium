@@ -248,6 +248,7 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `pnpm test:host` | 第 4 层 |
 | `pnpm test:ui` | 第 5 层 |
 | `pnpm test:e2e` | 第 6 层 |
+| `pnpm test:package` | 打包后启动 Atrium.app 的冒烟测试（第 6 层里标 `@package` 的，`test:e2e` 不跑）；改了打包、主进程找文件的路径或应用目录的内容时跑 |
 | `pnpm test:real` | 第 7 层 |
 | `pnpm test:mutation` | 变异测试（默认增量、重测上次存活的，`--force` 全量；可只跑某几组），报告在 `reports/mutation/<组>.html` |
 | `pnpm test:leak` | 泄漏测试（宿主、client、界面） |

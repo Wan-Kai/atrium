@@ -28,6 +28,7 @@
 - `atrium` 协议只转发到宿主的静态文件服务，路径校验和符号链接检查仍由宿主做；宿主的 `Origin` 白名单只多出 `atrium://app` 这一个来源。主进程判断"是不是自己的页面"时比较协议和主机名（`atrium:` 加 `app`），不用 `URL.origin`：Node 对非标准协议给出的 origin 是 `"null"`，所有不透明来源都相等。协议处理器只接受主机名 `app`。
 - 禁止窗口导航到别的页面（`will-navigate`），禁止新开窗口（`setWindowOpenHandler` 一律拒绝）。
 - 外链只允许 `http` / `https`，用 `shell.openExternal` 交给系统浏览器。
+- 本机打包的 Atrium.app（overview.md"桌面端怎么启动宿主"）只做 ad-hoc 签名，没打开 Electron fuses 的加固（关掉 `ELECTRON_RUN_AS_NODE`、命令行调试参数等），留到对外分发时和签名公证一起定（2026-10-11 定）。只在本机用时，能改这个应用的进程本来就能改用户的其他文件；端到端测试还要靠调试参数驱动它。
 
 ## 渲染内容
 
