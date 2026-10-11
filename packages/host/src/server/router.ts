@@ -13,6 +13,10 @@ import type { Logger } from "../platform/logger";
 import { contextFromTraceparent, inSpan } from "../platform/tracing";
 import type { IndexCommands } from "../sessions/index-commands";
 import type { SessionCommands } from "../sessions/session-commands";
+import type { InstallService } from "../setup/install-service";
+import type { LoginService } from "../setup/login-service";
+import type { PiLatestService } from "../setup/pi-latest";
+import type { SetupService } from "../setup/setup-service";
 import type { Connection } from "./connection";
 
 /** What the router needs from the rest of the host. */
@@ -23,6 +27,14 @@ export interface RouterOptions {
   /** What each connection shows of workspaces' git changes. */
   readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff">;
   readonly index: IndexCommands;
+  /** First launch and the settings. */
+  readonly setup: Pick<SetupService, "check">;
+  /** Signing in and out through pi. */
+  readonly logins: Pick<LoginService, "login" | "answer" | "cancel" | "logout">;
+  /** Installing and updating pi and Node. */
+  readonly installs: Pick<InstallService, "start" | "cancel">;
+  /** The latest pi. */
+  readonly piLatest: Pick<PiLatestService, "check">;
   readonly tracer: Tracer;
   readonly logger: Logger;
 }
@@ -41,7 +53,7 @@ export type Route = (connection: Connection, message: unknown) => Promise<void>;
  * parent is the command's own `traceparent`, linked to the connection's trace rather than nested in
  * it, so one long-lived connection does not collect every operation into one trace. `ping` and
  * `report_client_issue` are answered here; session commands go to the session layer, list commands
- * to the index commands (domain-model §8). Before a command is answered, the list changes waiting
+ * to the index commands (domain-model §8), first launch's to the setup service. Before a command is answered, the list changes waiting
  * go to its connection, so the answer finds the list already changed by it (SPEC-0001, "先读到自己
  * 的写"). The returned promise never rejects.
  *
@@ -111,9 +123,11 @@ export function createRouter(options: RouterOptions): Route {
         return {};
       case "set_preferences":
         return options.index.setPreferences({
+          ...(command.setupDone === undefined ? {} : { setupDone: command.setupDone }),
           ...(command.appearance === undefined ? {} : { appearance: command.appearance }),
           ...(command.displayMode === undefined ? {} : { displayMode: command.displayMode }),
           ...(command.statusBar === undefined ? {} : { statusBar: command.statusBar }),
+          ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
         });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
@@ -162,6 +176,38 @@ export function createRouter(options: RouterOptions): Route {
         return { attachmentId: options.attachments.put(connection.id, command.mimeType, command.data) };
       case "list_models":
         return options.index.listModels(command.containerId, command.refresh ?? false);
+      case "check_setup":
+        return options.setup.check(command.refresh ?? false);
+      case "login":
+        return options.logins.login({
+          providerId: command.providerId,
+          method: command.method,
+          ...(command.key === undefined ? {} : { key: command.key }),
+        });
+      case "answer_login":
+        options.logins.answer(command.loginId, command.promptId, command.value);
+        return {};
+      case "cancel_login":
+        options.logins.cancel(command.loginId);
+        return {};
+      case "logout":
+        await options.logins.logout(command.providerId);
+        return {};
+      case "install_pi":
+      case "install_node":
+      case "update_pi":
+        return options.installs.start(command.type);
+      case "cancel_install":
+        options.installs.cancel(command.jobId);
+        return {};
+      case "check_pi_update":
+        return options.piLatest.check();
+      case "discover_projects":
+        return options.index.discoverProjects();
+      case "list_branches":
+        return options.index.listBranches(command.projectId);
+      case "set_main_branch":
+        return options.index.setMainBranch(command.projectId, command.branch);
     }
     // Stryker disable next-line all: unreachable, since the switch covers every command type.
     throw new Error(`unrouted command ${String((command as { type: unknown }).type)}`);

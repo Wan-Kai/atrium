@@ -4,16 +4,22 @@ import type {
   ConnectionState,
   DiffView,
   IndexView,
+  InstallJob,
   ModelListView,
   SessionView,
+  SetupView,
 } from "@atrium/client";
 import {
   type DiffTarget,
+  type DiscoveredDirectory,
   IDLE_CONTROL,
   type IndexSnapshotEvent,
+  type LoginMethod,
+  type LoginUpdatedEvent,
   type ModelRef,
   type Project,
   type SessionSummary,
+  type SetupState,
   type Workspace,
   UNKNOWN_METRICS,
 } from "@atrium/protocol";
@@ -100,6 +106,24 @@ function sessionView(sessionId: string, fields: Partial<SessionView> = {}): Sess
   };
 }
 
+/** First launch's checks with pi 0.80.0 ready and up to date, signed in nowhere, and no projects. */
+export const READY_SETUP: SetupState = {
+  pi: {
+    state: "ready",
+    path: "/opt/homebrew/bin/pi",
+    version: "0.80.0",
+    minimum: "0.74.0",
+    detail: null,
+    latest: "0.80.0",
+    checkedAt: null,
+  },
+  node: { state: "ready", version: "22.19.0" },
+  homebrew: true,
+  fd: true,
+  login: { state: "ready", providers: [] },
+  projects: 0,
+};
+
 /** How the fake answers some commands; the rest succeed. */
 export interface FakeAnswers {
   readonly createChat?: () => Promise<void>;
@@ -112,6 +136,21 @@ export interface FakeAnswers {
   readonly models?: ModelListView;
   /** Holds back an upload, given its number counting from 1. */
   readonly upload?: (number: number) => Promise<void>;
+  /** What `loadSetup` puts in the setup; {@link READY_SETUP} when left out. */
+  readonly setup?: SetupState;
+  readonly login?: () => Promise<void>;
+  readonly logout?: () => Promise<void>;
+  readonly updatePi?: () => Promise<void>;
+  readonly installPi?: () => Promise<void>;
+  readonly installNode?: () => Promise<void>;
+  /** The folders of pi's sessions; none when left out. */
+  readonly discover?: () => Promise<DiscoveredDirectory[]>;
+  readonly checkPiUpdate?: () => Promise<void>;
+  /** A project's branches; `main` alone, and origin's HEAD, when left out. */
+  readonly branches?: (projectId: string) => Promise<{ branches: string[]; head: string | null }>;
+  readonly setMainBranch?: () => Promise<void>;
+  /** Holds back the list's change until it settles; changed at once when left out. */
+  readonly setPreferences?: () => Promise<void>;
 }
 
 /**
@@ -119,14 +158,18 @@ export interface FakeAnswers {
  *
  * @remarks
  * Browser tests cannot run a host (the host needs Node); this fake keeps the parts the UI reads
- * real: the list is a real store that commands change as the host's snapshot would, and every
+ * real: the list is a real store that commands change as the host's snapshot would (first launch
+ * done, unless `initial` says otherwise), and every
  * watched session has a real view store. Commands are recorded as short strings; model commands
- * apart, in `modelCalls`, as the conversation area asks for models whenever it shows.
+ * apart, in `modelCalls`, as the conversation area asks for models whenever it shows. Logins and
+ * install jobs only answer with their ids: a test plays the host's updates into `loginState` and
+ * `installJob`.
  *
  * @sideEffects none until a command; then updates its stores.
  * @param initial - The list to start from.
  * @param answers - How some commands answer.
- * @returns The client, its recorded calls, the session views and the connection store.
+ * @returns The client, its recorded calls, the session views, and the connection, setup, login and
+ * install stores.
  */
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
@@ -145,7 +188,15 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     workspaces: [],
     sessions: [],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {}, statusBar: {} },
+    preferences: {
+      setupDone: true,
+      appearance: "system",
+      displayMode: "summary",
+      lastModel: null,
+      thinkingByModel: {},
+      statusBar: {},
+      titleModel: null,
+    },
     resets: [],
     ...initial,
   }));
@@ -154,9 +205,15 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     traceId: "t",
     hostVersion: "0",
     hostInstanceId: "h1",
+    installSeed: 1,
+    logDir: "/Users/test/.atrium/logs",
   }));
+  const setup = createStore<SetupView>(() => ({ status: "idle", state: null, error: null }));
+  const loginState = createStore<LoginUpdatedEvent | null>(() => null);
+  const installJob = createStore<InstallJob | null>(() => null);
   let created = 0;
   let uploaded = 0;
+  let logins = 0;
 
   /**
    * Opens a session as the active tab of its container.
@@ -315,6 +372,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async setPreferences(changes: Record<string, string>) {
       calls.push(`setPreferences ${JSON.stringify(changes)}`);
+      const held = answers.setPreferences?.();
+      if (held !== undefined) await held;
       index.setState({ preferences: { ...index.getState().preferences, ...changes } });
       return {};
     },
@@ -417,10 +476,76 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       if (shown?.workspaceId === target?.workspaceId && shown?.mode === target?.mode) return;
       diff.setState({ target, status: target === null ? "idle" : "loading", files: [], tooLarge: false, error: null });
     },
+    setup,
+    async loadSetup(refresh = false) {
+      calls.push(`loadSetup${refresh ? " refresh" : ""}`);
+      setup.setState({ status: "ready", state: answers.setup ?? READY_SETUP, error: null });
+    },
+    loginState,
+    async login(providerId: string, method: LoginMethod, key?: string) {
+      calls.push(`login ${providerId} ${method}${key === undefined ? "" : ` ${key}`}`);
+      await answers.login?.();
+      logins += 1;
+      return { loginId: `l${logins}` };
+    },
+    async answerLogin(loginId: string, promptId: number, value: string) {
+      calls.push(`answerLogin ${loginId} ${promptId} ${value}`);
+      return {};
+    },
+    async cancelLogin(loginId: string) {
+      calls.push(`cancelLogin ${loginId}`);
+      return {};
+    },
+    async logout(providerId: string) {
+      calls.push(`logout ${providerId}`);
+      await answers.logout?.();
+      return {};
+    },
+    installJob,
+    async updatePi() {
+      calls.push("updatePi");
+      await answers.updatePi?.();
+      return { jobId: "j1" };
+    },
+    async installPi() {
+      calls.push("installPi");
+      await answers.installPi?.();
+      return { jobId: "j2" };
+    },
+    async installNode() {
+      calls.push("installNode");
+      await answers.installNode?.();
+      return { jobId: "j3" };
+    },
+    async discoverProjects() {
+      calls.push("discoverProjects");
+      return { directories: (await answers.discover?.()) ?? [] };
+    },
+    async cancelInstall(jobId: string) {
+      calls.push(`cancelInstall ${jobId}`);
+      return {};
+    },
+    async checkPiUpdate() {
+      calls.push("checkPiUpdate");
+      await answers.checkPiUpdate?.();
+      return {};
+    },
+    async listBranches(projectId: string) {
+      calls.push(`listBranches ${projectId}`);
+      return (await answers.branches?.(projectId)) ?? { branches: ["main"], head: "main" };
+    },
+    async setMainBranch(projectId: string, branch: string | null) {
+      calls.push(`setMainBranch ${projectId} ${branch}`);
+      await answers.setMainBranch?.();
+      index.setState({
+        projects: index.getState().projects.map((one) => (one.id === projectId ? { ...one, mainBranch: branch } : one)),
+      });
+      return {};
+    },
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
-  return { client, calls, modelCalls, changeCalls, views, index, connection };
+  return { client, calls, modelCalls, changeCalls, views, index, connection, setup, loginState, installJob };
 }
 
 /** Project `prj_a` named "atrium". */
-export const PROJECT: Project = { id: "prj_000000000000000a", path: "/work/atrium", name: "atrium" };
+export const PROJECT: Project = { id: "prj_000000000000000a", path: "/work/atrium", name: "atrium", mainBranch: null };

@@ -51,7 +51,7 @@ async function place() {
  * @returns The host and the client.
  */
 async function hostAndClient(at: Awaited<ReturnType<typeof place>>) {
-  const host = await startHost({ home: at.home, token: TOKEN, toolEnv: at.toolEnv });
+  const host = await startHost({ home: at.home, token: TOKEN, toolEnv: at.toolEnv, piLatestUrl: null });
   onTestFinished(host.close);
   const client: AtriumClient = createAtriumClient({
     url: `ws://127.0.0.1:${host.port}`,
@@ -80,7 +80,9 @@ describe("the list over the WebSocket", () => {
         ]),
       SCAN,
     );
-    expect(client.index.getState().projects).toStrictEqual([{ id: projectId, path: at.repo, name: "repo" }]);
+    expect(client.index.getState().projects).toStrictEqual([
+      { id: projectId, path: at.repo, name: "repo", mainBranch: null },
+    ]);
     await vi.waitFor(
       () =>
         expect(client.index.getState().workspaces[1]?.merge).toStrictEqual({
@@ -108,6 +110,23 @@ describe("the list over the WebSocket", () => {
     await expect(client.addProject(at.worktree)).rejects.toStrictEqual(
       new CommandError("project_exists", { projectId }),
     );
+  });
+
+  it("counts worktrees against the main branch chosen on origin, and shows the choice in the list", async () => {
+    const at = await place();
+    const { client } = await hostAndClient(at);
+    await at.scene.commit(at.worktree, "feature.txt", "feature\n");
+    await at.scene.git(at.worktree, "push", "--quiet", "origin", "HEAD:next");
+    await at.scene.git(at.repo, "fetch", "--quiet", "origin");
+    const { projectId } = await client.addProject(at.repo);
+    await vi.waitFor(() => expect(client.index.getState().workspaces[1]?.merge?.ahead).toBe(1), SCAN);
+
+    const branches = await client.listBranches(projectId);
+    await client.setMainBranch(projectId, "next");
+
+    expect(branches).toStrictEqual({ branches: ["main", "next"], head: "main" });
+    await vi.waitFor(() => expect(client.index.getState().workspaces[1]?.merge?.ahead).toBe(0), SCAN);
+    expect(client.index.getState().projects).toMatchObject([{ id: projectId, mainBranch: "next" }]);
   });
 
   it("keeps preferences and each client's layout across a restart", async () => {
@@ -144,11 +163,13 @@ describe("the list over the WebSocket", () => {
     const newer = JSON.stringify({ version: 99, sessions: "new shape" });
     await writeFile(join(home.path, "sessions.json"), newer);
 
-    await expect(startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" } })).rejects.toThrow(IndexTooNewError);
+    await expect(
+      startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" }, piLatestUrl: null }),
+    ).rejects.toThrow(IndexTooNewError);
 
     expect(await readFile(join(home.path, "sessions.json"), "utf8")).toBe(newer);
     await writeFile(join(home.path, "sessions.json"), JSON.stringify({ version: 1, sessions: [] }));
-    const host = await startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" } });
+    const host = await startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" }, piLatestUrl: null });
     await host.close();
   });
 });

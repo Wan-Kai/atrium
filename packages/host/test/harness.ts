@@ -33,7 +33,16 @@ export async function startTestHost(overrides: Partial<HostConfig> = {}): Promis
   const home = await createTempDir("host");
   const token = "test-token-0123456789abcdefghijklmnopqrstuvwxyz";
   // An empty PATH finds no pi, so no shell or `pi --version` runs unless a test asks for it.
-  const host = await startHost({ home: home.path, token, logLevel: "debug", toolEnv: { PATH: "" }, ...overrides });
+  const host = await startHost({
+    home: home.path,
+    token,
+    logLevel: "debug",
+    toolEnv: { PATH: "" },
+    homebrewPlaces: [],
+    // Tests never reach pi.dev.
+    piLatestUrl: null,
+    ...overrides,
+  });
   const url = `ws://127.0.0.1:${host.port}`;
   let clientCount = 0;
   return {

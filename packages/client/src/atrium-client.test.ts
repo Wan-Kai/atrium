@@ -14,6 +14,8 @@ function welcome(hostVersion = "0.1.0", hostInstanceId = "h1"): string {
     hostVersion,
     hostInstanceId,
     heartbeatMs: 15_000,
+    installSeed: 4242,
+    logDir: "/Users/test/.atrium/logs",
   });
 }
 
@@ -76,6 +78,52 @@ function clientWith(options: { reconnectDelaysMs?: number[] } = {}) {
     ...options,
   });
   return { client, sockets, clock, latest: () => present(sockets.at(-1), "a socket") };
+}
+
+/**
+ * What first launch checks, with pi in `state`.
+ *
+ * @remarks
+ * pi's version goes with a ready pi only.
+ *
+ * @sideEffects none
+ * @param state - pi's state.
+ * @returns The answer to `check_setup`.
+ */
+function setupState(state: "missing" | "ready") {
+  return {
+    pi: {
+      state,
+      path: state === "ready" ? "/bin/pi" : null,
+      version: state === "ready" ? "1.1.0" : null,
+      minimum: "1.0.1",
+      detail: null,
+      latest: null,
+      checkedAt: null,
+    },
+    node: { state: "ready", version: "22.19.0" },
+    homebrew: false,
+    fd: false,
+    login: { state: "unavailable" },
+    projects: 0,
+  } as const;
+}
+
+/**
+ * Answers the command of `type` numbered `at` from 0 with `result`.
+ *
+ * @remarks
+ * For answers that arrive out of order.
+ *
+ * @sideEffects Delivers the answer to the client.
+ * @param socket - The socket.
+ * @param type - The command type.
+ * @param at - Which of its commands.
+ * @param result - The result.
+ */
+function answerAt(socket: ScriptedSocket, type: string, at: number, result: unknown): void {
+  const command = present(socket.sent.filter((sent) => sent["type"] === type).at(at), `a ${type} command`);
+  socket.receive(JSON.stringify({ type: "response", requestId: command["requestId"], ok: true, result }));
 }
 
 /** A client connected over its first socket. */
@@ -153,6 +201,8 @@ describe("createAtriumClient: the connection", () => {
       traceId: trace.traceId,
       hostVersion: "0.1.0",
       hostInstanceId: "h7",
+      installSeed: 4242,
+      logDir: "/Users/test/.atrium/logs",
     });
   });
 
@@ -929,7 +979,15 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       },
     ],
     layout: { container: null, tabs: {} },
-    preferences: { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {}, statusBar: {} },
+    preferences: {
+      setupDone: false,
+      appearance: "system",
+      displayMode: "summary",
+      lastModel: null,
+      thinkingByModel: {},
+      statusBar: {},
+      titleModel: null,
+    },
     resets: [],
     ...fields,
   });
@@ -1073,11 +1131,13 @@ describe("createAtriumClient: the list", () => {
     expect(client.index.getState().layout.container).toBe("chats");
     const preferred = client.setPreferences({ displayMode: "detailed" });
     expect(client.index.getState().preferences).toStrictEqual({
+      setupDone: false,
       appearance: "system",
       displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
       statusBar: {},
+      titleModel: null,
     });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
@@ -1326,6 +1386,444 @@ describe("createAtriumClient: the composer's lists", () => {
       { type: "list_commands", sessionId: "s1" },
       { type: "search_files", sessionId: "s1", query: "src" },
     ]);
+  });
+});
+
+describe("createAtriumClient: first launch", () => {
+  it("asks what first launch checks, keeping the last answer while asking again, and lands only the latest ask's answer", async () => {
+    const { client, latest } = await connected();
+    const missing = setupState("missing");
+    const ready = setupState("ready");
+    const before = client.setup.getState();
+
+    const first = client.loadSetup();
+    const asking = client.setup.getState();
+    latest().answer("check_setup", missing);
+    await first;
+    const answered = client.setup.getState();
+    const older = client.loadSetup(true);
+    const again = client.setup.getState();
+    const newer = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await newer;
+    answerAt(latest(), "check_setup", 1, missing);
+    await older;
+
+    expect(before).toStrictEqual({ status: "idle", state: null, error: null });
+    expect(asking).toStrictEqual({ status: "loading", state: null, error: null });
+    expect(answered).toStrictEqual({ status: "ready", state: missing, error: null });
+    expect(again).toStrictEqual({ status: "loading", state: missing, error: null });
+    expect(client.setup.getState()).toStrictEqual({ status: "ready", state: ready, error: null });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "check_setup")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "check_setup", refresh: false },
+      { type: "check_setup", refresh: true },
+      { type: "check_setup", refresh: false },
+    ]);
+  });
+
+  it("keeps a failed ask's reason with the last answer, and drops a failure an ask since has overtaken", async () => {
+    const { client, latest } = await connected();
+    const ready = setupState("ready");
+
+    const first = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await first;
+    const failing = client.loadSetup();
+    latest().fail("check_setup", "internal_error");
+    await failing;
+    const failed = client.setup.getState();
+    const overtaken = client.loadSetup();
+    const latestAsk = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await latestAsk;
+    latest().fail("check_setup", "internal_error", 2);
+    await overtaken;
+
+    expect(failed).toMatchObject({ status: "failed", state: ready });
+    expect(failed.error).toBeInstanceOf(CommandError);
+    expect(client.setup.getState()).toStrictEqual({ status: "ready", state: ready, error: null });
+  });
+
+  it("asks again without reading the login shell once asked before, when an install succeeds, when pi's credentials change and on a new host", async () => {
+    const { client, latest, clock, sockets } = await connected();
+    const job = {
+      type: "install_updated",
+      jobId: "j1",
+      kind: "install_pi",
+      running: null,
+      exitCode: null,
+      reason: null,
+    };
+    const login = {
+      type: "login_updated",
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      authUrl: null,
+      deviceCode: null,
+      questions: [],
+      progress: null,
+      error: null,
+    };
+    /** How many `check_setup` the client sent on the latest socket. */
+    const asks = (): number =>
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "check_setup").length;
+
+    latest().receive(JSON.stringify({ ...job, state: "ok", exitCode: 0 }));
+    latest().receive(JSON.stringify({ type: "credentials_changed" }));
+    const unasked = asks();
+    const first = client.loadSetup();
+    latest().answer("check_setup", setupState("ready"));
+    await first;
+    latest().receive(JSON.stringify({ ...job, state: "running" }));
+    latest().receive(JSON.stringify({ ...job, state: "failed", exitCode: 1, reason: "exit" }));
+    latest().receive(JSON.stringify({ ...login, state: "running" }));
+    latest().receive(JSON.stringify({ ...login, state: "failed", error: { reason: "failed", detail: null } }));
+    const unchanged = asks();
+    latest().receive(JSON.stringify({ ...job, state: "ok", exitCode: 0 }));
+    const afterInstall = asks();
+    // The host tells every window that the credentials changed; the login's end or the logout's
+    // answer alone asks nothing more.
+    latest().receive(JSON.stringify({ ...login, state: "ok" }));
+    const loggedOut = client.logout("acme");
+    latest().answer("logout");
+    await loggedOut;
+    const afterLogout = asks();
+    latest().receive(JSON.stringify({ type: "credentials_changed" }));
+    const afterChange = asks();
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h1"));
+    const sameHost = asks();
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+
+    expect([unasked, unchanged, afterInstall, afterLogout, afterChange, sameHost, asks()]).toStrictEqual([
+      0, 1, 2, 2, 3, 0, 1,
+    ]);
+    expect(
+      sockets
+        .flatMap((socket) => socket.commands())
+        .filter((command) => command["type"] === "check_setup")
+        .map((command) => command["refresh"]),
+    ).toStrictEqual([false, false, false, false]);
+  });
+
+  it("counts a latest pi found at the clock's start as found, and one never found as older", async () => {
+    const { client, latest } = await connected();
+    const ready = setupState("ready");
+
+    const first = client.loadSetup();
+    latest().answer("check_setup", { ...ready, pi: { ...ready.pi, latest: "1.2.0", checkedAt: 0 } });
+    await first;
+    const foundAtStart = client.setup.getState().state?.pi;
+    latest().receive(JSON.stringify({ type: "pi_latest", latest: "1.3.0", checkedAt: 1 }));
+    const second = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await second;
+
+    expect(foundAtStart).toStrictEqual({ ...ready.pi, latest: "1.2.0", checkedAt: 0 });
+    expect(client.setup.getState().state?.pi).toStrictEqual({ ...ready.pi, latest: "1.3.0", checkedAt: 1 });
+  });
+
+  it("reloads the model lists asked for once pi's credentials change, and leaves the others", async () => {
+    const { client, latest } = await connected();
+    const models = { models: [], defaultModel: null };
+    const signedIn = {
+      providerId: "acme",
+      modelId: "fast",
+      name: "Fast",
+      contextWindow: 200_000,
+      maxOutput: 64_000,
+      supportsImage: false,
+      thinkingLevels: ["off"],
+    };
+    const loading = client.loadModels("chats");
+    latest().answer("list_models", models);
+    await loading;
+    client.models("wks_0123456789abcdef");
+
+    latest().receive(JSON.stringify({ type: "credentials_changed" }));
+    const reloading = client.models("chats").getState();
+    latest().answer("list_models", { models: [signedIn], defaultModel: null });
+
+    expect(reloading.status).toBe("loading");
+    await vi.waitFor(() => expect(client.models("chats").getState().models).toStrictEqual([signedIn]));
+    expect(client.models("wks_0123456789abcdef").getState().status).toBe("idle");
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "list_models")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_models", containerId: "chats", refresh: false },
+      { type: "list_models", containerId: "chats", refresh: false },
+    ]);
+  });
+
+  it("forgets the login and the job of a host that is gone, and keeps them for the same host", async () => {
+    const { client, latest, clock } = await connected();
+    const job = {
+      type: "install_updated",
+      jobId: "j1",
+      kind: "install_pi",
+      state: "running",
+      running: null,
+      exitCode: null,
+      reason: null,
+    };
+    const login = {
+      type: "login_updated",
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      state: "running",
+      authUrl: null,
+      deviceCode: null,
+      questions: [],
+      progress: null,
+      error: null,
+    };
+    latest().receive(JSON.stringify(job));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "one\n" }));
+    latest().receive(JSON.stringify(login));
+
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h1"));
+    // The host tells what it has right after the welcome; the output it does not.
+    latest().receive(JSON.stringify({ ...job, state: "failed", exitCode: 1, reason: "exit" }));
+    const sameJob = client.installJob.getState();
+    const sameLogin = client.loginState.getState();
+    latest().closeWith(1006);
+    clock.advance(250);
+    latest().open();
+    latest().receive(welcome("0.1.0", "h2"));
+
+    expect(sameJob).toStrictEqual({ job: { ...job, state: "failed", exitCode: 1, reason: "exit" }, output: "one\n" });
+    expect(sameLogin).toStrictEqual(login);
+    expect(client.installJob.getState()).toBeNull();
+    expect(client.loginState.getState()).toBeNull();
+  });
+
+  it("signs in and out through the host, and shows the latest state of a login from any window", async () => {
+    const { client, latest } = await connected();
+    const running = {
+      type: "login_updated",
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      state: "running",
+      authUrl: { url: "https://acme.test/authorize", instructions: null },
+      deviceCode: null,
+      questions: [{ promptId: 2, kind: "text", message: "Code?", placeholder: null, options: [] }],
+      progress: null,
+      error: null,
+    };
+    const before = client.loginState.getState();
+
+    const started = client.login("acme", "oauth");
+    latest().answer("login", { loginId: "l1" });
+    const withKey = client.login("deepseek", "api_key", "sk-1");
+    latest().answer("login", { loginId: "l2" });
+    const answered = client.answerLogin("l1", 2, "42");
+    latest().answer("answer_login");
+    const cancelled = client.cancelLogin("l1");
+    latest().answer("cancel_login");
+    const loggedOut = client.logout("acme");
+    latest().answer("logout");
+    latest().receive(JSON.stringify(running));
+    const shown = client.loginState.getState();
+    latest().receive(JSON.stringify({ ...running, state: "ok", questions: [] }));
+
+    expect(before).toBeNull();
+    expect(await Promise.all([started, withKey, answered, cancelled, loggedOut])).toStrictEqual([
+      { loginId: "l1" },
+      { loginId: "l2" },
+      {},
+      {},
+      {},
+    ]);
+    expect(shown).toStrictEqual(running);
+    expect(client.loginState.getState()).toStrictEqual({ ...running, state: "ok", questions: [] });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["login", "answer_login", "cancel_login", "logout"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "login", providerId: "acme", method: "oauth" },
+      { type: "login", providerId: "deepseek", method: "api_key", key: "sk-1" },
+      { type: "answer_login", loginId: "l1", promptId: 2, value: "42" },
+      { type: "cancel_login", loginId: "l1" },
+      { type: "logout", providerId: "acme" },
+    ]);
+  });
+
+  it("installs and updates through the host, and keeps the job under way with its output", async () => {
+    const { client, latest } = await connected();
+    const waiting = {
+      type: "install_updated",
+      jobId: "j1",
+      kind: "update_pi",
+      state: "waiting",
+      running: 1,
+      exitCode: null,
+      reason: null,
+    };
+    const before = client.installJob.getState();
+
+    const results = [client.installPi(), client.installNode(), client.updatePi(), client.cancelInstall("j1")];
+    latest().answer("install_pi", { jobId: "j1" });
+    latest().answer("install_node", { jobId: "j2" });
+    latest().answer("update_pi", { jobId: "j3" });
+    latest().answer("cancel_install");
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j0", text: "not this job" }));
+    latest().receive(JSON.stringify(waiting));
+    const shown = client.installJob.getState();
+    latest().receive(JSON.stringify({ ...waiting, state: "running", running: null }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "one\r" }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j0", text: "not this job" }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "two\n" }));
+    latest().receive(JSON.stringify({ ...waiting, state: "ok", running: null, exitCode: 0 }));
+    const done = client.installJob.getState();
+    latest().receive(JSON.stringify({ ...waiting, jobId: "j2", kind: "install_pi", state: "running", running: null }));
+
+    expect(before).toBeNull();
+    expect(await Promise.all(results)).toStrictEqual([{ jobId: "j1" }, { jobId: "j2" }, { jobId: "j3" }, {}]);
+    expect(shown).toStrictEqual({ job: waiting, output: "" });
+    expect(done).toStrictEqual({ job: { ...waiting, state: "ok", running: null, exitCode: 0 }, output: "one\rtwo\n" });
+    expect(client.installJob.getState()).toStrictEqual({
+      job: { ...waiting, jobId: "j2", kind: "install_pi", state: "running", running: null },
+      output: "",
+    });
+    expect(
+      latest()
+        .commands()
+        .filter((command) =>
+          ["install_pi", "install_node", "update_pi", "cancel_install"].includes(String(command["type"])),
+        )
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "install_pi" },
+      { type: "install_node" },
+      { type: "update_pi" },
+      { type: "cancel_install", jobId: "j1" },
+    ]);
+  });
+
+  it("looks for the latest pi when asked, and puts the latest the host found from any look into the setup", async () => {
+    const { client, latest } = await connected();
+    const found = { latest: "1.2.0", checkedAt: 7 };
+    const later = { latest: "1.3.0", checkedAt: 8 };
+    const ready = setupState("ready");
+
+    latest().receive(JSON.stringify({ type: "pi_latest", ...found }));
+    const unasked = client.setup.getState();
+    const first = client.loadSetup();
+    latest().answer("check_setup", ready);
+    await first;
+    const kept = client.setup.getState().state?.pi;
+    const checking = client.checkPiUpdate();
+    latest().receive(JSON.stringify({ type: "pi_latest", ...later }));
+    latest().answer("check_pi_update", later);
+
+    expect(unasked).toStrictEqual({ status: "idle", state: null, error: null });
+    // Pushed before the answer, which the host gave from before it found it.
+    expect(kept).toStrictEqual({ ...ready.pi, ...found });
+    expect(await checking).toStrictEqual(later);
+    expect(client.setup.getState()).toStrictEqual({
+      status: "ready",
+      state: { ...ready, pi: { ...ready.pi, ...later } },
+      error: null,
+    });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "check_pi_update")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "check_pi_update" }]);
+  });
+
+  it("keeps whichever latest pi was found later when an answer and a push cross", async () => {
+    const { client, latest } = await connected();
+    const ready = setupState("ready");
+
+    const first = client.loadSetup();
+    latest().receive(JSON.stringify({ type: "pi_latest", latest: "1.3.0", checkedAt: 9 }));
+    latest().answer("check_setup", { ...ready, pi: { ...ready.pi, latest: "1.2.0", checkedAt: 8 } });
+    await first;
+    const crossed = client.setup.getState().state?.pi;
+    const second = client.loadSetup();
+    latest().answer("check_setup", { ...ready, pi: { ...ready.pi, latest: "1.4.0", checkedAt: 10 } });
+    await second;
+
+    expect(crossed).toStrictEqual({ ...ready.pi, latest: "1.3.0", checkedAt: 9 });
+    expect(client.setup.getState().state?.pi).toStrictEqual({ ...ready.pi, latest: "1.4.0", checkedAt: 10 });
+  });
+
+  it("asks for the directories of pi's history that could become projects, and chooses main branches", async () => {
+    const { client, latest } = await connected();
+    const directories = [{ path: "/work/app", sessions: 2, lastUsedAt: 5 }];
+    const project = "prj_0123456789abcdef";
+
+    const discovering = client.discoverProjects();
+    latest().answer("discover_projects", { directories });
+    const listing = client.listBranches(project);
+    latest().answer("list_branches", { branches: ["main"], head: "main" });
+    const choosing = client.setMainBranch(project, "main");
+    latest().answer("set_main_branch");
+
+    expect(await Promise.all([discovering, listing, choosing])).toStrictEqual([
+      { directories },
+      { branches: ["main"], head: "main" },
+      {},
+    ]);
+    expect(
+      latest()
+        .commands()
+        .filter((command) =>
+          ["discover_projects", "list_branches", "set_main_branch"].includes(String(command["type"])),
+        )
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "discover_projects" },
+      { type: "list_branches", projectId: project },
+      { type: "set_main_branch", projectId: project, branch: "main" },
+    ]);
+  });
+
+  it("keeps only the last mebibyte of a job's output", async () => {
+    const { client, latest } = await connected();
+    latest().receive(
+      JSON.stringify({
+        type: "install_updated",
+        jobId: "j1",
+        kind: "install_node",
+        state: "running",
+        running: null,
+        exitCode: null,
+        reason: null,
+      }),
+    );
+
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "a".repeat(1_048_576) }));
+    latest().receive(JSON.stringify({ type: "install_output", jobId: "j1", text: "bc" }));
+
+    const { output } = present(client.installJob.getState(), "the job");
+    expect(output.length).toBe(1_048_576);
+    expect(output.slice(-3)).toBe("abc");
   });
 });
 

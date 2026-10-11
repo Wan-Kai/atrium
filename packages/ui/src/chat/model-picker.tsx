@@ -1,8 +1,8 @@
 import { CommandError, type ModelListView } from "@atrium/client";
 import type { ModelRef, ThinkingLevel } from "@atrium/protocol";
 import { ArrowClockwise, CaretDown, Check } from "@phosphor-icons/react";
-import { type RefObject, useEffect, useRef, useState } from "react";
-import { dotSeed, paintDots, reducedMotion, sweepProgress } from "../design/dots";
+import { type RefObject, useContext, useEffect, useRef, useState } from "react";
+import { DotSeedContext, paintDots, reducedMotion, sweepProgress } from "../design/dots";
 import { useDarkMode } from "../design/use-dark-mode";
 import { EffortBox } from "./effort-box";
 import {
@@ -424,6 +424,8 @@ interface ChipPainter {
   resize(width: number, height: number): void;
   /** Eases to a coverage; full turns on the colours, twinkle and sweeps. */
   show(coverage: number, full: boolean, dark: boolean): void;
+  /** Paints the pattern of another seed. */
+  reseed(seed: number): void;
   /** Stops drawing. */
   stop(): void;
 }
@@ -434,14 +436,14 @@ interface ChipPainter {
  * @remarks
  * The dots fill from the left as the level rises; at the top level they twinkle and sweep
  * (design-language, "点阵"). Frames are drawn only while easing or full; with reduced motion the
- * new level shows at once and the dots stay still.
+ * new level shows at once and the dots stay still. The seed is 1 until given.
  *
  * @sideEffects Draws on the canvas and schedules animation frames until settled or stopped.
  * @param surface - The canvas.
- * @param seed - The pattern's seed.
  * @returns The painter.
  */
-function createChipPainter(surface: HTMLCanvasElement, seed: number): ChipPainter {
+function createChipPainter(surface: HTMLCanvasElement): ChipPainter {
+  let seed = 1;
   let size = { width: 0, height: 0 };
   let shown = 0;
   let from = 0;
@@ -516,6 +518,10 @@ function createChipPainter(surface: HTMLCanvasElement, seed: number): ChipPainte
       dark = isDark;
       kick();
     },
+    reseed(next) {
+      seed = next;
+      kick();
+    },
     stop() {
       cancelAnimationFrame(frame);
       frame = 0;
@@ -542,12 +548,13 @@ function useChipDots(
   full: boolean,
 ): void {
   const dark = useDarkMode();
+  const seed = useContext(DotSeedContext);
   const painter = useRef<ChipPainter | null>(null);
   useEffect(() => {
     const element = chip.current;
     const surface = canvas.current;
     if (element === null || surface === null) return undefined;
-    const created = createChipPainter(surface, dotSeed());
+    const created = createChipPainter(surface);
     painter.current = created;
     const observer = new ResizeObserver(() => {
       const rect = element.getBoundingClientRect();
@@ -560,6 +567,9 @@ function useChipDots(
       painter.current = null;
     };
   }, [chip, canvas]);
+  useEffect(() => {
+    painter.current?.reseed(seed);
+  }, [seed]);
   useEffect(() => {
     painter.current?.show(coverage, full, dark);
   }, [coverage, full, dark]);

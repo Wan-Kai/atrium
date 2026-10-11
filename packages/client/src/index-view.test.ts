@@ -39,6 +39,30 @@ function viewWith(open: string[], active: string | null) {
   };
 }
 
+describe("emptyIndex", () => {
+  it("is an empty list, not ready, with the default preferences", () => {
+    expect(emptyIndex()).toStrictEqual({
+      ready: false,
+      generation: "",
+      seq: 0,
+      projects: [],
+      workspaces: [],
+      sessions: [],
+      layout: { container: null, tabs: {} },
+      preferences: {
+        setupDone: false,
+        appearance: "system",
+        displayMode: "summary",
+        lastModel: null,
+        thinkingByModel: {},
+        statusBar: {},
+        titleModel: null,
+      },
+      resets: [],
+    });
+  });
+});
+
 describe("applyIndexSnapshot", () => {
   it("takes every snapshot whole, whatever its number", () => {
     const { ready: _ready, ...fields } = emptyIndex();
@@ -71,7 +95,7 @@ describe("applyIndexChanges", () => {
     layout: null,
     preferences: null,
   };
-  const project = { id: "prj_0000000000000001", path: "/work/app", name: "app" };
+  const project = { id: "prj_0000000000000001", path: "/work/app", name: "app", mainBranch: null };
 
   it("replaces changed items where they are, adds new ones at the end and drops removed ones", () => {
     const view = { ...viewWith(["s1"], "s1"), generation: "h1", seq: 4, projects: [project] };
@@ -91,7 +115,7 @@ describe("applyIndexChanges", () => {
   });
 
   it("tells projects and workspaces apart by their ids", () => {
-    const second = { id: "prj_0000000000000002", path: "/work/lib", name: "lib" };
+    const second = { id: "prj_0000000000000002", path: "/work/lib", name: "lib", mainBranch: "trunk" };
     /** A local workspace of the first project. */
     const workspace = (id: string, dir: string) => ({
       id,
@@ -206,11 +230,13 @@ describe("withContainer and withPreferences", () => {
       tabs: { [A]: { open: [], active: null } },
     });
     expect(withPreferences(emptyIndex(), { appearance: "dark" }).preferences).toStrictEqual({
+      setupDone: false,
       appearance: "dark",
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       statusBar: {},
+      titleModel: null,
     });
   });
 

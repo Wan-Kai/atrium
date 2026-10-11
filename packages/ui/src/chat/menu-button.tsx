@@ -12,7 +12,7 @@ export const MENU_ITEM =
  * holding the menu stays open.
  *
  * @sideEffects Listens for clicks and keys on the document while open.
- * @param props - The button's content, label, size and alignment, and the menu's items given a way to close it.
+ * @param props - The button's content, label, look and alignment, and the menu's items given a way to close it.
  * @returns The button and menu.
  */
 export function MenuButton({
@@ -20,6 +20,7 @@ export function MenuButton({
   content,
   align = "end",
   compact = false,
+  field = false,
   children,
 }: {
   readonly label: string;
@@ -28,6 +29,8 @@ export function MenuButton({
   readonly align?: "start" | "end";
   /** A small icon button, as in an info row. */
   readonly compact?: boolean;
+  /** A framed button showing the choice, as in the settings; its menu scrolls when long. */
+  readonly field?: boolean;
   readonly children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -77,9 +80,11 @@ export function MenuButton({
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         className={
-          compact
-            ? "rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
-            : "flex h-7 items-center gap-1.5 rounded-[var(--r)] px-2 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+          field
+            ? "flex h-7 max-w-[300px] items-center gap-1.5 whitespace-nowrap rounded-[var(--r)] pr-2 pl-2.5 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--selected)] hover:text-[var(--text)] aria-expanded:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
+            : compact
+              ? "rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+              : "flex h-7 items-center gap-1.5 rounded-[var(--r)] px-2 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
         }
       >
         {content}
@@ -89,7 +94,7 @@ export function MenuButton({
           role="menu"
           className={`absolute top-full z-10 mt-1 min-w-44 rounded-[var(--r-btn)] bg-[var(--surface-1)] p-1 shadow-[var(--float-shadow)] ${
             align === "end" ? "right-0" : "left-0"
-          }`}
+          } ${field ? "max-h-[360px] min-w-56 overflow-y-auto dark:bg-[var(--surface-2)]" : ""}`}
         >
           {children(() => setOpen(false))}
         </div>

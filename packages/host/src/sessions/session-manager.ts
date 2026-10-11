@@ -59,6 +59,8 @@ export interface SessionManager extends SessionCommands {
   forgetWorkspaces(workspaceIds: readonly string[]): Promise<void>;
   /** Looks at the containers' session files again: the window gained focus, or containers changed. */
   rescan(): void;
+  /** Stops the pi of every session with nothing going on; resolves once they have exited. */
+  stopIdle(): Promise<void>;
   /** Stops every pi; resolves once all have exited and background scans have stopped. */
   close(): Promise<void>;
 }
@@ -141,7 +143,8 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  */
 export function createSessionManager(options: {
   readonly chatsRoot: string;
-  readonly tools: Promise<SessionTools | null>;
+  /** The tools as last detected; asked again whenever pi starts, so a refresh reaches new pi processes. */
+  readonly tools: () => Promise<SessionTools | null>;
   readonly subscriptions: SubscriptionRegistry;
   readonly catalog: SessionCatalog;
   readonly layouts: Layouts;
@@ -158,6 +161,11 @@ export function createSessionManager(options: {
   readonly models?: SessionModels;
   /** The file search behind `@`; without it every search answers `fd_missing`. */
   readonly files?: FileSearch;
+  /**
+   * The title model chosen in the settings, if pi can use it in a directory (`createTitleGenerator`);
+   * without it titles are made on each session's own model.
+   */
+  readonly titleModel?: (cwd: string, signal: AbortSignal) => Promise<ModelRef | null>;
 }): SessionManager {
   const sessions = new Map<string, Running>();
   /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
@@ -183,6 +191,8 @@ export function createSessionManager(options: {
   const prompting = new Map<string, number>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
+  /** New sessions whose pi is starting, before they have an id to be found by. */
+  const creating = new Set<Promise<unknown>>();
   /** Background work, such as scans after a run, that `close` waits for. */
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
@@ -311,7 +321,7 @@ export function createSessionManager(options: {
    * @throws {CommandError} `pi_unavailable` with pi's status otherwise.
    */
   async function readyTools(): Promise<ReadyTools> {
-    const tools = await options.tools;
+    const tools = await options.tools();
     if (tools?.pi.status !== "ready") {
       throw new CommandError("pi_unavailable", { status: tools?.pi.status ?? "unknown" });
     }
@@ -385,6 +395,7 @@ export function createSessionManager(options: {
 
   const titles = createTitleGenerator({
     subject: titleSubject,
+    titleModel: options.titleModel ?? (async () => null),
     oneShot: async (request, signal) => {
       const tools = await readyTools();
       const deps = createPiDeps({
@@ -780,7 +791,14 @@ export function createSessionManager(options: {
     const asked = options.layouts.of(clientId).container;
     const tools = await readyTools();
     const startOn = options.models?.preferred() ?? null;
-    const { sessionId } = (await connect(await spawn(tools, { args: [], cwd, startOn }))).controller;
+    const started = (async () => connect(await spawn(tools, { args: [], cwd, startOn })))();
+    creating.add(started);
+    let sessionId: string;
+    try {
+      ({ sessionId } = (await started).controller);
+    } finally {
+      creating.delete(started);
+    }
     await options.catalog.record({ sessionId, containerId, cwd });
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {
@@ -1067,6 +1085,14 @@ export function createSessionManager(options: {
         running: busy.has(entry.sessionId),
         asking: askingSince(entry.sessionId),
       }));
+    },
+    async stopIdle() {
+      // pi was updated: a session's next use starts the new one (SPEC-0001, "首次启动 · 接口").
+      // A pi starting meanwhile may be the old one, so it is waited for and judged too. A dialog
+      // waiting for an answer keeps its session's pi. Stopping a pi already gone does nothing.
+      await Promise.allSettled([...starting.values(), ...creating]);
+      const idle = [...sessions.keys()].filter((sessionId) => !occupied(sessionId) && askingSince(sessionId) === null);
+      await Promise.all(idle.map((sessionId) => stopSession(sessionId)));
     },
     async forgetWorkspaces(workspaceIds) {
       const gone = options.catalog.list().filter((entry) => workspaceIds.includes(entry.containerId));

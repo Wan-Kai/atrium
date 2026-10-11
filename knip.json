@@ -16,7 +16,7 @@
       "entry": ["src/faux/extension.ts"]
     },
     "packages/pi": {
-      "entry": ["test/**/*.ts"]
+      "entry": ["test/**/*.ts", "src/auth/login-worker.ts"]
     },
     "packages/ui": {
       "entry": ["src/**/*.test.{ts,tsx}", "src/**/*.bench.ts"]

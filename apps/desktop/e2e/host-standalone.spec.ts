@@ -10,7 +10,10 @@ const entry = join(repo, "packages", "host", "dist", "entry.cjs");
 
 /** Starts the built host as a plain Node process and collects its output. */
 function runHost(env: Record<string, string>) {
-  const child = spawn(process.execPath, [entry], { env: { ...process.env, ...env }, stdio: "pipe" });
+  const child = spawn(process.execPath, [entry], {
+    env: { ...process.env, ATRIUM_PI_LATEST_URL: "", ...env },
+    stdio: "pipe",
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString()));

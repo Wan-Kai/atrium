@@ -58,6 +58,7 @@ async function place() {
  * @param location - Where pi keeps sessions, when a test holds back the first scan.
  * @param models - The model new sessions start with and where choices go, if a test needs them.
  * @param files - The file search behind `@`, if a test needs it.
+ * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @returns The manager and what tests look at.
  */
 async function manage(
@@ -67,6 +68,7 @@ async function manage(
   location?: Promise<SessionsLocation | null>,
   models?: Parameters<typeof createSessionManager>[0]["models"],
   files?: Parameters<typeof createSessionManager>[0]["files"],
+  titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -102,7 +104,7 @@ async function manage(
   let next = 0;
   const manager = createSessionManager({
     chatsRoot: join(at.home, "chats"),
-    tools: Promise.resolve(found),
+    tools: () => Promise.resolve(found),
     subscriptions,
     catalog,
     layouts,
@@ -119,6 +121,7 @@ async function manage(
     ...(turnStarts === undefined ? {} : { turnStarts }),
     ...(models === undefined ? {} : { models }),
     ...(files === undefined ? {} : { files }),
+    ...(titleModel === undefined ? {} : { titleModel }),
   });
   cleanups.push(
     () => manager.close(),
@@ -1315,12 +1318,14 @@ function failingTurn(error: string): readonly object[] {
  * @param turns - What pi prints for each prompt.
  * @param rules - More of pi's answers.
  * @param more - More of pi's behavior.
+ * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @returns The manager and what tests look at.
  */
 async function opened(
   turns: readonly (readonly object[])[],
   rules: Record<string, object> = {},
   more: Omit<ScriptedPiBehavior, "rules"> = {},
+  titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
 ) {
   const at = await place();
   const file = await terminalSession(at, "pi-session-1", at.workspace);
@@ -1335,6 +1340,11 @@ async function opened(
       },
     },
     at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    titleModel,
   );
   await managed.catalog.scan();
   await managed.manager.openSession("client-1", "pi-session-1");
@@ -1712,17 +1722,24 @@ function titleReply(text: string): object {
  * @sideEffects Writes the session's file; starts its pi.
  * @param title - The model's answer.
  * @param rules - More of pi's answers.
+ * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @returns The manager, what tests look at, what the one-shot pi saw and how to release it.
  */
-async function titled(title: string, rules: Record<string, object> = NAMEABLE) {
+async function titled(
+  title: string,
+  rules: Record<string, object> = NAMEABLE,
+  titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
+) {
   const gates = await createTempDir("titles");
   cleanups.push(gates.cleanup);
   const seenAt = join(gates.path, "seen.json");
   const gate = join(gates.path, "release.flag");
-  const managed = await opened([turn], rules, {
-    receivedToStderr: true,
-    print: { lines: [titleReply(title)], recordTo: seenAt, waitFor: gate },
-  });
+  const managed = await opened(
+    [turn],
+    rules,
+    { receivedToStderr: true, print: { lines: [titleReply(title)], recordTo: seenAt, waitFor: gate } },
+    titleModel,
+  );
   return {
     ...managed,
     /** What the one-shot pi was started with, once it runs. */
@@ -1757,6 +1774,22 @@ describe("SessionManager titles (M1.9)", () => {
       stdin: "User:\nping\n\nAssistant:\npong",
     });
     expect(records.filter((record) => record["msg"] === "session title not made")).toStrictEqual([]);
+  });
+
+  it("asks on the title model chosen when pi can use it in the session's directory", async () => {
+    const asks: string[] = [];
+    const { run, seen, release, names, at } = await titled("Ping", NAMEABLE, async (cwd) => {
+      asks.push(cwd);
+      return { providerId: "openai", modelId: "gpt-5-mini" };
+    });
+
+    await run();
+    const asked = await seen();
+    await release();
+    await vi.waitFor(() => expect(names()).toStrictEqual(["Ping"]));
+
+    expect(asked).toMatchObject({ argv: expect.arrayContaining(["--model", "openai/gpt-5-mini"]) });
+    expect(asks).toStrictEqual([at.workspace]);
   });
 
   it("asks for no title for a session pi reports no model for", async () => {
@@ -1837,5 +1870,87 @@ describe("SessionManager titles (M1.9)", () => {
     await manager.close();
 
     expect(resources.snapshot()["pi-oneshot"]).toBe(0);
+  });
+});
+
+describe("SessionManager after pi is updated (M1.10)", () => {
+  it("stops the pi of idle sessions, and starts it again when the session is next opened", async () => {
+    const { manager, received, starts, run } = await opened([turn]);
+    await run();
+
+    await manager.stopIdle();
+    await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
+    await manager.stopIdle();
+    await manager.openSession("client-1", "pi-session-1");
+
+    expect(starts()).toHaveLength(2);
+    expect(received.filter((event) => event.type === "session_exited")).toHaveLength(1);
+    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false }]);
+  });
+
+  it("leaves a session alone while one of its dialogs waits for an answer", async () => {
+    const { manager, received, starts, run } = await opened([[...turn, confirmation("d1")]]);
+    await run();
+    await vi.waitFor(() => expect(manager.summaries()[0]?.asking).not.toBeNull());
+
+    await manager.stopIdle();
+
+    expect(received.map((event) => event.type)).not.toContain("session_exited");
+    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false }]);
+    expect(starts()).toHaveLength(1);
+  });
+
+  it("waits for a session's pi starting meanwhile, which may be the old one, and stops it once idle", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const reading = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<TurnStarts>();
+    const { manager, catalog, starts, resources } = await manage({ argvToStderr: true, rules: SESSION_ONE }, at, () => {
+      reading.resolve();
+      return read.promise;
+    });
+    await catalog.scan();
+    const opening = manager.openSession("client-1", "pi-session-1");
+    await reading.promise;
+
+    const stopping = manager.stopIdle();
+    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    await stopping;
+    await opening;
+
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+    expect(manager.summaries()).toMatchObject([{ sessionId: "pi-session-1", running: false }]);
+    expect(starts()).toHaveLength(1);
+  });
+
+  it("waits for a new chat's pi starting meanwhile, and stops it once idle", async () => {
+    const reading = Promise.withResolvers<void>();
+    const read = Promise.withResolvers<TurnStarts>();
+    const { manager, starts, resources } = await manage({ argvToStderr: true, rules: SESSION_ONE }, undefined, () => {
+      reading.resolve();
+      return read.promise;
+    });
+    const creating = manager.createChat("client-1");
+    await reading.promise;
+
+    const stopping = manager.stopIdle();
+    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    await stopping;
+
+    expect(await creating).toStrictEqual({ sessionId: "pi-session-1" });
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+    expect(starts()).toHaveLength(1);
+  });
+
+  it("leaves running sessions alone", async () => {
+    const { manager, received, starts } = await opened([[{ type: "agent_start" }]]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "ping" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
+
+    await manager.stopIdle();
+
+    expect(received.map((event) => event.type)).not.toContain("session_exited");
+    expect(manager.summaries()[0]?.running).toBe(true);
+    expect(starts()).toHaveLength(1);
   });
 });

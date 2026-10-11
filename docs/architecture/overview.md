@@ -58,8 +58,9 @@ atrium/
 │   │   │   ├── context/            ContextEstimator：按 pi 的语义回放系统消息和检查点，只返回各分段的 token 数
 │   │   │   ├── catalog/            PiCatalog：短启 pi 查模型并按目录缓存、推理档位、`/` 命令的映射
 │   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
-│   │   │   ├── auth/               登录状态检查、OAuth、API Key
-│   │   │   └── locate/             找到 pi、检查版本；找到 `@` 用的 fd
+│   │   │   ├── auth/               登录：系统 Node 运行的登录程序（加载用户装的 pi 的 ModelRuntime）
+│   │   │   │                       和宿主这边的调用（登录状态、OAuth、API Key、退出）
+│   │   │   └── locate/             找到 pi 和它用的 Node、检查版本；找到 `@` 用的 fd
 │   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
 │   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
 │   ├── host/                       宿主：Atrium 自己的业务
@@ -78,7 +79,7 @@ atrium/
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
-│   │   │   ├── setup/              SetupService、安装和登录任务
+│   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、改动面板的 diff，监听有人看的工作区）
@@ -139,6 +140,8 @@ protocol  ←──  pi  ←──  host
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
+
+- **登录程序的例外**（2026-10-10 定）：`packages/pi/src/auth/` 里的登录程序由宿主交给系统 Node 运行，不被我们的进程加载。它按绝对路径 `import` 用户装的 pi 包（`dist/index.js`），用的是 pi 自带的依赖；只从 `@earendil-works/pi-coding-agent` 取类型（pi 包的开发依赖）。它只用 Node 能直接运行的写法（能被去掉的类型注解，不用 enum 等），因为系统 Node 直接运行源文件。
 
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。

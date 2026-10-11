@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { DotSeedContext } from "../design/dots";
 import { EffortBox } from "./effort-box";
 
 const FOUR: readonly ThinkingLevel[] = ["low", "medium", "high", "xhigh"];
@@ -17,6 +18,50 @@ async function box(level: ThinkingLevel, levels: readonly ThinkingLevel[] = FOUR
   );
   const slider = screen.getByRole("slider", { name: "推理强度" });
   return { screen, slider, changes };
+}
+
+/**
+ * A box at "medium" in the dot pattern of a seed.
+ *
+ * @remarks
+ * Below the top level the dots do not move once in place.
+ *
+ * @sideEffects none
+ * @param seed - The seed.
+ * @returns The element.
+ */
+function seeded(seed: number) {
+  return (
+    <DotSeedContext value={seed}>
+      <div style={{ width: 400, padding: 8 }}>
+        <EffortBox levels={FOUR} level="medium" onChange={() => undefined} />
+      </div>
+    </DotSeedContext>
+  );
+}
+
+/**
+ * What the box's canvas shows once its frames have been drawn.
+ *
+ * @remarks
+ * Below the top level the dots settle, so the canvas comes to hold one picture per seed: it is
+ * read once it has stayed the same for ten frames.
+ *
+ * @sideEffects Waits for animation frames.
+ * @param container - Where the box is.
+ * @returns The canvas as a data URL.
+ */
+async function picture(container: HTMLElement): Promise<string> {
+  const canvas = container.querySelector("canvas");
+  if (canvas === null) throw new Error("no canvas");
+  let last = "";
+  for (let same = 0; same < 10;) {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const now = canvas.toDataURL();
+    same = now === last ? same + 1 : 0;
+    last = now;
+  }
+  return last;
 }
 
 /**
@@ -125,5 +170,17 @@ describe("EffortBox", () => {
     );
 
     await expect.element(slider).toHaveAttribute("aria-valuetext", "高");
+  });
+
+  it("paints the dot pattern of the install's seed, and another when the seed changes", async () => {
+    const screen = await render(seeded(1));
+    const first = await picture(screen.container);
+    await screen.rerender(seeded(2));
+    const second = await picture(screen.container);
+    await screen.rerender(seeded(1));
+    const again = await picture(screen.container);
+
+    expect(second).not.toBe(first);
+    expect(again).toBe(first);
   });
 });

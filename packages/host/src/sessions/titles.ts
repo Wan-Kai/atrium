@@ -141,15 +141,19 @@ export interface TitleGenerator {
  * @remarks
  * SPEC-0001 ("自动生成标题"): `subject` decides whether a session needs a title, and `write`
  * whether it still takes one when it comes, so the manager keeps those rules; this module asks,
- * tidies and keeps one call per session. A failure is only logged, by reason, and the next run's
- * end tries again; content never reaches the log.
+ * tidies and keeps one call per session. The call is on the title model chosen in the settings
+ * when pi can use it in the session's directory, otherwise, or when that cannot be told, on the
+ * session's own model. A failure is only logged, by reason, and the next run's end tries again;
+ * content never reaches the log.
  *
  * @sideEffects none until `settled`; then runs one-shot calls and writes titles.
- * @param options - Which sessions need a title, the one-shot call, and the logger.
+ * @param options - Which sessions need a title, the chosen title model pi can use in a directory
+ * (`null` for none), the one-shot call, and the logger.
  * @returns The generator.
  */
 export function createTitleGenerator(options: {
   readonly subject: (sessionId: string) => TitleSubject | null;
+  readonly titleModel: (cwd: string, signal: AbortSignal) => Promise<ModelRef | null>;
   readonly oneShot: (request: TitleRequest, signal: AbortSignal) => Promise<string>;
   readonly logger: Logger;
 }): TitleGenerator {
@@ -180,7 +184,11 @@ export function createTitleGenerator(options: {
     const fail = (reason: "failed" | "empty" | "unwritten" | "discarded"): void => {
       if (!signal.aborted) options.logger.info({ sessionId, reason }, "session title not made");
     };
-    const { cwd, model, input } = subject;
+    const { cwd, input } = subject;
+    // Stryker disable next-line ArrowFunction: `undefined` falls back to the session's model as `null` does.
+    const model = (await options.titleModel(cwd, signal).catch(() => null)) ?? subject.model;
+    // Closed while the model was looked up: no pi is started.
+    if (signal.aborted) return;
     const answer = await options
       .oneShot({ cwd, model, systemPrompt: TITLE_INSTRUCTIONS, input }, signal)
       .catch(() => null);
@@ -208,5 +216,36 @@ export function createTitleGenerator(options: {
       for (const { controller } of making.values()) controller.abort();
       await Promise.all([...making.values()].map(({ done }) => done));
     },
+  };
+}
+
+/**
+ * Looks up the title model chosen in the settings, if pi can use it in a directory.
+ *
+ * @remarks
+ * pi lists only the models of providers with credentials, so a model it lists in the directory
+ * is one whose provider is signed in (SPEC-0001, "自动生成标题"). A chat's directory is asked as
+ * all chats are, where the model panel asks for them, so the list is the one kept for it.
+ *
+ * @sideEffects none until called; then may list pi's models.
+ * @param options - The title model chosen (`null` for none), how to list pi's models in a
+ * directory, the chats' root, and the directory chats' models are listed for.
+ * @returns The lookup: the model, or `null` when none is chosen or pi does not list it there.
+ */
+export function titleModelLookup(options: {
+  readonly chosen: () => ModelRef | null;
+  readonly list: (dir: string) => Promise<{ readonly models: readonly ModelRef[] }>;
+  readonly chatsRoot: string;
+  readonly chatsDir: string;
+}): (cwd: string) => Promise<ModelRef | null> {
+  return async (cwd) => {
+    const chosen = options.chosen();
+    if (chosen === null) return null;
+    // Each chat has a folder of its own inside the chats' root.
+    const chat = cwd.startsWith(`${options.chatsRoot}/`);
+    const { models } = await options.list(chat ? options.chatsDir : cwd);
+    return models.some((model) => model.providerId === chosen.providerId && model.modelId === chosen.modelId)
+      ? chosen
+      : null;
   };
 }

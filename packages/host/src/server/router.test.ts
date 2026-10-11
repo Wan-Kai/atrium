@@ -1,4 +1,11 @@
-import { type Command, CommandError, type DiffTarget, type HostMessage, type PromptCommand } from "@atrium/protocol";
+import {
+  type Command,
+  CommandError,
+  type DiffTarget,
+  type HostMessage,
+  type PromptCommand,
+  type SetupState,
+} from "@atrium/protocol";
 import { ROOT_CONTEXT, trace } from "@opentelemetry/api";
 import { FakeClock } from "@atrium/testkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -80,13 +87,29 @@ function fakeCommands() {
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
+    discoverProjects: record("discoverProjects", { directories: [DISCOVERED] }),
+    listBranches: record("listBranches", { branches: ["main"], head: "main" }),
+    setMainBranch: record("setMainBranch", {}),
     answering: () => undefined,
   };
   return { sessions, index, calls };
 }
 
 const PROJECT = "prj_0123456789abcdef";
+
+/** A directory of pi's history, as the list commands find it. */
+const DISCOVERED = { path: "/work/app", sessions: 2, lastUsedAt: 5 };
+
+const SETUP: SetupState = {
+  pi: { state: "missing", path: null, version: null, minimum: "1.0.1", detail: null, latest: null, checkedAt: null },
+  node: { state: "missing", version: null },
+  homebrew: false,
+  fd: false,
+  login: { state: "unavailable" },
+  projects: 0,
+};
 const WORKSPACE = "wks_0123456789abcdef";
+const MODEL = { providerId: "anthropic", modelId: "claude-haiku-4-5" };
 
 /**
  * A router over fake sessions, a connection whose handshake span is recorded, and what it sends.
@@ -138,6 +161,42 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
   const route = createRouter({
     sessions,
     index,
+    setup: {
+      check: async (refresh) => {
+        calls.push(["checkSetup", refresh]);
+        return SETUP;
+      },
+    },
+    logins: {
+      login: async (request) => {
+        calls.push(["login", request]);
+        return { loginId: "l1" };
+      },
+      answer: (loginId, promptId, value) => {
+        calls.push(["answerLogin", loginId, promptId, value]);
+      },
+      cancel: (loginId) => {
+        calls.push(["cancelLogin", loginId]);
+      },
+      logout: async (providerId) => {
+        calls.push(["logout", providerId]);
+      },
+    },
+    installs: {
+      start: async (kind) => {
+        calls.push(["install", kind]);
+        return { jobId: "j1" };
+      },
+      cancel: (jobId) => {
+        calls.push(["cancelInstall", jobId]);
+      },
+    },
+    piLatest: {
+      check: async () => {
+        calls.push(["checkPiUpdate"]);
+        return { latest: "1.1.0", checkedAt: 7 };
+      },
+    },
     attachments,
     changes,
     tracer: recording.tracer,
@@ -322,12 +381,23 @@ describe("createRouter", () => {
       withTrace({ type: "rename_workspace", requestId: "r5", workspaceId: WORKSPACE, name: null }),
     );
     await route(connection, withTrace({ type: "window_focused", requestId: "r6" }));
-    await route(connection, withTrace({ type: "set_preferences", requestId: "r7", appearance: "dark" }));
-    await route(connection, withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking" }));
+    await route(
+      connection,
+      withTrace({ type: "set_preferences", requestId: "r7", appearance: "dark", titleModel: null }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true }),
+    );
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
     await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
-    await route(connection, withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true } }));
+    await route(
+      connection,
+      withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true }, titleModel: MODEL }),
+    );
+    await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
+    await route(connection, withTrace({ type: "check_setup", requestId: "r14", refresh: true }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -337,13 +407,16 @@ describe("createRouter", () => {
       ["renameProject", PROJECT, "app"],
       ["renameWorkspace", WORKSPACE, null],
       ["windowFocused"],
-      ["setPreferences", { appearance: "dark" }],
-      ["setPreferences", { displayMode: "thinking" }],
+      ["setPreferences", { appearance: "dark", titleModel: null }],
+      ["setPreferences", { displayMode: "thinking", setupDone: true }],
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
       ["listModels", "chats", true],
-      ["setPreferences", { statusBar: { cost: true } }],
+      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL }],
+      ["checkSetup", false],
+      ["checkSetup", true],
     ]);
+    expect(sent[14]).toStrictEqual({ type: "response", requestId: "r14", ok: true, result: SETUP });
     expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
     expect(sent[10]).toStrictEqual({
       type: "response",
@@ -427,6 +500,80 @@ describe("createRouter", () => {
         ok: false,
         error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
       },
+    ]);
+  });
+
+  it("hands the login commands to the logins", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "login", requestId: "r1", providerId: "acme", method: "oauth" }));
+    await route(
+      connection,
+      withTrace({ type: "login", requestId: "r2", providerId: "acme", method: "api_key", key: "sk-1" }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "answer_login", requestId: "r3", loginId: "l1", promptId: 2, value: "42" }),
+    );
+    await route(connection, withTrace({ type: "cancel_login", requestId: "r4", loginId: "l1" }));
+    await route(connection, withTrace({ type: "logout", requestId: "r5", providerId: "acme" }));
+
+    expect(calls).toStrictEqual([
+      ["login", { providerId: "acme", method: "oauth" }],
+      ["login", { providerId: "acme", method: "api_key", key: "sk-1" }],
+      ["answerLogin", "l1", 2, "42"],
+      ["cancelLogin", "l1"],
+      ["logout", "acme"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { loginId: "l1" } },
+      { type: "response", requestId: "r2", ok: true, result: { loginId: "l1" } },
+      { type: "response", requestId: "r3", ok: true, result: {} },
+      { type: "response", requestId: "r4", ok: true, result: {} },
+      { type: "response", requestId: "r5", ok: true, result: {} },
+    ]);
+  });
+
+  it("hands looking for projects in pi's history and choosing the main branch to the list commands", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "discover_projects", requestId: "r1" }));
+    await route(connection, withTrace({ type: "list_branches", requestId: "r2", projectId: PROJECT }));
+    await route(
+      connection,
+      withTrace({ type: "set_main_branch", requestId: "r3", projectId: PROJECT, branch: "main" }),
+    );
+
+    expect(calls).toStrictEqual([["discoverProjects"], ["listBranches", PROJECT], ["setMainBranch", PROJECT, "main"]]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { directories: [DISCOVERED] } },
+      { type: "response", requestId: "r2", ok: true, result: { branches: ["main"], head: "main" } },
+      { type: "response", requestId: "r3", ok: true, result: {} },
+    ]);
+  });
+
+  it("hands the install commands to the installs, and the update check to the latest pi", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "install_pi", requestId: "r1" }));
+    await route(connection, withTrace({ type: "install_node", requestId: "r2" }));
+    await route(connection, withTrace({ type: "update_pi", requestId: "r3" }));
+    await route(connection, withTrace({ type: "cancel_install", requestId: "r4", jobId: "j1" }));
+    await route(connection, withTrace({ type: "check_pi_update", requestId: "r5" }));
+
+    expect(calls).toStrictEqual([
+      ["install", "install_pi"],
+      ["install", "install_node"],
+      ["install", "update_pi"],
+      ["cancelInstall", "j1"],
+      ["checkPiUpdate"],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: { jobId: "j1" } },
+      { type: "response", requestId: "r2", ok: true, result: { jobId: "j1" } },
+      { type: "response", requestId: "r3", ok: true, result: { jobId: "j1" } },
+      { type: "response", requestId: "r4", ok: true, result: {} },
+      { type: "response", requestId: "r5", ok: true, result: { latest: "1.1.0", checkedAt: 7 } },
     ]);
   });
 

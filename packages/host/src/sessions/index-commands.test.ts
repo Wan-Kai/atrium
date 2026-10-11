@@ -78,9 +78,11 @@ async function assemble() {
   const sessionChanges = { count: 0 };
   const focused = { count: 0 };
   const listed: [string, boolean][] = [];
+  const discovered: (readonly string[])[] = [];
+  const refreshed: string[] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
-    tools: Promise.resolve({
+    tools: async () => ({
       env: { PATH: process.env["PATH"] ?? "", ...scripted.env },
       pi: { status: "ready", piPath: scripted.piPath, version: [1, 0, 2] },
     }),
@@ -101,7 +103,10 @@ async function assemble() {
   onTestFinished(() => sessions.close());
   const commands = createIndexCommands({
     projects,
-    workspaces: { windowFocused: () => (focused.count += 1) },
+    workspaces: {
+      windowFocused: () => (focused.count += 1),
+      refresh: (workspaceId) => refreshed.push(workspaceId),
+    },
     sessions,
     preferences,
     feed,
@@ -109,8 +114,24 @@ async function assemble() {
       listed.push([containerId, refresh]);
       return { models: [], defaultModel: null };
     },
+    discover: async (taken) => {
+      discovered.push(taken);
+      return [{ path: join(root, "found"), sessions: 2, lastUsedAt: 5 }];
+    },
   });
-  return { commands, projects, sessions, layouts, received, root, sessionChanges, listed, focused };
+  return {
+    commands,
+    projects,
+    sessions,
+    layouts,
+    received,
+    root,
+    sessionChanges,
+    listed,
+    focused,
+    discovered,
+    refreshed,
+  };
 }
 
 describe("IndexCommands.removeProject", () => {
@@ -170,6 +191,48 @@ describe("IndexCommands.listModels", () => {
 
     expect(await commands.listModels("chats", true)).toStrictEqual({ models: [], defaultModel: null });
     expect(listed).toStrictEqual([["chats", true]]);
+  });
+});
+
+describe("IndexCommands.discoverProjects", () => {
+  it("looks for directories that are not a project or one of its workspaces yet", async () => {
+    const { commands, discovered, root } = await assemble();
+    const dir = join(root, "app");
+    await mkdir(dir);
+    await commands.addProject(dir);
+
+    expect(await commands.discoverProjects()).toStrictEqual({
+      directories: [{ path: join(root, "found"), sessions: 2, lastUsedAt: 5 }],
+    });
+    // The project's path and its local workspace's directory.
+    expect(discovered).toStrictEqual([[dir, dir]]);
+  });
+});
+
+describe("IndexCommands.setMainBranch", () => {
+  it("goes back to origin/HEAD and works out the project's workspaces again, leaving other projects", async () => {
+    const { commands, projects, refreshed, root } = await assemble();
+    await mkdir(join(root, "app"));
+    await mkdir(join(root, "other"));
+    const { projectId } = await commands.addProject(join(root, "app"));
+    await commands.addProject(join(root, "other"));
+    const local = present(projects.workspaces()[0], "the local workspace").id;
+
+    expect(await commands.setMainBranch(projectId, null)).toStrictEqual({});
+    expect(await commands.listBranches(projectId)).toStrictEqual({ branches: [], head: null });
+
+    expect(refreshed).toStrictEqual([local]);
+  });
+
+  it("changes and works out nothing when the branch is not on origin", async () => {
+    const { commands, refreshed, root } = await assemble();
+    await mkdir(join(root, "app"));
+    const { projectId } = await commands.addProject(join(root, "app"));
+
+    await expect(commands.setMainBranch(projectId, "main")).rejects.toStrictEqual(
+      new CommandError("branch_not_found", { branch: "main" }),
+    );
+    expect(refreshed).toStrictEqual([]);
   });
 });
 

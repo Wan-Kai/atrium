@@ -185,13 +185,13 @@ describe("createDrafts", () => {
     const drafts = createDrafts(storage);
     drafts.update("s1", () => ({ ...DRAFT, images: [kept("a")] }));
     drafts.update("s2", () => ({ ...DRAFT, images: [kept("b")] }));
-    store.set("atrium-dot-seed", "7");
+    store.set("atrium-other", "7");
     const heard: string[] = [];
     drafts.subscribe("s1", () => heard.push("s1"));
 
     drafts.drop(["s1", "s3"]);
 
-    expect([...store.keys()].toSorted()).toStrictEqual(["atrium-dot-seed", "atrium-draft:s2"]);
+    expect([...store.keys()].toSorted()).toStrictEqual(["atrium-draft:s2", "atrium-other"]);
     expect(drafts.read("s1")).toStrictEqual(EMPTY);
     expect(drafts.read("s2")).toStrictEqual({ ...DRAFT, images: [kept("b")] });
     expect(heard).toStrictEqual(["s1"]);

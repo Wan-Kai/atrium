@@ -98,6 +98,36 @@ function setNativeAppearance(appearance: Appearance): void {
 }
 
 /**
+ * Opens an address in the user's browser.
+ *
+ * @remarks
+ * In the desktop app the window's open handler hands an http(s) address to the system browser and
+ * opens nothing inside (security.md, "Electron").
+ *
+ * @sideEffects Asks the page to open a window.
+ * @param url - The address.
+ */
+function openUrl(url: string): void {
+  window.open(url, "_blank", "noopener");
+}
+
+/**
+ * Shows a path in the Finder.
+ *
+ * @remarks
+ * The desktop shell takes only an absolute path that exists.
+ *
+ * @sideEffects Calls the desktop bridge.
+ * @param path - The path.
+ */
+function reveal(path: string): void {
+  // Fire and forget: nothing to tell the user if the Finder does not come up.
+  void desktopBridge()
+    ?.reveal?.(path)
+    .catch(() => undefined);
+}
+
+/**
  * The app once a client exists: the display mode store and the workbench.
  *
  * @remarks
@@ -128,6 +158,11 @@ function Connected({ client }: { readonly client: AtriumClient }) {
             : () => desktopBridge()?.pickDirectory?.() ?? Promise.resolve(null)
         }
         setNativeAppearance={bridge?.setAppearance === undefined ? undefined : setNativeAppearance}
+        openUrl={openUrl}
+        reveal={bridge?.reveal === undefined ? undefined : reveal}
+        pathForFile={
+          bridge?.pathForFile === undefined ? undefined : (file) => desktopBridge()?.pathForFile?.(file) ?? null
+        }
       />
     </DisplayModeContext>
   );

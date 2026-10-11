@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type DotFrame, dotSeed, paintDots, sweepProgress } from "./dots";
+import { type DotFrame, easeBand, nextBandSweep, paintBand, paintDots, sweepProgress } from "./dots";
 
 const WIDTH = 120;
 const HEIGHT = 32;
@@ -61,18 +61,6 @@ function firstRed(pixels: Uint8ClampedArray): number | undefined {
   return undefined;
 }
 
-/** Storage in memory, and the map behind it. */
-function memoryStorage() {
-  const store = new Map<string, string>();
-  return {
-    store,
-    storage: {
-      getItem: (key: string) => store.get(key) ?? null,
-      setItem: (key: string, value: string) => void store.set(key, value),
-    },
-  };
-}
-
 describe("paintDots", () => {
   it("paints nothing at no coverage", () => {
     expect(inkBetween(paint({ coverage: 0 }), 0, WIDTH)).toBe(0);
@@ -125,16 +113,124 @@ describe("sweepProgress", () => {
   });
 });
 
-describe("dotSeed", () => {
-  it("keeps one seed per install, made once", () => {
-    const { store, storage } = memoryStorage();
+/**
+ * Paints the start button's band at one place and returns its pixels.
+ *
+ * @remarks
+ * On a real canvas the size of the button, as the welcome page uses.
+ *
+ * @sideEffects Creates a canvas.
+ * @param progress - How far the band has gone.
+ * @param seed - The pattern's seed.
+ * @returns The RGBA pixels, row by row.
+ */
+function band(progress: number, seed = 7): Uint8ClampedArray {
+  const canvas = document.createElement("canvas");
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+  const context = canvas.getContext("2d");
+  if (context === null) throw new Error("no 2d context");
+  context.fillStyle = "red";
+  context.fillRect(0, 0, WIDTH, HEIGHT);
+  paintBand(context, { width: WIDTH, height: HEIGHT }, progress, seed);
+  return context.getImageData(0, 0, WIDTH, HEIGHT).data;
+}
 
-    const seed = dotSeed(storage);
+/**
+ * The rightmost painted column in rows `from` to `to`.
+ *
+ * @remarks
+ * Tells which way the band leans.
+ *
+ * @sideEffects none
+ * @param pixels - The RGBA pixels.
+ * @param from - The first row.
+ * @param to - The row after the last.
+ * @returns The column, or -1 when nothing is painted there.
+ */
+function rightmost(pixels: Uint8ClampedArray, from: number, to: number): number {
+  let right = -1;
+  for (let y = from; y < to; y += 1)
+    for (let x = 0; x < WIDTH; x += 1) if ((pixels[(y * WIDTH + x) * 4 + 3] ?? 0) > 0) right = Math.max(right, x);
+  return right;
+}
 
-    expect(seed).toBeGreaterThan(0);
-    expect(dotSeed(storage)).toBe(seed);
-    expect(store.get("atrium-dot-seed")).toBe(String(seed));
-    store.set("atrium-dot-seed", "42");
-    expect(dotSeed(storage)).toBe(42);
+/**
+ * The colour of the first painted pixel.
+ *
+ * @remarks
+ * `getImageData` gives colours unpremultiplied, so a faint white dot still reads as white.
+ *
+ * @sideEffects none
+ * @param pixels - The RGBA pixels.
+ * @returns Its red, green and blue, or `undefined` when nothing is painted.
+ */
+function firstInk(pixels: Uint8ClampedArray): number[] | undefined {
+  for (let index = 0; index < pixels.length; index += 4)
+    if ((pixels[index + 3] ?? 0) > 0) return [...pixels.subarray(index, index + 3)];
+  return undefined;
+}
+
+describe("paintBand", () => {
+  it("clears the button and paints nothing before and after the sweep", () => {
+    expect(inkBetween(band(-0.01), 0, WIDTH)).toBe(0);
+    expect(inkBetween(band(1.01), 0, WIDTH)).toBe(0);
+    expect(inkBetween(band(-0.5), 0, WIDTH)).toBe(0);
+    expect(inkBetween(band(1.5), 0, WIDTH)).toBe(0);
+  });
+
+  it("comes in narrow at the left, covers the button midway and goes out narrow at the right", () => {
+    const coming = band(0.2);
+    const midway = band(0.5);
+    const going = band(0.8);
+
+    expect(inkBetween(coming, 0, 20)).toBeGreaterThan(0);
+    expect(inkBetween(coming, 50, WIDTH)).toBe(0);
+    expect(inkBetween(midway, 0, 12)).toBeGreaterThan(0);
+    expect(inkBetween(midway, WIDTH - 12, WIDTH)).toBeGreaterThan(0);
+    expect(inkBetween(going, 0, 70)).toBe(0);
+    expect(inkBetween(going, 100, WIDTH)).toBeGreaterThan(0);
+  });
+
+  it("leans like a backslash: lower rows lit further right", () => {
+    const pixels = band(0.2);
+
+    expect(rightmost(pixels, HEIGHT - 8, HEIGHT)).toBeGreaterThan(rightmost(pixels, 0, 8));
+  });
+
+  it("paints white dots, in the same pattern for the same seed and another for another", () => {
+    expect(firstInk(band(0.5))).toStrictEqual([255, 255, 255]);
+    expect(band(0.5, 3)).toStrictEqual(band(0.5, 3));
+    expect(band(0.5, 3)).not.toStrictEqual(band(0.5, 4));
+  });
+});
+
+describe("easeBand", () => {
+  it("gathers at the start, rushes across the middle and glides out, along cubic-bezier(.7, 0, .2, 1)", () => {
+    expect(easeBand(-0.5)).toBe(0);
+    expect(easeBand(0)).toBe(0);
+    expect(easeBand(0.25)).toBeCloseTo(0.0658, 4);
+    expect(easeBand(0.5)).toBeCloseTo(0.6358, 4);
+    expect(easeBand(0.75)).toBeCloseTo(0.9544, 4);
+    expect(easeBand(1)).toBe(1);
+    expect(easeBand(1.5)).toBe(1);
+  });
+});
+
+describe("nextBandSweep", () => {
+  it("keeps a sweep not over yet, its end included", () => {
+    expect(nextBandSweep(500, { start: 1_000, duration: 1_100 })).toStrictEqual({ start: 1_000, duration: 1_100 });
+    expect(nextBandSweep(2_100, { start: 1_000, duration: 1_100 })).toStrictEqual({ start: 1_000, duration: 1_100 });
+  });
+
+  it("starts the next idle sweep 6 s after the last began, at the idle pace after a hover", () => {
+    expect(nextBandSweep(2_101, { start: 1_000, duration: 1_100 })).toStrictEqual({ start: 7_000, duration: 1_100 });
+    expect(nextBandSweep(1_900, { start: 1_000, duration: 850 })).toStrictEqual({ start: 7_000, duration: 1_100 });
+  });
+
+  it("skips the sweeps missed while away, keeping one under way", () => {
+    expect(nextBandSweep(20_200, { start: 1_000, duration: 1_100 })).toStrictEqual({ start: 25_000, duration: 1_100 });
+    expect(nextBandSweep(19_500, { start: 1_000, duration: 1_100 })).toStrictEqual({ start: 19_000, duration: 1_100 });
+    expect(nextBandSweep(20_100, { start: 1_000, duration: 1_100 })).toStrictEqual({ start: 19_000, duration: 1_100 });
   });
 });

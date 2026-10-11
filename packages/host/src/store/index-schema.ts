@@ -100,6 +100,10 @@ const PreferencesDocument = z.looseObject({
   thinkingByModel: z.record(z.string(), ThinkingLevel),
   /** The status bar groups switched from their default; absent before M1.8 (SPEC-0001, "状态栏（M1.8）"). */
   statusBar: z.record(z.string(), z.boolean()).optional(),
+  /** Whether first launch was gone through; absent before M1.10 (SPEC-0001, "首次启动"). */
+  setupDone: z.boolean().optional(),
+  /** The model that names sessions, `null` for each session's own; absent before M1.10 (SPEC-0001, "设置"). */
+  titleModel: ModelRef.nullable().optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 

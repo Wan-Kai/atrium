@@ -38,6 +38,7 @@ const bridge = {
    * @returns Its path, or `""` for one that is not on disk.
    */
   pathForFile: (file: File): string => webUtils.getPathForFile(file),
+  reveal: (path: string): Promise<void> => ipcRenderer.invoke("atrium:reveal", path),
 };
 
 contextBridge.exposeInMainWorld("atrium", bridge);

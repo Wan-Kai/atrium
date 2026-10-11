@@ -386,7 +386,7 @@ Electron 主进程
 **窗口与版式**
 
 - 整窗显示，不出侧栏；背景是很淡的三团环境光（蓝、青、桃色），随步骤缓慢移动。
-- 顶部居中是步骤条"安装 pi → 登录模型 → 添加项目"，已完成的步骤显示对勾；底部是操作条，左边次要操作（返回、跳过类），右边主按钮，主按钮带 ⏎ 提示，回车即可前进。
+- 顶部居中是步骤条"安装 pi → 登录模型 → 添加项目"，已完成的步骤显示对勾；底部是操作条，左边次要操作（返回、跳过类），右边主按钮，主按钮带 ⏎ 提示，回车即可前进。回车只在焦点不在输入框、按钮、链接上，没有按修饰键，也不在输入法组字时生效；主按钮不可用时回车什么也不做（2026-10-11 定）。
 - 每一步：小标题"第 N 步 · …"、大标题、一句说明，下面是这一步的主视觉。步骤切换时内容横向滑入，返回时反向。
 - 标题字体：中文汇文明朝体，英文 Syne（只打包标题用到的字）；正文用系统字体。汇文明朝体只有一种字重，声明为可变字重，避免浏览器伪加粗。
 - 浅色、深色两套主题，减弱动态效果时关掉环境光和浮动动画。
@@ -399,25 +399,33 @@ Electron 主进程
 
 **第 1 步：安装 pi**
 
-- 找不到 pi：主按钮"安装 pi"，宿主在后台运行 pi 官方安装脚本（`curl -fsSL https://pi.dev/install.sh | sh`），输出实时显示在页面上的终端窗口里（终端高度随输出增长，最多约 7 行，底边有进度线），可以取消；装好后自动进入下一步。官方脚本在没有终端时会跳过所有交互提问，可以直接由宿主运行。
-- 缺 Node.js（pi 需要 22.19 以上，安装脚本会先检查）：有 Homebrew 时提供"用 Homebrew 安装 Node.js"（`brew install node`），装好后接着安装 pi；没有 Homebrew 时给出 nodejs.org 的下载链接。
-- 版本低于要求：主按钮"更新 pi"，运行 `pi update --self`，同样显示日志。pi 报告"无法自更新这种安装方式"时，退回到手动更新。
-- 失败时显示"没有装好"、完整日志和"重试"，并自动展开手动方式。手动方式始终可以展开：安装命令（npm / 安装脚本两种，可复制）、"我装好了，重新检测"、手动选择 pi 的位置。
-- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现，2026-10-05 定为取完整环境）：取登录 shell 的**完整环境**，不只是 `PATH`，这样 `.zshrc` 里设的 API Key、代理（`HTTPS_PROXY`）、`NODE_OPTIONS` 在 Atrium 里同样生效，和终端里的 pi 一致；实测取完整环境和只取 `PATH` 一样快，时间都花在 shell 启动上。先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设变量），失败或超时（10 秒）再用登录 shell（`-l -c`）；`/usr/bin/env -0` 的输出夹在随机标记之间，rc 文件打印的横幅、回显不影响，值里的换行不会被拆开；shell 自己的 `SHLVL`、`_`、`PWD`、`OLDPWD` 不要。shell 只带宿主的少数变量启动（`HOME`、`USER`、`SHELL`、`TMPDIR`、语言、`SSH_AUTH_SOCK`、`ZDOTDIR`、`PATH`），结果里去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，token 不会进入 pi 的环境。支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用宿主的环境（同样去掉这两类变量）。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 1～2.6 秒）；只在宿主启动时读一次，之后每个会话的 pi 都用这份环境。环境里可能有密钥，日志只记来源、`PATH` 和变量个数。
+- 找不到 pi：主按钮"安装 pi"，宿主在后台运行 pi 官方安装脚本（`curl -fsSL https://pi.dev/install.sh | sh`），输出实时显示在页面上的终端窗口里（终端高度随输出增长，最多约 7 行，底边有进度线；开始前显示要运行的命令），可以取消；pi 一变成可用就自动进入下一步，不停在"pi 已就绪"。从后面的步骤返回到第 1 步时，pi 已可用就显示"pi 已就绪"、版本和位置，点"继续"前进（2026-10-11 定）。官方脚本在没有终端时会跳过所有交互提问，可以直接由宿主运行。
+- 缺 Node.js（pi 需要 22.19 以上，安装脚本会先检查）：有 Homebrew 时提供"用 Homebrew 安装 Node.js"（`brew install node`），装好后接着安装 pi；没有 Homebrew 时主按钮是"去 nodejs.org 下载"，装好后点"我已经装好了"重新检测。上方用两枚小标签说明缺什么、找到了什么（"Node.js 22.19+ 未找到"或"Node.js x 太旧"，"Homebrew 已安装"或"没有 Homebrew"）。只有这个窗口发起的 Node 安装成功后才接着安装 pi，接着的这次安装同样显示在这一步的终端里（2026-10-11 定）。Homebrew 不在登录 shell 的 `PATH` 上（刚装好 Homebrew、还没把 `brew shellenv` 写进配置）时，宿主把它所在的目录加到工具环境的 `PATH` 末尾，装好的 Node 才找得到、接着安装 pi 时也用得上（2026-10-11 定）。
+- 版本低于要求：主按钮"更新 pi"，运行 `pi update`，同样显示日志。pi 报告"无法自更新这种安装方式"时，退回到手动更新。
+- 找到的 pi 不能运行（`broken`）：和找不到一样重新安装，标题"pi 运行不了"，pi 自己的报错放在默认收起的"展开看原始报错"里（2026-10-11 定）。
+- 失败时显示"没有装好"、完整日志和"重试"，说明按原因区分：下载不了安装脚本（多半是网络问题）、启动不了、被中途结束、退出码 N。宿主拒绝开始时（`install_busy`、`install_unavailable`）在下方说明原因。
+- 手动方式始终显示在终端下面，不用展开（2026-10-11 定）：安装命令（安装脚本 / npm 两种，可切换、可复制；更新时是 `pi update`，装 Node 时是 `brew install node`），底栏的"我已经装好了"（更新时"我已经更新了"）用 `check_setup(refresh)` 重新检测，还是没有时提示"还是没找到（还是旧版本），可能要重开终端"。任务跑完了但重新检测后还是找不到能用的 pi（或 Node.js），提示可能要重开终端，并给"重新检测"。手动选择 pi 的位置暂不做（2026-10-11，待确认）。
+- 从访达启动的 Electron 拿不到 shell 里的 `PATH`，宿主启动时先从登录 shell 读取 `PATH`，再查找 pi、node、npm、brew。做法（M1.2 实现，2026-10-05 定为取完整环境）：取登录 shell 的**完整环境**，不只是 `PATH`，这样 `.zshrc` 里设的 API Key、代理（`HTTPS_PROXY`）、`NODE_OPTIONS` 在 Atrium 里同样生效，和终端里的 pi 一致；实测取完整环境和只取 `PATH` 一样快，时间都花在 shell 启动上。先用交互式登录 shell（`-i -l -c`，很多人在 `.zshrc` 里设变量），失败或超时（10 秒）再用登录 shell（`-l -c`）；`/usr/bin/env -0` 的输出夹在随机标记之间，rc 文件打印的横幅、回显不影响，值里的换行不会被拆开；shell 自己的 `SHLVL`、`_`、`PWD`、`OLDPWD` 不要。shell 只带宿主的少数变量启动（`HOME`、`USER`、`SHELL`、`TMPDIR`、语言、`SSH_AUTH_SOCK`、`ZDOTDIR`、`PATH`），结果里去掉 `ATRIUM_`、`ELECTRON_` 开头的变量，token 不会进入 pi 的环境。支持 zsh、bash、sh、dash、ksh，其他 shell（fish 等）沿用宿主的环境（同样去掉这两类变量）。读取在宿主开始监听之后于后台进行，不拖慢启动（本机交互式 zsh 要 1～2.6 秒）；宿主启动时读一次，之后每个会话的 pi 都用这份环境；首次启动装好 pi 或 Node 后（`check_setup(refresh)`）再读一次，之后启动的 pi 用新的这份（2026-10-10 定）；日志的脱敏只增不减，旧环境里的密钥仍然脱敏，因为已经在跑的 pi 还拿着它们（2026-10-11 定）。环境里可能有密钥，日志只记来源、`PATH` 和变量个数。
 
 **第 2 步：登录模型**
 
 - 标题下有"用订阅登录 / 使用 API Key"切换。
-- 订阅登录是一张分组列表，每行：官方图标（白底圆角）、名称与说明、右侧"登录"。顺序：ChatGPT（Plus / Pro，可用 Codex 模型）、Claude（Pro / Max）、GitHub Copilot、Kimi Code、Grok（SuperGrok / X Premium）、OpenRouter，以 pi 支持的为准。
-- 点"登录"后这一行描蓝边，显示"在浏览器中完成登录"和"取消"；完成后显示"✓ 已登录"。至少登录一个，"继续"才可用。
-- API Key：选择服务商、粘贴 Key、保存，附"去哪里获取 API Key"链接；说明 Key 只写在本机的 `~/.pi/agent/auth.json`。
-- 凭据写在 pi 里，终端里的 pi 也能用。pi 的 RPC 没有登录命令，没有可用模型时 RPC 模式只给一个占位模型（2026-10-10 实测），所以登录状态用 `pi auth check --json` 或在锁下读 `~/.pi/agent/auth.json` 判断；登录由宿主调用 pi 的 OAuth 实现（`@earendil-works/pi-ai`）完成，实施时确认。
+- 订阅登录是一张分组列表，每行：官方图标（白底圆角）、名称与说明、右侧"登录"。顺序：ChatGPT（Plus / Pro，可用 Codex 模型；pi 的 `openai`）、Claude（Pro / Max）、GitHub Copilot、Kimi Code、Grok（SuperGrok / X Premium）、OpenRouter、Meta（Muse 订阅），以 pi 支持的为准：pi 没有的不显示，pi 以后新增的、带 OAuth 的服务商排在后面自动出现（名称用 pi 给的 `loginLabel` 或 `name`，图标用通用图标）。不显示 pi 标为 legacy 的 `openai-codex` 和要先配网关的 `radius`（2026-10-10 定）。
+- 点"登录"后这一行描蓝边，显示"在浏览器中完成登录"和"取消"，宿主用系统浏览器打开 pi 给的授权地址（只接受 `https`）；完成后显示"✓ 已登录"。至少登录一个，"继续"才可用。登录过程中 pi 要问的其他内容在这一行下面展开：
+  - 登录方式：自动选浏览器登录（pi 的 `browser`），不问用户。
+  - 浏览器在别的机器上：一个默认收起的"粘贴回调地址"输入框（pi 的 `manual_code`），和本机的回调同时等，哪个先到用哪个。
+  - 设备码（`device_code`）：显示码、"复制"和"打开验证页"。
+  - pi 的其他提问（如 GitHub Copilot 的企业域名）：按 pi 给的文字显示一个输入框或选择框；文字是 pi 的原文（英文），宿主不翻译。
+- API Key：选择服务商、粘贴 Key、保存，附"去哪里获取 API Key"链接；说明 Key 只写在本机的 `~/.pi/agent/auth.json`。服务商列表、保存走 pi 的 API Key 登录（同上，pi 还要问别的，比如账户 id，就接着问）。
+- 凭据写在 pi 里，终端里的 pi 也能用。pi 的 RPC 没有登录命令，没有可用模型时 RPC 模式只给一个占位模型（2026-10-10 实测）。**登录调用用户装的 pi**（2026-10-10 验证并定，见 [pi-internals](../research/pi-internals.md) §4"从外部调用 pi 的登录"）：宿主用系统 Node（pi 用的那个）运行 `packages/pi` 里的登录程序，它 `import` 用户装的 pi 包里的 `ModelRuntime`，查各家的登录状态、走 OAuth 和 API Key 登录、退出，凭据由 pi 在锁下写进 `auth.json`；和宿主之间按行传 JSON，Key 走标准输入。OpenAI 要的设备 ID 用 pi 自己的（`~/.pi/agent/settings.json` 的 `deviceId`），和终端里的 pi 是同一台设备。版本和终端里的 pi 一致，Atrium 不另带一份 pi。取消登录时停掉登录程序，回调端口随之释放。
+- 登录程序加载不了 pi（例如 Nix 装的、pi 的接口变了）：这一步显示"在终端运行 `pi`，输入 `/login`"（命令可复制）和"我登录好了，重新检测"。这时 Atrium 判断不了终端里是否登录成功，"继续"始终可用（2026-10-11 定）。
 - 图标一律用各家官方资源，来源记录在 `prototypes/brand/SOURCES.md`；发布前按各家品牌规范核对用法。
 
 **第 3 步：添加项目**
 
 - 一块大的拖放区"把项目文件夹拖到这里 / 或者点击选择"。
-- 下方列出从 pi 历史会话目录（`~/.pi/agent/sessions`）里发现的工作目录（路径、会话数、最近使用时间），带勾选框；主按钮显示"添加 N 个项目"。
+- 下方列出从 pi 历史会话目录（`~/.pi/agent/sessions`）里发现的工作目录（标题"在 pi 的历史会话里找到"；每行名字、路径、会话数、最近使用时间），带勾选框，最近用过的那个默认勾上；拖进来或选中的文件夹排在最上面、勾上，标"刚选的"，已经在列表里的只勾上（2026-10-11 定）。主按钮显示"添加 N 个项目"，一个都没勾时不可用。
+- 添加时逐个 `add_project`，加好的从列表里去掉，应答 `project_exists` 的也算加好（同一仓库的 worktree、经符号链接拖进来的同一目录，2026-10-11 定）；全部加好就结束首次启动。有失败的留在列表里，显示第一个失败的文件夹和原因，停在这一步（2026-10-11 定）。
 - 底栏左侧"先新建一个对话"，可以跳过项目直接开始。
 
 **其他**
@@ -425,6 +433,66 @@ Electron 主进程
 - git 低于 2.38 时不阻塞，只在侧栏提示合并状态不可用。
 - 以后 pi 出新版本：宿主每天查一次 npm 上的最新版本，有更新时在设置里显示"更新 pi"按钮，不打断使用。有会话在运行时，更新等它们结束再开始；更新后，空闲会话的 pi 进程在下次使用时用新版本重启。
 - 字体、品牌图标正式打包进应用，不依赖网络。汇文明朝体等"免费商用"字体，在开源发布前核实许可。
+
+**什么时候显示**（2026-10-10 定）：偏好里新增 `setupDone`（默认假，M1.10 之前的偏好文件读作假）。为假时打开窗口先进首次启动；走完第 3 步（添加项目或"先新建一个对话"）后界面用 `set_preferences` 把它设为真。之后只在 pi 不可用（找不到、不能运行、版本过低）时再进首次启动，直接从第 1 步开始，不显示欢迎页；登录失效等由对话里的错误卡片和关注状态提示，不打断。补充（2026-10-11 定）：
+- 宿主的第一份列表到之前不知道 `setupDone`，窗口先空着（只有可拖动的标题栏区域）；`check_setup` 还没答复时不拦着工作台，答复说 pi 不可用时再进首次启动。界面连上宿主后才问 `check_setup`，每次重连后再问一次（2026-10-11 定）。工作台使用中 pi 变得不可用（比如更新后检测不到），同样进首次启动。
+- 往前走时跳过已满足的步骤（pi 可用、已有凭据、已有项目），都满足就直接结束；结束时设 `setupDone` 不等应答，立刻回到工作台（没设上的话下次再进首次启动）。
+- 因 pi 不可用进来的，只有第 1 步：pi 一可用就结束，回到工作台。
+- 一旦显示就一直到走完，期间别的窗口设了 `setupDone` 也不中途关掉。
+
+**接口**（2026-10-10 定，M1.10）：
+
+- `check_setup(refresh?)`：应答 `SetupState`：
+  - `pi`：`{ state: missing | broken | outdated | ready, path, version, minimum }`，`broken` 带 pi 自己的报错原文；
+  - `node`：`{ state: missing | outdated | ready, version }`（要求 22.19 以上）；`homebrew`、`fd`：找到与否；
+  - `login`：`{ state: unavailable }`（登录程序加载不了 pi，或 pi 不可用）或 `{ state: ready, providers }`，每个服务商：`providerId`、`name`（pi 给的原文）、`oauth`（`{ label, subscription } | null`）、`apiKey`（能否存 Key）、`signedIn`（`{ method: oauth | api_key, stored } | null`，`stored` 为假表示 Key 来自环境变量）；只列 SPEC 上面定的订阅服务商、pi 新增的带 OAuth 的服务商，以及能存 Key 的服务商；
+  - `projects`：已添加的项目数。
+  - `refresh` 为真时先重新读取登录 shell 的环境（装好 pi、Node 后 shell 配置文件可能改了 `PATH`），之后启动的 pi 都用新环境。
+- `install_pi()` / `install_node()` / `update_pi()`：应答 `{ jobId }`，同一时刻只有一个安装任务，已有任务时应答 `install_busy`；缺少任务要用的工具时应答 `install_unavailable`（还没检测到工具；装 Node 时没有 Homebrew；更新时找不到 pi）。
+  - 安装 pi：宿主从写死的地址下载官方脚本（`https`，不跟随到别的域名；30 秒、1 MiB 为限），交给 `/bin/sh -s` 的标准输入运行，不经过 shell 拼接命令；没有终端，脚本跳过所有提问。
+  - 安装 Node：运行找到的 `brew install node`。
+  - 更新 pi：运行 `pi update`（`--self` 是它的别名）；有会话在运行时先处于 `waiting`，等都结束再开始。更新进行中（`running`）要启动 pi 的会话等它结束；更新成功后宿主停掉空闲会话的 pi（会话收到 `session_exited`，`reason` 为 `requested`），界面下次发送时照常重新打开会话，用新版本启动；运行中的会话、有未回答对话框的会话不动。正在启动的 pi 先等它起来再判断，免得用旧版本起来的漏掉（2026-10-11 定）。
+  - 任务成功后，宿主先重新检测工具（同 `check_setup(refresh)`），再报告 `ok`，界面之后用 `check_setup()` 即可拿到新结果。
+  - 任务用登录 shell 的环境运行，自成进程组，取消时结束整棵进程树（先 SIGTERM 整个进程组，3 秒不走再强制结束）。任务没有时限。
+- `cancel_install(jobId)`：`jobId` 不是进行中的任务时应答 `install_not_found`。
+- 事件 `install_updated { jobId, kind, state, running, exitCode, reason }`：`kind` 为 `install_pi | install_node | update_pi`；`state` 为 `waiting | running | ok | failed | cancelled`；`waiting` 时 `running` 是还在运行的会话数，其他时候为 `null`；`failed` 带 `reason`：`exit`（`exitCode` 为退出码，被信号结束时为 `null`）、`download_failed`（下载脚本失败）、`spawn_failed`（启动不了），其他状态 `reason`、`exitCode` 为 `null`。每次变化整份推送给所有连接。
+- 连接建立后（`welcome` 之后），宿主把进行中的、或最后一个结束的安装任务和登录推给这个连接（`install_updated`、`login_updated`，输出不补发），断线期间结束的任务和登录界面也能看到结果；界面换了宿主实例时先清掉旧实例的（2026-10-11 定）。
+- 事件 `install_output { jobId, text }`：输出原文（标准输出和标准错误合在一起），按块推送给所有连接；颜色和"\r"覆盖由界面处理。输出不进日志，日志只记任务种类、结果和退出码。
+- `login(providerId, method, key?)`：应答 `{ loginId }`。同一时刻只有一个登录，新的登录先取消进行中的，等它的登录程序退出（回调端口释放）再开始；登录不可用时不取消进行中的（2026-10-11 定）。`key` 只在 `api_key` 时给，交给 pi 的第一个密码类提问。登录不可用（`check_setup` 的 `login` 为 `unavailable`）时应答 `login_unavailable`。
+- `answer_login(loginId, promptId, value)` / `cancel_login(loginId)`：`loginId` 不是进行中的登录时应答 `login_not_found`；回答已经撤回的提问时丢掉。`logout(providerId)`：pi 拒绝或超时时应答 `logout_failed`（`reason`，`detail` 为 pi 的原文）；正在登录同一个服务商时，先取消那个登录、等它退出再退出，免得两个程序先后写 `auth.json`、后写的盖掉先写的（2026-10-11 定）。
+- 事件 `credentials_changed {}`：登录成功、退出登录后推给所有连接（退出时在应答之前），界面收到后重新问 `check_setup`，并重新加载已经加载过的模型列表；别的窗口这样才知道凭据变了（"最后一个能用的凭据"的确认、生成标题用的模型列表靠它，2026-10-11 定）。
+- 事件 `login_updated`：登录的完整状态，每次变化整份推送给所有连接：`loginId`、`providerId`、`method`、`state`（`running | ok | failed | cancelled`）、`authUrl`（`{ url, instructions } | null`，只放 `https` 的，其他的地址让登录以 `failed` 结束、`reason` 为 `insecure_url`）、`deviceCode`（`{ userCode, verificationUri, expiresInSeconds } | null`，`verificationUri` 同样只放 `https` 的）、`questions`（pi 正在问的：`promptId`、`kind`、`message`、`placeholder`、`options`）、`progress`（pi 最近一条进度或提示文字，提示里的链接不带）、`error`（`{ reason: unavailable | failed | timed_out | insecure_url, detail } | null`，`detail` 为 pi 的原文）。只有发起登录的那个客户端打开授权地址。日志只记服务商、方式和结果，不记 Key、地址、提问和 pi 的原文。pi 的原文（`detail`、`progress`、提问的文字、`authUrl` 的说明，以及 `check_setup` 里 `broken` 的报错）超过协议上限（16 KiB）时宿主截断，整条消息不会因为过长被丢掉（2026-10-11 定）。
+- `discover_projects()`：应答 `{ directories }`，pi 历史会话里出现过的工作目录，每个 `{ path, sessions, lastUsedAt }`（会话数、其中最近一次修改的时间，毫秒），去掉已添加的项目和它们的工作区（`add_project` 会应答 `project_exists` 的）、Atrium 对话目录下的和已经不存在的目录，按最近使用排列。宿主在 pi 存会话的位置（和侧栏找会话同一个，见 pi-internals §1）只读每个会话文件的第一行（文件头里的 `cwd`），按工作目录分的文件夹里有符号链接时和 pi 一样跟进去（2026-10-11 定），`path` 是解析符号链接后的真实路径，指向同一目录的合在一起。还没检测到工具时应答空列表。添加用已有的 `add_project`。
+- 握手的 `welcome` 带 `installSeed`：本机安装 ID（`~/.atrium/install-id`，第一次启动时生成的 UUID）算出的正整数，欢迎页按钮和模型按钮拉满时的点阵都用它。界面原先存在 `localStorage` 里的种子不再使用。
+
+### 设置
+
+已定稿（2026-10-10，原型 `prototypes/settings-prototype.html` 方案 A，在 `prototype/ui` 分支；参考 Raycast 的设置窗口）。
+
+- **布局**：独立的设置面板，盖在工作台上的居中窗口，背后的工作台变暗；左栏是分类，右侧是内容。侧栏底部的"设置"或 ⌘, 打开，Esc、关闭按钮或点面板外关闭，关掉后回到原来的地方，再按 ⌘, 也关上。打开时停在上次看的分类（界面记在 localStorage，每个浏览器配置一份，2026-10-11 定）。
+- **分类**：外观、模型与账户、项目、pi、关于。
+- **外观**：跟随系统 / 浅色 / 深色三段，和侧栏底部的外观切换是同一个偏好 `appearance`。
+- **模型与账户**：
+  - 订阅登录：和首次启动第 2 步同一份列表、同样的登录过程（订阅图标、登录中可取消、pi 的提问和设备码），已登录的显示"已登录"和"退出"。
+  - API Key：只列已经有 Key 的服务商，不显示 Key 本身；`stored` 为真的可以"删除"，来自环境变量的只显示"来自环境变量"，不能删。"添加 API Key"展开一行：选服务商（pi 里能存 Key、还没有 Key 的）、粘贴 Key、保存。
+  - 退出登录和删除 Key 只在去掉的是**最后一个能用的凭据**时确认（"退出后没有能用的模型，新会话没法开始"）；还有别的凭据时直接执行。确认就在那一行里：提示加"取消"和"仍要退出/仍要删除"，不另弹对话框（2026-10-11 定）。环境变量的 Key 也算能用的凭据。用 Key 登录的订阅服务商在订阅列表里只显示"已登录"，在 API Key 里删除（2026-10-11 定）。
+  - 生成标题用的模型：下拉，默认"跟随会话的模型"，其余选项是已登录服务商的模型（PiCatalog 的列表）。选的模型所属服务商退出登录后，选择保留，下面提示"已不可用，暂时改用会话的模型起标题"，起标题用会话的模型；重新登录后恢复。
+- **项目**：只有主干分支。每个项目一行：名字、路径和主干下拉。默认"自动"（显示 `origin/HEAD` 指向的分支），也可以选 `origin` 上的某个分支覆盖，覆盖后显示"恢复自动"；都没有时提示"找不到主干，worktree 的合并状态显示为未知"（已决定 15）。改了之后这个项目下所有工作区的合并状态和"+A −D"重新计算。添加、移除项目仍在侧栏；pi 的位置不在这里选。
+- **pi**：
+  - 位置（"在访达中显示"）、当前版本、最新版本、上次检查和"检查更新"按钮。
+  - 有新版本时显示"更新 pi"，刚更新过、之后又查到更新的版本也一样（2026-10-11 定）；侧栏的"设置"按钮和"pi"分类上各有一个蓝色小圆点，不弹窗、不打断。
+  - 更新过程：有会话在运行时显示"等待 N 个会话运行结束"（可取消）；更新中显示终端输出和进度，可取消；失败显示完整输出和"重试"；完成后显示"已更新到 x.y.z"，可查看日志。更新期间新开的会话等更新完成再启动 pi。
+  - "手动更新"折叠项：可复制的 `pi update` 和"我更新好了，重新检测"。
+- **关于**：Atrium 版本、pi 版本、日志文件夹（"在访达中显示"）。
+
+**接口**（2026-10-10 定，M1.10）：
+
+- 偏好和 `set_preferences` 多了 `titleModel`（`{ providerId, modelId } | null`，`null` 为跟随会话的模型，M1.10 之前的偏好文件读作 `null`）和 `setupDone`（见"首次启动 · 什么时候显示"）。
+- `set_main_branch(projectId, branch | null)`：应答 `{}`；`null` 恢复自动；`branch` 必须是 `origin` 上存在的分支，否则应答 `branch_not_found`（`params.branch`）。改了之后宿主重新扫描这个项目的工作区（合并状态），正在显示的改动重新计算。
+- `list_branches(projectId)`：应答 `{ branches, head }`：`branches` 是 `origin` 上的分支名（不带 `origin/`，去掉 `HEAD`，按名字排列），供主干下拉用；`head` 是 `origin/HEAD` 指向的分支，"自动"旁边显示它，没有时为 `null`。不是 git 仓库或没有 git 时两者都为空（2026-10-11 定）。
+- 列表里的项目多了 `mainBranch`：用户选的主干，`null` 为自动（2026-10-11 定）。
+- `check_setup` 的 `pi` 多了 `latest`（npm 上的最新版本）和 `checkedAt`（查到它的时间，毫秒）：从没查到时都为 `null`，之后某次没查到保留上次的结果。宿主启动后和之后每天查一次；`check_pi_update()` 立刻查（同时只查一次），应答 `{ latest, checkedAt }`。每次查到用事件 `pi_latest { latest, checkedAt }` 推给所有客户端。宿主在 `check_setup` 查完登录状态后才取 `latest`；界面以 `checkedAt` 较新的为准，`check_setup` 还没答复时收到的 `pi_latest` 也留着（2026-10-11 定）。查的是 pi 自己检查新版本用的 `https://pi.dev/api/latest-version`（返回 npm 上的版本和包名，10 秒为限），和终端里的 pi 看到的一致；pi 的环境里设了 `PI_OFFLINE` 时不查（2026-10-11 定）。日志只记查到的版本或没查到的原因。
+- 握手的 `welcome` 多了 `logDir`。"在访达中显示"走桌面壳的 `reveal(path)`，只接受存在的绝对路径。
 
 ### 关键流程
 
@@ -638,7 +706,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - 宿主的 PiCatalog 为一个目录短启一个 `pi --mode rpc`（不带 `--session`），调 `get_available_models` 和 `get_state`，然后停掉它。`get_state` 里的模型是 pi 按自己的设置选出的默认模型。不借正在运行的会话的 pi。工作区用工作区目录；对话用 Atrium 的目录 `~/.atrium`（Paseo 用家目录；对话各自的目录就在它下面，是空的，和它一样只有全局设置）。
 - 结果按目录缓存在宿主内存里，没有期限，不落盘。项目自己的 `.pi/settings.json` 可能改变可用的模型，所以按目录分开。同一目录同时只查一次，后到的请求等同一次结果。宿主启动时不查，界面进入一个工作区或对话时预取一次。
-- `list_models(containerId, refresh?)`：有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。
+- `list_models(containerId, refresh?)`：有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。在 Atrium 里登录成功或退出登录成功后，宿主丢掉所有目录的模型列表缓存，下次请求时重查（2026-10-11 定）。
 - 应答 `{ models, defaultModel }`。每个模型 `{ providerId, modelId, name, contextWindow, maxOutput, supportsImage, thinkingLevels }`。pi 只返回有凭据的服务商的模型。
 - 推理档位按模型的元数据算出，不调 `get_available_thinking_levels`（它只回答当前模型）：不支持推理的只有 `off`；其余从 off / minimal / low / medium / high / xhigh / max 里去掉 `thinkingLevelMap` 标为 `null` 的，`xhigh`、`max` 只在 `thinkingLevelMap` 里明确给出时才有。规则照抄 pi-ai 的 `getSupportedThinkingLevels`，写在 `packages/pi` 里（运行时不依赖 pi 的包），pi 改了规则时契约测试会发现。
 - 没有任何凭据时 pi 照常回答，列表为空；`get_state` 给的是占位模型（`unknown/unknown`），不算默认模型。默认模型必须在列表里。会话的模型是占位模型时也当作没有（`null`）。
@@ -787,7 +855,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - TitleGenerator（宿主 `sessions/`）：会话一次运行结束（`run_settled`，任何结果）时，会话没有名字、已经写出文件、没交给终端、第一轮有文字，且这个会话没在生成，就生成一次。失败（模型出错、超时、pi 退出）只记日志，下一次运行结束再试。只在 Atrium 里跑过的会话才会触发，历史会话不补。
 - 输入：第一轮的用户消息文字和回复（这一轮最后一段文字），总长截到 2000 个字符，用户消息最多占 1200。
-- 调用 OneShotPi（`packages/pi` 的 `oneshot/`）：在会话的工作目录、用和会话的 pi 相同的环境运行 `pi --mode json -p --no-session --no-tools --thinking off --model <服务商>/<模型> --system-prompt <标题要求>`，对话内容从标准输入给（不放进参数，`ps` 看得到参数）。模型用会话当前的模型；设置里的"生成标题用的模型"在 M1.10。取最后一条助手消息的文字；`stopReason` 为 `error` / `aborted`、退出码不为 0、60 秒没结束（停掉整棵进程树）都算失败。
+- 调用 OneShotPi（`packages/pi` 的 `oneshot/`）：在会话的工作目录、用和会话的 pi 相同的环境运行 `pi --mode json -p --no-session --no-tools --thinking off --model <服务商>/<模型> --system-prompt <标题要求>`，对话内容从标准输入给（不放进参数，`ps` 看得到参数）。模型用偏好里的 `titleModel`，为空或它的服务商已退出登录时用会话当前的模型（见"设置"）。"已退出登录"按 pi 的模型列表判断：`titleModel` 不在会话目录的模型列表里（对话用对话目录的列表，和模型面板同一份缓存），或查不到列表时，就用会话的模型（2026-10-11 定）。取最后一条助手消息的文字；`stopReason` 为 `error` / `aborted`、退出码不为 0、60 秒没结束（停掉整棵进程树）都算失败。
 - 标题要求：和用户消息同一种语言、中文不超过 16 个字、不带标点和引号、只输出标题。宿主再整理一遍：取第一行，去掉首尾空白、成对的引号和末尾的标点，超过 50 个字符截断；整理后为空算失败。
 - 写回：用会话自己的 pi 发 `set_session_name`，然后重扫会话文件，列表随之更新。写之前再看一次：已经有名字（生成期间手动改过名）、pi 已退出、已交给终端时丢弃结果。手动改名从 `rename_session` 收到就算有名字，不等重扫会话文件（2026-10-10 审查后补：改名应答之后、重扫之前标题刚好生成好，会盖掉手改的名字）。
 - 测试用的 faux 模型：脚本多一个可选的 `title`，`-p` 模式下的 pi 用它回答；没写 `title` 时回一个错误，标题保持兜底，不影响别的测试。
@@ -821,7 +889,8 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `set_model(sessionId, providerId, modelId)` / `set_thinking_level(sessionId, level)` | 模型和推理强度 |
 | `list_models(containerId, refresh?)` / `list_commands(sessionId)` | 模型与推理档位（短启 pi 查询，按目录缓存）、`/` 命令（问会话自己的 pi，没启动就启动） |
 | `search_files(sessionId, query)` | `@` 引用的候选文件和目录（在会话的工作目录里用 `fd`，与 pi 的终端界面一致） |
-| `check_setup()` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install()` / `login(provider)` / `cancel_login()` / `set_api_key(provider, key)` | 首次启动：检查、一键安装和更新、登录 |
+| `check_setup(refresh?)` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install(jobId)` / `login(providerId, method, key?)` / `answer_login(loginId, promptId, value)` / `cancel_login(loginId)` / `logout(providerId)` / `check_pi_update()` / `discover_projects()` | 首次启动与设置：检查、一键安装和更新、登录与退出、从 pi 历史发现目录（M1.10，见上文"首次启动 · 接口"） |
+| `set_main_branch(projectId, branch)` / `list_branches(projectId)` | 项目的主干分支（M1.10，见上文"设置 · 接口"） |
 
 **事件（宿主 → UI）**
 
@@ -835,7 +904,9 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `message_started` / `text_delta` / `reasoning_delta` / `message_finished` | 助手消息的流式输出，`message_finished` 携带完整消息 |
 | `tool_started` / `tool_updated` / `tool_finished` | 工具调用，带调用 id；`tool_finished` 携带 `content` 和 `details` |
 | `control_updated` | 会话的控制状态（排队与暂停、待送达的插话、停止中、未回答的对话框、连续崩溃后的失败），整份推送（M1.6，见上文"运行控制"） |
-| `install_output` / `install_finished` / `login_updated` | 安装、更新、登录的进度和结果 |
+| `install_output` / `install_updated` / `login_updated` | 安装、更新、登录的输出、状态和结果（M1.10） |
+| `pi_latest` | npm 上 pi 的最新版本和查询时间（M1.10，见上文"设置 · 接口"） |
+| `credentials_changed` | 登录成功或退出登录，凭据变了（M1.10，见上文"首次启动 · 接口"） |
 | `model_updated` | 会话当前的模型和推理强度变化（M1.7，见上文"模型与输入框"） |
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知；M1.8，见上文"状态栏"） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |

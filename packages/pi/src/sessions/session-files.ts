@@ -28,6 +28,16 @@ export interface SessionFileSummary {
   readonly modifiedAt: number;
 }
 
+/** A working directory pi has kept sessions for. */
+export interface SessionDirectory {
+  /** The working directory, as pi recorded it. */
+  readonly cwd: string;
+  /** How many session files name it. */
+  readonly sessions: number;
+  /** When the latest of them last changed, in milliseconds since the epoch. */
+  readonly lastUsedAt: number;
+}
+
 /** Reads session files, remembering what it read so a later scan reads only what changed. */
 export interface SessionFileReader {
   /**
@@ -40,7 +50,11 @@ export interface SessionFileReader {
 }
 
 /** How much of a file is read at a time. */
+// Stryker disable next-line ArithmeticOperator: a smaller chunk only makes reads slower and smaller; each read still stops at its end.
 const CHUNK_BYTES = 1024 * 1024;
+
+/** The most read of a file to find its header; pi's is well under 1 KiB. */
+const HEADER_BYTES = 64 * 1024;
 
 /**
  * Reads one field of a JSON value.
@@ -350,4 +364,84 @@ export function createSessionFileReader(): SessionFileReader {
       return found;
     },
   };
+}
+
+/**
+ * The working directory a session file's header names.
+ *
+ * @remarks
+ * Only the first line is read, up to {@link HEADER_BYTES}: the header (pi-internals.md §1). A
+ * header still being written, without its line break, counts as none yet, as in
+ * {@link createSessionFileReader}.
+ *
+ * @sideEffects Reads the start of the file.
+ * @param path - The file.
+ * @returns The `cwd`, or `null` when the file is not a session or names none.
+ */
+async function headerCwd(path: string): Promise<string | null> {
+  const file = await open(path, "r");
+  try {
+    const { buffer, bytesRead } = await file.read(Buffer.alloc(HEADER_BYTES), 0, HEADER_BYTES, 0);
+    const end = buffer.subarray(0, bytesRead).indexOf(0x0a);
+    // Stryker disable next-line ConditionalExpression,UnaryOperator: without the check, no line break reads as text up to -1, which is empty and names no `cwd`; a first line one byte long names none either.
+    if (end === -1) return null;
+    const first = parseJson(buffer.toString("utf8", 0, end));
+    const cwd = field(first, "cwd");
+    return field(first, "type") === "session" &&
+      typeof field(first, "id") === "string" &&
+      typeof cwd === "string" &&
+      cwd !== ""
+      ? cwd
+      : null;
+  } finally {
+    await file.close();
+  }
+}
+
+/**
+ * The working directories pi has kept sessions for.
+ *
+ * @remarks
+ * For first launch, which offers them as projects (SPEC-0001, "首次启动 · 接口"). Reads only each
+ * file's header, so a long history is quick: in a folder per working directory, or the configured
+ * directory itself (see {@link sessionsLocation}). A folder can hold more than one working
+ * directory's sessions ({@link sessionFolder}), so each file's own `cwd` counts. Like pi (pi 1.0.2,
+ * `SessionManager.listAll`), a link among the folders is followed; any other name there that is
+ * not a folder fails to be read as one. What the system cannot read is skipped. Read only.
+ *
+ * @sideEffects Reads pi's session folders and the start of each session file.
+ * @param location - Where pi keeps sessions.
+ * @param signal - Stops the read.
+ * @returns Each working directory, in no order.
+ * @throws The signal's reason once it is aborted.
+ */
+export async function sessionDirectories(
+  location: SessionsLocation,
+  signal?: AbortSignal,
+): Promise<SessionDirectory[]> {
+  signal?.throwIfAborted();
+  const folders = location.perCwd
+    ? // Stryker disable next-line ArrayDeclaration: a made-up name is not a folder there either, so it is skipped the same way.
+      ((await unlessUnreadable(readdir(location.directory))) ?? []).map((name) => join(location.directory, name))
+    : [location.directory];
+  const found = new Map<string, { sessions: number; lastUsedAt: number }>();
+  for (const folder of folders) {
+    // Stryker disable next-line ArrayDeclaration: a made-up name does not end in `.jsonl`, so it is left out like none.
+    const names = (await unlessUnreadable(readdir(folder))) ?? [];
+    for (const name of names.filter((entry) => entry.endsWith(".jsonl"))) {
+      signal?.throwIfAborted();
+      const path = join(folder, name);
+      const info = await unlessUnreadable(stat(path));
+      if (info?.isFile() !== true) continue;
+      const cwd = await unlessUnreadable(headerCwd(path));
+      if (cwd === null) continue;
+      const before = found.get(cwd);
+      const modifiedAt = Math.floor(info.mtimeMs);
+      found.set(cwd, {
+        sessions: (before?.sessions ?? 0) + 1,
+        lastUsedAt: Math.max(before?.lastUsedAt ?? 0, modifiedAt),
+      });
+    }
+  }
+  return [...found].map(([cwd, { sessions, lastUsedAt }]) => ({ cwd, sessions, lastUsedAt }));
 }

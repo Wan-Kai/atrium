@@ -1,6 +1,6 @@
 import { CommandError } from "@atrium/protocol";
 import { GIT_SCENE_ENV, createGitScene, createTempDir, present } from "@atrium/testkit";
-import { mkdir, readFile, realpath, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { systemClock } from "../platform/clock";
@@ -312,6 +312,80 @@ describe("ProjectService.rename", () => {
       }),
     );
     expect(projects.projects().map((project) => project.name)).toStrictEqual(["应用", "web"]);
+  });
+});
+
+describe("ProjectService.branches", () => {
+  it("lists the branches on origin by name, and the one origin/HEAD points at", async () => {
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    await scene.git(scene.repo, "push", "--quiet", "origin", "main:release/1.0", "main:fix");
+    await scene.git(scene.repo, "fetch", "--quiet", "origin");
+    const { projects } = await service();
+    const id = await projects.add(scene.repo);
+
+    expect(await projects.branches(id)).toStrictEqual({ branches: ["fix", "main", "release/1.0"], head: "main" });
+  });
+
+  it("lists none for a folder that is not a repository, one that is gone, or without git", async () => {
+    const work = await tempDir("work");
+    const withGit = await service();
+    const withoutGit = await service(null);
+    const plain = await withGit.projects.add(await folder(work, "plain"));
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    const repo = await withoutGit.projects.add(scene.repo);
+    const gone = await withGit.projects.add(scene.repo);
+    // git cannot even start in a directory that no longer exists.
+    await rm(scene.repo, { recursive: true, force: true });
+
+    expect(await withGit.projects.branches(plain)).toStrictEqual({ branches: [], head: null });
+    expect(await withGit.projects.branches(gone)).toStrictEqual({ branches: [], head: null });
+    expect(await withoutGit.projects.branches(repo)).toStrictEqual({ branches: [], head: null });
+    await expect(withGit.projects.branches("prj_ffffffffffffffff")).rejects.toStrictEqual(
+      new CommandError("project_not_found", { projectId: "prj_ffffffffffffffff" }),
+    );
+  });
+});
+
+describe("ProjectService.setMainBranch", () => {
+  it("chooses a branch on origin as one project's main branch, and goes back to origin/HEAD", async () => {
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    await scene.git(scene.repo, "push", "--quiet", "origin", "main:release/1.0");
+    await scene.git(scene.repo, "fetch", "--quiet", "origin");
+    const { projects, changes } = await service();
+    const id = await projects.add(scene.repo);
+    await projects.add(await folder(await tempDir("work"), "other"));
+    const before = changes.count;
+
+    await projects.setMainBranch(id, "release/1.0");
+    const chosen = projects.projects().map((project) => project.mainBranch);
+    await projects.setMainBranch(id, null);
+
+    expect(chosen).toStrictEqual(["release/1.0", null]);
+    expect(projects.projects().map((project) => project.mainBranch)).toStrictEqual([null, null]);
+    expect(changes.count).toBe(before + 2);
+  });
+
+  it("refuses a branch origin does not have, and an unknown project, changing nothing", async () => {
+    const scene = await createGitScene("projects");
+    onTestFinished(scene.cleanup);
+    const { projects, changes } = await service();
+    const id = await projects.add(scene.repo);
+    const before = changes.count;
+
+    await expect(projects.setMainBranch(id, "HEAD")).rejects.toStrictEqual(
+      new CommandError("branch_not_found", { branch: "HEAD" }),
+    );
+    await expect(projects.setMainBranch(id, "nope")).rejects.toStrictEqual(
+      new CommandError("branch_not_found", { branch: "nope" }),
+    );
+    await expect(projects.setMainBranch("prj_ffffffffffffffff", null)).rejects.toStrictEqual(
+      new CommandError("project_not_found", { projectId: "prj_ffffffffffffffff" }),
+    );
+    expect(projects.projects().map((project) => project.mainBranch)).toStrictEqual([null]);
+    expect(changes.count).toBe(before);
   });
 });
 

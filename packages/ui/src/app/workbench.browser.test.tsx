@@ -57,7 +57,8 @@ function list() {
  *
  * @sideEffects Renders; installs the display mode subscription until the test ends.
  * @param options - The list, how adding a project answers, and the folder the picker returns.
- * @returns The screen, the fake and the appearances sent to the window.
+ * @returns The screen, the fake, the appearances sent to the window, and the addresses opened and
+ * paths shown in the Finder.
  */
 async function workbench(
   options: {
@@ -74,6 +75,8 @@ async function workbench(
   });
   onTestFinished(followPreferences(displayMode, fake.client));
   const native: string[] = [];
+  const opened: string[] = [];
+  const revealed: string[] = [];
   const screen = await render(
     <DisplayModeContext value={displayMode}>
       <Workbench
@@ -81,10 +84,13 @@ async function workbench(
         status={<span>已连接宿主</span>}
         pickDirectory={async () => options.picked ?? null}
         setNativeAppearance={(appearance) => native.push(appearance)}
+        openUrl={(url) => opened.push(url)}
+        reveal={(path) => revealed.push(path)}
+        pathForFile={undefined}
       />
     </DisplayModeContext>,
   );
-  return { screen, ...fake, native };
+  return { screen, ...fake, native, opened, revealed };
 }
 
 describe("Workbench sidebar", () => {
@@ -614,5 +620,81 @@ describe("Workbench attention and hand-off (M1.9)", () => {
 
     await expect.element(screen.getByText("先停止运行或清空排队，再交给终端")).toBeVisible();
     await expect.element(screen.getByRole("region", { name: "已在终端中继续" })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * What the model button's canvas shows once its frames have been drawn.
+ *
+ * @remarks
+ * Below the top level the dots settle, so the canvas comes to hold one picture per seed: it is
+ * read once it has stayed the same for ten frames.
+ *
+ * @sideEffects Waits for animation frames.
+ * @param button - The model button.
+ * @returns The canvas as a data URL.
+ */
+async function picture(button: Element): Promise<string> {
+  const canvas = button.querySelector("canvas");
+  if (canvas === null) throw new Error("no canvas");
+  let last = "";
+  for (let same = 0; same < 10;) {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const now = canvas.toDataURL();
+    same = now === last ? same + 1 : 0;
+    last = now;
+  }
+  return last;
+}
+
+describe("Workbench dots", () => {
+  it("paints the model button's dots in the pattern of the host's install seed, kept while reconnecting", async () => {
+    const opus = {
+      providerId: "anthropic",
+      modelId: "claude-opus-5-5",
+      name: "Claude Opus 5.5",
+      contextWindow: 1_000_000,
+      maxOutput: 128_000,
+      supportsImage: true,
+      thinkingLevels: ["off", "low", "medium", "high"],
+    } as const;
+    const { screen, connection } = await workbench({
+      initial: {
+        preferences: {
+          ...fakeClient().client.index.getState().preferences,
+          lastModel: { providerId: opus.providerId, modelId: opus.modelId },
+          thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
+        },
+      },
+      answers: {
+        models: {
+          status: "ready",
+          models: [{ ...opus, thinkingLevels: [...opus.thinkingLevels] }],
+          defaultModel: null,
+          error: null,
+        },
+      },
+    });
+    const chip = screen.getByRole("button", { name: /模型与推理强度/ });
+    await expect.element(chip).toHaveTextContent("Claude Opus 5.5中");
+    const first = await picture(chip.element());
+    const connected = {
+      status: "connected",
+      traceId: "t",
+      hostVersion: "0",
+      hostInstanceId: "h1",
+      logDir: "/Users/test/.atrium/logs",
+    } as const;
+
+    connection.setState({ ...connected, installSeed: 2 }, true);
+    const second = await picture(chip.element());
+    connection.setState({ status: "reconnecting", attempt: 1, code: 1006 }, true);
+    const reconnecting = await picture(chip.element());
+    connection.setState({ ...connected, installSeed: 1 }, true);
+    const back = await picture(chip.element());
+
+    expect(second).not.toBe(first);
+    expect(reconnecting).toBe(second);
+    expect(back).toBe(first);
   });
 });

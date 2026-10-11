@@ -12,7 +12,8 @@ import {
   utilityProcess,
 } from "electron";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 
 /** Where the host's bundle and the built UI live. */
 interface Paths {
@@ -165,6 +166,25 @@ function openInBrowser(url: string): void {
 }
 
 /**
+ * Whether the page may show a path in the Finder: an absolute path that exists.
+ *
+ * @remarks
+ * The page asks for pi's location and the log folder (SPEC-0001, "设置"); anything else it sends
+ * is ignored (security.md, "Electron").
+ *
+ * @sideEffects Reads the file system.
+ * @param path - The path the page sent.
+ * @returns Whether to show it.
+ */
+async function isRevealable(path: string): Promise<boolean> {
+  if (!isAbsolute(path)) return false;
+  return stat(path).then(
+    () => true,
+    () => false,
+  );
+}
+
+/**
  * Whether a URL belongs to the app's page.
  *
  * @remarks
@@ -292,6 +312,10 @@ async function main(): Promise<void> {
     const chosen =
       window === null ? await dialog.showOpenDialog(options) : await dialog.showOpenDialog(window, options);
     return chosen.canceled ? null : (chosen.filePaths[0] ?? null);
+  });
+  ipcMain.handle("atrium:reveal", async (event, path: unknown) => {
+    checkSender(event);
+    if (typeof path === "string" && (await isRevealable(path))) shell.showItemInFolder(path);
   });
   ipcMain.handle("atrium:appearance", (event, appearance: unknown) => {
     checkSender(event);

@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@atrium/protocol";
+import type { LoginUpdatedEvent, SessionEvent } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { ResourceTracker } from "../platform/resources";
 import { type EventSink, SubscriptionRegistry } from "./subscriptions";
@@ -64,6 +64,31 @@ describe("SubscriptionRegistry", () => {
     expect(registry.viewers("s1")).toStrictEqual([]);
     expect(registry.subscribe("a", ["s1"])).toStrictEqual([]);
     expect(received["a"]).toStrictEqual([]);
+  });
+});
+
+describe("SubscriptionRegistry.broadcast", () => {
+  it("delivers to every connection, watching anything or not, until it disconnects", () => {
+    const { registry, received } = twoConnections();
+    registry.subscribe("a", ["s1"]);
+    const login: LoginUpdatedEvent = {
+      type: "login_updated",
+      loginId: "l1",
+      providerId: "acme",
+      method: "oauth",
+      state: "running",
+      authUrl: null,
+      deviceCode: null,
+      questions: [],
+      progress: null,
+      error: null,
+    };
+
+    registry.broadcast(login);
+    registry.disconnect("b");
+    registry.broadcast({ ...login, state: "ok" });
+
+    expect(received).toStrictEqual({ a: [login, { ...login, state: "ok" }], b: [login] });
   });
 });
 

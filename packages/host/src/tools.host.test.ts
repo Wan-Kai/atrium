@@ -1,6 +1,6 @@
 import { createTempDir, present, writeShellPi } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { chmod, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -24,7 +24,7 @@ async function hostWithShell(rcFiles: Readonly<Record<string, string>>): Promise
   for (const [name, content] of Object.entries(rcFiles)) await writeFile(join(dir.path, name), content);
   vi.stubEnv("SHELL", "/bin/zsh");
   vi.stubEnv("ZDOTDIR", dir.path);
-  const host = await startHost({ home: join(dir.path, "home"), token: TOKEN });
+  const host = await startHost({ home: join(dir.path, "home"), token: TOKEN, piLatestUrl: null });
   onTestFinished(() => host.close());
   return host;
 }
@@ -50,6 +50,27 @@ describe("tool detection at startup", () => {
     expect(resolved).toMatchObject({ path: "/opt/[redacted]/bin" });
   });
 
+  it("keeps scrubbing the credentials of an earlier environment after detecting again", async () => {
+    // Read anew on each detection, as the login shell is: the user changed the key meanwhile.
+    const env: Record<string, string> = { PATH: "/opt/sk-old-0123456789/bin", OPENAI_API_KEY: "sk-old-0123456789" };
+    testHost = await startTestHost({ toolEnv: env });
+    await testHost.host.tools;
+    env["PATH"] = "/opt/sk-old-0123456789/bin:/opt/sk-new-0123456789/bin";
+    env["OPENAI_API_KEY"] = "sk-new-0123456789";
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+
+    // A pi started before still holds the old key.
+    await client.loadSetup(true);
+    const resolved = (await testHost.readLog()).filter((record) => record["msg"] === "tool environment resolved");
+
+    expect(resolved.map((record) => record["path"])).toStrictEqual([
+      "/opt/[redacted]/bin",
+      "/opt/[redacted]/bin:/opt/[redacted]/bin",
+    ]);
+  });
+
   it("keeps running, without pi, when detection fails unexpectedly", async () => {
     const broken: Record<string, string> = new Proxy(
       {},
@@ -67,17 +88,37 @@ describe("tool detection at startup", () => {
     );
   });
 
-  it("finds no pi on an empty PATH and logs that", async () => {
-    testHost = await startTestHost();
+  it("finds no pi, Node, Homebrew or fd on an empty PATH and logs that", async () => {
+    const home = await createTempDir("tools-home");
+    onTestFinished(home.cleanup);
+    testHost = await startTestHost({ toolEnv: { PATH: "", HOME: home.path } });
 
     expect(await testHost.host.tools).toStrictEqual({
-      env: { PATH: "" },
+      env: { PATH: "", HOME: home.path },
       envSource: "configured",
       pi: { status: "missing" },
+      node: { status: "missing" },
+      homebrew: null,
+      fd: null,
     });
     expect(await testHost.readLog()).toContainEqual(
       expect.objectContaining({ level: "warn", msg: "pi inspected", status: "missing" }),
     );
+  });
+
+  it("puts a Homebrew found outside PATH at its end, and finds the Node it installed there", async () => {
+    const place = await createTempDir("tools-homebrew");
+    onTestFinished(place.cleanup);
+    await writeFile(join(place.path, "brew"), "#!/bin/sh\n");
+    await chmod(join(place.path, "brew"), 0o755);
+    await symlink(process.execPath, join(place.path, "node"));
+    testHost = await startTestHost({ toolEnv: { PATH: "/nowhere" }, homebrewPlaces: [place.path] });
+
+    const tools = present(await testHost.host.tools, "tools");
+
+    expect(tools.env).toStrictEqual({ PATH: `/nowhere:${place.path}` });
+    expect(tools.homebrew).toBe(join(place.path, "brew"));
+    expect(tools.node).toMatchObject({ status: "ready", nodePath: join(place.path, "node") });
   });
 
   it("finds the installed pi with a configured environment", async () => {

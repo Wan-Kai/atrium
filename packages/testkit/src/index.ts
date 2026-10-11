@@ -1,5 +1,6 @@
 export { compareWithBaseline } from "./bench";
 export { FakeClock } from "./clock";
+export { FAKE_PI_SOURCE, type FakePiPackage, writeFakePiPackage } from "./fake-pi-package";
 export {
   FAUX_MODEL,
   FAUX_PROVIDER,

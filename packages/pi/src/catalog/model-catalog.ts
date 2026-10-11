@@ -6,6 +6,11 @@ import type { ModelList } from "./query";
 export interface ModelCatalog {
   /** Lists a directory's models: the kept answer, or pi's; `refresh` asks pi again. */
   list(dir: string, refresh: boolean): Promise<ModelList>;
+  /**
+   * Drops every directory's kept answer, so the next list asks pi; a query under way still
+   * answers those waiting for it, but its answer is not kept.
+   */
+  forget(): void;
   /** Aborts the queries under way and waits for them; later lists fail. */
   close(): Promise<void>;
 }
@@ -41,6 +46,8 @@ export function createModelCatalog(options: {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const entries = new Map<string, Entry>();
   const aborts = new Set<AbortController>();
+  /** Every query under way, those of entries forgotten included, for `close` to wait for. */
+  const loads = new Set<Promise<unknown>>();
   let closed = false;
 
   /**
@@ -83,14 +90,26 @@ export function createModelCatalog(options: {
       }
       if (entry.load !== null) return entry.load;
       if (!refresh && entry.list !== null) return Promise.resolve(entry.list);
-      entry.load = load(dir, entry);
-      return entry.load;
+      const loading = load(dir, entry);
+      entry.load = loading;
+      loads.add(loading);
+      // Fire and forget: removing itself cannot fail.
+      // Stryker disable all: only frees memory; waiting for a finished query does nothing.
+      void loading.then(
+        () => loads.delete(loading),
+        () => loads.delete(loading),
+      );
+      // Stryker restore all
+      return loading;
+    },
+    forget() {
+      // A load under way writes to its own entry, no longer here.
+      entries.clear();
     },
     async close() {
       closed = true;
-      const loads = [...entries.values()].flatMap((entry) => (entry.load === null ? [] : [entry.load]));
       for (const abort of aborts) abort.abort();
-      await Promise.all(loads.map((loading) => loading.catch(() => undefined)));
+      await Promise.allSettled(loads);
     },
   };
 }

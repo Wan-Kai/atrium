@@ -1,5 +1,5 @@
 import type { PiDeps } from "../deps";
-import { findPi, readPiVersion } from "./locate";
+import { findPi, readVersion } from "./locate";
 import { MIN_PI_VERSION, type Version, isAtLeast } from "./version";
 
 /** How long `pi --version` may take before it counts as hung. */
@@ -25,7 +25,7 @@ export type PiInspection =
  * silently or was killed; the person reading "pi cannot run" needs to know which.
  *
  * @sideEffects none
- * @param error - What `readPiVersion` threw.
+ * @param error - What `readVersion` threw.
  * @returns A one-line explanation.
  */
 function describeFailure(error: unknown): string {
@@ -80,7 +80,7 @@ export async function inspectPi(
   const signal = options.signal === undefined ? deadline.signal : AbortSignal.any([deadline.signal, options.signal]);
   let version: Version | null;
   try {
-    version = await readPiVersion(piPath, { env: { ...options.env, PATH: searchPath }, signal });
+    version = await readVersion(piPath, { env: { ...options.env, PATH: searchPath }, signal });
   } catch (error) {
     const detail = timedOut
       ? `pi --version did not answer within ${timeoutMs} ms`

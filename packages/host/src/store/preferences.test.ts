@@ -27,22 +27,26 @@ describe("PreferenceStore", () => {
     const { file } = await loadIndexFile(index, PREFERENCES_FILE, 0);
     const store = createPreferenceStore(file);
     expect(store.read()).toStrictEqual({
+      setupDone: false,
       appearance: "system",
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       statusBar: {},
+      titleModel: null,
     });
 
     await store.set({ appearance: "dark" });
     await store.set({ displayMode: "detailed" });
 
     expect(store.read()).toStrictEqual({
+      setupDone: false,
       appearance: "dark",
       displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
       statusBar: {},
+      titleModel: null,
     });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
       version: 2,
@@ -62,11 +66,13 @@ describe("PreferenceStore", () => {
     await store.remember({ providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "max" });
 
     expect(store.read()).toStrictEqual({
+      setupDone: false,
       appearance: "system",
       displayMode: "summary",
       lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
       thinkingByModel: { "anthropic/claude-opus-5-5": "max", "openai/gpt-6": "low" },
       statusBar: {},
+      titleModel: null,
     });
   });
 
@@ -95,11 +101,13 @@ describe("PreferenceStore", () => {
     const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
 
     expect(store.read()).toStrictEqual({
+      setupDone: false,
       appearance: "light",
       displayMode: "thinking",
       lastModel: null,
       thinkingByModel: {},
       statusBar: {},
+      titleModel: null,
     });
   });
 
@@ -135,5 +143,26 @@ describe("PreferenceStore", () => {
     const again = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
 
     expect(again.read().statusBar).toStrictEqual({ later: true });
+  });
+
+  it("has first launch to do and titles from the session's model until told otherwise, also in a file from before M1.10", async () => {
+    const index = await indexDirectory();
+    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
+    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    const old = store.read();
+
+    await store.set({ setupDone: true, titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" } });
+
+    expect(old).toMatchObject({ setupDone: false, titleModel: null });
+    expect(store.read()).toMatchObject({
+      setupDone: true,
+      titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+    });
+    expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
+      ...before,
+      setupDone: true,
+      titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+    });
   });
 });

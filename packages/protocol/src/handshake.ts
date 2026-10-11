@@ -43,5 +43,9 @@ export const WelcomeMessage = z.object({
   hostInstanceId: z.string().min(1).max(64),
   /** How often the client pings, and how long it waits for the answer (SPEC-0001, "握手与心跳"). */
   heartbeatMs: z.number().int().positive(),
+  /** The seed of this install's dot pattern, from the install id (SPEC-0001, "首次启动 · 接口"). */
+  installSeed: z.number().int().positive(),
+  /** The folder of the host's logs, for "在访达中显示" (SPEC-0001, "设置 · 接口"). */
+  logDir: z.string().min(1).max(4096),
 });
 export type WelcomeMessage = z.infer<typeof WelcomeMessage>;

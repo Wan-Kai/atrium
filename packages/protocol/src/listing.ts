@@ -9,12 +9,17 @@ const Path = z.string().min(1).max(4096);
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
 
+/** A git branch's name, without `refs/heads/` or `origin/`. */
+export const BranchName = z.string().min(1).max(1024);
+
 /** A registered project (SPEC-0001, "项目、工作区与会话"). */
 export const Project = z.strictObject({
   id: ProjectId,
   /** The real path, symbolic links resolved. */
   path: Path,
   name: z.string().min(1).max(256),
+  /** The main branch the user chose, on `origin`; `null` follows `origin/HEAD` (SPEC-0001, "设置 · 接口"). */
+  mainBranch: BranchName.nullable(),
 });
 export type Project = z.infer<typeof Project>;
 
@@ -43,7 +48,7 @@ export const Workspace = z.strictObject({
   /** The name the user gave it; `null` for none. */
   alias: z.string().min(1).max(256).nullable(),
   /** The branch checked out; `null` when HEAD is detached or the project is not a git repository. */
-  branch: z.string().min(1).max(1024).nullable(),
+  branch: BranchName.nullable(),
   /** The short commit HEAD is at when detached; `null` otherwise. */
   head: z.string().min(1).max(64).nullable(),
   /** A worktree Atrium did not create. */
@@ -129,14 +134,18 @@ export type StatusBarChoices = z.infer<typeof StatusBarChoices>;
  * `lastModel` and `thinkingByModel` (keyed `providerId/modelId`) follow every model or thinking
  * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框").
  * `statusBar` holds only the status bar groups you switched from their default, so a group added
- * later shows as its own default says (SPEC-0001, "状态栏（M1.8）").
+ * later shows as its own default says (SPEC-0001, "状态栏（M1.8）"). `setupDone` says first launch
+ * was gone through; `titleModel` names the model that names sessions, `null` for each session's own
+ * (SPEC-0001, "首次启动", "设置").
  */
 export const Preferences = z.strictObject({
+  setupDone: z.boolean(),
   appearance: Appearance,
   displayMode: DisplayMode,
   lastModel: ModelRef.nullable(),
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
   statusBar: StatusBarChoices,
+  titleModel: ModelRef.nullable(),
 });
 export type Preferences = z.infer<typeof Preferences>;
 

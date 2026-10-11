@@ -54,6 +54,14 @@ const commands: Command[] = [
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
   { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
   { type: "set_preferences", requestId: "r60", traceparent, statusBar: { session: false, cost: true } },
+  {
+    type: "set_preferences",
+    requestId: "r63",
+    traceparent,
+    setupDone: true,
+    titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+  },
+  { type: "set_preferences", requestId: "r64", traceparent, titleModel: null },
   { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
   { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
   { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
@@ -120,7 +128,57 @@ const commands: Command[] = [
   { type: "watch_diff", requestId: "r54", traceparent, target: { workspaceId: WORKSPACE, mode: "uncommitted" } },
   { type: "watch_diff", requestId: "r55", traceparent, target: { workspaceId: WORKSPACE, mode: "base" } },
   { type: "watch_diff", requestId: "r56", traceparent, target: null },
+  { type: "check_setup", requestId: "r61", traceparent },
+  { type: "check_setup", requestId: "r62", traceparent, refresh: true },
+  { type: "login", requestId: "r65", traceparent, providerId: "anthropic", method: "oauth" },
+  { type: "login", requestId: "r66", traceparent, providerId: "deepseek", method: "api_key", key: "sk-test" },
+  { type: "answer_login", requestId: "r67", traceparent, loginId: "l1", promptId: 0, value: "code#state" },
+  { type: "cancel_login", requestId: "r68", traceparent, loginId: "l1" },
+  { type: "logout", requestId: "r69", traceparent, providerId: "anthropic" },
+  { type: "install_pi", requestId: "r70", traceparent },
+  { type: "install_node", requestId: "r71", traceparent },
+  { type: "update_pi", requestId: "r72", traceparent },
+  { type: "cancel_install", requestId: "r73", traceparent, jobId: "j1" },
+  { type: "check_pi_update", requestId: "r74", traceparent },
+  { type: "discover_projects", requestId: "r75", traceparent },
+  { type: "list_branches", requestId: "r76", traceparent, projectId: PROJECT },
+  { type: "set_main_branch", requestId: "r77", traceparent, projectId: PROJECT, branch: "release/1.0" },
+  { type: "set_main_branch", requestId: "r78", traceparent, projectId: PROJECT, branch: null },
 ];
+
+/** An update waiting for two sessions to finish. */
+const installUpdated = {
+  type: "install_updated",
+  jobId: "j1",
+  kind: "update_pi",
+  state: "waiting",
+  running: 2,
+  exitCode: null,
+  reason: null,
+};
+
+/** A login under way with everything pi can show. */
+const loginUpdated = {
+  type: "login_updated",
+  loginId: "l1",
+  providerId: "anthropic",
+  method: "oauth",
+  state: "running",
+  authUrl: { url: "https://claude.ai/oauth/authorize?code=true", instructions: "Paste the code" },
+  deviceCode: { userCode: "ABCD-EFGH", verificationUri: "https://github.com/login/device", expiresInSeconds: 900 },
+  questions: [
+    { promptId: 2, kind: "manual_code", message: "Paste the authorization code:", placeholder: null, options: [] },
+    {
+      promptId: 3,
+      kind: "select",
+      message: "Region",
+      placeholder: null,
+      options: [{ id: "us", label: "United States" }],
+    },
+  ],
+  progress: "Waiting for the browser…",
+  error: null,
+};
 
 /** A workspace's changes, as the host sends them. */
 const changesUpdated = {
@@ -402,17 +460,28 @@ describe("parseClientMessage", () => {
     expect([...COMMAND_TYPES].toSorted()).toStrictEqual([
       "add_project",
       "answer_interaction",
+      "answer_login",
       "archive_session",
+      "cancel_install",
+      "cancel_login",
+      "check_pi_update",
+      "check_setup",
       "clear_attention",
       "clear_queue",
       "close_tab",
       "create_chat",
       "create_session",
+      "discover_projects",
       "fetch_step",
       "fetch_transcript",
       "hand_off",
+      "install_node",
+      "install_pi",
+      "list_branches",
       "list_commands",
       "list_models",
+      "login",
+      "logout",
       "open_session",
       "ping",
       "prompt",
@@ -426,6 +495,7 @@ describe("parseClientMessage", () => {
       "retry_run",
       "search_files",
       "select_container",
+      "set_main_branch",
       "set_model",
       "set_preferences",
       "set_thinking_level",
@@ -435,6 +505,7 @@ describe("parseClientMessage", () => {
       "subscribe_index",
       "subscribe_sessions",
       "take_back",
+      "update_pi",
       "update_queued",
       "upload_attachment",
       "watch_changes",
@@ -566,6 +637,16 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     [
+      "an empty main branch",
+      { type: "set_main_branch", requestId: "r1", traceparent, projectId: PROJECT, branch: "" },
+      "r1",
+    ],
+    [
+      "a main branch over 1024 characters",
+      { type: "set_main_branch", requestId: "r1", traceparent, projectId: PROJECT, branch: "b".repeat(1025) },
+      "r1",
+    ],
+    [
       "a project name over 256 characters",
       { type: "rename_project", requestId: "r1", traceparent, projectId: PROJECT, name: "n".repeat(257) },
       "r1",
@@ -655,6 +736,8 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a diff without a target", { type: "watch_diff", requestId: "r1", traceparent }, "r1"],
+    ["a cancel without the job", { type: "cancel_install", requestId: "r1", traceparent }, "r1"],
+    ["an install of a given command", { type: "install_pi", requestId: "r1", traceparent, command: "sh" }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
     expect(parseClientMessage(message)).toStrictEqual({ ok: false, requestId, code: "invalid_message" });
   });
@@ -714,6 +797,91 @@ describe("CommandResult", () => {
     expect(
       CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
     ).toBe(false);
+    const setup = {
+      pi: {
+        state: "broken",
+        path: "/opt/bin/pi",
+        version: null,
+        minimum: "1.0.1",
+        detail: "node: not found",
+        latest: "1.2.0-beta.1",
+        checkedAt: 1_760_000_000_000,
+      },
+      node: { state: "outdated", version: "20.11.0" },
+      homebrew: true,
+      fd: false,
+      login: {
+        state: "ready",
+        providers: [
+          {
+            providerId: "anthropic",
+            name: "Anthropic",
+            oauth: { label: "Anthropic (Claude Pro/Max)", subscription: true },
+            apiKey: true,
+            signedIn: { method: "oauth", stored: true },
+          },
+          { providerId: "deepseek", name: "DeepSeek", oauth: null, apiKey: true, signedIn: null },
+        ],
+      },
+      projects: 2,
+    };
+    expect(CommandResult.check_setup.parse(setup)).toStrictEqual(setup);
+    expect(CommandResult.check_setup.parse({ ...setup, login: { state: "unavailable" } })).toStrictEqual({
+      ...setup,
+      login: { state: "unavailable" },
+    });
+    expect(CommandResult.check_setup.safeParse({ ...setup, node: { state: "ready", version: "22.19" } }).success).toBe(
+      false,
+    );
+    const [anthropic] = setup.login.providers;
+    const others = [
+      ...["missing", "outdated", "ready"].map((state) => ({ ...setup, pi: { ...setup.pi, state } })),
+      ...["missing", "ready"].map((state) => ({ ...setup, node: { ...setup.node, state } })),
+      { ...setup, pi: { ...setup.pi, version: "10.20.30", minimum: "1.0.12", latest: "10.20.30" } },
+      {
+        ...setup,
+        login: { state: "ready", providers: [{ ...anthropic, signedIn: { method: "api_key", stored: false } }] },
+      },
+    ];
+    for (const other of others) expect(CommandResult.check_setup.parse(other)).toStrictEqual(other);
+    expect(CommandResult.check_setup.safeParse({ ...setup, projects: -1 }).success).toBe(false);
+    for (const wrong of [
+      { version: "v1.0.1" },
+      { version: "1.0.1-beta" },
+      { minimum: "1.0.1.2" },
+      { latest: "latest" },
+      { latest: "v1.2.0" },
+      { latest: "1.2.0 beta" },
+    ]) {
+      expect(CommandResult.check_setup.safeParse({ ...setup, pi: { ...setup.pi, ...wrong } }).success).toBe(false);
+    }
+    expect(CommandResult.check_pi_update.parse({ latest: null, checkedAt: null })).toStrictEqual({
+      latest: null,
+      checkedAt: null,
+    });
+    expect(CommandResult.check_pi_update.parse({ latest: "1.1.0", checkedAt: 5 })).toStrictEqual({
+      latest: "1.1.0",
+      checkedAt: 5,
+    });
+    expect(CommandResult.check_pi_update.safeParse({ latest: "1.1.0" }).success).toBe(false);
+    const discovered = { path: "/Users/me/work", sessions: 3, lastUsedAt: 1_700_000_000_000 };
+    expect(CommandResult.discover_projects.parse({ directories: [discovered] })).toStrictEqual({
+      directories: [discovered],
+    });
+    expect(CommandResult.list_branches.parse({ branches: ["main", "release/1.0"], head: "main" })).toStrictEqual({
+      branches: ["main", "release/1.0"],
+      head: "main",
+    });
+    expect(CommandResult.list_branches.parse({ branches: [], head: null })).toStrictEqual({ branches: [], head: null });
+    expect(CommandResult.list_branches.safeParse({ branches: [""], head: null }).success).toBe(false);
+    expect(CommandResult.set_main_branch.parse({})).toStrictEqual({});
+    for (const wrong of [
+      { ...discovered, path: "" },
+      { ...discovered, sessions: 0 },
+      { ...discovered, lastUsedAt: -1 },
+    ]) {
+      expect(CommandResult.discover_projects.safeParse({ directories: [wrong] }).success).toBe(false);
+    }
     const slashCommands = [
       { name: "review", description: "Reviews the change", source: "prompt" },
       { name: "skill:tdd", description: null, source: "skill" },
@@ -742,6 +910,16 @@ describe("CommandResult", () => {
     expect(CommandResult.hand_off.safeParse({}).success).toBe(false);
     expect(CommandResult.take_back.parse({})).toStrictEqual({});
     expect(CommandResult.clear_attention.parse({})).toStrictEqual({});
+    expect(CommandResult.login.parse({ loginId: "l1" })).toStrictEqual({ loginId: "l1" });
+    expect(CommandResult.login.safeParse({ loginId: "" }).success).toBe(false);
+    expect(CommandResult.answer_login.parse({})).toStrictEqual({});
+    expect(CommandResult.cancel_login.parse({})).toStrictEqual({});
+    expect(CommandResult.logout.parse({})).toStrictEqual({});
+    for (const kind of ["install_pi", "install_node", "update_pi"] as const) {
+      expect(CommandResult[kind].parse({ jobId: "j1" })).toStrictEqual({ jobId: "j1" });
+      expect(CommandResult[kind].safeParse({}).success).toBe(false);
+    }
+    expect(CommandResult.cancel_install.parse({})).toStrictEqual({});
     expect(Object.keys(CommandResult).toSorted()).toStrictEqual([...COMMAND_TYPES].toSorted());
   });
 });
@@ -752,7 +930,7 @@ const snapshot: IndexSnapshotEvent = {
   generation: "h1",
   seq: 3,
   reason: "no_cursor",
-  projects: [{ id: PROJECT, path: "/work/app", name: "app" }],
+  projects: [{ id: PROJECT, path: "/work/app", name: "app", mainBranch: "trunk" }],
   workspaces: [
     {
       id: WORKSPACE,
@@ -814,11 +992,13 @@ const snapshot: IndexSnapshotEvent = {
     tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, chats: { open: [], active: null } },
   },
   preferences: {
+    setupDone: true,
     appearance: "system",
     displayMode: "summary",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
     statusBar: { cost: true, session: false },
+    titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
   },
   resets: ["layouts"],
 };
@@ -883,6 +1063,8 @@ describe("HostMessage", () => {
         hostVersion: "0.0.0",
         hostInstanceId: "h1",
         heartbeatMs: 15_000,
+        installSeed: 1,
+        logDir: "/Users/test/.atrium/logs",
       },
       { type: "response", requestId: "r2", ok: true, result: { sessionId: "s1" } },
       { type: "response", requestId: "r1", ok: true },
@@ -910,6 +1092,31 @@ describe("HostMessage", () => {
       { ...diffUpdated, mode: "base", files: [], tooLarge: true, error: null },
       { ...diffUpdated, files: [], error: "not_git" },
       { ...diffUpdated, files: [], error: "failed" },
+      loginUpdated,
+      {
+        ...loginUpdated,
+        method: "api_key",
+        state: "failed",
+        authUrl: null,
+        deviceCode: { ...loginUpdated.deviceCode, expiresInSeconds: null },
+        questions: [],
+        progress: null,
+        error: { reason: "insecure_url", detail: null },
+      },
+      { ...loginUpdated, state: "ok", error: null },
+      { ...loginUpdated, state: "cancelled", error: { reason: "failed", detail: "auth.json is corrupt" } },
+      installUpdated,
+      { ...installUpdated, kind: "install_pi", state: "running", running: null },
+      { ...installUpdated, kind: "install_node", state: "failed", running: null, exitCode: 1, reason: "exit" },
+      { ...installUpdated, state: "failed", running: null, reason: "exit" },
+      { ...installUpdated, state: "failed", running: null, reason: "download_failed" },
+      { ...installUpdated, state: "failed", running: null, reason: "spawn_failed" },
+      { ...installUpdated, state: "ok", running: null },
+      { ...installUpdated, state: "cancelled", running: null },
+      { type: "install_output", jobId: "j1", text: "\u001b[1m  Pi Installer\u001b[0m\r\n" },
+      { type: "pi_latest", latest: "1.1.0", checkedAt: 1_760_000_000_000 },
+      { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
+      { type: "pi_latest", latest: null, checkedAt: null },
     ];
 
     for (const message of messages) {
@@ -963,6 +1170,15 @@ describe("HostMessage", () => {
           })),
         },
       },
+      ...["unavailable", "failed", "timed_out", "insecure_url"].map((reason) => ({
+        ...loginUpdated,
+        state: "failed",
+        error: { reason, detail: null },
+      })),
+      ...["text", "secret", "select", "manual_code"].map((kind) => ({
+        ...loginUpdated,
+        questions: [{ promptId: 1, kind, message: "Key", placeholder: null, options: [] }],
+      })),
       ...["answered", "cancelled", "timed_out", "stale"].map((outcome) => ({
         type: "notice_added",
         ...at,
@@ -994,6 +1210,13 @@ describe("HostMessage", () => {
       "attachment_missing",
       "pi_rejected",
       "session_handed_off",
+      "login_unavailable",
+      "login_not_found",
+      "logout_failed",
+      "install_busy",
+      "install_unavailable",
+      "install_not_found",
+      "branch_not_found",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -1085,7 +1308,53 @@ describe("HostMessage", () => {
     ],
     ["a fractional step count", { type: "metrics_updated", ...at, metrics: { ...metrics, steps: 1.5 } }],
     ["a negative cost", { type: "metrics_updated", ...at, metrics: { ...metrics, cost: -0.01 } }],
-    ["a welcome without heartbeat", { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1" }],
+    [
+      "a welcome without heartbeat",
+      { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1", installSeed: 1, logDir: "/l" },
+    ],
+    [
+      "a welcome with a seed of 0",
+      {
+        type: "welcome",
+        protocolVersion: 2,
+        hostVersion: "0",
+        hostInstanceId: "h1",
+        heartbeatMs: 15_000,
+        installSeed: 0,
+        logDir: "/l",
+      },
+    ],
+    [
+      "a welcome without the log folder",
+      {
+        type: "welcome",
+        protocolVersion: 2,
+        hostVersion: "0",
+        hostInstanceId: "h1",
+        heartbeatMs: 15_000,
+        installSeed: 1,
+      },
+    ],
+    [
+      "a sign-in address that is not https",
+      { ...loginUpdated, authUrl: { url: "http://x.test/", instructions: null } },
+    ],
+    [
+      "a device code page that is not https",
+      { ...loginUpdated, deviceCode: { ...loginUpdated.deviceCode, verificationUri: "javascript:alert(1)" } },
+    ],
+    ["a login in a state it cannot be in", { ...loginUpdated, state: "waiting" }],
+    ["an install job of a kind there is not", { ...installUpdated, kind: "install_fd" }],
+    ["an install job in a state it cannot be in", { ...installUpdated, state: "starting" }],
+    ["a failure for a reason there is not", { ...installUpdated, state: "failed", reason: "timeout" }],
+    ["a negative number of running sessions", { ...installUpdated, running: -1 }],
+    ["empty install output", { type: "install_output", jobId: "j1", text: "" }],
+    ["a latest pi that is not a version", { type: "pi_latest", latest: "v1.1.0", checkedAt: 1 }],
+    ["a check at a time before 1970", { type: "pi_latest", latest: "1.1.0", checkedAt: -1 }],
+    [
+      "a question of a kind pi does not ask",
+      { ...loginUpdated, questions: [{ ...loginUpdated.questions[0], kind: "file" }] },
+    ],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);
   });

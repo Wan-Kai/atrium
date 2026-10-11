@@ -43,7 +43,7 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 - 每次追加都挂在当前 `leafId` 下并移动叶子。`branch(id)` 移叶子；`branchWithSummary` 移叶子并追加 `branch_summary`；`resetLeaf()` 让下一条成为新的根。
 - **叶子不存盘**：加载时取文件最后一条为叶子。
 - 上下文构建：`buildContextEntries`（路径 + 最近的压缩）→ `buildSessionProjection`（应用 context_edit）→ `buildSessionContext`。这就是 `get_messages` 返回的东西，**不是完整历史**。
-- 列表：`SessionManager.list / listAll` 返回 `SessionInfo {path, id, cwd, name?, parentSessionPath?, created, modified, messageCount, firstMessage}`，但**不是 RPC 命令**，宿主要自己扫目录。
+- 列表：`SessionManager.list / listAll` 返回 `SessionInfo {path, id, cwd, name?, parentSessionPath?, created, modified, messageCount, firstMessage}`，但**不是 RPC 命令**，宿主要自己扫目录。`listAll` 列会话文件夹时目录和符号链接都算（`entry.isDirectory() || entry.isSymbolicLink()`，1.0.2 源码）。
 
 **fork / clone**（`src/core/agent-session-runtime.ts`）
 
@@ -169,7 +169,16 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
   - `get_available_thinking_levels` 只回答当前模型。任意模型的档位由 pi-ai 的纯函数 `getSupportedThinkingLevels(model)` 按 `reasoning`、`thinkingLevelMap` 算出（`packages/ai/src/models.ts`）。
   - RPC 的 `set_model`、`set_thinking_level` **不写 pi 的设置**（只有终端界面选模型时选"保存"才写 `defaultProvider` / `defaultModel` / `defaultThinkingLevel`），也不发事件；档位真的变了才发 `thinking_level_changed`。`set_model` 找不到模型时应答错误。
   - 新进程的模型：`--model`（可带 `--provider`、`:档位` 后缀）> 已有会话里最后的 `model_change` > 设置里的默认模型 > 第一个可用模型。**`--model` 解析不出时 pi 报错退出（退出码 1）**。档位：`--thinking` > 会话里的记录 > 设置 > `medium`，再截到模型支持的范围。
-- **登录只有终端界面的 `/login`，没有 RPC 命令。** 查状态可用 `pi auth check --provider X --json`。宿主可以在锁下写 `auth.json`，或在启动 pi 前设环境变量；OAuth 流程由 `ModelRuntime.login(providerId, type, interaction)` 实现。
+- **登录只有终端界面的 `/login`，没有 RPC 命令。** 查状态可用 `pi auth check --provider X --json`（必须带 `--provider` 或 `--model`，一次查一家）。宿主可以在锁下写 `auth.json`，或在启动 pi 前设环境变量；OAuth 流程由 `ModelRuntime.login(providerId, type, interaction)` 实现。
+- **从外部调用 pi 的登录**（2026-10-10 实测，pi 1.1.0）：
+  - `@earendil-works/pi-coding-agent` 的包入口公开导出 `ModelRuntime`。`ModelRuntime.create({ authPath })` 之后，`login(providerId, "oauth" | "api_key", interaction, { getDeviceId })` 走的就是 `/login` 的同一套流程，凭据在锁下写进 `auth.json`。另有 `checkAuth`、`listCredentials`、`logout`、`getProviders()`（每家的 `auth.oauth` 带 `name`、`isSubscription`、`loginLabel`）。`@earendil-works/pi-ai` 的 `./oauth` 导出只有类型，各家的 OAuth 实现不在它的公开导出里，所以要经过 `ModelRuntime`。
+  - 安装好的 pi 是个普通的 npm 包：npm 全局安装在 `<prefix>/lib/node_modules/@earendil-works/pi-coding-agent`，官方脚本新装的在 `~/.pi/agent/install/…/node_modules/` 下（`managed-install.json` 标记），`pi` 命令是指向包里 `dist/bundle/cli.js` 的符号链接。包里同时有不打包的 `dist/index.js` 和它的 `node_modules`，用系统 Node 直接 `import` 就能用，版本和用户的 pi 一致。
+  - 1.1.0 带 OAuth 的服务商：`anthropic`、`openai`（"Sign in with ChatGPT"，需要 `getDeviceId` 给出 UUID，否则直接失败）、`openai-codex`（标为 legacy）、`github-copilot`、`kimi-coding`、`xai`、`openrouter`、`meta`、`radius`（要先配网关）。共 43 家服务商，42 家能用 API Key 登录。
+  - 交互全部经 `interaction`：先 `prompt({ type: "select" })` 选登录方式（如 `browser` / `copy_code` / `device_code`），然后 `notify({ type: "auth_url", url })`，同时 `prompt({ type: "manual_code" })` 等用户粘贴回调地址，与本地回调服务（Anthropic `localhost:53692`、OpenAI `localhost:1455`）竞速；`github-copilot` 先问企业域名（`text`）；也有 `device_code`、`progress`、`info` 事件。pi 自己不打开浏览器，由调用方打开 `auth_url`。
+  - `interaction.signal` 中止后 `login` 以 `AbortError` 拒绝，回调端口立即释放；`state` 不对的回调得到 400，流程继续等。
+  - 终端里的 pi 用 `SettingsManager.getOrCreateDeviceId()`（`~/.pi/agent/settings.json` 的 `deviceId`，没有就生成 UUID）作为 `getDeviceId`。
+  - `ModelRuntime.create` 在 `auth.json` 不存在时写一个 `{}`。
+- **新版本检查**（1.1.0 bundle 的 `getLatestPiRelease`，2026-10-11 核实）：pi 请求 `https://pi.dev/api/latest-version`（`accept: application/json`，10 秒为限），应答形如 `{"ok":true,"version":"1.1.0","packageName":"@earendil-works/pi-coding-agent"}`，可能带 `note`；`version` 不是非空字符串时当作没查到。环境变量 `PI_OFFLINE` 设了就不查。另有 `https://pi.dev/api/installer/releases`（`PI_INSTALLER_API_BASE`）给安装脚本和托管安装用。
 
 ## 5. extension 与宿主相关的部分（`src/core/extensions/types.ts`、`docs/rpc-extension-ui.md`）
 

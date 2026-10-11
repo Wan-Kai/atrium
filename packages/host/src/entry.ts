@@ -9,7 +9,9 @@ import { isStrongToken } from "./server/auth";
  * Builds the host configuration shared by both ways of starting.
  *
  * @remarks
- * `ATRIUM_HOME` lets tests and developers point the host at another home directory.
+ * `ATRIUM_HOME` lets tests and developers point the host at another home directory;
+ * `ATRIUM_PI_LATEST_URL` where it looks up the latest pi, empty for nowhere, so tests stay off the
+ * network.
  *
  * @sideEffects Reads environment variables.
  * @param token - Session token.
@@ -21,9 +23,27 @@ function configFor(token: string, uiDir: string | undefined, extraOrigins: reado
   return {
     home: process.env["ATRIUM_HOME"] ?? join(homedir(), ".atrium"),
     token,
+    // Built next to this bundle (build.mjs).
+    loginWorker: join(__dirname, "login-worker.mjs"),
     ...(uiDir === undefined ? {} : { uiDir }),
     ...(extraOrigins === undefined ? {} : { extraOrigins }),
+    ...piLatestUrlFor(process.env["ATRIUM_PI_LATEST_URL"]),
   };
+}
+
+/**
+ * Where the host looks up the latest pi, from `ATRIUM_PI_LATEST_URL`.
+ *
+ * @remarks
+ * Unset keeps the default, pi.dev; empty looks nowhere.
+ *
+ * @sideEffects none
+ * @param value - The variable's value, if set.
+ * @returns The part of the configuration it sets.
+ */
+function piLatestUrlFor(value: string | undefined): Pick<HostConfig, "piLatestUrl"> {
+  if (value === undefined) return {};
+  return { piLatestUrl: value === "" ? null : value };
 }
 
 /**

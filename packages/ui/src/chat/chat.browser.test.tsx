@@ -582,11 +582,13 @@ describe("ConversationArea's model button", () => {
     const { client, calls, modelCalls } = fakeClient(
       {
         preferences: {
+          setupDone: true,
           appearance: "system",
           displayMode: "summary",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
           statusBar: {},
+          titleModel: null,
         },
       },
       { models: LIST },
@@ -967,10 +969,24 @@ describe("ConversationArea before it is connected", () => {
     await render(tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />));
     expect(modelCalls).toStrictEqual([]);
 
-    connection.setState({ status: "connected", traceId: "t", hostVersion: "0", hostInstanceId: "h1" });
+    connection.setState({
+      status: "connected",
+      traceId: "t",
+      hostVersion: "0",
+      hostInstanceId: "h1",
+      installSeed: 1,
+      logDir: "/l",
+    });
     await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats"]));
     connection.setState({ status: "connecting" });
-    connection.setState({ status: "connected", traceId: "t2", hostVersion: "0", hostInstanceId: "h1" });
+    connection.setState({
+      status: "connected",
+      traceId: "t2",
+      hostVersion: "0",
+      hostInstanceId: "h1",
+      installSeed: 1,
+      logDir: "/l",
+    });
 
     await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats", "loadModels chats"]));
   });
@@ -985,9 +1001,23 @@ describe("ConversationArea after the host restarted", () => {
     await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1"]));
 
     connection.setState({ status: "connecting" });
-    connection.setState({ status: "connected", traceId: "t2", hostVersion: "0", hostInstanceId: "h1" });
+    connection.setState({
+      status: "connected",
+      traceId: "t2",
+      hostVersion: "0",
+      hostInstanceId: "h1",
+      installSeed: 1,
+      logDir: "/l",
+    });
     connection.setState({ status: "connecting" });
-    connection.setState({ status: "connected", traceId: "t3", hostVersion: "0", hostInstanceId: "h2" });
+    connection.setState({
+      status: "connected",
+      traceId: "t3",
+      hostVersion: "0",
+      hostInstanceId: "h2",
+      installSeed: 1,
+      logDir: "/l",
+    });
 
     await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "openSession s1", "watch s1"]));
     expect(index.getState().layout.tabs["chats"]?.active).toBe("s1");

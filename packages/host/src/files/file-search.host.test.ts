@@ -245,7 +245,8 @@ describe("createFileSearch when fd misbehaves", () => {
     const controller = new AbortController();
 
     const searching = search.search(await workspace({}), "", controller.signal);
-    await vi.waitFor(() => access(mark));
+    // Two fd starts under a busy suite can outlast the default second.
+    await vi.waitFor(() => access(mark), { timeout: 10_000 });
     controller.abort();
 
     expect(await searching).toStrictEqual([]);

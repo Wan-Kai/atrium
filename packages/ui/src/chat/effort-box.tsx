@@ -1,6 +1,13 @@
 import type { ThinkingLevel } from "@atrium/protocol";
-import { type KeyboardEvent, type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
-import { dotSeed, paintDots, reducedMotion, sweepProgress } from "../design/dots";
+import {
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import { DotSeedContext, paintDots, reducedMotion, sweepProgress } from "../design/dots";
 import { useDarkMode } from "../design/use-dark-mode";
 import { LEVEL_NAMES, levelHint } from "./model-choice";
 
@@ -73,6 +80,8 @@ interface BoxMotion {
   push(velocity: number): void;
   /** Colours: full turns on the brand colours, twinkle and sweeps. */
   style(full: boolean, dark: boolean): void;
+  /** Paints the pattern of another seed. */
+  reseed(seed: number): void;
   /** Stops drawing. */
   stop(): void;
 }
@@ -83,14 +92,15 @@ interface BoxMotion {
  * @remarks
  * A drag moves the edge with the pointer; once let go it springs to rest (response 0.38 s, damping
  * 0.72). Frames are drawn only while something moves or the box is full; with reduced motion the
- * edge goes to rest at once and the dots stay still (design-language, "动效").
+ * edge goes to rest at once and the dots stay still (design-language, "动效"). The seed is 1 until
+ * given.
  *
  * @sideEffects Draws on the canvas and schedules animation frames until settled or stopped.
  * @param surface - The canvas.
- * @param seed - The pattern's seed.
  * @returns The motion.
  */
-function createBoxMotion(surface: HTMLCanvasElement, seed: number): BoxMotion {
+function createBoxMotion(surface: HTMLCanvasElement): BoxMotion {
+  let seed = 1;
   let size = { width: 0, height: 0 };
   let pos = 0;
   let vel = 0;
@@ -198,6 +208,10 @@ function createBoxMotion(surface: HTMLCanvasElement, seed: number): BoxMotion {
       dark = isDark;
       kick();
     },
+    reseed(next) {
+      seed = next;
+      kick();
+    },
     stop() {
       cancelAnimationFrame(frame);
       frame = 0;
@@ -236,13 +250,14 @@ export function EffortBox({ levels, level, onChange, autoFocus = false }: Effort
   /** Whether the edge has been put at its first level, which it is at once rather than by a spring. */
   const placed = useRef(false);
   const dark = useDarkMode();
+  const seed = useContext(DotSeedContext);
   const full = shown === count - 1;
 
   useEffect(() => {
     const element = box.current;
     const surface = canvas.current;
     if (element === null || surface === null) return undefined;
-    const created = createBoxMotion(surface, dotSeed());
+    const created = createBoxMotion(surface);
     motion.current = created;
     const observer = new ResizeObserver(() => {
       const rect = element.getBoundingClientRect();
@@ -256,6 +271,10 @@ export function EffortBox({ levels, level, onChange, autoFocus = false }: Effort
       motion.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    motion.current?.reseed(seed);
+  }, [seed]);
 
   useEffect(() => {
     // A level set from outside; the first one puts the edge in place at once.

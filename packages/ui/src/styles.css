@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "streamdown/styles.css";
 @import "./design/tokens.css";
+@import "./design/fonts/title-fonts.css";
+@import "./setup/first-launch.css";
 
 /* Streamdown and its plugins ship Tailwind classes; these let Tailwind see them (Streamdown docs). */
 @source "../node_modules/streamdown/dist/*.js";

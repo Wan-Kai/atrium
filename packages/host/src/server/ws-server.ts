@@ -1,5 +1,12 @@
 import { type Context, ROOT_CONTEXT, type Tracer, context } from "@opentelemetry/api";
-import { CloseCode, HelloMessage, PROTOCOL_VERSION, type WelcomeMessage } from "@atrium/protocol";
+import {
+  CloseCode,
+  HelloMessage,
+  type InstallUpdatedEvent,
+  type LoginUpdatedEvent,
+  PROTOCOL_VERSION,
+  type WelcomeMessage,
+} from "@atrium/protocol";
 import { type IncomingMessage, type Server, createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Duplex } from "node:stream";
@@ -15,7 +22,7 @@ import { tokensMatch } from "./auth";
 import { type Connection, createConnection } from "./connection";
 import type { ChangesService } from "../changes/changes-service";
 import type { AttachmentStore } from "./attachments";
-import { type Route, createRouter } from "./router";
+import { type Route, type RouterOptions, createRouter } from "./router";
 import { serveStatic } from "./static-files";
 
 /** Limits that keep one local process from exhausting the host (security.md, "WebSocket 与鉴权"). */
@@ -48,6 +55,10 @@ export interface WsServerOptions {
   readonly hostInstanceId: string;
   /** How often clients ping and how long they wait for the answer; also the host's ping interval. */
   readonly heartbeatMs: number;
+  /** The seed of this install's dot pattern, sent in the welcome. */
+  readonly installSeed: number;
+  /** The folder of the host's logs, sent in the welcome. */
+  readonly logDir: string;
   /** Bytes that may wait to be sent to one client before it is dropped as too slow. */
   readonly maxBufferedBytes: number;
   /** Where connections register to receive session events. */
@@ -55,6 +66,19 @@ export interface WsServerOptions {
   /** Handles session commands. */
   readonly sessions: SessionCommands;
   readonly index: IndexCommands;
+  /** First launch and the settings. */
+  readonly setup: RouterOptions["setup"];
+  /** Signing in and out through pi. */
+  readonly logins: RouterOptions["logins"];
+  /** Installing and updating pi and Node. */
+  readonly installs: RouterOptions["installs"];
+  /**
+   * What a connection is told right after the welcome: the install job and the login under way or
+   * last ended, so a window that was away sees how they went (SPEC-0001, "首次启动 · 接口").
+   */
+  readonly catchUp: () => readonly (InstallUpdatedEvent | LoginUpdatedEvent)[];
+  /** The latest pi. */
+  readonly piLatest: RouterOptions["piLatest"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
@@ -114,6 +138,10 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
   const route = createRouter({
     sessions: options.sessions,
     index: options.index,
+    setup: options.setup,
+    logins: options.logins,
+    installs: options.installs,
+    piLatest: options.piLatest,
     attachments: options.attachments,
     changes: options.changes,
     tracer: options.tracer,
@@ -308,6 +336,7 @@ function acceptConnection(ws: WebSocket, connectionId: string, route: Route, opt
     });
     const open = connection;
     options.subscriptions.connect(connectionId, (event) => open.send(event), accepted.clientId);
+    for (const event of options.catchUp()) open.send(event);
     beat();
   });
   ws.on("pong", () => {
@@ -373,6 +402,8 @@ function handleHello(
       hostVersion: options.hostVersion,
       hostInstanceId: options.hostInstanceId,
       heartbeatMs: options.heartbeatMs,
+      installSeed: options.installSeed,
+      logDir: options.logDir,
     };
     ws.send(JSON.stringify(welcome));
     options.logger.info({ client_id: hello.data.clientId }, "client connected");
