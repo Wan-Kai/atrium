@@ -1,9 +1,9 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
-import type { Workspace } from "@atrium/protocol";
-import { useEffect, useRef, useState } from "react";
+import type { Chat, SessionSummary, Workspace } from "@atrium/protocol";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MENU_ITEM } from "../chat/menu-button";
-import { timeAgo, workspaceName } from "./names";
+import { chatName, timeAgo, workspaceName } from "./names";
 
 /**
  * Explains why archiving a workspace failed, in Chinese.
@@ -60,33 +60,35 @@ function kept(workspace: Pick<Workspace, "branch" | "head">): string {
 }
 
 /**
- * Asks before archiving a worktree workspace, and archives it.
+ * The archive confirmation's card over its scrim: a title, what archiving does, and "取消"
+ * "归档".
  *
  * @remarks
- * Always asked, as archiving removes the directory (SPEC-0001, "M1.11 的工作区归档"); laid out as
- * design-language says ("侧栏"). Put on the page's body, as the sidebar's blur would otherwise hold
- * it inside the sidebar. While archiving it waits for the answer: it closes on success and says
- * why on failure.
+ * Laid out as design-language says ("侧栏"), for workspaces and chats alike. Put on the page's
+ * body, as the sidebar's blur would otherwise hold it inside the sidebar. The focus starts on
+ * "取消"; Escape and the scrim cancel too, except while archiving, whose answer it waits for.
  *
- * @sideEffects Sends `archive_workspace`; listens for Escape while shown.
- * @param props - The client, the workspace, how many of its sessions run, and how to close.
+ * @sideEffects Focuses "取消" when shown; listens for Escape while not busy.
+ * @param props - The title, the body, whether it is archiving, why it failed, and what
+ * "归档" and cancelling do.
  * @returns The dialog.
  */
-export function ArchiveDialog({
-  client,
-  workspace,
-  running,
+function ArchiveConfirm({
+  title,
+  children,
+  busy = false,
+  error = null,
+  onConfirm,
   onClose,
 }: {
-  readonly client: AtriumClient;
-  readonly workspace: Workspace;
-  readonly running: number;
+  readonly title: string;
+  readonly children: ReactNode;
+  readonly busy?: boolean;
+  readonly error?: string | null;
+  readonly onConfirm: () => void;
   readonly onClose: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const cancel = useRef<HTMLButtonElement>(null);
-  const name = workspaceName(workspace);
   useEffect(() => {
     cancel.current?.focus();
   }, []);
@@ -108,6 +110,81 @@ export function ArchiveDialog({
     return () => window.removeEventListener("keydown", escape);
   }, [busy, onClose]);
 
+  return createPortal(
+    <div className="fixed inset-0 z-50 grid place-items-center">
+      <div
+        data-testid="archive-scrim"
+        className="absolute inset-0 bg-[var(--scrim)] backdrop-blur-[8px] backdrop-saturate-[1.1]"
+        onClick={busy ? undefined : onClose}
+      />
+      <div
+        role="alertdialog"
+        aria-modal
+        aria-labelledby="archive-title"
+        aria-describedby="archive-body"
+        className="relative w-[380px] rounded-[var(--r-card)] bg-[var(--main)] p-5 shadow-[var(--card-shadow)]"
+      >
+        <h2 id="archive-title" className="text-[15px] font-semibold">
+          {title}
+        </h2>
+        <div id="archive-body" className="mt-2 text-[length:var(--fs-meta)] leading-[1.55] text-[var(--text-2)]">
+          {children}
+        </div>
+        {error === null ? null : (
+          <p role="alert" className="mt-2 text-[length:var(--fs-meta)] leading-[1.55] text-[var(--danger)]">
+            {error}
+          </p>
+        )}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            ref={cancel}
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+            className="h-[30px] rounded-[var(--r-btn)] px-3 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onConfirm}
+            className="h-[30px] rounded-[var(--r-btn)] bg-[var(--danger)] px-3 text-[length:var(--fs-meta)] text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? "归档中…" : "归档"}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+/**
+ * Asks before archiving a worktree workspace, and archives it.
+ *
+ * @remarks
+ * Always asked, as archiving removes the directory (SPEC-0001, "M1.11 的工作区归档"). While
+ * archiving it waits for the answer: it closes on success and says why on failure.
+ *
+ * @sideEffects Sends `archive_workspace`.
+ * @param props - The client, the workspace, how many of its sessions run, and how to close.
+ * @returns The dialog.
+ */
+export function ArchiveDialog({
+  client,
+  workspace,
+  running,
+  onClose,
+}: {
+  readonly client: AtriumClient;
+  readonly workspace: Workspace;
+  readonly running: number;
+  readonly onClose: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   /**
    * Archives the workspace, closing on success and saying why on failure.
    *
@@ -128,59 +205,73 @@ export function ArchiveDialog({
     }
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 grid place-items-center">
-      <div
-        data-testid="archive-scrim"
-        className="absolute inset-0 bg-[var(--scrim)] backdrop-blur-[8px] backdrop-saturate-[1.1]"
-        onClick={busy ? undefined : onClose}
-      />
-      <div
-        role="alertdialog"
-        aria-modal
-        aria-labelledby="archive-title"
-        aria-describedby="archive-body"
-        className="relative w-[380px] rounded-[var(--r-card)] bg-[var(--main)] p-5 shadow-[var(--card-shadow)]"
-      >
-        <h2 id="archive-title" className="text-[15px] font-semibold">
-          归档工作区「{name}」？
-        </h2>
-        <div id="archive-body" className="mt-2 text-[length:var(--fs-meta)] leading-[1.55] text-[var(--text-2)]">
-          <p>
-            会删除 worktree 目录（包括被 git 忽略的文件）{kept(workspace)}；之后可以在项目菜单的“已归档的工作区”里恢复
-          </p>
-          {running > 0 ? (
-            <p className="mt-1.5 text-[var(--danger)]">其中 {running} 个会话正在运行，归档会停止它们</p>
-          ) : null}
-        </div>
-        {error === null ? null : (
-          <p role="alert" className="mt-2 text-[length:var(--fs-meta)] leading-[1.55] text-[var(--danger)]">
-            {error}
-          </p>
-        )}
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            ref={cancel}
-            type="button"
-            disabled={busy}
-            onClick={onClose}
-            className="h-[30px] rounded-[var(--r-btn)] px-3 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void archive()}
-            className="h-[30px] rounded-[var(--r-btn)] bg-[var(--danger)] px-3 text-[length:var(--fs-meta)] text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy ? "归档中…" : "归档"}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+  return (
+    <ArchiveConfirm
+      title={`归档工作区「${workspaceName(workspace)}」？`}
+      busy={busy}
+      error={error}
+      onConfirm={() => void archive()}
+      onClose={onClose}
+    >
+      <p>会删除 worktree 目录（包括被 git 忽略的文件）{kept(workspace)}；之后可以在项目菜单的“已归档的工作区”里恢复</p>
+      {running > 0 ? (
+        <p className="mt-1.5 text-[var(--danger)]">其中 {running} 个会话正在运行，归档会停止它们</p>
+      ) : null}
+    </ArchiveConfirm>
   );
+}
+
+/**
+ * Asks before archiving a chat some of whose sessions run.
+ *
+ * @remarks
+ * Only asked then, as archiving a chat removes nothing (SPEC-0001, "M1.11 的对话归档"); it
+ * closes on "归档" and the sidebar archives, saying why in its problem line on failure.
+ *
+ * @sideEffects none; calls `onArchive` or `onClose` when answered.
+ * @param props - The chat's name, how many of its sessions run, what archiving does, and how to
+ * close.
+ * @returns The dialog.
+ */
+export function ChatArchiveDialog({
+  name,
+  running,
+  onArchive,
+  onClose,
+}: {
+  readonly name: string;
+  readonly running: number;
+  readonly onArchive: () => void;
+  readonly onClose: () => void;
+}) {
+  return (
+    <ArchiveConfirm
+      title={`归档对话「${name}」？`}
+      onConfirm={() => {
+        onClose();
+        onArchive();
+      }}
+      onClose={onClose}
+    >
+      <p>其中 {running} 个会话正在运行，归档会停止它们；之后可以在“已归档的对话”里恢复</p>
+    </ArchiveConfirm>
+  );
+}
+
+/**
+ * Explains why archiving or restoring a chat failed, in Chinese.
+ *
+ * @remarks
+ * The wording is SPEC-0001's ("M1.11 的对话归档"): a chat that went says so, anything else says
+ * what did not happen.
+ *
+ * @sideEffects none
+ * @param error - What the command rejected with.
+ * @param failed - What did not happen: "没能归档这个对话" or "没能恢复这个对话".
+ * @returns The sentence.
+ */
+export function describeChatArchiveError(error: unknown, failed: string): string {
+  return error instanceof CommandError && error.code === "chat_not_found" ? "这个对话已经不在了" : failed;
 }
 
 /**
@@ -235,6 +326,78 @@ export function ArchivedWorkspaces({
                     close();
                     run(() => client.restoreWorkspace(workspace.id));
                   }}
+                >
+                  恢复
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The end of the "对话" section: "已归档的对话", which opens the archived chats' list in place, each
+ * with "恢复".
+ *
+ * @remarks
+ * Shown only with a chat archived; newest archived first, named as the sidebar names chats, eight
+ * rows tall at most and scrolling past that (SPEC-0001, "M1.11 的对话归档"; design-language,
+ * "侧栏"). Restoring goes nowhere; a failure shows in the sidebar's problem line.
+ *
+ * @sideEffects Sends `restore_chat` when used.
+ * @param props - The client, the archived chats, the sessions to name them by, the time now, and
+ * how to run a sidebar command.
+ * @returns The row and, while open, the list; nothing without archived chats.
+ */
+export function ArchivedChats({
+  client,
+  chats,
+  sessions,
+  now,
+  run,
+}: {
+  readonly client: AtriumClient;
+  readonly chats: readonly Chat[];
+  readonly sessions: readonly SessionSummary[];
+  readonly now: number;
+  readonly run: (command: () => Promise<unknown>, describe: (error: unknown) => string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (chats.length === 0) return null;
+  const newest = chats.toSorted((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+      >
+        已归档的对话
+      </button>
+      {open ? (
+        <ul aria-label="已归档的对话" className="max-h-64 overflow-y-auto" data-testid="archived-chats">
+          {newest.map((chat) => {
+            const name = chatName(chat, sessions);
+            return (
+              <li key={chat.id} className="flex h-8 items-center gap-2 rounded-[var(--r)] pr-1 pl-2.5">
+                <span className="min-w-0 truncate text-[length:var(--fs-meta)] text-[var(--text-2)]">{name}</span>
+                <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+                  {timeAgo(chat.archivedAt ?? now, now)}
+                </span>
+                <button
+                  type="button"
+                  aria-label={`恢复 ${name}`}
+                  className="ml-auto shrink-0 rounded-[var(--r)] px-1.5 py-0.5 text-[length:var(--fs-meta)] text-[var(--tint)] hover:bg-[var(--hover)]"
+                  onClick={() =>
+                    run(
+                      () => client.restoreChat(chat.id),
+                      (error) => describeChatArchiveError(error, "没能恢复这个对话"),
+                    )
+                  }
                 >
                   恢复
                 </button>

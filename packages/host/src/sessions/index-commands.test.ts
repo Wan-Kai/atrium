@@ -9,7 +9,7 @@ import { PONG_ENTRIES } from "../../test/scripted-chat";
 import { systemClock } from "../platform/clock";
 import { createProjectService } from "../projects/project-service";
 import { loadIndexFile } from "../store/index-file";
-import { createChatNames } from "../store/chat-names";
+import { createChatRecords, listChats } from "../store/chat-records";
 import { CHATS_FILE, layoutsFile, PREFERENCES_FILE, PROJECTS_FILE, SESSIONS_FILE } from "../store/index-schema";
 import { createPreferenceStore } from "../store/preferences";
 import { createIndexFeed } from "../sync/index-feed";
@@ -64,7 +64,7 @@ async function assemble() {
     clock: systemClock,
   });
   const preferences = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
-  const chatNames = createChatNames((await loadIndexFile(index, CHATS_FILE, 0)).file);
+  const chatRecords = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: "h1",
@@ -72,9 +72,7 @@ async function assemble() {
       projects: [],
       workspaces: [],
       // As the host builds them.
-      chats: catalog
-        .chats()
-        .map(({ id, dir, firstSessionId }) => ({ id, dir, alias: chatNames.alias(id), firstSessionId })),
+      chats: listChats(catalog.chats(), chatRecords),
       sessions: [],
       preferences: preferences.read(),
       resets: [],
@@ -99,6 +97,7 @@ async function assemble() {
     subscriptions,
     catalog,
     layouts,
+    chats: chatRecords,
     workspaces: {
       dirOf: (id) => projects.workspaces().find((record) => record.id === id)?.dir,
       refresh: () => undefined,
@@ -125,7 +124,7 @@ async function assemble() {
     },
     preferences,
     chats: () => catalog.chats(),
-    chatNames,
+    chatRecords,
     feed,
     listModels: async (workspaceId, refresh) => {
       listed.push([workspaceId, refresh]);
@@ -140,7 +139,7 @@ async function assemble() {
     commands,
     projects,
     sessions,
-    chatNames,
+    chatRecords,
     layouts,
     preferences,
     received,
@@ -236,32 +235,32 @@ describe("IndexCommands.listModels", () => {
 
 describe("IndexCommands.renameChat", () => {
   it("names a chat there is, and with null forgets its name, telling the list", async () => {
-    const { commands, sessions, chatNames, received } = await assemble();
+    const { commands, sessions, chatRecords, received } = await assemble();
     await sessions.createChat("client-1");
     const chatId = "cht_id1";
     await commands.subscribeIndex("c1");
 
     await expect(commands.renameChat(chatId, "合并原理")).resolves.toStrictEqual({});
     commands.answering("c1");
-    expect(chatNames.alias(chatId)).toBe("合并原理");
+    expect(chatRecords.alias(chatId)).toBe("合并原理");
     expect(received.at(-1)).toMatchObject({
       type: "index_changes",
       chats: { upsert: [{ id: chatId, alias: "合并原理" }], remove: [] },
     });
 
     await commands.renameChat(chatId, null);
-    expect(chatNames.alias(chatId)).toBeNull();
+    expect(chatRecords.alias(chatId)).toBeNull();
   });
 
   it("refuses a chat whose directory is not there, naming nothing", async () => {
-    const { commands, sessions, chatNames } = await assemble();
+    const { commands, sessions, chatRecords } = await assemble();
     // Another chat is there.
     await sessions.createChat("client-1");
 
     await expect(commands.renameChat("cht_gone", "名字")).rejects.toStrictEqual(
       new CommandError("chat_not_found", { chatId: "cht_gone" }),
     );
-    expect(chatNames.alias("cht_gone")).toBeNull();
+    expect(chatRecords.alias("cht_gone")).toBeNull();
   });
 });
 

@@ -78,7 +78,7 @@ const CHAT = "cht_a";
  * @returns The chat.
  */
 function chat(id: string, alias: string | null = null): Chat {
-  return { id, dir: `/home/.atrium/chats/${id}`, alias, firstSessionId: null };
+  return { id, dir: `/home/.atrium/chats/${id}`, alias, firstSessionId: null, archivedAt: null };
 }
 
 /**

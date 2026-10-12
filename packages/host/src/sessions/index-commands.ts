@@ -1,7 +1,7 @@
 import { CommandError, type CommandResult, type DiscoveredDirectory, type Preferences } from "@atrium/protocol";
 import { checkProxy } from "../platform/proxy";
 import type { ProjectService } from "../projects/project-service";
-import type { ChatNames } from "../store/chat-names";
+import type { ChatRecords } from "../store/chat-records";
 import type { PreferenceStore } from "../store/preferences";
 import type { IndexCursor, IndexFeed } from "../sync/index-feed";
 import type { WorkspaceArchiver } from "../workspaces/workspace-archiver";
@@ -61,7 +61,7 @@ export function createIndexCommands(options: {
   readonly preferences: PreferenceStore;
   /** The chats there are (`SessionCatalog.chats`). */
   readonly chats: () => readonly ContainerDir[];
-  readonly chatNames: ChatNames;
+  readonly chatRecords: Pick<ChatRecords, "rename">;
   readonly feed: IndexFeed;
   /** Lists a workspace's models, or those outside any (`createModelLister`). */
   readonly listModels: IndexCommands["listModels"];
@@ -106,7 +106,7 @@ export function createIndexCommands(options: {
     },
     async renameChat(chatId, name) {
       if (!options.chats().some((chat) => chat.id === chatId)) throw new CommandError("chat_not_found", { chatId });
-      await options.chatNames.rename(chatId, name);
+      await options.chatRecords.rename(chatId, name);
       options.feed.changed();
       return {};
     },

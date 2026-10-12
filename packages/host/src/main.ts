@@ -49,7 +49,7 @@ import { createSessionManager } from "./sessions/session-manager";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
-import { createChatNames } from "./store/chat-names";
+import { createChatRecords, listChats } from "./store/chat-records";
 import { createPreferenceStore } from "./store/preferences";
 import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
@@ -209,16 +209,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const layouts = createLayouts({ file: index.layouts, clock });
-  const chatNames = createChatNames(index.chats);
+  const chatRecords = createChatRecords(index.chats);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: hostInstanceId,
     build: () => ({
       projects: projects.projects().map(({ id, path, name, mainBranch }) => ({ id, path, name, mainBranch })),
       workspaces: workspaces.list(),
-      chats: catalog
-        .chats()
-        .map(({ id, dir, firstSessionId }) => ({ id, dir, alias: chatNames.alias(id), firstSessionId })),
+      chats: listChats(catalog.chats(), chatRecords),
       sessions: sessions.summaries(),
       preferences: preferences.read(),
       resets: [...index.resets],
@@ -268,6 +266,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     subscriptions,
     catalog,
     layouts,
+    chats: chatRecords,
     // A run ending in a workspace may have changed its files.
     workspaces: {
       dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
@@ -369,7 +368,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     archiver,
     preferences,
     chats: () => catalog.chats(),
-    chatNames,
+    chatRecords,
     feed,
     listModels: createModelLister({
       catalog: models,

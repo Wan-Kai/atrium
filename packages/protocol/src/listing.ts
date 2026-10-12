@@ -71,8 +71,13 @@ export const Chat = z.strictObject({
   dir: Path,
   /** The name the user gave it; `null` for none. */
   alias: z.string().min(1).max(256).nullable(),
-  /** Its session created first, not archived; `null` for none. The chat is named after it unless aliased. */
+  /**
+   * Its session created first, not archived; `null` for none. The chat is named after it unless
+   * aliased. An archived chat's is the one it had then, so it keeps its name.
+   */
   firstSessionId: SessionId.nullable(),
+  /** When it was archived; `null` when it is not (SPEC-0001, "M1.11 的对话归档"). */
+  archivedAt: Timestamp.nullable(),
 });
 export type Chat = z.infer<typeof Chat>;
 

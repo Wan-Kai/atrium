@@ -53,7 +53,7 @@ const tab = (open: string[], active: string | null) => ({ open, active });
 /** Each file's current format version. */
 const VERSIONS: Record<keyof typeof DOCUMENTS, number> = {
   projects: 1,
-  chats: 1,
+  chats: 2,
   sessions: 2,
   layouts: 2,
   preferences: 3,
@@ -134,7 +134,12 @@ describe("loadIndex", () => {
       { sessions: [{ ...DOCUMENTS.sessions.sessions[0], sessionId: 1 }] },
       { sessions: [] },
     ],
-    ["chats", "a chat with no name", { chats: [{ id: "cht_a" }] }, { chats: [] }],
+    [
+      "chats",
+      "a chat archived at no time",
+      { chats: [{ id: "cht_a", archived: { at: -1, sessions: [], first: null } }] },
+      { chats: [] },
+    ],
     ["layouts", "no clients", {}, { clients: [] }],
     ["layouts", "a client with no id", { clients: [{ seenAt: 2, container: null, tabs: {} }] }, { clients: [] }],
     [

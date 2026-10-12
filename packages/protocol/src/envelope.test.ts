@@ -50,6 +50,8 @@ const commands: Command[] = [
   { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: "合并原理" },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: null },
+  { type: "archive_chat", requestId: "r19a", traceparent, chatId: CHAT },
+  { type: "restore_chat", requestId: "r19b", traceparent, chatId: CHAT },
   { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
   { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
   { type: "select_container", requestId: "r22", traceparent, containerId: CHAT },
@@ -479,6 +481,7 @@ describe("parseClientMessage", () => {
       "add_project",
       "answer_interaction",
       "answer_login",
+      "archive_chat",
       "archive_session",
       "archive_workspace",
       "cancel_install",
@@ -512,6 +515,7 @@ describe("parseClientMessage", () => {
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "restore_chat",
       "restore_workspace",
       "resume_queue",
       "retry_run",
@@ -742,6 +746,12 @@ describe("parseClientMessage", () => {
     ],
     ["archiving no workspace", { type: "archive_workspace", requestId: "r1", traceparent }, "r1"],
     ["restoring a chat", { type: "restore_workspace", requestId: "r1", traceparent, workspaceId: CHAT }, "r1"],
+    ["archiving no chat", { type: "archive_chat", requestId: "r1", traceparent }, "r1"],
+    [
+      "restoring a workspace as a chat",
+      { type: "restore_chat", requestId: "r1", traceparent, chatId: WORKSPACE },
+      "r1",
+    ],
     [
       "an image at no place",
       { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: -1 },
@@ -1081,8 +1091,15 @@ const snapshot: IndexSnapshotEvent = {
       dir: "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
       alias: null,
       firstSessionId: "s2",
+      archivedAt: null,
     },
-    { id: "cht_x", dir: "/Users/test/.atrium/chats/x", alias: "合并原理", firstSessionId: null },
+    {
+      id: "cht_x",
+      dir: "/Users/test/.atrium/chats/x",
+      alias: "合并原理",
+      firstSessionId: null,
+      archivedAt: 1_700_000_200_000,
+    },
   ],
   sessions: [
     {
@@ -1398,6 +1415,8 @@ describe("HostMessage", () => {
       { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: undefined }] },
     ],
     ["a workspace archived at no time", { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: -1 }] }],
+    ["a chat without when it was archived", { ...snapshot, chats: [{ ...snapshot.chats[0], archivedAt: undefined }] }],
+    ["a chat archived at no time", { ...snapshot, chats: [{ ...snapshot.chats[0], archivedAt: -1 }] }],
     [
       "an unknown merge verdict",
       {

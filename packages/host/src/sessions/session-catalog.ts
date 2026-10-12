@@ -15,7 +15,7 @@ export interface ContainerDir {
 }
 
 /** A chat: its directory, and the session it is named after unless the user named it. */
-interface CatalogChat extends ContainerDir {
+export interface CatalogChat extends ContainerDir {
   /** Its session created first, not archived; `null` for none. */
   readonly firstSessionId: string | null;
 }
@@ -41,6 +41,8 @@ export interface SessionCatalog {
   forget(sessionId: string): Promise<void>;
   /** Hides a session in Atrium; pi's file stays. */
   archive(sessionId: string): Promise<void>;
+  /** Shows a session hidden by `archive` again. */
+  unarchive(sessionId: string): Promise<void>;
   /** Sets a session's attention, hand-off or Fast, as given. */
   mark(sessionId: string, change: SessionMarks): Promise<void>;
   /**
@@ -345,6 +347,7 @@ export function createSessionCatalog(options: {
     },
     forget: (sessionId) => save(options.file.read().sessions.filter((record) => record.sessionId !== sessionId)),
     archive: (sessionId) => update(sessionId, { archived: true }),
+    unarchive: (sessionId) => update(sessionId, { archived: false }),
     mark: (sessionId, change) => update(sessionId, change),
     scan() {
       if (scanning !== null) {

@@ -167,6 +167,10 @@ export interface AtriumClient {
   restoreWorkspace(workspaceId: string): Promise<CommandResult<"restore_workspace">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
+  /** Archives a chat with its sessions, stopping those that run. */
+  archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
+  /** Brings an archived chat back with the sessions archived with it. */
+  restoreChat(chatId: string): Promise<CommandResult<"restore_chat">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
@@ -1194,6 +1198,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     archiveWorkspace: (workspaceId) => request("archive_workspace", { workspaceId }),
     restoreWorkspace: (workspaceId) => request("restore_workspace", { workspaceId }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
+    archiveChat: (chatId) => request("archive_chat", { chatId }),
+    restoreChat: (chatId) => request("restore_chat", { chatId }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
       // A proxy shows once the host has checked it and written its address in one form.

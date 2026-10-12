@@ -238,6 +238,22 @@ export const RenameChatCommand = z.strictObject({
 });
 export type RenameChatCommand = z.infer<typeof RenameChatCommand>;
 
+/** Archives a chat with its sessions, stopping those that run (SPEC-0001, "M1.11 的对话归档"). */
+export const ArchiveChatCommand = z.strictObject({
+  type: z.literal("archive_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type ArchiveChatCommand = z.infer<typeof ArchiveChatCommand>;
+
+/** Brings an archived chat back with the sessions archived with it. */
+export const RestoreChatCommand = z.strictObject({
+  type: z.literal("restore_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type RestoreChatCommand = z.infer<typeof RestoreChatCommand>;
+
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
@@ -592,6 +608,8 @@ export const Command = z.discriminatedUnion("type", [
   ArchiveWorkspaceCommand,
   RestoreWorkspaceCommand,
   RenameChatCommand,
+  ArchiveChatCommand,
+  RestoreChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -683,6 +701,8 @@ export const CommandResult = {
   archive_workspace: z.strictObject({}),
   restore_workspace: z.strictObject({}),
   rename_chat: z.strictObject({}),
+  archive_chat: z.strictObject({}),
+  restore_chat: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),

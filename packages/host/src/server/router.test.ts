@@ -42,6 +42,8 @@ function fakeCommands() {
     closeTab: record("closeTab", {}),
     selectContainer: record("selectContainer", {}),
     archiveSession: record("archiveSession", {}),
+    archiveChat: record("archiveChat", {}),
+    restoreChat: record("restoreChat", {}),
     renameSession: record("renameSession", {}),
     clearAttention: record("clearAttention", {}),
     handOff: record("handOff", { file: "/s.jsonl" }),
@@ -286,6 +288,8 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "close_tab", requestId: "r8", sessionId: "s2" }));
     await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: CHAT }));
     await route(connection, withTrace({ type: "archive_session", requestId: "r10", sessionId: "s2" }));
+    await route(connection, withTrace({ type: "archive_chat", requestId: "r10a", chatId: CHAT }));
+    await route(connection, withTrace({ type: "restore_chat", requestId: "r10b", chatId: CHAT }));
     await route(connection, withTrace({ type: "rename_session", requestId: "r11", sessionId: "s2", name: "名字" }));
     await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
     await route(connection, withTrace({ type: "hand_off", requestId: "r13", sessionId: "s2" }));
@@ -306,6 +310,8 @@ describe("createRouter", () => {
       ["closeTab", "client-1", "s2"],
       ["selectContainer", "client-1", CHAT],
       ["archiveSession", "s2"],
+      ["archiveChat", CHAT],
+      ["restoreChat", CHAT],
       ["renameSession", "s2", "名字"],
       ["clearAttention", "s2"],
       ["handOff", "s2"],
@@ -320,7 +326,12 @@ describe("createRouter", () => {
       { type: "response", requestId: "r5", ok: true, result: { step: { kind: "text", id: "3", text: "whole" } } },
       { type: "response", requestId: "r6", ok: true, result: {} },
       { type: "response", requestId: "r7", ok: true, result: { sessionId: "s3" } },
-      ...["r8", "r9", "r10", "r11", "r12"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      ...["r8", "r9", "r10", "r10a", "r10b", "r11", "r12"].map((requestId) => ({
+        type: "response",
+        requestId,
+        ok: true,
+        result: {},
+      })),
       { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl" } },
       { type: "response", requestId: "r14", ok: true, result: {} },
       { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },

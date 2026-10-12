@@ -51,18 +51,35 @@ export const PROJECTS_FILE: IndexFileSpec<ProjectsDocument> = {
   empty: () => ({ projects: [], workspaces: [] }),
 };
 
-/** A chat's name, as `chats.json` keeps it; a chat without one has no record (ADR-0007). */
-const ChatRecord = z.looseObject({ id: z.string(), alias: z.string() });
+/**
+ * What `chats.json` keeps of a chat: its name and whether it is archived; a chat with neither has
+ * no record (ADR-0007; SPEC-0001, "M1.11 的对话归档").
+ */
+const ChatRecord = z.looseObject({
+  id: z.string(),
+  alias: z.string().optional(),
+  archived: z
+    .looseObject({
+      at: z.number().int().nonnegative(),
+      sessions: z.array(z.string()),
+      first: z.string().nullable(),
+    })
+    .optional(),
+});
 
 const ChatsDocument = z.looseObject({ chats: z.array(ChatRecord) });
 export type ChatsDocument = z.infer<typeof ChatsDocument>;
 
-/** `chats.json`: the names given to chats (domain-model §1, "索引的存储"). */
+/** `chats.json`: the names given to chats and which are archived (domain-model §1, "索引的存储"). */
 export const CHATS_FILE: IndexFileSpec<ChatsDocument> = {
   name: "chats",
-  version: 1,
+  version: 2,
   schema: ChatsDocument,
   empty: () => ({ chats: [] }),
+  migrations: {
+    // M1.11 archives chats: a record may have an archive and no name, which version 1 cannot read.
+    1: (document) => document,
+  },
 };
 
 /** The container every chat's session was filed under in version 1 of `sessions.json`. */

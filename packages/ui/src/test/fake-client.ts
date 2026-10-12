@@ -65,7 +65,7 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
  * @returns The chat.
  */
 export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">): Chat {
-  return { dir: `/home/chats/${fields.id}`, alias: null, ...fields };
+  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, ...fields };
 }
 
 /**
@@ -148,6 +148,10 @@ export interface FakeAnswers {
   readonly createChat?: () => Promise<void>;
   readonly createSession?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
+  /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
+  readonly archiveChat?: () => Promise<void>;
+  /** Answers restoring a chat, which then shows again; restored at once when left out. */
+  readonly restoreChat?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
@@ -288,6 +292,9 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     });
   }
 
+  /** The sessions each chat archived here was archived with, as the host records them. */
+  const chatArchives = new Map<string, readonly string[]>();
+
   /**
    * Archives a workspace, or with `null` shows it again.
    *
@@ -354,7 +361,13 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       index.setState({
         chats: [
           ...index.getState().chats,
-          { id: chatId, dir: `/home/chats/new${created + 1}`, alias: null, firstSessionId: `new${created + 1}` },
+          {
+            id: chatId,
+            dir: `/home/chats/new${created + 1}`,
+            alias: null,
+            firstSessionId: `new${created + 1}`,
+            archivedAt: null,
+          },
         ],
       });
       return { sessionId: addDraft(chatId) };
@@ -441,6 +454,36 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`restoreWorkspace ${workspaceId}`);
       await answers.restoreWorkspace?.();
       archived(workspaceId, null);
+      return {};
+    },
+    async archiveChat(chatId: string) {
+      calls.push(`archiveChat ${chatId}`);
+      await answers.archiveChat?.();
+      const { chats, sessions } = index.getState();
+      const inside = sessions.filter((one) => one.containerId === chatId && !one.archived).map((one) => one.sessionId);
+      chatArchives.set(chatId, inside);
+      index.setState({
+        chats: chats.map((one) => (one.id === chatId ? { ...one, archivedAt: Date.now() } : one)),
+        sessions: sessions.map((one) =>
+          inside.includes(one.sessionId) ? { ...one, archived: true, running: false } : one,
+        ),
+      });
+      return {};
+    },
+    async restoreChat(chatId: string) {
+      calls.push(`restoreChat ${chatId}`);
+      await answers.restoreChat?.();
+      const { chats, sessions } = index.getState();
+      // A chat archived before the fake started brings back all its sessions.
+      const back = chatArchives.get(chatId);
+      index.setState({
+        chats: chats.map((one) => (one.id === chatId ? { ...one, archivedAt: null } : one)),
+        sessions: sessions.map((one) =>
+          one.containerId === chatId && (back === undefined || back.includes(one.sessionId))
+            ? { ...one, archived: false }
+            : one,
+        ),
+      });
       return {};
     },
     async renameChat(chatId: string, name: string | null) {

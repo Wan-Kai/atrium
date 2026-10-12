@@ -95,6 +95,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.selectContainer(connection.clientId, command.containerId);
       case "archive_session":
         return options.sessions.archiveSession(command.sessionId);
+      case "archive_chat":
+        return options.sessions.archiveChat(command.chatId);
+      case "restore_chat":
+        return options.sessions.restoreChat(command.chatId);
       case "rename_session":
         return options.sessions.renameSession(command.sessionId, command.name);
       case "clear_attention":

@@ -8,7 +8,8 @@ import { recordingTracing } from "../../test/recording-tracing";
 import { PONG_ENTRIES as getEntries, PONG_TURN as turn } from "../../test/scripted-chat";
 import { systemClock } from "../platform/clock";
 import { loadIndexFile } from "../store/index-file";
-import { layoutsFile, SESSIONS_FILE } from "../store/index-schema";
+import { type ChatRecords, createChatRecords } from "../store/chat-records";
+import { CHATS_FILE, layoutsFile, SESSIONS_FILE } from "../store/index-schema";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
 import { createSessionCatalog } from "./session-catalog";
@@ -98,6 +99,7 @@ async function started(manager: Manager, created: Promise<{ sessionId: string }>
  * @param files - The file search behind `@`, if a test needs it.
  * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @param fast - Fast's extension and the Fast of sessions without their own, if a test needs them.
+ * @param chats - The chats' records, if a test needs them to fail; else over `chats.json`.
  * @returns The manager and what tests look at.
  */
 async function manage(
@@ -109,6 +111,7 @@ async function manage(
   files?: Parameters<typeof createSessionManager>[0]["files"],
   titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
   fast?: Parameters<typeof createSessionManager>[0]["fast"],
+  chats?: (records: ChatRecords) => ChatRecords,
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -137,6 +140,7 @@ async function manage(
     file: (await loadIndexFile(index, layoutsFile({ sessions: [] }), 0)).file,
     clock: systemClock,
   });
+  const chatRecords = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
   const refreshed: string[] = [];
   let changes = 0;
   let next = 0;
@@ -147,6 +151,7 @@ async function manage(
     subscriptions,
     catalog,
     layouts,
+    chats: chats === undefined ? chatRecords : chats(chatRecords),
     workspaces: {
       dirOf: (id) => (id === WORKSPACE ? at.workspace : undefined),
       refresh: (id) => refreshed.push(id),
@@ -172,6 +177,7 @@ async function manage(
     manager,
     catalog,
     layouts,
+    chatRecords,
     received,
     subscriptions,
     refreshed,
@@ -1015,6 +1021,106 @@ describe("SessionManager archiving and renaming", () => {
     expect(await manager.renameSession("pi-session-1", "重构")).toStrictEqual({});
 
     expect(sent()).toContain("set_session_name");
+  });
+});
+
+describe("SessionManager chats' archive", () => {
+  it("archives a chat with its sessions, drafts too: records them and its first session, stops their pi and drops the chat from layouts", async () => {
+    const { manager, catalog, layouts, chatRecords, resources, changes } = await manage({ rules: SESSION_ONE });
+    const { sessionId: elsewhere } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const { sessionId: first } = await started(manager, manager.createChat("client-1"));
+    const { sessionId: gone } = await manager.createSession("client-1", CHAT);
+    await manager.archiveSession(gone);
+    const { sessionId: draft } = await manager.createSession("client-1", CHAT);
+    await manager.subscribe("c1", [elsewhere, first]);
+    const before = changes();
+    const from = Date.now();
+
+    expect(await manager.archiveChat(CHAT)).toStrictEqual({});
+
+    const archive = present(chatRecords.archived(CHAT), CHAT);
+    expect(archive).toStrictEqual({ at: archive.at, sessions: [first, draft], first });
+    expect(archive.at).toBeGreaterThanOrEqual(from);
+    expect(archive.at).toBeLessThanOrEqual(Date.now());
+    const archived = (sessionId: string) => present(catalog.find(sessionId), sessionId).archived;
+    expect([first, draft, gone, elsewhere].map(archived)).toStrictEqual([true, true, true, false]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: null,
+      tabs: { [WORKSPACE]: { open: [elsewhere], active: elsewhere } },
+    });
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("changes nothing archiving a chat archived already, and finds no chat that is not there", async () => {
+    const { manager, chatRecords, changes } = await manage({ rules: SESSION_ONE });
+    await manager.createChat("client-1");
+    await manager.archiveChat(CHAT);
+    const archive = chatRecords.archived(CHAT);
+    const before = changes();
+
+    expect(await manager.archiveChat(CHAT)).toStrictEqual({});
+
+    expect([chatRecords.archived(CHAT), changes()]).toStrictEqual([archive, before]);
+    await expect(manager.archiveChat("cht_none")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_none" }),
+    );
+    await expect(manager.restoreChat("cht_none")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_none" }),
+    );
+  });
+
+  it("records the archive before its sessions: when it cannot be written, no session is archived", async () => {
+    const { manager, catalog } = await manage(
+      { rules: SESSION_ONE },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (records) => ({
+        ...records,
+        setArchived: () => Promise.reject(new Error("disk full")),
+      }),
+    );
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.archiveChat(CHAT)).rejects.toThrow("disk full");
+
+    expect(present(catalog.find(sessionId), sessionId).archived).toBe(false);
+  });
+
+  it("restores the sessions archived with a chat, not one archived before, and goes nowhere", async () => {
+    const { manager, catalog, layouts, chatRecords, changes } = await manage({ rules: SESSION_ONE });
+    const { sessionId: first } = await manager.createChat("client-1");
+    const { sessionId: gone } = await manager.createSession("client-1", CHAT);
+    await manager.archiveSession(gone);
+    const { sessionId: draft } = await manager.createSession("client-1", CHAT);
+    await manager.archiveChat(CHAT);
+    const layout = layouts.of("client-1");
+    const before = changes();
+
+    expect(await manager.restoreChat(CHAT)).toStrictEqual({});
+
+    const archived = (sessionId: string) => present(catalog.find(sessionId), sessionId).archived;
+    expect([first, draft, gone].map(archived)).toStrictEqual([false, false, true]);
+    expect(chatRecords.archived(CHAT)).toBeNull();
+    expect(layouts.of("client-1")).toStrictEqual(layout);
+    expect(changes()).toBe(before + 1);
+    expect(await manager.restoreChat(CHAT)).toStrictEqual({});
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("starts no session in an archived chat", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    await manager.createChat("client-1");
+    await manager.archiveChat(CHAT);
+
+    await expect(manager.createSession("client-1", CHAT)).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: CHAT }),
+    );
   });
 });
 

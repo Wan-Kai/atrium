@@ -301,7 +301,7 @@
 |---|---|---|
 | 协议：对话 id 是 `cht_` 加目录名（只许字母、数字和 `-`，最长 64），`rename_chat`、`create_session(containerId)`、`list_models(workspaceId \| null)`、`chat_not_found`，列表快照和变化带 `chats`；旧的 `"chats"`、带路径的、过长的、工作区 id 当对话 id 都拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | 索引迁移：`sessions.json` v1 里"对话"的记录按工作目录归到各自的对话；`layouts.json` v1 的对话标签分到各自的对话，顺序不变，原来的当前标签在它的对话里仍是当前、别的对话以第一个标签为当前，在"对话"里的客户端去当前标签的对话（当前标签不在任何对话里时哪里都不在），没有记录或不是对话的标签去掉；两个旧文件备份成 `<名字>.v1.bak`；v1 里手改坏的记录（不是对象、对话记录没有目录）照损坏的文件重置；`chats.json` 损坏时单独重置 | `packages/host/src/store/load-index.test.ts`、`index-schema.test.ts` | 已覆盖 |
-| 对话名：存在 `chats.json`，清空即删掉记录、不动别的对话，名字没变时不写文件；`rename_chat` 只认目录还在的对话（否则 `chat_not_found`），改完推列表变化 | `packages/host/src/store/chat-names.test.ts`、`sessions/index-commands.test.ts` "IndexCommands.renameChat"、`server/router.test.ts` | 已覆盖 |
+| 对话名：存在 `chats.json`，清空即删掉记录、不动别的对话，名字没变时不写文件；`rename_chat` 只认目录还在的对话（否则 `chat_not_found`），改完推列表变化 | `packages/host/src/store/chat-records.test.ts`、`sessions/index-commands.test.ts` "IndexCommands.renameChat"、`server/router.test.ts` | 已覆盖 |
 | 会话目录：每个对话目录是一个对话，名字不像对话 id 的目录和散落的文件不算，目录删了对话就没了；对话的第一个会话按记录的创建时间、没有记录时按文件修改时间取最早的，归档的不算，全归档了为空 | `packages/host/src/sessions/session-catalog.test.ts` | 已覆盖 |
 | 会话管理器：在对话里再建会话，用对话的目录；对话不在时 `chat_not_found`，什么都不记不开；丢弃空草稿时对话里还有别的会话就留着目录；对话里的运行结束不刷新工作区；`list_models(null)` 在 Atrium 的目录 | `packages/host/src/sessions/session-manager.test.ts` "SessionManager sessions in a chat"、"discards a draft"、`model-lister.test.ts` | 已覆盖 |
 | 列表同步与客户端：`chats` 集合的快照和增量，按 id 增删改；`renameChat`、`createSession(containerId)`、按工作区或 `null` 取模型 | `packages/host/src/sync/index-feed.test.ts`、`packages/client/src/index-view.test.ts` "by their ids"、`atrium-client.test.ts` | 已覆盖 |
@@ -359,6 +359,9 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 去掉显示模式：标签栏没有显示模式菜单，Ctrl+O 不做任何事；协议拒绝带 `displayMode` 的 `set_preferences`；`preferences.json` 升到 v3，迁移时删掉 `displayMode` | `packages/ui/src/app/workbench.browser.test.tsx` "has no display mode to switch"、`packages/protocol/src/envelope.test.ts` "a display mode"、`packages/host/src/store/preferences.test.ts`、`load-index.test.ts` | 已覆盖 |
 | "新建对话"在"对话"分区标题下第一行（⌘N），没有对话时分区也显示、只有这一行；侧栏别处没有新建对话的按钮 | `packages/ui/src/app/workbench.browser.test.tsx` "starts a chat from the first row under 对话"、"puts 新建对话 before the chats' rows"、"a new chat with ⌘N" | 已覆盖 |
 | 侧栏项目展开收起：工作区行 0.28 秒收拢 / 从 0 展开，各行依次淡出、淡入；动的时候裁切、静止时不裁（行里的菜单不被挡）；展开、收拢到底和收起后行间距一致（2px，到"对话"6px）；文件夹图标交叉淡化、缩放 0.6，颜色跟着过渡（0.3 秒） | `packages/ui/src/app/workbench.browser.test.tsx` "folds a project's workspaces away in 0.28 s"、"keeps the rows 2px apart"、"cross-fades the project's folder" | 已覆盖 |
+| 对话归档（协议 11）：`archive_chat` / `restore_chat` 进协议，对话带 `archivedAt`；`chats.json` 升到 v2（记录可以只有归档），旧版的名称照读，别的字段保留，没变化不写 | `packages/protocol/src/envelope.test.ts`、`packages/host/src/store/chat-records.test.ts`、`load-index.test.ts`、`packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 归档对话：先记下归档时间、要归档的会话（还没归档的，草稿也算）和第一个会话，再停 pi、归档、从布局去掉；记录写不进去时一个会话也不归档；再归档不变；恢复只放回记下的会话、不切过去；归档的对话不能新建会话；不存在的对话 `chat_not_found`；列表里归档的对话沿用归档时的第一个会话取名 | `packages/host/src/sessions/session-manager.test.ts` "SessionManager chats' archive"、`store/chat-records.test.ts` "lists chats with their names and archives"、`server/router.test.ts` | 已覆盖 |
+| 界面：对话"···"里"归档"，没有会话在运行时直接归档，有时先确认（N 个正在运行）；归档的对话不在对话列表和搜索里；"已归档的对话"只在有归档时出现，点开按归档时间新到旧、沿用名称、最多 8 行高；"恢复"不切过去，最后一个恢复后这一行消失；失败在问题行说明 | `packages/ui/src/app/workbench.browser.test.tsx` "Workbench sidebar: archived chats" | 已覆盖 |
 
 ## 安全（security.md）
 

@@ -21,7 +21,14 @@ import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { UpdateDot } from "../settings/settings-panel";
 import { piUpdateAvailable } from "../setup/pi-version";
 import { useClock } from "../state/clock";
-import { ArchiveDialog, ArchivedWorkspaces, describeRestoreError } from "./archive";
+import {
+  ArchiveDialog,
+  ArchivedChats,
+  ArchivedWorkspaces,
+  ChatArchiveDialog,
+  describeChatArchiveError,
+  describeRestoreError,
+} from "./archive";
 import {
   chatName,
   isDone,
@@ -170,15 +177,20 @@ export function Sidebar({
    * Runs a command, showing its failure under the projects' heading.
    *
    * @remarks
-   * Sidebar commands have no other place to report.
+   * Sidebar commands have no other place to report. A command whose failures read otherwise says
+   * how; the rest are explained as `describeProjectError` does.
    *
    * @sideEffects Sends the command; may set the problem line.
    * @param command - The command.
+   * @param describe - How to explain its failure.
    */
-  const run = (command: () => Promise<unknown>): void => {
+  const run = (
+    command: () => Promise<unknown>,
+    describe = (error: unknown) => describeProjectError(error, client.index.getState().projects),
+  ): void => {
     setProblem(null);
     // Fire and forget: the failure is shown.
-    void command().catch((error: unknown) => setProblem(describeProjectError(error, client.index.getState().projects)));
+    void command().catch((error: unknown) => setProblem(describe(error)));
   };
 
   const appearance = APPEARANCES.find((entry) => entry.appearance === index.preferences.appearance) ?? APPEARANCES[0];
@@ -342,8 +354,8 @@ interface ListedChat {
  * The chats the sidebar lists, latest activity first.
  *
  * @remarks
- * A chat whose sessions are all archived is left out; its activity is its sessions' latest, its
- * status their highest (SPEC-0001, "对话").
+ * An archived chat, or one whose sessions are all archived, is left out; its activity is its
+ * sessions' latest, its status their highest (SPEC-0001, "对话", "M1.11 的对话归档").
  *
  * @sideEffects none
  * @param index - The list.
@@ -351,6 +363,7 @@ interface ListedChat {
  */
 function listedChats(index: Pick<IndexView, "chats" | "sessions">): ListedChat[] {
   return index.chats
+    .filter((chat) => chat.archivedAt === null)
     .map((chat) => {
       const sessions = index.sessions.filter((session) => session.containerId === chat.id && !session.archived);
       return {
@@ -390,8 +403,9 @@ async function selectChat(client: AtriumClient, listed: ListedChat): Promise<unk
  * @remarks
  * Shown without chats too, as it holds the way to start one (SPEC-0001, "对话"). Each chat is a
  * container like a workspace (ADR-0007): its row shows its name, latest activity and status, is
- * lit while selected, and its "···" menu renames it. The rest of the chats open in place, and
- * "收起" closes them again.
+ * lit while selected, and its "···" menu renames or archives it, asking first only when some of
+ * its sessions run (SPEC-0001, "M1.11 的对话归档"). The rest of the chats open in place, and
+ * "收起" closes them again; the archived ones are listed last.
  *
  * @sideEffects Sends commands when used.
  * @param props - The client, the list, the time now, how to start a new chat, and the sidebar's
@@ -413,10 +427,25 @@ function ChatRows({
   readonly onNewChat: () => void;
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
-  readonly run: (command: () => Promise<unknown>) => void;
+  readonly run: (command: () => Promise<unknown>, describe?: (error: unknown) => string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [archiving, setArchiving] = useState<{ readonly chat: Chat; readonly running: number } | null>(null);
   const chats = listedChats(index);
+  /**
+   * Archives a chat, explaining a failure in the problem line.
+   *
+   * @remarks
+   * See `ChatRows`.
+   *
+   * @sideEffects Sends `archive_chat`.
+   * @param chatId - The chat.
+   */
+  const archive = (chatId: string): void =>
+    run(
+      () => client.archiveChat(chatId),
+      (error) => describeChatArchiveError(error, "没能归档这个对话"),
+    );
   const shown = expanded ? chats : chats.slice(0, RECENT_CHATS);
   return (
     <section aria-label="对话">
@@ -465,17 +494,32 @@ function ChatRows({
             >
               <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
                 {(close) => (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className={MENU_ITEM}
-                    onClick={() => {
-                      close();
-                      setRenaming(chat.id);
-                    }}
-                  >
-                    重命名
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={MENU_ITEM}
+                      onClick={() => {
+                        close();
+                        setRenaming(chat.id);
+                      }}
+                    >
+                      重命名
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={MENU_ITEM}
+                      onClick={() => {
+                        close();
+                        const running = listed.sessions.filter((session) => session.running).length;
+                        if (running > 0) setArchiving({ chat, running });
+                        else archive(chat.id);
+                      }}
+                    >
+                      归档
+                    </button>
+                  </>
                 )}
               </MenuButton>
             </span>
@@ -491,6 +535,21 @@ function ChatRows({
           {expanded ? "收起" : `显示全部 ${chats.length} 个`}
         </button>
       ) : null}
+      <ArchivedChats
+        client={client}
+        chats={index.chats.filter((chat) => chat.archivedAt !== null)}
+        sessions={index.sessions}
+        now={now}
+        run={run}
+      />
+      {archiving === null ? null : (
+        <ChatArchiveDialog
+          name={chatName(archiving.chat, index.sessions)}
+          running={archiving.running}
+          onArchive={() => archive(archiving.chat.id)}
+          onClose={() => setArchiving(null)}
+        />
+      )}
     </section>
   );
 }

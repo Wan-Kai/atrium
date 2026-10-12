@@ -134,6 +134,58 @@ function folderIcons(row: Element): unknown[][] {
 }
 
 /**
+ * Opens a chat's "···" menu in the sidebar.
+ *
+ * @sideEffects Hovers the chat's row and clicks its menu button.
+ * @param screen - The rendered workbench.
+ * @param name - The chat's name.
+ */
+async function chatMenu(screen: Awaited<ReturnType<typeof workbench>>["screen"], name: string) {
+  const row = screen.getByTestId("chat-row").filter({ hasText: name });
+  await row.hover();
+  await row.getByRole("button", { name: `对话 ${name}` }).click();
+}
+
+/**
+ * The list with the chat's session c1 changed.
+ *
+ * @sideEffects none
+ * @param fields - What changes.
+ * @returns The list.
+ */
+function withC1(fields: Partial<ReturnType<typeof session>>) {
+  const base = list();
+  return {
+    ...base,
+    sessions: base.sessions.map((one) => (one.sessionId === "c1" ? { ...one, ...fields } : one)),
+  };
+}
+
+/**
+ * A list with two archived chats, one with a session left out of its archive, and the chat with
+ * c1 not archived.
+ */
+function withArchivedChats() {
+  const base = list();
+  const minute = 60_000;
+  return {
+    ...base,
+    sessions: [
+      ...base.sessions,
+      session({ sessionId: "a1", containerId: "cht_old", prompt: "解释 rebase", archived: true }),
+      session({ sessionId: "a2", containerId: "cht_older", prompt: "写周报", archived: true }),
+      // Not archived with its chat; the chat stays hidden all the same.
+      session({ sessionId: "a3", containerId: "cht_older", prompt: "提纲" }),
+    ],
+    chats: [
+      ...base.chats,
+      chat({ id: "cht_older", firstSessionId: "a2", alias: "周报", archivedAt: Date.now() - 120 * minute }),
+      chat({ id: "cht_old", firstSessionId: "a1", archivedAt: Date.now() - 5 * minute }),
+    ],
+  };
+}
+
+/**
  * Renders the workbench over a fake client.
  *
  * @remarks
@@ -947,6 +999,137 @@ describe("Workbench workspace archiving (M1.11)", () => {
     await expect
       .element(screen.getByRole("alert"))
       .toHaveTextContent("没能恢复：git 没能加回这个 worktree，分支可能正被别处检出");
+  });
+});
+
+describe("Workbench sidebar: archived chats", () => {
+  it("archives a chat none of whose sessions runs at once, and lists it under 已归档的对话, opened and closed in place", async () => {
+    const { screen, calls } = await workbench();
+    const section = screen.getByRole("region", { name: "对话" });
+    await expect.element(section.getByRole("button", { name: "已归档的对话" })).not.toBeInTheDocument();
+    await chatMenu(screen, "解释 merge-tree");
+
+    await screen.getByRole("menuitem", { name: "归档" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain(`archiveChat ${CHAT}`));
+    await expect.element(screen.getByRole("alertdialog")).not.toBeInTheDocument();
+    await expect.element(section.getByTestId("chat-row")).not.toBeInTheDocument();
+    const archived = section.getByRole("button", { name: "已归档的对话" });
+    await expect.element(archived).toHaveAttribute("aria-expanded", "false");
+    await archived.click();
+    await expect
+      .element(section.getByRole("list", { name: "已归档的对话" }))
+      .toHaveTextContent("解释 merge-tree刚刚恢复");
+    await archived.click();
+    await expect.element(section.getByRole("list", { name: "已归档的对话" })).not.toBeInTheDocument();
+  });
+
+  it("asks first when some of a chat's sessions run, archiving nothing when cancelled", async () => {
+    const base = withC1({ running: true });
+    const { screen, calls } = await workbench({
+      initial: {
+        ...base,
+        sessions: [...base.sessions, session({ sessionId: "c2", containerId: CHAT, prompt: "追问", running: true })],
+      },
+    });
+    await chatMenu(screen, "解释 merge-tree");
+    await screen.getByRole("menuitem", { name: "归档" }).click();
+    const dialog = screen.getByRole("alertdialog");
+
+    await expect.element(dialog).toHaveAccessibleName("归档对话「解释 merge-tree」？");
+    await expect
+      .element(dialog)
+      .toHaveAccessibleDescription("其中 2 个会话正在运行，归档会停止它们；之后可以在“已归档的对话”里恢复");
+    await expect.element(dialog.getByRole("button", { name: "取消" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(calls).not.toContain(`archiveChat ${CHAT}`);
+
+    await chatMenu(screen, "解释 merge-tree");
+    await screen.getByRole("menuitem", { name: "归档" }).click();
+    await dialog.getByRole("button", { name: "归档" }).click();
+
+    await expect.element(dialog).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(calls).toContain(`archiveChat ${CHAT}`));
+    expect(calls).not.toContain(`selectContainer ${CHAT}`);
+  });
+
+  it("hides archived chats from the chats and search, listing them newest first by the names they had", async () => {
+    const { screen } = await workbench({ initial: withArchivedChats() });
+    const section = screen.getByRole("region", { name: "对话" });
+
+    expect(
+      section
+        .getByTestId("chat-row")
+        .elements()
+        .map((row) => row.textContent),
+    ).toStrictEqual([expect.stringMatching(/^解释 merge-tree/)]);
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "周报");
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await section.getByRole("button", { name: "已归档的对话" }).click();
+
+    await expect
+      .element(section.getByRole("list", { name: "已归档的对话" }))
+      .toHaveTextContent("解释 rebase5 分钟前恢复周报2 小时前恢复");
+  });
+
+  it("restores an archived chat from the list, showing it again, and drops the list with the last", async () => {
+    const { screen, calls } = await workbench({
+      initial: {
+        ...withC1({ archived: true }),
+        chats: [chat({ id: CHAT, firstSessionId: "c1", archivedAt: Date.now() })],
+      },
+    });
+    const section = screen.getByRole("region", { name: "对话" });
+    await section.getByRole("button", { name: "已归档的对话" }).click();
+
+    await section.getByRole("button", { name: "恢复 解释 merge-tree" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain(`restoreChat ${CHAT}`));
+    await expect.element(section.getByTestId("chat-row")).toHaveTextContent("解释 merge-tree1 分钟前");
+    await expect.element(section.getByRole("button", { name: "已归档的对话" })).not.toBeInTheDocument();
+    expect(calls).not.toContain(`selectContainer ${CHAT}`);
+  });
+
+  it("shows eight archived chats before the list scrolls", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        chats: Array.from({ length: 10 }, (_, n) =>
+          chat({ id: `cht_${n}`, firstSessionId: null, alias: `对话${n}`, archivedAt: Date.now() - n * 60_000 }),
+        ),
+      },
+    });
+    await screen.getByRole("button", { name: "已归档的对话" }).click();
+    const shown = screen.getByRole("list", { name: "已归档的对话" }).element();
+
+    expect([shown.clientHeight, shown.scrollHeight]).toStrictEqual([256, 320]);
+  });
+
+  it("explains an archive or a restore that failed, and a chat that went", async () => {
+    const failures = [new CommandError("internal_error"), new CommandError("chat_not_found")];
+    const { screen } = await workbench({
+      initial: withArchivedChats(),
+      answers: {
+        archiveChat: () => Promise.reject(failures.shift()),
+        restoreChat: () => Promise.reject(new CommandError("internal_error")),
+      },
+    });
+    const problem = screen.getByRole("alert");
+
+    await chatMenu(screen, "解释 merge-tree");
+    await screen.getByRole("menuitem", { name: "归档" }).click();
+    await expect.element(problem).toHaveTextContent("没能归档这个对话");
+    await chatMenu(screen, "解释 merge-tree");
+    await screen.getByRole("menuitem", { name: "归档" }).click();
+    await expect.element(problem).toHaveTextContent("这个对话已经不在了");
+    await screen.getByRole("button", { name: "已归档的对话" }).click();
+    await screen.getByRole("button", { name: "恢复 周报" }).click();
+    await expect.element(problem).toHaveTextContent("没能恢复这个对话");
   });
 });
 

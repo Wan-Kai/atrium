@@ -34,6 +34,10 @@ export interface SessionCommands {
   selectContainer(clientId: string, containerId: ContainerId | null): Promise<CommandResult<"select_container">>;
   /** Hides a session in Atrium and stops its pi. */
   archiveSession(sessionId: string): Promise<CommandResult<"archive_session">>;
+  /** Archives a chat with its sessions, stopping their pi (SPEC-0001, "M1.11 的对话归档"). */
+  archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
+  /** Brings an archived chat back with the sessions archived with it. */
+  restoreChat(chatId: string): Promise<CommandResult<"restore_chat">>;
   /** Names a session in pi. */
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
   /** Marks a session's error as seen; a sign-in problem stays until the next run (SPEC-0001, "会话状态"). */

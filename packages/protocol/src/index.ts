@@ -27,6 +27,8 @@ export {
   ArchiveWorkspaceCommand,
   RestoreWorkspaceCommand,
   RenameChatCommand,
+  ArchiveChatCommand,
+  RestoreChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,

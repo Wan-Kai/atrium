@@ -15,7 +15,7 @@ const A = "wks_000000000000000a";
 const C = "cht_c";
 
 /** A chat without a name. */
-const chat = (id: string) => ({ id, dir: `/home/chats/${id}`, alias: null, firstSessionId: null });
+const chat = (id: string) => ({ id, dir: `/home/chats/${id}`, alias: null, firstSessionId: null, archivedAt: null });
 
 /** A session of `containerId`. */
 const session = (sessionId: string, containerId: string) => ({

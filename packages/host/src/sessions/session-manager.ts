@@ -33,10 +33,11 @@ import type { ResourceTracker } from "../platform/resources";
 import type { SubscriptionRegistry } from "../sync/subscriptions";
 import type { EntriesPage } from "../transcript/session-transcript";
 import type { WorkspaceService } from "../workspaces/workspace-service";
+import type { ChatRecords } from "../store/chat-records";
 import type { TurnStarts } from "../store/turn-starts";
 import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
-import { type CatalogEntry, chatIdOf, type SessionCatalog } from "./session-catalog";
+import { type CatalogChat, type CatalogEntry, chatIdOf, type SessionCatalog } from "./session-catalog";
 import type { SessionCommands } from "./session-commands";
 import {
   type PromptImage,
@@ -151,7 +152,10 @@ async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
  * - closing the last tab of a draft that never got a message discards it: its pi stops, its
  *   record goes, and when it was its chat's only session the chat's empty directory is removed
  *   (domain-model, "已决定 13");
- * - archiving hides a session and stops its pi;
+ * - archiving hides a session and stops its pi; archiving a chat records which of its sessions it
+ *   archives and its first session before archiving them, so a failure leaves nothing half done
+ *   but the record, and restoring brings back only those, before clearing the record; an archived
+ *   chat takes no new session (SPEC-0001, "M1.11 的对话归档");
  * - a client's tab and place changes take effect in the order its commands came, at once for a
  *   session the index knows; one it does not know yet waits for the first scan, and a tab closed
  *   meanwhile must not open again; once closing, queued changes do nothing;
@@ -181,7 +185,7 @@ async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
  * @sideEffects none until a command arrives; then creates directories, spawns pi, writes the
  * index and publishes.
  * @param options - The chats root, the detected tools, the subscription registry, the catalog,
- * layouts and workspaces, a callback for list changes, and the host's clock, resources, tracer,
+ * layouts, chats' records and workspaces, a callback for list changes, and the host's clock, resources, tracer,
  * logger and id sources.
  * @returns The manager.
  */
@@ -192,6 +196,8 @@ export function createSessionManager(options: {
   readonly subscriptions: SubscriptionRegistry;
   readonly catalog: SessionCatalog;
   readonly layouts: Layouts;
+  /** Which chats are archived, and with which sessions (SPEC-0001, "M1.11 的对话归档"). */
+  readonly chats: Pick<ChatRecords, "archived" | "setArchived">;
   readonly workspaces: Pick<WorkspaceService, "dirOf" | "refresh">;
   readonly onChange: () => void;
   readonly clock: Clock;
@@ -948,6 +954,23 @@ export function createSessionManager(options: {
   }
 
   /**
+   * A chat there is, archived or not.
+   *
+   * @remarks
+   * A chat is found by its directory (`SessionCatalog.chats`).
+   *
+   * @sideEffects none
+   * @param chatId - The chat.
+   * @returns The chat with its first session.
+   * @throws {CommandError} `chat_not_found` when there is no such chat.
+   */
+  function chatOf(chatId: string): CatalogChat {
+    const chat = options.catalog.chats().find((candidate) => candidate.id === chatId);
+    if (chat === undefined) throw new CommandError("chat_not_found", { chatId });
+    return chat;
+  }
+
+  /**
    * Discards a draft whose last tab closed: stops its pi, forgets it, and removes its chat's
    * directory when it was the chat's only session.
    *
@@ -995,8 +1018,10 @@ export function createSessionManager(options: {
     },
     async createSession(clientId, containerId) {
       if (isChatId(containerId)) {
-        const chat = options.catalog.chats().find((candidate) => candidate.id === containerId);
-        if (chat === undefined) throw new CommandError("chat_not_found", { chatId: containerId });
+        const chat = chatOf(containerId);
+        if (options.chats.archived(containerId) !== null) {
+          throw new CommandError("chat_not_found", { chatId: containerId });
+        }
         return { sessionId: await create(clientId, containerId, chat.dir) };
       }
       const dir = options.workspaces.dirOf(containerId);
@@ -1063,6 +1088,36 @@ export function createSessionManager(options: {
       forget(sessionId);
       await options.catalog.archive(sessionId);
       await options.layouts.forgetSessions([sessionId]);
+      options.onChange();
+      return {};
+    },
+    async archiveChat(chatId) {
+      await options.catalog.ready();
+      chatOf(chatId);
+      if (options.chats.archived(chatId) !== null) return {};
+      const inside = options.catalog.list().filter((entry) => entry.containerId === chatId);
+      const archiving = inside.filter((entry) => !entry.archived).map((entry) => entry.sessionId);
+      await options.chats.setArchived(chatId, {
+        at: options.clock.now(),
+        sessions: archiving,
+        first: chatOf(chatId).firstSessionId,
+      });
+      await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
+      for (const sessionId of archiving) {
+        forget(sessionId);
+        await options.catalog.archive(sessionId);
+      }
+      await options.layouts.forgetContainers([chatId]);
+      options.onChange();
+      return {};
+    },
+    async restoreChat(chatId) {
+      await options.catalog.ready();
+      chatOf(chatId);
+      const archive = options.chats.archived(chatId);
+      if (archive === null) return {};
+      for (const sessionId of archive.sessions) await options.catalog.unarchive(sessionId);
+      await options.chats.setArchived(chatId, null);
       options.onChange();
       return {};
     },
