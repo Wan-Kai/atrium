@@ -213,6 +213,22 @@ export const RenameWorkspaceCommand = z.strictObject({
 });
 export type RenameWorkspaceCommand = z.infer<typeof RenameWorkspaceCommand>;
 
+/** Archives a worktree workspace: removes its directory, keeps its branch, archives its sessions. */
+export const ArchiveWorkspaceCommand = z.strictObject({
+  type: z.literal("archive_workspace"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+});
+export type ArchiveWorkspaceCommand = z.infer<typeof ArchiveWorkspaceCommand>;
+
+/** Brings an archived workspace back, adding its worktree again where it was. */
+export const RestoreWorkspaceCommand = z.strictObject({
+  type: z.literal("restore_workspace"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+});
+export type RestoreWorkspaceCommand = z.infer<typeof RestoreWorkspaceCommand>;
+
 /** Names a chat, or with `null` goes back to its first session's title. */
 export const RenameChatCommand = z.strictObject({
   type: z.literal("rename_chat"),
@@ -574,6 +590,8 @@ export const Command = z.discriminatedUnion("type", [
   RemoveProjectCommand,
   RenameProjectCommand,
   RenameWorkspaceCommand,
+  ArchiveWorkspaceCommand,
+  RestoreWorkspaceCommand,
   RenameChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
@@ -663,6 +681,8 @@ export const CommandResult = {
   remove_project: z.strictObject({}),
   rename_project: z.strictObject({}),
   rename_workspace: z.strictObject({}),
+  archive_workspace: z.strictObject({}),
+  restore_workspace: z.strictObject({}),
   rename_chat: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),

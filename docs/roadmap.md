@@ -330,7 +330,7 @@ MVP 1 里还没设计、做到时先补设计的：
 #### 并行与 worktree
 
 - 完成或等待处理时发系统通知；"已完成未读"状态（关注原因 `finished`）。
-- 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口；新会话时可选"当前工作区 / 新建 worktree"。
+- 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口（归档 2026-10-12 提前在 M1.11 做了，见 SPEC-0001"M1.11 的工作区归档"）；新会话时可选"当前工作区 / 新建 worktree"。
 - 参考：[SPEC-0001 · worktree 合并状态](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §6 git 状态。
 
 v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、文件区（外部改动的处理留到文件区设计）。

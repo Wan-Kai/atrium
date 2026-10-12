@@ -57,6 +57,11 @@ export const Workspace = z.strictObject({
   createdAt: Timestamp.nullable(),
   /** The merge state; `null` for the local workspace and projects that are not git repositories. */
   merge: MergeState.nullable(),
+  /**
+   * When it was archived; `null` when it is not. An archived workspace's `branch` and `head` are
+   * those it had then (SPEC-0001, "M1.11 的工作区归档").
+   */
+  archivedAt: Timestamp.nullable(),
 });
 export type Workspace = z.infer<typeof Workspace>;
 

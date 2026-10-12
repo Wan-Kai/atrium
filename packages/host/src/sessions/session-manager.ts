@@ -60,6 +60,10 @@ export interface SessionManager extends SessionCommands {
   summaries(): SessionSummary[];
   /** Stops the sessions of workspaces that went away and drops them from every layout. */
   forgetWorkspaces(workspaceIds: readonly string[]): Promise<void>;
+  /** Stops the pi of every session in a workspace, archiving nothing. */
+  stopWorkspace(workspaceId: string): Promise<void>;
+  /** Archives every session in a workspace, as `archiveSession` does, and drops it from every layout. */
+  archiveWorkspace(workspaceId: string): Promise<void>;
   /** Looks at the containers' session files again: the window gained focus, or containers changed. */
   rescan(): void;
   /** Stops the pi of every session with nothing going on; resolves once they have exited. */
@@ -1200,6 +1204,21 @@ export function createSessionManager(options: {
       await Promise.all(gone.map((entry) => stopSession(entry.sessionId)));
       for (const entry of gone) forget(entry.sessionId);
       await options.layouts.forgetContainers(workspaceIds);
+      options.onChange();
+    },
+    async stopWorkspace(workspaceId) {
+      const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
+      await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
+    },
+    async archiveWorkspace(workspaceId) {
+      // Archived with its workspace (SPEC-0001, "M1.11 的工作区归档"), drafts too; archiving one again changes nothing.
+      const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
+      await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
+      for (const entry of inside) {
+        forget(entry.sessionId);
+        await options.catalog.archive(entry.sessionId);
+      }
+      await options.layouts.forgetContainers([workspaceId]);
       options.onChange();
     },
     rescan() {

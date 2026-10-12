@@ -30,7 +30,7 @@ interface Scanned {
 export interface WorkspaceService {
   /** Every registered workspace as the list shows it, in the projects' order. */
   list(): Workspace[];
-  /** The directory of a registered workspace. */
+  /** The directory of a registered workspace; none for an archived one, where nothing may start. */
   dirOf(workspaceId: string): string | undefined;
   /** Scans every project, then fetches every few minutes. */
   start(): void;
@@ -53,6 +53,8 @@ export interface WorkspaceService {
  * Follows SPEC-0001 ("worktree 合并状态", "项目、工作区与会话"):
  * - a project is scanned with `git worktree list --porcelain`; worktrees without a record are
  *   recorded as external, and records whose worktree is gone stay, shown as removed;
+ * - an archived workspace shows what it had checked out when archived and no merge state, which
+ *   scans no longer work out (SPEC-0001, "M1.11 的工作区归档");
  * - a worktree's creation time is that of its administrative directory under the repository's
  *   `worktrees/`, which outlives the worktree itself;
  * - the main branch is the project's own setting or `origin/HEAD`, nothing else
@@ -230,31 +232,33 @@ export function createWorkspaceService(options: {
       const mainRef = await mainBranchRef(project, run);
       const inspector = await options.inspector;
       await Promise.all(
-        records().map(async (record) => {
-          const worktree = listed.find((candidate) => candidate.dir === record.dir);
-          const merge =
-            record.kind === "local" || inspector === null
-              ? null
-              : await inspector.inspect(
-                  {
-                    repo: project.path,
-                    dir: record.dir,
-                    present: worktree !== undefined && !worktree.prunable && (await isDirectory(record.dir)),
-                    branch: worktree?.branch ?? null,
-                    // Stryker disable next-line StringLiteral: an unlisted worktree is not present, and the inspector calls one that is not present removed without reading its head.
-                    head: worktree?.head ?? "",
-                    baseCommit: record.baseCommit,
-                    mainRef,
-                    ...(afterFetch ? dirtyBefore(record.id) : {}),
-                  },
-                  signal,
-                );
-          scanned.set(record.id, {
-            ...branchOf(worktree),
-            createdAt: record.kind === "local" ? null : (created.get(record.dir) ?? null),
-            merge,
-          });
-        }),
+        records()
+          .filter((record) => record.archived == null)
+          .map(async (record) => {
+            const worktree = listed.find((candidate) => candidate.dir === record.dir);
+            const merge =
+              record.kind === "local" || inspector === null
+                ? null
+                : await inspector.inspect(
+                    {
+                      repo: project.path,
+                      dir: record.dir,
+                      present: worktree !== undefined && !worktree.prunable && (await isDirectory(record.dir)),
+                      branch: worktree?.branch ?? null,
+                      // Stryker disable next-line StringLiteral: an unlisted worktree is not present, and the inspector calls one that is not present removed without reading its head.
+                      head: worktree?.head ?? "",
+                      baseCommit: record.baseCommit,
+                      mainRef,
+                      ...(afterFetch ? dirtyBefore(record.id) : {}),
+                    },
+                    signal,
+                  );
+            scanned.set(record.id, {
+              ...branchOf(worktree),
+              createdAt: record.kind === "local" ? null : (created.get(record.dir) ?? null),
+              merge,
+            });
+          }),
       );
     }
     if (JSON.stringify(projectWorkspaces(project.id)) !== before) changed();
@@ -375,6 +379,22 @@ export function createWorkspaceService(options: {
       .filter((record) => record.projectId === projectId)
       .map((record) => {
         const found = scanned.get(record.id);
+        if (record.archived != null) {
+          const { at, branch, head } = record.archived;
+          return {
+            id: record.id,
+            projectId: record.projectId,
+            kind: record.kind,
+            dir: record.dir,
+            alias: record.alias,
+            branch,
+            head: branch === null && head !== null ? head.slice(0, 7) : null,
+            external: record.external,
+            createdAt: null,
+            merge: null,
+            archivedAt: at,
+          };
+        }
         return {
           id: record.id,
           projectId: record.projectId,
@@ -386,6 +406,7 @@ export function createWorkspaceService(options: {
           external: record.external,
           createdAt: found?.createdAt ?? null,
           merge: found?.merge ?? null,
+          archivedAt: null,
         };
       });
   }
@@ -402,7 +423,10 @@ export function createWorkspaceService(options: {
 
   return {
     list: () => options.projects.projects().flatMap((project) => projectWorkspaces(project.id)),
-    dirOf: (workspaceId) => options.projects.workspaces().find((record) => record.id === workspaceId)?.dir,
+    dirOf(workspaceId) {
+      const record = options.projects.workspaces().find((candidate) => candidate.id === workspaceId);
+      return record?.archived == null ? record?.dir : undefined;
+    },
     start() {
       request(options.projects.projects().map((project) => project.id));
       scheduleFetch();

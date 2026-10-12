@@ -55,6 +55,7 @@ import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
 import { SubscriptionRegistry } from "./sync/subscriptions";
 import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspector";
+import { createWorkspaceArchiver } from "./workspaces/workspace-archiver";
 import { createWorkspaceService } from "./workspaces/workspace-service";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
@@ -353,6 +354,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       },
     },
     sessions,
+    archiver: createWorkspaceArchiver({
+      projects,
+      git,
+      sessions,
+      // A restored worktree is scanned again, and its changes worked out.
+      refresh: (workspaceId) => {
+        workspaces.refresh(workspaceId);
+        changes.refresh(workspaceId);
+      },
+      clock,
+      logger,
+    }),
     preferences,
     chats: () => catalog.chats(),
     chatNames,

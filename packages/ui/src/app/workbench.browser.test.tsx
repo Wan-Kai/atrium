@@ -5,6 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { describeArchiveError } from "../sidebar/archive";
 import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
@@ -509,6 +510,289 @@ describe("Workbench sidebar", () => {
     expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
       'setPreferences {"appearance":"light"}',
       'setPreferences {"appearance":"dark"}',
+    ]);
+  });
+});
+
+/**
+ * The list of {@link list} with the merged worktree running one of its two live sessions, and two
+ * worktrees archived five minutes and two hours ago.
+ *
+ * @sideEffects none
+ * @returns The list.
+ */
+function archivable() {
+  const base = list();
+  return {
+    ...base,
+    workspaces: [
+      ...base.workspaces,
+      workspace({ id: "wks_00000000000000a1", branch: "old/one", archivedAt: Date.now() - 2 * 60 * 60_000 }),
+      workspace({ id: "wks_00000000000000a2", branch: "old/two", archivedAt: Date.now() - 5 * 60_000 }),
+    ],
+    sessions: [
+      ...base.sessions,
+      session({ sessionId: "m1", containerId: MERGED, prompt: "收尾", running: true }),
+      session({ sessionId: "m2", containerId: MERGED, prompt: "早先的", running: true, archived: true }),
+      session({ sessionId: "m3", containerId: MERGED, prompt: "闲着" }),
+    ],
+  };
+}
+
+/**
+ * Opens the "···" menu of the n-th workspace row.
+ *
+ * @sideEffects Hovers and clicks in the page.
+ * @param screen - The rendered workbench.
+ * @param nth - Which row, from 0.
+ * @param name - The workspace's name.
+ */
+async function workspaceMenu(screen: Awaited<ReturnType<typeof workbench>>["screen"], nth: number, name: string) {
+  const row = screen.getByTestId("workspace-row").nth(nth);
+  await row.hover();
+  await row.getByRole("button", { name: `工作区 ${name}` }).click();
+}
+
+/**
+ * Opens the project's "···" menu.
+ *
+ * @sideEffects Hovers and clicks in the page.
+ * @param screen - The rendered workbench.
+ */
+async function projectMenu(screen: Awaited<ReturnType<typeof workbench>>["screen"]) {
+  const project = screen.getByTestId("project-row");
+  await project.hover();
+  await project.getByRole("button", { name: "项目 atrium" }).click();
+}
+
+describe("Workbench workspace archiving (M1.11)", () => {
+  it("asks before archiving a worktree, saying its branch is kept and its running sessions stop, then hides it", async () => {
+    const { screen, calls } = await workbench({ initial: archivable() });
+    await workspaceMenu(screen, 2, "fix/typo");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+
+    const dialog = screen.getByRole("alertdialog", { name: "归档工作区「fix/typo」？" });
+    await expect
+      .element(dialog)
+      .toHaveAccessibleDescription(
+        "会删除 worktree 目录（包括被 git 忽略的文件），分支 fix/typo 保留；之后可以在项目菜单的“已归档的工作区”里恢复 其中 1 个会话正在运行，归档会停止它们",
+      );
+    await expect.element(dialog.getByRole("button", { name: "取消" })).toHaveFocus();
+    // On the page's body, so it covers the whole window rather than the sidebar.
+    expect(dialog.element().closest("nav")).toBeNull();
+    expect(calls).not.toContain(`archiveWorkspace ${MERGED}`);
+
+    await dialog.getByRole("button", { name: "归档" }).click();
+
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(calls).toContain(`archiveWorkspace ${MERGED}`);
+    expect(calls).not.toContain(`selectContainer ${MERGED}`);
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(2));
+    await expect.element(screen.getByTestId("workspace-row").nth(1)).toHaveTextContent("feat/sidebar3未提交");
+  });
+
+  it("says a detached worktree's commit is kept, and warns of nothing when none of its sessions runs", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        workspaces: [...base.workspaces, workspace({ id: "wks_00000000000000d1", branch: null, head: "abc1234" })],
+      },
+    });
+    await workspaceMenu(screen, 2, "wks_00000000000000d1");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+
+    await expect
+      .element(screen.getByRole("alertdialog"))
+      .toHaveAccessibleDescription(
+        "会删除 worktree 目录（包括被 git 忽略的文件），提交 abc1234 保留；之后可以在项目菜单的“已归档的工作区”里恢复",
+      );
+  });
+
+  it("says nothing is kept when the worktree was on neither a branch nor a commit", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        workspaces: [...base.workspaces, workspace({ id: "wks_00000000000000d2", branch: null, head: null })],
+      },
+    });
+    await workspaceMenu(screen, 2, "wks_00000000000000d2");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+
+    await expect
+      .element(screen.getByRole("alertdialog"))
+      .toHaveAccessibleDescription(
+        "会删除 worktree 目录（包括被 git 忽略的文件）；之后可以在项目菜单的“已归档的工作区”里恢复",
+      );
+  });
+
+  it("offers archiving only for a worktree, and not while it has changes not committed", async () => {
+    const { screen } = await workbench();
+    await workspaceMenu(screen, 0, "main");
+
+    await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeVisible();
+    await expect.element(screen.getByRole("menuitem", { name: "归档…" })).not.toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await workspaceMenu(screen, 1, "feat/sidebar");
+    const archive = screen.getByRole("menuitem", { name: "归档…" });
+    await expect.element(archive).toBeDisabled();
+    await expect.element(archive).toHaveAttribute("title", "有未提交的改动，先提交或丢弃");
+  });
+
+  it("cancels with 取消, Escape or a click outside, archiving nothing", async () => {
+    const { screen, calls } = await workbench();
+    const dialog = screen.getByRole("alertdialog");
+    const ways = [
+      () => dialog.getByRole("button", { name: "取消" }).click(),
+      () => userEvent.keyboard("{Escape}"),
+      () => screen.getByTestId("archive-scrim").click({ position: { x: 5, y: 5 } }),
+    ];
+    for (const cancel of ways) {
+      await workspaceMenu(screen, 2, "fix/typo");
+      await screen.getByRole("menuitem", { name: "归档…" }).click();
+      await expect.element(dialog).toBeVisible();
+      await cancel();
+      await expect.element(dialog).not.toBeInTheDocument();
+    }
+
+    expect(calls.filter((call) => call.startsWith("archiveWorkspace"))).toStrictEqual([]);
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
+  });
+
+  it("waits while archiving, then says why it failed and lets the user try again", async () => {
+    const answer = Promise.withResolvers<void>();
+    const { screen, calls } = await workbench({ answers: { archiveWorkspace: () => answer.promise } });
+    await workspaceMenu(screen, 2, "fix/typo");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    const dialog = screen.getByRole("alertdialog");
+    await dialog.getByRole("button", { name: "归档" }).click();
+
+    await expect.element(dialog.getByRole("button", { name: "归档中…" })).toBeDisabled();
+    await expect.element(dialog.getByRole("button", { name: "取消" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    await screen.getByTestId("archive-scrim").click({ position: { x: 5, y: 5 }, force: true });
+    await expect.element(dialog).toBeVisible();
+
+    answer.reject(new CommandError("workspace_dirty"));
+
+    await expect.element(dialog.getByRole("alert")).toHaveTextContent("有未提交的改动，先提交或丢弃再归档");
+    await expect.element(dialog.getByRole("button", { name: "归档" })).toBeEnabled();
+    expect(calls.filter((call) => call.startsWith("archiveWorkspace"))).toStrictEqual([`archiveWorkspace ${MERGED}`]);
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
+  });
+
+  it("lays the dialog out as a 380 px card over a blurred scrim, its buttons 30 px tall", async () => {
+    const { screen } = await workbench();
+    await workspaceMenu(screen, 2, "fix/typo");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    const dialog = screen.getByRole("alertdialog").element();
+    const scrim = screen.getByTestId("archive-scrim").element();
+
+    expect(dialog.getBoundingClientRect().width).toBe(380);
+    expect(getComputedStyle(scrim).backdropFilter).toContain("blur(8px)");
+    expect([scrim.getBoundingClientRect().width, scrim.getBoundingClientRect().height]).toStrictEqual([1280, 820]);
+    expect(
+      ["取消", "归档"].map(
+        (name) =>
+          screen.getByRole("alertdialog").getByRole("button", { name }).element().getBoundingClientRect().height,
+      ),
+    ).toStrictEqual([30, 30]);
+  });
+
+  it("hides archived workspaces from the projects and search, listing them in the project's menu newest first, opened and closed in place", async () => {
+    const { screen } = await workbench({ initial: archivable() });
+
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "old/");
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+
+    await expect
+      .element(screen.getByRole("list", { name: "已归档的工作区" }))
+      .toHaveTextContent("old/two5 分钟前恢复old/one2 小时前恢复");
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    await expect.element(screen.getByRole("list", { name: "已归档的工作区" })).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("menuitem", { name: "已归档的工作区" }))
+      .toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("leaves the archived item out of a project with none archived", async () => {
+    const { screen } = await workbench();
+    await projectMenu(screen);
+
+    await expect.element(screen.getByRole("menuitem", { name: "从侧栏移除" })).toBeVisible();
+    await expect.element(screen.getByRole("menuitem", { name: "已归档的工作区" })).not.toBeInTheDocument();
+  });
+
+  it("restores an archived workspace from the list, closing the menu and showing it again", async () => {
+    const { screen, calls } = await workbench({ initial: archivable() });
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    await screen.getByRole("menuitem", { name: "恢复 old/one" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain("restoreWorkspace wks_00000000000000a1"));
+    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(4));
+    await expect.element(screen.getByTestId("workspace-row").nth(2)).toHaveTextContent("old/one");
+  });
+
+  it("shows eight archived workspaces before the list scrolls", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        workspaces: Array.from({ length: 10 }, (_, n) =>
+          workspace({ id: `wks_00000000000000b${n}`, archivedAt: Date.now() - n * 60_000 }),
+        ),
+      },
+    });
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    const shown = screen.getByRole("list", { name: "已归档的工作区" }).element();
+
+    expect([shown.clientHeight, shown.scrollHeight]).toStrictEqual([256, 320]);
+  });
+
+  it("explains a restore that failed", async () => {
+    const { screen } = await workbench({
+      initial: archivable(),
+      answers: { restoreWorkspace: () => Promise.reject(new CommandError("worktree_restore_failed")) },
+    });
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    await screen.getByRole("menuitem", { name: "恢复 old/two" }).click();
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("没能恢复：目录已被占用，或分支已删除、正被别处检出");
+  });
+});
+
+describe("describeArchiveError", () => {
+  it("says why archiving failed for each code, and that the host failed otherwise", () => {
+    const failures = [
+      new CommandError("workspace_dirty"),
+      new CommandError("workspace_unsaved_commits"),
+      new CommandError("worktree_remove_failed"),
+      new CommandError("workspace_not_found"),
+      new CommandError("internal_error"),
+      new Error("boom"),
+    ];
+
+    expect(failures.map(describeArchiveError)).toStrictEqual([
+      "有未提交的改动，先提交或丢弃再归档",
+      "当前提交不在任何分支上，先建一个分支再归档",
+      "git 没能删除这个 worktree",
+      "这个工作区已经不在了",
+      "宿主出错了，没有完成",
+      "宿主出错了，没有完成",
     ]);
   });
 });

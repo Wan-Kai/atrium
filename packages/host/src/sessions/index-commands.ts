@@ -4,6 +4,7 @@ import type { ProjectService } from "../projects/project-service";
 import type { ChatNames } from "../store/chat-names";
 import type { PreferenceStore } from "../store/preferences";
 import type { IndexCursor, IndexFeed } from "../sync/index-feed";
+import type { WorkspaceArchiver } from "../workspaces/workspace-archiver";
 import type { WorkspaceService } from "../workspaces/workspace-service";
 import type { ContainerDir } from "./session-catalog";
 import type { SessionManager } from "./session-manager";
@@ -15,6 +16,10 @@ export interface IndexCommands {
   removeProject(projectId: string): Promise<CommandResult<"remove_project">>;
   renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
   renameWorkspace(workspaceId: string, name: string | null): Promise<CommandResult<"rename_workspace">>;
+  /** Archives a worktree workspace: removes its directory, keeps its branch, archives its sessions. */
+  archiveWorkspace(workspaceId: string): Promise<CommandResult<"archive_workspace">>;
+  /** Brings an archived workspace back, adding its worktree again where it was. */
+  restoreWorkspace(workspaceId: string): Promise<CommandResult<"restore_workspace">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
   windowFocused(): Promise<CommandResult<"window_focused">>;
@@ -43,7 +48,8 @@ export interface IndexCommands {
  * is written, and kept with its address in one form (SPEC-0001, "设置 · 接口").
  *
  * @sideEffects none until a command arrives.
- * @param options - The services, the chats and their names, the feed and the model lister.
+ * @param options - The services, the workspace archiver, the chats and their names, the feed and
+ * the model lister.
  * @returns The commands.
  */
 export function createIndexCommands(options: {
@@ -51,6 +57,7 @@ export function createIndexCommands(options: {
   /** `refresh` works out a workspace's merge state and changes again. */
   readonly workspaces: Pick<WorkspaceService, "windowFocused" | "refresh">;
   readonly sessions: Pick<SessionManager, "forgetWorkspaces" | "rescan">;
+  readonly archiver: WorkspaceArchiver;
   readonly preferences: PreferenceStore;
   /** The chats there are (`SessionCatalog.chats`). */
   readonly chats: () => readonly ContainerDir[];
@@ -87,6 +94,14 @@ export function createIndexCommands(options: {
     },
     async renameWorkspace(workspaceId, name) {
       await options.projects.renameWorkspace(workspaceId, name);
+      return {};
+    },
+    async archiveWorkspace(workspaceId) {
+      await options.archiver.archive(workspaceId);
+      return {};
+    },
+    async restoreWorkspace(workspaceId) {
+      await options.archiver.restore(workspaceId);
       return {};
     },
     async renameChat(chatId, name) {

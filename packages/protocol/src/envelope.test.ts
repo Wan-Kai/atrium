@@ -43,6 +43,8 @@ const commands: Command[] = [
   { type: "rename_project", requestId: "r15", traceparent, projectId: PROJECT, name: "app" },
   { type: "rename_workspace", requestId: "r16", traceparent, workspaceId: WORKSPACE, name: "侧栏" },
   { type: "rename_workspace", requestId: "r17", traceparent, workspaceId: WORKSPACE, name: null },
+  { type: "archive_workspace", requestId: "r17a", traceparent, workspaceId: WORKSPACE },
+  { type: "restore_workspace", requestId: "r17b", traceparent, workspaceId: WORKSPACE },
   { type: "window_focused", requestId: "r18", traceparent },
   { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE },
   { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
@@ -479,6 +481,7 @@ describe("parseClientMessage", () => {
       "answer_interaction",
       "answer_login",
       "archive_session",
+      "archive_workspace",
       "cancel_install",
       "cancel_login",
       "check_pi_update",
@@ -510,6 +513,7 @@ describe("parseClientMessage", () => {
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "restore_workspace",
       "resume_queue",
       "retry_run",
       "search_files",
@@ -735,6 +739,8 @@ describe("parseClientMessage", () => {
       { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: 20 },
       "r1",
     ],
+    ["archiving no workspace", { type: "archive_workspace", requestId: "r1", traceparent }, "r1"],
+    ["restoring a chat", { type: "restore_workspace", requestId: "r1", traceparent, workspaceId: CHAT }, "r1"],
     [
       "an image at no place",
       { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: -1 },
@@ -1052,6 +1058,7 @@ const snapshot: IndexSnapshotEvent = {
       external: false,
       createdAt: null,
       merge: null,
+      archivedAt: null,
     },
     {
       id: "wks_fedcba9876543210",
@@ -1064,6 +1071,7 @@ const snapshot: IndexSnapshotEvent = {
       external: true,
       createdAt: 1_700_000_000_000,
       merge: { dirty: true, ahead: 3, verdict: "unknown", reason: "no_main_branch" },
+      archivedAt: 1_700_000_100_000,
     },
   ],
   chats: [
@@ -1342,6 +1350,11 @@ describe("HostMessage", () => {
       "attachment_limit",
       "attachment_missing",
       "image_unavailable",
+      "workspace_is_local",
+      "workspace_dirty",
+      "workspace_unsaved_commits",
+      "worktree_remove_failed",
+      "worktree_restore_failed",
       "fast_unavailable",
       "pi_rejected",
       "session_handed_off",
@@ -1384,6 +1397,11 @@ describe("HostMessage", () => {
     ["an unknown run outcome", { ...events[8], outcome: "paused" }],
     ["an unknown event", { type: "message_started", ...at, messageId: "a1" }],
     ["a workspace of an unknown kind", { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], kind: "clone" }] }],
+    [
+      "a workspace without when it was archived",
+      { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: undefined }] },
+    ],
+    ["a workspace archived at no time", { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: -1 }] }],
     [
       "an unknown merge verdict",
       {

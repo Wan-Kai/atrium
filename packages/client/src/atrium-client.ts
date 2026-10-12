@@ -161,6 +161,10 @@ export interface AtriumClient {
   renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
   /** Names a workspace, or with `null` goes back to its branch's name. */
   renameWorkspace(workspaceId: string, name: string | null): Promise<CommandResult<"rename_workspace">>;
+  /** Archives a worktree workspace, removing its directory and keeping its branch. */
+  archiveWorkspace(workspaceId: string): Promise<CommandResult<"archive_workspace">>;
+  /** Brings an archived workspace back, adding its worktree where it was. */
+  restoreWorkspace(workspaceId: string): Promise<CommandResult<"restore_workspace">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
@@ -1182,6 +1186,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     removeProject: (projectId) => request("remove_project", { projectId }),
     renameProject: (projectId, name) => request("rename_project", { projectId, name }),
     renameWorkspace: (workspaceId, name) => request("rename_workspace", { workspaceId, name }),
+    archiveWorkspace: (workspaceId) => request("archive_workspace", { workspaceId }),
+    restoreWorkspace: (workspaceId) => request("restore_workspace", { workspaceId }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {

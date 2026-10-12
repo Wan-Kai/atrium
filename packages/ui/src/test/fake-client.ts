@@ -49,6 +49,7 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
     external: true,
     createdAt: 1,
     merge: { dirty: false, ahead: 0, verdict: "noChange", reason: null },
+    archivedAt: null,
     ...fields,
   };
 }
@@ -168,6 +169,10 @@ export interface FakeAnswers {
   /** A project's branches; `main` alone, and origin's HEAD, when left out. */
   readonly branches?: (projectId: string) => Promise<{ branches: string[]; head: string | null }>;
   readonly setMainBranch?: () => Promise<void>;
+  /** Answers archiving a workspace, which is then archived in the list; archived at once when left out. */
+  readonly archiveWorkspace?: () => Promise<void>;
+  /** Answers restoring a workspace, which then shows again; restored at once when left out. */
+  readonly restoreWorkspace?: () => Promise<void>;
   /** Holds back the list's change until it settles; changed at once when left out. */
   readonly setPreferences?: () => Promise<void>;
   /** Answers a Fast switch, which then shows in the session's view; succeeds at once when left out. */
@@ -281,6 +286,28 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       sessions: index
         .getState()
         .sessions.map((one) => (one.sessionId === sessionId ? { ...one, ...fields(one) } : one)),
+    });
+  }
+
+  /**
+   * Archives a workspace, or with `null` shows it again.
+   *
+   * @remarks
+   * As the host's next list would: archiving archives and stops the workspace's sessions too,
+   * and restoring leaves them archived.
+   *
+   * @sideEffects Updates the list.
+   * @param workspaceId - The workspace.
+   * @param at - When it was archived, or `null`.
+   */
+  function archived(workspaceId: string, at: number | null): void {
+    const { workspaces, sessions } = index.getState();
+    index.setState({
+      workspaces: workspaces.map((one) => (one.id === workspaceId ? { ...one, archivedAt: at } : one)),
+      sessions:
+        at === null
+          ? sessions
+          : sessions.map((one) => (one.containerId === workspaceId ? { ...one, archived: true, running: false } : one)),
     });
   }
 
@@ -403,6 +430,18 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async renameWorkspace(workspaceId: string, name: string | null) {
       calls.push(`renameWorkspace ${workspaceId} ${name}`);
+      return {};
+    },
+    async archiveWorkspace(workspaceId: string) {
+      calls.push(`archiveWorkspace ${workspaceId}`);
+      await answers.archiveWorkspace?.();
+      archived(workspaceId, 1_700_000_000_000);
+      return {};
+    },
+    async restoreWorkspace(workspaceId: string) {
+      calls.push(`restoreWorkspace ${workspaceId}`);
+      await answers.restoreWorkspace?.();
+      archived(workspaceId, null);
       return {};
     },
     async renameChat(chatId: string, name: string | null) {

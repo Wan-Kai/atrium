@@ -89,6 +89,7 @@ async function assemble() {
   const listed: [string | null, boolean][] = [];
   const discovered: (readonly string[])[] = [];
   const refreshed: string[] = [];
+  const archiving: string[] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
     tools: async () => ({
@@ -118,6 +119,10 @@ async function assemble() {
       refresh: (workspaceId) => refreshed.push(workspaceId),
     },
     sessions,
+    archiver: {
+      archive: async (workspaceId) => void archiving.push(`archive ${workspaceId}`),
+      restore: async (workspaceId) => void archiving.push(`restore ${workspaceId}`),
+    },
     preferences,
     chats: () => catalog.chats(),
     chatNames,
@@ -145,6 +150,7 @@ async function assemble() {
     focused,
     discovered,
     refreshed,
+    archiving,
   };
 }
 
@@ -196,6 +202,22 @@ describe("IndexCommands.renameProject", () => {
     await expect(commands.renameProject(projectId, "应用")).resolves.toStrictEqual({});
 
     expect(projects.projects().map((project) => project.name)).toStrictEqual(["应用"]);
+  });
+});
+
+describe("IndexCommands.renameWorkspace", () => {
+  it("names the workspace, and with null forgets its name", async () => {
+    const { commands, projects, root } = await assemble();
+    const dir = join(root, "app");
+    await mkdir(dir);
+    await commands.addProject(dir);
+    const workspaceId = present(projects.workspaces()[0], "the local workspace").id;
+
+    await expect(commands.renameWorkspace(workspaceId, "主干")).resolves.toStrictEqual({});
+    const named = projects.workspaces().map((workspace) => workspace.alias);
+    await commands.renameWorkspace(workspaceId, null);
+
+    expect([named, projects.workspaces().map((workspace) => workspace.alias)]).toStrictEqual([["主干"], [null]]);
   });
 });
 
@@ -282,6 +304,18 @@ describe("IndexCommands.setMainBranch", () => {
       new CommandError("branch_not_found", { branch: "main" }),
     );
     expect(refreshed).toStrictEqual([]);
+  });
+});
+
+describe("IndexCommands.archiveWorkspace", () => {
+  it("hands archiving and restoring a workspace to the archiver", async () => {
+    const { commands, archiving } = await assemble();
+
+    expect([await commands.archiveWorkspace("wks_1"), await commands.restoreWorkspace("wks_2")]).toStrictEqual([
+      {},
+      {},
+    ]);
+    expect(archiving).toStrictEqual(["archive wks_1", "restore wks_2"]);
   });
 });
 

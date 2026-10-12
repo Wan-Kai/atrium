@@ -60,6 +60,7 @@ function workspace(n: number): Workspace {
     external: false,
     createdAt: null,
     merge: null,
+    archivedAt: null,
   };
 }
 

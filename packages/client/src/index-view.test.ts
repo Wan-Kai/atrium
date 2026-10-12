@@ -136,6 +136,7 @@ describe("applyIndexChanges", () => {
       external: false,
       createdAt: null,
       merge: null,
+      archivedAt: null,
     });
     const [w1, w2, w3] = [
       workspace("wks_0000000000000001", "/work/app"),

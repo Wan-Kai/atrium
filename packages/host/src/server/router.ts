@@ -113,6 +113,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.renameProject(command.projectId, command.name);
       case "rename_workspace":
         return options.index.renameWorkspace(command.workspaceId, command.name);
+      case "archive_workspace":
+        return options.index.archiveWorkspace(command.workspaceId);
+      case "restore_workspace":
+        return options.index.restoreWorkspace(command.workspaceId);
       case "rename_chat":
         return options.index.renameChat(command.chatId, command.name);
       case "window_focused":

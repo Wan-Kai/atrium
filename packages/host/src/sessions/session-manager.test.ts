@@ -951,6 +951,39 @@ describe("SessionManager workspaces", () => {
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited" }));
   });
 
+  it("archives every session of a workspace, drafts too: stops their pi, keeps no controller and drops the workspace from layouts", async () => {
+    const { manager, catalog, layouts, resources, changes } = await manage({ rules: SESSION_ONE });
+    const { sessionId: chat } = await started(manager, manager.createChat("client-1"));
+    const { sessionId: running } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const { sessionId: other } = await manager.createSession("client-1", WORKSPACE);
+    await manager.subscribe("c1", [running, chat]);
+    const before = changes();
+
+    await manager.archiveWorkspace(WORKSPACE);
+
+    const entry = (sessionId: string) => present(catalog.find(sessionId), sessionId);
+    expect([running, other, chat].map((sessionId) => entry(sessionId).archived)).toStrictEqual([true, true, false]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: null,
+      tabs: { [entry(chat).containerId]: { open: [chat], active: chat } },
+    });
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("stops the pi of every session of a workspace, archiving nothing and keeping layouts", async () => {
+    const { manager, catalog, layouts, resources } = await manage({ rules: SESSION_ONE });
+    const { sessionId: chat } = await started(manager, manager.createChat("client-1"));
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const layout = layouts.of("client-1");
+
+    await manager.stopWorkspace(WORKSPACE);
+
+    expect([sessionId, chat].map((id) => present(catalog.find(id), id).archived)).toStrictEqual([false, false]);
+    expect(layouts.of("client-1")).toStrictEqual(layout);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
   it("lists its sessions with whether they run", async () => {
     const { manager } = await manage({ rules: SESSION_ONE });
     await manager.createSession("client-1", WORKSPACE);

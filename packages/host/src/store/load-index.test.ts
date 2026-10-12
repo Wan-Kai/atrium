@@ -29,6 +29,7 @@ const DOCUMENTS = {
         alias: "侧栏",
         baseCommit: "abc123",
         external: true,
+        archived: { at: 3, branch: "feature", head: "abc123" },
       },
     ],
   },
@@ -120,6 +121,12 @@ describe("loadIndex", () => {
       "projects",
       "a workspace of an unknown kind",
       { projects: [], workspaces: [{ ...DOCUMENTS.projects.workspaces[0], kind: "remote" }] },
+      { projects: [], workspaces: [] },
+    ],
+    [
+      "projects",
+      "a workspace archived at no time",
+      { projects: [], workspaces: [{ ...DOCUMENTS.projects.workspaces[1], archived: { branch: null, head: null } }] },
       { projects: [], workspaces: [] },
     ],
     [

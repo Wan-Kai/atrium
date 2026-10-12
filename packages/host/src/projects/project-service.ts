@@ -3,7 +3,7 @@ import { realpath, stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import type { GitRunner } from "../platform/git";
 import type { IndexFile } from "../store/index-file";
-import type { ProjectRecord, ProjectsDocument, WorkspaceRecord } from "../store/index-schema";
+import type { ProjectRecord, ProjectsDocument, WorkspaceArchive, WorkspaceRecord } from "../store/index-schema";
 
 export type { ProjectRecord };
 
@@ -18,6 +18,8 @@ export interface ProjectService {
   rename(projectId: string, name: string): Promise<void>;
   /** Names a workspace, or with `null` goes back to its branch's name. */
   renameWorkspace(workspaceId: string, alias: string | null): Promise<void>;
+  /** Marks a workspace archived, as given, or with `null` not archived. */
+  setArchived(workspaceId: string, archived: WorkspaceArchive | null): Promise<void>;
   /** The branches on a project's `origin`, by name, and the one `origin/HEAD` points at. */
   branches(projectId: string): Promise<{ branches: string[]; head: string | null }>;
   /** Chooses a project's main branch on `origin`, or with `null` follows `origin/HEAD` again. */
@@ -123,6 +125,33 @@ export function createProjectService(options: {
     return { branches, head: target.startsWith(prefix) ? target.slice(prefix.length) : null };
   }
 
+  /**
+   * Changes some fields of a workspace's record.
+   *
+   * @remarks
+   * Its name and whether it is archived are kept in the index alone.
+   *
+   * @sideEffects Writes `projects.json`; calls the listeners.
+   * @param workspaceId - The workspace.
+   * @param change - The fields to set.
+   * @throws {CommandError} `workspace_not_found`.
+   */
+  async function changeWorkspace(
+    workspaceId: string,
+    change: Partial<Pick<WorkspaceRecord, "alias" | "archived">>,
+  ): Promise<void> {
+    const document = options.file.read();
+    if (!document.workspaces.some((workspace) => workspace.id === workspaceId)) {
+      throw new CommandError("workspace_not_found", { workspaceId });
+    }
+    await save({
+      ...document,
+      workspaces: document.workspaces.map((workspace) =>
+        workspace.id === workspaceId ? { ...workspace, ...change } : workspace,
+      ),
+    });
+  }
+
   /** The last add, which the next one waits for. */
   let adding: Promise<unknown> = Promise.resolve();
 
@@ -208,18 +237,8 @@ export function createProjectService(options: {
         projects: document.projects.map((project) => (project.id === projectId ? { ...project, name } : project)),
       });
     },
-    async renameWorkspace(workspaceId, alias) {
-      const document = options.file.read();
-      if (!document.workspaces.some((workspace) => workspace.id === workspaceId)) {
-        throw new CommandError("workspace_not_found", { workspaceId });
-      }
-      await save({
-        ...document,
-        workspaces: document.workspaces.map((workspace) =>
-          workspace.id === workspaceId ? { ...workspace, alias } : workspace,
-        ),
-      });
-    },
+    renameWorkspace: (workspaceId, alias) => changeWorkspace(workspaceId, { alias }),
+    setArchived: (workspaceId, archived) => changeWorkspace(workspaceId, { archived }),
     branches: branchesOf,
     async setMainBranch(projectId, branch) {
       if (branch !== null && !(await branchesOf(projectId)).branches.includes(branch)) {

@@ -24,6 +24,8 @@ export {
   RemoveProjectCommand,
   RenameProjectCommand,
   RenameWorkspaceCommand,
+  ArchiveWorkspaceCommand,
+  RestoreWorkspaceCommand,
   RenameChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,

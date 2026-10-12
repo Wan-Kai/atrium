@@ -414,6 +414,29 @@ describe("ProjectService.renameWorkspace", () => {
   });
 });
 
+describe("ProjectService.setArchived", () => {
+  it("marks a workspace archived as given and clears it, keeping it in the file, and refuses an unknown one", async () => {
+    const { projects, index, changes } = await service(null);
+    await projects.add(await folder(await tempDir("work"), "app"));
+    const local = present(projects.workspaces()[0], "the local workspace").id;
+    const archived = { at: 7, branch: "feature", head: "abc123" };
+
+    await projects.setArchived(local, archived);
+    const written = JSON.parse(await readFile(join(index, "projects.json"), "utf8")) as {
+      workspaces: Array<{ archived?: unknown }>;
+    };
+    expect([projects.workspaces()[0]?.archived, written.workspaces[0]?.archived]).toStrictEqual([archived, archived]);
+    await projects.setArchived(local, null);
+    expect(projects.workspaces().map((workspace) => [workspace.alias, workspace.archived])).toStrictEqual([
+      [null, null],
+    ]);
+    await expect(projects.setArchived("wks_ffffffffffffffff", archived)).rejects.toStrictEqual(
+      new CommandError("workspace_not_found", { workspaceId: "wks_ffffffffffffffff" }),
+    );
+    expect(changes.count).toBe(3);
+  });
+});
+
 describe("ProjectService.recordWorktrees", () => {
   it("records worktrees it has not seen as external, once, and only for a registered project", async () => {
     const { projects, changes } = await service(null);

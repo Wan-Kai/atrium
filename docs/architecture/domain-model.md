@@ -40,7 +40,7 @@ classDiagram
       alias?
       baseCommit?
       external: bool
-      archived: bool
+      archived?  归档时间、分支、提交（M1.11）
       branch?  [扫描]
       createdAt  [扫描]
       name()  alias 或 branch 或目录名
@@ -713,6 +713,7 @@ classDiagram
 |---|---|
 | `list_projects` / `add_project` / `remove_project` / `rename_project` | ProjectService |
 | `list_workspaces` / `rename_workspace` / `window_focused` | WorkspaceService |
+| `archive_workspace` / `restore_workspace` | WorkspaceArchiver（git 的部分）→ SessionManager（停 pi、归档会话）→ ProjectService（记录）（M1.11） |
 | `rename_chat` | ChatNames（`chats.json`） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` | SessionManager |
 | `subscribe_index(cursor?)` | IndexFeed |

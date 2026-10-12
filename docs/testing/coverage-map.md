@@ -326,6 +326,22 @@
 | 界面：只在当前模型支持时显示 ⚡ 按钮（关是线框、开是强调色实心，`aria-pressed`；只有闪电、没有圈；⚡ 离模型按钮 10.5px、点按区域 32px 见方；能用时光标是小手，不能用时是默认光标；从关变开时播加速动效，打开状态下出现、关掉时都不播）；悬停卡片（鼠标移开就收起，点过之后也收起，键盘聚焦时弹出）写开关状态、速度（"约 N 倍速度"，不详时"更快"）、额度增加时"额度消耗增加"、下一次请求生效；点击切换，空状态用 `lastFast`、先建会话；扩展没加载时说明；停止中不能用；模型菜单里支持的模型名后带小 ⚡ | `packages/ui/src/chat/chat.browser.test.tsx` "ConversationArea's Fast button"、`model-picker.browser.test.tsx` "bolt"、`model-choice.test.ts` | 已覆盖 |
 | 端到端：打包进宿主的扩展真的被 pi 加载，模型目录按本机模型列表服务的列表标 Fast（GPT-6.1 Sol 有 ⚡，内置规则会算支持的 GPT-5.5 没有），卡片写"约 2 倍速度，额度消耗增加"；选 GPT-6.1 Sol 后打开，下一次请求带 priority，换回 faux-1 开关消失、请求不带；对列表的每次请求都带 pi 的凭据 | `apps/desktop/e2e/fast.spec.ts` | 已覆盖 |
 
+## 工作区归档（M1.11，2026-10-12）
+
+SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目录、保留分支），在项目菜单里恢复。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议（版本 9）：`archive_workspace`、`restore_workspace` 及其应答 `{}`，工作区的 `archivedAt`（不能缺、不能为负），五个新错误码 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 宿主 · 索引与项目：工作区记录的 `archived`（时间、当时的分支和提交，旧文件没有这一项也能读）；`setArchived` 记下和清掉，未知工作区 `workspace_not_found` | `packages/host/src/store/load-index.test.ts`、`projects/project-service.test.ts` "ProjectService.setArchived" | 已覆盖 |
+| 宿主 · 工作区列表：归档的工作区照列、带 `archivedAt`，分支和提交取归档时记下的、不算合并状态、扫描跳过；不能在里面新建会话 | `packages/host/src/workspaces/workspace-service.test.ts` "lists an archived worktree" | 已覆盖 |
+| 宿主 · 归档（真实 git）：干净的 worktree 先停会话再 `git worktree remove`，分支留着、被忽略的文件随目录删掉，然后归档会话、记下时间分支提交；detached 在分支、远程分支或标签上的提交可以归档；有改动、有未跟踪文件、提交不在任何引用上时拒绝且什么都不动；本地工作区 `workspace_is_local`、未知 `workspace_not_found`、已归档的不再动；目录已不在（含已 prune 和被锁住的）时不跑 git 直接归档；被锁住删不掉时会话已停但不归档、日志只有退出码；没有 git、列不出 worktree、读不了状态时失败 | `packages/host/src/workspaces/workspace-archiver.test.ts` "WorkspaceArchiver.archive" | 已覆盖 |
+| 宿主 · 恢复（真实 git）：按分支或 detached 的提交加回 worktree 并重扫；git 还登记着目录已不在的先 prune 再加；目录已回来的只清标记，没归档的不动；目录被占、分支已删、分支正被别处检出、没有可用的分支和提交时 `worktree_restore_failed`；未知工作区、没有 git、列不出 worktree 时失败；归档和恢复一次一个，前一个失败后接着做 | `workspace-archiver.test.ts` "WorkspaceArchiver.restore"、"one at a time" | 已覆盖 |
+| 宿主 · 会话：停掉工作区所有会话的 pi；归档工作区的所有会话（含草稿），从各布局里去掉；列表命令转交归档器、路由转发两个命令 | `packages/host/src/sessions/session-manager.test.ts` "SessionManager workspaces"、`index-commands.test.ts` "IndexCommands.archiveWorkspace"、`server/router.test.ts` | 已覆盖 |
+| 客户端：两个命令带工作区 id 发出、应答 `{}` | `packages/client/src/atrium-client.test.ts` "sends the session, project, workspace" | 已覆盖 |
+| 界面：只有 worktree 的菜单有"归档…"，有未提交改动时置灰并说明；确认框（挂在页面上、盖住整个窗口，380px 卡片、遮罩模糊 8px、按钮高 30px，焦点在"取消"）写明删除目录、保留的分支或提交（都没有时不写）、运行中的会话数（不算归档的和没在运行的）；取消、Esc、点遮罩都不归档；归档中按钮写"归档中…"、取消 Esc 遮罩都不起作用，失败时框不关、说明原因、可以再试，各错误码的说明；成功后工作区从侧栏消失；侧栏和搜索不显示归档的；项目菜单里有归档的才有"已归档的工作区"，展开和收起，新到旧、写归档时间，最多 8 行高再滚动；恢复后菜单关上、工作区回到侧栏，失败在问题行说明 | `packages/ui/src/app/workbench.browser.test.tsx` "Workbench workspace archiving (M1.11)"、"describeArchiveError" | 已覆盖 |
+| 端到端：真实 app 里归档一个开着标签页的 worktree，确认后目录删掉、分支还在、标签页和侧栏行消失；重启后仍是归档的，从项目菜单恢复，目录回来、在原分支上 | `apps/desktop/e2e/archive.spec.ts` | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

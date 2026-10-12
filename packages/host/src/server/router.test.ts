@@ -89,6 +89,8 @@ function fakeCommands() {
     removeProject: record("removeProject", {}),
     renameProject: record("renameProject", {}),
     renameWorkspace: record("renameWorkspace", {}),
+    archiveWorkspace: record("archiveWorkspace", {}),
+    restoreWorkspace: record("restoreWorkspace", {}),
     renameChat: record("renameChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
@@ -424,6 +426,8 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
     await route(connection, withTrace({ type: "check_setup", requestId: "r14", refresh: true }));
     await route(connection, withTrace({ type: "rename_chat", requestId: "r15", chatId: CHAT, name: "合并原理" }));
+    await route(connection, withTrace({ type: "archive_workspace", requestId: "r16", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "restore_workspace", requestId: "r17", workspaceId: WORKSPACE }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -442,6 +446,8 @@ describe("createRouter", () => {
       ["checkSetup", false],
       ["checkSetup", true],
       ["renameChat", CHAT, "合并原理"],
+      ["archiveWorkspace", WORKSPACE],
+      ["restoreWorkspace", WORKSPACE],
     ]);
     expect(sent[14]).toStrictEqual({ type: "response", requestId: "r14", ok: true, result: SETUP });
     expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });

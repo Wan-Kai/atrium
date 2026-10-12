@@ -26,8 +26,19 @@ const WorkspaceRecord = z.looseObject({
   /** The commit Atrium created the worktree at; `null` for an external one. */
   baseCommit: z.string().nullable(),
   external: z.boolean(),
+  /**
+   * When it was archived and what it had checked out then; absent or `null` when it is not
+   * (SPEC-0001, "M1.11 的工作区归档"). Added without a new version: older files have none.
+   */
+  archived: z
+    .strictObject({ at: z.number(), branch: z.string().nullable(), head: z.string().nullable() })
+    .nullable()
+    .optional(),
 });
 export type WorkspaceRecord = z.infer<typeof WorkspaceRecord>;
+
+/** How a workspace was archived, as its record keeps it. */
+export type WorkspaceArchive = NonNullable<WorkspaceRecord["archived"]>;
 
 const ProjectsDocument = z.looseObject({ projects: z.array(ProjectRecord), workspaces: z.array(WorkspaceRecord) });
 export type ProjectsDocument = z.infer<typeof ProjectsDocument>;

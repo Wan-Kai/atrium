@@ -105,9 +105,9 @@ Electron 主进程
 ```
 
 - 工作区和目录一一对应：pi 按工作目录保存会话，宿主按会话的工作目录把它归到对应的工作区，没有歧义。以后确实需要多个工作区共用一个目录（按任务分组）时再放开。
-- MVP 1 的工作区：每个项目自动有一个本地工作区；`git worktree list` 识别出的每个 worktree 是一个工作区。新建 worktree 工作区、归档并清理 worktree 放到阶段 1 第 3 步。
+- MVP 1 的工作区：每个项目自动有一个本地工作区；`git worktree list` 识别出的每个 worktree 是一个工作区。新建 worktree 工作区放到阶段 1 第 3 步；归档 worktree 工作区（删掉 worktree 目录、保留分支，可以恢复）提前到 M1.11（2026-10-12 定，见"M1.11 的工作区归档"）。
 - 对话用于和项目无关的提问。pi 必须有工作目录，所以每个对话给一个独立的空目录，agent 写的文件互不干扰；"移到某个项目"以后再做。一个对话就是一个没有 git 的工作空间，和工作区一样可以有多个会话，以后要打开的浏览器页面等内容也放在对话里，所以各个对话互不相干，不挤在一起（2026-10-12 改，原先所有对话是一个容器里的标签页）。
-- Atrium 只保存索引：项目列表（目录、显示名）；工作区（所属项目、本地或 worktree、目录、分支、自定义名称、创建时的起点提交、是否外部、是否归档）；对话的自定义名称；每个工作区和对话打开着哪些标签页、当前是哪一个；会话的归档状态、出错是否已看过。不保存对话内容。
+- Atrium 只保存索引：项目列表（目录、显示名）；工作区（所属项目、本地或 worktree、目录、分支、自定义名称、创建时的起点提交、是否外部、归档的时间和当时的分支与提交）；对话的自定义名称；每个工作区和对话打开着哪些标签页、当前是哪一个；会话的归档状态、出错是否已看过。不保存对话内容。
 
 ```
 ● ● ●                                ▯     ← 窗口按钮、收起侧栏（收起后有等你处理的会话时，展开按钮上加橙点）
@@ -155,7 +155,8 @@ Electron 主进程
 - 工作区行：名称、合并状态、行尾是其中会话的最高优先级状态（空闲时不显示）。"本地""外部"不单独标注，只在悬停提示里说明。合并状态是纯文字标签、不加底框：未提交、待合并前面有橙色小圆点，`↑N`（圆头上箭头图标加数字）用橙色加粗，`✓ 已合并`（合并图标加文字）用绿色，已移除用最淡的灰色。
 - 点击工作区：切过去，恢复它上次激活的标签页；没有打开的会话时显示这个工作区的空状态。
 - 悬停 worktree 工作区出现"查看改动 / 合并"（未合并时）或"清理"（已合并时），阶段 1 第 3 步实现；MVP 1 只读显示合并状态。
-- "···"菜单：重命名；在访达中显示；归档工作区并清理 worktree（阶段 1 第 3 步）。
+- "···"菜单：重命名；在访达中显示；worktree 工作区还有"归档…"（M1.11，见"M1.11 的工作区归档"）。
+- 项目的"···"菜单：重命名、从侧栏移除；项目有归档的工作区时多一项"已归档的工作区"，列出它们、可以恢复（M1.11）。
 
 **对话**
 
@@ -222,7 +223,7 @@ Electron 主进程
 | MVP 1 | 以后 |
 |---|---|
 | 添加项目、从侧栏移除项目（不删除文件） | 新建 worktree 工作区（阶段 1 第 3 步） |
-| 新建对话：侧栏按钮、⌘N，不绑定工作区；新建会话：标签栏的"+"，在当前工作区或对话 | 归档工作区并清理 worktree（阶段 1 第 3 步） |
+| 新建对话：侧栏按钮、⌘N，不绑定工作区；新建会话：标签栏的"+"，在当前工作区或对话；归档 worktree 工作区（删掉目录、保留分支）和恢复（M1.11） | 已合并时一键"清理"（阶段 1 第 3 步） |
 | 重命名、归档会话（标签栏右侧"···"）：归档只在 Atrium 里隐藏，不删除 pi 的会话文件；重命名工作区（工作区"···"）、对话（对话"···"）、项目 | 一个目录多个工作区、置顶、彻底删除、全文搜索 |
 | 搜索工作区和会话（"项目"标题右侧的搜索按钮） | 分叉关系的展示、把对话移到项目里 |
 
@@ -651,7 +652,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **实体**（`packages/protocol`）
 
 - **项目** `Project`：`id`（`prj_…`）、`path`（解析过符号链接的真实路径）、`name`。
-- **工作区** `Workspace`：`id`（`wks_…`）、`projectId`、`kind`（`local` / `worktree`）、`dir`、`alias`（自定义名称，没有为空）、`branch`（检出的分支；detached HEAD 或不是 git 仓库时为空）、`head`（detached 时的短 commit 号）、`external`（不是 Atrium 建的 worktree）、`createdAt`（worktree 的创建时间，本地工作区为空）、`merge`（合并状态，本地工作区和非 git 项目为空）。名称由界面按 `alias ?? branch ?? 目录名` 得出。
+- **工作区** `Workspace`：`id`（`wks_…`）、`projectId`、`kind`（`local` / `worktree`）、`dir`、`alias`（自定义名称，没有为空）、`branch`（检出的分支；detached HEAD 或不是 git 仓库时为空）、`head`（detached 时的短 commit 号）、`external`（不是 Atrium 建的 worktree）、`createdAt`（worktree 的创建时间，本地工作区为空）、`merge`（合并状态，本地工作区和非 git 项目为空）、`archivedAt`（归档的时间，没归档为空；M1.11 加）。归档的工作区 `branch`、`head` 是归档时的，`merge` 为空。名称由界面按 `alias ?? branch ?? 目录名` 得出。
 - **合并状态** `MergeState`：`dirty`、`ahead`、`verdict`（`noChange` / `pending` / `merged` / `removed` / `unknown`）、`reason`（`unknown` 的原因：`git_too_old`、`no_main_branch`、`git_failed`、`base_unknown`）。主干只认项目的覆盖值或 `origin/HEAD`，没有就是 `unknown`（`no_main_branch`），不猜本地分支（2026-10-08 定）。
 - **对话** `Chat`（2026-10-12 加，ADR-0007）：`id`（`cht_<目录名>`）、`dir`、`alias`（自定义名称，没有为空）、`firstSessionId`（没归档的会话里最早建的，没有为空）。名称由界面按 `alias ?? 第一个会话的标题` 得出。宿主扫描 `~/.atrium/chats/` 的子目录得出对话列表，自定义名称存在 `chats.json`。
 - **会话摘要** `SessionSummary`：`sessionId`、`containerId`（工作区或对话的 id；2026-10-12 前对话都是 `chats`）、`name`（pi 的会话名）、`prompt`（第一条用户消息的第一行，去掉 Markdown 符号和首尾空白，最多 200 个字符；没有文字为空）、`file`（会话文件路径，还没写出时为空）、`state`（`draft` / `persisted` / `missing`）、`updatedAt`、`archived`、`running`。标题由界面按 `name ?? prompt` 得出，都为空时草稿显示"新会话"，否则显示"图片"。
@@ -811,6 +812,16 @@ M1.11 的消息图片（协议版本 8，2026-10-12 定）：新增命令 `fetch
 - 会话文件还没写出或已不在、找不到这条消息或这张图、格式不是上面四种时，应答 `image_unavailable`。格式只认这四种，`data:` 地址里不会出现 SVG 这类能带脚本的图。
 - 文件路径只来自目录，不来自客户端；图片数据不进日志和链路。一次只取一张：一张 base64 可能接近 1 MB（宿主到界面方向没有单条上限，界面到宿主才有）。
 
+M1.11 的工作区归档（协议版本 9，2026-10-12 定）：新增命令 `archive_workspace(workspaceId)`、`restore_workspace(workspaceId)`，都应答 `{}`；工作区多了 `archivedAt`；新增错误码 `workspace_is_local`、`workspace_dirty`、`workspace_unsaved_commits`、`worktree_remove_failed`、`worktree_restore_failed`。
+
+- 只有 worktree 工作区能归档，本地工作区应答 `workspace_is_local`。归档会删掉 worktree 目录（`git worktree remove`，不加 `--force`），分支和提交都留在仓库里；被 git 忽略的文件（如 `node_modules`、`.env`）随目录一起删掉，确认框里写明。
+- 不让丢东西：worktree 有未提交的改动（`git status --porcelain` 不为空，含未跟踪的文件）时应答 `workspace_dirty`；处于 detached HEAD、当前提交不在任何分支、远程分支或标签上时应答 `workspace_unsaved_commits`。这两项都在删之前由宿主当场检查，不信界面手里的合并状态。
+- 归档的顺序：当场 `git worktree list --porcelain` 找到这个 worktree，记下分支和完整的提交号；检查上面两项；停掉其中会话的 pi；`git worktree remove -- <目录>`，失败（被锁住、含子模块、这期间又有了改动）应答 `worktree_remove_failed`，只记退出码，会话已停但没归档，打开时照常启动；成功后其中会话全部归档（同 `archive_session`，草稿一并归档），从各客户端的布局里去掉，索引记下归档时间、分支和提交。目录已经不在（合并状态"已移除"）时不跑 `remove`，直接归档。已经归档的再归档应答 `{}`。
+- 归档的工作区仍在列表里（带 `archivedAt`），侧栏、搜索、收件箱都不显示它；不能在里面新建会话（`create_session` 应答 `workspace_not_found`）；扫描不再算它的合并状态。之后同一个目录又出现了 worktree，记录不变，仍算归档，恢复时直接用它。
+- `restore_workspace`：目录已经是这个仓库登记着的 worktree 时只清掉归档标记；否则先 `git worktree prune`（清掉目录已不在的登记，否则同一路径加不上），再 `git worktree add -- <目录> <分支>`，归档时是 detached 的把分支换成完整的提交号（git 拿到的不是分支时，加回的 worktree 就停在这个提交上）。目录被别的东西占了、分支已删或正被别的 worktree 检出时应答 `worktree_restore_failed`。成功后清掉标记、重扫这个项目。其中的会话仍是归档的，从"历史"里打开。没归档的再恢复应答 `{}`。
+- 界面：worktree 工作区的"···"里有"归档…"，合并状态显示有未提交的改动时置灰，悬停说明"有未提交的改动，先提交或丢弃"。点了先弹确认框（每次都弹，因为要删目录）："归档工作区「名称」？"，正文写"会删除 worktree 目录（包括被 git 忽略的文件），分支 xxx 保留；之后可以在项目菜单的"已归档的工作区"里恢复"，detached 时写"提交 abc1234 保留"；其中有会话在运行时另起一行警告"其中 N 个会话正在运行，归档会停止它们"。按钮"取消""归档"，归档进行中按钮写"归档中…"、不能再点；失败时确认框不关，在正文下面说明原因：`workspace_dirty`"有未提交的改动，先提交或丢弃再归档"，`workspace_unsaved_commits`"当前提交不在任何分支上，先建一个分支再归档"，`worktree_remove_failed`"git 没能删除这个 worktree"，`workspace_not_found`"这个工作区已经不在了"，其他"宿主出错了，没有完成"。Esc 或点框外取消。
+- 项目"···"菜单里的"已归档的工作区"展开成一个列表：名称（同侧栏的取名规则）、归档时间（写法同侧栏的最近活动时间，如"昨天"），行尾"恢复"；按归档时间新到旧排。恢复失败在侧栏的问题行说明：`worktree_restore_failed`"没能恢复：目录已被占用，或分支已删除、正被别处检出"。
+
 M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {speed, moreUsage} | null`）：新增命令 `set_fast`，新增事件 `fast_updated`，新增错误码 `fast_unavailable`；会话快照多了 `fast`，模型多了 `fast`，偏好多了 `lastFast`。
 
 ### 状态栏（M1.8，2026-10-10 定）
@@ -917,6 +928,7 @@ M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {sp
 |---|---|
 | `list_projects` / `add_project(path)` / `remove_project(id)` / `rename_project(id, name)` | 项目登记；移除只删索引；与已有项目重名时返回错误 |
 | `list_workspaces(projectId)` / `rename_workspace(workspaceId, name \| null)` / `window_focused()` | 工作区；`null` 恢复为分支名；窗口获得焦点时触发合并状态重算 |
+| `archive_workspace(workspaceId)` / `restore_workspace(workspaceId)` | 归档 worktree 工作区（删目录、保留分支、其中会话归档）、恢复（M1.11） |
 | `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话（M1.5 起由 `subscribe_index` 推来的完整列表取代，见上文"项目、工作区与会话"） |
 | `create_session(containerId)` / `create_chat()` / `open_session(sessionId)` / `rename_chat(chatId, name \| null)` | 新建或打开会话：新会话以工作区或对话的目录为工作目录；新对话新建 `~/.atrium/chats/<目录名>/`；对话改名 |
 | `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |

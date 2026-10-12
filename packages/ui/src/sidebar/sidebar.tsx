@@ -20,6 +20,7 @@ import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { UpdateDot } from "../settings/settings-panel";
 import { piUpdateAvailable } from "../setup/pi-version";
 import { useClock } from "../state/clock";
+import { ArchiveDialog, ArchivedWorkspaces } from "./archive";
 import {
   chatName,
   isDone,
@@ -84,6 +85,7 @@ export function describeProjectError(error: unknown, projects: readonly Project[
   if (error.code === "path_not_found") return "这个目录不存在";
   if (error.code === "chat_not_found") return "这个对话已经不在了";
   if (error.code === "name_taken") return `已经有一个叫「${String(error.params?.["name"] ?? "")}」的项目了`;
+  if (error.code === "worktree_restore_failed") return "没能恢复：目录已被占用，或分支已删除、正被别处检出";
   return "宿主出错了，没有完成";
 }
 
@@ -268,6 +270,7 @@ export function Sidebar({
                 renaming={renaming}
                 setRenaming={setRenaming}
                 run={run}
+                now={now}
               />
             ))}
             {index.ready && index.projects.length === 0 ? (
@@ -487,11 +490,13 @@ function ChatRows({
  * A project's row and, while open, its workspaces' rows.
  *
  * @remarks
- * See `Sidebar`. A collapsed project holding the current workspace is shown selected.
+ * See `Sidebar`. A collapsed project holding the current workspace is shown selected. Archived
+ * workspaces are left out, listed only in the project's menu; archiving one asks first
+ * (SPEC-0001, "M1.11 的工作区归档").
  *
  * @sideEffects Sends commands when used.
- * @param props - The client, the list, the project, whether it is open, and the sidebar's
- * renaming and command helpers.
+ * @param props - The client, the list, the project, whether it is open, the sidebar's renaming
+ * and command helpers, and the time now.
  * @returns The rows.
  */
 function ProjectRows({
@@ -503,6 +508,7 @@ function ProjectRows({
   renaming,
   setRenaming,
   run,
+  now,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
@@ -512,8 +518,12 @@ function ProjectRows({
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
+  readonly now: number;
 }) {
-  const workspaces = sortWorkspaces(index.workspaces.filter((workspace) => workspace.projectId === project.id));
+  const [archiving, setArchiving] = useState<Workspace | null>(null);
+  const own = index.workspaces.filter((workspace) => workspace.projectId === project.id);
+  const workspaces = sortWorkspaces(own.filter((workspace) => workspace.archivedAt === null));
+  const archived = own.filter((workspace) => workspace.archivedAt !== null);
   /**
    * A workspace's status.
    *
@@ -596,6 +606,9 @@ function ProjectRows({
                 >
                   从侧栏移除
                 </button>
+                {archived.length > 0 ? (
+                  <ArchivedWorkspaces client={client} workspaces={archived} now={now} run={run} close={close} />
+                ) : null}
               </>
             )}
           </MenuButton>
@@ -612,9 +625,22 @@ function ProjectRows({
               renaming={renaming === workspace.id}
               setRenaming={setRenaming}
               run={run}
+              onArchive={() => setArchiving(workspace)}
             />
           ))
         : null}
+      {archiving === null ? null : (
+        <ArchiveDialog
+          client={client}
+          workspace={archiving}
+          running={
+            index.sessions.filter(
+              (session) => session.containerId === archiving.id && !session.archived && session.running,
+            ).length
+          }
+          onClose={() => setArchiving(null)}
+        />
+      )}
     </div>
   );
 }
@@ -641,11 +667,12 @@ function workspaceHint(workspace: Workspace): string {
  * One workspace's row: its name, merge state and whether something runs in it.
  *
  * @remarks
- * See `Sidebar`; merge labels follow design-language ("标签").
+ * See `Sidebar`; merge labels follow design-language ("标签"). A worktree's menu can archive it,
+ * except while it has changes not committed (SPEC-0001, "M1.11 的工作区归档").
  *
  * @sideEffects Sends commands when used.
  * @param props - The client, the workspace, whether it is selected, runs or is being renamed,
- * and the sidebar's helpers.
+ * the sidebar's helpers, and how to ask to archive it.
  * @returns The row.
  */
 function WorkspaceRow({
@@ -656,6 +683,7 @@ function WorkspaceRow({
   renaming,
   setRenaming,
   run,
+  onArchive,
 }: {
   readonly client: AtriumClient;
   readonly workspace: Workspace;
@@ -664,6 +692,7 @@ function WorkspaceRow({
   readonly renaming: boolean;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
+  readonly onArchive: () => void;
 }) {
   const name = workspaceName(workspace);
   return (
@@ -704,17 +733,34 @@ function WorkspaceRow({
       >
         <MenuButton label={`工作区 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
           {(close) => (
-            <button
-              type="button"
-              role="menuitem"
-              className={MENU_ITEM}
-              onClick={() => {
-                close();
-                setRenaming(workspace.id);
-              }}
-            >
-              重命名
-            </button>
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className={MENU_ITEM}
+                onClick={() => {
+                  close();
+                  setRenaming(workspace.id);
+                }}
+              >
+                重命名
+              </button>
+              {workspace.kind === "worktree" ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+                  disabled={workspace.merge?.dirty === true}
+                  title={workspace.merge?.dirty === true ? "有未提交的改动，先提交或丢弃" : undefined}
+                  onClick={() => {
+                    close();
+                    onArchive();
+                  }}
+                >
+                  归档…
+                </button>
+              ) : null}
+            </>
           )}
         </MenuButton>
       </span>
@@ -794,7 +840,7 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
  *
  * @remarks
  * Workspace names, chat names and session titles, ignoring case (SPEC-0001, "搜索"); archived
- * sessions, and chats with nothing else, are left out. Sessions show where they live on a second
+ * workspaces and sessions, and chats with nothing else, are left out. Sessions show where they live on a second
  * line.
  *
  * @sideEffects Sends commands when used.
@@ -813,7 +859,9 @@ function SearchResults({
   readonly now: number;
 }) {
   const needle = query.toLowerCase();
-  const workspaces = index.workspaces.filter((workspace) => workspaceName(workspace).toLowerCase().includes(needle));
+  const workspaces = index.workspaces.filter(
+    (workspace) => workspace.archivedAt === null && workspaceName(workspace).toLowerCase().includes(needle),
+  );
   const chats = listedChats(index).filter((listed) =>
     chatName(listed.chat, index.sessions).toLowerCase().includes(needle),
   );
