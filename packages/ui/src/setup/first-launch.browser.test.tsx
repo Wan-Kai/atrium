@@ -32,7 +32,7 @@ const CONNECTED = {
 const NOW = 1_800_000_000_000;
 
 /** A clock stopped at {@link NOW}. */
-const CLOCK: UiClock = { now: () => NOW, every: () => () => undefined };
+const CLOCK: UiClock = { now: () => NOW, every: () => () => undefined, after: () => () => undefined };
 
 /** OpenAI, with a subscription and a key, signed in nowhere. */
 const OPENAI: SetupProvider = {

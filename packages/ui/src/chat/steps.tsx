@@ -1,46 +1,263 @@
 import type { Step } from "@atrium/protocol";
-import {
-  ArrowBendDownRight,
-  ArrowClockwise,
-  Brain,
-  ChatText,
-  Check,
-  CircleNotch,
-  FilePlus,
-  FileText,
-  MagnifyingGlass,
-  PencilSimple,
-  Terminal,
-  Wrench,
-} from "../design/icons";
-import { type ReactNode, createContext, useContext, useEffect, useState } from "react";
+import { Check, MagnifyingGlass, Stop, X } from "../design/icons";
+import { type ReactNode, createContext, useContext, useEffect, useId, useState } from "react";
 import { type DisplayMode, useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
-import { type ProcessRow, type ToolStep, describeStep, parseDisplayDiff } from "./turn-layout";
+import {
+  type ProcessRow,
+  type ToolStep,
+  describeExplore,
+  describeStep,
+  exploredFiles,
+  parseDisplayDiff,
+} from "./turn-layout";
 import { useRevealedText } from "./use-revealed-text";
 
+/** What stands on the rail for a row (design-language, "消息流 · 过程"). */
+export type RailNode = "dot" | "search" | "live" | "dead" | "steer" | "done" | "stopped" | "failed";
+
+/** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
+const NODE_GAP: Readonly<Record<RailNode, number>> = {
+  dot: 7,
+  live: 7,
+  dead: 7,
+  steer: 7,
+  search: 11,
+  done: 12,
+  stopped: 12,
+  failed: 12,
+};
+
 /**
- * A step's icon.
+ * A node's glyph.
  *
  * @remarks
- * Each kind of step has its own glyph; a step in progress spins (design-language, "图标").
+ * Each state has its own shape, not only its own colour (design-language, "原则" 3): a grey dot
+ * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer,
+ * a filled blue tick for the finish.
  *
  * @sideEffects none
- * @param props - The step and whether it is in progress.
- * @returns The icon.
+ * @param props - The node.
+ * @returns The glyph.
  */
-function StepIcon({ step, live }: { readonly step: Step; readonly live: boolean }) {
-  if (live) return <CircleNotch size={15} className="animate-spin text-[var(--tint)]" />;
-  if (step.kind === "thinking") return <Brain size={15} />;
-  if (step.kind === "text") return <ChatText size={15} />;
-  if (step.kind === "steer") return <ArrowBendDownRight size={15} />;
-  if (step.kind === "retry") return <ArrowClockwise size={15} />;
-  if (step.tool === "bash") return <Terminal size={15} />;
-  if (step.tool === "read") return <FileText size={15} />;
-  if (step.tool === "edit") return <PencilSimple size={15} />;
-  if (step.tool === "write") return <FilePlus size={15} />;
-  if (step.tool === "grep" || step.tool === "find" || step.tool === "ls") return <MagnifyingGlass size={15} />;
-  return <Wrench size={15} />;
+function NodeGlyph({ node }: { readonly node: RailNode }) {
+  if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
+  if (node === "dead") return <X size={10} weight="bold" className="text-[var(--text-dim)]" />;
+  if (node === "steer") {
+    return <span className="size-2 rounded-full bg-[var(--main)] shadow-[inset_0_0_0_1.5px_var(--tint)]" />;
+  }
+  if (node === "done" || node === "failed") {
+    return (
+      <span
+        className={`grid size-4 place-items-center rounded-full text-[var(--main)] ${
+          node === "done" ? "bg-[var(--tint)]" : "bg-[var(--danger)]"
+        }`}
+      >
+        {node === "done" ? <Check size={11} weight="bold" /> : <X size={9} weight="bold" />}
+      </span>
+    );
+  }
+  if (node === "stopped") return <Stop size={15} className="text-[var(--attn-text)]" />;
+  if (node === "live") {
+    return (
+      <>
+        <span className="size-1.5 rounded-full bg-[var(--tint)]" />
+        <svg
+          viewBox="0 0 16 16"
+          className="absolute top-1/2 left-1/2 -mt-2 -ml-2 size-4 animate-spin text-[var(--tint)] [animation-duration:0.9s]"
+          data-testid="rail-live"
+        >
+          <circle
+            cx="8"
+            cy="8"
+            r="6.25"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeDasharray="26 40"
+          />
+        </svg>
+      </>
+    );
+  }
+  return <span className="size-1.5 rounded-full bg-[var(--node)]" />;
+}
+
+/**
+ * A row's part of the rail: the line above and below its node, and the node.
+ *
+ * @remarks
+ * The line breaks a little around each node (design-language, "消息流 · 过程"). A dead end and a
+ * steer sit one step to the right, off the main line, which runs on beside them; a dead end
+ * curves off it dashed, a steer drops in from above and curves back into it. The first row has
+ * no line above, the last none below.
+ *
+ * @sideEffects none
+ * @param props - The node, and whether the row is the rail's first or last.
+ * @returns The marks, absolutely placed in the row's left 36px.
+ */
+export function RailMarks({
+  node,
+  first,
+  last,
+}: {
+  readonly node: RailNode;
+  readonly first: boolean;
+  readonly last: boolean;
+}) {
+  const fadeId = useId();
+  const branch = node === "dead" || node === "steer";
+  const gap = NODE_GAP[node];
+  let line: ReactNode;
+  if (branch) {
+    line = (
+      <>
+        {first && last ? null : (
+          <span
+            aria-hidden
+            className="absolute left-[10px] w-px bg-[var(--rail)]"
+            style={{ top: first ? 15 : 0, ...(last ? { height: 15 } : { bottom: 0 }) }}
+          />
+        )}
+        <svg aria-hidden className="atrium-seg-up absolute top-0 left-0 h-[30px] w-9 overflow-visible">
+          {node === "dead" ? (
+            first ? null : (
+              <path
+                d="M10.5 -2 C10.5 6, 24.5 3, 24.5 10"
+                fill="none"
+                stroke="var(--branch)"
+                strokeDasharray="2 3"
+                strokeLinecap="round"
+              />
+            )
+          ) : (
+            <>
+              <defs>
+                <linearGradient id={fadeId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0" stopColor="var(--tint)" stopOpacity="0" />
+                  <stop offset="1" stopColor="var(--tint)" stopOpacity="0.55" />
+                </linearGradient>
+              </defs>
+              <path d="M24.5 -2 L24.5 10" fill="none" stroke={`url(#${fadeId})`} />
+              {last ? null : (
+                <path
+                  d="M24.5 20 C24.5 27, 10.5 25, 10.5 32"
+                  fill="none"
+                  stroke="var(--branch)"
+                  strokeLinecap="round"
+                />
+              )}
+            </>
+          )}
+        </svg>
+      </>
+    );
+  } else {
+    line = (
+      <>
+        {first ? null : (
+          <span
+            aria-hidden
+            className="atrium-seg-up absolute top-0 left-[10px] w-px bg-[var(--rail)]"
+            style={{ height: 15 - gap }}
+          />
+        )}
+        {last ? null : (
+          <span aria-hidden className="absolute bottom-0 left-[10px] w-px bg-[var(--rail)]" style={{ top: 15 + gap }} />
+        )}
+      </>
+    );
+  }
+  return (
+    <>
+      {line}
+      <span
+        aria-hidden
+        data-testid="rail-node"
+        data-node={node}
+        className="atrium-node absolute top-[15px] grid -translate-x-1/2 -translate-y-1/2 place-items-center"
+        style={{ left: branch ? 24.5 : 10.5 }}
+      >
+        <NodeGlyph node={node} />
+      </span>
+    </>
+  );
+}
+
+/** Type marks for the file chips, by extension. */
+const FILE_TYPES: Readonly<Record<string, string>> = {
+  ts: "TS",
+  tsx: "TSX",
+  mts: "TS",
+  cts: "TS",
+  js: "JS",
+  jsx: "JSX",
+  mjs: "JS",
+  cjs: "JS",
+  json: "{}",
+  md: "MD",
+  css: "CSS",
+  html: "HTML",
+  py: "PY",
+  rs: "RS",
+  go: "GO",
+  sh: "SH",
+  yml: "YML",
+  yaml: "YML",
+  toml: "TOML",
+};
+
+/**
+ * A file as a chip: its type, its name, and what was done to it.
+ *
+ * @remarks
+ * The name only; the whole path shows on hover (design-language, "文件胶囊"). TypeScript keeps
+ * its blue (JavaScript shares it), other types are grey.
+ *
+ * @sideEffects none
+ * @param props - The path, and an edit's line counts.
+ * @returns The chip.
+ */
+function FileChip({
+  path,
+  added = null,
+  removed = null,
+}: {
+  readonly path: string;
+  readonly added?: number | null;
+  readonly removed?: number | null;
+}) {
+  const name = path.split("/").at(-1) ?? path;
+  const dot = name.lastIndexOf(".");
+  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
+  const type = FILE_TYPES[extension] ?? null;
+  const tone =
+    type === "TSX" || type === "JSX"
+      ? "text-[var(--file-tsx)]"
+      : type === "TS" || type === "JS"
+        ? "text-[var(--file-ts)]"
+        : "text-[var(--text-muted)]";
+  return (
+    <span
+      title={path}
+      data-testid="file-chip"
+      className="inline-flex h-[22px] min-w-0 flex-none items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] pr-2.5 pl-2 text-[length:var(--fs-sm)] text-[var(--text-2)] shadow-[var(--chip-shadow)]"
+    >
+      {type === null ? null : (
+        <span className={`font-[family-name:var(--font-mono)] text-[8.5px] leading-none font-bold ${tone}`}>
+          {type}
+        </span>
+      )}
+      <span className="truncate">{name}</span>
+      {added === null || removed === null ? null : (
+        <span className="text-[length:var(--fs-xs)] tabular-nums">
+          <span className="text-[var(--ok-text)]">+{added}</span>{" "}
+          <span className="text-[var(--danger)]">−{removed}</span>
+        </span>
+      )}
+    </span>
+  );
 }
 
 /**
@@ -242,32 +459,154 @@ export function StreamedText({ text, streaming }: { readonly text: string; reado
   return <Markdown text={useRevealedText(text, streaming)} streaming={streaming} />;
 }
 
+/** Where a row sits on the rail, and whether it has just appeared. */
+interface RailPlace {
+  /** No line above: the first row. */
+  readonly first: boolean;
+  /** No line below: the last row while nothing follows. */
+  readonly last: boolean;
+  /** Plays the row's entrance: it arrived while the turn runs. */
+  readonly enter: boolean;
+}
+
+/** A row standing alone, without the rail's line: folded steers, the calls inside an explore row. */
+const ALONE: RailPlace = { first: true, last: true, enter: false };
+
 /**
- * One row of the process: "图标 + 动词 · 对象", and its detail when open.
+ * The words of a step's row: the verb, then what it worked on.
+ *
+ * @remarks
+ * "动词 + 对象" (SPEC-0001, "过程的呈现"). Files are chips, an edit's chip carrying its line
+ * counts; a command is monospaced; text said in the middle of a turn is shown as said, without a
+ * verb. A step going on shimmers.
+ *
+ * @sideEffects none
+ * @param props - The step and whether it is going on.
+ * @returns The words.
+ */
+function StepWords({ step, live }: { readonly step: Step; readonly live: boolean }) {
+  const line = describeStep(step, live);
+  const shimmer = live ? "atrium-shimmer" : "";
+  if (step.kind === "text") {
+    return <span className={`min-w-0 truncate text-[var(--text-3)] ${shimmer}`}>{line.object}</span>;
+  }
+  const failed = step.kind === "tool" && step.status === "failed";
+  const tone =
+    failed || step.kind === "retry"
+      ? "text-[var(--text-dim)]"
+      : step.kind === "steer"
+        ? "text-[var(--tint)]"
+        : step.kind === "thinking"
+          ? "text-[var(--text-muted)]"
+          : "text-[var(--text-2)]";
+  const verb = <span className={`flex-none ${tone} ${shimmer}`}>{line.verb}</span>;
+  const details = step.kind === "tool" ? step.details : null;
+  if (step.kind === "tool" && (details?.tool === "edit" || details?.tool === "write" || details?.tool === "read")) {
+    const counted = details.tool === "edit" && details.diff !== null && step.status === "done";
+    return (
+      <>
+        {verb} <FileChip path={details.path} {...(counted ? { added: details.added, removed: details.removed } : {})} />
+        {details.tool === "read" && details.offset !== null ? " " : null}
+        {details.tool === "read" && details.offset !== null ? (
+          <span className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">第 {details.offset} 行起</span>
+        ) : null}
+      </>
+    );
+  }
+  const object =
+    line.object === "" ? null : details?.tool === "bash" ? (
+      <span
+        className={`min-w-0 truncate font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] ${
+          failed ? "text-[var(--text-dim)]" : "text-[var(--text-muted)]"
+        }`}
+      >
+        {line.object}
+      </span>
+    ) : (
+      <>
+        <span className="text-[var(--text-dim)]">·</span>{" "}
+        <span className="min-w-0 truncate text-[var(--text-muted)]">{line.object}</span>
+      </>
+    );
+  return (
+    <>
+      {verb}
+      {object === null ? null : " "}
+      {object}
+    </>
+  );
+}
+
+/**
+ * How a tool step ended, at the row's right: "✓ 通过", "失败".
+ *
+ * @remarks
+ * An edit's counts are in its chip already.
+ *
+ * @sideEffects none
+ * @param props - The step.
+ * @returns The end, or nothing.
+ */
+function StepEnd({ step }: { readonly step: Step }) {
+  if (step.kind !== "tool") return null;
+  const end = describeStep(step, false).end;
+  if (end === null || (step.details?.tool === "edit" && step.status === "done")) return null;
+  return (
+    <span className="ml-auto flex flex-none items-center gap-1 pl-3 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
+      {end === "通过" ? <Check size={12} /> : step.status === "failed" ? <X size={11} /> : null}
+      {end}
+    </span>
+  );
+}
+
+/**
+ * The rail's node for a step.
+ *
+ * @remarks
+ * See `RailMarks`: going on, a failed call (a dead end), a steer, or done.
+ *
+ * @sideEffects none
+ * @param step - The step.
+ * @param live - Whether it is going on.
+ * @returns The node.
+ */
+function stepNode(step: Step, live: boolean): RailNode {
+  if (step.kind === "tool" && step.status === "failed") return "dead";
+  if (step.kind === "steer") return "steer";
+  return live ? "live" : "dot";
+}
+
+/** The row's line of words: a button that opens its detail, the width of the content column. */
+const LINE_CLASS =
+  "atrium-step-line -mx-1.5 flex min-h-[30px] w-[calc(100%+12px)] min-w-0 items-center gap-1.5 rounded-[var(--r)] px-1.5 text-left text-[length:var(--fs-meta)] hover:bg-[var(--hover)]";
+
+/**
+ * One step on the rail, and its detail when open.
  *
  * @remarks
  * Clicking a row opens or closes its detail (SPEC-0001, "过程的呈现"); the display mode sets
  * where it starts. While a step is going on, thinking and a running command show their detail
- * as it comes. Failed steps are red, steers in the accent colour.
+ * as it comes. A failed call branches off as a dead end, a steer joins from the side.
  *
  * @sideEffects Fetches the step whole when it shows and arrived as a preview.
- * @param props - The step's turn, the step and whether it is the one going on now.
+ * @param props - The step's turn, the step, whether it is the one going on now, and its place.
  * @returns The row.
  */
-function StepRow({ turnId, step, live }: { readonly turnId: string; readonly step: Step; readonly live: boolean }) {
+function StepRow({
+  turnId,
+  step,
+  live,
+  place,
+}: {
+  readonly turnId: string;
+  readonly step: Step;
+  readonly live: boolean;
+  readonly place: RailPlace;
+}) {
   const { mode } = useDisplayMode();
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? openByDefault(mode, step);
   useWholeStep(turnId, step, open || live);
-  const line = describeStep(step, live);
-  const failed = step.kind === "tool" && step.status === "failed";
-  const tone = failed
-    ? "text-[var(--danger)]"
-    : step.kind === "steer"
-      ? "text-[var(--tint)]"
-      : step.kind === "retry"
-        ? "text-[var(--text-dim)]"
-        : "text-[var(--text-2)]";
   let detail: ReactNode = null;
   if (step.kind === "thinking" || step.kind === "text") {
     if (open || live) {
@@ -283,89 +622,82 @@ function StepRow({ turnId, step, live }: { readonly turnId: string; readonly ste
     detail = <ToolDetail step={step} />;
   }
   return (
-    <div data-testid="step" data-kind={step.kind} data-open={open}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setToggled(!open)}
-        className={`-mx-1.5 flex min-h-[30px] w-[calc(100%+12px)] items-center gap-2 rounded-[var(--r)] px-1.5 text-left text-[length:var(--fs-meta)] hover:bg-[var(--hover)] ${tone}`}
-      >
-        <span className={failed ? "" : step.kind === "steer" ? "" : "text-[var(--text-muted)]"}>
-          <StepIcon step={step} live={live} />
-        </span>
-        <span className={`flex-none ${live ? "atrium-shimmer" : ""}`}>{line.verb}</span>
-        {line.object === "" ? null : (
-          <>
-            <span className="text-[var(--text-dim)]">·</span>
-            <span
-              className={`min-w-0 truncate text-[var(--text-muted)] ${
-                step.kind === "tool" && step.tool === "bash"
-                  ? "font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)]"
-                  : ""
-              }`}
-            >
-              {line.object}
-            </span>
-          </>
-        )}
-        {line.end === null ? null : (
-          <span className="ml-auto flex flex-none items-center gap-1.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
-            {line.end === "通过" ? <Check size={12} /> : null}
-            {line.end}
-          </span>
-        )}
+    <div
+      className={`relative min-w-0 pl-9 ${place.enter ? "atrium-step-enter" : ""}`}
+      data-testid="step"
+      data-kind={step.kind}
+      data-open={open}
+      data-rail-row
+    >
+      <RailMarks node={stepNode(step, live)} first={place.first} last={place.last} />
+      <button type="button" aria-expanded={open} onClick={() => setToggled(!open)} className={LINE_CLASS}>
+        <StepWords step={step} live={live} /> <StepEnd step={step} />
       </button>
       {detail}
     </div>
   );
 }
 
+/** How many read files an explore row shows as chips before "+N 个". */
+const CHIPS_SHOWN = 5;
+
 /**
- * Several read-only tool calls in a row, as one row: "探索 · 读了 3 个文件，搜索了 1 次".
+ * Several read-only tool calls in a row, as one: "探索了代码库 · 读了 3 个文件，搜索了 1 次".
  *
  * @remarks
- * Opening it lists each call, each of which opens like any step (SPEC-0001, "显示模式").
+ * The files read sit under it as chips, at most five then "+N 个" (SPEC-0001, "显示模式").
+ * Opening it lists each call, each of which opens like any step.
  *
  * @sideEffects none
- * @param props - The calls' turn, the calls, and whether any of them is going on.
+ * @param props - The calls' turn, the calls, whether any of them is going on, and its place.
  * @returns The row.
  */
 function ExploreRow({
   turnId,
   steps,
   live,
+  place,
 }: {
   readonly turnId: string;
   readonly steps: readonly ToolStep[];
   readonly live: boolean;
+  readonly place: RailPlace;
 }) {
   const { mode } = useDisplayMode();
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? mode === "detailed";
-  const reads = steps.filter((step) => step.tool === "read").length;
-  const searches = steps.length - reads;
-  const summary = [reads > 0 ? `读了 ${reads} 个文件` : null, searches > 0 ? `搜索了 ${searches} 次` : null]
-    .filter((part) => part !== null)
-    .join("，");
+  const line = describeExplore(steps, live);
+  const files = exploredFiles(steps);
   return (
-    <div data-testid="step" data-kind="explore" data-open={open}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setToggled(!open)}
-        className="-mx-1.5 flex min-h-[30px] w-[calc(100%+12px)] items-center gap-2 rounded-[var(--r)] px-1.5 text-left text-[length:var(--fs-meta)] text-[var(--text-2)] hover:bg-[var(--hover)]"
-      >
-        <span className="text-[var(--text-muted)]">
-          {live ? <CircleNotch size={15} className="animate-spin text-[var(--tint)]" /> : <MagnifyingGlass size={15} />}
-        </span>
-        <span className="flex-none">探索</span>
-        <span className="text-[var(--text-dim)]">·</span>
-        <span className="min-w-0 truncate text-[var(--text-muted)]">{summary}</span>
+    <div
+      className={`relative min-w-0 pl-9 ${place.enter ? "atrium-step-enter" : ""}`}
+      data-testid="step"
+      data-kind="explore"
+      data-open={open}
+      data-rail-row
+    >
+      <RailMarks node={live ? "live" : "search"} first={place.first} last={place.last} />
+      <button type="button" aria-expanded={open} onClick={() => setToggled(!open)} className={LINE_CLASS}>
+        <span className={`flex-none text-[var(--text-2)] ${live ? "atrium-shimmer" : ""}`}>{line.verb}</span>{" "}
+        <span className="text-[var(--text-dim)]">·</span>{" "}
+        <span className="min-w-0 truncate text-[var(--text-muted)]">{line.object}</span>
       </button>
+      {files.length === 0 ? null : (
+        <div className="flex flex-wrap gap-1.5 pt-0.5 pb-2" data-testid="explored-files">
+          {files.slice(0, CHIPS_SHOWN).map((path) => (
+            <FileChip key={path} path={path} />
+          ))}
+          {files.length > CHIPS_SHOWN ? (
+            <span className="self-center pl-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+              +{files.length - CHIPS_SHOWN} 个
+            </span>
+          ) : null}
+        </div>
+      )}
       {open ? (
-        <div className="ml-6">
+        <div className="pb-1">
           {steps.map((step) => (
-            <StepRow key={step.id} turnId={turnId} step={step} live={live && step.status === "running"} />
+            <StepRow key={step.id} turnId={turnId} step={step} live={live && step.status === "running"} place={ALONE} />
           ))}
         </div>
       ) : null}
@@ -374,24 +706,28 @@ function ExploreRow({
 }
 
 /**
- * One row of a turn's process.
+ * One row of a turn's process on the rail.
  *
  * @remarks
  * Dispatches between a single step and an explore group.
  *
  * @sideEffects none
- * @param props - The row's turn, the row and which steps are going on now.
+ * @param props - The row's turn, the row, which steps are going on now, and its place.
  * @returns The row.
  */
 export function ProcessRowView({
   turnId,
   row,
   isLive,
+  place = ALONE,
 }: {
   readonly turnId: string;
   readonly row: ProcessRow;
   readonly isLive: (step: Step) => boolean;
+  readonly place?: RailPlace;
 }) {
-  if (row.kind === "explore") return <ExploreRow turnId={turnId} steps={row.steps} live={row.steps.some(isLive)} />;
-  return <StepRow turnId={turnId} step={row.step} live={isLive(row.step)} />;
+  if (row.kind === "explore") {
+    return <ExploreRow turnId={turnId} steps={row.steps} live={row.steps.some(isLive)} place={place} />;
+  }
+  return <StepRow turnId={turnId} step={row.step} live={isLive(row.step)} place={place} />;
 }

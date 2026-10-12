@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   type ToolStep,
   countProcess,
+  describeExplore,
   describeStep,
+  exploredFiles,
+  finishParts,
   formatDuration,
   formatTokens,
   hostNoticeText,
@@ -195,7 +198,7 @@ describe("describeStep", () => {
       end: null,
     });
     expect(describeStep({ kind: "steer", id: "1", text: "also b" }, false)).toStrictEqual({
-      verb: "插话已送达",
+      verb: "你插话",
       object: "also b",
       end: null,
     });
@@ -211,21 +214,32 @@ describe("describeStep", () => {
     });
   });
 
-  it("describes each built-in tool by what it did and how it ended", () => {
+  it("describes each built-in tool by what it did, or is doing, and how it ended", () => {
     const bash = { tool: "bash", command: "pnpm test" } as const;
     const read = { tool: "read", path: "a.ts", offset: null, limit: null } as const;
     const edit = { tool: "edit", path: "a.ts", diff: "+1 x", added: 1, removed: 0 } as const;
     const write = { tool: "write", path: "b.ts", content: "x" } as const;
 
     expect(describeStep(tool("0", "bash", "done", bash), false)).toStrictEqual({
-      verb: "运行",
+      verb: "运行了",
       object: "pnpm test",
       end: "通过",
     });
     expect(describeStep(tool("0", "bash", "failed", bash), false).end).toBe("失败");
-    expect(describeStep(tool("0", "bash", "running", bash), true).end).toBe("运行中");
+    expect(describeStep(tool("0", "bash", "running", bash), true)).toStrictEqual({
+      verb: "正在运行",
+      object: "pnpm test",
+      end: null,
+    });
+    expect(describeStep(tool("0", "read", "running", read), true).verb).toBe("正在读");
+    expect(describeStep(tool("0", "edit", "running", edit), true)).toStrictEqual({
+      verb: "正在编辑",
+      object: "a.ts",
+      end: null,
+    });
+    expect(describeStep(tool("0", "write", "running", write), true).verb).toBe("正在写入");
     expect(describeStep(tool("0", "read", "done", read), false)).toStrictEqual({
-      verb: "读取",
+      verb: "读了",
       object: "a.ts",
       end: null,
     });
@@ -233,14 +247,14 @@ describe("describeStep", () => {
       "a.ts 第 40 行起",
     );
     expect(describeStep(tool("0", "edit", "done", edit), false)).toStrictEqual({
-      verb: "编辑",
+      verb: "编辑了",
       object: "a.ts",
       end: "+1 −0",
     });
     expect(describeStep(tool("0", "edit", "done", { ...edit, diff: null }), false).end).toBeNull();
     expect(describeStep(tool("0", "edit", "unfinished", edit), false).end).toBe("未完成");
     expect(describeStep(tool("0", "write", "done", write), false)).toStrictEqual({
-      verb: "写入",
+      verb: "写入了",
       object: "b.ts",
       end: null,
     });
@@ -266,8 +280,64 @@ describe("describeStep", () => {
     expect(describeStep({ ...tool("0", "grep", "running"), args: { pattern: "y" } }, true)).toStrictEqual({
       verb: "grep",
       object: '{"pattern":"y"}',
-      end: "运行中",
+      end: null,
     });
+  });
+});
+
+describe("describeExplore", () => {
+  it("says what looking around came to, and that it is going on while live", () => {
+    const read = { tool: "read", path: "a.ts", offset: null, limit: null } as const;
+    const steps = [
+      tool("0", "read", "done", read),
+      tool("1", "grep"),
+      tool("2", "read", "done", read),
+      tool("3", "ls"),
+    ];
+
+    expect(describeExplore(steps, false)).toStrictEqual({
+      verb: "探索了代码库",
+      object: "读了 2 个文件，搜索了 2 次",
+      end: null,
+    });
+    expect(describeExplore(steps, true).verb).toBe("正在探索代码库");
+    expect(describeExplore(steps.slice(0, 1), false).object).toBe("读了 1 个文件");
+    expect(describeExplore([tool("0", "grep"), tool("1", "find")], false).object).toBe("搜索了 2 次");
+  });
+});
+
+describe("exploredFiles", () => {
+  it("lists the files read, each once, in the order first read", () => {
+    /** A read of `path`. */
+    const read = (id: string, path: string) =>
+      tool(id, "read", "done", { tool: "read", path, offset: null, limit: null });
+
+    expect(exploredFiles([read("0", "b.ts"), tool("1", "grep"), read("2", "a.ts"), read("3", "b.ts")])).toStrictEqual([
+      "b.ts",
+      "a.ts",
+    ]);
+  });
+});
+
+describe("finishParts", () => {
+  it("names what the turn changed and the commands that failed, only those that happened", () => {
+    const failed = tool("0", "bash", "failed", { tool: "bash", command: "x" });
+
+    expect(
+      finishParts(
+        turn([failed, failed], {
+          changes: [
+            { path: "a.ts", added: 30, removed: 4 },
+            { path: "b.ts", added: 6, removed: 2 },
+            { path: "c.ts", added: null, removed: null },
+          ],
+        }),
+      ),
+    ).toStrictEqual(["改了 3 个文件 +36 −6", "2 条命令没走通"]);
+    expect(finishParts(turn([], { changes: [{ path: "c.ts", added: null, removed: null }] }))).toStrictEqual([
+      "改了 1 个文件",
+    ]);
+    expect(finishParts(turn([tool("0", "bash", "done", { tool: "bash", command: "x" })]))).toStrictEqual([]);
   });
 });
 
@@ -281,7 +351,7 @@ describe("transcriptMarkdown", () => {
     ];
 
     expect(transcriptMarkdown([turn(steps)])).toBe(
-      "> do it\n\n- 思考了 2 秒 · Plan\n- 读取 · a.ts\n- grep · {}\n\ndone\n",
+      "> do it\n\n- 思考了 2 秒 · Plan\n- 读了 · a.ts\n- grep · {}\n\ndone\n",
     );
   });
 
@@ -295,7 +365,7 @@ describe("transcriptMarkdown", () => {
         turn([], { outcome: "failed", error: "429" }),
       ]),
     ).toBe(
-      "> list\n> files\n\n- 运行 · ls（通过）\n\n**Done.**\n\n---\n\n> 上下文已压缩 · 压缩前 152K tokens\n\n---\n\n> do it\n\n> 出错：429\n",
+      "> list\n> files\n\n- 运行了 · ls（通过）\n\n**Done.**\n\n---\n\n> 上下文已压缩 · 压缩前 152K tokens\n\n---\n\n> do it\n\n> 出错：429\n",
     );
   });
 });

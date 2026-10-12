@@ -152,6 +152,7 @@ describe("messages", () => {
         ticks.push(tick);
         return () => ticks.splice(ticks.indexOf(tick), 1);
       },
+      after: () => () => undefined,
     };
     const screen = await render(
       <ClockContext value={clock}>

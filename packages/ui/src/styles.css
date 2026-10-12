@@ -108,6 +108,58 @@ body {
   }
 }
 
+/* The process rail (design-language, "动效 · 过程轨道"). A new step: its node pops in, the line
+   above grows down to it, its words rise 6px and fade in a little later. */
+@keyframes atrium-node-in {
+  from {
+    scale: 0.3;
+    opacity: 0;
+  }
+}
+
+@keyframes atrium-seg-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes atrium-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.atrium-step-enter > .atrium-node {
+  animation: atrium-node-in 0.4s cubic-bezier(0.2, 0.9, 0.25, 1.3) both;
+}
+
+.atrium-step-enter > .atrium-seg-up {
+  transform-origin: top;
+  animation: atrium-seg-grow 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.atrium-step-enter > .atrium-step-line {
+  animation: atrium-rise-in 0.38s cubic-bezier(0.32, 0.72, 0, 1) 0.06s both;
+}
+
+/* The finished header's chevron turns from ⌄ to › as the process folds. */
+.atrium-fold-chevron {
+  transition: rotate 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+
+/* The folded header's summary comes in from 4px to the left once the fold is well under way. */
+@keyframes atrium-summary-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+}
+
+.atrium-fold-summary {
+  animation: atrium-summary-in 0.32s cubic-bezier(0.32, 0.72, 0, 1) 0.22s both;
+}
+
 /* The model button and the thinking level box (design-language, "点阵", "推理强度框"). Text on the
    dots gets a shadow of the background so it stays clear. */
 .atrium-effort-box:hover {
