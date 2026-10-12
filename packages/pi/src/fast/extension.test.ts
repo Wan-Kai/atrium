@@ -302,6 +302,16 @@ describe("atriumFast", () => {
     },
   );
 
+  it("keeps a /codex that does not end the base address", async () => {
+    const list = await server();
+
+    await load().command.run("tiers", codex(`${list.baseUrl}/codex/v2`).ctx);
+
+    expect(list.requests.map(({ url }) => url)).toStrictEqual([
+      "/backend-api/codex/v2/codex/models?client_version=99.0.0",
+    ]);
+  });
+
   it("asks at the login's base address when pi gives one", async () => {
     const list = await server();
 

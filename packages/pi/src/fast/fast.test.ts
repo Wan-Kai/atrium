@@ -76,6 +76,12 @@ describe("tiersFromModelList", () => {
         { slug: "silent", service_tiers: [{ id: "priority" }] },
         { slug: "huge", service_tiers: [{ id: "priority", description: "500x speed" }] },
         { slug: "still", service_tiers: [{ id: "priority", description: "0x speed" }] },
+        { slug: "tens", service_tiers: [{ id: "priority", description: "10x speed" }] },
+        { slug: "most", service_tiers: [{ id: "priority", description: "100x speed" }] },
+        { slug: "fine", service_tiers: [{ id: "priority", description: "1.25x speed" }] },
+        { slug: "spaced", service_tiers: [{ id: "priority", description: "2 x  speed" }] },
+        { slug: "boxed", service_tiers: [{ id: "priority", description: ["2x speed, increased usage"] }] },
+        { slug: "loose", service_tiers: ["priority", null, 5] },
         { slug: "list", service_tiers: "priority" },
       ],
     };
@@ -91,6 +97,12 @@ describe("tiersFromModelList", () => {
       silent: { speed: null, moreUsage: false },
       huge: { speed: null, moreUsage: false },
       still: { speed: null, moreUsage: false },
+      tens: { speed: 10, moreUsage: false },
+      most: { speed: 100, moreUsage: false },
+      fine: { speed: 1.25, moreUsage: false },
+      spaced: { speed: 2, moreUsage: false },
+      boxed: { speed: null, moreUsage: false },
+      loose: null,
       list: null,
     });
   });

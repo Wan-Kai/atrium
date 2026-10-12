@@ -289,7 +289,10 @@ const CODEX_RULES = {
     },
   },
   get_state: { data: { model: gpt, thinkingLevel: "off", sessionId: "probe" } },
-  get_commands: { data: { commands: [SWITCH] } },
+  // pi lists the switch among its other commands.
+  get_commands: {
+    data: { commands: [{ name: "review", description: "Reviews the change", source: "prompt" }, SWITCH] },
+  },
 };
 
 /**
@@ -423,6 +426,20 @@ describe("queryModels with the Fast extension", () => {
     expect(logs.filter((log) => log.message === "fast tiers unavailable").map((log) => log.fields)).toStrictEqual([
       { failure },
     ]);
+    expect(open.get("pi-process")).toBe(0);
+  });
+
+  it("stops pi when aborted while it lists its commands", async () => {
+    const controller = new AbortController();
+
+    const { outcome, open } = await query(
+      { receivedToStderr: true, rules: { ...CODEX_RULES, get_commands: { silent: true } } },
+      controller.signal,
+      abortOnReceipt(controller, "get_commands"),
+      { fastExtension: FAST_EXTENSION },
+    );
+
+    expect(outcome).toStrictEqual({ error: new PiRequestError("get_commands", "aborted") });
     expect(open.get("pi-process")).toBe(0);
   });
 
