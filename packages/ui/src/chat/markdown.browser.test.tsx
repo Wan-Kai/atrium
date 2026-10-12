@@ -21,7 +21,7 @@ describe("Markdown", () => {
     expect(root.querySelector("del")?.textContent).toBe("删掉");
   });
 
-  it("hangs a small dot close before a bullet's text, wraps under the text, and leaves numbered and task lists be", async () => {
+  it("hangs a small dot close before a bullet's text, wraps under the text, leaves numbers be, and gives a task its checkbox alone", async () => {
     const screen = await render(
       <div style={{ width: 240 }}>
         <Markdown
@@ -45,14 +45,14 @@ describe("Markdown", () => {
       marker: getComputedStyle(bullet).listStyleType,
       dot: [dot.content, dot.left, dot.width, dot.height, dot.borderRadius],
       numbered: [getComputedStyle(numbered).listStyleType, getComputedStyle(numbered, "::before").content],
-      task: getComputedStyle(task, "::before").content,
+      task: [getComputedStyle(task).listStyleType, getComputedStyle(task, "::before").content],
     }).toStrictEqual({
       lines: [18.125],
       wrapped: true,
       marker: "none",
       dot: ['""', "6.525px", "5px", "5px", "50%"],
       numbered: ["decimal", "none"],
-      task: "none",
+      task: ["none", "none"],
     });
   });
 
