@@ -1062,6 +1062,7 @@ describe("ConversationArea's status bar", () => {
     const barBox = bar.element().getBoundingClientRect();
 
     expect(textbox.left - box.left).toBe(20);
+    expect(textbox.top - box.top).toBe(20);
     expect(barBox.top - box.bottom).toBe(4);
     expect(barBox.height).toBe(28);
     expect(area.bottom).toBe(barBox.bottom + 8);
