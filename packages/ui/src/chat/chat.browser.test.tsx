@@ -729,6 +729,21 @@ describe("ConversationArea's model button", () => {
   });
 });
 
+/**
+ * What draws a frame around an element: its background, shadow and border.
+ *
+ * @remarks
+ * The Fast button is the bolt alone (design-language.md, "Fast 按钮").
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its computed background colour, box shadow and border width.
+ */
+function frameOf(element: Element): { background: string; shadow: string; border: string } {
+  const style = getComputedStyle(element);
+  return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
+}
+
 describe("ConversationArea's Fast button", () => {
   const GPT = {
     providerId: "openai-codex",
@@ -782,6 +797,25 @@ describe("ConversationArea's Fast button", () => {
     await userEvent.click(fast);
     await expect.element(fast).toHaveAttribute("aria-pressed", "false");
     expect(modelCalls.filter((call) => call.startsWith("setFast"))).toStrictEqual(["setFast s1 on", "setFast s1 off"]);
+  });
+
+  it("draws the bolt alone, with no circle, background or outline, off, hovered or on", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT });
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+
+    const off = frameOf(fast.element());
+    await userEvent.hover(fast);
+    const hovered = frameOf(fast.element());
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    const none = { background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" };
+    expect([off, hovered, frameOf(fast.element())]).toStrictEqual([none, none, none]);
   });
 
   it.each([

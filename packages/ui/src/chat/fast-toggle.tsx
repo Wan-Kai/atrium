@@ -6,8 +6,9 @@ import { Lightning } from "../design/icons";
  * The Fast button left of the model button, with its card on hover.
  *
  * @remarks
- * SPEC-0001 ("输入框", "Fast"): a round button styled as "+", an outlined grey bolt while off and a
- * filled one in the tint colour while on. The card above it says whether Fast is on, about how
+ * SPEC-0001 ("输入框", "Fast"): the bolt alone, with no circle, background or outline around it; an
+ * outlined grey bolt while off and a filled one in the tint colour while on. The button keeps a
+ * 32px square to press. The card above it says whether Fast is on, about how
  * much faster ("更快" when unknown) and whether it uses more credits, as Codex's model list says,
  * and that it applies from the next request; it shows as the status bar's cards do, on hover and
  * on keyboard focus. Only shown for a model with Fast, which its caller decides.
@@ -38,10 +39,8 @@ export function FastToggle({
         aria-describedby={cardId}
         disabled={disabled}
         onClick={() => onToggle(!enabled)}
-        className={`flex size-8 shrink-0 items-center justify-center rounded-full disabled:opacity-50 ${
-          enabled
-            ? "bg-[var(--linked)] text-[var(--tint)] shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--tint)_35%,transparent)]"
-            : "text-[var(--text-muted)] shadow-[inset_0_0_0_1px_var(--line)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+        className={`flex size-8 shrink-0 items-center justify-center disabled:opacity-50 ${
+          enabled ? "text-[var(--tint)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
         }`}
       >
         <Lightning size={15} weight={enabled ? "fill" : "regular"} />
