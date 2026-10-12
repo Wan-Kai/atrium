@@ -1019,6 +1019,23 @@ function frameOf(element: Element): { background: string; shadow: string; border
   return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
 }
 
+/**
+ * Where the bolt is drawn inside the Fast button.
+ *
+ * @remarks
+ * The button is a larger target than the bolt it draws (design-language.md, "Fast 按钮").
+ *
+ * @sideEffects none
+ * @param button - The Fast button.
+ * @returns The bolt's box.
+ * @throws When the button draws no bolt.
+ */
+function boltOf(button: Element): DOMRect {
+  const bolt = button.querySelector("svg");
+  if (bolt === null) throw new Error("the Fast button draws no bolt");
+  return bolt.getBoundingClientRect();
+}
+
 describe("ConversationArea's Fast button", () => {
   const GPT = {
     providerId: "openai-codex",
@@ -1115,6 +1132,24 @@ describe("ConversationArea's Fast button", () => {
     const none = { background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" };
     expect([off, hovered, frameOf(fast.element())]).toStrictEqual([none, none, none]);
     expect(getComputedStyle(fast.element()).cursor).toBe("pointer");
+  });
+
+  it("sits close to the model button: the bolt 10.5 px from it, its target still 32 px square", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT });
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    const target = fast.element().getBoundingClientRect();
+    const bolt = boltOf(fast.element());
+    const model = screen
+      .getByRole("button", { name: /模型与推理强度/ })
+      .element()
+      .getBoundingClientRect();
+
+    expect([target.width, target.height, model.left - bolt.right]).toStrictEqual([32, 32, 10.5]);
   });
 
   it("plays the acceleration when switched on, and not when shown already on or switched off", async () => {

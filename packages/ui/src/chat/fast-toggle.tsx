@@ -43,7 +43,8 @@ export function FastToggle({
     if (enabled) setBoosts((count) => count + 1);
   }
   return (
-    <div className="group/fast relative">
+    // Reaches into the gap before the model button, so the bolt sits close to it.
+    <div className="group/fast relative -mr-1.5">
       <button
         type="button"
         aria-label="Fast"
