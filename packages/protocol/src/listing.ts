@@ -156,7 +156,8 @@ export type ProxySetting = z.infer<typeof ProxySetting>;
  *
  * @remarks
  * `lastModel` and `thinkingByModel` (keyed `providerId/modelId`) follow every model or thinking
- * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框").
+ * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框"); so
+ * does `lastFast`, Fast switched on or off (SPEC-0001, "Fast").
  * `statusBar` holds only the status bar groups you switched from their default, so a group added
  * later shows as its own default says (SPEC-0001, "状态栏（M1.8）"). `setupDone` says first launch
  * was gone through; `titleModel` names the model that names sessions, `null` for each session's own
@@ -169,6 +170,7 @@ export const Preferences = z.strictObject({
   displayMode: DisplayMode,
   lastModel: ModelRef.nullable(),
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
+  lastFast: z.boolean(),
   statusBar: StatusBarChoices,
   titleModel: ModelRef.nullable(),
   proxy: ProxySetting.nullable(),

@@ -873,6 +873,7 @@ describe("Workbench dots", () => {
       maxOutput: 128_000,
       supportsImage: true,
       thinkingLevels: ["off", "low", "medium", "high"],
+      fastCredits: null,
     } as const;
     const { screen, connection } = await workbench({
       initial: {

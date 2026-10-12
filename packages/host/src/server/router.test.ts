@@ -75,6 +75,7 @@ function fakeCommands() {
     retryRun: record("retryRun", {}),
     setModel: record("setModel", {}),
     setThinkingLevel: record("setThinkingLevel", {}),
+    setFast: record("setFast", {}),
     listCommands: record("listCommands", { commands: [] }),
     searchFiles: record("searchFiles", { files: [] }),
   };
@@ -343,6 +344,7 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "set_thinking_level", requestId: "r11", ...session, level: "max" }));
     await route(connection, withTrace({ type: "list_commands", requestId: "r12", ...session }));
     await route(connection, withTrace({ type: "search_files", requestId: "r13", ...session, query: "src/" }));
+    await route(connection, withTrace({ type: "set_fast", requestId: "r14", ...session, enabled: false }));
 
     expect(calls).toStrictEqual([
       ["steer", "s1", "also"],
@@ -358,6 +360,7 @@ describe("createRouter", () => {
       ["setThinkingLevel", "s1", "max"],
       ["listCommands", "s1"],
       ["searchFiles", "s1", "src/"],
+      ["setFast", "s1", false],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
@@ -367,6 +370,7 @@ describe("createRouter", () => {
       ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
+      { type: "response", requestId: "r14", ok: true, result: {} },
     ]);
   });
 

@@ -152,6 +152,7 @@ function snapshot(seq: number, items: unknown[] = [], hasOlder = false): string 
     exited: false,
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
   });
 }
@@ -778,6 +779,7 @@ describe("createAtriumClient: sessions", () => {
         exited: false,
         control: IDLE_CONTROL,
         model: null,
+        fast: false,
         metrics: UNKNOWN_METRICS,
       }),
     );
@@ -991,6 +993,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
@@ -1144,6 +1147,7 @@ describe("createAtriumClient: the list", () => {
       displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
@@ -1189,7 +1193,7 @@ describe("createAtriumClient: the list", () => {
 });
 
 /** A connected client watching s1, whose snapshot says pi uses `model`. */
-async function watchingWithModel(model: unknown) {
+async function watchingWithModel(model: unknown, fast = false) {
   const setup = await connected();
   const watched = setup.client.watch(["s1"]);
   setup.latest().answer("subscribe_sessions");
@@ -1203,6 +1207,7 @@ async function watchingWithModel(model: unknown) {
       exited: false,
       control: IDLE_CONTROL,
       model,
+      fast,
       metrics: UNKNOWN_METRICS,
     }),
   );
@@ -1220,6 +1225,7 @@ describe("createAtriumClient: models", () => {
     maxOutput: 64_000,
     supportsImage: true,
     thinkingLevels: ["off"],
+    fastCredits: null,
   };
 
   it("lists a container's models into its view, keeping them shown while it asks again", async () => {
@@ -1316,6 +1322,92 @@ describe("createAtriumClient: models", () => {
       { type: "set_thinking_level", requestId: expect.any(String), sessionId: "s1", level: "low" },
       { type: "set_thinking_level", requestId: expect.any(String), sessionId: "s1", level: "max" },
     ]);
+  });
+
+  it("switches a session's Fast at once in its view, keeping what the host took", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const switching = client.setFast("s1", true);
+    expect(view.getState().fast).toBe(true);
+    latest().answer("set_fast");
+    expect(await switching).toStrictEqual({});
+
+    expect(view.getState().fast).toBe(true);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "set_fast"),
+    ).toStrictEqual([{ type: "set_fast", requestId: expect.any(String), sessionId: "s1", enabled: true }]);
+  });
+
+  it("puts Fast back as the host last took it once no switch is on its way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const off = client.setFast("s1", false);
+    const on = client.setFast("s1", true);
+    latest().fail("set_fast", "fast_unavailable", 0);
+    await expect(off).rejects.toStrictEqual(new CommandError("fast_unavailable"));
+    // The switch still on its way decides.
+    expect(view.getState().fast).toBe(true);
+    answerAt(latest(), "set_fast", 1, {});
+    await on;
+
+    const onAgain = client.setFast("s1", true);
+    latest().fail("set_fast", "session_stopping", 2);
+    await expect(onAgain).rejects.toStrictEqual(new CommandError("session_stopping"));
+    const refused = client.setFast("s1", false);
+    latest().fail("set_fast", "pi_unavailable", 3);
+    await expect(refused).rejects.toStrictEqual(new CommandError("pi_unavailable"));
+    expect(view.getState().fast).toBe(true);
+
+    // Another client switched it off; a refused switch then goes back to that.
+    latest().receive(event(2, { type: "fast_updated", fast: false }));
+    const later = client.setFast("s1", true);
+    latest().fail("set_fast", "pi_unavailable", 4);
+    await expect(later).rejects.toStrictEqual(new CommandError("pi_unavailable"));
+    expect(view.getState().fast).toBe(false);
+  });
+
+  it("keeps what the host took for a switch made while an earlier one is still on its way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const on = client.setFast("s1", true);
+    const off = client.setFast("s1", false);
+    answerAt(latest(), "set_fast", 0, {});
+    await on;
+    const onAgain = client.setFast("s1", true);
+    latest().fail("set_fast", "pi_unavailable", 1);
+    await expect(off).rejects.toStrictEqual(new CommandError("pi_unavailable"));
+    latest().fail("set_fast", "pi_unavailable", 2);
+    await expect(onAgain).rejects.toStrictEqual(new CommandError("pi_unavailable"));
+
+    expect(view.getState().fast).toBe(true);
+  });
+
+  it("follows the Fast the host reports", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+
+    latest().receive(event(2, { type: "fast_updated", fast: true }));
+
+    expect(client.session("s1")?.getState().fast).toBe(true);
+  });
+
+  it("sends a switch for a session it does not watch, showing nothing", async () => {
+    const { client, latest } = await connected();
+
+    const switching = client.setFast("s2", false);
+    latest().answer("set_fast");
+
+    expect(await switching).toStrictEqual({});
+    expect(client.session("s2")).toBeUndefined();
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] !== "ping"),
+    ).toStrictEqual([{ type: "set_fast", requestId: expect.any(String), sessionId: "s2", enabled: false }]);
   });
 
   it("goes back to the model the host last reported when two changes on their way both fail", async () => {
@@ -1579,6 +1671,7 @@ describe("createAtriumClient: first launch", () => {
       maxOutput: 64_000,
       supportsImage: false,
       thinkingLevels: ["off"],
+      fastCredits: null,
     };
     const loading = client.loadModels(null);
     latest().answer("list_models", models);

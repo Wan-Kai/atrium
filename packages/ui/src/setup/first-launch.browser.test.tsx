@@ -221,6 +221,7 @@ function listWith(setupDone: boolean): Parameters<typeof fakeClient>[0] {
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,

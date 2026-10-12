@@ -62,7 +62,12 @@ describe("toCatalogModel", () => {
       maxOutput: 128_000,
       supportsImage: true,
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "max"],
+      fastCredits: null,
     });
+  });
+
+  it("gives a model with Fast the credits Fast uses", () => {
+    expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-5.5" }))?.fastCredits).toBe(2.5);
   });
 
   it("says a text-only model takes no images", () => {

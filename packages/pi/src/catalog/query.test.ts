@@ -123,6 +123,7 @@ describe("queryModels", () => {
             maxOutput: 128_000,
             supportsImage: true,
             thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
+            fastCredits: null,
           },
           {
             providerId: "anthropic",
@@ -132,6 +133,7 @@ describe("queryModels", () => {
             maxOutput: 128_000,
             supportsImage: true,
             thinkingLevels: ["off"],
+            fastCredits: null,
           },
         ],
         defaultModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },

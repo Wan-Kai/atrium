@@ -16,6 +16,7 @@ import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/use-draft";
 import { historyOf } from "./composer-text";
 import { ChangesPanel } from "./changes-panel";
+import { FastToggle } from "./fast-toggle";
 import { shownModel } from "./model-choice";
 import { ModelPicker } from "./model-picker";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
@@ -67,7 +68,8 @@ export function describeSendError(error: unknown): string {
  * Explains why a model or thinking level could not be set, in Chinese.
  *
  * @remarks
- * As `describeSendError`, but pi refusing names what it refused.
+ * As `describeSendError`, but pi refusing names what it refused, and a pi without Atrium's Fast
+ * extension says so (SPEC-0001, "Fast").
  *
  * @sideEffects none
  * @param error - What the command rejected with.
@@ -76,6 +78,9 @@ export function describeSendError(error: unknown): string {
 export function describeModelError(error: unknown): string {
   if (error instanceof CommandError && error.code === "pi_rejected") {
     return `pi 没有接受这个设置：${String(error.params?.["detail"] ?? "")}`;
+  }
+  if (error instanceof CommandError && error.code === "fast_unavailable") {
+    return "这个会话的 pi 没有加载 Atrium 的 Fast 扩展，开关不了 Fast";
   }
   return describeSendError(error);
 }
@@ -99,24 +104,28 @@ function workspaceOf(containerId: string | null): string | null {
 type Act = (command: () => Promise<unknown>, describe?: (error: unknown) => string) => void;
 
 /**
- * The model button for the session shown, or for the one the next message creates.
+ * The model button for the session shown, or for the one the next message creates, with the Fast
+ * button left of it.
  *
  * @remarks
  * SPEC-0001 ("模型与输入框"): the container's model list, which the area asks for when it
  * shows, is asked for again when the panel opens, and the host answers from its cache; "刷新"
  * makes pi look again. Before a session exists, the button shows the model a new session
- * will start on, and choosing creates the session first, as sending does.
+ * will start on, and choosing creates the session first, as sending does. The Fast button shows
+ * only while the model shown has Fast, with the session's Fast, or before a session exists the
+ * one chosen last; pressing it creates the session first too (SPEC-0001, "Fast").
  *
  * @sideEffects Subscribes to the container's models and to the preferences; asks for the models
- * when the panel opens; sends model commands through `act`.
- * @param props - The client, the container, the session's model, whether it is disabled, the
- * session to change, and how to run a command.
- * @returns The button.
+ * when the panel opens; sends model and Fast commands through `act`.
+ * @param props - The client, the container, the session's model and Fast, whether it is disabled,
+ * the session to change, and how to run a command.
+ * @returns The buttons.
  */
 function SessionModelPicker({
   client,
   containerId,
   model,
+  fast,
   disabled,
   session,
   act,
@@ -124,6 +133,8 @@ function SessionModelPicker({
   readonly client: AtriumClient;
   readonly containerId: string | null;
   readonly model: SessionModel | null;
+  /** The session's Fast; `null` before a session exists. */
+  readonly fast: boolean | null;
   readonly disabled: boolean;
   readonly session: () => Promise<string>;
   readonly act: Act;
@@ -131,22 +142,33 @@ function SessionModelPicker({
   const key = workspaceOf(containerId);
   const list = useStore(client.models(key));
   const preferences = useStore(client.index, (index) => index.preferences);
+  const shown = shownModel(model, preferences, list);
   return (
-    <ModelPicker
-      shown={shownModel(model, preferences, list)}
-      list={list}
-      disabled={disabled}
-      onOpen={() => {
-        // Fire and forget: see above.
-        void client.loadModels(key);
-      }}
-      onRefresh={() => {
-        // Fire and forget: see above.
-        void client.loadModels(key, true);
-      }}
-      onChooseModel={(ref) => act(async () => client.setModel(await session(), ref), describeModelError)}
-      onChooseLevel={(level) => act(async () => client.setThinkingLevel(await session(), level), describeModelError)}
-    />
+    <>
+      {shown === null || shown.fastCredits === null ? null : (
+        <FastToggle
+          enabled={fast ?? preferences.lastFast}
+          credits={shown.fastCredits}
+          disabled={disabled}
+          onToggle={(enabled) => act(async () => client.setFast(await session(), enabled), describeModelError)}
+        />
+      )}
+      <ModelPicker
+        shown={shown}
+        list={list}
+        disabled={disabled}
+        onOpen={() => {
+          // Fire and forget: see above.
+          void client.loadModels(key);
+        }}
+        onRefresh={() => {
+          // Fire and forget: see above.
+          void client.loadModels(key, true);
+        }}
+        onChooseModel={(ref) => act(async () => client.setModel(await session(), ref), describeModelError)}
+        onChooseLevel={(level) => act(async () => client.setThinkingLevel(await session(), level), describeModelError)}
+      />
+    </>
   );
 }
 
@@ -263,6 +285,7 @@ function SessionArea({
             client={client}
             containerId={containerId}
             model={view.model}
+            fast={view.fast}
             disabled={view.control.stopping}
             session={session}
             act={act}
@@ -708,6 +731,7 @@ export function ConversationArea({
                   client={client}
                   containerId={containerId}
                   model={null}
+                  fast={null}
                   disabled={false}
                   session={target}
                   act={act}

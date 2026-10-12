@@ -17,6 +17,7 @@ function model(providerId: string, modelId: string, name: string, fields: Partia
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["low", "medium", "high", "xhigh"],
+    fastCredits: null,
     ...fields,
   };
 }
@@ -35,6 +36,7 @@ function shown(listed: CatalogModel, level: ThinkingLevel | null): ShownModel {
     levels: listed.thinkingLevels,
     level,
     supportsImage: listed.supportsImage,
+    fastCredits: listed.fastCredits,
   };
 }
 
@@ -121,6 +123,17 @@ describe("ModelPicker's panel", () => {
     await expect.element(rows.nth(0)).toHaveAttribute("aria-checked", "true");
     await expect.element(rows.nth(1)).toHaveAttribute("aria-checked", "false");
     await expect.element(screen.getByRole("slider", { name: "推理强度" })).toHaveAttribute("aria-valuetext", "中");
+  });
+
+  it("marks the models with Fast with a bolt after their names", async () => {
+    const fast = model("openai-codex", "gpt-5.5", "GPT-5.5", { fastCredits: 2.5 });
+    const { screen, chip } = await picker(shown(fast, "high"), { ...READY, models: [fast, SOL] });
+
+    await userEvent.click(chip);
+
+    const rows = screen.getByRole("menuitemradio");
+    await expect.element(rows.nth(0).getByRole("img", { name: "支持 Fast" })).toBeVisible();
+    expect(rows.nth(1).element().querySelector('[aria-label="支持 Fast"]')).toBeNull();
   });
 
   it("switches the model on a click and closes", async () => {

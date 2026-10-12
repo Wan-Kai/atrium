@@ -31,6 +31,7 @@ export function emptyIndex(): IndexView {
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,

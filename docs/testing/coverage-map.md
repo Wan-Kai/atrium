@@ -305,6 +305,23 @@
 | 侧栏对话行：像工作区一样逐行列出，名称、最近活动（其中会话最近的一次）、最高优先级状态，按最近活动排列；最近 5 个，"显示全部 N 个"原地展开、"收起"收回；会话全归档了的对话不列；名称取别名、第一个会话的标题，第一个会话是草稿时"新对话"；点击时没有打开的标签就打开最近的会话，有就回到它的标签，选中时高亮；"···"重命名、清空即恢复默认，不切过去，对话已不在时说明（发消息时同样） | `packages/ui/src/app/workbench.browser.test.tsx` "lists chats like workspaces"、"names a chat"、"opens a chat's latest session"、"renames a chat"、"explains a chat that went"，`chat.browser.test.tsx` "describes"；纯函数：`packages/ui/src/sidebar/names.test.ts` "chatName" | 已覆盖 |
 | 搜索、收件箱与对话区：搜索分工作区、对话、会话三组，对话名不分大小写，只有对话匹配时也列出，点对话切过去；收件箱和搜索的第二行是"对话 · 对话名"；⌘T 和标签栏"+"在当前对话里新建会话，⌘N 新建对话；对话的空状态说明会话建在这个对话里；对话和不在任何容器时按 `null` 取模型、不看 git 改动；设置的标题模型按 `null` 取模型 | `workbench.browser.test.tsx` "finds chats by name"、"collects the sessions that need the user"、"creates a session in the chat"；`chat.browser.test.tsx` "says where a new session goes"、"asks for the models once connected"；`accounts-section.browser.test.tsx`；`names.test.ts` "placeOf" | 已覆盖 |
 
+## Fast（M1.11，2026-10-12）
+
+[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)：Atrium 自带的 pi 扩展给支持的模型的请求加 `service_tier: "priority"`，输入框里模型按钮左边是开关。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议（版本 6）：`set_fast` 及其应答、`fast_updated`、`fast_unavailable`，快照的 `fast`、模型的 `fastCredits`、偏好的 `lastFast` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 哪些模型支持 Fast：只有 `openai-codex` 的 GPT-5.4、5.5、5.6（含变体），额度约 2 倍、2.5 倍；模型目录带上 `fastCredits`；`list_commands` 不列出 `atrium-fast`，同名的模板照列 | `packages/pi/src/fast/fast.test.ts`、`catalog/models.test.ts` "credits Fast uses"、`catalog/commands.test.ts` "Fast switch" | 已覆盖 |
+| 扩展：符合 pi 的扩展 API；只注册一个命令；默认关，`on` / `off` 切换，别的词不变；开着时只给支持的模型、是对象的请求体加 priority，返回副本不改 pi 的请求 | `packages/pi/src/fast/extension.test.ts` | 已覆盖 |
+| pi 契约（1.1.0）：真实 pi 加载扩展后 `get_commands` 列出开关；`/atrium-fast on` 应答 `handled`、不起一轮、不出事件；之后的请求只在支持的模型上带 priority，关掉后不带。测试工具：faux 可换服务商名，记下 pi 发出的请求体 | `packages/pi/src/contract/fast.pi.test.ts` | 已覆盖 |
+| 宿主 · 偏好与目录：`lastFast` 默认关、旧文件读作关；会话记录的 `fast`，终端里开的会话切换后也有记录，没变化不写文件 | `packages/host/src/store/preferences.test.ts` "remembers Fast"、`sessions/session-catalog.test.ts` "keeps each session's Fast" | 已覆盖 |
+| 宿主 · 控制器：快照带 `fast`；切换后只在变化时发 `fast_updated`、报告选择；pi 失败时原样转出、什么也不变；停止中和退出后拒绝 | `packages/host/src/sessions/session-controller.test.ts` "createSessionController's Fast" | 已覆盖 |
+| 宿主 · 会话管理器：pi 带 `--extension` 启动，确认开关在后、开着时先补发 `on` 再读会话；关着时不发；切换记进会话记录和偏好，新的管理器按记录启动；崩溃重启后按会话自己的开关补发；没列出开关的 pi 一条也不发、记警告、`set_fast` 应答 `fast_unavailable`；没配扩展时同样；草稿快照的 `fast`；未知会话；路由转发 `set_fast` | `packages/host/src/sessions/session-manager.test.ts` "SessionManager Fast"、`server/router.test.ts` | 已覆盖 |
+| 客户端：快照和 `fast_updated` 的开关；切换先在视图里生效，失败时放回宿主最后接受的，多次切换叠在一起时只在最后一次失败后放回（前一次被接受后才发起的也算在内）；没在看的会话照发、不建视图 | `packages/client/src/session-view.test.ts` "following Fast"、`atrium-client.test.ts` "models" | 已覆盖 |
+| 界面：只在当前模型支持时显示 ⚡ 圆钮（关是线框、开是实心加强调色底，`aria-pressed`）；悬停卡片写开关状态、约 1.5 倍速度、额度倍数、下一次请求生效；点击切换，空状态用 `lastFast`、先建会话；扩展没加载时说明；停止中不能用；模型菜单里支持的模型名后带小 ⚡ | `packages/ui/src/chat/chat.browser.test.tsx` "ConversationArea's Fast button"、`model-picker.browser.test.tsx` "bolt"、`model-choice.test.ts` | 已覆盖 |
+| 端到端：打包进宿主的扩展真的被 pi 加载；选 GPT-5.5 后出现开关、菜单里有 ⚡，打开后下一次请求带 priority，换回 faux-1 开关消失、请求不带 | `apps/desktop/e2e/fast.spec.ts` | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

@@ -45,7 +45,8 @@ export {
 export { type ModelList, queryModels } from "./catalog/query";
 export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
 export { sessionModelOf } from "./catalog/models";
-export { toSlashCommand } from "./catalog/commands";
+export { isFastSwitch, toSlashCommand } from "./catalog/commands";
+export { FAST_COMMAND } from "./fast/fast";
 export { findFd } from "./locate/fd";
 export {
   ONESHOT_TIMEOUT_MS,

@@ -34,6 +34,7 @@ function view(fields: Partial<SessionView> = {}): SessionView {
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
     ...fields,
   };
@@ -617,6 +618,7 @@ describe("ConversationArea's model button", () => {
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["off", "low", "medium", "high"] as const,
+    fastCredits: null,
   };
   const HAIKU = { ...OPUS, modelId: "haiku", name: "Haiku", thinkingLevels: ["off"] as const };
   const LIST = {
@@ -677,6 +679,7 @@ describe("ConversationArea's model button", () => {
           displayMode: "summary",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
+          lastFast: false,
           statusBar: {},
           titleModel: null,
           proxy: null,
@@ -723,6 +726,147 @@ describe("ConversationArea's model button", () => {
     await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 没有接受这个设置：Model not found");
+  });
+});
+
+describe("ConversationArea's Fast button", () => {
+  const GPT = {
+    providerId: "openai-codex",
+    modelId: "gpt-5.5",
+    name: "GPT-5.5",
+    contextWindow: 400_000,
+    maxOutput: 128_000,
+    supportsImage: true,
+    thinkingLevels: ["low", "medium", "high"],
+    fastCredits: 2.5,
+  } as const;
+  const OPUS = {
+    ...GPT,
+    providerId: "anthropic",
+    modelId: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    fastCredits: null,
+  };
+  const LIST = {
+    status: "ready" as const,
+    models: [
+      { ...GPT, thinkingLevels: [...GPT.thinkingLevels] },
+      { ...OPUS, thinkingLevels: [...OPUS.thinkingLevels] },
+    ],
+    defaultModel: null,
+    error: null,
+  };
+  const ON_GPT = { providerId: "openai-codex", modelId: "gpt-5.5", thinkingLevel: "high" } as const;
+
+  it("shows only for a model with Fast, as the session has it, and switches it", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    client.session("s1")?.setState({ model: { ...ON_GPT, providerId: "anthropic", modelId: "claude-opus-5-5" } });
+    await expect.element(screen.getByRole("button", { name: /模型与推理强度/ })).toHaveTextContent("Claude Opus 5.5高");
+    await expect.element(fast).not.toBeInTheDocument();
+
+    client.session("s1")?.setState({ model: ON_GPT });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    await userEvent.hover(fast);
+    await expect.element(screen.getByRole("tooltip")).toBeVisible();
+    expect(screen.getByRole("tooltip").element().textContent).toBe(
+      "Fast 未开启约 1.5 倍速度，额度消耗约 2.5 倍从下一次请求开始生效",
+    );
+    await userEvent.click(fast);
+
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tooltip").element().textContent).toMatch(/^Fast 已开启约/);
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    expect(modelCalls.filter((call) => call.startsWith("setFast"))).toStrictEqual(["setFast s1 on", "setFast s1 off"]);
+  });
+
+  it("says how many times the credits the model uses with Fast", async () => {
+    const { client } = fakeClient(
+      {},
+      { models: { ...LIST, models: [{ ...GPT, modelId: "gpt-5.4", thinkingLevels: [], fastCredits: 2 }] } },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+
+    client.session("s1")?.setState({ model: { ...ON_GPT, modelId: "gpt-5.4" }, fast: true });
+
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+    await userEvent.hover(fast);
+    await expect.element(screen.getByRole("tooltip")).toBeVisible();
+    expect(screen.getByRole("tooltip").element().textContent).toBe(
+      "Fast 已开启约 1.5 倍速度，额度消耗约 2 倍从下一次请求开始生效",
+    );
+  });
+
+  it("shows Fast as chosen last before a session exists, and creates the session to switch it", async () => {
+    const { client, calls, modelCalls } = fakeClient(
+      {
+        preferences: {
+          setupDone: true,
+          appearance: "system",
+          displayMode: "summary",
+          lastModel: { providerId: "openai-codex", modelId: "gpt-5.5" },
+          thinkingByModel: {},
+          lastFast: true,
+          statusBar: {},
+          titleModel: null,
+          proxy: null,
+        },
+      },
+      { models: LIST },
+    );
+    const create = async () => (await client.createSession(CHAT)).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
+    );
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(fast);
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setFast new1 off"));
+    expect(calls).toContain("createSession cht_a");
+  });
+
+  it("cannot switch Fast while a stop waits for pi", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+
+    client.session("s1")?.setState({
+      model: ON_GPT,
+      run: { runId: "r1", startedAt: 0 },
+      control: { ...IDLE_CONTROL, stopping: true },
+    });
+
+    await expect.element(screen.getByRole("button", { name: "Fast", exact: true })).toBeDisabled();
+  });
+
+  it("explains a session whose pi has no Fast", async () => {
+    const { client } = fakeClient(
+      {},
+      { models: LIST, setFast: () => Promise.reject(new CommandError("fast_unavailable")) },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT });
+
+    await userEvent.click(screen.getByRole("button", { name: "Fast", exact: true }));
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("这个会话的 pi 没有加载 Atrium 的 Fast 扩展，开关不了 Fast");
+    await expect
+      .element(screen.getByRole("button", { name: "Fast", exact: true }))
+      .toHaveAttribute("aria-pressed", "false");
   });
 });
 
@@ -946,6 +1090,7 @@ describe("ConversationArea's images", () => {
               maxOutput: 1,
               supportsImage: false,
               thinkingLevels: ["off"],
+              fastCredits: null,
             },
           ],
           defaultModel: null,

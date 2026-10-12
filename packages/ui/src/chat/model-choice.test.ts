@@ -27,6 +27,7 @@ function model(providerId: string, modelId: string, fields: Partial<CatalogModel
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["off", "low", "medium", "high"],
+    fastCredits: null,
     ...fields,
   };
 }
@@ -41,7 +42,7 @@ const UNASKED: ModelListView = { status: "idle", models: [], defaultModel: null,
 
 describe("shownModel", () => {
   it("shows the session's model, with what the catalog knows of it", () => {
-    const gpt = model("openai", "gpt-6", { thinkingLevels: ["low", "medium", "high", "xhigh"] });
+    const gpt = model("openai", "gpt-6", { thinkingLevels: ["low", "medium", "high", "xhigh"], fastCredits: 2.5 });
 
     expect(
       shownModel({ providerId: "openai", modelId: "gpt-6", thinkingLevel: "high" }, NONE, listed([gpt])),
@@ -52,6 +53,7 @@ describe("shownModel", () => {
       levels: ["low", "medium", "high", "xhigh"],
       level: "high",
       supportsImage: true,
+      fastCredits: 2.5,
     });
   });
 
@@ -84,6 +86,7 @@ describe("shownModel", () => {
       levels: ["low"],
       level: "low",
       supportsImage: null,
+      fastCredits: null,
     });
   });
 

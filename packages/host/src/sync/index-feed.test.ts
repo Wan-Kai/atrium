@@ -17,6 +17,7 @@ const PREFERENCES: Preferences = {
   displayMode: "summary",
   lastModel: null,
   thinkingByModel: {},
+  lastFast: false,
   statusBar: {},
   titleModel: null,
   proxy: null,

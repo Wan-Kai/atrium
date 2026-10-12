@@ -125,6 +125,7 @@ const commands: Command[] = [
     modelId: "anthropic/claude-opus-5.5",
   },
   { type: "set_thinking_level", requestId: "r43", traceparent, sessionId: "s1", level: "xhigh" },
+  { type: "set_fast", requestId: "r43", traceparent, sessionId: "s1", enabled: true },
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
@@ -247,6 +248,7 @@ const model: CatalogModel = {
   maxOutput: 128_000,
   supportsImage: true,
   thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+  fastCredits: null,
 };
 
 /** An extension's selection. */
@@ -411,6 +413,7 @@ const events: SessionEvent[] = [
     exited: false,
     control,
     model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" },
+    fast: true,
     metrics,
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
@@ -447,6 +450,7 @@ const events: SessionEvent[] = [
   { type: "notice_added", ...at, notice: asked, before: null },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },
+  { type: "fast_updated", ...at, fast: false },
   { type: "metrics_updated", ...at, traceId: null, metrics },
   { type: "metrics_updated", ...at, metrics: unknownMetrics },
   {
@@ -508,6 +512,7 @@ describe("parseClientMessage", () => {
       "retry_run",
       "search_files",
       "select_container",
+      "set_fast",
       "set_main_branch",
       "set_model",
       "set_preferences",
@@ -739,6 +744,11 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     [
+      "Fast neither on nor off",
+      { type: "set_fast", requestId: "r1", traceparent, sessionId: "s1", enabled: "on" },
+      "r1",
+    ],
+    [
       "a model without a provider",
       { type: "set_model", requestId: "r1", traceparent, sessionId: "s1", providerId: "", modelId: "m" },
       "r1",
@@ -856,6 +866,12 @@ describe("CommandResult", () => {
     ).toBe(false);
     expect(
       CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
+    ).toBe(false);
+    expect(
+      CommandResult.list_models.parse({ models: [{ ...model, fastCredits: 2.5 }], defaultModel: null }),
+    ).toStrictEqual({ models: [{ ...model, fastCredits: 2.5 }], defaultModel: null });
+    expect(
+      CommandResult.list_models.safeParse({ models: [{ ...model, fastCredits: 0 }], defaultModel: null }).success,
     ).toBe(false);
     const setup = {
       pi: {
@@ -1066,6 +1082,7 @@ const snapshot: IndexSnapshotEvent = {
     displayMode: "summary",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
+    lastFast: true,
     statusBar: { cost: true, session: false },
     titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
     proxy: { url: "http://127.0.0.1:7897", noProxy: Array.from({ length: 100 }, () => "h") },
@@ -1219,7 +1236,14 @@ describe("HostMessage", () => {
       { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
       {
         ...snapshot,
-        preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {}, statusBar: {}, proxy: null },
+        preferences: {
+          ...snapshot.preferences,
+          lastModel: null,
+          thinkingByModel: {},
+          lastFast: false,
+          statusBar: {},
+          proxy: null,
+        },
       },
       ...ThinkingLevel.options.map((thinkingLevel) => ({
         type: "model_updated",
@@ -1284,6 +1308,7 @@ describe("HostMessage", () => {
       "fd_missing",
       "attachment_limit",
       "attachment_missing",
+      "fast_unavailable",
       "pi_rejected",
       "session_handed_off",
       "login_unavailable",

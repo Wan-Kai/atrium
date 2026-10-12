@@ -22,6 +22,7 @@ export const MUTATION_GROUPS = {
       "packages/pi/src/locate/{version,locate,inspect,fd,node}.ts",
       "packages/pi/src/process/*.ts",
       "packages/pi/src/catalog/*.ts",
+      "packages/pi/src/fast/*.ts",
       "packages/pi/src/stats/*.ts",
       "packages/pi/src/oneshot/oneshot.ts",
       "packages/pi/src/auth/login.ts",

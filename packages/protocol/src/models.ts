@@ -30,6 +30,8 @@ export const CatalogModel = z.strictObject({
   supportsImage: z.boolean(),
   /** The levels it supports, lowest first; only `off` for a model that does not think. */
   thinkingLevels: z.array(ThinkingLevel).min(1),
+  /** How many times the credits Fast uses, about; `null` when the model has no Fast (SPEC-0001, "Fast"). */
+  fastCredits: z.number().positive().nullable(),
 });
 export type CatalogModel = z.infer<typeof CatalogModel>;
 

@@ -52,6 +52,11 @@ export interface FauxScript {
   readonly title?: string;
   /** More models after `FAUX_MODEL`, for switching models. */
   readonly models?: readonly FauxModel[];
+  /**
+   * The provider the faux models stand in for, replacing pi's own of that name; `FAUX_PROVIDER`
+   * unless a test needs a real provider's name, as Fast does with `openai-codex`.
+   */
+  readonly provider?: string;
 }
 
 /** Provider name the faux extension registers. */
@@ -64,6 +69,8 @@ export const FAUX_API = "atrium-faux";
 export const FAUX_GATES_ENV = "FAUX_PI_GATES";
 /** The file beside the gates where the faux extension writes the process id of the pi running it. */
 export const FAUX_PID_FILE = "pi.pid";
+/** The file beside the gates where the faux extension adds each request body, as pi's extensions left it, one JSON per line. */
+export const FAUX_PAYLOADS_FILE = "payloads.jsonl";
 /** Environment variable that tells the extension where the script is; not `ATRIUM_*`, which the host keeps from pi. */
 export const FAUX_SCRIPT_ENV = "FAUX_PI_SCRIPT";
 
@@ -79,6 +86,8 @@ export interface FauxPiLaunch {
   release(name: string): Promise<void>;
   /** The process id of the pi that loaded the extension last. */
   pid(): Promise<number>;
+  /** The bodies of the requests made so far, as pi's `before_provider_request` hooks left them. */
+  payloads(): Promise<unknown[]>;
 }
 
 /**
@@ -106,12 +115,19 @@ export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLau
   return {
     release: (name) => writeFile(join(gatesDir, name), ""),
     pid: async () => Number(await readFile(join(dir, FAUX_PID_FILE), "utf8")),
+    payloads: async () => {
+      const text = await readFile(join(dir, FAUX_PAYLOADS_FILE), "utf8").catch(() => "");
+      return text
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line): unknown => JSON.parse(line));
+    },
     agentDir,
     args: [
       "--extension",
       fileURLToPath(new URL("extension.ts", import.meta.url)),
       "--provider",
-      FAUX_PROVIDER,
+      script.provider ?? FAUX_PROVIDER,
       "--model",
       FAUX_MODEL,
     ],

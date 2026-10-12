@@ -1,4 +1,5 @@
 import { SLASH_COMMAND_LIMITS, type SlashCommand } from "@atrium/protocol";
+import { FAST_COMMAND } from "../fast/fast";
 import type { PiResponseData } from "../process/pi-process";
 
 /** A command as pi's `get_commands` lists it. */
@@ -11,14 +12,31 @@ type PiSlashCommand = PiResponseData<"get_commands">["commands"][number];
  * Its name (skills as `skill:<name>`), its description and its kind (pi-internals.md §3); where it
  * came from on disk is pi's business. An empty description counts as none. A description too long
  * for the protocol is cut, so one extension cannot fail the whole list; a name too long is left
- * out with its command, which could not be run by a cut name.
+ * out with its command, which could not be run by a cut name. Atrium's own Fast switch is the
+ * host's, not yours, and is left out too (SPEC-0001, "Fast").
  *
  * @sideEffects none
  * @param command - The command as pi lists it.
- * @returns The command, or `null` for one whose name is too long.
+ * @returns The command, or `null` for one left out.
  */
 export function toSlashCommand(command: PiSlashCommand): SlashCommand | null {
   if (command.name.length > SLASH_COMMAND_LIMITS.name) return null;
+  if (isFastSwitch(command)) return null;
   const description = (command.description ?? "").slice(0, SLASH_COMMAND_LIMITS.description);
   return { name: command.name, description: description === "" ? null : description, source: command.source };
+}
+
+/**
+ * Whether a command is Atrium's Fast switch, which only its extension registers.
+ *
+ * @remarks
+ * The host sends `/atrium-fast` only once pi lists it, or pi would pass the words to the model
+ * (SPEC-0001, "Fast"); a prompt template or skill of that name is not it.
+ *
+ * @sideEffects none
+ * @param command - The command as pi lists it.
+ * @returns Whether it is.
+ */
+export function isFastSwitch(command: Pick<PiSlashCommand, "name" | "source">): boolean {
+  return command.name === FAST_COMMAND && command.source === "extension";
 }

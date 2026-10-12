@@ -1,4 +1,5 @@
 import { type CatalogModel, MODEL_LIMITS, type SessionModel, type ThinkingLevel } from "@atrium/protocol";
+import { fastCreditsOf } from "../fast/fast";
 import type { PiResponseData } from "../process/pi-process";
 
 /** A model as pi's `get_available_models` lists it. */
@@ -39,7 +40,8 @@ export function thinkingLevelsOf(model: Pick<PiModel, "reasoning" | "thinkingLev
  * What the model panel shows of a model.
  *
  * @remarks
- * Only the basics: name, context, longest output, whether it takes images (SPEC-0001, "输入框").
+ * Only the basics: name, context, longest output, whether it takes images (SPEC-0001, "输入框"),
+ * and whether it has Fast, by the credits it uses (SPEC-0001, "Fast").
  * A model without a name goes by its id. A name too long for the protocol is cut, so one model
  * cannot fail the whole list; a model whose id or provider is too long is left out, as it could
  * not be chosen by a cut one.
@@ -58,6 +60,7 @@ export function toCatalogModel(model: PiModel): CatalogModel | null {
     maxOutput: model.maxTokens,
     supportsImage: model.input.includes("image"),
     thinkingLevels: thinkingLevelsOf(model),
+    fastCredits: fastCreditsOf(model),
   };
 }
 

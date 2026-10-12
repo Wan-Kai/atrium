@@ -227,6 +227,7 @@ function view(fields: Partial<SessionView>): SessionView {
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
     ...fields,
   };

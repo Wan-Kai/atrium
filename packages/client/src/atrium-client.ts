@@ -195,6 +195,8 @@ export interface AtriumClient {
   setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets a session's thinking level, at once in its view; put back if the host refuses. */
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** Switches a session's Fast, at once in its view; put back if the host refuses (SPEC-0001, "Fast"). */
+  setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
   /** The `/` commands of a session's pi, which starts if it has not. */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
@@ -391,6 +393,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * their way, and the guesses shown for them.
    */
   const guesses = new Map<string, { reported: SessionModel; pending: number; readonly ours: Set<SessionModel> }>();
+  /** Each session's Fast switches on their way: the Fast the host took last, and how many are on their way. */
+  const fastGuesses = new Map<string, { reported: boolean; pending: number }>();
   /** Each workspace's model list, and that of outside any, once asked for. */
   const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   /** Fetches of older items on their way, by session. */
@@ -580,6 +584,39 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     } finally {
       guessing.pending -= 1;
       if (guessing.pending === 0) guesses.delete(sessionId);
+    }
+  }
+
+  /**
+   * Switches a session's Fast at once in its view, and puts it back if the host refuses.
+   *
+   * @remarks
+   * Only `set_fast` changes a session's Fast, so the host has the Fast it took last; a refused
+   * switch goes back to it once no other switch is on its way, since one on its way decides
+   * instead. A session the client does not watch shows nothing.
+   *
+   * @sideEffects Updates the session's view; sends the command.
+   * @param sessionId - The session.
+   * @param enabled - On or off.
+   * @returns The command's result.
+   */
+  async function switchFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">> {
+    const view = views.get(sessionId);
+    if (view === undefined) return request("set_fast", { sessionId, enabled });
+    const guessing = fastGuesses.get(sessionId) ?? { reported: view.getState().fast, pending: 0 };
+    fastGuesses.set(sessionId, guessing);
+    guessing.pending += 1;
+    view.setState({ fast: enabled });
+    try {
+      const result = await request("set_fast", { sessionId, enabled });
+      guessing.reported = enabled;
+      return result;
+    } catch (error) {
+      if (guessing.pending === 1) view.setState({ fast: guessing.reported });
+      throw error;
+    } finally {
+      guessing.pending -= 1;
+      if (guessing.pending === 0) fastGuesses.delete(sessionId);
     }
   }
 
@@ -1167,6 +1204,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         (current) => ({ ...current, thinkingLevel: level }),
         () => request("set_thinking_level", { sessionId, level }),
       ),
+    setFast: (sessionId, enabled) => switchFast(sessionId, enabled),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

@@ -72,6 +72,8 @@ const SessionRecord = z.looseObject({
   attention: Attention.nullable().optional(),
   /** It was handed to pi in a terminal (SPEC-0001, "交给终端"); added in M1.9. */
   handedOff: z.boolean().optional(),
+  /** Fast as last switched in it (SPEC-0001, "Fast"); added in M1.11. */
+  fast: z.boolean().optional(),
 });
 export type SessionRecord = z.infer<typeof SessionRecord>;
 
@@ -207,6 +209,8 @@ const PreferencesDocument = z.looseObject({
   titleModel: ModelRef.nullable().optional(),
   /** The network proxy, `null` for the login shell's; absent before M1.11 (SPEC-0001, "设置 · pi"). */
   proxy: ProxySetting.nullable().optional(),
+  /** Fast as last switched in any session; absent before M1.11's Fast (SPEC-0001, "Fast"). */
+  lastFast: z.boolean().optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 

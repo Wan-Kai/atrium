@@ -12,6 +12,8 @@ export interface FauxPiEnvironment {
   readonly release: (name: string) => Promise<void>;
   /** The process id of the pi the host started last. */
   readonly pid: () => Promise<number>;
+  /** The bodies of the requests every pi made so far, as its extensions left them. */
+  readonly payloads: () => Promise<unknown[]>;
   readonly cleanup: () => Promise<void>;
 }
 
@@ -77,6 +79,7 @@ export async function fauxPiEnvironment(script: FauxScript): Promise<FauxPiEnvir
     agentDir: launch.agentDir,
     release: (name) => launch.release(name),
     pid: () => launch.pid(),
+    payloads: () => launch.payloads(),
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
 }

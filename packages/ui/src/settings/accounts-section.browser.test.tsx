@@ -106,6 +106,7 @@ function model(providerId: string, modelId: string): CatalogModel {
     maxOutput: 64_000,
     supportsImage: true,
     thinkingLevels: [],
+    fastCredits: null,
   };
 }
 
@@ -487,6 +488,7 @@ describe("Settings · models and accounts", () => {
       displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
       proxy: null,
@@ -512,6 +514,7 @@ describe("Settings · models and accounts", () => {
       displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openrouter", modelId: "claude-haiku-4-5" },
       proxy: null,
@@ -542,6 +545,7 @@ describe("Settings · models and accounts", () => {
       displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
       proxy: null,

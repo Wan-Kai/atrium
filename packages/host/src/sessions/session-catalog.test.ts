@@ -106,6 +106,7 @@ describe("SessionCatalog", () => {
         archived: false,
         attention: null,
         handedOff: false,
+        fast: null,
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
     ]);
@@ -163,6 +164,7 @@ describe("SessionCatalog", () => {
         archived: false,
         attention: null,
         handedOff: false,
+        fast: null,
       },
     ]);
 
@@ -270,6 +272,36 @@ describe("SessionCatalog", () => {
       ["terminal", null, false],
       ["ours", null, false],
     ]);
+  });
+
+  it("keeps each session's Fast once switched, recording one from the terminal, and writes only a change", async () => {
+    const { sessions, dirs, file, write, changes } = await catalog();
+    await write(dirs.a, "terminal", [user("hi")]);
+    await sessions.record({ sessionId: "ours", containerId: A, cwd: dirs.a });
+    await sessions.scan();
+    const before = changes();
+
+    await sessions.mark("terminal", { fast: false });
+    await sessions.mark("ours", { fast: true });
+    await sessions.mark("ours", { fast: true });
+
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.fast])).toStrictEqual([
+      ["terminal", false],
+      ["ours", true],
+    ]);
+    expect(file.read().sessions).toStrictEqual([
+      { sessionId: "ours", containerId: A, cwd: dirs.a, draft: true, archived: false, createdAt: 5_000, fast: true },
+      {
+        sessionId: "terminal",
+        containerId: A,
+        cwd: dirs.a,
+        draft: false,
+        archived: false,
+        createdAt: 5_000,
+        fast: false,
+      },
+    ]);
+    expect(changes() - before).toBe(2);
   });
 
   it("does not record a session from the terminal for a mark it already has", async () => {

@@ -171,6 +171,8 @@ export function createRouter(options: RouterOptions): Route {
         });
       case "set_thinking_level":
         return options.sessions.setThinkingLevel(command.sessionId, command.level);
+      case "set_fast":
+        return options.sessions.setFast(command.sessionId, command.enabled);
       case "list_commands":
         return options.sessions.listCommands(command.sessionId);
       case "search_files":

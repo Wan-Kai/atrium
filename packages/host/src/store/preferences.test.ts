@@ -32,6 +32,7 @@ describe("PreferenceStore", () => {
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
@@ -46,6 +47,7 @@ describe("PreferenceStore", () => {
       displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
@@ -73,6 +75,7 @@ describe("PreferenceStore", () => {
       displayMode: "summary",
       lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
       thinkingByModel: { "anthropic/claude-opus-5-5": "max", "openai/gpt-6": "low" },
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
@@ -94,6 +97,24 @@ describe("PreferenceStore", () => {
     expect(store.preferred()).toStrictEqual({ model: { providerId: "openai", modelId: "gpt-6" }, thinkingLevel: null });
   });
 
+  it("remembers Fast as last switched, off until then, also in a file from before it", async () => {
+    const index = await indexDirectory();
+    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
+    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    const old = store.read().lastFast;
+
+    await store.rememberFast(true);
+    const on = store.read().lastFast;
+    await store.rememberFast(false);
+
+    expect([old, on, store.read().lastFast]).toStrictEqual([false, true, false]);
+    expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
+      ...before,
+      lastFast: false,
+    });
+  });
+
   it("upgrades a file from before models were remembered", async () => {
     const index = await indexDirectory();
     await writeFile(
@@ -109,6 +130,7 @@ describe("PreferenceStore", () => {
       displayMode: "thinking",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,

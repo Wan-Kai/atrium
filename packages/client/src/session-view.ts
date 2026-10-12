@@ -38,6 +38,8 @@ export interface SessionView {
   readonly control: Control;
   /** The model and thinking level pi uses; `null` before pi has started (SPEC-0001, "模型与输入框"). */
   readonly model: SessionModel | null;
+  /** Whether you want Fast in the session, whether or not its model has it (SPEC-0001, "Fast"). */
+  readonly fast: boolean;
   /** The status bar's figures (SPEC-0001, "状态栏（M1.8）"). */
   readonly metrics: SessionMetrics;
 }
@@ -64,6 +66,7 @@ export function loadingView(sessionId: string): SessionView {
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
   };
 }
@@ -181,6 +184,7 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       pending: unconfirmed(view.pending, event.items),
       control: event.control,
       model: event.model,
+      fast: event.fast,
       metrics: event.metrics,
     };
   }
@@ -237,6 +241,8 @@ export function applySessionEvent(view: SessionView, event: SessionEvent): Sessi
       return { ...next, control: event.control };
     case "model_updated":
       return { ...next, model: event.model };
+    case "fast_updated":
+      return { ...next, fast: event.fast };
     case "metrics_updated":
       return { ...next, metrics: event.metrics };
     case "prompt_handled":

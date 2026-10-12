@@ -323,6 +323,14 @@ export const SetThinkingLevelCommand = z.strictObject({
 });
 export type SetThinkingLevelCommand = z.infer<typeof SetThinkingLevelCommand>;
 
+/** Switches Fast on or off for a session, from its next request to the model on (SPEC-0001, "Fast"). */
+export const SetFastCommand = z.strictObject({
+  type: z.literal("set_fast"),
+  ...sessionCommandFields,
+  enabled: z.boolean(),
+});
+export type SetFastCommand = z.infer<typeof SetFastCommand>;
+
 /**
  * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
  *
@@ -574,6 +582,7 @@ export const Command = z.discriminatedUnion("type", [
   ListModelsCommand,
   SetModelCommand,
   SetThinkingLevelCommand,
+  SetFastCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
@@ -660,6 +669,7 @@ export const CommandResult = {
   list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),
   set_model: z.strictObject({}),
   set_thinking_level: z.strictObject({}),
+  set_fast: z.strictObject({}),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),

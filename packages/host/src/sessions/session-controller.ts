@@ -77,6 +77,8 @@ export interface SessionPi {
   setModel(model: ModelRef): Promise<void>;
   /** Sends `set_thinking_level`. */
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
+  /** Switches Atrium's Fast extension; fails with `fast_unavailable` when this pi did not load it. */
+  setFast(enabled: boolean): Promise<void>;
   /** pi's slash commands, from `get_commands`. */
   commands(): Promise<SlashCommand[]>;
   /** pi's statistics for the status bar, from `get_session_stats`. */
@@ -128,6 +130,8 @@ export interface SessionController {
   setModel(model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets how hard pi's model thinks. */
   setThinkingLevel(level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** Switches Fast on or off, from pi's next request on (SPEC-0001, "Fast"). */
+  setFast(enabled: boolean): Promise<CommandResult<"set_fast">>;
   /** pi's `/` commands, asked for each time the list opens. */
   listCommands(): Promise<CommandResult<"list_commands">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
@@ -373,12 +377,17 @@ interface Waiting {
  * and the queue moves on. A run that ends without failing resets the count; when the restarts are
  * used up the session is failed until the next run, and "重试" starts over.
  *
+ * The session's Fast is kept here, through restarts, and switched through pi, which is refused
+ * like a model change while stopping or once pi has exited; it is published only when it changed,
+ * and reported each time pi took it (SPEC-0001, "Fast").
+ *
  * @sideEffects Subscribes to pi's events; calls `publish` for every event; calls `newId`; reads
  * pi's entries after runs and compactions, reporting failures to `onRefreshFailed`; schedules
  * timers on the clock; starts pi again through `respawn`; logs through `log`.
  * @param options - The session id, its pi, the entries it had at start, where events go, the
  * clock, an id source, where refresh failures and log lines go, the epoch to start in, the
- * session's turn starts (SPEC-0001, `steer`), and how to start pi again.
+ * session's turn starts (SPEC-0001, `steer`), how to start pi again, and the session's model and
+ * Fast with where their choices go.
  * @returns The controller.
  */
 export function createSessionController(options: {
@@ -408,6 +417,10 @@ export function createSessionController(options: {
   readonly model?: SessionModel | null;
   /** Told the model and thinking level pi uses after you chose one, to remember for new sessions. */
   readonly onModelChosen?: (model: SessionModel) => void;
+  /** The session's Fast, which its pi was started with; off when left out. */
+  readonly fast?: boolean;
+  /** Told Fast was switched, to remember for the session and for new sessions. */
+  readonly onFastChosen?: (enabled: boolean) => void;
 }): SessionController {
   const { sessionId, clock, newId } = options;
   const log = options.log ?? (() => undefined);
@@ -484,6 +497,8 @@ export function createSessionController(options: {
   let sentControl = JSON.stringify(control());
   /** The model pi uses, as last read or reported. */
   let model = options.model ?? null;
+  /** Whether you want Fast in this session, whether or not its model has it (SPEC-0001, "Fast"). */
+  let fast = options.fast ?? false;
   const metrics = createMetricsTracker({
     clock,
     entries: transcript.entries(),
@@ -569,6 +584,7 @@ export function createSessionController(options: {
       exited,
       control: control(),
       model,
+      fast,
       metrics: metrics.current(),
     };
   }
@@ -1597,6 +1613,21 @@ export function createSessionController(options: {
     },
     async setThinkingLevel(level) {
       await choose(() => pi.setThinkingLevel(level));
+      return {};
+    },
+    async setFast(enabled) {
+      refuseWhenExited();
+      refuseWhileStopping();
+      try {
+        await pi.setFast(enabled);
+      } catch (error) {
+        throw promptFailure(error);
+      }
+      options.onFastChosen?.(enabled);
+      if (fast !== enabled) {
+        fast = enabled;
+        emit({ type: "fast_updated", fast });
+      }
       return {};
     },
     async listCommands() {

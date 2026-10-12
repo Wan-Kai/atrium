@@ -117,6 +117,7 @@ function sessionView(sessionId: string, fields: Partial<SessionView> = {}): Sess
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
     ...fields,
   };
@@ -168,6 +169,8 @@ export interface FakeAnswers {
   readonly setMainBranch?: () => Promise<void>;
   /** Holds back the list's change until it settles; changed at once when left out. */
   readonly setPreferences?: () => Promise<void>;
+  /** Answers a Fast switch, which then shows in the session's view; succeeds at once when left out. */
+  readonly setFast?: () => Promise<void>;
 }
 
 /**
@@ -212,6 +215,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
@@ -494,6 +498,12 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async setThinkingLevel(sessionId: string, level: string) {
       modelCalls.push(`setThinkingLevel ${sessionId} ${level}`);
+      return {};
+    },
+    async setFast(sessionId: string, enabled: boolean) {
+      modelCalls.push(`setFast ${sessionId} ${enabled ? "on" : "off"}`);
+      await answers.setFast?.();
+      views.get(sessionId)?.setState({ fast: enabled });
       return {};
     },
     changes(workspaceId: string) {

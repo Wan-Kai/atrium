@@ -1,6 +1,8 @@
 import {
+  FAST_COMMAND,
   type PiInspection,
   PiRequestError,
+  isFastSwitch,
   piStatsOf,
   runOneShot,
   sessionModelOf,
@@ -87,6 +89,8 @@ interface Launch {
    * yet, the session's own when such a session starts again, or `null` for pi's own.
    */
   readonly startOn: StartModel | null;
+  /** Whether to switch Fast on once pi runs. */
+  readonly fast: boolean;
 }
 
 /** The model new sessions start with, and where the model you choose in a session goes. */
@@ -97,8 +101,35 @@ export interface SessionModels {
   chosen(model: SessionModel): void;
 }
 
+/** Atrium's Fast extension, and the Fast sessions without their own start with (SPEC-0001, "Fast"). */
+export interface SessionFast {
+  /** The extension's file, which every session's pi loads with `--extension` (ADR-0008). */
+  readonly extension: string;
+  /** Fast as last switched in any session. */
+  preferred(): boolean;
+  /** Told Fast was switched in a session. */
+  chosen(enabled: boolean): void;
+}
+
 /** pi, found and usable. */
 type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: "ready" }> };
+
+/**
+ * Switches Fast in a pi that lists Atrium's Fast switch.
+ *
+ * @remarks
+ * pi runs an extension's command at once, even during a run, and answers `handled` with no turn
+ * and no entry (pi-internals.md §5). Only for a pi that lists the switch: to any other the words
+ * would be a message to the model (SPEC-0001, "Fast").
+ *
+ * @sideEffects Calls pi.
+ * @param traced - The pi.
+ * @param enabled - On or off.
+ * @throws {PiRequestError} When pi does not answer, exits or refuses.
+ */
+async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
+  await traced.request({ type: "prompt", message: `/${FAST_COMMAND} ${enabled ? "on" : "off"}` });
+}
 
 /**
  * Creates the session manager.
@@ -129,7 +160,13 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  *   remembered for it, set through pi's commands rather than `--model`, which makes pi exit when it
  *   cannot find the model; a remembered model pi refuses leaves pi's own; such a session started
  *   again goes back to the model it had, which its new pi would not know; a model chosen in any
- *   session is reported to `models` (SPEC-0001, "模型与输入框").
+ *   session is reported to `models` (SPEC-0001, "模型与输入框");
+ * - every session's pi loads Atrium's Fast extension, given `fast`; once it runs, the host checks
+ *   pi lists the extension's switch and, if the session's Fast is on, switches it on. Without the
+ *   switch, which is logged, nothing is sent and Fast is unavailable on that pi, as it is without
+ *   `fast`: words pi does not know as a command would go to the model. A session's Fast is its
+ *   controller's, else its record's, else the one last chosen; a switch is recorded for the
+ *   session and reported to `fast` (SPEC-0001, "Fast").
  *
  * Subscribing sends each newly watched session's snapshot to that connection before any later
  * event (domain-model §7); a draft without pi has an empty one, and its subscribers get the real
@@ -170,6 +207,8 @@ export function createSessionManager(options: {
    * without it titles are made on each session's own model.
    */
   readonly titleModel?: (cwd: string, signal: AbortSignal) => Promise<ModelRef | null>;
+  /** Atrium's Fast extension and the Fast new sessions start with; without it pi loads none and there is no Fast. */
+  readonly fast?: SessionFast;
 }): SessionManager {
   const sessions = new Map<string, Running>();
   /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
@@ -503,7 +542,11 @@ export function createSessionManager(options: {
    */
   async function spawn(tools: ReadyTools, launch: Launch) {
     const traced = startTracedPi({
-      launch: { piPath: tools.pi.piPath, args: [...launch.args], cwd: launch.cwd },
+      launch: {
+        piPath: tools.pi.piPath,
+        args: [...launch.args, ...(options.fast === undefined ? [] : ["--extension", options.fast.extension])],
+        cwd: launch.cwd,
+      },
       deps: createPiDeps({
         clock: options.clock,
         resources: options.resources,
@@ -538,10 +581,16 @@ export function createSessionManager(options: {
     };
     let model: SessionModel | null;
     let entries: EntriesPage;
+    let fastSwitch = false;
     try {
       // pi retries failed model calls itself unless the user's settings turned that off; the host
       // counts on it (SPEC-0001, "运行出错与停止").
       await traced.request({ type: "set_auto_retry", enabled: true });
+      if (options.fast !== undefined) {
+        fastSwitch = (await traced.request({ type: "get_commands" })).commands.some(isFastSwitch);
+        if (!fastSwitch) options.logger.warn({}, "fast extension not loaded");
+        if (fastSwitch && launch.fast) await switchFast(traced, true);
+      }
       if (launch.startOn !== null) await startOnModel(traced, launch.startOn);
       model = sessionModelOf(await traced.request({ type: "get_state" }));
       entries = await getEntries(undefined);
@@ -574,12 +623,16 @@ export function createSessionManager(options: {
       setThinkingLevel: async (level) => {
         await traced.request({ type: "set_thinking_level", level });
       },
+      setFast: async (enabled) => {
+        if (!fastSwitch) throw new CommandError("fast_unavailable");
+        await switchFast(traced, enabled);
+      },
       commands: async () =>
         (await traced.request({ type: "get_commands" })).commands.flatMap((command) => toSlashCommand(command) ?? []),
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
       stop: () => pi.stop(),
     };
-    return { traced, view, entries, model };
+    return { traced, view, entries, model, fast: launch.fast };
   }
 
   /**
@@ -623,7 +676,7 @@ export function createSessionManager(options: {
    * @returns The session.
    */
   async function connect(sessionId: string, spawned: Awaited<ReturnType<typeof spawn>>): Promise<Running> {
-    const { traced, view, entries, model } = spawned;
+    const { traced, view, entries, model, fast } = spawned;
     const known = sessions.get(sessionId);
     if (known !== undefined) {
       if (!known.controller.exited) {
@@ -660,6 +713,11 @@ export function createSessionManager(options: {
       respawn: () => respawn(sessionId),
       model,
       onModelChosen: (chosen) => options.models?.chosen(chosen),
+      fast,
+      onFastChosen: (enabled) => {
+        options.fast?.chosen(enabled);
+        inBackground("fast record", () => options.catalog.mark(sessionId, { fast: enabled }));
+      },
       ...(starts === undefined
         ? {}
         : {
@@ -720,11 +778,12 @@ export function createSessionManager(options: {
    *
    * @remarks
    * A session on file starts with `--session <file>` in the directory it recorded, which must
-   * still exist (domain-model §1); a draft starts with `--session-id <id>`.
+   * still exist (domain-model §1); a draft starts with `--session-id <id>`. Its Fast is the one its
+   * controller holds, else its record's, else the one last chosen (SPEC-0001, "Fast").
    *
    * @sideEffects Looks at the directory.
    * @param sessionId - The session.
-   * @returns pi's arguments, working directory and the model to start on.
+   * @returns pi's arguments, working directory, the model to start on and whether Fast is on.
    * @throws {CommandError} `session_not_found` for an unknown or missing session,
    * `session_cwd_missing` when its directory is gone.
    */
@@ -733,14 +792,30 @@ export function createSessionManager(options: {
     if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
     const directory = await stat(entry.cwd).catch(() => null);
     if (directory?.isDirectory() !== true) throw new CommandError("session_cwd_missing", { cwd: entry.cwd });
-    if (entry.file !== null) return { args: ["--session", entry.file], cwd: entry.cwd, startOn: null };
+    const snapshot = sessions.get(sessionId)?.controller.snapshot();
+    const fast = snapshot?.fast ?? fastOf(entry);
+    if (entry.file !== null) return { args: ["--session", entry.file], cwd: entry.cwd, startOn: null, fast };
     // pi has written nothing of the session, so a new pi would not know the model it had.
-    const had = sessions.get(sessionId)?.controller.snapshot().model ?? null;
+    const had = snapshot?.model ?? null;
     const startOn =
       had === null
         ? (options.models?.preferred() ?? null)
         : { model: { providerId: had.providerId, modelId: had.modelId }, thinkingLevel: had.thinkingLevel };
-    return { args: ["--session-id", sessionId], cwd: entry.cwd, startOn };
+    return { args: ["--session-id", sessionId], cwd: entry.cwd, startOn, fast };
+  }
+
+  /**
+   * A session's Fast before its controller holds one.
+   *
+   * @remarks
+   * Its record's, else the one last chosen; off without Fast (SPEC-0001, "Fast").
+   *
+   * @sideEffects none
+   * @param entry - What the catalog knows of the session.
+   * @returns Whether Fast is on.
+   */
+  function fastOf(entry: CatalogEntry): boolean {
+    return entry.fast ?? options.fast?.preferred() ?? false;
   }
 
   /**
@@ -970,10 +1045,11 @@ export function createSessionManager(options: {
       const snapshots = new Map<string, SessionSnapshotEvent>();
       for (const sessionId of sessionIds) {
         const controller = sessions.get(sessionId)?.controller;
+        const entry = controller === undefined ? entryOf(sessionId) : null;
         if (controller !== undefined) {
           snapshots.set(sessionId, controller.snapshot());
-        } else if (entryOf(sessionId).state === "draft") {
-          snapshots.set(sessionId, draftSnapshot(sessionId));
+        } else if (entry?.state === "draft") {
+          snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry)));
         }
         // A session on file whose pi has not started yet is watched already; its snapshot follows
         // once `open_session` or a message starts it (SPEC-0001, "项目、工作区与会话").
@@ -1031,6 +1107,7 @@ export function createSessionManager(options: {
       controllerOf(sessionId).answerInteraction(interactionId, answer),
     setModel: async (sessionId, model) => (await commanded(sessionId)).controller.setModel(model),
     setThinkingLevel: async (sessionId, level) => (await commanded(sessionId)).controller.setThinkingLevel(level),
+    setFast: async (sessionId, enabled) => (await commanded(sessionId)).controller.setFast(enabled),
     listCommands: async (sessionId) => (await commanded(sessionId)).controller.listCommands(),
     async searchFiles(sessionId, query) {
       await options.catalog.ready();
@@ -1095,7 +1172,7 @@ export function createSessionManager(options: {
       });
     },
     summaries() {
-      return options.catalog.list().map(({ cwd: _cwd, ...entry }) => ({
+      return options.catalog.list().map(({ cwd: _cwd, fast: _fast, ...entry }) => ({
         ...entry,
         running: busy.has(entry.sessionId),
         asking: askingSince(entry.sessionId),
@@ -1228,9 +1305,10 @@ function piImages(images: readonly PromptImage[]): {
  *
  * @sideEffects none
  * @param sessionId - The draft.
+ * @param fast - Its Fast.
  * @returns An empty snapshot.
  */
-function draftSnapshot(sessionId: string): SessionSnapshotEvent {
+function draftSnapshot(sessionId: string, fast: boolean): SessionSnapshotEvent {
   return {
     type: "session_snapshot",
     sessionId,
@@ -1243,6 +1321,7 @@ function draftSnapshot(sessionId: string): SessionSnapshotEvent {
     exited: false,
     control: IDLE_CONTROL,
     model: null,
+    fast,
     metrics: UNKNOWN_METRICS,
   };
 }

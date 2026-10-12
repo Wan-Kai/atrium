@@ -24,6 +24,8 @@ interface CatalogChat extends ContainerDir {
 export type CatalogEntry = Omit<SessionSummary, "running" | "asking"> & {
   /** The working directory pi starts in. */
   readonly cwd: string;
+  /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
+  readonly fast: boolean | null;
 };
 
 /** Finds the sessions of the registered containers and keeps Atrium's records of them. */
@@ -39,7 +41,7 @@ export interface SessionCatalog {
   forget(sessionId: string): Promise<void>;
   /** Hides a session in Atrium; pi's file stays. */
   archive(sessionId: string): Promise<void>;
-  /** Sets a session's attention or hand-off, as given. */
+  /** Sets a session's attention, hand-off or Fast, as given. */
   mark(sessionId: string, change: SessionMarks): Promise<void>;
   /**
    * Resolves once the first scan has ended, starting one if none has.
@@ -61,6 +63,7 @@ export interface SessionCatalog {
 interface SessionMarks {
   readonly attention?: Attention | null;
   readonly handedOff?: boolean;
+  readonly fast?: boolean;
 }
 
 /**
@@ -164,6 +167,7 @@ export function createSessionCatalog(options: {
         archived: record?.archived ?? false,
         attention: record?.attention ?? null,
         handedOff: record?.handedOff ?? false,
+        fast: record?.fast ?? null,
       });
     }
     for (const record of records.values()) {
@@ -183,6 +187,7 @@ export function createSessionCatalog(options: {
         archived: record.archived,
         attention: record.attention ?? null,
         handedOff: record.handedOff ?? false,
+        fast: record.fast ?? null,
       });
     }
     return entries;
@@ -273,7 +278,12 @@ export function createSessionCatalog(options: {
   async function update(sessionId: string, change: SessionMarks & { readonly archived?: boolean }): Promise<void> {
     const entry = list().find((candidate) => candidate.sessionId === sessionId);
     if (entry === undefined) return;
-    const marks = { archived: entry.archived, attention: entry.attention, handedOff: entry.handedOff };
+    const marks = {
+      archived: entry.archived,
+      attention: entry.attention,
+      handedOff: entry.handedOff,
+      fast: entry.fast,
+    };
     if (JSON.stringify({ ...marks, ...change }) === JSON.stringify(marks)) return;
     const sessions = options.file.read().sessions;
     const recorded = sessions.some((record) => record.sessionId === sessionId);

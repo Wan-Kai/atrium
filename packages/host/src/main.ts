@@ -85,6 +85,8 @@ export interface HostConfig {
   readonly toolEnv?: Readonly<Record<string, string>>;
   /** The built login program (`dist/login-worker.mjs`); without it, logins are unavailable. */
   readonly loginWorker?: string;
+  /** The built Fast extension (`dist/fast-extension.mjs`) sessions' pi loads; without it, there is no Fast. */
+  readonly fastExtension?: string;
   /** Where to look for Homebrew after PATH; defaults to where its installer puts it, tests set none. */
   readonly homebrewPlaces?: readonly string[];
   /** Where to look up the latest pi; defaults to pi.dev, as pi does; `null` never looks (tests). */
@@ -300,6 +302,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         );
       },
     },
+    ...(config.fastExtension === undefined
+      ? {}
+      : {
+          fast: {
+            extension: config.fastExtension,
+            preferred: () => preferences.read().lastFast,
+            chosen: (enabled: boolean) => {
+              // Fire and forget: a failed write is logged; the index flushes before the host stops.
+              void preferences.rememberFast(enabled).then(
+                () => feed.changed(),
+                (error: unknown) => logger.warn({ err: error }, "fast choice not remembered"),
+              );
+            },
+          },
+        }),
     titleModel: titleModelLookup({
       chosen: () => preferences.read().titleModel,
       list: (dir) => models.list(dir, false),

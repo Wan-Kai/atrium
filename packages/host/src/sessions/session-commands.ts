@@ -63,6 +63,8 @@ export interface SessionCommands {
   setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets how hard a session's model thinks, starting its pi first if it has none. */
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** Switches a session's Fast, starting its pi first if it has none (SPEC-0001, "Fast"). */
+  setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
   /** The `/` commands of a session's pi, starting its pi first if it has none (SPEC-0001, "模型与输入框"). */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory; a newer search calls off an older one. */

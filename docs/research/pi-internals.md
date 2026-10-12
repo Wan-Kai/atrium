@@ -187,6 +187,9 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - **写会话**：`pi.appendEntry(customType, data)` 写 `custom` 条目并发 `entry_appended`；`pi.sendMessage` 写 `custom_message`（可 `triggerTurn`、`deliverAs: steer | followUp | nextTurn`）。
 - **可挂的钩子**（部分）：`session_start`、`session_before_switch/fork/compact`（可取消）、`input`、`before_agent_start`、`agent_before_settle`、`turn_end`、`message_end`、`context`、`before_provider_request`、`tool_call`（改参数或 `{block, reason}`）、`tool_result`。只有 `AgentSessionEvent` 那一部分会出现在 RPC 的 stdout。
 - **审批**（MVP 2）：做成 extension，在 `tool_call` 里调 `ctx.ui.confirm`，宿主收到的就是一个对话框请求。
+- **改请求与服务档**（1.0.2、1.1.0，2026-10-12 实测，ADR-0008）：pi-ai 的 `openai-codex-responses`、`openai-responses` 接受 `serviceTier` 并写成请求里的 `service_tier`，但 pi-coding-agent 的设置和 RPC 都不传它；只能靠扩展的 `before_provider_request`：处理函数拿到 `{payload}` 和 `ctx`（`ctx.model` 是当前模型），返回非 `undefined` 的值就替换请求，多个扩展依次处理，抛错只发 `extension_error`、请求照发。另有 `after_provider_response {status, headers}` 和 `provider_stream_event`（原始流事件），能看到服务端实际给的服务档，Atrium 暂不用。pi-ai 计价按回复里的服务档：priority 对 `gpt-5.5` 乘 2.5、其他乘 2，flex 乘 0.5。
+- **`--extension <路径>`**：加载指定文件（TypeScript 也行），`--no-extensions` 时也照样加载；可以多次给。扩展里 import 的 `@earendil-works/*` 解析到 pi 自己带的那份。扩展用 `registerProvider` 注册已有的服务商名（如 `openai-codex`）会替换它的模型和调用，测试靠这个让假模型冒充 Codex。
+- **扩展命令经 `prompt`**：`/名字 参数` 立即执行处理函数，应答 `{disposition: "handled"}`，不发 `agent_start` 等事件、不写会话文件；命令不存在时同样的文字会当普通消息发给模型，所以宿主发内部命令前要先在 `get_commands` 里确认它在。
 
 ## 6. 实验性多客户端服务端（`packages/server`、`client`、`protocol`、`durable`、`chord`）
 

@@ -97,6 +97,7 @@ async function started(manager: Manager, created: Promise<{ sessionId: string }>
  * @param models - The model new sessions start with and where choices go, if a test needs them.
  * @param files - The file search behind `@`, if a test needs it.
  * @param titleModel - The title model pi can use in a directory, if a test needs one.
+ * @param fast - Fast's extension and the Fast of sessions without their own, if a test needs them.
  * @returns The manager and what tests look at.
  */
 async function manage(
@@ -107,6 +108,7 @@ async function manage(
   models?: Parameters<typeof createSessionManager>[0]["models"],
   files?: Parameters<typeof createSessionManager>[0]["files"],
   titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
+  fast?: Parameters<typeof createSessionManager>[0]["fast"],
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -160,6 +162,7 @@ async function manage(
     ...(models === undefined ? {} : { models }),
     ...(files === undefined ? {} : { files }),
     ...(titleModel === undefined ? {} : { titleModel }),
+    ...(fast === undefined ? {} : { fast }),
   });
   cleanups.push(
     () => manager.close(),
@@ -701,6 +704,7 @@ describe("SessionManager opening sessions", () => {
         exited: false,
         control: IDLE_CONTROL,
         model: null,
+        fast: false,
         metrics: UNKNOWN_METRICS,
       },
     ]);
@@ -1353,6 +1357,254 @@ describe("SessionManager models", () => {
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
     await expect(manager.setThinkingLevel("nope", "low")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+});
+
+/** Where the tests' Fast extension is said to be; the scripted pi only reports the path. */
+const FAST_EXTENSION = "/Applications/Atrium.app/fast-extension.mjs";
+
+/** pi answering a session's commands, Atrium's Fast switch among them, and Fast switches, which it handles without a run. */
+const FAST_PI = {
+  ...SESSION_ONE,
+  get_commands: {
+    data: {
+      commands: [
+        { name: "review", description: "Reviews", source: "prompt", sourceInfo: {} },
+        { name: "atrium-fast", description: "Atrium's Fast switch", source: "extension", sourceInfo: {} },
+      ],
+    },
+  },
+  prompt: { data: { disposition: "handled" } },
+};
+
+/** The Fast switches a manager reported, and the Fast sessions without their own start with. */
+function fastMemory(initial: boolean) {
+  const chosen: boolean[] = [];
+  let last = initial;
+  return {
+    chosen,
+    /** Remembers another Fast, as a switch in another session would. */
+    prefer: (next: boolean) => {
+      last = next;
+    },
+    fast: { extension: FAST_EXTENSION, preferred: () => last, chosen: (enabled: boolean) => chosen.push(enabled) },
+  };
+}
+
+/** The messages among the commands pi received: the Fast switches, in these tests. */
+function fastSwitches(received: readonly Record<string, unknown>[]): unknown[] {
+  return received.filter((command) => command["type"] === "prompt").map((command) => command["message"]);
+}
+
+describe("SessionManager Fast", () => {
+  it("loads the Fast extension in a session's pi and switches Fast on, as last chosen, before reading the session", async () => {
+    const { fast } = fastMemory(true);
+    const { manager, piReceived, starts, received } = await manage(
+      { argvToStderr: true, receivedToStderr: true, rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+    );
+
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    // Lines with what pi received are on stderr too.
+    expect(
+      starts()
+        .map(({ argv }) => argv)
+        .filter((argv) => argv !== undefined),
+    ).toStrictEqual([["--mode", "rpc", "--session-id", "pi-session-1", "--extension", FAST_EXTENSION]]);
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).slice(0, 5)).toStrictEqual([
+        { type: "set_auto_retry", enabled: true },
+        { type: "get_commands" },
+        { type: "prompt", message: "/atrium-fast on" },
+        { type: "get_state" },
+        { type: "get_entries" },
+      ]),
+    );
+    expect(received).toMatchObject([{ type: "session_snapshot", fast: true }]);
+  });
+
+  it("sends no switch while Fast is off", async () => {
+    const { fast } = fastMemory(false);
+    const { manager, sent, received } = await manage(
+      { rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+    );
+
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_commands", "get_state", "get_entries", "get_session_stats"]);
+    expect(received).toMatchObject([{ type: "session_snapshot", fast: false }]);
+  });
+
+  it("switches a session's Fast, records it for the session and reports it; the session's pi starts so again", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const first = fastMemory(false);
+    const one = await manage(
+      { receivedToStderr: true, rules: FAST_PI },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      first.fast,
+    );
+    await one.catalog.scan();
+    await one.manager.openSession("client-1", "pi-session-1");
+    await one.manager.subscribe("c1", ["pi-session-1"]);
+
+    expect(await one.manager.setFast("pi-session-1", false)).toStrictEqual({});
+    expect(await one.manager.setFast("pi-session-1", true)).toStrictEqual({});
+
+    await vi.waitFor(() =>
+      expect(fastSwitches(withoutIds(one.piReceived()))).toStrictEqual(["/atrium-fast off", "/atrium-fast on"]),
+    );
+    expect(one.received.at(-1)).toMatchObject({ type: "fast_updated", fast: true });
+    expect(first.chosen).toStrictEqual([false, true]);
+    await vi.waitFor(() => expect(one.catalog.find("pi-session-1")?.fast).toBe(true));
+    await one.manager.close();
+    await one.catalog.close();
+
+    const two = await manage(
+      { receivedToStderr: true, rules: FAST_PI },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fastMemory(false).fast,
+    );
+    await two.catalog.scan();
+    await two.manager.openSession("client-1", "pi-session-1");
+
+    await vi.waitFor(() => expect(fastSwitches(withoutIds(two.piReceived()))).toStrictEqual(["/atrium-fast on"]));
+  });
+
+  it("switches Fast on again in the pi started after a crash, as the session had it", async () => {
+    const memory = fastMemory(true);
+    const { manager, piReceived, received } = await manage(
+      {
+        receivedToStderr: true,
+        rules: {
+          ...FAST_PI,
+          prompt: {
+            sequence: [{ data: { disposition: "handled" } }, { data: { disposition: "started" }, exitAfter: 1 }],
+          },
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      memory.fast,
+    );
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+    // Switched off in another session since; this one keeps its own.
+    memory.prefer(false);
+
+    // Each pi answers its first prompt, the switch, as handled, and exits on the message after it.
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+    await vi.waitFor(() =>
+      expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { failure: { attempts: 3 } } }),
+    );
+
+    // The switch at the start, then again in each of the three pi processes started after a crash.
+    await vi.waitFor(() =>
+      expect(fastSwitches(withoutIds(piReceived())).filter((message) => message === "/atrium-fast on")).toHaveLength(4),
+    );
+    expect(received.filter((event) => event.type === "session_snapshot").at(-1)).toMatchObject({ fast: true });
+  });
+
+  it("never sends the switch to a pi that does not list it: Fast is unavailable there, and a warning says so", async () => {
+    const { fast, chosen } = fastMemory(true);
+    const { manager, sent, records, received } = await manage(
+      { rules: { ...FAST_PI, get_commands: { data: { commands: [] } } } },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+    );
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    await expect(manager.setFast("pi-session-1", false)).rejects.toStrictEqual(new CommandError("fast_unavailable"));
+
+    expect(sent()).not.toContain("prompt");
+    expect(records.filter((record) => record["msg"] === "fast extension not loaded")).toStrictEqual([
+      expect.objectContaining({ level: "warn" }),
+    ]);
+    expect(chosen).toStrictEqual([]);
+    expect(received).toMatchObject([{ type: "session_snapshot", fast: true }]);
+  });
+
+  it("without the extension, loads nothing, asks pi nothing and has no Fast", async () => {
+    const { manager, starts, sent } = await manage({ argvToStderr: true, rules: FAST_PI });
+    await started(manager, manager.createChat("client-1"));
+
+    await expect(manager.setFast("pi-session-1", true)).rejects.toStrictEqual(new CommandError("fast_unavailable"));
+
+    expect(starts().map(({ argv }) => argv)).toStrictEqual([["--mode", "rpc", "--session-id", "pi-session-1"]]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries", "get_session_stats"]);
+  });
+
+  it("shows a draft without pi with Fast as its own, else as last chosen", async () => {
+    const at = await place();
+    const first = await manage({ rules: SESSION_ONE }, at);
+    await first.manager.createSession("client-1", WORKSPACE);
+    await first.manager.createSession("client-1", WORKSPACE);
+    await first.catalog.mark("pi-session-2", { fast: false });
+    await first.manager.close();
+    await first.catalog.close();
+
+    const { manager, received } = await manage(
+      { rules: FAST_PI },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fastMemory(true).fast,
+    );
+    await manager.subscribe("c1", ["pi-session-1", "pi-session-2"]);
+
+    expect(
+      received.filter((event) => event.type === "session_snapshot").map((event) => [event.sessionId, event.fast]),
+    ).toStrictEqual([
+      ["pi-session-1", true],
+      ["pi-session-2", false],
+    ]);
+  });
+
+  it("refuses to switch Fast in an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+
+    await expect(manager.setFast("nope", true)).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
   });

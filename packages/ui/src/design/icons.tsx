@@ -30,6 +30,7 @@ import {
   File01Icon,
   File02Icon,
   FilePlusIcon,
+  FlashIcon,
   FolderAddIcon,
   Folder01Icon,
   FolderOpenIcon,
@@ -177,6 +178,7 @@ export const GitMerge = drawn(GitMergeIcon);
 export const ImageIcon = drawn(Image01Icon);
 export const Info = drawn(InformationCircleIcon);
 export const Key = drawn(Key01Icon);
+export const Lightning = drawn(FlashIcon);
 export const MagnifyingGlass = drawn(Search01Icon);
 export const MetaLogo = drawn(META);
 export const MinusSquare = drawn(MinusSignSquareIcon);

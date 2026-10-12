@@ -123,7 +123,7 @@ classDiagram
 ├── host.lock                 宿主单实例锁：{ pid, startedAt }
 ├── projects.json             项目与工作区登记
 ├── chats.json                对话的自定义名称（2026-10-12 加）
-├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）
+├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）、Fast（M1.11）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
 ├── preferences.json          全局偏好：外观、显示模式、网络代理……
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"）；
@@ -478,6 +478,7 @@ classDiagram
       maxOutput
       supportsImage
       thinkingLevels: string[]
+      fastCredits?
     }
     class PiCatalog {
       <<宿主，不隶属会话>>
@@ -492,6 +493,7 @@ classDiagram
       statusBar: StatusGroupId[]
       lastModel: ModelRef?
       thinkingByModel
+      lastFast
       titleModel: ModelRef?
     }
     class StatusGroup {
@@ -538,6 +540,7 @@ classDiagram
 - **Provider** 区分"支持哪些登录方式"和"当前凭据状态"，有凭据不等于登录有效。
 - **PiCatalog** 不依赖任何会话进程：空工作区、首次启动、模型按钮都要用。照 Paseo 的做法，按目录短启一个 pi 查 `get_available_models` 和 `get_state`，结果按目录缓存在内存里，只有"刷新"才重查；推理档位按模型元数据算出（SPEC-0001"模型与输入框"，2026-10-10 定）。`/` 命令不归它：每个会话问自己的 pi，没启动就启动（2026-10-10 定，原先打算按目录短启 pi 查询）。
 - **Preferences** 的 `lastModel` 和 `thinkingByModel`（推理强度按模型各记一份）在任何会话里换模型或推理强度时更新；新会话启动 pi 后由宿主用 `set_model`、`set_thinking_level` 设上，不用 `--model` 启动（pi 解析不出 `--model` 会直接退出）。
+- **Fast**（M1.11，ADR-0008）：开关属于会话，记在会话的记录里（`fast`），Runtime 里也有一份，随快照发出；`lastFast` 在任何会话里开关时更新，没有记录的会话按它取。模型支不支持 Fast 是 Model 的 `fastCredits`（额度倍数，不支持为空），由 `packages/pi` 的规则算出。开关经 Atrium 自带的 pi 扩展生效，pi 每次启动后由宿主补发。
 - **没有可用模型时 pi 的 RPC 模式照常启动**，只是模型是占位的 `unknown/unknown`、`prompt` 报错（2026-10-10 实测，原先以为会直接退出），登录状态不适合靠 RPC 查：首次启动用 `pi auth check --json`，或在锁下读 `~/.pi/agent/auth.json`。RPC 也没有登录命令，登录由宿主用系统 Node 运行 `packages/pi` 的登录程序，它加载用户装的 pi 包里的 `ModelRuntime` 完成（2026-10-10 验证并定，SPEC-0001"第 2 步"）；登录状态也由它一次查齐，不必按服务商逐个运行 `pi auth check`。
 - **LoginJob**、**InstallJob** 是可查询、可取消的任务。LoginJob 运行中可能同时有授权地址、设备码和 pi 正在问的问题（`questions`：输入框、密码框、选择框或粘贴回调地址，文字是 pi 的原文）；有授权地址时同时等本机回调和用户粘贴的回调地址，哪个先到用哪个，另一个由 pi 撤回。更新 pi 时 InstallJob 先处于 `waiting`，等 SessionManager 报告没有会话在运行再开始。
 
