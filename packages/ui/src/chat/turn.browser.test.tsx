@@ -1,6 +1,5 @@
 import type { Step, Turn } from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
-import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { DisplayModeContext, type DisplayMode, createDisplayMode } from "../state/display-mode";
 import "../styles.css";
@@ -252,7 +251,7 @@ describe("TurnView", () => {
     await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错收起429 rate limited");
   });
 
-  it("shows the info row: copy, more, files changed, usage and the time the turn ended", async () => {
+  it("shows the info row: copy, files changed, usage and the time the turn ended", async () => {
     const { screen } = await show(
       turn([edit, answer], {
         changes: [
@@ -272,31 +271,18 @@ describe("TurnView", () => {
     );
   });
 
-  it("copies the reply as shown, or as Markdown from its menu", async () => {
+  it("copies the reply's Markdown source, from its one copy button", async () => {
     const written: string[] = [];
     vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => {
       written.push(text);
     });
     const { screen } = await show(turn([answer]));
+    const footer = screen.getByTestId("turn-footer");
 
-    await screen.getByRole("button", { name: "复制回复" }).click();
-    await screen.getByRole("button", { name: "更多" }).click();
-    await screen.getByRole("menuitem", { name: "复制为 Markdown" }).click();
+    await footer.getByRole("button", { name: "复制回复" }).click();
 
-    expect(written).toStrictEqual(["改好了，一处改动。", "改好了，**一处**改动。"]);
-    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
-  });
-
-  it("closes the reply menu on Escape and on a click elsewhere", async () => {
-    const { screen } = await show(turn([answer]));
-    const more = screen.getByRole("button", { name: "更多" });
-
-    await more.click();
-    await userEvent.keyboard("{Escape}");
-    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
-    await more.click();
-    await screen.getByTestId("reply").click();
-    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
+    expect(written).toStrictEqual(["改好了，**一处**改动。"]);
+    expect(footer.getByRole("button").all()).toHaveLength(1);
   });
 });
 

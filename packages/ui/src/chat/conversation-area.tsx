@@ -695,6 +695,8 @@ export function ConversationArea({
                 />
               }
             />
+            {/* Where a session's status bar goes, so the box stays put once the session starts. */}
+            <div aria-hidden="true" className="h-9 shrink-0" />
           </>
         ) : handedOff !== null ? (
           <>

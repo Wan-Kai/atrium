@@ -596,7 +596,11 @@ describe("ConversationArea", () => {
  * @returns The area in a full-height column.
  */
 function tall(area: ReactNode) {
-  return <div style={{ display: "flex", flexDirection: "column", height: 760 }}>{area}</div>;
+  return (
+    <div data-testid="area" style={{ display: "flex", flexDirection: "column", height: 760 }}>
+      {area}
+    </div>
+  );
 }
 
 describe("ConversationArea's model button", () => {
@@ -1041,6 +1045,31 @@ describe("ConversationArea's status bar", () => {
       tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />),
     );
     await expect.element(screen.getByRole("group", { name: "状态栏" })).not.toBeInTheDocument();
+  });
+
+  it("sits just under the input box, whose text keeps off its rounded edge and which stays put without a session", async () => {
+    const { client, views } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+    );
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    const card = screen.getByTestId("composer-card");
+    const bar = screen.getByRole("group", { name: "状态栏" });
+    await expect.element(bar).toBeVisible();
+    const area = screen.getByTestId("area").element().getBoundingClientRect();
+    const box = card.element().getBoundingClientRect();
+    const textbox = screen.getByRole("textbox", { name: "消息" }).element().getBoundingClientRect();
+    const barBox = bar.element().getBoundingClientRect();
+
+    expect(textbox.left - box.left).toBe(20);
+    expect(barBox.top - box.bottom).toBe(4);
+    expect(barBox.height).toBe(28);
+    expect(area.bottom).toBe(barBox.bottom + 8);
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />),
+    );
+    await expect.element(bar).not.toBeInTheDocument();
+    expect(card.element().getBoundingClientRect().bottom).toBe(box.bottom);
   });
 });
 

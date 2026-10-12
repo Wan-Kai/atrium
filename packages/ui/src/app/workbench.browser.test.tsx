@@ -1,11 +1,13 @@
 import { CommandError, type SessionView } from "@atrium/client";
 import { IDLE_CONTROL } from "@atrium/protocol";
+import type { ReactNode } from "react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { PROJECT, fakeClient, session, workspace } from "../test/fake-client";
+import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
 
 const LOCAL = "wks_000000000000000a";
@@ -65,6 +67,7 @@ async function workbench(
     initial?: Parameters<typeof fakeClient>[0];
     answers?: Parameters<typeof fakeClient>[1];
     picked?: string | null;
+    status?: ReactNode;
   } = {},
 ) {
   // The size of the app's window, so the sidebar and tab bar sit side by side.
@@ -81,7 +84,7 @@ async function workbench(
     <DisplayModeContext value={displayMode}>
       <Workbench
         client={fake.client}
-        status={<span>已连接宿主</span>}
+        status={options.status ?? <span>已连接宿主</span>}
         pickDirectory={async () => options.picked ?? null}
         setNativeAppearance={(appearance) => native.push(appearance)}
         openUrl={(url) => opened.push(url)}
@@ -92,6 +95,39 @@ async function workbench(
   );
   return { screen, ...fake, native, opened, revealed };
 }
+
+describe("Workbench connection line", () => {
+  it("takes no room once connected, and a line at the bottom while not", async () => {
+    const connected = {
+      status: "connected",
+      traceId: "t",
+      hostVersion: "0.1.0",
+      hostInstanceId: "h1",
+      installSeed: 1,
+      logDir: "/l",
+    } as const;
+    const { screen } = await workbench({ status: <ConnectionStatus view={connected} /> });
+    const footer = screen.container.querySelector("footer");
+
+    await expect.element(screen.getByRole("status")).toHaveTextContent("已连接宿主 0.1.0");
+    expect(footer?.getBoundingClientRect().height).toBe(0);
+    await screen.rerender(
+      <DisplayModeContext value={createDisplayMode("summary", () => undefined)}>
+        <Workbench
+          client={fakeClient(list()).client}
+          status={<ConnectionStatus view={{ status: "reconnecting", attempt: 1, code: 1006 }} />}
+          pickDirectory={undefined}
+          setNativeAppearance={undefined}
+          openUrl={() => undefined}
+          reveal={undefined}
+          pathForFile={undefined}
+        />
+      </DisplayModeContext>,
+    );
+    await expect.element(screen.getByRole("status")).toBeVisible();
+    expect(screen.container.querySelector("footer")?.getBoundingClientRect().height).toBe(24);
+  });
+});
 
 describe("Workbench sidebar", () => {
   it("lists a project's workspaces, local first, the merged one last, with merge states and running work", async () => {

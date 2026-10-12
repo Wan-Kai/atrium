@@ -4,17 +4,15 @@ import {
   ArrowsInLineVertical,
   CaretDown,
   Database,
-  DotsThree,
   FileText,
   PencilSimple,
   Question,
   Stop,
   Warning,
 } from "@phosphor-icons/react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
-import { MENU_ITEM, MenuButton } from "./menu-button";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
 import { RunStatus } from "./run-status";
 import { DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
@@ -186,57 +184,18 @@ function FileChange({
 }
 
 /**
- * The "···" menu of a reply.
- *
- * @remarks
- * "复制为 Markdown" (SPEC-0001, "对话记录的其他设计").
- *
- * @sideEffects Writes to the clipboard when chosen.
- * @param props - The reply's Markdown.
- * @returns The menu button.
- */
-function ReplyMenu({ markdown }: { readonly markdown: string }) {
-  return (
-    <MenuButton label="更多" compact align="start" content={<DotsThree size={14} weight="bold" />}>
-      {(close) => (
-        <button
-          type="button"
-          role="menuitem"
-          className={MENU_ITEM}
-          onClick={() => {
-            close();
-            // Fire and forget: a refused clipboard simply copies nothing.
-            void navigator.clipboard.writeText(markdown).catch(() => undefined);
-          }}
-        >
-          复制为 Markdown
-        </button>
-      )}
-    </MenuButton>
-  );
-}
-
-/**
- * The line under a finished turn: copy, "···", files changed, usage and time.
+ * The line under a finished turn: copy, files changed, usage and time.
  *
  * @remarks
  * "复制、本轮用量（这一轮的输入 + 输出 token）、时间" (SPEC-0001, "消息下方的信息"); the files chip
- * opens the turn's changes (SPEC-0001, "每轮改动汇总"). Copy takes the reply as shown, as plain
- * text; "复制为 Markdown" takes its source. The time is when the turn ended.
+ * opens the turn's changes (SPEC-0001, "每轮改动汇总"). Copy takes the reply's Markdown source,
+ * the one copy there is. The time is when the turn ended.
  *
  * @sideEffects none
- * @param props - The turn, its reply and the element the reply is shown in.
+ * @param props - The turn and its reply.
  * @returns The info row and, when open, the files.
  */
-function TurnFooter({
-  turn,
-  reply,
-  replyElement,
-}: {
-  readonly turn: Turn;
-  readonly reply: string | null;
-  readonly replyElement: React.RefObject<HTMLDivElement | null>;
-}) {
+function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: string | null }) {
   const [filesOpen, setFilesOpen] = useState(false);
   const added = turn.changes.reduce((sum, change) => sum + (change.added ?? 0), 0);
   const removed = turn.changes.reduce((sum, change) => sum + (change.removed ?? 0), 0);
@@ -246,12 +205,7 @@ function TurnFooter({
         className="-ml-1 flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums"
         data-testid="turn-footer"
       >
-        {reply === null ? null : (
-          <>
-            <CopyButton label="复制回复" text={() => replyElement.current?.innerText ?? reply} />
-            <ReplyMenu markdown={reply} />
-          </>
-        )}
+        {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
         {turn.changes.length === 0 ? null : (
           <button
             type="button"
@@ -357,7 +311,6 @@ export interface TurnViewProps {
 export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
   const { mode } = useDisplayMode();
   const [expanded, setExpanded] = useState<boolean | null>(null);
-  const replyElement = useRef<HTMLDivElement>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
   const running = turn.outcome === "running";
   const lastId = turn.steps.at(-1)?.id;
@@ -448,7 +401,6 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
       ) : null}
       {reply === null ? null : (
         <div
-          ref={replyElement}
           className="mt-2 mb-1 text-[length:var(--fs-reply)] leading-[1.68] text-[var(--text)]"
           data-testid="reply"
           data-streaming={running}
@@ -456,7 +408,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
           <StreamedText text={reply.text} streaming={running} />
         </div>
       )}
-      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} replyElement={replyElement} />}
+      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} />}
     </div>
   );
 }

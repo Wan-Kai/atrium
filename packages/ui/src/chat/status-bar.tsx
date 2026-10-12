@@ -534,7 +534,7 @@ export function StatusBar({
       ref={root}
       role="group"
       aria-label="状态栏"
-      className="group/bar mx-auto flex h-9 items-center justify-center gap-1.5 text-[length:var(--fs-sm)] tabular-nums"
+      className="group/bar mx-auto mb-2 flex h-7 items-center justify-center gap-1.5 text-[length:var(--fs-sm)] tabular-nums"
     >
       {shownGroups(choices).map((id) => {
         const drawing = DRAWINGS[id];

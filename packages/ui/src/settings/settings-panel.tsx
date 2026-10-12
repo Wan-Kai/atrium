@@ -3,6 +3,7 @@ import type { Appearance } from "@atrium/protocol";
 import { Folder, Info, Monitor, Moon, Palette, Sun, Terminal, User, X } from "@phosphor-icons/react";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useStore } from "zustand";
+import { describeConnection } from "../app/connection-status";
 import { piUpdateAvailable } from "../setup/pi-version";
 import { AccountsSection } from "./accounts-section";
 import { BUTTON, Group, PiMark, Row } from "./parts";
@@ -230,11 +231,12 @@ function AppearanceSection({ client }: { readonly client: AtriumClient }) {
 }
 
 /**
- * The settings' about: Atrium's version, pi's, and the log folder.
+ * The settings' about: Atrium's version, the connection to the host, pi's version, and the log folder.
  *
  * @remarks
- * SPEC-0001 ("设置 · 关于"). Atrium's version is the host's. Logs help a problem report and hold
- * no credentials or conversations (observability.md).
+ * SPEC-0001 ("设置 · 关于"). Atrium's version is the host's. The connection shows here rather than
+ * in the main window, which mentions it only when not connected. Logs help a problem report and
+ * hold no credentials or conversations (observability.md).
  *
  * @sideEffects Subscribes to the client's connection and setup; may show the log folder in the
  * Finder.
@@ -278,6 +280,15 @@ function AboutSection({
         compact
         label="Atrium 版本"
         controls={<span className="text-[var(--text-2)] tabular-nums">{version ?? "—"}</span>}
+      />
+      <Row
+        compact
+        label="连接"
+        controls={
+          <span className="text-[var(--text-2)]">
+            {connection.status === "connected" ? "已连接" : describeConnection(connection)}
+          </span>
+        }
       />
       <Row
         compact

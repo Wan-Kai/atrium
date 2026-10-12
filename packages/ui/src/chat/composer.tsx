@@ -580,7 +580,7 @@ export function Composer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-[720px] px-6 pb-6">
+    <div className="mx-auto w-full max-w-[720px] px-6 pb-1">
       <div className="relative">
         {above}
         {listOpen ? (
@@ -699,7 +699,7 @@ export function Composer({
               ))}
             </div>
           ) : null}
-          <div className="relative">
+          <div className="relative px-1.5">
             <textarea
               ref={box}
               aria-label="消息"
@@ -726,7 +726,7 @@ export function Composer({
               aria-label={expanded ? "收起输入框" : "展开输入框"}
               title={expanded ? "收起输入框" : "展开输入框"}
               onClick={() => setExpanded(!expanded)}
-              className="absolute top-0 right-0 rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+              className="absolute top-0 right-1.5 rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
             >
               {expanded ? <ArrowsInSimple size={14} /> : <ArrowsOutSimple size={14} />}
             </button>

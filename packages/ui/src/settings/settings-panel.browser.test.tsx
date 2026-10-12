@@ -142,20 +142,34 @@ describe("Settings panel", () => {
     ]);
   });
 
-  it("shows Atrium's and pi's versions and the log folder, which it shows in the Finder", async () => {
+  it("shows Atrium's version, the connection, pi's version and the log folder, which it shows in the Finder", async () => {
     const { screen, revealed } = await workbench({ stored: "about" });
 
     await screen.getByRole("button", { name: "设置" }).click();
     const dialog = screen.getByRole("dialog", { name: "设置" });
-    const rows = dialog.getByText(/^(Atrium 版本|pi 版本|日志文件夹)$/);
-    await expect.element(rows.nth(2)).toBeVisible();
+    const rows = dialog.getByText(/^(Atrium 版本|连接|pi 版本|日志文件夹)$/);
+    await expect.element(rows.nth(3)).toBeVisible();
     expect(rows.elements().map((row) => row.parentElement?.parentElement?.textContent)).toStrictEqual([
       "Atrium 版本0.1.0",
+      "连接已连接",
       "pi 版本pi 0.80.0",
       "日志文件夹/Users/test/.atrium/logs在访达中显示",
     ]);
     await dialog.getByRole("button", { name: "在访达中显示" }).click();
 
     expect(revealed).toStrictEqual(["/Users/test/.atrium/logs"]);
+  });
+
+  it("says in the about when the connection to the host is down", async () => {
+    const { screen, connection } = await workbench({ stored: "about" });
+
+    await screen.getByRole("button", { name: "设置" }).click();
+    connection.setState({ status: "reconnecting", attempt: 2, code: 1006 }, true);
+
+    const label = screen.getByRole("dialog", { name: "设置" }).getByText("连接", { exact: true });
+
+    await expect
+      .poll(() => label.element().parentElement?.parentElement?.textContent)
+      .toBe("连接与宿主的连接已断开，正在重连（第 2 次）…");
   });
 });

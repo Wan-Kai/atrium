@@ -23,11 +23,13 @@ export interface ConnectionStatusProps {
 }
 
 /**
- * Describes the connection to the host in one line.
+ * Describes the connection to the host in one line, out of sight once connected.
  *
  * @remarks
  * The host sends codes, never user-facing text, so the wording lives here in the UI
- * (coding-standards.md, "多语言"). This is the whole M1.1 screen; the real layout replaces it.
+ * (coding-standards.md, "多语言"). The main window shows it only while not connected; once
+ * connected it is left to screen readers, and the settings' about shows the connection
+ * (SPEC-0001, "同步与断线重连").
  *
  * @sideEffects none
  * @param props - The state to describe.
@@ -35,8 +37,8 @@ export interface ConnectionStatusProps {
  */
 export function ConnectionStatus({ view }: ConnectionStatusProps) {
   return (
-    <p role="status" className="text-muted-foreground" data-status={view.status}>
-      {describe(view)}
+    <p role="status" className={view.status === "connected" ? "sr-only" : "leading-6"} data-status={view.status}>
+      {describeConnection(view)}
     </p>
   );
 }
@@ -45,13 +47,14 @@ export function ConnectionStatus({ view }: ConnectionStatusProps) {
  * Turns a status into Chinese text.
  *
  * @remarks
- * One place for the wording keeps it consistent and lets tests check every state.
+ * One place for the wording keeps it consistent and lets tests check every state; the settings'
+ * about uses it too.
  *
  * @sideEffects none
  * @param view - The state.
  * @returns The sentence to show.
  */
-function describe(view: StatusView): string {
+export function describeConnection(view: StatusView): string {
   switch (view.status) {
     case "starting":
       return "正在启动…";

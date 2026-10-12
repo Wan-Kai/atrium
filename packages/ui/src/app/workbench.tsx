@@ -412,7 +412,7 @@ function MainWindow({
             sessionId={sessionId}
             create={() => createHere(client)}
           />
-          <footer className="flex h-6 shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
+          <footer className="flex shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
         </main>
       </div>
       {settings.open ? (

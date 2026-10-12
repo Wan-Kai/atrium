@@ -42,7 +42,7 @@
 | 宿主启动中途收到退出：不在退出后报"已就绪" | `packages/host/src/electron-port.test.ts` "does not report ready or take app metrics, and closes the host, when shutdown arrives while it is still starting"（启动和退出由测试控制） | 已覆盖 |
 | 重新连接时关闭旧连接，旧连接晚到的事件不改写新状态 | connection.test.ts "closes the previous socket on reconnect…" | 已覆盖 |
 | 界面跟随系统外观 | `packages/ui/src/design/appearance.browser.test.ts`；e2e "follows the system appearance" | 已覆盖 |
-| 连接状态的全部文案，包括启动中、桥接失败 | `packages/ui/src/app/connection-status.browser.test.tsx` | 已覆盖 |
+| 连接状态的全部文案，包括启动中、桥接失败；连上后只留给读屏、不占位置，没连上时主窗口底部一行（2026-10-12） | `packages/ui/src/app/connection-status.browser.test.tsx`、`workbench.browser.test.tsx` "connection line" | 已覆盖 |
 
 ## pi 链路（M1.2）
 
@@ -127,7 +127,7 @@
 | 会话管理器：新建时读一次条目；运行后再读与推过的一致，不多推事件；`fetch_transcript` 交给会话；scripted pi 按次序回答同一命令（`sequence`） | `packages/host/src/sessions/session-manager.test.ts`、`chat.host.test.ts`、`server/router.test.ts` | 已覆盖 |
 | 客户端会话视图：轮的开始、步骤增加、增量、更新、结束、提示条；只复制改动的轮和步骤；找最后一个同 id 的轮；新 epoch 的快照整体替换；对不上的步骤事件重新取快照；更早的页放在前面，过期 epoch 或已不在最前的丢弃 | `packages/client/src/session-view.test.ts` | 已覆盖 |
 | 客户端分页：一次只取一页，同时的请求共用一次；不在观察、加载中、已失效或没有更早的不取；`transcript_changed` 时重新取快照，其他失败往上抛 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
-| 界面的轮：过程折叠成标题行（"已完成，用时 · 读了 · 跑了 · 改了 · N 条命令失败"），折叠时插话仍可见；只有推理时显示"思考了 N 秒"或"思考过程"；没有过程时没有标题行；点击步骤展开详情（命令输出、截断说明、带行号和增删竖条的 diff）；显示模式（摘要、思考、详细）与切换；运行中展开、正在进行的步骤转圈并实时显示；已停止、出错（可展开原始报错）；信息行（复制、"···"复制为 Markdown、改动胶囊展开文件和 diff、用量、结束时间）；菜单按 Esc 和点击外部关闭；提示条展开压缩摘要 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数：`turn-layout.test.ts` | 已覆盖 |
+| 界面的轮：过程折叠成标题行（"已完成，用时 · 读了 · 跑了 · 改了 · N 条命令失败"），折叠时插话仍可见；只有推理时显示"思考了 N 秒"或"思考过程"；没有过程时没有标题行；点击步骤展开详情（命令输出、截断说明、带行号和增删竖条的 diff）；显示模式（摘要、思考、详细）与切换；运行中展开、正在进行的步骤转圈并实时显示；已停止、出错（可展开原始报错）；信息行（复制回复的 Markdown 原文，只有这一个复制按钮；改动胶囊展开文件和 diff、用量、结束时间）；小菜单按钮选中、Esc（不传给外层）和点击外部关闭（`menu-button.browser.test.tsx`）；提示条展开压缩摘要 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数：`turn-layout.test.ts` | 已覆盖 |
 | 会话文件与打开会话：M1.4 的"最近会话"列表在 M1.5 由侧栏和"历史"取代，读取和打开的测试见"项目、工作区与会话（M1.5）" | — | 已取代 |
 | 用 pi 写的真实会话文件恢复：工具、重试、压缩在当前分支上，另一个分支不显示，提示条在它所在的轮之后，过程标题行的统计；接着发消息照常运行 | `apps/desktop/e2e/history.spec.ts` | 已覆盖 |
 | 审查后补上（2026-10-08）：当场看到的轮和插话按记录重建（停在工具结果之后的下一轮仍是新的一轮）；上下文溢出的恢复不算重试；空报错按 pi 写 "Unknown error"；任何位置新增的提示条都推 `notice_added` 并带插入位置；pi 崩溃中断的一轮为 `failed`；长文字以预览发送、标 `partial`，`fetch_step` 取回完整步骤，快照和分页按 4 MB 装；`write` 的内容只发一份；打开目录已不存在的会话回 `session_cwd_missing`；刷新失败的日志只记命令和原因；扫描会话目录只认 LF、可随关闭中止；界面的时间经注入的时钟；导出遇到重建时报错而不是导出一部分 | `packages/host/src/transcript/*.test.ts`、`sessions/*.test.ts`、`packages/client/src/*.test.ts`、`packages/pi/src/sessions/session-files.test.ts`、`packages/ui/src/chat/*.test.ts(x)` | 已覆盖 |
@@ -226,7 +226,7 @@
 | pi：条目里助手消息的四种 token 和推理 token、系统消息的大小（正文、分段、增减的工具）、压缩条目的系统提示词检查点；系统提示词和工具定义的回放与估算和 pi-ai 的 `getCurrentSystemMessage`、pi 的 `estimateTokens` 一致（含录制的会话）；`get_session_stats` 的映射（没有模型、压缩后、窗口为 0、异常数值）；契约：真实 pi 的统计按整个文件数，和条目相加一致；事件翻译的 `request_started`、`output_started`；夹具把统计里的 token、费用、百分比归一化 | `history/log-entry.test.ts`、`history/system-prompt.test.ts`、`stats/session-stats.test.ts`、`contract/stats.pi.test.ts`、`events/translate.test.ts`、`testkit/src/pi-fixtures/normalize.test.ts` | 已覆盖 |
 | 宿主：读统计的时机（pi 启动、每条回复、压缩、运行结束、换模型）、一次只读一次、读失败保留旧值只记原因（pi 退出不记）、关闭后不再发布；从 `turn_start` 计时：首 token 平均、模型用时（含失败）、最近一次的输出速度、请求里的压缩不算、pi 换掉时丢掉未完成的计时；条目算出整个文件的推理 token、当前分支的 token 和上下文分段；起始条目不发布；控制器接上后快照带指标、变化推 `metrics_updated`、崩溃后读新 pi；偏好保存改过的分组、整份替换、旧文件和非法 id | `sessions/session-metrics.test.ts`、`session-controller.test.ts` "status bar figures"、`session-manager.test.ts`、`store/preferences.test.ts`、`server/router.test.ts`、`chat.host.test.ts`、`transcript/session-log.test.ts`、`session-transcript.test.ts` "entries" | 已覆盖 |
 | 客户端：快照和 `metrics_updated` 的指标、`statusBar` 整份替换 | `packages/client/src/session-view.test.ts` "status bar figures"、`index-view.test.ts` | 已覆盖 |
-| 界面：数字格式（K、M、千分位、秒、tok/s、≈ $）、缓存命中、上下文比例与 70%/85% 变色、分段（不小于 0）、分组注册表与默认、只记与默认不同的选择；状态栏默认三组、按选择显示、未知显示"—"、悬停卡片（会话统计、Token 用量含推理与当前分支、上下文分段、没有窗口和刚压缩、费用）、调节面板（预览、开关、恢复默认、Esc 和点外面关闭、Esc 不传给输入框）；对话区里显示会话的指标、空状态不显示、选择发给宿主 | `packages/ui/src/chat/status-figures.test.ts`、`status-bar.browser.test.tsx`、`chat.browser.test.tsx` "status bar" | 已覆盖 |
+| 界面：数字格式（K、M、千分位、秒、tok/s、≈ $）、缓存命中、上下文比例与 70%/85% 变色、分段（不小于 0）、分组注册表与默认、只记与默认不同的选择；状态栏默认三组、按选择显示、未知显示"—"、悬停卡片（会话统计、Token 用量含推理与当前分支、上下文分段、没有窗口和刚压缩、费用）、调节面板（预览、开关、恢复默认、Esc 和点外面关闭、Esc 不传给输入框）；对话区里显示会话的指标、空状态不显示、选择发给宿主；状态栏高 28px、离输入框 4px、离底边 8px，输入框文字离卡片左边 20px，空状态和会话里输入框位置一致（2026-10-12） | `packages/ui/src/chat/status-figures.test.ts`、`status-bar.browser.test.tsx`、`chat.browser.test.tsx` "status bar" | 已覆盖 |
 
 ## 并行、同步与关注（M1.9）
 
@@ -274,7 +274,7 @@
 | 偏好里的 `setupDone`、`titleModel`：默认首次启动未完成、跟随会话的模型，M1.10 之前的文件读作这样；`set_preferences` 改它们（`titleModel` 可设回 `null`），写进文件；协议校验 | `packages/host/src/store/preferences.test.ts`、`packages/host/src/server/router.test.ts`、`packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | 标题模型：设置里选了且 pi 在会话的目录里列出它（同一服务商、同一模型；对话按模型面板的问法问 Atrium 的数据目录，只看对话根目录之内的）时用它生成标题，没选、没列出或查不到时用会话的模型，查的时候关掉会话则不再生成；在 Atrium 里登录成功或退出后清空所有目录的模型列表缓存，进行中的查询结果也不留，关闭时照样等它结束 | `packages/host/src/sessions/titles.test.ts` "title model"、"titleModelLookup"；`session-manager.test.ts` "title model chosen"；`packages/pi/src/catalog/model-catalog.test.ts` "told to forget"、"under way when told to forget"；`packages/host/src/setup/login-service.test.ts` | 已覆盖 |
 | 设置面板：侧栏底部"设置"或 ⌘, 打开，再按 ⌘, 关上；Esc、关闭按钮、点面板外关闭，点面板里不关；打开时焦点在面板里；停在上次看的分类，记在本机，重新载入后也是，记的不是分类时从外观开始；工作台显示时问一次首次启动的状态；有新版本 pi 时侧栏"设置"和 pi 分类各有一个蓝点，别的分类没有，装上后消失 | `packages/ui/src/settings/settings-panel.browser.test.tsx` | 已覆盖 |
-| 设置 · 外观与关于：三段外观和侧栏的外观切换是同一个偏好；关于里有 Atrium（宿主）的版本、pi 的版本和日志文件夹，在访达中显示日志文件夹 | `packages/ui/src/settings/settings-panel.browser.test.tsx` | 已覆盖 |
+| 设置 · 外观与关于：三段外观和侧栏的外观切换是同一个偏好；关于里有 Atrium（宿主）的版本、与宿主的连接（已连接、重连中）、pi 的版本和日志文件夹，在访达中显示日志文件夹 | `packages/ui/src/settings/settings-panel.browser.test.tsx` | 已覆盖 |
 | 设置 · 模型与账户：订阅按 SPEC 的顺序列出 pi 提供的（pi 新加的 OAuth 服务商排在后面），已登录的有"退出"，用 Key 登录的订阅行不给"退出"；只有本窗口发起的登录打开授权页，同一次登录只开一次，另一个窗口的登录只显示进度；授权页可再打开，设备码可复制、打开验证页，pi 的选择、文字提问和折叠的回调地址按 id 作答，可取消；失败显示原因和 pi 原文，已登录的行不显示；开始不了时说明；退出或删除最后一个凭据时先问，可取消或仍要，不是最后一个时直接去掉；pi 去不掉时说明；Key 按服务商列出，存的可删、环境变量的不可删；添加 Key 只列能存 Key 且没登录的服务商，空的或全是空白的不发，去掉首尾空白后登录，进行中不能再存，本次登录成功后收起，失败留着并显示原因，别的窗口的 Key 登录不影响；登录用不了时指向终端的 `/login`；标题模型从对话的模型里按服务商分组选，或跟随会话的模型，同名模型按服务商区分，选的模型不在列表里时（列表读完后）提示暂用会话的模型 | `packages/ui/src/settings/accounts-section.browser.test.tsx`、`packages/ui/src/setup/providers.test.ts` | 已覆盖 |
 | 设置 · 项目：每个项目的主干分支从 `origin` 的分支里选，标出 `origin/HEAD`，自动时显示它指向哪个；选的就是当前的时不发命令；"恢复自动"；没有主干时提示合并状态未知；分支不在 `origin` 上了或读不到分支时说明；没有项目时指向侧栏 | `packages/ui/src/settings/projects-section.browser.test.tsx` | 已覆盖 |
 | 设置 · pi：位置（在访达中显示，桌面应用之外不给）、当前版本、最新版本（相同时标"已是最新"）、上次检查；检查更新时按钮忙；有新版本时"更新 pi"，之后等会话（可取消）、运行中显示输出并跟到最新一行（可取消）、失败显示完整输出和"重试"并自动展开手动更新、成功后重新检测期间显示"已更新"、之后显示到达的版本和可展开的日志，又发现更新的版本时再给"更新 pi"；取消后、别的安装任务都不影响；手动更新可复制 `pi update`，"我更新好了，重新检测"重新读登录 shell；开始不了时说明原因；读不到状态时说明。版本比较按数字、预发布早于正式版、忽略构建信息；安装输出去掉颜色和控制序列，`\r` 覆盖本行 | `packages/ui/src/settings/pi-section.browser.test.tsx`、`packages/ui/src/setup/pi-version.test.ts`、`packages/ui/src/setup/terminal-text.test.ts` | 已覆盖 |
