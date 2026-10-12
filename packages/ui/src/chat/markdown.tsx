@@ -175,7 +175,8 @@ export function Markdown({ text, streaming }: MarkdownProps) {
       components={COMPONENTS}
       mermaid={mermaid}
       isAnimating={streaming}
-      className="atrium-markdown"
+      // space-y-3 replaces Streamdown's own space-y-4: blocks 12px apart (design-language, "字体").
+      className="atrium-markdown space-y-3"
     >
       {normalizeMathDelimiters(text)}
     </Streamdown>

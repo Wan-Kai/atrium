@@ -514,7 +514,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
       ) : null}
       {reply === null ? null : (
         <div
-          className="mt-2 mb-1 text-[length:var(--fs-reply)] leading-[1.68] text-[var(--text)]"
+          className="mt-2 mb-1 text-[length:var(--fs-reply)] leading-[var(--lh-reply)] text-[var(--text)]"
           data-testid="reply"
           data-streaming={running}
         >

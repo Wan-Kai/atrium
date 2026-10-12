@@ -48,11 +48,16 @@ body {
   }
 }
 
-/* Replies and reasoning (design-language, "字体"). */
+/* Replies and reasoning, set close (design-language, "字体"); blocks are 12px apart, from the
+   class Markdown passes. */
 .atrium-markdown {
   font-size: var(--fs-reply);
-  line-height: 1.68;
+  line-height: var(--lh-reply);
   color: var(--text);
+}
+
+.atrium-markdown li {
+  padding-block: 0.125rem;
 }
 
 /* A bullet is a small dot close before its text, which wrapped lines line up under; the browser's
@@ -68,7 +73,7 @@ body {
   content: "";
   position: absolute;
   /* The middle of the first line: the item's top padding, then half a line. */
-  top: calc(0.25rem + 0.84em);
+  top: calc(0.125rem + var(--lh-reply) * 0.5em);
   left: 0.45em;
   width: 5px;
   height: 5px;
