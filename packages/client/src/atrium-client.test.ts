@@ -5,6 +5,7 @@ import { type AtriumClient, ConnectionLostError, createAtriumClient } from "./at
 
 const trace = { traceId: "4bf92f3577b34da6a3ce929d0e0e4736", spanId: "00f067aa0ba902b7", sampled: true };
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+const CHAT = "cht_a";
 
 /** A welcome with a 15 s heartbeat. */
 function welcome(hostVersion = "0.1.0", hostInstanceId = "h1"): string {
@@ -411,7 +412,7 @@ describe("createAtriumClient: commands", () => {
     expect(latest().sent.at(-1)).toStrictEqual({ type: "create_chat", requestId: "client-1-3", traceparent });
   });
 
-  it("sends the session, project, workspace and preference commands with their fields", async () => {
+  it("sends the session, project, workspace, chat and preference commands with their fields", async () => {
     const { client, latest } = await connected();
     const calls = [
       client.createSession("wks_0123456789abcdef"),
@@ -421,6 +422,7 @@ describe("createAtriumClient: commands", () => {
       client.removeProject("prj_0123456789abcdef"),
       client.renameProject("prj_0123456789abcdef", "app"),
       client.renameWorkspace("wks_0123456789abcdef", null),
+      client.renameChat(CHAT, "合并原理"),
       client.windowFocused(),
       client.clearAttention("s1"),
       client.handOff("s1"),
@@ -435,6 +437,7 @@ describe("createAtriumClient: commands", () => {
       "remove_project",
       "rename_project",
       "rename_workspace",
+      "rename_chat",
       "window_focused",
       "clear_attention",
       "take_back",
@@ -452,6 +455,7 @@ describe("createAtriumClient: commands", () => {
       {},
       {},
       {},
+      {},
       { file: "/pi/s1.jsonl" },
       {},
     ]);
@@ -461,13 +465,14 @@ describe("createAtriumClient: commands", () => {
         .filter((command) => command["type"] !== "ping")
         .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([
-      { type: "create_session", workspaceId: "wks_0123456789abcdef" },
+      { type: "create_session", containerId: "wks_0123456789abcdef" },
       { type: "archive_session", sessionId: "s1" },
       { type: "rename_session", sessionId: "s1", name: "名字" },
       { type: "add_project", path: "/work/app" },
       { type: "remove_project", projectId: "prj_0123456789abcdef" },
       { type: "rename_project", projectId: "prj_0123456789abcdef", name: "app" },
       { type: "rename_workspace", workspaceId: "wks_0123456789abcdef", name: null },
+      { type: "rename_chat", chatId: CHAT, name: "合并原理" },
       { type: "window_focused" },
       { type: "clear_attention", sessionId: "s1" },
       { type: "hand_off", sessionId: "s1" },
@@ -962,6 +967,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
     reason: "no_cursor",
     projects: [],
     workspaces: [],
+    chats: [],
     sessions: [
       {
         sessionId: "s1",
@@ -1002,15 +1008,16 @@ function indexChanges(seq: number, remove: string): string {
     seq,
     projects: { upsert: [], remove: [] },
     workspaces: { upsert: [], remove: [] },
+    chats: { upsert: [], remove: [] },
     sessions: { upsert: [], remove: [remove] },
     layout: null,
     preferences: null,
   });
 }
 
-/** A layout of the chats with tabs `s1` and `s2`, `active` shown. */
+/** A layout of a chat with tabs `s1` and `s2`, `active` shown. */
 function tabs(active: string | null) {
-  return { container: "chats", tabs: { chats: { open: ["s1", "s2"], active } } };
+  return { container: CHAT, tabs: { [CHAT]: { open: ["s1", "s2"], active } } };
 }
 
 /** List changes of host instance `h1` at `seq` that carry only a layout. */
@@ -1063,15 +1070,15 @@ describe("createAtriumClient: the list", () => {
     const closed = client.closeTab("s1");
     latest().receive(layoutChange(2, tabs("s1")));
     expect(client.index.getState().layout).toStrictEqual({
-      container: "chats",
-      tabs: { chats: { open: ["s2"], active: "s2" } },
+      container: CHAT,
+      tabs: { [CHAT]: { open: ["s2"], active: "s2" } },
     });
     latest().receive(layoutChange(3, tabs("s2")));
     latest().answer("open_session");
     await opened;
     expect(client.index.getState().layout).toStrictEqual({
-      container: "chats",
-      tabs: { chats: { open: ["s2"], active: "s2" } },
+      container: CHAT,
+      tabs: { [CHAT]: { open: ["s2"], active: "s2" } },
     });
 
     latest().fail("close_tab", "session_not_found");
@@ -1084,11 +1091,11 @@ describe("createAtriumClient: the list", () => {
   it("keeps a container chosen before the first list arrives once the host answers", async () => {
     const { client, latest } = await connected();
 
-    const selected = client.selectContainer("chats");
+    const selected = client.selectContainer(CHAT);
     latest().answer("select_container");
     await selected;
 
-    expect(client.index.getState().layout).toStrictEqual({ container: "chats", tabs: {} });
+    expect(client.index.getState().layout).toStrictEqual({ container: CHAT, tabs: {} });
   });
 
   it("goes back to the host's layout when a command fails, not to one changes of another host left", async () => {
@@ -1096,7 +1103,7 @@ describe("createAtriumClient: the list", () => {
     latest().receive(indexSnapshot(1, "h1", { layout: tabs("s1") }));
 
     const closed = client.closeTab("s1");
-    expect(client.index.getState().layout.tabs).toStrictEqual({ chats: { open: ["s2"], active: "s2" } });
+    expect(client.index.getState().layout.tabs).toStrictEqual({ [CHAT]: { open: ["s2"], active: "s2" } });
     latest().receive(JSON.stringify({ ...JSON.parse(layoutChange(2, tabs("s2"))), generation: "h2" }));
     latest().fail("close_tab", "session_not_found");
     await expect(closed).rejects.toStrictEqual(new CommandError("session_not_found"));
@@ -1110,7 +1117,7 @@ describe("createAtriumClient: the list", () => {
 
     const closed = client.closeTab("s1");
     latest().receive(indexChanges(2, "s9"));
-    expect(client.index.getState().layout.tabs).toStrictEqual({ chats: { open: ["s2"], active: "s2" } });
+    expect(client.index.getState().layout.tabs).toStrictEqual({ [CHAT]: { open: ["s2"], active: "s2" } });
     latest().fail("close_tab", "session_not_found");
     await expect(closed).rejects.toStrictEqual(new CommandError("session_not_found"));
 
@@ -1128,8 +1135,8 @@ describe("createAtriumClient: the list", () => {
     });
     const closed = client.closeTab("s1");
     expect(client.index.getState().layout.tabs).toStrictEqual({ wks_0123456789abcdef: { open: [], active: null } });
-    const selected = client.selectContainer("chats");
-    expect(client.index.getState().layout.container).toBe("chats");
+    const selected = client.selectContainer(CHAT);
+    expect(client.index.getState().layout.container).toBe(CHAT);
     const preferred = client.setPreferences({ displayMode: "detailed" });
     expect(client.index.getState().preferences).toStrictEqual({
       setupDone: false,
@@ -1152,7 +1159,7 @@ describe("createAtriumClient: the list", () => {
     ).toStrictEqual([
       { type: "open_session", sessionId: "s1" },
       { type: "close_tab", sessionId: "s1" },
-      { type: "select_container", containerId: "chats" },
+      { type: "select_container", containerId: CHAT },
       { type: "set_preferences", displayMode: "detailed" },
     ]);
   });
@@ -1244,22 +1251,22 @@ describe("createAtriumClient: models", () => {
         .filter((command) => command["type"] === "list_models")
         .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([
-      { type: "list_models", containerId: WORKSPACE, refresh: false },
-      { type: "list_models", containerId: WORKSPACE, refresh: true },
+      { type: "list_models", workspaceId: WORKSPACE, refresh: false },
+      { type: "list_models", workspaceId: WORKSPACE, refresh: true },
     ]);
   });
 
   it("shows a list that failed with its error and no models", async () => {
     const { client, latest } = await connected();
-    const first = client.loadModels("chats");
+    const first = client.loadModels(null);
     latest().answer("list_models", { models: [listed], defaultModel: null });
     await first;
 
-    const failing = client.loadModels("chats", true);
+    const failing = client.loadModels(null, true);
     latest().fail("list_models", "models_unavailable");
     await failing;
 
-    expect(client.models("chats").getState()).toStrictEqual({
+    expect(client.models(null).getState()).toStrictEqual({
       status: "failed",
       models: [],
       defaultModel: null,
@@ -1573,17 +1580,17 @@ describe("createAtriumClient: first launch", () => {
       supportsImage: false,
       thinkingLevels: ["off"],
     };
-    const loading = client.loadModels("chats");
+    const loading = client.loadModels(null);
     latest().answer("list_models", models);
     await loading;
     client.models("wks_0123456789abcdef");
 
     latest().receive(JSON.stringify({ type: "credentials_changed" }));
-    const reloading = client.models("chats").getState();
+    const reloading = client.models(null).getState();
     latest().answer("list_models", { models: [signedIn], defaultModel: null });
 
     expect(reloading.status).toBe("loading");
-    await vi.waitFor(() => expect(client.models("chats").getState().models).toStrictEqual([signedIn]));
+    await vi.waitFor(() => expect(client.models(null).getState().models).toStrictEqual([signedIn]));
     expect(client.models("wks_0123456789abcdef").getState().status).toBe("idle");
     expect(
       latest()
@@ -1591,8 +1598,8 @@ describe("createAtriumClient: first launch", () => {
         .filter((command) => command["type"] === "list_models")
         .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([
-      { type: "list_models", containerId: "chats", refresh: false },
-      { type: "list_models", containerId: "chats", refresh: false },
+      { type: "list_models", workspaceId: null, refresh: false },
+      { type: "list_models", workspaceId: null, refresh: false },
     ]);
   });
 

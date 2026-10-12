@@ -3,7 +3,7 @@ import { parseTraceparent } from "./trace";
 import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
-import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, DisplayMode, ProxySetting, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
@@ -59,8 +59,8 @@ export const PingCommand = z.strictObject({ type: z.literal("ping"), ...commandF
 export type PingCommand = z.infer<typeof PingCommand>;
 
 /**
- * Creates a chat: a directory under `~/.atrium/chats/` with a session whose pi starts at once,
- * opened as this client's active tab.
+ * Creates a chat: a directory under `~/.atrium/chats/` with a first session whose pi starts at
+ * once, opened as this client's active tab.
  */
 export const CreateChatCommand = z.strictObject({ type: z.literal("create_chat"), ...commandFields });
 export type CreateChatCommand = z.infer<typeof CreateChatCommand>;
@@ -180,7 +180,7 @@ export type SubscribeIndexCommand = z.infer<typeof SubscribeIndexCommand>;
 /** An absolute path on the host's machine. */
 const Path = z.string().min(1).max(4096);
 
-/** A name the user types for a project, workspace or session. */
+/** A name the user types for a project, workspace, chat or session. */
 const Name = z.string().trim().min(1).max(256);
 
 /** Registers a directory as a project. */
@@ -213,15 +213,24 @@ export const RenameWorkspaceCommand = z.strictObject({
 });
 export type RenameWorkspaceCommand = z.infer<typeof RenameWorkspaceCommand>;
 
+/** Names a chat, or with `null` goes back to its first session's title. */
+export const RenameChatCommand = z.strictObject({
+  type: z.literal("rename_chat"),
+  ...commandFields,
+  chatId: ChatId,
+  name: Name.nullable(),
+});
+export type RenameChatCommand = z.infer<typeof RenameChatCommand>;
+
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
 
-/** Creates a session in a workspace, starts its pi and opens it as this client's active tab. */
+/** Creates a session in a workspace or chat, starts its pi and opens it as this client's active tab. */
 export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
   ...commandFields,
-  workspaceId: WorkspaceId,
+  containerId: ContainerId,
 });
 export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 
@@ -229,7 +238,7 @@ export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 export const CloseTabCommand = z.strictObject({ type: z.literal("close_tab"), ...commandFields, sessionId: SessionId });
 export type CloseTabCommand = z.infer<typeof CloseTabCommand>;
 
-/** Goes to a workspace or the chats, or nowhere. */
+/** Goes to a workspace or a chat, or nowhere. */
 export const SelectContainerCommand = z.strictObject({
   type: z.literal("select_container"),
   ...commandFields,
@@ -284,16 +293,16 @@ export const SetPreferencesCommand = z.strictObject({
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 
 /**
- * Lists the models pi can use in a workspace's directory, or for the chats.
+ * Lists the models pi can use in a workspace's directory, or with `null` outside any workspace.
  *
  * @remarks
  * The host asks a short-lived pi once per directory and keeps the answer until `refresh`
- * (SPEC-0001, "模型与输入框").
+ * (SPEC-0001, "模型与输入框"). Every chat and the settings share Atrium's own directory's list.
  */
 export const ListModelsCommand = z.strictObject({
   type: z.literal("list_models"),
   ...commandFields,
-  containerId: ContainerId,
+  workspaceId: WorkspaceId.nullable(),
   refresh: z.boolean().optional(),
 });
 export type ListModelsCommand = z.infer<typeof ListModelsCommand>;
@@ -541,6 +550,7 @@ export const Command = z.discriminatedUnion("type", [
   RemoveProjectCommand,
   RenameProjectCommand,
   RenameWorkspaceCommand,
+  RenameChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -622,6 +632,7 @@ export const CommandResult = {
   remove_project: z.strictObject({}),
   rename_project: z.strictObject({}),
   rename_workspace: z.strictObject({}),
+  rename_chat: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),

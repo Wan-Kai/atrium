@@ -5,7 +5,7 @@ import {
   ConnectionLostError,
   type SessionView,
 } from "@atrium/client";
-import type { DiffStat, SessionModel } from "@atrium/protocol";
+import { type DiffStat, isChatId, type SessionModel } from "@atrium/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
@@ -54,6 +54,7 @@ export function describeSendError(error: unknown): string {
   if (error.code === "transcript_changed") return "对话记录刚刚更新了，请再试一次";
   if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
   if (error.code === "workspace_not_found") return "这个工作区已经不在了";
+  if (error.code === "chat_not_found") return "这个对话已经不在了";
   if (error.code === "attachment_missing") return "图片已经过期，请重新添加";
   if (error.code === "attachment_limit") return "图片太多了：一次最多 20 张、共 32 MiB";
   if (error.code === "session_stopping") return "正在等 pi 停下，停下后再发";
@@ -77,6 +78,21 @@ export function describeModelError(error: unknown): string {
     return `pi 没有接受这个设置：${String(error.params?.["detail"] ?? "")}`;
   }
   return describeSendError(error);
+}
+
+/**
+ * The workspace a container is, if it is one.
+ *
+ * @remarks
+ * Chats and no container at all run outside any workspace: their models come from Atrium's home,
+ * and they have no git changes (SPEC-0001, "对话").
+ *
+ * @sideEffects none
+ * @param containerId - The container, or `null`.
+ * @returns The workspace's id, or `null`.
+ */
+function workspaceOf(containerId: string | null): string | null {
+  return containerId === null || isChatId(containerId) ? null : containerId;
 }
 
 /** Runs a command, showing why it failed if it does, in the words `describe` picks. */
@@ -112,7 +128,7 @@ function SessionModelPicker({
   readonly session: () => Promise<string>;
   readonly act: Act;
 }) {
-  const key = containerId ?? "chats";
+  const key = workspaceOf(containerId);
   const list = useStore(client.models(key));
   const preferences = useStore(client.index, (index) => index.preferences);
   return (
@@ -335,7 +351,7 @@ export function ConversationArea({
     // Fire and forget: a failed list shows in the model panel. Asked for as the container shows,
     // as Paseo prefetches it, so the panel opens on a ready list (SPEC-0001, "模型与输入框"); and
     // again on every connection, as a request without one fails at once.
-    if (connection !== null) void client.loadModels(containerId ?? "chats");
+    if (connection !== null) void client.loadModels(workspaceOf(containerId));
   }, [client, containerId, connection]);
   /**
    * The session just created from the empty state of a container, which took over its words. Until
@@ -358,9 +374,10 @@ export function ConversationArea({
     handingNow.current = next;
     setHanding(next);
   };
-  const containerKey = containerId ?? "chats";
-  /** The workspace shown, whose git changes the capsule and panel show; `null` for the chats. */
-  const workspaceId = containerId === null || containerId === "chats" ? null : containerId;
+  // Where a new session's words wait: its container, or nowhere before a chat exists.
+  const containerKey = containerId ?? "nowhere";
+  /** The workspace shown, whose git changes the capsule and panel show; `null` for a chat. */
+  const workspaceId = workspaceOf(containerId);
   const changes = useStore(workspaceId === null ? NO_CHANGES : client.changes(workspaceId));
   useEffect(() => {
     // Fire and forget: a lost connection asks again when it is back (SPEC-0001, "工作区改动").
@@ -470,8 +487,8 @@ export function ConversationArea({
         .then(async (id) => {
           // What was typed before the session existed goes on in its box, as when `/` or `@`
           // created it (SPEC-0001, "模型与输入框").
-          pageDrafts().handOver(`new:${containerId ?? "chats"}`, id);
-          handTo({ container: containerId ?? "chats", sessionId: id });
+          pageDrafts().handOver(`new:${containerKey}`, id);
+          handTo({ container: containerKey, sessionId: id });
           await client.watch([id]);
           return id;
         })
@@ -608,7 +625,7 @@ export function ConversationArea({
     void send(text, images, true);
   };
 
-  const modelList = useStore(client.models(containerKey));
+  const modelList = useStore(client.models(workspaceId));
   const preferences = useStore(client.index, (index) => index.preferences);
   const baseDir = useStore(
     client.index,
@@ -666,12 +683,14 @@ export function ConversationArea({
           <>
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
               <p className="text-[20px] font-medium text-[var(--text)]">
-                {containerId === null ? "开始一段对话" : containerId === "chats" ? "新对话" : "新会话"}
+                {containerId === null ? "开始一段对话" : "新会话"}
               </p>
               <p className="text-[length:var(--fs-meta)]">
-                {containerId === "chats" || containerId === null
+                {containerId === null
                   ? "不绑定项目和工作区，直接输入就开始"
-                  : "在这个工作区里开始，直接输入就会新建会话"}
+                  : isChatId(containerId)
+                    ? "在这个对话里开始，直接输入就会新建会话"
+                    : "在这个工作区里开始，直接输入就会新建会话"}
               </p>
             </div>
             {notice}
@@ -728,5 +747,5 @@ export function ConversationArea({
   );
 }
 
-/** The changes of no workspace, for the chats. */
+/** The changes of no workspace, for chats. */
 const NO_CHANGES = createStore<ChangesView>(() => null);

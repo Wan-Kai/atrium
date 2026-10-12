@@ -473,7 +473,7 @@ describe("Settings · models and accounts", () => {
     await screen.getByRole("menuitemradio", { name: /^跟随会话的模型/ }).click();
     await expect.element(menu).toHaveTextContent("跟随会话的模型");
 
-    expect(modelCalls).toStrictEqual(["loadModels chats"]);
+    expect(modelCalls).toStrictEqual(["loadModels null"]);
     expect(calls).toStrictEqual([
       'setPreferences {"titleModel":{"providerId":"openai","modelId":"gpt-6-mini"}}',
       'setPreferences {"titleModel":null}',

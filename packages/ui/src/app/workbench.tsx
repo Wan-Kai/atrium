@@ -16,6 +16,7 @@ import { TabBar } from "../tabs/tab-bar";
 /** What the user calls each index file in the reset notice. */
 const FILE_NAMES: Readonly<Record<IndexFileName, string>> = {
   projects: "项目列表",
+  chats: "对话名称",
   sessions: "会话记录",
   layouts: "标签页",
   preferences: "偏好设置",
@@ -37,10 +38,11 @@ function activeSession(index: IndexView): string | null {
 }
 
 /**
- * Creates a session where the client is, or a chat when it is in the chats or nowhere.
+ * Creates a session where the client is, in a workspace or a chat, or a chat when it is nowhere.
  *
  * @remarks
- * The host opens it as the active tab. Reads where the client is at the moment it is called.
+ * The host opens it as the active tab. Reads where the client is at the moment it is called
+ * (SPEC-0001, "对话").
  *
  * @sideEffects Sends `create_session` or `create_chat`.
  * @param client - The client.
@@ -48,7 +50,7 @@ function activeSession(index: IndexView): string | null {
  */
 async function createHere(client: AtriumClient): Promise<string> {
   const where = client.index.getState().layout.container;
-  const created = where === null || where === "chats" ? await client.createChat() : await client.createSession(where);
+  const created = where === null ? await client.createChat() : await client.createSession(where);
   return created.sessionId;
 }
 

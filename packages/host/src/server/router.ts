@@ -88,7 +88,7 @@ export function createRouter(options: RouterOptions): Route {
       case "create_chat":
         return options.sessions.createChat(connection.clientId);
       case "create_session":
-        return options.sessions.createSession(connection.clientId, command.workspaceId);
+        return options.sessions.createSession(connection.clientId, command.containerId);
       case "close_tab":
         return options.sessions.closeTab(connection.clientId, command.sessionId);
       case "select_container":
@@ -113,6 +113,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.renameProject(command.projectId, command.name);
       case "rename_workspace":
         return options.index.renameWorkspace(command.workspaceId, command.name);
+      case "rename_chat":
+        return options.index.renameChat(command.chatId, command.name);
       case "window_focused":
         return options.index.windowFocused();
       case "watch_changes":
@@ -176,7 +178,7 @@ export function createRouter(options: RouterOptions): Route {
       case "upload_attachment":
         return { attachmentId: options.attachments.put(connection.id, command.mimeType, command.data) };
       case "list_models":
-        return options.index.listModels(command.containerId, command.refresh ?? false);
+        return options.index.listModels(command.workspaceId, command.refresh ?? false);
       case "check_setup":
         return options.setup.check(command.refresh ?? false);
       case "login":

@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { isDone, isPending, mergeLabels, placeOf, sessionTitle, sortWorkspaces, timeAgo, workspaceName } from "./names";
+import {
+  chatName,
+  isDone,
+  isPending,
+  mergeLabels,
+  placeOf,
+  sessionTitle,
+  sortWorkspaces,
+  timeAgo,
+  workspaceName,
+} from "./names";
 
 /** A merge state with `fields`. */
 const merge = (fields: Partial<{ dirty: boolean; ahead: number; verdict: string; reason: string }>) => ({
@@ -17,13 +27,30 @@ describe("workspaceName", () => {
 
 describe("sessionTitle", () => {
   it("takes pi's name, then the prompt, then says what it is", () => {
-    const base = { name: null, prompt: null, state: "persisted", containerId: "wks_a" } as const;
+    const base = { name: null, prompt: null, state: "persisted" } as const;
 
     expect(sessionTitle({ ...base, name: "重构", prompt: "fix" })).toBe("重构");
     expect(sessionTitle({ ...base, prompt: "fix" })).toBe("fix");
     expect(sessionTitle({ ...base, state: "draft" })).toBe("新会话");
-    expect(sessionTitle({ ...base, state: "draft", containerId: "chats" })).toBe("新对话");
     expect(sessionTitle(base)).toBe("图片");
+  });
+});
+
+describe("chatName", () => {
+  it("takes the chat's alias, then its first session's title, else says it is new", () => {
+    const first = { sessionId: "s1", name: null, prompt: "解释 merge-tree", state: "persisted" } as const;
+    const other = { ...first, sessionId: "s2", prompt: "周报" };
+    const sessions = [other, first];
+
+    expect(chatName({ alias: "合并原理", firstSessionId: "s1" }, sessions)).toBe("合并原理");
+    expect(chatName({ alias: null, firstSessionId: "s1" }, sessions)).toBe("解释 merge-tree");
+    expect(chatName({ alias: null, firstSessionId: "s1" }, [{ ...first, prompt: null, name: "重构" }])).toBe("重构");
+    expect(chatName({ alias: null, firstSessionId: "s1" }, [{ ...first, prompt: null, state: "draft" }])).toBe(
+      "新对话",
+    );
+    expect(chatName({ alias: null, firstSessionId: "s1" }, [{ ...first, prompt: null }])).toBe("图片");
+    expect(chatName({ alias: null, firstSessionId: "s9" }, sessions)).toBe("新对话");
+    expect(chatName({ alias: null, firstSessionId: null }, sessions)).toBe("新对话");
   });
 });
 
@@ -106,17 +133,24 @@ describe("sortWorkspaces", () => {
 });
 
 describe("placeOf", () => {
-  it("names a session's project and workspace, or the chats", () => {
+  it("names a session's project and workspace, or its chat", () => {
     const index = {
       projects: [{ id: "prj_a", path: "/w/app", name: "atrium" }],
       workspaces: [
         { id: "wks_a", projectId: "prj_a", alias: null, branch: "main", dir: "/w/app" },
         { id: "wks_b", projectId: "prj_gone", alias: null, branch: "x", dir: "/w/x" },
       ],
+      chats: [
+        { id: "cht_a", dir: "/h/chats/a", alias: null, firstSessionId: "c1" },
+        { id: "cht_b", dir: "/h/chats/b", alias: "周报", firstSessionId: null },
+      ],
+      sessions: [{ sessionId: "c1", name: null, prompt: "解释 merge-tree", state: "persisted" }],
     } as never;
 
     expect(placeOf(index, "wks_a")).toBe("atrium · main");
-    expect(placeOf(index, "chats")).toBe("对话");
+    expect(placeOf(index, "cht_a")).toBe("对话 · 解释 merge-tree");
+    expect(placeOf(index, "cht_b")).toBe("对话 · 周报");
+    expect(placeOf(index, "cht_gone")).toBe("对话");
     expect(placeOf(index, "wks_b")).toBe(" · x");
     expect(placeOf(index, "wks_missing")).toBe("");
   });

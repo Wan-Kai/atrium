@@ -1,6 +1,6 @@
 # ADR-0006：以工作区组织会话，工作区与目录一一对应
 
-- **状态**：已接受
+- **状态**：已接受；第 4 条已取代（被 [ADR-0007](0007-each-chat-is-its-own-container.md) 取代）
 - **日期**：2026-10-02
 - **相关**：[ADR-0002](0002-connect-pi-via-rpc-subprocess.md)、[SPEC-0001](../specs/0001-mvp1-single-session-chat.md)、[架构总览](../architecture/overview.md)
 

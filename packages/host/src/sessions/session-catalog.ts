@@ -1,5 +1,5 @@
 import { type SessionFileReader, type SessionFileSummary, type SessionsLocation, sessionFolder } from "@atrium/pi";
-import { type Attention, CHATS, type SessionSummary } from "@atrium/protocol";
+import { type Attention, isChatId, type SessionSummary } from "@atrium/protocol";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
@@ -14,6 +14,12 @@ export interface ContainerDir {
   readonly dir: string;
 }
 
+/** A chat: its directory, and the session it is named after unless the user named it. */
+interface CatalogChat extends ContainerDir {
+  /** Its session created first, not archived; `null` for none. */
+  readonly firstSessionId: string | null;
+}
+
 /** What the catalog knows of one session; the manager adds whether it runs or asks. */
 export type CatalogEntry = Omit<SessionSummary, "running" | "asking"> & {
   /** The working directory pi starts in. */
@@ -24,6 +30,8 @@ export type CatalogEntry = Omit<SessionSummary, "running" | "asking"> & {
 export interface SessionCatalog {
   /** Every session of a registered container. */
   list(): CatalogEntry[];
+  /** Every chat, as the chats root last listed them and as created since. */
+  chats(): CatalogChat[];
   find(sessionId: string): CatalogEntry | undefined;
   /** Records a new draft session. */
   record(session: { readonly sessionId: string; readonly containerId: string; readonly cwd: string }): Promise<void>;
@@ -67,8 +75,9 @@ interface SessionMarks {
  * - a session found in more than one file is the newest file's; the conflict is logged;
  * - a draft becomes a session once its file is found; a recorded session whose file is gone is
  *   `missing`, but only once a scan has looked (`ready`);
- * - every chat has its own directory under the chats root, and all of them are the chats'
- *   container.
+ * - every directory under the chats root is a chat, `cht_<its name>`, and the container of the
+ *   sessions in it (ADR-0007); a name no chat id could have is passed over. A chat's first session
+ *   is the one created first, by Atrium's record, else when its file last changed.
  *
  * Reading is incremental (the pi package's `SessionFileReader`).
  *
@@ -90,7 +99,7 @@ export function createSessionCatalog(options: {
   const listeners = new Set<() => void>();
   const stop = new AbortController();
   let found = new Map<string, SessionFileSummary>();
-  let chatDirs: readonly string[] = [];
+  let chatDirs: readonly ContainerDir[] = [];
   let scanning: Promise<void> | null = null;
   let again = false;
   /** Settles once the first scan has ended, however it ended. */
@@ -107,7 +116,7 @@ export function createSessionCatalog(options: {
    * @returns The directories.
    */
   function containers(): ContainerDir[] {
-    return [...options.workspaces(), ...chatDirs.map((dir) => ({ id: CHATS, dir }))];
+    return [...options.workspaces(), ...chatDirs];
   }
 
   /**
@@ -137,9 +146,7 @@ export function createSessionCatalog(options: {
      * @returns The container, or `undefined` for none registered.
      */
     const containerOf = (record: SessionRecord | undefined, cwd: string) =>
-      record !== undefined && ids.has(record.containerId) && record.containerId !== CHATS
-        ? record.containerId
-        : byDir.get(cwd);
+      record !== undefined && ids.has(record.containerId) ? record.containerId : byDir.get(cwd);
     const entries: CatalogEntry[] = [];
     for (const file of found.values()) {
       const record = records.get(file.sessionId);
@@ -191,11 +198,11 @@ export function createSessionCatalog(options: {
    * listeners when the list changed.
    */
   async function scanOnce(): Promise<void> {
-    const before = JSON.stringify(list());
+    const before = JSON.stringify([list(), chatDirs]);
     const location = await options.location;
     chatDirs = (await readdir(options.chatsRoot, { withFileTypes: true }).catch(() => []))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => join(options.chatsRoot, entry.name));
+      .filter((entry) => entry.isDirectory() && isChatId(chatIdOf(entry.name)))
+      .map((entry) => ({ id: chatIdOf(entry.name), dir: join(options.chatsRoot, entry.name) }));
     const next = new Map<string, SessionFileSummary>();
     if (location !== null) {
       const dirs = new Set(containers().map((container) => container.dir));
@@ -222,7 +229,7 @@ export function createSessionCatalog(options: {
         ),
       });
     }
-    if (JSON.stringify(list()) !== before) changed();
+    if (JSON.stringify([list(), chatDirs]) !== before) changed();
   }
 
   /**
@@ -288,12 +295,39 @@ export function createSessionCatalog(options: {
     );
   }
 
+  /**
+   * The chats, each with its first session.
+   *
+   * @remarks
+   * See `createSessionCatalog`.
+   *
+   * @sideEffects none
+   * @returns The chats.
+   */
+  function chats(): CatalogChat[] {
+    const records = new Map(options.file.read().sessions.map((record) => [record.sessionId, record]));
+    const live = list().filter((entry) => !entry.archived);
+    return chatDirs.map((chat) => {
+      const first = live
+        .filter((entry) => entry.containerId === chat.id)
+        .map((entry) => ({
+          sessionId: entry.sessionId,
+          at: records.get(entry.sessionId)?.createdAt ?? entry.updatedAt,
+        }))
+        .toSorted((a, b) => a.at - b.at)[0];
+      return { ...chat, firstSessionId: first?.sessionId ?? null };
+    });
+  }
+
   return {
     list,
+    chats,
     find: (sessionId) => list().find((entry) => entry.sessionId === sessionId),
     record(session) {
       // A new chat's directory was just made; it is listed without waiting for a scan.
-      if (session.containerId === CHATS && !chatDirs.includes(session.cwd)) chatDirs = [...chatDirs, session.cwd];
+      if (isChatId(session.containerId) && !chatDirs.some((chat) => chat.id === session.containerId)) {
+        chatDirs = [...chatDirs, { id: session.containerId, dir: session.cwd }];
+      }
       return save([
         ...options.file.read().sessions,
         { ...session, draft: true, archived: false, createdAt: options.clock.now() },
@@ -335,4 +369,18 @@ export function createSessionCatalog(options: {
       await scanning?.catch(() => undefined);
     },
   };
+}
+
+/**
+ * The id of the chat in a directory under the chats root.
+ *
+ * @remarks
+ * A chat is named after its directory, which Atrium named at random (ADR-0007).
+ *
+ * @sideEffects none
+ * @param name - The directory's name.
+ * @returns The chat's id.
+ */
+export function chatIdOf(name: string): string {
+  return `cht_${name}`;
 }

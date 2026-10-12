@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
 import { ModelRef, ThinkingLevel } from "./models";
 
@@ -60,6 +60,17 @@ export const Workspace = z.strictObject({
 });
 export type Workspace = z.infer<typeof Workspace>;
 
+/** A chat: a directory of its own with sessions in it, and no git (domain-model §1, Chat). */
+export const Chat = z.strictObject({
+  id: ChatId,
+  dir: Path,
+  /** The name the user gave it; `null` for none. */
+  alias: z.string().min(1).max(256).nullable(),
+  /** Its session created first, not archived; `null` for none. The chat is named after it unless aliased. */
+  firstSessionId: SessionId.nullable(),
+});
+export type Chat = z.infer<typeof Chat>;
+
 /**
  * Why a session needs you, kept in the index until its next run starts (SPEC-0001, "并行、同步与关注").
  *
@@ -109,7 +120,7 @@ export type ContainerTabs = z.infer<typeof ContainerTabs>;
 
 /** One client's layout (domain-model, "已决定 4"). */
 export const Layout = z.strictObject({
-  /** Where the client is: a workspace, the chats, or nowhere yet. */
+  /** Where the client is: a workspace, a chat, or nowhere yet. */
   container: ContainerId.nullable(),
   tabs: z.record(ContainerId, ContainerTabs),
 });
@@ -165,7 +176,7 @@ export const Preferences = z.strictObject({
 export type Preferences = z.infer<typeof Preferences>;
 
 /** Files of the index that were reset because they were damaged (domain-model §1, "索引的存储"). */
-export const IndexFileName = z.enum(["projects", "sessions", "layouts", "preferences"]);
+export const IndexFileName = z.enum(["projects", "chats", "sessions", "layouts", "preferences"]);
 export type IndexFileName = z.infer<typeof IndexFileName>;
 
 /** Why the host sent the whole list rather than changes after the client's cursor. */
@@ -191,6 +202,7 @@ export const IndexSnapshotEvent = z.strictObject({
   reason: SnapshotReason,
   projects: z.array(Project),
   workspaces: z.array(Workspace),
+  chats: z.array(Chat),
   sessions: z.array(SessionSummary),
   layout: Layout,
   preferences: Preferences,
@@ -203,7 +215,7 @@ export type IndexSnapshotEvent = z.infer<typeof IndexSnapshotEvent>;
  * The changes to one collection: items that changed, whole, and the ids of those that went.
  *
  * @remarks
- * The three collections change alike.
+ * The collections change alike.
  *
  * @sideEffects none
  * @param item - An item's schema.
@@ -227,6 +239,7 @@ export const IndexChangesEvent = z.strictObject({
   seq: ListSeq,
   projects: collectionChanges(Project, ProjectId),
   workspaces: collectionChanges(Workspace, WorkspaceId),
+  chats: collectionChanges(Chat, ChatId),
   sessions: collectionChanges(SessionSummary, SessionId),
   layout: Layout.nullable(),
   preferences: Preferences.nullable(),

@@ -49,6 +49,7 @@ import { createSessionManager } from "./sessions/session-manager";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
+import { createChatNames } from "./store/chat-names";
 import { createPreferenceStore } from "./store/preferences";
 import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
@@ -205,12 +206,16 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const layouts = createLayouts({ file: index.layouts, clock });
+  const chatNames = createChatNames(index.chats);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: hostInstanceId,
     build: () => ({
       projects: projects.projects().map(({ id, path, name, mainBranch }) => ({ id, path, name, mainBranch })),
       workspaces: workspaces.list(),
+      chats: catalog
+        .chats()
+        .map(({ id, dir, firstSessionId }) => ({ id, dir, alias: chatNames.alias(id), firstSessionId })),
       sessions: sessions.summaries(),
       preferences: preferences.read(),
       resets: [...index.resets],
@@ -331,6 +336,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     },
     sessions,
     preferences,
+    chats: () => catalog.chats(),
+    chatNames,
     feed,
     listModels: createModelLister({
       catalog: models,

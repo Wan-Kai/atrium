@@ -238,20 +238,20 @@ function KeyAdder({
  *
  * @remarks
  * SPEC-0001 ("设置 · 模型与账户"): the choices are the models pi lists for the providers signed
- * in, asked as for chats. A chosen model pi no longer lists stays chosen, with a note that titles
+ * in, asked outside any workspace, as for chats. A chosen model pi no longer lists stays chosen, with a note that titles
  * use the session's model meanwhile.
  *
- * @sideEffects Subscribes to the client's list and the chats' models, asking for them when shown;
+ * @sideEffects Subscribes to the client's list and the models outside any workspace, asking for them when shown;
  * sends `set_preferences` when one is chosen.
  * @param props - The client.
  * @returns The group.
  */
 function TitleModel({ client }: { readonly client: AtriumClient }) {
   const chosen = useStore(client.index, (index) => index.preferences.titleModel);
-  const models = useStore(client.models("chats"));
+  const models = useStore(client.models(null));
   useEffect(() => {
     // Fire and forget: the failure lands in the list.
-    void client.loadModels("chats");
+    void client.loadModels(null);
   }, [client]);
   const listed =
     chosen === null ||

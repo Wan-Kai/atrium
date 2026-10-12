@@ -10,6 +10,7 @@ import type {
   SetupView,
 } from "@atrium/client";
 import {
+  type Chat,
   type DiffTarget,
   type DiscoveredDirectory,
   IDLE_CONTROL,
@@ -49,6 +50,20 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
     merge: { dirty: false, ahead: 0, verdict: "noChange", reason: null },
     ...fields,
   };
+}
+
+/**
+ * A chat without a name.
+ *
+ * @remarks
+ * Its directory under Atrium's home, unless `fields` say otherwise.
+ *
+ * @sideEffects none
+ * @param fields - Fields to set; the id and first session are required.
+ * @returns The chat.
+ */
+export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">): Chat {
+  return { dir: `/home/chats/${fields.id}`, alias: null, ...fields };
 }
 
 /**
@@ -129,6 +144,7 @@ export const READY_SETUP: SetupState = {
 export interface FakeAnswers {
   readonly createChat?: () => Promise<void>;
   readonly createSession?: () => Promise<void>;
+  readonly renameChat?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
@@ -179,7 +195,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const changeCalls: string[] = [];
   const changeStores = new Map<string, StoreApi<ChangesView>>();
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
-  const modelLists = new Map<string, StoreApi<ModelListView>>();
+  const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
   const index = createStore<IndexView>(() => ({
     ready: true,
@@ -187,6 +203,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     seq: 1,
     projects: [],
     workspaces: [],
+    chats: [],
     sessions: [],
     layout: { container: null, tabs: {} },
     preferences: {
@@ -294,12 +311,20 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async createChat() {
       calls.push("createChat");
       await answers.createChat?.();
-      return { sessionId: addDraft("chats") };
+      // As the host does: a chat of its own, whose first session is the new draft.
+      const chatId = `cht_new${created + 1}`;
+      index.setState({
+        chats: [
+          ...index.getState().chats,
+          { id: chatId, dir: `/home/chats/new${created + 1}`, alias: null, firstSessionId: `new${created + 1}` },
+        ],
+      });
+      return { sessionId: addDraft(chatId) };
     },
-    async createSession(workspaceId: string) {
-      calls.push(`createSession ${workspaceId}`);
+    async createSession(containerId: string) {
+      calls.push(`createSession ${containerId}`);
       await answers.createSession?.();
-      return { sessionId: addDraft(workspaceId) };
+      return { sessionId: addDraft(containerId) };
     },
     async openSession(sessionId: string) {
       calls.push(`openSession ${sessionId}`);
@@ -368,6 +393,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`renameWorkspace ${workspaceId} ${name}`);
       return {};
     },
+    async renameChat(chatId: string, name: string | null) {
+      calls.push(`renameChat ${chatId} ${name}`);
+      await answers.renameChat?.();
+      return {};
+    },
     async windowFocused() {
       calls.push("windowFocused");
       return {};
@@ -429,18 +459,18 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     loadOlder: async () => undefined,
     loadStep: async () => undefined,
-    models(containerId: string) {
-      let list = modelLists.get(containerId);
+    models(workspaceId: string | null) {
+      let list = modelLists.get(workspaceId);
       if (list === undefined) {
         list = createStore<ModelListView>(() => ({ status: "idle", models: [], defaultModel: null, error: null }));
-        modelLists.set(containerId, list);
+        modelLists.set(workspaceId, list);
       }
       return list;
     },
-    async loadModels(containerId: string, refresh = false) {
-      modelCalls.push(`loadModels ${containerId}${refresh ? " refresh" : ""}`);
+    async loadModels(workspaceId: string | null, refresh = false) {
+      modelCalls.push(`loadModels ${workspaceId}${refresh ? " refresh" : ""}`);
       client
-        .models(containerId)
+        .models(workspaceId)
         .setState(answers.models ?? { status: "ready", models: [], defaultModel: null, error: null });
     },
     async setModel(sessionId: string, model: ModelRef) {

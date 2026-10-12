@@ -135,15 +135,15 @@ export interface AtriumClient {
   session(sessionId: string): StoreApi<SessionView> | undefined;
   /** Sets the sessions to receive live events for; views are created for new ones and dropped for the rest. */
   watch(sessionIds: readonly string[]): Promise<void>;
-  /** Creates a chat, opened as the active tab, and returns its session id. */
+  /** Creates a chat with its first session, opened as the active tab, and returns the session's id. */
   createChat(): Promise<CommandResult<"create_chat">>;
-  /** Creates a session in a workspace, opened as the active tab, and returns its id. */
-  createSession(workspaceId: string): Promise<CommandResult<"create_session">>;
+  /** Creates a session in a workspace or chat, opened as the active tab, and returns its id. */
+  createSession(containerId: ContainerId): Promise<CommandResult<"create_session">>;
   /** Opens a session as the active tab, at once in the list; `watch` it to see it. */
   openSession(sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes this client's tab of a session, at once in the list. */
   closeTab(sessionId: string): Promise<CommandResult<"close_tab">>;
-  /** Goes to a workspace or the chats, or nowhere, at once in the list. */
+  /** Goes to a workspace or a chat, or nowhere, at once in the list. */
   selectContainer(containerId: ContainerId | null): Promise<CommandResult<"select_container">>;
   archiveSession(sessionId: string): Promise<CommandResult<"archive_session">>;
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
@@ -158,6 +158,8 @@ export interface AtriumClient {
   renameProject(projectId: string, name: string): Promise<CommandResult<"rename_project">>;
   /** Names a workspace, or with `null` goes back to its branch's name. */
   renameWorkspace(workspaceId: string, name: string | null): Promise<CommandResult<"rename_workspace">>;
+  /** Names a chat, or with `null` goes back to its first session's title. */
+  renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
@@ -185,10 +187,10 @@ export interface AtriumClient {
   ): Promise<CommandResult<"answer_interaction">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
-  /** The models of a container, as far as asked; the same store every time. */
-  models(containerId: ContainerId): StoreApi<ModelListView>;
-  /** Asks the host for a container's models; `refresh` makes pi look again. Failures land in the list. */
-  loadModels(containerId: ContainerId, refresh?: boolean): Promise<void>;
+  /** The models of a workspace, or with `null` of every chat and the settings, as far as asked; the same store every time. */
+  models(workspaceId: string | null): StoreApi<ModelListView>;
+  /** Asks the host for a workspace's models, or with `null` those outside any; `refresh` makes pi look again. Failures land in the list. */
+  loadModels(workspaceId: string | null, refresh?: boolean): Promise<void>;
   /** Switches a session's model, at once in its view; put back if the host refuses. */
   setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets a session's thinking level, at once in its view; put back if the host refuses. */
@@ -389,8 +391,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * their way, and the guesses shown for them.
    */
   const guesses = new Map<string, { reported: SessionModel; pending: number; readonly ours: Set<SessionModel> }>();
-  /** Each container's model list, once asked for. */
-  const modelLists = new Map<string, StoreApi<ModelListView>>();
+  /** Each workspace's model list, and that of outside any, once asked for. */
+  const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   /** Fetches of older items on their way, by session. */
   const olderLoading = new Map<string, Promise<void>>();
   let watched: readonly string[] = [];
@@ -514,20 +516,21 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   }
 
   /**
-   * A container's model list, created empty on first use.
+   * A workspace's model list, or that of outside any, created empty on first use.
    *
    * @remarks
-   * Kept for as long as the client lives; lists are small and few.
+   * Kept for as long as the client lives; lists are small and few. Every chat shares one
+   * (SPEC-0001, "模型与输入框").
    *
    * @sideEffects May create the list's store.
-   * @param containerId - The container.
+   * @param workspaceId - The workspace, or `null`.
    * @returns Its store.
    */
-  function modelList(containerId: ContainerId): StoreApi<ModelListView> {
-    let list = modelLists.get(containerId);
+  function modelList(workspaceId: string | null): StoreApi<ModelListView> {
+    let list = modelLists.get(workspaceId);
     if (list === undefined) {
       list = createStore<ModelListView>(() => UNASKED_MODELS);
-      modelLists.set(containerId, list);
+      modelLists.set(workspaceId, list);
     }
     return list;
   }
@@ -728,27 +731,27 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @sideEffects Sends `list_models` for each list asked for; updates their stores.
    */
   function reloadModels(): void {
-    for (const [containerId, list] of modelLists) {
+    for (const [workspaceId, list] of modelLists) {
       // Fire and forget: the failure lands in the list.
-      if (list.getState().status !== "idle") void loadModels(containerId, false);
+      if (list.getState().status !== "idle") void loadModels(workspaceId, false);
     }
   }
 
   /**
-   * Asks for a container's models.
+   * Asks for a workspace's models, or those outside any.
    *
    * @remarks
    * See {@link AtriumClient.loadModels}.
    *
    * @sideEffects Sends `list_models`; updates the list's store.
-   * @param containerId - The container.
+   * @param workspaceId - The workspace, or `null`.
    * @param refresh - Whether pi is asked again.
    */
-  async function loadModels(containerId: ContainerId, refresh: boolean): Promise<void> {
-    const list = modelList(containerId);
+  async function loadModels(workspaceId: string | null, refresh: boolean): Promise<void> {
+    const list = modelList(workspaceId);
     list.setState({ status: "loading", error: null });
     try {
-      const { models, defaultModel } = await request("list_models", { containerId, refresh });
+      const { models, defaultModel } = await request("list_models", { workspaceId, refresh });
       list.setState({ status: "ready", models, defaultModel, error: null });
     } catch (error) {
       // Stryker disable next-line ConditionalExpression: commands only ever reject with errors.
@@ -1084,7 +1087,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (live !== undefined) await request("subscribe_sessions", { sessionIds: [...watched] });
     },
     createChat: () => request("create_chat", {}),
-    createSession: (workspaceId) => request("create_session", { workspaceId }),
+    createSession: (containerId) => request("create_session", { containerId }),
     openSession(sessionId) {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withTabOpen(index.getState(), sessionId), true);
@@ -1109,6 +1112,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     removeProject: (projectId) => request("remove_project", { projectId }),
     renameProject: (projectId, name) => request("rename_project", { projectId, name }),
     renameWorkspace: (workspaceId, name) => request("rename_workspace", { workspaceId, name }),
+    renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
       // A proxy shows once the host has checked it and written its address in one form.
@@ -1129,8 +1133,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
-    models: (containerId) => modelList(containerId),
-    loadModels: (containerId, refresh = false) => loadModels(containerId, refresh),
+    models: (workspaceId) => modelList(workspaceId),
+    loadModels: (workspaceId, refresh = false) => loadModels(workspaceId, refresh),
     setModel: (sessionId, model) =>
       withGuessedModel(
         sessionId,

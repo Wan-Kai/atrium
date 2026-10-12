@@ -99,14 +99,15 @@ Electron 主进程
       └── 会话（目录下的 pi 会话文件）
            ├── 打开着的 → 对话区顶部的标签页
            └── 全部 → "历史"菜单
-对话（不绑定项目和工作区的会话，⌘N 新建）
- └── 每个对话一个空目录 ~/.atrium/chats/<id>/，宿主按目录认出它们
+对话（不绑定项目和工作区，⌘N 新建；2026-10-12 改，ADR-0007）
+ │  每个对话一个空目录 ~/.atrium/chats/<目录名>/，宿主按目录认出它们；没有 git
+ └── 会话（和工作区一样：打开着的是标签页，全部在"历史"里）
 ```
 
 - 工作区和目录一一对应：pi 按工作目录保存会话，宿主按会话的工作目录把它归到对应的工作区，没有歧义。以后确实需要多个工作区共用一个目录（按任务分组）时再放开。
 - MVP 1 的工作区：每个项目自动有一个本地工作区；`git worktree list` 识别出的每个 worktree 是一个工作区。新建 worktree 工作区、归档并清理 worktree 放到阶段 1 第 3 步。
-- 对话用于和项目无关的提问。pi 必须有工作目录，所以每个对话给一个独立的空目录，agent 写的文件互不干扰；"移到某个项目"以后再做。
-- Atrium 只保存索引：项目列表（目录、显示名）；工作区（所属项目、本地或 worktree、目录、分支、自定义名称、创建时的起点提交、是否外部、是否归档）；每个工作区和"对话"打开着哪些标签页、当前是哪一个；会话的归档状态、出错是否已看过。不保存对话内容。
+- 对话用于和项目无关的提问。pi 必须有工作目录，所以每个对话给一个独立的空目录，agent 写的文件互不干扰；"移到某个项目"以后再做。一个对话就是一个没有 git 的工作空间，和工作区一样可以有多个会话，以后要打开的浏览器页面等内容也放在对话里，所以各个对话互不相干，不挤在一起（2026-10-12 改，原先所有对话是一个容器里的标签页）。
+- Atrium 只保存索引：项目列表（目录、显示名）；工作区（所属项目、本地或 worktree、目录、分支、自定义名称、创建时的起点提交、是否外部、是否归档）；对话的自定义名称；每个工作区和对话打开着哪些标签页、当前是哪一个；会话的归档状态、出错是否已看过。不保存对话内容。
 
 ```
 ● ● ●                                ▯     ← 窗口按钮、收起侧栏（收起后有等你处理的会话时，展开按钮上加橙点）
@@ -128,23 +129,24 @@ Electron 主进程
      spike/sdk-embed   已移除
 📁 dotfiles       • 2 待合并   !            ← 项目收起时：待合并数 + 最高优先级的状态
 对话
-  解释 git merge-tree 的原理  30 分钟前     ← 最近 5 个，更多的在"全部 N 个对话"
+  解释 git merge-tree 的原理  30 分钟前  ✋ ← 对话：名称、最近活动时间、会话的最高优先级状态
+  显示全部 7 个                             ← 最近 5 个，其余点击在原地展开
 ⚙ 设置                              🌙     ← 外观：跟随系统 / 浅色 / 深色
 ```
 
 **收件箱**
 
-- 只放"等你处理"和"出错"的会话，跨所有项目和对话汇总，按状态优先级、再按时间排序。第一行是会话标题和最近活动时间，第二行是"项目 · 工作区"，对话写"对话"。
+- 只放"等你处理"和"出错"的会话，跨所有项目和对话汇总，按状态优先级、再按时间排序。第一行是会话标题和最近活动时间，第二行是"项目 · 工作区"，对话写"对话 · 对话名"。
 - 最多显示 5 条，其余收成"还有 N 条"，点击展开；展开后末尾是"收起"。
-- 点击：切到会话所在的工作区（或"对话"），没打开的会话补开一个标签页并激活。收件箱行和工作区行同时高亮：一个表示正在看的会话，一个表示所在的工作区。工作区所在的项目是收起的，不自动展开，项目行带上选中底色。
+- 点击：切到会话所在的工作区或对话，没打开的会话补开一个标签页并激活。收件箱行和工作区（或对话）行同时高亮：一个表示正在看的会话，一个表示所在的工作区。工作区所在的项目是收起的，不自动展开，项目行带上选中底色。
 - 离开收件箱：待审批、待回答、待授权要等问题解决（看一眼不算）；出错的会话打开过即算已看过，移出收件箱，但标签页和工作区行上的出错图标保留，直到下一次运行开始。
 - 不单独设"运行中"分区。
 
 **搜索**
 
 - 点"项目"标题右侧的搜索按钮，搜索框在原位展开；搜索框和它上面的内容（新建对话、收件箱、"项目"标题）都不动，项目列表和"对话"换成搜索结果。
-- 结果分两组：工作区（名称 + 所属项目 + 合并状态）、会话（与收件箱同样的两行格式，包含对话）。点击工作区切过去；点击会话打开它。
-- 匹配工作区名和会话标题；全文搜索以后再做。清空或关闭搜索框，恢复项目列表。
+- 结果分三组：工作区（名称 + 所属项目 + 合并状态）、对话（名称 + 时间）、会话（与收件箱同样的两行格式，包含对话里的会话）。点击工作区或对话切过去；点击会话打开它。
+- 匹配工作区名、对话名和会话标题；全文搜索以后再做。清空或关闭搜索框，恢复项目列表。
 
 **项目与工作区**
 
@@ -157,14 +159,20 @@ Electron 主进程
 
 **对话**
 
-- 侧栏底部的"对话"分区列出最近 5 个对话（标题、时间、非空闲时的状态），更多的点"全部 N 个对话"，在"历史"里看。
-- 选中对话时，对话区顶部的标签页是打开着的对话，标签栏的"+"新建对话；新对话的空状态提示"不绑定项目和工作区"。
-- 标签栏的"+"在当前所在的地方新建：在工作区里就是这个工作区的会话，在"对话"里就是新对话。
+每个对话和工作区一样是一个容器（2026-10-12 改，[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)）：
+
+- 侧栏底部的"对话"分区像工作区一样逐行列出对话：名称、最近活动时间（其中会话最近的一次）、会话的最高优先级状态（空闲时不显示），按最近活动排列。显示最近 5 个，其余的点"显示全部 N 个"在原地展开，展开后末尾是"收起"。所有会话都归档了的对话不列出。
+- 点击对话：切过去，恢复它上次激活的标签页；没有打开着的标签页时打开它最近的会话（对话不像工作区那样常有空状态，点进去应当看到内容）。对话行在所在的对话被选中时高亮，和工作区行一样。
+- 选中对话时，对话区顶部的标签页是这个对话打开着的会话，"历史"列出这个对话的全部会话；标签栏的"+"（⌘T）在这个对话里新建会话，以对话的目录为工作目录。新对话用侧栏的"新建对话"或 ⌘N。
+- 标签栏的"+"在当前所在的地方新建：在工作区里就是这个工作区的会话，在对话里就是这个对话的会话，哪里都不在时新建对话。
+- "···"菜单：重命名。
+- 以后对话里要打开的浏览器页面等内容也作为这个对话的标签页。
 
 **命名**
 
 - 项目名：默认取目录名，可以重命名。添加的目录与已有项目同名时，自动在后面加序号，如 `app (1)`，并提示可以重命名；手动重命名成已有的名字时，提示重名、不保存。
 - 工作区名：默认是分支名，跟着分支变化。本地工作区取项目目录当前检出的分支（不一定是 `main`）；worktree 取它检出的分支；处于 detached HEAD 时用目录名，悬停显示短 commit 号；项目不是 git 仓库时，本地工作区用目录名。
+- 对话名：默认取第一个会话（最早建的、没归档的）的标题，第一个会话还是草稿时显示"新对话"；可以重命名，自定义名称存在 Atrium 的索引里，清空即恢复默认（2026-10-12 定）。
 - 工作区可以重命名：自定义名称只存在 Atrium 的索引里，不改 git 分支名；改过名的工作区悬停时显示分支名；名称清空即恢复为分支名。
 - 会话标题，按以下顺序取第一个有值的：
   1. pi 的会话名：手动重命名和模型生成的标题都写在这里（`set_session_name`），终端 pi 也能看到。
@@ -214,8 +222,8 @@ Electron 主进程
 | MVP 1 | 以后 |
 |---|---|
 | 添加项目、从侧栏移除项目（不删除文件） | 新建 worktree 工作区（阶段 1 第 3 步） |
-| 新建对话：侧栏按钮、⌘N，不绑定工作区；新建会话：标签栏的"+"，在当前工作区 | 归档工作区并清理 worktree（阶段 1 第 3 步） |
-| 重命名、归档会话（标签栏右侧"···"）：归档只在 Atrium 里隐藏，不删除 pi 的会话文件；重命名工作区（工作区"···"）、项目 | 一个目录多个工作区、置顶、彻底删除、全文搜索 |
+| 新建对话：侧栏按钮、⌘N，不绑定工作区；新建会话：标签栏的"+"，在当前工作区或对话 | 归档工作区并清理 worktree（阶段 1 第 3 步） |
+| 重命名、归档会话（标签栏右侧"···"）：归档只在 Atrium 里隐藏，不删除 pi 的会话文件；重命名工作区（工作区"···"）、对话（对话"···"）、项目 | 一个目录多个工作区、置顶、彻底删除、全文搜索 |
 | 搜索工作区和会话（"项目"标题右侧的搜索按钮） | 分叉关系的展示、把对话移到项目里 |
 
 ### 对话区
@@ -252,10 +260,10 @@ Electron 主进程
 **标签栏**（对话区顶部）
 
 - 显示当前工作区"打开着的"会话，每个标签是一个会话：标题、非空闲时的状态图标、关闭按钮。关闭标签只是收起，会话保留在"历史"里。
-- "+"在当前工作区新建会话（在"对话"里则新建对话）；"历史 ⌄"列出这个工作区的全部会话（状态、时间、是否已打开），点击即在标签页中打开。
+- "+"在当前工作区或对话里新建会话（哪里都不在时新建对话）；"历史 ⌄"列出这个工作区或对话的全部会话（状态、时间、是否已打开），点击即在标签页中打开。
 - 右侧是显示模式和"···"：重命名、归档、复制会话文件路径、在终端中继续（交接给终端：Atrium 先停止并释放这个会话，再复制 `pi --session <文件>`，见"关键流程"）。
 - 标签多了先压缩到最小宽度（约 96px），再放不下就横向滚动，两端渐隐提示还有更多。
-- 快捷键：⌘T 在当前工作区新建会话，⌘W 关闭标签，⌘1–9 切到第几个，⌘⇧[ / ⌘⇧] 切到上一个 / 下一个。
+- 快捷键：⌘T 在当前工作区或对话里新建会话，⌘W 关闭标签，⌘1–9 切到第几个，⌘⇧[ / ⌘⇧] 切到上一个 / 下一个。
 - 会话可以在后台运行：切换标签、切换工作区、关闭标签都不会中断它，状态显示在侧栏、收件箱和"历史"里。每个会话本来就是独立的 pi 进程，多个会话可以同时运行；要停下，打开它点"停止"。
 - 工作区没有打开的会话时，对话区显示空状态，直接在输入框里输入就会新建会话：输入第一个字时就新建，pi 的启动藏在打字里，已经打的字留在新会话的输入框里（2026-10-11 定）。空状态（以及新会话、新对话的空状态）的布局待设计，先用占位。
 - 以后的"对话 / 轨迹"是单个会话内部的视图切换，和会话标签页不冲突，放在对话区里另找位置（MVP 2）。
@@ -632,11 +640,12 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - **项目** `Project`：`id`（`prj_…`）、`path`（解析过符号链接的真实路径）、`name`。
 - **工作区** `Workspace`：`id`（`wks_…`）、`projectId`、`kind`（`local` / `worktree`）、`dir`、`alias`（自定义名称，没有为空）、`branch`（检出的分支；detached HEAD 或不是 git 仓库时为空）、`head`（detached 时的短 commit 号）、`external`（不是 Atrium 建的 worktree）、`createdAt`（worktree 的创建时间，本地工作区为空）、`merge`（合并状态，本地工作区和非 git 项目为空）。名称由界面按 `alias ?? branch ?? 目录名` 得出。
 - **合并状态** `MergeState`：`dirty`、`ahead`、`verdict`（`noChange` / `pending` / `merged` / `removed` / `unknown`）、`reason`（`unknown` 的原因：`git_too_old`、`no_main_branch`、`git_failed`、`base_unknown`）。主干只认项目的覆盖值或 `origin/HEAD`，没有就是 `unknown`（`no_main_branch`），不猜本地分支（2026-10-08 定）。
-- **会话摘要** `SessionSummary`：`sessionId`、`containerId`（工作区 id，或对话的 `chats`）、`name`（pi 的会话名）、`prompt`（第一条用户消息的第一行，去掉 Markdown 符号和首尾空白，最多 200 个字符；没有文字为空）、`file`（会话文件路径，还没写出时为空）、`state`（`draft` / `persisted` / `missing`）、`updatedAt`、`archived`、`running`。标题由界面按 `name ?? prompt` 得出，都为空时草稿显示"新会话"，否则显示"图片"。
-- **布局** `Layout`（只给这个客户端自己的）：`container`（当前所在的工作区或 `chats`，没有为空）、`tabs`（每个容器打开着的会话和当前标签）。
+- **对话** `Chat`（2026-10-12 加，ADR-0007）：`id`（`cht_<目录名>`）、`dir`、`alias`（自定义名称，没有为空）、`firstSessionId`（没归档的会话里最早建的，没有为空）。名称由界面按 `alias ?? 第一个会话的标题` 得出。宿主扫描 `~/.atrium/chats/` 的子目录得出对话列表，自定义名称存在 `chats.json`。
+- **会话摘要** `SessionSummary`：`sessionId`、`containerId`（工作区或对话的 id；2026-10-12 前对话都是 `chats`）、`name`（pi 的会话名）、`prompt`（第一条用户消息的第一行，去掉 Markdown 符号和首尾空白，最多 200 个字符；没有文字为空）、`file`（会话文件路径，还没写出时为空）、`state`（`draft` / `persisted` / `missing`）、`updatedAt`、`archived`、`running`。标题由界面按 `name ?? prompt` 得出，都为空时草稿显示"新会话"，否则显示"图片"。
+- **布局** `Layout`（只给这个客户端自己的）：`container`（当前所在的工作区或对话，没有为空）、`tabs`（每个容器打开着的会话和当前标签）。
 - **偏好** `Preferences`：`appearance`（`system` / `light` / `dark`）、`displayMode`（摘要 / 思考 / 详细，从 M1.4 的 localStorage 挪到宿主，所有客户端一致）。
 
-**事件**：`index_snapshot(generation, seq, projects, workspaces, sessions, layout, preferences, resets)`。`generation` 是宿主实例 id，`seq` 每推一次加一。`resets` 列出这次宿主启动时因损坏被重置的索引文件（领域模型 §1"索引的存储"），界面提示一次。
+**事件**：`index_snapshot(generation, seq, projects, workspaces, chats, sessions, layout, preferences, resets)`（`chats` 2026-10-12 加，`index_changes` 同样多一组）。`generation` 是宿主实例 id，`seq` 每推一次加一。`resets` 列出这次宿主启动时因损坏被重置的索引文件（领域模型 §1"索引的存储"），界面提示一次。
 
 **命令**
 
@@ -645,19 +654,20 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `add_project(path)`：登记项目，返回 `projectId`。不是目录应答 `path_not_found`；已经是某个项目或其工作区时应答 `project_exists`（`params.projectId`）；名称和已有项目重复时自动加序号，如 `app (1)`。选的是某个仓库的 worktree（不是主工作树）时，登记的是主工作树所在的仓库，这个 worktree 作为它的一个工作区出现（2026-10-08 定）。同时添加的几个目录依次处理。
 - `remove_project(projectId)` / `rename_project(projectId, name)`：移除只删索引，同时停掉其中会话的 pi、从各客户端的布局里去掉；改成已有项目的名字应答 `name_taken`。
 - `rename_workspace(workspaceId, name | null)`：`null` 恢复为分支名。
+- `rename_chat(chatId, name | null)`：`null` 恢复为第一个会话的标题；对话不存在应答 `chat_not_found`（2026-10-12 加）。
 - `window_focused()`：窗口获得焦点，宿主重扫工作区、合并状态和会话文件。
-- `create_session(workspaceId)` / `create_chat()`：新建草稿会话并立刻启动 pi（领域模型"已决定 9"，2026-10-08 定工作区里的新会话也一样），打开成这个客户端的标签并激活（这期间客户端换过位置时不切过去，见下文），返回 `sessionId`。不等 pi 启动（2026-10-11 改）：会话 id 由宿主生成，记下草稿、打开标签就应答，pi 在后台用 `--session-id <id>` 启动；第一次 `prompt`、`list_commands` 和 `open_session` 都等这次启动。pi 不可用或启动失败不让新建失败，只记日志；`open_session`、`prompt`、`list_commands` 再启动一次，失败应答给它们，显示在会话里。
+- `create_session(containerId)` / `create_chat()`：`create_session` 在工作区或对话的目录里新建会话（2026-10-12 起也能在对话里，工作区不存在应答 `workspace_not_found`，对话的目录不在了应答 `chat_not_found`）；`create_chat` 新建一个对话目录和其中的第一个会话。新建草稿会话并立刻启动 pi（领域模型"已决定 9"，2026-10-08 定工作区里的新会话也一样），打开成这个客户端的标签并激活（这期间客户端换过位置时不切过去，见下文），返回 `sessionId`。不等 pi 启动（2026-10-11 改）：会话 id 由宿主生成，记下草稿、打开标签就应答，pi 在后台用 `--session-id <id>` 启动；第一次 `prompt`、`list_commands` 和 `open_session` 都等这次启动。pi 不可用或启动失败不让新建失败，只记日志；`open_session`、`prompt`、`list_commands` 再启动一次，失败应答给它们，显示在会话里。
 - `open_session(sessionId)`：打开成标签并激活，切到它所在的容器；pi 没在运行就用 `--session <文件>` 启动。宿主重启后恢复的草稿不启动，第一次 `prompt` 时才用 `--session-id <id>` 启动（"已决定 7"）；宿主这次运行里新建的草稿照常启动，后台启动还没结束就等它，启动失败就应答失败。
-- `close_tab(sessionId)`：只改这个客户端的布局。关掉的是还没发过消息的草稿时，丢弃它：停掉 pi、删掉索引里的记录，对话的空目录一并删掉（只删空的）（2026-10-08 定）。
+- `close_tab(sessionId)`：只改这个客户端的布局。关掉的是还没发过消息的草稿时，丢弃它：停掉 pi、删掉索引里的记录（2026-10-08 定）；它是对话里唯一的会话时，对话的空目录一并删掉（只删空的），对话随之消失（2026-10-12 补）。
 - 同一个客户端改标签和位置的命令（`open_session`、`close_tab`、`select_container`）按收到的顺序生效（2026-10-08 修）。索引里已有记录的会话立刻打开成标签，不等第一次扫描；还不认识的会话才等扫描结束再打开，扫描期间关掉的标签不会在扫描结束后又被打开。启动 pi 仍要等第一次扫描，因为要知道会话文件在哪。第一次扫描要先读出登录 shell 的环境（最坏约 30 秒），界面上的切换和关闭不跟着等，这和 VS Code、Zed 的做法一致。宿主开始关闭后，排着队的这类命令不再执行。
 - 新建的会话记下草稿就打开成标签，不等 pi 启动（2026-10-11 改）：它成为所在容器的激活标签；客户端在发出新建之后换过位置就留在原处，没换过就切过去（2026-10-08 定）。
 - 已知问题：关掉一个空草稿的标签后立刻再打开它，标签可能开着而草稿已被丢弃（记录删掉、pi 停掉）。需要两条命令落在丢弃的那几毫秒里，少见，暂不处理。
-- `select_container(containerId | null)`：切换工作区或"对话"。
+- `select_container(containerId | null)`：切换工作区或对话。
 - `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。pi 正在启动时等它启动完再停，不让归档后的会话留着一个 pi（2026-10-10 审查后补；移除工作区同样）。
 - `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。
 - `set_preferences(appearance?, displayMode?)`。
 
-新增错误码：`project_not_found`、`workspace_not_found`、`project_exists`、`name_taken`、`path_not_found`、`session_is_draft`。
+新增错误码：`project_not_found`、`workspace_not_found`、`chat_not_found`（2026-10-12 加）、`project_exists`、`name_taken`、`path_not_found`、`session_is_draft`。
 
 **扫描**：工作区用 `git worktree list --porcelain`，同时最多跑 4 个 git 命令。会话只扫已登记的容器对应的 pi 会话目录（按 pi 的规则由工作目录得出目录名），再按文件头的 `cwd` 核对；按文件大小和修改时间缓存，文件只增长时只读新增的部分（会话名取最新一条 `session_info`）。同一个 id 出现在多个文件时取最新的，日志记一条冲突。
 
@@ -710,7 +720,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 - 宿主的 PiCatalog 为一个目录短启一个 `pi --mode rpc`（不带 `--session`），调 `get_available_models` 和 `get_state`，然后停掉它。`get_state` 里的模型是 pi 按自己的设置选出的默认模型。不借正在运行的会话的 pi。工作区用工作区目录；对话用 Atrium 的目录 `~/.atrium`（Paseo 用家目录；对话各自的目录就在它下面，是空的，和它一样只有全局设置）。
 - 结果按目录缓存在宿主内存里，没有期限，不落盘。项目自己的 `.pi/settings.json` 可能改变可用的模型，所以按目录分开。同一目录同时只查一次，后到的请求等同一次结果。宿主启动时不查，界面进入一个工作区或对话时预取一次。
-- `list_models(containerId, refresh?)`：有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。在 Atrium 里登录成功或退出登录成功后，宿主丢掉所有目录的模型列表缓存，下次请求时重查（2026-10-11 定）。
+- `list_models(workspaceId | null, refresh?)`：`null` 是不在工作区里的地方，所有对话和设置共用 Atrium 目录的列表（2026-10-12 改，原先按容器、对话是 `chats`）。有缓存就直接返回，没有就等查询完成（期限 120 秒，超时停掉那个 pi）。`refresh: true` 强制重查，是模型面板里"刷新"按钮用的；重查期间界面继续显示旧列表，重查失败时应答错误、宿主丢掉旧缓存（和 Paseo 一样）。打开模型面板时界面再请求一次（不强制），所以登录新服务商后点"刷新"就能看到。在 Atrium 里登录成功或退出登录成功后，宿主丢掉所有目录的模型列表缓存，下次请求时重查（2026-10-11 定）。
 - 应答 `{ models, defaultModel }`。每个模型 `{ providerId, modelId, name, contextWindow, maxOutput, supportsImage, thinkingLevels }`。pi 只返回有凭据的服务商的模型。
 - 推理档位按模型的元数据算出，不调 `get_available_thinking_levels`（它只回答当前模型）：不支持推理的只有 `off`；其余从 off / minimal / low / medium / high / xhigh / max 里去掉 `thinkingLevelMap` 标为 `null` 的，`xhigh`、`max` 只在 `thinkingLevelMap` 里明确给出时才有。规则照抄 pi-ai 的 `getSupportedThinkingLevels`，写在 `packages/pi` 里（运行时不依赖 pi 的包），pi 改了规则时契约测试会发现。
 - 没有任何凭据时 pi 照常回答，列表为空；`get_state` 给的是占位模型（`unknown/unknown`），不算默认模型。默认模型必须在列表里。会话的模型是占位模型时也当作没有（`null`）。
@@ -875,7 +885,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `list_projects` / `add_project(path)` / `remove_project(id)` / `rename_project(id, name)` | 项目登记；移除只删索引；与已有项目重名时返回错误 |
 | `list_workspaces(projectId)` / `rename_workspace(workspaceId, name \| null)` / `window_focused()` | 工作区；`null` 恢复为分支名；窗口获得焦点时触发合并状态重算 |
 | `list_sessions(containerId)` / `list_chats()` | 容器下的会话、对话（M1.5 起由 `subscribe_index` 推来的完整列表取代，见上文"项目、工作区与会话"） |
-| `create_session(workspaceId)` / `create_chat()` / `open_session(sessionId)` | 新建或打开会话：新会话以工作区目录为工作目录；新对话新建 `~/.atrium/chats/<dirId>/` |
+| `create_session(containerId)` / `create_chat()` / `open_session(sessionId)` / `rename_chat(chatId, name \| null)` | 新建或打开会话：新会话以工作区或对话的目录为工作目录；新对话新建 `~/.atrium/chats/<目录名>/`；对话改名 |
 | `close_tab(sessionId)` | 只改这个客户端的布局，不停运行、不动排队 |
 | `subscribe_index(cursor?)` / `subscribe_sessions(sessionIds)` / `fetch_transcript(sessionId, epoch, before, limit)` | 订阅列表（带游标时回增量）；订阅要实时增量的会话；往上翻拉更早的对话记录 |
 | `clear_attention(sessionId)` | 打开会话时清除关注状态（出错、待授权），移出收件箱 |
@@ -891,7 +901,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 | `answer_interaction(sessionId, interactionId, answer)` | 回答 extension 的对话框；已被回答、超时或作废时应答 `interaction_closed` |
 | `retry_run(sessionId)` | 错误卡片上的"重试"：按崩溃重启后的规则再来一轮（M1.6） |
 | `set_model(sessionId, providerId, modelId)` / `set_thinking_level(sessionId, level)` | 模型和推理强度 |
-| `list_models(containerId, refresh?)` / `list_commands(sessionId)` | 模型与推理档位（短启 pi 查询，按目录缓存）、`/` 命令（问会话自己的 pi，没启动就启动） |
+| `list_models(workspaceId \| null, refresh?)` / `list_commands(sessionId)` | 模型与推理档位（短启 pi 查询，按目录缓存）、`/` 命令（问会话自己的 pi，没启动就启动） |
 | `search_files(sessionId, query)` | `@` 引用的候选文件和目录（在会话的工作目录里用 `fd`，与 pi 的终端界面一致） |
 | `check_setup(refresh?)` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install(jobId)` / `login(providerId, method, key?)` / `answer_login(loginId, promptId, value)` / `cancel_login(loginId)` / `logout(providerId)` / `check_pi_update()` / `discover_projects()` | 首次启动与设置：检查、一键安装和更新、登录与退出、从 pi 历史发现目录（M1.10，见上文"首次启动 · 接口"） |
 | `set_main_branch(projectId, branch)` / `list_branches(projectId)` | 项目的主干分支（M1.10，见上文"设置 · 接口"） |

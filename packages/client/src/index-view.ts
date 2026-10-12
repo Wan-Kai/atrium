@@ -22,6 +22,7 @@ export function emptyIndex(): IndexView {
     seq: 0,
     projects: [],
     workspaces: [],
+    chats: [],
     sessions: [],
     layout: { container: null, tabs: {} },
     preferences: {
@@ -106,6 +107,7 @@ export function applyIndexChanges(view: IndexView, event: IndexChangesEvent): In
     seq: event.seq,
     projects: withChanges(view.projects, event.projects, (project) => project.id),
     workspaces: withChanges(view.workspaces, event.workspaces, (workspace) => workspace.id),
+    chats: withChanges(view.chats, event.chats, (chat) => chat.id),
     sessions: withChanges(view.sessions, event.sessions, (session) => session.sessionId),
     layout: event.layout ?? view.layout,
     preferences: event.preferences ?? view.preferences,

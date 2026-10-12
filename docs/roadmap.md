@@ -237,7 +237,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - IndexStore（`~/.atrium/`，原子写入）、ProjectService、WorkspaceService（`git worktree list`、分支、创建时间）、MergeInspector（未提交、↑N、无改动、已合并、已移除、无法判断）。
   - pi 包的 SessionFiles 扫描会话目录、解析文件头；宿主的 SessionCatalog 按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话；新建对话时立刻启动 pi，不等第一条消息（[领域模型 · 已决定 9](architecture/domain-model.md#已决定)）。
   - WorkspaceService 的后台 `git fetch`（窗口聚焦时、每隔几分钟）和聚焦后重算；git 低于 2.38 时只提示合并状态不可用。
-  - 侧栏、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。收件箱挪到 M1.9（2026-10-08 定）。协议见 [SPEC-0001 · 项目、工作区与会话](specs/0001-mvp1-single-session-chat.md#项目工作区与会话m152026-10-08-定)。
+  - 侧栏、搜索、标签栏、"历史"、对话（M1.11 起每个对话一个容器，ADR-0007）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。收件箱挪到 M1.9（2026-10-08 定）。协议见 [SPEC-0001 · 项目、工作区与会话](specs/0001-mvp1-single-session-chat.md#项目工作区与会话m152026-10-08-定)。
   - 插话记录存进 `~/.atrium/turns/`（SPEC-0001"对话记录"），宿主重启后仍在。
   - 快捷键：⌘N 新建对话，⌘T 新建会话，⌘W 关闭标签，⌘1–9、⌘⇧[ / ⌘⇧] 切换标签。
 - **参考**：[ADR-0006](adr/0006-organize-sessions-by-workspace.md)、[domain-model](architecture/domain-model.md) §1 项目、工作区、会话，§6 宿主的组件、[SPEC-0001 · 侧栏](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §1 数据与持久化、§6 git 状态。
@@ -312,6 +312,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 标志：一只猫，用作 Atrium.app 的图标和欢迎页的 logo 位（2026-10-11 定，见 [design-language · 标志](architecture/design-language.md#标志)）。
 - 自用中补的：发送后到有内容之前显示眨眼的小猫和"进行中"（SPEC-0001"过程的呈现 · 等待回复"）；新建会话不等 pi 启动，宿主定 id、马上打开标签，pi 在后台用 `--session-id` 启动，空状态里一输入就新建（领域模型"已决定 9"，2026-10-11 改）。
 - 网络代理：设置 · pi 里填代理地址和不走代理的列表，宿主把它放进交给 pi、登录、安装和更新的环境；宿主自己查最新版本、下载安装脚本也按环境里的代理走（SPEC-0001"设置 · pi"，2026-10-11 定）。
+- 每个对话是一个独立的容器：和工作区一样能放多个会话、有自己的标签栏和"历史"，侧栏逐行列出对话、可以改名；不再把所有对话挤在一个标签栏里。索引的 `sessions.json`、`layouts.json` 升到 v2，新增 `chats.json`（[ADR-0007](adr/0007-each-chat-is-its-own-container.md)，2026-10-12 定）。
 
 #### MVP 2：看得见内部
 

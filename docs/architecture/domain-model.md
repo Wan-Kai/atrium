@@ -45,9 +45,13 @@ classDiagram
       createdAt  [扫描]
       name()  alias 或 branch 或目录名
     }
-    class ChatSpace {
-      <<单例>>
-      root: ~/.atrium/chats
+    class Chat {
+      <<索引 + 扫描>>
+      id  cht_目录名
+      dir  ~/.atrium/chats/<目录名>  [扫描]
+      alias?
+      firstSessionId?  [扫描]
+      name()  alias 或第一个会话的标题
     }
     class SessionContainer {
       <<interface>>
@@ -86,7 +90,7 @@ classDiagram
 
     Project "1" *-- "1..*" Workspace : 登记记录，恰好一个 local
     SessionContainer <|.. Workspace
-    SessionContainer <|.. ChatSpace
+    SessionContainer <|.. Chat
     SessionContainer "1" -- "0..*" Session : 记录的容器，否则按 cwd
     Workspace "1" -- "0..1" MergeState : 仅 worktree
     ClientLayout "0..*" --> "1" SessionContainer
@@ -95,8 +99,12 @@ classDiagram
 - **Project**、**Workspace** 的 id 是随机生成的不透明 id（`prj_…`、`wks_…`，参照 Paseo），路径只是一个可变字段，不当 id 用。
 - **Project** 拥有的是登记记录：从侧栏移除项目只删 `~/.atrium/` 里的记录，不碰磁盘。路径规范化后唯一，已经是某个项目的 worktree 的目录不能再登记成项目。主干分支只存用户的覆盖值，显示时取 `mainBranchOverride ?? origin/HEAD`。
 - **Workspace** 与目录一一对应。每个项目恰好一个 `local`（`dir == Project.path`），其余是 `worktree`。分支、创建时间是扫描结果，不进索引。
-- **ChatSpace** 是不绑定项目的"对话"的容器，全局一个。每个对话有自己的目录 `~/.atrium/chats/<dirId>/`，目录 id 与会话 id 无关。
-- **SessionContainer** 只表达"会话放在哪、怎么列、新会话在哪个目录建"。工作区对所有会话给同一个目录，ChatSpace 每次新建一个目录。标签页不在接口上，在 **ClientLayout**。
+- **Chat** 是不绑定项目的"对话"，和工作区并列的容器，一个对话一个目录 `~/.atrium/chats/<目录名>/`，只是没有 git（[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)，2026-10-12 改，取代原来全局一个的 ChatSpace）：
+  - id 是 `cht_<目录名>`。目录由 Atrium 新建、名字随机（UUID），和会话 id 无关；宿主扫描 `~/.atrium/chats/` 的子目录得到对话列表，名字不合 id 格式的目录不算。用户删掉目录，对话就没了。
+  - 对话里可以有多个会话，都以对话的目录为工作目录。终端里在对话目录开的 pi 会话按 `cwd` 归到这个对话。
+  - `alias` 是自定义名称，存在 `chats.json`；`firstSessionId` 是对话里没归档的会话中最早建的一个（按索引记录的创建时间，没有记录的按文件修改时间），名称由界面按 `alias ?? 第一个会话的标题` 得出。
+  - 所有会话都归档了的对话不在侧栏列出。
+- **SessionContainer** 只表达"会话放在哪、怎么列、新会话在哪个目录建"。工作区和对话都对其中所有会话给同一个目录；新建对话时新建一个目录。标签页不在接口上，在 **ClientLayout**。
 - **Session** 是逻辑会话，以 pi 的会话 id 为主键，文件路径只是可更新的定位：
   - `draft`：pi 已分配 id，但还没有用户消息，文件尚未写出；只能由宿主记住，扫描找不到。
   - `persisted`：文件存在。
@@ -114,12 +122,13 @@ classDiagram
 ~/.atrium/                    目录 0700，文件 0600（security.md）
 ├── host.lock                 宿主单实例锁：{ pid, startedAt }
 ├── projects.json             项目与工作区登记
+├── chats.json                对话的自定义名称（2026-10-12 加）
 ├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
 ├── preferences.json          全局偏好：外观、显示模式、网络代理……
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"）；
 │                             随会话变长，单独放，不拖累其他文件
-├── chats/<dirId>/            对话的工作目录
+├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
 └── logs/
 ```
 
@@ -128,6 +137,7 @@ classDiagram
   - 版本比当前程序旧：先把原文件复制成 `<名字>.v<旧版本>.bak`，按迁移函数逐级升级，再写回。
   - 版本比当前程序新（装回了旧版 Atrium）：宿主拒绝启动，日志和标准错误里写明哪个文件、哪个版本。不降级改写，避免丢掉新版本的数据。v0.1 不发布安装包，这种情况只在开发时出现；界面上的提示等 M1.10 的启动检查再做。
 - **损坏**：文件不是合法 JSON 或不符合格式时，改名为 `<名字>.corrupt-<时间>` 保留（不删），日志记一条（只记文件名和原因，不记内容），这个文件按空的重新开始，界面提示一次哪类数据被重置。原子写入下损坏基本只来自手改；丢了也能恢复：项目可以从 pi 历史重新发现，会话归属退回按 `cwd`，插话记录退回推断。缺失的文件按空的处理，不算损坏。
+- **v2 迁移（2026-10-12，ADR-0007）**：`sessions.json` v1 → v2 把 `containerId` 为 `chats` 的记录改成它工作目录对应的对话 id（`cht_<目录名>`）；`layouts.json` v1 → v2 按迁移后的会话记录，把 `chats` 下打开着的标签页分到各自的对话，当前标签跟着去，位置在 `chats` 的客户端换到当前标签所在的对话（没有当前标签就为空），找不到记录的标签去掉。所以先加载 `sessions.json` 再加载 `layouts.json`。
 - **单实例**：Electron 用 `requestSingleInstanceLock`，第二次打开应用时聚焦已有窗口。宿主自己再拿 `host.lock`（独占创建）：锁被一个活着的宿主占着，宿主报错退出；记录的进程已经不在、或者那个进程号现在属于启动时间不同的另一个进程（进程号被复用，2026-10-08 审查后补），接管这把锁。接管先拿一把短暂的 `host.lock.takeover`（同样独占创建），拿到后再看一遍持有者，两个宿主同时接管同一把过期锁时只有一个能成。宿主也能单独运行，所以 Electron 的锁不够。宿主退出时只删内容仍是自己写的那把锁。设了 `ATRIUM_HOME`（测试、开发时的第二份）时，Electron 的用户数据目录改到 `$ATRIUM_HOME/electron`：单实例按 Atrium 的家目录区分，测试不会被正在用的 Atrium 挡住，页面存储也互不影响。
 - **草稿会话的 id**：由宿主新建时生成，pi 用 `pi --session-id <id>` 启动，从此用这个 id（"已决定 9"）。草稿只在索引里，宿主重启后第一次发消息时同样用 `--session-id` 启动，沿用原来的 id（pi-internals §1）。草稿不能改名：pi 在第一条消息前不写文件，名字没有地方存（2026-10-08 定）。
 - **插话记录的版本**：`turns/<会话 id>.json` 的版本比程序新时，这个会话照常打开，插话按位置推断，记录只读不写，日志记一条（2026-10-08 定）；不因为一个会话的附属文件拒绝启动整个宿主。
@@ -441,9 +451,9 @@ classDiagram
 - **Attention（关注状态）** 参照 Paseo 的设计，持久化在索引里，按"边沿"设上：运行失败（pi 的重试用尽）或连续崩溃用尽时设 `error`，失败原文像认证问题时设 `auth`，以后"不在看时跑完"设 `finished`（即已完成未读）；下一次运行开始时去掉。某个客户端显示该会话时把 `error` 标为已清除；`auth` 看了不算，要等下一次运行开始。下一次事件会重新设上，旧的清除不会吞掉新的失败。打开会话、恢复进程不改它（SPEC-0001"并行、同步与关注"）。
 - **SessionStatus** 按优先级取第一个成立的：待审批（MVP 2）、待回答（有 `pending` 的 PendingInteraction，只在内存）、待授权（关注原因为 `auth`）、出错（关注原因为 `error`，直到下一次运行开始，不论是否已清除）、运行中、空闲。
 - **出错图标与收件箱分开**：出错图标看"上一次运行是否失败"，一直显示到下一次运行；收件箱只收关注状态未清除的会话，以及正在等回答的会话。
-- **InboxEntry** 带上所在容器，界面才能显示"项目 · 工作区"或"对话"。
+- **InboxEntry** 带上所在容器，界面才能显示"项目 · 工作区"或"对话 · 对话名"。
 - **工作区汇总**由界面从会话摘要算出：取工作区内没归档的会话状态的最高优先级（参照 Paseo 的 `deriveAgentStateBucket`）。2026-10-10 改，原先打算由宿主计算：客户端本来就有全部摘要，算法只有一处；SessionStatus、InboxEntry、ProjectSummary 同样在界面派生。
-- **会话标题** `piName ?? 第一条用户消息的第一行`；**工作区名** `alias ?? branch ?? 目录名`。
+- **会话标题** `piName ?? 第一条用户消息的第一行`；**工作区名** `alias ?? branch ?? 目录名`；**对话名** `alias ?? 第一个会话的标题`，第一个会话还是草稿时为"新对话"。
 
 ## 5. 模型、设置与首次启动
 
@@ -700,11 +710,12 @@ classDiagram
 |---|---|
 | `list_projects` / `add_project` / `remove_project` / `rename_project` | ProjectService |
 | `list_workspaces` / `rename_workspace` / `window_focused` | WorkspaceService |
+| `rename_chat` | ChatNames（`chats.json`） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` | SessionManager |
 | `subscribe_index(cursor?)` | IndexFeed |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
 | `prompt` / `steer` / `stop` / `resume_queue` / `clear_queue` / `update_queued` / `remove_queued` / `steer_queued` / `answer_interaction` / `set_model` / `set_thinking_level` | SessionController |
-| `list_models(containerId)` | PiCatalog |
+| `list_models(workspaceId \| null)` | PiCatalog |
 | `list_commands(sessionId)` | SessionController |
 | `search_files(sessionId, query)` | FileSearch |
 | `watch_changes(workspaceIds)` / `watch_diff(target)` | ChangesService |
@@ -723,7 +734,7 @@ classDiagram
 
 ## 已决定
 
-1. **对话不算工作区**：保留 ChatSpace，通过 SessionContainer 与工作区统一选择、列表和新建入口；目录分配策略不同。
+1. **对话不算工作区，但和工作区一样是容器**：每个对话一个目录、可以有多个会话，通过 SessionContainer 与工作区统一选择、列表和新建入口；没有 git（2026-10-12 改，[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)；原先所有对话在一个全局的 ChatSpace 里）。
 2. **会话主键用 pi 的会话 id**，文件路径是可更新的定位；草稿会话也有 id；同 id 多文件报冲突。
 3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档、交给终端或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。
 4. **标签页不跨客户端同步**：布局按 `clientId + containerId` 存在索引里。
@@ -736,7 +747,7 @@ classDiagram
 10. **索引按领域拆文件，损坏时挪开重来**（2026-10-08 定）：见 §1"索引的存储"。宿主单实例：Electron 的单实例锁加宿主自己的 `host.lock`。
 11. **M1.5 的列表每次推整份快照**（2026-10-08 定）：索引或扫描结果有变化时合并一下，推一份完整的列表（信封里先带上 `generation + seq`，但总是快照）；M1.9 再加增量和游标，界面不用改。
 12. **终端里开的会话在窗口聚焦、运行结束时重扫发现**（2026-10-08 定）：不常驻监听 pi 的会话目录，和合并状态"不持续监听文件"一致；扫描按文件大小和修改时间缓存，只重读变化的文件。
-13. **没发过消息就关掉的草稿丢弃**（2026-10-08 定）：停掉 pi、删掉索引记录，对话的空目录一并删掉（只删空的），"历史"里不堆积空会话。
+13. **没发过消息就关掉的草稿丢弃**（2026-10-08 定）：停掉 pi、删掉索引记录，"历史"里不堆积空会话。它是对话里唯一的会话时，对话的空目录一并删掉（只删空的），对话随之消失；对话里还有别的会话（含归档的）时目录留着（2026-10-12 补）。
 14. **工作区里新建会话也立刻启动 pi**（2026-10-08 定）：和"已决定 9"的新对话一样。
 15. **主干只认覆盖值或 `origin/HEAD`**（2026-10-08 定）：都没有时合并状态为 `unknown`（主干引用缺失），不猜本地的 main / master。
 16. **交给终端后点了才继续**（2026-10-10 定）：交接记在索引里，宿主重启后仍在；切到标签不自动启动 pi，用户点"在 Atrium 里继续"才重新加载。pi 没有跨进程的写锁，两边同时写会悄悄分叉。

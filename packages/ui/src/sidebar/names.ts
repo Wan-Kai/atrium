@@ -1,5 +1,5 @@
 import type { IndexView } from "@atrium/client";
-import type { MergeUnknownReason, SessionSummary, Workspace } from "@atrium/protocol";
+import { type Chat, isChatId, type MergeUnknownReason, type SessionSummary, type Workspace } from "@atrium/protocol";
 
 /**
  * A workspace's name.
@@ -23,17 +23,39 @@ export function workspaceName(workspace: Pick<Workspace, "alias" | "branch" | "d
  *
  * @remarks
  * pi's session name, else the first line of the first prompt (SPEC-0001, "命名"); with neither,
- * a draft is a new session or chat, anything else held only images.
+ * a draft is a new session, in a workspace or a chat alike, anything else held only images.
  *
  * @sideEffects none
  * @param session - The session.
  * @returns The title.
  */
-export function sessionTitle(session: Pick<SessionSummary, "name" | "prompt" | "state" | "containerId">): string {
+export function sessionTitle(session: Pick<SessionSummary, "name" | "prompt" | "state">): string {
   if (session.name !== null) return session.name;
   if (session.prompt !== null) return session.prompt;
-  if (session.state === "draft") return session.containerId === "chats" ? "新对话" : "新会话";
+  if (session.state === "draft") return "新会话";
   return "图片";
+}
+
+/**
+ * A chat's name.
+ *
+ * @remarks
+ * The name the user gave it, else its first session's title; "新对话" while that session is a
+ * draft or not in the list (SPEC-0001, "命名"; ADR-0007).
+ *
+ * @sideEffects none
+ * @param chat - The chat.
+ * @param sessions - The sessions in the list, to find its first.
+ * @returns The name.
+ */
+export function chatName(
+  chat: Pick<Chat, "alias" | "firstSessionId">,
+  sessions: readonly Pick<SessionSummary, "sessionId" | "name" | "prompt" | "state">[],
+): string {
+  if (chat.alias !== null) return chat.alias;
+  const first = sessions.find((session) => session.sessionId === chat.firstSessionId);
+  if (first === undefined || first.state === "draft") return "新对话";
+  return sessionTitle(first);
 }
 
 /** A worktree's merge state as the sidebar labels it. */
@@ -130,18 +152,24 @@ export function sortWorkspaces<T extends Pick<Workspace, "kind" | "createdAt" | 
 }
 
 /**
- * Where a session lives, in words: "项目 · 工作区", or "对话".
+ * Where a session lives, in words: "项目 · 工作区", or "对话 · 对话名".
  *
  * @remarks
- * The second line of a session in search results (SPEC-0001, "搜索").
+ * The second line of a session in the inbox and search results (SPEC-0001, "收件箱", "搜索").
  *
  * @sideEffects none
  * @param index - The list.
  * @param containerId - The session's container.
- * @returns The place.
+ * @returns The place; empty for a container the list does not have.
  */
-export function placeOf(index: Pick<IndexView, "projects" | "workspaces">, containerId: string): string {
-  if (containerId === "chats") return "对话";
+export function placeOf(
+  index: Pick<IndexView, "projects" | "workspaces" | "chats" | "sessions">,
+  containerId: string,
+): string {
+  if (isChatId(containerId)) {
+    const chat = index.chats.find((candidate) => candidate.id === containerId);
+    return chat === undefined ? "对话" : `对话 · ${chatName(chat, index.sessions)}`;
+  }
   const workspace = index.workspaces.find((candidate) => candidate.id === containerId);
   const project = index.projects.find((candidate) => candidate.id === workspace?.projectId);
   return workspace === undefined ? "" : `${project?.name ?? ""} · ${workspaceName(workspace)}`;

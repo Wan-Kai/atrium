@@ -84,6 +84,7 @@ function fakeCommands() {
     removeProject: record("removeProject", {}),
     renameProject: record("renameProject", {}),
     renameWorkspace: record("renameWorkspace", {}),
+    renameChat: record("renameChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
@@ -96,6 +97,7 @@ function fakeCommands() {
 }
 
 const PROJECT = "prj_0123456789abcdef";
+const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 
 /** A directory of pi's history, as the list commands find it. */
 const DISCOVERED = { path: "/work/app", sessions: 2, lastUsedAt: 5 };
@@ -273,9 +275,9 @@ describe("createRouter", () => {
       withTrace({ type: "fetch_step", requestId: "r5", sessionId: "s1", epoch: 2, turnId: "t9", stepId: "3" }),
     );
     await route(connection, withTrace({ type: "open_session", requestId: "r6", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "create_session", requestId: "r7", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "create_session", requestId: "r7", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "close_tab", requestId: "r8", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: "chats" }));
+    await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: CHAT }));
     await route(connection, withTrace({ type: "archive_session", requestId: "r10", sessionId: "s2" }));
     await route(connection, withTrace({ type: "rename_session", requestId: "r11", sessionId: "s2", name: "名字" }));
     await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
@@ -291,7 +293,7 @@ describe("createRouter", () => {
       ["openSession", "client-1", "s2"],
       ["createSession", "client-1", WORKSPACE],
       ["closeTab", "client-1", "s2"],
-      ["selectContainer", "client-1", "chats"],
+      ["selectContainer", "client-1", CHAT],
       ["archiveSession", "s2"],
       ["renameSession", "s2", "名字"],
       ["clearAttention", "s2"],
@@ -393,8 +395,8 @@ describe("createRouter", () => {
       withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true, proxy: PROXY }),
     );
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
-    await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
-    await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r10", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r11", workspaceId: null, refresh: true }));
     await route(
       connection,
       withTrace({
@@ -407,6 +409,7 @@ describe("createRouter", () => {
     );
     await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
     await route(connection, withTrace({ type: "check_setup", requestId: "r14", refresh: true }));
+    await route(connection, withTrace({ type: "rename_chat", requestId: "r15", chatId: CHAT, name: "合并原理" }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -420,10 +423,11 @@ describe("createRouter", () => {
       ["setPreferences", { displayMode: "thinking", setupDone: true, proxy: PROXY }],
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
-      ["listModels", "chats", true],
+      ["listModels", null, true],
       ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL, proxy: null }],
       ["checkSetup", false],
       ["checkSetup", true],
+      ["renameChat", CHAT, "合并原理"],
     ]);
     expect(sent[14]).toStrictEqual({ type: "response", requestId: "r14", ok: true, result: SETUP });
     expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });

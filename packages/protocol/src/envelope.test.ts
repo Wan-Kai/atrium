@@ -7,12 +7,14 @@ import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
 import type { Step, Turn } from "./transcript";
+import { isChatId } from "./ids";
 import { PROTOCOL_VERSION } from "./version";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 const PROJECT = "prj_0123456789abcdef";
 const WORKSPACE = "wks_0123456789abcdef";
+const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 
 /** One valid example of every command. */
 const commands: Command[] = [
@@ -41,10 +43,13 @@ const commands: Command[] = [
   { type: "rename_workspace", requestId: "r16", traceparent, workspaceId: WORKSPACE, name: "侧栏" },
   { type: "rename_workspace", requestId: "r17", traceparent, workspaceId: WORKSPACE, name: null },
   { type: "window_focused", requestId: "r18", traceparent },
-  { type: "create_session", requestId: "r19", traceparent, workspaceId: WORKSPACE },
+  { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE },
+  { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
+  { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: "合并原理" },
+  { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: null },
   { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
   { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
-  { type: "select_container", requestId: "r22", traceparent, containerId: "chats" },
+  { type: "select_container", requestId: "r22", traceparent, containerId: CHAT },
   { type: "select_container", requestId: "r23", traceparent, containerId: null },
   { type: "archive_session", requestId: "r24", traceparent, sessionId: "s1" },
   { type: "clear_attention", requestId: "r24a", traceparent, sessionId: "s1" },
@@ -109,8 +114,8 @@ const commands: Command[] = [
     interactionId: "d1",
     answer: { value: "v".repeat(1024 * 1024) },
   },
-  { type: "list_models", requestId: "r40", traceparent, containerId: WORKSPACE },
-  { type: "list_models", requestId: "r41", traceparent, containerId: "chats", refresh: true },
+  { type: "list_models", requestId: "r40", traceparent, workspaceId: WORKSPACE },
+  { type: "list_models", requestId: "r41", traceparent, workspaceId: null, refresh: true },
   {
     type: "set_model",
     requestId: "r42",
@@ -494,6 +499,7 @@ describe("parseClientMessage", () => {
       "prompt",
       "remove_project",
       "remove_queued",
+      "rename_chat",
       "rename_project",
       "rename_session",
       "rename_workspace",
@@ -572,17 +578,38 @@ describe("parseClientMessage", () => {
     ["a project id of another shape", { type: "remove_project", requestId: "r1", traceparent, projectId: "p1" }, "r1"],
     [
       "a project id where a workspace id belongs",
-      { type: "create_session", requestId: "r1", traceparent, workspaceId: PROJECT },
+      { type: "create_session", requestId: "r1", traceparent, containerId: PROJECT },
       "r1",
     ],
     [
       "a workspace id with something before it",
-      { type: "create_session", requestId: "r1", traceparent, workspaceId: `x${WORKSPACE}` },
+      { type: "create_session", requestId: "r1", traceparent, containerId: `x${WORKSPACE}` },
       "r1",
     ],
     [
       "a workspace id with something after it",
-      { type: "create_session", requestId: "r1", traceparent, workspaceId: `${WORKSPACE}0` },
+      { type: "create_session", requestId: "r1", traceparent, containerId: `${WORKSPACE}0` },
+      "r1",
+    ],
+    ["the old chats' container", { type: "create_session", requestId: "r1", traceparent, containerId: "chats" }, "r1"],
+    [
+      "a chat id with a path in it",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: "cht_../x", name: null },
+      "r1",
+    ],
+    [
+      "a chat id with something before it",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: "x/cht_a", name: null },
+      "r1",
+    ],
+    [
+      "a chat id over 68 characters",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: `cht_${"a".repeat(65)}`, name: null },
+      "r1",
+    ],
+    [
+      "a workspace id where a chat id belongs",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: WORKSPACE, name: null },
       "r1",
     ],
     ["an empty project path", { type: "add_project", requestId: "r1", traceparent, path: "" }, "r1"],
@@ -716,7 +743,7 @@ describe("parseClientMessage", () => {
       { type: "set_model", requestId: "r1", traceparent, sessionId: "s1", providerId: "", modelId: "m" },
       "r1",
     ],
-    ["models of no container", { type: "list_models", requestId: "r1", traceparent }, "r1"],
+    ["models of nowhere said", { type: "list_models", requestId: "r1", traceparent }, "r1"],
     ["commands of no session", { type: "list_commands", requestId: "r1", traceparent }, "r1"],
     [
       "an attachment that is not an image",
@@ -750,8 +777,9 @@ describe("parseClientMessage", () => {
       { type: "search_files", requestId: "r1", traceparent, sessionId: "s1", query: "q".repeat(1025) },
       "r1",
     ],
-    ["models of a project", { type: "list_models", requestId: "r1", traceparent, containerId: PROJECT }, "r1"],
-    ["changes of the chats", { type: "watch_changes", requestId: "r1", traceparent, workspaceIds: ["chats"] }, "r1"],
+    ["models of a project", { type: "list_models", requestId: "r1", traceparent, workspaceId: PROJECT }, "r1"],
+    ["models of a chat", { type: "list_models", requestId: "r1", traceparent, workspaceId: CHAT }, "r1"],
+    ["changes of a chat", { type: "watch_changes", requestId: "r1", traceparent, workspaceIds: [CHAT] }, "r1"],
     [
       "changes of more than 64 workspaces",
       {
@@ -989,6 +1017,15 @@ const snapshot: IndexSnapshotEvent = {
       merge: { dirty: true, ahead: 3, verdict: "unknown", reason: "no_main_branch" },
     },
   ],
+  chats: [
+    {
+      id: CHAT,
+      dir: "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+      alias: null,
+      firstSessionId: "s2",
+    },
+    { id: "cht_x", dir: "/Users/test/.atrium/chats/x", alias: "合并原理", firstSessionId: null },
+  ],
   sessions: [
     {
       sessionId: "s1",
@@ -1006,7 +1043,7 @@ const snapshot: IndexSnapshotEvent = {
     },
     {
       sessionId: "s2",
-      containerId: "chats",
+      containerId: CHAT,
       name: "解释 merge-tree",
       prompt: null,
       file: null,
@@ -1021,7 +1058,7 @@ const snapshot: IndexSnapshotEvent = {
   ],
   layout: {
     container: WORKSPACE,
-    tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, chats: { open: [], active: null } },
+    tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, [CHAT]: { open: [], active: null } },
   },
   preferences: {
     setupDone: true,
@@ -1043,6 +1080,7 @@ const changes: IndexChangesEvent = {
   seq: 4,
   projects: { upsert: snapshot.projects, remove: ["prj_fedcba9876543210"] },
   workspaces: { upsert: snapshot.workspaces, remove: [WORKSPACE] },
+  chats: { upsert: snapshot.chats, remove: ["cht_gone"] },
   sessions: { upsert: snapshot.sessions, remove: ["s3"] },
   layout: snapshot.layout,
   preferences: snapshot.preferences,
@@ -1051,7 +1089,7 @@ const changes: IndexChangesEvent = {
 describe("HostMessage: changes", () => {
   it.each([
     ["a negative count", { ...changesUpdated, stat: { added: -1, removed: 0 } }],
-    ["the chats as a workspace", { ...changesUpdated, workspaceId: "chats" }],
+    ["a chat as a workspace", { ...changesUpdated, workspaceId: CHAT }],
     ["an unknown error", { ...diffUpdated, error: "denied" }],
     ["an unknown file status", { ...diffUpdated, files: [{ ...diffUpdated.files[1], status: "copied" }] }],
     [
@@ -1115,6 +1153,7 @@ describe("HostMessage", () => {
         ...changes,
         projects: { upsert: [], remove: [] },
         workspaces: { upsert: [], remove: [] },
+        chats: { upsert: [], remove: [] },
         sessions: { upsert: [], remove: [] },
         layout: null,
         preferences: null,
@@ -1177,7 +1216,7 @@ describe("HostMessage", () => {
         ...snapshot,
         preferences: { ...snapshot.preferences, displayMode },
       })),
-      { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "sessions", "preferences"] },
+      { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
       {
         ...snapshot,
         preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {}, statusBar: {}, proxy: null },
@@ -1233,6 +1272,7 @@ describe("HostMessage", () => {
       "session_cwd_missing",
       "project_not_found",
       "workspace_not_found",
+      "chat_not_found",
       "project_exists",
       "name_taken",
       "path_not_found",
@@ -1405,5 +1445,17 @@ describe("CommandError", () => {
       code: "session_busy",
       params: { a: 1 },
     });
+  });
+});
+
+describe("isChatId", () => {
+  it("tells a chat's id from a workspace's and from the old chats' container", () => {
+    expect([CHAT, "cht_a", WORKSPACE, "chats", "x/cht_a"].map(isChatId)).toStrictEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 });

@@ -1,12 +1,5 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import {
-  CHATS,
-  CommandError,
-  IDLE_CONTROL,
-  type SessionEvent,
-  type SessionModel,
-  UNKNOWN_METRICS,
-} from "@atrium/protocol";
+import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,7 +8,7 @@ import { recordingTracing } from "../../test/recording-tracing";
 import { PONG_ENTRIES as getEntries, PONG_TURN as turn } from "../../test/scripted-chat";
 import { systemClock } from "../platform/clock";
 import { loadIndexFile } from "../store/index-file";
-import { LAYOUTS_FILE, SESSIONS_FILE } from "../store/index-schema";
+import { layoutsFile, SESSIONS_FILE } from "../store/index-schema";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
 import { createSessionCatalog } from "./session-catalog";
@@ -30,6 +23,9 @@ afterEach(async () => {
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const WORKSPACE = "wks_000000000000000a";
+
+/** The chat the first `createChat` of a test makes: its directory is the first new id. */
+const CHAT = "cht_id1";
 
 /** pi's answers when it runs the session `pi-session-1`. */
 const SESSION_ONE = { get_state: { data: { sessionId: "pi-session-1" } }, get_entries: getEntries };
@@ -135,7 +131,10 @@ async function manage(
     clock: systemClock,
     logger: recording.logger,
   });
-  const layouts = createLayouts({ file: (await loadIndexFile(index, LAYOUTS_FILE, 0)).file, clock: systemClock });
+  const layouts = createLayouts({
+    file: (await loadIndexFile(index, layoutsFile({ sessions: [] }), 0)).file,
+    clock: systemClock,
+  });
   const refreshed: string[] = [];
   let changes = 0;
   let next = 0;
@@ -248,11 +247,11 @@ describe("SessionManager creating sessions", () => {
     const { manager, layouts } = await manage({ rules: SESSION_ONE });
 
     const creating = manager.createSession("client-1", WORKSPACE);
-    await manager.selectContainer("client-1", CHATS);
+    await manager.selectContainer("client-1", CHAT);
     const { sessionId } = await creating;
 
     expect(layouts.of("client-1")).toStrictEqual({
-      container: CHATS,
+      container: CHAT,
       tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
     });
   });
@@ -265,10 +264,10 @@ describe("SessionManager creating sessions", () => {
     expect(await manager.createChat("client-1")).toStrictEqual({ sessionId: "pi-session-1" });
 
     const cwd = join(at.home, "chats", "id1");
-    expect(catalog.find("pi-session-1")).toMatchObject({ containerId: "chats", cwd, state: "draft" });
+    expect(catalog.find("pi-session-1")).toMatchObject({ containerId: CHAT, cwd, state: "draft" });
     expect(layouts.of("client-1")).toStrictEqual({
-      container: "chats",
-      tabs: { chats: { open: ["pi-session-1"], active: "pi-session-1" } },
+      container: CHAT,
+      tabs: { [CHAT]: { open: ["pi-session-1"], active: "pi-session-1" } },
     });
     expect(changes()).toBeGreaterThan(0);
     tools.resolve(await scriptedTools(at, { argvToStderr: true, rules: SESSION_ONE }));
@@ -716,6 +715,46 @@ describe("SessionManager opening sessions", () => {
   });
 });
 
+describe("SessionManager sessions in a chat", () => {
+  it("creates another session in a chat's directory, as a tab beside its first", async () => {
+    const { manager, catalog, layouts, at } = await manage({ rules: SESSION_ONE });
+    const first = await manager.createChat("client-1");
+
+    const second = await manager.createSession("client-1", CHAT);
+
+    const cwd = join(at.home, "chats", "id1");
+    expect(catalog.find(second.sessionId)).toMatchObject({ containerId: CHAT, cwd, state: "draft" });
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHAT,
+      tabs: { [CHAT]: { open: [first.sessionId, second.sessionId], active: second.sessionId } },
+    });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+  });
+
+  it("refuses a session in a chat that is not there, recording and opening nothing", async () => {
+    const { manager, catalog, layouts } = await manage({ rules: SESSION_ONE });
+
+    await expect(manager.createSession("client-1", "cht_gone")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_gone" }),
+    );
+    expect(catalog.list()).toStrictEqual([]);
+    expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
+  });
+
+  it("keeps a chat's directory when an empty draft goes while another session is in the chat", async () => {
+    const { manager, catalog, at } = await manage({ rules: SESSION_ONE });
+    const first = await manager.createChat("client-1");
+    const second = await manager.createSession("client-1", CHAT);
+
+    await manager.closeTab("client-1", second.sessionId);
+
+    expect(catalog.find(second.sessionId)).toBeUndefined();
+    expect(catalog.find(first.sessionId)).toMatchObject({ containerId: CHAT });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(catalog.chats().map((chat) => chat.id)).toStrictEqual([CHAT]);
+  });
+});
+
 describe("SessionManager tabs", () => {
   it("discards a draft that never got a message when its last tab closes, with its chat directory", async () => {
     const { manager, catalog, layouts, at, resources } = await manage({ rules: SESSION_ONE });
@@ -729,6 +768,8 @@ describe("SessionManager tabs", () => {
     expect(catalog.find(sessionId)).toBeUndefined();
     expect(layouts.isOpen(sessionId)).toBe(false);
     expect(await readdir(join(at.home, "chats"))).toStrictEqual([]);
+    // The chat goes with its directory.
+    await vi.waitFor(() => expect(catalog.chats()).toStrictEqual([]));
     await vi.waitFor(() => expect(resources.snapshot()["pi-process"]).toBe(0));
     await expect(manager.subscribe("c1", [sessionId])).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId }),
@@ -736,7 +777,7 @@ describe("SessionManager tabs", () => {
   });
 
   it("keeps a session that got a message when its tab closes, though its file is not found yet", async () => {
-    const { manager, catalog, at, received } = await manage({
+    const { manager, catalog, at, received, refreshed } = await manage({
       rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } },
     });
     const chat = await manager.createChat("client-1");
@@ -748,6 +789,8 @@ describe("SessionManager tabs", () => {
 
     expect(catalog.find(chat.sessionId)).toMatchObject({ state: "draft" });
     expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    // A chat has no git to look at after a run.
+    expect(refreshed).toStrictEqual([]);
   });
 
   it("keeps a chat directory that holds files when its empty draft is discarded", async () => {
@@ -772,7 +815,7 @@ describe("SessionManager tabs", () => {
     scanned.resolve({ directory: first.at.piSessions, perCwd: false });
     await Promise.all([opening, closing]);
 
-    expect(layouts.of("client-1")).toStrictEqual({ container: CHATS, tabs: { [CHATS]: { open: [], active: null } } });
+    expect(layouts.of("client-1")).toStrictEqual({ container: CHAT, tabs: { [CHAT]: { open: [], active: null } } });
     expect(catalog.find(sessionId)).toBeUndefined();
   });
 
@@ -786,10 +829,10 @@ describe("SessionManager tabs", () => {
 
     // Answered once the scan tells whether its pi should start; the tab does not wait for that.
     const opening = manager.openSession("client-1", sessionId);
-    await manager.selectContainer("client-1", CHATS);
+    await manager.selectContainer("client-1", CHAT);
 
     expect(layouts.of("client-1")).toStrictEqual({
-      container: CHATS,
+      container: CHAT,
       tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
     });
     scanned.resolve({ directory: first.at.piSessions, perCwd: false });
@@ -803,7 +846,7 @@ describe("SessionManager tabs", () => {
     const { manager, layouts } = await manage(null, at, undefined, scanned.promise);
 
     const opening = manager.openSession("client-1", "pi-session-1");
-    const selecting = manager.selectContainer("client-1", CHATS);
+    const selecting = manager.selectContainer("client-1", CHAT);
     await manager.close();
     scanned.resolve({ directory: at.piSessions, perCwd: false });
 
@@ -818,20 +861,20 @@ describe("SessionManager tabs", () => {
     const { manager, layouts } = await manage(null, at, undefined, scanned.promise);
 
     const opening = manager.openSession("client-1", "nope");
-    const selecting = manager.selectContainer("client-1", CHATS);
+    const selecting = manager.selectContainer("client-1", CHAT);
     scanned.resolve({ directory: at.piSessions, perCwd: false });
 
     await expect(opening).rejects.toStrictEqual(new CommandError("session_not_found", { sessionId: "nope" }));
     await selecting;
 
-    expect(layouts.of("client-1")).toStrictEqual({ container: CHATS, tabs: {} });
+    expect(layouts.of("client-1")).toStrictEqual({ container: CHAT, tabs: {} });
   });
 
   it("goes to a container or nowhere, and closes a tab it does not have without complaint", async () => {
     const { manager, layouts, changes } = await manage(null);
 
-    await manager.selectContainer("client-1", "chats");
-    expect(layouts.of("client-1").container).toBe("chats");
+    await manager.selectContainer("client-1", CHAT);
+    expect(layouts.of("client-1").container).toBe(CHAT);
     await manager.closeTab("client-1", "nope");
     await manager.selectContainer("client-1", null);
 
@@ -1059,7 +1102,7 @@ describe("SessionManager after the review (2026-10-08)", () => {
     await manager.closeTab("client-1", sessionId);
     await sending;
 
-    expect(catalog.find(sessionId)).toMatchObject({ containerId: "chats" });
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: CHAT });
     expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
   });
 

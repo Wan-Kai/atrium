@@ -26,6 +26,8 @@ export const ErrorCode = z.enum([
   "project_not_found",
   /** The `workspaceId` names no workspace of a registered project. */
   "workspace_not_found",
+  /** The `chatId` names no chat: its directory under `~/.atrium/chats/` is gone, or never was. */
+  "chat_not_found",
   /** The directory is a registered project or one of its workspaces already; `params.projectId` names the project. */
   "project_exists",
   /** Another project has that name; `params.name` repeats it. */

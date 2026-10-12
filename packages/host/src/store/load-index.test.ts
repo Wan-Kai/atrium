@@ -32,6 +32,7 @@ const DOCUMENTS = {
       },
     ],
   },
+  chats: { chats: [{ id: "cht_a", alias: "合并原理" }] },
   sessions: {
     sessions: [{ sessionId: "s1", containerId: "wks_1", cwd: "/work/app", draft: false, archived: true, createdAt: 1 }],
   },
@@ -46,8 +47,17 @@ const DOCUMENTS = {
   },
 };
 
+/** A client's tabs in one container. */
+const tab = (open: string[], active: string | null) => ({ open, active });
+
 /** Each file's current format version. */
-const VERSIONS: Record<keyof typeof DOCUMENTS, number> = { projects: 1, sessions: 1, layouts: 1, preferences: 2 };
+const VERSIONS: Record<keyof typeof DOCUMENTS, number> = {
+  projects: 1,
+  chats: 1,
+  sessions: 2,
+  layouts: 2,
+  preferences: 2,
+};
 
 /**
  * Creates Atrium's home for one test.
@@ -91,6 +101,7 @@ describe("loadIndex", () => {
 
     expect({
       projects: index.projects.read(),
+      chats: index.chats.read(),
       sessions: index.sessions.read(),
       layouts: index.layouts.read(),
       preferences: index.preferences.read(),
@@ -117,6 +128,7 @@ describe("loadIndex", () => {
       { sessions: [{ ...DOCUMENTS.sessions.sessions[0], sessionId: 1 }] },
       { sessions: [] },
     ],
+    ["chats", "a chat with no name", { chats: [{ id: "cht_a" }] }, { chats: [] }],
     ["layouts", "no clients", {}, { clients: [] }],
     ["layouts", "a client with no id", { clients: [{ seenAt: 2, container: null, tabs: {} }] }, { clients: [] }],
     [
@@ -147,5 +159,76 @@ describe("loadIndex", () => {
     expect(records.filter((record) => record["msg"] === "index file was damaged and has been reset")).toStrictEqual([
       expect.objectContaining({ level: "warn", file: name, copy }),
     ]);
+  });
+
+  it.each([
+    ["a record that is not an object", ["s1"]],
+    ["a record that is null", [null]],
+    ["a chat's record with no directory", [{ sessionId: "s1", containerId: "chats", cwd: 5 }]],
+  ])("resets version 1's sessions with %s, as it does any damaged file", async (_case, sessions) => {
+    const dir = await home();
+    await writeFile(join(dir, "sessions.json"), JSON.stringify({ version: 1, sessions }));
+
+    const index = await loadIndex(dir, NOW, recording().logger);
+
+    expect(index.resets).toStrictEqual(["sessions"]);
+    expect(index.sessions.read()).toStrictEqual({ sessions: [] });
+  });
+
+  it("files the sessions and tabs of version 1's chats under each session's own chat, backing both files up", async () => {
+    const dir = await home();
+    const record = { draft: false, archived: false, createdAt: 1 };
+    const sessions = {
+      version: 1,
+      sessions: [
+        { sessionId: "s1", containerId: "chats", cwd: "/home/.atrium/chats/a", ...record },
+        { sessionId: "s2", containerId: "chats", cwd: "/home/.atrium/chats/b", ...record },
+        { sessionId: "s3", containerId: "chats", cwd: "/home/.atrium/chats/a", ...record },
+        { sessionId: "s4", containerId: "wks_1", cwd: "/work/app", ...record },
+      ],
+    };
+    const layouts = {
+      version: 1,
+      clients: [
+        {
+          clientId: "in-chats",
+          seenAt: 2,
+          container: "chats",
+          tabs: { chats: tab(["s1", "s2", "gone", "s4", "s3"], "s3"), wks_1: tab(["s4"], "s4") },
+        },
+        { clientId: "no-active", seenAt: 3, container: "chats", tabs: { chats: tab(["s2"], null) } },
+        { clientId: "elsewhere", seenAt: 4, container: "wks_1", tabs: { chats: tab(["s2"], "s2") } },
+        { clientId: "untouched", seenAt: 5, container: null, tabs: {} },
+        { clientId: "active-not-a-chat", seenAt: 6, container: "chats", tabs: { chats: tab(["s2", "s4"], "s4") } },
+      ],
+    };
+    await writeFile(join(dir, "sessions.json"), JSON.stringify(sessions));
+    await writeFile(join(dir, "layouts.json"), JSON.stringify(layouts));
+
+    const index = await loadIndex(dir, NOW, recording().logger);
+
+    expect(index.sessions.read().sessions.map((entry) => [entry.sessionId, entry.containerId])).toStrictEqual([
+      ["s1", "cht_a"],
+      ["s2", "cht_b"],
+      ["s3", "cht_a"],
+      ["s4", "wks_1"],
+    ]);
+    expect(index.layouts.read().clients).toStrictEqual([
+      {
+        clientId: "in-chats",
+        seenAt: 2,
+        container: "cht_a",
+        tabs: { wks_1: tab(["s4"], "s4"), cht_a: tab(["s1", "s3"], "s3"), cht_b: tab(["s2"], null) },
+      },
+      { clientId: "no-active", seenAt: 3, container: null, tabs: { cht_b: tab(["s2"], null) } },
+      { clientId: "elsewhere", seenAt: 4, container: "wks_1", tabs: { cht_b: tab(["s2"], "s2") } },
+      { clientId: "untouched", seenAt: 5, container: null, tabs: {} },
+      { clientId: "active-not-a-chat", seenAt: 6, container: null, tabs: { cht_b: tab(["s2"], null) } },
+    ]);
+    expect(JSON.parse(await readFile(join(dir, "layouts.json"), "utf8"))).toMatchObject({ version: 2 });
+    expect(JSON.parse(await readFile(join(dir, "sessions.json"), "utf8"))).toMatchObject({ version: 2 });
+    expect(JSON.parse(await readFile(join(dir, "sessions.v1.bak"), "utf8"))).toStrictEqual(sessions);
+    expect(JSON.parse(await readFile(join(dir, "layouts.v1.bak"), "utf8"))).toStrictEqual(layouts);
+    expect(index.resets).toStrictEqual([]);
   });
 });

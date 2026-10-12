@@ -23,6 +23,7 @@ export {
   RemoveProjectCommand,
   RenameProjectCommand,
   RenameWorkspaceCommand,
+  RenameChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -97,10 +98,11 @@ export {
 } from "./setup";
 export { SessionMetrics, StatusGroupId, UNKNOWN_METRICS } from "./metrics";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
-export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
   Appearance,
   Attention,
+  Chat,
   ContainerTabs,
   DisplayMode,
   IndexChangesEvent,

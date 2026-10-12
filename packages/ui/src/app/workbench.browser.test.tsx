@@ -6,15 +6,19 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
-import { PROJECT, fakeClient, session, workspace } from "../test/fake-client";
+import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
 
 const LOCAL = "wks_000000000000000a";
 const FEATURE = "wks_000000000000000b";
 const MERGED = "wks_000000000000000c";
+const CHAT = "cht_a";
 
-/** A list with one project, three workspaces and some sessions, the client in the local workspace. */
+/**
+ * A list with one project, three workspaces, a chat and some sessions, the client in the local
+ * workspace.
+ */
 function list() {
   return {
     projects: [PROJECT],
@@ -45,8 +49,9 @@ function list() {
       session({ sessionId: "s1", containerId: LOCAL, prompt: "重构宿主" }),
       session({ sessionId: "s2", containerId: LOCAL, prompt: "调研 pi RPC", running: true }),
       session({ sessionId: "s3", containerId: FEATURE, name: "实现 sidebar" }),
-      session({ sessionId: "c1", containerId: "chats", prompt: "解释 merge-tree" }),
+      session({ sessionId: "c1", containerId: CHAT, prompt: "解释 merge-tree" }),
     ],
+    chats: [chat({ id: CHAT, firstSessionId: "c1" })],
     layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2"], active: "s1" } } },
   };
 }
@@ -193,7 +198,7 @@ describe("Workbench sidebar", () => {
           ...initial.sessions,
           session({ sessionId: "e1", containerId: FEATURE, name: "错一", ...error(30) }),
           session({ sessionId: "e2", containerId: LOCAL, name: "错二", ...error(3) }),
-          session({ sessionId: "e3", containerId: "chats", name: "错三", ...error(50) }),
+          session({ sessionId: "e3", containerId: CHAT, name: "错三", ...error(50) }),
           session({ sessionId: "e4", containerId: LOCAL, name: "错四", ...error(40) }),
           session({
             sessionId: "seen",
@@ -205,7 +210,7 @@ describe("Workbench sidebar", () => {
           session({ sessionId: "a1", containerId: FEATURE, name: "问一", asking: Date.now() - 12 * minute }),
           session({
             sessionId: "k1",
-            containerId: "chats",
+            containerId: CHAT,
             name: "钥一",
             attention: { reason: "auth", at: 0, cleared: false },
           }),
@@ -219,7 +224,7 @@ describe("Workbench sidebar", () => {
     const rows = inbox.getByTestId("inbox-row");
     expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
       "问一atrium · feat/sidebar12 分钟前",
-      expect.stringMatching(/^钥一对话/),
+      expect.stringMatching(/^钥一对话 · 解释 merge-tree/),
       "错二atrium · main3 分钟前",
       "错一atrium · feat/sidebar30 分钟前",
       "错四atrium · main40 分钟前",
@@ -227,7 +232,7 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0).getByRole("img", { name: "待回答" })).toBeVisible();
     await expect.element(rows.nth(1).getByRole("img", { name: "待授权" })).toBeVisible();
     await inbox.getByRole("button", { name: "还有 1 条" }).click();
-    await expect.element(rows.nth(5)).toHaveTextContent("错三对话50 分钟前");
+    await expect.element(rows.nth(5)).toHaveTextContent("错三对话 · 解释 merge-tree50 分钟前");
     await inbox.getByRole("button", { name: "收起" }).click();
     await expect.element(rows.nth(5)).not.toBeInTheDocument();
 
@@ -283,9 +288,9 @@ describe("Workbench sidebar", () => {
 
   it("searches workspaces and sessions, and opens what is chosen", async () => {
     const { screen, calls } = await workbench();
-    await screen.getByRole("button", { name: "搜索工作区和会话" }).click();
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
 
-    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区和会话" }), "SideBar");
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "SideBar");
     const results = screen.getByRole("region", { name: "搜索结果" });
     await expect
       .element(results)
@@ -294,31 +299,178 @@ describe("Workbench sidebar", () => {
     await vi.waitFor(() => expect(calls).toContain("openSession s3"));
 
     // Results stay after one is chosen; Escape in the box closes the search.
-    await screen.getByRole("textbox", { name: "搜索工作区和会话" }).click();
+    await screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }).click();
     await userEvent.keyboard("{Escape}");
     await expect.element(screen.getByRole("region", { name: "搜索结果" })).not.toBeInTheDocument();
   });
 
-  it("says when nothing matches", async () => {
-    const { screen } = await workbench();
-    await screen.getByRole("button", { name: "搜索工作区和会话" }).click();
+  it("finds chats by name in a group of their own, going to one when chosen", async () => {
+    const initial = list();
+    const { screen, calls } = await workbench({
+      initial: { ...initial, chats: [chat({ id: CHAT, firstSessionId: "c1", alias: "Merge 原理" })] },
+    });
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    const box = screen.getByRole("textbox", { name: "搜索工作区、对话和会话" });
 
-    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区和会话" }), "nothing");
+    await userEvent.type(box, "MERGE");
+    const results = screen.getByRole("region", { name: "搜索结果" });
+    await expect
+      .element(results)
+      .toMatchTextContent(/^对话Merge 原理1 分钟前会话解释 merge-tree对话 · Merge 原理1 分钟前$/);
+    await userEvent.fill(box, "原理");
+    await expect.element(results).toMatchTextContent(/^对话Merge 原理1 分钟前$/);
+    await results.getByRole("button").click();
 
-    await expect.element(screen.getByText("没有匹配的工作区或会话")).toBeVisible();
+    await vi.waitFor(() => expect(calls).toContain("openSession c1"));
   });
 
-  it("lists the five latest chats and offers the rest", async () => {
-    const chats = Array.from({ length: 7 }, (_, at) =>
-      session({ sessionId: `c${at}`, containerId: "chats", prompt: `对话 ${at}`, updatedAt: Date.now() - at * 60_000 }),
+  it("says when nothing matches", async () => {
+    const { screen } = await workbench();
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "nothing");
+
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+  });
+
+  it("lists chats like workspaces, latest first, five until the rest are shown in place", async () => {
+    const minute = 60_000;
+    const sessions = Array.from({ length: 7 }, (_, at) =>
+      session({
+        sessionId: `c${at}`,
+        containerId: `cht_${at}`,
+        prompt: `问题 ${at}`,
+        updatedAt: Date.now() - (at + 1) * minute,
+      }),
     );
-    const { screen, calls } = await workbench({ initial: { ...list(), sessions: chats } });
+    const { screen, calls } = await workbench({
+      initial: {
+        ...list(),
+        sessions: [
+          ...sessions,
+          // A later session of chat 6 brings it to the top, with its status; its name stays the first's.
+          session({ sessionId: "c6b", containerId: "cht_6", prompt: "追问", running: true, updatedAt: Date.now() }),
+          session({ sessionId: "gone", containerId: "cht_gone", archived: true }),
+        ],
+        chats: [
+          ...sessions.map((one, at) => chat({ id: `cht_${at}`, firstSessionId: one.sessionId })),
+          chat({ id: "cht_gone", firstSessionId: null }),
+        ],
+      },
+    });
+    const section = screen.getByRole("region", { name: "对话" });
+    const rows = section.getByTestId("chat-row");
 
-    await expect.element(screen.getByText("对话 4")).toBeVisible();
-    await expect.element(screen.getByText("对话 5")).not.toBeInTheDocument();
-    await screen.getByRole("button", { name: "全部 7 个对话" }).click();
+    await expect.element(rows.nth(0)).toHaveTextContent("问题 6刚刚");
+    await expect.element(rows.nth(0).getByRole("img", { name: "运行中" })).toBeVisible();
+    expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
+      "问题 6刚刚",
+      "问题 01 分钟前",
+      "问题 12 分钟前",
+      "问题 23 分钟前",
+      "问题 34 分钟前",
+    ]);
+    await section.getByRole("button", { name: "显示全部 7 个" }).click();
+    await expect.element(rows.nth(6)).toHaveTextContent("问题 56 分钟前");
+    await section.getByRole("button", { name: "收起" }).click();
+    await expect.element(rows.nth(5)).not.toBeInTheDocument();
+    // The area opens the active session s1 of the local workspace on its own.
+    expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
+  });
 
-    await vi.waitFor(() => expect(calls).toContain("selectContainer chats"));
+  it("names a chat by its alias, else its first session's title, else as new", async () => {
+    const initial = list();
+    await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          ...initial.sessions,
+          session({ sessionId: "d1", containerId: "cht_b", prompt: null, file: null, state: "draft" }),
+          session({ sessionId: "r1", containerId: "cht_c", prompt: "周报的提纲" }),
+        ],
+        chats: [
+          ...initial.chats,
+          chat({ id: "cht_b", firstSessionId: "d1" }),
+          chat({ id: "cht_c", firstSessionId: "r1", alias: "周报" }),
+        ],
+      },
+    });
+
+    const rows = page.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    expect(rows.elements().map((row) => row.querySelector(".truncate")?.textContent)).toStrictEqual([
+      "解释 merge-tree",
+      "新对话",
+      "周报",
+    ]);
+  });
+
+  it("opens a chat's latest session when it has no tab open, and goes back to its tabs when it has", async () => {
+    const initial = list();
+    const { screen, calls, index } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          ...initial.sessions,
+          session({ sessionId: "c2", containerId: CHAT, prompt: "再问", updatedAt: Date.now() - 1000 }),
+          session({ sessionId: "b1", containerId: "cht_b", prompt: "旧的", updatedAt: Date.now() - 9000 }),
+          session({ sessionId: "b2", containerId: "cht_b", prompt: "新的", updatedAt: Date.now() - 2000 }),
+        ],
+        chats: [...initial.chats, chat({ id: "cht_b", firstSessionId: "b1" })],
+        layout: { ...initial.layout, tabs: { ...initial.layout.tabs, [CHAT]: { open: ["c1"], active: "c1" } } },
+      },
+    });
+    const rows = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    await expect.element(rows.nth(1)).toHaveTextContent("旧的刚刚");
+
+    await rows.nth(1).click();
+    await vi.waitFor(() => expect(calls).toContain("openSession b2"));
+    await expect.element(rows.nth(1)).toHaveAttribute("aria-current", "true");
+    await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "false");
+    await rows.nth(0).click();
+
+    await vi.waitFor(() => expect(calls).toContain(`selectContainer ${CHAT}`));
+    await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
+    expect(calls).not.toContain("openSession c2");
+    expect(index.getState().layout.tabs[CHAT]).toStrictEqual({ open: ["c1"], active: "c1" });
+  });
+
+  it("explains a chat that went while it was being renamed", async () => {
+    const { screen } = await workbench({
+      answers: { renameChat: () => Promise.reject(new CommandError("chat_not_found", { chatId: CHAT })) },
+    });
+    const row = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    await row.hover();
+    await row.getByRole("button", { name: "对话 解释 merge-tree" }).click();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+
+    await userEvent.fill(screen.getByRole("textbox", { name: "对话名称" }), "合并原理");
+    await userEvent.keyboard("{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("这个对话已经不在了");
+  });
+
+  it("renames a chat in place from its menu, and clears its name with an empty one", async () => {
+    const initial = list();
+    const { screen, calls } = await workbench({
+      initial: { ...initial, chats: [chat({ id: CHAT, firstSessionId: "c1", alias: "合并原理" })] },
+    });
+    const row = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    await row.hover();
+    await row.getByRole("button", { name: "对话 合并原理" }).click();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+
+    await userEvent.fill(screen.getByRole("textbox", { name: "对话名称" }), "merge-tree");
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(calls).toContain(`renameChat ${CHAT} merge-tree`));
+    await row.hover();
+    await row.getByRole("button", { name: "对话 合并原理" }).click();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+    await userEvent.clear(screen.getByRole("textbox", { name: "对话名称" }));
+    await userEvent.keyboard("{Enter}");
+
+    await vi.waitFor(() => expect(calls).toContain(`renameChat ${CHAT} null`));
+    // The area opens the active session s1 of the local workspace on its own.
+    expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
   });
 
   it("renames a workspace in place, and clears its name with an empty one", async () => {
@@ -514,6 +666,25 @@ describe("Workbench keys and focus", () => {
 
     await expect.element(screen.getByText("开始一段对话")).toBeVisible();
     await userEvent.keyboard("{Meta>}t{/Meta}");
+
+    await vi.waitFor(() => expect(calls).toContain("createChat"));
+  });
+
+  it("creates a session in the chat the client is in with ⌘T and the tab bar's +, and a new chat with ⌘N", async () => {
+    const { calls, screen } = await workbench({
+      initial: { ...list(), layout: { container: CHAT, tabs: { [CHAT]: { open: ["c1"], active: "c1" } } } },
+    });
+
+    await userEvent.keyboard("{Meta>}t{/Meta}");
+    await vi.waitFor(() => expect(calls).toContain(`createSession ${CHAT}`));
+    await screen.getByRole("button", { name: "新建会话（⌘T）" }).click();
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.startsWith("create"))).toStrictEqual([
+        `createSession ${CHAT}`,
+        `createSession ${CHAT}`,
+      ]),
+    );
+    await userEvent.keyboard("{Meta>}n{/Meta}");
 
     await vi.waitFor(() => expect(calls).toContain("createChat"));
   });

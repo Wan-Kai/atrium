@@ -1,4 +1,4 @@
-import type { Layout, Preferences, Project, SessionSummary, Workspace } from "@atrium/protocol";
+import type { Chat, Layout, Preferences, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import { FakeClock } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { ResourceTracker } from "../platform/resources";
@@ -62,8 +62,26 @@ function workspace(n: number): Workspace {
   };
 }
 
+/** The chat the tests' sessions are in. */
+const CHAT = "cht_a";
+
 /**
- * A session in the chats.
+ * A chat, as the list holds it.
+ *
+ * @remarks
+ * Named or not, so a test can change it.
+ *
+ * @sideEffects none
+ * @param id - Its id.
+ * @param alias - Its name.
+ * @returns The chat.
+ */
+function chat(id: string, alias: string | null = null): Chat {
+  return { id, dir: `/home/.atrium/chats/${id}`, alias, firstSessionId: null };
+}
+
+/**
+ * A session in a chat.
  *
  * @remarks
  * Running or not, so a test can change it.
@@ -76,7 +94,7 @@ function workspace(n: number): Workspace {
 function session(id: string, running = false): SessionSummary {
   return {
     sessionId: id,
-    containerId: "chats",
+    containerId: CHAT,
     name: null,
     prompt: id,
     file: null,
@@ -112,6 +130,7 @@ function feed(limits: { readonly removalsKept?: number; readonly changesLimit?: 
   const content: { -readonly [K in keyof IndexContent]: IndexContent[K] } = {
     projects: [project(1)],
     workspaces: [workspace(1)],
+    chats: [chat(CHAT)],
     sessions: [session("s1")],
     preferences: PREFERENCES,
     resets: ["layouts"],
@@ -160,7 +179,7 @@ const none = { upsert: [], remove: [] };
 describe("IndexFeed", () => {
   it("sends a subscriber without a cursor the whole list at once, with its own layout", () => {
     const { index, received, layouts } = feed();
-    layouts["client-b"] = { container: "chats", tabs: { chats: { open: ["s1"], active: "s1" } } };
+    layouts["client-b"] = { container: CHAT, tabs: { [CHAT]: { open: ["s1"], active: "s1" } } };
 
     index.subscribe("b");
     index.subscribe("nobody");
@@ -173,8 +192,9 @@ describe("IndexFeed", () => {
         reason: "no_cursor",
         projects: [project(1)],
         workspaces: [workspace(1)],
+        chats: [chat(CHAT)],
         sessions: [session("s1")],
-        layout: { container: "chats", tabs: { chats: { open: ["s1"], active: "s1" } } },
+        layout: { container: CHAT, tabs: { [CHAT]: { open: ["s1"], active: "s1" } } },
         preferences: PREFERENCES,
         resets: ["layouts"],
       },
@@ -189,6 +209,7 @@ describe("IndexFeed", () => {
 
     content.sessions = [session("s1", true), session("s2")];
     content.workspaces = [];
+    content.chats = [chat(CHAT, "合并原理"), chat("cht_b")];
     index.changed();
     content.projects = [project(1, "renamed"), project(2)];
     index.changed();
@@ -203,6 +224,7 @@ describe("IndexFeed", () => {
       seq: 2,
       projects: { upsert: [project(1, "renamed"), project(2)], remove: [] },
       workspaces: { upsert: [], remove: [workspace(1).id] },
+      chats: { upsert: [chat(CHAT, "合并原理"), chat("cht_b")], remove: [] },
       sessions: { upsert: [session("s1", true), session("s2")], remove: [] },
       layout: null,
       preferences: null,
@@ -219,7 +241,7 @@ describe("IndexFeed", () => {
     index.subscribe("a");
     index.subscribe("b");
 
-    layouts["client-a"] = { container: "chats", tabs: {} };
+    layouts["client-a"] = { container: CHAT, tabs: {} };
     push();
     content.preferences = { ...PREFERENCES, appearance: "dark" };
     push();
@@ -231,8 +253,9 @@ describe("IndexFeed", () => {
         seq: 1,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: none,
-        layout: { container: "chats", tabs: {} },
+        layout: { container: CHAT, tabs: {} },
         preferences: null,
       },
       {
@@ -241,6 +264,7 @@ describe("IndexFeed", () => {
         seq: 2,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: none,
         layout: null,
         preferences: { ...PREFERENCES, appearance: "dark" },
@@ -253,6 +277,7 @@ describe("IndexFeed", () => {
         seq: 2,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: none,
         layout: null,
         preferences: { ...PREFERENCES, appearance: "dark" },
@@ -266,7 +291,7 @@ describe("IndexFeed", () => {
     index.subscribe("b");
     index.flush("a");
 
-    layouts["client-a"] = { container: "chats", tabs: {} };
+    layouts["client-a"] = { container: CHAT, tabs: {} };
     content.sessions = [session("s1"), session("s2")];
     index.changed();
     index.flush("a");
@@ -280,11 +305,12 @@ describe("IndexFeed", () => {
       seq: 2,
       projects: none,
       workspaces: none,
+      chats: none,
       sessions: { upsert: [session("s2")], remove: [] },
       preferences: null,
     };
-    expect(flushed).toStrictEqual({ a: [{ ...batch, layout: { container: "chats", tabs: {} } }], b: [] });
-    expect(received["a"]?.slice(1)).toStrictEqual([{ ...batch, layout: { container: "chats", tabs: {} } }]);
+    expect(flushed).toStrictEqual({ a: [{ ...batch, layout: { container: CHAT, tabs: {} } }], b: [] });
+    expect(received["a"]?.slice(1)).toStrictEqual([{ ...batch, layout: { container: CHAT, tabs: {} } }]);
     expect(received["b"]?.slice(1)).toStrictEqual([{ ...batch, layout: null }]);
   });
 
@@ -296,7 +322,7 @@ describe("IndexFeed", () => {
     content.sessions = [session("s2")];
     content.projects = [project(1), project(2)];
     push();
-    layouts["client-b"] = { container: "chats", tabs: {} };
+    layouts["client-b"] = { container: CHAT, tabs: {} };
 
     registry.disconnect("b");
     registry.connect("b2", (event) => received["b"]?.push(event), "client-b");
@@ -310,8 +336,9 @@ describe("IndexFeed", () => {
         seq: 3,
         projects: { upsert: [project(2)], remove: [] },
         workspaces: none,
+        chats: none,
         sessions: { upsert: [session("s2")], remove: ["s1"] },
-        layout: { container: "chats", tabs: {} },
+        layout: { container: CHAT, tabs: {} },
         preferences: PREFERENCES,
       },
       {
@@ -320,8 +347,9 @@ describe("IndexFeed", () => {
         seq: 3,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: none,
-        layout: { container: "chats", tabs: {} },
+        layout: { container: CHAT, tabs: {} },
         preferences: PREFERENCES,
       },
     ]);
@@ -359,6 +387,7 @@ describe("IndexFeed", () => {
           seq: 2,
           projects: none,
           workspaces: none,
+          chats: none,
           sessions: { upsert: [session("s2")], remove: [] },
           layout: null,
           preferences: null,
@@ -390,6 +419,7 @@ describe("IndexFeed", () => {
         seq: 4,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: { upsert: [session("t4")], remove: [] },
         layout: null,
         preferences: null,
@@ -417,6 +447,7 @@ describe("IndexFeed", () => {
         seq: 5,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: { upsert: [session("t3")], remove: ["t0", "t1", "t2"] },
         layout: { container: null, tabs: {} },
         preferences: PREFERENCES,
@@ -442,6 +473,7 @@ describe("IndexFeed", () => {
         seq: 3,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: { upsert: [session("s4")], remove: [] },
         layout: { container: null, tabs: {} },
         preferences: PREFERENCES,
@@ -467,6 +499,7 @@ describe("IndexFeed", () => {
         seq: 2,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: { upsert: [session("s2")], remove: ["s1"] },
         layout: { container: null, tabs: {} },
         preferences: PREFERENCES,
@@ -477,6 +510,7 @@ describe("IndexFeed", () => {
         seq: 3,
         projects: none,
         workspaces: none,
+        chats: none,
         sessions: { upsert: [session("s3")], remove: ["s2"] },
         layout: null,
         preferences: null,

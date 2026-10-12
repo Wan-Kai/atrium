@@ -9,7 +9,6 @@ import {
 } from "@atrium/pi";
 import {
   type Attention,
-  CHATS,
   CommandError,
   IDLE_CONTROL,
   type ModelRef,
@@ -19,6 +18,7 @@ import {
   type SessionSummary,
   type ThinkingLevel,
   UNKNOWN_METRICS,
+  isChatId,
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
 import { mkdir, rmdir, stat } from "node:fs/promises";
@@ -33,7 +33,7 @@ import type { WorkspaceService } from "../workspaces/workspace-service";
 import type { TurnStarts } from "../store/turn-starts";
 import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
-import type { CatalogEntry, SessionCatalog } from "./session-catalog";
+import { type CatalogEntry, chatIdOf, type SessionCatalog } from "./session-catalog";
 import type { SessionCommands } from "./session-commands";
 import {
   type PromptImage,
@@ -107,13 +107,14 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  * Follows SPEC-0001 ("项目、工作区与会话") and domain-model §1:
  * - a new session or chat gets its id here, is recorded as a draft in its container and opens as
  *   the client's active tab at once; its pi starts in the background with `--session-id <id>`,
- *   and whatever needs it waits for that start (domain-model, "已决定 9, 14"); a chat gets its own
- *   directory under the chats root;
+ *   and whatever needs it waits for that start (domain-model, "已决定 9, 14"); a new chat gets its
+ *   own directory under the chats root, and later sessions of the chat start there too (ADR-0007);
  * - opening a session starts pi with `--session <file>` in the directory the session recorded,
  *   unless its pi runs; a draft restored after a restart starts with `--session-id <id>` on its
  *   first message (domain-model, "已决定 7");
  * - closing the last tab of a draft that never got a message discards it: its pi stops, its
- *   record goes, and a chat's empty directory is removed (domain-model, "已决定 13");
+ *   record goes, and when it was its chat's only session the chat's empty directory is removed
+ *   (domain-model, "已决定 13");
  * - archiving hides a session and stops its pi;
  * - a client's tab and place changes take effect in the order its commands came, at once for a
  *   session the index knows; one it does not know yet waits for the first scan, and a tab closed
@@ -475,7 +476,7 @@ export function createSessionManager(options: {
       if (ran || event.type === "run_settled") options.onChange();
       if (event.type === "run_settled") {
         const containerId = options.catalog.find(sessionId)?.containerId;
-        if (containerId !== undefined && containerId !== CHATS) options.workspaces.refresh(containerId);
+        if (containerId !== undefined && !isChatId(containerId)) options.workspaces.refresh(containerId);
         inBackground("session scan", async () => {
           await options.catalog.scan();
           // After the scan, which finds the file a first run wrote.
@@ -866,20 +867,26 @@ export function createSessionManager(options: {
 
   return {
     async createChat(clientId) {
-      const cwd = join(options.chatsRoot, options.newId());
+      const name = options.newId();
+      const cwd = join(options.chatsRoot, name);
       await mkdir(cwd, { recursive: true });
       try {
-        return { sessionId: await create(clientId, CHATS, cwd) };
+        return { sessionId: await create(clientId, chatIdOf(name), cwd) };
       } catch (error) {
         // Only the directory just made, and only while empty.
         await rmdir(cwd).catch(() => undefined);
         throw error;
       }
     },
-    async createSession(clientId, workspaceId) {
-      const dir = options.workspaces.dirOf(workspaceId);
-      if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId });
-      return { sessionId: await create(clientId, workspaceId, dir) };
+    async createSession(clientId, containerId) {
+      if (isChatId(containerId)) {
+        const chat = options.catalog.chats().find((candidate) => candidate.id === containerId);
+        if (chat === undefined) throw new CommandError("chat_not_found", { chatId: containerId });
+        return { sessionId: await create(clientId, containerId, chat.dir) };
+      }
+      const dir = options.workspaces.dirOf(containerId);
+      if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: containerId });
+      return { sessionId: await create(clientId, containerId, dir) };
     },
     async openSession(clientId, sessionId) {
       const entry = await inClientOrder(clientId, async () => {
@@ -919,8 +926,14 @@ export function createSessionManager(options: {
         await stopSession(sessionId);
         forget(sessionId);
         await options.catalog.forget(sessionId);
-        // Only a chat's own directory, and only while empty (domain-model, "已决定 13").
-        if (entry.containerId === CHATS) await rmdir(entry.cwd).catch(() => undefined);
+        // Only a chat's own directory, only when no other session is in it, and only while empty
+        // (domain-model, "已决定 13").
+        const alone = !options.catalog.list().some((other) => other.containerId === entry.containerId);
+        if (isChatId(entry.containerId) && alone) {
+          await rmdir(entry.cwd).catch(() => undefined);
+          // The chat goes with its directory.
+          inBackground("session scan", () => options.catalog.scan());
+        }
         options.onChange();
       }
       return {};
