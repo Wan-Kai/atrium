@@ -726,7 +726,7 @@ export function Composer({
               aria-label={expanded ? "收起输入框" : "展开输入框"}
               title={expanded ? "收起输入框" : "展开输入框"}
               onClick={() => setExpanded(!expanded)}
-              className="absolute top-1.5 right-1.5 rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+              className="absolute top-1.5 right-1.5 cursor-pointer rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
             >
               {expanded ? <ArrowsInSimple size={14} /> : <ArrowsOutSimple size={14} />}
             </button>
@@ -751,7 +751,7 @@ export function Composer({
                 aria-label="添加"
                 aria-expanded={plusOpen}
                 onClick={() => setPlusOpen(!plusOpen)}
-                className="flex size-8 items-center justify-center rounded-full text-[var(--text-muted)] shadow-[inset_0_0_0_1px_var(--line)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                className="flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--text-muted)] shadow-[inset_0_0_0_1px_var(--line)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
               >
                 <Plus size={15} className={`transition-transform duration-200 ${plusOpen ? "rotate-45" : ""}`} />
               </button>
@@ -794,7 +794,7 @@ export function Composer({
                   aria-label={stopping ? "停止中" : "停止"}
                   disabled={stopping}
                   onClick={() => onStop?.()}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] disabled:opacity-50"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] enabled:cursor-pointer disabled:opacity-50"
                 >
                   <Square size={12} weight="fill" />
                 </button>
@@ -804,7 +804,7 @@ export function Composer({
                   aria-label="发送"
                   disabled={empty || stopping || uploading}
                   onClick={() => send(false)}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] enabled:cursor-pointer disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
                 >
                   <ArrowUp size={16} weight="bold" />
                 </button>

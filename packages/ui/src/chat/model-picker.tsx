@@ -160,7 +160,7 @@ export function ModelPicker({
           setMode("all");
           onOpen();
         }}
-        className="atrium-model-chip relative isolate inline-flex h-8 items-center gap-2 overflow-hidden rounded-[var(--r-pill)] pr-3 pl-1.5 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_1px_var(--line)] transition-[background,box-shadow] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text)] disabled:opacity-50 aria-expanded:bg-[var(--hover)]"
+        className="atrium-model-chip relative isolate inline-flex h-8 items-center gap-2 overflow-hidden rounded-[var(--r-pill)] pr-3 pl-1.5 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_1px_var(--line)] transition-[background,box-shadow] duration-150 enabled:cursor-pointer hover:bg-[var(--hover)] hover:text-[var(--text)] disabled:opacity-50 aria-expanded:bg-[var(--hover)]"
       >
         <canvas ref={canvas} aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 size-full" />
         {shown === null ? (

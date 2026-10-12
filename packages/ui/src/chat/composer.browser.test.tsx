@@ -323,6 +323,30 @@ describe("Composer's draft", () => {
   });
 });
 
+/**
+ * A model button with nothing listed, as the composer shows it beside the send button.
+ *
+ * @remarks
+ * For what the button looks like, not what it chooses.
+ *
+ * @sideEffects none
+ * @param disabled - Whether the button cannot be pressed.
+ * @returns The button.
+ */
+function emptyPicker(disabled: boolean) {
+  return (
+    <ModelPicker
+      shown={null}
+      list={{ status: "ready", models: [], defaultModel: null, error: null }}
+      disabled={disabled}
+      onOpen={() => undefined}
+      onRefresh={() => undefined}
+      onChooseModel={() => undefined}
+      onChooseLevel={() => undefined}
+    />
+  );
+}
+
 describe("Composer's other controls", () => {
   it("opens the box tall and back", async () => {
     const { screen, box } = await composer();
@@ -349,6 +373,37 @@ describe("Composer's other controls", () => {
     await screen.getByRole("menuitem", { name: "命令" }).click();
     await expect.element(box).toHaveValue("/");
     await expect.element(screen.getByRole("listbox", { name: "命令" })).toBeVisible();
+  });
+
+  it("shows a pointing hand over its buttons while they can be pressed, and none while they cannot", async () => {
+    const { screen, box } = await composer({ picker: emptyPicker(false) });
+    const cursor = (name: string | RegExp): string =>
+      getComputedStyle(screen.getByRole("button", { name }).element()).cursor;
+    const names = ["添加", "展开输入框", /^模型与推理强度/, "发送"];
+    const empty = names.map(cursor);
+    await userEvent.type(box, "你好");
+    const typed = names.map(cursor);
+
+    await screen.rerender(
+      <Composer
+        draftKey={freshKey()}
+        onSend={() => undefined}
+        running
+        picker={emptyPicker(true)}
+        onStop={() => undefined}
+      />,
+    );
+    const running = cursor("停止");
+    await screen.rerender(
+      <Composer draftKey={freshKey()} onSend={() => undefined} running stopping picker={emptyPicker(true)} />,
+    );
+
+    expect({ empty, typed, running, stopping: [cursor(/^模型与推理强度/), cursor("停止中")] }).toStrictEqual({
+      empty: ["pointer", "pointer", "pointer", "default"],
+      typed: ["pointer", "pointer", "pointer", "pointer"],
+      running: "pointer",
+      stopping: ["default", "default"],
+    });
   });
 
   it("says what can be typed", async () => {
