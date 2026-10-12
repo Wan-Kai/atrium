@@ -614,7 +614,8 @@ describe("ConversationArea", () => {
     await userEvent.type(box, "{Escape}");
     await screen.getByRole("button", { name: "停止" }).click();
 
-    await expect.element(screen.getByText("回车排队 · ⌘回车插话 · Esc 停止")).toBeVisible();
+    await expect.element(box).toHaveAttribute("placeholder", "回车排队 · ⌘回车插话 · Esc 停止");
+    await expect.element(screen.getByText("回车排队 · ⌘回车插话 · Esc 停止")).not.toBeInTheDocument();
     await vi.waitFor(() =>
       expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 二", "steer s1 三", "stop s1", "stop s1"]),
     );
@@ -634,7 +635,7 @@ describe("ConversationArea", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "{Escape}");
 
     await expect.element(screen.getByRole("button", { name: "停止中" })).toBeDisabled();
-    await expect.element(screen.getByText("正在停止…")).toBeVisible();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveAttribute("placeholder", "正在停止…");
     expect(calls).toStrictEqual(["watch s1", "openSession s1"]);
   });
 

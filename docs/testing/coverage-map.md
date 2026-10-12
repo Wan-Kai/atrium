@@ -179,7 +179,7 @@
 | 崩溃：重启 pi（新 epoch 快照 + "进程已自动重启"提示），pi 没收下的消息重发，收下了就补发"系统自动发出"的续做；未送达的插话回到排队；连续 3 次失败后出错；运行正常结束后计数归零；宿主要求的停止不重启；pi 应答后、`agent_start` 前崩溃也重发；重发时 pi 又走了，被打断的那条留给下一次重启；停止后崩溃不发出，没收下的那条进暂停的排队；重启中消息排队、停止让它和被打断的那条留在暂停的排队；另一处启动换上的 pi 直接用；停止的运行也让计数归零；"重试"续做失败的一轮、或重发重启用尽时丢失的消息（收下了就补发续做），启动失败时保留失败状态，启动期间算作重启中、再点重试不起作用、关闭会话停掉新 pi；续做的那一轮记为自动发出 | session-controller.test.ts "after pi crashes"、"retrying"；`session-manager.test.ts`（崩溃后用会话文件重启、用尽后列为出错；继续发送时启动放弃重启的 pi；重启中发消息或打开会话不另起 pi；重启中归档或关闭宿主不再启动；启动时开启自动重试） | 已覆盖 |
 | 对话记录：自动发出的标记当场和重建后都在，记进 `turns/`；重启提示在重建后回到它跟着的那一项后面；重试步骤带 pi 的上限，重建后保留 | `packages/host/src/transcript/session-transcript.test.ts`、`store/turn-starts.test.ts` | 已覆盖 |
 | 客户端：控制状态、`prompt_handled` 去掉待发副本；排队或被插话收下的消息去掉待发副本；运行控制命令的字段与结果 | `packages/client/src/session-view.test.ts`、`atrium-client.test.ts` | 已覆盖 |
-| 界面：运行中回车排队、⌘回车插话、Esc 和按钮停止，停止中按钮不可用；胶囊条（排队、已暂停与继续发送、编辑删除插话清空、待送达插话数）；四种对话框卡片与倒计时；连续崩溃的错误卡片；最后一轮失败时的"重试"，重启中不给；重启提示、对话框结果提示与"系统自动发出"；停止中输入框保留文字、不发送；重试显示"第 N / M 次"或"第 N 次"；出错的会话在标签、工作区上显示"出错"，高于运行中 | `packages/ui/src/chat/run-control.browser.test.tsx`、`chat.browser.test.tsx`、`turn-layout.test.ts`、`app/workbench.browser.test.tsx` | 已覆盖 |
+| 界面：运行中回车排队、⌘回车插话、Esc 和按钮停止，这句提示在输入框的占位文字里（停止中是"正在停止…"），输入框下面没有提示行，停止中按钮不可用；胶囊条（排队、已暂停与继续发送、编辑删除插话清空、待送达插话数）；四种对话框卡片与倒计时；连续崩溃的错误卡片；最后一轮失败时的"重试"，重启中不给；重启提示、对话框结果提示与"系统自动发出"；停止中输入框保留文字、不发送；重试显示"第 N / M 次"或"第 N 次"；出错的会话在标签、工作区上显示"出错"，高于运行中 | `packages/ui/src/chat/run-control.browser.test.tsx`、`chat.browser.test.tsx`、`turn-layout.test.ts`、`app/workbench.browser.test.tsx` | 已覆盖 |
 | 杀掉 pi 后自动恢复（端到端） | `apps/desktop/e2e/run-control.spec.ts` | 已覆盖 |
 | 测试工具：faux 写下 pi 的进程号；夹具把工具耗时规范化为 0 | `packages/testkit/src/faux/faux.pi.test.ts`、`pi-fixtures/normalize.test.ts` | 已覆盖 |
 

@@ -129,8 +129,8 @@ const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
  * @remarks
  * SPEC-0001 ("输入框", "运行中输入", "模型与输入框"): a rounded 22 card with 14 px padding;
  * Enter while an input method is composing only picks a candidate. While a run goes on the
- * button is "停止" and Esc stops too; Enter queues and ⌘+Enter steers; while a stop waits for pi
- * nothing is sent and the text stays.
+ * button is "停止" and Esc stops too; Enter queues and ⌘+Enter steers, as the placeholder then
+ * says; while a stop waits for pi nothing is sent and the text stays.
  *
  * `/` at the start lists pi's commands, asked for each time the list opens; `@` lists files and
  * directories as you type, and the one chosen becomes a capsule above the text, Tab going into a
@@ -707,7 +707,13 @@ export function Composer({
               aria-activedescendant={listOpen && itemCount > 0 ? `${listId}-${highlighted}` : undefined}
               rows={1}
               value={text}
-              placeholder="发消息或描述任务，@ 引用文件，/ 使用命令"
+              placeholder={
+                running
+                  ? stopping
+                    ? "正在停止…"
+                    : "回车排队 · ⌘回车插话 · Esc 停止"
+                  : "发消息或描述任务，@ 引用文件，/ 使用命令"
+              }
               onChange={(event) => {
                 setText(event.target.value);
                 setCaret(event.target.selectionStart);
@@ -813,11 +819,6 @@ export function Composer({
           </div>
         </div>
       </div>
-      {running ? (
-        <p className="mt-1.5 text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-          {stopping ? "正在停止…" : "回车排队 · ⌘回车插话 · Esc 停止"}
-        </p>
-      ) : null}
     </div>
   );
 }
