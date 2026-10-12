@@ -123,6 +123,26 @@ function nodeCenter(row: Element): number {
   return box.left + box.width / 2 - row.getBoundingClientRect().left;
 }
 
+/**
+ * How far the rail's line runs on below its last node's centre, to the pixel.
+ *
+ * @remarks
+ * A finished rail ends at its last step, with nothing hanging below it.
+ *
+ * @sideEffects none
+ * @param container - What the turn is rendered in.
+ * @returns The distance; 0 when the line stops at the node.
+ * @throws {Error} When there is no node.
+ */
+function railReach(container: HTMLElement): number {
+  const node = [...container.querySelectorAll('[data-testid="rail-node"]')].at(-1);
+  if (node === undefined) throw new Error("no node");
+  const box = node.getBoundingClientRect();
+  const centre = box.top + box.height / 2;
+  const ends = [...container.querySelectorAll('[class*="--rail"]')].map((line) => line.getBoundingClientRect().bottom);
+  return Math.max(0, Math.round(Math.max(...ends) - centre));
+}
+
 /** Where an element's first animation takes its height, from first frame to last. */
 function heightFrames(element: Element): unknown[] {
   const effect = element.getAnimations()[0]?.effect as KeyframeEffect | undefined;
@@ -152,9 +172,6 @@ describe("TurnView", () => {
     expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool", "tool", "steer"]);
     await expect.element(header).toHaveAttribute("aria-expanded", "true");
     await expect.element(header).toMatchTextContent(/^已完成，用时 2 分 13 秒$/);
-    await expect
-      .element(screen.getByTestId("process-finish"))
-      .toHaveTextContent("完成 改了 1 个文件 +1 −1 · 1 条命令没走通");
   });
 
   it("opens a step's detail on click: a command's output, an edit's diff", async () => {
@@ -350,13 +367,15 @@ describe("TurnView", () => {
     expect(footer.getByRole("button").all()).toHaveLength(1);
   });
 
-  it("draws the process on a rail: a failed command branches off, a steer joins, and it ends in 完成", async () => {
+  it("draws the process on a rail: a failed command branches off, a steer joins, and it ends at the last step", async () => {
     const { screen } = await show(
       turn([thinking, command, edit, steer, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
       "detailed",
     );
 
-    expect(railNodes(screen.container)).toStrictEqual(["dot", "dead", "dot", "steer", "done"]);
+    expect(railNodes(screen.container)).toStrictEqual(["dot", "dead", "dot", "steer"]);
+    expect(railReach(screen.container)).toBe(0);
+    await expect.element(screen.getByText("完成", { exact: true })).not.toBeInTheDocument();
     await expect.element(screen.getByRole("button", { name: /^编辑了 TS a\.ts \+1 −1$/ })).toBeVisible();
     expect(screen.getByTestId("file-chip").element().getAttribute("title")).toBe("src/a.ts");
     await expect.element(screen.getByRole("button", { name: /^你插话 · 顺便加个测试$/ })).toBeVisible();
@@ -369,7 +388,7 @@ describe("TurnView", () => {
     );
     const header = screen.getByTestId("process-header").element();
     const title = screen.getByText(/^已完成/).element();
-    const rows = [...screen.container.querySelectorAll('[data-testid="step"], [data-testid="process-finish"]')];
+    const rows = [...screen.container.querySelectorAll('[data-testid="step"]')];
 
     expect({
       header: textStart(title, header.getBoundingClientRect().left),
@@ -377,20 +396,22 @@ describe("TurnView", () => {
       nodes: rows.map(nodeCenter),
     }).toStrictEqual({
       header: 30,
-      rows: [30, 30, 30, 30, 30],
-      nodes: [10.5, 19.5, 10.5, 19.5, 10.5],
+      rows: [30, 30, 30, 30],
+      nodes: [10.5, 19.5, 10.5, 19.5],
     });
   });
 
-  it("ends a stopped turn's rail in 已停止 and a failed one's in 出错了", async () => {
-    const stopped = await show(turn([command], { outcome: "stopped" }), "detailed");
-    await expect.element(stopped.screen.getByTestId("process-finish")).toHaveTextContent("已停止 1 条命令没走通");
-    expect(railNodes(stopped.screen.container).at(-1)).toBe("stopped");
+  it("says a stopped or failed turn in its header alone, the rail ending at the last step", async () => {
+    const stopped = await show(turn([thinking, command], { outcome: "stopped" }), "detailed");
+    await expect.element(stopped.screen.getByTestId("process-header")).toMatchTextContent(/^已停止，用时 2 分 13 秒$/);
+    expect(railNodes(stopped.screen.container)).toStrictEqual(["dot", "dead"]);
+    expect(railReach(stopped.screen.container)).toBe(0);
     await stopped.screen.unmount();
 
-    const failed = await show(turn([edit], { outcome: "failed" }), "detailed");
-    await expect.element(failed.screen.getByTestId("process-finish")).toMatchTextContent(/^出错了$/);
-    expect(railNodes(failed.screen.container).at(-1)).toBe("failed");
+    const failed = await show(turn([thinking, edit], { outcome: "failed" }), "detailed");
+    await expect.element(failed.screen.getByTestId("process-header")).toMatchTextContent(/^出错了，用时 2 分 13 秒$/);
+    expect(railNodes(failed.screen.container)).toStrictEqual(["dot", "dot"]);
+    expect(railReach(failed.screen.container)).toBe(0);
   });
 
   it("shows looking around as one row, the files read as chips, five at most", async () => {
@@ -443,7 +464,7 @@ describe("TurnView", () => {
 
     const header = screen.getByTestId("process-header");
     await expect.element(header).toHaveAttribute("aria-expanded", "true");
-    await expect.element(screen.getByTestId("process-finish")).toBeVisible();
+    expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool"]);
     expect([...timers.keys()]).toStrictEqual([1000]);
 
     timers.get(1000)?.();

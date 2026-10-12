@@ -1,5 +1,5 @@
 import type { Step } from "@atrium/protocol";
-import { Check, MagnifyingGlass, Stop, X } from "../design/icons";
+import { Check, MagnifyingGlass, X } from "../design/icons";
 import { type ReactNode, createContext, useContext, useEffect, useId, useState } from "react";
 import { type DisplayMode, useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
@@ -14,7 +14,7 @@ import {
 import { useRevealedText } from "./use-revealed-text";
 
 /** What stands on the rail for a row (design-language, "消息流 · 过程"). */
-export type RailNode = "dot" | "search" | "live" | "dead" | "steer" | "done" | "stopped" | "failed";
+type RailNode = "dot" | "search" | "live" | "dead" | "steer";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
@@ -23,9 +23,6 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
   dead: 7,
   steer: 7,
   search: 11,
-  done: 12,
-  stopped: 12,
-  failed: 12,
 };
 
 /**
@@ -33,8 +30,7 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
  *
  * @remarks
  * Each state has its own shape, not only its own colour (design-language, "原则" 3): a grey dot
- * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer,
- * a filled blue tick for the finish.
+ * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer.
  *
  * @sideEffects none
  * @param props - The node.
@@ -46,18 +42,6 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
   if (node === "steer") {
     return <span className="size-2 rounded-full bg-[var(--main)] shadow-[inset_0_0_0_1.5px_var(--tint)]" />;
   }
-  if (node === "done" || node === "failed") {
-    return (
-      <span
-        className={`grid size-4 place-items-center rounded-full text-[var(--main)] ${
-          node === "done" ? "bg-[var(--tint)]" : "bg-[var(--danger)]"
-        }`}
-      >
-        {node === "done" ? <Check size={11} weight="bold" /> : <X size={9} weight="bold" />}
-      </span>
-    );
-  }
-  if (node === "stopped") return <Stop size={15} className="text-[var(--attn-text)]" />;
   if (node === "live") {
     return (
       <>
@@ -97,7 +81,7 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
  * @param props - The node, and whether the row is the rail's first or last.
  * @returns The marks, absolutely placed in the row's left 30px.
  */
-export function RailMarks({
+function RailMarks({
   node,
   first,
   last,

@@ -358,31 +358,6 @@ export function exploredFiles(steps: readonly ToolStep[]): string[] {
 }
 
 /**
- * What a finished turn's process came to, after "完成": "改了 3 个文件 +36 −6 · 1 条命令没走通".
- *
- * @remarks
- * Only what happened is named (SPEC-0001, "过程的呈现"). The line counts add up the files that
- * have them; a `write` has none.
- *
- * @sideEffects none
- * @param turn - The turn.
- * @returns The parts; none when nothing was changed and no command failed.
- */
-export function finishParts(turn: Turn): string[] {
-  const parts: string[] = [];
-  if (turn.changes.length > 0) {
-    const counted = turn.changes.filter((change) => change.added !== null);
-    const added = counted.reduce((sum, change) => sum + (change.added ?? 0), 0);
-    const removed = counted.reduce((sum, change) => sum + (change.removed ?? 0), 0);
-    const counts = counted.length === 0 ? "" : ` +${added} −${removed}`;
-    parts.push(`改了 ${turn.changes.length} 个文件${counts}`);
-  }
-  const failed = countProcess(turn.steps).failedCommands;
-  if (failed > 0) parts.push(`${failed} 条命令没走通`);
-  return parts;
-}
-
-/**
  * A tool's arguments on one line.
  *
  * @remarks

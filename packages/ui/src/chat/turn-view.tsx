@@ -17,12 +17,11 @@ import { Fold } from "./fold";
 import { Markdown } from "./markdown";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
 import { RunStatus } from "./run-status";
-import { DiffBlock, ProcessRowView, type RailNode, RailMarks, StreamedText, useWholeStep } from "./steps";
+import { DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
 import {
   type ProcessRow,
   countProcess,
   describeStep,
-  finishParts,
   formatDuration,
   formatTokens,
   hostNoticeText,
@@ -129,52 +128,6 @@ function ProcessHeader({
         </span>
       )}
     </button>
-  );
-}
-
-/** The finish row's word, by how the turn came out. */
-const FINISH_TEXT: Readonly<Record<Exclude<Turn["outcome"], "running">, string>> = {
-  done: "完成",
-  stopped: "已停止",
-  failed: "出错了",
-};
-
-/** The finish row's node, by how the turn came out. */
-const FINISH_NODE: Readonly<Record<Exclude<Turn["outcome"], "running">, RailNode>> = {
-  done: "done",
-  stopped: "stopped",
-  failed: "failed",
-};
-
-/**
- * The rail's last row once the turn is over: "✓ 完成 · 改了 3 个文件 +36 −6".
- *
- * @remarks
- * The rail ends in how the turn came out, then what it came to, naming only what happened
- * (SPEC-0001, "过程的呈现").
- *
- * @sideEffects none
- * @param props - The finished turn, and whether it finished in view.
- * @returns The row, or nothing while the turn runs.
- */
-function FinishRow({ turn, enter }: { readonly turn: Turn; readonly enter: boolean }) {
-  if (turn.outcome === "running") return null;
-  const parts = finishParts(turn);
-  return (
-    <div
-      className={`relative min-w-0 pl-[30px] ${enter ? "atrium-step-enter" : ""}`}
-      data-testid="process-finish"
-      data-rail-row
-    >
-      <RailMarks node={FINISH_NODE[turn.outcome]} first={false} last />
-      <div className="atrium-step-line flex min-h-[30px] min-w-0 items-center gap-1.5 text-[length:var(--fs-meta)]">
-        <span className="flex-none font-medium text-[var(--text)]">{FINISH_TEXT[turn.outcome]}</span>
-        {parts.length === 0 ? null : " "}
-        {parts.length === 0 ? null : (
-          <span className="min-w-0 truncate text-[var(--text-dim)] tabular-nums">{parts.join(" · ")}</span>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -450,7 +403,6 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
   const running = turn.outcome === "running";
   const [shownKeys] = useState(() => new Set(process.map(rowKey)));
-  const [shownRunning] = useState(running);
   const [wasRunning, setWasRunning] = useState(running);
   const [lingering, setLingering] = useState(false);
   if (running !== wasRunning) {
@@ -542,12 +494,11 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
                 isLive={isLive}
                 place={{
                   first: index === 0,
-                  last: running && index === process.length - 1,
+                  last: index === process.length - 1,
                   enter: !shownKeys.has(rowKey(row)),
                 }}
               />
             ))}
-            <FinishRow turn={turn} enter={shownRunning} />
             <div className="h-2" />
           </Fold>
         </>

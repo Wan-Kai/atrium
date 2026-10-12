@@ -6,7 +6,6 @@ import {
   describeExplore,
   describeStep,
   exploredFiles,
-  finishParts,
   formatDuration,
   formatTokens,
   hostNoticeText,
@@ -316,28 +315,6 @@ describe("exploredFiles", () => {
       "b.ts",
       "a.ts",
     ]);
-  });
-});
-
-describe("finishParts", () => {
-  it("names what the turn changed and the commands that failed, only those that happened", () => {
-    const failed = tool("0", "bash", "failed", { tool: "bash", command: "x" });
-
-    expect(
-      finishParts(
-        turn([failed, failed], {
-          changes: [
-            { path: "a.ts", added: 30, removed: 4 },
-            { path: "b.ts", added: 6, removed: 2 },
-            { path: "c.ts", added: null, removed: null },
-          ],
-        }),
-      ),
-    ).toStrictEqual(["改了 3 个文件 +36 −6", "2 条命令没走通"]);
-    expect(finishParts(turn([], { changes: [{ path: "c.ts", added: null, removed: null }] }))).toStrictEqual([
-      "改了 1 个文件",
-    ]);
-    expect(finishParts(turn([tool("0", "bash", "done", { tool: "bash", command: "x" })]))).toStrictEqual([]);
   });
 });
 
