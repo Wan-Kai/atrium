@@ -25,6 +25,12 @@
   --selected: rgba(0, 0, 0, 0.06);
   --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.16);
   --linked: rgba(47, 111, 237, 0.1);
+  --rail: rgba(0, 0, 0, 0.15);
+  --branch: rgba(0, 0, 0, 0.26);
+  --node: #c4c4c9;
+  --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --file-ts: #3178c6;
+  --file-tsx: #1c9bbd;
   --scrim: rgba(30, 38, 56, 0.3);
   --nav-bg: rgba(0, 0, 0, 0.022);
   --term: #17181b;
@@ -108,6 +114,12 @@
   --selected: rgba(255, 255, 255, 0.08);
   --focus-ring: 0 0 0 3px rgba(122, 170, 255, 0.22);
   --linked: rgba(122, 170, 255, 0.14);
+  --rail: rgba(255, 255, 255, 0.15);
+  --branch: rgba(255, 255, 255, 0.28);
+  --node: #5d6067;
+  --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --file-ts: #5a9ae6;
+  --file-tsx: #3fb9d9;
   --scrim: rgba(6, 8, 12, 0.42);
   --nav-bg: rgba(255, 255, 255, 0.025);
   --term: #0c0c0e;

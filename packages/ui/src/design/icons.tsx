@@ -14,7 +14,6 @@ import {
   ArrowUp02Icon,
   ArrowUpRight01Icon,
   AtIcon,
-  BrainIcon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Clock02Icon,
@@ -29,7 +28,6 @@ import {
   Download04Icon,
   File01Icon,
   File02Icon,
-  FilePlusIcon,
   FlashIcon,
   FolderAddIcon,
   Folder01Icon,
@@ -43,7 +41,6 @@ import {
   InformationCircleIcon,
   Key01Icon,
   Loading03Icon,
-  Message01Icon,
   MinusSignSquareIcon,
   Moon02Icon,
   MoreHorizontalIcon,
@@ -60,7 +57,6 @@ import {
   Tick02Icon,
   UserIcon,
   ViewIcon,
-  Wrench01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { SVGProps } from "react";
@@ -148,11 +144,9 @@ export const ArrowsOutSimple = drawn(ArrowExpandIcon);
 export const ArrowUp = drawn(ArrowUp02Icon, 2.5);
 export const ArrowUpRight = drawn(ArrowUpRight01Icon);
 export const At = drawn(AtIcon);
-export const Brain = drawn(BrainIcon);
 export const CaretDown = drawn(ArrowDown01Icon);
 export const CaretRight = drawn(ArrowRight01Icon);
 export const CaretUp = drawn(ArrowUp01Icon);
-export const ChatText = drawn(Message01Icon);
 export const Check = drawn(Tick02Icon);
 export const CheckCircle = drawn(CheckmarkCircle02Icon);
 export const CircleNotch = drawn(Loading03Icon);
@@ -165,7 +159,6 @@ export const DotsThree = drawn(MoreHorizontalIcon, 2.5);
 export const DownloadSimple = drawn(Download04Icon);
 export const Eye = drawn(ViewIcon);
 export const File = drawn(File01Icon);
-export const FilePlus = drawn(FilePlusIcon);
 export const FileText = drawn(File02Icon);
 export const Folder = drawn(Folder01Icon);
 export const FolderOpen = drawn(FolderOpenIcon);
@@ -199,5 +192,4 @@ export const TextAlignLeft = drawn(TextAlignLeftIcon);
 export const User = drawn(UserIcon);
 export const Warning = drawn(Alert02Icon);
 export const WarningCircle = drawn(AlertCircleIcon);
-export const Wrench = drawn(Wrench01Icon);
 export const X = drawn(Cancel01Icon);
