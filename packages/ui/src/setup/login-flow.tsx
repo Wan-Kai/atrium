@@ -6,7 +6,7 @@ import type {
   LoginUpdatedEvent,
   SetupProvider,
 } from "@atrium/protocol";
-import { CaretRight, Check, Copy, MetaLogo } from "@phosphor-icons/react";
+import { CaretRight, Check, Copy, MetaLogo } from "../design/icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { BUTTON, BrandTile, FIELD, GHOST_BUTTON, LINK_BUTTON, PRIMARY_BUTTON, Row, Spinner } from "../settings/parts";

@@ -1,6 +1,6 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import type { Project } from "@atrium/protocol";
-import { CaretDown, Folder } from "@phosphor-icons/react";
+import { CaretDown, Folder } from "../design/icons";
 import { useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";

@@ -9,6 +9,20 @@ async function rendered(text: string): Promise<HTMLElement> {
   return screen.container;
 }
 
+/**
+ * How far apart the first two paragraphs are, in pixels.
+ *
+ * @sideEffects none
+ * @param root - What the Markdown is rendered in.
+ * @returns The space between the first's bottom and the second's top.
+ * @throws {Error} When there are not two paragraphs.
+ */
+function paragraphGap(root: HTMLElement): number {
+  const [first, second] = root.querySelectorAll("p");
+  if (first === undefined || second === undefined) throw new Error("not two paragraphs");
+  return second.getBoundingClientRect().top - first.getBoundingClientRect().bottom;
+}
+
 describe("Markdown", () => {
   it("renders GFM: tables, nested and task lists, strikethrough", async () => {
     const root = await rendered(
@@ -19,6 +33,55 @@ describe("Markdown", () => {
     expect(root.querySelector("li li")?.textContent).toBe("二");
     expect(root.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
     expect(root.querySelector("del")?.textContent).toBe("删掉");
+  });
+
+  it("hangs a small dot close before a bullet's text, wraps under the text, leaves numbers be, and gives a task its checkbox alone", async () => {
+    const screen = await render(
+      <div style={{ width: 240 }}>
+        <Markdown
+          text={"- 很长的一项，很长的一项，很长的一项，很长的一项，很长的一项\n\n1. 第一\n\n- [ ] 待办"}
+          streaming={false}
+        />
+      </div>,
+    );
+    const items = screen.getByRole("listitem");
+    const bullet = items.nth(0).element();
+    const numbered = items.nth(1).element();
+    const task = items.nth(2).element();
+    const words = document.createRange();
+    words.selectNodeContents(bullet);
+    const left = bullet.getBoundingClientRect().left;
+    const dot = getComputedStyle(bullet, "::before");
+
+    expect({
+      lines: [...new Set([...words.getClientRects()].map((line) => line.left - left))],
+      wrapped: words.getClientRects().length > 1,
+      marker: getComputedStyle(bullet).listStyleType,
+      dot: [dot.content, dot.left, dot.width, dot.height, dot.borderRadius],
+      numbered: [getComputedStyle(numbered).listStyleType, getComputedStyle(numbered, "::before").content],
+      task: [getComputedStyle(task).listStyleType, getComputedStyle(task, "::before").content],
+    }).toStrictEqual({
+      lines: [18.125],
+      wrapped: true,
+      marker: "none",
+      dot: ['""', "6.525px", "5px", "5px", "50%"],
+      numbered: ["decimal", "none"],
+      task: ["none", "none"],
+    });
+  });
+
+  it("sets a reply close: 1.55 lines, 12px between blocks, 2px around list items, the dot on the first line's middle", async () => {
+    const screen = await render(<Markdown text={"一段话\n\n另一段话\n\n- 一项\n- 两项"} streaming={false} />);
+    const item = screen.getByRole("listitem").first().element();
+    const dot = getComputedStyle(item, "::before");
+    const line = parseFloat(getComputedStyle(item).paddingTop) + parseFloat(getComputedStyle(item).lineHeight) / 2;
+
+    expect({
+      lineHeight: getComputedStyle(item).lineHeight,
+      gap: paragraphGap(screen.container),
+      item: [getComputedStyle(item).paddingTop, getComputedStyle(item).paddingBottom],
+      dotOffLine: Math.abs(parseFloat(dot.top) - line),
+    }).toStrictEqual({ lineHeight: "22.475px", gap: 12, item: ["2px", "2px"], dotOffLine: 0 });
   });
 
   it("makes bold work right next to Chinese punctuation", async () => {

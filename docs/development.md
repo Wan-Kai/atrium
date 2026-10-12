@@ -44,7 +44,9 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 |---|---|
 | `pnpm dev` | 构建宿主和 Electron 主进程，启动 Vite（界面热更新，端口 5791，可用 `ATRIUM_DEV_PORT` 改）和 Electron。数据写在真实的 `~/.atrium`。改了宿主或主进程后重启它 |
 | `pnpm build` | 构建宿主（单文件 `packages/host/dist/entry.cjs`）、界面、Electron 主进程和预加载脚本 |
+| `pnpm package` | 构建后打包成本机用的 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`（只做 ad-hoc 签名，不公证；[overview.md · 桌面端怎么启动宿主](architecture/overview.md#桌面端怎么启动宿主)）。拷进"应用程序"后从程序坞或 Spotlight 打开；数据同样在 `~/.atrium`，和 `pnpm dev` 不能同时开。改了代码要重新打包 |
 | `node packages/host/dist/entry.cjs` | 不经 Electron 单独运行宿主；第一行输出地址和 token（只打到终端，不进日志） |
+| `pnpm usage [日志目录]` | 按宿主的每次运行汇总日志里每分钟的资源计数和内存（宿主和 Electron 各进程），列出每小时的数值，第一个小时和最后一个小时的最低值对比，持续上涨的标 `↑`（[testing.md · 运行时监控](architecture/testing.md#运行时监控)）；默认读 `~/.atrium/logs` |
 | `pnpm trace <trace id> [日志目录]` | 按 trace id 打印一条链路的 span 树和日志；默认读 `~/.atrium/logs` |
 | `pnpm fixtures:record` | 用本机 pi 重录全部 pi 夹具，删掉其他版本的夹具目录；提交前审查 diff（testing.md"pi 夹具"） |
 | `pnpm pi:try "<提示词>"` | 用宿主的组件直接驱动真实 pi：读登录 shell 环境、找 pi、发一条提示词，在终端里流式打出回复，结束时给出 trace id（日志在 `~/.atrium/dev-logs`）。`--cwd <目录>` 指定工作目录，`--keep-session` 保留会话文件，`--inherit-env` 跳过登录 shell，`--` 之后的参数原样交给 pi。会真的调用模型 |

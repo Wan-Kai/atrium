@@ -53,7 +53,7 @@ async function versionServer(
  * @returns The version.
  */
 function lookUp(url: string, signal = new AbortController().signal): Promise<string> {
-  return fetchLatestPi(url, { signal, clock: systemClock, timeoutMs: 500 });
+  return fetchLatestPi(url, { fetch, signal, clock: systemClock, timeoutMs: 500 });
 }
 
 describe("fetchLatestPi", () => {
@@ -64,6 +64,23 @@ describe("fetchLatestPi", () => {
 
     expect(await lookUp(url)).toBe("1.12.10");
     expect(headers[0]?.accept).toBe("application/json");
+  });
+
+  it("asks with the fetch it is given, as through a proxy", async () => {
+    const { url } = await versionServer((response) => response.end(JSON.stringify({ version: "1.0.0" })));
+    const asked: string[] = [];
+
+    const version = await fetchLatestPi("https://pi.test/api/latest-version", {
+      fetch: (address, init) => {
+        asked.push(String(address));
+        return fetch(url, init);
+      },
+      signal: new AbortController().signal,
+      clock: systemClock,
+    });
+
+    expect(version).toBe("1.0.0");
+    expect(asked).toStrictEqual(["https://pi.test/api/latest-version"]);
   });
 
   it.each([

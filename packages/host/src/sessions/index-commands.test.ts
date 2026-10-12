@@ -9,7 +9,8 @@ import { PONG_ENTRIES } from "../../test/scripted-chat";
 import { systemClock } from "../platform/clock";
 import { createProjectService } from "../projects/project-service";
 import { loadIndexFile } from "../store/index-file";
-import { LAYOUTS_FILE, PREFERENCES_FILE, PROJECTS_FILE, SESSIONS_FILE } from "../store/index-schema";
+import { createChatNames } from "../store/chat-names";
+import { CHATS_FILE, layoutsFile, PREFERENCES_FILE, PROJECTS_FILE, SESSIONS_FILE } from "../store/index-schema";
 import { createPreferenceStore } from "../store/preferences";
 import { createIndexFeed } from "../sync/index-feed";
 import { SubscriptionRegistry } from "../sync/subscriptions";
@@ -58,14 +59,22 @@ async function assemble() {
   const subscriptions = new SubscriptionRegistry(recording.resources);
   const received: SessionEvent[] = [];
   subscriptions.connect("c1", (event) => received.push(event as SessionEvent), "client-1");
-  const layouts = createLayouts({ file: (await loadIndexFile(index, LAYOUTS_FILE, 0)).file, clock: systemClock });
+  const layouts = createLayouts({
+    file: (await loadIndexFile(index, layoutsFile({ sessions: [] }), 0)).file,
+    clock: systemClock,
+  });
   const preferences = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+  const chatNames = createChatNames((await loadIndexFile(index, CHATS_FILE, 0)).file);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: "h1",
     build: () => ({
       projects: [],
       workspaces: [],
+      // As the host builds them.
+      chats: catalog
+        .chats()
+        .map(({ id, dir, firstSessionId }) => ({ id, dir, alias: chatNames.alias(id), firstSessionId })),
       sessions: [],
       preferences: preferences.read(),
       resets: [],
@@ -77,9 +86,10 @@ async function assemble() {
   onTestFinished(() => feed.close());
   const sessionChanges = { count: 0 };
   const focused = { count: 0 };
-  const listed: [string, boolean][] = [];
+  const listed: [string | null, boolean][] = [];
   const discovered: (readonly string[])[] = [];
   const refreshed: string[] = [];
+  const archiving: string[] = [];
   const sessions = createSessionManager({
     chatsRoot: join(root, "chats"),
     tools: async () => ({
@@ -99,6 +109,7 @@ async function assemble() {
     tracer: recording.tracer,
     logger: recording.logger,
     newId: () => `id${(next += 1)}`,
+    newSessionId: () => "pi-session-1",
   });
   onTestFinished(() => sessions.close());
   const commands = createIndexCommands({
@@ -108,10 +119,16 @@ async function assemble() {
       refresh: (workspaceId) => refreshed.push(workspaceId),
     },
     sessions,
+    archiver: {
+      archive: async (workspaceId) => void archiving.push(`archive ${workspaceId}`),
+      restore: async (workspaceId) => void archiving.push(`restore ${workspaceId}`),
+    },
     preferences,
+    chats: () => catalog.chats(),
+    chatNames,
     feed,
-    listModels: async (containerId, refresh) => {
-      listed.push([containerId, refresh]);
+    listModels: async (workspaceId, refresh) => {
+      listed.push([workspaceId, refresh]);
       return { models: [], defaultModel: null };
     },
     discover: async (taken) => {
@@ -123,7 +140,9 @@ async function assemble() {
     commands,
     projects,
     sessions,
+    chatNames,
     layouts,
+    preferences,
     received,
     root,
     sessionChanges,
@@ -131,6 +150,7 @@ async function assemble() {
     focused,
     discovered,
     refreshed,
+    archiving,
   };
 }
 
@@ -185,12 +205,63 @@ describe("IndexCommands.renameProject", () => {
   });
 });
 
+describe("IndexCommands.renameWorkspace", () => {
+  it("names the workspace, and with null forgets its name", async () => {
+    const { commands, projects, root } = await assemble();
+    const dir = join(root, "app");
+    await mkdir(dir);
+    await commands.addProject(dir);
+    const workspaceId = present(projects.workspaces()[0], "the local workspace").id;
+
+    await expect(commands.renameWorkspace(workspaceId, "主干")).resolves.toStrictEqual({});
+    const named = projects.workspaces().map((workspace) => workspace.alias);
+    await commands.renameWorkspace(workspaceId, null);
+
+    expect([named, projects.workspaces().map((workspace) => workspace.alias)]).toStrictEqual([["主干"], [null]]);
+  });
+});
+
 describe("IndexCommands.listModels", () => {
-  it("hands the container and whether to ask pi again to the model lister", async () => {
+  it("hands the workspace, or none, and whether to ask pi again to the model lister", async () => {
     const { commands, listed } = await assemble();
 
-    expect(await commands.listModels("chats", true)).toStrictEqual({ models: [], defaultModel: null });
-    expect(listed).toStrictEqual([["chats", true]]);
+    expect(await commands.listModels(null, true)).toStrictEqual({ models: [], defaultModel: null });
+    expect(await commands.listModels("wks_0000000000000001", false)).toStrictEqual({ models: [], defaultModel: null });
+    expect(listed).toStrictEqual([
+      [null, true],
+      ["wks_0000000000000001", false],
+    ]);
+  });
+});
+
+describe("IndexCommands.renameChat", () => {
+  it("names a chat there is, and with null forgets its name, telling the list", async () => {
+    const { commands, sessions, chatNames, received } = await assemble();
+    await sessions.createChat("client-1");
+    const chatId = "cht_id1";
+    await commands.subscribeIndex("c1");
+
+    await expect(commands.renameChat(chatId, "合并原理")).resolves.toStrictEqual({});
+    commands.answering("c1");
+    expect(chatNames.alias(chatId)).toBe("合并原理");
+    expect(received.at(-1)).toMatchObject({
+      type: "index_changes",
+      chats: { upsert: [{ id: chatId, alias: "合并原理" }], remove: [] },
+    });
+
+    await commands.renameChat(chatId, null);
+    expect(chatNames.alias(chatId)).toBeNull();
+  });
+
+  it("refuses a chat whose directory is not there, naming nothing", async () => {
+    const { commands, sessions, chatNames } = await assemble();
+    // Another chat is there.
+    await sessions.createChat("client-1");
+
+    await expect(commands.renameChat("cht_gone", "名字")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_gone" }),
+    );
+    expect(chatNames.alias("cht_gone")).toBeNull();
   });
 });
 
@@ -236,12 +307,55 @@ describe("IndexCommands.setMainBranch", () => {
   });
 });
 
+describe("IndexCommands.archiveWorkspace", () => {
+  it("hands archiving and restoring a workspace to the archiver", async () => {
+    const { commands, archiving } = await assemble();
+
+    expect([await commands.archiveWorkspace("wks_1"), await commands.restoreWorkspace("wks_2")]).toStrictEqual([
+      {},
+      {},
+    ]);
+    expect(archiving).toStrictEqual(["archive wks_1", "restore wks_2"]);
+  });
+});
+
 describe("IndexCommands.windowFocused", () => {
   it("tells the workspaces the window was focused", async () => {
     const { commands, focused } = await assemble();
 
     expect(await commands.windowFocused()).toStrictEqual({});
     expect(focused.count).toBe(1);
+  });
+});
+
+describe("IndexCommands.setPreferences", () => {
+  it("keeps a proxy with its address in one form, and clears it", async () => {
+    const { commands, preferences } = await assemble();
+
+    expect(
+      await commands.setPreferences({ appearance: "dark", proxy: { url: "HTTP://127.0.0.1:7897/", noProxy: ["a.b"] } }),
+    ).toStrictEqual({});
+    expect(preferences.read()).toMatchObject({
+      appearance: "dark",
+      proxy: { url: "http://127.0.0.1:7897", noProxy: ["a.b"] },
+    });
+
+    await commands.setPreferences({ proxy: null });
+
+    expect(preferences.read()).toMatchObject({ appearance: "dark", proxy: null });
+  });
+
+  it("refuses a proxy it would not hand on, changing nothing", async () => {
+    const { commands, preferences, received } = await assemble();
+    await commands.subscribeIndex("c1");
+
+    await expect(
+      commands.setPreferences({ appearance: "dark", proxy: { url: "socks5://127.0.0.1:7897", noProxy: [] } }),
+    ).rejects.toMatchObject({ code: "proxy_invalid", params: { reason: "scheme" } });
+    commands.answering("c1");
+
+    expect(preferences.read()).toMatchObject({ appearance: "system", proxy: null });
+    expect(received).toHaveLength(1);
   });
 });
 

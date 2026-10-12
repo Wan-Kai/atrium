@@ -34,7 +34,7 @@ export interface IndexFeed {
 }
 
 /** The collections the list holds, each item named by its id. */
-const COLLECTIONS = ["projects", "workspaces", "sessions"] as const;
+const COLLECTIONS = ["projects", "workspaces", "chats", "sessions"] as const;
 type CollectionName = (typeof COLLECTIONS)[number];
 type Item<C extends CollectionName> = IndexContent[C][number];
 
@@ -103,6 +103,7 @@ export function createIndexFeed(options: {
   const known: Record<CollectionName, Map<string, Known>> = {
     projects: new Map(),
     workspaces: new Map(),
+    chats: new Map(),
     sessions: new Map(),
   };
   // Stryker disable next-line ObjectLiteral,StringLiteral: no JSON of the preferences is empty, so the first build always records them.
@@ -190,7 +191,12 @@ export function createIndexFeed(options: {
       return { upsert, remove };
     };
     // Stryker disable next-line ObjectLiteral: each collection is checked by the tests' whole events.
-    const changes = { projects: of("projects"), workspaces: of("workspaces"), sessions: of("sessions") };
+    const changes = {
+      projects: of("projects"),
+      workspaces: of("workspaces"),
+      chats: of("chats"),
+      sessions: of("sessions"),
+    };
     return { changes, size };
   }
 

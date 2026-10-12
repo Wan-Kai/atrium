@@ -40,6 +40,8 @@ export interface ScenarioContext {
    * reply starts streaming; anything sent then lands at a fixed place in the fixture.
    */
   readonly heldAfterUserMessage: (count: number) => Promise<void>;
+  /** The bodies of the requests pi made so far, as its extensions left them. */
+  readonly payloads: () => Promise<unknown[]>;
 }
 
 /**
@@ -101,8 +103,8 @@ async function sessionLines(sessionsDir: string): Promise<JsonObject[]> {
  * apart from machine-specific parts, so a pi upgrade cannot slip past unreviewed.
  *
  * @sideEffects Creates and deletes a temporary directory; runs pi; reads or writes the fixture file.
- * @param options - Scenario name, faux script, whether to keep a session file, pi settings, and
- * files to put in place first.
+ * @param options - Scenario name, faux script, whether to keep a session file, pi settings,
+ * files to put in place first, Atrium's own extensions for pi to load, and more environment.
  * @param body - The scenario's steps and assertions.
  * @returns The recorded records.
  */
@@ -115,6 +117,9 @@ export async function runScenario(
     readonly settings?: object;
     /** Files to write before pi starts, by path relative to the working directory. */
     readonly files?: Readonly<Record<string, string>>;
+    readonly extensions?: readonly string[];
+    /** Variables added to pi's environment; the fixture has each value as `<NAME>`. */
+    readonly env?: Readonly<Record<string, string>>;
   },
   body: (context: ScenarioContext) => Promise<void>,
 ): Promise<FixtureRecord[]> {
@@ -142,6 +147,9 @@ export async function runScenario(
       [cwd]: "<cwd>",
       [dir.path]: "<cwd>",
       [dirname(extension)]: "<faux>",
+      ...Object.fromEntries((options.extensions ?? []).map((atrium) => [dirname(atrium), "<atrium>"])),
+      // Values given for this run, such as a local server's address, go by their variable's name.
+      ...Object.fromEntries(Object.entries(options.env ?? {}).map(([name, value]) => [value, `<${name}>`])),
       // The system prompt names pi's own install paths, which sit under the real home directory.
       [homedir()]: "<home>",
     });
@@ -155,7 +163,16 @@ export async function runScenario(
       normalize,
     );
     const pi = startPiProcess(
-      { piPath, args: [...sessionArgs, ...launch.args], cwd, env: launch.env },
+      {
+        piPath,
+        args: [
+          ...sessionArgs,
+          ...launch.args,
+          ...(options.extensions ?? []).flatMap((atrium) => ["--extension", atrium]),
+        ],
+        cwd,
+        env: { ...launch.env, ...options.env },
+      },
       // TMPDIR too, so pi's own temporary files land in the run's directory, which is cleaned up.
       contractDeps({ PATH: path, HOME: cwd, TMPDIR: tmpdir() }),
       { tap: recorder.tap },
@@ -169,6 +186,7 @@ export async function runScenario(
         cwd,
         sessionsDir,
         release: (name) => launch.release(name),
+        payloads: () => launch.payloads(),
         until: (predicate) =>
           vi.waitFor(() => present(events.find(predicate), "the expected event"), { timeout: 20_000, interval: 10 }),
         heldAfterUserMessage: async (count) => {

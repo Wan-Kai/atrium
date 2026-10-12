@@ -55,6 +55,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 - **结果确定**：faux 默认每片长度随机、`api` 和工具调用 id 带时间戳和随机数。固定 `api`、`tokenSize` 的 `min` 等于 `max`、工具调用传固定 `id` 后，同一脚本跑两次的输出，去掉时间戳字段后逐行相同。夹具录制时只需要规范化时间戳类字段。
 - 回复脚本放在文件里，路径由环境变量传给扩展；每个场景启动一个新的 pi 进程。
 - 自动生成标题的一次性 pi（`-p`）也加载这个扩展，但它不按回复脚本回答：脚本里写了 `title` 就回这个标题，没写就回一个错误，标题保持兜底（2026-10-10 定，M1.9）。这样每个 pi 进程各自从第一条回复开始的脚本不会被标题调用打乱，没关心标题的测试也不受影响。
+- 扩展要在模型的 `baseUrl` 旁边发请求时（Fast 查 Codex 模型列表，ADR-0008 第 6 条），环境变量 `FAUX_PI_BASE_URL` 把 faux 模型的 `baseUrl` 指到测试自己在 127.0.0.1 起的服务（testkit 的 `startModelListServer`）；不写进脚本，因为脚本进夹具头，端口每次不同。契约场景通过 `runScenario` 的 `env` 传入，夹具里这个值记作 `<FAUX_PI_BASE_URL>`。没设时 faux 的地址是 `http://localhost:0`，请求立即失败，不出本机（2026-10-12）。
 - 实现在 `packages/testkit/src/faux/`：`extension.ts` 是交给 pi 加载的扩展（为什么它能 import pi-ai，见 [架构总览 · 包之间的依赖](overview.md#包之间的依赖)），`fauxPi(script)` 写好脚本并返回启动参数和环境变量，三层测试用同一个入口。
 
 没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。
@@ -236,7 +237,7 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 ### 运行时监控
 
-测试覆盖不到真实使用。宿主每分钟把资源计数、堆、RSS 写进日志；Electron 主进程用 `app.getAppMetrics()` 记录各进程的内存和 CPU。M1.11 自用期间每天看一眼趋势，发现持续上涨就补一个能复现的泄漏测试。
+测试覆盖不到真实使用。宿主每分钟把资源计数、堆、RSS 写进日志；Electron 主进程每分钟把 `app.getAppMetrics()` 里各进程的内存和 CPU 交给宿主写进同一份日志（[observability.md](observability.md#和测试的关系)）。M1.11 自用期间每天用 `pnpm usage` 看一眼趋势：它按宿主的每次运行列出每小时的数值，并比较第一个小时和最后一个小时里的最低值。泄漏会抬高最低值，所以资源计数的最低值变高、或内存的最低值涨到 1.5 倍以上时标出 `↑`；运行不到两小时不比较（2026-10-11 定）。发现持续上涨就补一个能复现的泄漏测试再修。
 
 ## 命令
 
@@ -248,6 +249,7 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `pnpm test:host` | 第 4 层 |
 | `pnpm test:ui` | 第 5 层 |
 | `pnpm test:e2e` | 第 6 层 |
+| `pnpm test:package` | 打包后启动 Atrium.app 的冒烟测试（第 6 层里标 `@package` 的，`test:e2e` 不跑）；改了打包、主进程找文件的路径或应用目录的内容时跑 |
 | `pnpm test:real` | 第 7 层 |
 | `pnpm test:mutation` | 变异测试（默认增量、重测上次存活的，`--force` 全量；可只跑某几组），报告在 `reports/mutation/<组>.html` |
 | `pnpm test:leak` | 泄漏测试（宿主、client、界面） |

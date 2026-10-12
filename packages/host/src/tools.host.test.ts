@@ -50,6 +50,29 @@ describe("tool detection at startup", () => {
     expect(resolved).toMatchObject({ path: "/opt/[redacted]/bin" });
   });
 
+  it("logs where the proxy comes from, never its address", async () => {
+    testHost = await startTestHost({ toolEnv: { PATH: "", HTTPS_PROXY: "http://127.0.0.1:7897" } });
+    await testHost.host.tools;
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+    await client.setPreferences({ proxy: { url: "http://127.0.0.1:7890", noProxy: [] } });
+    await client.loadSetup(true);
+    await client.setPreferences({ proxy: null });
+    await client.loadSetup(true);
+    const quiet = await startTestHost({ toolEnv: { PATH: "" } });
+    onTestFinished(() => quiet.dispose());
+    await quiet.host.tools;
+
+    const log = await testHost.readLog();
+    const resolved = log.filter((record) => record["msg"] === "tool environment resolved");
+    const elsewhere = (await quiet.readLog()).filter((record) => record["msg"] === "tool environment resolved");
+
+    expect(resolved.map((record) => record["proxy"])).toStrictEqual(["shell", "setting", "shell"]);
+    expect(elsewhere.map((record) => record["proxy"])).toStrictEqual(["none"]);
+    expect(JSON.stringify(log)).not.toMatch(/127\.0\.0\.1:789[07]/u);
+  });
+
   it("keeps scrubbing the credentials of an earlier environment after detecting again", async () => {
     // Read anew on each detection, as the login shell is: the user changed the key meanwhile.
     const env: Record<string, string> = { PATH: "/opt/sk-old-0123456789/bin", OPENAI_API_KEY: "sk-old-0123456789" };

@@ -7,13 +7,13 @@ import {
   At,
   File,
   Folder,
-  Image as ImageIcon,
+  ImageIcon,
   Plus,
   Square,
   Terminal,
   TextAlignLeft,
   X,
-} from "@phosphor-icons/react";
+} from "../design/icons";
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -89,6 +89,8 @@ export interface ComposerProps {
   readonly autoFocus?: boolean;
   /** Compresses an image before it uploads; `compressImage` unless a test holds it back. */
   readonly compress?: (image: Blob) => Promise<CompressedImage>;
+  /** The user changed the text, the pasted texts or the files: the empty state creates its session. */
+  readonly onEdit?: () => void;
 }
 
 /**
@@ -127,8 +129,8 @@ const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
  * @remarks
  * SPEC-0001 ("输入框", "运行中输入", "模型与输入框"): a rounded 22 card with 14 px padding;
  * Enter while an input method is composing only picks a candidate. While a run goes on the
- * button is "停止" and Esc stops too; Enter queues and ⌘+Enter steers; while a stop waits for pi
- * nothing is sent and the text stays.
+ * button is "停止" and Esc stops too; Enter queues and ⌘+Enter steers, as the placeholder then
+ * says; while a stop waits for pi nothing is sent and the text stays.
  *
  * `/` at the start lists pi's commands, asked for each time the list opens; `@` lists files and
  * directories as you type, and the one chosen becomes a capsule above the text, Tab going into a
@@ -145,7 +147,8 @@ const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
  * @sideEffects Calls the handlers as the user acts; reads and writes the draft in storage; asks
  * for commands and files while their lists are open.
  * @param props - What to do with a message, a steer and a stop, the run's state, what floats
- * above, the model button, the draft's key, the history, and where commands and files come from.
+ * above, the model button, the draft's key, the history, where commands and files come from, and
+ * whom to tell of an edit.
  * @returns The input box.
  */
 export function Composer({
@@ -167,6 +170,7 @@ export function Composer({
   pathForFile,
   autoFocus = false,
   compress = compressImage,
+  onEdit,
 }: ComposerProps) {
   const drafts = pageDrafts();
   const { text, pastes, files, images } = useDraft(draftKey);
@@ -174,12 +178,16 @@ export function Composer({
    * Changes part of the draft.
    *
    * @remarks
-   * The draft is the page's, so every box showing it changes too.
+   * The draft is the page's, so every box showing it changes too. Only the user's own edits come
+   * here, so `onEdit` hears of each.
    *
-   * @sideEffects Updates the draft.
+   * @sideEffects Updates the draft; calls `onEdit`.
    * @param part - The parts to change.
    */
-  const change = (part: Partial<Draft>): void => drafts.update(draftKey, (draft) => ({ ...draft, ...part }));
+  const change = (part: Partial<Draft>): void => {
+    drafts.update(draftKey, (draft) => ({ ...draft, ...part }));
+    onEdit?.();
+  };
   /**
    * Puts new text in the draft.
    *
@@ -572,7 +580,7 @@ export function Composer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-[720px] px-6 pb-6">
+    <div className="mx-auto w-full max-w-[720px] px-6 pb-1">
       <div className="relative">
         {above}
         {listOpen ? (
@@ -691,7 +699,7 @@ export function Composer({
               ))}
             </div>
           ) : null}
-          <div className="relative">
+          <div className="relative px-1.5 pt-1.5">
             <textarea
               ref={box}
               aria-label="消息"
@@ -699,7 +707,13 @@ export function Composer({
               aria-activedescendant={listOpen && itemCount > 0 ? `${listId}-${highlighted}` : undefined}
               rows={1}
               value={text}
-              placeholder="发消息或描述任务，@ 引用文件，/ 使用命令"
+              placeholder={
+                running
+                  ? stopping
+                    ? "正在停止…"
+                    : "回车排队 · ⌘回车插话 · Esc 停止"
+                  : "发消息或描述任务，@ 引用文件，/ 使用命令"
+              }
               onChange={(event) => {
                 setText(event.target.value);
                 setCaret(event.target.selectionStart);
@@ -718,7 +732,7 @@ export function Composer({
               aria-label={expanded ? "收起输入框" : "展开输入框"}
               title={expanded ? "收起输入框" : "展开输入框"}
               onClick={() => setExpanded(!expanded)}
-              className="absolute top-0 right-0 rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+              className="absolute top-1.5 right-1.5 cursor-pointer rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
             >
               {expanded ? <ArrowsInSimple size={14} /> : <ArrowsOutSimple size={14} />}
             </button>
@@ -743,7 +757,7 @@ export function Composer({
                 aria-label="添加"
                 aria-expanded={plusOpen}
                 onClick={() => setPlusOpen(!plusOpen)}
-                className="flex size-8 items-center justify-center rounded-full text-[var(--text-muted)] shadow-[inset_0_0_0_1px_var(--line)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+                className="flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--text-muted)] shadow-[inset_0_0_0_1px_var(--line)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
               >
                 <Plus size={15} className={`transition-transform duration-200 ${plusOpen ? "rotate-45" : ""}`} />
               </button>
@@ -786,7 +800,7 @@ export function Composer({
                   aria-label={stopping ? "停止中" : "停止"}
                   disabled={stopping}
                   onClick={() => onStop?.()}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] disabled:opacity-50"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] enabled:cursor-pointer disabled:opacity-50"
                 >
                   <Square size={12} weight="fill" />
                 </button>
@@ -796,7 +810,7 @@ export function Composer({
                   aria-label="发送"
                   disabled={empty || stopping || uploading}
                   onClick={() => send(false)}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] enabled:cursor-pointer disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
                 >
                   <ArrowUp size={16} weight="bold" />
                 </button>
@@ -805,11 +819,6 @@ export function Composer({
           </div>
         </div>
       </div>
-      {running ? (
-        <p className="mt-1.5 text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-          {stopping ? "正在停止…" : "回车排队 · ⌘回车插话 · Esc 停止"}
-        </p>
-      ) : null}
     </div>
   );
 }

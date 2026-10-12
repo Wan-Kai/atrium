@@ -12,6 +12,10 @@ import {
 } from "./index-view";
 
 const A = "wks_000000000000000a";
+const C = "cht_c";
+
+/** A chat without a name. */
+const chat = (id: string) => ({ id, dir: `/home/chats/${id}`, alias: null, firstSessionId: null });
 
 /** A session of `containerId`. */
 const session = (sessionId: string, containerId: string) => ({
@@ -29,12 +33,12 @@ const session = (sessionId: string, containerId: string) => ({
   handedOff: false,
 });
 
-/** A view whose list has sessions s1–s3 in workspace A and c1 in the chats, with `tabs` open in A. */
+/** A view whose list has sessions s1–s3 in workspace A and c1 in chat C, with `tabs` open in A. */
 function viewWith(open: string[], active: string | null) {
   return {
     ...emptyIndex(),
     ready: true,
-    sessions: [session("s1", A), session("s2", A), session("s3", A), session("c1", "chats")],
+    sessions: [session("s1", A), session("s2", A), session("s3", A), session("c1", C)],
     layout: { container: A, tabs: { [A]: { open, active } } },
   };
 }
@@ -47,6 +51,7 @@ describe("emptyIndex", () => {
       seq: 0,
       projects: [],
       workspaces: [],
+      chats: [],
       sessions: [],
       layout: { container: null, tabs: {} },
       preferences: {
@@ -55,8 +60,10 @@ describe("emptyIndex", () => {
         displayMode: "summary",
         lastModel: null,
         thinkingByModel: {},
+        lastFast: false,
         statusBar: {},
         titleModel: null,
+        proxy: null,
       },
       resets: [],
     });
@@ -91,6 +98,7 @@ describe("applyIndexChanges", () => {
     seq: 5,
     projects: { upsert: [], remove: [] },
     workspaces: { upsert: [], remove: [] },
+    chats: { upsert: [], remove: [] },
     sessions: { upsert: [], remove: [] },
     layout: null,
     preferences: null,
@@ -110,11 +118,11 @@ describe("applyIndexChanges", () => {
       ...view,
       seq: 5,
       projects: [{ ...project, name: "renamed" }],
-      sessions: [{ ...session("s2", A), running: true }, session("s3", A), session("c1", "chats"), session("s4", A)],
+      sessions: [{ ...session("s2", A), running: true }, session("s3", A), session("c1", C), session("s4", A)],
     });
   });
 
-  it("tells projects and workspaces apart by their ids", () => {
+  it("tells projects, workspaces and chats apart by their ids", () => {
     const second = { id: "prj_0000000000000002", path: "/work/lib", name: "lib", mainBranch: "trunk" };
     /** A local workspace of the first project. */
     const workspace = (id: string, dir: string) => ({
@@ -128,23 +136,34 @@ describe("applyIndexChanges", () => {
       external: false,
       createdAt: null,
       merge: null,
+      archivedAt: null,
     });
     const [w1, w2, w3] = [
       workspace("wks_0000000000000001", "/work/app"),
       workspace("wks_0000000000000002", "/work/app-2"),
       workspace("wks_0000000000000003", "/work/app-3"),
     ];
-    const view = { ...viewWith([], null), generation: "h1", seq: 4, projects: [project, second], workspaces: [w1, w2] };
+    const [c1, c2, c3] = [chat("cht_1"), chat("cht_2"), chat("cht_3")];
+    const view = {
+      ...viewWith([], null),
+      generation: "h1",
+      seq: 4,
+      projects: [project, second],
+      workspaces: [w1, w2],
+      chats: [c1, c2],
+    };
 
     const next = applyIndexChanges(view, {
       ...nothing,
       projects: { upsert: [{ ...second, name: "renamed" }], remove: [] },
       workspaces: { upsert: [w3, { ...w2, alias: "two" }], remove: [w1.id] },
+      chats: { upsert: [c3, { ...c1, alias: "周报" }], remove: [c2.id] },
     });
 
-    expect([next.projects, next.workspaces]).toStrictEqual([
+    expect([next.projects, next.workspaces, next.chats]).toStrictEqual([
       [project, { ...second, name: "renamed" }],
       [{ ...w2, alias: "two" }, w3],
+      [{ ...c1, alias: "周报" }, c3],
     ]);
   });
 
@@ -189,8 +208,8 @@ describe("withTabOpen", () => {
       active: "s1",
     });
     expect(withTabOpen(viewWith(["s1"], "s1"), "c1").layout).toStrictEqual({
-      container: "chats",
-      tabs: { [A]: { open: ["s1"], active: "s1" }, chats: { open: ["c1"], active: "c1" } },
+      container: C,
+      tabs: { [A]: { open: ["s1"], active: "s1" }, [C]: { open: ["c1"], active: "c1" } },
     });
   });
 
@@ -235,8 +254,10 @@ describe("withContainer and withPreferences", () => {
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
+      proxy: null,
     });
   });
 

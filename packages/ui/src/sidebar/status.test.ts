@@ -16,7 +16,7 @@ import { INBOX_SHOWN, inboxOf, sessionStatus, topStatus } from "./status";
 function session(sessionId: string, fields: Partial<SessionSummary> = {}): SessionSummary {
   return {
     sessionId,
-    containerId: "chats",
+    containerId: "cht_a",
     name: null,
     prompt: sessionId,
     file: `/pi/${sessionId}.jsonl`,

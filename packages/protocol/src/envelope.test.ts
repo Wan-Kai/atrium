@@ -7,12 +7,14 @@ import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
 import type { Step, Turn } from "./transcript";
+import { isChatId } from "./ids";
 import { PROTOCOL_VERSION } from "./version";
 
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const traceId = "4bf92f3577b34da6a3ce929d0e0e4736";
 const PROJECT = "prj_0123456789abcdef";
 const WORKSPACE = "wks_0123456789abcdef";
+const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 
 /** One valid example of every command. */
 const commands: Command[] = [
@@ -32,6 +34,7 @@ const commands: Command[] = [
   { type: "report_client_issue", requestId: "r7", traceparent, kind: "slow_frames", message: "p95 40 ms" },
   { type: "fetch_transcript", requestId: "r8", traceparent, sessionId: "s1", epoch: 2, before: "s1:e7", limit: 100 },
   { type: "fetch_step", requestId: "r11", traceparent, sessionId: "s1", epoch: 1, turnId: "s1:e1", stepId: "12" },
+  { type: "fetch_image", requestId: "r11b", traceparent, sessionId: "s1", turnId: "s1:e1", index: 19 },
   { type: "open_session", requestId: "r10", traceparent, sessionId: "019a-session" },
   { type: "subscribe_index", requestId: "r12", traceparent },
   { type: "subscribe_index", requestId: "r12b", traceparent, cursor: { generation: "h1", seq: 7 } },
@@ -40,11 +43,16 @@ const commands: Command[] = [
   { type: "rename_project", requestId: "r15", traceparent, projectId: PROJECT, name: "app" },
   { type: "rename_workspace", requestId: "r16", traceparent, workspaceId: WORKSPACE, name: "侧栏" },
   { type: "rename_workspace", requestId: "r17", traceparent, workspaceId: WORKSPACE, name: null },
+  { type: "archive_workspace", requestId: "r17a", traceparent, workspaceId: WORKSPACE },
+  { type: "restore_workspace", requestId: "r17b", traceparent, workspaceId: WORKSPACE },
   { type: "window_focused", requestId: "r18", traceparent },
-  { type: "create_session", requestId: "r19", traceparent, workspaceId: WORKSPACE },
+  { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE },
+  { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
+  { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: "合并原理" },
+  { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: null },
   { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
   { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
-  { type: "select_container", requestId: "r22", traceparent, containerId: "chats" },
+  { type: "select_container", requestId: "r22", traceparent, containerId: CHAT },
   { type: "select_container", requestId: "r23", traceparent, containerId: null },
   { type: "archive_session", requestId: "r24", traceparent, sessionId: "s1" },
   { type: "clear_attention", requestId: "r24a", traceparent, sessionId: "s1" },
@@ -62,6 +70,13 @@ const commands: Command[] = [
     titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
   },
   { type: "set_preferences", requestId: "r64", traceparent, titleModel: null },
+  {
+    type: "set_preferences",
+    requestId: "r65",
+    traceparent,
+    proxy: { url: "http://127.0.0.1:7897", noProxy: [".example.com", "b".repeat(255)] },
+  },
+  { type: "set_preferences", requestId: "r66", traceparent, proxy: null },
   { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
   { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
   { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
@@ -102,8 +117,8 @@ const commands: Command[] = [
     interactionId: "d1",
     answer: { value: "v".repeat(1024 * 1024) },
   },
-  { type: "list_models", requestId: "r40", traceparent, containerId: WORKSPACE },
-  { type: "list_models", requestId: "r41", traceparent, containerId: "chats", refresh: true },
+  { type: "list_models", requestId: "r40", traceparent, workspaceId: WORKSPACE },
+  { type: "list_models", requestId: "r41", traceparent, workspaceId: null, refresh: true },
   {
     type: "set_model",
     requestId: "r42",
@@ -113,6 +128,7 @@ const commands: Command[] = [
     modelId: "anthropic/claude-opus-5.5",
   },
   { type: "set_thinking_level", requestId: "r43", traceparent, sessionId: "s1", level: "xhigh" },
+  { type: "set_fast", requestId: "r43", traceparent, sessionId: "s1", enabled: true },
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
@@ -235,6 +251,7 @@ const model: CatalogModel = {
   maxOutput: 128_000,
   supportsImage: true,
   thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+  fast: null,
 };
 
 /** An extension's selection. */
@@ -399,6 +416,7 @@ const events: SessionEvent[] = [
     exited: false,
     control,
     model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" },
+    fast: true,
     metrics,
   },
   { type: "run_started", ...at, runId: "run-1", startedAt: 3 },
@@ -435,6 +453,7 @@ const events: SessionEvent[] = [
   { type: "notice_added", ...at, notice: asked, before: null },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },
+  { type: "fast_updated", ...at, fast: false },
   { type: "metrics_updated", ...at, traceId: null, metrics },
   { type: "metrics_updated", ...at, metrics: unknownMetrics },
   {
@@ -462,6 +481,7 @@ describe("parseClientMessage", () => {
       "answer_interaction",
       "answer_login",
       "archive_session",
+      "archive_workspace",
       "cancel_install",
       "cancel_login",
       "check_pi_update",
@@ -472,6 +492,7 @@ describe("parseClientMessage", () => {
       "create_chat",
       "create_session",
       "discover_projects",
+      "fetch_image",
       "fetch_step",
       "fetch_transcript",
       "hand_off",
@@ -487,14 +508,17 @@ describe("parseClientMessage", () => {
       "prompt",
       "remove_project",
       "remove_queued",
+      "rename_chat",
       "rename_project",
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "restore_workspace",
       "resume_queue",
       "retry_run",
       "search_files",
       "select_container",
+      "set_fast",
       "set_main_branch",
       "set_model",
       "set_preferences",
@@ -565,17 +589,38 @@ describe("parseClientMessage", () => {
     ["a project id of another shape", { type: "remove_project", requestId: "r1", traceparent, projectId: "p1" }, "r1"],
     [
       "a project id where a workspace id belongs",
-      { type: "create_session", requestId: "r1", traceparent, workspaceId: PROJECT },
+      { type: "create_session", requestId: "r1", traceparent, containerId: PROJECT },
       "r1",
     ],
     [
       "a workspace id with something before it",
-      { type: "create_session", requestId: "r1", traceparent, workspaceId: `x${WORKSPACE}` },
+      { type: "create_session", requestId: "r1", traceparent, containerId: `x${WORKSPACE}` },
       "r1",
     ],
     [
       "a workspace id with something after it",
-      { type: "create_session", requestId: "r1", traceparent, workspaceId: `${WORKSPACE}0` },
+      { type: "create_session", requestId: "r1", traceparent, containerId: `${WORKSPACE}0` },
+      "r1",
+    ],
+    ["the old chats' container", { type: "create_session", requestId: "r1", traceparent, containerId: "chats" }, "r1"],
+    [
+      "a chat id with a path in it",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: "cht_../x", name: null },
+      "r1",
+    ],
+    [
+      "a chat id with something before it",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: "x/cht_a", name: null },
+      "r1",
+    ],
+    [
+      "a chat id over 68 characters",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: `cht_${"a".repeat(65)}`, name: null },
+      "r1",
+    ],
+    [
+      "a workspace id where a chat id belongs",
+      { type: "rename_chat", requestId: "r1", traceparent, chatId: WORKSPACE, name: null },
       "r1",
     ],
     ["an empty project path", { type: "add_project", requestId: "r1", traceparent, path: "" }, "r1"],
@@ -658,10 +703,47 @@ describe("parseClientMessage", () => {
       { type: "set_preferences", requestId: "r1", traceparent, statusBar: { ["g".repeat(65)]: true } },
       "r1",
     ],
+    [
+      "a proxy address over 2048 characters",
+      { type: "set_preferences", requestId: "r1", traceparent, proxy: { url: "h".repeat(2049), noProxy: [] } },
+      "r1",
+    ],
+    [
+      "a host that goes direct over 255 characters",
+      { type: "set_preferences", requestId: "r1", traceparent, proxy: { url: "http://p", noProxy: ["h".repeat(256)] } },
+      "r1",
+    ],
+    [
+      "more than 100 hosts that go direct",
+      {
+        type: "set_preferences",
+        requestId: "r1",
+        traceparent,
+        proxy: { url: "http://p", noProxy: Array.from({ length: 101 }, () => "h") },
+      },
+      "r1",
+    ],
+    [
+      "a proxy without the hosts that go direct",
+      { type: "set_preferences", requestId: "r1", traceparent, proxy: { url: "http://p" } },
+      "r1",
+    ],
     ["opening no session", { type: "open_session", requestId: "r1", traceparent }, "r1"],
     [
       "a step fetch without a step",
       { type: "fetch_step", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, turnId: "t" },
+      "r1",
+    ],
+    [
+      "an image past the twentieth",
+      { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: 20 },
+      "r1",
+    ],
+    ["archiving no workspace", { type: "archive_workspace", requestId: "r1", traceparent }, "r1"],
+    ["restoring a chat", { type: "restore_workspace", requestId: "r1", traceparent, workspaceId: CHAT }, "r1"],
+    [
+      "an image at no place",
+      { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: -1 },
       "r1",
     ],
     [
@@ -680,11 +762,16 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     [
+      "Fast neither on nor off",
+      { type: "set_fast", requestId: "r1", traceparent, sessionId: "s1", enabled: "on" },
+      "r1",
+    ],
+    [
       "a model without a provider",
       { type: "set_model", requestId: "r1", traceparent, sessionId: "s1", providerId: "", modelId: "m" },
       "r1",
     ],
-    ["models of no container", { type: "list_models", requestId: "r1", traceparent }, "r1"],
+    ["models of nowhere said", { type: "list_models", requestId: "r1", traceparent }, "r1"],
     ["commands of no session", { type: "list_commands", requestId: "r1", traceparent }, "r1"],
     [
       "an attachment that is not an image",
@@ -718,8 +805,9 @@ describe("parseClientMessage", () => {
       { type: "search_files", requestId: "r1", traceparent, sessionId: "s1", query: "q".repeat(1025) },
       "r1",
     ],
-    ["models of a project", { type: "list_models", requestId: "r1", traceparent, containerId: PROJECT }, "r1"],
-    ["changes of the chats", { type: "watch_changes", requestId: "r1", traceparent, workspaceIds: ["chats"] }, "r1"],
+    ["models of a project", { type: "list_models", requestId: "r1", traceparent, workspaceId: PROJECT }, "r1"],
+    ["models of a chat", { type: "list_models", requestId: "r1", traceparent, workspaceId: CHAT }, "r1"],
+    ["changes of a chat", { type: "watch_changes", requestId: "r1", traceparent, workspaceIds: [CHAT] }, "r1"],
     [
       "changes of more than 64 workspaces",
       {
@@ -780,6 +868,12 @@ describe("CommandResult", () => {
     expect(CommandResult.add_project.safeParse({ projectId: "p1" }).success).toBe(false);
     expect(CommandResult.create_session.parse({ sessionId: "s1" })).toStrictEqual({ sessionId: "s1" });
     expect(CommandResult.fetch_step.parse({ step: bashStep })).toStrictEqual({ step: bashStep });
+    expect(CommandResult.fetch_image.parse({ mimeType: "image/webp", data: "eA==" })).toStrictEqual({
+      mimeType: "image/webp",
+      data: "eA==",
+    });
+    expect(CommandResult.fetch_image.safeParse({ mimeType: "image/svg+xml", data: "eA==" }).success).toBe(false);
+    expect(CommandResult.fetch_image.safeParse({ mimeType: "image/png", data: "" }).success).toBe(false);
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
       hasOlder: false,
@@ -797,6 +891,27 @@ describe("CommandResult", () => {
     expect(
       CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
     ).toBe(false);
+    for (const fast of [
+      { speed: 2, moreUsage: true },
+      { speed: 1.5, moreUsage: false },
+      { speed: null, moreUsage: true },
+    ]) {
+      expect(CommandResult.list_models.parse({ models: [{ ...model, fast }], defaultModel: null })).toStrictEqual({
+        models: [{ ...model, fast }],
+        defaultModel: null,
+      });
+    }
+    for (const fast of [
+      { speed: 0, moreUsage: true },
+      { speed: 101, moreUsage: true },
+      { speed: 2 },
+      { speed: 2, moreUsage: true, credits: 2.5 },
+      2.5,
+    ]) {
+      expect(CommandResult.list_models.safeParse({ models: [{ ...model, fast }], defaultModel: null }).success).toBe(
+        false,
+      );
+    }
     const setup = {
       pi: {
         state: "broken",
@@ -943,6 +1058,7 @@ const snapshot: IndexSnapshotEvent = {
       external: false,
       createdAt: null,
       merge: null,
+      archivedAt: null,
     },
     {
       id: "wks_fedcba9876543210",
@@ -955,7 +1071,17 @@ const snapshot: IndexSnapshotEvent = {
       external: true,
       createdAt: 1_700_000_000_000,
       merge: { dirty: true, ahead: 3, verdict: "unknown", reason: "no_main_branch" },
+      archivedAt: 1_700_000_100_000,
     },
+  ],
+  chats: [
+    {
+      id: CHAT,
+      dir: "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+      alias: null,
+      firstSessionId: "s2",
+    },
+    { id: "cht_x", dir: "/Users/test/.atrium/chats/x", alias: "合并原理", firstSessionId: null },
   ],
   sessions: [
     {
@@ -974,7 +1100,7 @@ const snapshot: IndexSnapshotEvent = {
     },
     {
       sessionId: "s2",
-      containerId: "chats",
+      containerId: CHAT,
       name: "解释 merge-tree",
       prompt: null,
       file: null,
@@ -989,7 +1115,7 @@ const snapshot: IndexSnapshotEvent = {
   ],
   layout: {
     container: WORKSPACE,
-    tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, chats: { open: [], active: null } },
+    tabs: { [WORKSPACE]: { open: ["s1"], active: "s1" }, [CHAT]: { open: [], active: null } },
   },
   preferences: {
     setupDone: true,
@@ -997,8 +1123,10 @@ const snapshot: IndexSnapshotEvent = {
     displayMode: "summary",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
+    lastFast: true,
     statusBar: { cost: true, session: false },
     titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
+    proxy: { url: "http://127.0.0.1:7897", noProxy: Array.from({ length: 100 }, () => "h") },
   },
   resets: ["layouts"],
 };
@@ -1010,6 +1138,7 @@ const changes: IndexChangesEvent = {
   seq: 4,
   projects: { upsert: snapshot.projects, remove: ["prj_fedcba9876543210"] },
   workspaces: { upsert: snapshot.workspaces, remove: [WORKSPACE] },
+  chats: { upsert: snapshot.chats, remove: ["cht_gone"] },
   sessions: { upsert: snapshot.sessions, remove: ["s3"] },
   layout: snapshot.layout,
   preferences: snapshot.preferences,
@@ -1018,7 +1147,7 @@ const changes: IndexChangesEvent = {
 describe("HostMessage: changes", () => {
   it.each([
     ["a negative count", { ...changesUpdated, stat: { added: -1, removed: 0 } }],
-    ["the chats as a workspace", { ...changesUpdated, workspaceId: "chats" }],
+    ["a chat as a workspace", { ...changesUpdated, workspaceId: CHAT }],
     ["an unknown error", { ...diffUpdated, error: "denied" }],
     ["an unknown file status", { ...diffUpdated, files: [{ ...diffUpdated.files[1], status: "copied" }] }],
     [
@@ -1082,6 +1211,7 @@ describe("HostMessage", () => {
         ...changes,
         projects: { upsert: [], remove: [] },
         workspaces: { upsert: [], remove: [] },
+        chats: { upsert: [], remove: [] },
         sessions: { upsert: [], remove: [] },
         layout: null,
         preferences: null,
@@ -1144,8 +1274,18 @@ describe("HostMessage", () => {
         ...snapshot,
         preferences: { ...snapshot.preferences, displayMode },
       })),
-      { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "sessions", "preferences"] },
-      { ...snapshot, preferences: { ...snapshot.preferences, lastModel: null, thinkingByModel: {}, statusBar: {} } },
+      { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
+      {
+        ...snapshot,
+        preferences: {
+          ...snapshot.preferences,
+          lastModel: null,
+          thinkingByModel: {},
+          lastFast: false,
+          statusBar: {},
+          proxy: null,
+        },
+      },
       ...ThinkingLevel.options.map((thinkingLevel) => ({
         type: "model_updated",
         ...at,
@@ -1197,6 +1337,7 @@ describe("HostMessage", () => {
       "session_cwd_missing",
       "project_not_found",
       "workspace_not_found",
+      "chat_not_found",
       "project_exists",
       "name_taken",
       "path_not_found",
@@ -1208,6 +1349,13 @@ describe("HostMessage", () => {
       "fd_missing",
       "attachment_limit",
       "attachment_missing",
+      "image_unavailable",
+      "workspace_is_local",
+      "workspace_dirty",
+      "workspace_unsaved_commits",
+      "worktree_remove_failed",
+      "worktree_restore_failed",
+      "fast_unavailable",
       "pi_rejected",
       "session_handed_off",
       "login_unavailable",
@@ -1217,6 +1365,7 @@ describe("HostMessage", () => {
       "install_unavailable",
       "install_not_found",
       "branch_not_found",
+      "proxy_invalid",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -1248,6 +1397,11 @@ describe("HostMessage", () => {
     ["an unknown run outcome", { ...events[8], outcome: "paused" }],
     ["an unknown event", { type: "message_started", ...at, messageId: "a1" }],
     ["a workspace of an unknown kind", { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], kind: "clone" }] }],
+    [
+      "a workspace without when it was archived",
+      { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: undefined }] },
+    ],
+    ["a workspace archived at no time", { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: -1 }] }],
     [
       "an unknown merge verdict",
       {
@@ -1368,5 +1522,17 @@ describe("CommandError", () => {
       code: "session_busy",
       params: { a: 1 },
     });
+  });
+});
+
+describe("isChatId", () => {
+  it("tells a chat's id from a workspace's and from the old chats' container", () => {
+    expect([CHAT, "cht_a", WORKSPACE, "chats", "x/cht_a"].map(isChatId)).toStrictEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
   });
 });

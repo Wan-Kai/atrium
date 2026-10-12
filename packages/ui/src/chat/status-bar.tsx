@@ -1,5 +1,5 @@
 import type { SessionMetrics, StatusBarChoices } from "@atrium/protocol";
-import { Coins, Database, Gauge, GearSix } from "@phosphor-icons/react";
+import { Coins, Database, Gauge, GearSix } from "../design/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
   STATUS_GROUPS,
@@ -378,14 +378,14 @@ function Group({ drawing, metrics }: { readonly drawing: GroupDrawing; readonly 
       <button
         type="button"
         aria-describedby={cardId}
-        className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-focus-within/item:bg-[var(--hover)] group-hover/item:bg-[var(--hover)] ${tone}`}
+        className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-has-[:focus-visible]/item:bg-[var(--hover)] group-hover/item:bg-[var(--hover)] ${tone}`}
       >
         {drawing.summary(metrics)}
       </button>
       <div
         role="tooltip"
         id={cardId}
-        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[300px] -translate-x-1/2 rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-focus-within/item:visible group-focus-within/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] dark:bg-[var(--surface-2)]"
+        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[300px] -translate-x-1/2 rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] dark:bg-[var(--surface-2)]"
       >
         {drawing.card(metrics)}
       </div>
@@ -534,7 +534,7 @@ export function StatusBar({
       ref={root}
       role="group"
       aria-label="状态栏"
-      className="group/bar mx-auto flex h-9 items-center justify-center gap-1.5 text-[length:var(--fs-sm)] tabular-nums"
+      className="group/bar mx-auto mb-2 flex h-7 items-center justify-center gap-1.5 text-[length:var(--fs-sm)] tabular-nums"
     >
       {shownGroups(choices).map((id) => {
         const drawing = DRAWINGS[id];

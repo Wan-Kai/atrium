@@ -10,6 +10,7 @@ export {
   CreateChatCommand,
   FETCH_TRANSCRIPT_LIMIT,
   FetchStepCommand,
+  FetchImageCommand,
   FetchTranscriptCommand,
   OpenSessionCommand,
   PingCommand,
@@ -23,6 +24,9 @@ export {
   RemoveProjectCommand,
   RenameProjectCommand,
   RenameWorkspaceCommand,
+  ArchiveWorkspaceCommand,
+  RestoreWorkspaceCommand,
+  RenameChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -45,6 +49,7 @@ export {
   ListModelsCommand,
   SetModelCommand,
   SetThinkingLevelCommand,
+  SetFastCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
@@ -97,10 +102,11 @@ export {
 } from "./setup";
 export { SessionMetrics, StatusGroupId, UNKNOWN_METRICS } from "./metrics";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
-export { CHATS, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {
   Appearance,
   Attention,
+  Chat,
   ContainerTabs,
   DisplayMode,
   IndexChangesEvent,
@@ -111,6 +117,7 @@ export {
   MergeUnknownReason,
   Preferences,
   Project,
+  ProxySetting,
   StatusBarChoices,
   SessionSummary,
   SnapshotReason,
@@ -120,6 +127,7 @@ export {
   ControlUpdatedEvent,
   MetricsUpdatedEvent,
   ModelUpdatedEvent,
+  FastUpdatedEvent,
   NoticeAddedEvent,
   PromptHandledEvent,
   RunSettledEvent,

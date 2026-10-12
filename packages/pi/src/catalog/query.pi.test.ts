@@ -1,11 +1,23 @@
-import { FAUX_MODEL, FAUX_PROVIDER, createTempDir, fauxPi, present } from "@atrium/testkit";
+import {
+  FAUX_BASE_URL_ENV,
+  FAUX_MODEL,
+  FAUX_PROVIDER,
+  createTempDir,
+  fauxPi,
+  present,
+  startModelListServer,
+} from "@atrium/testkit";
 import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PiDeps } from "../deps";
 import { findPi } from "../locate/locate";
 import { queryModels } from "./query";
+
+/** Atrium's Fast extension, as the host has pi load it (ADR-0008). */
+const FAST_EXTENSION = fileURLToPath(new URL("../fast/extension.ts", import.meta.url));
 
 const cleanups: (() => Promise<void>)[] = [];
 
@@ -85,5 +97,31 @@ describe("queryModels against pi", () => {
     );
 
     expect(list).toStrictEqual({ models: [], defaultModel: null });
+  });
+
+  it("has the Fast extension ask Codex's model list, which decides Fast", async () => {
+    const { dir, piPath } = await setUp();
+    const list = await startModelListServer();
+    cleanups.push(() => list.close());
+    const faux = await fauxPi(
+      { provider: "openai-codex", replies: [], models: [{ id: "gpt-6-sol" }, { id: "gpt-5.5" }, { id: "gpt-6" }] },
+      dir,
+    );
+
+    const { models } = await queryModels(
+      { piPath, args: faux.args, cwd: dir, env: { ...faux.env, [FAUX_BASE_URL_ENV]: list.baseUrl } },
+      isolatedDeps(dir),
+      new AbortController().signal,
+      { fastExtension: FAST_EXTENSION },
+    );
+
+    expect(Object.fromEntries(models.map((model) => [model.modelId, model.fast]))).toStrictEqual({
+      [FAUX_MODEL]: null,
+      "gpt-6-sol": { speed: 1.5, moreUsage: false },
+      "gpt-5.5": null,
+      // Not in the list, so no Fast, though the built-in rule would give it.
+      "gpt-6": null,
+    });
+    expect(list.requests).toHaveLength(1);
   });
 });

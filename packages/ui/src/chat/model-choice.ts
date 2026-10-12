@@ -16,6 +16,8 @@ export interface ShownModel extends ModelRef {
   readonly level: ThinkingLevel | null;
   /** Whether it takes images; `null` when the catalog does not list it. */
   readonly supportsImage: boolean | null;
+  /** What Fast does for it; `null` without Fast or when the catalog does not list it. */
+  readonly fast: CatalogModel["fast"];
 }
 
 /** Each level's name; the four common ones read 低 / 中 / 高 / 极高 (SPEC-0001, "输入框"). */
@@ -83,8 +85,8 @@ export function coverageOf(level: ThinkingLevel | null, levels: readonly Thinkin
  * @remarks
  * The session's own once its pi reports it; before that, the model a new session will start on:
  * the one chosen last, with its remembered level, or else pi's own default (SPEC-0001,
- * "模型与输入框"). The catalog fills in the name, levels and image support; a model it does not
- * list goes by its id.
+ * "模型与输入框"). The catalog fills in the name, levels, image support and Fast (SPEC-0001,
+ * "Fast"); a model it does not list goes by its id, without Fast.
  *
  * @sideEffects none
  * @param session - The session's model, if known.
@@ -114,6 +116,7 @@ export function shownModel(
     levels: listed?.thinkingLevels ?? (level === null ? [] : [level]),
     level,
     supportsImage: listed?.supportsImage ?? null,
+    fast: listed?.fast ?? null,
   };
 }
 

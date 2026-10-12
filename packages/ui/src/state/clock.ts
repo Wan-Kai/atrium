@@ -10,6 +10,12 @@ export interface UiClock {
    * @returns A function that stops it.
    */
   every(ms: number, tick: () => void): () => void;
+  /**
+   * Calls `run` once, `ms` milliseconds from now.
+   *
+   * @returns A function that cancels it.
+   */
+  after(ms: number, run: () => void): () => void;
 }
 
 /**
@@ -19,13 +25,17 @@ export interface UiClock {
  * The one place in the UI that reads the system time and sets intervals; components get time
  * through `useClock`, so tests can pass another.
  *
- * @sideEffects `every` sets an interval until stopped.
+ * @sideEffects `every` sets an interval until stopped; `after` sets a timeout until it fires or is cancelled.
  */
 const systemClock: UiClock = {
   now: () => Date.now(),
   every(ms, tick) {
     const timer = setInterval(tick, ms);
     return () => clearInterval(timer);
+  },
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
   },
 };
 

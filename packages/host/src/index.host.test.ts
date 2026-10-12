@@ -133,7 +133,7 @@ describe("the list over the WebSocket", () => {
     const at = await place();
     const first = await hostAndClient(at);
     await first.client.setPreferences({ appearance: "dark", displayMode: "thinking" });
-    await first.client.selectContainer("chats");
+    await first.client.selectContainer("cht_a");
     first.client.disconnect();
     await first.host.close();
 
@@ -141,7 +141,7 @@ describe("the list over the WebSocket", () => {
 
     expect(client.index.getState()).toMatchObject({
       preferences: { appearance: "dark", displayMode: "thinking" },
-      layout: { container: "chats", tabs: {} },
+      layout: { container: "cht_a", tabs: {} },
       resets: [],
     });
   });

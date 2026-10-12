@@ -1,5 +1,5 @@
 import type { Control, DiffStat, Interaction, InteractionAnswer } from "@atrium/protocol";
-import { ArrowBendDownRight, CaretUp, GitDiff, Question, WarningCircle, X } from "@phosphor-icons/react";
+import { ArrowBendDownRight, CaretUp, GitDiff, Question, WarningCircle, X } from "../design/icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { DiffCounts } from "./changes-panel";
 

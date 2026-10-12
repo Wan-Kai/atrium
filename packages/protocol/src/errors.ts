@@ -26,6 +26,8 @@ export const ErrorCode = z.enum([
   "project_not_found",
   /** The `workspaceId` names no workspace of a registered project. */
   "workspace_not_found",
+  /** The `chatId` names no chat: its directory under `~/.atrium/chats/` is gone, or never was. */
+  "chat_not_found",
   /** The directory is a registered project or one of its workspaces already; `params.projectId` names the project. */
   "project_exists",
   /** Another project has that name; `params.name` repeats it. */
@@ -48,6 +50,23 @@ export const ErrorCode = z.enum([
   "attachment_limit",
   /** An image a message names was never uploaded, or was let go after 30 minutes unused. */
   "attachment_missing",
+  /**
+   * `fetch_image` found no such image: the turn is not tied to an entry yet (it still runs), the
+   * session file or the message is gone, or the image is not one pi keeps (SPEC-0001, "M1.11 的消息图片").
+   */
+  "image_unavailable",
+  /** Only a worktree can be archived, not a project's own directory (SPEC-0001, "M1.11 的工作区归档"). */
+  "workspace_is_local",
+  /** The worktree has changes not committed, untracked files included; archiving would lose them. */
+  "workspace_dirty",
+  /** The worktree's HEAD is detached at a commit no branch, remote branch or tag holds. */
+  "workspace_unsaved_commits",
+  /** `git worktree remove` failed: the worktree is locked, holds submodules, or changed meanwhile. */
+  "worktree_remove_failed",
+  /** An archived worktree could not be added back; `params.reason` is `no_branch`, `dir_taken` or `branch_gone`, or absent when git failed. */
+  "worktree_restore_failed",
+  /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
+  "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
@@ -66,6 +85,8 @@ export const ErrorCode = z.enum([
   "install_not_found",
   /** `origin` has no branch of that name; `params.branch` repeats it. */
   "branch_not_found",
+  /** The proxy setting was refused; `params.reason` is `malformed`, `scheme`, `credentials` or `no_proxy`. */
+  "proxy_invalid",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

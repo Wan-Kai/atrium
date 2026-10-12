@@ -16,6 +16,10 @@
 
 ## 当前状态
 
+**2026-10-12：M1.11 自用进行中，到目前为止的改动经三方审查（Astra、Grok、Claude）后先合并回 `main`，里程碑没有结束（一周自用、新账户的首次启动检查还没做），之后继续在 `m1.11-self-use` 分支上。这一段做的：每个对话是一个独立的容器（[ADR-0007](adr/0007-each-chat-is-its-own-container.md)，索引升到 v2）；Fast 开关，哪些模型支持以 Codex 的模型列表为准、列表为空或查不到时按内置规则（[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)）；过程轨道，运行结束后折进轮的标题；发送的消息显示图片缩略图，宿主从 pi 的会话文件读回；worktree 工作区的归档与恢复（删目录、留分支，恢复前查分支还在、目录没被占用）；浏览器不内置，留在外部（[ADR-0009](adr/0009-browser-stays-external.md)）；另有图标换成 Hugeicons、回复排版、文件类型标志等界面调整。三方审查的问题都修了：归档停掉会话后再查一次、先记下归档再删目录、git 期限 10 分钟、退出时等归档做完；关标签丢草稿时与发消息和别的窗口打开的竞争；`fetch_image` 等条目读完；Fast 切换中途来了别的事件仍按宿主最后的结果。单元、宿主、界面、pi 测试和 `pnpm check` 通过，git、host、shared、pi 四组变异分数 100%；界面组这次没有重跑。**
+
+**2026-10-11：M1.11 自用开始，在 `m1.11-self-use` 分支上。先补了自用要用的工具：Electron 主进程每分钟把各进程的内存和 CPU 交给宿主写进日志（原来只写在 testing.md 里，没有实现），`pnpm usage` 按宿主的每次运行汇总每小时的用量、标出最低值上涨的项；`pnpm package` 打包成本机用的 Atrium.app（只做 ad-hoc 签名，不公证），从程序坞打开，也用它做新账户的首次启动检查。定了标志：一只猫，用作应用图标和欢迎页的 logo。补了发送后的等待动画；新建会话改为先打开标签、pi 在后台启动，省掉第一条消息等 pi 启动的时间。设置里加了网络代理，交给 pi、安装和宿主自己的请求（原先宿主查最新版本不走代理）。记录在 [self-use.md](research/self-use.md)。**
+
 **2026-10-11：M1.10 首次启动与设置完成，三方审查后已合并回 `main`。完成标准第一条“在一个没装 pi 的账户上走通”还没手动验证（自动化测试用的都是装好的 pi），挪到 M1.11 自用时做（2026-10-11 定）。登录经用户自己装的 pi：宿主用系统 Node 运行登录程序加载 pi 的包，pi 说的和问的广播给所有窗口，凭据只由 pi 读写（宿主不读 `auth.json`）；`check_setup` 报告 pi、Node、Homebrew、fd、登录和项目数；宿主装 pi（官方脚本）、用 Homebrew 装 Node、`pi update`（等运行中的会话结束，更新后停掉空闲会话的旧 pi），输出广播、不进日志；每天查一次 pi.dev 的最新版本；从 pi 历史发现项目；首次启动四屏（欢迎页、装 pi、登录、添加项目）和设置面板（外观与关于、模型与账户、项目的主干分支、pi）。三方审查（Astra、Grok、Claude）的 14 项都修了：凭据变化的 `credentials_changed` 事件，登录与退出排队，后连上的窗口补上最后一次登录和安装，pi 的文字截到 16 KiB，重新读登录 shell 后旧凭据照样脱敏，Homebrew 不在 PATH 时加到末尾，更新后停空闲会话时等启动中的 pi、跳过等回答的，已在项目里的目录算加好，模型目录关闭时等所有查询。端到端 32 个、泄漏与性能 5 个通过；五组变异分数都是 100%。已知问题：交给终端的端到端约 1/280 次接回后 pi 启动等了 30 秒，疑似上一次启动的 pi 留下 `auth.json` 的锁（pi 的锁 30 秒过期），未证实。下一步是 [M1.11](#m111-自用)。**
 
 | 已完成 | 产出 |
@@ -41,7 +45,7 @@
 
 MVP 1 里还没设计、做到时先补设计的：
 
-- logo，以及工作区、新会话、新对话的空状态（先用占位）。
+- 工作区、新会话、新对话的空状态（先用占位）。
 
 ## 开工前必读
 
@@ -77,6 +81,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 工程约束：[coding-standards.md](architecture/coding-standards.md)（每个函数和组件写 JSDoc：what、why、副作用）、[security.md](architecture/security.md)、[observability.md](architecture/observability.md)（OpenTelemetry 追踪 + pino 日志，全链路 trace id）。MVP 只做中文，宿主只发错误码不发文案。
 - 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线；界面比较脱离文档的 DOM 节点）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
+- Atrium 不内置浏览器：agent 的浏览器操作在外部浏览器（默认 ego lite）里做，定制功能做成自己的浏览器插件（[ADR-0009](adr/0009-browser-stays-external.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
 
@@ -94,10 +99,10 @@ MVP 1 里还没设计、做到时先补设计的：
 
 界面（细节见 [SPEC-0001](specs/0001-mvp1-single-session-chat.md) 和 [design-language.md](architecture/design-language.md)）：
 
-- 视觉对齐 DeepSeek Harness，动效对齐 Apple 弹簧；图标 Phosphor；点阵是贯穿的视觉语言。
+- 视觉对齐 DeepSeek Harness，动效对齐 Apple 弹簧；图标 Hugeicons（2026-10-12 由 Phosphor 换成）；点阵是贯穿的视觉语言。
 - 前端技术栈：
   - 框架与样式：React + Vite；Tailwind + shadcn/ui。design-language 的颜色、圆角映射到 shadcn 的 CSS 变量（Streamdown 也读这套变量）。
-  - 图标：Phosphor（`@phosphor-icons/react`）。动效不引入动画库，用 CSS `linear()` 弹簧曲线和少量手写弹簧（参数见 design-language "动效"）。
+  - 图标：Hugeicons 免费版 stroke-rounded（`@hugeicons/core-free-icons` + `@hugeicons/react`，经 `packages/ui/src/design/icons.tsx` 取用；2026-10-12 由 Phosphor 换成）。动效不引入动画库，用 CSS `linear()` 弹簧曲线和少量手写弹簧（参数见 design-language "动效"）。
   - **流式回复渲染：Vercel 的 [Streamdown](https://github.com/vercel/streamdown)**（`streamdown`，调研时 2.7.0），插件 `@streamdown/code`（Shiki 高亮）、`@streamdown/math`（KaTeX）、`@streamdown/mermaid`、`@streamdown/cjk`。它负责补全没写完的语法、按块缓存；选型理由和对比见 [SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"。
   - 流式节奏：宿主原样转发增量，客户端按积压量平滑揭示（约 150ms 追平，参考 Paseo 的 `text-reveal.ts`），再交给 Streamdown。
 - 会话可在后台运行，多个同时跑；MVP 1 不做审批，不显示审批相关标签。
@@ -143,7 +148,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 分三步：第 1 步 MVP 1、第 2 步 MVP 2、第 3 步并行与 worktree（其他文档里的"阶段 1 第 N 步"指这里）。
 
-目标：日常编码从 Codex 换到 Atrium。模型沿用 ChatGPT 订阅。浏览器操作不单独开发：在 pi 的 `mcp.json` 里配置 chrome-devtools 或 Playwright 的 MCP server，从 MVP 1 起即可使用。
+目标：日常编码从 Codex 换到 Atrium。模型沿用 ChatGPT 订阅。浏览器操作不单独开发：用外部浏览器 ego lite，pi 按它的 skill 调 `ego-browser` 命令；或在 pi 的 `mcp.json` 里配置 chrome-devtools 或 Playwright 的 MCP server，从 MVP 1 起即可使用（[ADR-0009](adr/0009-browser-stays-external.md)）。
 
 #### MVP 1：纯对话
 
@@ -235,7 +240,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - IndexStore（`~/.atrium/`，原子写入）、ProjectService、WorkspaceService（`git worktree list`、分支、创建时间）、MergeInspector（未提交、↑N、无改动、已合并、已移除、无法判断）。
   - pi 包的 SessionFiles 扫描会话目录、解析文件头；宿主的 SessionCatalog 按 id 去重、报告冲突，按记录的容器或 `cwd` 归类；草稿会话；新建对话时立刻启动 pi，不等第一条消息（[领域模型 · 已决定 9](architecture/domain-model.md#已决定)）。
   - WorkspaceService 的后台 `git fetch`（窗口聚焦时、每隔几分钟）和聚焦后重算；git 低于 2.38 时只提示合并状态不可用。
-  - 侧栏、搜索、标签栏、"历史"、对话（ChatSpace）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。收件箱挪到 M1.9（2026-10-08 定）。协议见 [SPEC-0001 · 项目、工作区与会话](specs/0001-mvp1-single-session-chat.md#项目工作区与会话m152026-10-08-定)。
+  - 侧栏、搜索、标签栏、"历史"、对话（M1.11 起每个对话一个容器，ADR-0007）、命名与改名、归档、复制会话文件路径；侧栏底部的外观切换（跟随系统 / 浅色 / 深色）；空状态占位。收件箱挪到 M1.9（2026-10-08 定）。协议见 [SPEC-0001 · 项目、工作区与会话](specs/0001-mvp1-single-session-chat.md#项目工作区与会话m152026-10-08-定)。
   - 插话记录存进 `~/.atrium/turns/`（SPEC-0001"对话记录"），宿主重启后仍在。
   - 快捷键：⌘N 新建对话，⌘T 新建会话，⌘W 关闭标签，⌘1–9、⌘⇧[ / ⌘⇧] 切换标签。
 - **参考**：[ADR-0006](adr/0006-organize-sessions-by-workspace.md)、[domain-model](architecture/domain-model.md) §1 项目、工作区、会话，§6 宿主的组件、[SPEC-0001 · 侧栏](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §1 数据与持久化、§6 git 状态。
@@ -301,11 +306,18 @@ MVP 1 里还没设计、做到时先补设计的：
 
 ##### M1.11 自用
 
-- 用开发模式运行（v0.1 不打包签名），连续一周用它完成真实的编码任务，至少 10 个会话。
+- 用本机打包的 Atrium.app（`pnpm package`）或开发模式运行，连续一周用它完成真实的编码任务，至少 10 个会话。打包只给本机用：只做 ad-hoc 签名，不公证、不自动更新（2026-10-11 定，见 [overview.md · 桌面端怎么启动宿主](architecture/overview.md#桌面端怎么启动宿主)）。
 - 每天看宿主日志里的资源计数和内存趋势；发现持续上涨就补一个能复现的泄漏测试再修。
 - 记录 pi 比 Codex 明显不够用的地方，作为 H1 的结论，决定是否继续这条路线。
 - 对照 SPEC-0001 的 14 条需求逐条过一遍。
 - 在一个没装 pi 的 macOS 账户上从首次启动走到第一次对话（M1.10 完成标准第一条，合并时还没手动验证）。
+- 以上都记在 [self-use.md](research/self-use.md)；每天的资源趋势用 `pnpm usage` 看（宿主每分钟记资源计数和内存，Electron 主进程每分钟把各进程的内存交给宿主记下）。
+- 标志：一只猫，用作 Atrium.app 的图标和欢迎页的 logo 位（2026-10-11 定，见 [design-language · 标志](architecture/design-language.md#标志)）。
+- 自用中补的：发送后到有内容之前显示眨眼的小猫和"进行中"（SPEC-0001"过程的呈现 · 等待回复"）；新建会话不等 pi 启动，宿主定 id、马上打开标签，pi 在后台用 `--session-id` 启动，空状态里一输入就新建（领域模型"已决定 9"，2026-10-11 改）。
+- 网络代理：设置 · pi 里填代理地址和不走代理的列表，宿主把它放进交给 pi、登录、安装和更新的环境；宿主自己查最新版本、下载安装脚本也按环境里的代理走（SPEC-0001"设置 · pi"，2026-10-11 定）。
+- 每个对话是一个独立的容器：和工作区一样能放多个会话、有自己的标签栏和"历史"，侧栏逐行列出对话、可以改名；不再把所有对话挤在一个标签栏里。索引的 `sessions.json`、`layouts.json` 升到 v2，新增 `chats.json`（[ADR-0007](adr/0007-each-chat-is-its-own-container.md)，2026-10-12 定）。
+- Fast：输入框里模型按钮左边的 ⚡ 开关，只在支持的模型上显示，哪些模型支持问 Codex 的模型列表（查不到时按内置规则：ChatGPT 订阅的 GPT-5.5、5.6、6、6.1 系列）；每个会话一份，新会话沿用上一次的选择。由 Atrium 自带的 pi 扩展给请求加 `service_tier: "priority"`（[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)，2026-10-12 定）。
+- 浏览器：不内置浏览器，agent 的浏览器操作放在外部的 ego lite，定制功能以后做成浏览器插件；对话和工作区里不放浏览器标签页（[ADR-0009](adr/0009-browser-stays-external.md)，2026-10-12 定）。
 
 #### MVP 2：看得见内部
 
@@ -322,10 +334,10 @@ MVP 1 里还没设计、做到时先补设计的：
 #### 并行与 worktree
 
 - 完成或等待处理时发系统通知；"已完成未读"状态（关注原因 `finished`）。
-- 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口；新会话时可选"当前工作区 / 新建 worktree"。
+- 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口（归档 2026-10-12 提前在 M1.11 做了，见 SPEC-0001"M1.11 的工作区归档"）；新会话时可选"当前工作区 / 新建 worktree"。
 - 参考：[SPEC-0001 · worktree 合并状态](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §6 git 状态。
 
-v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、打包签名、空闲进程回收、文件区（外部改动的处理留到文件区设计）。
+v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、文件区（外部改动的处理留到文件区设计）。
 
 成功标准：连续两周把 Atrium 当作日常编码的主力工具；至少有一次通过上下文检查器发现问题，并用 extension 修好。
 
@@ -361,7 +373,7 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 - 接入其他 harness：Codex（`codex app-server`）、ACP 通用适配
 - DeepSeek Harness：稳定后写桥接插件，与 pi 做横向对比
 - 沙箱隔离：v0.1 只靠审批，以后评估容器方案（pi 官方的建议）
-- 内嵌浏览器面板：用 Electron 内嵌浏览器，作为工具提供给 agent，替代 v0.1 的 MCP 方案
+- 浏览器插件：ego lite 做不到的、或和 Atrium 相关的浏览器功能（例如把当前页面送进会话），自用中真遇到时再做；连宿主的鉴权、只操作"Atrium"标签组等规则见 [ADR-0009](adr/0009-browser-stays-external.md)。不内置浏览器（原先的"内嵌浏览器面板"，2026-10-12 改）
 - 手机端：先做响应式 + PWA，远程访问走 Tailscale；原生 App 视需要再做（见 [ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）
 - 空闲进程回收、文件区、forge（PR）状态
 - SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、订阅额度显示、长会话虚拟列表、extension 单向通知的显示

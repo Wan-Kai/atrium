@@ -1,6 +1,6 @@
 import { type AtriumClient, CommandError, type SessionView } from "@atrium/client";
 import type { SessionSummary, TranscriptItem } from "@atrium/protocol";
-import { CaretDown, Check, DotsThree, Eye } from "@phosphor-icons/react";
+import { CaretDown, Check, DotsThree, Eye } from "../design/icons";
 import { useState } from "react";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { transcriptMarkdown } from "../chat/turn-layout";

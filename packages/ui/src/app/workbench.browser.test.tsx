@@ -1,18 +1,25 @@
 import { CommandError, type SessionView } from "@atrium/client";
 import { IDLE_CONTROL } from "@atrium/protocol";
+import type { ReactNode } from "react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { describeArchiveError, describeRestoreError } from "../sidebar/archive";
 import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
-import { PROJECT, fakeClient, session, workspace } from "../test/fake-client";
+import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
+import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
 
 const LOCAL = "wks_000000000000000a";
 const FEATURE = "wks_000000000000000b";
 const MERGED = "wks_000000000000000c";
+const CHAT = "cht_a";
 
-/** A list with one project, three workspaces and some sessions, the client in the local workspace. */
+/**
+ * A list with one project, three workspaces, a chat and some sessions, the client in the local
+ * workspace.
+ */
 function list() {
   return {
     projects: [PROJECT],
@@ -43,8 +50,9 @@ function list() {
       session({ sessionId: "s1", containerId: LOCAL, prompt: "重构宿主" }),
       session({ sessionId: "s2", containerId: LOCAL, prompt: "调研 pi RPC", running: true }),
       session({ sessionId: "s3", containerId: FEATURE, name: "实现 sidebar" }),
-      session({ sessionId: "c1", containerId: "chats", prompt: "解释 merge-tree" }),
+      session({ sessionId: "c1", containerId: CHAT, prompt: "解释 merge-tree" }),
     ],
+    chats: [chat({ id: CHAT, firstSessionId: "c1" })],
     layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2"], active: "s1" } } },
   };
 }
@@ -65,6 +73,7 @@ async function workbench(
     initial?: Parameters<typeof fakeClient>[0];
     answers?: Parameters<typeof fakeClient>[1];
     picked?: string | null;
+    status?: ReactNode;
   } = {},
 ) {
   // The size of the app's window, so the sidebar and tab bar sit side by side.
@@ -81,7 +90,7 @@ async function workbench(
     <DisplayModeContext value={displayMode}>
       <Workbench
         client={fake.client}
-        status={<span>已连接宿主</span>}
+        status={options.status ?? <span>已连接宿主</span>}
         pickDirectory={async () => options.picked ?? null}
         setNativeAppearance={(appearance) => native.push(appearance)}
         openUrl={(url) => opened.push(url)}
@@ -93,6 +102,39 @@ async function workbench(
   return { screen, ...fake, native, opened, revealed };
 }
 
+describe("Workbench connection line", () => {
+  it("takes no room once connected, and a line at the bottom while not", async () => {
+    const connected = {
+      status: "connected",
+      traceId: "t",
+      hostVersion: "0.1.0",
+      hostInstanceId: "h1",
+      installSeed: 1,
+      logDir: "/l",
+    } as const;
+    const { screen } = await workbench({ status: <ConnectionStatus view={connected} /> });
+    const footer = screen.container.querySelector("footer");
+
+    await expect.element(screen.getByRole("status")).toHaveTextContent("已连接宿主 0.1.0");
+    expect(footer?.getBoundingClientRect().height).toBe(0);
+    await screen.rerender(
+      <DisplayModeContext value={createDisplayMode("summary", () => undefined)}>
+        <Workbench
+          client={fakeClient(list()).client}
+          status={<ConnectionStatus view={{ status: "reconnecting", attempt: 1, code: 1006 }} />}
+          pickDirectory={undefined}
+          setNativeAppearance={undefined}
+          openUrl={() => undefined}
+          reveal={undefined}
+          pathForFile={undefined}
+        />
+      </DisplayModeContext>,
+    );
+    await expect.element(screen.getByRole("status")).toBeVisible();
+    expect(screen.container.querySelector("footer")?.getBoundingClientRect().height).toBe(24);
+  });
+});
+
 describe("Workbench sidebar", () => {
   it("lists a project's workspaces, local first, the merged one last, with merge states and running work", async () => {
     const { screen } = await workbench();
@@ -101,8 +143,17 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0)).toHaveTextContent("main");
     await expect.element(rows.nth(0).getByRole("img", { name: "运行中" })).toBeVisible();
     await expect.element(rows.nth(1).getByRole("img", { name: "运行中" })).not.toBeInTheDocument();
-    await expect.element(rows.nth(1)).toHaveTextContent("feat/sidebar↑3未提交");
+    await expect.element(rows.nth(1)).toHaveTextContent("feat/sidebar3未提交");
     await expect.element(rows.nth(2)).toHaveTextContent("fix/typo已合并");
+    // The arrow and the merge mark are icons, not characters of the font.
+    expect(rows.nth(1).getByTitle("未合并：比主干多 3 个提交").element().querySelector("svg")).not.toBeNull();
+    expect(
+      rows
+        .nth(2)
+        .getByTitle(/^改动已全部进入主干/)
+        .element()
+        .querySelector("svg"),
+    ).not.toBeNull();
     await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
     await expect.element(rows.nth(0)).toHaveAttribute("title", "本地工作区（项目目录）");
   });
@@ -148,7 +199,7 @@ describe("Workbench sidebar", () => {
           ...initial.sessions,
           session({ sessionId: "e1", containerId: FEATURE, name: "错一", ...error(30) }),
           session({ sessionId: "e2", containerId: LOCAL, name: "错二", ...error(3) }),
-          session({ sessionId: "e3", containerId: "chats", name: "错三", ...error(50) }),
+          session({ sessionId: "e3", containerId: CHAT, name: "错三", ...error(50) }),
           session({ sessionId: "e4", containerId: LOCAL, name: "错四", ...error(40) }),
           session({
             sessionId: "seen",
@@ -160,7 +211,7 @@ describe("Workbench sidebar", () => {
           session({ sessionId: "a1", containerId: FEATURE, name: "问一", asking: Date.now() - 12 * minute }),
           session({
             sessionId: "k1",
-            containerId: "chats",
+            containerId: CHAT,
             name: "钥一",
             attention: { reason: "auth", at: 0, cleared: false },
           }),
@@ -174,7 +225,7 @@ describe("Workbench sidebar", () => {
     const rows = inbox.getByTestId("inbox-row");
     expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
       "问一atrium · feat/sidebar12 分钟前",
-      expect.stringMatching(/^钥一对话/),
+      expect.stringMatching(/^钥一对话 · 解释 merge-tree/),
       "错二atrium · main3 分钟前",
       "错一atrium · feat/sidebar30 分钟前",
       "错四atrium · main40 分钟前",
@@ -182,7 +233,7 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0).getByRole("img", { name: "待回答" })).toBeVisible();
     await expect.element(rows.nth(1).getByRole("img", { name: "待授权" })).toBeVisible();
     await inbox.getByRole("button", { name: "还有 1 条" }).click();
-    await expect.element(rows.nth(5)).toHaveTextContent("错三对话50 分钟前");
+    await expect.element(rows.nth(5)).toHaveTextContent("错三对话 · 解释 merge-tree50 分钟前");
     await inbox.getByRole("button", { name: "收起" }).click();
     await expect.element(rows.nth(5)).not.toBeInTheDocument();
 
@@ -238,42 +289,189 @@ describe("Workbench sidebar", () => {
 
   it("searches workspaces and sessions, and opens what is chosen", async () => {
     const { screen, calls } = await workbench();
-    await screen.getByRole("button", { name: "搜索工作区和会话" }).click();
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
 
-    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区和会话" }), "SideBar");
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "SideBar");
     const results = screen.getByRole("region", { name: "搜索结果" });
     await expect
       .element(results)
-      .toMatchTextContent(/^工作区feat\/sidebaratrium↑3未提交会话实现 sidebaratrium · feat\/sidebar1 分钟前$/);
+      .toMatchTextContent(/^工作区feat\/sidebaratrium3未提交会话实现 sidebaratrium · feat\/sidebar1 分钟前$/);
     await results.getByRole("button", { name: /实现 sidebar/ }).click();
     await vi.waitFor(() => expect(calls).toContain("openSession s3"));
 
     // Results stay after one is chosen; Escape in the box closes the search.
-    await screen.getByRole("textbox", { name: "搜索工作区和会话" }).click();
+    await screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }).click();
     await userEvent.keyboard("{Escape}");
     await expect.element(screen.getByRole("region", { name: "搜索结果" })).not.toBeInTheDocument();
   });
 
-  it("says when nothing matches", async () => {
-    const { screen } = await workbench();
-    await screen.getByRole("button", { name: "搜索工作区和会话" }).click();
+  it("finds chats by name in a group of their own, going to one when chosen", async () => {
+    const initial = list();
+    const { screen, calls } = await workbench({
+      initial: { ...initial, chats: [chat({ id: CHAT, firstSessionId: "c1", alias: "Merge 原理" })] },
+    });
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    const box = screen.getByRole("textbox", { name: "搜索工作区、对话和会话" });
 
-    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区和会话" }), "nothing");
+    await userEvent.type(box, "MERGE");
+    const results = screen.getByRole("region", { name: "搜索结果" });
+    await expect
+      .element(results)
+      .toMatchTextContent(/^对话Merge 原理1 分钟前会话解释 merge-tree对话 · Merge 原理1 分钟前$/);
+    await userEvent.fill(box, "原理");
+    await expect.element(results).toMatchTextContent(/^对话Merge 原理1 分钟前$/);
+    await results.getByRole("button").click();
 
-    await expect.element(screen.getByText("没有匹配的工作区或会话")).toBeVisible();
+    await vi.waitFor(() => expect(calls).toContain("openSession c1"));
   });
 
-  it("lists the five latest chats and offers the rest", async () => {
-    const chats = Array.from({ length: 7 }, (_, at) =>
-      session({ sessionId: `c${at}`, containerId: "chats", prompt: `对话 ${at}`, updatedAt: Date.now() - at * 60_000 }),
+  it("says when nothing matches", async () => {
+    const { screen } = await workbench();
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "nothing");
+
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+  });
+
+  it("lists chats like workspaces, latest first, five until the rest are shown in place", async () => {
+    const minute = 60_000;
+    const sessions = Array.from({ length: 7 }, (_, at) =>
+      session({
+        sessionId: `c${at}`,
+        containerId: `cht_${at}`,
+        prompt: `问题 ${at}`,
+        updatedAt: Date.now() - (at + 1) * minute,
+      }),
     );
-    const { screen, calls } = await workbench({ initial: { ...list(), sessions: chats } });
+    const { screen, calls } = await workbench({
+      initial: {
+        ...list(),
+        sessions: [
+          ...sessions,
+          // A later session of chat 6 brings it to the top, with its status; its name stays the first's.
+          session({ sessionId: "c6b", containerId: "cht_6", prompt: "追问", running: true, updatedAt: Date.now() }),
+          session({ sessionId: "gone", containerId: "cht_gone", archived: true }),
+        ],
+        chats: [
+          ...sessions.map((one, at) => chat({ id: `cht_${at}`, firstSessionId: one.sessionId })),
+          chat({ id: "cht_gone", firstSessionId: null }),
+        ],
+      },
+    });
+    const section = screen.getByRole("region", { name: "对话" });
+    const rows = section.getByTestId("chat-row");
 
-    await expect.element(screen.getByText("对话 4")).toBeVisible();
-    await expect.element(screen.getByText("对话 5")).not.toBeInTheDocument();
-    await screen.getByRole("button", { name: "全部 7 个对话" }).click();
+    await expect.element(rows.nth(0)).toHaveTextContent("问题 6刚刚");
+    await expect.element(rows.nth(0).getByRole("img", { name: "运行中" })).toBeVisible();
+    expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
+      "问题 6刚刚",
+      "问题 01 分钟前",
+      "问题 12 分钟前",
+      "问题 23 分钟前",
+      "问题 34 分钟前",
+    ]);
+    await section.getByRole("button", { name: "显示全部 7 个" }).click();
+    await expect.element(rows.nth(6)).toHaveTextContent("问题 56 分钟前");
+    await section.getByRole("button", { name: "收起" }).click();
+    await expect.element(rows.nth(5)).not.toBeInTheDocument();
+    // The area opens the active session s1 of the local workspace on its own.
+    expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
+  });
 
-    await vi.waitFor(() => expect(calls).toContain("selectContainer chats"));
+  it("names a chat by its alias, else its first session's title, else as new", async () => {
+    const initial = list();
+    await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          ...initial.sessions,
+          session({ sessionId: "d1", containerId: "cht_b", prompt: null, file: null, state: "draft" }),
+          session({ sessionId: "r1", containerId: "cht_c", prompt: "周报的提纲" }),
+        ],
+        chats: [
+          ...initial.chats,
+          chat({ id: "cht_b", firstSessionId: "d1" }),
+          chat({ id: "cht_c", firstSessionId: "r1", alias: "周报" }),
+        ],
+      },
+    });
+
+    const rows = page.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    expect(rows.elements().map((row) => row.querySelector(".truncate")?.textContent)).toStrictEqual([
+      "解释 merge-tree",
+      "新对话",
+      "周报",
+    ]);
+  });
+
+  it("opens a chat's latest session when it has no tab open, and goes back to its tabs when it has", async () => {
+    const initial = list();
+    const { screen, calls, index } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          ...initial.sessions,
+          session({ sessionId: "c2", containerId: CHAT, prompt: "再问", updatedAt: Date.now() - 1000 }),
+          session({ sessionId: "b1", containerId: "cht_b", prompt: "旧的", updatedAt: Date.now() - 9000 }),
+          session({ sessionId: "b2", containerId: "cht_b", prompt: "新的", updatedAt: Date.now() - 2000 }),
+        ],
+        chats: [...initial.chats, chat({ id: "cht_b", firstSessionId: "b1" })],
+        layout: { ...initial.layout, tabs: { ...initial.layout.tabs, [CHAT]: { open: ["c1"], active: "c1" } } },
+      },
+    });
+    const rows = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    await expect.element(rows.nth(1)).toHaveTextContent("旧的刚刚");
+
+    await rows.nth(1).click();
+    await vi.waitFor(() => expect(calls).toContain("openSession b2"));
+    await expect.element(rows.nth(1)).toHaveAttribute("aria-current", "true");
+    await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "false");
+    await rows.nth(0).click();
+
+    await vi.waitFor(() => expect(calls).toContain(`selectContainer ${CHAT}`));
+    await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
+    expect(calls).not.toContain("openSession c2");
+    expect(index.getState().layout.tabs[CHAT]).toStrictEqual({ open: ["c1"], active: "c1" });
+  });
+
+  it("explains a chat that went while it was being renamed", async () => {
+    const { screen } = await workbench({
+      answers: { renameChat: () => Promise.reject(new CommandError("chat_not_found", { chatId: CHAT })) },
+    });
+    const row = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    await row.hover();
+    await row.getByRole("button", { name: "对话 解释 merge-tree" }).click();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+
+    await userEvent.fill(screen.getByRole("textbox", { name: "对话名称" }), "合并原理");
+    await userEvent.keyboard("{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("这个对话已经不在了");
+  });
+
+  it("renames a chat in place from its menu, and clears its name with an empty one", async () => {
+    const initial = list();
+    const { screen, calls } = await workbench({
+      initial: { ...initial, chats: [chat({ id: CHAT, firstSessionId: "c1", alias: "合并原理" })] },
+    });
+    const row = screen.getByRole("region", { name: "对话" }).getByTestId("chat-row");
+    await row.hover();
+    await row.getByRole("button", { name: "对话 合并原理" }).click();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+
+    await userEvent.fill(screen.getByRole("textbox", { name: "对话名称" }), "merge-tree");
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => expect(calls).toContain(`renameChat ${CHAT} merge-tree`));
+    await row.hover();
+    await row.getByRole("button", { name: "对话 合并原理" }).click();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+    await userEvent.clear(screen.getByRole("textbox", { name: "对话名称" }));
+    await userEvent.keyboard("{Enter}");
+
+    await vi.waitFor(() => expect(calls).toContain(`renameChat ${CHAT} null`));
+    // The area opens the active session s1 of the local workspace on its own.
+    expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
   });
 
   it("renames a workspace in place, and clears its name with an empty one", async () => {
@@ -312,6 +510,305 @@ describe("Workbench sidebar", () => {
     expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
       'setPreferences {"appearance":"light"}',
       'setPreferences {"appearance":"dark"}',
+    ]);
+  });
+});
+
+/**
+ * The list of {@link list} with the merged worktree running one of its two live sessions, and two
+ * worktrees archived five minutes and two hours ago.
+ *
+ * @sideEffects none
+ * @returns The list.
+ */
+function archivable() {
+  const base = list();
+  return {
+    ...base,
+    workspaces: [
+      ...base.workspaces,
+      workspace({ id: "wks_00000000000000a1", branch: "old/one", archivedAt: Date.now() - 2 * 60 * 60_000 }),
+      workspace({ id: "wks_00000000000000a2", branch: "old/two", archivedAt: Date.now() - 5 * 60_000 }),
+    ],
+    sessions: [
+      ...base.sessions,
+      session({ sessionId: "m1", containerId: MERGED, prompt: "收尾", running: true }),
+      session({ sessionId: "m2", containerId: MERGED, prompt: "早先的", running: true, archived: true }),
+      session({ sessionId: "m3", containerId: MERGED, prompt: "闲着" }),
+    ],
+  };
+}
+
+/**
+ * Opens the "···" menu of the n-th workspace row.
+ *
+ * @sideEffects Hovers and clicks in the page.
+ * @param screen - The rendered workbench.
+ * @param nth - Which row, from 0.
+ * @param name - The workspace's name.
+ */
+async function workspaceMenu(screen: Awaited<ReturnType<typeof workbench>>["screen"], nth: number, name: string) {
+  const row = screen.getByTestId("workspace-row").nth(nth);
+  await row.hover();
+  await row.getByRole("button", { name: `工作区 ${name}` }).click();
+}
+
+/**
+ * Opens the project's "···" menu.
+ *
+ * @sideEffects Hovers and clicks in the page.
+ * @param screen - The rendered workbench.
+ */
+async function projectMenu(screen: Awaited<ReturnType<typeof workbench>>["screen"]) {
+  const project = screen.getByTestId("project-row");
+  await project.hover();
+  await project.getByRole("button", { name: "项目 atrium" }).click();
+}
+
+describe("Workbench workspace archiving (M1.11)", () => {
+  it("asks before archiving a worktree, saying its branch is kept and its running sessions stop, then hides it", async () => {
+    const { screen, calls } = await workbench({ initial: archivable() });
+    await workspaceMenu(screen, 2, "fix/typo");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+
+    const dialog = screen.getByRole("alertdialog", { name: "归档工作区「fix/typo」？" });
+    await expect
+      .element(dialog)
+      .toHaveAccessibleDescription(
+        "会删除 worktree 目录（包括被 git 忽略的文件），分支 fix/typo 保留；之后可以在项目菜单的“已归档的工作区”里恢复 其中 1 个会话正在运行，归档会停止它们",
+      );
+    await expect.element(dialog.getByRole("button", { name: "取消" })).toHaveFocus();
+    // On the page's body, so it covers the whole window rather than the sidebar.
+    expect(dialog.element().closest("nav")).toBeNull();
+    expect(calls).not.toContain(`archiveWorkspace ${MERGED}`);
+
+    await dialog.getByRole("button", { name: "归档" }).click();
+
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(calls).toContain(`archiveWorkspace ${MERGED}`);
+    expect(calls).not.toContain(`selectContainer ${MERGED}`);
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(2));
+    await expect.element(screen.getByTestId("workspace-row").nth(1)).toHaveTextContent("feat/sidebar3未提交");
+  });
+
+  it("says a detached worktree's commit is kept, and warns of nothing when none of its sessions runs", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        workspaces: [...base.workspaces, workspace({ id: "wks_00000000000000d1", branch: null, head: "abc1234" })],
+      },
+    });
+    await workspaceMenu(screen, 2, "wks_00000000000000d1");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+
+    await expect
+      .element(screen.getByRole("alertdialog"))
+      .toHaveAccessibleDescription(
+        "会删除 worktree 目录（包括被 git 忽略的文件），提交 abc1234 保留；之后可以在项目菜单的“已归档的工作区”里恢复",
+      );
+  });
+
+  it("says nothing is kept when the worktree was on neither a branch nor a commit", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        workspaces: [...base.workspaces, workspace({ id: "wks_00000000000000d2", branch: null, head: null })],
+      },
+    });
+    await workspaceMenu(screen, 2, "wks_00000000000000d2");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+
+    await expect
+      .element(screen.getByRole("alertdialog"))
+      .toHaveAccessibleDescription(
+        "会删除 worktree 目录（包括被 git 忽略的文件）；之后可以在项目菜单的“已归档的工作区”里恢复",
+      );
+  });
+
+  it("offers archiving only for a worktree, and not while it has changes not committed", async () => {
+    const { screen } = await workbench();
+    await workspaceMenu(screen, 0, "main");
+
+    await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeVisible();
+    await expect.element(screen.getByRole("menuitem", { name: "归档…" })).not.toBeInTheDocument();
+
+    await userEvent.keyboard("{Escape}");
+    await workspaceMenu(screen, 1, "feat/sidebar");
+    const archive = screen.getByRole("menuitem", { name: "归档…" });
+    await expect.element(archive).toBeDisabled();
+    await expect.element(archive).toHaveAttribute("title", "有未提交的改动，先提交或丢弃");
+  });
+
+  it("cancels with 取消, Escape or a click outside, archiving nothing", async () => {
+    const { screen, calls } = await workbench();
+    const dialog = screen.getByRole("alertdialog");
+    const ways = [
+      () => dialog.getByRole("button", { name: "取消" }).click(),
+      () => userEvent.keyboard("{Escape}"),
+      () => screen.getByTestId("archive-scrim").click({ position: { x: 5, y: 5 } }),
+    ];
+    for (const cancel of ways) {
+      await workspaceMenu(screen, 2, "fix/typo");
+      await screen.getByRole("menuitem", { name: "归档…" }).click();
+      await expect.element(dialog).toBeVisible();
+      await cancel();
+      await expect.element(dialog).not.toBeInTheDocument();
+    }
+
+    expect(calls.filter((call) => call.startsWith("archiveWorkspace"))).toStrictEqual([]);
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
+  });
+
+  it("waits while archiving, then says why it failed and lets the user try again", async () => {
+    const answer = Promise.withResolvers<void>();
+    const { screen, calls } = await workbench({ answers: { archiveWorkspace: () => answer.promise } });
+    await workspaceMenu(screen, 2, "fix/typo");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    const dialog = screen.getByRole("alertdialog");
+    await dialog.getByRole("button", { name: "归档" }).click();
+
+    await expect.element(dialog.getByRole("button", { name: "归档中…" })).toBeDisabled();
+    await expect.element(dialog.getByRole("button", { name: "取消" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    await screen.getByTestId("archive-scrim").click({ position: { x: 5, y: 5 }, force: true });
+    await expect.element(dialog).toBeVisible();
+
+    answer.reject(new CommandError("workspace_dirty"));
+
+    await expect.element(dialog.getByRole("alert")).toHaveTextContent("有未提交的改动，先提交或丢弃再归档");
+    await expect.element(dialog.getByRole("button", { name: "归档" })).toBeEnabled();
+    expect(calls.filter((call) => call.startsWith("archiveWorkspace"))).toStrictEqual([`archiveWorkspace ${MERGED}`]);
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
+  });
+
+  it("lays the dialog out as a 380 px card over a blurred scrim, its buttons 30 px tall", async () => {
+    const { screen } = await workbench();
+    await workspaceMenu(screen, 2, "fix/typo");
+    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    const dialog = screen.getByRole("alertdialog").element();
+    const scrim = screen.getByTestId("archive-scrim").element();
+
+    expect(dialog.getBoundingClientRect().width).toBe(380);
+    expect(getComputedStyle(scrim).backdropFilter).toContain("blur(8px)");
+    expect([scrim.getBoundingClientRect().width, scrim.getBoundingClientRect().height]).toStrictEqual([1280, 820]);
+    expect(
+      ["取消", "归档"].map(
+        (name) =>
+          screen.getByRole("alertdialog").getByRole("button", { name }).element().getBoundingClientRect().height,
+      ),
+    ).toStrictEqual([30, 30]);
+  });
+
+  it("hides archived workspaces from the projects and search, listing them in the project's menu newest first, opened and closed in place", async () => {
+    const { screen } = await workbench({ initial: archivable() });
+
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "old/");
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+
+    await expect
+      .element(screen.getByRole("list", { name: "已归档的工作区" }))
+      .toHaveTextContent("old/two5 分钟前恢复old/one2 小时前恢复");
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    await expect.element(screen.getByRole("list", { name: "已归档的工作区" })).not.toBeInTheDocument();
+    await expect
+      .element(screen.getByRole("menuitem", { name: "已归档的工作区" }))
+      .toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("leaves the archived item out of a project with none archived", async () => {
+    const { screen } = await workbench();
+    await projectMenu(screen);
+
+    await expect.element(screen.getByRole("menuitem", { name: "从侧栏移除" })).toBeVisible();
+    await expect.element(screen.getByRole("menuitem", { name: "已归档的工作区" })).not.toBeInTheDocument();
+  });
+
+  it("restores an archived workspace from the list, closing the menu and showing it again", async () => {
+    const { screen, calls } = await workbench({ initial: archivable() });
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    await screen.getByRole("menuitem", { name: "恢复 old/one" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain("restoreWorkspace wks_00000000000000a1"));
+    await expect.element(screen.getByRole("menu")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(4));
+    await expect.element(screen.getByTestId("workspace-row").nth(2)).toHaveTextContent("old/one");
+  });
+
+  it("shows eight archived workspaces before the list scrolls", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        workspaces: Array.from({ length: 10 }, (_, n) =>
+          workspace({ id: `wks_00000000000000b${n}`, archivedAt: Date.now() - n * 60_000 }),
+        ),
+      },
+    });
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    const shown = screen.getByRole("list", { name: "已归档的工作区" }).element();
+
+    expect([shown.clientHeight, shown.scrollHeight]).toStrictEqual([256, 320]);
+  });
+
+  it("explains a restore that failed", async () => {
+    const { screen } = await workbench({
+      initial: archivable(),
+      answers: { restoreWorkspace: () => Promise.reject(new CommandError("worktree_restore_failed")) },
+    });
+    await projectMenu(screen);
+    await screen.getByRole("menuitem", { name: "已归档的工作区" }).click();
+    await screen.getByRole("menuitem", { name: "恢复 old/two" }).click();
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("没能恢复：git 没能加回这个 worktree，分支可能正被别处检出");
+  });
+});
+
+describe("describeArchiveError", () => {
+  it("says why archiving failed for each code, and that the host failed otherwise", () => {
+    const failures = [
+      new CommandError("workspace_dirty"),
+      new CommandError("workspace_unsaved_commits"),
+      new CommandError("worktree_remove_failed"),
+      new CommandError("workspace_not_found"),
+      new CommandError("internal_error"),
+      new Error("boom"),
+    ];
+
+    expect(failures.map(describeArchiveError)).toStrictEqual([
+      "有未提交的改动，先提交或丢弃再归档",
+      "当前提交不在任何分支上，先建一个分支再归档",
+      "git 没能删除这个 worktree",
+      "这个工作区已经不在了",
+      "宿主出错了，没有完成",
+      "宿主出错了，没有完成",
+    ]);
+  });
+});
+
+describe("describeRestoreError", () => {
+  it("says why restoring failed for each reason, and that git failed without one", () => {
+    const failures = ["no_branch", "dir_taken", "branch_gone", "other"].map(
+      (reason) => new CommandError("worktree_restore_failed", { reason }),
+    );
+
+    expect([...failures, new CommandError("worktree_restore_failed")].map(describeRestoreError)).toStrictEqual([
+      "没能恢复：不知道它归档时的分支",
+      "没能恢复：目录已被占用",
+      "没能恢复：分支已删除",
+      "没能恢复：git 没能加回这个 worktree，分支可能正被别处检出",
+      "没能恢复：git 没能加回这个 worktree，分支可能正被别处检出",
     ]);
   });
 });
@@ -469,6 +966,25 @@ describe("Workbench keys and focus", () => {
 
     await expect.element(screen.getByText("开始一段对话")).toBeVisible();
     await userEvent.keyboard("{Meta>}t{/Meta}");
+
+    await vi.waitFor(() => expect(calls).toContain("createChat"));
+  });
+
+  it("creates a session in the chat the client is in with ⌘T and the tab bar's +, and a new chat with ⌘N", async () => {
+    const { calls, screen } = await workbench({
+      initial: { ...list(), layout: { container: CHAT, tabs: { [CHAT]: { open: ["c1"], active: "c1" } } } },
+    });
+
+    await userEvent.keyboard("{Meta>}t{/Meta}");
+    await vi.waitFor(() => expect(calls).toContain(`createSession ${CHAT}`));
+    await screen.getByRole("button", { name: "新建会话（⌘T）" }).click();
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.startsWith("create"))).toStrictEqual([
+        `createSession ${CHAT}`,
+        `createSession ${CHAT}`,
+      ]),
+    );
+    await userEvent.keyboard("{Meta>}n{/Meta}");
 
     await vi.waitFor(() => expect(calls).toContain("createChat"));
   });
@@ -657,6 +1173,7 @@ describe("Workbench dots", () => {
       maxOutput: 128_000,
       supportsImage: true,
       thinkingLevels: ["off", "low", "medium", "high"],
+      fast: null,
     } as const;
     const { screen, connection } = await workbench({
       initial: {

@@ -31,10 +31,39 @@ const ConfigEnvelope = z.object({ type: z.literal("config") });
 /** Asks the host to stop. */
 const ShutdownMessage = z.object({ type: z.literal("shutdown") });
 
+/**
+ * One process of the desktop app as Electron's `app.getAppMetrics()` reports it, every minute.
+ *
+ * @remarks
+ * Electron's main process has no log of its own, so it hands these to the host, which logs them
+ * next to its own resource counts (observability.md, "和测试的关系"). The bounds keep a broken
+ * sender from flooding the log.
+ */
+const AppProcessMetrics = z.object({
+  type: z.string().max(64),
+  memoryKb: z.number().int().nonnegative(),
+  cpuPercent: z.number().nonnegative(),
+});
+
+/** A valid entry of an app metrics message. */
+export type AppProcessMetrics = z.infer<typeof AppProcessMetrics>;
+
+/** The desktop app's processes, sampled once. */
+const AppMetricsMessage = z.object({ type: z.literal("app_metrics"), processes: z.array(AppProcessMetrics).max(256) });
+
+/** What `runUnderElectron` needs from a started host. */
+interface ElectronHost {
+  readonly port: number;
+  /** Stops the host. */
+  close(): Promise<void>;
+  /** Logs one sample of the desktop app's processes. */
+  recordAppMetrics(processes: readonly AppProcessMetrics[]): void;
+}
+
 /** What `runUnderElectron` needs from the process; `entry.ts` passes the real ones. */
 export interface ElectronRuntime {
   /** Starts the host from a valid config message. */
-  start(request: HostStartRequest): Promise<{ readonly port: number; close(): Promise<void> }>;
+  start(request: HostStartRequest): Promise<ElectronHost>;
   /** Ends the process. */
   exit(code: number): void;
 }
@@ -48,22 +77,28 @@ export interface ElectronRuntime {
  * promise: a shutdown that arrives while the host is still starting waits for it and then closes
  * it, so the parent never sees `ready` from a host that is about to exit. A failed start is
  * reported and ends the process with a non-zero code instead of leaving it idle. Starting and
- * exiting are passed in, so this race can be tested without Electron.
+ * exiting are passed in, so this race can be tested without Electron. App metrics go only to a
+ * host that is ready and not shutting down; others are dropped, since a missed sample costs
+ * nothing.
  *
- * @sideEffects Listens for parent messages; starts the host; posts `ready` or `failed`; stops the
- * host and exits on `shutdown` or after a failed start.
+ * @sideEffects Listens for parent messages; starts the host; posts `ready` or `failed`; hands app
+ * metrics to the running host; stops the host and exits on `shutdown` or after a failed start.
  * @param parentPort - Electron's port to the main process.
  * @param runtime - How to start the host and end the process.
  */
 export function runUnderElectron(parentPort: ParentPort, runtime: ElectronRuntime): void {
-  let starting: Promise<{ close(): Promise<void> } | null> | undefined;
+  let starting: Promise<ElectronHost | null> | undefined;
+  let running: ElectronHost | undefined;
   let shuttingDown = false;
   parentPort.on("message", ({ data }) => {
     const config = ConfigMessage.safeParse(data);
     if (config.success && starting === undefined) {
       starting = runtime.start(config.data).then(
         (host) => {
-          if (!shuttingDown) parentPort.postMessage({ type: "ready", port: host.port });
+          if (!shuttingDown) {
+            running = host;
+            parentPort.postMessage({ type: "ready", port: host.port });
+          }
           return host;
         },
         (error: unknown) => {
@@ -77,8 +112,12 @@ export function runUnderElectron(parentPort: ParentPort, runtime: ElectronRuntim
       runtime.exit(1);
     } else if (ShutdownMessage.safeParse(data).success && !shuttingDown) {
       shuttingDown = true;
+      running = undefined;
       // Fire and forget: the process exits at the end of this chain, so nothing awaits it.
       void (starting ?? Promise.resolve(null)).then((host) => host?.close()).finally(() => runtime.exit(0));
+    } else {
+      const metrics = AppMetricsMessage.safeParse(data);
+      if (metrics.success) running?.recordAppMetrics(metrics.data.processes);
     }
   });
 }

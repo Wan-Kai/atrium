@@ -2,6 +2,7 @@ export { compareWithBaseline } from "./bench";
 export { FakeClock } from "./clock";
 export { FAKE_PI_SOURCE, type FakePiPackage, writeFakePiPackage } from "./fake-pi-package";
 export {
+  FAUX_BASE_URL_ENV,
   FAUX_MODEL,
   FAUX_PROVIDER,
   type FauxBlock,
@@ -10,6 +11,7 @@ export {
   type FauxScript,
   fauxPi,
 } from "./faux/script";
+export { CODEX_MODEL_LIST, type ListRequest, type ModelListServer, startModelListServer } from "./model-list-server";
 export { GIT_SCENE_ENV, type GitScene, createGitScene, gitSceneEnv } from "./git";
 export { present } from "./present";
 export { type ScriptedPiBehavior, type ScriptedRule, warmScriptedPi, writeScriptedPi } from "./scripted-pi";

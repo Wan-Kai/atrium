@@ -72,7 +72,7 @@ async function sessionFilesWith(agentDir: string, text: string): Promise<number>
   return contents.filter((content) => content.includes(text)).length;
 }
 
-test("runs three chats at once in the background, through tab switches, a dropped connection and a host restart", async () => {
+test("runs three sessions of a chat at once in the background, through tab switches, a dropped connection and a host restart", async () => {
   const pi = await fauxPiEnvironment({
     replies: [
       { waitFor: "first", blocks: [{ type: "text", text: "做完了" }] },

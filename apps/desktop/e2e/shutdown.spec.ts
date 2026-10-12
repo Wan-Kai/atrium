@@ -35,3 +35,29 @@ test("waits for a host that is slow to exit before quitting", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("hands samples of the app's processes to the host's log while it runs", async () => {
+  const launched = await launchApp({ ATRIUM_APP_METRICS_INTERVAL_MS: "200" });
+
+  try {
+    await expect
+      .poll(async () => (await launched.readHostLog()).filter((record) => record["msg"] === "app metrics").length)
+      .toBeGreaterThanOrEqual(2);
+    await launched.quit();
+    const log = await launched.readHostLog();
+    const samples = log.filter((record) => record["msg"] === "app metrics");
+    const processes = samples[0]?.["processes"] as Array<Record<string, unknown>>;
+
+    expect(processes.map((process) => process["type"])).toEqual(expect.arrayContaining(["Browser", "Utility"]));
+    for (const process of processes) {
+      expect(process).toStrictEqual({
+        type: expect.any(String),
+        memoryKb: expect.any(Number),
+        cpuPercent: expect.any(Number),
+      });
+    }
+    expect(log.at(-1)).toMatchObject({ msg: "host stopped" });
+  } finally {
+    await launched.cleanup();
+  }
+});

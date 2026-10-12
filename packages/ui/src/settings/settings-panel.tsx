@@ -1,12 +1,14 @@
 import type { AtriumClient } from "@atrium/client";
 import type { Appearance } from "@atrium/protocol";
-import { Folder, Info, Monitor, Moon, Palette, Sun, Terminal, User, X } from "@phosphor-icons/react";
+import { Folder, Info, Monitor, Moon, Palette, Sun, Terminal, User, X } from "../design/icons";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useStore } from "zustand";
+import { describeConnection } from "../app/connection-status";
 import { piUpdateAvailable } from "../setup/pi-version";
 import { AccountsSection } from "./accounts-section";
 import { BUTTON, Group, PiMark, Row } from "./parts";
 import { PiSection } from "./pi-section";
+import { ProxyGroup } from "./proxy-group";
 import { ProjectsSection } from "./projects-section";
 
 /** A part of the settings. */
@@ -27,7 +29,12 @@ const SECTIONS: readonly {
     lead: "登录模型服务商、管理 API Key，选择起标题用的模型。凭据都保存在 pi 里。",
   },
   { id: "projects", name: "项目", icon: <Folder size={16} />, lead: "每个项目的主干分支。" },
-  { id: "pi", name: "pi", icon: <Terminal size={16} />, lead: "Atrium 用的就是你装的 pi：位置、版本和更新。" },
+  {
+    id: "pi",
+    name: "pi",
+    icon: <Terminal size={16} />,
+    lead: "Atrium 用的就是你装的 pi：位置、版本、更新和网络代理。",
+  },
   { id: "about", name: "关于", icon: <Info size={16} />, lead: "版本与日志。" },
 ];
 
@@ -146,7 +153,12 @@ export function SettingsPanel({
             {section === "appearance" ? <AppearanceSection client={client} /> : null}
             {section === "accounts" ? <AccountsSection client={client} openUrl={openUrl} /> : null}
             {section === "projects" ? <ProjectsSection client={client} /> : null}
-            {section === "pi" ? <PiSection client={client} reveal={reveal} /> : null}
+            {section === "pi" ? (
+              <>
+                <PiSection client={client} reveal={reveal} />
+                <ProxyGroup client={client} />
+              </>
+            ) : null}
             {section === "about" ? <AboutSection client={client} reveal={reveal} /> : null}
           </div>
         </div>
@@ -219,11 +231,12 @@ function AppearanceSection({ client }: { readonly client: AtriumClient }) {
 }
 
 /**
- * The settings' about: Atrium's version, pi's, and the log folder.
+ * The settings' about: Atrium's version, the connection to the host, pi's version, and the log folder.
  *
  * @remarks
- * SPEC-0001 ("设置 · 关于"). Atrium's version is the host's. Logs help a problem report and hold
- * no credentials or conversations (observability.md).
+ * SPEC-0001 ("设置 · 关于"). Atrium's version is the host's. The connection shows here rather than
+ * in the main window, which mentions it only when not connected. Logs help a problem report and
+ * hold no credentials or conversations (observability.md).
  *
  * @sideEffects Subscribes to the client's connection and setup; may show the log folder in the
  * Finder.
@@ -267,6 +280,15 @@ function AboutSection({
         compact
         label="Atrium 版本"
         controls={<span className="text-[var(--text-2)] tabular-nums">{version ?? "—"}</span>}
+      />
+      <Row
+        compact
+        label="连接"
+        controls={
+          <span className="text-[var(--text-2)]">
+            {connection.status === "connected" ? "已连接" : describeConnection(connection)}
+          </span>
+        }
       />
       <Row
         compact

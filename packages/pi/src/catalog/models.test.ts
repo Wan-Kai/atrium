@@ -54,7 +54,7 @@ describe("thinkingLevelsOf", () => {
 
 describe("toCatalogModel", () => {
   it("keeps what the model panel shows", () => {
-    expect(toCatalogModel(piModel({ thinkingLevelMap: { max: "max" } }))).toStrictEqual({
+    expect(toCatalogModel(piModel({ thinkingLevelMap: { max: "max" } }), null)).toStrictEqual({
       providerId: "anthropic",
       modelId: "claude-opus-5-5",
       name: "Claude Opus 5.5",
@@ -62,22 +62,37 @@ describe("toCatalogModel", () => {
       maxOutput: 128_000,
       supportsImage: true,
       thinkingLevels: ["off", "minimal", "low", "medium", "high", "max"],
+      fast: null,
+    });
+  });
+
+  it("gives a model what Fast does for it, by Codex's model list, or the built-in rule without one", () => {
+    const tiers = new Map([["gpt-6-sol", { speed: 1.5, moreUsage: false }]]);
+
+    expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-6-sol" }), tiers)?.fast).toStrictEqual({
+      speed: 1.5,
+      moreUsage: false,
+    });
+    expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-5.5" }), tiers)?.fast).toBeNull();
+    expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-5.5" }), null)?.fast).toStrictEqual({
+      speed: null,
+      moreUsage: true,
     });
   });
 
   it("says a text-only model takes no images", () => {
-    expect(toCatalogModel(piModel({ input: ["text"] }))?.supportsImage).toBe(false);
+    expect(toCatalogModel(piModel({ input: ["text"] }), null)?.supportsImage).toBe(false);
   });
 
   it("names a model without a name by its id", () => {
-    expect(toCatalogModel(piModel({ name: "" }))?.name).toBe("claude-opus-5-5");
+    expect(toCatalogModel(piModel({ name: "" }), null)?.name).toBe("claude-opus-5-5");
   });
 
   it("cuts a name too long to send, and leaves out a model whose id or provider is", () => {
-    expect(toCatalogModel(piModel({ name: "n".repeat(600) }))?.name).toBe("n".repeat(512));
-    expect(toCatalogModel(piModel({ id: "i".repeat(512), provider: "p".repeat(256) }))).not.toBeNull();
-    expect(toCatalogModel(piModel({ id: "i".repeat(513) }))).toBeNull();
-    expect(toCatalogModel(piModel({ provider: "p".repeat(257) }))).toBeNull();
+    expect(toCatalogModel(piModel({ name: "n".repeat(600) }), null)?.name).toBe("n".repeat(512));
+    expect(toCatalogModel(piModel({ id: "i".repeat(512), provider: "p".repeat(256) }), null)).not.toBeNull();
+    expect(toCatalogModel(piModel({ id: "i".repeat(513) }), null)).toBeNull();
+    expect(toCatalogModel(piModel({ provider: "p".repeat(257) }), null)).toBeNull();
   });
 });
 

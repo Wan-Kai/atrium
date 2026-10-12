@@ -1,4 +1,5 @@
-import { Appearance, Attention, DisplayMode, ModelRef, ThinkingLevel } from "@atrium/protocol";
+import { Appearance, Attention, DisplayMode, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
+import { basename } from "node:path";
 import { z } from "zod";
 import type { IndexFileSpec } from "./index-file";
 
@@ -25,8 +26,19 @@ const WorkspaceRecord = z.looseObject({
   /** The commit Atrium created the worktree at; `null` for an external one. */
   baseCommit: z.string().nullable(),
   external: z.boolean(),
+  /**
+   * When it was archived and what it had checked out then; absent or `null` when it is not
+   * (SPEC-0001, "M1.11 的工作区归档"). Added without a new version: older files have none.
+   */
+  archived: z
+    .strictObject({ at: z.number(), branch: z.string().nullable(), head: z.string().nullable() })
+    .nullable()
+    .optional(),
 });
 export type WorkspaceRecord = z.infer<typeof WorkspaceRecord>;
+
+/** How a workspace was archived, as its record keeps it. */
+export type WorkspaceArchive = NonNullable<WorkspaceRecord["archived"]>;
 
 const ProjectsDocument = z.looseObject({ projects: z.array(ProjectRecord), workspaces: z.array(WorkspaceRecord) });
 export type ProjectsDocument = z.infer<typeof ProjectsDocument>;
@@ -38,6 +50,23 @@ export const PROJECTS_FILE: IndexFileSpec<ProjectsDocument> = {
   schema: ProjectsDocument,
   empty: () => ({ projects: [], workspaces: [] }),
 };
+
+/** A chat's name, as `chats.json` keeps it; a chat without one has no record (ADR-0007). */
+const ChatRecord = z.looseObject({ id: z.string(), alias: z.string() });
+
+const ChatsDocument = z.looseObject({ chats: z.array(ChatRecord) });
+export type ChatsDocument = z.infer<typeof ChatsDocument>;
+
+/** `chats.json`: the names given to chats (domain-model §1, "索引的存储"). */
+export const CHATS_FILE: IndexFileSpec<ChatsDocument> = {
+  name: "chats",
+  version: 1,
+  schema: ChatsDocument,
+  empty: () => ({ chats: [] }),
+};
+
+/** The container every chat's session was filed under in version 1 of `sessions.json`. */
+const OLD_CHATS = "chats";
 
 /** A session Atrium created or archived, as `sessions.json` keeps it. */
 const SessionRecord = z.looseObject({
@@ -54,6 +83,8 @@ const SessionRecord = z.looseObject({
   attention: Attention.nullable().optional(),
   /** It was handed to pi in a terminal (SPEC-0001, "交给终端"); added in M1.9. */
   handedOff: z.boolean().optional(),
+  /** Fast as last switched in it (SPEC-0001, "Fast"); added in M1.11. */
+  fast: z.boolean().optional(),
 });
 export type SessionRecord = z.infer<typeof SessionRecord>;
 
@@ -63,10 +94,36 @@ export type SessionsDocument = z.infer<typeof SessionsDocument>;
 /** `sessions.json`: the sessions Atrium created or archived (domain-model §1, "索引的存储"). */
 export const SESSIONS_FILE: IndexFileSpec<SessionsDocument> = {
   name: "sessions",
-  version: 1,
+  version: 2,
   schema: SessionsDocument,
   empty: () => ({ sessions: [] }),
+  migrations: {
+    // Each chat is its own container now, named after its directory (ADR-0007).
+    1: ({ sessions, ...rest }) => ({
+      ...rest,
+      sessions: Array.isArray(sessions) ? sessions.map(chatOfRecord) : sessions,
+    }),
+  },
 };
+
+/**
+ * Files a version 1 session record of the chats under its own chat.
+ *
+ * @remarks
+ * Its chat is the one of its working directory, `cht_<directory name>` (domain-model §1, "索引的存储").
+ * Anything else, as a record a hand broke, is left for the schema to judge.
+ *
+ * @sideEffects none
+ * @param record - The record.
+ * @returns The record, filed under its chat.
+ */
+function chatOfRecord(record: unknown): unknown {
+  if (typeof record !== "object" || record === null) return record;
+  const containerId: unknown = Reflect.get(record, "containerId");
+  const cwd: unknown = Reflect.get(record, "cwd");
+  if (containerId !== OLD_CHATS || typeof cwd !== "string") return record;
+  return { ...record, containerId: `cht_${basename(cwd)}` };
+}
 
 const Tabs = z.looseObject({ open: z.array(z.string()), active: z.string().nullable() });
 export type TabsRecord = z.infer<typeof Tabs>;
@@ -83,13 +140,74 @@ export type ClientLayout = z.infer<typeof ClientLayout>;
 const LayoutsDocument = z.looseObject({ clients: z.array(ClientLayout) });
 export type LayoutsDocument = z.infer<typeof LayoutsDocument>;
 
-/** `layouts.json`: each client's tabs and where it is (domain-model, "已决定 4"). */
-export const LAYOUTS_FILE: IndexFileSpec<LayoutsDocument> = {
-  name: "layouts",
-  version: 1,
-  schema: LayoutsDocument,
-  empty: () => ({ clients: [] }),
-};
+/**
+ * `layouts.json`: each client's tabs and where it is (domain-model, "已决定 4").
+ *
+ * @remarks
+ * Upgrading version 1 needs the sessions' containers, since the tabs of the chats go to each
+ * session's own chat (domain-model §1, "索引的存储"); so `sessions.json` is loaded first.
+ *
+ * @sideEffects none
+ * @param sessions - `sessions.json` as loaded.
+ * @returns The file's spec.
+ */
+export function layoutsFile(sessions: SessionsDocument): IndexFileSpec<LayoutsDocument> {
+  const containers = new Map(sessions.sessions.map((record) => [record.sessionId, record.containerId]));
+  return {
+    name: "layouts",
+    version: 2,
+    schema: LayoutsDocument,
+    empty: () => ({ clients: [] }),
+    migrations: {
+      1: (document) => ({
+        ...document,
+        clients: Array.isArray(document["clients"])
+          ? document["clients"].map((client: unknown) => splitChats(client, containers))
+          : document["clients"],
+      }),
+    },
+  };
+}
+
+/**
+ * Moves a version 1 client layout's tabs of the chats to each session's own chat.
+ *
+ * @remarks
+ * Tabs keep their order; the active tab stays active in its chat, the first tab is active in each
+ * other chat, which would otherwise show nothing, and a client that was in the chats goes to the
+ * active tab's chat, or nowhere without one. A tab whose session has no record, or whose
+ * record is not a chat's, is dropped. Anything a hand broke is left for the schema to judge.
+ *
+ * @sideEffects none
+ * @param client - The client's layout.
+ * @param containers - Each recorded session's container.
+ * @returns The layout.
+ */
+function splitChats(client: unknown, containers: ReadonlyMap<string, string>): unknown {
+  const parsed = ClientLayout.safeParse(client);
+  if (!parsed.success) return client;
+  const { [OLD_CHATS]: old, ...tabs } = parsed.data.tabs;
+  if (old === undefined && parsed.data.container !== OLD_CHATS) return client;
+  const moved: Record<string, TabsRecord> = {};
+  for (const sessionId of old?.open ?? []) {
+    const chatId = containers.get(sessionId);
+    if (chatId === undefined || !chatId.startsWith("cht_")) continue;
+    const into = moved[chatId] ?? { open: [], active: null };
+    moved[chatId] = {
+      open: [...into.open, sessionId],
+      active: sessionId === old?.active ? sessionId : (into.active ?? sessionId),
+    };
+  }
+  const active = old?.active ?? null;
+  const activeChat = active === null ? undefined : containers.get(active);
+  const container =
+    parsed.data.container !== OLD_CHATS
+      ? parsed.data.container
+      : activeChat !== undefined && moved[activeChat] !== undefined
+        ? activeChat
+        : null;
+  return { ...parsed.data, container, tabs: { ...tabs, ...moved } };
+}
 
 const PreferencesDocument = z.looseObject({
   appearance: Appearance,
@@ -104,6 +222,10 @@ const PreferencesDocument = z.looseObject({
   setupDone: z.boolean().optional(),
   /** The model that names sessions, `null` for each session's own; absent before M1.10 (SPEC-0001, "设置"). */
   titleModel: ModelRef.nullable().optional(),
+  /** The network proxy, `null` for the login shell's; absent before M1.11 (SPEC-0001, "设置 · pi"). */
+  proxy: ProxySetting.nullable().optional(),
+  /** Fast as last switched in any session; absent before M1.11's Fast (SPEC-0001, "Fast"). */
+  lastFast: z.boolean().optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 

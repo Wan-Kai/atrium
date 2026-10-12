@@ -26,6 +26,12 @@ describe("toSlashCommand", () => {
     });
   });
 
+  it("leaves out Atrium's Fast switch, but not a template of its name", () => {
+    expect(toSlashCommand({ name: "atrium-fast", description: "x", source: "extension", sourceInfo })).toBeNull();
+    expect(toSlashCommand({ name: "atrium-fast", source: "prompt", sourceInfo })?.name).toBe("atrium-fast");
+    expect(toSlashCommand({ name: "atrium-faster", source: "extension", sourceInfo })?.name).toBe("atrium-faster");
+  });
+
   it("cuts a description too long to send, and leaves out a command whose name is", () => {
     const long = "说".repeat(5000);
     expect(toSlashCommand({ name: "review", description: long, source: "prompt", sourceInfo })).toStrictEqual({

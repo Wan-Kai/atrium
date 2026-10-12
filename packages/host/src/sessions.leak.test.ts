@@ -61,8 +61,8 @@ function children(): number[] {
  * A host whose pi is a scripted one, and a client connected to it.
  *
  * @remarks
- * Each message starts a run that goes on until stopped; a stop ends it. pi reports the same
- * session id every time, so a test has one session at a time.
+ * Each message starts a run that goes on until stopped; a stop ends it. The host names each
+ * session itself, so the id pi reports goes unused.
  *
  * @sideEffects Creates temporary directories; starts a host.
  * @returns The host and the client.

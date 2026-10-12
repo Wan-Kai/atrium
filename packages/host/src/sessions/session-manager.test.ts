@@ -1,12 +1,5 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import {
-  CHATS,
-  CommandError,
-  IDLE_CONTROL,
-  type SessionEvent,
-  type SessionModel,
-  UNKNOWN_METRICS,
-} from "@atrium/protocol";
+import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,7 +8,7 @@ import { recordingTracing } from "../../test/recording-tracing";
 import { PONG_ENTRIES as getEntries, PONG_TURN as turn } from "../../test/scripted-chat";
 import { systemClock } from "../platform/clock";
 import { loadIndexFile } from "../store/index-file";
-import { LAYOUTS_FILE, SESSIONS_FILE } from "../store/index-schema";
+import { layoutsFile, SESSIONS_FILE } from "../store/index-schema";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
 import { createSessionCatalog } from "./session-catalog";
@@ -31,6 +24,9 @@ afterEach(async () => {
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 const WORKSPACE = "wks_000000000000000a";
 
+/** The chat the first `createChat` of a test makes: its directory is the first new id. */
+const CHAT = "cht_id1";
+
 /** pi's answers when it runs the session `pi-session-1`. */
 const SESSION_ONE = { get_state: { data: { sessionId: "pi-session-1" } }, get_entries: getEntries };
 
@@ -45,11 +41,53 @@ async function place() {
 }
 
 /**
+ * Tools as detection reports them, with a scripted pi that keeps sessions where the test looks.
+ *
+ * @remarks
+ * Each call writes its own pi, so two behaviors can share one home.
+ *
+ * @sideEffects Writes the scripted pi to a temporary directory.
+ * @param at - The directories.
+ * @param behavior - The pi's behavior.
+ * @returns The tools.
+ */
+async function scriptedTools(
+  at: Awaited<ReturnType<typeof place>>,
+  behavior: ScriptedPiBehavior,
+): Promise<SessionTools> {
+  const own = await createTempDir("scripted");
+  cleanups.push(own.cleanup);
+  const scripted = await writeScriptedPi(own.path, behavior);
+  return {
+    env: { PATH: process.env["PATH"] ?? "", PI_CODING_AGENT_SESSION_DIR: at.piSessions, ...scripted.env },
+    pi: { status: "ready", piPath: scripted.piPath, version: [1, 0, 2] },
+  };
+}
+
+/**
+ * A new session, once its pi has started.
+ *
+ * @remarks
+ * Opened as the UI opens a session it shows, which waits for the start under way.
+ *
+ * @sideEffects Opens the session for `client-1`.
+ * @param manager - The manager.
+ * @param created - The creation.
+ * @returns What the creation answered.
+ */
+async function started(manager: Manager, created: Promise<{ sessionId: string }>): Promise<{ sessionId: string }> {
+  const answer = await created;
+  await manager.openSession("client-1", answer.sessionId);
+  return answer;
+}
+
+/**
  * A manager over real index files, catalog and layouts, with a scripted pi.
  *
  * @remarks
- * `tools` is a scripted pi's behavior, or tools as detection would report them. The workspace
- * service is a stand-in that knows one workspace and records refreshes.
+ * `tools` is a scripted pi's behavior, tools as detection would report them, or how to ask for
+ * them each time. The workspace service is a stand-in that knows one workspace and records
+ * refreshes.
  *
  * @sideEffects Creates files; starts nothing until a command.
  * @param tools - The pi.
@@ -59,31 +97,28 @@ async function place() {
  * @param models - The model new sessions start with and where choices go, if a test needs them.
  * @param files - The file search behind `@`, if a test needs it.
  * @param titleModel - The title model pi can use in a directory, if a test needs one.
+ * @param fast - Fast's extension and the Fast of sessions without their own, if a test needs them.
  * @returns The manager and what tests look at.
  */
 async function manage(
-  tools: ScriptedPiBehavior | SessionTools | null,
+  tools: ScriptedPiBehavior | SessionTools | null | (() => Promise<SessionTools | null>),
   where?: Awaited<ReturnType<typeof place>>,
   turnStarts?: (sessionId: string) => Promise<TurnStarts>,
   location?: Promise<SessionsLocation | null>,
   models?: Parameters<typeof createSessionManager>[0]["models"],
   files?: Parameters<typeof createSessionManager>[0]["files"],
   titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
+  fast?: Parameters<typeof createSessionManager>[0]["fast"],
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
   cleanups.push(recording.shutdown);
-  let found: SessionTools | null;
-  if (tools === null || "pi" in tools) {
-    found = tools;
+  let detected: () => Promise<SessionTools | null>;
+  if (typeof tools === "function") {
+    detected = tools;
   } else {
-    const own = await createTempDir("scripted");
-    cleanups.push(own.cleanup);
-    const scripted = await writeScriptedPi(own.path, tools);
-    found = {
-      env: { PATH: process.env["PATH"] ?? "", PI_CODING_AGENT_SESSION_DIR: at.piSessions, ...scripted.env },
-      pi: { status: "ready", piPath: scripted.piPath, version: [1, 0, 2] },
-    };
+    const found = tools === null || "pi" in tools ? tools : await scriptedTools(at, tools);
+    detected = () => Promise.resolve(found);
   }
   const subscriptions = new SubscriptionRegistry(recording.resources);
   const received: SessionEvent[] = [];
@@ -98,13 +133,17 @@ async function manage(
     clock: systemClock,
     logger: recording.logger,
   });
-  const layouts = createLayouts({ file: (await loadIndexFile(index, LAYOUTS_FILE, 0)).file, clock: systemClock });
+  const layouts = createLayouts({
+    file: (await loadIndexFile(index, layoutsFile({ sessions: [] }), 0)).file,
+    clock: systemClock,
+  });
   const refreshed: string[] = [];
   let changes = 0;
   let next = 0;
+  let sessionsMade = 0;
   const manager = createSessionManager({
     chatsRoot: join(at.home, "chats"),
-    tools: () => Promise.resolve(found),
+    tools: detected,
     subscriptions,
     catalog,
     layouts,
@@ -118,10 +157,12 @@ async function manage(
     tracer: recording.tracer,
     logger: recording.logger,
     newId: () => `id${++next}`,
+    newSessionId: () => `pi-session-${++sessionsMade}`,
     ...(turnStarts === undefined ? {} : { turnStarts }),
     ...(models === undefined ? {} : { models }),
     ...(files === undefined ? {} : { files }),
     ...(titleModel === undefined ? {} : { titleModel }),
+    ...(fast === undefined ? {} : { fast }),
   });
   cleanups.push(
     () => manager.close(),
@@ -209,34 +250,50 @@ describe("SessionManager creating sessions", () => {
     const { manager, layouts } = await manage({ rules: SESSION_ONE });
 
     const creating = manager.createSession("client-1", WORKSPACE);
-    await manager.selectContainer("client-1", CHATS);
+    await manager.selectContainer("client-1", CHAT);
     const { sessionId } = await creating;
 
     expect(layouts.of("client-1")).toStrictEqual({
-      container: CHATS,
+      container: CHAT,
       tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
     });
   });
 
-  it("creates a chat in its own directory, starts its pi there, records it and opens it", async () => {
-    const { manager, catalog, layouts, at, starts, changes } = await manage({ argvToStderr: true, rules: SESSION_ONE });
+  it("creates a chat in its own directory, records and opens it before pi starts, then starts pi there with its id", async () => {
+    const at = await place();
+    const tools = Promise.withResolvers<SessionTools | null>();
+    const { manager, catalog, layouts, starts, changes } = await manage(() => tools.promise, at);
 
     expect(await manager.createChat("client-1")).toStrictEqual({ sessionId: "pi-session-1" });
 
     const cwd = join(at.home, "chats", "id1");
-    await vi.waitFor(() => expect(starts()).toStrictEqual([{ argv: ["--mode", "rpc"], cwd }]));
-    expect(catalog.find("pi-session-1")).toMatchObject({ containerId: "chats", cwd, state: "draft" });
+    expect(catalog.find("pi-session-1")).toMatchObject({ containerId: CHAT, cwd, state: "draft" });
     expect(layouts.of("client-1")).toStrictEqual({
-      container: "chats",
-      tabs: { chats: { open: ["pi-session-1"], active: "pi-session-1" } },
+      container: CHAT,
+      tabs: { [CHAT]: { open: ["pi-session-1"], active: "pi-session-1" } },
     });
     expect(changes()).toBeGreaterThan(0);
+    tools.resolve(await scriptedTools(at, { argvToStderr: true, rules: SESSION_ONE }));
+    await manager.openSession("client-1", "pi-session-1");
+    expect(starts()).toStrictEqual([{ argv: ["--mode", "rpc", "--session-id", "pi-session-1"], cwd }]);
+  });
+
+  it("keeps each new session under the id it gave it, whatever pi reports", async () => {
+    const { manager, received, resources } = await manage({ rules: SESSION_ONE });
+    await started(manager, manager.createChat("client-1"));
+    const { sessionId } = await started(manager, manager.createChat("client-1"));
+
+    await manager.subscribe("c1", [sessionId]);
+
+    expect(sessionId).toBe("pi-session-2");
+    expect(received).toMatchObject([{ type: "session_snapshot", sessionId: "pi-session-2", epoch: 1 }]);
+    expect(resources.snapshot()["pi-process"]).toBe(2);
   });
 
   it("turns pi's automatic retries on before reading the session, whatever pi's settings say", async () => {
     const { manager, sent } = await manage({ rules: SESSION_ONE });
 
-    await manager.createChat("client-1");
+    await started(manager, manager.createChat("client-1"));
 
     expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries", "get_session_stats"]);
   });
@@ -244,9 +301,9 @@ describe("SessionManager creating sessions", () => {
   it("creates a session in a workspace's directory, and refuses an unknown workspace", async () => {
     const { manager, catalog, layouts, at, starts } = await manage({ argvToStderr: true, rules: SESSION_ONE });
 
-    await manager.createSession("client-1", WORKSPACE);
+    await started(manager, manager.createSession("client-1", WORKSPACE));
 
-    await vi.waitFor(() => expect(starts()).toStrictEqual([{ argv: ["--mode", "rpc"], cwd: at.workspace }]));
+    expect(starts()).toStrictEqual([{ argv: ["--mode", "rpc", "--session-id", "pi-session-1"], cwd: at.workspace }]);
     expect(catalog.find("pi-session-1")).toMatchObject({ containerId: WORKSPACE, state: "draft" });
     expect(layouts.of("client-1").container).toBe(WORKSPACE);
     await expect(manager.createSession("client-1", "wks_ffffffffffffffff")).rejects.toStrictEqual(
@@ -257,28 +314,155 @@ describe("SessionManager creating sessions", () => {
   it.each([
     ["detection did not finish", null, "unknown"],
     ["pi is missing", { env: {}, pi: { status: "missing" } } satisfies SessionTools, "missing"],
-  ])("refuses to create a chat when %s, leaving no directory behind", async (_case, tools, status) => {
-    const { manager, at } = await manage(tools);
+  ])("creates a chat when %s, logs its start failing, and says why when it is opened", async (_case, tools, status) => {
+    const { manager, catalog, records } = await manage(tools);
 
-    await expect(manager.createChat("client-1")).rejects.toStrictEqual(new CommandError("pi_unavailable", { status }));
-    expect(await readdir(join(at.home, "chats"))).toStrictEqual([]);
+    const { sessionId } = await manager.createChat("client-1");
+    const opening = manager.openSession("client-1", sessionId);
+
+    await expect(opening).rejects.toStrictEqual(new CommandError("pi_unavailable", { status }));
+    expect(catalog.find(sessionId)?.state).toBe("draft");
+    await vi.waitFor(() =>
+      expect(records.filter((record) => record["msg"] === "session start failed")).toMatchObject([
+        { level: "warn", err: { code: "pi_unavailable" } },
+      ]),
+    );
   });
 
-  it("refuses to create a chat when pi exits before reporting its session", async () => {
-    const { manager } = await manage({ exitCode: 1 });
+  it("starts a new chat's pi again on its first message after its start failed", async () => {
+    const at = await place();
+    const tools = { current: null as SessionTools | null };
+    const { manager, starts } = await manage(() => Promise.resolve(tools.current), at);
+    const { sessionId } = await manager.createChat("client-1");
+    await expect(manager.openSession("client-1", sessionId)).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "unknown" }),
+    );
 
-    await expect(manager.createChat("client-1")).rejects.toStrictEqual(
+    tools.current = await scriptedTools(at, {
+      argvToStderr: true,
+      rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } },
+    });
+    const answer = await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+
+    expect(answer).toStrictEqual({ disposition: "started" });
+    expect(starts()).toStrictEqual([
+      { argv: ["--mode", "rpc", "--session-id", sessionId], cwd: join(at.home, "chats", "id1") },
+    ]);
+  });
+
+  it("fails the open of a new chat whose pi exits before reporting its session", async () => {
+    const { manager } = await manage({ exitCode: 1 });
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.openSession("client-1", sessionId)).rejects.toStrictEqual(
       new CommandError("pi_unavailable", { status: "exited" }),
     );
   });
 
   it("stops a pi that cannot report its session, instead of leaving it running", async () => {
     const { manager, resources } = await manage({ rules: { get_state: { fail: "not ready" } } });
+    const { sessionId } = await manager.createChat("client-1");
 
-    await expect(manager.createChat("client-1")).rejects.toStrictEqual(
+    await expect(manager.openSession("client-1", sessionId)).rejects.toStrictEqual(
       new CommandError("pi_unavailable", { status: "unresponsive" }),
     );
     expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("discards a new draft closed while its pi starts, stopping that pi", async () => {
+    const at = await place();
+    const tools = Promise.withResolvers<SessionTools | null>();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, catalog, layouts, resources } = await manage(() => tools.promise, at, undefined, scanned.promise);
+    const ready = await scriptedTools(at, { rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+
+    // The tab closes, and the draft is looked at again after the scan, while pi has not started.
+    const closing = manager.closeTab("client-1", sessionId);
+    await vi.waitFor(() => expect(layouts.isOpen(sessionId)).toBe(false));
+    const looked = catalog.ready();
+    scanned.resolve({ directory: at.piSessions, perCwd: false });
+    await looked;
+    tools.resolve(ready);
+    await closing;
+
+    expect(catalog.find(sessionId)).toBeUndefined();
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual([]);
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+    expect(resources.snapshot()["session.controller"]).toBe(0);
+  });
+
+  it("keeps a new draft closed while its pi starts when a message comes meanwhile, and sends it", async () => {
+    const at = await place();
+    const tools = Promise.withResolvers<SessionTools | null>();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, catalog, layouts, sent } = await manage(() => tools.promise, at, undefined, scanned.promise);
+    const ready = await scriptedTools(at, {
+      rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } },
+    });
+    const { sessionId } = await manager.createChat("client-1");
+    const closing = manager.closeTab("client-1", sessionId);
+    await vi.waitFor(() => expect(layouts.isOpen(sessionId)).toBe(false));
+    const looked = catalog.ready();
+    scanned.resolve({ directory: at.piSessions, perCwd: false });
+    await looked;
+    // Once this scan ends, the discard has looked at the draft and waits for its pi to start.
+    await catalog.scan();
+
+    const sending = manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    tools.resolve(ready);
+    await closing;
+
+    expect(await sending).toStrictEqual({ disposition: "started" });
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: CHAT });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(sent().filter((command) => command === "prompt")).toStrictEqual(["prompt"]);
+  });
+
+  it("keeps a new draft closed while its pi starts when another client opens it meanwhile, starting its pi again", async () => {
+    const at = await place();
+    const tools = Promise.withResolvers<SessionTools | null>();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, catalog, layouts, resources } = await manage(() => tools.promise, at, undefined, scanned.promise);
+    const ready = await scriptedTools(at, { rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+    const closing = manager.closeTab("client-1", sessionId);
+    await vi.waitFor(() => expect(layouts.isOpen(sessionId)).toBe(false));
+    const looked = catalog.ready();
+    scanned.resolve({ directory: at.piSessions, perCwd: false });
+    await looked;
+    // Once this scan ends, the discard has looked at the draft and waits for its pi to start.
+    await catalog.scan();
+
+    const opening = manager.openSession("client-2", sessionId);
+    tools.resolve(ready);
+    await closing;
+    await opening;
+
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: CHAT, state: "draft" });
+    expect(layouts.of("client-2")).toStrictEqual({
+      container: CHAT,
+      tabs: { [CHAT]: { open: [sessionId], active: sessionId } },
+    });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps a new chat's directory and draft when its tab cannot be written", async () => {
+    const { manager, catalog, at } = await manage({ rules: SESSION_ONE });
+    // A directory where the layouts file goes, so writing it fails.
+    const file = join(at.home, "index", "layouts.json");
+    await rm(file, { force: true });
+    await mkdir(join(file, "taken"), { recursive: true });
+
+    await expect(manager.createChat("client-1")).rejects.toMatchObject({ code: "EISDIR" });
+
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(catalog.find("pi-session-1")).toMatchObject({
+      containerId: CHAT,
+      state: "draft",
+      cwd: join(at.home, "chats", "id1"),
+    });
   });
 });
 
@@ -287,7 +471,7 @@ describe("SessionManager running sessions", () => {
     const { manager, received, records, refreshed, changes } = await manage({
       rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } },
     });
-    const { sessionId } = await manager.createSession("client-1", WORKSPACE);
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
     const runs: boolean[] = [];
 
     await manager.subscribe("c1", [sessionId]);
@@ -373,7 +557,7 @@ describe("SessionManager running sessions", () => {
 
   it("stops every pi when it closes, which subscribers see as a requested exit", async () => {
     const { manager, received } = await manage({ rules: SESSION_ONE });
-    const { sessionId } = await manager.createChat("client-1");
+    const { sessionId } = await started(manager, manager.createChat("client-1"));
     await manager.subscribe("c1", [sessionId]);
 
     await manager.close();
@@ -382,14 +566,34 @@ describe("SessionManager running sessions", () => {
     expect(received.at(-1)).toMatchObject({ reason: "requested", code: 0 });
   });
 
-  it("stops the pi of a chat whose creation finishes after the manager closed", async () => {
-    const { manager, resources } = await manage({ rules: SESSION_ONE });
+  it("stops the pi of a chat created after the manager closed before asking it anything", async () => {
+    const { manager, resources, sent } = await manage({ rules: SESSION_ONE });
 
     await manager.close();
+    await manager.createChat("client-1");
+    // Waits for the starts under way.
+    await manager.stopIdle();
 
-    await expect(manager.createChat("client-1")).rejects.toStrictEqual(
-      new CommandError("pi_unavailable", { status: "exited" }),
-    );
+    expect(sent()).toStrictEqual([]);
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("keeps no controller for a session whose pi came up as the manager closed", async () => {
+    const read = Promise.withResolvers<TurnStarts>();
+    const asked = Promise.withResolvers<void>();
+    const { manager, resources } = await manage({ rules: SESSION_ONE }, undefined, () => {
+      asked.resolve();
+      return read.promise;
+    });
+    await manager.createChat("client-1");
+    await asked.promise;
+
+    const closing = manager.close();
+    read.resolve({ opened: new Set(), auto: new Set(), record: () => Promise.resolve() });
+    await closing;
+
+    // None was ever kept.
+    expect(resources.snapshot()["session.controller"]).toBeUndefined();
     expect(resources.snapshot()["pi-process"]).toBe(0);
   });
 });
@@ -573,6 +777,7 @@ describe("SessionManager opening sessions", () => {
         exited: false,
         control: IDLE_CONTROL,
         model: null,
+        fast: false,
         metrics: UNKNOWN_METRICS,
       },
     ]);
@@ -584,6 +789,46 @@ describe("SessionManager opening sessions", () => {
     );
     expect(received[1]).toMatchObject({ type: "session_snapshot", epoch: 1 });
     await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
+  });
+});
+
+describe("SessionManager sessions in a chat", () => {
+  it("creates another session in a chat's directory, as a tab beside its first", async () => {
+    const { manager, catalog, layouts, at } = await manage({ rules: SESSION_ONE });
+    const first = await manager.createChat("client-1");
+
+    const second = await manager.createSession("client-1", CHAT);
+
+    const cwd = join(at.home, "chats", "id1");
+    expect(catalog.find(second.sessionId)).toMatchObject({ containerId: CHAT, cwd, state: "draft" });
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHAT,
+      tabs: { [CHAT]: { open: [first.sessionId, second.sessionId], active: second.sessionId } },
+    });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+  });
+
+  it("refuses a session in a chat that is not there, recording and opening nothing", async () => {
+    const { manager, catalog, layouts } = await manage({ rules: SESSION_ONE });
+
+    await expect(manager.createSession("client-1", "cht_gone")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_gone" }),
+    );
+    expect(catalog.list()).toStrictEqual([]);
+    expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
+  });
+
+  it("keeps a chat's directory when an empty draft goes while another session is in the chat", async () => {
+    const { manager, catalog, at } = await manage({ rules: SESSION_ONE });
+    const first = await manager.createChat("client-1");
+    const second = await manager.createSession("client-1", CHAT);
+
+    await manager.closeTab("client-1", second.sessionId);
+
+    expect(catalog.find(second.sessionId)).toBeUndefined();
+    expect(catalog.find(first.sessionId)).toMatchObject({ containerId: CHAT });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(catalog.chats().map((chat) => chat.id)).toStrictEqual([CHAT]);
   });
 });
 
@@ -599,7 +844,14 @@ describe("SessionManager tabs", () => {
 
     expect(catalog.find(sessionId)).toBeUndefined();
     expect(layouts.isOpen(sessionId)).toBe(false);
+    // Neither client stays in the chat gone.
+    expect([layouts.of("client-1"), layouts.of("client-2")]).toStrictEqual([
+      { container: null, tabs: {} },
+      { container: null, tabs: {} },
+    ]);
     expect(await readdir(join(at.home, "chats"))).toStrictEqual([]);
+    // The chat goes with its directory.
+    await vi.waitFor(() => expect(catalog.chats()).toStrictEqual([]));
     await vi.waitFor(() => expect(resources.snapshot()["pi-process"]).toBe(0));
     await expect(manager.subscribe("c1", [sessionId])).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId }),
@@ -607,7 +859,7 @@ describe("SessionManager tabs", () => {
   });
 
   it("keeps a session that got a message when its tab closes, though its file is not found yet", async () => {
-    const { manager, catalog, at, received } = await manage({
+    const { manager, catalog, at, received, refreshed } = await manage({
       rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } },
     });
     const chat = await manager.createChat("client-1");
@@ -619,16 +871,20 @@ describe("SessionManager tabs", () => {
 
     expect(catalog.find(chat.sessionId)).toMatchObject({ state: "draft" });
     expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    // A chat has no git to look at after a run.
+    expect(refreshed).toStrictEqual([]);
   });
 
   it("keeps a chat directory that holds files when its empty draft is discarded", async () => {
-    const { manager, at } = await manage({ rules: SESSION_ONE });
+    const { manager, layouts, at } = await manage({ rules: SESSION_ONE });
     const { sessionId } = await manager.createChat("client-1");
     await writeFile(join(at.home, "chats", "id1", "notes.md"), "kept");
 
     await manager.closeTab("client-1", sessionId);
 
     expect(await readdir(join(at.home, "chats", "id1"))).toStrictEqual(["notes.md"]);
+    // The chat is still there, and so is the client.
+    expect(layouts.of("client-1")).toStrictEqual({ container: CHAT, tabs: { [CHAT]: { open: [], active: null } } });
   });
 
   it("closes a tab closed while its opening waited for the first scan, as the client asked last", async () => {
@@ -643,7 +899,8 @@ describe("SessionManager tabs", () => {
     scanned.resolve({ directory: first.at.piSessions, perCwd: false });
     await Promise.all([opening, closing]);
 
-    expect(layouts.of("client-1")).toStrictEqual({ container: CHATS, tabs: { [CHATS]: { open: [], active: null } } });
+    // The draft was the chat's only session, so the chat went with it.
+    expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
     expect(catalog.find(sessionId)).toBeUndefined();
   });
 
@@ -657,10 +914,10 @@ describe("SessionManager tabs", () => {
 
     // Answered once the scan tells whether its pi should start; the tab does not wait for that.
     const opening = manager.openSession("client-1", sessionId);
-    await manager.selectContainer("client-1", CHATS);
+    await manager.selectContainer("client-1", CHAT);
 
     expect(layouts.of("client-1")).toStrictEqual({
-      container: CHATS,
+      container: CHAT,
       tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
     });
     scanned.resolve({ directory: first.at.piSessions, perCwd: false });
@@ -674,7 +931,7 @@ describe("SessionManager tabs", () => {
     const { manager, layouts } = await manage(null, at, undefined, scanned.promise);
 
     const opening = manager.openSession("client-1", "pi-session-1");
-    const selecting = manager.selectContainer("client-1", CHATS);
+    const selecting = manager.selectContainer("client-1", CHAT);
     await manager.close();
     scanned.resolve({ directory: at.piSessions, perCwd: false });
 
@@ -689,20 +946,20 @@ describe("SessionManager tabs", () => {
     const { manager, layouts } = await manage(null, at, undefined, scanned.promise);
 
     const opening = manager.openSession("client-1", "nope");
-    const selecting = manager.selectContainer("client-1", CHATS);
+    const selecting = manager.selectContainer("client-1", CHAT);
     scanned.resolve({ directory: at.piSessions, perCwd: false });
 
     await expect(opening).rejects.toStrictEqual(new CommandError("session_not_found", { sessionId: "nope" }));
     await selecting;
 
-    expect(layouts.of("client-1")).toStrictEqual({ container: CHATS, tabs: {} });
+    expect(layouts.of("client-1")).toStrictEqual({ container: CHAT, tabs: {} });
   });
 
   it("goes to a container or nowhere, and closes a tab it does not have without complaint", async () => {
     const { manager, layouts, changes } = await manage(null);
 
-    await manager.selectContainer("client-1", "chats");
-    expect(layouts.of("client-1").container).toBe("chats");
+    await manager.selectContainer("client-1", CHAT);
+    expect(layouts.of("client-1").container).toBe(CHAT);
     await manager.closeTab("client-1", "nope");
     await manager.selectContainer("client-1", null);
 
@@ -714,7 +971,7 @@ describe("SessionManager tabs", () => {
 describe("SessionManager archiving and renaming", () => {
   it("archives a session: stops its pi, closes its tabs everywhere and lets go of its controller", async () => {
     const { manager, catalog, layouts, received, resources } = await manage({ rules: SESSION_ONE });
-    const { sessionId } = await manager.createSession("client-1", WORKSPACE);
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
     await manager.subscribe("c1", [sessionId]);
     expect(resources.snapshot()["session.controller"]).toBe(1);
 
@@ -764,7 +1021,7 @@ describe("SessionManager archiving and renaming", () => {
 describe("SessionManager workspaces", () => {
   it("stops the sessions of workspaces that went away, lets go of their controllers and drops them from layouts", async () => {
     const { manager, layouts, received, resources } = await manage({ rules: SESSION_ONE });
-    const { sessionId } = await manager.createSession("client-1", WORKSPACE);
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
     await manager.subscribe("c1", [sessionId]);
     expect(resources.snapshot()["session.controller"]).toBe(1);
 
@@ -773,6 +1030,39 @@ describe("SessionManager workspaces", () => {
     expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
     expect(resources.snapshot()["session.controller"]).toBe(0);
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited" }));
+  });
+
+  it("archives every session of a workspace, drafts too: stops their pi, keeps no controller and drops the workspace from layouts", async () => {
+    const { manager, catalog, layouts, resources, changes } = await manage({ rules: SESSION_ONE });
+    const { sessionId: chat } = await started(manager, manager.createChat("client-1"));
+    const { sessionId: running } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const { sessionId: other } = await manager.createSession("client-1", WORKSPACE);
+    await manager.subscribe("c1", [running, chat]);
+    const before = changes();
+
+    await manager.archiveWorkspace(WORKSPACE);
+
+    const entry = (sessionId: string) => present(catalog.find(sessionId), sessionId);
+    expect([running, other, chat].map((sessionId) => entry(sessionId).archived)).toStrictEqual([true, true, false]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: null,
+      tabs: { [entry(chat).containerId]: { open: [chat], active: chat } },
+    });
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("stops the pi of every session of a workspace, archiving nothing and keeping layouts", async () => {
+    const { manager, catalog, layouts, resources } = await manage({ rules: SESSION_ONE });
+    const { sessionId: chat } = await started(manager, manager.createChat("client-1"));
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const layout = layouts.of("client-1");
+
+    await manager.stopWorkspace(WORKSPACE);
+
+    expect([sessionId, chat].map((id) => present(catalog.find(id), id).archived)).toStrictEqual([false, false]);
+    expect(layouts.of("client-1")).toStrictEqual(layout);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
   });
 
   it("lists its sessions with whether they run", async () => {
@@ -836,7 +1126,7 @@ describe("SessionManager turn starts", () => {
       Promise.reject(new Error("disk gone")),
     );
 
-    const { sessionId } = await manager.createChat("client-1");
+    const { sessionId } = await started(manager, manager.createChat("client-1"));
 
     expect(sessionId).toBe("pi-session-1");
     expect(records.filter((record) => record["msg"] === "turn starts could not be read")).toMatchObject([
@@ -930,7 +1220,7 @@ describe("SessionManager after the review (2026-10-08)", () => {
     await manager.closeTab("client-1", sessionId);
     await sending;
 
-    expect(catalog.find(sessionId)).toMatchObject({ containerId: "chats" });
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: CHAT });
     expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
   });
 
@@ -1048,7 +1338,7 @@ describe("SessionManager models", () => {
     const { models } = remembering({ providerId: "anthropic", modelId: "haiku", thinkingLevel: null });
     const { manager, sent } = await manage({ rules: SESSION_ONE }, undefined, undefined, undefined, models);
 
-    await manager.createChat("client-1");
+    await started(manager, manager.createChat("client-1"));
 
     expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries", "get_session_stats"]);
   });
@@ -1057,7 +1347,7 @@ describe("SessionManager models", () => {
     const { models } = remembering(null);
     const { manager, sent } = await manage({ rules: SESSION_ONE }, undefined, undefined, undefined, models);
 
-    await manager.createChat("client-1");
+    await started(manager, manager.createChat("client-1"));
 
     expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries", "get_session_stats"]);
   });
@@ -1072,7 +1362,7 @@ describe("SessionManager models", () => {
       models,
     );
 
-    expect(await manager.createChat("client-1")).toStrictEqual({ sessionId: "pi-session-1" });
+    expect(await started(manager, manager.createChat("client-1"))).toStrictEqual({ sessionId: "pi-session-1" });
 
     expect(sent()).toStrictEqual(["set_auto_retry", "set_model", "get_state", "get_entries", "get_session_stats"]);
     expect(records.filter((record) => record["msg"] === "remembered model not set")).toStrictEqual([
@@ -1181,6 +1471,254 @@ describe("SessionManager models", () => {
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
     await expect(manager.setThinkingLevel("nope", "low")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+});
+
+/** Where the tests' Fast extension is said to be; the scripted pi only reports the path. */
+const FAST_EXTENSION = "/Applications/Atrium.app/fast-extension.mjs";
+
+/** pi answering a session's commands, Atrium's Fast switch among them, and Fast switches, which it handles without a run. */
+const FAST_PI = {
+  ...SESSION_ONE,
+  get_commands: {
+    data: {
+      commands: [
+        { name: "review", description: "Reviews", source: "prompt", sourceInfo: {} },
+        { name: "atrium-fast", description: "Atrium's Fast switch", source: "extension", sourceInfo: {} },
+      ],
+    },
+  },
+  prompt: { data: { disposition: "handled" } },
+};
+
+/** The Fast switches a manager reported, and the Fast sessions without their own start with. */
+function fastMemory(initial: boolean) {
+  const chosen: boolean[] = [];
+  let last = initial;
+  return {
+    chosen,
+    /** Remembers another Fast, as a switch in another session would. */
+    prefer: (next: boolean) => {
+      last = next;
+    },
+    fast: { extension: FAST_EXTENSION, preferred: () => last, chosen: (enabled: boolean) => chosen.push(enabled) },
+  };
+}
+
+/** The messages among the commands pi received: the Fast switches, in these tests. */
+function fastSwitches(received: readonly Record<string, unknown>[]): unknown[] {
+  return received.filter((command) => command["type"] === "prompt").map((command) => command["message"]);
+}
+
+describe("SessionManager Fast", () => {
+  it("loads the Fast extension in a session's pi and switches Fast on, as last chosen, before reading the session", async () => {
+    const { fast } = fastMemory(true);
+    const { manager, piReceived, starts, received } = await manage(
+      { argvToStderr: true, receivedToStderr: true, rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+    );
+
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    // Lines with what pi received are on stderr too.
+    expect(
+      starts()
+        .map(({ argv }) => argv)
+        .filter((argv) => argv !== undefined),
+    ).toStrictEqual([["--mode", "rpc", "--session-id", "pi-session-1", "--extension", FAST_EXTENSION]]);
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).slice(0, 5)).toStrictEqual([
+        { type: "set_auto_retry", enabled: true },
+        { type: "get_commands" },
+        { type: "prompt", message: "/atrium-fast on" },
+        { type: "get_state" },
+        { type: "get_entries" },
+      ]),
+    );
+    expect(received).toMatchObject([{ type: "session_snapshot", fast: true }]);
+  });
+
+  it("sends no switch while Fast is off", async () => {
+    const { fast } = fastMemory(false);
+    const { manager, sent, received } = await manage(
+      { rules: FAST_PI },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+    );
+
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_commands", "get_state", "get_entries", "get_session_stats"]);
+    expect(received).toMatchObject([{ type: "session_snapshot", fast: false }]);
+  });
+
+  it("switches a session's Fast, records it for the session and reports it; the session's pi starts so again", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const first = fastMemory(false);
+    const one = await manage(
+      { receivedToStderr: true, rules: FAST_PI },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      first.fast,
+    );
+    await one.catalog.scan();
+    await one.manager.openSession("client-1", "pi-session-1");
+    await one.manager.subscribe("c1", ["pi-session-1"]);
+
+    expect(await one.manager.setFast("pi-session-1", false)).toStrictEqual({});
+    expect(await one.manager.setFast("pi-session-1", true)).toStrictEqual({});
+
+    await vi.waitFor(() =>
+      expect(fastSwitches(withoutIds(one.piReceived()))).toStrictEqual(["/atrium-fast off", "/atrium-fast on"]),
+    );
+    expect(one.received.at(-1)).toMatchObject({ type: "fast_updated", fast: true });
+    expect(first.chosen).toStrictEqual([false, true]);
+    await vi.waitFor(() => expect(one.catalog.find("pi-session-1")?.fast).toBe(true));
+    await one.manager.close();
+    await one.catalog.close();
+
+    const two = await manage(
+      { receivedToStderr: true, rules: FAST_PI },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fastMemory(false).fast,
+    );
+    await two.catalog.scan();
+    await two.manager.openSession("client-1", "pi-session-1");
+
+    await vi.waitFor(() => expect(fastSwitches(withoutIds(two.piReceived()))).toStrictEqual(["/atrium-fast on"]));
+  });
+
+  it("switches Fast on again in the pi started after a crash, as the session had it", async () => {
+    const memory = fastMemory(true);
+    const { manager, piReceived, received } = await manage(
+      {
+        receivedToStderr: true,
+        rules: {
+          ...FAST_PI,
+          prompt: {
+            sequence: [{ data: { disposition: "handled" } }, { data: { disposition: "started" }, exitAfter: 1 }],
+          },
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      memory.fast,
+    );
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+    // Switched off in another session since; this one keeps its own.
+    memory.prefer(false);
+
+    // Each pi answers its first prompt, the switch, as handled, and exits on the message after it.
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
+    await vi.waitFor(() =>
+      expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { failure: { attempts: 3 } } }),
+    );
+
+    // The switch at the start, then again in each of the three pi processes started after a crash.
+    await vi.waitFor(() =>
+      expect(fastSwitches(withoutIds(piReceived())).filter((message) => message === "/atrium-fast on")).toHaveLength(4),
+    );
+    expect(received.filter((event) => event.type === "session_snapshot").at(-1)).toMatchObject({ fast: true });
+  });
+
+  it("never sends the switch to a pi that does not list it: Fast is unavailable there, and a warning says so", async () => {
+    const { fast, chosen } = fastMemory(true);
+    const { manager, sent, records, received } = await manage(
+      { rules: { ...FAST_PI, get_commands: { data: { commands: [] } } } },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fast,
+    );
+    await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    await expect(manager.setFast("pi-session-1", false)).rejects.toStrictEqual(new CommandError("fast_unavailable"));
+
+    expect(sent()).not.toContain("prompt");
+    expect(records.filter((record) => record["msg"] === "fast extension not loaded")).toStrictEqual([
+      expect.objectContaining({ level: "warn" }),
+    ]);
+    expect(chosen).toStrictEqual([]);
+    expect(received).toMatchObject([{ type: "session_snapshot", fast: true }]);
+  });
+
+  it("without the extension, loads nothing, asks pi nothing and has no Fast", async () => {
+    const { manager, starts, sent } = await manage({ argvToStderr: true, rules: FAST_PI });
+    await started(manager, manager.createChat("client-1"));
+
+    await expect(manager.setFast("pi-session-1", true)).rejects.toStrictEqual(new CommandError("fast_unavailable"));
+
+    expect(starts().map(({ argv }) => argv)).toStrictEqual([["--mode", "rpc", "--session-id", "pi-session-1"]]);
+    expect(sent()).toStrictEqual(["set_auto_retry", "get_state", "get_entries", "get_session_stats"]);
+  });
+
+  it("shows a draft without pi with Fast as its own, else as last chosen", async () => {
+    const at = await place();
+    const first = await manage({ rules: SESSION_ONE }, at);
+    await first.manager.createSession("client-1", WORKSPACE);
+    await first.manager.createSession("client-1", WORKSPACE);
+    await first.catalog.mark("pi-session-2", { fast: false });
+    await first.manager.close();
+    await first.catalog.close();
+
+    const { manager, received } = await manage(
+      { rules: FAST_PI },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      fastMemory(true).fast,
+    );
+    await manager.subscribe("c1", ["pi-session-1", "pi-session-2"]);
+
+    expect(
+      received.filter((event) => event.type === "session_snapshot").map((event) => [event.sessionId, event.fast]),
+    ).toStrictEqual([
+      ["pi-session-1", true],
+      ["pi-session-2", false],
+    ]);
+  });
+
+  it("refuses to switch Fast in an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+
+    await expect(manager.setFast("nope", true)).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
   });
@@ -1416,6 +1954,76 @@ function confirmation(id: string): object {
 /** The one session's summary fields this suite looks at. */
 const marks = (manager: Manager) =>
   manager.summaries().map(({ attention, asking, handedOff }) => ({ attention, asking, handedOff }));
+
+describe("SessionManager message images (M1.11)", () => {
+  it("reads a turn's image from the session file, and answers image_unavailable for one that is not there", async () => {
+    const at = await place();
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const user = {
+      type: "message",
+      id: "u2",
+      parentId: "u1",
+      timestamp: "2026-10-12T00:00:00.000Z",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "看图" },
+          { type: "image", mimeType: "image/png", data: "eA==" },
+        ],
+        timestamp: 0,
+      },
+    };
+    await appendFile(file, `${JSON.stringify(user)}\n`);
+    const { manager, catalog } = await manage(
+      { rules: { ...SESSION_ONE, get_entries: { data: { entries: [user], leafId: "u2" } } } },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    const fetch = (sessionId: string, turnId: string, index: number) =>
+      manager.fetchImage({ type: "fetch_image", requestId: "r", traceparent, sessionId, turnId, index });
+    const unavailable = new CommandError("image_unavailable");
+
+    await vi.waitFor(() =>
+      expect(fetch("pi-session-1", "pi-session-1:u2", 0)).resolves.toStrictEqual({
+        mimeType: "image/png",
+        data: "eA==",
+      }),
+    );
+    await expect(fetch("pi-session-1", "pi-session-1:u2", 1)).rejects.toStrictEqual(unavailable);
+    await expect(fetch("pi-session-1", "pi-session-1:u1", 0)).rejects.toStrictEqual(unavailable);
+    await expect(fetch("nope", "pi-session-1:u2", 0)).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+
+  it("answers image_unavailable for a turn of a session that has no file yet", async () => {
+    const user = {
+      type: "message",
+      id: "u2",
+      parentId: null,
+      timestamp: "2026-10-12T00:00:00.000Z",
+      message: { role: "user", content: [{ type: "image", mimeType: "image/png", data: "eA==" }], timestamp: 0 },
+    };
+    const { manager, received } = await manage({
+      rules: { ...SESSION_ONE, get_entries: { data: { entries: [user], leafId: "u2" } } },
+    });
+    const { sessionId } = await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", [sessionId]);
+    await vi.waitFor(() => expect(JSON.stringify(received)).toContain(`"${sessionId}:u2"`));
+
+    await expect(
+      manager.fetchImage({
+        type: "fetch_image",
+        requestId: "r",
+        traceparent,
+        sessionId,
+        turnId: `${sessionId}:u2`,
+        index: 0,
+      }),
+    ).rejects.toStrictEqual(new CommandError("image_unavailable"));
+  });
+});
 
 describe("SessionManager attention (M1.9)", () => {
   it("marks a session whose run failed on credentials for sign-in, which a look does not clear, until its next run starts", async () => {

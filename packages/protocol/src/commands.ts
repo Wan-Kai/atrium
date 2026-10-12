@@ -3,8 +3,8 @@ import { parseTraceparent } from "./trace";
 import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
-import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
-import { Appearance, BranchName, DisplayMode, StatusBarChoices } from "./listing";
+import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { Appearance, BranchName, DisplayMode, ProxySetting, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -59,8 +59,8 @@ export const PingCommand = z.strictObject({ type: z.literal("ping"), ...commandF
 export type PingCommand = z.infer<typeof PingCommand>;
 
 /**
- * Creates a chat: a directory under `~/.atrium/chats/` with a session whose pi starts at once,
- * opened as this client's active tab.
+ * Creates a chat: a directory under `~/.atrium/chats/` with a first session whose pi starts at
+ * once, opened as this client's active tab.
  */
 export const CreateChatCommand = z.strictObject({ type: z.literal("create_chat"), ...commandFields });
 export type CreateChatCommand = z.infer<typeof CreateChatCommand>;
@@ -180,7 +180,7 @@ export type SubscribeIndexCommand = z.infer<typeof SubscribeIndexCommand>;
 /** An absolute path on the host's machine. */
 const Path = z.string().min(1).max(4096);
 
-/** A name the user types for a project, workspace or session. */
+/** A name the user types for a project, workspace, chat or session. */
 const Name = z.string().trim().min(1).max(256);
 
 /** Registers a directory as a project. */
@@ -213,15 +213,40 @@ export const RenameWorkspaceCommand = z.strictObject({
 });
 export type RenameWorkspaceCommand = z.infer<typeof RenameWorkspaceCommand>;
 
+/** Archives a worktree workspace: removes its directory, keeps its branch, archives its sessions. */
+export const ArchiveWorkspaceCommand = z.strictObject({
+  type: z.literal("archive_workspace"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+});
+export type ArchiveWorkspaceCommand = z.infer<typeof ArchiveWorkspaceCommand>;
+
+/** Brings an archived workspace back, adding its worktree again where it was. */
+export const RestoreWorkspaceCommand = z.strictObject({
+  type: z.literal("restore_workspace"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+});
+export type RestoreWorkspaceCommand = z.infer<typeof RestoreWorkspaceCommand>;
+
+/** Names a chat, or with `null` goes back to its first session's title. */
+export const RenameChatCommand = z.strictObject({
+  type: z.literal("rename_chat"),
+  ...commandFields,
+  chatId: ChatId,
+  name: Name.nullable(),
+});
+export type RenameChatCommand = z.infer<typeof RenameChatCommand>;
+
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
 
-/** Creates a session in a workspace, starts its pi and opens it as this client's active tab. */
+/** Creates a session in a workspace or chat, starts its pi and opens it as this client's active tab. */
 export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
   ...commandFields,
-  workspaceId: WorkspaceId,
+  containerId: ContainerId,
 });
 export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 
@@ -229,7 +254,7 @@ export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 export const CloseTabCommand = z.strictObject({ type: z.literal("close_tab"), ...commandFields, sessionId: SessionId });
 export type CloseTabCommand = z.infer<typeof CloseTabCommand>;
 
-/** Goes to a workspace or the chats, or nowhere. */
+/** Goes to a workspace or a chat, or nowhere. */
 export const SelectContainerCommand = z.strictObject({
   type: z.literal("select_container"),
   ...commandFields,
@@ -279,20 +304,21 @@ export const SetPreferencesCommand = z.strictObject({
   displayMode: DisplayMode.optional(),
   statusBar: StatusBarChoices.optional(),
   titleModel: ModelRef.nullable().optional(),
+  proxy: ProxySetting.nullable().optional(),
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 
 /**
- * Lists the models pi can use in a workspace's directory, or for the chats.
+ * Lists the models pi can use in a workspace's directory, or with `null` outside any workspace.
  *
  * @remarks
  * The host asks a short-lived pi once per directory and keeps the answer until `refresh`
- * (SPEC-0001, "模型与输入框").
+ * (SPEC-0001, "模型与输入框"). Every chat and the settings share Atrium's own directory's list.
  */
 export const ListModelsCommand = z.strictObject({
   type: z.literal("list_models"),
   ...commandFields,
-  containerId: ContainerId,
+  workspaceId: WorkspaceId.nullable(),
   refresh: z.boolean().optional(),
 });
 export type ListModelsCommand = z.infer<typeof ListModelsCommand>;
@@ -312,6 +338,14 @@ export const SetThinkingLevelCommand = z.strictObject({
   level: ThinkingLevel,
 });
 export type SetThinkingLevelCommand = z.infer<typeof SetThinkingLevelCommand>;
+
+/** Switches Fast on or off for a session, from its next request to the model on (SPEC-0001, "Fast"). */
+export const SetFastCommand = z.strictObject({
+  type: z.literal("set_fast"),
+  ...sessionCommandFields,
+  enabled: z.boolean(),
+});
+export type SetFastCommand = z.infer<typeof SetFastCommand>;
 
 /**
  * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
@@ -391,6 +425,21 @@ export const FetchStepCommand = z.strictObject({
   stepId: z.string().min(1).max(32),
 });
 export type FetchStepCommand = z.infer<typeof FetchStepCommand>;
+
+/**
+ * Fetches one image of a turn's user message, for its thumbnail (SPEC-0001, "M1.11 的消息图片").
+ *
+ * @remarks
+ * One image at a time: one may come close to 1 MB of base64.
+ */
+export const FetchImageCommand = z.strictObject({
+  type: z.literal("fetch_image"),
+  ...sessionCommandFields,
+  turnId: z.string().min(1).max(256),
+  /** Which of the message's images, from 0; a message has at most 20. */
+  index: z.number().int().nonnegative().max(19),
+});
+export type FetchImageCommand = z.infer<typeof FetchImageCommand>;
 
 /** Kinds of problems the UI reports to the host's log. */
 export const ClientIssueKind = z.enum(["error", "long_task", "slow_frames"]);
@@ -534,12 +583,16 @@ export const Command = z.discriminatedUnion("type", [
   PromptCommand,
   FetchTranscriptCommand,
   FetchStepCommand,
+  FetchImageCommand,
   OpenSessionCommand,
   SubscribeIndexCommand,
   AddProjectCommand,
   RemoveProjectCommand,
   RenameProjectCommand,
   RenameWorkspaceCommand,
+  ArchiveWorkspaceCommand,
+  RestoreWorkspaceCommand,
+  RenameChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -563,6 +616,7 @@ export const Command = z.discriminatedUnion("type", [
   ListModelsCommand,
   SetModelCommand,
   SetThinkingLevelCommand,
+  SetFastCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
@@ -615,12 +669,21 @@ export const CommandResult = {
     hasOlder: z.boolean(),
   }),
   fetch_step: z.strictObject({ step: Step }),
+  fetch_image: z.strictObject({
+    /** The formats pi keeps images in; none of them can carry script. */
+    mimeType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+    /** Base64, without a `data:` prefix; pi keeps images of up to 4.5 MB of it. */
+    data: z.string().min(1).max(5_000_000),
+  }),
   open_session: z.strictObject({}),
   subscribe_index: z.strictObject({}),
   add_project: z.strictObject({ projectId: ProjectId }),
   remove_project: z.strictObject({}),
   rename_project: z.strictObject({}),
   rename_workspace: z.strictObject({}),
+  archive_workspace: z.strictObject({}),
+  restore_workspace: z.strictObject({}),
+  rename_chat: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),
@@ -648,6 +711,7 @@ export const CommandResult = {
   list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),
   set_model: z.strictObject({}),
   set_thinking_level: z.strictObject({}),
+  set_fast: z.strictObject({}),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),

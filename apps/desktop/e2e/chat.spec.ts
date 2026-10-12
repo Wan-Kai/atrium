@@ -25,9 +25,12 @@ test("sends a message and streams the reply, reasoning first, until the run sett
     await expect(reply).toContainText("这是 faux 的回复，带一个列表：", { timeout: 30_000 });
     await expect(reply.locator("h2")).toHaveText("你好");
     await expect(reply.locator("li")).toHaveText(["一", "二"]);
-    // Thinking was timed live, so its folded header says how long it took.
+    // Thinking was timed live, so its header says how long it took; the turn finished in view, so
+    // its process stays open a second, then folds.
     const header = window.getByTestId("process-header");
     await expect(header).toHaveText(/^思考了 \d+ 秒$/);
+    await expect(header).toHaveAttribute("aria-expanded", "false");
+    await expect(window.getByTestId("step")).toHaveCount(0);
     await header.click();
     await window.getByTestId("step").getByRole("button").click();
     await expect(window.getByTestId("step-detail")).toHaveText("先想一想怎么回答。");

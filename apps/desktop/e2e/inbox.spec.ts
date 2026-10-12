@@ -13,7 +13,7 @@ test("puts a chat that failed in the background into the inbox until it is looke
     await send(window, "一");
     await expect(tabs.getByRole("img", { name: "运行中" })).toHaveCount(1, { timeout: 30_000 });
     await window.keyboard.press("Meta+T");
-    await expect(tabs).toHaveText(["一", "新对话"]);
+    await expect(tabs).toHaveText(["一", "新会话"]);
     await pi.release("fail");
 
     const inbox = window.getByRole("region", { name: "等你处理" });

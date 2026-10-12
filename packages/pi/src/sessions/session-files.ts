@@ -49,6 +49,38 @@ export interface SessionFileReader {
   scanFolder(folder: string, signal?: AbortSignal): Promise<SessionFileSummary[]>;
 }
 
+/** An image a user message carries in a session file, as pi keeps it. */
+export interface SessionImage {
+  readonly mimeType: SessionImageType;
+  /** Base64, without a `data:` prefix. */
+  readonly data: string;
+}
+
+/** The formats pi keeps images in (pi-internals.md, "图片"). */
+export type SessionImageType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
+/** See {@link SessionImageType}. */
+const IMAGE_TYPES: ReadonlySet<unknown> = new Set<SessionImageType>([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
+/**
+ * Whether a value names a format pi keeps images in.
+ *
+ * @remarks
+ * Narrows what a session file says to {@link SessionImageType}.
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @returns Whether it is one.
+ */
+function isImageType(value: unknown): value is SessionImageType {
+  return IMAGE_TYPES.has(value);
+}
+
 /** How much of a file is read at a time. */
 // Stryker disable next-line ArithmeticOperator: a smaller chunk only makes reads slower and smaller; each read still stops at its end.
 const CHUNK_BYTES = 1024 * 1024;
@@ -364,6 +396,104 @@ export function createSessionFileReader(): SessionFileReader {
       return found;
     },
   };
+}
+
+/**
+ * One image of a user message, as a session file keeps it.
+ *
+ * @remarks
+ * User content is a string or a list of blocks; images are counted among the image blocks
+ * alone, as `contentText` counts them. Only the formats pi keeps count, so nothing else, such as
+ * SVG, which can carry script, ever reaches a `data:` address.
+ *
+ * @sideEffects none
+ * @param message - The entry's message.
+ * @param index - Which image, from 0.
+ * @returns The image, or `null` when the message is not a user's or has no such image.
+ */
+function userImage(message: unknown, index: number): SessionImage | null {
+  const content = field(message, "role") === "user" ? field(message, "content") : undefined;
+  const block: unknown = Array.isArray(content)
+    ? content.filter((one) => field(one, "type") === "image")[index]
+    : undefined;
+  const mimeType = field(block, "mimeType");
+  const data = field(block, "data");
+  return isImageType(mimeType) && typeof data === "string" ? { mimeType, data } : null;
+}
+
+/**
+ * Reads a file from its start until an entry is found or the file ends.
+ *
+ * @remarks
+ * In chunks, so a large file is never held whole; checks the signal between chunks. A line
+ * counts once its LF has been written, as in {@link createSessionFileReader}.
+ *
+ * @sideEffects Reads the file.
+ * @param path - The file.
+ * @param entryId - The entry.
+ * @param index - Which of its images.
+ * @param signal - Stops the read.
+ * @returns The image; `null` when the entry or the image is not there; `undefined` when the
+ * entry is not in the file.
+ * @throws The signal's reason once it is aborted; the file system's errors.
+ */
+async function findUserImage(
+  path: string,
+  entryId: string,
+  index: number,
+  signal?: AbortSignal,
+): Promise<SessionImage | null | undefined> {
+  let found: SessionImage | null | undefined;
+  const splitter = createLineSplitter((line) => {
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: a fast path; the entry's id is checked below anyway, and reading stops once it is found.
+    if (found !== undefined || !line.includes(entryId)) return;
+    const entry = parseJson(line);
+    if (field(entry, "type") === "message" && field(entry, "id") === entryId) {
+      found = userImage(field(entry, "message"), index);
+    }
+  });
+  const file = await open(path, "r");
+  try {
+    const buffer = Buffer.alloc(CHUNK_BYTES);
+    for (;;) {
+      signal?.throwIfAborted();
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      splitter.push(buffer.subarray(0, bytesRead));
+      // Stryker disable next-line ConditionalExpression: stopping here only spares reading the rest; the first match is kept either way.
+      if (found !== undefined) break;
+    }
+  } finally {
+    await file.close();
+  }
+  return found;
+}
+
+/**
+ * Reads one image of a user message from a session file.
+ *
+ * @remarks
+ * pi keeps the images it took in a user message's content and writes the message to the file as
+ * soon as it is added (pi-internals.md, "图片"), so the image is there whatever became of the
+ * file it was pasted from; for the thumbnails of sent messages (SPEC-0001, "M1.11 的消息图片").
+ * Entries are found by id, which is unique within a file. A file the system cannot read counts as
+ * having none. Read only.
+ *
+ * @sideEffects Reads the file.
+ * @param path - The session file.
+ * @param entryId - The user message's entry.
+ * @param index - Which of its images, from 0.
+ * @param signal - Stops the read.
+ * @returns The image, or `null` when the file, the entry or the image is not there.
+ * @throws The signal's reason once it is aborted.
+ */
+export async function readUserImage(
+  path: string,
+  entryId: string,
+  index: number,
+  signal?: AbortSignal,
+): Promise<SessionImage | null> {
+  return (await unlessUnreadable(findUserImage(path, entryId, index, signal))) ?? null;
 }
 
 /**

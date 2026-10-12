@@ -15,7 +15,7 @@ const NOW = 1_800_000_000_000;
 const OFFERED = "有新版本 0.81.0当前 0.80.0。更新的是你装的这个 pi，终端里的 pi 也会一起更新更新 pi";
 
 /** A clock stopped at {@link NOW}. */
-const CLOCK: UiClock = { now: () => NOW, every: () => () => undefined };
+const CLOCK: UiClock = { now: () => NOW, every: () => () => undefined, after: () => () => undefined };
 
 /**
  * Renders the settings on the pi part, over a fake client that knows `pi`.

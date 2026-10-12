@@ -106,6 +106,7 @@ describe("SessionCatalog", () => {
         archived: false,
         attention: null,
         handedOff: false,
+        fast: null,
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
     ]);
@@ -163,6 +164,7 @@ describe("SessionCatalog", () => {
         archived: false,
         attention: null,
         handedOff: false,
+        fast: null,
       },
     ]);
 
@@ -196,7 +198,7 @@ describe("SessionCatalog", () => {
     expect(changes()).toBe(3);
   });
 
-  it("files a draft under no container once its workspace is gone, not under the chats", async () => {
+  it("files a draft under no container once its workspace is gone", async () => {
     const { sessions, dirs, setWorkspaces } = await catalog();
     await sessions.record({ sessionId: "s1", containerId: A, cwd: dirs.a });
 
@@ -272,6 +274,36 @@ describe("SessionCatalog", () => {
     ]);
   });
 
+  it("keeps each session's Fast once switched, recording one from the terminal, and writes only a change", async () => {
+    const { sessions, dirs, file, write, changes } = await catalog();
+    await write(dirs.a, "terminal", [user("hi")]);
+    await sessions.record({ sessionId: "ours", containerId: A, cwd: dirs.a });
+    await sessions.scan();
+    const before = changes();
+
+    await sessions.mark("terminal", { fast: false });
+    await sessions.mark("ours", { fast: true });
+    await sessions.mark("ours", { fast: true });
+
+    expect(sessions.list().map((entry) => [entry.sessionId, entry.fast])).toStrictEqual([
+      ["terminal", false],
+      ["ours", true],
+    ]);
+    expect(file.read().sessions).toStrictEqual([
+      { sessionId: "ours", containerId: A, cwd: dirs.a, draft: true, archived: false, createdAt: 5_000, fast: true },
+      {
+        sessionId: "terminal",
+        containerId: A,
+        cwd: dirs.a,
+        draft: false,
+        archived: false,
+        createdAt: 5_000,
+        fast: false,
+      },
+    ]);
+    expect(changes() - before).toBe(2);
+  });
+
   it("does not record a session from the terminal for a mark it already has", async () => {
     const { sessions, dirs, file, write } = await catalog();
     await write(dirs.a, "terminal", [user("hi")]);
@@ -282,35 +314,63 @@ describe("SessionCatalog", () => {
     expect(file.read().sessions).toStrictEqual([]);
   });
 
-  it("lists a new chat's draft before any scan", async () => {
+  it("lists a new chat and its drafts before any scan", async () => {
     const { sessions, chatsRoot } = await catalog();
 
-    await sessions.record({ sessionId: "draft", containerId: "chats", cwd: join(chatsRoot, "c1") });
-    await sessions.record({ sessionId: "again", containerId: "chats", cwd: join(chatsRoot, "c1") });
+    await sessions.record({ sessionId: "draft", containerId: "cht_c1", cwd: join(chatsRoot, "c1") });
+    await sessions.record({ sessionId: "again", containerId: "cht_c1", cwd: join(chatsRoot, "c1") });
 
     expect(sessions.list().map((entry) => [entry.sessionId, entry.containerId])).toStrictEqual([
-      ["draft", "chats"],
-      ["again", "chats"],
+      ["draft", "cht_c1"],
+      ["again", "cht_c1"],
     ]);
+    expect(sessions.chats()).toStrictEqual([{ id: "cht_c1", dir: join(chatsRoot, "c1"), firstSessionId: "draft" }]);
   });
 
-  it("files every chat directory under the chats, and drops a chat whose directory was deleted", async () => {
+  it("makes each chat directory a chat of its own, and drops a chat whose directory was deleted", async () => {
     const { sessions, chatsRoot, write } = await catalog();
     const chat = join(chatsRoot, "c1");
     await mkdir(chat, { recursive: true });
     await writeFile(join(chatsRoot, "stray-file"), "");
+    await mkdir(join(chatsRoot, "not a chat"));
     await write(chat, "s1", [user("why")]);
-    await sessions.record({ sessionId: "draft", containerId: "chats", cwd: join(chatsRoot, "c2") });
+    await write(chat, "s2", [user("and")]);
+    await sessions.record({ sessionId: "draft", containerId: "cht_c2", cwd: join(chatsRoot, "c2") });
     await mkdir(join(chatsRoot, "c2"));
     await sessions.scan();
 
     expect(sessions.list().map((entry) => [entry.sessionId, entry.containerId, entry.state])).toStrictEqual([
-      ["s1", "chats", "persisted"],
-      ["draft", "chats", "draft"],
+      ["s1", "cht_c1", "persisted"],
+      ["s2", "cht_c1", "persisted"],
+      ["draft", "cht_c2", "draft"],
     ]);
+    expect(sessions.chats().map((entry) => entry.id)).toStrictEqual(["cht_c1", "cht_c2"]);
     await rm(join(chatsRoot, "c2"), { recursive: true });
     await sessions.scan();
-    expect(sessions.list().map((entry) => entry.sessionId)).toStrictEqual(["s1"]);
+    expect(sessions.list().map((entry) => entry.sessionId)).toStrictEqual(["s1", "s2"]);
+    expect(sessions.chats().map((entry) => entry.id)).toStrictEqual(["cht_c1"]);
+  });
+
+  it("names a chat's first session: the earliest recorded, else the file changed first, archived ones left out", async () => {
+    const { sessions, chatsRoot, write, file } = await catalog();
+    const chat = join(chatsRoot, "c1");
+    await mkdir(chat, { recursive: true });
+    // "earliest" is recorded at 5 s but last written at 20 s, "terminal" written at 7 s and "later"
+    // recorded at 10 s.
+    await sessions.record({ sessionId: "later", containerId: "cht_c1", cwd: chat });
+    await write(chat, "terminal", [user("from the terminal")], 7);
+    await file.save({ sessions: file.read().sessions.map((record) => ({ ...record, createdAt: 10_000 })) });
+    await sessions.record({ sessionId: "earliest", containerId: "cht_c1", cwd: chat });
+    await write(chat, "earliest", [user("first")], 20);
+    await sessions.scan();
+    expect(sessions.chats()).toStrictEqual([{ id: "cht_c1", dir: chat, firstSessionId: "earliest" }]);
+
+    await sessions.archive("earliest");
+    expect(sessions.chats()).toStrictEqual([{ id: "cht_c1", dir: chat, firstSessionId: "terminal" }]);
+
+    await sessions.archive("terminal");
+    await sessions.archive("later");
+    expect(sessions.chats()).toStrictEqual([{ id: "cht_c1", dir: chat, firstSessionId: null }]);
   });
 
   it("takes the newest file of a session found twice, and logs the conflict", async () => {
@@ -384,7 +444,7 @@ describe("SessionCatalog", () => {
     await sessions.record({ sessionId: "s1", containerId: A, cwd: dirs.a });
 
     expect(JSON.parse(await readFile(join(root, "index", "sessions.json"), "utf8"))).toStrictEqual({
-      version: 1,
+      version: 2,
       sessions: [{ sessionId: "s1", containerId: A, cwd: dirs.a, draft: true, archived: false, createdAt: 5_000 }],
     });
   });

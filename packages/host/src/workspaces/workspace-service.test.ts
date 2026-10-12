@@ -1,3 +1,4 @@
+import type { Workspace } from "@atrium/protocol";
 import { FakeClock, GIT_SCENE_ENV, type GitScene, createGitScene, createTempDir, present } from "@atrium/testkit";
 import { mkdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -127,6 +128,21 @@ function watch(projects: ProjectService, git: GitRunner | null, clock: FakeClock
  */
 function shape(list: ReturnType<ReturnType<typeof createWorkspaceService>["list"]>) {
   return list.map(({ kind, dir, branch, head, external, merge }) => ({ kind, dir, branch, head, external, merge }));
+}
+
+/**
+ * Orders workspaces by when they were archived, those not archived first.
+ *
+ * @remarks
+ * git lists worktrees in no order a test can count on.
+ *
+ * @sideEffects none
+ * @param a - One workspace.
+ * @param b - Another.
+ * @returns Their order.
+ */
+function byArchivedAt(a: Workspace, b: Workspace): number {
+  return (a.archivedAt ?? 0) - (b.archivedAt ?? 0);
 }
 
 const clean = (verdict: string, ahead = 0) => ({ dirty: false, ahead, verdict, reason: null });
@@ -502,6 +518,80 @@ describe("WorkspaceService", () => {
 
     expect(resources.snapshot()["timer"]).toBe(0);
     expect(clock.pendingTimers()).toBe(0);
+  });
+
+  it("lists an archived worktree as it was checked out then, works out no merge state for it, and gives no directory for it", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const detached = await repo.worktree("detached");
+    await repo.git(detached, "checkout", "--quiet", "--detach");
+    const head = await repo.git(detached, "rev-parse", "HEAD");
+    // A worktree whose directory had gone before it was archived: neither branch nor commit.
+    const gone = await repo.worktree("gone");
+    const git = countingGit();
+    const { projects, workspaces } = await services({ git });
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    const idOf = (dir: string) =>
+      present(
+        workspaces.list().find((workspace) => workspace.dir === dir),
+        dir,
+      ).id;
+    const [local, featureId, detachedId, goneId] = [idOf(repo.repo), idOf(feature), idOf(detached), idOf(gone)];
+
+    await projects.setArchived(featureId, { at: 5, branch: "feature", head });
+    await projects.setArchived(detachedId, { at: 6, branch: null, head });
+    await projects.setArchived(goneId, { at: 7, branch: null, head: null });
+    await repo.git(repo.repo, "worktree", "remove", "--", feature);
+    const before = git.commands.length;
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    expect(workspaces.list().slice(1).toSorted(byArchivedAt)).toStrictEqual([
+      {
+        id: featureId,
+        projectId: expect.any(String),
+        kind: "worktree",
+        dir: feature,
+        alias: null,
+        branch: "feature",
+        head: null,
+        external: true,
+        createdAt: null,
+        merge: null,
+        archivedAt: 5,
+      },
+      {
+        id: detachedId,
+        projectId: expect.any(String),
+        kind: "worktree",
+        dir: detached,
+        alias: null,
+        branch: null,
+        head: head.slice(0, 7),
+        external: true,
+        createdAt: null,
+        merge: null,
+        archivedAt: 6,
+      },
+      {
+        id: goneId,
+        projectId: expect.any(String),
+        kind: "worktree",
+        dir: gone,
+        alias: null,
+        branch: null,
+        head: null,
+        external: true,
+        createdAt: null,
+        merge: null,
+        archivedAt: 7,
+      },
+    ]);
+    expect(workspaces.list()[0]?.archivedAt).toBeNull();
+    expect(git.commands.slice(before)).not.toContain("status");
+    expect([local, featureId].map((id) => workspaces.dirOf(id))).toStrictEqual([repo.repo, undefined]);
   });
 
   it("finds a workspace's directory", async () => {

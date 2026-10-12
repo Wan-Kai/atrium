@@ -1,6 +1,7 @@
 import type {
   CommandResult,
   ContainerId,
+  FetchImageCommand,
   FetchStepCommand,
   FetchTranscriptCommand,
   InteractionAnswer,
@@ -23,8 +24,8 @@ import type { PromptImage } from "./session-controller";
 export interface SessionCommands {
   /** Creates a chat, starts its pi and opens it as the client's active tab. */
   createChat(clientId: string): Promise<CommandResult<"create_chat">>;
-  /** Creates a session in a workspace, starts its pi and opens it as the client's active tab. */
-  createSession(clientId: string, workspaceId: string): Promise<CommandResult<"create_session">>;
+  /** Creates a session in a workspace or chat, starts its pi and opens it as the client's active tab. */
+  createSession(clientId: string, containerId: ContainerId): Promise<CommandResult<"create_session">>;
   /** Opens a session as the client's active tab, starting its pi unless it runs or is a restored draft. */
   openSession(clientId: string, sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes the client's tab of a session; a draft without messages is discarded. */
@@ -63,6 +64,8 @@ export interface SessionCommands {
   setModel(sessionId: string, model: ModelRef): Promise<CommandResult<"set_model">>;
   /** Sets how hard a session's model thinks, starting its pi first if it has none. */
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
+  /** Switches a session's Fast, starting its pi first if it has none (SPEC-0001, "Fast"). */
+  setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
   /** The `/` commands of a session's pi, starting its pi first if it has none (SPEC-0001, "模型与输入框"). */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory; a newer search calls off an older one. */
@@ -73,4 +76,6 @@ export interface SessionCommands {
   fetchTranscript(command: FetchTranscriptCommand): Promise<CommandResult<"fetch_transcript">>;
   /** One step of a session's transcript, whole. */
   fetchStep(command: FetchStepCommand): Promise<CommandResult<"fetch_step">>;
+  /** One image of a turn's user message, read from the session file (SPEC-0001, "M1.11 的消息图片"). */
+  fetchImage(command: FetchImageCommand): Promise<CommandResult<"fetch_image">>;
 }

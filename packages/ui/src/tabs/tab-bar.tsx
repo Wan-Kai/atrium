@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import type { ContainerId, SessionSummary } from "@atrium/protocol";
-import { CaretDown, ClockCounterClockwise, Plus, X } from "@phosphor-icons/react";
+import { CaretDown, ClockCounterClockwise, Plus, X } from "../design/icons";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { sessionTitle, timeAgo } from "../sidebar/names";
@@ -78,8 +78,8 @@ export function TabBar({
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         <button
           type="button"
-          aria-label={containerId === "chats" ? "新建对话（⌘T）" : "新建会话（⌘T）"}
-          title={containerId === "chats" ? "新建对话（⌘T）" : "新建会话（⌘T）"}
+          aria-label="新建会话（⌘T）"
+          title="新建会话（⌘T）"
           onClick={onNew}
           className="inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
         >

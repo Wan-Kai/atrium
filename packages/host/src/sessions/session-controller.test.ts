@@ -47,7 +47,10 @@ const empty: EntriesPage = { entries: [], leafId: null };
 function control(
   pi: SessionPi,
   entries: EntriesPage = empty,
-  extra: Pick<Parameters<typeof createSessionController>[0], "respawn" | "turnStarts" | "model" | "onModelChosen"> = {},
+  extra: Pick<
+    Parameters<typeof createSessionController>[0],
+    "respawn" | "turnStarts" | "model" | "onModelChosen" | "fast" | "onFastChosen"
+  > = {},
 ) {
   const events: SessionEvent[] = [];
   const failures: unknown[] = [];
@@ -112,6 +115,7 @@ function replayedHistory() {
     model: async () => null,
     setModel: async () => undefined,
     setThinkingLevel: async () => undefined,
+    setFast: async () => undefined,
     commands: async () => [],
     stats: () => new Promise(() => undefined),
     stop: () => raw.stop(),
@@ -127,13 +131,13 @@ function manualPi() {
   const pages: Array<() => Promise<EntriesPage>> = [];
   const since: (string | undefined)[] = [];
   const steerAnswers: Array<() => Promise<{ disposition: "queued" | "handled" }>> = [];
-  /** What pi was sent, in order: `prompt <text>`, `steer <text>`, `clear_queue`, `abort`. */
+  /** What pi was sent, in order: `prompt <text>`, `steer <text>`, `clear_queue`, `abort`, `fast on`… */
   const sent: string[] = [];
   const responses: unknown[] = [];
   let held: string[] = [];
   /** What `get_state` reports as the model, in order; the last one repeats. */
   const states: (SessionModel | null)[] = [];
-  /** Failures for the next `set_model` or `set_thinking_level`, in order. */
+  /** Failures for the next `set_model`, `set_thinking_level` or Fast switch, in order. */
   const settingFailures: unknown[] = [];
   /** Failures for the next `get_commands`, in order. */
   const commandFailures: unknown[] = [];
@@ -204,6 +208,10 @@ function manualPi() {
     },
     setThinkingLevel: async (level) => {
       sent.push(`set_thinking_level ${level}`);
+      if (settingFailures.length > 0) throw settingFailures.shift();
+    },
+    setFast: async (enabled) => {
+      sent.push(`fast ${enabled ? "on" : "off"}`);
       if (settingFailures.length > 0) throw settingFailures.shift();
     },
     commands: async () => {
@@ -414,6 +422,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
       exited: false,
       control: IDLE_CONTROL,
       model: null,
+      fast: false,
       metrics: UNKNOWN_METRICS,
     });
   });
@@ -618,6 +627,26 @@ describe("createSessionController on cases the fixtures do not show", () => {
 
     expect(since).toStrictEqual([undefined, undefined]);
     expect(events.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2 });
+  });
+
+  it("waits for the read under way, which ties a turn just ended to its entry, and for nothing without one", async () => {
+    const { pi, emit, pages } = manualPi();
+    const { controller } = control(pi);
+    const read = Promise.withResolvers<EntriesPage>();
+    pages.push(() => read.promise);
+    await controller.entriesRead();
+    await controller.prompt(prompt("q1", "a"));
+    emit({ type: "agent_start" }, userEnd("a"), replyEnd("stop", [{ type: "text", text: "b" }]), {
+      type: "agent_settled",
+    });
+    const turnId = present(controller.snapshot().items[0], "the turn").id;
+
+    const waited = controller.entriesRead();
+    const before = controller.entryOfTurn(turnId);
+    read.resolve({ entries: [userEntry("u1", null, "a")], leafId: "u1" });
+    await waited;
+
+    expect([before, controller.entryOfTurn(turnId)]).toStrictEqual([null, "u1"]);
   });
 
   it("does not read while a run goes on, or once pi has exited", async () => {
@@ -2042,6 +2071,84 @@ describe("createSessionController retrying", () => {
     await settle();
 
     await expect(controller.retryRun()).rejects.toStrictEqual(new CommandError("pi_unavailable", { status: "exited" }));
+  });
+});
+
+describe("createSessionController's Fast", () => {
+  it("carries the session's Fast, off when left out", () => {
+    expect(control(manualPi().pi, empty, { fast: true }).controller.snapshot().fast).toBe(true);
+    expect(control(manualPi().pi).controller.snapshot().fast).toBe(false);
+  });
+
+  it("switches Fast in pi, publishes it and reports the choice; the same again publishes nothing", async () => {
+    const { pi, sent } = manualPi();
+    const chosen: boolean[] = [];
+    const { controller, events } = control(pi, empty, { onFastChosen: (enabled) => chosen.push(enabled) });
+
+    expect(await controller.setFast(true)).toStrictEqual({});
+    expect(await controller.setFast(true)).toStrictEqual({});
+    expect(await controller.setFast(false)).toStrictEqual({});
+
+    expect(sent).toStrictEqual(["fast on", "fast on", "fast off"]);
+    expect(events).toStrictEqual([
+      { type: "fast_updated", ...at(1, null), fast: true },
+      { type: "fast_updated", ...at(2, null), fast: false },
+    ]);
+    expect(chosen).toStrictEqual([true, true, false]);
+    expect(controller.snapshot().fast).toBe(false);
+  });
+
+  it("switches Fast with no one to tell of the choice", async () => {
+    const { controller } = control(manualPi().pi);
+
+    await controller.setFast(true);
+
+    expect(controller.snapshot().fast).toBe(true);
+  });
+
+  it("passes on a pi without Fast, and pi going away, changing nothing", async () => {
+    const { pi, settingFailures } = manualPi();
+    const chosen: boolean[] = [];
+    const { controller, events } = control(pi, empty, { onFastChosen: (enabled) => chosen.push(enabled) });
+    settingFailures.push(new CommandError("fast_unavailable"), new ReplayRequestError("prompt", "exited"));
+
+    await expect(controller.setFast(true)).rejects.toStrictEqual(new CommandError("fast_unavailable"));
+    await expect(controller.setFast(true)).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(events).toStrictEqual([]);
+    expect(chosen).toStrictEqual([]);
+    expect(controller.snapshot().fast).toBe(false);
+  });
+
+  it("refuses while a stop waits for pi, and once pi has exited", async () => {
+    const { pi, emit, crash, holdAbort, sent } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    holdAbort();
+    // Fire and forget: the stop stays pending while abort is held.
+    void controller.stop();
+
+    await expect(controller.setFast(true)).rejects.toStrictEqual(new CommandError("session_stopping"));
+    crash();
+    await settle();
+    await expect(controller.setFast(true)).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(sent.filter((command) => command.startsWith("fast"))).toStrictEqual([]);
+  });
+
+  it("keeps the session's Fast for the pi started after a crash", async () => {
+    const first = manualPi();
+    const second = manualPi();
+    const { controller, events } = control(first.pi, empty, { fast: true });
+    first.crash();
+    await settle();
+
+    controller.attach({ pi: second.pi, entries: empty });
+
+    expect(events.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2, fast: true });
   });
 });
 

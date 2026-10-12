@@ -75,11 +75,15 @@ export function afterGrowth(state: FollowState): FollowState {
  *
  * @remarks
  * Content changes are watched with a ResizeObserver on the content element, which sees streamed
- * text, late-loading images and code highlighting alike. Programmatic scrolls also fire `scroll`
- * events; they land at the bottom, so they keep following on.
+ * text, late-loading images, code highlighting and folds alike; the container is watched too, as
+ * it shrinks when what is under it grows (SPEC-0001, "滚动与长会话"). The observer runs after each
+ * frame's layout and before its paint, so the view never shows a frame off the bottom.
+ * Programmatic scrolls also fire `scroll` events; they land at the bottom, so they keep following on.
+ * The container must turn off the browser's scroll anchoring (`overflow-anchor: none`): its
+ * scrolls are not the view's own, and one landing off the bottom would stop following.
  *
- * @sideEffects Observes the content's size and the container's scroll events; scrolls the
- * container while following.
+ * @sideEffects Observes the content's and the container's size and the container's scroll events;
+ * scrolls the container while following.
  * @param container - The scrolling element.
  * @param content - The element whose size grows.
  * @returns The state, and a function that scrolls to the end and follows again.
@@ -140,12 +144,15 @@ export function useFollowBottom(
       },
       { passive: true, signal: listening.signal },
     );
-    const observer = new ResizeObserver(() => {
-      const next = afterGrowth(latest.current);
+    const observer = new ResizeObserver((entries) => {
+      // The container alone changing size brings nothing new to see.
+      const grew = entries.some((entry) => entry.target === inner);
+      const next = grew ? afterGrowth(latest.current) : latest.current;
       if (next.following) scrollToBottom();
       update(next);
     });
     observer.observe(inner);
+    observer.observe(scroller);
     return () => {
       listening.abort();
       observer.disconnect();

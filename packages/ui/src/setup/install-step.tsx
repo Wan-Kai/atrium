@@ -1,6 +1,6 @@
 import { type AtriumClient, CommandError, type InstallJob } from "@atrium/client";
 import type { InstallKind, SetupState } from "@atrium/protocol";
-import { CaretRight } from "@phosphor-icons/react";
+import { CaretRight } from "../design/icons";
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { PiMark } from "../settings/parts";

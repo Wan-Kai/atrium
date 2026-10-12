@@ -1,5 +1,5 @@
 import { type ModelList, PiRequestError } from "@atrium/pi";
-import { CHATS, CommandError } from "@atrium/protocol";
+import { CommandError } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { createModelLister } from "./model-lister";
 
@@ -40,17 +40,18 @@ const LIST: ModelList = {
       maxOutput: 64_000,
       supportsImage: true,
       thinkingLevels: ["off"],
+      fast: null,
     },
   ],
   defaultModel: { providerId: "anthropic", modelId: "haiku" },
 };
 
 describe("createModelLister", () => {
-  it("lists a workspace's models in its directory, and the chats' in the chats' directory", async () => {
+  it("lists a workspace's models in its directory, and those outside any in Atrium's directory", async () => {
     const { list, calls } = lister(async () => LIST);
 
     expect(await list(WORKSPACE, false)).toStrictEqual(LIST);
-    expect(await list(CHATS, true)).toStrictEqual(LIST);
+    expect(await list(null, true)).toStrictEqual(LIST);
     expect(calls).toStrictEqual([
       ["/work/app", false],
       ["/home/me", true],

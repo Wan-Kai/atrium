@@ -1,7 +1,10 @@
 import {
+  FAST_COMMAND,
   type PiInspection,
   PiRequestError,
+  isFastSwitch,
   piStatsOf,
+  readUserImage,
   runOneShot,
   sessionModelOf,
   toLogEntry,
@@ -9,7 +12,6 @@ import {
 } from "@atrium/pi";
 import {
   type Attention,
-  CHATS,
   CommandError,
   IDLE_CONTROL,
   type ModelRef,
@@ -19,6 +21,7 @@ import {
   type SessionSummary,
   type ThinkingLevel,
   UNKNOWN_METRICS,
+  isChatId,
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
 import { mkdir, rmdir, stat } from "node:fs/promises";
@@ -33,7 +36,7 @@ import type { WorkspaceService } from "../workspaces/workspace-service";
 import type { TurnStarts } from "../store/turn-starts";
 import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
-import type { CatalogEntry, SessionCatalog } from "./session-catalog";
+import { type CatalogEntry, chatIdOf, type SessionCatalog } from "./session-catalog";
 import type { SessionCommands } from "./session-commands";
 import {
   type PromptImage,
@@ -57,6 +60,10 @@ export interface SessionManager extends SessionCommands {
   summaries(): SessionSummary[];
   /** Stops the sessions of workspaces that went away and drops them from every layout. */
   forgetWorkspaces(workspaceIds: readonly string[]): Promise<void>;
+  /** Stops the pi of every session in a workspace, archiving nothing. */
+  stopWorkspace(workspaceId: string): Promise<void>;
+  /** Archives every session in a workspace, as `archiveSession` does, and drops it from every layout. */
+  archiveWorkspace(workspaceId: string): Promise<void>;
   /** Looks at the containers' session files again: the window gained focus, or containers changed. */
   rescan(): void;
   /** Stops the pi of every session with nothing going on; resolves once they have exited. */
@@ -87,6 +94,8 @@ interface Launch {
    * yet, the session's own when such a session starts again, or `null` for pi's own.
    */
   readonly startOn: StartModel | null;
+  /** Whether to switch Fast on once pi runs. */
+  readonly fast: boolean;
 }
 
 /** The model new sessions start with, and where the model you choose in a session goes. */
@@ -97,37 +106,72 @@ export interface SessionModels {
   chosen(model: SessionModel): void;
 }
 
+/** Atrium's Fast extension, and the Fast sessions without their own start with (SPEC-0001, "Fast"). */
+export interface SessionFast {
+  /** The extension's file, which every session's pi loads with `--extension` (ADR-0008). */
+  readonly extension: string;
+  /** Fast as last switched in any session. */
+  preferred(): boolean;
+  /** Told Fast was switched in a session. */
+  chosen(enabled: boolean): void;
+}
+
 /** pi, found and usable. */
 type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: "ready" }> };
+
+/**
+ * Switches Fast in a pi that lists Atrium's Fast switch.
+ *
+ * @remarks
+ * pi runs an extension's command at once, even during a run, and answers `handled` with no turn
+ * and no entry (pi-internals.md §5). Only for a pi that lists the switch: to any other the words
+ * would be a message to the model (SPEC-0001, "Fast").
+ *
+ * @sideEffects Calls pi.
+ * @param traced - The pi.
+ * @param enabled - On or off.
+ * @throws {PiRequestError} When pi does not answer, exits or refuses.
+ */
+async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
+  await traced.request({ type: "prompt", message: `/${FAST_COMMAND} ${enabled ? "on" : "off"}` });
+}
 
 /**
  * Creates the session manager.
  *
  * @remarks
  * Follows SPEC-0001 ("项目、工作区与会话") and domain-model §1:
- * - a new session or chat starts its pi at once (domain-model, "已决定 9, 14"), is recorded as a
- *   draft in its container, and opens as the client's active tab; a chat gets its own directory
- *   under the chats root;
+ * - a new session or chat gets its id here, is recorded as a draft in its container and opens as
+ *   the client's active tab at once; its pi starts in the background with `--session-id <id>`,
+ *   and whatever needs it waits for that start (domain-model, "已决定 9, 14"); a new chat gets its
+ *   own directory under the chats root, and later sessions of the chat start there too (ADR-0007);
  * - opening a session starts pi with `--session <file>` in the directory the session recorded,
  *   unless its pi runs; a draft restored after a restart starts with `--session-id <id>` on its
  *   first message (domain-model, "已决定 7");
  * - closing the last tab of a draft that never got a message discards it: its pi stops, its
- *   record goes, and a chat's empty directory is removed (domain-model, "已决定 13");
+ *   record goes, and when it was its chat's only session the chat's empty directory is removed
+ *   (domain-model, "已决定 13");
  * - archiving hides a session and stops its pi;
  * - a client's tab and place changes take effect in the order its commands came, at once for a
  *   session the index knows; one it does not know yet waits for the first scan, and a tab closed
  *   meanwhile must not open again; once closing, queued changes do nothing;
- * - a new session's tab opens once its pi started; the client goes there only if it stayed where
- *   it was when it asked;
+ * - the client goes to a new session's tab only if it stayed where it was when it asked;
  * - pi must have been found and be usable; otherwise starting fails with `pi_unavailable` and
- *   pi's status, which the UI explains;
+ *   pi's status, which the UI explains; a new session's start in the background failing is only
+ *   logged, and its next open, message or command starts it again;
  * - which user messages opened turns is kept per session (`turnStarts`), so a later host
  *   rebuilds steers and turns as they were (SPEC-0001, `steer`);
  * - a session pi has written nothing of starts on the model chosen last, with the thinking level
  *   remembered for it, set through pi's commands rather than `--model`, which makes pi exit when it
  *   cannot find the model; a remembered model pi refuses leaves pi's own; such a session started
  *   again goes back to the model it had, which its new pi would not know; a model chosen in any
- *   session is reported to `models` (SPEC-0001, "模型与输入框").
+ *   session is reported to `models` (SPEC-0001, "模型与输入框");
+ * - every session's pi loads Atrium's Fast extension, given `fast`; once it runs, the host checks
+ *   pi lists the extension's switch and, if the session's Fast is on, switches it on. Without the
+ *   switch, which is logged, nothing is sent and Fast is unavailable on that pi, as it is without
+ *   `fast`: words pi does not know as a command would go to the model. A session's Fast is its
+ *   controller's, else its record's, else the one last chosen; a switch is recorded for the
+ *   session and reported to `fast` (SPEC-0001, "Fast").
  *
  * Subscribing sends each newly watched session's snapshot to that connection before any later
  * event (domain-model §7); a draft without pi has an empty one, and its subscribers get the real
@@ -138,7 +182,7 @@ type ReadyTools = SessionTools & { readonly pi: Extract<PiInspection, { status: 
  * index and publishes.
  * @param options - The chats root, the detected tools, the subscription registry, the catalog,
  * layouts and workspaces, a callback for list changes, and the host's clock, resources, tracer,
- * logger and id source.
+ * logger and id sources.
  * @returns The manager.
  */
 export function createSessionManager(options: {
@@ -155,6 +199,8 @@ export function createSessionManager(options: {
   readonly tracer: Tracer;
   readonly logger: Logger;
   readonly newId: () => string;
+  /** Makes a new session's id, which pi takes with `--session-id` (pi-internals §1). */
+  readonly newSessionId: () => string;
   /** Loads a session's turn starts (`turns/<session id>.json`); without it they live in memory. */
   readonly turnStarts?: (sessionId: string) => Promise<TurnStarts>;
   /** The model new sessions start with; without it pi picks its own and choices go nowhere. */
@@ -166,6 +212,8 @@ export function createSessionManager(options: {
    * without it titles are made on each session's own model.
    */
   readonly titleModel?: (cwd: string, signal: AbortSignal) => Promise<ModelRef | null>;
+  /** Atrium's Fast extension and the Fast new sessions start with; without it pi loads none and there is no Fast. */
+  readonly fast?: SessionFast;
 }): SessionManager {
   const sessions = new Map<string, Running>();
   /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
@@ -175,7 +223,7 @@ export function createSessionManager(options: {
     now: () => options.clock.now(),
     setTimeout: (callback, ms) => trackedTimeout(options.clock, options.resources, callback, ms),
   };
-  /** Every pi started, including one still reporting its session id, so `close` stops them all. */
+  /** Every pi started, including one still reading its session, so `close` stops them all. */
   const running = new Set<{ stop(): Promise<unknown> }>();
   /** Sessions with a run in progress. */
   const busy = new Set<string>();
@@ -189,10 +237,12 @@ export function createSessionManager(options: {
   const asking = new Map<string, ReadonlyMap<string, number>>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
+  /** Drafts being discarded, which a message or an open waits for (SPEC-0001, "close_tab"). */
+  const discarding = new Map<string, Promise<void>>();
+  /** Drafts created by this host, which start on open, unlike drafts restored (domain-model, "已决定 7, 9"). */
+  const created = new Set<string>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
-  /** New sessions whose pi is starting, before they have an id to be found by. */
-  const creating = new Set<Promise<unknown>>();
   /** Background work, such as scans after a run, that `close` waits for. */
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
@@ -472,7 +522,7 @@ export function createSessionManager(options: {
       if (ran || event.type === "run_settled") options.onChange();
       if (event.type === "run_settled") {
         const containerId = options.catalog.find(sessionId)?.containerId;
-        if (containerId !== undefined && containerId !== CHATS) options.workspaces.refresh(containerId);
+        if (containerId !== undefined && !isChatId(containerId)) options.workspaces.refresh(containerId);
         inBackground("session scan", async () => {
           await options.catalog.scan();
           // After the scan, which finds the file a first run wrote.
@@ -486,21 +536,24 @@ export function createSessionManager(options: {
    * Starts pi and reads what it knows of its session.
    *
    * @remarks
-   * The session's id is the one pi reports (domain-model, "已决定 2"); automatic retries are
-   * turned on; its entries are read at once, so the first snapshot already holds the transcript.
-   * A pi that cannot report its
-   * session is stopped, never left running unowned; one started while the host closes stops
-   * itself.
+   * pi is started for a session the host knows, by its file or its id (domain-model, "已决定 2");
+   * automatic retries are turned on; its entries are read at once, so the first snapshot already
+   * holds the transcript. A pi that cannot report its session is stopped, never left running
+   * unowned; one started while the host closes stops itself.
    *
    * @sideEffects Spawns pi.
    * @param tools - The tools to start pi with.
    * @param launch - pi's arguments and working directory.
-   * @returns The session's id, the traced pi, the controller's view of it and its entries.
+   * @returns The traced pi, the controller's view of it, its model and its entries.
    * @throws {CommandError} `pi_unavailable` when pi exits or does not answer.
    */
   async function spawn(tools: ReadyTools, launch: Launch) {
     const traced = startTracedPi({
-      launch: { piPath: tools.pi.piPath, args: [...launch.args], cwd: launch.cwd },
+      launch: {
+        piPath: tools.pi.piPath,
+        args: [...launch.args, ...(options.fast === undefined ? [] : ["--extension", options.fast.extension])],
+        cwd: launch.cwd,
+      },
       deps: createPiDeps({
         clock: options.clock,
         resources: options.resources,
@@ -533,17 +586,20 @@ export function createSessionManager(options: {
       const data = await traced.request(since === undefined ? { type: "get_entries" } : { type: "get_entries", since });
       return { entries: data.entries.map(toLogEntry), leafId: data.leafId };
     };
-    let sessionId: string;
     let model: SessionModel | null;
     let entries: EntriesPage;
+    let fastSwitch = false;
     try {
       // pi retries failed model calls itself unless the user's settings turned that off; the host
       // counts on it (SPEC-0001, "运行出错与停止").
       await traced.request({ type: "set_auto_retry", enabled: true });
+      if (options.fast !== undefined) {
+        fastSwitch = (await traced.request({ type: "get_commands" })).commands.some(isFastSwitch);
+        if (!fastSwitch) options.logger.warn({}, "fast extension not loaded");
+        if (fastSwitch && launch.fast) await switchFast(traced, true);
+      }
       if (launch.startOn !== null) await startOnModel(traced, launch.startOn);
-      const state = await traced.request({ type: "get_state" });
-      sessionId = state.sessionId;
-      model = sessionModelOf(state);
+      model = sessionModelOf(await traced.request({ type: "get_state" }));
       entries = await getEntries(undefined);
     } catch (error) {
       await pi.stop();
@@ -574,12 +630,16 @@ export function createSessionManager(options: {
       setThinkingLevel: async (level) => {
         await traced.request({ type: "set_thinking_level", level });
       },
+      setFast: async (enabled) => {
+        if (!fastSwitch) throw new CommandError("fast_unavailable");
+        await switchFast(traced, enabled);
+      },
       commands: async () =>
         (await traced.request({ type: "get_commands" })).commands.flatMap((command) => toSlashCommand(command) ?? []),
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
       stop: () => pi.stop(),
     };
-    return { sessionId, traced, view, entries, model };
+    return { traced, view, entries, model, fast: launch.fast };
   }
 
   /**
@@ -618,11 +678,12 @@ export function createSessionManager(options: {
    * snapshot goes to the session's current subscribers.
    *
    * @sideEffects Registers or updates the session; sends snapshots to its viewers.
+   * @param sessionId - The session.
    * @param spawned - What `spawn` returned.
    * @returns The session.
    */
-  async function connect(spawned: Awaited<ReturnType<typeof spawn>>): Promise<Running> {
-    const { sessionId, traced, view, entries, model } = spawned;
+  async function connect(sessionId: string, spawned: Awaited<ReturnType<typeof spawn>>): Promise<Running> {
+    const { traced, view, entries, model, fast } = spawned;
     const known = sessions.get(sessionId);
     if (known !== undefined) {
       if (!known.controller.exited) {
@@ -638,6 +699,11 @@ export function createSessionManager(options: {
       options.logger.warn({ ...failureFields(error), sessionId }, "turn starts could not be read");
       return undefined;
     });
+    if (closed) {
+      // The host began closing meanwhile: it stops this pi with every other it started, and a
+      // controller made now would be kept by no one.
+      throw new CommandError("pi_unavailable", { status: "exited" });
+    }
     const controller = createSessionController({
       sessionId,
       pi: view,
@@ -654,6 +720,11 @@ export function createSessionManager(options: {
       respawn: () => respawn(sessionId),
       model,
       onModelChosen: (chosen) => options.models?.chosen(chosen),
+      fast,
+      onFastChosen: (enabled) => {
+        options.fast?.chosen(enabled);
+        inBackground("fast record", () => options.catalog.mark(sessionId, { fast: enabled }));
+      },
       ...(starts === undefined
         ? {}
         : {
@@ -714,11 +785,12 @@ export function createSessionManager(options: {
    *
    * @remarks
    * A session on file starts with `--session <file>` in the directory it recorded, which must
-   * still exist (domain-model §1); a draft starts with `--session-id <id>`.
+   * still exist (domain-model §1); a draft starts with `--session-id <id>`. Its Fast is the one its
+   * controller holds, else its record's, else the one last chosen (SPEC-0001, "Fast").
    *
    * @sideEffects Looks at the directory.
    * @param sessionId - The session.
-   * @returns pi's arguments, working directory and the model to start on.
+   * @returns pi's arguments, working directory, the model to start on and whether Fast is on.
    * @throws {CommandError} `session_not_found` for an unknown or missing session,
    * `session_cwd_missing` when its directory is gone.
    */
@@ -727,14 +799,30 @@ export function createSessionManager(options: {
     if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
     const directory = await stat(entry.cwd).catch(() => null);
     if (directory?.isDirectory() !== true) throw new CommandError("session_cwd_missing", { cwd: entry.cwd });
-    if (entry.file !== null) return { args: ["--session", entry.file], cwd: entry.cwd, startOn: null };
+    const snapshot = sessions.get(sessionId)?.controller.snapshot();
+    const fast = snapshot?.fast ?? fastOf(entry);
+    if (entry.file !== null) return { args: ["--session", entry.file], cwd: entry.cwd, startOn: null, fast };
     // pi has written nothing of the session, so a new pi would not know the model it had.
-    const had = sessions.get(sessionId)?.controller.snapshot().model ?? null;
+    const had = snapshot?.model ?? null;
     const startOn =
       had === null
         ? (options.models?.preferred() ?? null)
         : { model: { providerId: had.providerId, modelId: had.modelId }, thinkingLevel: had.thinkingLevel };
-    return { args: ["--session-id", sessionId], cwd: entry.cwd, startOn };
+    return { args: ["--session-id", sessionId], cwd: entry.cwd, startOn, fast };
+  }
+
+  /**
+   * A session's Fast before its controller holds one.
+   *
+   * @remarks
+   * Its record's, else the one last chosen; off without Fast (SPEC-0001, "Fast").
+   *
+   * @sideEffects none
+   * @param entry - What the catalog knows of the session.
+   * @returns Whether Fast is on.
+   */
+  function fastOf(entry: CatalogEntry): boolean {
+    return entry.fast ?? options.fast?.preferred() ?? false;
   }
 
   /**
@@ -768,7 +856,7 @@ export function createSessionManager(options: {
     const start = async (): Promise<Running> => {
       entryOf(sessionId);
       const tools = await readyTools();
-      return connect(await spawn(tools, await launchOf(sessionId)));
+      return connect(sessionId, await spawn(tools, await launchOf(sessionId)));
     };
     const started = start().finally(() => starting.delete(sessionId));
     starting.set(sessionId, started);
@@ -781,7 +869,7 @@ export function createSessionManager(options: {
    * @remarks
    * See `createSessionManager`.
    *
-   * @sideEffects Spawns pi; writes the index.
+   * @sideEffects Writes the index; starts pi in the background.
    * @param clientId - The client.
    * @param containerId - Where the session goes.
    * @param cwd - Its working directory.
@@ -789,17 +877,11 @@ export function createSessionManager(options: {
    */
   async function create(clientId: string, containerId: string, cwd: string): Promise<string> {
     const asked = options.layouts.of(clientId).container;
-    const tools = await readyTools();
-    const startOn = options.models?.preferred() ?? null;
-    const started = (async () => connect(await spawn(tools, { args: [], cwd, startOn })))();
-    creating.add(started);
-    let sessionId: string;
-    try {
-      ({ sessionId } = (await started).controller);
-    } finally {
-      creating.delete(started);
-    }
+    const sessionId = options.newSessionId();
     await options.catalog.record({ sessionId, containerId, cwd });
+    created.add(sessionId);
+    // Started as a draft's: whatever needs pi meanwhile waits for this start.
+    inBackground("session start", () => ensureRunning(sessionId));
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {
       const stayed = options.layouts.of(clientId).container === asked;
@@ -842,7 +924,7 @@ export function createSessionManager(options: {
     held.delete(sessionId);
     sessions.delete(sessionId);
     // Stryker disable next-line all: only frees memory; a session forgotten here runs no more, and its next run would clear them first.
-    for (const kept of [failures, marked, renamed]) kept.delete(sessionId);
+    for (const kept of [failures, marked, renamed, created]) kept.delete(sessionId);
   }
 
   /**
@@ -865,22 +947,61 @@ export function createSessionManager(options: {
     await sessions.get(sessionId)?.controller.shutdown();
   }
 
+  /**
+   * Discards a draft whose last tab closed: stops its pi, forgets it, and removes its chat's
+   * directory when it was the chat's only session.
+   *
+   * @remarks
+   * Stopping waits for a start under way, during which a message may come or a client open it
+   * again: looked at once more after, it is kept then, and its pi starts again for them (SPEC-0001,
+   * "close_tab"). A chat whose directory went leaves every layout too.
+   *
+   * @sideEffects Stops pi; writes the index; may remove a directory, change layouts and scan.
+   * @param sessionId - The draft.
+   * @param entry - Its catalog entry.
+   */
+  async function discard(sessionId: string, entry: { readonly containerId: string; readonly cwd: string }) {
+    await stopSession(sessionId);
+    if ((prompting.get(sessionId) ?? 0) > 0 || options.layouts.isOpen(sessionId)) return;
+    forget(sessionId);
+    await options.catalog.forget(sessionId);
+    // Only a chat's own directory, only when no other session is in it, and only while empty
+    // (domain-model, "已决定 13").
+    const alone = !options.catalog.list().some((other) => other.containerId === entry.containerId);
+    if (isChatId(entry.containerId) && alone) {
+      const removed = await rmdir(entry.cwd).then(
+        () => true,
+        () => false,
+      );
+      if (removed) await options.layouts.forgetContainers([entry.containerId]);
+      // The chat goes with its directory.
+      inBackground("session scan", () => options.catalog.scan());
+    }
+    options.onChange();
+  }
+
   return {
     async createChat(clientId) {
-      const cwd = join(options.chatsRoot, options.newId());
+      const name = options.newId();
+      const cwd = join(options.chatsRoot, name);
       await mkdir(cwd, { recursive: true });
       try {
-        return { sessionId: await create(clientId, CHATS, cwd) };
+        return { sessionId: await create(clientId, chatIdOf(name), cwd) };
       } catch (error) {
-        // Only the directory just made, and only while empty.
-        await rmdir(cwd).catch(() => undefined);
+        // Only the directory just made, only while empty, and only if no session was recorded in it.
+        if (!options.catalog.list().some((entry) => entry.cwd === cwd)) await rmdir(cwd).catch(() => undefined);
         throw error;
       }
     },
-    async createSession(clientId, workspaceId) {
-      const dir = options.workspaces.dirOf(workspaceId);
-      if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId });
-      return { sessionId: await create(clientId, workspaceId, dir) };
+    async createSession(clientId, containerId) {
+      if (isChatId(containerId)) {
+        const chat = options.catalog.chats().find((candidate) => candidate.id === containerId);
+        if (chat === undefined) throw new CommandError("chat_not_found", { chatId: containerId });
+        return { sessionId: await create(clientId, containerId, chat.dir) };
+      }
+      const dir = options.workspaces.dirOf(containerId);
+      if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: containerId });
+      return { sessionId: await create(clientId, containerId, dir) };
     },
     async openSession(clientId, sessionId) {
       const entry = await inClientOrder(clientId, async () => {
@@ -896,10 +1017,14 @@ export function createSessionManager(options: {
       if (entry === undefined) return {};
       // Starting needs the session's file, which only a scan finds.
       await options.catalog.ready();
+      // A discard under way sees the tab, keeps the draft, and its pi starts again here.
+      await discarding.get(sessionId)?.catch(() => undefined);
       const found = entryOf(sessionId);
       // A session handed off waits for "在 Atrium 里继续" (SPEC-0001, "交给终端").
       if (found.handedOff) return {};
-      if (found.state !== "draft" || sessions.has(sessionId)) await ensureRunning(sessionId);
+      // A restored draft waits for its first message; one created here starts, or its start under
+      // way is waited for.
+      if (found.state !== "draft" || sessions.has(sessionId) || created.has(sessionId)) await ensureRunning(sessionId);
       return {};
     },
     async closeTab(clientId, sessionId) {
@@ -912,14 +1037,16 @@ export function createSessionManager(options: {
       await options.catalog.scan();
       const entry = options.catalog.find(sessionId);
       const empty = (sessions.get(sessionId)?.controller.snapshot().items.length ?? 0) === 0;
-      const busyNow = starting.has(sessionId) || (prompting.get(sessionId) ?? 0) > 0;
+      // A start under way is no message: `stopSession` waits for it and stops its pi.
+      const busyNow = (prompting.get(sessionId) ?? 0) > 0;
       if (entry?.state === "draft" && empty && !busyNow && !options.layouts.isOpen(sessionId)) {
-        await stopSession(sessionId);
-        forget(sessionId);
-        await options.catalog.forget(sessionId);
-        // Only a chat's own directory, and only while empty (domain-model, "已决定 13").
-        if (entry.containerId === CHATS) await rmdir(entry.cwd).catch(() => undefined);
-        options.onChange();
+        const going = discard(sessionId, entry);
+        discarding.set(sessionId, going);
+        try {
+          await going;
+        } finally {
+          discarding.delete(sessionId);
+        }
       }
       return {};
     },
@@ -955,10 +1082,11 @@ export function createSessionManager(options: {
       const snapshots = new Map<string, SessionSnapshotEvent>();
       for (const sessionId of sessionIds) {
         const controller = sessions.get(sessionId)?.controller;
+        const entry = controller === undefined ? entryOf(sessionId) : null;
         if (controller !== undefined) {
           snapshots.set(sessionId, controller.snapshot());
-        } else if (entryOf(sessionId).state === "draft") {
-          snapshots.set(sessionId, draftSnapshot(sessionId));
+        } else if (entry?.state === "draft") {
+          snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry)));
         }
         // A session on file whose pi has not started yet is watched already; its snapshot follows
         // once `open_session` or a message starts it (SPEC-0001, "项目、工作区与会话").
@@ -973,6 +1101,8 @@ export function createSessionManager(options: {
       const { sessionId } = command;
       prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
       try {
+        // A discard under way sees this message, keeps the draft, and its pi starts again here.
+        await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
         entryOf(sessionId);
         notHandedOff(sessionId);
@@ -989,6 +1119,8 @@ export function createSessionManager(options: {
       const { sessionId } = command;
       prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
       try {
+        // A discard under way sees this message, keeps the draft, and its pi starts again here.
+        await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
         entryOf(sessionId);
         notHandedOff(sessionId);
@@ -1016,6 +1148,7 @@ export function createSessionManager(options: {
       controllerOf(sessionId).answerInteraction(interactionId, answer),
     setModel: async (sessionId, model) => (await commanded(sessionId)).controller.setModel(model),
     setThinkingLevel: async (sessionId, level) => (await commanded(sessionId)).controller.setThinkingLevel(level),
+    setFast: async (sessionId, enabled) => (await commanded(sessionId)).controller.setFast(enabled),
     listCommands: async (sessionId) => (await commanded(sessionId)).controller.listCommands(),
     async searchFiles(sessionId, query) {
       await options.catalog.ready();
@@ -1041,6 +1174,17 @@ export function createSessionManager(options: {
     },
     async fetchStep(command) {
       return controllerOf(command.sessionId).fetchStep(command);
+    },
+    async fetchImage(command) {
+      // pi keeps the image in the session file, so it is read from there rather than kept here.
+      const controller = controllerOf(command.sessionId);
+      // A turn that just ended is tied to its entry by the read its end started.
+      await controller.entriesRead();
+      const entryId = controller.entryOfTurn(command.turnId);
+      const { file } = entryOf(command.sessionId);
+      const image = entryId === null || file === null ? null : await readUserImage(file, entryId, command.index);
+      if (image === null) throw new CommandError("image_unavailable");
+      return image;
     },
     async fetchTranscript(command) {
       return controllerOf(command.sessionId).fetchTranscript(command);
@@ -1080,7 +1224,7 @@ export function createSessionManager(options: {
       });
     },
     summaries() {
-      return options.catalog.list().map(({ cwd: _cwd, ...entry }) => ({
+      return options.catalog.list().map(({ cwd: _cwd, fast: _fast, ...entry }) => ({
         ...entry,
         running: busy.has(entry.sessionId),
         asking: askingSince(entry.sessionId),
@@ -1090,7 +1234,7 @@ export function createSessionManager(options: {
       // pi was updated: a session's next use starts the new one (SPEC-0001, "首次启动 · 接口").
       // A pi starting meanwhile may be the old one, so it is waited for and judged too. A dialog
       // waiting for an answer keeps its session's pi. Stopping a pi already gone does nothing.
-      await Promise.allSettled([...starting.values(), ...creating]);
+      await Promise.allSettled(starting.values());
       const idle = [...sessions.keys()].filter((sessionId) => !occupied(sessionId) && askingSince(sessionId) === null);
       await Promise.all(idle.map((sessionId) => stopSession(sessionId)));
     },
@@ -1099,6 +1243,21 @@ export function createSessionManager(options: {
       await Promise.all(gone.map((entry) => stopSession(entry.sessionId)));
       for (const entry of gone) forget(entry.sessionId);
       await options.layouts.forgetContainers(workspaceIds);
+      options.onChange();
+    },
+    async stopWorkspace(workspaceId) {
+      const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
+      await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
+    },
+    async archiveWorkspace(workspaceId) {
+      // Archived with its workspace (SPEC-0001, "M1.11 的工作区归档"), drafts too; archiving one again changes nothing.
+      const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
+      await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
+      for (const entry of inside) {
+        forget(entry.sessionId);
+        await options.catalog.archive(entry.sessionId);
+      }
+      await options.layouts.forgetContainers([workspaceId]);
       options.onChange();
     },
     rescan() {
@@ -1213,9 +1372,10 @@ function piImages(images: readonly PromptImage[]): {
  *
  * @sideEffects none
  * @param sessionId - The draft.
+ * @param fast - Its Fast.
  * @returns An empty snapshot.
  */
-function draftSnapshot(sessionId: string): SessionSnapshotEvent {
+function draftSnapshot(sessionId: string, fast: boolean): SessionSnapshotEvent {
   return {
     type: "session_snapshot",
     sessionId,
@@ -1228,6 +1388,7 @@ function draftSnapshot(sessionId: string): SessionSnapshotEvent {
     exited: false,
     control: IDLE_CONTROL,
     model: null,
+    fast,
     metrics: UNKNOWN_METRICS,
   };
 }

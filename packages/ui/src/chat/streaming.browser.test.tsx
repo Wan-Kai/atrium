@@ -62,6 +62,7 @@ function transcriptAt(fields: Partial<SessionView>) {
           status: "ready",
           control: IDLE_CONTROL,
           model: null,
+          fast: false,
           metrics: UNKNOWN_METRICS,
           epoch: 1,
           seq: 0,

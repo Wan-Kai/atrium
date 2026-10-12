@@ -6,11 +6,13 @@ import {
   fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   FAUX_API,
+  FAUX_BASE_URL_ENV,
   FAUX_GATES_ENV,
+  FAUX_PAYLOADS_FILE,
   FAUX_PID_FILE,
   FAUX_MODEL,
   FAUX_PROVIDER,
@@ -69,6 +71,29 @@ async function waitForGate(path: string, signal: AbortSignal | undefined): Promi
 }
 
 /**
+ * Adds the body of a request to the payloads file, as pi's extensions leave it.
+ *
+ * @remarks
+ * A real provider builds its request body and hands it to `onPayload`, which runs pi's
+ * `before_provider_request` hooks (pi-internals.md §5); faux builds none, so it stands one in, with
+ * only the model's id, and keeps what the hooks return, or its own when they change nothing.
+ *
+ * @sideEffects Calls pi's hooks; appends a line to the file.
+ * @param file - The payloads file.
+ * @param model - The model asked.
+ * @param onPayload - pi's hook runner, when pi gave one.
+ */
+async function recordPayload<M extends { readonly id: string }>(
+  file: string,
+  model: M,
+  onPayload: ((payload: unknown, model: M) => unknown) | undefined,
+): Promise<void> {
+  const payload = { model: model.id };
+  const changed: unknown = await onPayload?.(payload, model);
+  appendFileSync(file, `${JSON.stringify(changed ?? payload)}\n`);
+}
+
+/**
  * Turns a scripted reply into the assistant message faux streams.
  *
  * @remarks
@@ -105,11 +130,15 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * Replies scripted with `waitFor` hold until the test releases them; pi's process id goes into
  * `pi.pid` beside the gates, so a test can kill that very process. A pi in print mode (`-p`), as
  * the host's one-shot call for a title, answers the script's `title` instead, or an error without
- * one, and leaves `pi.pid` to the session's pi (SPEC-0001, "自动生成标题"). Two commands cover the
+ * one, and leaves `pi.pid` to the session's pi (SPEC-0001, "自动生成标题"). Each request's body, as
+ * pi's extensions leave it, goes into `payloads.jsonl` beside the gates, and the models can stand in
+ * for a real provider (`script.provider`), at a base address of the test's (`FAUX_PI_BASE_URL`), as
+ * Fast's test needs (ADR-0008). Two commands cover the
  * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具"); a third navigates the
  * session tree, the only way to make a branch inside one session file.
  *
- * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid` unless printing; registers a
+ * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid` and adds to `payloads.jsonl`
+ * unless printing; registers a
  * provider and three commands with pi.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
@@ -120,7 +149,7 @@ export default function fauxExtension(pi: ExtensionApi): void {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- fauxPi writes this file from a typed FauxScript.
   const script = JSON.parse(readFileSync(scriptPath, "utf8")) as FauxScript;
   const faux = fauxProvider({
-    provider: FAUX_PROVIDER,
+    provider: script.provider ?? FAUX_PROVIDER,
     api: FAUX_API,
     models: [
       { id: FAUX_MODEL, reasoning: true },
@@ -142,25 +171,28 @@ export default function fauxExtension(pi: ExtensionApi): void {
     script.title === undefined
       ? { blocks: [], error: "faux script has no title" }
       : { blocks: [{ type: "text", text: script.title }] };
+  const payloads = gates === "" || printing ? null : join(dirname(gates), FAUX_PAYLOADS_FILE);
   faux.setResponses(
     (printing ? [titled] : script.replies).map((reply) => {
       const message = toAssistantMessage(reply);
       const gate = reply.waitFor;
-      if (gate === undefined) return message;
-      return async (_context, options) => {
-        await waitForGate(join(gates, gate), options?.signal);
+      return async (_context, options, _state, model) => {
+        if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
+        if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
         return message;
       };
     }),
   );
-  // The faux provider takes no thinking map, so it is added to the models it made.
+  // The faux provider takes no thinking map, so it is added to the models it made; each model
+  // carries its own base address, so a test's goes on each.
+  const baseUrl = process.env[FAUX_BASE_URL_ENV] ?? faux.getModel().baseUrl;
   const models = faux.models.map((model) => {
     const map = script.models?.find((extra) => extra.id === model.id)?.thinkingLevelMap;
-    return map === undefined ? model : { ...model, thinkingLevelMap: { ...map } };
+    return { ...model, baseUrl, ...(map === undefined ? {} : { thinkingLevelMap: { ...map } }) };
   });
-  pi.registerProvider(FAUX_PROVIDER, {
+  pi.registerProvider(script.provider ?? FAUX_PROVIDER, {
     api: faux.api,
-    baseUrl: faux.getModel().baseUrl,
+    baseUrl,
     apiKey: "faux-key",
     models,
     streamSimple: (model, context, options) => faux.provider.streamSimple(model, context, options),

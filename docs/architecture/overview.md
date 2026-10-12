@@ -60,6 +60,7 @@ atrium/
 │   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
 │   │   │   ├── auth/               登录：系统 Node 运行的登录程序（加载用户装的 pi 的 ModelRuntime）
 │   │   │   │                       和宿主这边的调用（登录状态、OAuth、API Key、退出）
+│   │   │   ├── fast/               Fast：哪些模型支持的规则，和交给 pi 加载的扩展（ADR-0008）
 │   │   │   └── locate/             找到 pi 和它用的 Node、检查版本；找到 `@` 用的 fd
 │   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
 │   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
@@ -119,7 +120,7 @@ atrium/
                stryker.config.mjs、.oxlintrc.json、.oxfmtrc.json、knip.json、lefthook.yml
 ```
 
-MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不建。
+MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不建。M1.11 的 Fast 扩展不是插件（没有视图、不按 pi package 发布），它的规则宿主也要用，所以放在 `packages/pi/src/fast/`（ADR-0008）。
 
 ### 包之间的依赖
 
@@ -142,6 +143,8 @@ protocol  ←──  pi  ←──  host
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
 
 - **登录程序的例外**（2026-10-10 定）：`packages/pi/src/auth/` 里的登录程序由宿主交给系统 Node 运行，不被我们的进程加载。它按绝对路径 `import` 用户装的 pi 包（`dist/index.js`），用的是 pi 自带的依赖；只从 `@earendil-works/pi-coding-agent` 取类型（pi 包的开发依赖）。它只用 Node 能直接运行的写法（能被去掉的类型注解，不用 enum 等），因为系统 Node 直接运行源文件。
+
+- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008）：`packages/pi/src/fast/` 里的 Fast 扩展由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `fast-extension.mjs`，放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
 
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。
@@ -188,7 +191,8 @@ main.ts 负责组装全部
 - Electron 主进程用 `utilityProcess.fork` 启动宿主：宿主跑在 Electron 自带的 Node 里，用户不需要另装 Node 来跑宿主（pi 本身仍用系统里的 Node）。
 - 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后 PWA 和无界面运行都用它。
 - 窗口从固定的来源 `atrium://app/` 加载界面（2026-10-08 定）：主进程用 `protocol.handle` 把这个协议的请求转给宿主的静态文件服务，只把内容安全策略换成允许连接宿主端口的版本；WebSocket 仍连宿主的随机端口，宿主的 `Origin` 白名单里加上 `atrium://app`。宿主端口每次启动都不同，直接加载 `http://127.0.0.1:<端口>` 时页面来源跟着变，`localStorage` 里的客户端 id、折叠状态、草稿重启后就丢了；固定来源让它们保留下来。开发时页面来自 Vite 的固定端口，不受影响。
-- 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。打包在 v0.1 之后，这里先定方向。
+- 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。
+- 本机打包（2026-10-11 定）：`pnpm package` 用 `@electron/packager` 生成 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`，不依赖仓库和本机的 Node，可以拷进"应用程序"、拷给同一台机器上的别的账户。应用目录 `Contents/Resources/app/` 里是主进程和预加载脚本（`dist/`）、宿主单文件和登录程序（`host/`）、界面（`ui/`），没有 `node_modules`；应用图标是 `apps/desktop/assets/icon.icns`（[design-language · 标志](design-language.md#标志)）；主进程按 `app.isPackaged` 在这里找宿主和界面，没打包时在仓库里找。不用 asar：登录程序由系统 Node 运行，读不了 asar，宿主的静态文件服务也按真实路径检查文件。只做 ad-hoc 签名（Apple Silicon 上的程序必须带签名才能运行），不公证：本机生成的文件没有隔离标记，Gatekeeper 不拦。开发版和打包版的应用名都是 Atrium，共用单实例锁和页面存储，同时只能开一个。
 
 ## 进程模型
 

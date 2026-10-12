@@ -106,6 +106,7 @@ function model(providerId: string, modelId: string): CatalogModel {
     maxOutput: 64_000,
     supportsImage: true,
     thinkingLevels: [],
+    fast: null,
   };
 }
 
@@ -473,7 +474,7 @@ describe("Settings · models and accounts", () => {
     await screen.getByRole("menuitemradio", { name: /^跟随会话的模型/ }).click();
     await expect.element(menu).toHaveTextContent("跟随会话的模型");
 
-    expect(modelCalls).toStrictEqual(["loadModels chats"]);
+    expect(modelCalls).toStrictEqual(["loadModels null"]);
     expect(calls).toStrictEqual([
       'setPreferences {"titleModel":{"providerId":"openai","modelId":"gpt-6-mini"}}',
       'setPreferences {"titleModel":null}',
@@ -487,8 +488,10 @@ describe("Settings · models and accounts", () => {
       displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
+      proxy: null,
     };
     const models: ModelListView = {
       status: "ready",
@@ -511,8 +514,10 @@ describe("Settings · models and accounts", () => {
       displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openrouter", modelId: "claude-haiku-4-5" },
+      proxy: null,
     };
     const models: ModelListView = {
       status: "ready",
@@ -540,8 +545,10 @@ describe("Settings · models and accounts", () => {
       displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
+      proxy: null,
     };
     const models: ModelListView = { status: "loading", models: [], defaultModel: null, error: null };
     const { screen } = await accounts([CLAUDE], { answers: { models }, initial: { preferences } });

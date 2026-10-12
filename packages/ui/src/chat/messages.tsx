@@ -1,4 +1,5 @@
-import { Copy, Image } from "@phosphor-icons/react";
+import { Copy } from "../design/icons";
+import { MessageThumbnails } from "./message-images";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -47,6 +48,12 @@ export interface UserBubbleProps {
   readonly text: string;
   /** How many images came with it. */
   readonly images?: number;
+  /** The turn it opened; absent while it is pending. */
+  readonly turnId?: string;
+  /** Its id from this page, if it was sent from here. */
+  readonly clientMessageId?: string | null;
+  /** Whether its turn has ended. */
+  readonly settled?: boolean;
   /** When the host confirmed it; absent while it is still pending. */
   readonly timestamp?: number;
   /** The host sent it to have the agent go on (SPEC-0001, "运行控制"). */
@@ -60,14 +67,22 @@ export interface UserBubbleProps {
  * Shown at once when sent and replaced by the confirmed copy (domain-model §7); a pending one
  * has no time yet. Bubble on `--surface-2` with radius 22 (design-language, "消息流"). A message
  * longer than about 12 lines is folded, with "展开" at its end (SPEC-0001, "消息下方的信息");
- * images are counted, since attachments show from M1.7. One the host sent on its own after an
- * interrupted run says so under it, "系统自动发出".
+ * its images show as thumbnails above it. One the host sent on its own after an interrupted run
+ * says so under it, "系统自动发出".
  *
  * @sideEffects Observes the bubble's size while folded to know whether it overflows.
- * @param props - The text, images and, once confirmed, its time.
+ * @param props - The text, images and, once confirmed, its time and turn.
  * @returns The bubble.
  */
-export function UserBubble({ text, images = 0, timestamp, auto = false }: UserBubbleProps) {
+export function UserBubble({
+  text,
+  images = 0,
+  timestamp,
+  auto = false,
+  turnId,
+  clientMessageId = null,
+  settled = false,
+}: UserBubbleProps) {
   const body = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
@@ -82,10 +97,7 @@ export function UserBubble({ text, images = 0, timestamp, auto = false }: UserBu
   return (
     <div className="flex flex-col items-end gap-1" data-testid="user-message" data-pending={timestamp === undefined}>
       {images === 0 ? null : (
-        <span className="flex items-center gap-1 rounded-[var(--r-pill)] bg-[var(--surface-2)] px-2.5 py-1 text-[length:var(--fs-sm)] text-[var(--text-muted)]">
-          <Image size={13} />
-          {images} 张图片
-        </span>
+        <MessageThumbnails count={images} turnId={turnId ?? null} clientMessageId={clientMessageId} settled={settled} />
       )}
       <div className="flex max-w-[80%] flex-col items-start rounded-[var(--r-bubble)] bg-[var(--surface-2)] px-4 py-2.5">
         <div

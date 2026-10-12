@@ -1,7 +1,7 @@
 import { FakeClock, createTempDir } from "@atrium/testkit";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { loadIndexFile } from "../store/index-file";
-import { LAYOUTS_FILE } from "../store/index-schema";
+import { layoutsFile } from "../store/index-schema";
 import { KEPT_CLIENTS, createLayouts } from "./layouts";
 
 const A = "wks_000000000000000a";
@@ -19,7 +19,7 @@ const B = "wks_000000000000000b";
 async function layouts() {
   const index = await createTempDir("layouts");
   onTestFinished(index.cleanup);
-  const { file } = await loadIndexFile(index.path, LAYOUTS_FILE, 0);
+  const { file } = await loadIndexFile(index.path, layoutsFile({ sessions: [] }), 0);
   const clock = new FakeClock(1_000);
   return { layouts: createLayouts({ file, clock }), file, clock };
 }

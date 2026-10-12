@@ -13,7 +13,11 @@ import { Composer } from "./composer";
 import { UserBubble } from "./messages";
 import { ClockContext, type UiClock } from "../state/clock";
 import { RunStatus, formatElapsed } from "./run-status";
+import { type MessageImages, MessageImagesContext } from "./message-images";
 import { Transcript } from "./transcript";
+
+/** The chat the area shows in most tests. */
+const CHAT = "cht_a";
 
 // Drafts are kept per session in the page's storage; each test starts without any.
 afterEach(() => localStorage.clear());
@@ -31,6 +35,7 @@ function view(fields: Partial<SessionView> = {}): SessionView {
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
     ...fields,
   };
@@ -131,7 +136,7 @@ describe("messages", () => {
     const short = screen.getByTestId("user-text").nth(1).element();
 
     await vi.waitFor(() => expect(body.scrollHeight).toBeGreaterThan(body.clientHeight));
-    expect(screen.container.textContent).toContain("2 张图片");
+    expect(screen.getByRole("img", { name: "正在加载图片" }).elements()).toHaveLength(2);
     await screen.getByRole("button", { name: "展开" }).click();
     expect(body.scrollHeight).toBe(body.clientHeight);
     await screen.getByRole("button", { name: "收起" }).click();
@@ -148,6 +153,7 @@ describe("messages", () => {
         ticks.push(tick);
         return () => ticks.splice(ticks.indexOf(tick), 1);
       },
+      after: () => () => undefined,
     };
     const screen = await render(
       <ClockContext value={clock}>
@@ -155,6 +161,9 @@ describe("messages", () => {
       </ClockContext>,
     );
     await expect.element(screen.getByTestId("run-status")).toHaveTextContent("进行中 · 12s");
+    const cat = screen.getByTestId("run-cat").element();
+    expect(cat.getAttribute("aria-hidden")).toBe("true");
+    expect(cat.querySelectorAll(".atrium-run-cat-eyes ellipse")).toHaveLength(2);
 
     now = 101_000;
     for (const tick of ticks) tick();
@@ -184,6 +193,147 @@ function at(items: TranscriptItem[], fields: Partial<SessionView> = {}, onLoadOl
   );
 }
 
+/**
+ * The transcript in the same 300px column, with a box of some height under it, as the composer is.
+ *
+ * @remarks
+ * Growing the box shrinks the transcript without changing its content.
+ */
+function above(items: TranscriptItem[], below: number) {
+  return (
+    <div style={{ height: 300, display: "flex", flexDirection: "column" }}>
+      <Transcript view={view({ items })} onLoadOlder={() => undefined} onLoadStep={() => undefined} />
+      <div style={{ height: below, flex: "none" }} />
+    </div>
+  );
+}
+
+/**
+ * How far a scroller's view is from its end, in whole pixels.
+ *
+ * @sideEffects none
+ * @param scroller - The scroller.
+ * @returns The distance; 0 at the bottom.
+ */
+function fromEnd(scroller: HTMLElement): number {
+  return Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight);
+}
+
+/**
+ * The farthest a scroller's view gets from its end over some time, as each frame is painted.
+ *
+ * @remarks
+ * Checked in a size observer made after the transcript's, so after the view's own scrolling in
+ * each frame; whenever the content or the scroller changes size.
+ *
+ * @sideEffects Observes the scroller and its content; waits.
+ * @param scroller - The scroller.
+ * @param ms - How long to watch.
+ * @returns The largest distance seen.
+ */
+async function farthestFromEnd(scroller: HTMLElement, ms: number): Promise<number> {
+  let farthest = 0;
+  const observer = new ResizeObserver(() => {
+    farthest = Math.max(farthest, fromEnd(scroller));
+  });
+  observer.observe(scroller);
+  for (const child of scroller.children) observer.observe(child);
+  await new Promise((resolve) => setTimeout(resolve, ms));
+  observer.disconnect();
+  return Math.max(farthest, fromEnd(scroller));
+}
+
+/**
+ * Makes an element taller, as content streaming or unfolding into it does.
+ *
+ * @sideEffects Appends a block to the element.
+ * @param element - The element.
+ * @param px - How much taller.
+ */
+function grow(element: HTMLElement | undefined, px: number): void {
+  const block = document.createElement("div");
+  block.style.height = `${px}px`;
+  element?.append(block);
+}
+
+/**
+ * Waits until just after the next frame is painted.
+ *
+ * @remarks
+ * A timer set in a frame's callback runs after that frame's layout, size observers and paint.
+ *
+ * @sideEffects Waits.
+ */
+async function afterFrame(): Promise<void> {
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
+/** A command that passed, as a step. */
+function passedCommand(stepId: string): Turn["steps"][number] {
+  return {
+    kind: "tool",
+    id: stepId,
+    callId: `c${stepId}`,
+    tool: "bash",
+    args: { command: "pnpm test" },
+    status: "done",
+    output: "ok\n".repeat(8),
+    details: { tool: "bash", command: "pnpm test" },
+    partial: false,
+  };
+}
+
+/**
+ * A running turn after some commands, the last of them still going on.
+ *
+ * @remarks
+ * Its thinking and each command's output grow with the count, as a live process does.
+ *
+ * @sideEffects none
+ * @param count - How many commands it has run.
+ * @returns The turn.
+ */
+function liveTurn(count: number): Turn {
+  const done = Array.from({ length: count - 1 }, (_, index) => ({
+    ...passedCommand(String(index)),
+    output: "ok\n".repeat(index + 2),
+  }));
+  const current = { ...passedCommand(String(count - 1)), status: "running" as const, output: "ok\n" };
+  return turn("live", "", {
+    steps: [{ kind: "thinking", id: "t", text: "想一想。".repeat(count * 4), durationMs: null }, ...done, current],
+    outcome: "running",
+    durationMs: null,
+  });
+}
+
+/**
+ * Images where the message `q1` was sent from this page, and the host has a turn's image only
+ * once `ended` is set.
+ *
+ * @remarks
+ * Records each load as `turn/place`.
+ *
+ * @sideEffects none until loaded; loads are recorded.
+ * @returns The images, the loads asked for, and the switch.
+ */
+function turnImages() {
+  const loads: string[] = [];
+  const host = { ended: false };
+  const images: MessageImages = {
+    sent: (clientMessageId) => (clientMessageId === "q1" ? ["data:image/png;base64,a"] : null),
+    load: (turnId, index) => {
+      loads.push(`${turnId}/${index}`);
+      return host.ended ? Promise.resolve("data:image/png;base64,b") : Promise.reject(new Error("image_unavailable"));
+    },
+  };
+  return { host, images, loads };
+}
+
+/** A finished turn whose process has two commands, before its reply. */
+function worked(id: string): Turn {
+  return turn(id, "", { steps: [passedCommand("0"), passedCommand("1"), { kind: "text", id: "2", text: "好了" }] });
+}
+
 describe("Transcript", () => {
   it("shows turns and notices, then pending sends, then the run until its turn arrives", async () => {
     const screen = await render(
@@ -203,6 +353,54 @@ describe("Transcript", () => {
 
     expect(shown).toStrictEqual(["turn", "user-message", "notice", "user-message", "run-status"]);
     expect(screen.container.querySelector('[data-testid="run-status"]')?.textContent).toMatch(/^进行中 · 1[23]s$/);
+  });
+
+  it("shows the run line, without a timer, under a message sent while idle until the run starts", async () => {
+    const screen = await render(at([turn("t1", "答")], { pending: [{ clientMessageId: "q2", text: "再问" }] }));
+    const shown = [
+      ...screen.container.querySelectorAll(
+        '[data-testid="turn"], [data-testid="user-message"], [data-testid="run-status"]',
+      ),
+    ].map((item) => item.getAttribute("data-testid"));
+
+    expect(shown).toStrictEqual(["turn", "user-message", "user-message", "run-status"]);
+    expect(screen.container.querySelector('[data-testid="run-status"]')?.textContent).toBe("进行中");
+  });
+
+  it("shows no run line for a message sent while its turn runs, which goes into the queue", async () => {
+    const running = turn("t1", "答到一半", { outcome: "running" });
+    const screen = await render(
+      at([running], {
+        pending: [{ clientMessageId: "q2", text: "再问" }],
+        run: { runId: "r1", startedAt: Date.now() - 3_000 },
+      }),
+    );
+
+    expect(screen.container.querySelectorAll('[data-testid="user-message"]')).toHaveLength(2);
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(0);
+  });
+
+  it("keeps the run line in a running turn with nothing to show yet, and drops it once the reply begins", async () => {
+    const run = { runId: "r1", startedAt: Date.now() - 3_000 };
+    const screen = await render(at([turn("t1", "", { outcome: "running" })], { run }));
+
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(1);
+    expect(
+      screen.container.querySelector('[data-testid="run-waiting"] [data-testid="run-status"]')?.textContent,
+    ).toMatch(/^进行中 · [34]s$/);
+    expect(screen.container.querySelectorAll('[data-testid="process-header"]')).toHaveLength(0);
+
+    await screen.rerender(at([turn("t1", "答", { outcome: "running" })], { run }));
+
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(0);
+    await expect.element(screen.getByTestId("reply")).toHaveAttribute("data-streaming", "true");
+  });
+
+  it("shows no run line in a turn stopped before it had anything to show", async () => {
+    const screen = await render(at([turn("t1", "", { outcome: "stopped" })]));
+
+    await expect.element(screen.getByText("已停止")).toBeVisible();
+    expect(screen.container.querySelectorAll('[data-testid="run-status"]')).toHaveLength(0);
   });
 
   it("shows the run's timer in its turn once the turn arrives", async () => {
@@ -260,6 +458,118 @@ describe("Transcript", () => {
     );
   });
 
+  it("stays at the bottom as what is under it grows", async () => {
+    const long = Array.from({ length: 20 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
+    const screen = await render(above(long, 40));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+
+    await screen.rerender(above(long, 140));
+
+    expect(await farthestFromEnd(scroller, 100)).toBe(0);
+    expect(scroller.clientHeight).toBe(160);
+  });
+
+  it("stays at the bottom through every frame of the last process unfolding, a detail opening, and the fold", async () => {
+    const items = [...Array.from({ length: 10 }, (_, index) => turn(`a${index}`, `第 ${index} 段`)), worked("w")];
+    const screen = await render(at(items));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+    // Clicked in place: the page's own clicks scroll their target into view first.
+    const header = screen.getByTestId("process-header").element() as HTMLElement;
+
+    header.click();
+    const unfolding = await farthestFromEnd(scroller, 700);
+    (
+      screen
+        .getByRole("button", { name: /^运行了 pnpm test/ })
+        .first()
+        .element() as HTMLElement
+    ).click();
+    const opened = await farthestFromEnd(scroller, 100);
+    header.click();
+    const folding = await farthestFromEnd(scroller, 700);
+
+    expect([unfolding, opened, folding]).toStrictEqual([0, 0, 0]);
+  });
+
+  it("stays at the bottom through every frame of a run whose process grows step by step", async () => {
+    const earlier = Array.from({ length: 10 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
+    const run = { runId: "r1", startedAt: Date.now() };
+    const screen = await render(at([...earlier, liveTurn(1)], { run }));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+
+    const watching = farthestFromEnd(scroller, 1600);
+    for (let count = 2; count <= 12; count += 1) {
+      await screen.rerender(at([...earlier, liveTurn(count)], { run }));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+
+    expect(await watching).toBe(0);
+    await expect.element(screen.getByRole("button", { name: "回到底部" })).not.toBeInTheDocument();
+  });
+
+  it("shows each turn's images: kept for a message sent from here, fetched by turn for others, again once a run ends", async () => {
+    const shown = turnImages();
+    const { images, loads } = shown;
+    const user = { text: "看图", images: 1, auto: false, timestamp: 0 };
+    const items = (outcome: Turn["outcome"]) => [
+      turn("t1", "答", { user: { ...user, clientMessageId: "q1" } }),
+      turn("t2", "", { user: { ...user, clientMessageId: null }, outcome }),
+    ];
+    const screen = await render(<MessageImagesContext value={images}>{at(items("running"))}</MessageImagesContext>);
+    const second = screen.getByTestId("turn").nth(1);
+    await expect.element(second.getByRole("img", { name: "图片不可用" })).toBeVisible();
+
+    shown.host.ended = true;
+    await screen.rerender(<MessageImagesContext value={images}>{at(items("done"))}</MessageImagesContext>);
+
+    await expect.element(second.getByRole("img", { name: "图片 1" })).toHaveAttribute("src", "data:image/png;base64,b");
+    await expect
+      .element(screen.getByTestId("turn").nth(0).getByRole("img", { name: "图片 1" }))
+      .toHaveAttribute("src", "data:image/png;base64,a");
+    expect(loads).toStrictEqual(["t2/0", "t2/0"]);
+  });
+
+  it("stays at the bottom when content grows above the view and below it between frames", async () => {
+    const screen = await render(at(Array.from({ length: 12 }, (_, index) => turn(`a${index}`, `第 ${index} 段`))));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const replies = scroller.querySelectorAll<HTMLElement>('[data-testid="reply"]');
+
+    // Something far above the view grows and the page reads its layout; the view follows in the
+    // next frame, and that scroll's event is due a frame later.
+    grow(replies[0], 400);
+    expect(scroller.scrollHeight).toBeGreaterThan(0);
+    await afterFrame();
+    // Before that event, more grows above and the page reads its layout again: the browser's
+    // scroll anchoring, if on, moves the view here, so the event finds a position the view did
+    // not scroll to, and the last reply grows too, so that position is off the bottom.
+    grow(replies[0], 400);
+    expect(scroller.scrollHeight).toBeGreaterThan(0);
+    grow(replies[replies.length - 1], 200);
+
+    expect(await farthestFromEnd(scroller, 200)).toBe(0);
+    await expect.element(screen.getByRole("button", { name: "回到底部" })).not.toBeInTheDocument();
+  });
+
+  it("leaves the view where it is, scrolled up, as a process unfolds or what is under it grows", async () => {
+    const items = [worked("w"), ...Array.from({ length: 10 }, (_, index) => turn(`a${index}`, `第 ${index} 段`))];
+    const screen = await render(above(items, 40));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+    scroller.scrollTop = 0;
+    await expect.element(screen.getByRole("button", { name: "回到底部" })).toBeVisible();
+
+    (screen.getByTestId("process-header").element() as HTMLElement).click();
+    await screen.rerender(above(items, 140));
+    await farthestFromEnd(scroller, 700);
+
+    expect(scroller.scrollTop).toBe(0);
+  });
+
   it("follows new content at the bottom; scrolled up it stops and offers a way back, with a dot for news", async () => {
     const long = Array.from({ length: 40 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
     const screen = await render(at(long));
@@ -310,7 +620,7 @@ describe("ConversationArea", () => {
     );
 
     const screen = await render(
-      <ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />,
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
     );
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("恢复失败：会话的目录 /gone/work 不存在");
@@ -368,8 +678,23 @@ describe("ConversationArea", () => {
     expect(calls).toContain("watch new1");
   });
 
+  it("creates the session as soon as something is typed, once, before anything is sent", async () => {
+    const { client, calls, index } = fakeClient();
+    const create = async () => (await client.createSession(CHAT)).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />,
+    );
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好");
+
+    await vi.waitFor(() => expect(index.getState().layout.tabs[CHAT]?.active).toBe("new1"));
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["createSession cht_a"]);
+    pageDrafts().drop(["new1"]);
+  });
+
   it.each([
-    ["chats", "不绑定项目和工作区，直接输入就开始"],
+    [null, "不绑定项目和工作区，直接输入就开始"],
+    [CHAT, "在这个对话里开始，直接输入就会新建会话"],
     ["wks_000000000000000a", "在这个工作区里开始，直接输入就会新建会话"],
   ])("says where a new session goes in %s when none is open", async (containerId, hint) => {
     const { client } = fakeClient();
@@ -384,7 +709,7 @@ describe("ConversationArea", () => {
   it("watches the active session and sends to it", async () => {
     const { client, calls } = fakeClient();
     const screen = await render(
-      <ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />,
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
     );
 
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
@@ -397,7 +722,7 @@ describe("ConversationArea", () => {
   it.each(["exited", "lost"] as const)("opens a session that is %s again before sending to it", async (status) => {
     const { client, calls, views } = fakeClient();
     const screen = await render(
-      <ConversationArea client={client} containerId="chats" sessionId="s1" create={async () => ""} />,
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={async () => ""} />,
     );
     await vi.waitFor(() => expect(views.has("s1")).toBe(true));
     views.get("s1")?.setState({ status });
@@ -412,7 +737,7 @@ describe("ConversationArea", () => {
   it("queues on Enter while a run goes on, steers on ⌘Enter, and stops with Esc or the button", async () => {
     const { client, calls, views } = fakeClient();
     const screen = await render(
-      <ConversationArea client={client} containerId="chats" sessionId="s1" create={async () => ""} />,
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={async () => ""} />,
     );
     await vi.waitFor(() => expect(views.has("s1")).toBe(true));
     views.get("s1")?.setState({ run: { runId: "r1", startedAt: Date.now() } });
@@ -423,7 +748,8 @@ describe("ConversationArea", () => {
     await userEvent.type(box, "{Escape}");
     await screen.getByRole("button", { name: "停止" }).click();
 
-    await expect.element(screen.getByText("回车排队 · ⌘回车插话 · Esc 停止")).toBeVisible();
+    await expect.element(box).toHaveAttribute("placeholder", "回车排队 · ⌘回车插话 · Esc 停止");
+    await expect.element(screen.getByText("回车排队 · ⌘回车插话 · Esc 停止")).not.toBeInTheDocument();
     await vi.waitFor(() =>
       expect(calls).toStrictEqual(["watch s1", "openSession s1", "prompt s1 二", "steer s1 三", "stop s1", "stop s1"]),
     );
@@ -432,7 +758,7 @@ describe("ConversationArea", () => {
   it("shows a stop waiting for pi as stopping, and takes no stop meanwhile", async () => {
     const { client, calls, views } = fakeClient();
     const screen = await render(
-      <ConversationArea client={client} containerId="chats" sessionId="s1" create={async () => ""} />,
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={async () => ""} />,
     );
     await vi.waitFor(() => expect(views.has("s1")).toBe(true));
     views.get("s1")?.setState({
@@ -443,14 +769,14 @@ describe("ConversationArea", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "{Escape}");
 
     await expect.element(screen.getByRole("button", { name: "停止中" })).toBeDisabled();
-    await expect.element(screen.getByText("正在停止…")).toBeVisible();
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveAttribute("placeholder", "正在停止…");
     expect(calls).toStrictEqual(["watch s1", "openSession s1"]);
   });
 
   it("stops watching when no session is active, and drops an old failure on switching", async () => {
     const { client, calls } = fakeClient({}, { prompt: () => Promise.reject(new CommandError("session_busy")) });
     const screen = await render(
-      <ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />,
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
     );
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "一{Enter}");
     await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 正在忙，等这一轮结束再发");
@@ -458,7 +784,7 @@ describe("ConversationArea", () => {
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("一");
     pageDrafts().drop(["s1"]);
 
-    await screen.rerender(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />);
+    await screen.rerender(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={noCreate} />);
 
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
     expect(calls.at(-1)).toBe("watch ");
@@ -479,6 +805,22 @@ describe("ConversationArea", () => {
     await expect.element(screen.getByRole("alert")).toHaveTextContent("没有找到 pi，请先安装 pi");
   });
 
+  it("explains a creation that failed as the first words were typed, before anything is sent", async () => {
+    const { client, calls } = fakeClient(
+      {},
+      { createSession: () => Promise.reject(new CommandError("workspace_not_found", { workspaceId: "wks_a" })) },
+    );
+    const create = async () => (await client.createSession("wks_a")).sessionId;
+    const screen = await render(
+      <ConversationArea client={client} containerId="wks_a" sessionId={null} create={create} />,
+    );
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("这个工作区已经不在了");
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["createSession wks_a"]);
+  });
+
   it.each([
     [new ConnectionLostError("prompt"), "与宿主的连接断开了，这条消息可能没有发出"],
     [new CommandError("pi_unavailable", { status: "outdated" }), "pi 的版本过低，请先更新"],
@@ -494,6 +836,7 @@ describe("ConversationArea", () => {
     [new CommandError("session_cwd_missing", { cwd: "/gone/work" }), "恢复失败：会话的目录 /gone/work 不存在"],
     [new CommandError("session_cwd_missing"), "恢复失败：会话的目录  不存在"],
     [new CommandError("workspace_not_found"), "这个工作区已经不在了"],
+    [new CommandError("chat_not_found"), "这个对话已经不在了"],
     [new CommandError("session_stopping"), "正在等 pi 停下，停下后再发"],
     [new CommandError("queue_item_not_found"), "这条排队的消息已经发出或删掉了"],
     [new CommandError("interaction_closed"), "这个问题已经回答过、超时或作废了"],
@@ -515,7 +858,11 @@ describe("ConversationArea", () => {
  * @returns The area in a full-height column.
  */
 function tall(area: ReactNode) {
-  return <div style={{ display: "flex", flexDirection: "column", height: 760 }}>{area}</div>;
+  return (
+    <div data-testid="area" style={{ display: "flex", flexDirection: "column", height: 760 }}>
+      {area}
+    </div>
+  );
 }
 
 describe("ConversationArea's model button", () => {
@@ -527,6 +874,7 @@ describe("ConversationArea's model button", () => {
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["off", "low", "medium", "high"] as const,
+    fast: null,
   };
   const HAIKU = { ...OPUS, modelId: "haiku", name: "Haiku", thinkingLevels: ["off"] as const };
   const LIST = {
@@ -557,7 +905,7 @@ describe("ConversationArea's model button", () => {
   it("switches the session's model and thinking level", async () => {
     const { client, modelCalls } = fakeClient({}, { models: LIST });
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     client
       .session("s1")
@@ -570,8 +918,8 @@ describe("ConversationArea's model button", () => {
 
     await vi.waitFor(() =>
       expect(modelCalls).toStrictEqual([
-        "loadModels chats",
-        "loadModels chats",
+        "loadModels null",
+        "loadModels null",
         "setThinkingLevel s1 medium",
         "setModel s1 anthropic/haiku",
       ]),
@@ -587,15 +935,17 @@ describe("ConversationArea's model button", () => {
           displayMode: "summary",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
+          lastFast: false,
           statusBar: {},
           titleModel: null,
+          proxy: null,
         },
       },
       { models: LIST },
     );
-    const create = async () => (await client.createChat()).sessionId;
+    const create = async () => (await client.createSession(CHAT)).sessionId;
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
     );
     const chip = screen.getByRole("button", { name: /模型与推理强度/ });
     await expect.element(chip).toHaveTextContent("Claude Opus 5.5中");
@@ -604,13 +954,13 @@ describe("ConversationArea's model button", () => {
     await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
 
     await vi.waitFor(() => expect(modelCalls).toContain("setModel new1 anthropic/haiku"));
-    expect(calls).toContain("createChat");
+    expect(calls).toContain("createSession cht_a");
   });
 
   it("cannot change the model while a stop waits for pi", async () => {
     const { client } = fakeClient({}, { models: LIST });
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
 
     client.session("s1")?.setState({
@@ -625,13 +975,294 @@ describe("ConversationArea's model button", () => {
     const { client } = fakeClient({}, { models: LIST });
     client.setModel = () => Promise.reject(new CommandError("pi_rejected", { detail: "Model not found" }));
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
 
     await userEvent.click(screen.getByRole("button", { name: /模型与推理强度/ }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: /Haiku/ }));
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 没有接受这个设置：Model not found");
+  });
+});
+
+/**
+ * The animations the Fast button's bolt and speed lines run.
+ *
+ * @remarks
+ * Turning Fast on plays the acceleration (design-language, "Fast 按钮").
+ *
+ * @sideEffects none
+ * @param button - The Fast button.
+ * @returns The bolt's animation name and each speed line's.
+ */
+function motionOf(button: Element): { bolt: string; streaks: string[] } {
+  const bolt = button.querySelector("svg");
+  if (bolt === null) throw new Error("the Fast button has no bolt");
+  return {
+    bolt: getComputedStyle(bolt).animationName,
+    streaks: [...button.querySelectorAll(".atrium-fast-streak")].map((line) => getComputedStyle(line).animationName),
+  };
+}
+
+/**
+ * What draws a frame around an element: its background, shadow and border.
+ *
+ * @remarks
+ * The Fast button is the bolt alone (design-language.md, "Fast 按钮").
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its computed background colour, box shadow and border width.
+ */
+function frameOf(element: Element): { background: string; shadow: string; border: string } {
+  const style = getComputedStyle(element);
+  return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
+}
+
+/**
+ * Where the bolt is drawn inside the Fast button.
+ *
+ * @remarks
+ * The button is a larger target than the bolt it draws (design-language.md, "Fast 按钮").
+ *
+ * @sideEffects none
+ * @param button - The Fast button.
+ * @returns The bolt's box.
+ * @throws When the button draws no bolt.
+ */
+function boltOf(button: Element): DOMRect {
+  const bolt = button.querySelector("svg");
+  if (bolt === null) throw new Error("the Fast button draws no bolt");
+  return bolt.getBoundingClientRect();
+}
+
+describe("ConversationArea's Fast button", () => {
+  const GPT = {
+    providerId: "openai-codex",
+    modelId: "gpt-5.5",
+    name: "GPT-5.5",
+    contextWindow: 400_000,
+    maxOutput: 128_000,
+    supportsImage: true,
+    thinkingLevels: ["low", "medium", "high"],
+    fast: { speed: 2, moreUsage: true },
+  } as const;
+  const OPUS = {
+    ...GPT,
+    providerId: "anthropic",
+    modelId: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    fast: null,
+  };
+  const LIST = {
+    status: "ready" as const,
+    models: [
+      { ...GPT, thinkingLevels: [...GPT.thinkingLevels] },
+      { ...OPUS, thinkingLevels: [...OPUS.thinkingLevels] },
+    ],
+    defaultModel: null,
+    error: null,
+  };
+  const ON_GPT = { providerId: "openai-codex", modelId: "gpt-5.5", thinkingLevel: "high" } as const;
+
+  it("shows only for a model with Fast, as the session has it, and switches it", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    client.session("s1")?.setState({ model: { ...ON_GPT, providerId: "anthropic", modelId: "claude-opus-5-5" } });
+    await expect.element(screen.getByRole("button", { name: /模型与推理强度/ })).toHaveTextContent("Claude Opus 5.5高");
+    await expect.element(fast).not.toBeInTheDocument();
+
+    client.session("s1")?.setState({ model: ON_GPT });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    await userEvent.hover(fast);
+    await expect.element(screen.getByRole("tooltip")).toBeVisible();
+    expect(screen.getByRole("tooltip").element().textContent).toBe(
+      "Fast 未开启约 2 倍速度，额度消耗增加从下一次请求开始生效",
+    );
+    await userEvent.click(fast);
+
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("tooltip").element().textContent).toMatch(/^Fast 已开启约/);
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    expect(modelCalls.filter((call) => call.startsWith("setFast"))).toStrictEqual(["setFast s1 on", "setFast s1 off"]);
+  });
+
+  it("hides its card once the pointer leaves, though the click left the button focused, and shows it on keyboard focus", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    const card = screen.getByRole("tooltip", { includeHidden: true }).filter({ hasText: "从下一次请求开始生效" });
+    const box = screen.getByRole("textbox", { name: "消息" });
+    client.session("s1")?.setState({ model: ON_GPT });
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+    await expect.element(card).toBeVisible();
+
+    await userEvent.hover(screen.getByRole("button", { name: /模型与推理强度/ }));
+    await expect.element(fast).toHaveFocus();
+    await expect.element(card).not.toBeVisible();
+
+    await userEvent.click(box);
+    await userEvent.keyboard("{Tab}{Tab}{Tab}");
+    await expect.element(fast).toHaveFocus();
+    await expect.element(card).toBeVisible();
+  });
+
+  it("draws the bolt alone, with no circle, background or outline, off, hovered or on, under a pointing hand", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT });
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+
+    const off = frameOf(fast.element());
+    await userEvent.hover(fast);
+    const hovered = frameOf(fast.element());
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    const none = { background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" };
+    expect([off, hovered, frameOf(fast.element())]).toStrictEqual([none, none, none]);
+    expect(getComputedStyle(fast.element()).cursor).toBe("pointer");
+  });
+
+  it("sits close to the model button: the bolt 10.5 px from it, its target still 32 px square", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT });
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    const target = fast.element().getBoundingClientRect();
+    const bolt = boltOf(fast.element());
+    const model = screen
+      .getByRole("button", { name: /模型与推理强度/ })
+      .element()
+      .getBoundingClientRect();
+
+    expect([target.width, target.height, model.left - bolt.right]).toStrictEqual([32, 32, 10.5]);
+  });
+
+  it("plays the acceleration when switched on, and not when shown already on or switched off", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT, fast: true });
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    const shownOn = motionOf(fast.element());
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    const off = motionOf(fast.element());
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    const still = { bolt: "none", streaks: ["none", "none", "none"] };
+    expect([shownOn, off, motionOf(fast.element())]).toStrictEqual([
+      still,
+      still,
+      { bolt: "atrium-fast-dash", streaks: ["atrium-fast-streak", "atrium-fast-streak", "atrium-fast-streak"] },
+    ]);
+  });
+
+  it.each([
+    [{ speed: 1.5, moreUsage: false }, "约 1.5 倍速度"],
+    [{ speed: null, moreUsage: true }, "更快，额度消耗增加"],
+    [{ speed: null, moreUsage: false }, "更快"],
+  ])("says what Fast does for the model, as Codex's list says: %o", async (fast, says) => {
+    const { client } = fakeClient(
+      {},
+      { models: { ...LIST, models: [{ ...GPT, modelId: "gpt-6-sol", thinkingLevels: [], fast }] } },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+
+    client.session("s1")?.setState({ model: { ...ON_GPT, modelId: "gpt-6-sol" }, fast: true });
+
+    const button = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(button).toHaveAttribute("aria-pressed", "true");
+    await userEvent.hover(button);
+    await expect.element(screen.getByRole("tooltip")).toBeVisible();
+    expect(screen.getByRole("tooltip").element().textContent).toBe(`Fast 已开启${says}从下一次请求开始生效`);
+  });
+
+  it("shows Fast as chosen last before a session exists, and creates the session to switch it", async () => {
+    const { client, calls, modelCalls } = fakeClient(
+      {
+        preferences: {
+          setupDone: true,
+          appearance: "system",
+          displayMode: "summary",
+          lastModel: { providerId: "openai-codex", modelId: "gpt-5.5" },
+          thinkingByModel: {},
+          lastFast: true,
+          statusBar: {},
+          titleModel: null,
+          proxy: null,
+        },
+      },
+      { models: LIST },
+    );
+    const create = async () => (await client.createSession(CHAT)).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
+    );
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    await userEvent.click(fast);
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setFast new1 off"));
+    expect(calls).toContain("createSession cht_a");
+  });
+
+  it("cannot switch Fast while a stop waits for pi, and shows no pointing hand then", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+
+    client.session("s1")?.setState({
+      model: ON_GPT,
+      run: { runId: "r1", startedAt: 0 },
+      control: { ...IDLE_CONTROL, stopping: true },
+    });
+
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toBeDisabled();
+    expect(getComputedStyle(fast.element()).cursor).toBe("default");
+  });
+
+  it("explains a session whose pi has no Fast", async () => {
+    const { client } = fakeClient(
+      {},
+      { models: LIST, setFast: () => Promise.reject(new CommandError("fast_unavailable")) },
+    );
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT });
+
+    await userEvent.click(screen.getByRole("button", { name: "Fast", exact: true }));
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("这个会话的 pi 没有加载 Atrium 的 Fast 扩展，开关不了 Fast");
+    await expect
+      .element(screen.getByRole("button", { name: "Fast", exact: true }))
+      .toHaveAttribute("aria-pressed", "false");
   });
 });
 
@@ -651,7 +1282,7 @@ describe("ConversationArea's composer", () => {
     localStorage.clear();
     const { client, calls } = fakeClient();
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     const box = screen.getByRole("textbox", { name: "消息" });
 
@@ -676,7 +1307,7 @@ describe("ConversationArea's composer", () => {
   it("goes back through the session's own messages with ↑", async () => {
     const { client } = fakeClient();
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     client.session("s1")?.setState({
       items: [
@@ -693,15 +1324,18 @@ describe("ConversationArea's composer", () => {
 
   it("creates the session first when / is typed before there is one", async () => {
     const { client, calls } = fakeClient();
-    const create = async () => (await client.createChat()).sessionId;
+    const create = async () => (await client.createSession(CHAT)).sessionId;
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
     );
 
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
 
     await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
-    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["createChat", "listCommands new1"]);
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual([
+      "createSession cht_a",
+      "listCommands new1",
+    ]);
   });
 });
 
@@ -778,7 +1412,7 @@ describe("ConversationArea's images", () => {
       { prompt: inTurn(() => Promise.reject(new CommandError("attachment_missing", { attachmentId: "u1" }))) },
     );
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     const box = screen.getByRole("textbox", { name: "消息" });
 
@@ -797,6 +1431,22 @@ describe("ConversationArea's images", () => {
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
   });
 
+  it("shows the images of a message it sent as thumbnails at once, from what was pasted", async () => {
+    const { client, calls } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    pasteFile(box.element(), await shot());
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+
+    await userEvent.type(box, "看图{Enter}");
+
+    const sent = screen.getByTestId("user-message").getByRole("img", { name: "图片 1" });
+    await expect.element(sent).toHaveAttribute("src", expect.stringMatching(/^data:image\/webp;base64,./));
+    expect(calls.filter((call) => call.startsWith("fetchImage"))).toStrictEqual([]);
+  });
+
   it("uploads the images again one at a time, and puts the message back with the new uploads when it still fails", async () => {
     const third = Promise.withResolvers<void>();
     const { client, calls } = fakeClient(
@@ -810,7 +1460,7 @@ describe("ConversationArea's images", () => {
       },
     );
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     const box = screen.getByRole("textbox", { name: "消息" });
     pasteFile(box.element(), await shot());
@@ -852,6 +1502,7 @@ describe("ConversationArea's images", () => {
               maxOutput: 1,
               supportsImage: false,
               thinkingLevels: ["off"],
+              fast: null,
             },
           ],
           defaultModel: null,
@@ -860,7 +1511,7 @@ describe("ConversationArea's images", () => {
       },
     );
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     client.session("s1")?.setState({ model: { providerId: "x", modelId: "text-only", thinkingLevel: "off" } });
     await expect.element(screen.getByRole("button", { name: /Text Only/ })).toBeVisible();
@@ -894,7 +1545,7 @@ describe("ConversationArea's workspace changes", () => {
     await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
 
     await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     await vi.waitFor(() =>
       expect(changeCalls).toStrictEqual([
@@ -942,7 +1593,7 @@ describe("ConversationArea's status bar", () => {
   it("shows the open session's figures under the input box, none in the empty state, and saves the groups chosen", async () => {
     const { client, calls, views } = fakeClient();
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
     await vi.waitFor(() => expect(views.has("s1")).toBe(true));
 
@@ -956,9 +1607,35 @@ describe("ConversationArea's status bar", () => {
     ]);
     await expect.element(screen.getByRole("switch", { name: "费用" })).toHaveAttribute("aria-checked", "true");
     await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={noCreate} />),
     );
     await expect.element(screen.getByRole("group", { name: "状态栏" })).not.toBeInTheDocument();
+  });
+
+  it("sits just under the input box, whose text keeps off its rounded edge and which stays put without a session", async () => {
+    const { client, views } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    const card = screen.getByTestId("composer-card");
+    const bar = screen.getByRole("group", { name: "状态栏" });
+    await expect.element(bar).toBeVisible();
+    const area = screen.getByTestId("area").element().getBoundingClientRect();
+    const box = card.element().getBoundingClientRect();
+    const textbox = screen.getByRole("textbox", { name: "消息" }).element().getBoundingClientRect();
+    const barBox = bar.element().getBoundingClientRect();
+
+    expect(textbox.left - box.left).toBe(20);
+    expect(textbox.top - box.top).toBe(20);
+    expect(barBox.top - box.bottom).toBe(4);
+    expect(barBox.height).toBe(28);
+    expect(area.bottom).toBe(barBox.bottom + 8);
+    await screen.rerender(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={noCreate} />),
+    );
+    await expect.element(bar).not.toBeInTheDocument();
+    expect(card.element().getBoundingClientRect().bottom).toBe(box.bottom);
   });
 });
 
@@ -966,7 +1643,7 @@ describe("ConversationArea before it is connected", () => {
   it("asks for the models once connected, and again after a reconnect", async () => {
     const { client, connection, modelCalls } = fakeClient();
     connection.setState({ status: "connecting" });
-    await render(tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={noCreate} />));
+    await render(tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={noCreate} />));
     expect(modelCalls).toStrictEqual([]);
 
     connection.setState({
@@ -977,7 +1654,7 @@ describe("ConversationArea before it is connected", () => {
       installSeed: 1,
       logDir: "/l",
     });
-    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats"]));
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels null"]));
     connection.setState({ status: "connecting" });
     connection.setState({
       status: "connected",
@@ -988,16 +1665,16 @@ describe("ConversationArea before it is connected", () => {
       logDir: "/l",
     });
 
-    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels chats", "loadModels chats"]));
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels null", "loadModels null"]));
   });
 });
 
 describe("ConversationArea after the host restarted", () => {
   it("opens and watches the session shown again under a new host, but not after a reconnect to the same one", async () => {
     const { client, connection, calls, index } = fakeClient({
-      sessions: [session({ sessionId: "s1", containerId: "chats" })],
+      sessions: [session({ sessionId: "s1", containerId: CHAT })],
     });
-    await render(tall(<ConversationArea client={client} containerId="chats" sessionId="s1" create={noCreate} />));
+    await render(tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />));
     await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1"]));
 
     connection.setState({ status: "connecting" });
@@ -1020,22 +1697,22 @@ describe("ConversationArea after the host restarted", () => {
     });
 
     await vi.waitFor(() => expect(calls).toStrictEqual(["watch s1", "openSession s1", "openSession s1", "watch s1"]));
-    expect(index.getState().layout.tabs["chats"]?.active).toBe("s1");
+    expect(index.getState().layout.tabs[CHAT]?.active).toBe("s1");
   });
 });
 
 describe("ConversationArea handing the first words to a new session", () => {
   it("keeps what was typed before / created the session, in its box, focused, with the list open", async () => {
     const { client, index } = fakeClient();
-    const create = async () => (await client.createChat()).sessionId;
+    const create = async () => (await client.createSession(CHAT)).sessionId;
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
     );
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
-    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+    await vi.waitFor(() => expect(index.getState().layout.tabs[CHAT]?.active).toBe("new1"));
 
     await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="new1" create={create} />),
     );
 
     const box = screen.getByRole("textbox", { name: "消息" });
@@ -1049,27 +1726,25 @@ describe("ConversationArea handing the first words to a new session", () => {
 
   it("keeps the words typed after the session was created but before it shows, and focuses only once", async () => {
     const { client, index } = fakeClient();
-    const create = async () => (await client.createChat()).sessionId;
+    const create = async () => (await client.createSession(CHAT)).sessionId;
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
     );
     const box = screen.getByRole("textbox", { name: "消息" });
     await userEvent.type(box, "/");
-    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+    await vi.waitFor(() => expect(index.getState().layout.tabs[CHAT]?.active).toBe("new1"));
 
     await userEvent.keyboard("rev");
     await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="new1" create={create} />),
     );
     await expect.element(box).toHaveValue("/rev");
     await expect.element(box).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     (document.activeElement as HTMLElement | null)?.blur();
+    await screen.rerender(tall(<ConversationArea client={client} containerId={CHAT} sessionId="s9" create={create} />));
     await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="s9" create={create} />),
-    );
-    await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="new1" create={create} />),
     );
 
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("/rev");
@@ -1079,25 +1754,25 @@ describe("ConversationArea handing the first words to a new session", () => {
 
   it("forgets the session the words went to once the area goes to another container before it shows", async () => {
     const { client, calls, index } = fakeClient();
-    const create = async () => (await client.createChat()).sessionId;
+    const create = async () => (await client.createSession(CHAT)).sessionId;
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
     );
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
-    await vi.waitFor(() => expect(index.getState().layout.tabs["chats"]?.active).toBe("new1"));
+    await vi.waitFor(() => expect(index.getState().layout.tabs[CHAT]?.active).toBe("new1"));
 
     await screen.rerender(
       tall(<ConversationArea client={client} containerId="wks_0000000000000002" sessionId={null} create={create} />),
     );
     await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
     );
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "新的{Enter}");
 
     await vi.waitFor(() =>
-      expect(calls.filter((call) => /^(createChat|prompt)/.test(call))).toStrictEqual([
-        "createChat",
-        "createChat",
+      expect(calls.filter((call) => /^(createSession|prompt)/.test(call))).toStrictEqual([
+        "createSession cht_a",
+        "createSession cht_a",
         "prompt new2 新的",
       ]),
     );
@@ -1109,15 +1784,15 @@ describe("ConversationArea handing the first words to a new session", () => {
     const answered = Promise.withResolvers<void>();
     const create = async () => {
       await answered.promise;
-      return (await client.createChat()).sessionId;
+      return (await client.createSession(CHAT)).sessionId;
     };
     const screen = await render(
-      tall(<ConversationArea client={client} containerId="chats" sessionId={null} create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
     );
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/");
 
     await screen.rerender(
-      tall(<ConversationArea client={client} containerId="chats" sessionId="new1" create={create} />),
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="new1" create={create} />),
     );
     answered.resolve();
 

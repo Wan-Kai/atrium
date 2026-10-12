@@ -241,15 +241,12 @@
   animation-delay: -9s;
 }
 
-/* The logo slot: two nested rounded squares until the real logo exists. */
+/* The logo slot: Atrium's cat as a rounded square, in a faint blue glow (design-language, "标志"). */
 .atrium-gmark {
   position: relative;
-  display: grid;
-  place-items: center;
   width: 68px;
   height: 68px;
   margin: 0 auto 18px;
-  border-radius: 22px;
 }
 
 .atrium-gmark::before {
@@ -261,21 +258,11 @@
   background: radial-gradient(closest-side, rgba(92, 140, 255, 0.28), transparent);
 }
 
-.atrium-gmark i {
-  position: absolute;
-  border: 1.5px solid;
-  border-radius: 30%;
-}
-
-.atrium-gmark i:nth-child(1) {
-  inset: 16px;
-  border-color: rgba(92, 140, 255, 0.85);
-}
-
-.atrium-gmark i:nth-child(2) {
-  inset: 23px;
-  border-color: rgba(120, 200, 210, 0.85);
-  background: linear-gradient(135deg, rgba(92, 140, 255, 0.35), rgba(255, 170, 120, 0.35));
+.atrium-gmark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 22px;
 }
 
 .atrium-hero {

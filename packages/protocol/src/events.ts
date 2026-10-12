@@ -49,6 +49,8 @@ export const SessionSnapshotEvent = z.strictObject({
   control: Control,
   /** The model and thinking level pi uses; `null` before pi has started. */
   model: SessionModel.nullable(),
+  /** Whether Fast is on for the session, whether or not its model has Fast (SPEC-0001, "Fast"). */
+  fast: z.boolean(),
   /** The status bar's figures (SPEC-0001, "状态栏（M1.8）"). */
   metrics: SessionMetrics,
 });
@@ -151,6 +153,14 @@ export const ModelUpdatedEvent = z.strictObject({
 });
 export type ModelUpdatedEvent = z.infer<typeof ModelUpdatedEvent>;
 
+/** Fast was switched on or off for the session (SPEC-0001, "Fast"). */
+export const FastUpdatedEvent = z.strictObject({
+  type: z.literal("fast_updated"),
+  ...sessionEventFields,
+  fast: z.boolean(),
+});
+export type FastUpdatedEvent = z.infer<typeof FastUpdatedEvent>;
+
 /** The session's status bar figures changed; all of them, each time (SPEC-0001, "状态栏（M1.8）"). */
 export const MetricsUpdatedEvent = z.strictObject({
   type: z.literal("metrics_updated"),
@@ -185,6 +195,7 @@ export const SessionEvent = z.discriminatedUnion("type", [
   ControlUpdatedEvent,
   PromptHandledEvent,
   ModelUpdatedEvent,
+  FastUpdatedEvent,
   MetricsUpdatedEvent,
 ]);
 export type SessionEvent = z.infer<typeof SessionEvent>;

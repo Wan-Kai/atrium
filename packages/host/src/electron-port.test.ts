@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { type ElectronRuntime, type HostStartRequest, type ParentPort, runUnderElectron } from "./electron-port";
+import {
+  type AppProcessMetrics,
+  type ElectronRuntime,
+  type HostStartRequest,
+  type ParentPort,
+  runUnderElectron,
+} from "./electron-port";
 
 const TOKEN = "a".repeat(43);
 
@@ -22,7 +28,8 @@ function controlledRuntime() {
   const started: HostStartRequest[] = [];
   const exits: number[] = [];
   const closes: string[] = [];
-  const pending = Promise.withResolvers<{ port: number; close(): Promise<void> }>();
+  const metrics: (readonly AppProcessMetrics[])[] = [];
+  const pending = Promise.withResolvers<Awaited<ReturnType<ElectronRuntime["start"]>>>();
   const runtime: ElectronRuntime = {
     start: (request) => {
       started.push(request);
@@ -30,8 +37,20 @@ function controlledRuntime() {
     },
     exit: (code) => exits.push(code),
   };
-  const host = { port: 4321, close: () => Promise.resolve(void closes.push("closed")) };
-  return { runtime, started, exits, closes, finishStart: () => pending.resolve(host), failStart: pending.reject };
+  const host = {
+    port: 4321,
+    close: () => Promise.resolve(void closes.push("closed")),
+    recordAppMetrics: (processes: readonly AppProcessMetrics[]) => void metrics.push(processes),
+  };
+  return {
+    runtime,
+    started,
+    exits,
+    closes,
+    metrics,
+    finishStart: () => pending.resolve(host),
+    failStart: pending.reject,
+  };
 }
 
 /** Lets queued promise callbacks run. */
@@ -54,9 +73,9 @@ describe("runUnderElectron", () => {
     expect(exits).toStrictEqual([]);
   });
 
-  it("does not report ready, and closes the host, when shutdown arrives while it is still starting", async () => {
+  it("does not report ready or take app metrics, and closes the host, when shutdown arrives while it is still starting", async () => {
     const { port, posted, send } = fakePort();
-    const { runtime, finishStart, exits, closes } = controlledRuntime();
+    const { runtime, finishStart, exits, closes, metrics } = controlledRuntime();
     runUnderElectron(port, runtime);
 
     send({ type: "config", token: TOKEN });
@@ -65,9 +84,11 @@ describe("runUnderElectron", () => {
     expect(exits).toStrictEqual([]);
     finishStart();
     await vi.waitFor(() => expect(exits).toStrictEqual([0]));
+    send({ type: "app_metrics", processes: [] });
 
     expect(posted).toStrictEqual([]);
     expect(closes).toStrictEqual(["closed"]);
+    expect(metrics).toStrictEqual([]);
   });
 
   it("closes a running host on shutdown and exits with 0, once", async () => {
@@ -147,5 +168,85 @@ describe("runUnderElectron", () => {
     expect(started).toHaveLength(1);
     expect(posted).toStrictEqual([{ type: "ready", port: 4321 }]);
     expect(exits).toStrictEqual([]);
+  });
+
+  it("hands app metrics to the running host", async () => {
+    const { port, send } = fakePort();
+    const { runtime, finishStart, metrics } = controlledRuntime();
+    runUnderElectron(port, runtime);
+    send({ type: "config", token: TOKEN });
+    finishStart();
+    await settle();
+
+    send({
+      type: "app_metrics",
+      processes: [
+        { type: "Browser", memoryKb: 120_000, cpuPercent: 1.5 },
+        { type: "Utility", memoryKb: 80_000, cpuPercent: 0 },
+      ],
+    });
+
+    expect(metrics).toStrictEqual([
+      [
+        { type: "Browser", memoryKb: 120_000, cpuPercent: 1.5 },
+        { type: "Utility", memoryKb: 80_000, cpuPercent: 0 },
+      ],
+    ]);
+  });
+
+  it("drops app metrics that arrive before the host is ready or after shutdown", async () => {
+    const { port, send } = fakePort();
+    const { runtime, finishStart, metrics, exits } = controlledRuntime();
+    runUnderElectron(port, runtime);
+    const sample = { type: "app_metrics", processes: [{ type: "GPU", memoryKb: 1, cpuPercent: 0 }] };
+
+    send(sample);
+    send({ type: "config", token: TOKEN });
+    send(sample);
+    finishStart();
+    await settle();
+    send({ type: "shutdown" });
+    send(sample);
+    await vi.waitFor(() => expect(exits).toStrictEqual([0]));
+
+    expect(metrics).toStrictEqual([]);
+  });
+
+  it("drops malformed app metrics without stopping", async () => {
+    const { port, posted, send } = fakePort();
+    const { runtime, finishStart, metrics, exits } = controlledRuntime();
+    runUnderElectron(port, runtime);
+    send({ type: "config", token: TOKEN });
+    finishStart();
+    await settle();
+
+    send({ type: "app_metrics", processes: [{ type: "GPU", memoryKb: -1, cpuPercent: 0 }] });
+    send({ type: "app_metrics", processes: [{ type: "GPU", memoryKb: 1.5, cpuPercent: 0 }] });
+    send({ type: "app_metrics", processes: [{ type: "GPU", memoryKb: 1, cpuPercent: -0.1 }] });
+    send({ type: "app_metrics", processes: [{ type: "x".repeat(65), memoryKb: 1, cpuPercent: 0 }] });
+    send({
+      type: "app_metrics",
+      processes: Array.from({ length: 257 }, () => ({ type: "Tab", memoryKb: 1, cpuPercent: 0 })),
+    });
+    send({ type: "app_metrics" });
+
+    expect(metrics).toStrictEqual([]);
+    expect(posted).toStrictEqual([{ type: "ready", port: 4321 }]);
+    expect(exits).toStrictEqual([]);
+  });
+
+  it("accepts app metrics at the limits", async () => {
+    const { port, send } = fakePort();
+    const { runtime, finishStart, metrics } = controlledRuntime();
+    runUnderElectron(port, runtime);
+    send({ type: "config", token: TOKEN });
+    finishStart();
+    await settle();
+    const processes = Array.from({ length: 256 }, () => ({ type: "x".repeat(64), memoryKb: 0, cpuPercent: 0 }));
+
+    send({ type: "app_metrics", processes });
+    send({ type: "app_metrics", processes: [] });
+
+    expect(metrics).toStrictEqual([processes, []]);
   });
 });

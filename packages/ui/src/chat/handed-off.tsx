@@ -1,4 +1,4 @@
-import { Copy } from "@phosphor-icons/react";
+import { Copy } from "../design/icons";
 import { terminalCommand } from "../tabs/hand-off";
 
 /**

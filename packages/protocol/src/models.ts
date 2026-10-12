@@ -30,6 +30,16 @@ export const CatalogModel = z.strictObject({
   supportsImage: z.boolean(),
   /** The levels it supports, lowest first; only `off` for a model that does not think. */
   thinkingLevels: z.array(ThinkingLevel).min(1),
+  /** What Fast does for the model, as Codex's model list says; `null` when it has no Fast (SPEC-0001, "Fast"). */
+  fast: z
+    .object({
+      /** About how many times as fast, or `null` when not said. */
+      speed: z.number().positive().max(100).nullable(),
+      /** Whether it uses more of the subscription's credits. */
+      moreUsage: z.boolean(),
+    })
+    .strict()
+    .nullable(),
 });
 export type CatalogModel = z.infer<typeof CatalogModel>;
 

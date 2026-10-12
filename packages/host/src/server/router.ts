@@ -88,7 +88,7 @@ export function createRouter(options: RouterOptions): Route {
       case "create_chat":
         return options.sessions.createChat(connection.clientId);
       case "create_session":
-        return options.sessions.createSession(connection.clientId, command.workspaceId);
+        return options.sessions.createSession(connection.clientId, command.containerId);
       case "close_tab":
         return options.sessions.closeTab(connection.clientId, command.sessionId);
       case "select_container":
@@ -113,6 +113,12 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.renameProject(command.projectId, command.name);
       case "rename_workspace":
         return options.index.renameWorkspace(command.workspaceId, command.name);
+      case "archive_workspace":
+        return options.index.archiveWorkspace(command.workspaceId);
+      case "restore_workspace":
+        return options.index.restoreWorkspace(command.workspaceId);
+      case "rename_chat":
+        return options.index.renameChat(command.chatId, command.name);
       case "window_focused":
         return options.index.windowFocused();
       case "watch_changes":
@@ -128,6 +134,7 @@ export function createRouter(options: RouterOptions): Route {
           ...(command.displayMode === undefined ? {} : { displayMode: command.displayMode }),
           ...(command.statusBar === undefined ? {} : { statusBar: command.statusBar }),
           ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
+          ...(command.proxy === undefined ? {} : { proxy: command.proxy }),
         });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
@@ -139,6 +146,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.fetchTranscript(command);
       case "fetch_step":
         return options.sessions.fetchStep(command);
+      case "fetch_image":
+        return options.sessions.fetchImage(command);
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
       case "steer":
@@ -168,6 +177,8 @@ export function createRouter(options: RouterOptions): Route {
         });
       case "set_thinking_level":
         return options.sessions.setThinkingLevel(command.sessionId, command.level);
+      case "set_fast":
+        return options.sessions.setFast(command.sessionId, command.enabled);
       case "list_commands":
         return options.sessions.listCommands(command.sessionId);
       case "search_files":
@@ -175,7 +186,7 @@ export function createRouter(options: RouterOptions): Route {
       case "upload_attachment":
         return { attachmentId: options.attachments.put(connection.id, command.mimeType, command.data) };
       case "list_models":
-        return options.index.listModels(command.containerId, command.refresh ?? false);
+        return options.index.listModels(command.workspaceId, command.refresh ?? false);
       case "check_setup":
         return options.setup.check(command.refresh ?? false);
       case "login":

@@ -1,4 +1,5 @@
 import { type CatalogModel, MODEL_LIMITS, type SessionModel, type ThinkingLevel } from "@atrium/protocol";
+import { type FastTiers, fastOf } from "../fast/fast";
 import type { PiResponseData } from "../process/pi-process";
 
 /** A model as pi's `get_available_models` lists it. */
@@ -39,16 +40,18 @@ export function thinkingLevelsOf(model: Pick<PiModel, "reasoning" | "thinkingLev
  * What the model panel shows of a model.
  *
  * @remarks
- * Only the basics: name, context, longest output, whether it takes images (SPEC-0001, "输入框").
+ * Only the basics: name, context, longest output, whether it takes images (SPEC-0001, "输入框"),
+ * and what Fast does for it, by Codex's model list or the built-in rule (SPEC-0001, "Fast").
  * A model without a name goes by its id. A name too long for the protocol is cut, so one model
  * cannot fail the whole list; a model whose id or provider is too long is left out, as it could
  * not be chosen by a cut one.
  *
  * @sideEffects none
  * @param model - The model as pi lists it.
+ * @param tiers - Codex's model list, or `null` when it could not be had.
  * @returns The catalog's model, or `null` for one left out.
  */
-export function toCatalogModel(model: PiModel): CatalogModel | null {
+export function toCatalogModel(model: PiModel, tiers: FastTiers | null): CatalogModel | null {
   if (model.provider.length > MODEL_LIMITS.providerId || model.id.length > MODEL_LIMITS.modelId) return null;
   return {
     providerId: model.provider,
@@ -58,6 +61,7 @@ export function toCatalogModel(model: PiModel): CatalogModel | null {
     maxOutput: model.maxTokens,
     supportsImage: model.input.includes("image"),
     thinkingLevels: thinkingLevelsOf(model),
+    fast: fastOf(model, tiers),
   };
 }
 

@@ -15,27 +15,35 @@ import { randomBytes } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-/** Where the host's bundle and the built UI live. */
+/** Where the host's bundle and the built UI live, and how often the app's processes are sampled. */
 interface Paths {
   readonly hostEntry: string;
   readonly uiDir: string;
+  readonly metricsIntervalMs: number;
 }
 
 /**
  * Resolves the host bundle and UI build for this run.
  *
  * @remarks
- * Packaging is out of scope for v0.1 (development.md), so paths point into the repository;
- * `ATRIUM_HOST_ENTRY` overrides the host for tests.
+ * A packaged app carries the host and UI next to the main process; otherwise they are in the
+ * repository (overview.md, "桌面端怎么启动宿主"). `ATRIUM_HOST_ENTRY` overrides the host for
+ * tests, and `ATRIUM_APP_METRICS_INTERVAL_MS` the minute between samples of the app's processes,
+ * so a test need not wait for one.
  *
  * @sideEffects Reads environment variables.
- * @returns Absolute paths.
+ * @returns Absolute paths and the sampling interval.
  */
 function resolvePaths(): Paths {
-  const repoRoot = join(__dirname, "..", "..", "..");
+  const appDir = join(__dirname, "..");
+  const repoRoot = join(appDir, "..", "..");
+  const builtHost = app.isPackaged
+    ? join(appDir, "host", "entry.cjs")
+    : join(repoRoot, "packages", "host", "dist", "entry.cjs");
   return {
-    hostEntry: process.env["ATRIUM_HOST_ENTRY"] ?? join(repoRoot, "packages", "host", "dist", "entry.cjs"),
-    uiDir: join(repoRoot, "packages", "ui", "dist"),
+    hostEntry: process.env["ATRIUM_HOST_ENTRY"] ?? builtHost,
+    uiDir: app.isPackaged ? join(appDir, "ui") : join(repoRoot, "packages", "ui", "dist"),
+    metricsIntervalMs: Number(process.env["ATRIUM_APP_METRICS_INTERVAL_MS"] ?? 60_000),
   };
 }
 
@@ -44,6 +52,24 @@ interface HostProcess {
   readonly port: number;
   /** Asks the host to shut down and resolves once it has exited. */
   readonly stop: () => Promise<void>;
+}
+
+/**
+ * Samples the app's processes in the shape the host logs them.
+ *
+ * @remarks
+ * The main process has no log of its own, so the host logs these next to its own resource counts
+ * (observability.md, "和测试的关系"). Memory is the working set, in KB.
+ *
+ * @sideEffects Reads process metrics.
+ * @returns One entry per process.
+ */
+function sampleAppMetrics(): Array<{ type: string; memoryKb: number; cpuPercent: number }> {
+  return app.getAppMetrics().map((metric) => ({
+    type: metric.type,
+    memoryKb: metric.memory.workingSetSize,
+    cpuPercent: metric.cpu.percentCPUUsage,
+  }));
 }
 
 /** How long the host gets to flush logs and close connections before it is killed. */
@@ -60,11 +86,14 @@ const HOST_STARTUP_TIMEOUT_MS = 15_000;
  * through argv or the environment, which other local processes can read (security.md). Once the
  * host is ready, an unexpected exit is reported instead of being swallowed by the settled
  * startup promise. Timers here use the platform directly: the main process is the composition
- * root and is covered by end-to-end tests, not unit tests with a fake clock.
+ * root and is covered by end-to-end tests, not unit tests with a fake clock. Once the host is
+ * ready it gets a sample of the app's processes at every interval, until it stops or exits
+ * (testing.md, "运行时监控").
  *
- * @sideEffects Forks a utility process and posts the config to it; logs to stderr if the host
- * later exits unexpectedly.
- * @param options - Host bundle path, token, UI directory and extra allowed origins.
+ * @sideEffects Forks a utility process and posts the config to it; posts app metrics at every
+ * interval while the host runs; logs to stderr if the host later exits unexpectedly.
+ * @param options - Host bundle path, token, UI directory, extra allowed origins and the interval
+ * between samples of the app's processes.
  * @returns The host's port and a function that stops it.
  * @throws {Error} When the host reports a failure, exits early, or does not start in time.
  */
@@ -73,10 +102,12 @@ function startHost(options: {
   readonly token: string;
   readonly uiDir: string | undefined;
   readonly extraOrigins: readonly string[];
+  readonly metricsIntervalMs: number;
 }): Promise<HostProcess> {
   const child = utilityProcess.fork(options.hostEntry, [], { serviceName: "atrium-host", stdio: "inherit" });
   child.postMessage({ type: "config", token: options.token, uiDir: options.uiDir, extraOrigins: options.extraOrigins });
   let stopping = false;
+  let metricsTimer: NodeJS.Timeout | undefined;
   const exited = new Promise<number>((done) => child.once("exit", (code) => done(code)));
 
   /**
@@ -103,12 +134,17 @@ function startHost(options: {
     }, HOST_STARTUP_TIMEOUT_MS);
     child.once("exit", (code) => {
       clearTimeout(timer);
+      clearInterval(metricsTimer);
       reject(new Error(`host exited during startup with code ${code}`));
       if (!stopping) console.error(`atrium: host exited unexpectedly with code ${code}`);
     });
     child.on("message", (message: { type?: string; port?: number; message?: string }) => {
       if (message.type === "ready" && typeof message.port === "number") {
         clearTimeout(timer);
+        metricsTimer = setInterval(
+          () => child.postMessage({ type: "app_metrics", processes: sampleAppMetrics() }),
+          options.metricsIntervalMs,
+        );
         resolve({ port: message.port, stop });
       } else if (message.type === "failed") {
         clearTimeout(timer);
@@ -260,6 +296,7 @@ async function main(): Promise<void> {
     token,
     uiDir: devUrl === undefined ? paths.uiDir : undefined,
     extraOrigins: [devUrl === undefined ? APP_ORIGIN : new URL(devUrl).origin],
+    metricsIntervalMs: paths.metricsIntervalMs,
   });
   let hostStopped = false;
   app.on("will-quit", (event) => {

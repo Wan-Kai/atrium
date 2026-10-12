@@ -57,6 +57,10 @@ function fakeCommands() {
       calls.push(["fetchStep", command.sessionId, command.epoch, command.turnId, command.stepId]);
       return { step: { kind: "text", id: command.stepId, text: "whole" } };
     },
+    fetchImage: async (command) => {
+      calls.push(["fetchImage", command.sessionId, command.turnId, command.index]);
+      return { mimeType: "image/png", data: "eA==" };
+    },
     fetchTranscript: async (command) => {
       calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
       return { items: [], hasOlder: true };
@@ -75,6 +79,7 @@ function fakeCommands() {
     retryRun: record("retryRun", {}),
     setModel: record("setModel", {}),
     setThinkingLevel: record("setThinkingLevel", {}),
+    setFast: record("setFast", {}),
     listCommands: record("listCommands", { commands: [] }),
     searchFiles: record("searchFiles", { files: [] }),
   };
@@ -84,6 +89,9 @@ function fakeCommands() {
     removeProject: record("removeProject", {}),
     renameProject: record("renameProject", {}),
     renameWorkspace: record("renameWorkspace", {}),
+    archiveWorkspace: record("archiveWorkspace", {}),
+    restoreWorkspace: record("restoreWorkspace", {}),
+    renameChat: record("renameChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
     listModels: record("listModels", { models: [], defaultModel: null }),
@@ -96,6 +104,7 @@ function fakeCommands() {
 }
 
 const PROJECT = "prj_0123456789abcdef";
+const CHAT = "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc";
 
 /** A directory of pi's history, as the list commands find it. */
 const DISCOVERED = { path: "/work/app", sessions: 2, lastUsedAt: 5 };
@@ -110,6 +119,9 @@ const SETUP: SetupState = {
 };
 const WORKSPACE = "wks_0123456789abcdef";
 const MODEL = { providerId: "anthropic", modelId: "claude-haiku-4-5" };
+
+/** A proxy setting, passed on as it is; the index commands check it. */
+const PROXY = { url: "http://127.0.0.1:7897", noProxy: [".example.com"] };
 
 /**
  * A router over fake sessions, a connection whose handshake span is recorded, and what it sends.
@@ -270,14 +282,18 @@ describe("createRouter", () => {
       withTrace({ type: "fetch_step", requestId: "r5", sessionId: "s1", epoch: 2, turnId: "t9", stepId: "3" }),
     );
     await route(connection, withTrace({ type: "open_session", requestId: "r6", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "create_session", requestId: "r7", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "create_session", requestId: "r7", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "close_tab", requestId: "r8", sessionId: "s2" }));
-    await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: "chats" }));
+    await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: CHAT }));
     await route(connection, withTrace({ type: "archive_session", requestId: "r10", sessionId: "s2" }));
     await route(connection, withTrace({ type: "rename_session", requestId: "r11", sessionId: "s2", name: "名字" }));
     await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
     await route(connection, withTrace({ type: "hand_off", requestId: "r13", sessionId: "s2" }));
     await route(connection, withTrace({ type: "take_back", requestId: "r14", sessionId: "s2" }));
+    await route(
+      connection,
+      withTrace({ type: "fetch_image", requestId: "r15", sessionId: "s1", turnId: "t9", index: 1 }),
+    );
 
     expect(calls).toStrictEqual([
       ["createChat", "client-1"],
@@ -288,12 +304,13 @@ describe("createRouter", () => {
       ["openSession", "client-1", "s2"],
       ["createSession", "client-1", WORKSPACE],
       ["closeTab", "client-1", "s2"],
-      ["selectContainer", "client-1", "chats"],
+      ["selectContainer", "client-1", CHAT],
       ["archiveSession", "s2"],
       ["renameSession", "s2", "名字"],
       ["clearAttention", "s2"],
       ["handOff", "s2"],
       ["takeBack", "s2"],
+      ["fetchImage", "s1", "t9", 1],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { sessionId: "s1" } },
@@ -306,6 +323,7 @@ describe("createRouter", () => {
       ...["r8", "r9", "r10", "r11", "r12"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl" } },
       { type: "response", requestId: "r14", ok: true, result: {} },
+      { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },
     ]);
   });
 
@@ -338,6 +356,7 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "set_thinking_level", requestId: "r11", ...session, level: "max" }));
     await route(connection, withTrace({ type: "list_commands", requestId: "r12", ...session }));
     await route(connection, withTrace({ type: "search_files", requestId: "r13", ...session, query: "src/" }));
+    await route(connection, withTrace({ type: "set_fast", requestId: "r14", ...session, enabled: false }));
 
     expect(calls).toStrictEqual([
       ["steer", "s1", "also"],
@@ -353,6 +372,7 @@ describe("createRouter", () => {
       ["setThinkingLevel", "s1", "max"],
       ["listCommands", "s1"],
       ["searchFiles", "s1", "src/"],
+      ["setFast", "s1", false],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
@@ -362,6 +382,7 @@ describe("createRouter", () => {
       ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
+      { type: "response", requestId: "r14", ok: true, result: {} },
     ]);
   });
 
@@ -387,17 +408,26 @@ describe("createRouter", () => {
     );
     await route(
       connection,
-      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true }),
+      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true, proxy: PROXY }),
     );
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
-    await route(connection, withTrace({ type: "list_models", requestId: "r10", containerId: WORKSPACE }));
-    await route(connection, withTrace({ type: "list_models", requestId: "r11", containerId: "chats", refresh: true }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r10", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "list_models", requestId: "r11", workspaceId: null, refresh: true }));
     await route(
       connection,
-      withTrace({ type: "set_preferences", requestId: "r12", statusBar: { cost: true }, titleModel: MODEL }),
+      withTrace({
+        type: "set_preferences",
+        requestId: "r12",
+        statusBar: { cost: true },
+        titleModel: MODEL,
+        proxy: null,
+      }),
     );
     await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
     await route(connection, withTrace({ type: "check_setup", requestId: "r14", refresh: true }));
+    await route(connection, withTrace({ type: "rename_chat", requestId: "r15", chatId: CHAT, name: "合并原理" }));
+    await route(connection, withTrace({ type: "archive_workspace", requestId: "r16", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "restore_workspace", requestId: "r17", workspaceId: WORKSPACE }));
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -408,13 +438,16 @@ describe("createRouter", () => {
       ["renameWorkspace", WORKSPACE, null],
       ["windowFocused"],
       ["setPreferences", { appearance: "dark", titleModel: null }],
-      ["setPreferences", { displayMode: "thinking", setupDone: true }],
+      ["setPreferences", { displayMode: "thinking", setupDone: true, proxy: PROXY }],
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
-      ["listModels", "chats", true],
-      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL }],
+      ["listModels", null, true],
+      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL, proxy: null }],
       ["checkSetup", false],
       ["checkSetup", true],
+      ["renameChat", CHAT, "合并原理"],
+      ["archiveWorkspace", WORKSPACE],
+      ["restoreWorkspace", WORKSPACE],
     ]);
     expect(sent[14]).toStrictEqual({ type: "response", requestId: "r14", ok: true, result: SETUP });
     expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });

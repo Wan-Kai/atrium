@@ -1,5 +1,7 @@
 import type { NodeInspection, PiInspection } from "@atrium/pi";
+import type { ProxySetting } from "@atrium/protocol";
 import type { ToolEnv } from "../platform/login-shell";
+import { proxyEnvironment } from "../platform/proxy";
 
 /** The tools the host found. */
 export interface HostTools {
@@ -72,5 +74,41 @@ export function createToolbox(detect: (signal: AbortSignal) => Promise<HostTools
       first.resolve(null);
       await latest;
     },
+  };
+}
+
+/**
+ * The toolbox with the proxy set in the settings in its tools' environment.
+ *
+ * @remarks
+ * The setting is read each time the tools are asked for, so a pi started after it changes uses
+ * the new one, and one running keeps what it started with (SPEC-0001, "设置 · pi"). With no proxy
+ * set, the login shell's own proxy variables stay.
+ *
+ * @sideEffects none
+ * @param toolbox - The toolbox.
+ * @param setting - The proxy now set, `null` for none.
+ * @returns The tools with the proxy in their environment.
+ */
+export function withProxySetting(toolbox: Toolbox, setting: () => ProxySetting | null): Toolbox {
+  /**
+   * The tools found, with the proxy in their environment.
+   *
+   * @remarks
+   * See {@link withProxySetting}.
+   *
+   * @sideEffects none
+   * @param found - A detection.
+   * @returns Its tools, or `null` as it found none.
+   */
+  async function proxied(found: Promise<HostTools | null>): Promise<HostTools | null> {
+    const tools = await found;
+    return tools === null ? null : { ...tools, env: proxyEnvironment(tools.env, setting()) };
+  }
+  return {
+    start: () => toolbox.start(),
+    current: () => proxied(toolbox.current()),
+    refresh: () => proxied(toolbox.refresh()),
+    close: () => toolbox.close(),
   };
 }

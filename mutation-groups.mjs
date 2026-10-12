@@ -22,6 +22,7 @@ export const MUTATION_GROUPS = {
       "packages/pi/src/locate/{version,locate,inspect,fd,node}.ts",
       "packages/pi/src/process/*.ts",
       "packages/pi/src/catalog/*.ts",
+      "packages/pi/src/fast/*.ts",
       "packages/pi/src/stats/*.ts",
       "packages/pi/src/oneshot/oneshot.ts",
       "packages/pi/src/auth/login.ts",
@@ -32,7 +33,7 @@ export const MUTATION_GROUPS = {
   },
   host: {
     mutate: [
-      "packages/host/src/platform/{redact,resources,clock,login-shell,errors}.ts",
+      "packages/host/src/platform/{redact,resources,clock,login-shell,errors,proxy}.ts",
       "packages/host/src/server/*.ts",
       "packages/host/src/store/*.ts",
       "packages/host/src/sessions/{session-controller,session-metrics,session-catalog,layouts,prompt-line,index-commands,model-lister,titles}.ts",
@@ -73,6 +74,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/model-choice.ts",
       "packages/ui/src/chat/composer-text.ts",
       "packages/ui/src/chat/changes.ts",
+      "packages/ui/src/chat/file-kind.ts",
       "packages/ui/src/chat/status-figures.ts",
       "packages/ui/src/state/drafts.ts",
       "packages/ui/src/sidebar/names.ts",

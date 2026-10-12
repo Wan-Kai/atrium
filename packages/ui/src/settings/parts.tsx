@@ -1,4 +1,4 @@
-import { Check } from "@phosphor-icons/react";
+import { Check } from "../design/icons";
 import type { ReactNode } from "react";
 
 /** A pill button (design-language, "设置"). */

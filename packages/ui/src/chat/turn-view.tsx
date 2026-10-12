@@ -4,17 +4,17 @@ import {
   ArrowsInLineVertical,
   CaretDown,
   Database,
-  DotsThree,
   FileText,
   PencilSimple,
   Question,
   Stop,
   Warning,
-} from "@phosphor-icons/react";
-import { type ReactNode, useMemo, useRef, useState } from "react";
+} from "../design/icons";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { useClock } from "../state/clock";
 import { useDisplayMode } from "../state/display-mode";
+import { Fold } from "./fold";
 import { Markdown } from "./markdown";
-import { MENU_ITEM, MenuButton } from "./menu-button";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
 import { RunStatus } from "./run-status";
 import { DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
@@ -39,18 +39,18 @@ const OUTCOME_TEXT: Readonly<Record<Turn["outcome"], string>> = {
 };
 
 /**
- * The words of a finished turn's process header.
+ * The title of a finished turn's process header: "已完成，用时 2 分 13 秒".
  *
  * @remarks
- * "已完成，用时 2 分 13 秒 · 读了 8 个文件 · 跑了 2 条命令" (SPEC-0001, "过程的呈现"). A process of
- * thinking only says how long it thought instead (SPEC-0001, "一轮里的文字").
+ * How the turn came out and how long it took (SPEC-0001, "过程的呈现"). A process of thinking
+ * only says how long it thought instead (SPEC-0001, "一轮里的文字").
  *
  * @sideEffects none
  * @param turn - The turn.
  * @param process - Its process rows.
- * @returns The header text, without the failed-command mark.
+ * @returns The title.
  */
-function headerText(turn: Turn, process: readonly ProcessRow[]): string {
+function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
   const steps = processSteps(process);
   if (steps.every((step) => step.kind === "thinking")) {
     const durations = steps.map((step) => (step.kind === "thinking" ? step.durationMs : null));
@@ -59,11 +59,94 @@ function headerText(turn: Turn, process: readonly ProcessRow[]): string {
     return describeStep({ kind: "thinking", id: "", text: "", durationMs: known ? total : null }, false).verb;
   }
   const duration = turn.durationMs === null ? "" : `，用时 ${formatDuration(turn.durationMs)}`;
-  return [
-    `${OUTCOME_TEXT[turn.outcome]}${duration}`,
-    ...processParts(countProcess(turn.steps), turn.changes.length),
-  ].join(" · ");
+  return `${OUTCOME_TEXT[turn.outcome]}${duration}`;
 }
+
+/**
+ * A run's process header: "进行中 · 12s" while it runs, then "› 已完成，用时 N · 读了 …".
+ *
+ * @remarks
+ * The cat stands on the rail while the run lasts; finished, a chevron takes its place, pointing
+ * down while the process is open and right while it is folded (SPEC-0001, "过程的呈现"). The
+ * summary is said only while folded: open, the rail says it. A failed command is mentioned in
+ * grey, "N 条命令没走通": the agent often recovers, so red is too loud. Once the process has
+ * folded or unfolded in view, the summary comes in after the fold is well under way.
+ *
+ * @sideEffects Calls `onToggle` when clicked.
+ * @param props - The turn, its process, whether that is open, the run's start, whether the
+ *   process has folded or unfolded since it was shown, and what a click does.
+ * @returns The header.
+ */
+function ProcessHeader({
+  turn,
+  process,
+  open,
+  runStartedAt,
+  moved,
+  onToggle,
+}: {
+  readonly turn: Turn;
+  readonly process: readonly ProcessRow[];
+  readonly open: boolean;
+  readonly runStartedAt: number | null;
+  readonly moved: boolean;
+  readonly onToggle: () => void;
+}) {
+  const running = turn.outcome === "running";
+  const counts = countProcess(turn.steps);
+  const parts = processParts(counts, turn.changes.length);
+  if (counts.failedCommands > 0) parts.push(`${counts.failedCommands} 条命令没走通`);
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      disabled={running}
+      onClick={onToggle}
+      data-testid="process-header"
+      className="group relative mt-3 flex min-h-[30px] w-full min-w-0 items-center text-left text-[length:var(--fs-meta)] text-[var(--text-muted)]"
+    >
+      {running ? (
+        <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
+      ) : (
+        <span className="flex min-w-0 items-center gap-1.5 pl-[30px]">
+          <CaretDown
+            size={13}
+            className={`atrium-fold-chevron absolute top-[15px] left-[10.5px] -translate-x-1/2 -translate-y-1/2 group-hover:text-[var(--text-2)] ${
+              open ? "" : "-rotate-90"
+            }`}
+          />
+          <span className="flex-none font-medium text-[var(--text)]">{headerTitle(turn, process)}</span>
+          {open || parts.length === 0 ? null : " "}
+          {open || parts.length === 0 ? null : (
+            <span
+              className={`min-w-0 truncate text-[var(--text-dim)] tabular-nums ${moved ? "atrium-fold-summary" : ""}`}
+              data-testid="process-summary"
+            >
+              · {parts.join(" · ")}
+            </span>
+          )}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
+ * A process row's key.
+ *
+ * @remarks
+ * A step's id, or the first call's for an explore row.
+ *
+ * @sideEffects none
+ * @param row - The row.
+ * @returns The key.
+ */
+function rowKey(row: ProcessRow): string {
+  return row.kind === "step" ? row.step.id : row.id;
+}
+
+/** How long a turn that has just finished stays open before its process folds. */
+const LINGER_MS = 1000;
 
 /**
  * The files a turn changed, under its info row; a file opens its changes.
@@ -186,57 +269,18 @@ function FileChange({
 }
 
 /**
- * The "···" menu of a reply.
- *
- * @remarks
- * "复制为 Markdown" (SPEC-0001, "对话记录的其他设计").
- *
- * @sideEffects Writes to the clipboard when chosen.
- * @param props - The reply's Markdown.
- * @returns The menu button.
- */
-function ReplyMenu({ markdown }: { readonly markdown: string }) {
-  return (
-    <MenuButton label="更多" compact align="start" content={<DotsThree size={14} weight="bold" />}>
-      {(close) => (
-        <button
-          type="button"
-          role="menuitem"
-          className={MENU_ITEM}
-          onClick={() => {
-            close();
-            // Fire and forget: a refused clipboard simply copies nothing.
-            void navigator.clipboard.writeText(markdown).catch(() => undefined);
-          }}
-        >
-          复制为 Markdown
-        </button>
-      )}
-    </MenuButton>
-  );
-}
-
-/**
- * The line under a finished turn: copy, "···", files changed, usage and time.
+ * The line under a finished turn: copy, files changed, usage and time.
  *
  * @remarks
  * "复制、本轮用量（这一轮的输入 + 输出 token）、时间" (SPEC-0001, "消息下方的信息"); the files chip
- * opens the turn's changes (SPEC-0001, "每轮改动汇总"). Copy takes the reply as shown, as plain
- * text; "复制为 Markdown" takes its source. The time is when the turn ended.
+ * opens the turn's changes (SPEC-0001, "每轮改动汇总"). Copy takes the reply's Markdown source,
+ * the one copy there is. The time is when the turn ended.
  *
  * @sideEffects none
- * @param props - The turn, its reply and the element the reply is shown in.
+ * @param props - The turn and its reply.
  * @returns The info row and, when open, the files.
  */
-function TurnFooter({
-  turn,
-  reply,
-  replyElement,
-}: {
-  readonly turn: Turn;
-  readonly reply: string | null;
-  readonly replyElement: React.RefObject<HTMLDivElement | null>;
-}) {
+function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: string | null }) {
   const [filesOpen, setFilesOpen] = useState(false);
   const added = turn.changes.reduce((sum, change) => sum + (change.added ?? 0), 0);
   const removed = turn.changes.reduce((sum, change) => sum + (change.removed ?? 0), 0);
@@ -246,12 +290,7 @@ function TurnFooter({
         className="-ml-1 flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums"
         data-testid="turn-footer"
       >
-        {reply === null ? null : (
-          <>
-            <CopyButton label="复制回复" text={() => replyElement.current?.innerText ?? reply} />
-            <ReplyMenu markdown={reply} />
-          </>
-        )}
+        {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
         {turn.changes.length === 0 ? null : (
           <button
             type="button"
@@ -340,25 +379,37 @@ export interface TurnViewProps {
 }
 
 /**
- * One turn: the question, the process folded into one line, the reply and its info row.
+ * One turn: the question, the process on its rail, the reply and its info row.
  *
  * @remarks
- * "突出结果，折叠过程" (SPEC-0001, "对话区"). The process shows while the turn runs, and when
- * finished folds into its header unless opened or in detailed mode; folded, steers stay visible
- * and, in thinking mode, thinking (SPEC-0001, "显示模式"). A turn without process steps has no
- * header. The reply streams below, revealed smoothly; a stopped turn is marked, a failed one shows
- * pi's error.
+ * "突出结果，折叠过程" (SPEC-0001, "对话区"). The process shows on its rail while the turn runs;
+ * a turn that finishes in view stays open a second so "完成" can be seen, then folds into its
+ * header, smoothly (SPEC-0001, "过程的呈现": "跑完后的折叠"). A turn already finished when shown
+ * is simply folded, unless opened or in detailed mode; folded, steers stay visible and, in
+ * thinking mode, thinking (SPEC-0001, "显示模式"). A turn without process steps has no header;
+ * while it runs with nothing to show yet, the run's line stands in its place until the first
+ * step or the reply's first text. Steps that arrive while the turn is shown play their entrance;
+ * the ones there when it was first shown do not. The reply streams below, revealed smoothly; a
+ * failed turn shows pi's error.
  *
- * @sideEffects none
+ * @sideEffects Holds a finished turn open for a second on the clock.
  * @param props - The turn and the run's start.
  * @returns The turn.
  */
 export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
   const { mode } = useDisplayMode();
+  const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
-  const replyElement = useRef<HTMLDivElement>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
   const running = turn.outcome === "running";
+  const [shownKeys] = useState(() => new Set(process.map(rowKey)));
+  const [wasRunning, setWasRunning] = useState(running);
+  const [lingering, setLingering] = useState(false);
+  if (running !== wasRunning) {
+    setWasRunning(running);
+    setLingering(!running);
+  }
+  useEffect(() => (lingering ? clock.after(LINGER_MS, () => setLingering(false)) : undefined), [lingering, clock]);
   const lastId = turn.steps.at(-1)?.id;
   /**
    * Whether a step is going on now.
@@ -372,14 +423,18 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
    */
   const isLive = (step: Step): boolean =>
     running && (step.kind === "tool" ? step.status === "running" : step.id === lastId);
-  const open = running || (expanded ?? mode === "detailed");
-  const lead = open
-    ? []
-    : process.filter(
-        (row) =>
-          row.kind === "step" && (row.step.kind === "steer" || (mode === "thinking" && row.step.kind === "thinking")),
-      );
-  const failedCommands = countProcess(turn.steps).failedCommands;
+  const open = running || lingering || (expanded ?? mode === "detailed");
+  const [wasOpen, setWasOpen] = useState(open);
+  const [moved, setMoved] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    setMoved(true);
+  }
+  const lead = process.filter(
+    (row) =>
+      row.kind === "step" && (row.step.kind === "steer" || (mode === "thinking" && row.step.kind === "thinking")),
+  );
+  const waiting = running && process.length === 0 && (reply === null || reply.text === "");
   return (
     <div
       className="flex flex-col"
@@ -393,46 +448,67 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
         images={turn.user.images}
         timestamp={turn.user.timestamp}
         auto={turn.user.auto}
+        turnId={turn.id}
+        clientMessageId={turn.user.clientMessageId}
+        settled={turn.outcome !== "running"}
       />
-      {process.length === 0 ? null : (
-        <button
-          type="button"
-          aria-expanded={open}
-          disabled={running}
-          onClick={() => setExpanded(!open)}
-          data-testid="process-header"
-          className={`mt-3 flex h-[30px] w-full items-center gap-1.5 text-left text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:text-[var(--text-2)] ${
-            open ? "mb-1 shadow-[inset_0_-0.5px_0_var(--line)]" : ""
-          }`}
-        >
-          {running ? (
-            <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
-          ) : (
-            <span>
-              {headerText(turn, process)}
-              {failedCommands === 0 ? null : (
-                <span className="text-[var(--danger)]"> · {failedCommands} 条命令失败</span>
-              )}
-            </span>
-          )}
-          {running ? null : <CaretDown size={11} className={`transition-transform ${open ? "rotate-180" : ""}`} />}
-        </button>
-      )}
-      {open || lead.length > 0 ? (
-        <div className="pt-0.5 pb-2" data-testid="process">
-          {(open ? process : lead).map((row) => (
-            <ProcessRowView
-              key={row.kind === "step" ? row.step.id : row.id}
-              turnId={turn.id}
-              row={row}
-              isLive={isLive}
-            />
-          ))}
+      {waiting ? (
+        <div className="mt-3" data-testid="run-waiting">
+          <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
         </div>
       ) : null}
-      {turn.outcome === "stopped" ? (
+      {process.length === 0 ? null : (
+        <>
+          <ProcessHeader
+            turn={turn}
+            process={process}
+            open={open}
+            runStartedAt={runStartedAt}
+            moved={moved}
+            onToggle={() => {
+              setLingering(false);
+              setExpanded(!open);
+            }}
+          />
+          <Fold
+            open={open}
+            folded={
+              lead.length === 0 ? null : (
+                <div data-testid="process">
+                  {lead.map((row, index) => (
+                    <ProcessRowView
+                      key={rowKey(row)}
+                      turnId={turn.id}
+                      row={row}
+                      isLive={isLive}
+                      place={{ first: index === 0, last: index === lead.length - 1, enter: false }}
+                    />
+                  ))}
+                  <div className="h-2" />
+                </div>
+              )
+            }
+          >
+            {process.map((row, index) => (
+              <ProcessRowView
+                key={rowKey(row)}
+                turnId={turn.id}
+                row={row}
+                isLive={isLive}
+                place={{
+                  first: index === 0,
+                  last: index === process.length - 1,
+                  enter: !shownKeys.has(rowKey(row)),
+                }}
+              />
+            ))}
+            <div className="h-2" />
+          </Fold>
+        </>
+      )}
+      {turn.outcome === "stopped" && process.length === 0 ? (
         <div className="my-1 flex items-center gap-1.5 text-[length:var(--fs-sm)] text-[var(--attn-text)]">
-          <Stop size={11} weight="fill" />
+          <Stop size={12} />
           已停止
         </div>
       ) : null}
@@ -441,15 +517,14 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
       ) : null}
       {reply === null ? null : (
         <div
-          ref={replyElement}
-          className="mt-2 mb-1 text-[length:var(--fs-reply)] leading-[1.68] text-[var(--text)]"
+          className="mt-2 mb-1 text-[length:var(--fs-reply)] leading-[var(--lh-reply)] text-[var(--text)]"
           data-testid="reply"
           data-streaming={running}
         >
           <StreamedText text={reply.text} streaming={running} />
         </div>
       )}
-      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} replyElement={replyElement} />}
+      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} />}
     </div>
   );
 }

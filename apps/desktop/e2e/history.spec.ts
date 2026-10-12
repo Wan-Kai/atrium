@@ -69,7 +69,7 @@ test("opens a session from pi's file: tools, a retry and a compaction on its bra
     );
     await turns.nth(1).getByTestId("process-header").click();
     await expect(turns.nth(1).getByTestId("step")).toHaveText([
-      "自动重试 · 第 1 次·upstream returned 503 service unavailable",
+      "自动重试 · 第 1 次 · upstream returned 503 service unavailable",
     ]);
 
     await window.getByRole("textbox", { name: "消息" }).fill("five");

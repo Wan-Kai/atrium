@@ -391,6 +391,67 @@ describe("the latest pi over the WebSocket", () => {
   });
 });
 
+/**
+ * A local stand-in for a proxy, answering every request with a version itself.
+ *
+ * @remarks
+ * It never reaches the address asked for, so the host stays off the network; it records the
+ * addresses, which show the request came through it.
+ *
+ * @sideEffects Listens on a port of 127.0.0.1, closed after the test.
+ * @param version - The version it answers with.
+ * @returns Its address and the addresses asked for.
+ */
+async function proxyServer(version: string): Promise<{ url: string; asked: string[] }> {
+  const asked: string[] = [];
+  const server = createServer((request, response) => {
+    asked.push(request.url ?? "");
+    response.end(JSON.stringify({ version }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  onTestFinished(async () => {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const { port } = server.address() as AddressInfo;
+  return { url: `http://127.0.0.1:${port}`, asked };
+}
+
+describe("the proxy set in the settings over the WebSocket", () => {
+  it("takes the place of the login shell's for the latest pi and for updating pi, and refuses one with a password", async () => {
+    const { bin, home } = await installedPi();
+    const pi = await realpath(join(bin, "pi"));
+    await writeFile(pi, '#!/bin/sh\nif [ "$1" = update ]; then echo "$HTTPS_PROXY $no_proxy"; else echo 1.0.2; fi\n');
+    const [shell, set] = await Promise.all([proxyServer("1.1.0"), proxyServer("2.0.0")]);
+    // Not this machine's own address, which always goes direct; nothing listens there.
+    const latest = "http://127.0.0.2/api/latest-version";
+    testHost = await startTestHost({
+      toolEnv: { PATH: bin, HOME: home, FAKE_PI: "status", HTTP_PROXY: shell.url },
+      loginWorker: WORKER,
+      piLatestUrl: latest,
+    });
+    const client = testHost.connect();
+    onTestFinished(() => client.disconnect());
+    await client.connect();
+    await vi.waitFor(async () => expect((await checkSetup(client)).pi.latest).toBe("1.1.0"));
+
+    await expect(
+      client.setPreferences({ proxy: { url: `http://me:secret@${set.url.slice("http://".length)}`, noProxy: [] } }),
+    ).rejects.toMatchObject({ code: "proxy_invalid", params: { reason: "credentials" } });
+    await client.setPreferences({ proxy: { url: `${set.url}/`, noProxy: [".example.com"] } });
+    const checked = await client.checkPiUpdate();
+    await client.updatePi();
+    await vi.waitFor(() => expect(client.installJob.getState()?.job.state).toBe("ok"), { timeout: 10_000 });
+
+    expect(checked.latest).toBe("2.0.0");
+    expect(shell.asked).toStrictEqual([latest]);
+    expect(set.asked).toStrictEqual([latest]);
+    expect(present(client.installJob.getState(), "the update").output).toBe(
+      `${set.url} localhost,127.0.0.1,::1,.example.com\n`,
+    );
+  });
+});
+
 describe("finding projects in pi's history over the WebSocket", () => {
   it("offers the directories pi worked in that are not projects yet, most recent first", async () => {
     const { dir, home } = await installedPi();

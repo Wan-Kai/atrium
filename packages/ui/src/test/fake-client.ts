@@ -10,6 +10,8 @@ import type {
   SetupView,
 } from "@atrium/client";
 import {
+  type Chat,
+  CommandError,
   type DiffTarget,
   type DiscoveredDirectory,
   IDLE_CONTROL,
@@ -17,6 +19,7 @@ import {
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
+  type Preferences,
   type Project,
   type SessionSummary,
   type SetupState,
@@ -46,8 +49,23 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
     external: true,
     createdAt: 1,
     merge: { dirty: false, ahead: 0, verdict: "noChange", reason: null },
+    archivedAt: null,
     ...fields,
   };
+}
+
+/**
+ * A chat without a name.
+ *
+ * @remarks
+ * Its directory under Atrium's home, unless `fields` say otherwise.
+ *
+ * @sideEffects none
+ * @param fields - Fields to set; the id and first session are required.
+ * @returns The chat.
+ */
+export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">): Chat {
+  return { dir: `/home/chats/${fields.id}`, alias: null, ...fields };
 }
 
 /**
@@ -101,6 +119,7 @@ function sessionView(sessionId: string, fields: Partial<SessionView> = {}): Sess
     pending: [],
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
     ...fields,
   };
@@ -128,6 +147,7 @@ export const READY_SETUP: SetupState = {
 export interface FakeAnswers {
   readonly createChat?: () => Promise<void>;
   readonly createSession?: () => Promise<void>;
+  readonly renameChat?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
@@ -149,8 +169,19 @@ export interface FakeAnswers {
   /** A project's branches; `main` alone, and origin's HEAD, when left out. */
   readonly branches?: (projectId: string) => Promise<{ branches: string[]; head: string | null }>;
   readonly setMainBranch?: () => Promise<void>;
+  /** Answers archiving a workspace, which is then archived in the list; archived at once when left out. */
+  readonly archiveWorkspace?: () => Promise<void>;
+  /** Answers restoring a workspace, which then shows again; restored at once when left out. */
+  readonly restoreWorkspace?: () => Promise<void>;
   /** Holds back the list's change until it settles; changed at once when left out. */
   readonly setPreferences?: () => Promise<void>;
+  /** Answers a Fast switch, which then shows in the session's view; succeeds at once when left out. */
+  readonly setFast?: () => Promise<void>;
+  /** A turn's image, or none; the host has none when left out. */
+  readonly image?: (
+    turnId: string,
+    index: number,
+  ) => Promise<{ mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string } | undefined>;
 }
 
 /**
@@ -173,12 +204,14 @@ export interface FakeAnswers {
  */
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
+  /** Previews of the messages sent with images, by message; see `sentPreviews`. */
+  const sent = new Map<string, readonly string[]>();
   const modelCalls: string[] = [];
   /** What the area asked of the workspace changes, in order. */
   const changeCalls: string[] = [];
   const changeStores = new Map<string, StoreApi<ChangesView>>();
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
-  const modelLists = new Map<string, StoreApi<ModelListView>>();
+  const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
   const index = createStore<IndexView>(() => ({
     ready: true,
@@ -186,6 +219,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     seq: 1,
     projects: [],
     workspaces: [],
+    chats: [],
     sessions: [],
     layout: { container: null, tabs: {} },
     preferences: {
@@ -194,8 +228,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
+      lastFast: false,
       statusBar: {},
       titleModel: null,
+      proxy: null,
     },
     resets: [],
     ...initial,
@@ -254,6 +290,28 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   }
 
   /**
+   * Archives a workspace, or with `null` shows it again.
+   *
+   * @remarks
+   * As the host's next list would: archiving archives and stops the workspace's sessions too,
+   * and restoring leaves them archived.
+   *
+   * @sideEffects Updates the list.
+   * @param workspaceId - The workspace.
+   * @param at - When it was archived, or `null`.
+   */
+  function archived(workspaceId: string, at: number | null): void {
+    const { workspaces, sessions } = index.getState();
+    index.setState({
+      workspaces: workspaces.map((one) => (one.id === workspaceId ? { ...one, archivedAt: at } : one)),
+      sessions:
+        at === null
+          ? sessions
+          : sessions.map((one) => (one.containerId === workspaceId ? { ...one, archived: true, running: false } : one)),
+    });
+  }
+
+  /**
    * Adds a draft and opens it.
    *
    * @remarks
@@ -292,12 +350,20 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async createChat() {
       calls.push("createChat");
       await answers.createChat?.();
-      return { sessionId: addDraft("chats") };
+      // As the host does: a chat of its own, whose first session is the new draft.
+      const chatId = `cht_new${created + 1}`;
+      index.setState({
+        chats: [
+          ...index.getState().chats,
+          { id: chatId, dir: `/home/chats/new${created + 1}`, alias: null, firstSessionId: `new${created + 1}` },
+        ],
+      });
+      return { sessionId: addDraft(chatId) };
     },
-    async createSession(workspaceId: string) {
-      calls.push(`createSession ${workspaceId}`);
+    async createSession(containerId: string) {
+      calls.push(`createSession ${containerId}`);
       await answers.createSession?.();
-      return { sessionId: addDraft(workspaceId) };
+      return { sessionId: addDraft(containerId) };
     },
     async openSession(sessionId: string) {
       calls.push(`openSession ${sessionId}`);
@@ -366,22 +432,61 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`renameWorkspace ${workspaceId} ${name}`);
       return {};
     },
+    async archiveWorkspace(workspaceId: string) {
+      calls.push(`archiveWorkspace ${workspaceId}`);
+      await answers.archiveWorkspace?.();
+      archived(workspaceId, 1_700_000_000_000);
+      return {};
+    },
+    async restoreWorkspace(workspaceId: string) {
+      calls.push(`restoreWorkspace ${workspaceId}`);
+      await answers.restoreWorkspace?.();
+      archived(workspaceId, null);
+      return {};
+    },
+    async renameChat(chatId: string, name: string | null) {
+      calls.push(`renameChat ${chatId} ${name}`);
+      await answers.renameChat?.();
+      return {};
+    },
     async windowFocused() {
       calls.push("windowFocused");
       return {};
     },
-    async setPreferences(changes: Record<string, string>) {
+    async setPreferences(changes: Partial<Preferences>) {
       calls.push(`setPreferences ${JSON.stringify(changes)}`);
       const held = answers.setPreferences?.();
       if (held !== undefined) await held;
-      index.setState({ preferences: { ...index.getState().preferences, ...changes } });
+      // The host keeps a proxy's address in one form.
+      const { proxy } = changes;
+      const kept =
+        proxy === undefined || proxy === null
+          ? changes
+          : { ...changes, proxy: { ...proxy, url: new URL(proxy.url).origin } };
+      index.setState({ preferences: { ...index.getState().preferences, ...kept } });
       return {};
     },
-    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = []) {
+    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = [], previews: readonly string[] = []) {
       calls.push(`prompt ${sessionId} ${text}${attachmentIds.map((id) => ` +${id}`).join("")}`);
       const view = views.get(sessionId);
-      view?.setState({ pending: [...view.getState().pending, { clientMessageId: `q${calls.length}`, text }] });
-      return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
+      const clientMessageId = `q${calls.length}`;
+      if (previews.length > 0) sent.set(clientMessageId, previews);
+      const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
+      const shown = { clientMessageId, text, ...images };
+      view?.setState({ pending: [...view.getState().pending, shown] });
+      // As the client does, a message that did not go is taken back out.
+      return (answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const })).catch((error: unknown) => {
+        view?.setState({ pending: view.getState().pending.filter((item) => item !== shown) });
+        sent.delete(clientMessageId);
+        throw error;
+      });
+    },
+    sentPreviews: (clientMessageId: string) => sent.get(clientMessageId) ?? null,
+    async fetchImage(sessionId: string, turnId: string, place: number) {
+      calls.push(`fetchImage ${sessionId} ${turnId} ${place}`);
+      const image = await answers.image?.(turnId, place);
+      if (image === undefined) throw new CommandError("image_unavailable");
+      return image;
     },
     steer(sessionId: string, text: string) {
       calls.push(`steer ${sessionId} ${text}`);
@@ -421,18 +526,18 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     loadOlder: async () => undefined,
     loadStep: async () => undefined,
-    models(containerId: string) {
-      let list = modelLists.get(containerId);
+    models(workspaceId: string | null) {
+      let list = modelLists.get(workspaceId);
       if (list === undefined) {
         list = createStore<ModelListView>(() => ({ status: "idle", models: [], defaultModel: null, error: null }));
-        modelLists.set(containerId, list);
+        modelLists.set(workspaceId, list);
       }
       return list;
     },
-    async loadModels(containerId: string, refresh = false) {
-      modelCalls.push(`loadModels ${containerId}${refresh ? " refresh" : ""}`);
+    async loadModels(workspaceId: string | null, refresh = false) {
+      modelCalls.push(`loadModels ${workspaceId}${refresh ? " refresh" : ""}`);
       client
-        .models(containerId)
+        .models(workspaceId)
         .setState(answers.models ?? { status: "ready", models: [], defaultModel: null, error: null });
     },
     async setModel(sessionId: string, model: ModelRef) {
@@ -456,6 +561,12 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async setThinkingLevel(sessionId: string, level: string) {
       modelCalls.push(`setThinkingLevel ${sessionId} ${level}`);
+      return {};
+    },
+    async setFast(sessionId: string, enabled: boolean) {
+      modelCalls.push(`setFast ${sessionId} ${enabled ? "on" : "off"}`);
+      await answers.setFast?.();
+      views.get(sessionId)?.setState({ fast: enabled });
       return {};
     },
     changes(workspaceId: string) {

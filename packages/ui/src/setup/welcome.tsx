@@ -1,4 +1,4 @@
-import { ArrowUpRight, Eye, GitBranch, TerminalWindow } from "@phosphor-icons/react";
+import { ArrowUpRight, Eye, GitBranch, TerminalWindow } from "../design/icons";
 import { type ReactNode, useContext, useEffect, useRef } from "react";
 import {
   BAND_HOVER_MS,
@@ -10,12 +10,13 @@ import {
   paintBand,
   reducedMotion,
 } from "../design/dots";
+import atriumLogo from "../design/brand/atrium.svg";
 
 /**
  * The welcome page: a first screen worth a screenshot.
  *
  * @remarks
- * SPEC-0001 ("首次启动 · 欢迎页"): the glass logo slot, the "由 pi 驱动" capsule linking to pi.dev,
+ * SPEC-0001 ("首次启动 · 欢迎页"): Atrium's cat in the logo slot, the "由 pi 驱动" capsule linking to pi.dev,
  * the title, two lines on what Atrium is, "开始设置 →" with the hint under it, and a glass window
  * leaning back with a miniature of the real interface and three notes floating beside it. No
  * footer. The preview is decoration, hidden from assistive technology.
@@ -39,9 +40,8 @@ export function Welcome({
           <i />
           <i />
         </div>
-        <div aria-hidden className="atrium-gmark atrium-glass">
-          <i />
-          <i />
+        <div aria-hidden className="atrium-gmark">
+          <img src={atriumLogo} alt="" />
         </div>
         <button
           type="button"

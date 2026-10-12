@@ -43,6 +43,9 @@ export default {
   htmlReporter: { fileName: `reports/mutation/${name}.html` },
   thresholds: { high: 90, low: 80, break: 80 },
   tempDirName: ".stryker-tmp",
+  // The app `pnpm package` builds holds framework symlinks the sandbox copy cannot follow, and no
+  // Node test uses it.
+  ignorePatterns: ["apps/desktop/out"],
   // Stryker rewrites tsconfig paths in its sandbox through the TypeScript JS API, which TypeScript 7
   // no longer ships. The sandbox keeps the repository layout, so relative `extends` stay valid and
   // the rewrite can be skipped by pointing Stryker at a file that does not exist.

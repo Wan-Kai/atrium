@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
 import { ModelRef, ThinkingLevel } from "./models";
 
@@ -57,8 +57,24 @@ export const Workspace = z.strictObject({
   createdAt: Timestamp.nullable(),
   /** The merge state; `null` for the local workspace and projects that are not git repositories. */
   merge: MergeState.nullable(),
+  /**
+   * When it was archived; `null` when it is not. An archived workspace's `branch` and `head` are
+   * those it had then (SPEC-0001, "M1.11 的工作区归档").
+   */
+  archivedAt: Timestamp.nullable(),
 });
 export type Workspace = z.infer<typeof Workspace>;
+
+/** A chat: a directory of its own with sessions in it, and no git (domain-model §1, Chat). */
+export const Chat = z.strictObject({
+  id: ChatId,
+  dir: Path,
+  /** The name the user gave it; `null` for none. */
+  alias: z.string().min(1).max(256).nullable(),
+  /** Its session created first, not archived; `null` for none. The chat is named after it unless aliased. */
+  firstSessionId: SessionId.nullable(),
+});
+export type Chat = z.infer<typeof Chat>;
 
 /**
  * Why a session needs you, kept in the index until its next run starts (SPEC-0001, "并行、同步与关注").
@@ -109,7 +125,7 @@ export type ContainerTabs = z.infer<typeof ContainerTabs>;
 
 /** One client's layout (domain-model, "已决定 4"). */
 export const Layout = z.strictObject({
-  /** Where the client is: a workspace, the chats, or nowhere yet. */
+  /** Where the client is: a workspace, a chat, or nowhere yet. */
   container: ContainerId.nullable(),
   tabs: z.record(ContainerId, ContainerTabs),
 });
@@ -128,15 +144,30 @@ export const StatusBarChoices = z.record(StatusGroupId, z.boolean());
 export type StatusBarChoices = z.infer<typeof StatusBarChoices>;
 
 /**
+ * The network proxy set in the settings: where requests go, and which hosts go direct.
+ *
+ * @remarks
+ * The host checks the address itself and answers `proxy_invalid` (SPEC-0001, "设置 · 接口"); the
+ * schema only bounds the sizes.
+ */
+export const ProxySetting = z.strictObject({
+  url: z.string().max(2048),
+  noProxy: z.array(z.string().max(255)).max(100),
+});
+export type ProxySetting = z.infer<typeof ProxySetting>;
+
+/**
  * Global preferences, the same for every client.
  *
  * @remarks
  * `lastModel` and `thinkingByModel` (keyed `providerId/modelId`) follow every model or thinking
- * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框").
+ * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框"); so
+ * does `lastFast`, Fast switched on or off (SPEC-0001, "Fast").
  * `statusBar` holds only the status bar groups you switched from their default, so a group added
  * later shows as its own default says (SPEC-0001, "状态栏（M1.8）"). `setupDone` says first launch
  * was gone through; `titleModel` names the model that names sessions, `null` for each session's own
- * (SPEC-0001, "首次启动", "设置").
+ * (SPEC-0001, "首次启动", "设置"). `proxy` is the network proxy pi and the host's own requests go
+ * through, `null` for the login shell's (SPEC-0001, "设置 · pi").
  */
 export const Preferences = z.strictObject({
   setupDone: z.boolean(),
@@ -144,13 +175,15 @@ export const Preferences = z.strictObject({
   displayMode: DisplayMode,
   lastModel: ModelRef.nullable(),
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
+  lastFast: z.boolean(),
   statusBar: StatusBarChoices,
   titleModel: ModelRef.nullable(),
+  proxy: ProxySetting.nullable(),
 });
 export type Preferences = z.infer<typeof Preferences>;
 
 /** Files of the index that were reset because they were damaged (domain-model §1, "索引的存储"). */
-export const IndexFileName = z.enum(["projects", "sessions", "layouts", "preferences"]);
+export const IndexFileName = z.enum(["projects", "chats", "sessions", "layouts", "preferences"]);
 export type IndexFileName = z.infer<typeof IndexFileName>;
 
 /** Why the host sent the whole list rather than changes after the client's cursor. */
@@ -176,6 +209,7 @@ export const IndexSnapshotEvent = z.strictObject({
   reason: SnapshotReason,
   projects: z.array(Project),
   workspaces: z.array(Workspace),
+  chats: z.array(Chat),
   sessions: z.array(SessionSummary),
   layout: Layout,
   preferences: Preferences,
@@ -188,7 +222,7 @@ export type IndexSnapshotEvent = z.infer<typeof IndexSnapshotEvent>;
  * The changes to one collection: items that changed, whole, and the ids of those that went.
  *
  * @remarks
- * The three collections change alike.
+ * The collections change alike.
  *
  * @sideEffects none
  * @param item - An item's schema.
@@ -212,6 +246,7 @@ export const IndexChangesEvent = z.strictObject({
   seq: ListSeq,
   projects: collectionChanges(Project, ProjectId),
   workspaces: collectionChanges(Workspace, WorkspaceId),
+  chats: collectionChanges(Chat, ChatId),
   sessions: collectionChanges(SessionSummary, SessionId),
   layout: Layout.nullable(),
   preferences: Preferences.nullable(),

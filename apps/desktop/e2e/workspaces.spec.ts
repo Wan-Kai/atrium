@@ -23,7 +23,7 @@ test("lists a git project's worktrees and a plain folder as git has them, and fi
 
     await scene.commit(feature, "a.txt", "a");
     await focusWindow(window);
-    await expect(rows.nth(1)).toHaveText("feature/sidebar↑1", { timeout: 30_000 });
+    await expect(rows.nth(1)).toHaveText("feature/sidebar1", { timeout: 30_000 });
 
     await addProject(app, window, plain);
     await expect(window.getByTestId("project-row")).toHaveText(["repo", plainName]);

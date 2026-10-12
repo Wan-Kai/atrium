@@ -14,12 +14,14 @@ import { join } from "node:path";
 import type { Level } from "pino";
 import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
+import type { AppProcessMetrics } from "./electron-port";
 import { createChangesService } from "./changes/changes-service";
 import { createCheckoutReader } from "./changes/checkout";
 import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
 import { readInstallSeed } from "./platform/install-id";
 import { createPiDeps } from "./platform/pi-deps";
+import { hasProxy, withProxy } from "./platform/proxy";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
 import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platform/logger";
@@ -34,7 +36,7 @@ import { createInstallService } from "./setup/install-service";
 import { createLogins } from "./setup/logins";
 import { LATEST_VERSION_URL, createPiLatest, fetchLatestPi } from "./setup/pi-latest";
 import { createSetupService } from "./setup/setup-service";
-import { type HostTools, createToolbox } from "./setup/toolbox";
+import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
@@ -47,11 +49,13 @@ import { createSessionManager } from "./sessions/session-manager";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
+import { createChatNames } from "./store/chat-names";
 import { createPreferenceStore } from "./store/preferences";
 import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
 import { SubscriptionRegistry } from "./sync/subscriptions";
 import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspector";
+import { createWorkspaceArchiver } from "./workspaces/workspace-archiver";
 import { createWorkspaceService } from "./workspaces/workspace-service";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
@@ -82,6 +86,8 @@ export interface HostConfig {
   readonly toolEnv?: Readonly<Record<string, string>>;
   /** The built login program (`dist/login-worker.mjs`); without it, logins are unavailable. */
   readonly loginWorker?: string;
+  /** The built Fast extension (`dist/fast-extension.mjs`) sessions' pi loads; without it, there is no Fast. */
+  readonly fastExtension?: string;
   /** Where to look for Homebrew after PATH; defaults to where its installer puts it, tests set none. */
   readonly homebrewPlaces?: readonly string[];
   /** Where to look up the latest pi; defaults to pi.dev, as pi does; `null` never looks (tests). */
@@ -102,6 +108,8 @@ export interface RunningHost {
   readonly logFile: string;
   /** Resolves once every log record so far is on disk, in order. */
   readonly flushLog: () => Promise<void>;
+  /** Logs one sample of the desktop app's processes, which Electron's main process cannot log itself. */
+  readonly recordAppMetrics: (processes: readonly AppProcessMetrics[]) => void;
   /** Disconnects clients, flushes logs and spans, and stops listening; later calls share the first. */
   readonly close: () => Promise<void>;
 }
@@ -156,8 +164,6 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
   const subscriptions = new SubscriptionRegistry(resources);
   const hostInstanceId = randomBytes(8).toString("hex");
-  // Detection starts once the server listens; commands can only arrive after that.
-  const toolbox = createToolbox(detectTools);
   const [index, installSeed] = await Promise.all([
     loadIndex(home.root, clock.now(), logger),
     readInstallSeed(home.root, randomUUID),
@@ -168,6 +174,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await lock.release();
     throw error;
   });
+  const preferences = createPreferenceStore(index.preferences);
+  // Detection starts once the server listens; commands can only arrive after that. Everything that
+  // runs a tool or asks pi.dev sees the proxy set in the settings (SPEC-0001, "设置 · pi").
+  const toolbox = withProxySetting(createToolbox(detectTools), () => preferences.read().proxy);
   // git keeps the first environment: its PATH only has to reach git, which installing pi or Node does not move.
   const git = toolbox
     .current()
@@ -199,13 +209,16 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const layouts = createLayouts({ file: index.layouts, clock });
-  const preferences = createPreferenceStore(index.preferences);
+  const chatNames = createChatNames(index.chats);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: hostInstanceId,
     build: () => ({
       projects: projects.projects().map(({ id, path, name, mainBranch }) => ({ id, path, name, mainBranch })),
       workspaces: workspaces.list(),
+      chats: catalog
+        .chats()
+        .map(({ id, dir, firstSessionId }) => ({ id, dir, alias: chatNames.alias(id), firstSessionId })),
       sessions: sessions.summaries(),
       preferences: preferences.read(),
       resets: [...index.resets],
@@ -238,6 +251,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         { piPath: found.pi.piPath, args: [], cwd: dir },
         createPiDeps({ clock, resources, logger, env: found.env }),
         signal,
+        config.fastExtension === undefined ? {} : { fastExtension: config.fastExtension },
       );
     },
     clock,
@@ -271,6 +285,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     tracer: tracing.tracer,
     logger,
     newId: () => randomUUID(),
+    newSessionId: () => randomUUID(),
     files: createFileSearch({
       findFd: async () => {
         const found = await toolbox.current();
@@ -289,6 +304,21 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         );
       },
     },
+    ...(config.fastExtension === undefined
+      ? {}
+      : {
+          fast: {
+            extension: config.fastExtension,
+            preferred: () => preferences.read().lastFast,
+            chosen: (enabled: boolean) => {
+              // Fire and forget: a failed write is logged; the index flushes before the host stops.
+              void preferences.rememberFast(enabled).then(
+                () => feed.changed(),
+                (error: unknown) => logger.warn({ err: error }, "fast choice not remembered"),
+              );
+            },
+          },
+        }),
     titleModel: titleModelLookup({
       chosen: () => preferences.read().titleModel,
       list: (dir) => models.list(dir, false),
@@ -311,6 +341,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     // New worktrees may hold sessions started in a terminal.
     sessions.rescan();
   });
+  const archiver = createWorkspaceArchiver({
+    projects,
+    git,
+    sessions,
+    // A restored worktree is scanned again, and its changes worked out.
+    refresh: (workspaceId) => {
+      workspaces.refresh(workspaceId);
+      changes.refresh(workspaceId);
+    },
+    clock,
+    logger,
+  });
   const indexCommands = createIndexCommands({
     projects,
     workspaces: {
@@ -324,7 +366,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       },
     },
     sessions,
+    archiver,
     preferences,
+    chats: () => catalog.chats(),
+    chatNames,
     feed,
     listModels: createModelLister({
       catalog: models,
@@ -347,7 +392,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const piLatest = createPiLatest({
-    lookup: (signal) => fetchLatestPi(config.piLatestUrl ?? LATEST_VERSION_URL, { signal, clock }),
+    // Through the proxy pi would use, as pi looks.
+    lookup: async (signal) =>
+      withProxy((await toolbox.current())?.env ?? {}, (fetch) =>
+        fetchLatestPi(config.piLatestUrl ?? LATEST_VERSION_URL, { fetch, signal, clock }),
+      ),
     // As pi, which looks for nothing with PI_OFFLINE set.
     offline: async () => config.piLatestUrl === null || Boolean((await toolbox.current())?.env["PI_OFFLINE"]),
     clock,
@@ -375,7 +424,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   });
   const installs = createInstallService({
     toolbox,
-    script: (signal) => downloadScript(INSTALL_SCRIPT_URL, { signal, clock }),
+    script: async (signal) =>
+      withProxy((await toolbox.current())?.env ?? {}, (fetch) =>
+        downloadScript(INSTALL_SCRIPT_URL, { fetch, signal, clock }),
+      ),
     sessions: {
       running: () => sessions.summaries().filter((summary) => summary.running).length,
       onChange: (listener) => {
@@ -455,11 +507,11 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * @remarks
    * Runs in the background after the server listens: an interactive login shell can take seconds,
    * which would blow the startup budget (testing.md, "性能预算"). The whole environment is taken so
-   * pi behaves as in the user's terminal (SPEC-0001, "第 1 步：安装 pi"); only its source, PATH and
-   * size are logged, because it may hold API keys. Closing the host aborts it, and it is counted
-   * as a resource, so it cannot outlive the host unnoticed. It never rejects. The toolbox runs it
-   * again when first launch asks to refresh. A Homebrew found outside PATH joins its end, so the
-   * Node it installs is found (SPEC-0001, "第 1 步：安装 pi").
+   * pi behaves as in the user's terminal (SPEC-0001, "第 1 步：安装 pi"); only its source, PATH,
+   * size and where a proxy comes from are logged, because it may hold API keys. Closing the host
+   * aborts it, and it is counted as a resource, so it cannot outlive the host unnoticed. It never
+   * rejects. The toolbox runs it again when first launch asks to refresh. A Homebrew found outside
+   * PATH joins its end, so the Node it installs is found (SPEC-0001, "第 1 步：安装 pi").
    *
    * @sideEffects Spawns the login shell, `pi --version` and `node --version`; adds the environment's
    * credentials to what the log redacts; logs the outcome.
@@ -486,7 +538,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       const homebrew = await findHomebrew(shellEnv["PATH"] ?? "", config.homebrewPlaces);
       const env = withHomebrewOnPath(shellEnv, homebrew);
       const path = env["PATH"] ?? "";
-      logger.info({ ...origin, path, variables: Object.keys(env).length }, "tool environment resolved");
+      // Only where the proxy comes from: its address stays out of the log (security.md).
+      const proxy = preferences.read().proxy === null ? (hasProxy(env) ? "shell" : "none") : ("setting" as const);
+      logger.info({ ...origin, path, variables: Object.keys(env).length, proxy }, "tool environment resolved");
       if (signal.aborted) return null;
       const [pi, node, fd] = await Promise.all([
         inspectPi(path, { env, clock, signal }),
@@ -537,7 +591,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; cancels the login, the install job and the update check under way; stops login checks, scans,
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; waits for the
+   * archive or restore under way; cancels the login, the install job and the update check under way; stops login checks, scans,
    * fetches and every session's pi; finishes writing the index; flushes spans and logs; closes
    * the log file; releases the host lock.
    */
@@ -545,6 +600,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     cancelReport();
     await toolbox.close();
     await server.close();
+    // Before the sessions and the index, which an archive or restore under way still uses.
+    await archiver.close();
     await loginService.close();
     await installs.close();
     await piLatest.close();
@@ -572,6 +629,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     tools,
     logFile,
     flushLog: () => drainLogFile(destination),
+    recordAppMetrics: (processes) => logger.info({ processes }, "app metrics"),
     close: () => (closing ??= close()),
   };
 }

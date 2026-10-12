@@ -20,6 +20,7 @@
     "@opentelemetry/sdk-trace": "2.11.0",
     "pino": "10.4.0",
     "pino-roll": "4.0.0",
+    "undici": "8.10.2",
     "ws": "8.22.0",
     "zod": "4.6.5"
   },

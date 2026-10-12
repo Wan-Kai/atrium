@@ -21,6 +21,7 @@ function clientWith(shown: TranscriptItem[], pages: (TranscriptItem[] | null)[])
     status: "ready",
     control: IDLE_CONTROL,
     model: null,
+    fast: false,
     metrics: UNKNOWN_METRICS,
     epoch: 1,
     seq: 0,

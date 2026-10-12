@@ -1,6 +1,6 @@
 import { CommandError, type ModelListView } from "@atrium/client";
 import type { ModelRef, ThinkingLevel } from "@atrium/protocol";
-import { ArrowClockwise, CaretDown, Check } from "@phosphor-icons/react";
+import { ArrowClockwise, CaretDown, Check, Lightning } from "../design/icons";
 import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { DotSeedContext, paintDots, reducedMotion, sweepProgress } from "../design/dots";
 import { useDarkMode } from "../design/use-dark-mode";
@@ -160,7 +160,7 @@ export function ModelPicker({
           setMode("all");
           onOpen();
         }}
-        className="atrium-model-chip relative isolate inline-flex h-8 items-center gap-2 overflow-hidden rounded-[var(--r-pill)] pr-3 pl-1.5 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_1px_var(--line)] transition-[background,box-shadow] duration-150 hover:bg-[var(--hover)] hover:text-[var(--text)] disabled:opacity-50 aria-expanded:bg-[var(--hover)]"
+        className="atrium-model-chip relative isolate inline-flex h-8 items-center gap-2 overflow-hidden rounded-[var(--r-pill)] pr-3 pl-1.5 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_1px_var(--line)] transition-[background,box-shadow] duration-150 enabled:cursor-pointer hover:bg-[var(--hover)] hover:text-[var(--text)] disabled:opacity-50 aria-expanded:bg-[var(--hover)]"
       >
         <canvas ref={canvas} aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 size-full" />
         {shown === null ? (
@@ -275,6 +275,7 @@ function defaultLevel(levels: readonly ThinkingLevel[]): ThinkingLevel {
  *
  * @remarks
  * See `ModelPicker`. A failed list shows pi's own words behind a fold (SPEC-0001, "模型与输入框").
+ * A model with Fast has a small bolt after its name (SPEC-0001, "Fast").
  *
  * @sideEffects Calls the handlers.
  * @param props - The model, the list and what to do.
@@ -322,6 +323,15 @@ function ModelList({
                 <span className="min-w-0 flex-1">
                   <b className="block truncate text-[length:var(--fs-meta)] font-medium text-[var(--text)]">
                     {model.name}
+                    {model.fast === null ? null : (
+                      <Lightning
+                        size={11}
+                        weight="fill"
+                        role="img"
+                        aria-label="支持 Fast"
+                        className="ml-1 inline align-[-1px] text-[var(--tint)]"
+                      />
+                    )}
                   </b>
                   <small className="mt-px block text-[length:var(--fs-xs)] text-[var(--text-dim)]">{basics}</small>
                 </span>

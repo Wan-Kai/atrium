@@ -270,7 +270,7 @@ export function describeStep(step: Step, live: boolean): StepLine {
     return { verb: live ? "思考中" : timed, object: opening(step.text), end: null };
   }
   if (step.kind === "text") return { verb: "说明", object: opening(step.text), end: null };
-  if (step.kind === "steer") return { verb: "插话已送达", object: step.text, end: null };
+  if (step.kind === "steer") return { verb: "你插话", object: step.text, end: null };
   if (step.kind === "retry") {
     const limit = step.maxAttempts === null ? "" : ` / ${step.maxAttempts}`;
     return { verb: `自动重试 · 第 ${step.attempt}${limit} 次`, object: step.error, end: null };
@@ -279,17 +279,26 @@ export function describeStep(step: Step, live: boolean): StepLine {
 }
 
 /** How a tool step ended, in words. */
-const TOOL_ENDS: Readonly<Record<Exclude<ToolStep["status"], "done">, string>> = {
-  running: "运行中",
+const TOOL_ENDS: Readonly<Record<Exclude<ToolStep["status"], "done" | "running">, string>> = {
   failed: "失败",
   unfinished: "未完成",
+};
+
+/** The verbs of the tools Atrium knows: while the call runs, and once it ended (SPEC-0001, "显示模式"). */
+const TOOL_VERBS: Readonly<Record<"bash" | "read" | "edit" | "write", readonly [string, string]>> = {
+  bash: ["正在运行", "运行了"],
+  read: ["正在读", "读了"],
+  edit: ["正在编辑", "编辑了"],
+  write: ["正在写入", "写入了"],
 };
 
 /**
  * Describes a tool step in one line.
  *
  * @remarks
- * See `describeStep`. A command that succeeded "通过"; an edit shows its line counts.
+ * See `describeStep`. The verb says "正在…" while the call runs and turns past once it ended
+ * (SPEC-0001, "过程的呈现"); a running call needs no end, its verb says so. A command that
+ * succeeded "通过"; an edit shows its line counts.
  *
  * @sideEffects none
  * @param step - The tool step.
@@ -298,18 +307,54 @@ const TOOL_ENDS: Readonly<Record<Exclude<ToolStep["status"], "done">, string>> =
 function describeTool(step: ToolStep): StepLine {
   const details = step.details;
   const done = step.status === "done";
-  const end = step.status === "done" ? null : TOOL_ENDS[step.status];
-  if (details?.tool === "bash") return { verb: "运行", object: details.command, end: done ? "通过" : end };
+  const end = step.status === "done" || step.status === "running" ? null : TOOL_ENDS[step.status];
+  const verb = details === null ? step.tool : TOOL_VERBS[details.tool][step.status === "running" ? 0 : 1];
+  if (details?.tool === "bash") return { verb, object: details.command, end: done ? "通过" : end };
   if (details?.tool === "read") {
     const range = details.offset === null ? "" : ` 第 ${details.offset} 行起`;
-    return { verb: "读取", object: `${details.path}${range}`, end };
+    return { verb, object: `${details.path}${range}`, end };
   }
   if (details?.tool === "edit") {
     const counts = details.diff === null ? null : `+${details.added} −${details.removed}`;
-    return { verb: "编辑", object: details.path, end: done ? counts : end };
+    return { verb, object: details.path, end: done ? counts : end };
   }
-  if (details?.tool === "write") return { verb: "写入", object: details.path, end };
-  return { verb: step.tool, object: compactJson(step.args), end };
+  if (details?.tool === "write") return { verb, object: details.path, end };
+  return { verb, object: compactJson(step.args), end };
+}
+
+/**
+ * Describes consecutive read-only calls as one line: "探索了代码库 · 读了 7 个文件，搜索了 2 次".
+ *
+ * @remarks
+ * "正在探索代码库" while any of them runs (SPEC-0001, "显示模式").
+ *
+ * @sideEffects none
+ * @param steps - The calls.
+ * @param live - Whether any of them is going on.
+ * @returns The line, without an end.
+ */
+export function describeExplore(steps: readonly ToolStep[], live: boolean): StepLine {
+  const reads = steps.filter((step) => step.tool === "read").length;
+  const searches = steps.length - reads;
+  const object = [reads > 0 ? `读了 ${reads} 个文件` : null, searches > 0 ? `搜索了 ${searches} 次` : null]
+    .filter((part) => part !== null)
+    .join("，");
+  return { verb: live ? "正在探索代码库" : "探索了代码库", object, end: null };
+}
+
+/**
+ * The files some read-only calls read, each once, in the order first read.
+ *
+ * @remarks
+ * For the file chips under an explore row (SPEC-0001, "显示模式").
+ *
+ * @sideEffects none
+ * @param steps - The calls.
+ * @returns The paths.
+ */
+export function exploredFiles(steps: readonly ToolStep[]): string[] {
+  const paths = steps.flatMap((step) => (step.details?.tool === "read" ? [step.details.path] : []));
+  return [...new Set(paths)];
 }
 
 /**

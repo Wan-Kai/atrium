@@ -5,8 +5,8 @@ import {
   ConnectionLostError,
   type SessionView,
 } from "@atrium/client";
-import type { DiffStat, SessionModel } from "@atrium/protocol";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type DiffStat, isChatId, type SessionModel } from "@atrium/protocol";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -16,10 +16,12 @@ import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/use-draft";
 import { historyOf } from "./composer-text";
 import { ChangesPanel } from "./changes-panel";
+import { FastToggle } from "./fast-toggle";
 import { shownModel } from "./model-choice";
 import { ModelPicker } from "./model-picker";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
+import { MessageImagesContext, messageImages } from "./message-images";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -54,6 +56,7 @@ export function describeSendError(error: unknown): string {
   if (error.code === "transcript_changed") return "对话记录刚刚更新了，请再试一次";
   if (error.code === "session_cwd_missing") return `恢复失败：会话的目录 ${String(error.params?.["cwd"] ?? "")} 不存在`;
   if (error.code === "workspace_not_found") return "这个工作区已经不在了";
+  if (error.code === "chat_not_found") return "这个对话已经不在了";
   if (error.code === "attachment_missing") return "图片已经过期，请重新添加";
   if (error.code === "attachment_limit") return "图片太多了：一次最多 20 张、共 32 MiB";
   if (error.code === "session_stopping") return "正在等 pi 停下，停下后再发";
@@ -66,7 +69,8 @@ export function describeSendError(error: unknown): string {
  * Explains why a model or thinking level could not be set, in Chinese.
  *
  * @remarks
- * As `describeSendError`, but pi refusing names what it refused.
+ * As `describeSendError`, but pi refusing names what it refused, and a pi without Atrium's Fast
+ * extension says so (SPEC-0001, "Fast").
  *
  * @sideEffects none
  * @param error - What the command rejected with.
@@ -76,31 +80,53 @@ export function describeModelError(error: unknown): string {
   if (error instanceof CommandError && error.code === "pi_rejected") {
     return `pi 没有接受这个设置：${String(error.params?.["detail"] ?? "")}`;
   }
+  if (error instanceof CommandError && error.code === "fast_unavailable") {
+    return "这个会话的 pi 没有加载 Atrium 的 Fast 扩展，开关不了 Fast";
+  }
   return describeSendError(error);
+}
+
+/**
+ * The workspace a container is, if it is one.
+ *
+ * @remarks
+ * Chats and no container at all run outside any workspace: their models come from Atrium's home,
+ * and they have no git changes (SPEC-0001, "对话").
+ *
+ * @sideEffects none
+ * @param containerId - The container, or `null`.
+ * @returns The workspace's id, or `null`.
+ */
+function workspaceOf(containerId: string | null): string | null {
+  return containerId === null || isChatId(containerId) ? null : containerId;
 }
 
 /** Runs a command, showing why it failed if it does, in the words `describe` picks. */
 type Act = (command: () => Promise<unknown>, describe?: (error: unknown) => string) => void;
 
 /**
- * The model button for the session shown, or for the one the next message creates.
+ * The model button for the session shown, or for the one the next message creates, with the Fast
+ * button left of it.
  *
  * @remarks
  * SPEC-0001 ("模型与输入框"): the container's model list, which the area asks for when it
  * shows, is asked for again when the panel opens, and the host answers from its cache; "刷新"
  * makes pi look again. Before a session exists, the button shows the model a new session
- * will start on, and choosing creates the session first, as sending does.
+ * will start on, and choosing creates the session first, as sending does. The Fast button shows
+ * only while the model shown has Fast, with the session's Fast, or before a session exists the
+ * one chosen last; pressing it creates the session first too (SPEC-0001, "Fast").
  *
  * @sideEffects Subscribes to the container's models and to the preferences; asks for the models
- * when the panel opens; sends model commands through `act`.
- * @param props - The client, the container, the session's model, whether it is disabled, the
- * session to change, and how to run a command.
- * @returns The button.
+ * when the panel opens; sends model and Fast commands through `act`.
+ * @param props - The client, the container, the session's model and Fast, whether it is disabled,
+ * the session to change, and how to run a command.
+ * @returns The buttons.
  */
 function SessionModelPicker({
   client,
   containerId,
   model,
+  fast,
   disabled,
   session,
   act,
@@ -108,29 +134,42 @@ function SessionModelPicker({
   readonly client: AtriumClient;
   readonly containerId: string | null;
   readonly model: SessionModel | null;
+  /** The session's Fast; `null` before a session exists. */
+  readonly fast: boolean | null;
   readonly disabled: boolean;
   readonly session: () => Promise<string>;
   readonly act: Act;
 }) {
-  const key = containerId ?? "chats";
+  const key = workspaceOf(containerId);
   const list = useStore(client.models(key));
   const preferences = useStore(client.index, (index) => index.preferences);
+  const shown = shownModel(model, preferences, list);
   return (
-    <ModelPicker
-      shown={shownModel(model, preferences, list)}
-      list={list}
-      disabled={disabled}
-      onOpen={() => {
-        // Fire and forget: see above.
-        void client.loadModels(key);
-      }}
-      onRefresh={() => {
-        // Fire and forget: see above.
-        void client.loadModels(key, true);
-      }}
-      onChooseModel={(ref) => act(async () => client.setModel(await session(), ref), describeModelError)}
-      onChooseLevel={(level) => act(async () => client.setThinkingLevel(await session(), level), describeModelError)}
-    />
+    <>
+      {shown === null || shown.fast === null ? null : (
+        <FastToggle
+          enabled={fast ?? preferences.lastFast}
+          fast={shown.fast}
+          disabled={disabled}
+          onToggle={(enabled) => act(async () => client.setFast(await session(), enabled), describeModelError)}
+        />
+      )}
+      <ModelPicker
+        shown={shown}
+        list={list}
+        disabled={disabled}
+        onOpen={() => {
+          // Fire and forget: see above.
+          void client.loadModels(key);
+        }}
+        onRefresh={() => {
+          // Fire and forget: see above.
+          void client.loadModels(key, true);
+        }}
+        onChooseModel={(ref) => act(async () => client.setModel(await session(), ref), describeModelError)}
+        onChooseLevel={(level) => act(async () => client.setThinkingLevel(await session(), level), describeModelError)}
+      />
+    </>
   );
 }
 
@@ -185,6 +224,8 @@ function SessionArea({
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
+  // One per session, so thumbnails do not load again on every render.
+  const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -203,18 +244,20 @@ function SessionArea({
   };
   return (
     <>
-      <Transcript
-        view={view}
-        onLoadOlder={() => {
-          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-          client.loadOlder(sessionId).catch(() => undefined);
-        }}
-        onLoadStep={(turnId, stepId) => {
-          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-        }}
-        onRetry={actions.retry}
-      />
+      <MessageImagesContext value={images}>
+        <Transcript
+          view={view}
+          onLoadOlder={() => {
+            // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+            client.loadOlder(sessionId).catch(() => undefined);
+          }}
+          onLoadStep={(turnId, stepId) => {
+            // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+            client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+          }}
+          onRetry={actions.retry}
+        />
+      </MessageImagesContext>
       <ControlCards control={view.control} actions={actions} />
       {notice}
       <Composer
@@ -247,6 +290,7 @@ function SessionArea({
             client={client}
             containerId={containerId}
             model={view.model}
+            fast={view.fast}
             disabled={view.control.stopping}
             session={session}
             act={act}
@@ -296,10 +340,10 @@ export function useDisplayModeShortcut(): void {
  * The conversation area: the active session of the current container, or its empty state.
  *
  * @remarks
- * The active session is watched while it shows. With no session open, typing into the input box
- * creates one where the client is, a chat when it is nowhere yet, and sends the message to it
- * (SPEC-0001, "标签栏"); a second message sent while it is being created waits for it instead of
- * creating another, while one sent after moving to another container starts its own there. The
+ * The active session is watched while it shows. With no session open, the first edit in the input
+ * box creates one where the client is, a chat when it is nowhere yet, and the message goes to it
+ * (SPEC-0001, "标签页"); a message or edit while it is being created waits for it instead of
+ * creating another, while one after moving to another container starts its own there. The
  * active session is opened whenever it shows, which starts a pi that is not running (as after a
  * restart) and explains here why it cannot. A session whose pi has exited, or that the host lost
  * in a restart, is opened again before the message goes. A failed send is explained above the input box, and the
@@ -335,7 +379,7 @@ export function ConversationArea({
     // Fire and forget: a failed list shows in the model panel. Asked for as the container shows,
     // as Paseo prefetches it, so the panel opens on a ready list (SPEC-0001, "模型与输入框"); and
     // again on every connection, as a request without one fails at once.
-    if (connection !== null) void client.loadModels(containerId ?? "chats");
+    if (connection !== null) void client.loadModels(workspaceOf(containerId));
   }, [client, containerId, connection]);
   /**
    * The session just created from the empty state of a container, which took over its words. Until
@@ -358,9 +402,10 @@ export function ConversationArea({
     handingNow.current = next;
     setHanding(next);
   };
-  const containerKey = containerId ?? "chats";
-  /** The workspace shown, whose git changes the capsule and panel show; `null` for the chats. */
-  const workspaceId = containerId === null || containerId === "chats" ? null : containerId;
+  // Where a new session's words wait: its container, or nowhere before a chat exists.
+  const containerKey = containerId ?? "nowhere";
+  /** The workspace shown, whose git changes the capsule and panel show; `null` for a chat. */
+  const workspaceId = workspaceOf(containerId);
   const changes = useStore(workspaceId === null ? NO_CHANGES : client.changes(workspaceId));
   useEffect(() => {
     // Fire and forget: a lost connection asks again when it is back (SPEC-0001, "工作区改动").
@@ -470,8 +515,8 @@ export function ConversationArea({
         .then(async (id) => {
           // What was typed before the session existed goes on in its box, as when `/` or `@`
           // created it (SPEC-0001, "模型与输入框").
-          pageDrafts().handOver(`new:${containerId ?? "chats"}`, id);
-          handTo({ container: containerId ?? "chats", sessionId: id });
+          pageDrafts().handOver(`new:${containerKey}`, id);
+          handTo({ container: containerKey, sessionId: id });
           await client.watch([id]);
           return id;
         })
@@ -509,6 +554,7 @@ export function ConversationArea({
     try {
       id = await target();
       const to = id;
+      const previews = images.map(({ image }) => image.preview);
       /**
        * Sends the message with these uploads.
        *
@@ -519,7 +565,8 @@ export function ConversationArea({
        * @param ids - The uploads.
        * @returns The command's result.
        */
-      const deliver = (ids: readonly string[]) => (steer ? client.steer(to, text, ids) : client.prompt(to, text, ids));
+      const deliver = (ids: readonly string[]) =>
+        steer ? client.steer(to, text, ids, previews) : client.prompt(to, text, ids, previews);
       try {
         await deliver(images.map((image) => image.attachmentId));
       } catch (error) {
@@ -580,6 +627,20 @@ export function ConversationArea({
     void send(text, images);
   };
   /**
+   * Creates the empty state's session as soon as the user edits its box.
+   *
+   * @remarks
+   * SPEC-0001 ("标签页"): pi starts while the user goes on typing, so the first message does not
+   * wait for it; what was typed moves into the new session's box (`target`). Later edits meet
+   * the same creation. One that fails shows here, and the next edit or the send tries again.
+   *
+   * @sideEffects May create a session and watch it; updates component state.
+   */
+  const onEmptyEdit = (): void => {
+    // Fire and forget: a failure shows here.
+    target().catch((error: unknown) => setFailure(describeSendError(error)));
+  };
+  /**
    * Starts a steer without waiting for it.
    *
    * @remarks
@@ -594,7 +655,7 @@ export function ConversationArea({
     void send(text, images, true);
   };
 
-  const modelList = useStore(client.models(containerKey));
+  const modelList = useStore(client.models(workspaceId));
   const preferences = useStore(client.index, (index) => index.preferences);
   const baseDir = useStore(
     client.index,
@@ -652,12 +713,14 @@ export function ConversationArea({
           <>
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
               <p className="text-[20px] font-medium text-[var(--text)]">
-                {containerId === null ? "开始一段对话" : containerId === "chats" ? "新对话" : "新会话"}
+                {containerId === null ? "开始一段对话" : "新会话"}
               </p>
               <p className="text-[length:var(--fs-meta)]">
-                {containerId === "chats" || containerId === null
+                {containerId === null
                   ? "不绑定项目和工作区，直接输入就开始"
-                  : "在这个工作区里开始，直接输入就会新建会话"}
+                  : isChatId(containerId)
+                    ? "在这个对话里开始，直接输入就会新建会话"
+                    : "在这个工作区里开始，直接输入就会新建会话"}
               </p>
             </div>
             {notice}
@@ -668,18 +731,22 @@ export function ConversationArea({
               onListCommands={async () => (await client.listCommands(await target())).commands}
               onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
               onSend={onSend}
+              onEdit={onEmptyEdit}
               above={capsule === undefined ? undefined : <ChangesTrack changes={capsule} />}
               picker={
                 <SessionModelPicker
                   client={client}
                   containerId={containerId}
                   model={null}
+                  fast={null}
                   disabled={false}
                   session={target}
                   act={act}
                 />
               }
             />
+            {/* Where a session's status bar goes, so the box stays put once the session starts. */}
+            <div aria-hidden="true" className="h-9 shrink-0" />
           </>
         ) : handedOff !== null ? (
           <>
@@ -711,5 +778,5 @@ export function ConversationArea({
   );
 }
 
-/** The changes of no workspace, for the chats. */
+/** The changes of no workspace, for chats. */
 const NO_CHANGES = createStore<ChangesView>(() => null);

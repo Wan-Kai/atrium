@@ -1,30 +1,42 @@
 import { type AtriumClient, CommandError, type IndexView } from "@atrium/client";
-import type { Appearance, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
+import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
-  Check,
+  ArrowUp,
   DotsThree,
   Folder,
   FolderOpen,
   FolderPlus,
+  GitMerge,
   MagnifyingGlass,
   Monitor,
   Moon,
   GearSix,
   PlusCircle,
   Sun,
-} from "@phosphor-icons/react";
+} from "../design/icons";
 import { type ReactNode, useState } from "react";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { UpdateDot } from "../settings/settings-panel";
 import { piUpdateAvailable } from "../setup/pi-version";
 import { useClock } from "../state/clock";
-import { isDone, isPending, mergeLabels, placeOf, sessionTitle, sortWorkspaces, timeAgo, workspaceName } from "./names";
+import { ArchiveDialog, ArchivedWorkspaces, describeRestoreError } from "./archive";
+import {
+  chatName,
+  isDone,
+  isPending,
+  mergeLabels,
+  placeOf,
+  sessionTitle,
+  sortWorkspaces,
+  timeAgo,
+  workspaceName,
+} from "./names";
 import { RenameField } from "./rename-field";
 import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
 import { StatusIcon } from "./status-icon";
 
-/** How many chats the sidebar lists; the rest are in the chats' history (SPEC-0001, "对话"). */
+/** How many chats the sidebar lists before "显示全部 N 个" (SPEC-0001, "对话"). */
 const RECENT_CHATS = 5;
 
 /** The appearances in the order the switch goes through them, with their names and icons. */
@@ -54,7 +66,7 @@ const ICON_BUTTON =
   "inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]";
 
 /**
- * Explains why adding a project failed, in Chinese.
+ * Explains why a sidebar command failed, in Chinese: adding a project, renaming a chat.
  *
  * @remarks
  * The host sends codes (AGENTS.md); the wording lives here.
@@ -71,7 +83,9 @@ export function describeProjectError(error: unknown, projects: readonly Project[
     return name === undefined ? "这个目录已经在项目里了" : `这个目录已经在项目「${name}」里了`;
   }
   if (error.code === "path_not_found") return "这个目录不存在";
+  if (error.code === "chat_not_found") return "这个对话已经不在了";
   if (error.code === "name_taken") return `已经有一个叫「${String(error.params?.["name"] ?? "")}」的项目了`;
+  if (error.code === "worktree_restore_failed") return describeRestoreError(error);
   return "宿主出错了，没有完成";
 }
 
@@ -101,8 +115,8 @@ function readCollapsed(): ReadonlySet<string> {
  * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.9. Projects can be collapsed; a collapsed
  * project shows how many worktrees wait to be merged and whether something runs in it. Workspaces
  * show their merge state and whether a session runs in them, and are selected by clicking.
- * Search matches workspace names and session titles, replacing the projects and chats with its
- * results while it has text. Renaming happens in place. "设置" carries a blue dot while a newer pi
+ * Chats are listed like workspaces, by their latest activity. Search matches workspace names, chat
+ * names and session titles, replacing the projects and chats with its results while it has text. Renaming happens in place. "设置" carries a blue dot while a newer pi
  * is out (SPEC-0001, "设置 · pi").
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
@@ -163,8 +177,6 @@ export function Sidebar({
     void command().catch((error: unknown) => setProblem(describeProjectError(error, client.index.getState().projects)));
   };
 
-  const live = index.sessions.filter((session) => !session.archived);
-  const chats = live.filter((session) => session.containerId === "chats").toSorted((a, b) => b.updatedAt - a.updatedAt);
   const appearance = APPEARANCES.find((entry) => entry.appearance === index.preferences.appearance) ?? APPEARANCES[0];
 
   return (
@@ -189,7 +201,7 @@ export function Sidebar({
           <button
             type="button"
             className={ICON_BUTTON}
-            aria-label="搜索工作区和会话"
+            aria-label="搜索工作区、对话和会话"
             aria-pressed={searching}
             onClick={() => {
               setSearching(!searching);
@@ -226,8 +238,8 @@ export function Sidebar({
               className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
             />
             <input
-              aria-label="搜索工作区和会话"
-              placeholder="搜索工作区和会话"
+              aria-label="搜索工作区、对话和会话"
+              placeholder="搜索工作区、对话和会话"
               // A search box opened on purpose takes the keyboard at once.
               // oxlint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
@@ -258,6 +270,7 @@ export function Sidebar({
                 renaming={renaming}
                 setRenaming={setRenaming}
                 run={run}
+                now={now}
               />
             ))}
             {index.ready && index.projects.length === 0 ? (
@@ -265,35 +278,7 @@ export function Sidebar({
                 还没有项目，点上面的文件夹按钮添加
               </p>
             ) : null}
-            <div className="mt-1.5 flex h-[34px] items-center pl-2 text-[var(--text-muted)]">对话</div>
-            {chats.slice(0, RECENT_CHATS).map((session) => (
-              <div
-                key={session.sessionId}
-                role="button"
-                tabIndex={0}
-                aria-current={index.layout.container === "chats" && activeOf(index) === session.sessionId}
-                onClick={() => run(() => client.openSession(session.sessionId))}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") run(() => client.openSession(session.sessionId));
-                }}
-                className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
-              >
-                <span className="min-w-0 flex-1 truncate">{sessionTitle(session)}</span>
-                <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-                  {timeAgo(session.updatedAt, now)}
-                </span>
-                <StatusIcon status={sessionStatus(session)} />
-              </div>
-            ))}
-            {chats.length > RECENT_CHATS ? (
-              <button
-                type="button"
-                onClick={() => run(() => client.selectContainer("chats"))}
-                className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-              >
-                全部 {chats.length} 个对话
-              </button>
-            ) : null}
+            <ChatRows client={client} index={index} now={now} renaming={renaming} setRenaming={setRenaming} run={run} />
           </>
         )}
       </div>
@@ -331,7 +316,7 @@ export function Sidebar({
  * The session a client has open in its current container.
  *
  * @remarks
- * Lit in the chats list.
+ * Lit in the inbox.
  *
  * @sideEffects none
  * @param index - The list.
@@ -342,15 +327,176 @@ function activeOf(index: IndexView): string | null {
   return container === null ? null : (index.layout.tabs[container]?.active ?? null);
 }
 
+/** A chat as the sidebar lists it: with its sessions not archived, its latest activity and status. */
+interface ListedChat {
+  readonly chat: Chat;
+  readonly sessions: readonly SessionSummary[];
+  readonly at: number;
+  readonly status: RowStatus;
+}
+
+/**
+ * The chats the sidebar lists, latest activity first.
+ *
+ * @remarks
+ * A chat whose sessions are all archived is left out; its activity is its sessions' latest, its
+ * status their highest (SPEC-0001, "对话").
+ *
+ * @sideEffects none
+ * @param index - The list.
+ * @returns The chats.
+ */
+function listedChats(index: Pick<IndexView, "chats" | "sessions">): ListedChat[] {
+  return index.chats
+    .map((chat) => {
+      const sessions = index.sessions.filter((session) => session.containerId === chat.id && !session.archived);
+      return {
+        chat,
+        sessions,
+        at: Math.max(...sessions.map((session) => session.updatedAt)),
+        status: topStatus(sessions.map(sessionStatus)),
+      };
+    })
+    .filter((listed) => listed.sessions.length > 0)
+    .toSorted((a, b) => b.at - a.at);
+}
+
+/**
+ * Selects a chat, opening its latest session when it has no tab open.
+ *
+ * @remarks
+ * A chat seldom wants an empty state: clicking it should show something (SPEC-0001, "对话").
+ *
+ * @sideEffects Sends `select_container` or `open_session`.
+ * @param client - The client.
+ * @param listed - The chat.
+ * @returns When the host answered.
+ */
+async function selectChat(client: AtriumClient, listed: ListedChat): Promise<unknown> {
+  const tabs = client.index.getState().layout.tabs[listed.chat.id];
+  const latest = listed.sessions.toSorted((a, b) => b.updatedAt - a.updatedAt)[0];
+  if ((tabs === undefined || tabs.open.length === 0) && latest !== undefined) {
+    return client.openSession(latest.sessionId);
+  }
+  return client.selectContainer(listed.chat.id);
+}
+
+/**
+ * The "对话" heading and the chats' rows: the latest five, then "显示全部 N 个".
+ *
+ * @remarks
+ * Each chat is a container like a workspace (ADR-0007): its row shows its name, latest activity
+ * and status, is lit while selected, and its "···" menu renames it. The rest of the chats open in
+ * place, and "收起" closes them again (SPEC-0001, "对话").
+ *
+ * @sideEffects Sends commands when used.
+ * @param props - The client, the list, the time now, and the sidebar's renaming and command
+ * helpers.
+ * @returns The rows, or nothing without chats.
+ */
+function ChatRows({
+  client,
+  index,
+  now,
+  renaming,
+  setRenaming,
+  run,
+}: {
+  readonly client: AtriumClient;
+  readonly index: IndexView;
+  readonly now: number;
+  readonly renaming: string | null;
+  readonly setRenaming: (id: string | null) => void;
+  readonly run: (command: () => Promise<unknown>) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const chats = listedChats(index);
+  if (chats.length === 0) return null;
+  const shown = expanded ? chats : chats.slice(0, RECENT_CHATS);
+  return (
+    <section aria-label="对话">
+      <div className="mt-1.5 flex h-[34px] items-center pl-2 text-[var(--text-muted)]">对话</div>
+      {shown.map((listed) => {
+        const { chat } = listed;
+        const name = chatName(chat, index.sessions);
+        return (
+          <div
+            key={chat.id}
+            role="button"
+            tabIndex={0}
+            aria-current={index.layout.container === chat.id}
+            onClick={() => run(() => selectChat(client, listed))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") run(() => selectChat(client, listed));
+            }}
+            className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
+            data-testid="chat-row"
+          >
+            {renaming === chat.id ? (
+              <RenameField
+                initial={name}
+                label="对话名称"
+                onDone={(alias) => {
+                  setRenaming(null);
+                  if (alias !== undefined && alias !== chat.alias) run(() => client.renameChat(chat.id, alias));
+                }}
+              />
+            ) : (
+              <span className="min-w-0 flex-1 truncate">{name}</span>
+            )}
+            <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)] group-hover:hidden">
+              {timeAgo(listed.at, now)}
+            </span>
+            <StatusIcon status={listed.status} />
+            <span
+              className="hidden group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
+              // The menu belongs to the row but must not select it.
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
+                {(close) => (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={MENU_ITEM}
+                    onClick={() => {
+                      close();
+                      setRenaming(chat.id);
+                    }}
+                  >
+                    重命名
+                  </button>
+                )}
+              </MenuButton>
+            </span>
+          </div>
+        );
+      })}
+      {chats.length > RECENT_CHATS ? (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+        >
+          {expanded ? "收起" : `显示全部 ${chats.length} 个`}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 /**
  * A project's row and, while open, its workspaces' rows.
  *
  * @remarks
- * See `Sidebar`. A collapsed project holding the current workspace is shown selected.
+ * See `Sidebar`. A collapsed project holding the current workspace is shown selected. Archived
+ * workspaces are left out, listed only in the project's menu; archiving one asks first
+ * (SPEC-0001, "M1.11 的工作区归档").
  *
  * @sideEffects Sends commands when used.
- * @param props - The client, the list, the project, whether it is open, and the sidebar's
- * renaming and command helpers.
+ * @param props - The client, the list, the project, whether it is open, the sidebar's renaming
+ * and command helpers, and the time now.
  * @returns The rows.
  */
 function ProjectRows({
@@ -362,6 +508,7 @@ function ProjectRows({
   renaming,
   setRenaming,
   run,
+  now,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
@@ -371,8 +518,12 @@ function ProjectRows({
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
+  readonly now: number;
 }) {
-  const workspaces = sortWorkspaces(index.workspaces.filter((workspace) => workspace.projectId === project.id));
+  const [archiving, setArchiving] = useState<Workspace | null>(null);
+  const own = index.workspaces.filter((workspace) => workspace.projectId === project.id);
+  const workspaces = sortWorkspaces(own.filter((workspace) => workspace.archivedAt === null));
+  const archived = own.filter((workspace) => workspace.archivedAt !== null);
   /**
    * A workspace's status.
    *
@@ -455,6 +606,9 @@ function ProjectRows({
                 >
                   从侧栏移除
                 </button>
+                {archived.length > 0 ? (
+                  <ArchivedWorkspaces client={client} workspaces={archived} now={now} run={run} close={close} />
+                ) : null}
               </>
             )}
           </MenuButton>
@@ -471,9 +625,22 @@ function ProjectRows({
               renaming={renaming === workspace.id}
               setRenaming={setRenaming}
               run={run}
+              onArchive={() => setArchiving(workspace)}
             />
           ))
         : null}
+      {archiving === null ? null : (
+        <ArchiveDialog
+          client={client}
+          workspace={archiving}
+          running={
+            index.sessions.filter(
+              (session) => session.containerId === archiving.id && !session.archived && session.running,
+            ).length
+          }
+          onClose={() => setArchiving(null)}
+        />
+      )}
     </div>
   );
 }
@@ -500,11 +667,12 @@ function workspaceHint(workspace: Workspace): string {
  * One workspace's row: its name, merge state and whether something runs in it.
  *
  * @remarks
- * See `Sidebar`; merge labels follow design-language ("标签").
+ * See `Sidebar`; merge labels follow design-language ("标签"). A worktree's menu can archive it,
+ * except while it has changes not committed (SPEC-0001, "M1.11 的工作区归档").
  *
  * @sideEffects Sends commands when used.
  * @param props - The client, the workspace, whether it is selected, runs or is being renamed,
- * and the sidebar's helpers.
+ * the sidebar's helpers, and how to ask to archive it.
  * @returns The row.
  */
 function WorkspaceRow({
@@ -515,6 +683,7 @@ function WorkspaceRow({
   renaming,
   setRenaming,
   run,
+  onArchive,
 }: {
   readonly client: AtriumClient;
   readonly workspace: Workspace;
@@ -523,6 +692,7 @@ function WorkspaceRow({
   readonly renaming: boolean;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
+  readonly onArchive: () => void;
 }) {
   const name = workspaceName(workspace);
   return (
@@ -563,17 +733,34 @@ function WorkspaceRow({
       >
         <MenuButton label={`工作区 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
           {(close) => (
-            <button
-              type="button"
-              role="menuitem"
-              className={MENU_ITEM}
-              onClick={() => {
-                close();
-                setRenaming(workspace.id);
-              }}
-            >
-              重命名
-            </button>
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className={MENU_ITEM}
+                onClick={() => {
+                  close();
+                  setRenaming(workspace.id);
+                }}
+              >
+                重命名
+              </button>
+              {workspace.kind === "worktree" ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+                  disabled={workspace.merge?.dirty === true}
+                  title={workspace.merge?.dirty === true ? "有未提交的改动，先提交或丢弃" : undefined}
+                  onClick={() => {
+                    close();
+                    onArchive();
+                  }}
+                >
+                  归档…
+                </button>
+              ) : null}
+            </>
           )}
         </MenuButton>
       </span>
@@ -585,7 +772,7 @@ function WorkspaceRow({
  * A workspace's merge labels, as plain text.
  *
  * @remarks
- * "• 未提交", orange bold "↑N", green "✓ 已合并", dim "已移除", dimmer "状态未知" with the reason on
+ * "• 未提交", orange bold "↑N" (an arrow icon, not the ↑ character), green "已合并" after a merge icon, dim "已移除", dimmer "状态未知" with the reason on
  * hover (design-language, "标签").
  *
  * @sideEffects none
@@ -610,9 +797,10 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
         <span
           key="ahead"
           title={`未合并：比主干多 ${label.count} 个提交`}
-          className="text-[length:var(--fs-sm)] font-semibold text-[var(--attn-text)] tabular-nums"
+          className="flex items-center gap-px text-[length:var(--fs-sm)] font-semibold text-[var(--attn-text)] tabular-nums"
         >
-          ↑{label.count}
+          <ArrowUp size={12} weight="bold" aria-hidden="true" />
+          {label.count}
         </span>
       );
     }
@@ -623,7 +811,7 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
           title="改动已全部进入主干（含 squash / rebase 合并）"
           className="flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--ok-text)]"
         >
-          <Check size={10} weight="bold" />
+          <GitMerge size={12} weight="bold" aria-hidden="true" />
           已合并
         </span>
       );
@@ -648,11 +836,12 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
 }
 
 /**
- * Search results: matching workspaces, then matching sessions.
+ * Search results: matching workspaces, then chats, then sessions.
  *
  * @remarks
- * Workspace names and session titles, ignoring case (SPEC-0001, "搜索"); archived sessions are
- * left out. Sessions show where they live on a second line.
+ * Workspace names, chat names and session titles, ignoring case (SPEC-0001, "搜索"); archived
+ * workspaces and sessions, and chats with nothing else, are left out. Sessions show where they live on a second
+ * line.
  *
  * @sideEffects Sends commands when used.
  * @param props - The client, the list, the query and the time now.
@@ -670,7 +859,12 @@ function SearchResults({
   readonly now: number;
 }) {
   const needle = query.toLowerCase();
-  const workspaces = index.workspaces.filter((workspace) => workspaceName(workspace).toLowerCase().includes(needle));
+  const workspaces = index.workspaces.filter(
+    (workspace) => workspace.archivedAt === null && workspaceName(workspace).toLowerCase().includes(needle),
+  );
+  const chats = listedChats(index).filter((listed) =>
+    chatName(listed.chat, index.sessions).toLowerCase().includes(needle),
+  );
   const sessions = index.sessions
     .filter((session) => !session.archived && sessionTitle(session).toLowerCase().includes(needle))
     .toSorted((a, b) => b.updatedAt - a.updatedAt);
@@ -687,8 +881,10 @@ function SearchResults({
     // Fire and forget: opening shows the session or its failure there.
     void client.openSession(session.sessionId).catch(() => undefined);
   };
-  if (workspaces.length === 0 && sessions.length === 0) {
-    return <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">没有匹配的工作区或会话</p>;
+  if (workspaces.length === 0 && chats.length === 0 && sessions.length === 0) {
+    return (
+      <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">没有匹配的工作区、对话或会话</p>
+    );
   }
   return (
     <div role="region" aria-label="搜索结果">
@@ -712,6 +908,23 @@ function SearchResults({
             </span>
           </span>
           <MergeLabels workspace={workspace} />
+        </button>
+      ))}
+      {chats.length > 0 ? (
+        <div className="px-2 pt-2 pb-0.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">对话</div>
+      ) : null}
+      {chats.map((listed) => (
+        <button
+          key={listed.chat.id}
+          type="button"
+          onClick={() => {
+            // Fire and forget: the list shows where the client is.
+            void selectChat(client, listed).catch(() => undefined);
+          }}
+          className={`${ROW} w-full text-left`}
+        >
+          <span className="min-w-0 flex-1 truncate">{chatName(listed.chat, index.sessions)}</span>
+          <span className="shrink-0 text-[length:var(--fs-sm)] text-[var(--text-dim)]">{timeAgo(listed.at, now)}</span>
         </button>
       ))}
       {sessions.length > 0 ? (
@@ -782,7 +995,7 @@ function SessionLine({
 }
 
 /**
- * The inbox: the sessions waiting for the user, across every project and the chats.
+ * The inbox: the sessions waiting for the user, across every project and chat.
  *
  * @remarks
  * SPEC-0001 ("收件箱"): left out when empty; five at most until "还有 N 条" opens the rest, which
