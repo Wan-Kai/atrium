@@ -75,7 +75,7 @@ export function RunStatus({ startedAt }: { readonly startedAt: number | null }) 
   useEffect(() => clock.every(1000, () => setNow(clock.now())), [clock]);
   return (
     <p
-      className="relative flex min-h-[30px] items-center pl-9 text-[length:var(--fs-meta)] tabular-nums"
+      className="relative flex min-h-[30px] items-center pl-[30px] text-[length:var(--fs-meta)] tabular-nums"
       data-testid="run-status"
     >
       <RunCat />

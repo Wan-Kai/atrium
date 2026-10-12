@@ -55,6 +55,28 @@ body {
   color: var(--text);
 }
 
+/* A bullet is a small dot close before its text, which wrapped lines line up under; the browser's
+   own leaves too wide a gap and cannot be moved (design-language, "消息流"). A task's checkbox is
+   its mark, and numbers stay as they are. */
+.atrium-markdown ul > li:not(:has(> input[type="checkbox"])) {
+  position: relative;
+  padding-left: 1.25em;
+  list-style: none;
+}
+
+.atrium-markdown ul > li:not(:has(> input[type="checkbox"]))::before {
+  content: "";
+  position: absolute;
+  /* The middle of the first line: the item's top padding, then half a line. */
+  top: calc(0.25rem + 0.84em);
+  left: 0.45em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  transform: translate(-50%, -50%);
+}
+
 /* Counters and timers never jump (design-language, "字体"). */
 .tabular-nums {
   font-variant-numeric: tabular-nums;

@@ -80,6 +80,49 @@ function railNodes(container: HTMLElement): string[] {
   );
 }
 
+/**
+ * How far an element's first character starts from a left edge, to the half pixel.
+ *
+ * @remarks
+ * For the rail's text column, which starts where the text does, not where its box does.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @param left - The edge, in viewport pixels.
+ * @returns The distance.
+ * @throws {Error} When the element has no text.
+ */
+function textStart(element: Element, left: number): number {
+  const first = document
+    .createTreeWalker(element, NodeFilter.SHOW_TEXT, (node) =>
+      node.textContent?.trim() === "" ? NodeFilter.FILTER_SKIP : NodeFilter.FILTER_ACCEPT,
+    )
+    .nextNode();
+  if (first === null) throw new Error("no text");
+  const range = document.createRange();
+  range.setStart(first, 0);
+  range.setEnd(first, 1);
+  return Math.round((range.getBoundingClientRect().left - left) * 2) / 2;
+}
+
+/**
+ * How far a rail row's node sits from the row's left edge, to its centre.
+ *
+ * @remarks
+ * Branch nodes sit off the main line; the column the text starts in follows from where they are.
+ *
+ * @sideEffects none
+ * @param row - The row.
+ * @returns The distance.
+ * @throws {Error} When the row has no node.
+ */
+function nodeCenter(row: Element): number {
+  const node = row.querySelector('[data-testid="rail-node"]');
+  if (node === null) throw new Error("no node");
+  const box = node.getBoundingClientRect();
+  return box.left + box.width / 2 - row.getBoundingClientRect().left;
+}
+
 /** Where an element's first animation takes its height, from first frame to last. */
 function heightFrames(element: Element): unknown[] {
   const effect = element.getAnimations()[0]?.effect as KeyframeEffect | undefined;
@@ -317,6 +360,26 @@ describe("TurnView", () => {
     await expect.element(screen.getByRole("button", { name: /^编辑了 TS a\.ts \+1 −1$/ })).toBeVisible();
     expect(screen.getByTestId("file-chip").element().getAttribute("title")).toBe("src/a.ts");
     await expect.element(screen.getByRole("button", { name: /^你插话 · 顺便加个测试$/ })).toBeVisible();
+  });
+
+  it("lines the header's and rows' text up 30px in, the main line's nodes at 10.5px and the branches' at 19.5px", async () => {
+    const { screen } = await show(
+      turn([thinking, command, edit, steer, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
+      "detailed",
+    );
+    const header = screen.getByTestId("process-header").element();
+    const title = screen.getByText(/^已完成/).element();
+    const rows = [...screen.container.querySelectorAll('[data-testid="step"], [data-testid="process-finish"]')];
+
+    expect({
+      header: textStart(title, header.getBoundingClientRect().left),
+      rows: rows.map((row) => textStart(row, row.getBoundingClientRect().left)),
+      nodes: rows.map(nodeCenter),
+    }).toStrictEqual({
+      header: 30,
+      rows: [30, 30, 30, 30, 30],
+      nodes: [10.5, 19.5, 10.5, 19.5, 10.5],
+    });
   });
 
   it("ends a stopped turn's rail in 已停止 and a failed one's in 出错了", async () => {

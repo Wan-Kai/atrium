@@ -21,6 +21,41 @@ describe("Markdown", () => {
     expect(root.querySelector("del")?.textContent).toBe("删掉");
   });
 
+  it("hangs a small dot close before a bullet's text, wraps under the text, and leaves numbered and task lists be", async () => {
+    const screen = await render(
+      <div style={{ width: 240 }}>
+        <Markdown
+          text={"- 很长的一项，很长的一项，很长的一项，很长的一项，很长的一项\n\n1. 第一\n\n- [ ] 待办"}
+          streaming={false}
+        />
+      </div>,
+    );
+    const items = screen.getByRole("listitem");
+    const bullet = items.nth(0).element();
+    const numbered = items.nth(1).element();
+    const task = items.nth(2).element();
+    const words = document.createRange();
+    words.selectNodeContents(bullet);
+    const left = bullet.getBoundingClientRect().left;
+    const dot = getComputedStyle(bullet, "::before");
+
+    expect({
+      lines: [...new Set([...words.getClientRects()].map((line) => line.left - left))],
+      wrapped: words.getClientRects().length > 1,
+      marker: getComputedStyle(bullet).listStyleType,
+      dot: [dot.content, dot.left, dot.width, dot.height, dot.borderRadius],
+      numbered: [getComputedStyle(numbered).listStyleType, getComputedStyle(numbered, "::before").content],
+      task: getComputedStyle(task, "::before").content,
+    }).toStrictEqual({
+      lines: [18.125],
+      wrapped: true,
+      marker: "none",
+      dot: ['""', "6.525px", "5px", "5px", "50%"],
+      numbered: ["decimal", "none"],
+      task: "none",
+    });
+  });
+
   it("makes bold work right next to Chinese punctuation", async () => {
     const root = await rendered("**注意：**后面的文字");
 

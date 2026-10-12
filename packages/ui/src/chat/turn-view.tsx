@@ -109,7 +109,7 @@ function ProcessHeader({
       {running ? (
         <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
       ) : (
-        <span className="flex min-w-0 items-center gap-1.5 pl-9">
+        <span className="flex min-w-0 items-center gap-1.5 pl-[30px]">
           <CaretDown
             size={13}
             className={`atrium-fold-chevron absolute top-[15px] left-[10.5px] -translate-x-1/2 -translate-y-1/2 group-hover:text-[var(--text-2)] ${
@@ -162,7 +162,7 @@ function FinishRow({ turn, enter }: { readonly turn: Turn; readonly enter: boole
   const parts = finishParts(turn);
   return (
     <div
-      className={`relative min-w-0 pl-9 ${enter ? "atrium-step-enter" : ""}`}
+      className={`relative min-w-0 pl-[30px] ${enter ? "atrium-step-enter" : ""}`}
       data-testid="process-finish"
       data-rail-row
     >

@@ -95,7 +95,7 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
  *
  * @sideEffects none
  * @param props - The node, and whether the row is the rail's first or last.
- * @returns The marks, absolutely placed in the row's left 36px.
+ * @returns The marks, absolutely placed in the row's left 30px.
  */
 export function RailMarks({
   node,
@@ -120,11 +120,11 @@ export function RailMarks({
             style={{ top: first ? 15 : 0, ...(last ? { height: 15 } : { bottom: 0 }) }}
           />
         )}
-        <svg aria-hidden className="atrium-seg-up absolute top-0 left-0 h-[30px] w-9 overflow-visible">
+        <svg aria-hidden className="atrium-seg-up absolute top-0 left-0 h-[30px] w-[30px] overflow-visible">
           {node === "dead" ? (
             first ? null : (
               <path
-                d="M10.5 -2 C10.5 6, 24.5 3, 24.5 10"
+                d="M10.5 -2 C10.5 6, 19.5 3, 19.5 10"
                 fill="none"
                 stroke="var(--branch)"
                 strokeDasharray="2 3"
@@ -139,10 +139,10 @@ export function RailMarks({
                   <stop offset="1" stopColor="var(--tint)" stopOpacity="0.55" />
                 </linearGradient>
               </defs>
-              <path d="M24.5 -2 L24.5 10" fill="none" stroke={`url(#${fadeId})`} />
+              <path d="M19.5 -2 L19.5 10" fill="none" stroke={`url(#${fadeId})`} />
               {last ? null : (
                 <path
-                  d="M24.5 20 C24.5 27, 10.5 25, 10.5 32"
+                  d="M19.5 20 C19.5 27, 10.5 25, 10.5 32"
                   fill="none"
                   stroke="var(--branch)"
                   strokeLinecap="round"
@@ -177,7 +177,7 @@ export function RailMarks({
         data-testid="rail-node"
         data-node={node}
         className="atrium-node absolute top-[15px] grid -translate-x-1/2 -translate-y-1/2 place-items-center"
-        style={{ left: branch ? 24.5 : 10.5 }}
+        style={{ left: branch ? 19.5 : 10.5 }}
       >
         <NodeGlyph node={node} />
       </span>
@@ -623,7 +623,7 @@ function StepRow({
   }
   return (
     <div
-      className={`relative min-w-0 pl-9 ${place.enter ? "atrium-step-enter" : ""}`}
+      className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
       data-testid="step"
       data-kind={step.kind}
       data-open={open}
@@ -670,7 +670,7 @@ function ExploreRow({
   const files = exploredFiles(steps);
   return (
     <div
-      className={`relative min-w-0 pl-9 ${place.enter ? "atrium-step-enter" : ""}`}
+      className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
       data-testid="step"
       data-kind="explore"
       data-open={open}
