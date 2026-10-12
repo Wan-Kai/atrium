@@ -799,7 +799,7 @@ describe("ConversationArea's Fast button", () => {
     expect(modelCalls.filter((call) => call.startsWith("setFast"))).toStrictEqual(["setFast s1 on", "setFast s1 off"]);
   });
 
-  it("draws the bolt alone, with no circle, background or outline, off, hovered or on", async () => {
+  it("draws the bolt alone, with no circle, background or outline, off, hovered or on, under a pointing hand", async () => {
     const { client } = fakeClient({}, { models: LIST });
     const screen = await render(
       tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
@@ -816,6 +816,7 @@ describe("ConversationArea's Fast button", () => {
 
     const none = { background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" };
     expect([off, hovered, frameOf(fast.element())]).toStrictEqual([none, none, none]);
+    expect(getComputedStyle(fast.element()).cursor).toBe("pointer");
   });
 
   it.each([
@@ -870,7 +871,7 @@ describe("ConversationArea's Fast button", () => {
     expect(calls).toContain("createSession cht_a");
   });
 
-  it("cannot switch Fast while a stop waits for pi", async () => {
+  it("cannot switch Fast while a stop waits for pi, and shows no pointing hand then", async () => {
     const { client } = fakeClient({}, { models: LIST });
     const screen = await render(
       tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
@@ -882,7 +883,9 @@ describe("ConversationArea's Fast button", () => {
       control: { ...IDLE_CONTROL, stopping: true },
     });
 
-    await expect.element(screen.getByRole("button", { name: "Fast", exact: true })).toBeDisabled();
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toBeDisabled();
+    expect(getComputedStyle(fast.element()).cursor).toBe("default");
   });
 
   it("explains a session whose pi has no Fast", async () => {
