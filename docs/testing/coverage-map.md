@@ -96,7 +96,7 @@
 | 回复渲染：GFM（表格、嵌套与任务列表、删除线）、无序列表的圆点自己画（5px、靠近文字，折行和文字对齐，有序列表不变，任务列表只有勾选框）、中文标点旁的加粗、`$$…$$` 与 `\(…\)` 公式而不认单个 `$`、Shiki 高亮与 diff、Mermaid、链接交给系统浏览器且不弹确认、`https` 图片直接显示而 `http` 图片变成链接、原始 HTML 按文字显示且不执行 | `packages/ui/src/chat/markdown.browser.test.tsx`、`markdown-transforms.test.ts` | 已覆盖 |
 | 覆盖"回复渲染"全部范围的样例按真实节奏分片流式渲染，每一步都不出错，结束后与一次性渲染逐字节一致 | `packages/ui/src/chat/streaming.browser.test.tsx`（样例 `reply-showcase.md`） | 已覆盖 |
 | 平滑揭示：只放慢增长部分；每帧按积压量揭示、约 150 毫秒的时间常数；长时间停顿也只算 250 毫秒；不切断字形，未到齐的字符等到齐；结束时一次显示完 | `packages/ui/src/chat/text-reveal.test.ts`；基准 `text-reveal.bench.ts` | 已覆盖 |
-| 滚动跟随：停在底部时跟随；往上翻停止跟随并出现"回到底部"，有新内容时带圆点；点了回到底部并恢复跟随 | `packages/ui/src/chat/follow-bottom.test.ts`、`chat.browser.test.tsx` | 已覆盖 |
+| 滚动跟随：停在底部时跟随；往上翻停止跟随并出现"回到底部"，有新内容时带圆点；点了回到底部并恢复跟随；下方变高（输入框、卡片）时仍在底部；最后一轮的过程展开、步骤详情打开、过程折叠时每一帧都在底部；不在底部时这些都不移动视窗 | `packages/ui/src/chat/follow-bottom.test.ts`、`chat.browser.test.tsx` | 已覆盖 |
 | 对话区：用户气泡（乐观显示的没有时间）、推理过程运行时展开结束后折叠、回复出错和已停止的标注、"进行中 · 12s"、各部分的顺序；输入框回车发送、Shift+回车换行、输入法组字时不发送；第一次发送时新建对话并订阅；发送失败的原因 | `packages/ui/src/chat/chat.browser.test.tsx` | M1.4 改为按轮，见"对话记录（M1.4）" |
 | 等待回复（2026-10-11 定）：空闲时发出消息起显示"进行中"行（宿主开始运行前不带计时），运行中发的进排队、不显示；这一轮还没有可显示的东西时这一行留在轮里，回复出来后去掉，没东西就停止的轮不显示；行首是眨眼的小猫（装饰，不进无障碍树） | `packages/ui/src/chat/chat.browser.test.tsx` "run line"、"counts the run's time" | 已覆盖 |
 | 在真实应用里发消息，推理和流式回复显示出来，运行结束后推理折叠成"思考了 N 秒"，没有残留的计时和乐观显示 | `apps/desktop/e2e/chat.spec.ts` | 已覆盖 |

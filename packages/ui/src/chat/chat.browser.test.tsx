@@ -192,6 +192,76 @@ function at(items: TranscriptItem[], fields: Partial<SessionView> = {}, onLoadOl
   );
 }
 
+/**
+ * The transcript in the same 300px column, with a box of some height under it, as the composer is.
+ *
+ * @remarks
+ * Growing the box shrinks the transcript without changing its content.
+ */
+function above(items: TranscriptItem[], below: number) {
+  return (
+    <div style={{ height: 300, display: "flex", flexDirection: "column" }}>
+      <Transcript view={view({ items })} onLoadOlder={() => undefined} onLoadStep={() => undefined} />
+      <div style={{ height: below, flex: "none" }} />
+    </div>
+  );
+}
+
+/**
+ * How far a scroller's view is from its end, in whole pixels.
+ *
+ * @sideEffects none
+ * @param scroller - The scroller.
+ * @returns The distance; 0 at the bottom.
+ */
+function fromEnd(scroller: HTMLElement): number {
+  return Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight);
+}
+
+/**
+ * The farthest a scroller's view gets from its end over some time, as each frame is painted.
+ *
+ * @remarks
+ * Checked in a size observer made after the transcript's, so after the view's own scrolling in
+ * each frame; whenever the content or the scroller changes size.
+ *
+ * @sideEffects Observes the scroller and its content; waits.
+ * @param scroller - The scroller.
+ * @param ms - How long to watch.
+ * @returns The largest distance seen.
+ */
+async function farthestFromEnd(scroller: HTMLElement, ms: number): Promise<number> {
+  let farthest = 0;
+  const observer = new ResizeObserver(() => {
+    farthest = Math.max(farthest, fromEnd(scroller));
+  });
+  observer.observe(scroller);
+  for (const child of scroller.children) observer.observe(child);
+  await new Promise((resolve) => setTimeout(resolve, ms));
+  observer.disconnect();
+  return Math.max(farthest, fromEnd(scroller));
+}
+
+/** A command that passed, as a step. */
+function passedCommand(stepId: string): Turn["steps"][number] {
+  return {
+    kind: "tool",
+    id: stepId,
+    callId: `c${stepId}`,
+    tool: "bash",
+    args: { command: "pnpm test" },
+    status: "done",
+    output: "ok\n".repeat(8),
+    details: { tool: "bash", command: "pnpm test" },
+    partial: false,
+  };
+}
+
+/** A finished turn whose process has two commands, before its reply. */
+function worked(id: string): Turn {
+  return turn(id, "", { steps: [passedCommand("0"), passedCommand("1"), { kind: "text", id: "2", text: "好了" }] });
+}
+
 describe("Transcript", () => {
   it("shows turns and notices, then pending sends, then the run until its turn arrives", async () => {
     const screen = await render(
@@ -314,6 +384,56 @@ describe("Transcript", () => {
     await vi.waitFor(() =>
       expect(nav.getByRole("button", { name: "问 t2" }).element().getAttribute("aria-current")).toBe("true"),
     );
+  });
+
+  it("stays at the bottom as what is under it grows", async () => {
+    const long = Array.from({ length: 20 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
+    const screen = await render(above(long, 40));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+
+    await screen.rerender(above(long, 140));
+
+    expect(await farthestFromEnd(scroller, 100)).toBe(0);
+    expect(scroller.clientHeight).toBe(160);
+  });
+
+  it("stays at the bottom through every frame of the last process unfolding, a detail opening, and the fold", async () => {
+    const items = [...Array.from({ length: 10 }, (_, index) => turn(`a${index}`, `第 ${index} 段`)), worked("w")];
+    const screen = await render(at(items));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+    // Clicked in place: the page's own clicks scroll their target into view first.
+    const header = screen.getByTestId("process-header").element() as HTMLElement;
+
+    header.click();
+    const unfolding = await farthestFromEnd(scroller, 700);
+    (
+      screen
+        .getByRole("button", { name: /^运行了 pnpm test/ })
+        .first()
+        .element() as HTMLElement
+    ).click();
+    const opened = await farthestFromEnd(scroller, 100);
+    header.click();
+    const folding = await farthestFromEnd(scroller, 700);
+
+    expect([unfolding, opened, folding]).toStrictEqual([0, 0, 0]);
+  });
+
+  it("leaves the view where it is, scrolled up, as a process unfolds or what is under it grows", async () => {
+    const items = [worked("w"), ...Array.from({ length: 10 }, (_, index) => turn(`a${index}`, `第 ${index} 段`))];
+    const screen = await render(above(items, 40));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+    scroller.scrollTop = 0;
+    await expect.element(screen.getByRole("button", { name: "回到底部" })).toBeVisible();
+
+    (screen.getByTestId("process-header").element() as HTMLElement).click();
+    await screen.rerender(above(items, 140));
+    await farthestFromEnd(scroller, 700);
+
+    expect(scroller.scrollTop).toBe(0);
   });
 
   it("follows new content at the bottom; scrolled up it stops and offers a way back, with a dot for news", async () => {
