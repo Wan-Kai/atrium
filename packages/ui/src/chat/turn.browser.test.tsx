@@ -255,6 +255,29 @@ describe("TurnView", () => {
     );
   });
 
+  it("keeps thinking with nothing to show from opening, in any mode", async () => {
+    const hidden: Step = { ...thinking, text: " \n" };
+    const { screen } = await show(turn([hidden, command, answer]), "detailed");
+
+    expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool"]);
+    expect(screen.getByTestId("step").first().element().textContent?.trim()).toBe("思考了 6 秒");
+    expect(screen.getByRole("button", { name: /思考了/ }).elements()).toHaveLength(0);
+    expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(1);
+  });
+
+  it("shows no empty block under thinking going on that has nothing to show yet", async () => {
+    const { screen } = await show(
+      turn([{ ...thinking, text: "", durationMs: null }], { outcome: "running" }),
+      "summary",
+      Date.now(),
+    );
+
+    await expect.element(screen.getByTestId("step")).toBeVisible();
+    expect(screen.getByTestId("step").element().textContent?.trim()).toBe("思考中");
+    expect(screen.getByRole("button", { name: /思考中/ }).elements()).toHaveLength(0);
+    expect(screen.container.querySelector('[data-testid="step-detail"]')).toBeNull();
+  });
+
   it("fetches a step that arrived as a preview once it is opened, and only then", async () => {
     const asked: string[] = [];
     const store = createDisplayMode("summary");
@@ -474,6 +497,8 @@ describe("TurnView", () => {
     await vi.waitFor(() => expect(shownSteps(screen.container)).toStrictEqual([]), { timeout: 3000 });
     await expect.element(screen.getByTestId("process-summary")).toHaveTextContent("· 跑了 1 条命令");
     expect(screen.getByTestId("process-summary").element().classList).toContain("atrium-fold-summary");
+    const summary = getComputedStyle(screen.getByTestId("process-summary").element());
+    expect([summary.animationDuration, summary.animationDelay]).toStrictEqual(["0.26s", "0.16s"]);
   });
 
   it("forgets the second's hold when the turn goes away, or when its header is clicked first", async () => {
@@ -525,6 +550,35 @@ describe("TurnView", () => {
 
     expect(heights()?.[0]).not.toBe("0px");
     expect(heights()?.[1]).toBe("0px");
+  });
+
+  it("folds and unfolds in 0.4 s, the rows a little quicker", async () => {
+    const { screen } = await show(turn([command, edit, answer]), "summary");
+    const header = screen.getByTestId("process-header");
+    /** How long the process's height and each row take, and when each row starts. */
+    const timings = () =>
+      [screen.getByTestId("process").element(), ...screen.container.querySelectorAll("[data-rail-row]")].map(
+        (element) => {
+          const timing = element.getAnimations()[0]?.effect?.getTiming();
+          return [timing?.duration, timing?.delay];
+        },
+      );
+
+    await header.click();
+
+    expect(timings()).toStrictEqual([
+      [400, 0],
+      [260, 40],
+      [260, 54],
+    ]);
+
+    await header.click();
+
+    expect(timings()).toStrictEqual([
+      [400, 40],
+      [220, 14],
+      [220, 0],
+    ]);
   });
 
   it("folds at once when less motion is asked for", async () => {

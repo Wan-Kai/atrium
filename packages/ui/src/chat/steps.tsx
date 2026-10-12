@@ -260,6 +260,22 @@ function openByDefault(mode: DisplayMode, step: Step): boolean {
 }
 
 /**
+ * Whether a step has anything to show when opened.
+ *
+ * @remarks
+ * Many models say they thought without saying what; such thinking, empty or all blank, has no
+ * detail and its row does not open, so nothing opens onto an empty block (SPEC-0001, "过程的呈
+ * 现"). Text steps go by the same rule; tool steps always have their arguments.
+ *
+ * @sideEffects none
+ * @param step - The step.
+ * @returns Whether it has a detail.
+ */
+function hasDetail(step: Step): boolean {
+  return (step.kind !== "thinking" && step.kind !== "text") || step.text.trim() !== "";
+}
+
+/**
  * The dark block under a step that shows its content.
  *
  * @remarks
@@ -560,9 +576,9 @@ function stepNode(step: Step, live: boolean): RailNode {
   return live ? "live" : "dot";
 }
 
-/** The row's line of words: a button that opens its detail, the width of the content column. */
+/** The row's line of words, the width of the content column; a button, with a hover, when it opens a detail. */
 const LINE_CLASS =
-  "atrium-step-line -mx-1.5 flex min-h-[30px] w-[calc(100%+12px)] min-w-0 items-center gap-1.5 rounded-[var(--r)] px-1.5 text-left text-[length:var(--fs-meta)] hover:bg-[var(--hover)]";
+  "atrium-step-line -mx-1.5 flex min-h-[30px] w-[calc(100%+12px)] min-w-0 items-center gap-1.5 rounded-[var(--r)] px-1.5 text-left text-[length:var(--fs-meta)]";
 
 /**
  * One step on the rail, and its detail when open.
@@ -570,7 +586,8 @@ const LINE_CLASS =
  * @remarks
  * Clicking a row opens or closes its detail (SPEC-0001, "过程的呈现"); the display mode sets
  * where it starts. While a step is going on, thinking and a running command show their detail
- * as it comes. A failed call branches off as a dead end, a steer joins from the side.
+ * as it comes. A step with nothing to show (`hasDetail`) is words alone, not a button. A failed
+ * call branches off as a dead end, a steer joins from the side.
  *
  * @sideEffects Fetches the step whole when it shows and arrived as a preview.
  * @param props - The step's turn, the step, whether it is the one going on now, and its place.
@@ -589,22 +606,27 @@ function StepRow({
 }) {
   const { mode } = useDisplayMode();
   const [toggled, setToggled] = useState<boolean | null>(null);
-  const open = toggled ?? openByDefault(mode, step);
-  useWholeStep(turnId, step, open || live);
+  const opens = hasDetail(step);
+  const open = opens && (toggled ?? openByDefault(mode, step));
+  const shown = open || (opens && live);
+  useWholeStep(turnId, step, shown);
   let detail: ReactNode = null;
-  if (step.kind === "thinking" || step.kind === "text") {
-    if (open || live) {
-      detail = (
-        <Detail>
-          <div className="text-[length:var(--fs-meta)] text-[var(--text-muted)]">
-            <StreamedText text={step.text} streaming={live} />
-          </div>
-        </Detail>
-      );
-    }
-  } else if (step.kind === "tool" && (open || live)) {
+  if (shown && (step.kind === "thinking" || step.kind === "text")) {
+    detail = (
+      <Detail>
+        <div className="text-[length:var(--fs-meta)] text-[var(--text-muted)]">
+          <StreamedText text={step.text} streaming={live} />
+        </div>
+      </Detail>
+    );
+  } else if (shown && step.kind === "tool") {
     detail = <ToolDetail step={step} />;
   }
+  const words = (
+    <>
+      <StepWords step={step} live={live} /> <StepEnd step={step} />
+    </>
+  );
   return (
     <div
       className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
@@ -614,9 +636,18 @@ function StepRow({
       data-rail-row
     >
       <RailMarks node={stepNode(step, live)} first={place.first} last={place.last} />
-      <button type="button" aria-expanded={open} onClick={() => setToggled(!open)} className={LINE_CLASS}>
-        <StepWords step={step} live={live} /> <StepEnd step={step} />
-      </button>
+      {opens ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setToggled(!open)}
+          className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
+        >
+          {words}
+        </button>
+      ) : (
+        <div className={LINE_CLASS}>{words}</div>
+      )}
       {detail}
     </div>
   );
@@ -661,7 +692,12 @@ function ExploreRow({
       data-rail-row
     >
       <RailMarks node={live ? "live" : "search"} first={place.first} last={place.last} />
-      <button type="button" aria-expanded={open} onClick={() => setToggled(!open)} className={LINE_CLASS}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setToggled(!open)}
+        className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
+      >
         <span className={`flex-none text-[var(--text-2)] ${live ? "atrium-shimmer" : ""}`}>{line.verb}</span>{" "}
         <span className="text-[var(--text-dim)]">·</span>{" "}
         <span className="min-w-0 truncate text-[var(--text-muted)]">{line.object}</span>

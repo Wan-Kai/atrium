@@ -10,11 +10,11 @@ const FOLD_EASING = "cubic-bezier(0.45, 0, 0.15, 1)";
 const SMOOTH_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
 
 /** How long the height takes to fold or unfold. */
-const FOLD_MS = 560;
+const FOLD_MS = 400;
 
 /** How much later each row starts than the one before, and the most any row waits. */
-const ROW_STAGGER_MS = 18;
-const ROW_STAGGER_MAX_MS = 160;
+const ROW_STAGGER_MS = 14;
+const ROW_STAGGER_MAX_MS = 120;
 
 /**
  * Whether the user asked for less motion.
@@ -54,8 +54,8 @@ function play(element: HTMLElement, closing: boolean): Animation {
     const away = { opacity: 0, transform: "translateY(-6px)" };
     const here = { opacity: 1, transform: "none" };
     row.animate(closing ? [here, away] : [away, here], {
-      duration: closing ? 280 : 320,
-      delay: closing ? delay : 60 + delay,
+      duration: closing ? 220 : 260,
+      delay: closing ? delay : 40 + delay,
       easing: SMOOTH_EASING,
       fill: closing ? "forwards" : "backwards",
     });
