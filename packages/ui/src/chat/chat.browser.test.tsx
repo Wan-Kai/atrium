@@ -242,6 +242,31 @@ async function farthestFromEnd(scroller: HTMLElement, ms: number): Promise<numbe
   return Math.max(farthest, fromEnd(scroller));
 }
 
+/**
+ * Makes an element taller, as content streaming or unfolding into it does.
+ *
+ * @sideEffects Appends a block to the element.
+ * @param element - The element.
+ * @param px - How much taller.
+ */
+function grow(element: HTMLElement | undefined, px: number): void {
+  const block = document.createElement("div");
+  block.style.height = `${px}px`;
+  element?.append(block);
+}
+
+/**
+ * Waits until just after the next frame is painted.
+ *
+ * @remarks
+ * A timer set in a frame's callback runs after that frame's layout, size observers and paint.
+ *
+ * @sideEffects Waits.
+ */
+async function afterFrame(): Promise<void> {
+  await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
 /** A command that passed, as a step. */
 function passedCommand(stepId: string): Turn["steps"][number] {
   return {
@@ -255,6 +280,29 @@ function passedCommand(stepId: string): Turn["steps"][number] {
     details: { tool: "bash", command: "pnpm test" },
     partial: false,
   };
+}
+
+/**
+ * A running turn after some commands, the last of them still going on.
+ *
+ * @remarks
+ * Its thinking and each command's output grow with the count, as a live process does.
+ *
+ * @sideEffects none
+ * @param count - How many commands it has run.
+ * @returns The turn.
+ */
+function liveTurn(count: number): Turn {
+  const done = Array.from({ length: count - 1 }, (_, index) => ({
+    ...passedCommand(String(index)),
+    output: "ok\n".repeat(index + 2),
+  }));
+  const current = { ...passedCommand(String(count - 1)), status: "running" as const, output: "ok\n" };
+  return turn("live", "", {
+    steps: [{ kind: "thinking", id: "t", text: "想一想。".repeat(count * 4), durationMs: null }, ...done, current],
+    outcome: "running",
+    durationMs: null,
+  });
 }
 
 /** A finished turn whose process has two commands, before its reply. */
@@ -419,6 +467,46 @@ describe("Transcript", () => {
     const folding = await farthestFromEnd(scroller, 700);
 
     expect([unfolding, opened, folding]).toStrictEqual([0, 0, 0]);
+  });
+
+  it("stays at the bottom through every frame of a run whose process grows step by step", async () => {
+    const earlier = Array.from({ length: 10 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
+    const run = { runId: "r1", startedAt: Date.now() };
+    const screen = await render(at([...earlier, liveTurn(1)], { run }));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+
+    const watching = farthestFromEnd(scroller, 1600);
+    for (let count = 2; count <= 12; count += 1) {
+      await screen.rerender(at([...earlier, liveTurn(count)], { run }));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+
+    expect(await watching).toBe(0);
+    await expect.element(screen.getByRole("button", { name: "回到底部" })).not.toBeInTheDocument();
+  });
+
+  it("stays at the bottom when content grows above the view and below it between frames", async () => {
+    const screen = await render(at(Array.from({ length: 12 }, (_, index) => turn(`a${index}`, `第 ${index} 段`))));
+    const scroller = screen.getByTestId("transcript").element() as HTMLElement;
+    await vi.waitFor(() => expect(fromEnd(scroller)).toBe(0));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const replies = scroller.querySelectorAll<HTMLElement>('[data-testid="reply"]');
+
+    // Something far above the view grows and the page reads its layout; the view follows in the
+    // next frame, and that scroll's event is due a frame later.
+    grow(replies[0], 400);
+    expect(scroller.scrollHeight).toBeGreaterThan(0);
+    await afterFrame();
+    // Before that event, more grows above and the page reads its layout again: the browser's
+    // scroll anchoring, if on, moves the view here, so the event finds a position the view did
+    // not scroll to, and the last reply grows too, so that position is off the bottom.
+    grow(replies[0], 400);
+    expect(scroller.scrollHeight).toBeGreaterThan(0);
+    grow(replies[replies.length - 1], 200);
+
+    expect(await farthestFromEnd(scroller, 200)).toBe(0);
+    await expect.element(screen.getByRole("button", { name: "回到底部" })).not.toBeInTheDocument();
   });
 
   it("leaves the view where it is, scrolled up, as a process unfolds or what is under it grows", async () => {

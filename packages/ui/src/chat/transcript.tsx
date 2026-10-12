@@ -206,7 +206,8 @@ export interface TranscriptProps {
  * @remarks
  * Content is at most 720 px wide (design-language, "圆角、尺寸与间距"). The view follows new
  * content while scrolled to the bottom; scrolling up stops that and shows "↓ 回到底部", with a dot
- * once something new arrived (SPEC-0001, "滚动与长会话"); reaching the top loads older items.
+ * once something new arrived (SPEC-0001, "滚动与长会话"); reaching the top loads older items. The
+ * browser's scroll anchoring is off, as the view keeps its own place.
  * Pending messages are the ones sent but not yet confirmed by the host (domain-model §7); until
  * the run's turn arrives the run shows on its own line, as soon as a message is sent while idle,
  * before the host starts the run (SPEC-0001, "过程的呈现"); one sent while a turn runs goes into the
@@ -230,7 +231,9 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
   return (
     <LoadStepContext value={onLoadStep}>
       <div className="relative min-h-0 flex-1">
-        <div ref={scroller} className="h-full overflow-y-auto" data-testid="transcript">
+        {/* The view keeps its own place; the browser's scroll anchoring would move it as content
+            above grows, and that scroll would read as the user's and stop following. */}
+        <div ref={scroller} className="h-full overflow-y-auto [overflow-anchor:none]" data-testid="transcript">
           <div ref={content} className="mx-auto flex max-w-[720px] flex-col gap-6 px-6 py-8">
             <div ref={top} data-testid="transcript-top">
               {view.hasOlder ? (

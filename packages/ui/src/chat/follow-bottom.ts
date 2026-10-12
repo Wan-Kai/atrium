@@ -79,6 +79,8 @@ export function afterGrowth(state: FollowState): FollowState {
  * it shrinks when what is under it grows (SPEC-0001, "滚动与长会话"). The observer runs after each
  * frame's layout and before its paint, so the view never shows a frame off the bottom.
  * Programmatic scrolls also fire `scroll` events; they land at the bottom, so they keep following on.
+ * The container must turn off the browser's scroll anchoring (`overflow-anchor: none`): its
+ * scrolls are not the view's own, and one landing off the bottom would stop following.
  *
  * @sideEffects Observes the content's and the container's size and the container's scroll events;
  * scrolls the container while following.
