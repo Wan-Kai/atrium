@@ -79,6 +79,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 工程约束：[coding-standards.md](architecture/coding-standards.md)（每个函数和组件写 JSDoc：what、why、副作用）、[security.md](architecture/security.md)、[observability.md](architecture/observability.md)（OpenTelemetry 追踪 + pino 日志，全链路 trace id）。MVP 只做中文，宿主只发错误码不发文案。
 - 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线；界面比较脱离文档的 DOM 节点）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
+- Atrium 不内置浏览器：agent 的浏览器操作在外部浏览器（默认 ego lite）里做，定制功能做成自己的浏览器插件（[ADR-0009](adr/0009-browser-stays-external.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
 
@@ -145,7 +146,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 分三步：第 1 步 MVP 1、第 2 步 MVP 2、第 3 步并行与 worktree（其他文档里的"阶段 1 第 N 步"指这里）。
 
-目标：日常编码从 Codex 换到 Atrium。模型沿用 ChatGPT 订阅。浏览器操作不单独开发：在 pi 的 `mcp.json` 里配置 chrome-devtools 或 Playwright 的 MCP server，从 MVP 1 起即可使用。
+目标：日常编码从 Codex 换到 Atrium。模型沿用 ChatGPT 订阅。浏览器操作不单独开发：用外部浏览器 ego lite，pi 按它的 skill 调 `ego-browser` 命令；或在 pi 的 `mcp.json` 里配置 chrome-devtools 或 Playwright 的 MCP server，从 MVP 1 起即可使用（[ADR-0009](adr/0009-browser-stays-external.md)）。
 
 #### MVP 1：纯对话
 
@@ -314,6 +315,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 网络代理：设置 · pi 里填代理地址和不走代理的列表，宿主把它放进交给 pi、登录、安装和更新的环境；宿主自己查最新版本、下载安装脚本也按环境里的代理走（SPEC-0001"设置 · pi"，2026-10-11 定）。
 - 每个对话是一个独立的容器：和工作区一样能放多个会话、有自己的标签栏和"历史"，侧栏逐行列出对话、可以改名；不再把所有对话挤在一个标签栏里。索引的 `sessions.json`、`layouts.json` 升到 v2，新增 `chats.json`（[ADR-0007](adr/0007-each-chat-is-its-own-container.md)，2026-10-12 定）。
 - Fast：输入框里模型按钮左边的 ⚡ 开关，只在支持的模型上显示，哪些模型支持问 Codex 的模型列表（查不到时按内置规则：ChatGPT 订阅的 GPT-5.5、5.6、6、6.1 系列）；每个会话一份，新会话沿用上一次的选择。由 Atrium 自带的 pi 扩展给请求加 `service_tier: "priority"`（[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)，2026-10-12 定）。
+- 浏览器：不内置浏览器，agent 的浏览器操作放在外部的 ego lite，定制功能以后做成浏览器插件；对话和工作区里不放浏览器标签页（[ADR-0009](adr/0009-browser-stays-external.md)，2026-10-12 定）。
 
 #### MVP 2：看得见内部
 
@@ -369,7 +371,7 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 - 接入其他 harness：Codex（`codex app-server`）、ACP 通用适配
 - DeepSeek Harness：稳定后写桥接插件，与 pi 做横向对比
 - 沙箱隔离：v0.1 只靠审批，以后评估容器方案（pi 官方的建议）
-- 内嵌浏览器面板：用 Electron 内嵌浏览器，作为工具提供给 agent，替代 v0.1 的 MCP 方案
+- 浏览器插件：ego lite 做不到的、或和 Atrium 相关的浏览器功能（例如把当前页面送进会话），自用中真遇到时再做；连宿主的鉴权、只操作"Atrium"标签组等规则见 [ADR-0009](adr/0009-browser-stays-external.md)。不内置浏览器（原先的"内嵌浏览器面板"，2026-10-12 改）
 - 手机端：先做响应式 + PWA，远程访问走 Tailscale；原生 App 视需要再做（见 [ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）
 - 空闲进程回收、文件区、forge（PR）状态
 - SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、订阅额度显示、长会话虚拟列表、extension 单向通知的显示

@@ -1,6 +1,6 @@
 # ADR-0007：每个对话是一个独立的容器
 
-- **状态**：已接受
+- **状态**：已接受；第 1 条里"以后浏览器页面也作为对话里的标签页"已取代（被 [ADR-0009](0009-browser-stays-external.md) 取代）
 - **日期**：2026-10-12
 - **相关**：取代 [ADR-0006](0006-organize-sessions-by-workspace.md) 第 4 条；[SPEC-0001](../specs/0001-mvp1-single-session-chat.md)"侧栏 · 对话"、[领域模型](../architecture/domain-model.md) §1
 

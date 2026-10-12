@@ -27,5 +27,6 @@
 | [0004](0004-deep-pi-host-positioning.md) | 定位为 pi 的深度宿主，纵向做透而非横向连接 | 已接受 | 2026-09-29 |
 | [0005](0005-split-host-and-ui-pwa-first.md) | 宿主与 UI 分离、经 WebSocket 通信，手机端先走 PWA | 已接受 | 2026-09-29 |
 | [0006](0006-organize-sessions-by-workspace.md) | 以工作区组织会话，工作区与目录一一对应 | 已接受（第 4 条被 0007 取代） | 2026-10-02 |
-| [0007](0007-each-chat-is-its-own-container.md) | 每个对话是一个独立的容器 | 已接受 | 2026-10-12 |
+| [0007](0007-each-chat-is-its-own-container.md) | 每个对话是一个独立的容器 | 已接受（浏览器标签页的设想被 0009 取代） | 2026-10-12 |
 | [0008](0008-atrium-own-pi-extension-for-fast.md) | 用 Atrium 自带的 pi 扩展实现 Fast | 已接受 | 2026-10-12 |
+| [0009](0009-browser-stays-external.md) | 浏览器操作放在外部浏览器，定制功能做成浏览器插件 | 已接受 | 2026-10-12 |
