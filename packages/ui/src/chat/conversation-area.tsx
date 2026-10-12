@@ -145,10 +145,10 @@ function SessionModelPicker({
   const shown = shownModel(model, preferences, list);
   return (
     <>
-      {shown === null || shown.fastCredits === null ? null : (
+      {shown === null || shown.fast === null ? null : (
         <FastToggle
           enabled={fast ?? preferences.lastFast}
-          credits={shown.fastCredits}
+          fast={shown.fast}
           disabled={disabled}
           onToggle={(enabled) => act(async () => client.setFast(await session(), enabled), describeModelError)}
         />

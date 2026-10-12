@@ -55,6 +55,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
 - **结果确定**：faux 默认每片长度随机、`api` 和工具调用 id 带时间戳和随机数。固定 `api`、`tokenSize` 的 `min` 等于 `max`、工具调用传固定 `id` 后，同一脚本跑两次的输出，去掉时间戳字段后逐行相同。夹具录制时只需要规范化时间戳类字段。
 - 回复脚本放在文件里，路径由环境变量传给扩展；每个场景启动一个新的 pi 进程。
 - 自动生成标题的一次性 pi（`-p`）也加载这个扩展，但它不按回复脚本回答：脚本里写了 `title` 就回这个标题，没写就回一个错误，标题保持兜底（2026-10-10 定，M1.9）。这样每个 pi 进程各自从第一条回复开始的脚本不会被标题调用打乱，没关心标题的测试也不受影响。
+- 扩展要在模型的 `baseUrl` 旁边发请求时（Fast 查 Codex 模型列表，ADR-0008 第 6 条），环境变量 `FAUX_PI_BASE_URL` 把 faux 模型的 `baseUrl` 指到测试自己在 127.0.0.1 起的服务（testkit 的 `startModelListServer`）；不写进脚本，因为脚本进夹具头，端口每次不同。契约场景通过 `runScenario` 的 `env` 传入，夹具里这个值记作 `<FAUX_PI_BASE_URL>`。没设时 faux 的地址是 `http://localhost:0`，请求立即失败，不出本机（2026-10-12）。
 - 实现在 `packages/testkit/src/faux/`：`extension.ts` 是交给 pi 加载的扩展（为什么它能 import pi-ai，见 [架构总览 · 包之间的依赖](overview.md#包之间的依赖)），`fauxPi(script)` 写好脚本并返回启动参数和环境变量，三层测试用同一个入口。
 
 没有采用的退路：本地 HTTP 服务模拟兼容 OpenAI 的接口，用 `models.json` 指向它。

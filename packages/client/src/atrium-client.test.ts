@@ -1225,7 +1225,7 @@ describe("createAtriumClient: models", () => {
     maxOutput: 64_000,
     supportsImage: true,
     thinkingLevels: ["off"],
-    fastCredits: null,
+    fast: null,
   };
 
   it("lists a container's models into its view, keeping them shown while it asks again", async () => {
@@ -1671,7 +1671,7 @@ describe("createAtriumClient: first launch", () => {
       maxOutput: 64_000,
       supportsImage: false,
       thinkingLevels: ["off"],
-      fastCredits: null,
+      fast: null,
     };
     const loading = client.loadModels(null);
     latest().answer("list_models", models);

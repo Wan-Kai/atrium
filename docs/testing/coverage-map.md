@@ -311,16 +311,17 @@
 
 | 行为 | 测试 | 状态 |
 |---|---|---|
-| 协议（版本 6）：`set_fast` 及其应答、`fast_updated`、`fast_unavailable`，快照的 `fast`、模型的 `fastCredits`、偏好的 `lastFast` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
-| 哪些模型支持 Fast：只有 `openai-codex` 的 GPT-5.4、5.5、5.6（含变体），额度约 2 倍、2.5 倍；模型目录带上 `fastCredits`；`list_commands` 不列出 `atrium-fast`，同名的模板照列 | `packages/pi/src/fast/fast.test.ts`、`catalog/models.test.ts` "credits Fast uses"、`catalog/commands.test.ts` "Fast switch" | 已覆盖 |
-| 扩展：符合 pi 的扩展 API；只注册一个命令；默认关，`on` / `off` 切换，别的词不变；开着时只给支持的模型、是对象的请求体加 priority，返回副本不改 pi 的请求 | `packages/pi/src/fast/extension.test.ts` | 已覆盖 |
-| pi 契约（1.1.0）：真实 pi 加载扩展后 `get_commands` 列出开关；`/atrium-fast on` 应答 `handled`、不起一轮、不出事件；之后的请求只在支持的模型上带 priority，关掉后不带。测试工具：faux 可换服务商名，记下 pi 发出的请求体 | `packages/pi/src/contract/fast.pi.test.ts` | 已覆盖 |
+| 协议（版本 7）：`set_fast` 及其应答、`fast_updated`、`fast_unavailable`，快照的 `fast`、模型的 `fast`（`{speed, moreUsage}` 或 `null`，速度大于 0、不超过 100，多一个键也不行）、偏好的 `lastFast` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 哪些模型支持 Fast：只有 `openai-codex`；Codex 模型列表列出的模型照列表（有 `priority` 档才支持，说明里读出速度倍数和是否增加额度，读不出的速度记为不详），没列出的或没有列表时按内置规则（GPT-5.5、5.6、6、6.1 含变体，速度不详、额度增加，5.4 不算）；没有可用 `slug` 的模型跳过；扩展的报告按协议严格校验，不合规整份作废，失败只收小写代码；模型目录带上 `fast`；`list_commands` 不列出 `atrium-fast`，同名的模板照列 | `packages/pi/src/fast/fast.test.ts`、`catalog/models.test.ts` "what Fast does"、`catalog/commands.test.ts` "Fast switch" | 已覆盖 |
+| 扩展：符合 pi 的扩展 API；只注册一个命令；默认关，`on` / `off` 切换，别的词不变；开着时只给支持的模型、是对象的请求体加 priority，返回副本不改 pi 的请求。`tiers`：用 pi 的第一个 `openai-codex` 模型的凭据（登录给的 `baseUrl` 优先），在 `<baseUrl>/codex/models?client_version=99.0.0` 查列表（`baseUrl` 末尾的 `/`、`/codex`、`/codex/responses` 都归到同一处），带 `Authorization`、从 token 读出的 `chatgpt-account-id`（读不出就不带）、`originator: pi` 和 pi 给的其他请求头（值为 `null` 的不带），结果经 `setStatus("atrium-fast")` 报回；没登录（含 pi 取凭据时出错）、HTTP 错误、不是 JSON、不是列表、连不上各报一个代码，不带服务器的原文，查询本身从不失败。第一次 `on` 在后台查，查到前按内置规则，查到后按列表；同时只查一次；有了列表后再 `on` 不再查；之后查失败时保留已有列表 | `packages/pi/src/fast/extension.test.ts` | 已覆盖 |
+| pi 契约（1.1.0）：真实 pi 加载扩展后 `get_commands` 列出开关；`/atrium-fast on` 应答 `handled`、不起一轮、不出事件；之后的请求只在支持的模型上带 priority，关掉后不带。`/atrium-fast tiers`：扩展从 pi 的模型注册表拿到凭据，向本机的模型列表服务发一次请求，`setStatus` 在 pi 应答 `handled` 之前作为 `extension_ui_request` 发出；之后列表说不支持的模型不带 priority、列表没列的按内置规则带。测试工具：faux 可换服务商名，`FAUX_PI_BASE_URL` 换 `baseUrl`（夹具里记作占位符），记下 pi 发出的请求体 | `packages/pi/src/contract/fast.pi.test.ts` | 已覆盖 |
+| 宿主查模型列表时问扩展：带 `--extension` 启动短暂的 pi；列出了 `openai-codex` 模型且有开关时才发 `get_commands` 和 `/atrium-fast tiers`，按报告给模型标 `fast`，只认键为 `atrium-fast` 的状态；报告是失败、不合规、没有报告、pi 超时或拒绝时按内置规则，只记原因代码；查询被中止时照常失败并停掉 pi；没配扩展时不加参数、不多问；真实 pi 上整条链路 | `packages/pi/src/catalog/query.test.ts` "with the Fast extension"、`query.pi.test.ts` "Fast extension" | 已覆盖 |
 | 宿主 · 偏好与目录：`lastFast` 默认关、旧文件读作关；会话记录的 `fast`，终端里开的会话切换后也有记录，没变化不写文件 | `packages/host/src/store/preferences.test.ts` "remembers Fast"、`sessions/session-catalog.test.ts` "keeps each session's Fast" | 已覆盖 |
 | 宿主 · 控制器：快照带 `fast`；切换后只在变化时发 `fast_updated`、报告选择；pi 失败时原样转出、什么也不变；停止中和退出后拒绝 | `packages/host/src/sessions/session-controller.test.ts` "createSessionController's Fast" | 已覆盖 |
 | 宿主 · 会话管理器：pi 带 `--extension` 启动，确认开关在后、开着时先补发 `on` 再读会话；关着时不发；切换记进会话记录和偏好，新的管理器按记录启动；崩溃重启后按会话自己的开关补发；没列出开关的 pi 一条也不发、记警告、`set_fast` 应答 `fast_unavailable`；没配扩展时同样；草稿快照的 `fast`；未知会话；路由转发 `set_fast` | `packages/host/src/sessions/session-manager.test.ts` "SessionManager Fast"、`server/router.test.ts` | 已覆盖 |
 | 客户端：快照和 `fast_updated` 的开关；切换先在视图里生效，失败时放回宿主最后接受的，多次切换叠在一起时只在最后一次失败后放回（前一次被接受后才发起的也算在内）；没在看的会话照发、不建视图 | `packages/client/src/session-view.test.ts` "following Fast"、`atrium-client.test.ts` "models" | 已覆盖 |
-| 界面：只在当前模型支持时显示 ⚡ 圆钮（关是线框、开是实心加强调色底，`aria-pressed`）；悬停卡片写开关状态、约 1.5 倍速度、额度倍数、下一次请求生效；点击切换，空状态用 `lastFast`、先建会话；扩展没加载时说明；停止中不能用；模型菜单里支持的模型名后带小 ⚡ | `packages/ui/src/chat/chat.browser.test.tsx` "ConversationArea's Fast button"、`model-picker.browser.test.tsx` "bolt"、`model-choice.test.ts` | 已覆盖 |
-| 端到端：打包进宿主的扩展真的被 pi 加载；选 GPT-5.5 后出现开关、菜单里有 ⚡，打开后下一次请求带 priority，换回 faux-1 开关消失、请求不带 | `apps/desktop/e2e/fast.spec.ts` | 已覆盖 |
+| 界面：只在当前模型支持时显示 ⚡ 圆钮（关是线框、开是实心加强调色底，`aria-pressed`）；悬停卡片写开关状态、速度（"约 N 倍速度"，不详时"更快"）、额度增加时"额度消耗增加"、下一次请求生效；点击切换，空状态用 `lastFast`、先建会话；扩展没加载时说明；停止中不能用；模型菜单里支持的模型名后带小 ⚡ | `packages/ui/src/chat/chat.browser.test.tsx` "ConversationArea's Fast button"、`model-picker.browser.test.tsx` "bolt"、`model-choice.test.ts` | 已覆盖 |
+| 端到端：打包进宿主的扩展真的被 pi 加载，模型目录按本机模型列表服务的列表标 Fast（GPT-6.1 Sol 有 ⚡，内置规则会算支持的 GPT-5.5 没有），卡片写"约 2 倍速度，额度消耗增加"；选 GPT-6.1 Sol 后打开，下一次请求带 priority，换回 faux-1 开关消失、请求不带；对列表的每次请求都带 pi 的凭据 | `apps/desktop/e2e/fast.spec.ts` | 已覆盖 |
 
 ## 安全（security.md）
 

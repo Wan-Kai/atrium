@@ -594,7 +594,7 @@ describe("Composer's keys beside the model panel", () => {
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["off", "low", "high"],
-    fastCredits: null,
+    fast: null,
   };
 
   it("closes the model panel opened with ⌘⇧I on Esc without stopping the run, and stops on the next", async () => {

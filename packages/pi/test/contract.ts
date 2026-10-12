@@ -104,7 +104,7 @@ async function sessionLines(sessionsDir: string): Promise<JsonObject[]> {
  *
  * @sideEffects Creates and deletes a temporary directory; runs pi; reads or writes the fixture file.
  * @param options - Scenario name, faux script, whether to keep a session file, pi settings,
- * files to put in place first, and Atrium's own extensions for pi to load.
+ * files to put in place first, Atrium's own extensions for pi to load, and more environment.
  * @param body - The scenario's steps and assertions.
  * @returns The recorded records.
  */
@@ -118,6 +118,8 @@ export async function runScenario(
     /** Files to write before pi starts, by path relative to the working directory. */
     readonly files?: Readonly<Record<string, string>>;
     readonly extensions?: readonly string[];
+    /** Variables added to pi's environment; the fixture has each value as `<NAME>`. */
+    readonly env?: Readonly<Record<string, string>>;
   },
   body: (context: ScenarioContext) => Promise<void>,
 ): Promise<FixtureRecord[]> {
@@ -146,6 +148,8 @@ export async function runScenario(
       [dir.path]: "<cwd>",
       [dirname(extension)]: "<faux>",
       ...Object.fromEntries((options.extensions ?? []).map((atrium) => [dirname(atrium), "<atrium>"])),
+      // Values given for this run, such as a local server's address, go by their variable's name.
+      ...Object.fromEntries(Object.entries(options.env ?? {}).map(([name, value]) => [value, `<${name}>`])),
       // The system prompt names pi's own install paths, which sit under the real home directory.
       [homedir()]: "<home>",
     });
@@ -167,7 +171,7 @@ export async function runScenario(
           ...(options.extensions ?? []).flatMap((atrium) => ["--extension", atrium]),
         ],
         cwd,
-        env: launch.env,
+        env: { ...launch.env, ...options.env },
       },
       // TMPDIR too, so pi's own temporary files land in the run's directory, which is cleaned up.
       contractDeps({ PATH: path, HOME: cwd, TMPDIR: tmpdir() }),

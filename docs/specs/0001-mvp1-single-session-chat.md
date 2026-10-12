@@ -356,7 +356,7 @@ Electron 主进程
 - 运行中按钮固定为"停止"；输入框里有字时按回车加入排队；按 Esc 也能停止。
 - 每个会话各自保存草稿，切换标签再回来，内容还在；草稿存在界面的 localStorage，重启后还在，图片只在页面存活期间保留（2026-10-10 定）。
 - 模型：新会话默认用上一次用的模型，推理强度按模型各记一份；会话中途换模型，从下一次请求开始生效。
-- Fast（M1.11，2026-10-12 定，[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)）：模型按钮左边一个 ⚡ 圆钮，样式同左下角的"+"：关时是灰色线框 ⚡，开时是实心 ⚡、强调色加浅色底。悬停时在上方弹出说明卡片："Fast 已开启 / 未开启"，下面是"约 1.5 倍速度，额度消耗约 N 倍"和"从下一次请求开始生效"。只在当前模型支持 Fast 时显示，不支持时整个隐藏（开关状态保留，换回支持的模型后照旧）；模型菜单里支持 Fast 的模型名后带一个小 ⚡。每个会话各记一份，新会话沿用上一次的选择。宿主和协议见"模型与输入框"的"Fast"。
+- Fast（M1.11，2026-10-12 定，[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)）：模型按钮左边一个 ⚡ 圆钮，样式同左下角的"+"：关时是灰色线框 ⚡，开时是实心 ⚡、强调色加浅色底。悬停时在上方弹出说明卡片："Fast 已开启 / 未开启"，下面是速度和额度（如"约 2 倍速度，额度消耗增加"，速度不详时是"更快"，不多耗额度时不提额度，照 Codex 模型列表的说明）和"从下一次请求开始生效"。只在当前模型支持 Fast 时显示，不支持时整个隐藏（开关状态保留，换回支持的模型后照旧）；模型菜单里支持 Fast 的模型名后带一个小 ⚡。每个会话各记一份，新会话沿用上一次的选择。宿主和协议见"模型与输入框"的"Fast"。
 - `/` 命令：在输入框开头输入 `/` 弹出 pi 的命令列表（`get_commands`：提示词模板、skill、extension 命令），选中后插入输入框。会话的 pi 还没启动时，输入 `/` 就启动它（2026-10-10 定）。
 - `@` 引用文件和目录（Claude、Zed、Cursor 都有）：输入 `@` 弹出模糊搜索（宿主和 pi 的终端界面一样用 `fd` 列出候选，目录也可选，2026-10-10 定），↑↓ 选择、回车或 Tab 确认；选中后从文字里去掉 `@…`，变成输入框上方的文件小胶囊，随消息发出。发送时写成 `@相对路径`，只放路径、不放文件内容，由 agent 自己读，与 pi 的终端界面一致（2026-10-09 定）。
 - 粘贴长文本（超过 8 行或 800 字）自动收成"粘贴内容 · N 行"小胶囊；粘贴截图仍作为图片附件。
@@ -737,14 +737,14 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 **Fast**（M1.11，2026-10-12 定，[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)）
 
-- 是什么：OpenAI 的 priority 服务档（对外叫 Fast），请求带 `service_tier: "priority"`，约 1.5 倍速度；额度消耗 GPT-5.4 约 2 倍，GPT-5.5、5.6 约 2.5 倍。服务端可能不按 priority 处理，请求的钩子看不到，所以 Atrium 不声称每一次都提速了。
-- 哪些模型支持：只有 ChatGPT 订阅（`openai-codex`）里 id 匹配 `^gpt-5\.(4|5|6)(?:$|-)` 的模型，和社区插件 `pi-codex-fast-mode` 一致；用 API key 的 `openai` 暂不支持（2026-10-12 定）。规则写在 `packages/pi`，宿主和扩展共用。`list_models` 的每个模型新增 `fastCredits`：支持时是额度倍数（2 或 2.5），不支持时是 `null`。
-- 怎么生效：pi 核心不传服务档（1.0.2、1.1.0），宿主启动会话的 pi 时用 `--extension` 加载 Atrium 自带的扩展。扩展开着、当前模型支持时，在 `before_provider_request` 里给请求加上 `service_tier: "priority"`，其他请求原样放过。宿主用 `prompt` 发内部命令 `/atrium-fast on` 或 `/atrium-fast off` 开关它：pi 立即执行（运行中也可以），应答 `handled`，不进对话记录。从下一次请求开始生效。
+- 是什么：OpenAI 的 priority 服务档（对外叫 Fast），请求带 `service_tier: "priority"`，按模型约 1.5～2 倍速度，多数模型额度消耗增加。服务端可能不按 priority 处理，回复里也看不出来（Codex 回复的服务档总是 `default`），所以 Atrium 不声称每一次都提速了。
+- 哪些模型支持：只看 ChatGPT 订阅（`openai-codex`），用 API key 的 `openai` 暂不支持（2026-10-12 定）。以 Codex 的模型列表接口为准（同日修订，ADR-0008 第 6 条）：模型的 `service_tiers` 里有 `priority` 就支持，它的说明里的 `Nx speed` 是速度倍数，有 `increased usage` 就是额度消耗增加。宿主查模型列表（`list_models`）时，短暂的 pi 加载 Atrium 的扩展，宿主确认 `atrium-fast` 命令在、且列表里有 `openai-codex` 的模型后发 `/atrium-fast tiers`，扩展查完经 `setStatus`（键 `atrium-fast`）报回，20 秒为限。查不到时退回内置规则：id 匹配 `^gpt-(5\.[56]|6|6\.1)(?:$|-)`，速度不详、额度增加，宿主只记原因代码。`list_models` 的每个模型新增 `fast`：不支持时是 `null`，支持时是 `{speed, moreUsage}`（`speed` 是倍数或 `null`）。刷新模型列表时一起重查。
+- 怎么生效：pi 核心不传服务档（1.0.2、1.1.0），宿主启动会话的 pi 时用 `--extension` 加载 Atrium 自带的扩展。扩展第一次被打开时在后台查一次 Codex 的模型列表，查到之前和查不到时按内置规则。扩展开着、当前模型支持时，在 `before_provider_request` 里给请求加上 `service_tier: "priority"`，其他请求原样放过。宿主用 `prompt` 发内部命令 `/atrium-fast on` 或 `/atrium-fast off` 开关它：pi 立即执行（运行中也可以），应答 `handled`，不进对话记录。从下一次请求开始生效。
 - 不误发：扩展默认关。pi 启动后宿主从 `get_commands` 里确认扩展的 `atrium-fast` 命令在，才会发这条命令；不在（扩展没加载上）时记一条警告，这个 pi 上 Fast 不可用，`set_fast` 应答 `fast_unavailable`，绝不把 `/atrium-fast on` 当普通消息发出去。`list_commands` 不列出这个命令。
 - 每个会话一份：会话快照新增 `fast: boolean`，是你想不想开，和当前模型支不支持无关，变化时推 `fast_updated`。`set_fast(sessionId, enabled)` 转给 pi，处理和 `set_model` 一样：pi 没在运行就先启动它，`stopping` 期间应答 `session_stopping`。当前模型不支持时也接受：记下开关，换到支持的模型后生效。
 - 记住：`set_fast` 把开关写进这个会话在 `sessions.json` 里的记录（`fast`），终端里开的会话也因此有了记录；同时更新偏好 `lastFast`。会话的开关取自它的记录，没有记录时（新会话、终端里开的会话）取 pi 第一次启动时的 `lastFast`，之后由会话自己记着。pi 每次启动（含崩溃重启、从终端接回）后，开关是开的就补发 `/atrium-fast on`。宿主重启后，没有记录的会话重新按 `lastFast` 取。
 - 交给终端后，终端里的 pi 不加载 Atrium 的扩展，Fast 不跟过去。用户自己装的 `pi-codex-fast-mode` 也改 `service_tier`，两个都开时 Atrium 关不住它，暂不检测。
-- 费用：状态栏的费用来自 pi，pi-ai 按回复里实际给的服务档计价。但 pi-ai 1.0.2 只对 `gpt-5.5` 按 2.5 倍算，其他按 2 倍，所以 GPT-5.6 会比 OpenAI 的说法少算。
+- 费用：状态栏的费用来自 pi。Codex 回复的服务档是 `default`，pi-ai 只在 pi 自己发 priority 时才按 priority 计价，而 Atrium 的 priority 是扩展加的，所以 Fast 的请求按标准价算，状态栏的费用偏低。
 
 **`/` 命令**
 
@@ -792,7 +792,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`、`watch_changes`、`watch_diff`。新增事件：`model_updated`、`changes_updated`、`diff_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
 
-M1.11 的 Fast（协议版本 6）：新增命令 `set_fast`，新增事件 `fast_updated`，新增错误码 `fast_unavailable`；会话快照多了 `fast`，模型多了 `fastCredits`，偏好多了 `lastFast`。
+M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {speed, moreUsage} | null`）：新增命令 `set_fast`，新增事件 `fast_updated`，新增错误码 `fast_unavailable`；会话快照多了 `fast`，模型多了 `fast`，偏好多了 `lastFast`。
 
 ### 状态栏（M1.8，2026-10-10 定）
 

@@ -71,6 +71,12 @@ export const FAUX_GATES_ENV = "FAUX_PI_GATES";
 export const FAUX_PID_FILE = "pi.pid";
 /** The file beside the gates where the faux extension adds each request body, as pi's extensions left it, one JSON per line. */
 export const FAUX_PAYLOADS_FILE = "payloads.jsonl";
+/**
+ * Environment variable giving the faux models a base address of their own, for an extension that
+ * asks next to it, as Fast asks for Codex's model list; not in the script, whose fixture header
+ * would then carry a port that changes each run.
+ */
+export const FAUX_BASE_URL_ENV = "FAUX_PI_BASE_URL";
 /** Environment variable that tells the extension where the script is; not `ATRIUM_*`, which the host keeps from pi. */
 export const FAUX_SCRIPT_ENV = "FAUX_PI_SCRIPT";
 

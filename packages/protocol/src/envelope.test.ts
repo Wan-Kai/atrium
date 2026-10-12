@@ -248,7 +248,7 @@ const model: CatalogModel = {
   maxOutput: 128_000,
   supportsImage: true,
   thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
-  fastCredits: null,
+  fast: null,
 };
 
 /** An extension's selection. */
@@ -867,12 +867,27 @@ describe("CommandResult", () => {
     expect(
       CommandResult.list_models.safeParse({ models: [{ ...model, contextWindow: -1 }], defaultModel: null }).success,
     ).toBe(false);
-    expect(
-      CommandResult.list_models.parse({ models: [{ ...model, fastCredits: 2.5 }], defaultModel: null }),
-    ).toStrictEqual({ models: [{ ...model, fastCredits: 2.5 }], defaultModel: null });
-    expect(
-      CommandResult.list_models.safeParse({ models: [{ ...model, fastCredits: 0 }], defaultModel: null }).success,
-    ).toBe(false);
+    for (const fast of [
+      { speed: 2, moreUsage: true },
+      { speed: 1.5, moreUsage: false },
+      { speed: null, moreUsage: true },
+    ]) {
+      expect(CommandResult.list_models.parse({ models: [{ ...model, fast }], defaultModel: null })).toStrictEqual({
+        models: [{ ...model, fast }],
+        defaultModel: null,
+      });
+    }
+    for (const fast of [
+      { speed: 0, moreUsage: true },
+      { speed: 101, moreUsage: true },
+      { speed: 2 },
+      { speed: 2, moreUsage: true, credits: 2.5 },
+      2.5,
+    ]) {
+      expect(CommandResult.list_models.safeParse({ models: [{ ...model, fast }], defaultModel: null }).success).toBe(
+        false,
+      );
+    }
     const setup = {
       pi: {
         state: "broken",

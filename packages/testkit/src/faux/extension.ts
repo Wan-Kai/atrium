@@ -10,6 +10,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs
 import { dirname, join } from "node:path";
 import {
   FAUX_API,
+  FAUX_BASE_URL_ENV,
   FAUX_GATES_ENV,
   FAUX_PAYLOADS_FILE,
   FAUX_PID_FILE,
@@ -131,7 +132,8 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * the host's one-shot call for a title, answers the script's `title` instead, or an error without
  * one, and leaves `pi.pid` to the session's pi (SPEC-0001, "自动生成标题"). Each request's body, as
  * pi's extensions leave it, goes into `payloads.jsonl` beside the gates, and the models can stand in
- * for a real provider (`script.provider`), as Fast's test needs (ADR-0008). Two commands cover the
+ * for a real provider (`script.provider`), at a base address of the test's (`FAUX_PI_BASE_URL`), as
+ * Fast's test needs (ADR-0008). Two commands cover the
  * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具"); a third navigates the
  * session tree, the only way to make a branch inside one session file.
  *
@@ -181,14 +183,16 @@ export default function fauxExtension(pi: ExtensionApi): void {
       };
     }),
   );
-  // The faux provider takes no thinking map, so it is added to the models it made.
+  // The faux provider takes no thinking map, so it is added to the models it made; each model
+  // carries its own base address, so a test's goes on each.
+  const baseUrl = process.env[FAUX_BASE_URL_ENV] ?? faux.getModel().baseUrl;
   const models = faux.models.map((model) => {
     const map = script.models?.find((extra) => extra.id === model.id)?.thinkingLevelMap;
-    return map === undefined ? model : { ...model, thinkingLevelMap: { ...map } };
+    return { ...model, baseUrl, ...(map === undefined ? {} : { thinkingLevelMap: { ...map } }) };
   });
   pi.registerProvider(script.provider ?? FAUX_PROVIDER, {
     api: faux.api,
-    baseUrl: faux.getModel().baseUrl,
+    baseUrl,
     apiKey: "faux-key",
     models,
     streamSimple: (model, context, options) => faux.provider.streamSimple(model, context, options),

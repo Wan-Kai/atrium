@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PiDeps } from "../deps";
 import { PiRequestError } from "../process/pi-process";
-import { queryModels } from "./query";
+import { type QueryOptions, queryModels } from "./query";
 
 /** One log call. */
 interface LogRecord {
@@ -43,12 +43,14 @@ const opus = {
  * @param behavior - What the fake pi does.
  * @param signal - Aborts the query.
  * @param onLog - Sees each log record as it is written.
+ * @param options - The query's options.
  * @returns The query's outcome, the logs, the open resources and the directory.
  */
 async function query(
   behavior: ScriptedPiBehavior,
   signal = new AbortController().signal,
   onLog: (fields: Readonly<Record<string, unknown>>) => void = () => undefined,
+  options: QueryOptions = {},
 ) {
   const dir = await createTempDir("query-models");
   cleanups.push(dir.cleanup);
@@ -78,7 +80,8 @@ async function query(
     })(),
     env: { PATH: process.env["PATH"] ?? "" },
   };
-  const outcome = await queryModels({ piPath: fake.piPath, args: [], cwd: dir.path, env: fake.env }, deps, signal).then(
+  const launch = { piPath: fake.piPath, args: [], cwd: dir.path, env: fake.env };
+  const outcome = await queryModels(launch, deps, signal, options).then(
     (list) => ({ list }),
     (error: unknown) => ({ error }),
   );
@@ -123,7 +126,7 @@ describe("queryModels", () => {
             maxOutput: 128_000,
             supportsImage: true,
             thinkingLevels: ["off", "minimal", "low", "medium", "high", "xhigh"],
-            fastCredits: null,
+            fast: null,
           },
           {
             providerId: "anthropic",
@@ -133,7 +136,7 @@ describe("queryModels", () => {
             maxOutput: 128_000,
             supportsImage: true,
             thinkingLevels: ["off"],
-            fastCredits: null,
+            fast: null,
           },
         ],
         defaultModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
@@ -259,5 +262,214 @@ describe("queryModels", () => {
 
     expect(outcome).toStrictEqual({ error: new PiRequestError("get_available_models", "aborted") });
     expect(open.get("pi-process")).toBeUndefined();
+  });
+});
+
+/** ChatGPT's GPT-5.5, as pi lists it. */
+const gpt = {
+  ...opus,
+  id: "gpt-5.5",
+  name: "GPT-5.5",
+  api: "openai-codex-responses",
+  provider: "openai-codex",
+  baseUrl: "https://chatgpt.com/backend-api",
+};
+
+/** Where the host keeps the Fast extension; the scripted pi only shows it got it. */
+const FAST_EXTENSION = "/atrium/fast/extension.ts";
+
+/** Atrium's switch, as pi lists it once the extension is loaded. */
+const SWITCH = { name: "atrium-fast", description: "Atrium's Fast switch", source: "extension" };
+
+/** The models and state a pi with ChatGPT's login answers: GPT-5.5, 6 and 6.1-sol, and Opus. */
+const CODEX_RULES = {
+  get_available_models: {
+    data: {
+      models: [opus, gpt, { ...gpt, id: "gpt-6", name: "GPT-6" }, { ...gpt, id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }],
+    },
+  },
+  get_state: { data: { model: gpt, thinkingLevel: "off", sessionId: "probe" } },
+  get_commands: { data: { commands: [SWITCH] } },
+};
+
+/**
+ * The status the extension sets, as pi prints it.
+ *
+ * @remarks
+ * pi sends it before answering the prompt that ran the command (pi-internals.md §5).
+ *
+ * @sideEffects none
+ * @param text - The status text.
+ * @param key - The status key.
+ * @returns The record.
+ */
+function status(text: string, key = "atrium-fast") {
+  return { type: "extension_ui_request", id: "status-1", method: "setStatus", statusKey: key, statusText: text };
+}
+
+/**
+ * What Fast does for each model a query listed.
+ *
+ * @remarks
+ * The rest of each model is checked by the tests above.
+ *
+ * @sideEffects none
+ * @param outcome - The query's outcome.
+ * @returns Each model's id with its `fast`.
+ */
+function fastOfEach(outcome: Awaited<ReturnType<typeof query>>["outcome"]): Record<string, unknown> {
+  if (!("list" in outcome)) throw new Error("the query failed");
+  return Object.fromEntries(outcome.list.models.map((model) => [model.modelId, model.fast]));
+}
+
+/**
+ * The commands a scripted pi received, from its stderr.
+ *
+ * @remarks
+ * For a scripted pi with `receivedToStderr`.
+ *
+ * @sideEffects none
+ * @param logs - The query's logs.
+ * @returns Each command as received.
+ */
+function received(logs: readonly LogRecord[]): Record<string, unknown>[] {
+  return logs.flatMap((log) => {
+    const line = log.message === "pi stderr" ? String(log.fields["line"]) : "";
+    return line.startsWith('{"received"') ? [(JSON.parse(line) as { received: Record<string, unknown> }).received] : [];
+  });
+}
+
+/** What the built-in rule gives. */
+const FALLBACK = { speed: null, moreUsage: true };
+
+describe("queryModels with the Fast extension", () => {
+  it("has pi load it and asks it for Codex's model list, which decides Fast for the models it names", async () => {
+    const report = {
+      models: [
+        { id: "gpt-5.5", fast: null },
+        { id: "gpt-6.1-sol", fast: { speed: 2, moreUsage: true } },
+      ],
+    };
+    const { outcome, logs } = await query(
+      {
+        argvToStderr: true,
+        receivedToStderr: true,
+        rules: {
+          ...CODEX_RULES,
+          prompt: {
+            events: [status(JSON.stringify(report)), status('{"failure":"other"}', "other")],
+            data: { disposition: "handled" },
+          },
+        },
+      },
+      undefined,
+      undefined,
+      { fastExtension: FAST_EXTENSION },
+    );
+
+    expect(fastOfEach(outcome)).toStrictEqual({
+      "claude-opus-5-5": null,
+      "gpt-5.5": null,
+      "gpt-6": FALLBACK,
+      "gpt-6.1-sol": { speed: 2, moreUsage: true },
+    });
+    expect(outcome).toMatchObject({ list: { defaultModel: { providerId: "openai-codex", modelId: "gpt-5.5" } } });
+    const line = logs.find((log) => log.message === "pi stderr")?.fields["line"];
+    expect(JSON.parse(String(line))).toMatchObject({
+      argv: ["--mode", "rpc", "--extension", FAST_EXTENSION, "--no-session"],
+    });
+    expect(received(logs).map(({ type, message }) => [type, message])).toStrictEqual([
+      ["get_available_models", undefined],
+      ["get_state", undefined],
+      ["get_commands", undefined],
+      ["prompt", "/atrium-fast tiers"],
+    ]);
+    expect(logs.filter((log) => log.message === "fast tiers unavailable")).toStrictEqual([]);
+  });
+
+  it.each([
+    ["a failure", [status('{"failure":"http_401"}')], "http_401"],
+    ["a report that does not fit", [status('{"models":[{"id":"gpt-5.5","fast":2.5}]}')], "no_report"],
+    ["no report", [], "no_report"],
+  ])("goes by the built-in rule after %s, logging only its code", async (_case, events, failure) => {
+    const { outcome, logs } = await query(
+      { rules: { ...CODEX_RULES, prompt: { events, data: { disposition: "handled" } } } },
+      undefined,
+      undefined,
+      { fastExtension: FAST_EXTENSION },
+    );
+
+    expect(fastOfEach(outcome)).toStrictEqual({
+      "claude-opus-5-5": null,
+      "gpt-5.5": FALLBACK,
+      "gpt-6": FALLBACK,
+      "gpt-6.1-sol": FALLBACK,
+    });
+    expect(logs.filter((log) => log.message === "fast tiers unavailable").map((log) => log.fields)).toStrictEqual([
+      { failure },
+    ]);
+  });
+
+  it.each([
+    ["does not answer in time", { silent: true } as const, "pi_timeout"],
+    ["refuses the prompt", { fail: "no" }, "pi_rejected"],
+  ])("goes by the built-in rule when pi %s, and stops pi", async (_case, rule, failure) => {
+    const { outcome, logs, open } = await query({ rules: { ...CODEX_RULES, prompt: rule } }, undefined, undefined, {
+      fastExtension: FAST_EXTENSION,
+      fastTiersWaitMs: 200,
+    });
+
+    expect(fastOfEach(outcome)["gpt-5.5"]).toStrictEqual(FALLBACK);
+    expect(logs.filter((log) => log.message === "fast tiers unavailable").map((log) => log.fields)).toStrictEqual([
+      { failure },
+    ]);
+    expect(open.get("pi-process")).toBe(0);
+  });
+
+  it("stops pi when aborted while the extension asks", async () => {
+    const controller = new AbortController();
+
+    const { outcome, open } = await query(
+      { receivedToStderr: true, rules: { ...CODEX_RULES, prompt: { silent: true } } },
+      controller.signal,
+      abortOnReceipt(controller, "prompt"),
+      { fastExtension: FAST_EXTENSION },
+    );
+
+    expect(outcome).toMatchObject({ error: { name: "PiRequestError", command: "prompt", reason: "aborted" } });
+    expect(open.get("pi-process")).toBe(0);
+  });
+
+  it.each([
+    [
+      "pi lists no switch of the extension's",
+      { ...CODEX_RULES, get_commands: { data: { commands: [{ ...SWITCH, source: "prompt" }] } } },
+      ["get_available_models", "get_state", "get_commands"],
+    ],
+    [
+      "pi lists none of ChatGPT's models",
+      { ...CODEX_RULES, get_available_models: { data: { models: [opus, { ...gpt, provider: "openai" }] } } },
+      ["get_available_models", "get_state"],
+    ],
+  ])("asks nothing more when %s", async (_case, rules, types) => {
+    const { outcome, logs } = await query({ receivedToStderr: true, rules }, undefined, undefined, {
+      fastExtension: FAST_EXTENSION,
+    });
+
+    expect("list" in outcome).toBe(true);
+    expect(received(logs).map(({ type }) => type)).toStrictEqual(types);
+    expect(logs.filter((log) => log.message === "fast tiers unavailable")).toStrictEqual([]);
+  });
+
+  it("goes by the built-in rule without the extension, asking pi nothing more", async () => {
+    const { outcome, logs } = await query({ argvToStderr: true, receivedToStderr: true, rules: CODEX_RULES });
+
+    expect(fastOfEach(outcome)).toStrictEqual({
+      "claude-opus-5-5": null,
+      "gpt-5.5": FALLBACK,
+      "gpt-6": FALLBACK,
+      "gpt-6.1-sol": FALLBACK,
+    });
+    expect(received(logs).map(({ type }) => type)).toStrictEqual(["get_available_models", "get_state"]);
   });
 });

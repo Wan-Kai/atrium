@@ -32,7 +32,7 @@ describe("pi contract: models", () => {
           .request({ type: "set_model", provider: FAUX_PROVIDER, modelId: "faux-none" })
           .catch((error: unknown) => error);
 
-        expect(models.map(toCatalogModel)).toStrictEqual([
+        expect(models.map((model) => toCatalogModel(model, null))).toStrictEqual([
           {
             providerId: FAUX_PROVIDER,
             modelId: FAUX_MODEL,
@@ -41,7 +41,7 @@ describe("pi contract: models", () => {
             maxOutput: expect.any(Number),
             supportsImage: true,
             thinkingLevels: ["off", "minimal", "low", "medium", "high"],
-            fastCredits: null,
+            fast: null,
           },
           {
             providerId: FAUX_PROVIDER,
@@ -51,7 +51,7 @@ describe("pi contract: models", () => {
             maxOutput: expect.any(Number),
             supportsImage: false,
             thinkingLevels: ["off"],
-            fastCredits: null,
+            fast: null,
           },
           {
             providerId: FAUX_PROVIDER,
@@ -61,7 +61,7 @@ describe("pi contract: models", () => {
             maxOutput: expect.any(Number),
             supportsImage: true,
             thinkingLevels: ["off", "low", "medium", "high", "max"],
-            fastCredits: null,
+            fast: null,
           },
         ]);
         // Atrium's copy of pi's rule agrees with pi itself for each model it switched to.

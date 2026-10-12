@@ -40,7 +40,7 @@ const LIST: ModelList = {
       maxOutput: 64_000,
       supportsImage: true,
       thinkingLevels: ["off"],
-      fastCredits: null,
+      fast: null,
     },
   ],
   defaultModel: { providerId: "anthropic", modelId: "haiku" },

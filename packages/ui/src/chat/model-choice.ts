@@ -16,8 +16,8 @@ export interface ShownModel extends ModelRef {
   readonly level: ThinkingLevel | null;
   /** Whether it takes images; `null` when the catalog does not list it. */
   readonly supportsImage: boolean | null;
-  /** About how many times the credits it uses with Fast; `null` without Fast or when the catalog does not list it. */
-  readonly fastCredits: number | null;
+  /** What Fast does for it; `null` without Fast or when the catalog does not list it. */
+  readonly fast: CatalogModel["fast"];
 }
 
 /** Each level's name; the four common ones read 低 / 中 / 高 / 极高 (SPEC-0001, "输入框"). */
@@ -116,7 +116,7 @@ export function shownModel(
     levels: listed?.thinkingLevels ?? (level === null ? [] : [level]),
     level,
     supportsImage: listed?.supportsImage ?? null,
-    fastCredits: listed?.fastCredits ?? null,
+    fast: listed?.fast ?? null,
   };
 }
 

@@ -323,7 +323,7 @@ function ModelList({
                 <span className="min-w-0 flex-1">
                   <b className="block truncate text-[length:var(--fs-meta)] font-medium text-[var(--text)]">
                     {model.name}
-                    {model.fastCredits === null ? null : (
+                    {model.fast === null ? null : (
                       <Lightning
                         size={11}
                         weight="fill"

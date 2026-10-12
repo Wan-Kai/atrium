@@ -17,7 +17,7 @@ function model(providerId: string, modelId: string, name: string, fields: Partia
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["low", "medium", "high", "xhigh"],
-    fastCredits: null,
+    fast: null,
     ...fields,
   };
 }
@@ -36,7 +36,7 @@ function shown(listed: CatalogModel, level: ThinkingLevel | null): ShownModel {
     levels: listed.thinkingLevels,
     level,
     supportsImage: listed.supportsImage,
-    fastCredits: listed.fastCredits,
+    fast: listed.fast,
   };
 }
 
@@ -126,7 +126,7 @@ describe("ModelPicker's panel", () => {
   });
 
   it("marks the models with Fast with a bolt after their names", async () => {
-    const fast = model("openai-codex", "gpt-5.5", "GPT-5.5", { fastCredits: 2.5 });
+    const fast = model("openai-codex", "gpt-5.5", "GPT-5.5", { fast: { speed: 1.5, moreUsage: true } });
     const { screen, chip } = await picker(shown(fast, "high"), { ...READY, models: [fast, SOL] });
 
     await userEvent.click(chip);

@@ -1,3 +1,4 @@
+import type { CatalogModel } from "@atrium/protocol";
 import { useId } from "react";
 import { Lightning } from "../design/icons";
 
@@ -7,23 +8,23 @@ import { Lightning } from "../design/icons";
  * @remarks
  * SPEC-0001 ("输入框", "Fast"): a round button styled as "+", an outlined grey bolt while off and a
  * filled one in the tint colour while on. The card above it says whether Fast is on, about how
- * much faster and how many times the credits, and that it applies from the next request; it shows
- * as the status bar's cards do, on hover and on keyboard focus. Only shown for a model with Fast,
- * which its caller decides.
+ * much faster ("更快" when unknown) and whether it uses more credits, as Codex's model list says,
+ * and that it applies from the next request; it shows as the status bar's cards do, on hover and
+ * on keyboard focus. Only shown for a model with Fast, which its caller decides.
  *
  * @sideEffects none
- * @param props - Whether Fast is on, the model's credits multiplier, whether it is disabled, and
+ * @param props - Whether Fast is on, what Fast does for the model, whether it is disabled, and
  * what pressing does.
  * @returns The button.
  */
 export function FastToggle({
   enabled,
-  credits,
+  fast,
   disabled,
   onToggle,
 }: {
   readonly enabled: boolean;
-  readonly credits: number;
+  readonly fast: NonNullable<CatalogModel["fast"]>;
   readonly disabled: boolean;
   readonly onToggle: (enabled: boolean) => void;
 }) {
@@ -55,7 +56,8 @@ export function FastToggle({
         </p>
         <div className="my-1.5 h-px bg-[var(--line)]" />
         <p className="text-[length:var(--fs-sm)] leading-relaxed text-[var(--text-muted)]">
-          约 1.5 倍速度，额度消耗约 {credits} 倍
+          {fast.speed === null ? "更快" : `约 ${String(fast.speed)} 倍速度`}
+          {fast.moreUsage ? "，额度消耗增加" : null}
           <br />
           从下一次请求开始生效
         </p>

@@ -618,7 +618,7 @@ describe("ConversationArea's model button", () => {
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["off", "low", "medium", "high"] as const,
-    fastCredits: null,
+    fast: null,
   };
   const HAIKU = { ...OPUS, modelId: "haiku", name: "Haiku", thinkingLevels: ["off"] as const };
   const LIST = {
@@ -738,14 +738,14 @@ describe("ConversationArea's Fast button", () => {
     maxOutput: 128_000,
     supportsImage: true,
     thinkingLevels: ["low", "medium", "high"],
-    fastCredits: 2.5,
+    fast: { speed: 2, moreUsage: true },
   } as const;
   const OPUS = {
     ...GPT,
     providerId: "anthropic",
     modelId: "claude-opus-5-5",
     name: "Claude Opus 5.5",
-    fastCredits: null,
+    fast: null,
   };
   const LIST = {
     status: "ready" as const,
@@ -773,7 +773,7 @@ describe("ConversationArea's Fast button", () => {
     await userEvent.hover(fast);
     await expect.element(screen.getByRole("tooltip")).toBeVisible();
     expect(screen.getByRole("tooltip").element().textContent).toBe(
-      "Fast 未开启约 1.5 倍速度，额度消耗约 2.5 倍从下一次请求开始生效",
+      "Fast 未开启约 2 倍速度，额度消耗增加从下一次请求开始生效",
     );
     await userEvent.click(fast);
 
@@ -784,24 +784,26 @@ describe("ConversationArea's Fast button", () => {
     expect(modelCalls.filter((call) => call.startsWith("setFast"))).toStrictEqual(["setFast s1 on", "setFast s1 off"]);
   });
 
-  it("says how many times the credits the model uses with Fast", async () => {
+  it.each([
+    [{ speed: 1.5, moreUsage: false }, "约 1.5 倍速度"],
+    [{ speed: null, moreUsage: true }, "更快，额度消耗增加"],
+    [{ speed: null, moreUsage: false }, "更快"],
+  ])("says what Fast does for the model, as Codex's list says: %o", async (fast, says) => {
     const { client } = fakeClient(
       {},
-      { models: { ...LIST, models: [{ ...GPT, modelId: "gpt-5.4", thinkingLevels: [], fastCredits: 2 }] } },
+      { models: { ...LIST, models: [{ ...GPT, modelId: "gpt-6-sol", thinkingLevels: [], fast }] } },
     );
     const screen = await render(
       tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
     );
 
-    client.session("s1")?.setState({ model: { ...ON_GPT, modelId: "gpt-5.4" }, fast: true });
+    client.session("s1")?.setState({ model: { ...ON_GPT, modelId: "gpt-6-sol" }, fast: true });
 
-    const fast = screen.getByRole("button", { name: "Fast", exact: true });
-    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
-    await userEvent.hover(fast);
+    const button = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(button).toHaveAttribute("aria-pressed", "true");
+    await userEvent.hover(button);
     await expect.element(screen.getByRole("tooltip")).toBeVisible();
-    expect(screen.getByRole("tooltip").element().textContent).toBe(
-      "Fast 已开启约 1.5 倍速度，额度消耗约 2 倍从下一次请求开始生效",
-    );
+    expect(screen.getByRole("tooltip").element().textContent).toBe(`Fast 已开启${says}从下一次请求开始生效`);
   });
 
   it("shows Fast as chosen last before a session exists, and creates the session to switch it", async () => {
@@ -1090,7 +1092,7 @@ describe("ConversationArea's images", () => {
               maxOutput: 1,
               supportsImage: false,
               thinkingLevels: ["off"],
-              fastCredits: null,
+              fast: null,
             },
           ],
           defaultModel: null,

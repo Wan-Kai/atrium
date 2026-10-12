@@ -106,7 +106,7 @@ function model(providerId: string, modelId: string): CatalogModel {
     maxOutput: 64_000,
     supportsImage: true,
     thinkingLevels: [],
-    fastCredits: null,
+    fast: null,
   };
 }
 

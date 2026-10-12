@@ -250,6 +250,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         { piPath: found.pi.piPath, args: [], cwd: dir },
         createPiDeps({ clock, resources, logger, env: found.env }),
         signal,
+        config.fastExtension === undefined ? {} : { fastExtension: config.fastExtension },
       );
     },
     clock,
