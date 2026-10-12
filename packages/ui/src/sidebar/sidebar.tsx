@@ -20,7 +20,7 @@ import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { UpdateDot } from "../settings/settings-panel";
 import { piUpdateAvailable } from "../setup/pi-version";
 import { useClock } from "../state/clock";
-import { ArchiveDialog, ArchivedWorkspaces } from "./archive";
+import { ArchiveDialog, ArchivedWorkspaces, describeRestoreError } from "./archive";
 import {
   chatName,
   isDone,
@@ -85,7 +85,7 @@ export function describeProjectError(error: unknown, projects: readonly Project[
   if (error.code === "path_not_found") return "这个目录不存在";
   if (error.code === "chat_not_found") return "这个对话已经不在了";
   if (error.code === "name_taken") return `已经有一个叫「${String(error.params?.["name"] ?? "")}」的项目了`;
-  if (error.code === "worktree_restore_failed") return "没能恢复：目录已被占用，或分支已删除、正被别处检出";
+  if (error.code === "worktree_restore_failed") return describeRestoreError(error);
   return "宿主出错了，没有完成";
 }
 

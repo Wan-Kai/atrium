@@ -237,6 +237,8 @@ export function createSessionManager(options: {
   const asking = new Map<string, ReadonlyMap<string, number>>();
   /** `prompt`s on their way, by session, so a draft is not discarded under one. */
   const prompting = new Map<string, number>();
+  /** Drafts being discarded, which a message or an open waits for (SPEC-0001, "close_tab"). */
+  const discarding = new Map<string, Promise<void>>();
   /** Drafts created by this host, which start on open, unlike drafts restored (domain-model, "已决定 7, 9"). */
   const created = new Set<string>();
   /** Sessions being started, so a second start waits for the first. */
@@ -945,6 +947,39 @@ export function createSessionManager(options: {
     await sessions.get(sessionId)?.controller.shutdown();
   }
 
+  /**
+   * Discards a draft whose last tab closed: stops its pi, forgets it, and removes its chat's
+   * directory when it was the chat's only session.
+   *
+   * @remarks
+   * Stopping waits for a start under way, during which a message may come or a client open it
+   * again: looked at once more after, it is kept then, and its pi starts again for them (SPEC-0001,
+   * "close_tab"). A chat whose directory went leaves every layout too.
+   *
+   * @sideEffects Stops pi; writes the index; may remove a directory, change layouts and scan.
+   * @param sessionId - The draft.
+   * @param entry - Its catalog entry.
+   */
+  async function discard(sessionId: string, entry: { readonly containerId: string; readonly cwd: string }) {
+    await stopSession(sessionId);
+    if ((prompting.get(sessionId) ?? 0) > 0 || options.layouts.isOpen(sessionId)) return;
+    forget(sessionId);
+    await options.catalog.forget(sessionId);
+    // Only a chat's own directory, only when no other session is in it, and only while empty
+    // (domain-model, "已决定 13").
+    const alone = !options.catalog.list().some((other) => other.containerId === entry.containerId);
+    if (isChatId(entry.containerId) && alone) {
+      const removed = await rmdir(entry.cwd).then(
+        () => true,
+        () => false,
+      );
+      if (removed) await options.layouts.forgetContainers([entry.containerId]);
+      // The chat goes with its directory.
+      inBackground("session scan", () => options.catalog.scan());
+    }
+    options.onChange();
+  }
+
   return {
     async createChat(clientId) {
       const name = options.newId();
@@ -953,8 +988,8 @@ export function createSessionManager(options: {
       try {
         return { sessionId: await create(clientId, chatIdOf(name), cwd) };
       } catch (error) {
-        // Only the directory just made, and only while empty.
-        await rmdir(cwd).catch(() => undefined);
+        // Only the directory just made, only while empty, and only if no session was recorded in it.
+        if (!options.catalog.list().some((entry) => entry.cwd === cwd)) await rmdir(cwd).catch(() => undefined);
         throw error;
       }
     },
@@ -982,6 +1017,8 @@ export function createSessionManager(options: {
       if (entry === undefined) return {};
       // Starting needs the session's file, which only a scan finds.
       await options.catalog.ready();
+      // A discard under way sees the tab, keeps the draft, and its pi starts again here.
+      await discarding.get(sessionId)?.catch(() => undefined);
       const found = entryOf(sessionId);
       // A session handed off waits for "在 Atrium 里继续" (SPEC-0001, "交给终端").
       if (found.handedOff) return {};
@@ -1003,18 +1040,13 @@ export function createSessionManager(options: {
       // A start under way is no message: `stopSession` waits for it and stops its pi.
       const busyNow = (prompting.get(sessionId) ?? 0) > 0;
       if (entry?.state === "draft" && empty && !busyNow && !options.layouts.isOpen(sessionId)) {
-        await stopSession(sessionId);
-        forget(sessionId);
-        await options.catalog.forget(sessionId);
-        // Only a chat's own directory, only when no other session is in it, and only while empty
-        // (domain-model, "已决定 13").
-        const alone = !options.catalog.list().some((other) => other.containerId === entry.containerId);
-        if (isChatId(entry.containerId) && alone) {
-          await rmdir(entry.cwd).catch(() => undefined);
-          // The chat goes with its directory.
-          inBackground("session scan", () => options.catalog.scan());
+        const going = discard(sessionId, entry);
+        discarding.set(sessionId, going);
+        try {
+          await going;
+        } finally {
+          discarding.delete(sessionId);
         }
-        options.onChange();
       }
       return {};
     },
@@ -1069,6 +1101,8 @@ export function createSessionManager(options: {
       const { sessionId } = command;
       prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
       try {
+        // A discard under way sees this message, keeps the draft, and its pi starts again here.
+        await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
         entryOf(sessionId);
         notHandedOff(sessionId);
@@ -1085,6 +1119,8 @@ export function createSessionManager(options: {
       const { sessionId } = command;
       prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
       try {
+        // A discard under way sees this message, keeps the draft, and its pi starts again here.
+        await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
         entryOf(sessionId);
         notHandedOff(sessionId);
@@ -1141,7 +1177,10 @@ export function createSessionManager(options: {
     },
     async fetchImage(command) {
       // pi keeps the image in the session file, so it is read from there rather than kept here.
-      const entryId = controllerOf(command.sessionId).entryOfTurn(command.turnId);
+      const controller = controllerOf(command.sessionId);
+      // A turn that just ended is tied to its entry by the read its end started.
+      await controller.entriesRead();
+      const entryId = controller.entryOfTurn(command.turnId);
       const { file } = entryOf(command.sessionId);
       const image = entryId === null || file === null ? null : await readUserImage(file, entryId, command.index);
       if (image === null) throw new CommandError("image_unavailable");

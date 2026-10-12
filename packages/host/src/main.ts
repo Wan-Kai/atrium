@@ -341,6 +341,18 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     // New worktrees may hold sessions started in a terminal.
     sessions.rescan();
   });
+  const archiver = createWorkspaceArchiver({
+    projects,
+    git,
+    sessions,
+    // A restored worktree is scanned again, and its changes worked out.
+    refresh: (workspaceId) => {
+      workspaces.refresh(workspaceId);
+      changes.refresh(workspaceId);
+    },
+    clock,
+    logger,
+  });
   const indexCommands = createIndexCommands({
     projects,
     workspaces: {
@@ -354,18 +366,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       },
     },
     sessions,
-    archiver: createWorkspaceArchiver({
-      projects,
-      git,
-      sessions,
-      // A restored worktree is scanned again, and its changes worked out.
-      refresh: (workspaceId) => {
-        workspaces.refresh(workspaceId);
-        changes.refresh(workspaceId);
-      },
-      clock,
-      logger,
-    }),
+    archiver,
     preferences,
     chats: () => catalog.chats(),
     chatNames,
@@ -590,7 +591,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    * `RunningHost.close` runs this once and hands every later caller the same promise, so closing
    * twice (a test's own call plus its cleanup) waits for the first close instead of failing.
    *
-   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; cancels the login, the install job and the update check under way; stops login checks, scans,
+   * @sideEffects Cancels the report timer; aborts tool detection; closes the server; waits for the
+   * archive or restore under way; cancels the login, the install job and the update check under way; stops login checks, scans,
    * fetches and every session's pi; finishes writing the index; flushes spans and logs; closes
    * the log file; releases the host lock.
    */
@@ -598,6 +600,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     cancelReport();
     await toolbox.close();
     await server.close();
+    // Before the sessions and the index, which an archive or restore under way still uses.
+    await archiver.close();
     await loginService.close();
     await installs.close();
     await piLatest.close();

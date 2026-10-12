@@ -57,7 +57,7 @@ export function createIndexCommands(options: {
   /** `refresh` works out a workspace's merge state and changes again. */
   readonly workspaces: Pick<WorkspaceService, "windowFocused" | "refresh">;
   readonly sessions: Pick<SessionManager, "forgetWorkspaces" | "rescan">;
-  readonly archiver: WorkspaceArchiver;
+  readonly archiver: Pick<WorkspaceArchiver, "archive" | "restore">;
   readonly preferences: PreferenceStore;
   /** The chats there are (`SessionCatalog.chats`). */
   readonly chats: () => readonly ContainerDir[];

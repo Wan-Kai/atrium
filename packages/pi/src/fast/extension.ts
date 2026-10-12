@@ -167,6 +167,8 @@ async function askCodex(ctx: FastContext): Promise<FastReport> {
   }
   const tiers = tiersFromModelList(body);
   if (tiers === null) return { failure: "not_a_list" };
+  // An empty list names no model; the built-in rule does better than giving none Fast.
+  if (tiers.size === 0) return { failure: "empty_list" };
   return { models: [...tiers].map(([id, fast]) => ({ id, fast })) };
 }
 

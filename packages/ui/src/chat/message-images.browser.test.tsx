@@ -86,6 +86,29 @@ function later() {
   return state;
 }
 
+/**
+ * A host whose first answer waits for `release` and has no image, and whose later ones have it.
+ *
+ * @remarks
+ * As for a turn that ended while its image was asked for.
+ *
+ * @sideEffects none until answered; counts the answers.
+ * @returns The release and the answer for the fake client.
+ */
+function slowFirst() {
+  const gate = Promise.withResolvers<void>();
+  let asked = 0;
+  return {
+    release: () => gate.resolve(),
+    answer: async () => {
+      asked += 1;
+      if (asked > 1) return { mimeType: "image/png" as const, data: "eA==" };
+      await gate.promise;
+      return undefined;
+    },
+  };
+}
+
 describe("MessageThumbnails", () => {
   it("shows the previews of a message sent from here and fetches the images of others, each on its own", async () => {
     const { value, loads } = images(onlyTheFirst);
@@ -171,9 +194,14 @@ describe("messageImages", () => {
     const again = messageImages(client, "s1");
     const other = messageImages(client, "s2");
 
-    await expect(one.load("t1", 0)).rejects.toStrictEqual(new CommandError("image_unavailable"));
+    await expect(one.load("t1", 0, true)).rejects.toStrictEqual(new CommandError("image_unavailable"));
     host.has = true;
-    const loaded = await Promise.all([one.load("t1", 0), again.load("t1", 0), other.load("t1", 0), one.load("t1", 1)]);
+    const loaded = await Promise.all([
+      one.load("t1", 0, true),
+      again.load("t1", 0, true),
+      other.load("t1", 0, true),
+      one.load("t1", 1, true),
+    ]);
 
     expect(loaded).toStrictEqual(Array.from({ length: 4 }, () => "data:image/webp;base64,eA=="));
     expect(calls).toStrictEqual([
@@ -184,13 +212,27 @@ describe("messageImages", () => {
     ]);
   });
 
+  it("asks again once the turn has ended, though the ask from while it ran is still on its way", async () => {
+    const host = slowFirst();
+    const { client, calls } = fakeClient({}, { image: host.answer });
+    const shown = messageImages(client, "s1");
+
+    const running = shown.load("t1", 0, false);
+    const ended = shown.load("t1", 0, true);
+    host.release();
+
+    await expect(running).rejects.toStrictEqual(new CommandError("image_unavailable"));
+    expect(await ended).toBe("data:image/png;base64,eA==");
+    expect(calls).toStrictEqual(["fetchImage s1 t1 0", "fetchImage s1 t1 0"]);
+  });
+
   it("keeps the latest 100 fetched images", async () => {
     const { client, calls } = fakeClient({}, { image: async () => ({ mimeType: "image/png", data: "eA==" }) });
     const shown = messageImages(client, "s1");
 
-    for (let turn = 0; turn <= 100; turn += 1) await shown.load(`t${turn}`, 0);
-    await shown.load("t1", 0);
-    await shown.load("t0", 0);
+    for (let turn = 0; turn <= 100; turn += 1) await shown.load(`t${turn}`, 0, true);
+    await shown.load("t1", 0, true);
+    await shown.load("t0", 0, true);
 
     expect(calls.slice(-1)).toStrictEqual(["fetchImage s1 t0 0"]);
     expect(calls).toHaveLength(102);

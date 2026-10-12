@@ -66,14 +66,15 @@ describe("toCatalogModel", () => {
     });
   });
 
-  it("gives a model what Fast does for it, by Codex's model list or the built-in rule", () => {
+  it("gives a model what Fast does for it, by Codex's model list, or the built-in rule without one", () => {
     const tiers = new Map([["gpt-6-sol", { speed: 1.5, moreUsage: false }]]);
 
     expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-6-sol" }), tiers)?.fast).toStrictEqual({
       speed: 1.5,
       moreUsage: false,
     });
-    expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-5.5" }), tiers)?.fast).toStrictEqual({
+    expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-5.5" }), tiers)?.fast).toBeNull();
+    expect(toCatalogModel(piModel({ provider: "openai-codex", id: "gpt-5.5" }), null)?.fast).toStrictEqual({
       speed: null,
       moreUsage: true,
     });

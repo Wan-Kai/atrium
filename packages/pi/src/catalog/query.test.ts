@@ -346,7 +346,7 @@ function received(logs: readonly LogRecord[]): Record<string, unknown>[] {
 const FALLBACK = { speed: null, moreUsage: true };
 
 describe("queryModels with the Fast extension", () => {
-  it("has pi load it and asks it for Codex's model list, which decides Fast for the models it names", async () => {
+  it("has pi load it and asks it for Codex's model list, which decides Fast", async () => {
     const report = {
       models: [
         { id: "gpt-5.5", fast: null },
@@ -379,7 +379,7 @@ describe("queryModels with the Fast extension", () => {
     expect(fastOfEach(outcome)).toStrictEqual({
       "claude-opus-5-5": null,
       "gpt-5.5": null,
-      "gpt-6": FALLBACK,
+      "gpt-6": null,
       "gpt-6.1-sol": { speed: 2, moreUsage: true },
     });
     expect(outcome).toMatchObject({ list: { defaultModel: { providerId: "openai-codex", modelId: "gpt-5.5" } } });

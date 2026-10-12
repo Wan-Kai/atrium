@@ -99,7 +99,7 @@ describe("queryModels against pi", () => {
     expect(list).toStrictEqual({ models: [], defaultModel: null });
   });
 
-  it("has the Fast extension ask Codex's model list, which decides Fast for the models it names", async () => {
+  it("has the Fast extension ask Codex's model list, which decides Fast", async () => {
     const { dir, piPath } = await setUp();
     const list = await startModelListServer();
     cleanups.push(() => list.close());
@@ -119,7 +119,8 @@ describe("queryModels against pi", () => {
       [FAUX_MODEL]: null,
       "gpt-6-sol": { speed: 1.5, moreUsage: false },
       "gpt-5.5": null,
-      "gpt-6": { speed: null, moreUsage: true },
+      // Not in the list, so no Fast, though the built-in rule would give it.
+      "gpt-6": null,
     });
     expect(list.requests).toHaveLength(1);
   });

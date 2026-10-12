@@ -50,9 +50,15 @@ async function scene(): Promise<GitScene> {
  * @param repo - The scene.
  * @param worktrees - The worktrees to record as workspaces.
  * @param git - git, or `null` for none.
+ * @param stopping - What else happens while a workspace's sessions stop, as a running pi might do.
  * @returns The archiver, the services, the sessions' calls, the scans asked for, the clock and logs.
  */
-async function archiver(repo: GitScene, worktrees: readonly string[], git: GitRunner | null = realGit()) {
+async function archiver(
+  repo: GitScene,
+  worktrees: readonly string[],
+  git: GitRunner | null = realGit(),
+  stopping: (dir: string) => Promise<unknown> = async () => undefined,
+) {
   const index = await createTempDir("index");
   onTestFinished(index.cleanup);
   const { file } = await loadIndexFile(index.path, PROJECTS_FILE, 0);
@@ -84,6 +90,7 @@ async function archiver(repo: GitScene, worktrees: readonly string[], git: GitRu
     sessions: {
       stopWorkspace: async (workspaceId) => {
         calls.push(`stop ${workspaceId} ${(await there(dirOf(workspaceId))) ? "there" : "gone"}`);
+        await stopping(dirOf(workspaceId));
       },
       archiveWorkspace: async (workspaceId) => {
         calls.push(`archive ${workspaceId} ${(await there(dirOf(workspaceId))) ? "there" : "gone"}`);
@@ -294,24 +301,127 @@ describe("WorkspaceArchiver.archive", () => {
     expect(JSON.stringify(records)).not.toContain(locked);
   });
 
-  it("fails without git, or when git cannot list worktrees or read the worktree's status", async () => {
+  it("checks again once the sessions have stopped, refusing what changed meanwhile and keeping the commit then", async () => {
     const repo = await scene();
-    const feature = await repo.worktree("feature");
-    const withoutGit = await archiver(repo, [feature], null);
-    const id = present(withoutGit.ids[feature], "feature");
-    const failing = await archiver(repo, [feature], failingGit(["worktree", "list"]));
-    const unreadable = await archiver(repo, [feature], failingGit(["status"]));
+    const changed = await repo.worktree("changed");
+    const loose = await repo.worktree("loose");
+    await repo.git(loose, "checkout", "--quiet", "--detach");
+    const moved = await repo.worktree("moved");
+    const all = [changed, loose, moved];
+    const { archive, projects, ids, calls } = await archiver(repo, all, realGit(), async (dir) =>
+      writeFile(join(dir, "late.txt"), "late"),
+    );
+    const latest: string[] = [];
+    // Committing what the late write left, as pi might after the check, in two of them.
+    const committing = await archiver(repo, all, realGit(), async (dir) => {
+      await writeFile(join(dir, "late.txt"), "late");
+      latest.push(await repo.commit(dir, "late.txt", "late"));
+    });
 
-    const failures = await Promise.all(
-      [withoutGit, failing, unreadable].map(({ archive }) => archive.archive(id).catch((error: unknown) => error)),
+    const failure = await archive.archive(present(ids[changed], "changed")).catch((error: unknown) => error);
+    const later = await Promise.all(
+      [loose, moved].map((dir) => committing.archive.archive(present(ids[dir], dir)).catch((error: unknown) => error)),
     );
 
-    expect(failures).toStrictEqual(Array.from({ length: 3 }, () => new CommandError("worktree_remove_failed")));
-    expect([failing.records, unreadable.records].map(logged)).toStrictEqual([
+    expect([failure, ...later]).toStrictEqual([
+      new CommandError("workspace_dirty"),
+      new CommandError("workspace_unsaved_commits"),
+      undefined,
+    ]);
+    expect(calls).toStrictEqual([`stop ${String(ids[changed])} there`]);
+    expect(await Promise.all(all.map((dir) => there(dir)))).toStrictEqual([true, true, false]);
+    expect([
+      archivedOf(projects, present(ids[changed], "changed")),
+      archivedOf(committing.projects, present(ids[loose], "loose")),
+    ]).toStrictEqual([null, null]);
+    expect(archivedOf(committing.projects, present(ids[moved], "moved"))).toStrictEqual({
+      at: 1_000,
+      branch: "moved",
+      head: latest[1],
+    });
+  });
+
+  it("marks the workspace archived before removing the directory, and unmarks it when git will not remove it", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const locked = await repo.worktree("locked");
+    await repo.git(repo.repo, "worktree", "lock", "--", locked);
+    const seen: unknown[] = [];
+    let look = nothing;
+    const { archive, projects, ids } = await archiver(
+      repo,
+      [feature, locked],
+      watchingGit(["worktree", "remove"], () => look()),
+    );
+    const head = await repo.git(feature, "rev-parse", "HEAD");
+    look = () =>
+      seen.push(
+        archivedOf(projects, present(ids[feature], "feature")),
+        archivedOf(projects, present(ids[locked], "locked")),
+      );
+
+    await archive.archive(present(ids[feature], "feature"));
+    const failure = await archive.archive(present(ids[locked], "locked")).catch((error: unknown) => error);
+
+    expect(failure).toStrictEqual(new CommandError("worktree_remove_failed"));
+    expect(seen).toStrictEqual([
+      { at: 1_000, branch: "feature", head },
+      null,
+      { at: 1_000, branch: "feature", head },
+      { at: 1_000, branch: "locked", head },
+    ]);
+    expect(archivedOf(projects, present(ids[locked], "locked"))).toBeNull();
+  });
+
+  it("gives git ten minutes to remove or add a worktree's directory, and its usual time for the rest", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const seen: unknown[][] = [];
+    const { archive, ids } = await archiver(repo, [feature], timedGit(seen));
+    const id = present(ids[feature], "feature");
+    // Registering the project ran git too.
+    seen.splice(0);
+
+    await archive.archive(id);
+    await archive.restore(id);
+
+    expect(seen).toStrictEqual([
+      ["worktree list", null],
+      ["status --porcelain", null],
+      ["worktree list", null],
+      ["status --porcelain", null],
+      ["worktree remove", 600_000],
+      ["worktree list", null],
+      ["worktree prune", null],
+      ["show-ref --verify", null],
+      ["worktree add", 600_000],
+    ]);
+  });
+
+  it("fails without git, or when git cannot list worktrees, read the worktree's status or find what holds its commit", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const loose = await repo.worktree("loose");
+    await repo.git(loose, "checkout", "--quiet", "--detach");
+    const withoutGit = await archiver(repo, [feature, loose], null);
+    const id = present(withoutGit.ids[feature], "feature");
+    const looseId = present(withoutGit.ids[loose], "loose");
+    const failing = await archiver(repo, [feature, loose], failingGit(["worktree", "list"]));
+    const unreadable = await archiver(repo, [feature, loose], failingGit(["status"]));
+    const unheld = await archiver(repo, [feature, loose], failingGit(["for-each-ref"]));
+
+    const failures = await Promise.all([
+      ...[withoutGit, failing, unreadable].map(({ archive }) => archive.archive(id).catch((error: unknown) => error)),
+      unheld.archive.archive(looseId).catch((error: unknown) => error),
+    ]);
+
+    expect(failures).toStrictEqual(Array.from({ length: 4 }, () => new CommandError("worktree_remove_failed")));
+    expect([failing.records, unreadable.records, unheld.records].map(logged)).toStrictEqual([
       [["worktree list failed", id, 128]],
       [["worktree status failed", id, 128]],
+      [["worktree holders failed", looseId, 128]],
     ]);
-    expect(await there(feature)).toBe(true);
+    expect(await Promise.all([feature, loose].map((dir) => there(dir)))).toStrictEqual([true, true]);
   });
 });
 
@@ -343,6 +453,48 @@ function failingGit(failing: readonly string[]): GitRunner {
       failing.every((arg, at) => args[at] === arg)
         ? Promise.resolve({ code: 128, stdout: "", stderr: "" })
         : git.run(args, options),
+  };
+}
+
+/**
+ * Does nothing; what a test looks at before it says what to look at.
+ *
+ * @sideEffects none
+ */
+function nothing(): void {}
+
+/**
+ * Real git that calls `look` just before running commands starting with `watched`.
+ *
+ * @sideEffects none until run; then calls `look` and runs git.
+ * @param watched - The first arguments of the commands to watch.
+ * @param look - What to do before them.
+ * @returns The runner.
+ */
+function watchingGit(watched: readonly string[], look: () => void): GitRunner {
+  const git = realGit();
+  return {
+    run: (args, options) => {
+      if (watched.every((arg, at) => args[at] === arg)) look();
+      return git.run(args, options);
+    },
+  };
+}
+
+/**
+ * Real git that notes each command's first two arguments and the time it was given.
+ *
+ * @sideEffects none until run; then appends to `seen` and runs git.
+ * @param seen - Where to note them; `null` for git's usual time.
+ * @returns The runner.
+ */
+function timedGit(seen: unknown[][]): GitRunner {
+  const git = realGit();
+  return {
+    run: (args, options) => {
+      seen.push([args.slice(0, 2).join(" "), options.timeoutMs ?? null]);
+      return git.run(args, options);
+    },
   };
 }
 
@@ -399,36 +551,39 @@ describe("WorkspaceArchiver.restore", () => {
     expect(refreshed).toStrictEqual([id]);
   });
 
-  it("refuses a directory something else took, a branch gone or checked out elsewhere, and a worktree it knows nothing of", async () => {
+  it("refuses, saying why, a directory something else took, a branch gone even if a remote has one of its name, one checked out elsewhere, and a worktree it knows nothing of", async () => {
     const repo = await scene();
     const taken = await repo.worktree("taken");
     const deleted = await repo.worktree("deleted");
+    const pushed = await repo.worktree("pushed");
+    await repo.git(pushed, "push", "--quiet", "origin", "pushed");
+    await repo.git(repo.repo, "fetch", "--quiet", "origin");
     const busy = await repo.worktree("busy");
     const unknown = await repo.worktree("unknown");
-    const { archive, projects, ids, records } = await archiver(repo, [taken, deleted, busy, unknown]);
+    const all = [taken, deleted, pushed, busy, unknown];
+    const { archive, projects, ids, records } = await archiver(repo, all);
     const id = (dir: string) => present(ids[dir], dir);
-    for (const dir of [taken, deleted, busy]) await archive.archive(id(dir));
+    for (const dir of [taken, deleted, pushed, busy]) await archive.archive(id(dir));
     await mkdir(taken);
     await repo.git(repo.repo, "branch", "--quiet", "-D", "deleted");
+    await repo.git(repo.repo, "branch", "--quiet", "-D", "pushed");
     await repo.git(repo.repo, "worktree", "add", "--quiet", "--", join(repo.root, "elsewhere"), "busy");
     await rm(unknown, { recursive: true });
     await projects.setArchived(id(unknown), { at: 1, branch: null, head: null });
 
-    const failures = await Promise.all(
-      [taken, deleted, busy, unknown].map((dir) => archive.restore(id(dir)).catch((error: unknown) => error)),
-    );
+    const failures = await Promise.all(all.map((dir) => archive.restore(id(dir)).catch((error: unknown) => error)));
 
-    expect(failures).toStrictEqual(Array.from({ length: 4 }, () => new CommandError("worktree_restore_failed")));
-    expect([taken, deleted, busy, unknown].map((dir) => archivedOf(projects, id(dir)) !== null)).toStrictEqual([
-      true,
-      true,
-      true,
-      true,
+    expect(failures).toStrictEqual([
+      new CommandError("worktree_restore_failed", { reason: "dir_taken" }),
+      new CommandError("worktree_restore_failed", { reason: "branch_gone" }),
+      new CommandError("worktree_restore_failed", { reason: "branch_gone" }),
+      new CommandError("worktree_restore_failed"),
+      new CommandError("worktree_restore_failed", { reason: "no_branch" }),
     ]);
-    expect(logged(records)).toStrictEqual([
-      ["worktree add failed", id(deleted), 128],
-      ["worktree add failed", id(busy), 128],
-    ]);
+    expect(all.map((dir) => archivedOf(projects, id(dir)) !== null)).toStrictEqual([true, true, true, true, true]);
+    expect(await Promise.all([deleted, pushed].map((dir) => there(dir)))).toStrictEqual([false, false]);
+    expect(await repo.git(repo.repo, "branch", "--list", "pushed")).toBe("");
+    expect(logged(records)).toStrictEqual([["worktree add failed", id(busy), 128]]);
   });
 
   it("refuses an unknown workspace, and fails without git or when git cannot list worktrees", async () => {
@@ -457,6 +612,23 @@ describe("WorkspaceArchiver.restore", () => {
 });
 
 describe("WorkspaceArchiver one at a time", () => {
+  it("closes once the archive or restore under way has ended, failed or not", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const { archive, projects, ids } = await archiver(repo, [feature]);
+    const local = present(ids[repo.repo], "local");
+    const id = present(ids[feature], "feature");
+    const failed = archive.archive(local).catch((error: unknown) => error);
+    const archived = archive.archive(id);
+
+    await archive.close();
+
+    expect(archivedOf(projects, id)).not.toBeNull();
+    expect(await there(feature)).toBe(false);
+    await archived;
+    await failed;
+  });
+
   it("restores a workspace asked to be restored while it was being archived", async () => {
     const repo = await scene();
     const feature = await repo.worktree("feature");

@@ -629,6 +629,26 @@ describe("createSessionController on cases the fixtures do not show", () => {
     expect(events.at(-1)).toMatchObject({ type: "session_snapshot", epoch: 2 });
   });
 
+  it("waits for the read under way, which ties a turn just ended to its entry, and for nothing without one", async () => {
+    const { pi, emit, pages } = manualPi();
+    const { controller } = control(pi);
+    const read = Promise.withResolvers<EntriesPage>();
+    pages.push(() => read.promise);
+    await controller.entriesRead();
+    await controller.prompt(prompt("q1", "a"));
+    emit({ type: "agent_start" }, userEnd("a"), replyEnd("stop", [{ type: "text", text: "b" }]), {
+      type: "agent_settled",
+    });
+    const turnId = present(controller.snapshot().items[0], "the turn").id;
+
+    const waited = controller.entriesRead();
+    const before = controller.entryOfTurn(turnId);
+    read.resolve({ entries: [userEntry("u1", null, "a")], leafId: "u1" });
+    await waited;
+
+    expect([before, controller.entryOfTurn(turnId)]).toStrictEqual([null, "u1"]);
+  });
+
   it("does not read while a run goes on, or once pi has exited", async () => {
     const { pi, emit, since, crash } = manualPi();
     control(pi);

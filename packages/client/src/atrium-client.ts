@@ -620,9 +620,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * Switches a session's Fast at once in its view, and puts it back if the host refuses.
    *
    * @remarks
-   * Only `set_fast` changes a session's Fast, so the host has the Fast it took last; a refused
-   * switch goes back to it once no other switch is on its way, since one on its way decides
-   * instead. A session the client does not watch shows nothing.
+   * The host has the Fast it took last, here or from another client (`fast_updated`, or a
+   * snapshot); a refused switch goes back to it once no other switch is on its way, since one on
+   * its way decides instead. A session the client does not watch shows nothing.
    *
    * @sideEffects Updates the session's view; sends the command.
    * @param sessionId - The session.
@@ -868,9 +868,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * Hands one event to its session's view.
    *
    * @remarks
-   * Events for sessions no longer watched are dropped.
+   * Events for sessions no longer watched are dropped. The Fast an event reports is what the host
+   * has, which a refused switch goes back to (`switchFast`).
    *
-   * @sideEffects Updates a view; may start a resync.
+   * @sideEffects Updates a view and the Fast switches on their way; may start a resync.
    * @param event - The event.
    */
   function deliver(event: SessionEvent): void {
@@ -884,6 +885,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     }
     // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
     view.setState(next, true);
+    const guessing = fastGuesses.get(event.sessionId);
+    if (guessing !== undefined && (event.type === "fast_updated" || event.type === "session_snapshot")) {
+      guessing.reported = next.fast;
+    }
   }
 
   /**

@@ -13,7 +13,12 @@ export interface WorkspaceArchiver {
   archive(workspaceId: string): Promise<void>;
   /** Adds an archived workspace's worktree back where it was, and shows the workspace again. */
   restore(workspaceId: string): Promise<void>;
+  /** Waits for the archive or restore under way, for the host to stop after it. */
+  close(): Promise<void>;
 }
+
+/** How long git may take to remove or add a worktree's directory, which may hold a large `node_modules`. */
+const WORKTREE_TIMEOUT_MS = 600_000;
 
 /** What archiving a workspace does to the sessions in it. */
 export interface WorkspaceSessions {
@@ -31,12 +36,18 @@ export interface WorkspaceSessions {
  * - only a worktree is archived; its directory goes by `git worktree remove` without `--force`,
  *   and its branch and commits stay in the repository;
  * - nothing is lost: a worktree with changes, untracked files included, or detached at a commit
- *   no branch, remote branch or tag holds is refused before anything happens, checked by git on
- *   the spot rather than by the last scan;
- * - its sessions' pi stop before the removal, and the sessions are archived only once the
- *   directory is gone; a worktree whose directory had already gone is archived without git;
+ *   no branch, remote branch or tag holds is refused, checked by git on the spot rather than by
+ *   the last scan: before anything happens, and again once its sessions' pi have stopped, as they
+ *   may have changed it meanwhile;
+ * - the index marks the workspace archived, with the branch and commit of the second check,
+ *   before the directory goes, and unmarks it if git will not remove it; a crash between leaves
+ *   it archived with its directory there, which restoring only shows again;
+ * - the sessions are archived only once the directory is gone; a worktree whose directory had
+ *   already gone is archived without git;
  * - restoring adds the worktree back on its branch, or detached at its commit, after pruning
- *   registrations whose directories are gone; one already back is only shown again;
+ *   registrations whose directories are gone; a branch deleted since is not restored, as git
+ *   would start it afresh from a remote one of that name; one already back is only shown again;
+ * - removing and adding a directory may take git ten minutes;
  * - the directory only ever comes from the index, after `--`; logs carry the workspace's id and
  *   git's exit code, never paths or branches.
  *
@@ -101,13 +112,14 @@ export function createWorkspaceArchiver(options: {
    * @sideEffects none until called; then runs git.
    * @param record - The workspace.
    * @param git - git.
-   * @returns The runner.
+   * @returns The runner, taking the arguments, the directory and how long git may take.
    */
   function runnerOf(record: WorkspaceRecord, git: GitRunner) {
     // A workspace's record goes with its project's, so the project is always there.
     // Stryker disable next-line StringLiteral,OptionalChaining: never used, as the line above says.
     const path = options.projects.projects().find((project) => project.id === record.projectId)?.path ?? "";
-    return (args: string[], cwd = path) => git.run(args, { cwd });
+    return (args: string[], cwd = path, timeoutMs?: number) =>
+      git.run(args, timeoutMs === undefined ? { cwd } : { cwd, timeoutMs });
   }
 
   /**
@@ -143,7 +155,7 @@ export function createWorkspaceArchiver(options: {
    */
   async function listedOf(
     record: WorkspaceRecord,
-    run: (args: string[]) => Promise<{ readonly code: number; readonly stdout: string }>,
+    run: ReturnType<typeof runnerOf>,
     failure: "worktree_remove_failed" | "worktree_restore_failed",
   ): Promise<{ listed: ListedWorktree | undefined; present: ListedWorktree | undefined }> {
     const listing = await run(["worktree", "list", "--porcelain"]);
@@ -155,6 +167,85 @@ export function createWorkspaceArchiver(options: {
     return { listed, present: listed !== undefined && (await isDirectory(record.dir)) ? listed : undefined };
   }
 
+  /**
+   * Lists the workspace's worktree and refuses it if archiving would lose anything.
+   *
+   * @remarks
+   * Run before the sessions stop and again after, as they may have changed it meanwhile; see
+   * `createWorkspaceArchiver`.
+   *
+   * @sideEffects Runs git; reads the file system; logs git's failures.
+   * @param record - The workspace.
+   * @param run - Runs git.
+   * @returns The listed worktree, if any, and it again when present.
+   * @throws {CommandError} `workspace_dirty`, `workspace_unsaved_commits` or `worktree_remove_failed`.
+   */
+  async function checked(record: WorkspaceRecord, run: ReturnType<typeof runnerOf>) {
+    const listing = await listedOf(record, run, "worktree_remove_failed");
+    const { present } = listing;
+    if (present === undefined) return listing;
+    const status = await run(["status", "--porcelain"], record.dir);
+    if (status.code !== 0) {
+      options.logger.warn({ workspaceId: record.id, code: status.code }, "worktree status failed");
+      throw new CommandError("worktree_remove_failed");
+    }
+    if (status.stdout !== "") throw new CommandError("workspace_dirty");
+    // Stryker disable next-line ConditionalExpression: a branch holds its own commit, so asking changes nothing.
+    if (present.branch === null) {
+      const holders = await run([
+        "for-each-ref",
+        // Stryker disable next-line StringLiteral: only keeps git from listing every holder.
+        "--count=1",
+        "--contains",
+        present.head,
+        "refs/heads",
+        "refs/remotes",
+        "refs/tags",
+      ]);
+      if (holders.code !== 0) {
+        options.logger.warn({ workspaceId: record.id, code: holders.code }, "worktree holders failed");
+        throw new CommandError("worktree_remove_failed");
+      }
+      if (holders.stdout === "") throw new CommandError("workspace_unsaved_commits");
+    }
+    return listing;
+  }
+
+  /**
+   * Adds an archived workspace's worktree back, refusing what cannot be.
+   *
+   * @remarks
+   * See `createWorkspaceArchiver`; `params.reason` says why for the UI (SPEC-0001, "M1.11 的工作区
+   * 归档"), and is absent when git failed.
+   *
+   * @sideEffects Runs git; adds the worktree; reads the file system; logs git's failures.
+   * @param record - The workspace.
+   * @param archived - What its archiving recorded.
+   * @param run - Runs git.
+   * @throws {CommandError} `worktree_restore_failed`.
+   */
+  async function addBack(
+    record: WorkspaceRecord,
+    archived: NonNullable<WorkspaceRecord["archived"]>,
+    run: ReturnType<typeof runnerOf>,
+  ): Promise<void> {
+    const target = archived.branch ?? archived.head;
+    if (target === null) throw new CommandError("worktree_restore_failed", { reason: "no_branch" });
+    if (await exists(record.dir)) throw new CommandError("worktree_restore_failed", { reason: "dir_taken" });
+    // A registration whose directory went would keep git from adding one at the same path.
+    await run(["worktree", "prune"]);
+    if (archived.branch !== null) {
+      const branch = await run(["show-ref", "--verify", "--quiet", `refs/heads/${archived.branch}`]);
+      if (branch.code !== 0) throw new CommandError("worktree_restore_failed", { reason: "branch_gone" });
+    }
+    // Given a commit rather than a branch, git adds the worktree detached at it.
+    const added = await run(["worktree", "add", "--quiet", "--", record.dir, target], undefined, WORKTREE_TIMEOUT_MS);
+    if (added.code !== 0) {
+      options.logger.warn({ workspaceId: record.id, code: added.code }, "worktree add failed");
+      throw new CommandError("worktree_restore_failed");
+    }
+  }
+
   return {
     archive: (workspaceId) =>
       oneAtATime(async () => {
@@ -162,44 +253,23 @@ export function createWorkspaceArchiver(options: {
         if (record.kind === "local") throw new CommandError("workspace_is_local", { workspaceId });
         if ((record.archived ?? null) !== null) return;
         const run = runnerOf(record, await gitOr("worktree_remove_failed"));
-        const { listed, present } = await listedOf(record, run, "worktree_remove_failed");
-        if (present !== undefined) {
-          const status = await run(["status", "--porcelain"], record.dir);
-          if (status.code !== 0) {
-            options.logger.warn({ workspaceId, code: status.code }, "worktree status failed");
-            throw new CommandError("worktree_remove_failed");
-          }
-          if (status.stdout !== "") throw new CommandError("workspace_dirty");
-          // Stryker disable next-line ConditionalExpression: a branch holds its own commit, so asking changes nothing.
-          if (present.branch === null) {
-            // Git prints nothing when no ref holds the commit, and when it fails.
-            const holders = await run([
-              "for-each-ref",
-              // Stryker disable next-line StringLiteral: only keeps git from listing every holder.
-              "--count=1",
-              "--contains",
-              present.head,
-              "refs/heads",
-              "refs/remotes",
-              "refs/tags",
-            ]);
-            if (holders.stdout === "") throw new CommandError("workspace_unsaved_commits");
-          }
-        }
+        await checked(record, run);
         await options.sessions.stopWorkspace(workspaceId);
-        if (present !== undefined) {
-          const removed = await run(["worktree", "remove", "--", record.dir]);
-          if (removed.code !== 0) {
-            options.logger.warn({ workspaceId, code: removed.code }, "worktree remove failed");
-            throw new CommandError("worktree_remove_failed");
-          }
-        }
-        await options.sessions.archiveWorkspace(workspaceId);
+        const { listed, present } = await checked(record, run);
         await options.projects.setArchived(workspaceId, {
           at: options.clock.now(),
           branch: listed?.branch ?? null,
           head: listed?.head ?? null,
         });
+        if (present !== undefined) {
+          const removed = await run(["worktree", "remove", "--", record.dir], undefined, WORKTREE_TIMEOUT_MS);
+          if (removed.code !== 0) {
+            options.logger.warn({ workspaceId, code: removed.code }, "worktree remove failed");
+            await options.projects.setArchived(workspaceId, null);
+            throw new CommandError("worktree_remove_failed");
+          }
+        }
+        await options.sessions.archiveWorkspace(workspaceId);
       }),
     restore: (workspaceId) =>
       oneAtATime(async () => {
@@ -208,21 +278,11 @@ export function createWorkspaceArchiver(options: {
         if (archived === null) return;
         const run = runnerOf(record, await gitOr("worktree_restore_failed"));
         const { present } = await listedOf(record, run, "worktree_restore_failed");
-        if (present === undefined) {
-          const target = archived.branch ?? archived.head;
-          if (target === null || (await exists(record.dir))) throw new CommandError("worktree_restore_failed");
-          // A registration whose directory went would keep git from adding one at the same path.
-          await run(["worktree", "prune"]);
-          // Given a commit rather than a branch, git adds the worktree detached at it.
-          const added = await run(["worktree", "add", "--quiet", "--", record.dir, target]);
-          if (added.code !== 0) {
-            options.logger.warn({ workspaceId, code: added.code }, "worktree add failed");
-            throw new CommandError("worktree_restore_failed");
-          }
-        }
+        if (present === undefined) await addBack(record, archived, run);
         await options.projects.setArchived(workspaceId, null);
         options.refresh(workspaceId);
       }),
+    close: () => last.then(() => undefined),
   };
 }
 

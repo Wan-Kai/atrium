@@ -375,6 +375,7 @@ describe("atriumFast", () => {
       (response: ServerResponse) => response.writeHead(200).end('{"data":[]}'),
       "not_a_list",
     ],
+    ["an empty list", (response: ServerResponse) => response.writeHead(200).end('{"models":[]}'), "empty_list"],
     ["a dropped connection", (response: ServerResponse) => response.socket?.destroy(), "unreachable"],
   ])("reports a failure for %s, with nothing of the server's text", async (_case, answer, failure) => {
     const list = await server(answer);
@@ -385,7 +386,7 @@ describe("atriumFast", () => {
     expect(pi.statuses).toStrictEqual([["atrium-fast", JSON.stringify({ failure })]]);
   });
 
-  it("asks Codex in the background at the first on, going by the built-in rule until it answers and by the list after", async () => {
+  it("asks Codex in the background at the first on, going by the built-in rule until it answers and by the list alone after", async () => {
     const held: ServerResponse[] = [];
     const list = await server((response) => held.push(response));
     const pi = codex(list.baseUrl);
@@ -413,7 +414,7 @@ describe("atriumFast", () => {
     expect(priorities(fast, ids)).toStrictEqual({
       "gpt-6.1-sol": true,
       "gpt-5.5": false,
-      "gpt-6": true,
+      "gpt-6": false,
       "gpt-5.4": true,
     });
     expect(list.requests).toHaveLength(1);
@@ -439,6 +440,7 @@ describe("atriumFast", () => {
 
     expect(looked).toBe(1);
     expect(pi.statuses.at(-1)).toStrictEqual(["atrium-fast", '{"failure":"http_500"}']);
-    expect(priorities(fast, ["gpt-5.5", "gpt-6"])).toStrictEqual({ "gpt-5.5": false, "gpt-6": true });
+    // A model the list does not name has no Fast; without the list, the built-in rule would give gpt-6 Fast.
+    expect(priorities(fast, ["gpt-5.5", "gpt-6"])).toStrictEqual({ "gpt-5.5": false, "gpt-6": false });
   });
 });

@@ -7,7 +7,7 @@ export interface MessageImages {
   /** The previews of a message sent from this page, by its `clientMessageId`; `null` for others. */
   sent(clientMessageId: string): readonly string[] | null;
   /** One image of a turn's message, as a `data:` address; rejects when the host has none. */
-  load(turnId: string, index: number): Promise<string>;
+  load(turnId: string, index: number, settled: boolean): Promise<string>;
 }
 
 /** The images of the conversation shown; none outside one. */
@@ -30,7 +30,8 @@ const fetched = new WeakMap<AtriumClient, Map<string, Promise<string>>>();
  * at a time with `fetch_image` (SPEC-0001, "M1.11 的消息图片"). The page keeps the latest
  * {@link KEPT_IMAGES} fetched images of all sessions, so scrolling back or switching tabs does not
  * fetch them again; one the host did not have is not kept, so a turn that ran on can be asked
- * again once it ends.
+ * again once it ends. An ask from while the turn ran is not reused once it has ended, as its
+ * answer may come too early.
  *
  * @sideEffects Keeps the client's fetched images; loading one sends `fetch_image`.
  * @param client - The client.
@@ -42,8 +43,8 @@ export function messageImages(client: AtriumClient, sessionId: string): MessageI
   fetched.set(client, kept);
   return {
     sent: (clientMessageId) => client.sentPreviews(clientMessageId),
-    load(turnId, index) {
-      const key = `${sessionId}\n${turnId}\n${index}`;
+    load(turnId, index, settled) {
+      const key = `${sessionId}\n${turnId}\n${index}\n${String(settled)}`;
       const known = kept.get(key);
       if (known !== undefined) return known;
       const loading = client
@@ -93,7 +94,7 @@ export function MessageThumbnails({ count, turnId, clientMessageId, settled }: M
         ? previews.map((src, index) => <Shown key={index} src={src} index={index} />)
         : Array.from({ length: count }, (_, index) => (
             // A new key once the turn ends starts the thumbnail over, which asks again.
-            <Fetched key={`${String(settled)}:${index}`} turnId={turnId} index={index} />
+            <Fetched key={`${String(settled)}:${index}`} turnId={turnId} index={index} settled={settled} />
           ))}
     </div>
   );
@@ -126,10 +127,18 @@ function Shown({ src, index }: { readonly src: string; readonly index: number })
  * asked for again.
  *
  * @sideEffects Loads the image while shown.
- * @param props - The turn and the image's place.
+ * @param props - The turn, the image's place and whether the turn has ended.
  * @returns The thumbnail.
  */
-function Fetched({ turnId, index }: { readonly turnId: string | null; readonly index: number }) {
+function Fetched({
+  turnId,
+  index,
+  settled,
+}: {
+  readonly turnId: string | null;
+  readonly index: number;
+  readonly settled: boolean;
+}) {
   const images = useContext(MessageImagesContext);
   const [state, setState] = useState<{ readonly src: string | null; readonly failed: boolean }>({
     src: null,
@@ -148,7 +157,7 @@ function Fetched({ turnId, index }: { readonly turnId: string | null; readonly i
      */
     const show = async (): Promise<void> => {
       try {
-        const src = await images.load(turnId, index);
+        const src = await images.load(turnId, index, settled);
         if (current) setState({ src, failed: false });
       } catch {
         if (current) setState({ src: null, failed: true });
@@ -158,7 +167,7 @@ function Fetched({ turnId, index }: { readonly turnId: string | null; readonly i
     return () => {
       current = false;
     };
-  }, [images, turnId, index]);
+  }, [images, turnId, index, settled]);
   if (state.src !== null) return <Shown src={state.src} index={index} />;
   return state.failed ? (
     <span

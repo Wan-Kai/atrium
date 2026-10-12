@@ -46,9 +46,9 @@ const MAX_SPEED = 100;
  *
  * @remarks
  * Only ChatGPT's subscription (`openai-codex`); the API key `openai` provider is left out for now
- * (SPEC-0001, "Fast"). Codex's model list decides for the models it names, with or without Fast;
- * a model it does not name, or every model when the list could not be had, goes by the built-in
- * rule, as measured on 2026-10-12 (ADR-0008, point 6). The host and the extension share this rule,
+ * (SPEC-0001, "Fast"). Codex's model list decides: a model it does not name has no Fast. When the
+ * list could not be had, or came empty, every model goes by the built-in rule, as measured on
+ * 2026-10-12 (ADR-0008, point 6). The host and the extension share this rule,
  * so the toggle shows exactly where the extension acts.
  *
  * @sideEffects none
@@ -61,8 +61,7 @@ export function fastOf(
   tiers: FastTiers | null,
 ): FastInfo | null {
   if (model.provider !== CODEX) return null;
-  const listed = tiers?.get(model.id);
-  if (listed !== undefined) return listed;
+  if (tiers !== null && tiers.size > 0) return tiers.get(model.id) ?? null;
   return FALLBACK_MODEL.test(model.id) ? FALLBACK : null;
 }
 

@@ -63,7 +63,7 @@ export const ErrorCode = z.enum([
   "workspace_unsaved_commits",
   /** `git worktree remove` failed: the worktree is locked, holds submodules, or changed meanwhile. */
   "worktree_remove_failed",
-  /** `git worktree add` failed: the directory is taken, or the branch is gone or checked out elsewhere. */
+  /** An archived worktree could not be added back; `params.reason` is `no_branch`, `dir_taken` or `branch_gone`, or absent when git failed. */
   "worktree_restore_failed",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",

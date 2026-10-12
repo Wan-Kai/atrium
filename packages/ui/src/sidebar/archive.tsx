@@ -25,6 +25,25 @@ export function describeArchiveError(error: unknown): string {
 }
 
 /**
+ * Explains why restoring an archived workspace failed, in Chinese.
+ *
+ * @remarks
+ * By the host's `params.reason`, absent when git failed; the wording is SPEC-0001's ("M1.11 的工作区
+ * 归档").
+ *
+ * @sideEffects none
+ * @param error - A `worktree_restore_failed` error.
+ * @returns The sentence.
+ */
+export function describeRestoreError(error: CommandError): string {
+  const reason = error.params?.["reason"];
+  if (reason === "no_branch") return "没能恢复：不知道它归档时的分支";
+  if (reason === "dir_taken") return "没能恢复：目录已被占用";
+  if (reason === "branch_gone") return "没能恢复：分支已删除";
+  return "没能恢复：git 没能加回这个 worktree，分支可能正被别处检出";
+}
+
+/**
  * What archiving keeps, as the confirmation says it.
  *
  * @remarks

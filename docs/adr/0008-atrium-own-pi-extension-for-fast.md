@@ -21,7 +21,7 @@
 **Atrium 自带一个很小的 pi 扩展 `atrium-fast`，只在 Atrium 启动的会话的 pi 里加载，由宿主按会话开关。**
 
 1. **扩展改请求**：开着且当前模型支持时，在 `before_provider_request` 里给请求加上 `service_tier: "priority"`；其他情况原样放过。
-6. **哪些模型支持，问 Codex 的模型列表**（同日修订）：扩展在 pi 进程里借 pi 自己的 ChatGPT 登录（`modelRegistry.getApiKeyAndHeaders`）请求 Codex 的模型列表，`service_tiers` 里有 priority 的模型才有 Fast，速度倍数和是否多耗额度取自它的说明。请求带 `client_version=99.0.0`：列出哪些模型取决于这个版本号，取一个足够高的才不漏（pi-internals.md §5）。宿主查模型列表时让那个短暂的 pi 也加载扩展，发 `/atrium-fast tiers`，扩展查完用 `setStatus` 把"哪些模型有 Fast、几倍速、是否多耗额度"报给宿主；凭据不出 pi。会话的 pi 在 Fast 打开时自己查一次，用来决定改哪些请求。查不到（没登录、断网、接口变了）时退回 `packages/pi` 里的内置规则（GPT-5.5、5.6、6、6.1 系列，2026-10-12 实测的结果），宿主记一条警告。
+6. **哪些模型支持，问 Codex 的模型列表**（同日修订）：扩展在 pi 进程里借 pi 自己的 ChatGPT 登录（`modelRegistry.getApiKeyAndHeaders`）请求 Codex 的模型列表，`service_tiers` 里有 priority 的模型才有 Fast，速度倍数和是否多耗额度取自它的说明；列表里没有的模型没有 Fast。请求带 `client_version=99.0.0`：列出哪些模型取决于这个版本号，取一个足够高的才不漏（pi-internals.md §5）。宿主查模型列表时让那个短暂的 pi 也加载扩展，发 `/atrium-fast tiers`，扩展查完用 `setStatus` 把"哪些模型有 Fast、几倍速、是否多耗额度"报给宿主；凭据不出 pi。会话的 pi 在 Fast 打开时自己查一次，用来决定改哪些请求。查不到（没登录、断网、接口变了、列表是空的）时退回 `packages/pi` 里的内置规则（GPT-5.5、5.6、6、6.1 系列，2026-10-12 实测的结果），宿主记一条警告。
 2. **随应用发布**：源码在 `packages/pi`，构建时打成一个文件放在宿主旁边（和登录程序一样），宿主启动会话的 pi 时用 `--extension <路径>` 加载。路径是参数里唯一的新东西，不含凭据。
 3. **宿主用内部命令开关它**：`prompt` 发 `/atrium-fast on|off`。pi 立即执行扩展命令（运行中也可以），应答 `handled`，不进对话记录、不触发运行。扩展默认关，pi 每次启动后宿主按会话的开关补发。
 4. **不会把命令误发给模型**：宿主只在 pi 的 `get_commands` 里看到扩展的 `atrium-fast` 时才发；扩展没加载上时 Fast 不可用。这个命令不出现在 `/` 菜单里。

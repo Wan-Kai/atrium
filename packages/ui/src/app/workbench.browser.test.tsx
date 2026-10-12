@@ -5,7 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
-import { describeArchiveError } from "../sidebar/archive";
+import { describeArchiveError, describeRestoreError } from "../sidebar/archive";
 import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
@@ -771,7 +771,7 @@ describe("Workbench workspace archiving (M1.11)", () => {
 
     await expect
       .element(screen.getByRole("alert"))
-      .toHaveTextContent("没能恢复：目录已被占用，或分支已删除、正被别处检出");
+      .toHaveTextContent("没能恢复：git 没能加回这个 worktree，分支可能正被别处检出");
   });
 });
 
@@ -793,6 +793,22 @@ describe("describeArchiveError", () => {
       "这个工作区已经不在了",
       "宿主出错了，没有完成",
       "宿主出错了，没有完成",
+    ]);
+  });
+});
+
+describe("describeRestoreError", () => {
+  it("says why restoring failed for each reason, and that git failed without one", () => {
+    const failures = ["no_branch", "dir_taken", "branch_gone", "other"].map(
+      (reason) => new CommandError("worktree_restore_failed", { reason }),
+    );
+
+    expect([...failures, new CommandError("worktree_restore_failed")].map(describeRestoreError)).toStrictEqual([
+      "没能恢复：不知道它归档时的分支",
+      "没能恢复：目录已被占用",
+      "没能恢复：分支已删除",
+      "没能恢复：git 没能加回这个 worktree，分支可能正被别处检出",
+      "没能恢复：git 没能加回这个 worktree，分支可能正被别处检出",
     ]);
   });
 });

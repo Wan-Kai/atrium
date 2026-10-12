@@ -675,7 +675,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - `close_tab(sessionId)`：只改这个客户端的布局。关掉的是还没发过消息的草稿时，丢弃它：停掉 pi、删掉索引里的记录（2026-10-08 定）；它是对话里唯一的会话时，对话的空目录一并删掉（只删空的），对话随之消失（2026-10-12 补）。
 - 同一个客户端改标签和位置的命令（`open_session`、`close_tab`、`select_container`）按收到的顺序生效（2026-10-08 修）。索引里已有记录的会话立刻打开成标签，不等第一次扫描；还不认识的会话才等扫描结束再打开，扫描期间关掉的标签不会在扫描结束后又被打开。启动 pi 仍要等第一次扫描，因为要知道会话文件在哪。第一次扫描要先读出登录 shell 的环境（最坏约 30 秒），界面上的切换和关闭不跟着等，这和 VS Code、Zed 的做法一致。宿主开始关闭后，排着队的这类命令不再执行。
 - 新建的会话记下草稿就打开成标签，不等 pi 启动（2026-10-11 改）：它成为所在容器的激活标签；客户端在发出新建之后换过位置就留在原处，没换过就切过去（2026-10-08 定）。
-- 已知问题：关掉一个空草稿的标签后立刻再打开它，标签可能开着而草稿已被丢弃（记录删掉、pi 停掉）。需要两条命令落在丢弃的那几毫秒里，少见，暂不处理。
+- 丢弃要先等 pi 启动完再停掉它，这期间（最坏约 30 秒）可能有消息发来、或别处又打开了它（2026-10-12 审查后改，原先记为已知问题）：这期间到的 `prompt`、`steer`、`open_session` 等丢弃做完再接着做；pi 停掉后再看一次，有消息在路上或有客户端开着它的标签，就不丢弃，记录和目录都留着，pi 照常再启动。丢弃了对话唯一的会话、删掉了对话的目录时，各客户端的布局里也去掉这个对话，停在这里的客户端回到没有位置。新建会话或对话时布局没写成，对话的目录有了会话的记录就留着，不删。
 - `select_container(containerId | null)`：切换工作区或对话。
 - `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。pi 正在启动时等它启动完再停，不让归档后的会话留着一个 pi（2026-10-10 审查后补；移除工作区同样）。
 - `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。
@@ -751,7 +751,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **Fast**（M1.11，2026-10-12 定，[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)）
 
 - 是什么：OpenAI 的 priority 服务档（对外叫 Fast），请求带 `service_tier: "priority"`，按模型约 1.5～2 倍速度，多数模型额度消耗增加。服务端可能不按 priority 处理，回复里也看不出来（Codex 回复的服务档总是 `default`），所以 Atrium 不声称每一次都提速了。
-- 哪些模型支持：只看 ChatGPT 订阅（`openai-codex`），用 API key 的 `openai` 暂不支持（2026-10-12 定）。以 Codex 的模型列表接口为准（同日修订，ADR-0008 第 6 条）：模型的 `service_tiers` 里有 `priority` 就支持，它的说明里的 `Nx speed` 是速度倍数，有 `increased usage` 就是额度消耗增加。宿主查模型列表（`list_models`）时，短暂的 pi 加载 Atrium 的扩展，宿主确认 `atrium-fast` 命令在、且列表里有 `openai-codex` 的模型后发 `/atrium-fast tiers`，扩展查完经 `setStatus`（键 `atrium-fast`）报回，20 秒为限。查不到时退回内置规则：id 匹配 `^gpt-(5\.[56]|6|6\.1)(?:$|-)`，速度不详、额度增加，宿主只记原因代码。`list_models` 的每个模型新增 `fast`：不支持时是 `null`，支持时是 `{speed, moreUsage}`（`speed` 是倍数或 `null`）。刷新模型列表时一起重查。
+- 哪些模型支持：只看 ChatGPT 订阅（`openai-codex`），用 API key 的 `openai` 暂不支持（2026-10-12 定）。以 Codex 的模型列表接口为准（同日修订，ADR-0008 第 6 条）：模型的 `service_tiers` 里有 `priority` 就支持，它的说明里的 `Nx speed` 是速度倍数，有 `increased usage` 就是额度消耗增加；查到了列表，列表里没有的模型就不支持（2026-10-12 审查后明确）。宿主查模型列表（`list_models`）时，短暂的 pi 加载 Atrium 的扩展，宿主确认 `atrium-fast` 命令在、且列表里有 `openai-codex` 的模型后发 `/atrium-fast tiers`，扩展查完经 `setStatus`（键 `atrium-fast`）报回，20 秒为限。查不到（含查到的列表是空的，原因代码 `empty_list`）时退回内置规则：id 匹配 `^gpt-(5\.[56]|6|6\.1)(?:$|-)`，速度不详、额度增加，宿主只记原因代码。`list_models` 的每个模型新增 `fast`：不支持时是 `null`，支持时是 `{speed, moreUsage}`（`speed` 是倍数或 `null`）。刷新模型列表时一起重查。
 - 怎么生效：pi 核心不传服务档（1.0.2、1.1.0），宿主启动会话的 pi 时用 `--extension` 加载 Atrium 自带的扩展。扩展第一次被打开时在后台查一次 Codex 的模型列表，查到之前和查不到时按内置规则。扩展开着、当前模型支持时，在 `before_provider_request` 里给请求加上 `service_tier: "priority"`，其他请求原样放过。宿主用 `prompt` 发内部命令 `/atrium-fast on` 或 `/atrium-fast off` 开关它：pi 立即执行（运行中也可以），应答 `handled`，不进对话记录。从下一次请求开始生效。
 - 不误发：扩展默认关。pi 启动后宿主从 `get_commands` 里确认扩展的 `atrium-fast` 命令在，才会发这条命令；不在（扩展没加载上）时记一条警告，这个 pi 上 Fast 不可用，`set_fast` 应答 `fast_unavailable`，绝不把 `/atrium-fast on` 当普通消息发出去。`list_commands` 不列出这个命令。
 - 每个会话一份：会话快照新增 `fast: boolean`，是你想不想开，和当前模型支不支持无关，变化时推 `fast_updated`。`set_fast(sessionId, enabled)` 转给 pi，处理和 `set_model` 一样：pi 没在运行就先启动它，`stopping` 期间应答 `session_stopping`。当前模型不支持时也接受：记下开关，换到支持的模型后生效。
@@ -808,7 +808,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 M1.11 的消息图片（协议版本 8，2026-10-12 定）：新增命令 `fetch_image(sessionId, turnId, index)`，应答 `{ mimeType, data }`（base64，不带 `data:` 前缀），新增错误码 `image_unavailable`。
 
 - 来源是 pi 的会话文件：pi 把用户消息连同处理过的图片（png、jpeg、gif、webp，见 pi-internals.md"图片"）写进会话文件，宿主不另存图片，也不保留 `get_entries` 里的图片数据。用户磁盘上的原图删掉、移走都不影响。
-- 宿主由轮找到打开它的用户消息条目：历史轮的 id 里带着条目 id；宿主当场看到的轮在下一次重建时绑定到条目，绑定之前（运行中的轮）应答 `image_unavailable`，界面在这一轮结束后再取。然后在目录里登记的这个会话的文件里按条目 id 找到这条消息，取它的第 `index` 张图片原样返回。
+- 宿主由轮找到打开它的用户消息条目：历史轮的 id 里带着条目 id；宿主当场看到的轮在下一次重建时绑定到条目，绑定之前（运行中的轮）应答 `image_unavailable`，界面在这一轮结束后再取。轮结束后的那次重建还在读时，`fetch_image` 等它读完再找（2026-10-12 审查后补：不然刚结束就来取，绑定还没做完）；界面在轮结束后另取一次，不沿用运行中发出、还没应答的那次。然后在目录里登记的这个会话的文件里按条目 id 找到这条消息，取它的第 `index` 张图片原样返回。
 - 会话文件还没写出或已不在、找不到这条消息或这张图、格式不是上面四种时，应答 `image_unavailable`。格式只认这四种，`data:` 地址里不会出现 SVG 这类能带脚本的图。
 - 文件路径只来自目录，不来自客户端；图片数据不进日志和链路。一次只取一张：一张 base64 可能接近 1 MB（宿主到界面方向没有单条上限，界面到宿主才有）。
 
@@ -816,11 +816,11 @@ M1.11 的工作区归档（协议版本 9，2026-10-12 定）：新增命令 `ar
 
 - 只有 worktree 工作区能归档，本地工作区应答 `workspace_is_local`。归档会删掉 worktree 目录（`git worktree remove`，不加 `--force`），分支和提交都留在仓库里；被 git 忽略的文件（如 `node_modules`、`.env`）随目录一起删掉，确认框里写明。
 - 不让丢东西：worktree 有未提交的改动（`git status --porcelain` 不为空，含未跟踪的文件）时应答 `workspace_dirty`；处于 detached HEAD、当前提交不在任何分支、远程分支或标签上时应答 `workspace_unsaved_commits`。这两项都在删之前由宿主当场检查，不信界面手里的合并状态。
-- 归档的顺序：当场 `git worktree list --porcelain` 找到这个 worktree，记下分支和完整的提交号；检查上面两项；停掉其中会话的 pi；`git worktree remove -- <目录>`，失败（被锁住、含子模块、这期间又有了改动）应答 `worktree_remove_failed`，只记退出码，会话已停但没归档，打开时照常启动；成功后其中会话全部归档（同 `archive_session`，草稿一并归档），从各客户端的布局里去掉，索引记下归档时间、分支和提交。目录已经不在（合并状态"已移除"）时不跑 `remove`，直接归档。已经归档的再归档应答 `{}`。
+- 归档的顺序：当场 `git worktree list --porcelain` 找到这个 worktree，检查上面两项（`git for-each-ref` 查不了时应答 `worktree_remove_failed`）；停掉其中会话的 pi；停完再列一次、再查一遍（检查和停之间 pi 可能又改了文件或提交了），以这次列出的记下分支和完整的提交号；先在索引记下归档时间、分支和提交，再 `git worktree remove -- <目录>`（先记后删：中途崩溃时目录还在的，恢复只清标记；反过来就丢了分支和提交）。删失败（被锁住、含子模块）时撤掉索引里的归档标记，应答 `worktree_remove_failed`，只记退出码，会话已停但没归档，打开时照常启动；成功后其中会话全部归档（同 `archive_session`，草稿一并归档），从各客户端的布局里去掉。目录已经不在（合并状态"已移除"）时不跑 `remove`，直接归档。已经归档的再归档应答 `{}`。`worktree remove` 和恢复时的 `worktree add` 要删或写整个目录（可能有很大的 `node_modules`），超时放到 10 分钟，别的 git 命令仍是 30 秒。宿主关闭时等进行中的归档或恢复做完再写索引、退出。
 - 归档的工作区仍在列表里（带 `archivedAt`），侧栏、搜索、收件箱都不显示它；不能在里面新建会话（`create_session` 应答 `workspace_not_found`）；扫描不再算它的合并状态。之后同一个目录又出现了 worktree，记录不变，仍算归档，恢复时直接用它。
-- `restore_workspace`：目录已经是这个仓库登记着的 worktree 时只清掉归档标记；否则先 `git worktree prune`（清掉目录已不在的登记，否则同一路径加不上），再 `git worktree add -- <目录> <分支>`，归档时是 detached 的把分支换成完整的提交号（git 拿到的不是分支时，加回的 worktree 就停在这个提交上）。目录被别的东西占了、分支已删或正被别的 worktree 检出时应答 `worktree_restore_failed`。成功后清掉标记、重扫这个项目。其中的会话仍是归档的，从"历史"里打开。没归档的再恢复应答 `{}`。
+- `restore_workspace`：目录已经是这个仓库登记着的 worktree 时只清掉归档标记；否则先 `git worktree prune`（清掉目录已不在的登记，否则同一路径加不上），再 `git worktree add -- <目录> <分支>`，归档时是 detached 的把分支换成完整的提交号（git 拿到的不是分支时，加回的 worktree 就停在这个提交上）。加之前先确认本地还有这个分支（`git show-ref --verify --quiet refs/heads/<分支>`）：本地分支删了而远程有同名分支时，git 会从远程新建一个，不是归档时的那个。失败应答 `worktree_restore_failed`，`params.reason` 说明原因：`no_branch`（归档前目录已不在、git 也不再登记，不知道分支和提交）、`dir_taken`（目录被别的东西占了）、`branch_gone`（本地分支已删）；`git worktree add` 本身失败（分支正被别的 worktree 检出、旧的登记被锁住 prune 不掉等）或没有 git 时不带 `reason`。成功后清掉标记、重扫这个项目。其中的会话仍是归档的，从"历史"里打开。没归档的再恢复应答 `{}`。
 - 界面：worktree 工作区的"···"里有"归档…"，合并状态显示有未提交的改动时置灰，悬停说明"有未提交的改动，先提交或丢弃"。点了先弹确认框（每次都弹，因为要删目录）："归档工作区「名称」？"，正文写"会删除 worktree 目录（包括被 git 忽略的文件），分支 xxx 保留；之后可以在项目菜单的"已归档的工作区"里恢复"，detached 时写"提交 abc1234 保留"；其中有会话在运行时另起一行警告"其中 N 个会话正在运行，归档会停止它们"。按钮"取消""归档"，归档进行中按钮写"归档中…"、不能再点；失败时确认框不关，在正文下面说明原因：`workspace_dirty`"有未提交的改动，先提交或丢弃再归档"，`workspace_unsaved_commits`"当前提交不在任何分支上，先建一个分支再归档"，`worktree_remove_failed`"git 没能删除这个 worktree"，`workspace_not_found`"这个工作区已经不在了"，其他"宿主出错了，没有完成"。Esc 或点框外取消。
-- 项目"···"菜单里的"已归档的工作区"展开成一个列表：名称（同侧栏的取名规则）、归档时间（写法同侧栏的最近活动时间，如"昨天"），行尾"恢复"；按归档时间新到旧排。恢复失败在侧栏的问题行说明：`worktree_restore_failed`"没能恢复：目录已被占用，或分支已删除、正被别处检出"。
+- 项目"···"菜单里的"已归档的工作区"展开成一个列表：名称（同侧栏的取名规则）、归档时间（写法同侧栏的最近活动时间，如"昨天"），行尾"恢复"；按归档时间新到旧排。恢复失败在侧栏的问题行说明：`worktree_restore_failed` 按 `reason`，`no_branch`"没能恢复：不知道它归档时的分支"，`dir_taken`"没能恢复：目录已被占用"，`branch_gone`"没能恢复：分支已删除"，没有 `reason`"没能恢复：git 没能加回这个 worktree，分支可能正被别处检出"。
 
 M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {speed, moreUsage} | null`）：新增命令 `set_fast`，新增事件 `fast_updated`，新增错误码 `fast_unavailable`；会话快照多了 `fast`，模型多了 `fast`，偏好多了 `lastFast`。
 

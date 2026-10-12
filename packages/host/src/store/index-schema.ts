@@ -173,8 +173,9 @@ export function layoutsFile(sessions: SessionsDocument): IndexFileSpec<LayoutsDo
  * Moves a version 1 client layout's tabs of the chats to each session's own chat.
  *
  * @remarks
- * Tabs keep their order; the active tab stays active in its chat, and a client that was in the
- * chats goes to that chat, or nowhere without one. A tab whose session has no record, or whose
+ * Tabs keep their order; the active tab stays active in its chat, the first tab is active in each
+ * other chat, which would otherwise show nothing, and a client that was in the chats goes to the
+ * active tab's chat, or nowhere without one. A tab whose session has no record, or whose
  * record is not a chat's, is dropped. Anything a hand broke is left for the schema to judge.
  *
  * @sideEffects none
@@ -192,7 +193,10 @@ function splitChats(client: unknown, containers: ReadonlyMap<string, string>): u
     const chatId = containers.get(sessionId);
     if (chatId === undefined || !chatId.startsWith("cht_")) continue;
     const into = moved[chatId] ?? { open: [], active: null };
-    moved[chatId] = { open: [...into.open, sessionId], active: sessionId === old?.active ? sessionId : into.active };
+    moved[chatId] = {
+      open: [...into.open, sessionId],
+      active: sessionId === old?.active ? sessionId : (into.active ?? sessionId),
+    };
   }
   const active = old?.active ?? null;
   const activeChat = active === null ? undefined : containers.get(active);

@@ -121,7 +121,7 @@ describe("pi contract: Atrium's Fast extension", () => {
         expect(
           list.requests.map(({ url, headers }) => [url, headers["authorization"], headers["originator"]]),
         ).toStrictEqual([["/backend-api/codex/models?client_version=99.0.0", "Bearer faux-key", "pi"]]);
-        expect(await payloads()).toStrictEqual([{ model: "gpt-5.5" }, { model: "gpt-6", service_tier: "priority" }]);
+        expect(await payloads()).toStrictEqual([{ model: "gpt-5.5" }, { model: "gpt-6" }]);
       },
     );
   });

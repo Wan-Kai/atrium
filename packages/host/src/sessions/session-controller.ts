@@ -142,6 +142,8 @@ export interface SessionController {
   fetchStep(command: FetchStepCommand): CommandResult<"fetch_step">;
   /** The entry of the user message that opened a turn; `null` if there is no such turn or it is not tied to one yet. */
   entryOfTurn(turnId: string): string | null;
+  /** Waits for the read of pi's entries under way, if any, which ties a turn just ended to its entry. */
+  entriesRead(): Promise<void>;
   /** Stops pi for good, as the host asks (archiving, closing): no restart follows. */
   shutdown(): Promise<void>;
 }
@@ -455,8 +457,8 @@ export function createSessionController(options: {
   /** The last message sent to pi that pi has neither echoed nor handled nor refused. */
   let unconfirmed: Waiting | null = null;
   let exited = false;
-  /** Whether a refresh is running, and whether another was asked for meanwhile. */
-  let refreshing = false;
+  /** The refresh running, if any, and whether another was asked for meanwhile. */
+  let refreshing: Promise<void> | null = null;
   // Stryker disable next-line BooleanLiteral: the loop clears it before each read.
   let refreshAgain = false;
   let translate = createEventTranslator(() => clock.now());
@@ -707,11 +709,12 @@ export function createSessionController(options: {
    * @sideEffects Calls pi; publishes `notice_added`, or a new epoch's snapshot.
    */
   async function refresh(): Promise<void> {
-    if (refreshing) {
+    if (refreshing !== null) {
       refreshAgain = true;
       return;
     }
-    refreshing = true;
+    const done = Promise.withResolvers<void>();
+    refreshing = done.promise;
     try {
       do {
         refreshAgain = false;
@@ -736,7 +739,8 @@ export function createSessionController(options: {
     } catch (error) {
       options.onRefreshFailed(error);
     } finally {
-      refreshing = false;
+      refreshing = null;
+      done.resolve();
     }
   }
 
@@ -1701,6 +1705,7 @@ export function createSessionController(options: {
       return { step };
     },
     entryOfTurn: (turnId) => transcript.entryOfTurn(turnId),
+    entriesRead: () => refreshing ?? Promise.resolve(),
     async shutdown() {
       shuttingDown = true;
       metrics.close();

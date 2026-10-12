@@ -1378,6 +1378,48 @@ describe("createAtriumClient: models", () => {
     expect(view.getState().fast).toBe(false);
   });
 
+  it("puts Fast back as the host took it last though other events came while a refused switch was on its way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const on = client.setFast("s1", true);
+    latest().receive(event(2, { type: "run_started", runId: "r1", startedAt: 9 }));
+    latest().fail("set_fast", "pi_unavailable", 0);
+    await expect(on).rejects.toStrictEqual(new CommandError("pi_unavailable"));
+
+    expect(view.getState().fast).toBe(false);
+  });
+
+  it("puts Fast back as the host has it after another client switched it while a refused switch was on its way", async () => {
+    const { client, latest } = await watchingWithModel(opus);
+    const view = present(client.session("s1"), "the view of s1");
+
+    const on = client.setFast("s1", true);
+    latest().receive(event(2, { type: "fast_updated", fast: true }));
+    latest().fail("set_fast", "pi_unavailable", 0);
+    await expect(on).rejects.toStrictEqual(new CommandError("pi_unavailable"));
+    const shown = view.getState().fast;
+    const off = client.setFast("s1", false);
+    // A fresh snapshot after a reconnect, another client having switched it off.
+    latest().receive(
+      event(3, {
+        type: "session_snapshot",
+        items: [],
+        hasOlder: false,
+        run: null,
+        exited: false,
+        control: IDLE_CONTROL,
+        model: opus,
+        fast: false,
+        metrics: UNKNOWN_METRICS,
+      }),
+    );
+    latest().fail("set_fast", "pi_unavailable", 1);
+    await expect(off).rejects.toStrictEqual(new CommandError("pi_unavailable"));
+
+    expect([shown, view.getState().fast]).toStrictEqual([true, false]);
+  });
+
   it("keeps what the host took for a switch made while an earlier one is still on its way", async () => {
     const { client, latest } = await watchingWithModel(opus);
     const view = present(client.session("s1"), "the view of s1");

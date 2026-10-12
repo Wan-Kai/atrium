@@ -192,6 +192,7 @@ describe("loadIndex", () => {
         { sessionId: "s2", containerId: "chats", cwd: "/home/.atrium/chats/b", ...record },
         { sessionId: "s3", containerId: "chats", cwd: "/home/.atrium/chats/a", ...record },
         { sessionId: "s4", containerId: "wks_1", cwd: "/work/app", ...record },
+        { sessionId: "s5", containerId: "chats", cwd: "/home/.atrium/chats/b", ...record },
       ],
     };
     const layouts = {
@@ -201,7 +202,7 @@ describe("loadIndex", () => {
           clientId: "in-chats",
           seenAt: 2,
           container: "chats",
-          tabs: { chats: tab(["s1", "s2", "gone", "s4", "s3"], "s3"), wks_1: tab(["s4"], "s4") },
+          tabs: { chats: tab(["s1", "s2", "gone", "s4", "s3", "s5"], "s3"), wks_1: tab(["s4"], "s4") },
         },
         { clientId: "no-active", seenAt: 3, container: "chats", tabs: { chats: tab(["s2"], null) } },
         { clientId: "elsewhere", seenAt: 4, container: "wks_1", tabs: { chats: tab(["s2"], "s2") } },
@@ -219,18 +220,19 @@ describe("loadIndex", () => {
       ["s2", "cht_b"],
       ["s3", "cht_a"],
       ["s4", "wks_1"],
+      ["s5", "cht_b"],
     ]);
     expect(index.layouts.read().clients).toStrictEqual([
       {
         clientId: "in-chats",
         seenAt: 2,
         container: "cht_a",
-        tabs: { wks_1: tab(["s4"], "s4"), cht_a: tab(["s1", "s3"], "s3"), cht_b: tab(["s2"], null) },
+        tabs: { wks_1: tab(["s4"], "s4"), cht_a: tab(["s1", "s3"], "s3"), cht_b: tab(["s2", "s5"], "s2") },
       },
-      { clientId: "no-active", seenAt: 3, container: null, tabs: { cht_b: tab(["s2"], null) } },
+      { clientId: "no-active", seenAt: 3, container: null, tabs: { cht_b: tab(["s2"], "s2") } },
       { clientId: "elsewhere", seenAt: 4, container: "wks_1", tabs: { cht_b: tab(["s2"], "s2") } },
       { clientId: "untouched", seenAt: 5, container: null, tabs: {} },
-      { clientId: "active-not-a-chat", seenAt: 6, container: null, tabs: { cht_b: tab(["s2"], null) } },
+      { clientId: "active-not-a-chat", seenAt: 6, container: null, tabs: { cht_b: tab(["s2"], "s2") } },
     ]);
     expect(JSON.parse(await readFile(join(dir, "layouts.json"), "utf8"))).toMatchObject({ version: 2 });
     expect(JSON.parse(await readFile(join(dir, "sessions.json"), "utf8"))).toMatchObject({ version: 2 });

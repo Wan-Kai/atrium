@@ -42,7 +42,7 @@ describe("fastOf", () => {
     expect(fastOf({ provider, id }, null)).toBeNull();
   });
 
-  it("goes by the list for the models it names, with Fast or without, and by the rule for the rest", () => {
+  it("goes by the list, giving the models it does not name no Fast", () => {
     const tiers: FastTiers = new Map([
       ["gpt-6.1-sol", { speed: 2, moreUsage: true }],
       ["gpt-5.5", null],
@@ -51,7 +51,14 @@ describe("fastOf", () => {
 
     expect(
       ["gpt-6.1-sol", "gpt-5.5", "gpt-5.4", "gpt-6"].map((id) => fastOf({ provider: "openai-codex", id }, tiers)),
-    ).toStrictEqual([{ speed: 2, moreUsage: true }, null, { speed: 1.5, moreUsage: false }, FALLBACK]);
+    ).toStrictEqual([{ speed: 2, moreUsage: true }, null, { speed: 1.5, moreUsage: false }, null]);
+  });
+
+  it("goes by the built-in rule when the list is empty, as when there is none", () => {
+    expect(["gpt-6", "gpt-5.4"].map((id) => fastOf({ provider: "openai-codex", id }, new Map()))).toStrictEqual([
+      FALLBACK,
+      null,
+    ]);
   });
 
   it("gives another provider no Fast whatever the list says", () => {

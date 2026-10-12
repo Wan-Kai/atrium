@@ -391,6 +391,79 @@ describe("SessionManager creating sessions", () => {
     expect(resources.snapshot()["pi-process"]).toBe(0);
     expect(resources.snapshot()["session.controller"]).toBe(0);
   });
+
+  it("keeps a new draft closed while its pi starts when a message comes meanwhile, and sends it", async () => {
+    const at = await place();
+    const tools = Promise.withResolvers<SessionTools | null>();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, catalog, layouts, sent } = await manage(() => tools.promise, at, undefined, scanned.promise);
+    const ready = await scriptedTools(at, {
+      rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } },
+    });
+    const { sessionId } = await manager.createChat("client-1");
+    const closing = manager.closeTab("client-1", sessionId);
+    await vi.waitFor(() => expect(layouts.isOpen(sessionId)).toBe(false));
+    const looked = catalog.ready();
+    scanned.resolve({ directory: at.piSessions, perCwd: false });
+    await looked;
+    // Once this scan ends, the discard has looked at the draft and waits for its pi to start.
+    await catalog.scan();
+
+    const sending = manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    tools.resolve(ready);
+    await closing;
+
+    expect(await sending).toStrictEqual({ disposition: "started" });
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: CHAT });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(sent().filter((command) => command === "prompt")).toStrictEqual(["prompt"]);
+  });
+
+  it("keeps a new draft closed while its pi starts when another client opens it meanwhile, starting its pi again", async () => {
+    const at = await place();
+    const tools = Promise.withResolvers<SessionTools | null>();
+    const scanned = Promise.withResolvers<SessionsLocation | null>();
+    const { manager, catalog, layouts, resources } = await manage(() => tools.promise, at, undefined, scanned.promise);
+    const ready = await scriptedTools(at, { rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+    const closing = manager.closeTab("client-1", sessionId);
+    await vi.waitFor(() => expect(layouts.isOpen(sessionId)).toBe(false));
+    const looked = catalog.ready();
+    scanned.resolve({ directory: at.piSessions, perCwd: false });
+    await looked;
+    // Once this scan ends, the discard has looked at the draft and waits for its pi to start.
+    await catalog.scan();
+
+    const opening = manager.openSession("client-2", sessionId);
+    tools.resolve(ready);
+    await closing;
+    await opening;
+
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: CHAT, state: "draft" });
+    expect(layouts.of("client-2")).toStrictEqual({
+      container: CHAT,
+      tabs: { [CHAT]: { open: [sessionId], active: sessionId } },
+    });
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps a new chat's directory and draft when its tab cannot be written", async () => {
+    const { manager, catalog, at } = await manage({ rules: SESSION_ONE });
+    // A directory where the layouts file goes, so writing it fails.
+    const file = join(at.home, "index", "layouts.json");
+    await rm(file, { force: true });
+    await mkdir(join(file, "taken"), { recursive: true });
+
+    await expect(manager.createChat("client-1")).rejects.toMatchObject({ code: "EISDIR" });
+
+    expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
+    expect(catalog.find("pi-session-1")).toMatchObject({
+      containerId: CHAT,
+      state: "draft",
+      cwd: join(at.home, "chats", "id1"),
+    });
+  });
 });
 
 describe("SessionManager running sessions", () => {
@@ -771,6 +844,11 @@ describe("SessionManager tabs", () => {
 
     expect(catalog.find(sessionId)).toBeUndefined();
     expect(layouts.isOpen(sessionId)).toBe(false);
+    // Neither client stays in the chat gone.
+    expect([layouts.of("client-1"), layouts.of("client-2")]).toStrictEqual([
+      { container: null, tabs: {} },
+      { container: null, tabs: {} },
+    ]);
     expect(await readdir(join(at.home, "chats"))).toStrictEqual([]);
     // The chat goes with its directory.
     await vi.waitFor(() => expect(catalog.chats()).toStrictEqual([]));
@@ -798,13 +876,15 @@ describe("SessionManager tabs", () => {
   });
 
   it("keeps a chat directory that holds files when its empty draft is discarded", async () => {
-    const { manager, at } = await manage({ rules: SESSION_ONE });
+    const { manager, layouts, at } = await manage({ rules: SESSION_ONE });
     const { sessionId } = await manager.createChat("client-1");
     await writeFile(join(at.home, "chats", "id1", "notes.md"), "kept");
 
     await manager.closeTab("client-1", sessionId);
 
     expect(await readdir(join(at.home, "chats", "id1"))).toStrictEqual(["notes.md"]);
+    // The chat is still there, and so is the client.
+    expect(layouts.of("client-1")).toStrictEqual({ container: CHAT, tabs: { [CHAT]: { open: [], active: null } } });
   });
 
   it("closes a tab closed while its opening waited for the first scan, as the client asked last", async () => {
@@ -819,7 +899,8 @@ describe("SessionManager tabs", () => {
     scanned.resolve({ directory: first.at.piSessions, perCwd: false });
     await Promise.all([opening, closing]);
 
-    expect(layouts.of("client-1")).toStrictEqual({ container: CHAT, tabs: { [CHAT]: { open: [], active: null } } });
+    // The draft was the chat's only session, so the chat went with it.
+    expect(layouts.of("client-1")).toStrictEqual({ container: null, tabs: {} });
     expect(catalog.find(sessionId)).toBeUndefined();
   });
 
