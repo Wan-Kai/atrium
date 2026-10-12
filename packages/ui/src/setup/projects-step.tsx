@@ -1,6 +1,6 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import type { DiscoveredDirectory } from "@atrium/protocol";
-import { Check, FolderPlus } from "@phosphor-icons/react";
+import { Check, FolderPlus } from "../design/icons";
 import { useEffect, useState } from "react";
 import { describeProjectError } from "../sidebar/sidebar";
 import { timeAgo } from "../sidebar/names";

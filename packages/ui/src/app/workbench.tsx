@@ -1,6 +1,6 @@
 import type { AtriumClient, IndexView } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
-import { X } from "@phosphor-icons/react";
+import { X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";

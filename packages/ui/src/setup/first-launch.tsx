@@ -1,6 +1,6 @@
 import type { AtriumClient, IndexView, SetupView } from "@atrium/client";
 import type { SetupState } from "@atrium/protocol";
-import { Check } from "@phosphor-icons/react";
+import { Check } from "../design/icons";
 import { Fragment, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { InstallStep } from "./install-step";

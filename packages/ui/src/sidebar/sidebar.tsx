@@ -1,18 +1,19 @@
 import { type AtriumClient, CommandError, type IndexView } from "@atrium/client";
 import type { Appearance, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
-  Check,
+  ArrowUp,
   DotsThree,
   Folder,
   FolderOpen,
   FolderPlus,
+  GitMerge,
   MagnifyingGlass,
   Monitor,
   Moon,
   GearSix,
   PlusCircle,
   Sun,
-} from "@phosphor-icons/react";
+} from "../design/icons";
 import { type ReactNode, useState } from "react";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
@@ -585,7 +586,7 @@ function WorkspaceRow({
  * A workspace's merge labels, as plain text.
  *
  * @remarks
- * "• 未提交", orange bold "↑N", green "✓ 已合并", dim "已移除", dimmer "状态未知" with the reason on
+ * "• 未提交", orange bold "↑N" (an arrow icon, not the ↑ character), green "已合并" after a merge icon, dim "已移除", dimmer "状态未知" with the reason on
  * hover (design-language, "标签").
  *
  * @sideEffects none
@@ -610,9 +611,10 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
         <span
           key="ahead"
           title={`未合并：比主干多 ${label.count} 个提交`}
-          className="text-[length:var(--fs-sm)] font-semibold text-[var(--attn-text)] tabular-nums"
+          className="flex items-center gap-px text-[length:var(--fs-sm)] font-semibold text-[var(--attn-text)] tabular-nums"
         >
-          ↑{label.count}
+          <ArrowUp size={12} weight="bold" aria-hidden="true" />
+          {label.count}
         </span>
       );
     }
@@ -623,7 +625,7 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
           title="改动已全部进入主干（含 squash / rebase 合并）"
           className="flex items-center gap-0.5 text-[length:var(--fs-sm)] text-[var(--ok-text)]"
         >
-          <Check size={10} weight="bold" />
+          <GitMerge size={12} weight="bold" aria-hidden="true" />
           已合并
         </span>
       );

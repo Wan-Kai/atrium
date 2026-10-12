@@ -1,4 +1,4 @@
-import { Check, Copy } from "@phosphor-icons/react";
+import { Check, Copy } from "../design/icons";
 import { type ReactNode, useState } from "react";
 
 /** The footer's quiet buttons: "返回", "我已经装好了", "取消" and the like. */

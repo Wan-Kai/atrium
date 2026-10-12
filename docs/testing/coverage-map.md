@@ -42,6 +42,7 @@
 | 宿主启动中途收到退出：不在退出后报"已就绪" | `packages/host/src/electron-port.test.ts` "does not report ready or take app metrics, and closes the host, when shutdown arrives while it is still starting"（启动和退出由测试控制） | 已覆盖 |
 | 重新连接时关闭旧连接，旧连接晚到的事件不改写新状态 | connection.test.ts "closes the previous socket on reconnect…" | 已覆盖 |
 | 界面跟随系统外观 | `packages/ui/src/design/appearance.browser.test.ts`；e2e "follows the system appearance" | 已覆盖 |
+| 图标：统一从 `design/icons.tsx` 取 Hugeicons，线宽 1.75，加粗的按各自的宽度（勾 2.25，更多、上箭头 2.5），实心的填色并保留轮廓，不给尺寸时跟随文字；Meta 标借 Tabler 的形状；侧栏领先数和已合并用图标不用字符（2026-10-12） | `packages/ui/src/design/icons.browser.test.tsx`、`app/workbench.browser.test.tsx` "lists a project's workspaces" | 已覆盖 |
 | 连接状态的全部文案，包括启动中、桥接失败；连上后只留给读屏、不占位置，没连上时主窗口底部一行（2026-10-12） | `packages/ui/src/app/connection-status.browser.test.tsx`、`workbench.browser.test.tsx` "connection line" | 已覆盖 |
 
 ## pi 链路（M1.2）

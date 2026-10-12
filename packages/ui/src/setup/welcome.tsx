@@ -1,4 +1,4 @@
-import { ArrowUpRight, Eye, GitBranch, TerminalWindow } from "@phosphor-icons/react";
+import { ArrowUpRight, Eye, GitBranch, TerminalWindow } from "../design/icons";
 import { type ReactNode, useContext, useEffect, useRef } from "react";
 import {
   BAND_HOVER_MS,

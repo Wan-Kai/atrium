@@ -1,6 +1,6 @@
 import { CommandError, type ModelListView } from "@atrium/client";
 import type { ModelRef, ThinkingLevel } from "@atrium/protocol";
-import { ArrowClockwise, CaretDown, Check } from "@phosphor-icons/react";
+import { ArrowClockwise, CaretDown, Check } from "../design/icons";
 import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { DotSeedContext, paintDots, reducedMotion, sweepProgress } from "../design/dots";
 import { useDarkMode } from "../design/use-dark-mode";

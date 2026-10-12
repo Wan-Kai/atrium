@@ -1,4 +1,4 @@
-import { Copy, Image } from "@phosphor-icons/react";
+import { Copy, ImageIcon } from "../design/icons";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -83,7 +83,7 @@ export function UserBubble({ text, images = 0, timestamp, auto = false }: UserBu
     <div className="flex flex-col items-end gap-1" data-testid="user-message" data-pending={timestamp === undefined}>
       {images === 0 ? null : (
         <span className="flex items-center gap-1 rounded-[var(--r-pill)] bg-[var(--surface-2)] px-2.5 py-1 text-[length:var(--fs-sm)] text-[var(--text-muted)]">
-          <Image size={13} />
+          <ImageIcon size={13} />
           {images} 张图片
         </span>
       )}

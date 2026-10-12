@@ -1,14 +1,6 @@
 import { type AtriumClient, CommandError, type InstallJob } from "@atrium/client";
 import type { SetupPi } from "@atrium/protocol";
-import {
-  ArrowsClockwise,
-  CaretRight,
-  Check,
-  CheckCircle,
-  Copy,
-  DownloadSimple,
-  WarningCircle,
-} from "@phosphor-icons/react";
+import { ArrowsClockwise, CaretRight, Check, CheckCircle, Copy, DownloadSimple, WarningCircle } from "../design/icons";
 import { type ReactNode, useState } from "react";
 import { useStore } from "zustand";
 import { InstallTerminal } from "../setup/install-terminal";

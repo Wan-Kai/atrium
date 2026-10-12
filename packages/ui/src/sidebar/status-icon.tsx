@@ -1,4 +1,4 @@
-import { CircleNotch, Key, Question, WarningCircle } from "@phosphor-icons/react";
+import { CircleNotch, Key, Question, WarningCircle } from "../design/icons";
 import type { RowStatus } from "./status";
 
 /** Each status's label, icon and color (design-language, "会话状态"). */

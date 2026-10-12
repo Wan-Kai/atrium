@@ -9,7 +9,7 @@ import {
   MinusSquare,
   PlusSquare,
   X,
-} from "@phosphor-icons/react";
+} from "../design/icons";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { type DiffChoice, diffModeOf, diffTotals, formatDiffCount, splitPath } from "./changes";

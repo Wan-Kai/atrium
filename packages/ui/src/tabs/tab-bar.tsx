@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import type { ContainerId, SessionSummary } from "@atrium/protocol";
-import { CaretDown, ClockCounterClockwise, Plus, X } from "@phosphor-icons/react";
+import { CaretDown, ClockCounterClockwise, Plus, X } from "../design/icons";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { sessionTitle, timeAgo } from "../sidebar/names";

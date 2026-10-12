@@ -1,5 +1,5 @@
 import type { SessionMetrics, StatusBarChoices } from "@atrium/protocol";
-import { Coins, Database, Gauge, GearSix } from "@phosphor-icons/react";
+import { Coins, Database, Gauge, GearSix } from "../design/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import {
   STATUS_GROUPS,

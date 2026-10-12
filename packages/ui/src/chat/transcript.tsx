@@ -1,6 +1,6 @@
 import type { SessionView } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
-import { ArrowDown } from "@phosphor-icons/react";
+import { ArrowDown } from "../design/icons";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";

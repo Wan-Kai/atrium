@@ -9,7 +9,7 @@ import {
   Question,
   Stop,
   Warning,
-} from "@phosphor-icons/react";
+} from "../design/icons";
 import { type ReactNode, useMemo, useState } from "react";
 import { useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
@@ -392,7 +392,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
       ) : null}
       {turn.outcome === "stopped" ? (
         <div className="my-1 flex items-center gap-1.5 text-[length:var(--fs-sm)] text-[var(--attn-text)]">
-          <Stop size={11} weight="fill" />
+          <Stop size={12} />
           已停止
         </div>
       ) : null}

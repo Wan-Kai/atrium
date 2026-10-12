@@ -137,8 +137,17 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0)).toHaveTextContent("main");
     await expect.element(rows.nth(0).getByRole("img", { name: "运行中" })).toBeVisible();
     await expect.element(rows.nth(1).getByRole("img", { name: "运行中" })).not.toBeInTheDocument();
-    await expect.element(rows.nth(1)).toHaveTextContent("feat/sidebar↑3未提交");
+    await expect.element(rows.nth(1)).toHaveTextContent("feat/sidebar3未提交");
     await expect.element(rows.nth(2)).toHaveTextContent("fix/typo已合并");
+    // The arrow and the merge mark are icons, not characters of the font.
+    expect(rows.nth(1).getByTitle("未合并：比主干多 3 个提交").element().querySelector("svg")).not.toBeNull();
+    expect(
+      rows
+        .nth(2)
+        .getByTitle(/^改动已全部进入主干/)
+        .element()
+        .querySelector("svg"),
+    ).not.toBeNull();
     await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
     await expect.element(rows.nth(0)).toHaveAttribute("title", "本地工作区（项目目录）");
   });
@@ -280,7 +289,7 @@ describe("Workbench sidebar", () => {
     const results = screen.getByRole("region", { name: "搜索结果" });
     await expect
       .element(results)
-      .toMatchTextContent(/^工作区feat\/sidebaratrium↑3未提交会话实现 sidebaratrium · feat\/sidebar1 分钟前$/);
+      .toMatchTextContent(/^工作区feat\/sidebaratrium3未提交会话实现 sidebaratrium · feat\/sidebar1 分钟前$/);
     await results.getByRole("button", { name: /实现 sidebar/ }).click();
     await vi.waitFor(() => expect(calls).toContain("openSession s3"));
 

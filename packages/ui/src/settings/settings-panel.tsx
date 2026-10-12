@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import type { Appearance } from "@atrium/protocol";
-import { Folder, Info, Monitor, Moon, Palette, Sun, Terminal, User, X } from "@phosphor-icons/react";
+import { Folder, Info, Monitor, Moon, Palette, Sun, Terminal, User, X } from "../design/icons";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { describeConnection } from "../app/connection-status";

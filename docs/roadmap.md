@@ -96,10 +96,10 @@ MVP 1 里还没设计、做到时先补设计的：
 
 界面（细节见 [SPEC-0001](specs/0001-mvp1-single-session-chat.md) 和 [design-language.md](architecture/design-language.md)）：
 
-- 视觉对齐 DeepSeek Harness，动效对齐 Apple 弹簧；图标 Phosphor；点阵是贯穿的视觉语言。
+- 视觉对齐 DeepSeek Harness，动效对齐 Apple 弹簧；图标 Hugeicons（2026-10-12 由 Phosphor 换成）；点阵是贯穿的视觉语言。
 - 前端技术栈：
   - 框架与样式：React + Vite；Tailwind + shadcn/ui。design-language 的颜色、圆角映射到 shadcn 的 CSS 变量（Streamdown 也读这套变量）。
-  - 图标：Phosphor（`@phosphor-icons/react`）。动效不引入动画库，用 CSS `linear()` 弹簧曲线和少量手写弹簧（参数见 design-language "动效"）。
+  - 图标：Hugeicons 免费版 stroke-rounded（`@hugeicons/core-free-icons` + `@hugeicons/react`，经 `packages/ui/src/design/icons.tsx` 取用；2026-10-12 由 Phosphor 换成）。动效不引入动画库，用 CSS `linear()` 弹簧曲线和少量手写弹簧（参数见 design-language "动效"）。
   - **流式回复渲染：Vercel 的 [Streamdown](https://github.com/vercel/streamdown)**（`streamdown`，调研时 2.7.0），插件 `@streamdown/code`（Shiki 高亮）、`@streamdown/math`（KaTeX）、`@streamdown/mermaid`、`@streamdown/cjk`。它负责补全没写完的语法、按块缓存；选型理由和对比见 [SPEC-0001 · 对话区](specs/0001-mvp1-single-session-chat.md#对话区)的"回复渲染"。
   - 流式节奏：宿主原样转发增量，客户端按积压量平滑揭示（约 150ms 追平，参考 Paseo 的 `text-reveal.ts`），再交给 Streamdown。
 - 会话可在后台运行，多个同时跑；MVP 1 不做审批，不显示审批相关标签。

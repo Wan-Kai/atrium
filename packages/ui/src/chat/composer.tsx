@@ -7,13 +7,13 @@ import {
   At,
   File,
   Folder,
-  Image as ImageIcon,
+  ImageIcon,
   Plus,
   Square,
   Terminal,
   TextAlignLeft,
   X,
-} from "@phosphor-icons/react";
+} from "../design/icons";
 import {
   type ClipboardEvent,
   type DragEvent,

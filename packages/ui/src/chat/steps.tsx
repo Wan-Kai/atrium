@@ -12,7 +12,7 @@ import {
   PencilSimple,
   Terminal,
   Wrench,
-} from "@phosphor-icons/react";
+} from "../design/icons";
 import { type ReactNode, createContext, useContext, useEffect, useState } from "react";
 import { type DisplayMode, useDisplayMode } from "../state/display-mode";
 import { Markdown } from "./markdown";
