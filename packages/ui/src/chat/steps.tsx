@@ -1,7 +1,8 @@
 import type { Step } from "@atrium/protocol";
-import { Check, MagnifyingGlass, X } from "../design/icons";
+import { Check, FileMarks, MagnifyingGlass, X } from "../design/icons";
 import { type ReactNode, createContext, useContext, useEffect, useId, useState } from "react";
 import { type DisplayMode, useDisplayMode } from "../state/display-mode";
+import { type FileKind, fileKind } from "./file-kind";
 import { Markdown } from "./markdown";
 import {
   type ProcessRow,
@@ -169,35 +170,49 @@ function RailMarks({
   );
 }
 
-/** Type marks for the file chips, by extension. */
-const FILE_TYPES: Readonly<Record<string, string>> = {
-  ts: "TS",
-  tsx: "TSX",
-  mts: "TS",
-  cts: "TS",
-  js: "JS",
-  jsx: "JSX",
-  mjs: "JS",
-  cjs: "JS",
-  json: "{}",
-  md: "MD",
-  css: "CSS",
-  html: "HTML",
-  py: "PY",
-  rs: "RS",
-  go: "GO",
-  sh: "SH",
-  yml: "YML",
-  yaml: "YML",
-  toml: "TOML",
+/** Each kind's colour; the kinds without a colour of their own are muted (design-language, "文件胶囊"). */
+const FILE_TONES: Readonly<Record<FileKind, string>> = {
+  ts: "text-[var(--file-ts)]",
+  react: "text-[var(--file-tsx)]",
+  js: "text-[var(--file-js)]",
+  npm: "text-[var(--file-npm)]",
+  json: "text-[var(--file-json)]",
+  md: "text-[var(--file-md)]",
+  css: "text-[var(--file-css)]",
+  html: "text-[var(--file-html)]",
+  py: "text-[var(--file-py)]",
+  rs: "text-[var(--file-rs)]",
+  go: "text-[var(--file-go)]",
+  sh: "text-[var(--file-sh)]",
+  java: "text-[var(--file-java)]",
+  kotlin: "text-[var(--file-kotlin)]",
+  swift: "text-[var(--file-swift)]",
+  php: "text-[var(--file-php)]",
+  dart: "text-[var(--file-dart)]",
+  c: "text-[var(--file-c)]",
+  vue: "text-[var(--file-vue)]",
+  docker: "text-[var(--file-docker)]",
+  sql: "text-[var(--file-sql)]",
+  image: "text-[var(--file-image)]",
+  svg: "text-[var(--file-svg)]",
+  pdf: "text-[var(--file-pdf)]",
+  csv: "text-[var(--file-csv)]",
+  xml: "text-[var(--file-xml)]",
+  git: "text-[var(--file-git)]",
+  lock: "text-[var(--text-muted)]",
+  config: "text-[var(--text-muted)]",
+  text: "text-[var(--text-muted)]",
+  archive: "text-[var(--text-muted)]",
+  file: "text-[var(--text-muted)]",
 };
 
 /**
  * A file as a chip: its type, its name, and what was done to it.
  *
  * @remarks
- * The name only; the whole path shows on hover (design-language, "文件胶囊"). TypeScript keeps
- * its blue (JavaScript shares it), other types are grey.
+ * The name only; the whole path shows on hover (design-language, "文件胶囊"). The type shows as its
+ * mark in its colour, a plain file's for kinds it does not know; the mark is decoration, as the
+ * name says the type.
  *
  * @sideEffects none
  * @param props - The path, and an edit's line counts.
@@ -213,26 +228,21 @@ function FileChip({
   readonly removed?: number | null;
 }) {
   const name = path.split("/").at(-1) ?? path;
-  const dot = name.lastIndexOf(".");
-  const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : "";
-  const type = FILE_TYPES[extension] ?? null;
-  const tone =
-    type === "TSX" || type === "JSX"
-      ? "text-[var(--file-tsx)]"
-      : type === "TS" || type === "JS"
-        ? "text-[var(--file-ts)]"
-        : "text-[var(--text-muted)]";
+  const kind = fileKind(path);
+  const Mark = FileMarks[kind];
   return (
     <span
       title={path}
       data-testid="file-chip"
       className="inline-flex h-[22px] min-w-0 flex-none items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] pr-2.5 pl-2 text-[length:var(--fs-sm)] text-[var(--text-2)] shadow-[var(--chip-shadow)]"
     >
-      {type === null ? null : (
-        <span className={`font-[family-name:var(--font-mono)] text-[8.5px] leading-none font-bold ${tone}`}>
-          {type}
-        </span>
-      )}
+      <Mark
+        size={13}
+        aria-hidden
+        data-testid="file-mark"
+        data-kind={kind}
+        className={`flex-none ${FILE_TONES[kind]}`}
+      />
       <span className="truncate">{name}</span>
       {added === null || removed === null ? null : (
         <span className="text-[length:var(--fs-xs)] tabular-nums">

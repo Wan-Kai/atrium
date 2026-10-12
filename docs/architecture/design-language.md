@@ -47,7 +47,7 @@ Atrium 的界面要做到三件事：**清新、现代**（视觉对齐 DeepSeek
 - 细线：`--line`（深 `rgba(255,255,255,.10)` / 浅 `rgba(0,0,0,.08)`），另有 `--line-soft` 与 `--line-strong`。线宽一律 0.5px，用 `box-shadow: inset 0 0 0 .5px` 画，不用 border。
 - 悬停 `--hover`（深 5% 白 / 浅 3.5% 黑），选中 `--selected`（深 8% / 浅 6%）。
 - 焦点环：`0 0 0 3px` 的强调色（深 22% / 浅 16% 透明度）。
-- 过程轨道（2026-10-12 定）：竖线 `--rail`（深 15% 白 / 浅 15% 黑），岔出去、汇进来的曲线 `--branch`（深 28% / 浅 26%，比竖线略深才看得见弯），做完的节点 `--node`（深 `#5d6067` / 浅 `#c4c4c9`）。文件胶囊的投影 `--chip-shadow`（0.5px 细线加 1px 投影：浅 9% 黑线、5% 黑影 / 深 10% 白线、30% 黑影），类型标记色 `--file-ts`（浅 `#3178c6` / 深 `#5a9ae6`）、`--file-tsx`（浅 `#1c9bbd` / 深 `#3fb9d9`）。
+- 过程轨道（2026-10-12 定）：竖线 `--rail`（深 15% 白 / 浅 15% 黑），岔出去、汇进来的曲线 `--branch`（深 28% / 浅 26%，比竖线略深才看得见弯），做完的节点 `--node`（深 `#5d6067` / 浅 `#c4c4c9`）。文件胶囊的投影 `--chip-shadow`（0.5px 细线加 1px 投影：浅 9% 黑线、5% 黑影 / 深 10% 白线、30% 黑影），类型图标的颜色 `--file-*`，每种类型一对浅 / 深色，见"消息流 · 文件胶囊"。
 - 进行中的行：`--linked`（强调色，深 14% / 浅 10% 透明度）作底色，配 1px 强调色描边，用于登录中的服务商、有新版本的更新块（M1.10，照设置原型）。
 
 ### 语义色
@@ -197,7 +197,43 @@ Atrium 的标志是一只猫，守在中庭里的伙伴，你切走了它也在�
   - 节点：做完是 6px 实心圆点（`--node`）；探索行是 14px 放大镜（`--text-muted`）；进行中是 6px `--tint` 圆点外加 16px、1.5px 粗、留缺口的圆弧，0.9 秒转一圈；插话是 8px 空心圆，1.5px `--tint` 描边；走不通是 10px ×（`--text-dim`）。轨道停在最后一步，没有完成行（2026-10-12 去掉）。
   - 支线：插话、走不通的节点挪到 x = 19.5px（随文字列从 24.5px 内移，离文字 5px 多），文字仍从 30px 起。走不通从上一行的竖线用虚线（2 实 3 空）弯过去；插话从上方淡入的竖线落到节点，再一段曲线汇回主线。主线在支线行旁边不断。
   - 文字：动词 `--text-2`，对象 `--text-muted`，中间"·"用 `--text-dim`；命令用等宽 12px；右侧结果（"✓ 通过"、"失败"、"未完成"）12px `--text-dim`。进行中的动词扫光（同"进行中"）。走不通整行 `--text-dim`，插话的"你插话"用 `--tint`。
-  - 文件胶囊：高 22px、胶囊圆角，`--surface-1` 底，`--chip-shadow`；左边 8.5px 粗体等宽的类型标记（TS、JS 用 `--file-ts`，TSX、JSX 用 `--file-tsx`，其他 `--text-muted`），文件名 12px；编辑的胶囊里接 11px 的 +N（`--ok-text`）−M（`--danger`）。胶囊之间 6px。
+  - 文件胶囊：高 22px、胶囊圆角，`--surface-1` 底，`--chip-shadow`；左边 13px 的类型图标，文件名 12px；编辑的胶囊里接 11px 的 +N（`--ok-text`）−M（`--danger`）。胶囊之间 6px。
+  - 类型图标（2026-10-12 定，由 8.5px 的类型字母改，原先只有 TS / JS 有颜色、不认识的类型什么都没有）：每种类型用它的标志图形，线性、只给图标上色。Hugeicons 免费版有的用它的，没有的（Markdown、Rust、Go、Docker、Vue、Swift、Kotlin）借 Tabler 的（`markdown`、`brand-*`，MIT）。先按文件名认，再按扩展名（不分大小写），都认不出的是通用文件图标。
+
+    | 类型 | 认法 | 图标 | 颜色（浅 / 深） |
+    |---|---|---|---|
+    | TypeScript | `ts` `mts` `cts` | TS 方块 | `--file-ts` `#3178c6` / `#5a9ae6` |
+    | React | `tsx` `jsx` | 原子 | `--file-tsx` `#1c9bbd` / `#3fb9d9` |
+    | JavaScript | `js` `mjs` `cjs` | JS 方块 | `--file-js` `#b8960c` / `#e8cd4f` |
+    | npm | 文件名 `package.json` | npm | `--file-npm` `#cb3837` / `#e5605a` |
+    | JSON | `json` `jsonc` `json5` | 花括号文件 | `--file-json` `#b7791f` / `#e0a83c` |
+    | Markdown | `md` `mdx` `markdown` | M↓ | `--file-md` `#4f6b94` / `#8fa8cc` |
+    | CSS | `css` `scss` `sass` `less` | CSS3 盾 | `--file-css` `#6f42c1` / `#a37ee8` |
+    | HTML | `html` `htm` | HTML5 盾 | `--file-html` `#e34c26` / `#f0744f` |
+    | Python | `py` `pyi` | Python | `--file-py` `#3572a5` / `#6ea4d6` |
+    | Rust | `rs` | 齿轮 R | `--file-rs` `#c2652a` / `#e38a52` |
+    | Go | `go` | Go | `--file-go` `#0092b8` / `#3fc6e8` |
+    | Shell | `sh` `bash` `zsh` `fish` | 终端 | `--file-sh` `#3f9142` / `#6cc070` |
+    | Java | `java` | 咖啡杯 | `--file-java` `#b07219` / `#d9954a` |
+    | Kotlin | `kt` `kts` | Kotlin | `--file-kotlin` `#7f52ff` / `#a487ff` |
+    | Swift | `swift` | 雨燕 | `--file-swift` `#f05138` / `#f57a62` |
+    | PHP | `php` | PHP | `--file-php` `#4f5d95` / `#8a97d0` |
+    | Dart | `dart` | Dart | `--file-dart` `#00a39b` / `#3cc7be` |
+    | C / C++ | `c` `h` `cc` `cpp` `cxx` `hpp` | C++ | `--file-c` `#d6336c` / `#f06595` |
+    | Vue | `vue` | V | `--file-vue` `#3fa776` / `#5fc795` |
+    | Docker | 文件名 `Dockerfile`、`Dockerfile.*`，扩展名 `dockerfile` | 鲸鱼 | `--file-docker` `#1d8fe1` / `#4fb0f2` |
+    | SQL | `sql` | SQL | `--file-sql` `#d07b00` / `#eaa040` |
+    | 图片 | `png` `jpg` `jpeg` `gif` `webp` `ico` `bmp` `avif` | 图片文件 | `--file-image` `#a05cc0` / `#c48ae0` |
+    | SVG | `svg` | SVG | `--file-svg` `#d99a1e` / `#f0b84a` |
+    | PDF | `pdf` | PDF | `--file-pdf` `#d93a32` / `#ec6a62` |
+    | 表格 | `csv` `tsv` | CSV | `--file-csv` `#2f9e58` / `#58c27e` |
+    | XML | `xml` | XML | `--file-xml` `#d9772b` / `#ee9a55` |
+    | Git | 文件名 `.gitignore` `.gitattributes` `.gitmodules` | 分支 | `--file-git` `#e8553a` / `#f07a5f` |
+    | 锁文件 | 文件名 `pnpm-lock.yaml` `package-lock.json`，扩展名 `lock` | 带锁文件 | `--text-muted` |
+    | 配置 | 文件名 `.env`、`.env.*`，扩展名 `yml` `yaml` `toml` `ini` `conf` `cfg` `properties` | 齿轮 | `--text-muted` |
+    | 文本 | `txt` `log` | TXT | `--text-muted` |
+    | 压缩包 | `zip` `tar` `gz` `tgz` `7z` `rar` | 压缩文件 | `--text-muted` |
+    | 其他 | — | 通用文件 | `--text-muted` |
   - 详情块不变（`--code` 底、圆角 `--r`），竖线在它旁边接着往下。不做成卡片。
   - 没有内容可看的推理（模型把推理藏起来了，只有一个空块）：整行不是按钮，没有悬停底色、点不开，任何显示模式下都没有详情块（2026-10-12 定）。
 - 回复：Markdown，下方一行信息：复制、改动汇总胶囊、用量、时间。

@@ -74,6 +74,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/model-choice.ts",
       "packages/ui/src/chat/composer-text.ts",
       "packages/ui/src/chat/changes.ts",
+      "packages/ui/src/chat/file-kind.ts",
       "packages/ui/src/chat/status-figures.ts",
       "packages/ui/src/state/drafts.ts",
       "packages/ui/src/sidebar/names.ts",

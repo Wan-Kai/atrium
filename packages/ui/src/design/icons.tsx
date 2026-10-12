@@ -14,6 +14,7 @@ import {
   ArrowUp02Icon,
   ArrowUpRight01Icon,
   AtIcon,
+  BashIcon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Clock02Icon,
@@ -23,40 +24,61 @@ import {
   ComputerTerminal01Icon,
   Copy01Icon,
   CornerDownRightIcon,
+  CppIcon,
+  Css3Icon,
+  CsvIcon,
+  DartIcon,
   DashboardSpeed02Icon,
   DatabaseIcon,
   Download04Icon,
   File01Icon,
   File02Icon,
+  FileBracesIcon,
+  FileImageIcon,
+  FileLockIcon,
+  FileZipIcon,
   FlashIcon,
-  FolderAddIcon,
   Folder01Icon,
+  FolderAddIcon,
   FolderOpenIcon,
   FoldVerticalIcon,
   GitBranchIcon,
   GitCompareIcon,
   GitMergeIcon,
   HelpCircleIcon,
+  Html5Icon,
   Image01Icon,
   InformationCircleIcon,
+  JavaIcon,
+  JavaScriptIcon,
   Key01Icon,
   Loading03Icon,
   MinusSignSquareIcon,
   Moon02Icon,
   MoreHorizontalIcon,
+  NpmIcon,
   PaintBoardIcon,
+  PdfIcon,
   PencilEdit01Icon,
+  PhpIcon,
+  PythonIcon,
+  ReactIcon,
   RefreshIcon,
   ReloadIcon,
   Search01Icon,
   Settings01Icon,
+  SqlIcon,
   SquareIcon,
   StopCircleIcon,
   Sun03Icon,
+  SvgIcon,
   TextAlignLeftIcon,
   Tick02Icon,
+  TxtIcon,
+  TypescriptIcon,
   UserIcon,
   ViewIcon,
+  XmlIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { SVGProps } from "react";
@@ -133,6 +155,72 @@ const META: IconSvgElement = [
   ],
 ];
 
+/**
+ * A drawing made of Tabler Icons' paths (MIT, https://tabler.io/icons).
+ *
+ * @remarks
+ * For marks Hugeicons' free set lacks; same 24 grid, round caps and joins (design-language, "图标").
+ *
+ * @sideEffects none
+ * @param paths - The paths' `d`.
+ * @returns The drawing.
+ */
+function tabler(...paths: readonly string[]): IconSvgElement {
+  return paths.map((d, index) => [
+    "path",
+    { d, stroke: "currentColor", strokeLinecap: "round", strokeLinejoin: "round", key: String(index) },
+  ]);
+}
+
+/** Tabler's `markdown`. */
+const MARKDOWN = tabler(
+  "M3 7a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-10",
+  "M7 15v-6l2 2l2 -2v6",
+  "M14 13l2 2l2 -2m-2 2v-6",
+);
+
+/** Tabler's `brand-rust`. */
+const RUST = tabler(
+  "M10.139 3.463c.473 -1.95 3.249 -1.95 3.722 0a1.916 1.916 0 0 0 2.859 1.185c1.714 -1.045 3.678 .918 2.633 2.633a1.916 1.916 0 0 0 1.184 2.858c1.95 .473 1.95 3.249 0 3.722a1.916 1.916 0 0 0 -1.185 2.859c1.045 1.714 -.918 3.678 -2.633 2.633a1.916 1.916 0 0 0 -2.858 1.184c-.473 1.95 -3.249 1.95 -3.722 0a1.916 1.916 0 0 0 -2.859 -1.185c-1.714 1.045 -3.678 -.918 -2.633 -2.633a1.916 1.916 0 0 0 -1.184 -2.858c-1.95 -.473 -1.95 -3.249 0 -3.722a1.916 1.916 0 0 0 1.185 -2.859c-1.045 -1.714 .918 -3.678 2.633 -2.633a1.914 1.914 0 0 0 2.858 -1.184",
+  "M8 12h6a2 2 0 1 0 0 -4h-6v8v-4",
+  "M19 16h-2a2 2 0 0 1 -2 -2a2 2 0 0 0 -2 -2h-1",
+  "M9 8h-4",
+  "M5 16h4",
+);
+
+/** Tabler's `brand-golang`. */
+const GOLANG = tabler(
+  "M15.695 14.305c1.061 1.06 2.953 .888 4.226 -.384c1.272 -1.273 1.444 -3.165 .384 -4.226c-1.061 -1.06 -2.953 -.888 -4.226 .384c-1.272 1.273 -1.444 3.165 -.384 4.226",
+  "M12.68 9.233c-1.084 -.497 -2.545 -.191 -3.591 .846c-1.284 1.273 -1.457 3.165 -.388 4.226c1.07 1.06 2.978 .888 4.261 -.384a3.669 3.669 0 0 0 1.038 -1.921h-2.427",
+  "M5.5 15h-1.5",
+  "M6 9h-2",
+  "M5 12h-3",
+);
+
+/** Tabler's `brand-docker`. */
+const DOCKER = tabler(
+  "M22 12.54c-1.804 -.345 -2.701 -1.08 -3.523 -2.94c-.487 .696 -1.102 1.568 -.92 2.4c.028 .238 -.32 1 -.557 1h-14c0 5.208 3.164 7 6.196 7c4.124 .022 7.828 -1.376 9.854 -5c1.146 -.101 2.296 -1.505 2.95 -2.46",
+  "M5 10h3v3h-3l0 -3",
+  "M8 10h3v3h-3l0 -3",
+  "M11 10h3v3h-3l0 -3",
+  "M8 7h3v3h-3l0 -3",
+  "M11 7h3v3h-3l0 -3",
+  "M11 4h3v3h-3l0 -3",
+  "M4.571 18c1.5 0 2.047 -.074 2.958 -.78",
+  "M10 16l0 .01",
+);
+
+/** Tabler's `brand-vue`. */
+const VUE = tabler("M16.5 4l-4.5 8l-4.5 -8", "M3 4l9 16l9 -16");
+
+/** Tabler's `brand-swift`. */
+const SWIFT = tabler(
+  "M20.547 15.828c1.33 -4.126 -1.384 -9.521 -6.047 -12.828c-.135 -.096 2.39 6.704 1.308 9.124c-2.153 -1.454 -4.756 -3.494 -7.808 -6.124l-.5 2l-3.5 -1c4.36 4.748 7.213 7.695 8.56 8.841c-4.658 2.089 -10.65 -.978 -10.56 -.841c1.016 1.545 6 6 11 6c2 0 3.788 -.502 4.742 -1.389c.005 -.005 .432 -.446 1.378 -.17c.504 .148 1.463 .667 2.88 1.559v-1.507c0 -1.377 -.515 -2.67 -1.453 -3.665",
+);
+
+/** Tabler's `brand-kotlin`. */
+const KOTLIN = tabler("M20 20h-16v-16h16", "M4 20l16 -16", "M4 12l8 -8", "M12 12l8 8");
+
 export const ArrowBendDownRight = drawn(CornerDownRightIcon);
 export const ArrowClockwise = drawn(ReloadIcon);
 export const ArrowDown = drawn(ArrowDown02Icon);
@@ -193,3 +281,39 @@ export const User = drawn(UserIcon);
 export const Warning = drawn(Alert02Icon);
 export const WarningCircle = drawn(AlertCircleIcon);
 export const X = drawn(Cancel01Icon);
+
+/** File type marks, for file chips (design-language, "文件胶囊"). */
+export const FileMarks = {
+  ts: drawn(TypescriptIcon),
+  react: drawn(ReactIcon),
+  js: drawn(JavaScriptIcon),
+  npm: drawn(NpmIcon),
+  json: drawn(FileBracesIcon),
+  md: drawn(MARKDOWN),
+  css: drawn(Css3Icon),
+  html: drawn(Html5Icon),
+  py: drawn(PythonIcon),
+  rs: drawn(RUST),
+  go: drawn(GOLANG),
+  sh: drawn(BashIcon),
+  java: drawn(JavaIcon),
+  kotlin: drawn(KOTLIN),
+  swift: drawn(SWIFT),
+  php: drawn(PhpIcon),
+  dart: drawn(DartIcon),
+  c: drawn(CppIcon),
+  vue: drawn(VUE),
+  docker: drawn(DOCKER),
+  sql: drawn(SqlIcon),
+  image: drawn(FileImageIcon),
+  svg: drawn(SvgIcon),
+  pdf: drawn(PdfIcon),
+  csv: drawn(CsvIcon),
+  xml: drawn(XmlIcon),
+  git: drawn(GitBranchIcon),
+  lock: drawn(FileLockIcon),
+  config: drawn(Settings01Icon),
+  text: drawn(TxtIcon),
+  archive: drawn(FileZipIcon),
+  file: drawn(File01Icon),
+} as const;
