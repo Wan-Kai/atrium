@@ -378,14 +378,14 @@ function Group({ drawing, metrics }: { readonly drawing: GroupDrawing; readonly 
       <button
         type="button"
         aria-describedby={cardId}
-        className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-focus-within/item:bg-[var(--hover)] group-hover/item:bg-[var(--hover)] ${tone}`}
+        className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-has-[:focus-visible]/item:bg-[var(--hover)] group-hover/item:bg-[var(--hover)] ${tone}`}
       >
         {drawing.summary(metrics)}
       </button>
       <div
         role="tooltip"
         id={cardId}
-        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[300px] -translate-x-1/2 rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-focus-within/item:visible group-focus-within/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] dark:bg-[var(--surface-2)]"
+        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[300px] -translate-x-1/2 rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] dark:bg-[var(--surface-2)]"
       >
         {drawing.card(metrics)}
       </div>

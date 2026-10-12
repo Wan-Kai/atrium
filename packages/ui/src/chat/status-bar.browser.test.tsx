@@ -100,6 +100,22 @@ describe("StatusBar", () => {
       .not.toBeVisible();
   });
 
+  it("hides a card once the pointer leaves, though a click left its group focused, and shows it on keyboard focus", async () => {
+    const { screen } = await bar();
+    const tokens = screen.getByRole("button", { name: /缓存命中/ });
+    const card = screen.getByRole("tooltip", { includeHidden: true }).filter({ hasText: "Token 用量" });
+    await userEvent.click(tokens);
+    await expect.element(card).toBeVisible();
+
+    await userEvent.hover(screen.getByRole("button", { name: /轮/ }));
+    await expect.element(tokens).toHaveFocus();
+    await expect.element(card).not.toBeVisible();
+
+    await userEvent.keyboard("{Tab}{Shift>}{Tab}{/Shift}");
+    await expect.element(tokens).toHaveFocus();
+    await expect.element(card).toBeVisible();
+  });
+
   it("leaves out reasoning when no reply reported it", async () => {
     const { screen } = await bar({ ...KNOWN, reasoning: null });
 

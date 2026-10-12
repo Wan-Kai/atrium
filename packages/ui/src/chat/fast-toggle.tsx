@@ -69,7 +69,7 @@ export function FastToggle({
       <div
         role="tooltip"
         id={cardId}
-        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[220px] -translate-x-1/2 rounded-[12px] bg-[var(--surface-1)] px-3 py-2.5 opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-focus-within/fast:visible group-focus-within/fast:opacity-100 group-hover/fast:visible group-hover/fast:opacity-100 group-hover/fast:delay-[120ms] dark:bg-[var(--surface-2)]"
+        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[220px] -translate-x-1/2 rounded-[12px] bg-[var(--surface-1)] px-3 py-2.5 opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/fast:visible group-has-[:focus-visible]/fast:opacity-100 group-hover/fast:visible group-hover/fast:opacity-100 group-hover/fast:delay-[120ms] dark:bg-[var(--surface-2)]"
       >
         <p className="text-[length:var(--fs-meta)] font-semibold text-[var(--text)]">
           {enabled ? "Fast 已开启" : "Fast 未开启"}

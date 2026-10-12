@@ -819,6 +819,29 @@ describe("ConversationArea's Fast button", () => {
     expect(modelCalls.filter((call) => call.startsWith("setFast"))).toStrictEqual(["setFast s1 on", "setFast s1 off"]);
   });
 
+  it("hides its card once the pointer leaves, though the click left the button focused, and shows it on keyboard focus", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    const card = screen.getByRole("tooltip", { includeHidden: true }).filter({ hasText: "从下一次请求开始生效" });
+    const box = screen.getByRole("textbox", { name: "消息" });
+    client.session("s1")?.setState({ model: ON_GPT });
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+    await expect.element(card).toBeVisible();
+
+    await userEvent.hover(screen.getByRole("button", { name: /模型与推理强度/ }));
+    await expect.element(fast).toHaveFocus();
+    await expect.element(card).not.toBeVisible();
+
+    await userEvent.click(box);
+    await userEvent.keyboard("{Tab}{Tab}{Tab}");
+    await expect.element(fast).toHaveFocus();
+    await expect.element(card).toBeVisible();
+  });
+
   it("draws the bolt alone, with no circle, background or outline, off, hovered or on, under a pointing hand", async () => {
     const { client } = fakeClient({}, { models: LIST });
     const screen = await render(
