@@ -46,15 +46,19 @@ async function queryFastTiers(
       seen.report = readFastReport(event.statusText);
     }
   });
-  let unanswered: string | null = null;
-  try {
-    await pi.request({ type: "prompt", message: `/${FAST_COMMAND} tiers` }, { timeoutMs: waitMs, signal });
-  } catch (error) {
-    if (signal.aborted || !(error instanceof PiRequestError)) throw error;
-    unanswered = `pi_${error.reason}`;
-  } finally {
-    unsubscribe();
-  }
+  // The promise's `finally` rather than a `finally` block, whose mutant no comment reaches (testing.md):
+  // pi stops right after the query, so no test can tell a listener left behind.
+  const unanswered = await pi
+    .request({ type: "prompt", message: `/${FAST_COMMAND} tiers` }, { timeoutMs: waitMs, signal })
+    .then(
+      // Stryker disable next-line ArrowFunction: undefined counts as no failure, as null does.
+      () => null,
+      (error: unknown) => {
+        if (signal.aborted || !(error instanceof PiRequestError)) throw error;
+        return `pi_${error.reason}`;
+      },
+    )
+    .finally(unsubscribe);
   const { report: reported } = seen;
   if (reported !== null && "models" in reported) return new Map(reported.models.map(({ id, fast }) => [id, fast]));
   deps.log.warn({ failure: reported?.failure ?? unanswered ?? "no_report" }, "fast tiers unavailable");

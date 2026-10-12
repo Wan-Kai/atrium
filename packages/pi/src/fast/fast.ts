@@ -107,6 +107,7 @@ export function tiersFromModelList(body: unknown): Map<string, FastInfo | null> 
     const { slug } = model;
     if (typeof slug !== "string" || slug === "" || slug.length > MAX_ID) continue;
     const listed =
+      // Stryker disable next-line ArrayDeclaration: anything in an empty list is no tier object, so none is priority.
       "service_tiers" in model && Array.isArray(model.service_tiers) ? (model.service_tiers as unknown[]) : [];
     const priority = listed.find(
       (tier): tier is { readonly description?: unknown } =>
@@ -153,11 +154,11 @@ function reportedModel(entry: unknown): { readonly id: string; readonly fast: Fa
  * @returns The report, or `null` when it is not one.
  */
 export function readFastReport(text: string | undefined): FastReport | null {
-  if (text === undefined) return null;
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
-  } catch {
+    // Stryker disable next-line StringLiteral: no text and text that is not JSON both throw into the catch.
+    parsed = JSON.parse(text ?? "");
+  } /* Stryker disable next-line BlockStatement: an empty catch leaves nothing parsed, which is no object either. */ catch {
     return null;
   }
   if (typeof parsed !== "object" || parsed === null) return null;

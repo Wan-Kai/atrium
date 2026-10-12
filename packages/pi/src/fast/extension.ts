@@ -57,6 +57,11 @@ const LIST_TIMEOUT_MS = 15_000;
 /** Where the ChatGPT account id sits in the access token's claims, as pi reads it. */
 const ACCOUNT_CLAIM = "https://api.openai.com/auth";
 
+/** An access token's claims as far as the account id; whatever the token holds until read. */
+interface TokenClaims {
+  readonly [ACCOUNT_CLAIM]?: { readonly chatgpt_account_id?: unknown } | null;
+}
+
 /**
  * Asks for a payload's priority service tier, or leaves it as it is.
  *
@@ -96,19 +101,23 @@ function modelListUrl(baseUrl: string): string {
  *
  * @remarks
  * The token is a JWT; its claims are read, not verified, as pi does. A token that is not one has
- * no account id, and the list is asked without it.
+ * no account id, and the list is asked without it. Claims of any other shape read as undefined, or
+ * throw into the catch, so they need no checks of their own.
  *
  * @sideEffects none
  * @param token - The access token.
  * @returns The account id, or `undefined`.
  */
 function accountIdOf(token: string): string | undefined {
+  const parts = token.split(".");
+  // Stryker disable next-line StringLiteral: Stryker's filler decodes to bytes that are not JSON, which throw as none do.
+  const payload = parts[1] ?? "";
   try {
-    const claims: unknown = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8"));
-    if (typeof claims !== "object" || claims === null || !(ACCOUNT_CLAIM in claims)) return undefined;
-    const auth: unknown = (claims as Record<string, unknown>)[ACCOUNT_CLAIM];
-    if (typeof auth !== "object" || auth === null || !("chatgpt_account_id" in auth)) return undefined;
-    return typeof auth.chatgpt_account_id === "string" ? auth.chatgpt_account_id : undefined;
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- any shape reads safely below, or throws into the catch.
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as TokenClaims;
+    // Stryker disable next-line OptionalChaining: without the claim, reading through it throws into the catch.
+    const account = claims[ACCOUNT_CLAIM]?.chatgpt_account_id;
+    return typeof account === "string" ? account : undefined;
   } catch {
     return undefined;
   }

@@ -360,7 +360,13 @@ describe("queryModels with the Fast extension", () => {
         rules: {
           ...CODEX_RULES,
           prompt: {
-            events: [status(JSON.stringify(report)), status('{"failure":"other"}', "other")],
+            events: [
+              status(JSON.stringify(report)),
+              status('{"failure":"other"}', "other"),
+              // Records that only look like the status: another request, and a record of another type.
+              { ...status('{"failure":"notify"}'), method: "notify" },
+              { ...status('{"failure":"other_type"}'), type: "extension_ui_notice" },
+            ],
             data: { disposition: "handled" },
           },
         },
