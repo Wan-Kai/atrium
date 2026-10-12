@@ -57,6 +57,83 @@ function list() {
 }
 
 /**
+ * How long each animation under an element takes and when it starts, the element's own first.
+ *
+ * @remarks
+ * For the project's fold: the height, then each workspace row's fade.
+ *
+ * @sideEffects none
+ * @param element - The fold.
+ * @returns `[duration, delay]` per animation.
+ */
+function foldTimings(element: Element): unknown[][] {
+  return [element, ...element.querySelectorAll("[data-fold-row]")].map((each) => {
+    const timing = each.getAnimations()[0]?.effect?.getTiming();
+    return [timing?.duration, timing?.delay];
+  });
+}
+
+/**
+ * The heights an element's first animation goes through.
+ *
+ * @sideEffects none
+ * @param element - The animated element.
+ * @returns The keyframes' heights.
+ */
+function heightFrames(element: Element): unknown[] {
+  const effect = element.getAnimations()[0]?.effect as KeyframeEffect | undefined;
+  return effect?.getKeyframes().map((frame) => frame["height"]) ?? [];
+}
+
+/**
+ * Stops every animation under an element at its end, without finishing it.
+ *
+ * @remarks
+ * Shows the last frame of a fold while it is still on screen.
+ *
+ * @sideEffects Pauses and seeks the animations.
+ * @param element - The fold.
+ */
+function holdAtEnd(element: Element): void {
+  for (const animation of element.getAnimations({ subtree: true })) {
+    const timing = animation.effect?.getComputedTiming();
+    animation.pause();
+    animation.currentTime = timing?.endTime ?? 0;
+  }
+}
+
+/**
+ * The gap between the bottom of one element and the top of another.
+ *
+ * @sideEffects none
+ * @param above - The upper element.
+ * @param below - The lower element.
+ * @returns The gap in pixels.
+ */
+function gap(above: Element, below: Element): number {
+  return below.getBoundingClientRect().top - above.getBoundingClientRect().bottom;
+}
+
+/**
+ * The project row's folder icons: which, how visible and scaled, and the transitions on each.
+ *
+ * @sideEffects none
+ * @param row - The project row.
+ * @returns One entry per icon.
+ */
+function folderIcons(row: Element): unknown[][] {
+  return [...row.querySelectorAll<SVGElement>("[data-folder]")].map((icon) => [
+    icon.dataset["folder"],
+    getComputedStyle(icon).opacity,
+    getComputedStyle(icon).scale,
+    icon
+      .getAnimations()
+      .map((animation) => [(animation as CSSTransition).transitionProperty, animation.effect?.getTiming().duration])
+      .toSorted(([a], [b]) => String(a).localeCompare(String(b))),
+  ]);
+}
+
+/**
  * Renders the workbench over a fake client.
  *
  * @remarks
@@ -255,6 +332,88 @@ describe("Workbench sidebar", () => {
     await expect.element(screen.getByTestId("project-row").getByRole("img", { name: "运行中" })).toBeVisible();
     await expect.element(screen.getByTestId("project-row")).toHaveAttribute("aria-current", "true");
     expect(localStorage.getItem("atrium.collapsedProjects")).toBe(JSON.stringify([PROJECT.id]));
+  });
+
+  it("folds a project's workspaces away in 0.28 s, the rows one after another, and unfolds them from nothing", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));
+    const project = screen.getByTestId("project-row");
+    // Still, the fold leaves the rows' menus unclipped; moving, it clips the rows.
+    expect(getComputedStyle(screen.getByTestId("project-workspaces").element()).overflow).toBe("visible");
+
+    await project.click();
+
+    const fold = screen.getByTestId("project-workspaces").element();
+    expect([fold.getAttribute("data-fold"), getComputedStyle(fold).overflow]).toStrictEqual(["closing", "hidden"]);
+    expect(foldTimings(fold)).toStrictEqual([
+      [280, 40],
+      [220, 28],
+      [220, 14],
+      [220, 0],
+    ]);
+    await expect.element(screen.getByTestId("project-workspaces")).not.toBeInTheDocument();
+    await project.click();
+
+    const unfolding = screen.getByTestId("project-workspaces").element();
+    expect(unfolding.getAttribute("data-fold")).toBe("opening");
+    expect(heightFrames(unfolding)[0]).toBe("0px");
+    expect(foldTimings(unfolding)).toStrictEqual([
+      [280, 0],
+      [260, 40],
+      [260, 54],
+      [260, 68],
+    ]);
+    await expect.element(screen.getByTestId("project-workspaces")).toHaveAttribute("data-fold", "open");
+    expect(getComputedStyle(unfolding).overflow).toBe("visible");
+  });
+
+  it("keeps the rows 2px apart and the chats where they were, before, at the end of and after a fold", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));
+    const project = screen.getByTestId("project-row");
+    const rows = screen.getByTestId("workspace-row");
+    const chats = screen.getByRole("region", { name: "对话" }).element().firstElementChild as Element;
+
+    expect([gap(project.element(), rows.nth(0).element()), gap(rows.nth(2).element(), chats)]).toStrictEqual([2, 6]);
+    await project.click();
+    const fold = screen.getByTestId("project-workspaces").element();
+    holdAtEnd(fold);
+
+    expect(gap(project.element(), chats)).toBe(6);
+    for (const animation of fold.getAnimations({ subtree: true })) animation.finish();
+    await expect.element(rows).not.toBeInTheDocument();
+    expect(gap(project.element(), chats)).toBe(6);
+  });
+
+  it("cross-fades the project's folder between closed and open, scaling it, as its colour follows", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));
+    const row = screen.getByTestId("project-row").element();
+
+    expect(folderIcons(row)).toStrictEqual([
+      ["closed", "0", "0.6", []],
+      ["open", "1", "none", []],
+    ]);
+    await screen.getByTestId("project-row").click();
+
+    const moving = [
+      ["opacity", 300],
+      ["scale", 300],
+    ];
+    expect(folderIcons(row).map((icon) => icon[3])).toStrictEqual([moving, moving]);
+    expect(
+      row
+        .querySelector(".atrium-folder")
+        ?.getAnimations()
+        .map((animation) => (animation as CSSTransition).transitionProperty),
+    ).toStrictEqual(["color"]);
+    for (const transition of row.getAnimations({ subtree: true }).filter((one) => one instanceof CSSTransition)) {
+      transition.finish();
+    }
+    expect(folderIcons(row)).toStrictEqual([
+      ["closed", "1", "none", []],
+      ["open", "0", "0.6", []],
+    ]);
   });
 
   it("adds the folder the user picks as a project, and nothing when cancelled", async () => {

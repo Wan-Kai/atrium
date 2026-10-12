@@ -629,7 +629,7 @@ describe("TurnView", () => {
     const header = screen.getByTestId("process-header");
     /** How long the process's height and each row take, and when each row starts. */
     const timings = () =>
-      [screen.getByTestId("process").element(), ...screen.container.querySelectorAll("[data-rail-row]")].map(
+      [screen.getByTestId("process").element(), ...screen.container.querySelectorAll("[data-fold-row]")].map(
         (element) => {
           const timing = element.getAnimations()[0]?.effect?.getTiming();
           return [timing?.duration, timing?.delay];

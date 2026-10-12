@@ -626,7 +626,7 @@ function StepRow({
       data-testid="step"
       data-kind={step.kind}
       data-open={open}
-      data-rail-row
+      data-fold-row
     >
       <RailMarks node={stepNode(step, live)} first={place.first} last={place.last} />
       {opens ? (
@@ -680,7 +680,7 @@ function ExploreRow({
       data-testid="step"
       data-kind="explore"
       data-open={open}
-      data-rail-row
+      data-fold-row
     >
       <RailMarks node={live ? "live" : "search"} first={place.first} last={place.last} />
       <button

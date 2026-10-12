@@ -16,6 +16,7 @@ import {
 } from "../design/icons";
 import { type ReactNode, useState } from "react";
 import { useStore } from "zustand";
+import { Fold } from "../chat/fold";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { UpdateDot } from "../settings/settings-panel";
 import { piUpdateAvailable } from "../setup/pi-version";
@@ -60,6 +61,9 @@ const COLLAPSED_KEY = "atrium.collapsedProjects";
 /** The class of a sidebar row; selected rows get `--selected`. */
 const ROW =
   "group relative my-0.5 flex h-[34px] cursor-default select-none items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]";
+
+/** How long a project's workspaces take to fold away or unfold (design-language, "动效"). */
+const PROJECT_FOLD_MS = 280;
 
 /** The class of a small icon button in the sidebar. */
 const ICON_BUTTON =
@@ -497,9 +501,10 @@ function ChatRows({
  * @remarks
  * See `Sidebar`. A collapsed project holding the current workspace is shown selected. Archived
  * workspaces are left out, listed only in the project's menu; archiving one asks first
- * (SPEC-0001, "M1.11 的工作区归档").
+ * (SPEC-0001, "M1.11 的工作区归档"). Opening and closing fold the workspaces' rows in and out and
+ * cross-fade the folder (SPEC-0001, "侧栏"; design-language, "动效").
  *
- * @sideEffects Sends commands when used.
+ * @sideEffects Sends commands when used; animates the rows and the folder when opened or closed.
  * @param props - The client, the list, the project, whether it is open, the sidebar's renaming
  * and command helpers, and the time now.
  * @returns The rows.
@@ -559,8 +564,9 @@ function ProjectRows({
         className={`${ROW} aria-[current=true]:bg-[var(--selected)]`}
         data-testid="project-row"
       >
-        <span className={open ? "text-[var(--tint)]" : "text-[var(--text-muted)]"}>
-          {open ? <FolderOpen size={15} /> : <Folder size={15} />}
+        <span className={`atrium-folder ${open ? "text-[var(--tint)]" : "text-[var(--text-muted)]"}`}>
+          <Folder size={15} data-folder="closed" data-shown={!open} />
+          <FolderOpen size={15} data-folder="open" data-shown={open} />
         </span>
         {renaming === project.id ? (
           <RenameField
@@ -619,21 +625,27 @@ function ProjectRows({
           </MenuButton>
         </span>
       </div>
-      {open
-        ? workspaces.map((workspace) => (
-            <WorkspaceRow
-              key={workspace.id}
-              client={client}
-              workspace={workspace}
-              selected={index.layout.container === workspace.id}
-              status={status(workspace)}
-              renaming={renaming === workspace.id}
-              setRenaming={setRenaming}
-              run={run}
-              onArchive={() => setArchiving(workspace)}
-            />
-          ))
-        : null}
+      {/* The rows' 2px gaps stay the same open, folding and folded (design-language, "动效"). */}
+      <Fold
+        open={open}
+        testId="project-workspaces"
+        duration={PROJECT_FOLD_MS}
+        className="-mb-0.5 flow-root [&>:first-child]:mt-0"
+      >
+        {workspaces.map((workspace) => (
+          <WorkspaceRow
+            key={workspace.id}
+            client={client}
+            workspace={workspace}
+            selected={index.layout.container === workspace.id}
+            status={status(workspace)}
+            renaming={renaming === workspace.id}
+            setRenaming={setRenaming}
+            run={run}
+            onArchive={() => setArchiving(workspace)}
+          />
+        ))}
+      </Fold>
       {archiving === null ? null : (
         <ArchiveDialog
           client={client}
@@ -712,6 +724,7 @@ function WorkspaceRow({
       }}
       className={`${ROW} pl-9 aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
       data-testid="workspace-row"
+      data-fold-row
     >
       {renaming ? (
         <RenameField
