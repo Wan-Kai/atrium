@@ -370,6 +370,31 @@ describe("Workbench sidebar", () => {
     expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
   });
 
+  it("starts a chat from the first row under 对话, shown with no chats too, and from nowhere else in the sidebar", async () => {
+    const { screen, calls } = await workbench({ initial: { ...list(), chats: [] } });
+    const section = screen.getByRole("region", { name: "对话" });
+
+    expect(section.element().textContent).toBe("对话新建对话");
+    expect(
+      screen
+        .getByRole("navigation", { name: "侧栏" })
+        .getByRole("button", { name: /新建对话/ })
+        .elements(),
+    ).toHaveLength(1);
+    await section.getByRole("button", { name: "新建对话", exact: true }).click();
+
+    await vi.waitFor(() => expect(calls).toContain("createChat"));
+    await expect.element(section.getByRole("button", { name: "新建对话" })).toHaveAttribute("title", "新建对话（⌘N）");
+  });
+
+  it("puts 新建对话 before the chats' rows", async () => {
+    const { screen } = await workbench();
+    const section = screen.getByRole("region", { name: "对话" });
+
+    await expect.element(section.getByTestId("chat-row")).toBeVisible();
+    expect(section.element().textContent).toMatch(/^对话新建对话解释 merge-tree/);
+  });
+
   it("names a chat by its alias, else its first session's title, else as new", async () => {
     const initial = list();
     await workbench({

@@ -108,8 +108,8 @@ function readCollapsed(): ReadonlySet<string> {
 }
 
 /**
- * The sidebar: new chat, projects with their workspaces, search, chats, the settings and the
- * appearance switch.
+ * The sidebar: projects with their workspaces, search, chats with "新建对话" first, the settings
+ * and the appearance switch.
  *
  * @remarks
  * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.9. Projects can be collapsed; a collapsed
@@ -185,15 +185,6 @@ export function Sidebar({
       className="flex h-full w-[270px] shrink-0 flex-col bg-[var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150"
     >
       <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
-      <button
-        type="button"
-        onClick={onNewChat}
-        title="新建对话（⌘N）"
-        className="mx-3 mb-2 flex h-9 items-center justify-center gap-2 rounded-[var(--r-btn)] text-[var(--text)] shadow-[inset_0_0_0_0.5px_var(--line)] hover:bg-[var(--selected)]"
-      >
-        <PlusCircle size={16} />
-        新建对话
-      </button>
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <Inbox client={client} index={index} now={now} />
         <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
@@ -278,7 +269,15 @@ export function Sidebar({
                 还没有项目，点上面的文件夹按钮添加
               </p>
             ) : null}
-            <ChatRows client={client} index={index} now={now} renaming={renaming} setRenaming={setRenaming} run={run} />
+            <ChatRows
+              client={client}
+              index={index}
+              now={now}
+              onNewChat={onNewChat}
+              renaming={renaming}
+              setRenaming={setRenaming}
+              run={run}
+            />
           </>
         )}
       </div>
@@ -382,22 +381,24 @@ async function selectChat(client: AtriumClient, listed: ListedChat): Promise<unk
 }
 
 /**
- * The "对话" heading and the chats' rows: the latest five, then "显示全部 N 个".
+ * The "对话" heading, "新建对话", and the chats' rows: the latest five, then "显示全部 N 个".
  *
  * @remarks
- * Each chat is a container like a workspace (ADR-0007): its row shows its name, latest activity
- * and status, is lit while selected, and its "···" menu renames it. The rest of the chats open in
- * place, and "收起" closes them again (SPEC-0001, "对话").
+ * Shown without chats too, as it holds the way to start one (SPEC-0001, "对话"). Each chat is a
+ * container like a workspace (ADR-0007): its row shows its name, latest activity and status, is
+ * lit while selected, and its "···" menu renames it. The rest of the chats open in place, and
+ * "收起" closes them again.
  *
  * @sideEffects Sends commands when used.
- * @param props - The client, the list, the time now, and the sidebar's renaming and command
- * helpers.
- * @returns The rows, or nothing without chats.
+ * @param props - The client, the list, the time now, how to start a new chat, and the sidebar's
+ * renaming and command helpers.
+ * @returns The section.
  */
 function ChatRows({
   client,
   index,
   now,
+  onNewChat,
   renaming,
   setRenaming,
   run,
@@ -405,17 +406,21 @@ function ChatRows({
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly now: number;
+  readonly onNewChat: () => void;
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const chats = listedChats(index);
-  if (chats.length === 0) return null;
   const shown = expanded ? chats : chats.slice(0, RECENT_CHATS);
   return (
     <section aria-label="对话">
       <div className="mt-1.5 flex h-[34px] items-center pl-2 text-[var(--text-muted)]">对话</div>
+      <button type="button" onClick={onNewChat} title="新建对话（⌘N）" className={`${ROW} w-full text-left`}>
+        <PlusCircle size={16} className="shrink-0 text-[var(--text-muted)]" />
+        新建对话
+      </button>
       {shown.map((listed) => {
         const { chat } = listed;
         const name = chatName(chat, index.sessions);

@@ -357,6 +357,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 过程标题行和下面的正文左对齐：跑完的 › 箭头左边缘贴住正文左边、标题从 14.5px 起；运行中的小猫贴左、"进行中"从 24px 起；展开后各步的文字仍从 30px 起 | `packages/ui/src/chat/turn.browser.test.tsx` "starts the folded header's arrow at the reply's left edge"、"starts the running cat at the reply's left edge"、"lines the rows' text up 30px in" | 已覆盖 |
 | 输入框的展开按钮固定在卡片右上角（离上边、右边各 20px），上方有胶囊时也不往下移；Tab 仍在文字框之后到它 | `packages/ui/src/chat/composer.browser.test.tsx` "keeps the expand button in the card's top right corner"；`packages/ui/src/chat/chat.browser.test.tsx` "shows it on keyboard focus" | 已覆盖 |
 | 去掉显示模式：标签栏没有显示模式菜单，Ctrl+O 不做任何事；协议拒绝带 `displayMode` 的 `set_preferences`；`preferences.json` 升到 v3，迁移时删掉 `displayMode` | `packages/ui/src/app/workbench.browser.test.tsx` "has no display mode to switch"、`packages/protocol/src/envelope.test.ts` "a display mode"、`packages/host/src/store/preferences.test.ts`、`load-index.test.ts` | 已覆盖 |
+| "新建对话"在"对话"分区标题下第一行（⌘N），没有对话时分区也显示、只有这一行；侧栏别处没有新建对话的按钮 | `packages/ui/src/app/workbench.browser.test.tsx` "starts a chat from the first row under 对话"、"puts 新建对话 before the chats' rows"、"a new chat with ⌘N" | 已覆盖 |
 
 ## 安全（security.md）
 
