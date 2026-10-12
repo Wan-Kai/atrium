@@ -12,7 +12,6 @@ import {
 } from "../design/icons";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useClock } from "../state/clock";
-import { useDisplayMode } from "../state/display-mode";
 import { Fold } from "./fold";
 import { Markdown } from "./markdown";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
@@ -66,8 +65,10 @@ function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
  * A run's process header: "进行中 · 12s" while it runs, then "› 已完成，用时 N · 读了 …".
  *
  * @remarks
- * The cat stands on the rail while the run lasts; finished, a chevron takes its place, pointing
- * down while the process is open and right while it is folded (SPEC-0001, "过程的呈现"). The
+ * The cat shows while the run lasts; finished, a chevron takes its place, pointing down while the
+ * process is open and right while it is folded (SPEC-0001, "过程的呈现"). Both start at the
+ * reply's left edge rather than on the rail, so the header lines up with the reply below
+ * (design-language, "消息流 · 过程"); the chevron's box is pulled left by its inner margin. The
  * summary is said only while folded: open, the rail says it. A failed command is mentioned in
  * grey, "N 条命令没走通": the agent often recovers, so red is too loud. Once the process has
  * folded or unfolded in view, the summary comes in after the fold is well under way.
@@ -108,12 +109,10 @@ function ProcessHeader({
       {running ? (
         <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
       ) : (
-        <span className="flex min-w-0 items-center gap-1.5 pl-[30px]">
+        <span className="flex min-w-0 items-center gap-1.5">
           <CaretDown
             size={13}
-            className={`atrium-fold-chevron absolute top-[15px] left-[10.5px] -translate-x-1/2 -translate-y-1/2 group-hover:text-[var(--text-2)] ${
-              open ? "" : "-rotate-90"
-            }`}
+            className={`atrium-fold-chevron -ml-[4.5px] flex-none group-hover:text-[var(--text-2)] ${open ? "" : "-rotate-90"}`}
           />
           <span className="flex-none font-medium text-[var(--text)]">{headerTitle(turn, process)}</span>
           {open || parts.length === 0 ? null : " "}
@@ -385,8 +384,7 @@ export interface TurnViewProps {
  * "突出结果，折叠过程" (SPEC-0001, "对话区"). The process shows on its rail while the turn runs;
  * a turn that finishes in view stays open a second so "完成" can be seen, then folds into its
  * header, smoothly (SPEC-0001, "过程的呈现": "跑完后的折叠"). A turn already finished when shown
- * is simply folded, unless opened or in detailed mode; folded, steers stay visible and, in
- * thinking mode, thinking (SPEC-0001, "显示模式"). A turn without process steps has no header;
+ * is simply folded until opened; folded, steers stay visible (SPEC-0001, "过程的显示"). A turn without process steps has no header;
  * while it runs with nothing to show yet, the run's line stands in its place until the first
  * step or the reply's first text. Steps that arrive while the turn is shown play their entrance;
  * the ones there when it was first shown do not. The reply streams below, revealed smoothly; a
@@ -397,7 +395,6 @@ export interface TurnViewProps {
  * @returns The turn.
  */
 export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
-  const { mode } = useDisplayMode();
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -423,17 +420,14 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
    */
   const isLive = (step: Step): boolean =>
     running && (step.kind === "tool" ? step.status === "running" : step.id === lastId);
-  const open = running || lingering || (expanded ?? mode === "detailed");
+  const open = running || lingering || (expanded ?? false);
   const [wasOpen, setWasOpen] = useState(open);
   const [moved, setMoved] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
     setMoved(true);
   }
-  const lead = process.filter(
-    (row) =>
-      row.kind === "step" && (row.step.kind === "steer" || (mode === "thinking" && row.step.kind === "thinking")),
-  );
+  const lead = process.filter((row) => row.kind === "step" && row.step.kind === "steer");
   const waiting = running && process.length === 0 && (reply === null || reply.text === "");
   return (
     <div

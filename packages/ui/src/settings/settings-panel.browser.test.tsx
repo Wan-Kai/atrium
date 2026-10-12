@@ -3,7 +3,6 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { Workbench } from "../app/workbench";
-import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { READY_SETUP, fakeClient } from "../test/fake-client";
 
 /** Where the workbench remembers the settings' part. */
@@ -29,21 +28,17 @@ async function workbench(options: { setup?: typeof READY_SETUP; stored?: string 
   onTestFinished(() => localStorage.removeItem(SECTION_KEY));
   const fake = fakeClient({}, { setup: options.setup ?? READY_SETUP });
   fake.connection.setState({ hostVersion: "0.1.0" });
-  const displayMode = createDisplayMode("summary", () => undefined);
-  onTestFinished(followPreferences(displayMode, fake.client));
   const revealed: string[] = [];
   const screen = await render(
-    <DisplayModeContext value={displayMode}>
-      <Workbench
-        client={fake.client}
-        status={null}
-        pickDirectory={undefined}
-        setNativeAppearance={undefined}
-        openUrl={() => undefined}
-        reveal={(path) => revealed.push(path)}
-        pathForFile={undefined}
-      />
-    </DisplayModeContext>,
+    <Workbench
+      client={fake.client}
+      status={null}
+      pickDirectory={undefined}
+      setNativeAppearance={undefined}
+      openUrl={() => undefined}
+      reveal={(path) => revealed.push(path)}
+      pathForFile={undefined}
+    />,
   );
   return { screen, ...fake, revealed };
 }

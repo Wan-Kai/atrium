@@ -60,7 +60,6 @@ const commands: Command[] = [
   { type: "take_back", requestId: "r24c", traceparent, sessionId: "s1" },
   { type: "rename_session", requestId: "r25", traceparent, sessionId: "s1", name: "重构" },
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
-  { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
   { type: "set_preferences", requestId: "r60", traceparent, statusBar: { session: false, cost: true } },
   {
     type: "set_preferences",
@@ -698,6 +697,8 @@ describe("parseClientMessage", () => {
     ],
     ["an unknown container", { type: "select_container", requestId: "r1", traceparent, containerId: "inbox" }, "r1"],
     ["an unknown appearance", { type: "set_preferences", requestId: "r1", traceparent, appearance: "sepia" }, "r1"],
+    // The display mode went in M1.11 (SPEC-0001, "过程的显示").
+    ["a display mode", { type: "set_preferences", requestId: "r1", traceparent, displayMode: "summary" }, "r1"],
     [
       "a status bar group id over 64 characters",
       { type: "set_preferences", requestId: "r1", traceparent, statusBar: { ["g".repeat(65)]: true } },
@@ -1120,7 +1121,6 @@ const snapshot: IndexSnapshotEvent = {
   preferences: {
     setupDone: true,
     appearance: "system",
-    displayMode: "summary",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
     lastFast: true,
@@ -1270,10 +1270,6 @@ describe("HostMessage", () => {
       ...["generation_changed", "cursor_expired", "too_many_changes"].map((reason) => ({ ...snapshot, reason })),
       { ...snapshot, sessions: [{ ...session, attention: { reason: "auth", at: 0, cleared: true } }] },
       ...["light", "dark"].map((appearance) => ({ ...snapshot, preferences: { ...snapshot.preferences, appearance } })),
-      ...["thinking", "detailed"].map((displayMode) => ({
-        ...snapshot,
-        preferences: { ...snapshot.preferences, displayMode },
-      })),
       { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
       {
         ...snapshot,

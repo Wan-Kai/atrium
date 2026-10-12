@@ -131,7 +131,6 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.setPreferences({
           ...(command.setupDone === undefined ? {} : { setupDone: command.setupDone }),
           ...(command.appearance === undefined ? {} : { appearance: command.appearance }),
-          ...(command.displayMode === undefined ? {} : { displayMode: command.displayMode }),
           ...(command.statusBar === undefined ? {} : { statusBar: command.statusBar }),
           ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
           ...(command.proxy === undefined ? {} : { proxy: command.proxy }),

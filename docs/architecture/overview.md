@@ -96,10 +96,10 @@ atrium/
 │   ├── ui/                         React 界面（功能目录直接放在 src 下，2026-10-08 按实际结构改）
 │   │   └── src/
 │   │       ├── app/                根组件、工作台（侧栏 + 标签栏 + 对话区）、全局快捷键、连接状态
-│   │       ├── state/              把 client 的 store 包成 hooks；显示模式；ViewState（折叠、草稿，存 localStorage；图片只在内存）
+│   │       ├── state/              把 client 的 store 包成 hooks；ViewState（折叠、草稿，存 localStorage；图片只在内存）
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
-│   │       ├── tabs/               标签栏、历史、显示模式和会话菜单
+│   │       ├── tabs/               标签栏、历史和会话菜单
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框
 │   │       ├── test/               浏览器测试用的假客户端
 │   │       └── 以后：status-bar/、interactions/、onboarding/、settings/

@@ -998,7 +998,6 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
     preferences: {
       setupDone: false,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -1148,11 +1147,10 @@ describe("createAtriumClient: the list", () => {
     expect(client.index.getState().layout.tabs).toStrictEqual({ wks_0123456789abcdef: { open: [], active: null } });
     const selected = client.selectContainer(CHAT);
     expect(client.index.getState().layout.container).toBe(CHAT);
-    const preferred = client.setPreferences({ displayMode: "detailed" });
+    const preferred = client.setPreferences({ appearance: "dark" });
     expect(client.index.getState().preferences).toStrictEqual({
       setupDone: false,
-      appearance: "system",
-      displayMode: "detailed",
+      appearance: "dark",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -1172,7 +1170,7 @@ describe("createAtriumClient: the list", () => {
       { type: "open_session", sessionId: "s1" },
       { type: "close_tab", sessionId: "s1" },
       { type: "select_container", containerId: CHAT },
-      { type: "set_preferences", displayMode: "detailed" },
+      { type: "set_preferences", appearance: "dark" },
     ]);
   });
 

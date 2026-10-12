@@ -10,7 +10,6 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
-import { useDisplayMode } from "../state/display-mode";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/use-draft";
@@ -304,36 +303,6 @@ function SessionArea({
       />
     </>
   );
-}
-
-/**
- * Switches the display mode with Ctrl+O.
- *
- * @remarks
- * "用 Ctrl+O 切换" (SPEC-0001, "显示模式"); Ctrl, not ⌘, as in Claude Code.
- *
- * @sideEffects Listens for keys on the window while mounted.
- */
-export function useDisplayModeShortcut(): void {
-  const cycle = useDisplayMode().cycle;
-  useEffect(() => {
-    /**
-     * Cycles the mode on Ctrl+O alone.
-     *
-     * @remarks
-     * See `useDisplayModeShortcut`.
-     *
-     * @sideEffects May change the display mode; stops the browser's own handling of the key.
-     * @param event - The key event.
-     */
-    const onKey = (event: KeyboardEvent): void => {
-      if (!event.ctrlKey || event.metaKey || event.altKey || event.key.toLowerCase() !== "o") return;
-      event.preventDefault();
-      cycle();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [cycle]);
 }
 
 /**

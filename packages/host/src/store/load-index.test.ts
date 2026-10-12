@@ -42,7 +42,6 @@ const DOCUMENTS = {
   },
   preferences: {
     appearance: "dark",
-    displayMode: "thinking",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high" },
   },
@@ -57,7 +56,7 @@ const VERSIONS: Record<keyof typeof DOCUMENTS, number> = {
   chats: 1,
   sessions: 2,
   layouts: 2,
-  preferences: 2,
+  preferences: 3,
 };
 
 /**
@@ -147,8 +146,8 @@ describe("loadIndex", () => {
     [
       "preferences",
       "an unknown appearance",
-      { appearance: "sepia", displayMode: "summary" },
-      { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
+      { appearance: "sepia" },
+      { appearance: "system", lastModel: null, thinkingByModel: {} },
     ],
   ] as const)("resets %s with %s, keeping it aside and logging where", async (name, _case, document, empty) => {
     const dir = await home();

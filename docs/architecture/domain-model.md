@@ -17,7 +17,7 @@
 原则：
 
 - 对话内容只在 pi 里有一份（[ADR-0006](../adr/0006-organize-sessions-by-workspace.md)）。能从 pi 或 git 推出来的，Atrium 只缓存，不写进索引。
-- 每个字段只有一个可写来源。显示模式、状态栏分组是全局偏好；标签页、当前容器是某个客户端的布局；两者不混放。
+- 每个字段只有一个可写来源。外观、状态栏分组是全局偏好；标签页、当前容器是某个客户端的布局；两者不混放。
 - 只在宿主内存里的东西（排队、待交互请求、当场计时）宿主重启后丢失，界面显示"未知"或"—"，不假装恢复。
 
 ## 1. 项目、工作区、会话
@@ -125,7 +125,7 @@ classDiagram
 ├── chats.json                对话的自定义名称（2026-10-12 加）
 ├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）、Fast（M1.11）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
-├── preferences.json          全局偏好：外观、显示模式、网络代理……
+├── preferences.json          全局偏好：外观、状态栏、网络代理……
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"）；
 │                             随会话变长，单独放，不拖累其他文件
 ├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
@@ -489,7 +489,6 @@ classDiagram
       <<索引，全局>>
       setupDone
       appearance
-      displayMode
       statusBar: StatusGroupId[]
       lastModel: ModelRef?
       thinkingByModel

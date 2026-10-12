@@ -408,7 +408,7 @@ describe("createRouter", () => {
     );
     await route(
       connection,
-      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true, proxy: PROXY }),
+      withTrace({ type: "set_preferences", requestId: "r8", appearance: "light", setupDone: true, proxy: PROXY }),
     );
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
     await route(connection, withTrace({ type: "list_models", requestId: "r10", workspaceId: WORKSPACE }));
@@ -438,7 +438,7 @@ describe("createRouter", () => {
       ["renameWorkspace", WORKSPACE, null],
       ["windowFocused"],
       ["setPreferences", { appearance: "dark", titleModel: null }],
-      ["setPreferences", { displayMode: "thinking", setupDone: true, proxy: PROXY }],
+      ["setPreferences", { setupDone: true, appearance: "light", proxy: PROXY }],
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
       ["listModels", null, true],

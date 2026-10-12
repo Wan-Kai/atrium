@@ -485,7 +485,6 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
-      displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -511,7 +510,6 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
-      displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -542,7 +540,6 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
-      displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,

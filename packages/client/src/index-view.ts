@@ -28,7 +28,6 @@ export function emptyIndex(): IndexView {
     preferences: {
       setupDone: false,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -193,7 +192,7 @@ export function withContainer(view: IndexView, containerId: ContainerId | null):
  * Changes preferences, as the host will.
  *
  * @remarks
- * Ctrl+O must switch the display mode at once.
+ * A switch in the settings, the appearance say, must show at once.
  *
  * @sideEffects none
  * @param view - The view.

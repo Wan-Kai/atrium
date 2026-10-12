@@ -25,7 +25,8 @@ export function formatElapsed(ms: number): string {
  * @remarks
  * The mark stands for a run going on (design-language, "标志"): the logo's ears and eyes in flat
  * colours, small enough for the line; the stylesheet blinks the eyes, and stills them under
- * reduced motion. It stands where the process rail's nodes do (SPEC-0001, "过程的呈现").
+ * reduced motion. It starts at the reply's left edge, as the finished header's chevron does
+ * (design-language, "消息流 · 过程").
  *
  * @sideEffects none
  * @returns The cat, hidden from assistive technology.
@@ -35,7 +36,7 @@ function RunCat() {
     <svg
       aria-hidden
       viewBox="0 0 1024 1024"
-      className="atrium-run-cat absolute top-1/2 left-[10.5px] -translate-x-1/2 -translate-y-1/2"
+      className="atrium-run-cat absolute top-1/2 left-0 -translate-y-1/2"
       data-testid="run-cat"
     >
       <rect width="1024" height="1024" rx="230" fill="#6c86cc" />
@@ -75,7 +76,7 @@ export function RunStatus({ startedAt }: { readonly startedAt: number | null }) 
   useEffect(() => clock.every(1000, () => setNow(clock.now())), [clock]);
   return (
     <p
-      className="relative flex min-h-[30px] items-center pl-[30px] text-[length:var(--fs-meta)] tabular-nums"
+      className="relative flex min-h-[30px] items-center pl-6 text-[length:var(--fs-meta)] tabular-nums"
       data-testid="run-status"
     >
       <RunCat />

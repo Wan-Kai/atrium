@@ -4,7 +4,7 @@ import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { InteractionAnswer } from "./control";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
-import { Appearance, BranchName, DisplayMode, ProxySetting, StatusBarChoices } from "./listing";
+import { Appearance, BranchName, ProxySetting, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -301,7 +301,6 @@ export const SetPreferencesCommand = z.strictObject({
   ...commandFields,
   setupDone: z.boolean().optional(),
   appearance: Appearance.optional(),
-  displayMode: DisplayMode.optional(),
   statusBar: StatusBarChoices.optional(),
   titleModel: ModelRef.nullable().optional(),
   proxy: ProxySetting.nullable().optional(),

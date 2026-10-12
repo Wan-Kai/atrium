@@ -2,7 +2,6 @@ import type { Step, Turn } from "@atrium/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { ClockContext, type UiClock } from "../state/clock";
-import { DisplayModeContext, type DisplayMode, createDisplayMode } from "../state/display-mode";
 import "../styles.css";
 import { LoadStepContext } from "./steps";
 import { NoticeView, TurnView } from "./turn-view";
@@ -53,19 +52,69 @@ const steer: Step = { kind: "steer", id: "3", text: "顺便加个测试" };
 const answer: Step = { kind: "text", id: "4", text: "改好了，**一处**改动。" };
 
 /**
- * Renders a turn in a display mode.
+ * Renders a turn.
+ *
+ * @sideEffects Renders into the page.
+ * @param value - The turn.
+ * @param runStartedAt - When its run started, for a running turn.
+ * @returns The screen.
+ */
+async function show(value: Turn, runStartedAt: number | null = null) {
+  const screen = await render(<TurnView turn={value} runStartedAt={runStartedAt} />);
+  return { screen };
+}
+
+/**
+ * Renders a finished turn with its process and every step opened, as a click on each would.
  *
  * @remarks
- * Each render gets a mode store of its own, so modes do not leak between tests.
+ * What the detailed display mode showed before M1.11 took the modes out (SPEC-0001, "过程的显
+ * 示"); waits for the unfolding to finish so what is measured has settled.
+ *
+ * @sideEffects Renders into the page and clicks in it.
+ * @param value - The turn.
+ * @returns The screen.
  */
-async function show(value: Turn, mode: DisplayMode = "summary", runStartedAt: number | null = null) {
-  const store = createDisplayMode(mode);
-  const screen = await render(
-    <DisplayModeContext value={store}>
-      <TurnView turn={value} runStartedAt={runStartedAt} />
-    </DisplayModeContext>,
-  );
-  return { screen, store };
+async function opened(value: Turn) {
+  const { screen } = await show(value);
+  await screen.getByTestId("process-header").click();
+  // Opening a row can bring rows of its own, so open until none is left closed.
+  const closed = (): HTMLButtonElement | null =>
+    screen.container.querySelector<HTMLButtonElement>('[data-testid="step"] > button[aria-expanded="false"]');
+  for (let toggle = closed(); toggle !== null; toggle = closed()) {
+    toggle.click();
+    await new Promise(requestAnimationFrame);
+  }
+  await Promise.all(document.getAnimations().map((animation) => animation.finished));
+  return { screen };
+}
+
+/**
+ * Where an element's first drawn shape starts, in viewport pixels.
+ *
+ * @remarks
+ * For an icon, whose box is wider than what it draws.
+ *
+ * @sideEffects none
+ * @param element - What holds the icon.
+ * @returns The left edge of the icon's first path.
+ * @throws {Error} When there is no path.
+ */
+function drawnLeft(element: Element): number {
+  const path = element.querySelector("svg path");
+  if (path === null) throw new Error("no path");
+  return path.getBoundingClientRect().left;
+}
+
+/**
+ * A running turn with these steps, as the transcript renders it.
+ *
+ * @sideEffects none
+ * @param steps - The steps.
+ * @returns The element.
+ */
+function runningView(steps: Step[]) {
+  return <TurnView turn={turn(steps, { outcome: "running", durationMs: null })} runStartedAt={at} />;
 }
 
 /** The steps shown, by kind. */
@@ -204,7 +253,7 @@ describe("TurnView", () => {
   });
 
   it("opens a step's detail on click: a command's output, an edit's diff", async () => {
-    const { screen } = await show(turn([command, edit, answer]), "detailed");
+    const { screen } = await opened(turn([command, edit, answer]));
     const details = screen.container.querySelectorAll('[data-testid="step-detail"]');
 
     expect(details).toHaveLength(2);
@@ -219,23 +268,6 @@ describe("TurnView", () => {
     await screen.getByRole("button", { name: /^运行了 pnpm test 失败$/ }).click();
 
     expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(1);
-  });
-
-  it("opens thinking in thinking mode, even folded, and says how long it took", async () => {
-    const { screen } = await show(turn([thinking, command, answer]), "thinking");
-
-    expect(shownSteps(screen.container)).toStrictEqual(["thinking"]);
-    await expect.element(screen.getByRole("button", { name: /思考了 6 秒 · 先看侧栏…/ })).toBeVisible();
-    expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toBe("先看侧栏。再决定。");
-  });
-
-  it("follows the display mode as it changes", async () => {
-    const { screen, store } = await show(turn([command, answer]));
-    expect(shownSteps(screen.container)).toStrictEqual([]);
-
-    store.getState().set("detailed");
-
-    await vi.waitFor(() => expect(shownSteps(screen.container)).toStrictEqual(["tool"]));
   });
 
   it("calls a process of thinking only by how long it thought", async () => {
@@ -260,7 +292,6 @@ describe("TurnView", () => {
     const live: Step = { ...command, status: "running", output: "running…" };
     const { screen } = await show(
       turn([thinking, live], { outcome: "running", durationMs: null, usage: null }),
-      "summary",
       Date.now() - 5_000,
     );
 
@@ -272,11 +303,7 @@ describe("TurnView", () => {
   });
 
   it("streams the thinking going on as 思考中, open", async () => {
-    const { screen } = await show(
-      turn([{ ...thinking, durationMs: null }], { outcome: "running" }),
-      "summary",
-      Date.now(),
-    );
+    const { screen } = await show(turn([{ ...thinking, durationMs: null }], { outcome: "running" }), Date.now());
 
     await expect.element(screen.getByRole("button", { name: /思考中/ })).toBeVisible();
     await vi.waitFor(() =>
@@ -284,9 +311,9 @@ describe("TurnView", () => {
     );
   });
 
-  it("keeps thinking with nothing to show from opening, in any mode", async () => {
+  it("keeps thinking with nothing to show from opening, even with every other step opened", async () => {
     const hidden: Step = { ...thinking, text: " \n" };
-    const { screen } = await show(turn([hidden, command, answer]), "detailed");
+    const { screen } = await opened(turn([hidden, command, answer]));
 
     expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool"]);
     expect(screen.getByTestId("step").first().element().textContent?.trim()).toBe("思考了 6 秒");
@@ -297,7 +324,6 @@ describe("TurnView", () => {
   it("shows no empty block under thinking going on that has nothing to show yet", async () => {
     const { screen } = await show(
       turn([{ ...thinking, text: "", durationMs: null }], { outcome: "running" }),
-      "summary",
       Date.now(),
     );
 
@@ -309,14 +335,11 @@ describe("TurnView", () => {
 
   it("fetches a step that arrived as a preview once it is opened, and only then", async () => {
     const asked: string[] = [];
-    const store = createDisplayMode("summary");
     const preview: Step = { ...command, status: "done", output: "…the end", partial: true };
     const screen = await render(
-      <DisplayModeContext value={store}>
-        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
-          <TurnView turn={turn([preview, answer], { id: "t7" })} runStartedAt={null} />
-        </LoadStepContext>
-      </DisplayModeContext>,
+      <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+        <TurnView turn={turn([preview, answer], { id: "t7" })} runStartedAt={null} />
+      </LoadStepContext>,
     );
     await screen.getByTestId("process-header").click();
     expect(asked).toStrictEqual([]);
@@ -326,14 +349,12 @@ describe("TurnView", () => {
     expect(asked).toStrictEqual(["t7/1"]);
     await expect.element(screen.getByTestId("step-loading")).toHaveTextContent("正在加载完整内容…");
     await screen.rerender(
-      <DisplayModeContext value={store}>
-        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
-          <TurnView
-            turn={turn([{ ...preview, output: "the start…the end", partial: false }, answer], { id: "t7" })}
-            runStartedAt={null}
-          />
-        </LoadStepContext>
-      </DisplayModeContext>,
+      <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+        <TurnView
+          turn={turn([{ ...preview, output: "the start…the end", partial: false }, answer], { id: "t7" })}
+          runStartedAt={null}
+        />
+      </LoadStepContext>,
     );
     await expect.element(screen.getByTestId("step-detail")).toHaveTextContent("输出bashthe start…the end");
     expect(asked).toStrictEqual(["t7/1"]);
@@ -341,16 +362,13 @@ describe("TurnView", () => {
 
   it("fetches a file change that arrived as a preview when the file is opened", async () => {
     const asked: string[] = [];
-    const store = createDisplayMode("summary");
     const screen = await render(
-      <DisplayModeContext value={store}>
-        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
-          <TurnView
-            turn={turn([{ ...edit, partial: true }, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] })}
-            runStartedAt={null}
-          />
-        </LoadStepContext>
-      </DisplayModeContext>,
+      <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+        <TurnView
+          turn={turn([{ ...edit, partial: true }, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] })}
+          runStartedAt={null}
+        />
+      </LoadStepContext>,
     );
 
     await screen
@@ -420,9 +438,8 @@ describe("TurnView", () => {
   });
 
   it("draws the process on a rail: a failed command branches off, a steer joins, and it ends at the last step", async () => {
-    const { screen } = await show(
+    const { screen } = await opened(
       turn([thinking, command, edit, steer, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
-      "detailed",
     );
 
     expect(railNodes(screen.container)).toStrictEqual(["dot", "dead", "dot", "steer"]);
@@ -433,10 +450,9 @@ describe("TurnView", () => {
     await expect.element(screen.getByRole("button", { name: /^你插话 · 顺便加个测试$/ })).toBeVisible();
   });
 
-  it("lines the header's and rows' text up 30px in, the main line's nodes at 10.5px and the branches' at 19.5px", async () => {
-    const { screen } = await show(
+  it("lines the rows' text up 30px in, the main line's nodes at 10.5px and the branches' at 19.5px", async () => {
+    const { screen } = await opened(
       turn([thinking, command, edit, steer, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
-      "detailed",
     );
     const header = screen.getByTestId("process-header").element();
     const title = screen.getByText(/^已完成/).element();
@@ -447,20 +463,48 @@ describe("TurnView", () => {
       rows: rows.map((row) => textStart(row, row.getBoundingClientRect().left)),
       nodes: rows.map(nodeCenter),
     }).toStrictEqual({
-      header: 30,
+      header: 14.5,
       rows: [30, 30, 30, 30],
       nodes: [10.5, 19.5, 10.5, 19.5],
     });
   });
 
+  it("starts the folded header's arrow at the reply's left edge, the title 6px after it", async () => {
+    const { screen } = await show(turn([thinking, command, answer]));
+    const header = screen.getByTestId("process-header").element();
+    const left = header.getBoundingClientRect().left;
+
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect({
+      arrow: Math.round(drawnLeft(header) - left),
+      title: textStart(screen.getByText(/^已完成/).element(), left),
+      reply: Math.round(screen.getByTestId("reply").element().getBoundingClientRect().left - left),
+    }).toStrictEqual({ arrow: 0, title: 14.5, reply: 0 });
+  });
+
+  it('starts the running cat at the reply\'s left edge and "进行中" 24px in', async () => {
+    const live: Step = { ...command, status: "running", output: "running…" };
+    const { screen } = await show(
+      turn([thinking, live], { outcome: "running", durationMs: null, usage: null }),
+      Date.now(),
+    );
+    const status = screen.getByTestId("run-status").element();
+    const left = screen.getByTestId("process-header").element().getBoundingClientRect().left;
+
+    expect({
+      cat: Math.round(screen.getByTestId("run-cat").element().getBoundingClientRect().left - left),
+      text: textStart(status, left),
+    }).toStrictEqual({ cat: 0, text: 24 });
+  });
+
   it("says a stopped or failed turn in its header alone, the rail ending at the last step", async () => {
-    const stopped = await show(turn([thinking, command], { outcome: "stopped" }), "detailed");
+    const stopped = await opened(turn([thinking, command], { outcome: "stopped" }));
     await expect.element(stopped.screen.getByTestId("process-header")).toMatchTextContent(/^已停止，用时 2 分 13 秒$/);
     expect(railNodes(stopped.screen.container)).toStrictEqual(["dot", "dead"]);
     expect(railReach(stopped.screen.container)).toBe(0);
     await stopped.screen.unmount();
 
-    const failed = await show(turn([thinking, edit], { outcome: "failed" }), "detailed");
+    const failed = await opened(turn([thinking, edit], { outcome: "failed" }));
     await expect.element(failed.screen.getByTestId("process-header")).toMatchTextContent(/^出错了，用时 2 分 13 秒$/);
     expect(railNodes(failed.screen.container)).toStrictEqual(["dot", "dot"]);
     expect(railReach(failed.screen.container)).toBe(0);
@@ -479,7 +523,7 @@ describe("TurnView", () => {
       partial: false,
     }));
     const grep: Step = { ...command, id: "g", tool: "grep", status: "done", details: null };
-    const { screen } = await show(turn([...reads, grep, answer]), "detailed");
+    const { screen } = await opened(turn([...reads, grep, answer]));
 
     await expect
       .element(screen.getByRole("button", { name: /^探索了代码库 · 读了 7 个文件，搜索了 1 次$/ }))
@@ -505,14 +549,11 @@ describe("TurnView", () => {
         return () => timers.delete(ms);
       },
     };
-    const store = createDisplayMode("summary");
     const steps = [thinking, { ...command, status: "done" as const }];
     /** The turn, running or finished. */
     const view = (value: Turn) => (
       <ClockContext value={clock}>
-        <DisplayModeContext value={store}>
-          <TurnView turn={value} runStartedAt={at} />
-        </DisplayModeContext>
+        <TurnView turn={value} runStartedAt={at} />
       </ClockContext>
     );
     const screen = await render(view(turn(steps, { outcome: "running", durationMs: null })));
@@ -545,13 +586,10 @@ describe("TurnView", () => {
         return () => timers.delete(run);
       },
     };
-    const store = createDisplayMode("summary");
     /** The turn, running or finished. */
     const view = (value: Turn) => (
       <ClockContext value={clock}>
-        <DisplayModeContext value={store}>
-          <TurnView turn={value} runStartedAt={at} />
-        </DisplayModeContext>
+        <TurnView turn={value} runStartedAt={at} />
       </ClockContext>
     );
     const screen = await render(view(turn([thinking], { outcome: "running", durationMs: null })));
@@ -570,7 +608,7 @@ describe("TurnView", () => {
   });
 
   it("unfolds a folded process from nothing, and folds it from where it is", async () => {
-    const { screen } = await show(turn([command, edit, answer]), "summary");
+    const { screen } = await show(turn([command, edit, answer]));
     const header = screen.getByTestId("process-header");
     /** Where the process's height animation starts and ends. */
     const heights = () => heightFrames(screen.getByTestId("process").element());
@@ -587,7 +625,7 @@ describe("TurnView", () => {
   });
 
   it("folds and unfolds in 0.4 s, the rows a little quicker", async () => {
-    const { screen } = await show(turn([command, edit, answer]), "summary");
+    const { screen } = await show(turn([command, edit, answer]));
     const header = screen.getByTestId("process-header");
     /** How long the process's height and each row take, and when each row starts. */
     const timings = () =>
@@ -619,7 +657,7 @@ describe("TurnView", () => {
     vi.spyOn(window, "matchMedia").mockImplementation(
       (query) => ({ matches: query === "(prefers-reduced-motion: reduce)" }) as MediaQueryList,
     );
-    const { screen } = await show(turn([command, answer]), "summary");
+    const { screen } = await show(turn([command, answer]));
     await screen.getByTestId("process-header").click();
     expect(shownSteps(screen.container)).toStrictEqual(["tool"]);
 
@@ -629,16 +667,9 @@ describe("TurnView", () => {
   });
 
   it("plays the entrance of steps that arrive while shown, not of those already there", async () => {
-    const store = createDisplayMode("summary");
-    /** The running turn with these steps. */
-    const view = (steps: Step[]) => (
-      <DisplayModeContext value={store}>
-        <TurnView turn={turn(steps, { outcome: "running", durationMs: null })} runStartedAt={at} />
-      </DisplayModeContext>
-    );
-    const screen = await render(view([thinking]));
+    const screen = await render(runningView([thinking]));
 
-    await screen.rerender(view([thinking, { ...command, status: "running" }]));
+    await screen.rerender(runningView([thinking, { ...command, status: "running" }]));
 
     expect(
       [...screen.container.querySelectorAll('[data-testid="step"]')].map((step) =>

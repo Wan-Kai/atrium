@@ -6,7 +6,6 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { describeArchiveError, describeRestoreError } from "../sidebar/archive";
-import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
@@ -79,25 +78,19 @@ async function workbench(
   // The size of the app's window, so the sidebar and tab bar sit side by side.
   await page.viewport(1280, 820);
   const fake = fakeClient(options.initial ?? list(), options.answers);
-  const displayMode = createDisplayMode("summary", (mode) => {
-    void fake.client.setPreferences({ displayMode: mode });
-  });
-  onTestFinished(followPreferences(displayMode, fake.client));
   const native: string[] = [];
   const opened: string[] = [];
   const revealed: string[] = [];
   const screen = await render(
-    <DisplayModeContext value={displayMode}>
-      <Workbench
-        client={fake.client}
-        status={options.status ?? <span>已连接宿主</span>}
-        pickDirectory={async () => options.picked ?? null}
-        setNativeAppearance={(appearance) => native.push(appearance)}
-        openUrl={(url) => opened.push(url)}
-        reveal={(path) => revealed.push(path)}
-        pathForFile={undefined}
-      />
-    </DisplayModeContext>,
+    <Workbench
+      client={fake.client}
+      status={options.status ?? <span>已连接宿主</span>}
+      pickDirectory={async () => options.picked ?? null}
+      setNativeAppearance={(appearance) => native.push(appearance)}
+      openUrl={(url) => opened.push(url)}
+      reveal={(path) => revealed.push(path)}
+      pathForFile={undefined}
+    />,
   );
   return { screen, ...fake, native, opened, revealed };
 }
@@ -118,17 +111,15 @@ describe("Workbench connection line", () => {
     await expect.element(screen.getByRole("status")).toHaveTextContent("已连接宿主 0.1.0");
     expect(footer?.getBoundingClientRect().height).toBe(0);
     await screen.rerender(
-      <DisplayModeContext value={createDisplayMode("summary", () => undefined)}>
-        <Workbench
-          client={fakeClient(list()).client}
-          status={<ConnectionStatus view={{ status: "reconnecting", attempt: 1, code: 1006 }} />}
-          pickDirectory={undefined}
-          setNativeAppearance={undefined}
-          openUrl={() => undefined}
-          reveal={undefined}
-          pathForFile={undefined}
-        />
-      </DisplayModeContext>,
+      <Workbench
+        client={fakeClient(list()).client}
+        status={<ConnectionStatus view={{ status: "reconnecting", attempt: 1, code: 1006 }} />}
+        pickDirectory={undefined}
+        setNativeAppearance={undefined}
+        openUrl={() => undefined}
+        reveal={undefined}
+        pathForFile={undefined}
+      />,
     );
     await expect.element(screen.getByRole("status")).toBeVisible();
     expect(screen.container.querySelector("footer")?.getBoundingClientRect().height).toBe(24);
@@ -914,21 +905,14 @@ describe("Workbench tabs", () => {
     await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeDisabled();
   });
 
-  it("switches the display mode with Ctrl+O and from its menu, saving it with the preferences", async () => {
+  it("has no display mode to switch, from a menu or with Ctrl+O", async () => {
     const { screen, calls } = await workbench();
-    const menu = screen.getByRole("button", { name: "显示模式（Ctrl+O 切换）" });
-    await expect.element(menu).toHaveTextContent("摘要模式");
+    await expect.element(screen.getByRole("button", { name: "当前会话" })).toBeVisible();
 
     await userEvent.keyboard("{Control>}o{/Control}");
-    await expect.element(menu).toHaveTextContent("思考模式");
-    await menu.click();
-    await screen.getByRole("menuitemradio", { name: /详细/ }).click();
 
-    await expect.element(menu).toHaveTextContent("详细模式");
-    expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
-      'setPreferences {"displayMode":"thinking"}',
-      'setPreferences {"displayMode":"detailed"}',
-    ]);
+    expect(screen.container.ownerDocument.body.textContent).not.toMatch(/摘要模式|思考模式|详细模式/);
+    expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([]);
   });
 });
 

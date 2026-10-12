@@ -57,7 +57,6 @@ describe("emptyIndex", () => {
       preferences: {
         setupDone: false,
         appearance: "system",
-        displayMode: "summary",
         lastModel: null,
         thinkingByModel: {},
         lastFast: false,
@@ -251,7 +250,6 @@ describe("withContainer and withPreferences", () => {
     expect(withPreferences(emptyIndex(), { appearance: "dark" }).preferences).toStrictEqual({
       setupDone: false,
       appearance: "dark",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,

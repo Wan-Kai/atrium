@@ -1,7 +1,6 @@
 import { type AtriumClient, createAtriumClient } from "@atrium/client";
 import type { Appearance } from "@atrium/protocol";
 import { useEffect, useState } from "react";
-import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { useConnectionState } from "../state/use-connection-state";
 import { clientId, desktopBridge, readBootstrap } from "./bootstrap";
 import { ConnectionStatus, type StatusView } from "./connection-status";
@@ -128,43 +127,33 @@ function reveal(path: string): void {
 }
 
 /**
- * The app once a client exists: the display mode store and the workbench.
+ * The app once a client exists: the workbench, wired to the desktop bridge.
  *
  * @remarks
- * The display mode follows the host's preferences and saves changes there (SPEC-0001,
- * "项目、工作区与会话").
+ * What the bridge cannot do (in a browser) is left out, so the workbench hides it.
  *
- * @sideEffects Subscribes the display mode to the client's list while mounted.
+ * @sideEffects none
  * @param props - The client.
  * @returns The workbench.
  */
 function Connected({ client }: { readonly client: AtriumClient }) {
-  const [displayMode] = useState(() =>
-    createDisplayMode(client.index.getState().preferences.displayMode, (mode) => {
-      // Fire and forget: the list shows the change at once, and the host keeps it.
-      void client.setPreferences({ displayMode: mode }).catch(() => undefined);
-    }),
-  );
-  useEffect(() => followPreferences(displayMode, client), [displayMode, client]);
   const bridge = desktopBridge();
   return (
-    <DisplayModeContext value={displayMode}>
-      <Workbench
-        client={client}
-        status={<LiveStatus client={client} />}
-        pickDirectory={
-          bridge?.pickDirectory === undefined
-            ? undefined
-            : () => desktopBridge()?.pickDirectory?.() ?? Promise.resolve(null)
-        }
-        setNativeAppearance={bridge?.setAppearance === undefined ? undefined : setNativeAppearance}
-        openUrl={openUrl}
-        reveal={bridge?.reveal === undefined ? undefined : reveal}
-        pathForFile={
-          bridge?.pathForFile === undefined ? undefined : (file) => desktopBridge()?.pathForFile?.(file) ?? null
-        }
-      />
-    </DisplayModeContext>
+    <Workbench
+      client={client}
+      status={<LiveStatus client={client} />}
+      pickDirectory={
+        bridge?.pickDirectory === undefined
+          ? undefined
+          : () => desktopBridge()?.pickDirectory?.() ?? Promise.resolve(null)
+      }
+      setNativeAppearance={bridge?.setAppearance === undefined ? undefined : setNativeAppearance}
+      openUrl={openUrl}
+      reveal={bridge?.reveal === undefined ? undefined : reveal}
+      pathForFile={
+        bridge?.pathForFile === undefined ? undefined : (file) => desktopBridge()?.pathForFile?.(file) ?? null
+      }
+    />
   );
 }
 

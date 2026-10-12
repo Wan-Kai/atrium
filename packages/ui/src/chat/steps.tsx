@@ -1,7 +1,6 @@
 import type { Step } from "@atrium/protocol";
 import { Check, FileMarks, MagnifyingGlass, X } from "../design/icons";
 import { type ReactNode, createContext, useContext, useEffect, useId, useState } from "react";
-import { type DisplayMode, useDisplayMode } from "../state/display-mode";
 import { type FileKind, fileKind } from "./file-kind";
 import { Markdown } from "./markdown";
 import {
@@ -252,21 +251,6 @@ function FileChip({
       )}
     </span>
   );
-}
-
-/**
- * Whether a step starts out open in a display mode.
- *
- * @remarks
- * Detailed opens every step; thinking opens thinking (SPEC-0001, "显示模式").
- *
- * @sideEffects none
- * @param mode - The display mode.
- * @param step - The step.
- * @returns Whether it is open.
- */
-function openByDefault(mode: DisplayMode, step: Step): boolean {
-  return mode === "detailed" || (mode === "thinking" && step.kind === "thinking");
 }
 
 /**
@@ -614,10 +598,9 @@ function StepRow({
   readonly live: boolean;
   readonly place: RailPlace;
 }) {
-  const { mode } = useDisplayMode();
-  const [toggled, setToggled] = useState<boolean | null>(null);
+  const [opened, setOpened] = useState(false);
   const opens = hasDetail(step);
-  const open = opens && (toggled ?? openByDefault(mode, step));
+  const open = opens && opened;
   const shown = open || (opens && live);
   useWholeStep(turnId, step, shown);
   let detail: ReactNode = null;
@@ -650,7 +633,7 @@ function StepRow({
         <button
           type="button"
           aria-expanded={open}
-          onClick={() => setToggled(!open)}
+          onClick={() => setOpened(!open)}
           className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
         >
           {words}
@@ -688,9 +671,7 @@ function ExploreRow({
   readonly live: boolean;
   readonly place: RailPlace;
 }) {
-  const { mode } = useDisplayMode();
-  const [toggled, setToggled] = useState<boolean | null>(null);
-  const open = toggled ?? mode === "detailed";
+  const [open, setOpen] = useState(false);
   const line = describeExplore(steps, live);
   const files = exploredFiles(steps);
   return (
@@ -705,7 +686,7 @@ function ExploreRow({
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setToggled(!open)}
+        onClick={() => setOpen(!open)}
         className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
       >
         <span className={`flex-none text-[var(--text-2)] ${live ? "atrium-shimmer" : ""}`}>{line.verb}</span>{" "}

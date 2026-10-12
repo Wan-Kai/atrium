@@ -18,7 +18,7 @@
 | 8 | 重启后恢复之前的会话 | `apps/desktop/e2e/history.spec.ts`（从 pi 的文件恢复）、`workspaces.spec.ts`（重启后标签页、当前标签和草稿还在）、`app.spec.ts`（页面存储跨重启） | 已覆盖 |
 | 9 | 状态栏显示上下文、缓存、token、速度，可选择显示哪些 | `apps/desktop/e2e/status-bar.spec.ts`（真实宿主和 pi 下回复后显示轮、步、token、上下文，悬停看分段，打开费用后新对话也显示）；组件与宿主见"状态栏（M1.8）" | 已覆盖 |
 | 10 | 在 Atrium 里回答 extension 的对话框 | `apps/desktop/e2e/run-control.spec.ts`（`/faux-confirm` 的卡片上作答）；见"运行控制（M1.6）" | 已覆盖 |
-| 11 | 默认只突出回复，可切换显示模式 | — | 待 M1.4 |
+| 11 | 默认只突出回复，点开过程看每一步（2026-10-12 去掉显示模式的切换） | `packages/ui/src/chat/turn.browser.test.tsx`（跑完的轮折叠进标题行、点开看每一步）；`packages/ui/src/app/workbench.browser.test.tsx` "has no display mode to switch" | 已覆盖 |
 | 12 | 会话在后台继续运行 | `apps/desktop/e2e/parallel.spec.ts`（三个会话同时运行，切走、断网时照常跑完，宿主重启后状态和对话记录正确）；宿主见"并行、同步与关注（M1.9）" | 已覆盖 |
 | 13 | 首次启动引导安装 pi、登录、添加项目 | `apps/desktop/e2e/first-launch.spec.ts`（新的数据目录从欢迎页走到工作台）；组件与宿主见"首次启动与设置（M1.10）"。在没装 pi 的账户上走一遍要手动做，挪到 M1.11 | 部分覆盖 |
 | 14 | 复制消息或回复 | — | 待 M1.4 |
@@ -129,7 +129,7 @@
 | 会话管理器：新建时读一次条目；运行后再读与推过的一致，不多推事件；`fetch_transcript` 交给会话；scripted pi 按次序回答同一命令（`sequence`） | `packages/host/src/sessions/session-manager.test.ts`、`chat.host.test.ts`、`server/router.test.ts` | 已覆盖 |
 | 客户端会话视图：轮的开始、步骤增加、增量、更新、结束、提示条；只复制改动的轮和步骤；找最后一个同 id 的轮；新 epoch 的快照整体替换；对不上的步骤事件重新取快照；更早的页放在前面，过期 epoch 或已不在最前的丢弃 | `packages/client/src/session-view.test.ts` | 已覆盖 |
 | 客户端分页：一次只取一页，同时的请求共用一次；不在观察、加载中、已失效或没有更早的不取；`transcript_changed` 时重新取快照，其他失败往上抛 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
-| 界面的轮：过程折叠成标题行（"已完成，用时 · 读了 · 跑了 · 改了 · N 条命令没走通"，展开时只有"已完成，用时 N"），折叠时插话仍可见；只有推理时显示"思考了 N 秒"或"思考过程"；没有过程时没有标题行；点击步骤展开详情（命令输出、截断说明、带行号和增删竖条的 diff）；显示模式（摘要、思考、详细）与切换；运行中展开、正在进行的步骤转圈并实时显示；已停止、出错（可展开原始报错）；信息行（复制回复的 Markdown 原文，只有这一个复制按钮；改动胶囊展开文件和 diff、用量、结束时间）；小菜单按钮选中、Esc（不传给外层）和点击外部关闭（`menu-button.browser.test.tsx`）；提示条展开压缩摘要 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数：`turn-layout.test.ts` | 已覆盖 |
+| 界面的轮：过程折叠成标题行（"已完成，用时 · 读了 · 跑了 · 改了 · N 条命令没走通"，展开时只有"已完成，用时 N"），折叠时插话仍可见；只有推理时显示"思考了 N 秒"或"思考过程"；没有过程时没有标题行；点击步骤展开详情（命令输出、截断说明、带行号和增删竖条的 diff）；运行中展开、正在进行的步骤转圈并实时显示；已停止、出错（可展开原始报错）；信息行（复制回复的 Markdown 原文，只有这一个复制按钮；改动胶囊展开文件和 diff、用量、结束时间）；小菜单按钮选中、Esc（不传给外层）和点击外部关闭（`menu-button.browser.test.tsx`）；提示条展开压缩摘要 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数：`turn-layout.test.ts` | 已覆盖 |
 | 过程轨道（2026-10-12）：标题和各行文字从 30px 起，主线节点在 10.5px、支线节点在 19.5px；节点（做完的圆点、探索的放大镜、进行中、走不通的支线、汇入的插话）；跑完后轨道停在最后一步，下面没有竖线，没有完成行，停止、出错只在标题行写；工具的动词随状态（正在运行 / 运行了 …）、编辑的文件胶囊带增删行数、悬停看全路径、文件胶囊前是类型图标和类型的颜色（认不出的是通用文件图标，`--text-muted`）；探索行"探索了代码库 · 读了 N 个文件，搜索了 M 次"，读过的文件胶囊最多 5 个加"+N 个"；没有内容的推理（空的或全是空白，模型藏起了推理）和空的文字步骤不是按钮、任何模式和运行中都没有详情块；当场跑完的轮停 1 秒再平滑折叠（`after` 定时器，点标题行或卸载时取消），摘要淡入；折叠和展开的时长（高度 0.4 秒，各行 0.22 / 0.26 秒、依次晚 14ms，摘要晚 0.16 秒淡入 0.26 秒）；展开从高度 0 长出来，折叠从当前高度收起；减弱动态效果时直接切换；运行中新到的步骤播放进场，已有的不播 | `packages/ui/src/chat/turn.browser.test.tsx`；纯函数（`describeStep`、`describeExplore`、`exploredFiles`）：`turn-layout.test.ts`；文件类型（按文件名、扩展名、不分大小写、认不出时）：`file-kind.test.ts`；端到端：`apps/desktop/e2e/chat.spec.ts`（跑完后自动折叠） | 已覆盖 |
 | 会话文件与打开会话：M1.4 的"最近会话"列表在 M1.5 由侧栏和"历史"取代，读取和打开的测试见"项目、工作区与会话（M1.5）" | — | 已取代 |
 | 用 pi 写的真实会话文件恢复：工具、重试、压缩在当前分支上，另一个分支不显示，提示条在它所在的轮之后，过程标题行的统计；接着发消息照常运行 | `apps/desktop/e2e/history.spec.ts` | 已覆盖 |
@@ -137,7 +137,7 @@
 | 同一回复里的并行工具调用：只由手写的条目和事件覆盖（重建、实时），录制的场景每次回复只调一个工具，因为 pi 并行执行时事件顺序不定 | `projection.test.ts`、`session-transcript.test.ts`、`translate.test.ts` | 部分覆盖 |
 | 打开 1000 轮的会话到首屏 ≤ 500 毫秒（中位数，实测约 25 毫秒；第一次打开含启动 pi 约 1 秒） | `apps/desktop/e2e/history.perf.spec.ts` | 已覆盖 |
 | 2000 轮会话的对话记录重建（基准，本机中位约 2.4 毫秒） | `packages/host/src/transcript/rebuild.bench.ts` | 已覆盖 |
-| 对话区：轮、提示条、待确认的消息、运行状态的顺序；运行的计时在轮里；滚到顶加载更早的，且阅读位置不动；提问导航条跳转；长消息折叠与展开；Ctrl+O 和菜单切换显示模式；导出会话时取完所有页 | `packages/ui/src/chat/chat.browser.test.tsx`、`packages/ui/src/app/workbench.browser.test.tsx`、`packages/ui/src/tabs/session-menus.test.ts` | 已覆盖 |
+| 对话区：轮、提示条、待确认的消息、运行状态的顺序；运行的计时在轮里；滚到顶加载更早的，且阅读位置不动；提问导航条跳转；长消息折叠与展开；导出会话时取完所有页 | `packages/ui/src/chat/chat.browser.test.tsx`、`packages/ui/src/app/workbench.browser.test.tsx`、`packages/ui/src/tabs/session-menus.test.ts` | 已覆盖 |
 
 ## 项目、工作区与会话（M1.5）
 
@@ -349,6 +349,14 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 丢弃草稿：等 pi 启动完再停的途中来了消息，草稿留着、消息照常发出；途中别的客户端打开了它，草稿和目录留着、pi 重新启动；丢弃了对话唯一的会话、删掉目录后，各客户端布局里的这个对话去掉，停在那里的回到没有位置，目录里有文件没删掉时布局不动；新建对话时布局写不进去，已记下草稿的目录留着 | `packages/host/src/sessions/session-manager.test.ts` "keeps a new draft closed while its pi starts"（两条）、"tab cannot be written"、"discards a draft that never got a message"、"keeps a chat directory that holds files"、"closes a tab closed while its opening waited" | 已覆盖 |
 | 消息图片：轮结束后的重建还在读时，等它读完再找条目（读完之前没绑定，读完就有）；没在读时不等；界面在轮结束后另取一次，不沿用运行中发出的那次 | `packages/host/src/sessions/session-controller.test.ts` "waits for the read under way"、`packages/ui/src/chat/message-images.browser.test.tsx` "though the ask from while it ran" | 已覆盖 |
 | Fast 开关：切换还在路上时别的客户端改了它（`fast_updated`）或重连后来了新快照，这次切换被拒时回到宿主现在的开关；期间来的其他事件不算宿主的开关 | `packages/client/src/atrium-client.test.ts` "another client switched it while a refused switch"、"though other events came" | 已覆盖 |
+
+## M1.11 自用中改（2026-10-12）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 过程标题行和下面的正文左对齐：跑完的 › 箭头左边缘贴住正文左边、标题从 14.5px 起；运行中的小猫贴左、"进行中"从 24px 起；展开后各步的文字仍从 30px 起 | `packages/ui/src/chat/turn.browser.test.tsx` "starts the folded header's arrow at the reply's left edge"、"starts the running cat at the reply's left edge"、"lines the rows' text up 30px in" | 已覆盖 |
+| 输入框的展开按钮固定在卡片右上角（离上边、右边各 20px），上方有胶囊时也不往下移；Tab 仍在文字框之后到它 | `packages/ui/src/chat/composer.browser.test.tsx` "keeps the expand button in the card's top right corner"；`packages/ui/src/chat/chat.browser.test.tsx` "shows it on keyboard focus" | 已覆盖 |
+| 去掉显示模式：标签栏没有显示模式菜单，Ctrl+O 不做任何事；协议拒绝带 `displayMode` 的 `set_preferences`；`preferences.json` 升到 v3，迁移时删掉 `displayMode` | `packages/ui/src/app/workbench.browser.test.tsx` "has no display mode to switch"、`packages/protocol/src/envelope.test.ts` "a display mode"、`packages/host/src/store/preferences.test.ts`、`load-index.test.ts` | 已覆盖 |
 
 ## 安全（security.md）
 

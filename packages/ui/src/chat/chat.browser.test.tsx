@@ -932,7 +932,6 @@ describe("ConversationArea's model button", () => {
         preferences: {
           setupDone: true,
           appearance: "system",
-          displayMode: "summary",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
           lastFast: false,
@@ -1204,7 +1203,6 @@ describe("ConversationArea's Fast button", () => {
         preferences: {
           setupDone: true,
           appearance: "system",
-          displayMode: "summary",
           lastModel: { providerId: "openai-codex", modelId: "gpt-5.5" },
           thinkingByModel: {},
           lastFast: true,

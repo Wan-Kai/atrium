@@ -225,7 +225,6 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     preferences: {
       setupDone: true,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,

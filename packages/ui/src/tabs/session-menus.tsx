@@ -1,12 +1,11 @@
 import { type AtriumClient, CommandError, type SessionView } from "@atrium/client";
 import type { SessionSummary, TranscriptItem } from "@atrium/protocol";
-import { CaretDown, Check, DotsThree, Eye } from "../design/icons";
+import { DotsThree } from "../design/icons";
 import { useState } from "react";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { transcriptMarkdown } from "../chat/turn-layout";
 import { sessionTitle } from "../sidebar/names";
 import { RenameField } from "../sidebar/rename-field";
-import { DISPLAY_MODES, useDisplayMode } from "../state/display-mode";
 import { terminalCommand } from "./hand-off";
 
 /** The most pages an export fetches, so a host that keeps saying "more" cannot loop it forever. */
@@ -57,52 +56,6 @@ function download(name: string, text: string): void {
   link.download = name;
   link.click();
   URL.revokeObjectURL(url);
-}
-
-/**
- * The display mode menu at the tab bar's right end.
- *
- * @remarks
- * Shows the three modes with their hints; Ctrl+O cycles them (SPEC-0001, "显示模式").
- *
- * @sideEffects Changing the mode saves it with the preferences.
- * @returns The menu.
- */
-export function DisplayModeMenu() {
-  const { mode, set } = useDisplayMode();
-  const current = DISPLAY_MODES.find((entry) => entry.mode === mode);
-  return (
-    <MenuButton
-      label="显示模式（Ctrl+O 切换）"
-      content={
-        <>
-          <Eye size={14} />
-          {current?.label}模式
-          <CaretDown size={10} />
-        </>
-      }
-    >
-      {(close) =>
-        DISPLAY_MODES.map((entry) => (
-          <button
-            key={entry.mode}
-            type="button"
-            role="menuitemradio"
-            aria-checked={entry.mode === mode}
-            className={MENU_ITEM}
-            onClick={() => {
-              set(entry.mode);
-              close();
-            }}
-          >
-            <span className="w-3.5">{entry.mode === mode ? <Check size={13} /> : null}</span>
-            <span>{entry.label}</span>
-            <span className="ml-auto pl-3 text-[length:var(--fs-sm)] text-[var(--text-dim)]">{entry.hint}</span>
-          </button>
-        ))
-      }
-    </MenuButton>
-  );
 }
 
 /**

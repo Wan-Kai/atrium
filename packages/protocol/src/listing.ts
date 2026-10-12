@@ -135,10 +135,6 @@ export type Layout = z.infer<typeof Layout>;
 export const Appearance = z.enum(["system", "light", "dark"]);
 export type Appearance = z.infer<typeof Appearance>;
 
-/** How much of a turn's process shows (SPEC-0001, "显示模式"). */
-export const DisplayMode = z.enum(["summary", "thinking", "detailed"]);
-export type DisplayMode = z.infer<typeof DisplayMode>;
-
 /** The status bar groups switched on or off, by id. */
 export const StatusBarChoices = z.record(StatusGroupId, z.boolean());
 export type StatusBarChoices = z.infer<typeof StatusBarChoices>;
@@ -172,7 +168,6 @@ export type ProxySetting = z.infer<typeof ProxySetting>;
 export const Preferences = z.strictObject({
   setupDone: z.boolean(),
   appearance: Appearance,
-  displayMode: DisplayMode,
   lastModel: ModelRef.nullable(),
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
   lastFast: z.boolean(),

@@ -359,6 +359,26 @@ describe("Composer's other controls", () => {
     expect(box.element().getBoundingClientRect().height).toBe(short);
   });
 
+  it("keeps the expand button in the card's top right corner, 20px in, with capsules above the text or not", async () => {
+    const { screen, box } = await composer();
+    const card = screen.getByTestId("composer-card").element();
+    const button = screen.getByRole("button", { name: "展开输入框" }).element();
+    const corner = (): { top: number; right: number } => {
+      const outer = card.getBoundingClientRect();
+      const inner = button.getBoundingClientRect();
+      return { top: inner.top - outer.top, right: outer.right - inner.right };
+    };
+    const bare = corner();
+
+    expect(paste(box.element(), Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\n"))).toBe(false);
+    await expect.element(screen.getByRole("button", { name: "移除 粘贴内容 · 12 行" })).toBeVisible();
+
+    expect({ bare, capsules: corner() }).toStrictEqual({
+      bare: { top: 20, right: 20 },
+      capsules: { top: 20, right: 20 },
+    });
+  });
+
   it("offers @ and / from its + menu", async () => {
     const { screen, box } = await composer();
 

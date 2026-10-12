@@ -108,7 +108,6 @@ export {
   Attention,
   Chat,
   ContainerTabs,
-  DisplayMode,
   IndexChangesEvent,
   IndexFileName,
   IndexSnapshotEvent,

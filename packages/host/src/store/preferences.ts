@@ -26,8 +26,7 @@ export interface PreferenceStore {
  * Creates the preference store over `preferences.json`.
  *
  * @remarks
- * Appearance follows the system and the display mode is the summary until changed (SPEC-0001,
- * "外观", "显示模式"). The model chosen last in any session, and each model's thinking level, are
+ * Appearance follows the system until changed (SPEC-0001, "外观"). The model chosen last in any session, and each model's thinking level, are
  * what new sessions start with (SPEC-0001, "模型与输入框"). The status bar's choices, an optional
  * field added in M1.8 without a new version, read as none; an id no group could have, as a hand
  * may write, is left out of what is read (SPEC-0001, "状态栏（M1.8）"). First launch is still to do,
@@ -46,7 +45,6 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
       const {
         setupDone = false,
         appearance,
-        displayMode,
         lastModel,
         thinkingByModel,
         lastFast = false,
@@ -58,7 +56,6 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
       return {
         setupDone,
         appearance,
-        displayMode,
         lastModel,
         thinkingByModel,
         lastFast,

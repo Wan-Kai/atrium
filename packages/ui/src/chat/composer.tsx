@@ -637,18 +637,18 @@ export function Composer({
             </p>
           ) : null}
           {note === null ? null : (
-            <p role="status" className="text-[length:var(--fs-sm)] text-[var(--danger)]">
+            <p role="status" className="pr-7 text-[length:var(--fs-sm)] text-[var(--danger)]">
               {note}
             </p>
           )}
           {images.length > 0 && !imagesAllowed && note === null ? (
             // The model changed after the images were added; they still go, as pi shows the model a note instead.
-            <p role="status" className="text-[length:var(--fs-sm)] text-[var(--attn-text)]">
+            <p role="status" className="pr-7 text-[length:var(--fs-sm)] text-[var(--attn-text)]">
               当前模型不支持图片，发出后模型看不到它们
             </p>
           ) : null}
           {images.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 pr-7">
               {images.map((one, index) => (
                 <span key={one.id} className="relative">
                   {one.image === null ? (
@@ -679,7 +679,7 @@ export function Composer({
             </div>
           ) : null}
           {files.length > 0 || pastes.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="flex flex-wrap gap-1.5 pr-7">
               {files.map((path) => (
                 <Capsule
                   key={path}
@@ -727,16 +727,18 @@ export function Composer({
                 expanded ? "h-[40vh]" : "max-h-60 min-h-6 [field-sizing:content]"
               }`}
             />
-            <button
-              type="button"
-              aria-label={expanded ? "收起输入框" : "展开输入框"}
-              title={expanded ? "收起输入框" : "展开输入框"}
-              onClick={() => setExpanded(!expanded)}
-              className="absolute top-1.5 right-1.5 cursor-pointer rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-            >
-              {expanded ? <ArrowsInSimple size={14} /> : <ArrowsOutSimple size={14} />}
-            </button>
           </div>
+          {/* Placed on the card, not the text, so capsules above the text do not push it down; after the text in
+              the page, so Tab still reaches it right after the box. */}
+          <button
+            type="button"
+            aria-label={expanded ? "收起输入框" : "展开输入框"}
+            title={expanded ? "收起输入框" : "展开输入框"}
+            onClick={() => setExpanded(!expanded)}
+            className="absolute top-5 right-5 z-[1] cursor-pointer rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+          >
+            {expanded ? <ArrowsInSimple size={14} /> : <ArrowsOutSimple size={14} />}
+          </button>
           <div className="flex items-center justify-between gap-2">
             <div className="relative">
               <input

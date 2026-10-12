@@ -132,7 +132,7 @@ describe("the list over the WebSocket", () => {
   it("keeps preferences and each client's layout across a restart", async () => {
     const at = await place();
     const first = await hostAndClient(at);
-    await first.client.setPreferences({ appearance: "dark", displayMode: "thinking" });
+    await first.client.setPreferences({ appearance: "dark" });
     await first.client.selectContainer("cht_a");
     first.client.disconnect();
     await first.host.close();
@@ -140,7 +140,7 @@ describe("the list over the WebSocket", () => {
     const { client } = await hostAndClient(at);
 
     expect(client.index.getState()).toMatchObject({
-      preferences: { appearance: "dark", displayMode: "thinking" },
+      preferences: { appearance: "dark" },
       layout: { container: "cht_a", tabs: {} },
       resets: [],
     });

@@ -4,7 +4,7 @@ import { X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
-import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-area";
+import { ConversationArea } from "../chat/conversation-area";
 import { applyAppearance } from "../design/appearance";
 import { DotSeedContext } from "../design/dots";
 import { type SettingsSection, SettingsPanel } from "../settings/settings-panel";
@@ -356,7 +356,6 @@ function MainWindow({
   const sessionId = activeSession(index);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const settings = useSettings();
-  useDisplayModeShortcut();
   useDraftCleanup(index);
 
   useEffect(() => {

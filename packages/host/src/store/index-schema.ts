@@ -1,4 +1,4 @@
-import { Appearance, Attention, DisplayMode, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
+import { Appearance, Attention, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
 import { basename } from "node:path";
 import { z } from "zod";
 import type { IndexFileSpec } from "./index-file";
@@ -211,7 +211,6 @@ function splitChats(client: unknown, containers: ReadonlyMap<string, string>): u
 
 const PreferencesDocument = z.looseObject({
   appearance: Appearance,
-  displayMode: DisplayMode,
   /** The model last chosen in any session; `null` until one is (SPEC-0001, "模型与输入框"). */
   lastModel: ModelRef.nullable(),
   /** Each model's last thinking level, keyed `providerId/modelId`. */
@@ -232,12 +231,14 @@ export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 /** `preferences.json`: global preferences, the same for every client (domain-model §5). */
 export const PREFERENCES_FILE: IndexFileSpec<PreferencesDocument> = {
   name: "preferences",
-  version: 2,
+  version: 3,
   schema: PreferencesDocument,
-  empty: () => ({ appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} }),
+  empty: () => ({ appearance: "system", lastModel: null, thinkingByModel: {} }),
   migrations: {
     // M1.7 remembers models; before, none was chosen.
     1: (document) => ({ ...document, lastModel: null, thinkingByModel: {} }),
+    // M1.11 took the display mode out (SPEC-0001, "过程的显示").
+    2: ({ displayMode: _gone, ...document }) => document,
   },
 };
 
