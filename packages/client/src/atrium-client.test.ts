@@ -1513,6 +1513,23 @@ describe("createAtriumClient: the composer's lists", () => {
   });
 });
 
+describe("createAtriumClient: message images", () => {
+  it("asks for one image of a turn, returning what the host read", async () => {
+    const { client, latest } = await connected();
+
+    const fetching = client.fetchImage("s1", "s1:u2", 1);
+    latest().answer("fetch_image", { mimeType: "image/webp", data: "eA==" });
+
+    expect(await fetching).toStrictEqual({ mimeType: "image/webp", data: "eA==" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fetch_image")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "fetch_image", sessionId: "s1", turnId: "s1:u2", index: 1 }]);
+  });
+});
+
 describe("createAtriumClient: first launch", () => {
   it("asks what first launch checks, keeping the last answer while asking again, and lands only the latest ask's answer", async () => {
     const { client, latest } = await connected();
@@ -1981,6 +1998,54 @@ describe("createAtriumClient: images", () => {
       { type: "prompt", sessionId: "s1", text: "看图", attachmentIds: ["a1"] },
       { type: "steer", sessionId: "s1", text: "", attachmentIds: ["a2"] },
       { type: "prompt", sessionId: "s1", text: "只有字" },
+    ]);
+  });
+
+  it("keeps the previews of the latest 50 messages sent with images, by message, but not of one that did not go", async () => {
+    const { client, latest } = await watchingWithModel(null);
+    const sentIds: string[] = [];
+    for (let n = 0; n < 51; n += 1) {
+      const sending = client.prompt("s1", `图${n}`, [`a${n}`], [`data:image/webp;base64,${n}`]);
+      sentIds.push(present(client.session("s1")?.getState().pending.at(-1), "the pending message").clientMessageId);
+      latest().answer("prompt", { disposition: "started" });
+      await sending;
+    }
+    const steering = client.steer("s1", "", ["b"], ["data:image/png;base64,s", "data:image/png;base64,t"]);
+    const steerId = present(client.session("s1")?.getState().pending.at(-1), "the steer").clientMessageId;
+    latest().answer("steer", { disposition: "queued" });
+    await steering;
+    const failing = client.prompt("s1", "没发出", ["c"], ["data:image/png;base64,f"]);
+    const failedId = present(client.session("s1")?.getState().pending.at(-1), "the failing message").clientMessageId;
+    latest().fail("prompt", "attachment_missing");
+    await failing.catch(() => undefined);
+    const plain = client.prompt("s1", "只有字");
+    const plainId = present(client.session("s1")?.getState().pending.at(-1), "the plain message").clientMessageId;
+    latest().answer("prompt", { disposition: "started" });
+    await plain;
+    const plainSteer = client.steer("s1", "也只有字");
+    const plainSteerId = present(client.session("s1")?.getState().pending.at(-1), "the plain steer").clientMessageId;
+    latest().answer("steer", { disposition: "queued" });
+    await plainSteer;
+
+    expect([
+      client.sentPreviews(present(sentIds[0], "the first")),
+      // The steer and the failed message came after: 53 in all, so the first three went.
+      client.sentPreviews(present(sentIds[2], "the third")),
+      client.sentPreviews(present(sentIds[3], "the fourth")),
+      client.sentPreviews(present(sentIds[50], "the last")),
+      client.sentPreviews(steerId),
+      client.sentPreviews(failedId),
+      client.sentPreviews(plainId),
+      client.sentPreviews(plainSteerId),
+    ]).toStrictEqual([
+      null,
+      null,
+      ["data:image/webp;base64,3"],
+      ["data:image/webp;base64,50"],
+      ["data:image/png;base64,s", "data:image/png;base64,t"],
+      null,
+      null,
+      null,
     ]);
   });
 });

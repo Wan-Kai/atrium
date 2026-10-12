@@ -312,6 +312,7 @@ Electron 主进程
 **消息下方的信息**（常驻显示，参考 DeepSeek Harness）：
 
 - 用户消息下方：时间、复制。用户消息超过约 12 行时折叠，末尾"展开"。MVP 1 不做编辑和重发（涉及分叉，和会话树一起做）。
+- 带图片的用户消息在气泡上方靠右排一行缩略图，每张 64px 见方、圆角、裁成正方形，多了换行（2026-10-12 定，原先只写"N 张图片"）。这个页面里发出的消息直接用界面留着的压缩图；其他的（历史会话、刷新或重启之后）显示时用 `fetch_image` 向宿主取，一张一张取，取过的在页面里留着。取的途中显示灰色占位；取不到时显示带图片图标的占位，悬停说明"图片不可用"，不影响这条消息别的部分。运行中的轮取不到时，等这一轮结束再取一次（见"M1.11 的消息图片"）。排队项仍只写图片张数。点开看大图以后再做。
 - 回复下方：复制回复、本轮用量（这一轮的输入 + 输出 token）、时间。复制的是回复的 Markdown 原文，只有这一个复制，不另设"···"菜单（2026-10-12 定，原先复制显示的纯文字、"···"里再放"复制为 Markdown"，两个复制重复）。不做复制整轮、点赞、点踩、分享。
 
 **对话记录的其他设计**（调研 Paseo、Zed、Cursor、Claude 桌面端后确定）
@@ -803,6 +804,13 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 
 新增命令：`list_models`、`list_commands`、`search_files`、`set_model`、`set_thinking_level`、`upload_attachment`、`watch_changes`、`watch_diff`。新增事件：`model_updated`、`changes_updated`、`diff_updated`。新增错误码：`models_unavailable`、`fd_missing`、`attachment_limit`、`attachment_missing`。`prompt`、`steer` 多了 `attachmentIds`；排队项多了图片。
 
+M1.11 的消息图片（协议版本 8，2026-10-12 定）：新增命令 `fetch_image(sessionId, turnId, index)`，应答 `{ mimeType, data }`（base64，不带 `data:` 前缀），新增错误码 `image_unavailable`。
+
+- 来源是 pi 的会话文件：pi 把用户消息连同处理过的图片（png、jpeg、gif、webp，见 pi-internals.md"图片"）写进会话文件，宿主不另存图片，也不保留 `get_entries` 里的图片数据。用户磁盘上的原图删掉、移走都不影响。
+- 宿主由轮找到打开它的用户消息条目：历史轮的 id 里带着条目 id；宿主当场看到的轮在下一次重建时绑定到条目，绑定之前（运行中的轮）应答 `image_unavailable`，界面在这一轮结束后再取。然后在目录里登记的这个会话的文件里按条目 id 找到这条消息，取它的第 `index` 张图片原样返回。
+- 会话文件还没写出或已不在、找不到这条消息或这张图、格式不是上面四种时，应答 `image_unavailable`。格式只认这四种，`data:` 地址里不会出现 SVG 这类能带脚本的图。
+- 文件路径只来自目录，不来自客户端；图片数据不进日志和链路。一次只取一张：一张 base64 可能接近 1 MB（宿主到界面方向没有单条上限，界面到宿主才有）。
+
 M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {speed, moreUsage} | null`）：新增命令 `set_fast`，新增事件 `fast_updated`，新增错误码 `fast_unavailable`；会话快照多了 `fast`，模型多了 `fast`，偏好多了 `lastFast`。
 
 ### 状态栏（M1.8，2026-10-10 定）
@@ -918,6 +926,7 @@ M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {sp
 | `prompt(sessionId, text, attachmentIds?)` | 发消息；运行中则进入宿主的排队 |
 | `steer(sessionId, text, attachmentIds?)` | 直接插话（⌘+回车） |
 | `upload_attachment(mimeType, data)` | 上传一张已压缩的图片，应答带 `attachmentId`（见上文"附件"） |
+| `fetch_image(sessionId, turnId, index)` | 取一轮用户消息里的第 `index` 张图片，给缩略图用（M1.11，见上文"M1.11 的消息图片"） |
 | `ping()` | 心跳 |
 | `report_client_issue(kind, message, details?)` | 界面的错误和性能问题写进宿主日志 |
 | `stop(sessionId)` | 停止：暂停出队，再 `clear_queue` + `abort` |

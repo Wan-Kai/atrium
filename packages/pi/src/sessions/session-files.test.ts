@@ -5,7 +5,13 @@ import { appendFile, chmod, mkdir, rm, symlink, utimes, writeFile } from "node:f
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { FIXTURES_DIR } from "../../test/contract";
-import { createSessionFileReader, sessionDirectories, sessionFolder, sessionsLocation } from "./session-files";
+import {
+  createSessionFileReader,
+  readUserImage,
+  sessionDirectories,
+  sessionFolder,
+  sessionsLocation,
+} from "./session-files";
 
 /**
  * A temporary directory removed after the test.
@@ -420,6 +426,145 @@ describe("SessionFileReader across scans", () => {
     await sessionFile(join(dir, "a"), "s.jsonl", [header("s1"), user("FIRST")], 100);
 
     expect(await reader.scanFolder(join(dir, "a"))).toMatchObject([{ path: pathA, firstPrompt: "first" }]);
+  });
+});
+
+/**
+ * A message entry with an id of its own.
+ *
+ * @remarks
+ * For files with more than one message, each found by its id.
+ *
+ * @sideEffects none
+ * @param id - The entry's id.
+ * @param role - Whose message.
+ * @param content - Its content.
+ * @returns The entry.
+ */
+function message(id: string, role: string, content: unknown) {
+  return { ...user(content), id, message: { role, content, timestamp: 0 } };
+}
+
+/**
+ * An image block, as pi keeps one in a message.
+ *
+ * @sideEffects none
+ * @param mimeType - Its format.
+ * @param data - Its base64.
+ * @returns The block.
+ */
+function image(mimeType: unknown, data: unknown) {
+  return { type: "image", mimeType, data };
+}
+
+describe("readUserImage", () => {
+  it("reads a user message's image by its entry and its place among the message's images", async () => {
+    const path = await sessionFile(await tempDir("images"), "s.jsonl", [
+      header("s1"),
+      message("00000001", "user", [{ type: "text", text: "下一条是 00000002" }, image("image/png", "b3RoZXI=")]),
+      message("00000002", "user", [
+        { type: "text", text: "看看 00000001" },
+        image("image/png", "Zmlyc3Q="),
+        { type: "text", text: "还有" },
+        image("image/webp", "c2Vjb25k"),
+      ]),
+    ]);
+
+    await expect(
+      Promise.all([
+        readUserImage(path, "00000002", 0),
+        readUserImage(path, "00000002", 1),
+        readUserImage(path, "00000002", 2),
+      ]),
+    ).resolves.toStrictEqual([
+      { mimeType: "image/png", data: "Zmlyc3Q=" },
+      { mimeType: "image/webp", data: "c2Vjb25k" },
+      null,
+    ]);
+  });
+
+  it("reads every format pi keeps and nothing else", async () => {
+    const formats = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", 7];
+    const path = await sessionFile(await tempDir("images"), "s.jsonl", [
+      header("s1"),
+      message(
+        "00000001",
+        "user",
+        formats.map((format) => image(format, "eA==")),
+      ),
+    ]);
+
+    const read = await Promise.all(formats.map((_, index) => readUserImage(path, "00000001", index)));
+
+    expect(read).toStrictEqual([
+      { mimeType: "image/png", data: "eA==" },
+      { mimeType: "image/jpeg", data: "eA==" },
+      { mimeType: "image/gif", data: "eA==" },
+      { mimeType: "image/webp", data: "eA==" },
+      null,
+      null,
+    ]);
+  });
+
+  it("finds nothing in a message that is not the user's, without data, in text only, not in the file, or in no file", async () => {
+    const folder = await tempDir("images");
+    const path = await sessionFile(folder, "s.jsonl", [
+      header("s1"),
+      message("00000001", "assistant", [image("image/png", "eA==")]),
+      message("00000002", "user", [image("image/png", 7)]),
+      message("00000003", "user", "只有文字"),
+      {
+        type: "custom",
+        id: "00000004",
+        parentId: null,
+        message: { role: "user", content: [image("image/png", "eA==")] },
+      },
+    ]);
+
+    await expect(
+      Promise.all([
+        readUserImage(path, "00000001", 0),
+        readUserImage(path, "00000002", 0),
+        readUserImage(path, "00000003", 0),
+        readUserImage(path, "00000004", 0),
+        readUserImage(path, "00000009", 0),
+        readUserImage(join(folder, "gone.jsonl"), "00000001", 0),
+      ]),
+    ).resolves.toStrictEqual([null, null, null, null, null, null]);
+  });
+
+  it("waits for a message still being written", async () => {
+    const path = await sessionFile(await tempDir("images"), "s.jsonl", [header("s1")]);
+    await appendFile(path, JSON.stringify(message("00000001", "user", [image("image/png", "eA==")])));
+
+    await expect(readUserImage(path, "00000001", 0)).resolves.toBeNull();
+  });
+
+  it("reads an image past the first chunk, in a line longer than one", async () => {
+    const data = "QUJD".repeat(400_000);
+    const path = await sessionFile(await tempDir("images"), "s.jsonl", [
+      header("s1"),
+      message("00000001", "user", "填充".repeat(400_000)),
+      message("00000002", "user", [image("image/jpeg", data)]),
+    ]);
+
+    await expect(readUserImage(path, "00000002", 0)).resolves.toStrictEqual({ mimeType: "image/jpeg", data });
+  });
+
+  it("stops once its signal is aborted, and closes the file it opens", async () => {
+    const path = await sessionFile(await tempDir("images"), "s.jsonl", [
+      header("s1"),
+      message("00000001", "user", [image("image/png", "eA==")]),
+    ]);
+    const before = openFiles();
+
+    await readUserImage(path, "00000001", 0);
+    await readUserImage(path, "00000009", 0);
+
+    expect(openFiles()).toBe(before);
+    await expect(readUserImage(path, "00000001", 0, AbortSignal.abort(new Error("stopped")))).rejects.toThrow(
+      "stopped",
+    );
   });
 });
 

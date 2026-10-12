@@ -448,6 +448,9 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
         images={turn.user.images}
         timestamp={turn.user.timestamp}
         auto={turn.user.auto}
+        turnId={turn.id}
+        clientMessageId={turn.user.clientMessageId}
+        settled={turn.outcome !== "running"}
       />
       {waiting ? (
         <div className="mt-3" data-testid="run-waiting">

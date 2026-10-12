@@ -10,6 +10,7 @@ export {
   CreateChatCommand,
   FETCH_TRANSCRIPT_LIMIT,
   FetchStepCommand,
+  FetchImageCommand,
   FetchTranscriptCommand,
   OpenSessionCommand,
   PingCommand,

@@ -13,6 +13,7 @@ import { Composer } from "./composer";
 import { UserBubble } from "./messages";
 import { ClockContext, type UiClock } from "../state/clock";
 import { RunStatus, formatElapsed } from "./run-status";
+import { type MessageImages, MessageImagesContext } from "./message-images";
 import { Transcript } from "./transcript";
 
 /** The chat the area shows in most tests. */
@@ -135,7 +136,7 @@ describe("messages", () => {
     const short = screen.getByTestId("user-text").nth(1).element();
 
     await vi.waitFor(() => expect(body.scrollHeight).toBeGreaterThan(body.clientHeight));
-    expect(screen.container.textContent).toContain("2 张图片");
+    expect(screen.getByRole("img", { name: "正在加载图片" }).elements()).toHaveLength(2);
     await screen.getByRole("button", { name: "展开" }).click();
     expect(body.scrollHeight).toBe(body.clientHeight);
     await screen.getByRole("button", { name: "收起" }).click();
@@ -303,6 +304,29 @@ function liveTurn(count: number): Turn {
     outcome: "running",
     durationMs: null,
   });
+}
+
+/**
+ * Images where the message `q1` was sent from this page, and the host has a turn's image only
+ * once `ended` is set.
+ *
+ * @remarks
+ * Records each load as `turn/place`.
+ *
+ * @sideEffects none until loaded; loads are recorded.
+ * @returns The images, the loads asked for, and the switch.
+ */
+function turnImages() {
+  const loads: string[] = [];
+  const host = { ended: false };
+  const images: MessageImages = {
+    sent: (clientMessageId) => (clientMessageId === "q1" ? ["data:image/png;base64,a"] : null),
+    load: (turnId, index) => {
+      loads.push(`${turnId}/${index}`);
+      return host.ended ? Promise.resolve("data:image/png;base64,b") : Promise.reject(new Error("image_unavailable"));
+    },
+  };
+  return { host, images, loads };
 }
 
 /** A finished turn whose process has two commands, before its reply. */
@@ -484,6 +508,28 @@ describe("Transcript", () => {
 
     expect(await watching).toBe(0);
     await expect.element(screen.getByRole("button", { name: "回到底部" })).not.toBeInTheDocument();
+  });
+
+  it("shows each turn's images: kept for a message sent from here, fetched by turn for others, again once a run ends", async () => {
+    const shown = turnImages();
+    const { images, loads } = shown;
+    const user = { text: "看图", images: 1, auto: false, timestamp: 0 };
+    const items = (outcome: Turn["outcome"]) => [
+      turn("t1", "答", { user: { ...user, clientMessageId: "q1" } }),
+      turn("t2", "", { user: { ...user, clientMessageId: null }, outcome }),
+    ];
+    const screen = await render(<MessageImagesContext value={images}>{at(items("running"))}</MessageImagesContext>);
+    const second = screen.getByTestId("turn").nth(1);
+    await expect.element(second.getByRole("img", { name: "图片不可用" })).toBeVisible();
+
+    shown.host.ended = true;
+    await screen.rerender(<MessageImagesContext value={images}>{at(items("done"))}</MessageImagesContext>);
+
+    await expect.element(second.getByRole("img", { name: "图片 1" })).toHaveAttribute("src", "data:image/png;base64,b");
+    await expect
+      .element(screen.getByTestId("turn").nth(0).getByRole("img", { name: "图片 1" }))
+      .toHaveAttribute("src", "data:image/png;base64,a");
+    expect(loads).toStrictEqual(["t2/0", "t2/0"]);
   });
 
   it("stays at the bottom when content grows above the view and below it between frames", async () => {
@@ -1348,6 +1394,22 @@ describe("ConversationArea's images", () => {
       ]),
     );
     await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the images of a message it sent as thumbnails at once, from what was pasted", async () => {
+    const { client, calls } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    pasteFile(box.element(), await shot());
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+
+    await userEvent.type(box, "看图{Enter}");
+
+    const sent = screen.getByTestId("user-message").getByRole("img", { name: "图片 1" });
+    await expect.element(sent).toHaveAttribute("src", expect.stringMatching(/^data:image\/webp;base64,./));
+    expect(calls.filter((call) => call.startsWith("fetchImage"))).toStrictEqual([]);
   });
 
   it("uploads the images again one at a time, and puts the message back with the new uploads when it still fails", async () => {

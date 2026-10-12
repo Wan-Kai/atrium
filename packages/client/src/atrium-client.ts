@@ -118,6 +118,9 @@ export interface InstallJob {
   readonly output: string;
 }
 
+/** How many of the latest messages sent with images keep their previews. */
+const SENT_PREVIEWS = 50;
+
 /** How much of an install job's output a client keeps: the last 1 MiB of characters. */
 const MAX_INSTALL_OUTPUT = 1_048_576;
 
@@ -164,10 +167,28 @@ export interface AtriumClient {
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
-  /** Sends a message with uploaded images, showing it at once as pending until it opens a turn or goes into the queue. */
-  prompt(sessionId: string, text: string, attachmentIds?: readonly string[]): Promise<CommandResult<"prompt">>;
+  /**
+   * Sends a message with uploaded images, showing it at once as pending until it opens a turn or
+   * goes into the queue; `previews` are the images as the page shows them, kept for `sentPreviews`.
+   */
+  prompt(
+    sessionId: string,
+    text: string,
+    attachmentIds?: readonly string[],
+    previews?: readonly string[],
+  ): Promise<CommandResult<"prompt">>;
   /** Sends a steer, delivered before the agent's next step; while idle it is sent as a message, pending meanwhile. */
-  steer(sessionId: string, text: string, attachmentIds?: readonly string[]): Promise<CommandResult<"steer">>;
+  steer(
+    sessionId: string,
+    text: string,
+    attachmentIds?: readonly string[],
+    previews?: readonly string[],
+  ): Promise<CommandResult<"steer">>;
+  /**
+   * The previews of the images a message sent from this page went with, by its `clientMessageId`;
+   * `null` for others (SPEC-0001, "消息下方的信息").
+   */
+  sentPreviews(clientMessageId: string): readonly string[] | null;
   /** Uploads one compressed image for a later message (SPEC-0001, "附件"). */
   uploadAttachment(
     mimeType: "image/webp" | "image/png" | "image/jpeg" | "image/gif",
@@ -201,6 +222,8 @@ export interface AtriumClient {
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
   searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
+  /** One image of a turn's user message, for its thumbnail (SPEC-0001, "M1.11 的消息图片"). */
+  fetchImage(sessionId: string, turnId: string, index: number): Promise<CommandResult<"fetch_image">>;
   /**
    * What first launch checks, as far as asked. Asked again on its own once asked before: when a
    * login or install job succeeds, after a logout, and on reaching a new host; the latest pi the
@@ -418,6 +441,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   let hostInstance: string | undefined;
   let attempt = 0;
   let nextRequest = 0;
+  /** Previews of the images of messages sent from this page, by their request id; see `sentPreviews`. */
+  const sentImages = new Map<string, readonly string[]>();
   let cancelTimer: (() => void) | undefined;
   /** Layout commands not answered yet; while there are any, the view keeps the layout chosen. */
   let layoutsPending = 0;
@@ -633,6 +658,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param sessionId - The session.
    * @param text - The message.
    * @param attachmentIds - Its uploaded images.
+   * @param previews - The images as the page shows them, kept by the message's id while it goes.
    * @returns The command's result.
    */
   async function sendShown<T extends "prompt" | "steer">(
@@ -640,8 +666,14 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     sessionId: string,
     text: string,
     attachmentIds: readonly string[],
+    previews: readonly string[],
   ): Promise<CommandResult<T>> {
     const requestId = `${options.clientId}-${++nextRequest}`;
+    if (previews.length > 0) {
+      sentImages.set(requestId, previews);
+      // The oldest goes first: a Map keeps the order keys were added in.
+      for (const id of [...sentImages.keys()].slice(0, -SENT_PREVIEWS)) sentImages.delete(id);
+    }
     const view = views.get(sessionId);
     const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
     const shown = { clientMessageId: requestId, text, ...images };
@@ -663,6 +695,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       return result;
     } catch (error) {
       withdraw();
+      sentImages.delete(requestId);
       throw error;
     }
   }
@@ -1158,8 +1191,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       index.setState(withPreferences(index.getState(), shown), true);
       return request("set_preferences", changes);
     },
-    prompt: (sessionId, text, attachmentIds = []) => sendShown("prompt", sessionId, text, attachmentIds),
-    steer: (sessionId, text, attachmentIds = []) => sendShown("steer", sessionId, text, attachmentIds),
+    prompt: (sessionId, text, attachmentIds = [], previews = []) =>
+      sendShown("prompt", sessionId, text, attachmentIds, previews),
+    steer: (sessionId, text, attachmentIds = [], previews = []) =>
+      sendShown("steer", sessionId, text, attachmentIds, previews),
+    sentPreviews: (clientMessageId) => sentImages.get(clientMessageId) ?? null,
     uploadAttachment: (mimeType, data) => request("upload_attachment", { mimeType, data }),
     stop: (sessionId) => request("stop", { sessionId }),
     resumeQueue: (sessionId) => request("resume_queue", { sessionId }),
@@ -1180,6 +1216,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       ),
     listCommands: (sessionId) => request("list_commands", { sessionId }),
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
+    fetchImage: (sessionId, turnId, place) => request("fetch_image", { sessionId, turnId, index: place }),
     setup,
     loadSetup: (refresh = false) => loadSetup(refresh),
     loginState,

@@ -4,6 +4,7 @@ import {
   PiRequestError,
   isFastSwitch,
   piStatsOf,
+  readUserImage,
   runOneShot,
   sessionModelOf,
   toLogEntry,
@@ -1133,6 +1134,14 @@ export function createSessionManager(options: {
     },
     async fetchStep(command) {
       return controllerOf(command.sessionId).fetchStep(command);
+    },
+    async fetchImage(command) {
+      // pi keeps the image in the session file, so it is read from there rather than kept here.
+      const entryId = controllerOf(command.sessionId).entryOfTurn(command.turnId);
+      const { file } = entryOf(command.sessionId);
+      const image = entryId === null || file === null ? null : await readUserImage(file, entryId, command.index);
+      if (image === null) throw new CommandError("image_unavailable");
+      return image;
     },
     async fetchTranscript(command) {
       return controllerOf(command.sessionId).fetchTranscript(command);

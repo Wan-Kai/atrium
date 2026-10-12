@@ -34,6 +34,7 @@ const commands: Command[] = [
   { type: "report_client_issue", requestId: "r7", traceparent, kind: "slow_frames", message: "p95 40 ms" },
   { type: "fetch_transcript", requestId: "r8", traceparent, sessionId: "s1", epoch: 2, before: "s1:e7", limit: 100 },
   { type: "fetch_step", requestId: "r11", traceparent, sessionId: "s1", epoch: 1, turnId: "s1:e1", stepId: "12" },
+  { type: "fetch_image", requestId: "r11b", traceparent, sessionId: "s1", turnId: "s1:e1", index: 19 },
   { type: "open_session", requestId: "r10", traceparent, sessionId: "019a-session" },
   { type: "subscribe_index", requestId: "r12", traceparent },
   { type: "subscribe_index", requestId: "r12b", traceparent, cursor: { generation: "h1", seq: 7 } },
@@ -488,6 +489,7 @@ describe("parseClientMessage", () => {
       "create_chat",
       "create_session",
       "discover_projects",
+      "fetch_image",
       "fetch_step",
       "fetch_transcript",
       "hand_off",
@@ -729,6 +731,16 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     [
+      "an image past the twentieth",
+      { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: 20 },
+      "r1",
+    ],
+    [
+      "an image at no place",
+      { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: -1 },
+      "r1",
+    ],
+    [
       "a fetch of no items",
       { type: "fetch_transcript", requestId: "r1", traceparent, sessionId: "s1", epoch: 1, before: "x", limit: 0 },
       "r1",
@@ -850,6 +862,12 @@ describe("CommandResult", () => {
     expect(CommandResult.add_project.safeParse({ projectId: "p1" }).success).toBe(false);
     expect(CommandResult.create_session.parse({ sessionId: "s1" })).toStrictEqual({ sessionId: "s1" });
     expect(CommandResult.fetch_step.parse({ step: bashStep })).toStrictEqual({ step: bashStep });
+    expect(CommandResult.fetch_image.parse({ mimeType: "image/webp", data: "eA==" })).toStrictEqual({
+      mimeType: "image/webp",
+      data: "eA==",
+    });
+    expect(CommandResult.fetch_image.safeParse({ mimeType: "image/svg+xml", data: "eA==" }).success).toBe(false);
+    expect(CommandResult.fetch_image.safeParse({ mimeType: "image/png", data: "" }).success).toBe(false);
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
       hasOlder: false,
@@ -1323,6 +1341,7 @@ describe("HostMessage", () => {
       "fd_missing",
       "attachment_limit",
       "attachment_missing",
+      "image_unavailable",
       "fast_unavailable",
       "pi_rejected",
       "session_handed_off",

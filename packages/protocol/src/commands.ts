@@ -410,6 +410,21 @@ export const FetchStepCommand = z.strictObject({
 });
 export type FetchStepCommand = z.infer<typeof FetchStepCommand>;
 
+/**
+ * Fetches one image of a turn's user message, for its thumbnail (SPEC-0001, "M1.11 的消息图片").
+ *
+ * @remarks
+ * One image at a time: one may come close to 1 MB of base64.
+ */
+export const FetchImageCommand = z.strictObject({
+  type: z.literal("fetch_image"),
+  ...sessionCommandFields,
+  turnId: z.string().min(1).max(256),
+  /** Which of the message's images, from 0; a message has at most 20. */
+  index: z.number().int().nonnegative().max(19),
+});
+export type FetchImageCommand = z.infer<typeof FetchImageCommand>;
+
 /** Kinds of problems the UI reports to the host's log. */
 export const ClientIssueKind = z.enum(["error", "long_task", "slow_frames"]);
 export type ClientIssueKind = z.infer<typeof ClientIssueKind>;
@@ -552,6 +567,7 @@ export const Command = z.discriminatedUnion("type", [
   PromptCommand,
   FetchTranscriptCommand,
   FetchStepCommand,
+  FetchImageCommand,
   OpenSessionCommand,
   SubscribeIndexCommand,
   AddProjectCommand,
@@ -635,6 +651,12 @@ export const CommandResult = {
     hasOlder: z.boolean(),
   }),
   fetch_step: z.strictObject({ step: Step }),
+  fetch_image: z.strictObject({
+    /** The formats pi keeps images in; none of them can carry script. */
+    mimeType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]),
+    /** Base64, without a `data:` prefix; pi keeps images of up to 4.5 MB of it. */
+    data: z.string().min(1).max(5_000_000),
+  }),
   open_session: z.strictObject({}),
   subscribe_index: z.strictObject({}),
   add_project: z.strictObject({ projectId: ProjectId }),

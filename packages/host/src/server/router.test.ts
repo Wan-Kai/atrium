@@ -57,6 +57,10 @@ function fakeCommands() {
       calls.push(["fetchStep", command.sessionId, command.epoch, command.turnId, command.stepId]);
       return { step: { kind: "text", id: command.stepId, text: "whole" } };
     },
+    fetchImage: async (command) => {
+      calls.push(["fetchImage", command.sessionId, command.turnId, command.index]);
+      return { mimeType: "image/png", data: "eA==" };
+    },
     fetchTranscript: async (command) => {
       calls.push(["fetchTranscript", command.sessionId, command.epoch, command.before, command.limit]);
       return { items: [], hasOlder: true };
@@ -284,6 +288,10 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
     await route(connection, withTrace({ type: "hand_off", requestId: "r13", sessionId: "s2" }));
     await route(connection, withTrace({ type: "take_back", requestId: "r14", sessionId: "s2" }));
+    await route(
+      connection,
+      withTrace({ type: "fetch_image", requestId: "r15", sessionId: "s1", turnId: "t9", index: 1 }),
+    );
 
     expect(calls).toStrictEqual([
       ["createChat", "client-1"],
@@ -300,6 +308,7 @@ describe("createRouter", () => {
       ["clearAttention", "s2"],
       ["handOff", "s2"],
       ["takeBack", "s2"],
+      ["fetchImage", "s1", "t9", 1],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { sessionId: "s1" } },
@@ -312,6 +321,7 @@ describe("createRouter", () => {
       ...["r8", "r9", "r10", "r11", "r12"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl" } },
       { type: "response", requestId: "r14", ok: true, result: {} },
+      { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },
     ]);
   });
 

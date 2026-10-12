@@ -116,6 +116,12 @@ export interface SessionTranscript {
   before(before: string, limit: number): TranscriptPage | null;
   /** One step, whole; `null` if there is no such step. */
   step(turnId: string, stepId: string): Step | null;
+  /**
+   * The entry of the user message that opened a turn, to read its images from the session file.
+   *
+   * @returns The entry's id; `null` if there is no such turn or it is not tied to an entry yet.
+   */
+  entryOfTurn(turnId: string): string | null;
 }
 
 /**
@@ -418,6 +424,15 @@ export function createSessionTranscript(options: {
     step(turnId, stepId) {
       const turn = this.items().findLast((item) => item.id === turnId);
       return turn?.kind === "turn" ? (turn.steps.find((step) => step.id === stepId) ?? null) : null;
+    },
+    entryOfTurn(turnId) {
+      const turn = this.items().findLast((item) => item.id === turnId);
+      if (turn?.kind !== "turn") return null;
+      // A turn seen live keeps its own id once tied to its entry; one only read has the entry's
+      // id in its own. A turn seen live and not tied yet has neither.
+      for (const [entryId, facts] of factsByEntry) if (facts.turnId === turnId) return entryId;
+      const prefix = `${sessionId}:`;
+      return turnId.startsWith(prefix) ? turnId.slice(prefix.length) : null;
     },
   };
 }

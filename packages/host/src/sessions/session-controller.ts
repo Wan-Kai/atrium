@@ -140,6 +140,8 @@ export interface SessionController {
   fetchTranscript(command: FetchTranscriptCommand): CommandResult<"fetch_transcript">;
   /** One step whole, for one that traveled as a preview. */
   fetchStep(command: FetchStepCommand): CommandResult<"fetch_step">;
+  /** The entry of the user message that opened a turn; `null` if there is no such turn or it is not tied to one yet. */
+  entryOfTurn(turnId: string): string | null;
   /** Stops pi for good, as the host asks (archiving, closing): no restart follows. */
   shutdown(): Promise<void>;
 }
@@ -1698,6 +1700,7 @@ export function createSessionController(options: {
       if (step === null) throw new CommandError("transcript_changed");
       return { step };
     },
+    entryOfTurn: (turnId) => transcript.entryOfTurn(turnId),
     async shutdown() {
       shuttingDown = true;
       metrics.close();

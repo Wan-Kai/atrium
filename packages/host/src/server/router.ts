@@ -142,6 +142,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.fetchTranscript(command);
       case "fetch_step":
         return options.sessions.fetchStep(command);
+      case "fetch_image":
+        return options.sessions.fetchImage(command);
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
       case "steer":

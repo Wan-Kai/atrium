@@ -1,6 +1,7 @@
 import type {
   CommandResult,
   ContainerId,
+  FetchImageCommand,
   FetchStepCommand,
   FetchTranscriptCommand,
   InteractionAnswer,
@@ -75,4 +76,6 @@ export interface SessionCommands {
   fetchTranscript(command: FetchTranscriptCommand): Promise<CommandResult<"fetch_transcript">>;
   /** One step of a session's transcript, whole. */
   fetchStep(command: FetchStepCommand): Promise<CommandResult<"fetch_step">>;
+  /** One image of a turn's user message, read from the session file (SPEC-0001, "M1.11 的消息图片"). */
+  fetchImage(command: FetchImageCommand): Promise<CommandResult<"fetch_image">>;
 }

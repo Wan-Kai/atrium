@@ -11,6 +11,7 @@ import type {
 } from "@atrium/client";
 import {
   type Chat,
+  CommandError,
   type DiffTarget,
   type DiscoveredDirectory,
   IDLE_CONTROL,
@@ -171,6 +172,11 @@ export interface FakeAnswers {
   readonly setPreferences?: () => Promise<void>;
   /** Answers a Fast switch, which then shows in the session's view; succeeds at once when left out. */
   readonly setFast?: () => Promise<void>;
+  /** A turn's image, or none; the host has none when left out. */
+  readonly image?: (
+    turnId: string,
+    index: number,
+  ) => Promise<{ mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string } | undefined>;
 }
 
 /**
@@ -193,6 +199,8 @@ export interface FakeAnswers {
  */
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
+  /** Previews of the messages sent with images, by message; see `sentPreviews`. */
+  const sent = new Map<string, readonly string[]>();
   const modelCalls: string[] = [];
   /** What the area asked of the workspace changes, in order. */
   const changeCalls: string[] = [];
@@ -419,11 +427,27 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       index.setState({ preferences: { ...index.getState().preferences, ...kept } });
       return {};
     },
-    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = []) {
+    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = [], previews: readonly string[] = []) {
       calls.push(`prompt ${sessionId} ${text}${attachmentIds.map((id) => ` +${id}`).join("")}`);
       const view = views.get(sessionId);
-      view?.setState({ pending: [...view.getState().pending, { clientMessageId: `q${calls.length}`, text }] });
-      return answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const });
+      const clientMessageId = `q${calls.length}`;
+      if (previews.length > 0) sent.set(clientMessageId, previews);
+      const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
+      const shown = { clientMessageId, text, ...images };
+      view?.setState({ pending: [...view.getState().pending, shown] });
+      // As the client does, a message that did not go is taken back out.
+      return (answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const })).catch((error: unknown) => {
+        view?.setState({ pending: view.getState().pending.filter((item) => item !== shown) });
+        sent.delete(clientMessageId);
+        throw error;
+      });
+    },
+    sentPreviews: (clientMessageId: string) => sent.get(clientMessageId) ?? null,
+    async fetchImage(sessionId: string, turnId: string, place: number) {
+      calls.push(`fetchImage ${sessionId} ${turnId} ${place}`);
+      const image = await answers.image?.(turnId, place);
+      if (image === undefined) throw new CommandError("image_unavailable");
+      return image;
     },
     steer(sessionId: string, text: string) {
       calls.push(`steer ${sessionId} ${text}`);

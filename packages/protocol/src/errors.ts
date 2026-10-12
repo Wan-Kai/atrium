@@ -50,6 +50,11 @@ export const ErrorCode = z.enum([
   "attachment_limit",
   /** An image a message names was never uploaded, or was let go after 30 minutes unused. */
   "attachment_missing",
+  /**
+   * `fetch_image` found no such image: the turn is not tied to an entry yet (it still runs), the
+   * session file or the message is gone, or the image is not one pi keeps (SPEC-0001, "M1.11 的消息图片").
+   */
+  "image_unavailable",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */

@@ -1841,6 +1841,76 @@ function confirmation(id: string): object {
 const marks = (manager: Manager) =>
   manager.summaries().map(({ attention, asking, handedOff }) => ({ attention, asking, handedOff }));
 
+describe("SessionManager message images (M1.11)", () => {
+  it("reads a turn's image from the session file, and answers image_unavailable for one that is not there", async () => {
+    const at = await place();
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const user = {
+      type: "message",
+      id: "u2",
+      parentId: "u1",
+      timestamp: "2026-10-12T00:00:00.000Z",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "看图" },
+          { type: "image", mimeType: "image/png", data: "eA==" },
+        ],
+        timestamp: 0,
+      },
+    };
+    await appendFile(file, `${JSON.stringify(user)}\n`);
+    const { manager, catalog } = await manage(
+      { rules: { ...SESSION_ONE, get_entries: { data: { entries: [user], leafId: "u2" } } } },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    const fetch = (sessionId: string, turnId: string, index: number) =>
+      manager.fetchImage({ type: "fetch_image", requestId: "r", traceparent, sessionId, turnId, index });
+    const unavailable = new CommandError("image_unavailable");
+
+    await vi.waitFor(() =>
+      expect(fetch("pi-session-1", "pi-session-1:u2", 0)).resolves.toStrictEqual({
+        mimeType: "image/png",
+        data: "eA==",
+      }),
+    );
+    await expect(fetch("pi-session-1", "pi-session-1:u2", 1)).rejects.toStrictEqual(unavailable);
+    await expect(fetch("pi-session-1", "pi-session-1:u1", 0)).rejects.toStrictEqual(unavailable);
+    await expect(fetch("nope", "pi-session-1:u2", 0)).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+
+  it("answers image_unavailable for a turn of a session that has no file yet", async () => {
+    const user = {
+      type: "message",
+      id: "u2",
+      parentId: null,
+      timestamp: "2026-10-12T00:00:00.000Z",
+      message: { role: "user", content: [{ type: "image", mimeType: "image/png", data: "eA==" }], timestamp: 0 },
+    };
+    const { manager, received } = await manage({
+      rules: { ...SESSION_ONE, get_entries: { data: { entries: [user], leafId: "u2" } } },
+    });
+    const { sessionId } = await started(manager, manager.createChat("client-1"));
+    await manager.subscribe("c1", [sessionId]);
+    await vi.waitFor(() => expect(JSON.stringify(received)).toContain(`"${sessionId}:u2"`));
+
+    await expect(
+      manager.fetchImage({
+        type: "fetch_image",
+        requestId: "r",
+        traceparent,
+        sessionId,
+        turnId: `${sessionId}:u2`,
+        index: 0,
+      }),
+    ).rejects.toStrictEqual(new CommandError("image_unavailable"));
+  });
+});
+
 describe("SessionManager attention (M1.9)", () => {
   it("marks a session whose run failed on credentials for sign-in, which a look does not clear, until its next run starts", async () => {
     const { manager, catalog, run, changes } = await opened([

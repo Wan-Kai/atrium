@@ -616,6 +616,24 @@ describe("createSessionTranscript rebuilding", () => {
     expect(session.items().map((item) => item.id)).toStrictEqual(["s:u1", "live-1"]);
   });
 
+  it("finds the entry that opened a turn, read or seen live once tied, and none for a turn not tied or no turn", () => {
+    const { transcript: session } = transcript();
+    session.rebuild({ entries: [userEntry("u1", null, "a")], leafId: "u1" }, false);
+    session.apply(userMessage("b"), noClient);
+    const running = session.entryOfTurn("live-1");
+    session.settle();
+
+    session.rebuild({ entries: [userEntry("u2", "u1", "b")], leafId: "u2" }, false);
+
+    expect([
+      session.entryOfTurn("s:u1"),
+      running,
+      session.entryOfTurn("live-1"),
+      session.entryOfTurn("s:u2"),
+      session.entryOfTurn("s:u9"),
+    ]).toStrictEqual(["u1", null, "u2", null, null]);
+  });
+
   it("reads the whole session again on reset, keeping the timings of turns seen live", () => {
     const { transcript: session } = transcript();
     session.apply(userMessage("a"), noClient);

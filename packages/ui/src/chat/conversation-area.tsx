@@ -6,7 +6,7 @@ import {
   type SessionView,
 } from "@atrium/client";
 import { type DiffStat, isChatId, type SessionModel } from "@atrium/protocol";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
@@ -21,6 +21,7 @@ import { shownModel } from "./model-choice";
 import { ModelPicker } from "./model-picker";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
+import { MessageImagesContext, messageImages } from "./message-images";
 import { Transcript } from "./transcript";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -223,6 +224,8 @@ function SessionArea({
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
+  // One per session, so thumbnails do not load again on every render.
+  const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -241,18 +244,20 @@ function SessionArea({
   };
   return (
     <>
-      <Transcript
-        view={view}
-        onLoadOlder={() => {
-          // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-          client.loadOlder(sessionId).catch(() => undefined);
-        }}
-        onLoadStep={(turnId, stepId) => {
-          // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-          client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-        }}
-        onRetry={actions.retry}
-      />
+      <MessageImagesContext value={images}>
+        <Transcript
+          view={view}
+          onLoadOlder={() => {
+            // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+            client.loadOlder(sessionId).catch(() => undefined);
+          }}
+          onLoadStep={(turnId, stepId) => {
+            // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+            client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+          }}
+          onRetry={actions.retry}
+        />
+      </MessageImagesContext>
       <ControlCards control={view.control} actions={actions} />
       {notice}
       <Composer
@@ -549,6 +554,7 @@ export function ConversationArea({
     try {
       id = await target();
       const to = id;
+      const previews = images.map(({ image }) => image.preview);
       /**
        * Sends the message with these uploads.
        *
@@ -559,7 +565,8 @@ export function ConversationArea({
        * @param ids - The uploads.
        * @returns The command's result.
        */
-      const deliver = (ids: readonly string[]) => (steer ? client.steer(to, text, ids) : client.prompt(to, text, ids));
+      const deliver = (ids: readonly string[]) =>
+        steer ? client.steer(to, text, ids, previews) : client.prompt(to, text, ids, previews);
       try {
         await deliver(images.map((image) => image.attachmentId));
       } catch (error) {
