@@ -730,6 +730,25 @@ describe("ConversationArea's model button", () => {
 });
 
 /**
+ * The animations the Fast button's bolt and speed lines run.
+ *
+ * @remarks
+ * Turning Fast on plays the acceleration (design-language, "Fast 按钮").
+ *
+ * @sideEffects none
+ * @param button - The Fast button.
+ * @returns The bolt's animation name and each speed line's.
+ */
+function motionOf(button: Element): { bolt: string; streaks: string[] } {
+  const bolt = button.querySelector("svg");
+  if (bolt === null) throw new Error("the Fast button has no bolt");
+  return {
+    bolt: getComputedStyle(bolt).animationName,
+    streaks: [...button.querySelectorAll(".atrium-fast-streak")].map((line) => getComputedStyle(line).animationName),
+  };
+}
+
+/**
  * What draws a frame around an element: its background, shadow and border.
  *
  * @remarks
@@ -817,6 +836,30 @@ describe("ConversationArea's Fast button", () => {
     const none = { background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" };
     expect([off, hovered, frameOf(fast.element())]).toStrictEqual([none, none, none]);
     expect(getComputedStyle(fast.element()).cursor).toBe("pointer");
+  });
+
+  it("plays the acceleration when switched on, and not when shown already on or switched off", async () => {
+    const { client } = fakeClient({}, { models: LIST });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: ON_GPT, fast: true });
+    const fast = screen.getByRole("button", { name: "Fast", exact: true });
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    const shownOn = motionOf(fast.element());
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "false");
+    const off = motionOf(fast.element());
+    await userEvent.click(fast);
+    await expect.element(fast).toHaveAttribute("aria-pressed", "true");
+
+    const still = { bolt: "none", streaks: ["none", "none", "none"] };
+    expect([shownOn, off, motionOf(fast.element())]).toStrictEqual([
+      still,
+      still,
+      { bolt: "atrium-fast-dash", streaks: ["atrium-fast-streak", "atrium-fast-streak", "atrium-fast-streak"] },
+    ]);
   });
 
   it.each([

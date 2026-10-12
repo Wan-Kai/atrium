@@ -1,5 +1,5 @@
 import type { CatalogModel } from "@atrium/protocol";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Lightning } from "../design/icons";
 
 /**
@@ -8,7 +8,10 @@ import { Lightning } from "../design/icons";
  * @remarks
  * SPEC-0001 ("输入框", "Fast"): the bolt alone, with no circle, background or outline around it; an
  * outlined grey bolt while off and a filled one in the tint colour while on. The button keeps a
- * 32px square to press, with the pointing hand over it while it can be pressed. The card above it says whether Fast is on, about how
+ * 32px square to press, with the pointing hand over it while it can be pressed. Turning on plays a
+ * short acceleration: the bolt dashes forward with three speed lines behind it (design-language,
+ * "Fast 按钮"); a button that appears already on does not, so the boost marks the switch itself.
+ * The card above it says whether Fast is on, about how
  * much faster ("更快" when unknown) and whether it uses more credits, as Codex's model list says,
  * and that it applies from the next request; it shows as the status bar's cards do, on hover and
  * on keyboard focus. Only shown for a model with Fast, which its caller decides.
@@ -30,6 +33,15 @@ export function FastToggle({
   readonly onToggle: (enabled: boolean) => void;
 }) {
   const cardId = useId();
+  // Counts the switches to on seen while shown; each restarts the boost through its key. Adjusted
+  // while rendering, as React suggests for state that follows a prop, so no frame shows the bolt
+  // turned on without it.
+  const [shown, setShown] = useState(enabled);
+  const [boosts, setBoosts] = useState(0);
+  if (enabled !== shown) {
+    setShown(enabled);
+    if (enabled) setBoosts((count) => count + 1);
+  }
   return (
     <div className="group/fast relative">
       <button
@@ -39,11 +51,20 @@ export function FastToggle({
         aria-describedby={cardId}
         disabled={disabled}
         onClick={() => onToggle(!enabled)}
-        className={`flex size-8 shrink-0 items-center justify-center enabled:cursor-pointer disabled:opacity-50 ${
+        className={`flex size-8 shrink-0 items-center justify-center transition-colors duration-200 enabled:cursor-pointer disabled:opacity-50 ${
           enabled ? "text-[var(--tint)]" : "text-[var(--text-muted)] hover:text-[var(--text)]"
         }`}
       >
-        <Lightning size={15} weight={enabled ? "fill" : "regular"} />
+        <span
+          key={boosts}
+          data-boost={enabled && boosts > 0 ? "" : undefined}
+          className="atrium-fast-bolt relative flex"
+        >
+          <Lightning size={15} weight={enabled ? "fill" : "regular"} />
+          <span aria-hidden="true" className="atrium-fast-streak" />
+          <span aria-hidden="true" className="atrium-fast-streak" />
+          <span aria-hidden="true" className="atrium-fast-streak" />
+        </span>
       </button>
       <div
         role="tooltip"

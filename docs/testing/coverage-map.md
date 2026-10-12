@@ -320,7 +320,7 @@
 | 宿主 · 控制器：快照带 `fast`；切换后只在变化时发 `fast_updated`、报告选择；pi 失败时原样转出、什么也不变；停止中和退出后拒绝 | `packages/host/src/sessions/session-controller.test.ts` "createSessionController's Fast" | 已覆盖 |
 | 宿主 · 会话管理器：pi 带 `--extension` 启动，确认开关在后、开着时先补发 `on` 再读会话；关着时不发；切换记进会话记录和偏好，新的管理器按记录启动；崩溃重启后按会话自己的开关补发；没列出开关的 pi 一条也不发、记警告、`set_fast` 应答 `fast_unavailable`；没配扩展时同样；草稿快照的 `fast`；未知会话；路由转发 `set_fast` | `packages/host/src/sessions/session-manager.test.ts` "SessionManager Fast"、`server/router.test.ts` | 已覆盖 |
 | 客户端：快照和 `fast_updated` 的开关；切换先在视图里生效，失败时放回宿主最后接受的，多次切换叠在一起时只在最后一次失败后放回（前一次被接受后才发起的也算在内）；没在看的会话照发、不建视图 | `packages/client/src/session-view.test.ts` "following Fast"、`atrium-client.test.ts` "models" | 已覆盖 |
-| 界面：只在当前模型支持时显示 ⚡ 按钮（关是线框、开是强调色实心，`aria-pressed`；只有闪电、没有圈；能用时光标是小手，不能用时是默认光标）；悬停卡片写开关状态、速度（"约 N 倍速度"，不详时"更快"）、额度增加时"额度消耗增加"、下一次请求生效；点击切换，空状态用 `lastFast`、先建会话；扩展没加载时说明；停止中不能用；模型菜单里支持的模型名后带小 ⚡ | `packages/ui/src/chat/chat.browser.test.tsx` "ConversationArea's Fast button"、`model-picker.browser.test.tsx` "bolt"、`model-choice.test.ts` | 已覆盖 |
+| 界面：只在当前模型支持时显示 ⚡ 按钮（关是线框、开是强调色实心，`aria-pressed`；只有闪电、没有圈；能用时光标是小手，不能用时是默认光标；从关变开时播加速动效，打开状态下出现、关掉时都不播）；悬停卡片写开关状态、速度（"约 N 倍速度"，不详时"更快"）、额度增加时"额度消耗增加"、下一次请求生效；点击切换，空状态用 `lastFast`、先建会话；扩展没加载时说明；停止中不能用；模型菜单里支持的模型名后带小 ⚡ | `packages/ui/src/chat/chat.browser.test.tsx` "ConversationArea's Fast button"、`model-picker.browser.test.tsx` "bolt"、`model-choice.test.ts` | 已覆盖 |
 | 端到端：打包进宿主的扩展真的被 pi 加载，模型目录按本机模型列表服务的列表标 Fast（GPT-6.1 Sol 有 ⚡，内置规则会算支持的 GPT-5.5 没有），卡片写"约 2 倍速度，额度消耗增加"；选 GPT-6.1 Sol 后打开，下一次请求带 priority，换回 faux-1 开关消失、请求不带；对列表的每次请求都带 pi 的凭据 | `apps/desktop/e2e/fast.spec.ts` | 已覆盖 |
 
 ## 安全（security.md）

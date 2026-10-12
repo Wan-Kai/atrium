@@ -146,6 +146,80 @@ body {
   color: var(--accent);
 }
 
+/* Fast turning on: the bolt winds back, dashes forward and settles, with three speed lines
+   sweeping off behind it (design-language, "Fast 按钮"). The lines are hidden otherwise. */
+@keyframes atrium-fast-dash {
+  0% {
+    transform: none;
+  }
+  22% {
+    transform: translateX(-2px) skewX(10deg);
+  }
+  55% {
+    transform: translateX(3px) skewX(-14deg) scale(1.08);
+  }
+  100% {
+    transform: none;
+  }
+}
+
+@keyframes atrium-fast-streak {
+  0% {
+    opacity: 0;
+    transform: translateX(1px) scaleX(0.2);
+  }
+  35% {
+    opacity: 0.9;
+    transform: translateX(0) scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-7px) scaleX(0.4);
+  }
+}
+
+.atrium-fast-streak {
+  position: absolute;
+  right: calc(100% + 1px);
+  height: 1.5px;
+  border-radius: 1px;
+  background: currentColor;
+  opacity: 0;
+  transform-origin: right center;
+  pointer-events: none;
+}
+
+.atrium-fast-streak:nth-of-type(1) {
+  top: 3px;
+  width: 6px;
+}
+
+.atrium-fast-streak:nth-of-type(2) {
+  top: 7px;
+  width: 9px;
+}
+
+.atrium-fast-streak:nth-of-type(3) {
+  top: 11px;
+  width: 5px;
+}
+
+.atrium-fast-bolt[data-boost] > svg {
+  animation: atrium-fast-dash 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.15);
+}
+
+.atrium-fast-bolt[data-boost] > .atrium-fast-streak {
+  animation: atrium-fast-streak 0.45s ease-out both;
+}
+
+.atrium-fast-bolt[data-boost] > .atrium-fast-streak:nth-of-type(1) {
+  animation-delay: 40ms;
+}
+
+.atrium-fast-bolt[data-boost] > .atrium-fast-streak:nth-of-type(3) {
+  animation-delay: 80ms;
+}
+
 /* The new level's name slides in from the side dragged to. */
 @keyframes atrium-level-up {
   from {
