@@ -171,6 +171,26 @@ function folderIcons(row: Element): unknown[][] {
 }
 
 /**
+ * What a color, given as CSS (a variable, a mix), computes to on this page.
+ *
+ * @remarks
+ * Lets a test compare a button's computed colors with the design tokens' without writing out
+ * their values.
+ *
+ * @sideEffects Adds a probe element to the page and removes it.
+ * @param color - The CSS color.
+ * @returns Its computed `rgb(...)` form.
+ */
+function computedColor(color: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = color;
+  document.body.append(probe);
+  const computed = getComputedStyle(probe).color;
+  probe.remove();
+  return computed;
+}
+
+/**
  * Archives a chat with the button its row's hover shows.
  *
  * @sideEffects Hovers the chat's row and clicks its archive button.
@@ -967,6 +987,11 @@ describe("Workbench workspace archiving (M1.11)", () => {
     const archive = rows.nth(2).getByRole("button", { name: "归档工作区 fix/typo" });
     await expect.element(archive).toHaveAttribute("aria-disabled", "false");
     await expect.element(archive).toHaveAttribute("title", "归档");
+    // A red trash can on a faint red, so it reads as taking something away.
+    expect([
+      getComputedStyle(archive.element()).color,
+      getComputedStyle(archive.element()).backgroundColor,
+    ]).toStrictEqual([computedColor("var(--danger)"), computedColor("var(--danger-soft)")]);
     expect(
       archive
         .element()
@@ -1121,6 +1146,11 @@ describe("Workbench sidebar: archived chats", () => {
     await userEvent.keyboard("{Escape}");
     const archive = section.getByRole("button", { name: "归档对话 解释 merge-tree" });
     await expect.element(archive).toHaveAttribute("title", "归档");
+    // A red trash can on a faint red, so it reads as taking something away.
+    expect([
+      getComputedStyle(archive.element()).color,
+      getComputedStyle(archive.element()).backgroundColor,
+    ]).toStrictEqual([computedColor("var(--danger)"), computedColor("var(--danger-soft)")]);
     expect(
       archive
         .element()

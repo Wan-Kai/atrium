@@ -1,7 +1,6 @@
 import { type AtriumClient, CommandError, type IndexView } from "@atrium/client";
 import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
-  Archive,
   ArrowUp,
   CaretDown,
   CaretUp,
@@ -17,6 +16,7 @@ import {
   GearSix,
   Plus,
   Sun,
+  Trash,
 } from "../design/icons";
 import { type ReactNode, createContext, use, useState } from "react";
 import { useStore } from "zustand";
@@ -66,9 +66,15 @@ const UNKNOWN_REASONS: Readonly<Record<MergeUnknownReason, string>> = {
   base_unknown: "无法判断是否已合并：看不出这个 worktree 从哪里开始",
 };
 
-/** A row's archive button, shown on hover left of its "···" like a project's "+". */
+/**
+ * A row's archive button, shown on hover left of its "···": a red trash can on a faint red.
+ *
+ * @remarks
+ * The one icon with a ground (design-language, "侧栏"): archiving removes a worktree's directory or
+ * puts a chat away, and the red says so where the old drawer said nothing.
+ */
 const ROW_ARCHIVE =
-  "rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)] aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-[var(--text-dim)]";
+  "rounded-[var(--r)] bg-[var(--danger-soft)] p-1 text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-[var(--danger-soft)]";
 
 /** Where collapsed projects are remembered in this browser profile (domain-model §7, ViewState). */
 const COLLAPSED_KEY = "atrium.collapsedProjects";
@@ -556,7 +562,7 @@ function ChatRows({
                 }}
                 className={ROW_ARCHIVE}
               >
-                <Archive size={14} />
+                <Trash size={14} />
               </button>
               <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
                 {(close) => (
@@ -898,7 +904,7 @@ function WorkspaceRow({
             }}
             className={ROW_ARCHIVE}
           >
-            <Archive size={14} />
+            <Trash size={14} />
           </button>
         ) : null}
         <MenuButton label={`工作区 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>

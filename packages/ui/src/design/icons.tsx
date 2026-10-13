@@ -1,6 +1,5 @@
 import {
   Add01Icon,
-  Archive02Icon,
   AddSquareIcon,
   Alert02Icon,
   AlertCircleIcon,
@@ -29,6 +28,7 @@ import {
   Css3Icon,
   CsvIcon,
   DartIcon,
+  Delete02Icon,
   DashboardSpeed02Icon,
   DatabaseIcon,
   Download04Icon,
@@ -271,7 +271,7 @@ export const Moon = drawn(Moon02Icon);
 export const Palette = drawn(PaintBoardIcon);
 export const PencilSimple = drawn(PencilEdit01Icon);
 export const Plus = drawn(Add01Icon);
-export const Archive = drawn(Archive02Icon);
+export const Trash = drawn(Delete02Icon);
 export const ChatAdd = drawn(BubbleChatAddIcon);
 export const PlusSquare = drawn(AddSquareIcon);
 export const Question = drawn(HelpCircleIcon);
