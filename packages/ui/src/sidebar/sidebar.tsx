@@ -222,7 +222,7 @@ export function Sidebar({
     <LeavePage value={page?.leave ?? stay}>
       <nav
         aria-label="侧栏"
-        className="flex h-full w-[270px] shrink-0 flex-col bg-[var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150"
+        className="flex h-full w-[270px] shrink-0 flex-col [background:var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150"
       >
         <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">

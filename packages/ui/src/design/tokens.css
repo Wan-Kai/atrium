@@ -5,7 +5,18 @@
  */
 :root {
   --window: #e8ecf2;
-  --sidebar-bg: rgba(246, 247, 250, 0.58);
+  /* Top to bottom, as DeepSeek Harness's sidebar (design-language, "层级"). */
+  --sidebar-bg: linear-gradient(
+    180deg,
+    #d5dbe9 0%,
+    #dae0e9 10%,
+    #e1e4ea 25%,
+    #e3e7e9 35%,
+    #e3e7e9 65%,
+    #e2e4e6 75%,
+    #dee1e7 85%,
+    #d8dbe3 100%
+  );
   --main: #ffffff;
   --surface-1: #ffffff;
   --surface-2: #f2f2f4;

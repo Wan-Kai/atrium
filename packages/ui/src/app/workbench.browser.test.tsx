@@ -900,6 +900,22 @@ describe("Workbench sidebar", () => {
       'setPreferences {"appearance":"dark"}',
     ]);
   });
+
+  it("paints the sidebar in DeepSeek Harness's colours when light, see-through when dark", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => document.documentElement.classList.remove("dark"));
+    const sidebar = screen.getByRole("navigation", { name: "侧栏" }).element();
+
+    expect(getComputedStyle(sidebar).backgroundImage).toBe(
+      "linear-gradient(rgb(213, 219, 233) 0%, rgb(218, 224, 233) 10%, rgb(225, 228, 234) 25%, rgb(227, 231, 233) 35%, rgb(227, 231, 233) 65%, rgb(226, 228, 230) 75%, rgb(222, 225, 231) 85%, rgb(216, 219, 227) 100%)",
+    );
+    document.documentElement.classList.add("dark");
+
+    expect([getComputedStyle(sidebar).backgroundImage, getComputedStyle(sidebar).backgroundColor]).toStrictEqual([
+      "none",
+      "rgba(95, 102, 114, 0.42)",
+    ]);
+  });
 });
 
 /**
