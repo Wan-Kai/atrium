@@ -1631,7 +1631,7 @@ describe("Workbench attention and hand-off (M1.9)", () => {
         {
           kind: "turn",
           id: "t1",
-          user: { text: "你好", images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+          user: { text: "你好", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
           steps: [],
           outcome: "failed",
           error: "OAuth refresh failed for anthropic",

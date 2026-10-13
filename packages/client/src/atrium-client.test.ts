@@ -167,7 +167,7 @@ function turn(id: string, clientMessageId: string | null = null) {
   return {
     kind: "turn",
     id,
-    user: { text: "hi", images: 0, clientMessageId, auto: false, timestamp: 0 },
+    user: { text: "hi", images: 0, clientMessageId, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,

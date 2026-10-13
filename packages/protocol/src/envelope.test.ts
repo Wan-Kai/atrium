@@ -6,7 +6,7 @@ import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
-import type { Step, Turn } from "./transcript";
+import { type Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
 import { PROTOCOL_VERSION } from "./version";
 
@@ -360,7 +360,7 @@ const steps: Step[] = [
 const turn: Turn = {
   kind: "turn",
   id: "s1:e1",
-  user: { text: "hi", images: 1, clientMessageId: "r4", auto: false, timestamp: 1 },
+  user: { text: "hi", images: 1, clientMessageId: "r4", auto: false, command: null, timestamp: 1 },
   steps,
   outcome: "done",
   error: null,
@@ -1569,6 +1569,24 @@ describe("HostMessage", () => {
     ],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);
+  });
+});
+
+describe("Turn", () => {
+  it("names the skill a user message started with, by a name pi could have given it", () => {
+    const skilled = { ...turn, user: { ...turn.user, command: { kind: "skill", name: "review" } } };
+
+    expect(Turn.parse(skilled)).toStrictEqual(skilled);
+    expect(Turn.safeParse({ ...turn, user: { ...turn.user, command: { kind: "skill", name: "" } } }).success).toBe(
+      false,
+    );
+    expect(
+      Turn.safeParse({ ...turn, user: { ...turn.user, command: { kind: "skill", name: "x".repeat(257) } } }).success,
+    ).toBe(false);
+    expect(
+      Turn.safeParse({ ...turn, user: { ...turn.user, command: { kind: "prompt", name: "commit" } } }).success,
+    ).toBe(false);
+    expect(Turn.safeParse({ ...turn, user: { ...turn.user, command: undefined } }).success).toBe(false);
   });
 });
 

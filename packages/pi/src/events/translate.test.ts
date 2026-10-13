@@ -47,7 +47,7 @@ function finished(message: LogMessage): TranslatedEvent {
 
 /** A finished user message with only text, sent at 0. */
 function user(text: string): TranslatedEvent {
-  return finished({ kind: "user", text, images: 0, timestamp: 0 });
+  return finished({ kind: "user", text, images: 0, skill: null, timestamp: 0 });
 }
 
 /** A finished assistant message sent at 0 that used no tokens (the fixtures' usage is normalized). */
@@ -406,7 +406,7 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
 
   it("dates a message pi sent without a time by the translator's clock", () => {
     expect(translateAll([{ type: "message_end", message: { role: "user", content: "plain" } } as never])).toStrictEqual(
-      [finished({ kind: "user", text: "plain", images: 0, timestamp: 99 })],
+      [finished({ kind: "user", text: "plain", images: 0, skill: null, timestamp: 99 })],
     );
   });
 

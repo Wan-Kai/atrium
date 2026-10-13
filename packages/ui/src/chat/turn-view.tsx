@@ -458,6 +458,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
         images={turn.user.images}
         timestamp={turn.user.timestamp}
         auto={turn.user.auto}
+        command={turn.user.command}
         turnId={turn.id}
         clientMessageId={turn.user.clientMessageId}
         settled={turn.outcome !== "running"}

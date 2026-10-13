@@ -1,4 +1,5 @@
 import type { Notice, Step, TranscriptItem, Turn } from "@atrium/protocol";
+import { typedMessage } from "./composer-text";
 
 /** A tool step. */
 export type ToolStep = Extract<Step, { kind: "tool" }>;
@@ -399,7 +400,7 @@ export function transcriptMarkdown(items: readonly TranscriptItem[]): string {
  */
 function turnMarkdown(turn: Turn): string {
   const { process, reply } = layoutTurn(turn);
-  const question = turn.user.text
+  const question = typedMessage(turn.user)
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");

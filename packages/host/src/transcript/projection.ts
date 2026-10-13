@@ -1,6 +1,6 @@
 import type { LogEntry } from "@atrium/pi";
 import type { Notice, TranscriptItem } from "@atrium/protocol";
-import { TurnDraft, type TurnFacts } from "./turn-draft";
+import { TurnDraft, type TurnFacts, messageCommand, steerText } from "./turn-draft";
 
 /** A rebuilt transcript, with which entry opened each turn. */
 export interface Projection {
@@ -86,7 +86,7 @@ export function projectTranscript(
     switch (entry.kind) {
       case "user": {
         if (draft !== null && !facts.has(entry.id) && !opened.has(entry.id) && draft.turn.takesSteer) {
-          draft.turn.steer(entry.text, entry.timestamp);
+          draft.turn.steer(steerText(entry), entry.timestamp);
           break;
         }
         close();
@@ -99,6 +99,7 @@ export function projectTranscript(
               images: entry.images,
               clientMessageId: known?.clientMessageId ?? null,
               auto: known?.auto ?? auto.has(entry.id),
+              command: messageCommand(entry),
               timestamp: entry.timestamp,
             },
             known?.retryLimit ?? null,

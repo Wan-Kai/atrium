@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { render } from "vitest-browser-react";
 import { ClockContext, type UiClock } from "../state/clock";
-import { Key, Warning } from "../design/icons";
+import { Key, Sparkle, Warning } from "../design/icons";
 import "../styles.css";
 import { LoadStepContext } from "./steps";
 import { NoticeView, OpenLogin, TurnView } from "./turn-view";
@@ -16,7 +16,7 @@ function turn(steps: Step[], fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id: "t1",
-    user: { text: "改一下侧栏", images: 0, clientMessageId: null, auto: false, timestamp: at },
+    user: { text: "改一下侧栏", images: 0, clientMessageId: null, auto: false, command: null, timestamp: at },
     steps,
     outcome: "done",
     error: null,
@@ -507,6 +507,33 @@ describe("TurnView", () => {
     expect(screen.container.querySelector('[data-testid="files"] [data-testid="diff"]')?.textContent).toBe(
       "1keepold2new",
     );
+  });
+
+  it("starts a message that started with a skill with its tag, copying it as it was typed", async () => {
+    const written: string[] = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => {
+      written.push(text);
+    });
+    const plain = turn([answer]);
+    const { screen } = await show({ ...plain, user: { ...plain.user, command: { kind: "skill", name: "review" } } });
+    const tag = screen.getByTestId("command-tag");
+    const icon = tag.element().querySelector("svg");
+
+    expect(screen.getByTestId("user-text").element().textContent).toBe("skill:review改一下侧栏");
+    expect([
+      tag.element().getBoundingClientRect().height,
+      icon?.outerHTML,
+      getComputedStyle(icon as Element).color,
+    ]).toStrictEqual([22, iconMarkup(<Sparkle size={14} />), colorOf("var(--ctx-tools)")]);
+    await screen.getByTestId("user-message").getByRole("button", { name: "复制" }).click();
+    expect(written).toStrictEqual(["/skill:review 改一下侧栏"]);
+  });
+
+  it("has no tag on a message typed as it is", async () => {
+    const { screen } = await show(turn([answer]));
+
+    expect(screen.getByTestId("user-text").element().textContent).toBe("改一下侧栏");
+    expect(screen.getByTestId("command-tag").elements()).toHaveLength(0);
   });
 
   it("copies the reply's Markdown source, from its one copy button", async () => {

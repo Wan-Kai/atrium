@@ -281,7 +281,7 @@ function replyEnd(stopReason: string, content: unknown[] = []) {
 
 /** A user entry. */
 function userEntry(id: string, parentId: string | null, text: string): LogEntry {
-  return { id, parentId, kind: "user", text, images: 0, timestamp: 0 };
+  return { id, parentId, kind: "user", text, images: 0, skill: null, timestamp: 0 };
 }
 
 /** Lets queued microtasks and the replay's deliveries run. */
@@ -407,7 +407,7 @@ describe("createSessionController on cases the fixtures do not show", () => {
         {
           kind: "turn",
           id: "id2",
-          user: { text: "hi", images: 0, clientMessageId: "q1", auto: false, timestamp: 0 },
+          user: { text: "hi", images: 0, clientMessageId: "q1", auto: false, command: null, timestamp: 0 },
           steps: [{ kind: "text", id: "0", text: "Hello" }],
           outcome: "running",
           error: null,

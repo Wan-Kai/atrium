@@ -12,6 +12,7 @@ import {
   mentionAt,
   removeMention,
   slashQuery,
+  typedMessage,
 } from "./composer-text";
 
 describe("slashQuery", () => {
@@ -183,7 +184,7 @@ function turn(id: string, text: string, auto = false): Turn {
   return {
     kind: "turn",
     id,
-    user: { text, images: 0, clientMessageId: null, auto, timestamp: 0 },
+    user: { text, images: 0, clientMessageId: null, auto, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,
@@ -220,5 +221,24 @@ describe("historyOf", () => {
     };
 
     expect(historyOf([steered, turn("t2", "two")])).toStrictEqual(["two", "and", "also", "one"]);
+  });
+
+  it("has a message that started with a skill as it was typed", () => {
+    const skilled: TranscriptItem = {
+      ...turn("t1", "look at it"),
+      user: { ...turn("t1", "look at it").user, command: { kind: "skill", name: "review" } },
+    };
+
+    expect(historyOf([turn("t0", "one"), skilled])).toStrictEqual(["/skill:review look at it", "one"]);
+  });
+});
+
+describe("typedMessage", () => {
+  it("is the text, or the skill it started with written as a command before it", () => {
+    const skill = { kind: "skill", name: "tdd" } as const;
+
+    expect(typedMessage({ text: "a\nb", command: null })).toBe("a\nb");
+    expect(typedMessage({ text: "go on", command: skill })).toBe("/skill:tdd go on");
+    expect(typedMessage({ text: "", command: skill })).toBe("/skill:tdd");
   });
 });

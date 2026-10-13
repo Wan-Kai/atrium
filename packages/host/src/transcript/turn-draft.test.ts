@@ -4,7 +4,11 @@ import { TurnDraft } from "./turn-draft";
 
 /** A draft of a turn opened at 0. */
 function draft(): TurnDraft {
-  return new TurnDraft("t1", { text: "go", images: 0, clientMessageId: null, auto: false, timestamp: 0 }, null);
+  return new TurnDraft(
+    "t1",
+    { text: "go", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
+    null,
+  );
 }
 
 /** A finished assistant message with these parts. */

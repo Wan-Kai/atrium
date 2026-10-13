@@ -46,7 +46,14 @@ function turn(id: string, text: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
-    user: { text: `问 ${id}`, images: 0, clientMessageId: null, auto: false, timestamp: Date.UTC(2026, 9, 7, 14, 31) },
+    user: {
+      text: `问 ${id}`,
+      images: 0,
+      clientMessageId: null,
+      auto: false,
+      command: null,
+      timestamp: Date.UTC(2026, 9, 7, 14, 31),
+    },
     steps: [{ kind: "text", id: "0", text }],
     outcome: "done",
     error: null,
@@ -458,6 +465,25 @@ describe("Transcript", () => {
     );
   });
 
+  it("names a question that started with a skill as it was typed", async () => {
+    await page.viewport(1280, 800);
+    const skilled = turn("t1", "看过了");
+    const screen = await render(
+      at([turn("t0", "好"), { ...skilled, user: { ...skilled.user, command: { kind: "skill", name: "review" } } }]),
+    );
+    const nav = screen.getByRole("navigation", { name: "提问导航" });
+
+    expect(
+      nav
+        .getByRole("button")
+        .elements()
+        .map((button) => [button.getAttribute("aria-label"), button.textContent]),
+    ).toStrictEqual([
+      ["问 t0", "问 t0"],
+      ["/skill:review 问 t1", "/skill:review 问 t1"],
+    ]);
+  });
+
   it("stays at the bottom as what is under it grows", async () => {
     const long = Array.from({ length: 20 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
     const screen = await render(above(long, 40));
@@ -513,7 +539,7 @@ describe("Transcript", () => {
   it("shows each turn's images: kept for a message sent from here, fetched by turn for others, again once a run ends", async () => {
     const shown = turnImages();
     const { images, loads } = shown;
-    const user = { text: "看图", images: 1, auto: false, timestamp: 0 };
+    const user = { text: "看图", images: 1, auto: false, command: null, timestamp: 0 };
     const items = (outcome: Turn["outcome"]) => [
       turn("t1", "答", { user: { ...user, clientMessageId: "q1" } }),
       turn("t2", "", { user: { ...user, clientMessageId: null }, outcome }),
@@ -1344,7 +1370,7 @@ function turnOf(id: string, text: string): Turn {
   return {
     kind: "turn",
     id,
-    user: { text, images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    user: { text, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,

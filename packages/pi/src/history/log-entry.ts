@@ -1,4 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { readSkillBlock } from "./skill-block";
 import { type ToolArgs, contentText } from "./tools";
 
 /** One block of an assistant message, as Atrium keeps it. */
@@ -49,7 +50,15 @@ export interface SystemParts {
  * milliseconds since the epoch.
  */
 export type LogMessage =
-  | { readonly kind: "user"; readonly text: string; readonly images: number; readonly timestamp: number }
+  | {
+      readonly kind: "user";
+      /** Without the skill's block when the message started with one: only what followed its name. */
+      readonly text: string;
+      readonly images: number;
+      /** The skill the message started with (SPEC-0001, "M1.11 的 `/` 命令"). */
+      readonly skill: string | null;
+      readonly timestamp: number;
+    }
   | {
       readonly kind: "assistant";
       readonly parts: readonly AssistantPart[];
@@ -162,7 +171,8 @@ function stopReason(reason: PiAssistantMessage["stopReason"]): LogStopReason {
  * User, assistant and tool result messages are part of turns; system messages, `!bash` messages
  * and extensions' messages are not (pi-internals.md §1). The message's own time is the one live
  * events carry too, so durations computed from either match; the types promise it, but the file
- * is JSON from another process, so a message without one takes `fallbackTime`.
+ * is JSON from another process, so a message without one takes `fallbackTime`. A user message that
+ * started with a skill keeps the skill's name, not its block (SPEC-0001, "M1.11 的 `/` 命令").
  *
  * @sideEffects none
  * @param message - pi's message.
@@ -171,7 +181,11 @@ function stopReason(reason: PiAssistantMessage["stopReason"]): LogStopReason {
  */
 export function toLogMessage(message: PiMessage, fallbackTime: number): LogMessage | null {
   const timestamp = typeof message.timestamp === "number" ? message.timestamp : fallbackTime;
-  if (message.role === "user") return { kind: "user", ...contentText(message.content), timestamp };
+  if (message.role === "user") {
+    const { text, images } = contentText(message.content);
+    const skill = readSkillBlock(text);
+    return { kind: "user", text: skill?.args ?? text, images, skill: skill?.name ?? null, timestamp };
+  }
   if (message.role === "assistant") {
     return {
       kind: "assistant",

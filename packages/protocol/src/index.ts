@@ -146,7 +146,16 @@ export {
   TurnFinishedEvent,
   TurnStartedEvent,
 } from "./events";
-export { FileChange, Notice, STEP_TEXT_LIMIT, Step, ToolDetails, TranscriptItem, Turn } from "./transcript";
+export {
+  FileChange,
+  MessageCommand,
+  Notice,
+  STEP_TEXT_LIMIT,
+  Step,
+  ToolDetails,
+  TranscriptItem,
+  Turn,
+} from "./transcript";
 export { ClientMessage, HostMessage, type ParsedCommand, ResponseMessage, parseClientMessage } from "./envelope";
 export {
   type RandomBytes,

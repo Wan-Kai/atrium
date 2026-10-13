@@ -14,8 +14,13 @@ function transcript() {
 }
 
 /** A user message event. */
-function userMessage(text: string, timestamp = 0) {
-  return { kind: "message_finished", message: { kind: "user", text, images: 0, timestamp } } as const;
+function userMessage(text: string, timestamp = 0, skill: string | null = null) {
+  return { kind: "message_finished", message: { kind: "user", text, images: 0, skill, timestamp } } as const;
+}
+
+/** The users of the turns `events` started. */
+function startedUsers(events: readonly TranscriptEvent[]): Turn["user"][] {
+  return events.flatMap((event) => (event.type === "turn_started" ? [event.turn.user] : []));
 }
 
 /** A finished assistant message event. */
@@ -46,12 +51,15 @@ function toolResult(callId: string, text: string) {
 
 const noClient = () => ({ clientMessageId: null, auto: false });
 
+/** A message sent from the page as `client-1`. */
+const fromPage = () => ({ clientMessageId: "client-1", auto: false });
+
 /** A message the host sent on its own. */
 const sentByHost = () => ({ clientMessageId: null, auto: true });
 
 /** A user entry. */
 function userEntry(id: string, parentId: string | null, text: string): LogEntry {
-  return { id, parentId, kind: "user", text, images: 0, timestamp: 0 };
+  return { id, parentId, kind: "user", text, images: 0, skill: null, timestamp: 0 };
 }
 
 /** A session of `turns` user messages, each followed by a compaction. */
@@ -60,7 +68,7 @@ function longSession(turns: number) {
   const entries: LogEntry[] = [];
   for (let index = 0; index < turns; index += 1) {
     const parentId = entries.at(-1)?.id ?? null;
-    entries.push({ id: `u${index}`, parentId, kind: "user", text: `${index}`, images: 0, timestamp: 0 });
+    entries.push({ id: `u${index}`, parentId, kind: "user", text: `${index}`, images: 0, skill: null, timestamp: 0 });
     entries.push({
       id: `k${index}`,
       parentId: `u${index}`,
@@ -192,7 +200,7 @@ describe("createSessionTranscript following a recorded session", () => {
       turn: {
         kind: "turn",
         id: "live-1",
-        user: { text: "one", images: 0, clientMessageId: "client-1", auto: false, timestamp: 0 },
+        user: { text: "one", images: 0, clientMessageId: "client-1", auto: false, command: null, timestamp: 0 },
         steps: [],
         outcome: "running",
         error: null,
@@ -281,6 +289,33 @@ describe("createSessionTranscript live", () => {
       { type: "step_added", turnId: "live-1", step: { kind: "steer", id: "1", text: "also b" } },
     ]);
     expect(asked).toBe(1);
+  });
+
+  it("tags a live turn that started with a skill, and writes a steer that did as it was typed", () => {
+    const { transcript: session } = transcript();
+
+    const started = session.apply(userMessage("the tests", 0, "review"), fromPage);
+    session.apply({ kind: "assistant_started" }, fromPage);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "bash", args: { command: "ls" } }], "toolUse"),
+      fromPage,
+    );
+    session.apply(toolResult("c1", "a.ts"), fromPage);
+
+    expect(started.map((event) => event.type)).toStrictEqual(["turn_started"]);
+    expect(startedUsers(started)).toStrictEqual([
+      {
+        text: "the tests",
+        images: 0,
+        clientMessageId: "client-1",
+        auto: false,
+        command: { kind: "skill", name: "review" },
+        timestamp: 0,
+      },
+    ]);
+    expect(session.apply(userMessage("only src", 0, "lint"), fromPage)).toStrictEqual([
+      { type: "step_added", turnId: "live-1", step: { kind: "steer", id: "1", text: "/skill:lint only src" } },
+    ]);
   });
 
   it("ends the running turn when a user message that is not a steer starts another", () => {

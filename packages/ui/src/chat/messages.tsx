@@ -1,4 +1,7 @@
+import type { MessageCommand } from "@atrium/protocol";
 import { Copy } from "../design/icons";
+import { CommandTag } from "./command-tag";
+import { typedMessage } from "./composer-text";
 import { MessageThumbnails } from "./message-images";
 import { useEffect, useRef, useState } from "react";
 
@@ -58,6 +61,8 @@ export interface UserBubbleProps {
   readonly timestamp?: number;
   /** The host sent it to have the agent go on (SPEC-0001, "运行控制"). */
   readonly auto?: boolean;
+  /** The command it started with, shown as a tag before the text. */
+  readonly command?: MessageCommand | null;
 }
 
 /**
@@ -68,7 +73,8 @@ export interface UserBubbleProps {
  * has no time yet. Bubble on `--surface-2` with radius 22 (design-language, "消息流"). A message
  * longer than about 12 lines is folded, with "展开" at its end (SPEC-0001, "消息下方的信息");
  * its images show as thumbnails above it. One the host sent on its own after an interrupted run
- * says so under it, "系统自动发出".
+ * says so under it, "系统自动发出". One that started with a skill starts with the skill's tag, and is
+ * copied as typed, `/skill:名字 参数` (SPEC-0001, "M1.11 的 `/` 命令").
  *
  * @sideEffects Observes the bubble's size while folded to know whether it overflows.
  * @param props - The text, images and, once confirmed, its time and turn.
@@ -82,6 +88,7 @@ export function UserBubble({
   turnId,
   clientMessageId = null,
   settled = false,
+  command = null,
 }: UserBubbleProps) {
   const body = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -105,6 +112,7 @@ export function UserBubble({
           data-testid="user-text"
           className={`break-words whitespace-pre-wrap text-[var(--text)] ${expanded ? "" : "line-clamp-12"}`}
         >
+          {command === null ? null : <CommandTag command={command} />}
           {text}
         </div>
         {overflows || expanded ? (
@@ -120,7 +128,7 @@ export function UserBubble({
       <div className="flex items-center gap-1 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
         {auto ? <span>系统自动发出 ·</span> : null}
         {timestamp === undefined ? null : <span>{timeOfDay(timestamp)}</span>}
-        <CopyButton text={() => text} />
+        <CopyButton text={() => typedMessage({ text, command })} />
       </div>
     </div>
   );

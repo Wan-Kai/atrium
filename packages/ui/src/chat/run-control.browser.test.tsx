@@ -202,7 +202,7 @@ function turn(id: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
-    user: { text: `问 ${id}`, images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    user: { text: `问 ${id}`, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,
@@ -320,7 +320,9 @@ describe("Transcript after an interruption", () => {
             items: [
               turn("t1", { outcome: "failed" }),
               { kind: "notice", id: "n1", notice: "restarted", attempt: 2, timestamp: 0 },
-              turn("t2", { user: { text: "接着做", images: 0, clientMessageId: null, auto: true, timestamp: 0 } }),
+              turn("t2", {
+                user: { text: "接着做", images: 0, clientMessageId: null, auto: true, command: null, timestamp: 0 },
+              }),
             ],
           })}
           onLoadOlder={() => undefined}

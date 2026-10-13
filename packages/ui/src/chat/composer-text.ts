@@ -1,4 +1,4 @@
-import type { SlashCommand, TranscriptItem } from "@atrium/protocol";
+import type { SlashCommand, TranscriptItem, Turn } from "@atrium/protocol";
 
 /** What the input box holds besides images (SPEC-0001, "输入框"). */
 export interface DraftText {
@@ -247,11 +247,29 @@ export function isLongPaste(text: string): boolean {
 }
 
 /**
+ * A message as the user typed it: its text, after the skill it started with written as a command.
+ *
+ * @remarks
+ * pi keeps a skill's message as the skill's body and what followed its name; the host gives the
+ * name and that text, and ↑, the copy button, the question nav and the Markdown export show it
+ * the way it was typed, `/skill:名字 参数` (SPEC-0001, "M1.11 的 `/` 命令").
+ *
+ * @sideEffects none
+ * @param user - The message's text and command.
+ * @returns The typed message.
+ */
+export function typedMessage(user: Pick<Turn["user"], "command" | "text">): string {
+  if (user.command === null) return user.text;
+  return user.text === "" ? `/skill:${user.command.name}` : `/skill:${user.command.name} ${user.text}`;
+}
+
+/**
  * What ↑ goes back through: the messages you sent in the session, newest first.
  *
  * @remarks
  * The current branch's turns as far back as loaded, each its message and then its steers,
- * without the host's own messages, a repeat in a row counted once (SPEC-0001, "模型与输入框").
+ * without the host's own messages, a repeat in a row counted once (SPEC-0001, "模型与输入框"); a
+ * message that started with a skill as it was typed.
  *
  * @sideEffects none
  * @param items - The transcript, oldest first.
@@ -262,7 +280,7 @@ export function historyOf(items: readonly TranscriptItem[]): string[] {
   for (const item of items.toReversed()) {
     if (item.kind !== "turn") continue;
     const steers = item.steps.flatMap((step) => (step.kind === "steer" ? [step.text] : []));
-    for (const text of [...(item.user.auto ? [] : [item.user.text]), ...steers].toReversed()) {
+    for (const text of [...(item.user.auto ? [] : [typedMessage(item.user)]), ...steers].toReversed()) {
       if (sent.at(-1) !== text) sent.push(text);
     }
   }

@@ -937,7 +937,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 **气泡里的命令**
 
 - 发出的消息由命令开头时，待发的气泡开头显示同样的标签，后面是参数。
-- skill：pi 把 skill 展开成 `<skill name="…" location="…">…</skill>` 加参数存进会话文件。宿主（`packages/pi` 解析）认出这个格式，`Turn.user` 多一个 `command: { kind: "skill", name } | null`，文字只留参数；气泡显示标签加参数，skill 的正文不显示，↑ 历史调出的是 `/skill:名字 参数`；会话的兜底标题用参数的第一行，没有参数时用 skill 名字。认不出的照原文显示。
+- skill：pi 把 skill 展开成 `<skill name="…" location="…">…</skill>` 加参数存进会话文件。宿主（`packages/pi` 解析）认出这个格式，`Turn.user` 多一个 `command: { kind: "skill", name } | null`，文字只留参数；气泡显示标签加参数，skill 的正文不显示；↑ 历史调出的、气泡的复制按钮复制的、提问导航和导出的 Markdown 里写的，都是 `/skill:名字 参数`（没有参数时只有 `/skill:名字`）；会话的兜底标题用参数的第一行，没有参数时用 skill 名字。认不出的照原文显示。
 - 模板：pi 存的是展开后的全文，看不出来自哪个模板；Atrium 不另记。待发的气泡显示标签，pi 收下这一轮后换成展开后的全文。
 - extension 命令：被 extension 处理掉（`handled`）的照旧去掉待发气泡；extension 自己发出的消息照原文显示。
 

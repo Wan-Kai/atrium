@@ -1,5 +1,5 @@
 import type { AssistantPart, LogMessage } from "@atrium/pi";
-import type { Step, Turn } from "@atrium/protocol";
+import type { MessageCommand, Step, Turn } from "@atrium/protocol";
 import {
   type FinishedOutcome,
   type LastStop,
@@ -19,6 +19,38 @@ export type FinishedTurn = Turn & { readonly outcome: FinishedOutcome; readonly 
 
 /** An assistant message, as both live events and session entries carry it. */
 type AssistantMessage = Extract<LogMessage, { kind: "assistant" }>;
+
+/** A user message, as both live events and session entries carry it. */
+type UserMessage = Extract<LogMessage, { kind: "user" }>;
+
+/**
+ * The skill a user message started with, as the transcript names it.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的 `/` 命令"): the turn shows the skill as a tag before what followed it.
+ *
+ * @sideEffects none
+ * @param message - The user message.
+ * @returns The command, or `null` when the message started with no skill.
+ */
+export function messageCommand(message: Pick<UserMessage, "skill">): MessageCommand | null {
+  return message.skill === null ? null : { kind: "skill", name: message.skill };
+}
+
+/**
+ * The text a steer shows: what was sent, the skill's name back in front of it when it had one.
+ *
+ * @remarks
+ * A steer step has only text, no tag, so the skill is written as it was typed.
+ *
+ * @sideEffects none
+ * @param message - The user message.
+ * @returns The text.
+ */
+export function steerText(message: Pick<UserMessage, "skill" | "text">): string {
+  if (message.skill === null) return message.text;
+  return message.text === "" ? `/skill:${message.skill}` : `/skill:${message.skill} ${message.text}`;
+}
 
 /** What the host measured of a turn it saw live, kept apart from pi's entries (SPEC-0001, "当场计时的数据"). */
 export interface TurnFacts {

@@ -9,7 +9,7 @@ function turn(id: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
-    user: { text: "hi", images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    user: { text: "hi", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "running",
     error: null,
@@ -23,7 +23,7 @@ function turn(id: string, fields: Partial<Turn> = {}): Turn {
 
 /** A turn opened by the pending message `clientMessageId`. */
 function confirming(id: string, clientMessageId: string): Turn {
-  return turn(id, { user: { text: "hi", images: 0, clientMessageId, auto: false, timestamp: 0 } });
+  return turn(id, { user: { text: "hi", images: 0, clientMessageId, auto: false, command: null, timestamp: 0 } });
 }
 
 /** A compaction notice. */
@@ -198,7 +198,9 @@ describe("applySessionEvent", () => {
     const view = ready(1, {
       items: [
         turn("t1"),
-        turn("t1", { user: { text: "again", images: 0, clientMessageId: null, auto: false, timestamp: 0 } }),
+        turn("t1", {
+          user: { text: "again", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
+        }),
       ],
       pending: [{ clientMessageId: "q9", text: "x" }],
     });

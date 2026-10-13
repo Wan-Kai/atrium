@@ -371,6 +371,14 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 认证类失败的判断（protocol 一份，宿主的 `auth` 关注状态和对话里的错误卡片共用）：每个关键词各自认得出、`401` 按整词、其他失败不算 | `packages/protocol/src/listing.test.ts` | 已覆盖 |
 | 认证类失败的错误卡片：橙色钥匙和"登录已失效"，有"重试"的地方前面多一个"去登录"，没有设置可开或不是最后一轮时不显示；其他失败仍是红色"回复出错"；"去登录"打开设置的"模型与账户" | `packages/ui/src/chat/turn.browser.test.tsx` "credentials""去登录 only"、`packages/ui/src/app/workbench.browser.test.tsx` "去登录" | 已覆盖 |
 
+## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
+
+SPEC-0001"M1.11 的 `/` 命令"。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| skill 的标签（协议 13）：`Turn.user.command` 只收 `{ kind: "skill", name }` 或 `null`；pi 包认出 pi 展开的 `<skill name location>…</skill>`（有参数、没参数、只有空白、多行参数；不是这个格式的照原文），用户消息只留参数、记下 skill 名字；会话文件扫描时的兜底标题用参数的第一行，没有参数时用 skill 名字；宿主重建和实时的轮都带上 `command`，用 skill 开头的插话写成 `/skill:名字 参数`；界面：气泡开头是标签（22px，星光图标 14px、`--ctx-tools` 色，`skill:名字`），后面是参数，复制按钮、↑ 历史、提问导航、导出的 Markdown 都是 `/skill:名字 参数`（没有参数时只有 `/skill:名字`）；不是命令开头的消息没有标签 | `packages/protocol/src/envelope.test.ts` "Turn"、`packages/pi/src/history/skill-block.test.ts`、`log-entry.test.ts` "skill"、`packages/pi/src/sessions/session-files.test.ts` "skill"、`packages/host/src/transcript/projection.test.ts` "skill"、`session-transcript.test.ts` "skill"、`packages/ui/src/chat/composer-text.test.ts` "typedMessage"、"started with a skill"、`turn-layout.test.ts` "started with a skill"、`turn.browser.test.tsx` "started with a skill"、"typed as it is"、`chat.browser.test.tsx` "started with a skill" | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

@@ -2,6 +2,7 @@ import type { SessionView } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
 import { ArrowDown } from "../design/icons";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
+import { typedMessage } from "./composer-text";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
 import { LoadStepContext } from "./steps";
@@ -166,7 +167,7 @@ function QuestionNav({
         <button
           key={turn.id}
           type="button"
-          aria-label={turn.user.text}
+          aria-label={typedMessage(turn.user)}
           aria-current={turn.id === current}
           onClick={() =>
             scroller.current
@@ -181,7 +182,7 @@ function QuestionNav({
             }`}
           />
           <span className="pointer-events-none absolute top-1/2 right-10 w-60 -translate-y-1/2 rounded-[var(--r-md)] bg-[var(--surface-1)] px-3 py-2 text-left text-[length:var(--fs-sm)] leading-snug text-[var(--text-2)] opacity-0 shadow-[var(--float-shadow)] transition-opacity group-hover:opacity-100">
-            <span className="line-clamp-3">{turn.user.text}</span>
+            <span className="line-clamp-3">{typedMessage(turn.user)}</span>
           </span>
         </button>
       ))}
