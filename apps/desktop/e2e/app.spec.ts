@@ -144,6 +144,15 @@ test("follows the system appearance", async () => {
   await expect.poll(isDark).toBe(false);
 });
 
+test("marks the page as having macOS's sidebar material behind it, the page see-through", async () => {
+  const page = await launched.window.evaluate(() => [
+    document.documentElement.dataset["material"],
+    getComputedStyle(document.body).backgroundColor,
+  ]);
+
+  expect(page).toStrictEqual(["", "rgba(0, 0, 0, 0)"]);
+});
+
 test("records the connection under one trace id and never logs the token", async () => {
   const { token } = await launched.window.evaluate(() => window.atrium.getBootstrap());
 

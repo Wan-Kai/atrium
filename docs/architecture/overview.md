@@ -188,6 +188,7 @@ main.ts 负责组装全部
 
 ### 桌面端怎么启动宿主
 
+- 窗口：`titleBarStyle: "hiddenInset"`，`vibrancy: "sidebar"`、底色透明，侧栏透出 macOS 的侧栏材质；页面看到预加载脚本的桥（`window.atrium`）就把 `<html>` 标上 `data-material`，窗口底色和侧栏底色随之透明（[design-language · 阴影与材质](design-language.md#阴影与材质)，2026-10-13 定）。
 - Electron 主进程用 `utilityProcess.fork` 启动宿主：宿主跑在 Electron 自带的 Node 里，用户不需要另装 Node 来跑宿主（pi 本身仍用系统里的 Node）。
 - 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后 PWA 和无界面运行都用它。
 - 窗口从固定的来源 `atrium://app/` 加载界面（2026-10-08 定）：主进程用 `protocol.handle` 把这个协议的请求转给宿主的静态文件服务，只把内容安全策略换成允许连接宿主端口的版本；WebSocket 仍连宿主的随机端口，宿主的 `Origin` 白名单里加上 `atrium://app`。宿主端口每次启动都不同，直接加载 `http://127.0.0.1:<端口>` 时页面来源跟着变，`localStorage` 里的客户端 id、折叠状态、草稿重启后就丢了；固定来源让它们保留下来。开发时页面来自 Vite 的固定端口，不受影响。

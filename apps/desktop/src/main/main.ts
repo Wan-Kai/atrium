@@ -366,7 +366,9 @@ async function main(): Promise<void> {
     height: 820,
     show: false,
     titleBarStyle: "hiddenInset",
-    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0d1016" : "#e8ecf2",
+    // The sidebar shows macOS's sidebar material through the page (design-language, "阴影与材质").
+    vibrancy: "sidebar",
+    backgroundColor: "#00000000",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
       contextIsolation: true,

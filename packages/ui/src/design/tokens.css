@@ -205,3 +205,10 @@
   --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
   --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
 }
+
+/* In the desktop app the window has macOS's sidebar material behind the page; the sidebar lets it
+   through, in light and dark alike (design-language, "阴影与材质"). */
+:root[data-material] {
+  --window: transparent;
+  --sidebar-bg: transparent;
+}

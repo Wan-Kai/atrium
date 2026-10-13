@@ -916,6 +916,27 @@ describe("Workbench sidebar", () => {
       "rgba(95, 102, 114, 0.42)",
     ]);
   });
+
+  it("lets the window's material through the sidebar in the desktop app, light and dark", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => {
+      document.documentElement.classList.remove("dark");
+      delete document.documentElement.dataset["material"];
+    });
+    const sidebar = screen.getByRole("navigation", { name: "侧栏" }).element();
+    const main = screen.getByRole("main").element();
+    document.documentElement.dataset["material"] = "";
+    const painted = () => [
+      getComputedStyle(document.body).backgroundColor,
+      getComputedStyle(sidebar).backgroundImage,
+      getComputedStyle(sidebar).backgroundColor,
+      getComputedStyle(main).backgroundColor,
+    ];
+
+    expect(painted()).toStrictEqual(["rgba(0, 0, 0, 0)", "none", "rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"]);
+    document.documentElement.classList.add("dark");
+    expect(painted()).toStrictEqual(["rgba(0, 0, 0, 0)", "none", "rgba(0, 0, 0, 0)", "rgb(21, 21, 23)"]);
+  });
 });
 
 /**
