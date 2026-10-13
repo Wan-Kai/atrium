@@ -386,6 +386,8 @@ describe("Workbench sidebar", () => {
   it("collects the sessions that need the user in a card over 设置, folded at first, three when opened, opening one when clicked", async () => {
     onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
     const { screen, calls } = await workbench({ initial: needing() });
+    // As tall as the window, as in the app, so the card sits at the bottom.
+    screen.container.style.height = "820px";
 
     const inbox = screen.getByRole("region", { name: "等你处理" });
     await expect.element(inbox).toBeVisible();
@@ -402,9 +404,13 @@ describe("Workbench sidebar", () => {
     ).toStrictEqual(["待回答", "待授权", "出错"]);
     const rows = inbox.getByTestId("inbox-row");
     expect(rows.elements()).toHaveLength(0);
+    const headingTop = heading.element().getBoundingClientRect().top;
 
     await heading.click();
     await expect.element(heading).toHaveAttribute("aria-expanded", "true");
+    // It opens upwards, the heading staying put under the list.
+    expect(heading.element().getBoundingClientRect().top).toBe(headingTop);
+    expect(inbox.element().lastElementChild).toBe(heading.element());
     expect(localStorage.getItem("atrium.inboxOpen")).toBe("true");
     expect(heading.element().querySelectorAll("[role=img]")).toHaveLength(0);
     expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
@@ -423,6 +429,7 @@ describe("Workbench sidebar", () => {
       "错四",
       "错三",
     ]);
+    expect(heading.element().getBoundingClientRect().top).toBe(headingTop);
     await expect.element(rows.nth(5)).toHaveTextContent("错三对话 · 解释 merge-tree50 分钟前");
     await inbox.getByRole("button", { name: "收起" }).click();
     await expect.element(rows.nth(3)).not.toBeInTheDocument();

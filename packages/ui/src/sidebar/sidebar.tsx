@@ -1164,7 +1164,8 @@ function SessionLine({
  * @remarks
  * SPEC-0001 ("收件箱"): left out when empty or switched off in the settings. Folded into its
  * heading at first, with how many and one icon of each status there, by priority; its heading opens
- * and folds it, remembered in this browser profile like collapsed projects. Open, it shows three
+ * and folds it, remembered in this browser profile like collapsed projects. It opens upwards, the
+ * list above the heading, so the heading stays where it was clicked. Open, it shows three
  * at most until "还有 N 条" opens the rest, which "收起" closes again; a long list scrolls in the
  * card. A row is lit while its session is the one shown.
  *
@@ -1196,23 +1197,7 @@ function Inbox({
       aria-label="等你处理"
       className="mx-3 shrink-0 rounded-[14px] bg-[var(--surface-1)] px-1 pt-0.5 pb-1 shadow-[var(--card-shadow)]"
     >
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-          localStorage.setItem(INBOX_OPEN_KEY, String(!open));
-        }}
-        className="flex h-8 w-full items-center gap-1.5 rounded-[var(--r)] pr-1.5 pl-2 text-left text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)]"
-      >
-        等你处理
-        <span className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums">
-          {entries.length}
-        </span>
-        <span className="flex-1" />
-        {open ? null : statuses.map((status) => <StatusIcon key={status} status={status} />)}
-        {open ? <CaretDown size={14} /> : <CaretUp size={14} />}
-      </button>
+      {/* Opens upwards: the heading stays put, the list grows above it. */}
       {open ? (
         <div className="flex max-h-[228px] flex-col overflow-y-auto">
           {shown.map(({ session, status, at }) => (
@@ -1242,6 +1227,23 @@ function Inbox({
           ) : null}
         </div>
       ) : null}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen(!open);
+          localStorage.setItem(INBOX_OPEN_KEY, String(!open));
+        }}
+        className="flex h-8 w-full items-center gap-1.5 rounded-[var(--r)] pr-1.5 pl-2 text-left text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)]"
+      >
+        等你处理
+        <span className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums">
+          {entries.length}
+        </span>
+        <span className="flex-1" />
+        {open ? null : statuses.map((status) => <StatusIcon key={status} status={status} />)}
+        {open ? <CaretDown size={14} /> : <CaretUp size={14} />}
+      </button>
     </section>
   );
 }
