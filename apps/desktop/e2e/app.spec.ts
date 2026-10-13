@@ -153,6 +153,14 @@ test("marks the page as having macOS's sidebar material behind it, the page see-
   expect(page).toStrictEqual(["", "rgba(0, 0, 0, 0)"]);
 });
 
+test("puts the traffic lights level with the tabs: 14pt buttons 12pt in and 17pt down, centred 24pt down", async () => {
+  const position = await launched.app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]?.getWindowButtonPosition(),
+  );
+
+  expect(position).toStrictEqual({ x: 12, y: 17 });
+});
+
 test("records the connection under one trace id and never logs the token", async () => {
   const { token } = await launched.window.evaluate(() => window.atrium.getBootstrap());
 

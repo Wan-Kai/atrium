@@ -366,6 +366,8 @@ async function main(): Promise<void> {
     height: 820,
     show: false,
     titleBarStyle: "hiddenInset",
+    // The 14pt buttons centred 24pt down, level with the tabs and the sidebar toggle (overview, "窗口").
+    trafficLightPosition: { x: 12, y: 17 },
     // The sidebar shows macOS's sidebar material through the page (design-language, "阴影与材质").
     vibrancy: "sidebar",
     backgroundColor: "#00000000",
