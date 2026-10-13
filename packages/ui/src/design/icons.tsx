@@ -1,6 +1,5 @@
 import {
   Add01Icon,
-  AddCircleIcon,
   AddSquareIcon,
   Alert02Icon,
   AlertCircleIcon,
@@ -15,6 +14,7 @@ import {
   ArrowUpRight01Icon,
   AtIcon,
   BashIcon,
+  BubbleChatAddIcon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
   Clock02Icon,
@@ -270,7 +270,7 @@ export const Moon = drawn(Moon02Icon);
 export const Palette = drawn(PaintBoardIcon);
 export const PencilSimple = drawn(PencilEdit01Icon);
 export const Plus = drawn(Add01Icon);
-export const PlusCircle = drawn(AddCircleIcon);
+export const ChatAdd = drawn(BubbleChatAddIcon);
 export const PlusSquare = drawn(AddSquareIcon);
 export const Question = drawn(HelpCircleIcon);
 export const Square = drawn(SquareIcon);

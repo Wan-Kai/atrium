@@ -187,7 +187,8 @@ export type ProxySetting = z.infer<typeof ProxySetting>;
  * later shows as its own default says (SPEC-0001, "状态栏（M1.8）"). `setupDone` says first launch
  * was gone through; `titleModel` names the model that names sessions, `null` for each session's own
  * (SPEC-0001, "首次启动", "设置"). `proxy` is the network proxy pi and the host's own requests go
- * through, `null` for the login shell's (SPEC-0001, "设置 · pi").
+ * through, `null` for the login shell's (SPEC-0001, "设置 · pi"). `inbox` says whether the sidebar
+ * shows "等你处理" (SPEC-0001, "侧栏 · 收件箱").
  */
 export const Preferences = z.strictObject({
   setupDone: z.boolean(),
@@ -198,6 +199,7 @@ export const Preferences = z.strictObject({
   statusBar: StatusBarChoices,
   titleModel: ModelRef.nullable(),
   proxy: ProxySetting.nullable(),
+  inbox: z.boolean(),
 });
 export type Preferences = z.infer<typeof Preferences>;
 

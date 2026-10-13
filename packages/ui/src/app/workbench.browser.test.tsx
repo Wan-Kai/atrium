@@ -57,6 +57,43 @@ function list() {
 }
 
 /**
+ * The list, with six sessions needing the user and two that no longer do: errors, a question and
+ * a login, from the newest error three minutes ago to the oldest fifty.
+ */
+function needing() {
+  const initial = list();
+  const minute = 60_000;
+  /** An error not seen yet, set `minutesAgo`. */
+  const error = (minutesAgo: number) => ({
+    attention: { reason: "error" as const, at: Date.now() - minutesAgo * minute, cleared: false },
+  });
+  return {
+    ...initial,
+    sessions: [
+      ...initial.sessions,
+      session({ sessionId: "e1", containerId: FEATURE, name: "错一", ...error(30) }),
+      session({ sessionId: "e2", containerId: LOCAL, name: "错二", ...error(3) }),
+      session({ sessionId: "e3", containerId: CHAT, name: "错三", ...error(50) }),
+      session({ sessionId: "e4", containerId: LOCAL, name: "错四", ...error(40) }),
+      session({
+        sessionId: "seen",
+        containerId: LOCAL,
+        ...error(1),
+        attention: { ...error(1).attention, cleared: true },
+      }),
+      session({ sessionId: "gone", containerId: LOCAL, ...error(1), archived: true }),
+      session({ sessionId: "a1", containerId: FEATURE, name: "问一", asking: Date.now() - 12 * minute }),
+      session({
+        sessionId: "k1",
+        containerId: CHAT,
+        name: "钥一",
+        attention: { reason: "auth", at: 0, cleared: false },
+      }),
+    ],
+  };
+}
+
+/**
  * How long each animation under an element takes and when it starts, the element's own first.
  *
  * @remarks
@@ -305,63 +342,80 @@ describe("Workbench sidebar", () => {
     await expect.element(screen.getByTestId("project-row").getByRole("img", { name: "待授权" })).toBeVisible();
   });
 
-  it("collects the sessions that need the user above the projects, five at first, opening one when clicked", async () => {
-    const initial = list();
-    const minute = 60_000;
-    /** An error not seen yet, set `minutesAgo`. */
-    const error = (minutesAgo: number) => ({
-      attention: { reason: "error" as const, at: Date.now() - minutesAgo * minute, cleared: false },
-    });
-    const { screen, calls } = await workbench({
-      initial: {
-        ...initial,
-        sessions: [
-          ...initial.sessions,
-          session({ sessionId: "e1", containerId: FEATURE, name: "错一", ...error(30) }),
-          session({ sessionId: "e2", containerId: LOCAL, name: "错二", ...error(3) }),
-          session({ sessionId: "e3", containerId: CHAT, name: "错三", ...error(50) }),
-          session({ sessionId: "e4", containerId: LOCAL, name: "错四", ...error(40) }),
-          session({
-            sessionId: "seen",
-            containerId: LOCAL,
-            ...error(1),
-            attention: { ...error(1).attention, cleared: true },
-          }),
-          session({ sessionId: "gone", containerId: LOCAL, ...error(1), archived: true }),
-          session({ sessionId: "a1", containerId: FEATURE, name: "问一", asking: Date.now() - 12 * minute }),
-          session({
-            sessionId: "k1",
-            containerId: CHAT,
-            name: "钥一",
-            attention: { reason: "auth", at: 0, cleared: false },
-          }),
-        ],
-      },
-    });
+  it("collects the sessions that need the user in a card over 设置, folded at first, three when opened, opening one when clicked", async () => {
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen, calls } = await workbench({ initial: needing() });
 
     const inbox = screen.getByRole("region", { name: "等你处理" });
     await expect.element(inbox).toBeVisible();
-    expect(inbox.element().firstElementChild?.textContent).toBe("等你处理6");
+    // Under the scrolling projects and chats, right over 设置.
+    expect(inbox.element().previousElementSibling?.contains(screen.getByTestId("project-row").element())).toBe(true);
+    expect(inbox.element().nextElementSibling?.contains(screen.getByRole("button", { name: "设置" }).element())).toBe(
+      true,
+    );
+    const heading = inbox.getByRole("button", { name: /^等你处理/ });
+    await expect.element(heading).toHaveAttribute("aria-expanded", "false");
+    expect(heading.element().textContent).toBe("等你处理6");
+    expect(
+      [...heading.element().querySelectorAll("[role=img]")].map((icon) => icon.getAttribute("aria-label")),
+    ).toStrictEqual(["待回答", "待授权", "出错"]);
     const rows = inbox.getByTestId("inbox-row");
+    expect(rows.elements()).toHaveLength(0);
+
+    await heading.click();
+    await expect.element(heading).toHaveAttribute("aria-expanded", "true");
+    expect(localStorage.getItem("atrium.inboxOpen")).toBe("true");
+    expect(heading.element().querySelectorAll("[role=img]")).toHaveLength(0);
     expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
       "问一atrium · feat/sidebar12 分钟前",
       expect.stringMatching(/^钥一对话 · 解释 merge-tree/),
       "错二atrium · main3 分钟前",
-      "错一atrium · feat/sidebar30 分钟前",
-      "错四atrium · main40 分钟前",
     ]);
     await expect.element(rows.nth(0).getByRole("img", { name: "待回答" })).toBeVisible();
     await expect.element(rows.nth(1).getByRole("img", { name: "待授权" })).toBeVisible();
-    await inbox.getByRole("button", { name: "还有 1 条" }).click();
+    await inbox.getByRole("button", { name: "还有 3 条" }).click();
+    expect(rows.elements().map((row) => row.textContent?.slice(0, 2))).toStrictEqual([
+      "问一",
+      "钥一",
+      "错二",
+      "错一",
+      "错四",
+      "错三",
+    ]);
     await expect.element(rows.nth(5)).toHaveTextContent("错三对话 · 解释 merge-tree50 分钟前");
     await inbox.getByRole("button", { name: "收起" }).click();
-    await expect.element(rows.nth(5)).not.toBeInTheDocument();
+    await expect.element(rows.nth(3)).not.toBeInTheDocument();
 
     // A question stays until answered; an error would leave once seen.
     await rows.nth(0).click();
     await vi.waitFor(() => expect(calls).toContain("openSession a1"));
     await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
     await expect.element(rows.nth(1)).toHaveAttribute("aria-current", "false");
+
+    await heading.click();
+    await expect.element(heading).toHaveAttribute("aria-expanded", "false");
+    await expect.element(rows.nth(0)).not.toBeInTheDocument();
+    expect(localStorage.getItem("atrium.inboxOpen")).toBe("false");
+  });
+
+  it("opens the inbox's card as it was left", async () => {
+    localStorage.setItem("atrium.inboxOpen", "true");
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen } = await workbench({ initial: needing() });
+    const inbox = screen.getByRole("region", { name: "等你处理" });
+
+    await expect.element(inbox.getByRole("button", { name: /^等你处理/ })).toHaveAttribute("aria-expanded", "true");
+    expect(inbox.getByTestId("inbox-row").elements()).toHaveLength(3);
+  });
+
+  it("leaves the inbox out when switched off in the settings, the statuses still showing elsewhere", async () => {
+    const { screen, client } = await workbench({ initial: needing() });
+    await expect.element(screen.getByRole("region", { name: "等你处理" })).toBeVisible();
+
+    await client.setPreferences({ inbox: false });
+
+    await expect.element(screen.getByRole("region", { name: "等你处理" })).not.toBeInTheDocument();
+    await expect.element(screen.getByTestId("workspace-row").nth(1).getByRole("img", { name: "待回答" })).toBeVisible();
   });
 
   it("leaves the inbox out when nothing needs the user", async () => {
@@ -581,29 +635,32 @@ describe("Workbench sidebar", () => {
     expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
   });
 
-  it("starts a chat from the first row under 对话, shown with no chats too, and from nowhere else in the sidebar", async () => {
+  it("starts a chat from the icon on 对话's heading, shown with no chats too, and from nowhere else in the sidebar", async () => {
     const { screen, calls } = await workbench({ initial: { ...list(), chats: [] } });
     const section = screen.getByRole("region", { name: "对话" });
 
-    expect(section.element().textContent).toBe("对话新建对话");
+    expect(section.element().textContent).toBe("对话");
     expect(
       screen
         .getByRole("navigation", { name: "侧栏" })
         .getByRole("button", { name: /新建对话/ })
         .elements(),
     ).toHaveLength(1);
-    await section.getByRole("button", { name: "新建对话", exact: true }).click();
+    const button = section.getByRole("button", { name: "新建对话", exact: true });
+    await expect.element(button).toHaveAttribute("title", "新建对话（⌘N）");
+    // On the heading's line, as 项目's buttons are.
+    expect(button.element().parentElement?.textContent).toBe("对话");
+    await button.click();
 
     await vi.waitFor(() => expect(calls).toContain("createChat"));
-    await expect.element(section.getByRole("button", { name: "新建对话" })).toHaveAttribute("title", "新建对话（⌘N）");
   });
 
-  it("puts 新建对话 before the chats' rows", async () => {
+  it("puts the chats' rows right under the heading", async () => {
     const { screen } = await workbench();
     const section = screen.getByRole("region", { name: "对话" });
 
     await expect.element(section.getByTestId("chat-row")).toBeVisible();
-    expect(section.element().textContent).toMatch(/^对话新建对话解释 merge-tree/);
+    expect(section.element().textContent).toMatch(/^对话解释 merge-tree/);
   });
 
   it("names a chat by its alias, else its first session's title, else as new", async () => {

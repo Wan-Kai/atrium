@@ -142,6 +142,7 @@ export function createRouter(options: RouterOptions): Route {
           ...(command.statusBar === undefined ? {} : { statusBar: command.statusBar }),
           ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
           ...(command.proxy === undefined ? {} : { proxy: command.proxy }),
+          ...(command.inbox === undefined ? {} : { inbox: command.inbox }),
         });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);

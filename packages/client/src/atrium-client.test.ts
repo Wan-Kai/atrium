@@ -1024,6 +1024,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     },
     resets: [],
     ...fields,
@@ -1177,6 +1178,7 @@ describe("createAtriumClient: the list", () => {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);

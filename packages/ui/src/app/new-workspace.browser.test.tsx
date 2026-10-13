@@ -418,6 +418,8 @@ describe("The new-workspace page (M1.11)", () => {
     await vi.waitFor(() => expect(calls).toContain(`selectContainer ${FEATURE}`));
 
     await openFrom(screen);
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    await screen.getByRole("button", { name: /^等你处理/ }).click();
     await screen.getByTestId("inbox-row").click();
     await left(screen);
     await vi.waitFor(() => expect(calls).toContain("openSession s3"));
@@ -450,6 +452,8 @@ describe("The new-workspace page (M1.11)", () => {
     const { screen, calls, index } = await newWorkspacePage();
 
     index.setState({ sessions: failedS1(index.getState().sessions) });
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    await screen.getByRole("button", { name: /^等你处理/ }).click();
     await expect.element(screen.getByTestId("inbox-row").filter({ hasText: "重构宿主" })).toBeVisible();
     expect(calls).not.toContain("clearAttention s1");
 

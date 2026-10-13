@@ -437,6 +437,7 @@ describe("createRouter", () => {
         statusBar: { cost: true },
         titleModel: MODEL,
         proxy: null,
+        inbox: false,
       }),
     );
     await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
@@ -463,7 +464,7 @@ describe("createRouter", () => {
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
       ["listModels", null, true],
-      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL, proxy: null }],
+      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL, proxy: null, inbox: false }],
       ["checkSetup", false],
       ["checkSetup", true],
       ["renameChat", CHAT, "合并原理"],

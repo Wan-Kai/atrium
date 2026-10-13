@@ -2,6 +2,9 @@ import { type AtriumClient, CommandError, type IndexView } from "@atrium/client"
 import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
   ArrowUp,
+  CaretDown,
+  CaretUp,
+  ChatAdd,
   DotsThree,
   Folder,
   FolderOpen,
@@ -12,7 +15,6 @@ import {
   Moon,
   GearSix,
   Plus,
-  PlusCircle,
   Sun,
 } from "../design/icons";
 import { type ReactNode, createContext, use, useState } from "react";
@@ -65,6 +67,9 @@ const UNKNOWN_REASONS: Readonly<Record<MergeUnknownReason, string>> = {
 
 /** Where collapsed projects are remembered in this browser profile (domain-model §7, ViewState). */
 const COLLAPSED_KEY = "atrium.collapsedProjects";
+
+/** Where an opened inbox card is remembered in this browser profile, like collapsed projects. */
+const INBOX_OPEN_KEY = "atrium.inboxOpen";
 
 /** The class of a sidebar row; selected rows get `--selected`. */
 const ROW =
@@ -120,11 +125,12 @@ function readCollapsed(): ReadonlySet<string> {
 }
 
 /**
- * The sidebar: projects with their workspaces, search, chats with "新建对话" first, the settings
- * and the appearance switch.
+ * The sidebar: projects with their workspaces, search, chats with "新建对话" by their heading, the
+ * inbox's card, the settings and the appearance switch.
  *
  * @remarks
- * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.9. Projects can be collapsed; a collapsed
+ * Follows SPEC-0001 ("侧栏"). The inbox stays at the bottom, over "设置", while the rest scrolls
+ * above it (SPEC-0001, "收件箱"). Projects can be collapsed; a collapsed
  * project shows how many worktrees wait to be merged and whether something runs in it. Workspaces
  * show their merge state and whether a session runs in them, and are selected by clicking.
  * Chats are listed like workspaces, by their latest activity. Search matches workspace names, chat
@@ -133,7 +139,7 @@ function readCollapsed(): ReadonlySet<string> {
  * selected, and going to a workspace, chat or session leaves the page (SPEC-0001, "M1.11 的新建工作区").
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
- * projects in `localStorage`.
+ * projects and the inbox's card in `localStorage`.
  * @param props - The client, how to start a new chat, how to choose a folder, how to open the
  * settings, and the new-workspace page.
  * @returns The sidebar.
@@ -210,7 +216,6 @@ export function Sidebar({
       >
         <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <Inbox client={client} index={index} now={now} />
           <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
             <span className="flex-1">项目</span>
             <button
@@ -307,6 +312,7 @@ export function Sidebar({
             </>
           )}
         </div>
+        <Inbox client={client} index={index} now={now} />
         <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
           <button
             type="button"
@@ -432,10 +438,11 @@ async function selectChat(client: AtriumClient, listed: ListedChat): Promise<unk
 }
 
 /**
- * The "对话" heading, "新建对话", and the chats' rows: the latest five, then "显示全部 N 个".
+ * The "对话" heading with "新建对话" on its right, and the chats' rows: the latest five, then
+ * "显示全部 N 个".
  *
  * @remarks
- * Shown without chats too, as it holds the way to start one (SPEC-0001, "对话"). Each chat is a
+ * Shown without chats too, as its heading holds the way to start one (SPEC-0001, "对话"). Each chat is a
  * container like a workspace (ADR-0007): its row shows its name, latest activity and status, is
  * lit while selected, and its "···" menu renames or archives it, asking first only when some of
  * its sessions run (SPEC-0001, "M1.11 的对话归档"). The rest of the chats open in place, and
@@ -484,11 +491,12 @@ function ChatRows({
   const leave = use(LeavePage);
   return (
     <section aria-label="对话">
-      <div className="mt-1.5 flex h-[34px] items-center pl-2 text-[var(--text-muted)]">对话</div>
-      <button type="button" onClick={onNewChat} title="新建对话（⌘N）" className={`${ROW} w-full text-left`}>
-        <PlusCircle size={16} className="shrink-0 text-[var(--text-muted)]" />
-        新建对话
-      </button>
+      <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
+        <span className="flex-1">对话</span>
+        <button type="button" className={ICON_BUTTON} aria-label="新建对话" title="新建对话（⌘N）" onClick={onNewChat}>
+          <ChatAdd size={17} />
+        </button>
+      </div>
       {shown.map((listed) => {
         const { chat } = listed;
         const name = chatName(chat, index.sessions);
@@ -1142,13 +1150,18 @@ function SessionLine({
 }
 
 /**
- * The inbox: the sessions waiting for the user, across every project and chat.
+ * The inbox: a card at the bottom of the sidebar with the sessions waiting for the user, across
+ * every project and chat.
  *
  * @remarks
- * SPEC-0001 ("收件箱"): left out when empty; five at most until "还有 N 条" opens the rest, which
- * "收起" closes again. A row is lit while its session is the one shown.
+ * SPEC-0001 ("收件箱"): left out when empty or switched off in the settings. Folded into its
+ * heading at first, with how many and one icon of each status there, by priority; its heading opens
+ * and folds it, remembered in this browser profile like collapsed projects. Open, it shows three
+ * at most until "还有 N 条" opens the rest, which "收起" closes again; a long list scrolls in the
+ * card. A row is lit while its session is the one shown.
  *
- * @sideEffects Sends `open_session` when a row is clicked.
+ * @sideEffects Sends `open_session` when a row is clicked; remembers the card opened or folded in
+ * `localStorage`.
  * @param props - The client, the list and the time now.
  * @returns The inbox, or nothing.
  */
@@ -1161,42 +1174,65 @@ function Inbox({
   readonly index: IndexView;
   readonly now: number;
 }) {
+  const [open, setOpen] = useState(() => localStorage.getItem(INBOX_OPEN_KEY) === "true");
   const [expanded, setExpanded] = useState(false);
   const leave = use(LeavePage);
   const entries = inboxOf(index.sessions);
-  if (entries.length === 0) return null;
+  if (!index.preferences.inbox || entries.length === 0) return null;
   const shown = expanded ? entries : entries.slice(0, INBOX_SHOWN);
   const active = activeOf(index);
+  // Sorted by priority already, so each status comes where it ranks.
+  const statuses = [...new Set(entries.map(({ status }) => status))];
   return (
-    <section aria-label="等你处理" className="mb-1">
-      <div className="mt-1.5 flex h-[34px] items-center pr-2 pl-2 text-[var(--text-muted)]">
-        <span className="flex-1">等你处理</span>
-        <span className="text-[length:var(--fs-sm)] tabular-nums">{entries.length}</span>
-      </div>
-      {shown.map(({ session, status, at }) => (
-        <SessionLine
-          key={session.sessionId}
-          index={index}
-          session={session}
-          when={timeAgo(at, now)}
-          status={status}
-          current={index.layout.container === session.containerId && active === session.sessionId}
-          testId="inbox-row"
-          onOpen={() => {
-            leave();
-            // Fire and forget: opening shows the session or its failure there.
-            void client.openSession(session.sessionId).catch(() => undefined);
-          }}
-        />
-      ))}
-      {entries.length > INBOX_SHOWN ? (
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-        >
-          {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
-        </button>
+    <section
+      aria-label="等你处理"
+      className="mx-3 shrink-0 rounded-[14px] bg-[var(--surface-1)] px-1 pt-0.5 pb-1 shadow-[var(--card-shadow)]"
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen(!open);
+          localStorage.setItem(INBOX_OPEN_KEY, String(!open));
+        }}
+        className="flex h-8 w-full items-center gap-1.5 rounded-[var(--r)] pr-1.5 pl-2 text-left text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)]"
+      >
+        等你处理
+        <span className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums">
+          {entries.length}
+        </span>
+        <span className="flex-1" />
+        {open ? null : statuses.map((status) => <StatusIcon key={status} status={status} />)}
+        {open ? <CaretDown size={14} /> : <CaretUp size={14} />}
+      </button>
+      {open ? (
+        <div className="flex max-h-[228px] flex-col overflow-y-auto">
+          {shown.map(({ session, status, at }) => (
+            <SessionLine
+              key={session.sessionId}
+              index={index}
+              session={session}
+              when={timeAgo(at, now)}
+              status={status}
+              current={index.layout.container === session.containerId && active === session.sessionId}
+              testId="inbox-row"
+              onOpen={() => {
+                leave();
+                // Fire and forget: opening shows the session or its failure there.
+                void client.openSession(session.sessionId).catch(() => undefined);
+              }}
+            />
+          ))}
+          {entries.length > INBOX_SHOWN ? (
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              className="shrink-0 rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+            >
+              {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

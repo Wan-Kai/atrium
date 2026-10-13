@@ -33,7 +33,8 @@ export interface PreferenceStore {
  * and sessions are named with their own model, until told otherwise; a file from before M1.10, without
  * these fields, reads so too (SPEC-0001, "首次启动", "设置"). No proxy is set until one is; one the
  * host would refuse, as a hand may write, reads as none (SPEC-0001, "设置 · pi"). Fast is off until
- * switched on in some session; a file from before M1.11's Fast reads so (SPEC-0001, "Fast").
+ * switched on in some session; a file from before M1.11's Fast reads so (SPEC-0001, "Fast"). The
+ * sidebar shows "等你处理" until told not to, as a file from before it reads (SPEC-0001, "侧栏 · 收件箱").
  *
  * @sideEffects none until `set`; then writes `preferences.json`.
  * @param file - The loaded file.
@@ -51,6 +52,7 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         statusBar = {},
         titleModel = null,
         proxy = null,
+        inbox = true,
       } = file.read();
       const groups = Object.entries(statusBar).filter(([id]) => StatusGroupId.safeParse(id).success);
       return {
@@ -62,6 +64,7 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         statusBar: Object.fromEntries(groups),
         titleModel,
         proxy: proxy !== null && proxyProblem(proxy) === null ? proxy : null,
+        inbox,
       };
     },
     set: (changes) => file.save({ ...file.read(), ...changes }),

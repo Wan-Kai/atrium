@@ -88,6 +88,7 @@ const commands: Command[] = [
     proxy: { url: "http://127.0.0.1:7897", noProxy: [".example.com", "b".repeat(255)] },
   },
   { type: "set_preferences", requestId: "r66", traceparent, proxy: null },
+  { type: "set_preferences", requestId: "r79", traceparent, inbox: false },
   { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
   { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
   { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
@@ -1184,6 +1185,7 @@ const snapshot: IndexSnapshotEvent = {
     statusBar: { cost: true, session: false },
     titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
     proxy: { url: "http://127.0.0.1:7897", noProxy: Array.from({ length: 100 }, () => "h") },
+    inbox: false,
   },
   resets: ["layouts"],
 };

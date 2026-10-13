@@ -41,6 +41,7 @@ describe("PreferenceStore", () => {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
 
     await store.set({ appearance: "light" });
@@ -55,6 +56,7 @@ describe("PreferenceStore", () => {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
       version: 3,
@@ -81,6 +83,7 @@ describe("PreferenceStore", () => {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
   });
 
@@ -134,6 +137,7 @@ describe("PreferenceStore", () => {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
   });
 
@@ -211,5 +215,21 @@ describe("PreferenceStore", () => {
     const handWritten = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
 
     expect(handWritten.read().proxy).toBeNull();
+  });
+
+  it("shows 等你处理 until told not to, also from a file from before it", async () => {
+    const index = await indexDirectory();
+    await writeFile(join(index, "preferences.json"), JSON.stringify(BEFORE));
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    const old = store.read();
+
+    await store.set({ inbox: false });
+
+    expect(old.inbox).toBe(true);
+    expect(store.read().inbox).toBe(false);
+    expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
+      ...UPGRADED,
+      inbox: false,
+    });
   });
 });

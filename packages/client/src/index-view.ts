@@ -34,6 +34,7 @@ export function emptyIndex(): IndexView {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     },
     resets: [],
   };

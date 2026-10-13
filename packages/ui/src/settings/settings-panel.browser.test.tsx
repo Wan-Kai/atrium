@@ -137,6 +137,26 @@ describe("Settings panel", () => {
     ]);
   });
 
+  it("switches 等你处理 in the sidebar off and on again under 外观", async () => {
+    const { screen, calls, index } = await workbench();
+
+    await screen.getByRole("button", { name: "设置" }).click();
+    const group = screen.getByRole("dialog", { name: "设置" }).getByRole("region", { name: "侧栏" });
+    const toggle = group.getByRole("switch", { name: "显示“等你处理”" });
+    await expect.element(toggle).toHaveAttribute("aria-checked", "true");
+    await expect.element(group).toHaveTextContent("侧栏显示“等你处理”在侧栏底部汇总等你审批、回答、授权和出错的会话");
+    await toggle.click();
+
+    await expect.element(toggle).toHaveAttribute("aria-checked", "false");
+    expect(index.getState().preferences.inbox).toBe(false);
+    await toggle.click();
+    await expect.element(toggle).toHaveAttribute("aria-checked", "true");
+    expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
+      'setPreferences {"inbox":false}',
+      'setPreferences {"inbox":true}',
+    ]);
+  });
+
   it("shows Atrium's version, the connection, pi's version and the log folder, which it shows in the Finder", async () => {
     const { screen, revealed } = await workbench({ stored: "about" });
 

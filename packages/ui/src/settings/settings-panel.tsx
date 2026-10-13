@@ -181,10 +181,11 @@ export function UpdateDot() {
 }
 
 /**
- * The settings' appearance: follow the system, light or dark.
+ * The settings' appearance: follow the system, light or dark, and whether the sidebar shows
+ * "等你处理".
  *
  * @remarks
- * The same preference as the sidebar's appearance button (SPEC-0001, "设置 · 外观").
+ * The first is the same preference as the sidebar's appearance button (SPEC-0001, "设置 · 外观").
  *
  * @sideEffects Subscribes to the client's list; sends `set_preferences` when changed.
  * @param props - The client.
@@ -192,41 +193,63 @@ export function UpdateDot() {
  */
 function AppearanceSection({ client }: { readonly client: AtriumClient }) {
   const appearance = useStore(client.index, (index) => index.preferences.appearance);
+  const inbox = useStore(client.index, (index) => index.preferences.inbox);
   return (
-    <Group title="外观">
-      <Row
-        label="外观"
-        detail="选“跟随系统”时随 macOS 的浅色、深色自动切换"
-        controls={
-          <div
-            role="radiogroup"
-            aria-label="外观"
-            className="inline-grid grid-flow-col gap-0.5 rounded-[9px] bg-[var(--selected)] p-0.5"
-          >
-            {APPEARANCES.map((entry) => (
-              <button
-                key={entry.appearance}
-                type="button"
-                role="radio"
-                aria-checked={entry.appearance === appearance}
-                onClick={() => {
-                  // Fire and forget: the list shows it at once and the host keeps it.
-                  void client.setPreferences({ appearance: entry.appearance }).catch(() => undefined);
-                }}
-                className={`inline-flex h-[26px] items-center justify-center gap-1.5 rounded-[7px] px-3 text-[length:var(--fs-meta)] ${
-                  entry.appearance === appearance
-                    ? "bg-[var(--surface-1)] text-[var(--text)] shadow-[0_0_0_0.5px_var(--line),0_1px_3px_rgba(0,0,0,0.1)] dark:bg-[var(--surface-3)]"
-                    : "text-[var(--text-muted)]"
-                }`}
-              >
-                {entry.icon}
-                {entry.name}
-              </button>
-            ))}
-          </div>
-        }
-      />
-    </Group>
+    <>
+      <Group title="外观">
+        <Row
+          label="外观"
+          detail="选“跟随系统”时随 macOS 的浅色、深色自动切换"
+          controls={
+            <div
+              role="radiogroup"
+              aria-label="外观"
+              className="inline-grid grid-flow-col gap-0.5 rounded-[9px] bg-[var(--selected)] p-0.5"
+            >
+              {APPEARANCES.map((entry) => (
+                <button
+                  key={entry.appearance}
+                  type="button"
+                  role="radio"
+                  aria-checked={entry.appearance === appearance}
+                  onClick={() => {
+                    // Fire and forget: the list shows it at once and the host keeps it.
+                    void client.setPreferences({ appearance: entry.appearance }).catch(() => undefined);
+                  }}
+                  className={`inline-flex h-[26px] items-center justify-center gap-1.5 rounded-[7px] px-3 text-[length:var(--fs-meta)] ${
+                    entry.appearance === appearance
+                      ? "bg-[var(--surface-1)] text-[var(--text)] shadow-[0_0_0_0.5px_var(--line),0_1px_3px_rgba(0,0,0,0.1)] dark:bg-[var(--surface-3)]"
+                      : "text-[var(--text-muted)]"
+                  }`}
+                >
+                  {entry.icon}
+                  {entry.name}
+                </button>
+              ))}
+            </div>
+          }
+        />
+      </Group>
+      <Group title="侧栏">
+        <Row
+          label="显示“等你处理”"
+          detail="在侧栏底部汇总等你审批、回答、授权和出错的会话"
+          controls={
+            <button
+              type="button"
+              role="switch"
+              aria-checked={inbox}
+              aria-label="显示“等你处理”"
+              onClick={() => {
+                // Fire and forget, as above.
+                void client.setPreferences({ inbox: !inbox }).catch(() => undefined);
+              }}
+              className={`relative h-5 w-[34px] flex-none rounded-full transition-colors after:absolute after:top-0.5 after:left-0.5 after:size-4 after:rounded-full after:bg-white after:shadow after:transition-transform ${inbox ? "bg-[var(--tint)] after:translate-x-3.5" : "bg-[var(--line-strong)]"}`}
+            />
+          }
+        />
+      </Group>
+    </>
   );
 }
 

@@ -491,6 +491,7 @@ describe("Settings · models and accounts", () => {
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
       proxy: null,
+      inbox: true,
     };
     const models: ModelListView = {
       status: "ready",
@@ -516,6 +517,7 @@ describe("Settings · models and accounts", () => {
       statusBar: {},
       titleModel: { providerId: "openrouter", modelId: "claude-haiku-4-5" },
       proxy: null,
+      inbox: true,
     };
     const models: ModelListView = {
       status: "ready",
@@ -546,6 +548,7 @@ describe("Settings · models and accounts", () => {
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
       proxy: null,
+      inbox: true,
     };
     const models: ModelListView = { status: "loading", models: [], defaultModel: null, error: null };
     const { screen } = await accounts([CLAUDE], { answers: { models }, initial: { preferences } });

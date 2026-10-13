@@ -242,6 +242,8 @@ const PreferencesDocument = z.looseObject({
   proxy: ProxySetting.nullable().optional(),
   /** Fast as last switched in any session; absent before M1.11's Fast (SPEC-0001, "Fast"). */
   lastFast: z.boolean().optional(),
+  /** Whether the sidebar shows "等你处理"; absent before M1.11's bottom card (SPEC-0001, "侧栏 · 收件箱"). */
+  inbox: z.boolean().optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 

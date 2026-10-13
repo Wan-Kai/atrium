@@ -219,6 +219,7 @@ function listWith(setupDone: boolean): Parameters<typeof fakeClient>[0] {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     },
   };
 }

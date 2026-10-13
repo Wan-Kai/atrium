@@ -20,6 +20,7 @@ const PREFERENCES: Preferences = {
   statusBar: {},
   titleModel: null,
   proxy: null,
+  inbox: true,
 };
 
 /**

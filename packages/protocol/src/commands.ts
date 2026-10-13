@@ -343,6 +343,7 @@ export const SetPreferencesCommand = z.strictObject({
   statusBar: StatusBarChoices.optional(),
   titleModel: ModelRef.nullable().optional(),
   proxy: ProxySetting.nullable().optional(),
+  inbox: z.boolean().optional(),
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 

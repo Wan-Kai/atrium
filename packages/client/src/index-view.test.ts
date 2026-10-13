@@ -63,6 +63,7 @@ describe("emptyIndex", () => {
         statusBar: {},
         titleModel: null,
         proxy: null,
+        inbox: true,
       },
       resets: [],
     });
@@ -256,6 +257,7 @@ describe("withContainer and withPreferences", () => {
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
   });
 

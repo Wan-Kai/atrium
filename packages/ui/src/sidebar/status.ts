@@ -7,7 +7,7 @@ export type RowStatus = "asking" | "auth" | "error" | "running" | null;
 const PRIORITY: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running"];
 
 /** How many sessions the inbox shows before "还有 N 条". */
-export const INBOX_SHOWN = 5;
+export const INBOX_SHOWN = 3;
 
 /**
  * A session's status for its row.

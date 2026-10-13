@@ -82,6 +82,6 @@ describe("inboxOf", () => {
       ["new-error", "error", 40],
       ["old-error", "error", 10],
     ]);
-    expect(INBOX_SHOWN).toBe(5);
+    expect(INBOX_SHOWN).toBe(3);
   });
 });

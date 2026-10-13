@@ -240,6 +240,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     },
     resets: [],
     ...initial,
