@@ -61,10 +61,14 @@ test("lists pi's commands as / is typed, and runs the one chosen", async () => {
     await expect(option).toBeVisible({ timeout: 30_000 });
     await expect(window.getByRole("option", { name: /^\/mcp/ })).toHaveCount(0);
     await box.press("Enter");
-    await expect(box).toHaveValue("/faux-noop ");
+    // The chosen command shows as a tag before the empty box (design-language, "命令标签").
+    const tag = window.getByTestId("command-tag");
+    await expect(tag).toHaveText("faux-noop");
+    await expect(box).toHaveValue("");
     await box.press("Enter");
 
     // The extension handles it without a run: no reply, and the box is empty for the next message.
+    await expect(tag).toHaveCount(0);
     await expect(box).toHaveValue("");
     await expect(window.getByTestId("user-message")).toHaveCount(0, { timeout: 30_000 });
   } finally {
