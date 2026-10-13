@@ -201,7 +201,7 @@ function SidebarToggle({ panes }: { readonly panes: StoreApi<Panes> }) {
       aria-expanded={!folded}
       title={`${label}（⌘B）`}
       onClick={toggle}
-      className={`absolute top-2.5 z-10 inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] [transition:left_280ms_cubic-bezier(.45,0,.15,1)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] [-webkit-app-region:no-drag] ${folded ? "left-[84px]" : "left-[226px]"}`}
+      className={`absolute top-2.5 z-10 inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] [transition:left_240ms_cubic-bezier(.2,.8,.2,1)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] [-webkit-app-region:no-drag] ${folded ? "left-[84px]" : "left-[226px]"}`}
     >
       <SidebarLeft size={16} />
     </button>

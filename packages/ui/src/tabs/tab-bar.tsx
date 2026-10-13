@@ -68,7 +68,7 @@ export function TabBar({
   return (
     <div
       data-testid="tab-bar"
-      className={`flex h-12 shrink-0 items-center gap-1 pr-3 shadow-[inset_0_-0.5px_0_var(--line)] [transition:padding-left_280ms_cubic-bezier(.45,0,.15,1)] [-webkit-app-region:drag] ${folded ? "pl-[120px]" : "pl-3"}`}
+      className={`flex h-12 shrink-0 items-center gap-1 pr-3 shadow-[inset_0_-0.5px_0_var(--line)] [transition:padding-left_240ms_cubic-bezier(.2,.8,.2,1)] [-webkit-app-region:drag] ${folded ? "pl-[120px]" : "pl-3"}`}
     >
       <div
         role="tablist"

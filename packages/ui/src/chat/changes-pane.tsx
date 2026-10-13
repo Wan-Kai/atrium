@@ -9,7 +9,7 @@ import { ChangesPanel } from "./changes-panel";
  *
  * @remarks
  * SPEC-0001 ("工作区改动", "界面 · 左栏折叠与右栏"); design-language ("右栏（改动面板）", "动效 ·
- * 右栏打开收起"). The width goes between 0 and the panel's in 0.28s while the panel keeps its
+ * 右栏打开收起"). The width goes between 0 and the panel's in 0.24s while the panel keeps its
  * own, showing from the right; it stays mounted until it has closed, then goes, ending its watch.
  * The panel's width is the one chosen, fitted to the room (`panelWidthCss`): the area it shares
  * with the conversation, which must be its parent and the panel's containing block. Dragging the
@@ -63,7 +63,7 @@ export function ChangesPane({
       onTransitionEnd={(event) => {
         if (event.target === event.currentTarget && !open) setPresent(false);
       }}
-      className={`flex-none ${dragging || workspaceId === null ? "" : "[transition:width_280ms_cubic-bezier(.45,0,.15,1)]"}`}
+      className={`flex-none ${dragging || workspaceId === null ? "" : "[transition:width_240ms_cubic-bezier(.2,.8,.2,1)]"}`}
     >
       {present && workspaceId !== null ? (
         <div className="absolute inset-y-0 right-0 flex" style={{ width }}>

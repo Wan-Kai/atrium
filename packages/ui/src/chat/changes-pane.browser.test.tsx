@@ -7,7 +7,7 @@ import { fakeClient } from "../test/fake-client";
 import { ChangesPane } from "./changes-pane";
 
 const W = "wks_0000000000000001";
-const FOLD_CURVE = "cubic-bezier(0.45, 0, 0.15, 1)";
+const PANE_CURVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 /** The panel's 560px, as its CSS fits it to the room. */
 const FITTED = "max(360px, min(560px, 100% - 440px))";
 
@@ -86,7 +86,7 @@ function drag(separator: Element, by: number): void {
 }
 
 describe("ChangesPane", () => {
-  it("opens from nothing in 0.28 s, the panel at its width from the start, and closes back to nothing before it goes", async () => {
+  it("opens from nothing in 0.24 s, the panel at its width from the start, and closes back to nothing before it goes", async () => {
     const { screen, panes, element, changeCalls } = await pane({ open: false });
     expect([element.getBoundingClientRect().width, element.childElementCount]).toStrictEqual([0, 0]);
 
@@ -97,8 +97,8 @@ describe("ChangesPane", () => {
     const style = getComputedStyle(element);
     expect([style.transitionProperty, style.transitionDuration, style.transitionTimingFunction]).toStrictEqual([
       "width",
-      "0.28s",
-      FOLD_CURVE,
+      "0.24s",
+      PANE_CURVE,
     ]);
     expect(widthFrames(element)).toStrictEqual([["width", ["0px", FITTED]]]);
     expect(panel.element().getBoundingClientRect().width).toBe(560);
@@ -146,7 +146,7 @@ describe("ChangesPane", () => {
     expect([getComputedStyle(element).transitionDuration, element.getAnimations()]).toStrictEqual(["0s", []]);
     window.dispatchEvent(new PointerEvent("pointerup", { clientX: rect.left - 40, bubbles: true }));
     await expect.poll(() => separator.hasAttribute("data-dragging")).toBe(false);
-    expect(getComputedStyle(element).transitionDuration).toBe("0.28s");
+    expect(getComputedStyle(element).transitionDuration).toBe("0.24s");
   });
 
   it("steps 16px with the arrow keys on its edge", async () => {

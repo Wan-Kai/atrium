@@ -88,13 +88,13 @@ const ROW =
 /** How long a project's workspaces, or the inbox's list, take to fold away or unfold (design-language, "动效"). */
 const PROJECT_FOLD_MS = 280;
 
-/** The class of a small icon button in the sidebar. */
 /** How the sidebar's width and what is in it move as it folds and unfolds (design-language, "动效 · 左栏折叠展开"). */
 const FOLD_MOTION = {
-  width: "[transition:width_280ms_cubic-bezier(.45,0,.15,1)]",
-  inside: "[transition:opacity_200ms,translate_280ms_cubic-bezier(.45,0,.15,1)]",
+  width: "[transition:width_240ms_cubic-bezier(.2,.8,.2,1)]",
+  inside: "[transition:opacity_200ms,translate_240ms_cubic-bezier(.2,.8,.2,1)]",
 } as const;
 
+/** The class of a small icon button in the sidebar. */
 const ICON_BUTTON =
   "inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]";
 

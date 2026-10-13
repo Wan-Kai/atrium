@@ -963,7 +963,7 @@ function placed(element: Element): number[] {
   return [rect.left, rect.top, rect.width];
 }
 
-const FOLD_CURVE = "cubic-bezier(0.45, 0, 0.15, 1)";
+const PANE_CURVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
 /**
  * Whether a press at an element's middle would drag the window, by Electron's rule.
@@ -1021,10 +1021,10 @@ describe("Workbench panes", () => {
       "true",
     ]);
     expect([motion(nav), motion(inside), motion(toggle.element()), motion(bar)]).toStrictEqual([
-      ["width", "0.28s", FOLD_CURVE],
-      ["opacity, translate", "0.2s, 0.28s", `ease, ${FOLD_CURVE}`],
-      ["left", "0.28s", FOLD_CURVE],
-      ["padding-left", "0.28s", FOLD_CURVE],
+      ["width", "0.24s", PANE_CURVE],
+      ["opacity, translate", "0.2s, 0.24s", `ease, ${PANE_CURVE}`],
+      ["left", "0.24s", PANE_CURVE],
+      ["padding-left", "0.24s", PANE_CURVE],
     ]);
     await toggle.click();
 
