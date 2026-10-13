@@ -1,0 +1,351 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. "/" 命令：接上 pi 的内置命令，选中的命令在输入框里是一个标签而不是一串字。
+  问题：命令列表怎么排、标签长什么样（A 蓝色胶囊、B 灰色胶囊带类型图标、C 行内彩字）、发出后气泡里怎么显示。
+  最上面的输入框可以直接玩：输入 / 弹出列表，↑↓ 选、回车或 Tab 选中；标签后接着打参数；光标在最前面时退格删掉标签。
+  颜色、字号、圆角取自 packages/ui/src/design/tokens.css。打开即看，无需构建。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>原型 · / 命令与命令标签</title>
+<style>
+:root {
+  --main: #fff; --surface-1: #fff; --surface-2: #f2f2f4; --popover: #fff;
+  --text: #1d1d1f; --text-2: #2c2c30; --text-3: #48484e; --text-muted: #6e6e74; --text-dim: #a1a1a7;
+  --line: rgba(0,0,0,.08); --line-strong: rgba(0,0,0,.14);
+  --hover: rgba(0,0,0,.035); --selected: rgba(0,0,0,.06);
+  --tint: #2f6fed; --tint-soft: rgba(47,111,237,.1); --linked: rgba(47,111,237,.07);
+  --attn: #dd8629; --ok-text: #1e8e3e; --violet: #8a5cf6; --violet-soft: rgba(138,92,246,.1);
+  --card-shadow: 0 0 0 .5px var(--line), 0 8px 24px rgba(41,70,122,.08);
+  --float-shadow: 0 0 0 .5px var(--line-strong), 0 12px 32px rgba(0,0,0,.14);
+  --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --fs: 14px; --fs-meta: 13px; --fs-sm: 12px; --fs-xs: 11px;
+  --r: 8px; --r-sm: 5px; --r-md: 10px; --r-card: 16px; --r-bubble: 22px; --r-pill: 999px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #eef1f6; font: var(--fs)/1.5 var(--font-sans); color: var(--text); -webkit-font-smoothing: antialiased; }
+header.page { padding: 28px 40px 4px; max-width: 1180px; }
+header.page h1 { font-size: 20px; margin: 0 0 6px; }
+header.page p { margin: 0 0 4px; color: var(--text-muted); font-size: var(--fs-meta); }
+section.block { padding: 18px 40px 8px; }
+section.block > h2 { font-size: 15px; margin: 0 0 4px; }
+section.block > p.note { margin: 0 0 14px; font-size: var(--fs-sm); color: var(--text-muted); max-width: 900px; }
+.row { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+.col { display: flex; flex-direction: column; gap: 10px; }
+.col > h3 { margin: 0; font-size: 13px; color: var(--text-2); }
+.col > .why { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); width: 360px; }
+.pane { background: var(--main); border-radius: var(--r-card); box-shadow: var(--card-shadow); padding: 18px; }
+
+/* 输入框 */
+.composer { position: relative; width: 640px; background: var(--surface-2); border-radius: var(--r-bubble); padding: 14px; }
+.composer.small { width: 380px; }
+.field { position: relative; padding: 6px 6px 0; min-height: 44px; }
+.field textarea { display: block; width: 100%; border: 0; outline: 0; resize: none; background: transparent; font: var(--fs)/22px var(--font-sans); color: var(--text); padding: 0; min-height: 44px; }
+.field textarea::placeholder { color: var(--text-dim); }
+.field .chip-slot { position: absolute; left: 6px; top: 6px; height: 22px; display: flex; align-items: center; }
+.field .static { font: var(--fs)/22px var(--font-sans); color: var(--text); min-height: 44px; }
+.field .static .caret { display: inline-block; width: 1.5px; height: 17px; background: var(--tint); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.bar { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.bar .plus { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--text-muted); }
+.bar .grow { flex: 1; }
+.bar .model { height: 30px; display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; border-radius: 12px; font-size: var(--fs-meta); color: var(--text-2); }
+.bar .send { width: 30px; height: 30px; border-radius: 50%; background: var(--text); color: #fff; display: grid; place-items: center; }
+.hint-line { font-size: var(--fs-sm); color: var(--text-dim); padding: 6px 6px 0; }
+.hint-line b { font-weight: 500; color: var(--text-muted); }
+
+/* 命令列表 */
+.menu { width: 520px; max-height: 420px; overflow-y: auto; background: var(--popover); border-radius: var(--r-card); box-shadow: var(--float-shadow); padding: 6px; }
+.menu.floating { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 5; }
+.menu .group { font-size: var(--fs-xs); color: var(--text-dim); padding: 8px 10px 4px; }
+.opt { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-md); cursor: default; }
+.opt:hover { background: var(--hover); }
+.opt.on { background: var(--selected); }
+.opt .ico { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; flex: none; }
+.opt .nm { font: var(--fs-meta) var(--font-mono); color: var(--text); white-space: nowrap; }
+.opt .arg { font: var(--fs-sm) var(--font-mono); color: var(--text-dim); white-space: nowrap; }
+.opt .ds { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+.opt .tag { font-size: var(--fs-xs); color: var(--text-dim); background: var(--surface-2); border-radius: var(--r-sm); padding: 0 4px; }
+
+/* 类型图标底色 */
+.k-builtin { background: var(--tint-soft); color: var(--tint); }
+.k-extension { background: rgba(30,142,62,.1); color: var(--ok-text); }
+.k-prompt { background: rgba(221,134,41,.12); color: #c96509; }
+.k-skill { background: var(--violet-soft); color: var(--violet); }
+
+/* 标签：A 蓝色胶囊 */
+.chip-a { display: inline-flex; align-items: center; gap: 1px; height: 22px; padding: 0 8px 0 7px; border-radius: var(--r-pill); background: var(--tint-soft); color: var(--tint); font-size: var(--fs-meta); font-weight: 500; white-space: nowrap; }
+.chip-a .sl { opacity: .55; font-weight: 400; margin-right: 1px; }
+/* 标签：B 灰色胶囊 + 类型图标 */
+.chip-b { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px 0 3px; border-radius: 7px; background: var(--surface-1); box-shadow: 0 0 0 .5px var(--line-strong), 0 1px 2px rgba(0,0,0,.05); color: var(--text); font-size: var(--fs-meta); font-weight: 500; white-space: nowrap; }
+.chip-b .ico { width: 16px; height: 16px; border-radius: 4px; display: grid; place-items: center; }
+/* 标签：C 行内彩字 */
+.chip-c { display: inline-flex; align-items: center; height: 22px; color: var(--tint); font-weight: 600; font-size: var(--fs); white-space: nowrap; }
+.chip-c.k-skill-t { color: var(--violet); }
+.chip-c.k-prompt-t { color: #c96509; }
+.chip-c.k-extension-t { color: var(--ok-text); }
+
+/* 用户气泡 */
+.thread { width: 640px; display: flex; flex-direction: column; gap: 14px; }
+.bubble { align-self: flex-end; max-width: 80%; background: var(--surface-2); border-radius: var(--r-bubble); padding: 9px 14px; line-height: 22px; }
+.bubble .chip-a, .bubble .chip-b, .bubble .chip-c { margin-right: 6px; vertical-align: top; }
+.notice { align-self: stretch; display: flex; align-items: center; gap: 8px; font-size: var(--fs-sm); color: var(--text-muted); }
+.notice::before, .notice::after { content: ""; flex: 1; height: .5px; background: var(--line-strong); }
+.shimmer { background: linear-gradient(90deg, var(--text-muted) 0%, var(--text-muted) 40%, #c6c6cc 50%, var(--text-muted) 60%, var(--text-muted) 100%); background-size: 200% 100%; -webkit-background-clip: text; color: transparent; animation: sh 1.6s linear infinite; }
+@keyframes sh { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.toast { align-self: center; font-size: var(--fs-sm); color: var(--text-2); background: var(--surface-1); box-shadow: var(--float-shadow); border-radius: var(--r-pill); padding: 5px 12px; }
+
+/* 对照表 */
+table.map { border-collapse: collapse; font-size: var(--fs-sm); background: var(--main); border-radius: var(--r-card); box-shadow: var(--card-shadow); overflow: hidden; }
+table.map th, table.map td { text-align: left; padding: 7px 12px; border-bottom: .5px solid var(--line); vertical-align: top; }
+table.map th { color: var(--text-muted); font-weight: 500; background: rgba(0,0,0,.02); }
+table.map td:first-child { font-family: var(--font-mono); white-space: nowrap; }
+table.map tr.no td { color: var(--text-dim); }
+.pill { display: inline-block; font-size: var(--fs-xs); border-radius: var(--r-pill); padding: 0 7px; }
+.p-new { background: var(--tint-soft); color: var(--tint); }
+.p-have { background: rgba(30,142,62,.1); color: var(--ok-text); }
+.p-no { background: var(--surface-2); color: var(--text-dim); }
+
+.switcher { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 4px; background: rgba(29,29,31,.92); color: #fff; padding: 5px; border-radius: var(--r-pill); font-size: var(--fs-sm); box-shadow: 0 8px 24px rgba(0,0,0,.25); z-index: 20; }
+.switcher button { all: unset; padding: 4px 12px; border-radius: var(--r-pill); cursor: pointer; color: rgba(255,255,255,.7); }
+.switcher button.on { background: #fff; color: #1d1d1f; }
+.switcher span { padding: 4px 6px 4px 10px; color: rgba(255,255,255,.5); }
+svg { flex: none; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>/ 命令 · 设计稿（原型，审完即弃）</h1>
+  <p>pi 终端里的内置命令（/compact、/model…）在 RPC 里不会被 pi 识别，由 Atrium 自己认出来，调 pi 对应的 RPC 命令，或者打开 Atrium 里现成的界面。</p>
+  <p>选中的命令在输入框最前面变成一个标签，后面接着打参数；发出后，用户消息里也显示同样的标签。底部切换 A / B / C 三种标签画法，页面上所有标签一起变。</p>
+</header>
+
+<section class="block">
+  <h2>1. 试一试</h2>
+  <p class="note">输入 <b>/</b> 弹出列表（可以接着打字过滤），↑↓ 选择，回车或 Tab 选中；选中后变成标签，光标在标签后面，接着打参数。光标在最前面时按退格删掉标签，标签的文字回到输入框，可以改。</p>
+  <div class="composer" id="live">
+    <div class="field">
+      <span class="chip-slot" id="slot"></span>
+      <textarea id="ta" rows="2" placeholder="发消息或描述任务，@ 引用文件，/ 使用命令"></textarea>
+    </div>
+    <div class="hint-line" id="hint"></div>
+    <div class="bar">
+      <span class="plus"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+      <span class="grow"></span>
+      <span class="model">GPT-5.5 · 高</span>
+      <span class="send"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 11.5V2.5M3 6.5l4-4 4 4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <h2>2. 命令列表</h2>
+  <p class="note">"内置"一组排在最前，后面照旧是扩展、模板、技能。每行：类型小图标、<b>/名字</b>、参数提示（灰色等宽）、右侧中文说明。内置命令的说明是 Atrium 写的中文，其他的用 pi 给的原文。</p>
+  <div class="menu" id="staticMenu"></div>
+</section>
+
+<section class="block">
+  <h2>3. 输入框里的标签（三种画法并排）</h2>
+  <p class="note">同一条输入：<b>/compact</b> 加压缩要求；<b>/skill:review</b> 加参数。标签和文字在同一行，长文字从标签后面接着往下折行。</p>
+  <div class="row" id="variants"></div>
+</section>
+
+<section class="block">
+  <h2>4. 发出之后</h2>
+  <p class="note">会发给模型的命令（扩展、模板、技能）照常留在对话里，气泡最前面是同样的标签。内置命令不发给模型，不出气泡：/compact 在原地出"正在压缩上下文…"，做完是压缩提示条；/model、/thinking 直接改输入框里的按钮；/copy、/export 这类做完弹一个小提示。</p>
+  <div class="row">
+    <div class="pane"><div class="thread" id="thread"></div></div>
+  </div>
+</section>
+
+<section class="block" style="padding-bottom: 90px">
+  <h2>5. 内置命令怎么接（pi 1.1.0 共 25 个）</h2>
+  <p class="note">"新做"是这次要加的；"已有"是 Atrium 里已经有的能力，命令只是另一个入口；"不接"的给了理由，可以再议。</p>
+  <table class="map" id="map"></table>
+</section>
+
+<div class="switcher" id="switcher"><span>标签画法</span></div>
+
+<script>
+const ICON = {
+  builtin: '<svg width="11" height="11" viewBox="0 0 12 12"><path d="M7.5 1.5 4.5 10.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  extension: '<svg width="11" height="11" viewBox="0 0 12 12"><path d="M4.5 2h3v1.6a1.2 1.2 0 1 0 2.4 0V2H10v3.5H8.4a1.2 1.2 0 1 0 0 2.4H10V10H2V2h2.5z" fill="currentColor"/></svg>',
+  prompt: '<svg width="11" height="11" viewBox="0 0 12 12"><path d="M3 1.5h4.2L9.5 3.8v6.7H3z" stroke="currentColor" stroke-width="1.3" fill="none" stroke-linejoin="round"/><path d="M4.6 6h3M4.6 8h2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>',
+  skill: '<svg width="11" height="11" viewBox="0 0 12 12"><path d="M6 1l1.2 3.3L10.5 5.5 7.2 6.7 6 10 4.8 6.7 1.5 5.5l3.3-1.2z" fill="currentColor"/></svg>',
+};
+const KIND_NAME = { builtin: "内置", extension: "扩展", prompt: "模板", skill: "技能" };
+const COMMANDS = [
+  ["builtin", "compact", "[要求]", "压缩上下文"],
+  ["builtin", "model", "[服务商/模型]", "切换模型"],
+  ["builtin", "thinking", "[档位]", "推理强度"],
+  ["builtin", "new", "", "新建会话"],
+  ["builtin", "clone", "", "复制当前会话，到新标签里接着聊"],
+  ["builtin", "fork", "", "从之前的某条消息分出新会话"],
+  ["builtin", "name", "<名字>", "给会话改名"],
+  ["builtin", "copy", "", "复制最后一条回复"],
+  ["builtin", "export", "", "导出会话为 HTML"],
+  ["builtin", "session", "", "会话信息和用量"],
+  ["builtin", "reload", "", "重新加载扩展、技能、模板和上下文文件"],
+  ["builtin", "resume", "", "打开历史会话"],
+  ["builtin", "login", "[服务商]", "登录模型服务商"],
+  ["builtin", "logout", "", "退出登录"],
+  ["builtin", "settings", "", "打开设置"],
+  ["builtin", "hotkeys", "", "快捷键"],
+  ["builtin", "changelog", "", "pi 的更新记录"],
+  ["builtin", "quit", "", "关闭这个会话"],
+  ["extension", "mcp", "", "Manage MCP servers"],
+  ["extension", "atrium-review", "<pr>", "Review a pull request"],
+  ["prompt", "commit", "", "Write a commit message for the staged changes"],
+  ["skill", "skill:review", "", "Review code changes for bugs and style"],
+  ["skill", "skill:frontend-design", "", "Create distinctive, production-grade frontend interfaces"],
+];
+let variant = new URLSearchParams(location.search).get("v") || "a";
+
+function chip(kind, name) {
+  const short = name;
+  if (variant === "a") return `<span class="chip-a"><span class="sl">/</span>${short}</span>`;
+  if (variant === "b") return `<span class="chip-b"><span class="ico k-${kind}">${ICON[kind]}</span>${short}</span>`;
+  return `<span class="chip-c k-${kind}-t">/${short}</span>`;
+}
+function option(c, on, i) {
+  const [kind, name, arg, desc] = c;
+  return `<div class="opt${on ? " on" : ""}" data-i="${i}"><span class="ico k-${kind}">${ICON[kind]}</span><span class="nm">/${name}</span>${arg ? `<span class="arg">${arg}</span>` : ""}<span class="ds">${desc}</span></div>`;
+}
+function menuHtml(list, on) {
+  let html = "", last = null;
+  list.forEach((c, i) => {
+    if (c[0] !== last) { html += `<div class="group">${KIND_NAME[c[0]]}</div>`; last = c[0]; }
+    html += option(c, i === on, i);
+  });
+  return html || '<div class="opt"><span class="ds" style="text-align:left">没有匹配的命令</span></div>';
+}
+
+/* —— 可玩的输入框 —— */
+const ta = document.getElementById("ta"), slot = document.getElementById("slot"), live = document.getElementById("live"), hint = document.getElementById("hint");
+let picked = null, menuOpen = false, filtered = [], hl = 0, menuEl = null;
+function layoutChip() {
+  slot.innerHTML = picked ? chip(picked[0], picked[1]) : "";
+  ta.style.textIndent = picked ? `${slot.getBoundingClientRect().width + 6}px` : "0";
+  ta.placeholder = picked ? (picked[2] ? `${picked[2].replace(/[\[\]<>]/g, "")}（可选）` : "回车执行") : "发消息或描述任务，@ 引用文件，/ 使用命令";
+  hint.innerHTML = picked && picked[0] === "builtin" ? `<b>/${picked[1]}</b> · ${picked[3]} · 回车执行，不会发给模型` : "";
+}
+function closeMenu() { menuOpen = false; menuEl?.remove(); menuEl = null; }
+function renderMenu() {
+  if (!menuEl) { menuEl = document.createElement("div"); menuEl.className = "menu floating"; live.appendChild(menuEl); }
+  menuEl.innerHTML = menuHtml(filtered, hl);
+  menuEl.querySelectorAll(".opt[data-i]").forEach((el) => el.addEventListener("mousedown", (e) => { e.preventDefault(); accept(+el.dataset.i); }));
+  menuEl.querySelector(".opt.on")?.scrollIntoView({ block: "nearest" });
+}
+function query() {
+  const m = /^\/(\S*)$/.exec(ta.value.slice(0, ta.selectionStart));
+  return picked || !m ? null : m[1];
+}
+function update() {
+  const q = query();
+  if (q === null) { closeMenu(); return; }
+  filtered = COMMANDS.filter((c) => c[1].startsWith(q) || c[1].includes(q));
+  hl = Math.min(hl, Math.max(filtered.length - 1, 0));
+  menuOpen = true; renderMenu();
+}
+function accept(i) {
+  const c = filtered[i]; if (!c) return;
+  picked = c; ta.value = ta.value.replace(/^\/\S*\s?/, ""); closeMenu(); layoutChip();
+  ta.focus(); ta.setSelectionRange(0, 0);
+}
+ta.addEventListener("input", () => { hl = 0; update(); });
+ta.addEventListener("keydown", (e) => {
+  if (menuOpen) {
+    if (e.key === "ArrowDown") { hl = Math.min(hl + 1, filtered.length - 1); renderMenu(); e.preventDefault(); }
+    else if (e.key === "ArrowUp") { hl = Math.max(hl - 1, 0); renderMenu(); e.preventDefault(); }
+    else if (e.key === "Enter" || e.key === "Tab") { accept(hl); e.preventDefault(); }
+    else if (e.key === "Escape") { closeMenu(); e.preventDefault(); }
+    return;
+  }
+  if (e.key === "Backspace" && picked && ta.selectionStart === 0 && ta.selectionEnd === 0) {
+    const back = `/${picked[1]}`; picked = null; ta.value = back + ta.value; layoutChip();
+    ta.setSelectionRange(back.length, back.length); e.preventDefault(); update();
+  }
+  if (e.key === "Enter" && !e.shiftKey && picked) {
+    e.preventDefault();
+    const t = document.createElement("div"); t.className = "toast"; t.style.cssText = "position:absolute;right:14px;top:-40px";
+    t.textContent = picked[0] === "builtin" ? `执行 /${picked[1]}${ta.value ? "：" + ta.value : ""}（原型里不做事）` : `发出 /${picked[1]} ${ta.value}`;
+    live.appendChild(t); setTimeout(() => t.remove(), 1800);
+    picked = null; ta.value = ""; layoutChip();
+  }
+});
+ta.addEventListener("blur", () => setTimeout(closeMenu, 100));
+
+/* —— 静态部分 —— */
+function renderStatic() {
+  document.getElementById("staticMenu").innerHTML = menuHtml(COMMANDS, 0);
+  const sample = (kind, name, text, width) => `
+    <div class="composer small"><div class="field"><div class="static">${chip(kind, name)}<span style="margin-left:6px">${text}</span><span class="caret"></span></div></div>
+    <div class="bar"><span class="plus"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span><span class="grow"></span><span class="send"><svg width="14" height="14" viewBox="0 0 14 14"><path d="M7 11.5V2.5M3 6.5l4-4 4 4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div></div>`;
+  const V = { a: ["A · 蓝色胶囊", "淡蓝底、蓝字，斜杠淡一些。最醒目，一眼看出这是命令；所有类型同一个颜色。"],
+              b: ["B · 灰色胶囊 + 类型图标", "白底细描边，前面一个类型小图标（内置蓝、扩展绿、模板橙、技能紫）。像文件胶囊，安静，类型看图标。"],
+              c: ["C · 行内彩字", "没有底色，只把命令写成带颜色的粗字（颜色按类型）。最轻，像在正文里高亮了一个词。"] };
+  const keep = variant; let html = "";
+  for (const v of ["a", "b", "c"]) {
+    variant = v;
+    html += `<div class="col"><h3>${V[v][0]}${v === keep ? "（当前）" : ""}</h3><p class="why">${V[v][1]}</p>
+      ${sample("builtin", "compact", "保留接口设计的讨论，别的都可以压缩")}
+      ${sample("skill", "skill:review", "看一下这次改动有没有漏掉的测试，重点是 sidebar.tsx 和 status.ts 两个文件")}</div>`;
+  }
+  variant = keep;
+  document.getElementById("variants").innerHTML = html;
+  document.getElementById("thread").innerHTML = `
+    <div class="bubble">${chip("skill", "skill:review")}看一下这次改动有没有漏掉的测试</div>
+    <div style="font-size:var(--fs-sm);color:var(--text-dim)">（回复略）</div>
+    <div class="bubble">${chip("prompt", "commit")}</div>
+    <div style="font-size:var(--fs-sm);color:var(--text-dim)">（回复略）</div>
+    <div class="notice"><span class="shimmer">正在压缩上下文…</span></div>
+    <div class="notice">已压缩上下文 · 12.4 万 → 1.8 万 tokens</div>
+    <div class="toast">已复制最后一条回复</div>`;
+  const rows = [
+    ["compact", "调 pi 的 compact，可带压缩要求；运行中不能用（置灰并说明）；内容太少时说明“对话还太短，不用压缩”", "new"],
+    ["model", "不带参数：打开模型菜单；带参数：直接切换，名字不对时说明", "have"],
+    ["thinking", "不带参数：打开推理强度；带参数：直接设，当前模型没有这一档时说明", "have"],
+    ["new", "在当前工作区或对话里新建会话（同 ⌘T）", "have"],
+    ["clone", "调 pi 的 clone，新会话开成新标签", "new"],
+    ["fork", "列出这个会话里之前的消息，选一条，调 pi 的 fork，新会话开成新标签，选的那条消息放回输入框", "new"],
+    ["name", "带名字：直接改；不带：标签进入改名", "have"],
+    ["copy", "复制最后一条回复的 Markdown（同回复下的复制按钮）", "have"],
+    ["export", "调 pi 的 export_html，弹出保存位置", "new"],
+    ["session", "弹出会话信息：会话文件、id、消息数、用量和费用（数据同状态栏）", "new"],
+    ["reload", "重启这个会话的 pi（扩展、技能、模板、上下文文件都会重新加载）；运行中不能用", "new"],
+    ["resume", "打开标签栏的“历史”", "have"],
+    ["login", "打开设置的“模型与账户”，带服务商时定位到它", "have"],
+    ["logout", "同上，打开“模型与账户”", "have"],
+    ["settings", "打开设置（同 ⌘,）", "have"],
+    ["hotkeys", "弹出 Atrium 的快捷键表", "new"],
+    ["changelog", "打开设置的“pi”（版本和更新）", "have"],
+    ["quit", "关闭这个会话的标签（同 ⌘W）", "have"],
+    ["tree", "切换会话分支：RPC 只能读树、不能切，Atrium 也只显示当前分支", "no"],
+    ["scoped-models", "选 Ctrl+P 轮换哪些模型：Atrium 没有轮换", "no"],
+    ["share", "把会话传到 GitHub gist：会把对话内容发到外部，先不接", "no"],
+    ["bug", "给 pi 开发者报 bug：发到外部，先不接", "no"],
+    ["import", "从 JSONL 导入会话：要把文件放进 pi 的会话目录，另做", "no"],
+    ["trust", "记住项目信任：终端界面的确认流程，RPC 里没有", "no"],
+  ];
+  const tag = { new: '<span class="pill p-new">新做</span>', have: '<span class="pill p-have">已有</span>', no: '<span class="pill p-no">不接</span>' };
+  document.getElementById("map").innerHTML = `<tr><th>命令</th><th>在 Atrium 里做什么</th><th></th></tr>` +
+    rows.map(([n, d, k]) => `<tr class="${k === "no" ? "no" : ""}"><td>/${n}</td><td>${d}</td><td>${tag[k]}</td></tr>`).join("");
+}
+
+/* —— 画法切换 —— */
+const sw = document.getElementById("switcher");
+for (const [v, label] of [["a", "A 蓝色胶囊"], ["b", "B 灰色胶囊 + 图标"], ["c", "C 行内彩字"]]) {
+  const b = document.createElement("button"); b.textContent = label; b.dataset.v = v;
+  b.onclick = () => { variant = v; history.replaceState(null, "", `?v=${v}`); paint(); };
+  sw.appendChild(b);
+}
+function paint() {
+  sw.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.v === variant));
+  renderStatic(); layoutChip();
+}
+paint();
+</script>
+</body>
+</html>
