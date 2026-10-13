@@ -717,11 +717,9 @@ describe("Workbench sidebar", () => {
     });
 
     const rows = page.getByRole("region", { name: "对话" }).getByTestId("chat-row");
-    expect(rows.elements().map((row) => row.querySelector(".truncate")?.textContent)).toStrictEqual([
-      "解释 merge-tree",
-      "新对话",
-      "周报",
-    ]);
+    await expect
+      .poll(() => rows.elements().map((row) => row.querySelector(".truncate")?.textContent))
+      .toStrictEqual(["解释 merge-tree", "新对话", "周报"]);
   });
 
   it("opens a chat's latest session when it has no tab open, and goes back to its tabs when it has", async () => {
