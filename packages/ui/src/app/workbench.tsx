@@ -5,6 +5,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
 import { ConversationArea } from "../chat/conversation-area";
+import { OpenLogin } from "../chat/turn-view";
 import { applyAppearance } from "../design/appearance";
 import { DotSeedContext } from "../design/dots";
 import { type SettingsSection, SettingsPanel } from "../settings/settings-panel";
@@ -341,7 +342,8 @@ export function Workbench({
  * (domain-model, "已决定 12"). Index files reset at the host's start are mentioned once per host
  * run, until dismissed. Starting a session when the client is nowhere starts a chat. A project's
  * new-workspace page shows in place of the tab bar and the conversation area, this window's own;
- * what it sets going shows over its session once there (SPEC-0001, "M1.11 的新建工作区").
+ * what it sets going shows over its session once there (SPEC-0001, "M1.11 的新建工作区"). An error
+ * card's "去登录" opens the settings at "模型与账户" (SPEC-0001, "运行出错与停止").
  *
  * @sideEffects Subscribes to the client's list; listens for focus and keys; sends commands.
  * @param props - The client, the connection status line, how to choose a folder, how to open an
@@ -366,6 +368,11 @@ function MainWindow({
   const sessionId = activeSession(index);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const settings = useSettings();
+  const { choose: chooseSection, show: showSettings } = settings;
+  const openLogin = useCallback(() => {
+    chooseSection("accounts");
+    showSettings();
+  }, [chooseSection, showSettings]);
   const [pages] = useState(createNewWorkspaceStore);
   const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
   useDraftCleanup(index);
@@ -429,13 +436,15 @@ function MainWindow({
             </div>
           ) : null}
           {pageProject === null ? (
-            <ConversationArea
-              client={client}
-              containerId={container}
-              sessionId={sessionId}
-              create={() => createHere(client)}
-              launches={pages}
-            />
+            <OpenLogin value={openLogin}>
+              <ConversationArea
+                client={client}
+                containerId={container}
+                sessionId={sessionId}
+                create={() => createHere(client)}
+                launches={pages}
+              />
+            </OpenLogin>
           ) : (
             <NewWorkspacePage client={client} store={pages} />
           )}

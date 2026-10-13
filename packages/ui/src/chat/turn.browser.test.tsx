@@ -1,10 +1,13 @@
 import type { Step, Turn } from "@atrium/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { render } from "vitest-browser-react";
 import { ClockContext, type UiClock } from "../state/clock";
+import { Key, Warning } from "../design/icons";
 import "../styles.css";
 import { LoadStepContext } from "./steps";
-import { NoticeView, TurnView } from "./turn-view";
+import { NoticeView, OpenLogin, TurnView } from "./turn-view";
 
 const at = Date.UTC(2026, 9, 7, 14, 31);
 
@@ -227,6 +230,36 @@ function heightFrames(element: Element): unknown[] {
   return effect?.getKeyframes().map((frame) => frame["height"]) ?? [];
 }
 
+/**
+ * A colour as the browser computes it.
+ *
+ * @remarks
+ * CSS variables hold colours as written; an element's computed colour is `rgb(…)`.
+ *
+ * @sideEffects Adds and removes an element.
+ * @param value - The colour as written.
+ * @returns It as computed.
+ */
+function colorOf(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value.trim();
+  document.body.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
+}
+
+/**
+ * An icon's SVG as it renders.
+ *
+ * @sideEffects none
+ * @param icon - The icon.
+ * @returns Its markup.
+ */
+function iconMarkup(icon: ReactElement): string {
+  return renderToStaticMarkup(icon);
+}
+
 describe("TurnView", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -401,6 +434,50 @@ describe("TurnView", () => {
     await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错展开看原始报错");
     await screen.getByRole("button", { name: "展开看原始报错" }).click();
     await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错收起429 rate limited");
+  });
+
+  it("shows a failure that looks like a credentials problem with the sidebar's key, offering 去登录 before 重试", async () => {
+    const asked: string[] = [];
+    const failed = turn([], { outcome: "failed", error: "OAuth refresh failed for anthropic: invalid_grant" });
+    const screen = await render(
+      <OpenLogin value={() => asked.push("login")}>
+        <TurnView turn={failed} runStartedAt={null} onRetry={() => asked.push("retry")} />
+      </OpenLogin>,
+    );
+    const card = screen.getByTestId("turn-error");
+
+    await expect.element(card).toHaveTextContent("登录已失效去登录重试展开看原始报错");
+    expect(card.element().querySelector("svg")?.outerHTML).toBe(iconMarkup(<Key size={14} />));
+    const root = getComputedStyle(document.documentElement);
+    expect(getComputedStyle(card.element()).color).toBe(colorOf(root.getPropertyValue("--attn")));
+    await screen.getByRole("button", { name: "去登录" }).click();
+    await screen.getByRole("button", { name: "重试" }).click();
+    expect(asked).toStrictEqual(["login", "retry"]);
+  });
+
+  it("offers 去登录 only where 重试 is, and only with settings to open; other failures stay red", async () => {
+    const auth = turn([], { outcome: "failed", error: "No API key found for anthropic." });
+    const screen = await render(
+      <OpenLogin value={() => undefined}>
+        <TurnView turn={auth} runStartedAt={null} />
+      </OpenLogin>,
+    );
+    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效展开看原始报错");
+
+    await screen.rerender(<TurnView turn={auth} runStartedAt={null} onRetry={() => undefined} />);
+    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效重试展开看原始报错");
+
+    const other = turn([], { outcome: "failed", error: "429 rate limited" });
+    await screen.rerender(
+      <OpenLogin value={() => undefined}>
+        <TurnView turn={other} runStartedAt={null} onRetry={() => undefined} />
+      </OpenLogin>,
+    );
+    const card = screen.getByTestId("turn-error");
+    await expect.element(card).toHaveTextContent("回复出错重试展开看原始报错");
+    expect(card.element().querySelector("svg")?.outerHTML).toBe(iconMarkup(<Warning size={14} />));
+    const root = getComputedStyle(document.documentElement);
+    expect(getComputedStyle(card.element()).color).toBe(colorOf(root.getPropertyValue("--danger")));
   });
 
   it("shows the info row: copy, files changed, usage and the time the turn ended", async () => {

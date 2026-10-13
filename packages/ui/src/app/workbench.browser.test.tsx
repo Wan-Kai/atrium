@@ -1477,6 +1477,35 @@ describe("Workbench attention and hand-off (M1.9)", () => {
     await expect.element(item).toHaveAttribute("title", "先停止运行或清空排队，再交给终端");
   });
 
+  it("opens the settings at 模型与账户 from 去登录 on a turn that failed for its credentials", async () => {
+    localStorage.removeItem("atrium.settings.section");
+    onTestFinished(() => localStorage.removeItem("atrium.settings.section"));
+    const { screen, views } = await workbench();
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    views.get("s1")?.setState({
+      items: [
+        {
+          kind: "turn",
+          id: "t1",
+          user: { text: "你好", images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+          steps: [],
+          outcome: "failed",
+          error: "OAuth refresh failed for anthropic",
+          startedAt: 0,
+          durationMs: 1000,
+          usage: null,
+          changes: [],
+        },
+      ],
+    });
+
+    await screen.getByRole("button", { name: "去登录" }).click();
+
+    const dialog = screen.getByRole("dialog", { name: "设置" });
+    await expect.element(dialog.getByRole("heading", { level: 2 })).toHaveTextContent("模型与账户");
+    expect(localStorage.getItem("atrium.settings.section")).toBe("accounts");
+  });
+
   it("says why a hand-off was refused", async () => {
     const { screen } = await workbench({
       answers: { handOff: () => Promise.reject(new CommandError("session_busy")) },

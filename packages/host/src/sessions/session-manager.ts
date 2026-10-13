@@ -21,6 +21,7 @@ import {
   type SessionSummary,
   type ThinkingLevel,
   UNKNOWN_METRICS,
+  isAuthFailure,
   isChatId,
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
@@ -1464,21 +1465,4 @@ function draftSnapshot(sessionId: string, fast: boolean): SessionSnapshotEvent {
 function failureFields(error: unknown): Record<string, unknown> {
   if (error instanceof PiRequestError) return { command: error.command, reason: error.reason };
   return { err: error };
-}
-
-/** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
-const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
-
-/**
- * Whether a failure looks like a credentials problem.
- *
- * @remarks
- * A best guess on pi's own text (SPEC-0001, "会话状态"): a wrong guess only changes the icon.
- *
- * @sideEffects none
- * @param text - pi's text.
- * @returns Whether to ask the user to sign in.
- */
-function isAuthFailure(text: string): boolean {
-  return AUTH_FAILURE.test(text);
 }

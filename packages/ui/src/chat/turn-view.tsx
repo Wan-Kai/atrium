@@ -1,16 +1,17 @@
-import type { Notice, Step, Turn } from "@atrium/protocol";
+import { type Notice, type Step, type Turn, isAuthFailure } from "@atrium/protocol";
 import {
   ArrowClockwise,
   ArrowsInLineVertical,
   CaretDown,
   Database,
   FileText,
+  Key,
   PencilSimple,
   Question,
   Stop,
   Warning,
 } from "../design/icons";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, createContext, use, useEffect, useMemo, useState } from "react";
 import { useClock } from "../state/clock";
 import { Fold } from "./fold";
 import { Markdown } from "./markdown";
@@ -321,31 +322,46 @@ function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: stri
   );
 }
 
+/** Opens the settings at "模型与账户", for the error card's "去登录"; none where there are no settings. */
+export const OpenLogin = createContext<(() => void) | null>(null);
+
+/** The pill buttons on the error card. */
+const CARD_BUTTON =
+  "rounded-[var(--r-pill)] px-2.5 text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]";
+
 /**
  * pi's error for a failed turn, folded until asked for.
  *
  * @remarks
  * A short line, with the raw error behind "展开看原始报错" (SPEC-0001, "运行出错与停止"); a turn
  * pi went away in has no text of pi's. The last turn offers "重试", which runs it again as the
- * host does after a restart (SPEC-0001, "运行控制").
+ * host does after a restart (SPEC-0001, "运行控制"). An error that looks like a credentials
+ * problem, by the rule the host sets the sidebar's key by, shows the key and "登录已失效"; where
+ * "重试" is offered, "去登录" comes first.
  *
- * @sideEffects Calls `onRetry` when asked.
+ * @sideEffects Calls `onRetry` or opens the settings when asked.
  * @param props - pi's error text, if there is any, and what "重试" does, if it is offered.
  * @returns The error card.
  */
 function TurnError({ error, onRetry }: { readonly error: string | null; readonly onRetry?: () => void }) {
   const [open, setOpen] = useState(false);
+  const openLogin = use(OpenLogin);
+  const auth = error !== null && isAuthFailure(error);
   return (
-    <div className="my-1 text-[length:var(--fs-meta)] text-[var(--danger)]" data-testid="turn-error">
+    <div
+      className={`my-1 text-[length:var(--fs-meta)] ${auth ? "text-[var(--attn)]" : "text-[var(--danger)]"}`}
+      data-testid="turn-error"
+    >
       <div className="flex items-center gap-1.5">
-        <Warning size={14} />
-        <span>回复出错</span>
+        {auth ? <Key size={14} /> : <Warning size={14} />}
+        <span>{auth ? "登录已失效" : "回复出错"}</span>
+        {auth && onRetry !== undefined && openLogin !== null ? (
+          <button type="button" className={CARD_BUTTON} onClick={openLogin}>
+            去登录
+          </button>
+        ) : null}
         {onRetry === undefined ? null : (
-          <button
-            type="button"
-            className="rounded-[var(--r-pill)] px-2.5 text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]"
-            onClick={onRetry}
-          >
+          <button type="button" className={CARD_BUTTON} onClick={onRetry}>
             重试
           </button>
         )}

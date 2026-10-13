@@ -96,6 +96,25 @@ export const Attention = z.strictObject({
 });
 export type Attention = z.infer<typeof Attention>;
 
+/** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
+const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
+
+/**
+ * Whether a failure looks like a credentials problem.
+ *
+ * @remarks
+ * A best guess on pi's own text (SPEC-0001, "会话状态"): a wrong guess only changes the icon. The
+ * host sets `auth` attention by it and the conversation's error card shows the key by it, so the
+ * sidebar and the card agree (SPEC-0001, "运行出错与停止").
+ *
+ * @sideEffects none
+ * @param text - pi's text.
+ * @returns Whether to ask the user to sign in.
+ */
+export function isAuthFailure(text: string): boolean {
+  return AUTH_FAILURE.test(text);
+}
+
 /** A session as the sidebar, tabs and history list it. */
 export const SessionSummary = z.strictObject({
   sessionId: SessionId,

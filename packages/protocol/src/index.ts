@@ -125,6 +125,7 @@ export {
   SessionSummary,
   SnapshotReason,
   Workspace,
+  isAuthFailure,
 } from "./listing";
 export {
   ControlUpdatedEvent,
