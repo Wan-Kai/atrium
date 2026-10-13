@@ -80,6 +80,33 @@ describe("GitRunner.run", () => {
     });
   });
 
+  it("writes the input given to git and ends it, so a command reading it finishes", async () => {
+    const cwd = await tempDir();
+    const git = createGitRunner({ env, clock: systemClock, resources: new ResourceTracker() });
+    await git.run(["init", "--quiet"], { cwd });
+    await writeFile(join(cwd, ".gitignore"), "*.log\n");
+
+    expect(
+      await git.run(["check-ignore", "--stdin", "-z"], { cwd, input: "a.log\0b.ts\0c.log\0", timeoutMs: 10_000 }),
+    ).toStrictEqual({ code: 0, stdout: "a.log\0c.log\0" });
+    expect(await git.run(["hash-object", "--stdin"], { cwd, input: "" })).toStrictEqual({
+      code: 0,
+      stdout: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391\n",
+    });
+  });
+
+  it("is not thrown by git exiting before it read all its input", async () => {
+    const cwd = await tempDir();
+    const git = createGitRunner({ env, clock: systemClock, resources: new ResourceTracker() });
+
+    expect(
+      await git.run(["rev-parse", "--is-inside-work-tree"], { cwd, input: "x".repeat(4 * 1024 * 1024) }),
+    ).toStrictEqual({
+      code: 128,
+      stdout: "",
+    });
+  });
+
   it("runs git with the tool environment, without optional locks, prompts or translations", async () => {
     const cwd = await tempDir();
     const git = createGitRunner({

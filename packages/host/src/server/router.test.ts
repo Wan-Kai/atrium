@@ -218,6 +218,17 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
     },
     attachments,
     changes,
+    files: {
+      listDir: async (workspaceId, path) => {
+        calls.push(["listDir", workspaceId, path]);
+        if (path === "gone") throw new CommandError("path_not_found");
+        return { entries: [{ name: "a.ts", kind: "file" }], truncated: false };
+      },
+      readFile: async (workspaceId, path) => {
+        calls.push(["readFile", workspaceId, path]);
+        return { size: 1, content: { kind: "text", text: "a" } };
+      },
+    },
     tracer: recording.tracer,
     logger: recording.logger,
   });
@@ -583,6 +594,30 @@ describe("createRouter", () => {
         ok: false,
         error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
       },
+    ]);
+  });
+
+  it("hands listing a directory and reading a file to the workspace files", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "list_dir", requestId: "r1", workspaceId: WORKSPACE, path: "src" }));
+    await route(connection, withTrace({ type: "read_file", requestId: "r2", workspaceId: WORKSPACE, path: "a.ts" }));
+    await route(connection, withTrace({ type: "list_dir", requestId: "r3", workspaceId: WORKSPACE, path: "gone" }));
+
+    expect(calls).toStrictEqual([
+      ["listDir", WORKSPACE, "src"],
+      ["readFile", WORKSPACE, "a.ts"],
+      ["listDir", WORKSPACE, "gone"],
+    ]);
+    expect(sent).toStrictEqual([
+      {
+        type: "response",
+        requestId: "r1",
+        ok: true,
+        result: { entries: [{ name: "a.ts", kind: "file" }], truncated: false },
+      },
+      { type: "response", requestId: "r2", ok: true, result: { size: 1, content: { kind: "text", text: "a" } } },
+      { type: "response", requestId: "r3", ok: false, error: { code: "path_not_found" } },
     ]);
   });
 

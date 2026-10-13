@@ -1,4 +1,5 @@
 import type { ChangesService } from "../changes/changes-service";
+import type { WorkspaceFiles } from "../files/workspace-files";
 import type { AttachmentStore } from "./attachments";
 import {
   type Command,
@@ -26,6 +27,8 @@ export interface RouterOptions {
   readonly attachments: AttachmentStore;
   /** What each connection shows of workspaces' git changes. */
   readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff">;
+  /** A workspace's files, for the right panel's file tree and the viewer tabs. */
+  readonly files: WorkspaceFiles;
   readonly index: IndexCommands;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
@@ -135,6 +138,10 @@ export function createRouter(options: RouterOptions): Route {
       case "watch_diff":
         options.changes.watchDiff(connection.id, command.target);
         return {};
+      case "list_dir":
+        return options.files.listDir(command.workspaceId, command.path);
+      case "read_file":
+        return options.files.readFile(command.workspaceId, command.path);
       case "set_preferences":
         return options.index.setPreferences({
           ...(command.setupDone === undefined ? {} : { setupDone: command.setupDone }),

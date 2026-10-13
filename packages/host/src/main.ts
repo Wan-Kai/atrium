@@ -42,6 +42,7 @@ import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
 import { createIndexCommands } from "./sessions/index-commands";
 import { createFileSearch } from "./files/file-search";
+import { createWorkspaceFiles } from "./files/workspace-files";
 import { createLayouts } from "./sessions/layouts";
 import { createModelLister } from "./sessions/model-lister";
 import { createSessionCatalog } from "./sessions/session-catalog";
@@ -496,6 +497,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       piLatest,
       attachments,
       changes,
+      files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
       logger,
       tracer: tracing.tracer,
       clock,

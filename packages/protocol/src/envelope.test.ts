@@ -160,6 +160,10 @@ const commands: Command[] = [
   { type: "watch_diff", requestId: "r54", traceparent, target: { workspaceId: WORKSPACE, mode: "uncommitted" } },
   { type: "watch_diff", requestId: "r55", traceparent, target: { workspaceId: WORKSPACE, mode: "base" } },
   { type: "watch_diff", requestId: "r56", traceparent, target: null },
+  { type: "list_dir", requestId: "r90", traceparent, workspaceId: WORKSPACE, path: "" },
+  { type: "list_dir", requestId: "r91", traceparent, workspaceId: WORKSPACE, path: "src/files" },
+  { type: "read_file", requestId: "r92", traceparent, workspaceId: WORKSPACE, path: "src/files/a.ts" },
+  { type: "read_file", requestId: "r93", traceparent, workspaceId: WORKSPACE, path: "a".repeat(4096) },
   { type: "check_setup", requestId: "r61", traceparent },
   { type: "check_setup", requestId: "r62", traceparent, refresh: true },
   { type: "login", requestId: "r65", traceparent, providerId: "anthropic", method: "oauth" },
@@ -523,12 +527,14 @@ describe("parseClientMessage", () => {
       "list_bases",
       "list_branches",
       "list_commands",
+      "list_dir",
       "list_models",
       "login",
       "logout",
       "open_session",
       "ping",
       "prompt",
+      "read_file",
       "remove_project",
       "remove_queued",
       "rename_chat",
@@ -891,6 +897,18 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a diff without a target", { type: "watch_diff", requestId: "r1", traceparent }, "r1"],
+    [
+      "a path over 4096 characters",
+      { type: "read_file", requestId: "r1", traceparent, workspaceId: WORKSPACE, path: "a".repeat(4097) },
+      "r1",
+    ],
+    ["a listing without a path", { type: "list_dir", requestId: "r1", traceparent, workspaceId: WORKSPACE }, "r1"],
+    ["a read of no workspace", { type: "read_file", requestId: "r1", traceparent, path: "a.ts" }, "r1"],
+    [
+      "a read in a project",
+      { type: "read_file", requestId: "r1", traceparent, workspaceId: PROJECT, path: "a.ts" },
+      "r1",
+    ],
     ["a cancel without the job", { type: "cancel_install", requestId: "r1", traceparent }, "r1"],
     ["an install of a given command", { type: "install_pi", requestId: "r1", traceparent, command: "sh" }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
@@ -1092,6 +1110,52 @@ describe("CommandResult", () => {
     ];
     expect(CommandResult.search_files.parse({ files })).toStrictEqual({ files });
     expect(CommandResult.search_files.safeParse({ files: [{ path: "", directory: false }] }).success).toBe(false);
+    const entries = [
+      { name: "src", kind: "dir" },
+      { name: "a.ts", kind: "file" },
+      { name: "latest", kind: "link" },
+    ];
+    expect(CommandResult.list_dir.parse({ entries, truncated: false })).toStrictEqual({ entries, truncated: false });
+    expect(CommandResult.list_dir.safeParse({ entries: [{ name: "", kind: "file" }], truncated: false }).success).toBe(
+      false,
+    );
+    expect(
+      CommandResult.list_dir.safeParse({ entries: [{ name: "fifo", kind: "fifo" }], truncated: true }).success,
+    ).toBe(false);
+    expect(
+      CommandResult.list_dir.safeParse({
+        entries: Array.from({ length: 5001 }, () => ({ name: "a", kind: "file" })),
+        truncated: true,
+      }).success,
+    ).toBe(false);
+    expect(CommandResult.list_dir.safeParse({ entries }).success).toBe(false);
+    const texts = { size: 3, content: { kind: "text", text: "abc" } };
+    expect(CommandResult.read_file.parse(texts)).toStrictEqual(texts);
+    const image = { size: 4, content: { kind: "image", mimeType: "image/webp", data: "UklGRg==" } };
+    expect(CommandResult.read_file.parse(image)).toStrictEqual(image);
+    expect(
+      ["binary", "too_large", "link"].map((kind) => CommandResult.read_file.parse({ size: 9, content: { kind } })),
+    ).toStrictEqual([
+      { size: 9, content: { kind: "binary" } },
+      { size: 9, content: { kind: "too_large" } },
+      { size: 9, content: { kind: "link" } },
+    ]);
+    expect(
+      CommandResult.read_file.safeParse({
+        size: 4,
+        content: { kind: "image", mimeType: "image/svg+xml", data: "PHN2" },
+      }).success,
+    ).toBe(false);
+    expect(
+      CommandResult.read_file.safeParse({ size: 0, content: { kind: "image", mimeType: "image/png", data: "" } })
+        .success,
+    ).toBe(false);
+    expect(
+      CommandResult.read_file.safeParse({ size: 1, content: { kind: "text", text: "a".repeat(1024 * 1024 + 1) } })
+        .success,
+    ).toBe(false);
+    expect(CommandResult.read_file.safeParse({ size: 1, content: { kind: "binary", text: "a" } }).success).toBe(false);
+    expect(CommandResult.read_file.safeParse({ size: -1, content: { kind: "binary" } }).success).toBe(false);
     expect(CommandResult.upload_attachment.parse({ attachmentId: "a1" })).toStrictEqual({ attachmentId: "a1" });
     expect(CommandResult.upload_attachment.safeParse({}).success).toBe(false);
     expect(CommandResult.watch_changes.parse({})).toStrictEqual({});
@@ -1438,6 +1502,8 @@ describe("HostMessage", () => {
       "project_exists",
       "name_taken",
       "path_not_found",
+      "path_invalid",
+      "read_failed",
       "session_is_draft",
       "session_stopping",
       "queue_item_not_found",

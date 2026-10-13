@@ -62,6 +62,8 @@ export {
   UploadAttachmentCommand,
   WatchChangesCommand,
   WatchDiffCommand,
+  ListDirCommand,
+  ReadFileCommand,
   CheckSetupCommand,
   LoginCommand,
   AnswerLoginCommand,
@@ -87,6 +89,7 @@ export {
   DiffUpdatedEvent,
 } from "./changes";
 export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
+export { DirEntry, FILE_LIMITS, FileContent, ShownImageType, WorkspacePath } from "./files";
 export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export {
   CredentialsChangedEvent,

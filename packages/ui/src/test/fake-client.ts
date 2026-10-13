@@ -195,6 +195,10 @@ export interface FakeAnswers {
   readonly exportSession?: () => Promise<string>;
   /** The fork's session id; `fork-1` when left out. */
   readonly forkSession?: () => Promise<string>;
+  /** A workspace directory's entries; none when left out. */
+  readonly listDir?: (workspaceId: string, path: string) => Promise<CommandResult<"list_dir">>;
+  /** A workspace file; `path_not_found` when left out. */
+  readonly readFile?: (workspaceId: string, path: string) => Promise<CommandResult<"read_file">>;
   /** A turn's image, or none; the host has none when left out. */
   readonly image?: (
     turnId: string,
@@ -657,6 +661,16 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async searchFiles(sessionId: string, query: string) {
       calls.push(`searchFiles ${sessionId} ${query}`);
       return { files: [{ path: "src/a.ts", directory: false }] };
+    },
+    async listDir(workspaceId: string, path: string) {
+      calls.push(`listDir ${workspaceId} ${path}`);
+      return (await answers.listDir?.(workspaceId, path)) ?? { entries: [], truncated: false };
+    },
+    async readFile(workspaceId: string, path: string) {
+      calls.push(`readFile ${workspaceId} ${path}`);
+      const read = await answers.readFile?.(workspaceId, path);
+      if (read === undefined) throw new CommandError("path_not_found");
+      return read;
     },
     async setThinkingLevel(sessionId: string, level: string) {
       modelCalls.push(`setThinkingLevel ${sessionId} ${level}`);

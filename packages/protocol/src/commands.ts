@@ -2,6 +2,7 @@ import { z } from "zod";
 import { parseTraceparent } from "./trace";
 import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
+import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
 import { InteractionAnswer } from "./control";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices } from "./listing";
@@ -468,6 +469,24 @@ export const WatchDiffCommand = z.strictObject({
 });
 export type WatchDiffCommand = z.infer<typeof WatchDiffCommand>;
 
+/** Lists one directory of a workspace, for the right panel's file tree (SPEC-0001, "M1.12 的文件与更改"). */
+export const ListDirCommand = z.strictObject({
+  type: z.literal("list_dir"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+  path: WorkspacePath,
+});
+export type ListDirCommand = z.infer<typeof ListDirCommand>;
+
+/** Reads one file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
+export const ReadFileCommand = z.strictObject({
+  type: z.literal("read_file"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+  path: WorkspacePath,
+});
+export type ReadFileCommand = z.infer<typeof ReadFileCommand>;
+
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
 
@@ -701,6 +720,8 @@ export const Command = z.discriminatedUnion("type", [
   UploadAttachmentCommand,
   WatchChangesCommand,
   WatchDiffCommand,
+  ListDirCommand,
+  ReadFileCommand,
   CheckSetupCommand,
   LoginCommand,
   AnswerLoginCommand,
@@ -810,6 +831,10 @@ export const CommandResult = {
   upload_attachment: z.strictObject({ attachmentId: z.string().min(1).max(128) }),
   watch_changes: z.strictObject({}),
   watch_diff: z.strictObject({}),
+  /** In no order; the UI sorts them. `truncated` when the directory had more than were listed. */
+  list_dir: z.strictObject({ entries: z.array(DirEntry).max(FILE_LIMITS.entries), truncated: z.boolean() }),
+  /** `size` in bytes; 0 for a link. */
+  read_file: z.strictObject({ size: z.number().int().nonnegative(), content: FileContent }),
   check_setup: SetupState,
   login: z.strictObject({ loginId: z.string().min(1).max(64) }),
   answer_login: z.strictObject({}),

@@ -257,6 +257,10 @@ export interface AtriumClient {
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
   searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
+  /** One directory of a workspace, for the right panel's file tree (SPEC-0001, "M1.12 的文件与更改"). */
+  listDir(workspaceId: string, path: string): Promise<CommandResult<"list_dir">>;
+  /** One file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
+  readFile(workspaceId: string, path: string): Promise<CommandResult<"read_file">>;
   /** One image of a turn's user message, for its thumbnail (SPEC-0001, "M1.11 的消息图片"). */
   fetchImage(sessionId: string, turnId: string, index: number): Promise<CommandResult<"fetch_image">>;
   /**
@@ -1270,6 +1274,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       ),
     listCommands: (sessionId) => request("list_commands", { sessionId }),
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
+    listDir: (workspaceId, path) => request("list_dir", { workspaceId, path }),
+    readFile: (workspaceId, path) => request("read_file", { workspaceId, path }),
     fetchImage: (sessionId, turnId, place) => request("fetch_image", { sessionId, turnId, index: place }),
     setup,
     loadSetup: (refresh = false) => loadSetup(refresh),

@@ -1614,6 +1614,32 @@ describe("createAtriumClient: the composer's lists", () => {
   });
 });
 
+describe("createAtriumClient: a workspace's files", () => {
+  it("lists a directory and reads a file of a workspace, returning what the host answers", async () => {
+    const { client, latest } = await connected();
+    const entries = [{ name: "src", kind: "dir" }];
+    const content = { kind: "text", text: "a" };
+
+    const W1 = "wks_0000000000000001";
+    const listing = client.listDir(W1, "src");
+    latest().answer("list_dir", { entries, truncated: false });
+    const reading = client.readFile(W1, "src/a.ts");
+    latest().answer("read_file", { size: 1, content });
+
+    expect(await listing).toStrictEqual({ entries, truncated: false });
+    expect(await reading).toStrictEqual({ size: 1, content });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["list_dir", "read_file"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_dir", workspaceId: W1, path: "src" },
+      { type: "read_file", workspaceId: W1, path: "src/a.ts" },
+    ]);
+  });
+});
+
 describe("createAtriumClient: compacting", () => {
   it("asks the host to compact a session, with what to keep in mind when given", async () => {
     const { client, latest } = await connected();

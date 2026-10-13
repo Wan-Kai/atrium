@@ -32,8 +32,18 @@ export const ErrorCode = z.enum([
   "project_exists",
   /** Another project has that name; `params.name` repeats it. */
   "name_taken",
-  /** The path is not a directory, or does not exist; `params.path` repeats it. */
+  /**
+   * The path is not a directory, or does not exist; `params.path` repeats it. For `list_dir` and
+   * `read_file`, nothing is at the path, and no `params` (SPEC-0001, "M1.12 的文件与更改").
+   */
   "path_not_found",
+  /**
+   * `list_dir` or `read_file` named a path that is not a plain one inside the workspace: absolute,
+   * with an empty, `.` or `..` part, through a link, or not a directory or file as the command needs.
+   */
+  "path_invalid",
+  /** `read_file` failed partway, as on a disk error. */
+  "read_failed",
   /** The session has had no message yet, so pi has no file to keep its name in. */
   "session_is_draft",
   /** A stop is waiting for pi to confirm; the session takes no new message until then. */

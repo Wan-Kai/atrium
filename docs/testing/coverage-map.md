@@ -398,6 +398,19 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 分叉 · 界面：每一轮结束的回复下方、复制右边有"从这里分叉"，点了让宿主在这一轮后分叉，名字是会话标题（最多 250 字）加"（分叉）"；运行中、停止中、压缩中变淡（0.4）、禁止光标、悬停"运行中不能分叉"、点了没反应；失败在标签栏旁用危险色说明（`session_busy`"运行中不能分叉"、`turn_not_found`"没能分叉：找不到这一轮"、`fork_failed`"没能分叉：pi 出错了"、其他"没能分叉"），一直留着直到别的提示替换；再点分叉先清掉这个会话的提示，不动别的会话的 | `chat.browser.test.tsx` "ConversationArea's fork button"、`packages/ui/src/tabs/session-notice.browser.test.tsx` | 已覆盖 |
 | `/compact [要求]` · 界面：列表最前、参数提示"要求"；执行时把名字后面的文字作为要求交给宿主（没有就不带），成功清空输入框；`nothing_to_compact`、`already_compacted`、`compact_failed` 在输入框上方说明（"对话还太短，不用压缩""刚压缩过，没有新内容""没能压缩：pi 出错了"）、输入框不动；压缩期间对话区底部一行带闪光的"正在压缩上下文…"，结束后消失 | `packages/ui/src/chat/builtin-commands.test.ts`、`composer.browser.test.tsx` "lists the built-ins first"、`chat.browser.test.tsx` "ConversationArea's /compact" | 已覆盖 |
 
+## 文件与更改（M1.12，协议 14，2026-10-13）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议：`list_dir`、`read_file` 及其应答（项的种类、5000 项上限、四种图片、文本 1 MB 上限、路径 4096 字符上限），`path_invalid`、`read_failed` | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| `list_dir` 列文件、目录、链接，去掉 `.git` 和被 git 忽略的，已跟踪的照列；按目录自己的位置问 git；名字以 `:` 开头不当成 pathspec；不是 git 仓库或没有 git 时只去掉 `.git`；管道之类的不列；超过 5000 项列按名字的前 5000 项并说截断 | `packages/host/src/files/workspace-files.test.ts` "WorkspaceFiles.listDir" | 已覆盖 |
+| `read_file`：文本和字节数；0 字节、不是 UTF-8 的是二进制；文本超过 1 MB、图片超过 10 MB 不读；四种图片按开头的字节认，不按名字；链接只报告是链接 | `workspace-files.test.ts` "WorkspaceFiles.readFile" | 已覆盖 |
+| 路径检查：绝对路径、空段、`.`、`..`、NUL、经过链接的目录、目标是链接（列目录）、目录或管道或套接字（读文件）都是 `path_invalid`；不存在、在文件下面、工作区目录不在是 `path_not_found`；经链接添加的工作区照常读 | `workspace-files.test.ts` "refuses …"、"says nothing is there …"、"reads a workspace reached through a link …" | 已覆盖 |
+| 读不了（权限、git 失败）是 `read_failed`，日志只记工作区 id 和错误类别，不记路径 | `workspace-files.test.ts` "fails as read_failed …" | 已覆盖 |
+| git 的输入：写进去并结束；git 没读完就退出不算错 | `packages/host/src/platform/git.test.ts` "writes the input given to git …"、"is not thrown by git exiting …" | 已覆盖 |
+| 两条命令经路由交给工作区文件；真实宿主、真实 git 上列目录、读文件，不经链接读到工作区外 | `packages/host/src/server/router.test.ts` "hands listing a directory …"；`packages/host/src/changes.host.test.ts` "workspace files over the WebSocket" | 已覆盖 |
+| 客户端发 `list_dir`、`read_file` | `packages/client/src/atrium-client.test.ts` "a workspace's files" | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

@@ -1025,7 +1025,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
   - 不存在应答 `path_not_found`，工作区不存在应答 `workspace_not_found`。读到一半出错应答 `read_failed`。
 - 日志只记工作区 id 和错误类别，不记路径、文件名和内容（security.md"子进程与文件"）。
 
-新增命令 `list_dir`、`read_file`；新增错误码 `path_invalid`、`path_not_found`、`read_failed`。
+新增命令 `list_dir`、`read_file`；新增错误码 `path_invalid`、`read_failed`，`path_not_found` 沿用原来的。
 
 ### 状态栏（M1.8，2026-10-10 定）
 
