@@ -587,8 +587,9 @@ const LINE_CLASS =
  *
  * @remarks
  * Clicking a row opens or closes its detail (SPEC-0001, "过程的呈现"); the display mode sets
- * where it starts. While a step is going on, thinking and a running command show their detail
- * as it comes. A step with nothing to show (`hasDetail`) is words alone, not a button. A failed
+ * where it starts. A step going on keeps its detail shut too until clicked, then shows it as it
+ * comes: opening on its own and shutting when done made the view jump at every step. A step with
+ * nothing to show (`hasDetail`) is words alone, not a button. A failed
  * call branches off as a dead end, a steer joins from the side.
  *
  * @sideEffects Fetches the step whole when it shows and arrived as a preview.
@@ -609,10 +610,9 @@ function StepRow({
   const [opened, setOpened] = useState(false);
   const opens = hasDetail(step);
   const open = opens && opened;
-  const shown = open || (opens && live);
-  useWholeStep(turnId, step, shown);
+  useWholeStep(turnId, step, open);
   let detail: ReactNode = null;
-  if (shown && (step.kind === "thinking" || step.kind === "text")) {
+  if (open && (step.kind === "thinking" || step.kind === "text")) {
     detail = (
       <Detail>
         <div className="text-[length:var(--fs-meta)] text-[var(--text-muted)]">
@@ -620,7 +620,7 @@ function StepRow({
         </div>
       </Detail>
     );
-  } else if (shown && step.kind === "tool") {
+  } else if (open && step.kind === "tool") {
     detail = <ToolDetail step={step} />;
   }
   const words = (

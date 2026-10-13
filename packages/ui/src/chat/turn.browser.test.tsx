@@ -321,7 +321,7 @@ describe("TurnView", () => {
     expect(screen.container.querySelector('[data-testid="process-header"]')).toBeNull();
   });
 
-  it("shows a running turn's process open with the step going on, and no info row", async () => {
+  it("shows a running turn's process open with the step going on, its detail shut until clicked, and no info row", async () => {
     const live: Step = { ...command, status: "running", output: "running…" };
     const { screen } = await show(
       turn([thinking, live], { outcome: "running", durationMs: null, usage: null }),
@@ -330,15 +330,24 @@ describe("TurnView", () => {
 
     await expect.element(screen.getByTestId("process-header")).toMatchTextContent(/^进行中 · [56]s$/);
     expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool"]);
-    await expect.element(screen.getByRole("button", { name: /^正在运行 pnpm test$/ })).toBeVisible();
-    expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toContain("running…");
+    const going = screen.getByRole("button", { name: /^正在运行 pnpm test$/ });
+    await expect.element(going).toHaveAttribute("aria-expanded", "false");
+    // Opening on its own and shutting when done made the view jump at every step.
+    expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(0);
     expect(screen.container.querySelector('[data-testid="turn-footer"]')).toBeNull();
+
+    await going.click();
+    await expect.element(going).toHaveAttribute("aria-expanded", "true");
+    expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toContain("running…");
   });
 
-  it("streams the thinking going on as 思考中, open", async () => {
+  it("streams the thinking going on as 思考中 once opened", async () => {
     const { screen } = await show(turn([{ ...thinking, durationMs: null }], { outcome: "running" }), Date.now());
+    const going = screen.getByRole("button", { name: /思考中/ });
 
-    await expect.element(screen.getByRole("button", { name: /思考中/ })).toBeVisible();
+    await expect.element(going).toBeVisible();
+    expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(0);
+    await going.click();
     await vi.waitFor(() =>
       expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toBe("先看侧栏。再决定。"),
     );
