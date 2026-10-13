@@ -965,7 +965,44 @@ function placed(element: Element): number[] {
 
 const FOLD_CURVE = "cubic-bezier(0.45, 0, 0.15, 1)";
 
+/**
+ * Whether a press at an element's middle would drag the window, by Electron's rule.
+ *
+ * @remarks
+ * Electron lays the page's `-webkit-app-region` areas over one another in page order, each
+ * `drag` adding and each `no-drag` taking away, so the last that covers a point decides it. A
+ * browser has no such regions, so a click there tells nothing.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns `true` if the window would take the press as a drag.
+ */
+function dragsWindowAt(element: Element): boolean {
+  const rect = element.getBoundingClientRect();
+  const [x, y] = [rect.left + rect.width / 2, rect.top + rect.height / 2];
+  const regions = [...document.querySelectorAll("*")]
+    .map(
+      (each) => [getComputedStyle(each).getPropertyValue("-webkit-app-region"), each.getBoundingClientRect()] as const,
+    )
+    .filter(([region, at]) => region !== "none" && at.left <= x && x < at.right && at.top <= y && y < at.bottom);
+  return regions.at(-1)?.[0] === "drag";
+}
+
 describe("Workbench panes", () => {
+  it("keeps its sidebar toggle pressable over the window's drag areas, folded or not", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.sidebarCollapsed"));
+    const toggle = screen.getByRole("button", { name: "折叠侧栏" });
+    const pressable = [dragsWindowAt(toggle.element())];
+
+    await toggle.click();
+    const unfold = screen.getByRole("button", { name: "展开侧栏" });
+    await expect.poll(() => placed(unfold.element())).toStrictEqual([84, 10, 28]);
+    pressable.push(dragsWindowAt(unfold.element()));
+
+    expect(pressable).toStrictEqual([false, false]);
+  });
+
   it("folds the sidebar away from its toggle and ⌘B, the toggle moving beside the traffic lights and the tabs making room, and remembers it", async () => {
     const { screen } = await workbench();
     onTestFinished(() => localStorage.removeItem("atrium.sidebarCollapsed"));

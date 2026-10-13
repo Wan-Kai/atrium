@@ -183,6 +183,8 @@ function hasPanel(container: string | null, pages: StoreApi<NewWorkspaceState>):
  * @remarks
  * design-language ("侧栏 · 折叠开关", "动效 · 左栏折叠展开"): one button over both places, moving
  * between them as the sidebar folds, so it stays at hand; the window can still be dragged around it.
+ * It must come after the sidebar's and the tab bar's drag areas in the page: Electron lays drag
+ * areas over one another in page order, so a later `drag` would take its presses.
  *
  * @sideEffects Subscribes to the panes; folds or unfolds the sidebar when clicked.
  * @param props - The panes.
@@ -490,7 +492,6 @@ function MainWindow({
   return (
     <>
       <div className="relative flex h-full">
-        <SidebarToggle panes={panes} />
         <Sidebar
           client={client}
           onNewChat={() => {
@@ -546,6 +547,8 @@ function MainWindow({
           )}
           <footer className="flex shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
         </main>
+        {/* After the drag areas it lies over, or Electron lets them take its presses (SidebarToggle). */}
+        <SidebarToggle panes={panes} />
       </div>
       {settings.open ? (
         <SettingsPanel
