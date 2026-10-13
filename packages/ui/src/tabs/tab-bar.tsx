@@ -1,12 +1,13 @@
 import type { AtriumClient } from "@atrium/client";
-import type { ContainerId, SessionSummary } from "@atrium/protocol";
-import { CaretDown, ClockCounterClockwise, Plus, X } from "../design/icons";
-import { useStore } from "zustand";
+import { type ContainerId, type SessionSummary, isChatId } from "@atrium/protocol";
+import { CaretDown, ClockCounterClockwise, Plus, SidebarRight, X } from "../design/icons";
+import { type StoreApi, useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { sessionTitle, timeAgo } from "../sidebar/names";
 import { sessionStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
+import type { Panes } from "../state/panes";
 import { SessionMenu } from "./session-menus";
 import { SessionNoticeLine } from "./session-notice";
 
@@ -31,21 +32,26 @@ function run(command: () => Promise<unknown>): void {
  * Follows SPEC-0001 ("标签栏"): the container's open sessions as tabs (title, status, close),
  * "+" for a new session there, "历史" listing all its sessions newest first, and at the right
  * end the active session's "···", with a line before it saying what a command just did. Tabs shrink to about 96px and then scroll
- * sideways. Switching and closing show at once; the host confirms them.
+ * sideways. Switching and closing show at once; the host confirms them. Last is the changes
+ * panel's toggle; while the sidebar is folded the bar starts 120px in, clear of the traffic
+ * lights and the sidebar's toggle (SPEC-0001, "界面 · 左栏折叠与右栏").
  *
- * @sideEffects Subscribes to the client's list; sends commands when used.
- * @param props - The client, the container, and how to start a new session in it.
+ * @sideEffects Subscribes to the client's list and the panes; sends commands when used.
+ * @param props - The client, the container, how to start a new session in it, and the panes.
  * @returns The tab bar.
  */
 export function TabBar({
   client,
   containerId,
   onNew,
+  panes,
 }: {
   readonly client: AtriumClient;
   readonly containerId: ContainerId;
   readonly onNew: () => void;
+  readonly panes: StoreApi<Panes>;
 }) {
+  const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const index = useStore(client.index);
   const now = useClock().now();
   const tabs = index.layout.tabs[containerId] ?? { open: [], active: null };
@@ -60,7 +66,10 @@ export function TabBar({
   const active = tabs.active === null ? undefined : byId.get(tabs.active);
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 px-3 shadow-[inset_0_-0.5px_0_var(--line)] [-webkit-app-region:drag]">
+    <div
+      data-testid="tab-bar"
+      className={`flex h-12 shrink-0 items-center gap-1 pr-3 shadow-[inset_0_-0.5px_0_var(--line)] [transition:padding-left_280ms_cubic-bezier(.45,0,.15,1)] [-webkit-app-region:drag] ${folded ? "pl-[120px]" : "pl-3"}`}
+    >
       <div
         role="tablist"
         aria-label="打开的会话"
@@ -135,8 +144,41 @@ export function TabBar({
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         {active === undefined ? null : <SessionNoticeLine sessionId={active.sessionId} />}
         {active === undefined ? null : <SessionMenu key={active.sessionId} client={client} session={active} />}
+        <PanelToggle panes={panes} usable={!isChatId(containerId)} />
       </span>
     </div>
+  );
+}
+
+/**
+ * The changes panel's toggle, at the tab bar's right end.
+ *
+ * @remarks
+ * design-language ("右栏（改动面板）"): `--tint` while the panel is open. A chat has no workspace
+ * and so no changes: the toggle is `aria-disabled` rather than `disabled`, so its reason still
+ * shows on hover, as the archive icon does.
+ *
+ * @sideEffects Subscribes to the panes; opens or closes the panel when clicked.
+ * @param props - The panes, and whether there are changes to show here.
+ * @returns The toggle.
+ */
+function PanelToggle({ panes, usable }: { readonly panes: StoreApi<Panes>; readonly usable: boolean }) {
+  const open = useStore(panes, (state) => state.panelOpen);
+  const setOpen = useStore(panes, (state) => state.setPanelOpen);
+  return (
+    <button
+      type="button"
+      aria-label="改动面板"
+      aria-pressed={usable && open}
+      aria-disabled={!usable}
+      title={usable ? "改动面板（⌥⌘B）" : "对话没有工作区，没有改动"}
+      onClick={() => {
+        if (usable) setOpen(!open);
+      }}
+      className="inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-[var(--text-muted)] aria-pressed:text-[var(--tint)] aria-pressed:hover:text-[var(--tint)]"
+    >
+      <SidebarRight size={16} />
+    </button>
   );
 }
 

@@ -14,7 +14,7 @@ import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/use-draft";
 import { type ChosenCommand, historyOf } from "./composer-text";
-import { ChangesPanel } from "./changes-panel";
+import { ChangesPane } from "./changes-pane";
 import { FastToggle } from "./fast-toggle";
 import { shownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
@@ -36,6 +36,7 @@ import {
   launchOver,
 } from "../state/new-workspace";
 import { LaunchView } from "./launch-timeline";
+import { type Panes, createPanes, memoryStorage } from "../state/panes";
 
 /** What to say when pi cannot be used, by the status the host found. */
 const PI_STATUS_TEXT: Readonly<Record<string, string>> = {
@@ -429,12 +430,13 @@ function SessionArea({
  * message goes back into its box when the box is still empty. A session the new-workspace page
  * made shows the steps of its making until its first message has gone; one failed stays until the
  * next send. The empty
- * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计").
+ * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计"). The
+ * changes panel is open or not, and as wide, in every workspace alike (SPEC-0001, "工作区改动").
  *
  * @sideEffects Watches the active session; creates and opens sessions and sends messages
  * through the client.
- * @param props - The client, the container, its active session, how to create a session, and what
- * the new-workspace page set going.
+ * @param props - The client, the container, its active session, how to create a session, what
+ * the new-workspace page set going, and the panes.
  * @returns The area.
  */
 export function ConversationArea({
@@ -443,6 +445,7 @@ export function ConversationArea({
   sessionId,
   create,
   launches = NO_LAUNCHES,
+  panes: given,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -451,7 +454,11 @@ export function ConversationArea({
   readonly create: () => Promise<string>;
   /** What the new-workspace page set going; none when left out. */
   readonly launches?: StoreApi<NewWorkspaceState>;
+  /** The panes; left out, the area keeps its own, which nothing outlives. */
+  readonly panes?: StoreApi<Panes>;
 }) {
+  const [own] = useState(() => createPanes(memoryStorage()));
+  const panes = given ?? own;
   const [failure, setFailure] = useState<string | null>(null);
   const launch = useStore(launches, (state) => launchOver(state, sessionId));
   const [store, setStore] = useState<StoreApi<SessionView> | undefined>(undefined);
@@ -504,19 +511,12 @@ export function ConversationArea({
     },
     [client],
   );
-  /** The workspace whose changes panel is open; going to another container closes it. */
-  const [panelFor, setPanelFor] = useState<string | null>(null);
-  const [panelShownIn, setPanelShownIn] = useState(workspaceId);
-  if (panelShownIn !== workspaceId) {
-    setPanelShownIn(workspaceId);
-    setPanelFor(null);
-  }
-  const panelOpen = panelFor !== null && panelFor === workspaceId;
+  const panelOpen = useStore(panes, (state) => state.panelOpen);
   /** The capsule's counts and toggle, when the workspace has changes to show. */
   const capsule =
     workspaceId === null || changes === null || changes.stat === null
       ? undefined
-      : { stat: changes.stat, open: panelOpen, onToggle: () => setPanelFor(panelOpen ? null : workspaceId) };
+      : { stat: changes.stat, open: panelOpen, onToggle: () => panes.getState().setPanelOpen(!panelOpen) };
   useEffect(() => {
     if (handing === null || handing.container === containerKey) return;
     // The area went elsewhere before the session the words went to showed; its own box has them.
@@ -907,7 +907,7 @@ export function ConversationArea({
       </p>
     );
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {store === undefined || sessionId === null ? (
           <>
@@ -977,9 +977,7 @@ export function ConversationArea({
           />
         )}
       </div>
-      {workspaceId !== null && panelOpen ? (
-        <ChangesPanel client={client} workspaceId={workspaceId} onClose={() => setPanelFor(null)} />
-      ) : null}
+      <ChangesPane client={client} workspaceId={workspaceId} panes={panes} />
     </div>
   );
 }

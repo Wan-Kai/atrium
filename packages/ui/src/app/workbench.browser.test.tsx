@@ -940,6 +940,153 @@ describe("Workbench sidebar", () => {
 });
 
 /**
+ * How an element's changes are animated: the properties, their durations and their curves.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns The three, as computed.
+ */
+function motion(element: Element): string[] {
+  const style = getComputedStyle(element);
+  return [style.transitionProperty, style.transitionDuration, style.transitionTimingFunction];
+}
+
+/**
+ * Where an element is in the window, and how wide.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its left, top and width in pixels.
+ */
+function placed(element: Element): number[] {
+  const rect = element.getBoundingClientRect();
+  return [rect.left, rect.top, rect.width];
+}
+
+const FOLD_CURVE = "cubic-bezier(0.45, 0, 0.15, 1)";
+
+describe("Workbench panes", () => {
+  it("folds the sidebar away from its toggle and ⌘B, the toggle moving beside the traffic lights and the tabs making room, and remembers it", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.sidebarCollapsed"));
+    const nav = screen.getByRole("navigation", { name: "侧栏" }).element();
+    const inside = screen.getByTestId("sidebar-inside").element();
+    const bar = screen.getByTestId("tab-bar").element();
+    const toggle = screen.getByRole("button", { name: "折叠侧栏" });
+
+    expect([placed(toggle.element()), placed(nav)[2], getComputedStyle(bar).paddingLeft]).toStrictEqual([
+      [226, 10, 28],
+      270,
+      "12px",
+    ]);
+    expect([toggle.element().getAttribute("title"), toggle.element().getAttribute("aria-expanded")]).toStrictEqual([
+      "折叠侧栏（⌘B）",
+      "true",
+    ]);
+    expect([motion(nav), motion(inside), motion(toggle.element()), motion(bar)]).toStrictEqual([
+      ["width", "0.28s", FOLD_CURVE],
+      ["opacity, translate", "0.2s, 0.28s", `ease, ${FOLD_CURVE}`],
+      ["left", "0.28s", FOLD_CURVE],
+      ["padding-left", "0.28s", FOLD_CURVE],
+    ]);
+    await toggle.click();
+
+    await expect.poll(() => placed(nav)[2]).toBe(0);
+    const unfold = screen.getByRole("button", { name: "展开侧栏" });
+    await expect.poll(() => placed(unfold.element())).toStrictEqual([84, 10, 28]);
+    await expect.poll(() => getComputedStyle(bar).paddingLeft).toBe("120px");
+    await expect
+      .poll(() => [getComputedStyle(inside).opacity, getComputedStyle(inside).translate])
+      .toStrictEqual(["0", "-24px"]);
+    expect([
+      (nav as HTMLElement).inert,
+      unfold.element().getAttribute("title"),
+      unfold.element().getAttribute("aria-expanded"),
+      localStorage.getItem("atrium.sidebarCollapsed"),
+    ]).toStrictEqual([true, "展开侧栏（⌘B）", "false", "true"]);
+    await userEvent.keyboard("{Meta>}b{/Meta}");
+
+    await expect.poll(() => placed(nav)[2]).toBe(270);
+    await expect.poll(() => placed(toggle.element())).toStrictEqual([226, 10, 28]);
+    expect([(nav as HTMLElement).inert, localStorage.getItem("atrium.sidebarCollapsed")]).toStrictEqual([
+      false,
+      "false",
+    ]);
+  });
+
+  it("starts as left: the sidebar folded, the changes panel open and as wide as it was", async () => {
+    localStorage.setItem("atrium.sidebarCollapsed", "true");
+    localStorage.setItem("atrium.changesOpen", "true");
+    localStorage.setItem("atrium.changesWidth", "420");
+    onTestFinished(() => {
+      for (const key of ["atrium.sidebarCollapsed", "atrium.changesOpen", "atrium.changesWidth"]) {
+        localStorage.removeItem(key);
+      }
+    });
+    const { screen } = await workbench();
+
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    expect([
+      placed(screen.getByRole("navigation", { name: "侧栏" }).element())[2],
+      placed(screen.getByRole("button", { name: "展开侧栏" }).element()),
+      placed(screen.getByTestId("changes-pane").element())[2],
+      screen.getByRole("button", { name: "改动面板" }).element().getAttribute("aria-pressed"),
+    ]).toStrictEqual([0, [84, 10, 28], 420, "true"]);
+  });
+
+  it("opens and closes the changes panel from the tab bar's last button and ⌥⌘B, open in every workspace, hidden in a chat", async () => {
+    const { screen, changeCalls } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.changesOpen"));
+    const toggle = screen.getByRole("button", { name: "改动面板" });
+    const panel = screen.getByRole("complementary", { name: "改动" });
+    const said = () => [
+      toggle.element().getAttribute("aria-pressed"),
+      toggle.element().getAttribute("aria-disabled"),
+      toggle.element().getAttribute("title"),
+      localStorage.getItem("atrium.changesOpen"),
+    ];
+
+    expect(said()).toStrictEqual(["false", "false", "改动面板（⌥⌘B）", null]);
+    expect([...screen.getByTestId("tab-bar").element().querySelectorAll("button")].at(-1)).toBe(toggle.element());
+    await toggle.click();
+    await expect.element(panel).toBeVisible();
+    expect(said()).toStrictEqual(["true", "false", "改动面板（⌥⌘B）", "true"]);
+    await screen.getByTestId("workspace-row").nth(1).click();
+
+    await vi.waitFor(() => expect(changeCalls).toContain(`watchDiff ${FEATURE} base`));
+    await expect.element(panel).toBeVisible();
+    await screen.getByTestId("chat-row").click();
+
+    await expect.element(panel).not.toBeInTheDocument();
+    expect(said()).toStrictEqual(["false", "true", "对话没有工作区，没有改动", "true"]);
+    await toggle.click({ force: true });
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+    expect(said()).toStrictEqual(["false", "true", "对话没有工作区，没有改动", "true"]);
+    await screen.getByTestId("workspace-row").nth(0).click();
+
+    await expect.element(panel).toBeVisible();
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+    await expect.element(panel).not.toBeInTheDocument();
+    expect(said()).toStrictEqual(["false", "false", "改动面板（⌥⌘B）", "false"]);
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+    await expect.element(panel).toBeVisible();
+  });
+
+  it("leaves the changes panel as it was on ⌥⌘B over the new-workspace page", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.changesOpen"));
+    const project = screen.getByTestId("project-row");
+    await project.hover();
+    await project.getByRole("button", { name: "在 atrium 新建工作区" }).click();
+    await expect.element(screen.getByText("新建工作区", { exact: true })).toBeVisible();
+
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+
+    expect(localStorage.getItem("atrium.changesOpen")).toBeNull();
+  });
+});
+
+/**
  * The list of {@link list} with the merged worktree running one of its two live sessions, and two
  * worktrees archived five minutes and two hours ago.
  *

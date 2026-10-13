@@ -2,7 +2,7 @@ import type { AtriumClient, SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
 import { type ThinkingLevel, type TranscriptItem, type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
@@ -1959,6 +1959,8 @@ describe("ConversationArea's images", () => {
 
 describe("ConversationArea's workspace changes", () => {
   const W = "wks_0000000000000001";
+  // A window's width, so the panel opens beside the conversation rather than over it.
+  beforeEach(() => page.viewport(1280, 800));
   const changed = { stat: { added: 1234, removed: 3 }, dirty: true, ahead: 0, branch: "feat", base: "origin/main" };
 
   it("watches the shown workspace's changes, none for the chats, and shows them in a capsule that opens the panel", async () => {
@@ -2003,23 +2005,23 @@ describe("ConversationArea's workspace changes", () => {
     await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
   });
 
-  it("closes the panel on going to another container, and with its own button", async () => {
+  it("keeps the panel open on going to another workspace, and closes it with its own button", async () => {
     const { client } = fakeClient();
     client.changes(W).setState(changed);
     const screen = await render(
       tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
     );
+    const panel = screen.getByRole("complementary", { name: "改动" });
     await screen.getByRole("button", { name: "查看改动" }).click();
-    await screen.getByRole("button", { name: "关闭改动" }).click();
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
-    await screen.getByRole("button", { name: "查看改动" }).click();
+    await expect.element(panel).toBeVisible();
 
     await screen.rerender(
       tall(<ConversationArea client={client} containerId="wks_0000000000000002" sessionId="s1" create={noCreate} />),
     );
-    await screen.rerender(tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />));
 
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    await expect.element(panel).toBeVisible();
+    await screen.getByRole("button", { name: "关闭改动" }).click();
+    await expect.element(panel).not.toBeInTheDocument();
   });
 });
 

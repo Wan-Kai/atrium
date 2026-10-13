@@ -79,6 +79,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/status-figures.ts",
       "packages/ui/src/state/drafts.ts",
       "packages/ui/src/state/new-workspace.ts",
+      "packages/ui/src/state/panes.ts",
       "packages/ui/src/sidebar/names.ts",
       "packages/ui/src/sidebar/status.ts",
       "packages/ui/src/tabs/hand-off.ts",

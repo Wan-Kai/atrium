@@ -346,7 +346,7 @@ export function ChangesPanel({
     <aside
       aria-label="改动"
       onKeyDown={onKeyDown}
-      className="flex w-[560px] max-w-[50%] flex-none flex-col border-l-[0.5px] border-[var(--line)] bg-[var(--surface-1)]"
+      className="flex min-w-0 flex-1 flex-col border-l-[0.5px] border-[var(--line)] bg-[var(--surface-1)]"
     >
       <header className="flex h-11 flex-none items-center gap-2 border-b-[0.5px] border-[var(--line)] px-3">
         <h2 className="text-[length:var(--fs-meta)] font-medium text-[var(--text)]">改动</h2>

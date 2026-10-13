@@ -89,6 +89,12 @@ const ROW =
 const PROJECT_FOLD_MS = 280;
 
 /** The class of a small icon button in the sidebar. */
+/** How the sidebar's width and what is in it move as it folds and unfolds (design-language, "动效 · 左栏折叠展开"). */
+const FOLD_MOTION = {
+  width: "[transition:width_280ms_cubic-bezier(.45,0,.15,1)]",
+  inside: "[transition:opacity_200ms,translate_280ms_cubic-bezier(.45,0,.15,1)]",
+} as const;
+
 const ICON_BUTTON =
   "inline-flex size-7 shrink-0 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]";
 
@@ -147,11 +153,13 @@ function readCollapsed(): ReadonlySet<string> {
  * names and session titles, replacing the projects and chats with its results while it has text. Renaming happens in place. "设置" carries a blue dot while a newer pi
  * is out (SPEC-0001, "设置 · pi"). While a project's new-workspace page shows, its row is the one
  * selected, and going to a workspace, chat or session leaves the page (SPEC-0001, "M1.11 的新建工作区").
+ * Folded, its width goes to 0 while what is in it keeps its own, fades and moves 24px left, and
+ * none of it can be focused (SPEC-0001, "界面 · 左栏折叠与右栏"; design-language, "动效").
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
  * projects and the inbox's card in `localStorage`.
  * @param props - The client, how to start a new chat, how to choose a folder, how to open the
- * settings, and the new-workspace page.
+ * settings, the new-workspace page, and whether the sidebar is folded.
  * @returns The sidebar.
  */
 export function Sidebar({
@@ -160,6 +168,7 @@ export function Sidebar({
   pickDirectory,
   onSettings,
   page,
+  folded = false,
 }: {
   readonly client: AtriumClient;
   readonly onNewChat: () => void;
@@ -168,6 +177,7 @@ export function Sidebar({
   readonly onSettings: () => void;
   /** The new-workspace page; without it, projects have no "+". */
   readonly page?: SidebarPage;
+  readonly folded?: boolean;
 }) {
   const listed = useStore(client.index);
   // While the page shows, the client's place is not where the user is.
@@ -222,132 +232,138 @@ export function Sidebar({
     <LeavePage value={page?.leave ?? stay}>
       <nav
         aria-label="侧栏"
-        className="flex h-full w-[270px] shrink-0 flex-col [background:var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150"
+        inert={folded}
+        className={`${folded ? "w-0" : "w-[270px]"} h-full shrink-0 overflow-hidden [background:var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150 ${FOLD_MOTION.width}`}
       >
-        <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
-            <span className="flex-1">项目</span>
-            <button
-              type="button"
-              className={ICON_BUTTON}
-              aria-label="搜索工作区、对话和会话"
-              aria-pressed={searching}
-              onClick={() => {
-                setSearching(!searching);
-                setQuery("");
-              }}
-            >
-              <MagnifyingGlass size={15} />
-            </button>
-            {pickDirectory === undefined ? null : (
+        <div
+          data-testid="sidebar-inside"
+          className={`flex h-full w-[270px] flex-col ${folded ? "-translate-x-6 opacity-0" : ""} ${FOLD_MOTION.inside}`}
+        >
+          <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+            <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
+              <span className="flex-1">项目</span>
               <button
                 type="button"
                 className={ICON_BUTTON}
-                aria-label="添加项目"
-                onClick={() =>
-                  run(async () => {
-                    const path = await pickDirectory();
-                    if (path !== null) await client.addProject(path);
-                  })
-                }
-              >
-                <FolderPlus size={17} />
-              </button>
-            )}
-          </div>
-          {problem === null ? null : (
-            <p role="alert" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
-              {problem}
-            </p>
-          )}
-          {searching ? (
-            <div className="relative mt-0.5 mb-1.5">
-              <MagnifyingGlass
-                size={13}
-                className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
-              />
-              <input
                 aria-label="搜索工作区、对话和会话"
-                placeholder="搜索工作区、对话和会话"
-                // A search box opened on purpose takes the keyboard at once.
-                // oxlint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") {
-                    setSearching(false);
-                    setQuery("");
-                  }
+                aria-pressed={searching}
+                onClick={() => {
+                  setSearching(!searching);
+                  setQuery("");
                 }}
-                className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
-              />
+              >
+                <MagnifyingGlass size={15} />
+              </button>
+              {pickDirectory === undefined ? null : (
+                <button
+                  type="button"
+                  className={ICON_BUTTON}
+                  aria-label="添加项目"
+                  onClick={() =>
+                    run(async () => {
+                      const path = await pickDirectory();
+                      if (path !== null) await client.addProject(path);
+                    })
+                  }
+                >
+                  <FolderPlus size={17} />
+                </button>
+              )}
             </div>
-          ) : null}
-          {query.trim() !== "" ? (
-            <SearchResults client={client} index={index} query={query.trim()} now={now} />
-          ) : (
-            <>
-              {index.projects.map((project) => (
-                <ProjectRows
-                  key={project.id}
+            {problem === null ? null : (
+              <p role="alert" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
+                {problem}
+              </p>
+            )}
+            {searching ? (
+              <div className="relative mt-0.5 mb-1.5">
+                <MagnifyingGlass
+                  size={13}
+                  className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
+                />
+                <input
+                  aria-label="搜索工作区、对话和会话"
+                  placeholder="搜索工作区、对话和会话"
+                  // A search box opened on purpose takes the keyboard at once.
+                  // oxlint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setSearching(false);
+                      setQuery("");
+                    }
+                  }}
+                  className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
+                />
+              </div>
+            ) : null}
+            {query.trim() !== "" ? (
+              <SearchResults client={client} index={index} query={query.trim()} now={now} />
+            ) : (
+              <>
+                {index.projects.map((project) => (
+                  <ProjectRows
+                    key={project.id}
+                    client={client}
+                    index={index}
+                    project={project}
+                    onNewWorkspace={page === undefined ? undefined : () => page.open(project.id)}
+                    pageHere={page?.projectId === project.id}
+                    open={!collapsed.has(project.id)}
+                    onToggle={() => toggle(project.id)}
+                    renaming={renaming}
+                    setRenaming={setRenaming}
+                    run={run}
+                    now={now}
+                  />
+                ))}
+                {index.ready && index.projects.length === 0 ? (
+                  <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
+                    还没有项目，点上面的文件夹按钮添加
+                  </p>
+                ) : null}
+                <ChatRows
                   client={client}
                   index={index}
-                  project={project}
-                  onNewWorkspace={page === undefined ? undefined : () => page.open(project.id)}
-                  pageHere={page?.projectId === project.id}
-                  open={!collapsed.has(project.id)}
-                  onToggle={() => toggle(project.id)}
+                  now={now}
+                  onNewChat={onNewChat}
                   renaming={renaming}
                   setRenaming={setRenaming}
                   run={run}
-                  now={now}
                 />
-              ))}
-              {index.ready && index.projects.length === 0 ? (
-                <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
-                  还没有项目，点上面的文件夹按钮添加
-                </p>
-              ) : null}
-              <ChatRows
-                client={client}
-                index={index}
-                now={now}
-                onNewChat={onNewChat}
-                renaming={renaming}
-                setRenaming={setRenaming}
-                run={run}
-              />
-            </>
-          )}
-        </div>
-        <Inbox client={client} index={index} now={now} />
-        <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
-          <button
-            type="button"
-            onClick={onSettings}
-            title="设置（⌘,）"
-            className="inline-flex h-7 items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]"
-          >
-            <GearSix size={16} className="text-[var(--text-muted)]" />
-            设置
-            {update ? <UpdateDot /> : null}
-          </button>
-          <span className="flex-1" />
-          <button
-            type="button"
-            className={ICON_BUTTON}
-            aria-label={appearance?.label}
-            title={appearance?.label}
-            onClick={() => {
-              const at = APPEARANCES.findIndex((entry) => entry.appearance === index.preferences.appearance);
-              const next = APPEARANCES[(at + 1) % APPEARANCES.length]?.appearance ?? "system";
-              run(() => client.setPreferences({ appearance: next }));
-            }}
-          >
-            {appearance?.icon}
-          </button>
+              </>
+            )}
+          </div>
+          <Inbox client={client} index={index} now={now} />
+          <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
+            <button
+              type="button"
+              onClick={onSettings}
+              title="设置（⌘,）"
+              className="inline-flex h-7 items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]"
+            >
+              <GearSix size={16} className="text-[var(--text-muted)]" />
+              设置
+              {update ? <UpdateDot /> : null}
+            </button>
+            <span className="flex-1" />
+            <button
+              type="button"
+              className={ICON_BUTTON}
+              aria-label={appearance?.label}
+              title={appearance?.label}
+              onClick={() => {
+                const at = APPEARANCES.findIndex((entry) => entry.appearance === index.preferences.appearance);
+                const next = APPEARANCES[(at + 1) % APPEARANCES.length]?.appearance ?? "system";
+                run(() => client.setPreferences({ appearance: next }));
+              }}
+            >
+              {appearance?.icon}
+            </button>
+          </div>
         </div>
       </nav>
     </LeavePage>

@@ -1,6 +1,6 @@
 import type { AtriumClient, IndexView } from "@atrium/client";
-import type { Appearance, IndexFileName } from "@atrium/protocol";
-import { X } from "../design/icons";
+import { type Appearance, type IndexFileName, isChatId } from "@atrium/protocol";
+import { SidebarLeft, X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
@@ -11,6 +11,7 @@ import { DotSeedContext } from "../design/dots";
 import { type SettingsSection, SettingsPanel } from "../settings/settings-panel";
 import { FirstLaunch, type FirstLaunchStart, firstLaunchStart } from "../setup/first-launch";
 import { useInstallSeed } from "../state/install-seed";
+import { type Panes, createPanes } from "../state/panes";
 import { Sidebar } from "../sidebar/sidebar";
 import { type NewWorkspaceState, closePage, createNewWorkspaceStore, openPage } from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
@@ -122,6 +123,87 @@ function useTabShortcuts(client: AtriumClient, pages: StoreApi<NewWorkspaceState
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [client, pages]);
+}
+
+/**
+ * Handles the panes' keyboard shortcuts: ⌘B folds or unfolds the sidebar, ⌥⌘B opens or closes the
+ * changes panel.
+ *
+ * @remarks
+ * SPEC-0001 ("界面 · 左栏折叠与右栏"). Keys are matched by position, as ⌥ changes the character.
+ * The panel's key does nothing where there is no panel: in a chat, nowhere, or on the
+ * new-workspace page.
+ *
+ * @sideEffects Listens for keys on the window while mounted; writes the panes.
+ * @param client - The client.
+ * @param pages - The new-workspace page's store.
+ * @param panes - The panes.
+ */
+function usePaneShortcuts(client: AtriumClient, pages: StoreApi<NewWorkspaceState>, panes: StoreApi<Panes>): void {
+  useEffect(() => {
+    /**
+     * Acts on ⌘B or ⌥⌘B.
+     *
+     * @remarks
+     * See `usePaneShortcuts`.
+     *
+     * @sideEffects May write the panes; stops the browser's own handling of the key.
+     * @param event - The key event.
+     */
+    const onKey = (event: KeyboardEvent): void => {
+      if (!event.metaKey || event.ctrlKey || event.shiftKey || event.code !== "KeyB") return;
+      event.preventDefault();
+      const state = panes.getState();
+      if (!event.altKey) state.toggleSidebar();
+      else if (hasPanel(client.index.getState().layout.container, pages)) state.setPanelOpen(!state.panelOpen);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [client, pages, panes]);
+}
+
+/**
+ * Whether the changes panel can show: in a workspace, off the new-workspace page.
+ *
+ * @remarks
+ * See `usePaneShortcuts`.
+ *
+ * @sideEffects none
+ * @param container - Where the client is.
+ * @param pages - The new-workspace page's store.
+ * @returns Whether it can.
+ */
+function hasPanel(container: string | null, pages: StoreApi<NewWorkspaceState>): boolean {
+  return container !== null && !isChatId(container) && pages.getState().page === null;
+}
+
+/**
+ * The sidebar's toggle: at the sidebar's top right, beside the traffic lights once it is folded.
+ *
+ * @remarks
+ * design-language ("侧栏 · 折叠开关", "动效 · 左栏折叠展开"): one button over both places, moving
+ * between them as the sidebar folds, so it stays at hand; the window can still be dragged around it.
+ *
+ * @sideEffects Subscribes to the panes; folds or unfolds the sidebar when clicked.
+ * @param props - The panes.
+ * @returns The toggle.
+ */
+function SidebarToggle({ panes }: { readonly panes: StoreApi<Panes> }) {
+  const folded = useStore(panes, (state) => state.sidebarCollapsed);
+  const toggle = useStore(panes, (state) => state.toggleSidebar);
+  const label = folded ? "展开侧栏" : "折叠侧栏";
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-expanded={!folded}
+      title={`${label}（⌘B）`}
+      onClick={toggle}
+      className={`absolute top-2.5 z-10 inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] [transition:left_280ms_cubic-bezier(.45,0,.15,1)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] [-webkit-app-region:no-drag] ${folded ? "left-[84px]" : "left-[226px]"}`}
+    >
+      <SidebarLeft size={16} />
+    </button>
+  );
 }
 
 /** Where the settings' last part shown is remembered in this browser profile (SPEC-0001, "设置"). */
@@ -343,9 +425,12 @@ export function Workbench({
  * run, until dismissed. Starting a session when the client is nowhere starts a chat. A project's
  * new-workspace page shows in place of the tab bar and the conversation area, this window's own;
  * what it sets going shows over its session once there (SPEC-0001, "M1.11 的新建工作区"). An error
- * card's "去登录" opens the settings at "模型与账户" (SPEC-0001, "运行出错与停止").
+ * card's "去登录" opens the settings at "模型与账户" (SPEC-0001, "运行出错与停止"). The sidebar
+ * folds, and the changes panel opens and widens, as remembered in `localStorage` (SPEC-0001,
+ * "界面 · 左栏折叠与右栏").
  *
- * @sideEffects Subscribes to the client's list; listens for focus and keys; sends commands.
+ * @sideEffects Subscribes to the client's list and the panes; listens for focus and keys; sends
+ * commands; reads and writes `localStorage`.
  * @param props - The client, the connection status line, how to choose a folder, how to open an
  * address, and how to show a path in the Finder.
  * @returns The main window.
@@ -374,6 +459,8 @@ function MainWindow({
     showSettings();
   }, [chooseSection, showSettings]);
   const [pages] = useState(createNewWorkspaceStore);
+  const [panes] = useState(() => createPanes(localStorage));
+  const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
   useDraftCleanup(index);
 
@@ -395,13 +482,15 @@ function MainWindow({
   }, [client]);
 
   useTabShortcuts(client, pages);
+  usePaneShortcuts(client, pages, panes);
   // On the new-workspace page no session shows.
   useSeenErrors(client, index, pageProject === null ? sessionId : null);
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
     <>
-      <div className="flex h-full">
+      <div className="relative flex h-full">
+        <SidebarToggle panes={panes} />
         <Sidebar
           client={client}
           onNewChat={() => {
@@ -415,12 +504,18 @@ function MainWindow({
             open: (projectId) => openPage(pages, projectId, Math.random),
             leave: () => closePage(pages),
           }}
+          folded={folded}
         />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
           {container === null || pageProject !== null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
           ) : (
-            <TabBar client={client} containerId={container} onNew={() => fireAndForget(createHere(client))} />
+            <TabBar
+              client={client}
+              containerId={container}
+              onNew={() => fireAndForget(createHere(client))}
+              panes={panes}
+            />
           )}
           {resets.length > 0 ? (
             <div
@@ -443,6 +538,7 @@ function MainWindow({
                 sessionId={sessionId}
                 create={() => createHere(client)}
                 launches={pages}
+                panes={panes}
               />
             </OpenLogin>
           ) : (

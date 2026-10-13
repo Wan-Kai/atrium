@@ -72,6 +72,8 @@ import {
   Settings01Icon,
   SqlIcon,
   PuzzleIcon,
+  SidebarLeftIcon,
+  SidebarRightIcon,
   SlashIcon,
   SparklesIcon,
   SquareIcon,
@@ -281,6 +283,8 @@ export const ChatAdd = drawn(BubbleChatAddIcon);
 export const PlusSquare = drawn(AddSquareIcon);
 export const Question = drawn(HelpCircleIcon);
 export const Puzzle = drawn(PuzzleIcon);
+export const SidebarLeft = drawn(SidebarLeftIcon);
+export const SidebarRight = drawn(SidebarRightIcon);
 export const Slash = drawn(SlashIcon);
 export const Sparkle = drawn(SparklesIcon);
 export const Square = drawn(SquareIcon);
