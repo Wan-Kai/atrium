@@ -1,0 +1,244 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 侧栏"等你处理"挪到底部提示区 + "对话"标题行的新建对话图标。
+  问题：提示区放在"设置"上面时长什么样、展开收起怎么走、设置里怎么开关。
+  三种画法并排（A 卡片、B 平铺、C 一行摘要），下方是设置里的开关。打开即看，无需构建。
+  颜色、字号、圆角取自 packages/ui/src/design/tokens.css。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>原型 · 侧栏提示区</title>
+<style>
+:root {
+  --window: #e8ecf2; --sidebar-bg: rgba(246,247,250,.58); --main: #fff; --surface-1: #fff; --surface-2: #f2f2f4;
+  --text: #1d1d1f; --text-2: #2c2c30; --text-3: #48484e; --text-muted: #6e6e74; --text-dim: #a1a1a7;
+  --line: rgba(0,0,0,.08); --line-soft: rgba(0,0,0,.05); --line-strong: rgba(0,0,0,.14);
+  --hover: rgba(0,0,0,.035); --selected: rgba(0,0,0,.06);
+  --tint: #2f6fed; --attn: #dd8629; --attn-text: #c96509; --attn-soft: rgba(221,134,41,.12);
+  --danger: #e5484d; --danger-soft: rgba(229,72,77,.1); --ok-text: #1e8e3e;
+  --card-shadow: 0 0 0 .5px var(--line), 0 8px 24px rgba(41,70,122,.08);
+  --float-shadow: 0 0 0 .5px var(--line-strong), 0 12px 32px rgba(0,0,0,.14);
+  --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+  --fs: 14px; --fs-meta: 13px; --fs-sm: 12px; --fs-xs: 11px;
+  --r: 8px; --r-md: 10px; --r-btn: 12px; --r-card: 16px; --r-pill: 999px;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: #dfe4ec; font: var(--fs)/1.4 var(--font-sans); color: var(--text); -webkit-font-smoothing: antialiased; }
+header.page { padding: 28px 40px 8px; }
+header.page h1 { font-size: 20px; margin: 0 0 6px; }
+header.page p { margin: 0; color: var(--text-muted); font-size: var(--fs-meta); max-width: 980px; }
+.board { display: flex; gap: 36px; padding: 24px 40px 40px; flex-wrap: wrap; align-items: flex-start; }
+.frame { display: flex; flex-direction: column; gap: 10px; }
+.frame > h2 { margin: 0; font-size: 15px; }
+.frame > .note { margin: 0; font-size: var(--fs-sm); color: var(--text-muted); width: 270px; min-height: 70px; }
+.frame > .note b { color: var(--text-2); font-weight: 600; }
+
+/* 侧栏，宽 270，同 sidebar.tsx */
+.sidebar { width: 270px; height: 760px; display: flex; flex-direction: column; background: #f3f4f8; border-radius: 12px;
+  box-shadow: inset -.5px 0 0 var(--line), 0 0 0 .5px var(--line-strong), 0 10px 30px rgba(0,0,0,.08); overflow: hidden; position: relative; }
+.lights { height: 50px; flex: none; display: flex; align-items: center; gap: 8px; padding-left: 18px; }
+.lights i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; }
+.lights i:nth-child(2) { background: #febc2e; } .lights i:nth-child(3) { background: #28c840; }
+.scroll { flex: 1; min-height: 0; overflow: hidden; padding: 0 12px 12px; }
+.title { margin-top: 6px; height: 34px; display: flex; align-items: center; padding: 0 4px 0 8px; color: var(--text-muted); }
+.title > span:first-child { flex: 1; }
+.icon-btn { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; border-radius: var(--r); color: var(--text-muted); }
+.icon-btn:hover, .icon-btn.hl { background: var(--hover); color: var(--text-2); }
+.icon-btn.hl { box-shadow: 0 0 0 2px rgba(47,111,237,.35); }
+.row { position: relative; margin: 2px 0; height: 34px; display: flex; align-items: center; gap: 8px; border-radius: var(--r); padding: 0 8px; color: var(--text-2); }
+.row:hover { background: var(--hover); }
+.row.sel { background: var(--selected); }
+.row .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .meta { font-size: var(--fs-sm); color: var(--text-dim); flex: none; }
+.ws { padding-left: 34px; }
+.badge { font-size: var(--fs-sm); font-weight: 600; color: var(--attn-text); display: inline-flex; align-items: center; gap: 1px; }
+.dot-label { font-size: var(--fs-sm); color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.dot-label::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--attn); }
+.more { padding: 4px 8px; font-size: var(--fs-meta); color: var(--text-dim); border-radius: var(--r); }
+.more:hover { background: var(--hover); color: var(--text-2); }
+.s-attn { color: var(--attn); } .s-danger { color: var(--danger); }
+
+/* 两行的会话行（收件箱同款） */
+.entry { margin: 2px 0; display: flex; gap: 8px; padding: 6px 8px; border-radius: var(--r); color: var(--text-2); }
+.entry:hover { background: var(--hover); }
+.entry .body { flex: 1; min-width: 0; }
+.entry .t { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry .sub { display: block; font-size: var(--fs-sm); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.entry .side { display: flex; align-items: center; gap: 10px; font-size: var(--fs-sm); color: var(--text-dim); padding-top: 1px; align-self: flex-start; }
+
+/* 底栏 */
+.foot { flex: none; display: flex; align-items: center; gap: 4px; padding: 8px 12px 12px; }
+.gear { display: inline-flex; height: 28px; align-items: center; gap: 8px; border-radius: var(--r); padding: 0 8px; color: var(--text-2); }
+.gear svg { color: var(--text-muted); }
+.foot .sp { flex: 1; }
+
+/* A：卡片 */
+.tray-a { flex: none; margin: 0 12px; background: var(--surface-1); border-radius: 14px; box-shadow: var(--card-shadow); padding: 2px 4px 4px; }
+.tray-a .head { height: 32px; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 8px; color: var(--text-muted); font-size: var(--fs-meta); }
+.tray-a .head .n { font-size: var(--fs-sm); color: var(--attn-text); font-weight: 600; background: var(--attn-soft); border-radius: var(--r-pill); padding: 0 7px; line-height: 18px; }
+.tray-a .head .grow { flex: 1; }
+.tray-a .list { max-height: 228px; overflow-y: auto; }
+
+/* B：平铺 */
+.tray-b { flex: none; margin: 0 12px; border-top: .5px solid var(--line-strong); padding-top: 4px; }
+.tray-b .head { height: 34px; display: flex; align-items: center; gap: 6px; padding: 0 4px 0 8px; color: var(--text-muted); }
+.tray-b .head .grow { flex: 1; }
+.tray-b .head .n { font-size: var(--fs-sm); }
+
+/* C：一行摘要 */
+.tray-c { flex: none; margin: 0 12px 0; }
+.pill { height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: var(--r-md); background: var(--attn-soft); color: var(--attn-text); font-size: var(--fs-meta); }
+.pill .grow { flex: 1; }
+.pill .icons { display: inline-flex; gap: 6px; align-items: center; }
+.popover { position: absolute; left: 12px; right: 12px; bottom: 96px; background: var(--surface-1); border-radius: 14px; box-shadow: var(--float-shadow); padding: 4px; }
+.popover .head { height: 30px; display: flex; align-items: center; padding: 0 8px; color: var(--text-muted); font-size: var(--fs-meta); }
+.popover .head .grow { flex: 1; }
+
+/* 设置面板 */
+.settings { width: 640px; height: 370px; background: var(--main); border-radius: var(--r-card); box-shadow: var(--float-shadow); display: flex; overflow: hidden; }
+.settings nav { width: 180px; background: rgba(0,0,0,.022); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; }
+.settings nav a { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: var(--r); color: var(--text-2); font-size: var(--fs-meta); }
+.settings nav a.cur { background: var(--selected); }
+.settings main { flex: 1; padding: 22px 26px; }
+.settings h3 { margin: 0 0 4px; font-size: 17px; }
+.settings .lead { margin: 0 0 18px; font-size: var(--fs-meta); color: var(--text-muted); }
+.group { border-radius: var(--r-md); box-shadow: 0 0 0 .5px var(--line); }
+.group + .gt { margin-top: 18px; }
+.gt { font-size: var(--fs-sm); color: var(--text-muted); margin: 0 0 6px 2px; }
+.opt { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+.opt + .opt { border-top: .5px solid var(--line); }
+.opt .txt { flex: 1; }
+.opt .txt b { display: block; font-weight: 500; font-size: var(--fs-meta); }
+.opt .txt span { display: block; font-size: var(--fs-sm); color: var(--text-muted); margin-top: 2px; }
+.switch { width: 34px; height: 20px; border-radius: 10px; background: var(--tint); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 16px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+.seg { display: inline-flex; background: var(--surface-2); border-radius: var(--r); padding: 2px; gap: 2px; font-size: var(--fs-sm); }
+.seg span { padding: 3px 10px; border-radius: 6px; color: var(--text-muted); }
+.seg span.on { background: var(--surface-1); color: var(--text-2); box-shadow: 0 0 0 .5px var(--line), 0 1px 2px rgba(0,0,0,.06); }
+
+.callout { position: absolute; font-size: var(--fs-xs); color: #fff; background: var(--tint); border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+svg { flex: none; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>侧栏提示区 · 设计稿（原型，审完即弃）</h1>
+  <p>两处改动：① "对话"标题行右侧加一个"新建对话"图标，像"项目"那一行的搜索和添加，去掉原来的"新建对话"整行；② "等你处理"从最上面挪到"设置"上面，作为固定在底部的提示区（不随列表滚动），逻辑同收件箱；设置里可以关掉。下面三种画法任选其一，蓝色小标签标出改动的地方。</p>
+</header>
+
+<template id="icons">
+</template>
+
+<div class="board" id="board"></div>
+
+<script>
+// 线性图标，近似 Hugeicons（stroke 1.5）。
+const I = {
+  search: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+  folderAdd: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20H6a3 3 0 0 1-3-3V7a2 2 0 0 1 2-2h4l2 2h7a3 3 0 0 1 3 3v2"/><path d="M18 15v6M15 18h6"/></svg>',
+  chatAdd: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5c-5 0-8.5 3.3-8.5 7.6 0 2.1.9 4 2.4 5.4l-.6 3.7 3.9-1.8c.9.3 1.8.4 2.8.4"/><path d="M20.5 11.1c0-4.3-3.5-7.6-8.5-7.6"/><path d="M18 14.5v6M15 17.5h6"/></svg>',
+  plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  folderOpen: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tint)" stroke-width="1.6" stroke-linejoin="round"><path d="M3 18V7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v1"/><path d="M3 18l2.5-7h16L19 18z"/></svg>',
+  folder: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.6" stroke-linejoin="round"><path d="M3 17V7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  hand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12"/><path d="M11 11V4a1.5 1.5 0 0 1 3 0v7"/><path d="M14 11V5.5a1.5 1.5 0 0 1 3 0V14"/><path d="M17 9.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-1.5a6 6 0 0 1-5-2.7L4.2 14a1.5 1.5 0 0 1 2.4-1.8L8 14"/></svg>',
+  ask: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.3"/><path d="M12 17h.01"/></svg>',
+  key: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.7-8.7M17 6l2.5 2.5M14.5 8.5 16.5 10.5"/></svg>',
+  err: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5h.01"/></svg>',
+  spin: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--tint)" stroke-width="1.8" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>',
+  gear: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  moon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.6" stroke-linejoin="round"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>',
+  up: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  chevDown: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  chevUp: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg>',
+  user: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>',
+  palette: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.5 0-1.2-1-1.5-1-2.5s.8-1.5 1.8-1.5H17a4 4 0 0 0 4-4c0-4.7-4-8.5-9-8.5z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7" r="1"/><circle cx="15" cy="7.5" r="1"/></svg>',
+  side: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>',
+  fold: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 17V7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  info: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5h.01"/></svg>',
+};
+const S = { hand: ['s-attn', I.hand], ask: ['s-attn', I.ask], key: ['s-attn', I.key], err: ['s-danger', I.err] };
+
+const inbox = [
+  ['重构宿主进程管理', 'atrium · main', '12 分钟前', 'hand'],
+  ['实现侧栏组件', 'atrium · feat/sidebar', '5 分钟前', 'ask'],
+  ['你好', '对话 · 你好', '21 小时前', 'key'],
+  ['修 diff 面板的滚动', 'atrium · fix/scroll-jump', '2 小时前', 'err'],
+  ['整理 dotfiles', 'dotfiles · main', '昨天', 'err'],
+];
+const entry = ([t, sub, at, s]) =>
+  `<div class="entry"><span class="body"><span class="t">${t}</span><span class="sub">${sub}</span></span><span class="side">${at}<span class="${S[s][0]}">${S[s][1]}</span></span></div>`;
+
+const listTop = (callout) => `
+  <div class="title"><span>项目</span><span class="icon-btn">${I.search}</span><span class="icon-btn">${I.folderAdd}</span></div>
+  <div class="row"><span>${I.folderOpen}</span><span class="name">atrium</span></div>
+  <div class="row ws sel"><span class="name">main</span><span class="s-attn">${I.hand}</span></div>
+  <div class="row ws"><span class="name">fix/scroll-jump</span><span class="s-danger">${I.err}</span></div>
+  <div class="row ws"><span class="name">feat/sidebar</span><span class="dot-label">未提交</span><span class="s-attn">${I.ask}</span></div>
+  <div class="row ws"><span class="name">m1.11-process-rail</span><span class="badge">${I.up}186</span></div>
+  <div class="row ws"><span class="name">fix/reconnect</span><span class="badge">${I.up}1</span><span>${I.spin}</span></div>
+  <div class="row"><span>${I.folder}</span><span class="name">dotfiles</span><span class="dot-label">2 待合并</span><span class="s-danger">${I.err}</span></div>
+  <div class="title" style="position:relative"><span>对话</span><span class="icon-btn ${callout ? 'hl' : ''}" title="新建对话（⌘N）">${I.chatAdd}</span>
+    ${callout ? '<span class="callout" style="right:40px;top:8px">① 新建对话（⌘N）</span>' : ''}</div>
+  <div class="row"><span class="name">你好</span><span class="meta">21 小时前</span><span class="s-attn">${I.key}</span></div>
+  <div class="row"><span class="name">解释 git merge-tree 的原理</span><span class="meta">30 分钟前</span></div>
+  <div class="row"><span class="name">pi 的 RPC 能不能改重试次数</span><span class="meta">昨天</span></div>
+  <div class="more">显示全部 7 个</div>`;
+
+const foot = `<div class="foot"><span class="gear">${I.gear}设置</span><span class="sp"></span><span class="icon-btn">${I.moon}</span></div>`;
+
+function frame(title, note, trayHtml, extra = '') {
+  return `<section class="frame"><h2>${title}</h2><p class="note">${note}</p>
+    <div class="sidebar"><div class="lights"><i></i><i></i><i></i></div>
+      <div class="scroll">${listTop(title.startsWith('A · 卡片（'))}</div>${trayHtml}${foot}${extra}</div></section>`;
+}
+
+const trayA = (open) => `<div class="tray-a" style="position:relative">
+  <span class="callout" style="right:8px;top:-10px">② 提示区</span>
+  <div class="head">等你处理<span class="n">5</span><span class="grow"></span><span class="icon-btn" title="收起">${I.chevDown}</span></div>
+  <div class="list">${inbox.slice(0, open ? 5 : 3).map(entry).join('')}</div>
+  ${open ? '<div class="more">收起</div>' : '<div class="more">还有 2 条</div>'}</div>`;
+
+const trayAFolded = `<div class="tray-a"><div class="head">等你处理<span class="n">5</span><span class="grow"></span>
+  <span class="s-attn">${I.hand}</span><span class="s-attn">${I.ask}</span><span class="s-attn">${I.key}</span><span class="s-danger">${I.err}</span>
+  <span class="icon-btn" title="展开">${I.chevUp}</span></div></div>`;
+
+const trayB = `<div class="tray-b"><div class="head">等你处理<span class="grow"></span><span class="n">5</span><span class="icon-btn">${I.chevDown}</span></div>
+  ${inbox.slice(0, 3).map(entry).join('')}<div class="more">还有 2 条</div></div>`;
+
+const trayC = (open) => `<div class="tray-c"><div class="pill">${I.hand}<span class="grow">5 个会话等你处理</span>
+  <span class="icons"><span>${I.ask}</span><span>${I.key}</span><span class="s-danger">${I.err}</span></span>${open ? I.chevDown : I.chevUp}</div></div>`;
+const popC = `<div class="popover"><div class="head"><span class="grow">等你处理</span>5</div>${inbox.map(entry).join('')}</div>`;
+
+const board = document.getElementById('board');
+board.innerHTML = [
+  frame('A · 卡片（推荐）',
+    '<b>白底卡片浮在"设置"上方</b>，和列表分得开。默认显示 3 条，"还有 N 条"在卡片里展开（最高约 5 条，再多卡片内滚动）。标题右侧 ⌄ 把整张卡片收成一行。',
+    trayA(false)),
+  frame('A · 卡片 · 收成一行',
+    '收起后只剩标题、数字和各状态的图标，点 ⌃ 或标题再展开。收起与否记在本机（同项目折叠）。',
+    trayAFolded),
+  frame('B · 平铺',
+    '<b>和上面的列表同一个样式</b>，只用一条细线隔开。最安静，但和"对话"分区容易连成一片。',
+    trayB),
+  frame('C · 一行摘要 + 弹出',
+    '<b>平时只占一行</b>，橙色底写"N 个会话等你处理"。点开在上方弹出完整列表，点外面或 Esc 关上。最省地方，但要多点一下才看得到是哪个。',
+    trayC(true), popC),
+].join('');
+
+board.insertAdjacentHTML('beforeend', `
+<section class="frame"><h2>设置 · 外观 → 侧栏</h2>
+  <p class="note" style="width:640px">在"外观"里加一组"侧栏"，开关默认开。关掉后提示区整块不显示；会话的状态照样显示在工作区行、对话行和标签上，侧栏收起时展开按钮上的橙点也照旧。跟着设置走，存在宿主的偏好里（同外观），所有窗口一致。</p>
+  <div class="settings">
+    <nav><a class="cur">${I.palette}外观</a><a>${I.user}模型与账户</a><a>${I.fold}项目</a><a>${I.side}pi</a><a>${I.info}关于</a></nav>
+    <main><h3>外观</h3><p class="lead">浅色、深色，或者跟着 macOS 走。</p>
+      <div class="gt">主题</div>
+      <div class="group"><div class="opt"><span class="txt"><b>外观</b></span><span class="seg"><span class="on">跟随系统</span><span>浅色</span><span>深色</span></span></div></div>
+      <div class="gt" style="margin-top:18px">侧栏</div>
+      <div class="group"><div class="opt"><span class="txt"><b>显示"等你处理"</b><span>在侧栏底部汇总等你审批、回答、授权和出错的会话</span></span><span class="switch"></span></div></div>
+    </main>
+  </div>
+</section>`);
+</script>
+</body>
+</html>
