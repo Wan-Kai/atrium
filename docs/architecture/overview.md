@@ -82,8 +82,8 @@ atrium/
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
 │   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
-│   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）
-│   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、改动面板的 diff，监听有人看的工作区）
+│   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接）
+│   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）
 │   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具、git 调用（并发上限 4）
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
 │   ├── client/                     客户端层：不依赖 DOM，也不依赖 React

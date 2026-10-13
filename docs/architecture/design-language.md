@@ -47,7 +47,7 @@ Atrium 的界面要做到三件事：**清新、现代**（视觉对齐 DeepSeek
 - 细线：`--line`（深 `rgba(255,255,255,.10)` / 浅 `rgba(0,0,0,.08)`），另有 `--line-soft` 与 `--line-strong`。线宽一律 0.5px，用 `box-shadow: inset 0 0 0 .5px` 画，不用 border。
 - 悬停 `--hover`（深 5% 白 / 浅 3.5% 黑），选中 `--selected`（深 8% / 浅 6%）。
 - 焦点环：`0 0 0 3px` 的强调色（深 22% / 浅 16% 透明度）。
-- 过程轨道（2026-10-12 定）：竖线 `--rail`（深 15% 白 / 浅 15% 黑），岔出去、汇进来的曲线 `--branch`（深 28% / 浅 26%，比竖线略深才看得见弯），做完的节点 `--node`（深 `#5d6067` / 浅 `#c4c4c9`）。文件胶囊的投影 `--chip-shadow`（0.5px 细线加 1px 投影：浅 9% 黑线、5% 黑影 / 深 10% 白线、30% 黑影），类型图标的颜色 `--file-*`，每种类型一对浅 / 深色，见"消息流 · 文件胶囊"。
+- 过程轨道（2026-10-12 定）：竖线 `--rail`（深 15% 白 / 浅 15% 黑），岔出去、汇进来的曲线 `--branch`（深 28% / 浅 26%，比竖线略深才看得见弯），做完的节点 `--node`（深 `#5d6067` / 浅 `#c4c4c9`）。文件胶囊的投影 `--chip-shadow`（0.5px 细线加 1px 投影：浅 9% 黑线、5% 黑影 / 深 10% 白线、30% 黑影）。类型图标的颜色是图标自己的（M1.12 起，见"消息流 · 文件胶囊"），原先的 `--file-*` 变量去掉。
 - 进行中的行：`--linked`（强调色，深 14% / 浅 10% 透明度）作底色，配 1px 强调色描边，用于登录中的服务商、有新版本的更新块（M1.10，照设置原型）。
 
 ### 语义色
@@ -97,7 +97,7 @@ Atrium 的界面要做到三件事：**清新、现代**（视觉对齐 DeepSeek
 
 - 侧栏宽 270px，行高 34px，左右内边距 12px；相邻行间留 2px 缝，选中和悬停的底色不贴在一起。
 - 标签栏高 48px。消息流内容最大宽 720px。
-- 改动面板（右栏）默认宽 560px，最窄 360px，最宽到对话区还剩 440px（2026-10-13 自用时改，原先固定 560px、最多占对话区一半）。
+- 右栏默认宽 320px，最窄 240px，最宽到对话区还剩 440px（M1.12 改：只放树了；之前是改动面板的 560px、最窄 360px，再之前固定 560px、最多占对话区一半）。
 - 输入框内边距 14px，底栏与文字区间隔 10px。
 
 ## 阴影与材质
@@ -204,12 +204,29 @@ Atrium 的标志是一只猫，守在中庭里的伙伴，你切走了它也在�
 - 项目行的"+"（M1.11，2026-10-13 定）：悬停项目行时出现在"···"左边，14px 加号，样式同"···"按钮；"新建工作区"页开着时项目行带 `--selected` 底色。
 - 工作区行（worktree）和对话行的归档图标（2026-10-13 自用时定，同日改）：悬停行时出现在"···"左边、和它隔 4px（2026-10-13 自用时加），是一个红色的垃圾桶（Hugeicons `delete-02`，14px，`--danger`），底色是较透的红（`--danger-soft`），悬停时加深到 `--danger` 的 20%。这是"图标不加底色"的例外：归档会删掉 worktree 目录、把对话收起来，用红色提醒它是收走东西的操作（原先的 `archive-02` 抽屉看不出意思）。不能归档时（有未提交的改动）透明度 0.4、悬停不变、鼠标是禁止样式，title 写原因。
 
-### 右栏（改动面板）
+### 右栏（文件与更改）
+
+M1.12 起右栏只放树（原型 `prototypes/files-changes-prototype.html` 的 A 版，行为见 [SPEC-0001 · M1.12 的文件与更改](../specs/0001-mvp1-single-session-chat.md#m112-的文件与更改协议版本-142026-10-13-定)）。
+
 
 - 开关在标签栏最右（"···"右边），样式同标签栏的"+"（28px 方块），图标是 Hugeicons `sidebar-right`（16px）；开着时图标 `--tint`。悬停说明"改动（⌥⌘B）"。在对话里不可用：透明度 0.4、悬停不变、鼠标是禁止样式，悬停说明"对话没有工作区，没有改动"（同归档图标，用 `aria-disabled`，原因照样显示）。
 - 分隔线在面板左边缘，可拖的区域 8px 宽（骑在边线上），鼠标是左右箭头；悬停 150ms 后、拖动时、键盘聚焦时，边线位置出现 2px 的 `--tint` 竖线。
-- 渲染：面板的滚动区 `contain: strict`，把里面的 diff 和外面隔开。没有它，左栏折叠展开时对话区每帧都在移动，Chromium 每帧要把面板里所有元素的绘制位置重算一遍（PrePaint）：约 2 万行的 diff（6 万个元素）每帧要 14ms，动画从 120 帧掉到 60 帧；有了它每帧不到 1ms（2026-10-13 实测）。面板只在自己的状态或参数变了时重新渲染（`memo`），否则每次开关、折叠都要先把整个 diff 比对一遍，约 15ms。面板的宽度按房间算（百分比），不用容器单位（`cqw`）：用了它房间每帧变宽时面板都要重新布局，每帧约 5ms。
+- 头部高 44px，左右内边距 8px："文件""更改"两个标签，高 28px、`--r` 圆角、左右 10px / 8px，间隔 2px；前面 14px 图标（Hugeicons `files-01`、`file-diff`），文字 `--fs-meta`、`--text-muted`，悬停 `--hover` 底、`--text-2`，选中 `--selected` 底、`--text`。"更改"后的文件数 `--fs-xs`、`--text-dim`、等宽数字。右端关闭按钮同标签栏的图标按钮。
+- 第二行高 36px，左右 12px / 6px，`--fs-meta`：比较范围是 `--text-muted` 文字加 12px ⌄（悬停 `--hover` 底、`--r-sm` 圆角），合计同胶囊条的写法（`--fs-sm` 等宽，+N `--ok-text`、−M `--danger`），右端 26px 的图标按钮（刷新、全部收起），图标 `--text-dim`。
+- 树：上下 2px / 24px、左右 6px 内边距。行高 28px、`--r-sm` 圆角，行间 1px；每层缩进 12px，第一层左边 6px；16px 的槽放箭头（12px ⌄，`--text-dim`，收起时转 −90°，0.15 秒）或类型图标，后面 6px 是名字（`--fs-meta`、`--text-2`，过长省略），右边 6px。悬停 `--hover` 底，选中 `--selected` 底、文字 `--text`。目录行右边的合计 75% 不透明度；文件行右边是增删和 14px 状态图标（同原来面板的标记）。删除的文件名加删除线（线色 `--text-dim`）。改过的文件的圆点 6px，新增 `--ok`、其余 `--attn`，离右边 4px。
+- 渲染：查看标签的滚动区 `contain: strict`，把里面的 diff 和外面隔开（M1.12 前是右栏面板的滚动区）。没有它，左栏折叠展开时对话区每帧都在移动，Chromium 每帧要把面板里所有元素的绘制位置重算一遍（PrePaint）：约 2 万行的 diff（6 万个元素）每帧要 14ms，动画从 120 帧掉到 60 帧；有了它每帧不到 1ms（2026-10-13 实测）。diff 只在自己的状态或参数变了时重新渲染（`memo`），否则每次开关、折叠都要先把整个 diff 比对一遍，约 15ms。面板的宽度按房间算（百分比），不用容器单位（`cqw`）：用了它房间每帧变宽时面板都要重新布局，每帧约 5ms。
 - 其余同 [SPEC-0001 · 工作区改动](../specs/0001-mvp1-single-session-chat.md#模型与输入框m172026-10-10-定)。
+
+### 查看标签
+
+M1.12，2026-10-13 定，原型同上。
+
+- 标签：同会话标签（30px 高、`--r` 圆角、`--fs-meta`），标题前 14px 的类型图标，间隔 6px；"改动"标签的图标是 Hugeicons `file-diff`（`--text-muted`）。预览标签的标题是斜体。
+- 顶部一行高 40px，左右 14px / 8px，间隔 8px，下面 0.5px `--line`：文件名 `--text`、中粗，目录 `--text-dim`（过长省略目录，不省略文件名），大小和行数 `--fs-sm`、`--text-dim`、等宽数字；"查看改动"是 `--fs-sm` 的 `--tint` 文字按钮；右端 26px 的图标按钮，开着的开关（换行）带 `--selected` 底。
+- 正文：等宽 `--fs-sm`（12px），行高 1.7，上下 6px / 24px。行号列 48px 宽，右对齐，右边留 12px，`--text-dim`，不能选中；diff 的行号列 44px 加左边 2px 的增删竖条，行的底色同对话里的 diff（见"语义色"）。不换行时横向滚动，换行时按字断开。
+- 语法高亮同对话里的代码块：Shiki 的 `github-light` / `github-dark`，跟随外观。删除行的文字用 `--text-3` 压一档，高亮的颜色照旧。
+- "改动"标签的文件头：32px 高，吸顶，左右 12px，间隔 8px，`--main` 底，上下 0.5px `--line`；10px 的 ⌄ 箭头（`--text-dim`，折叠时转 −90°）、14px 类型图标、文件名 `--text`、目录 `--text-dim`，右边是增删和状态图标。悬停底色 `--surface-2`。从树里点过来时，文件头的底色从 `--selected` 在 1 秒里淡回去。
+- 图片居中、四周 24px，最多到原尺寸；说明文字（二进制、太大、链接、读不了）同右栏的空状态：`--fs-meta`、`--text-muted`，居中，上方 64px。
 
 ### 新建工作区页
 
@@ -229,42 +246,8 @@ M1.11，2026-10-13 定，行为见 [SPEC-0001 · 模型与输入框](../specs/00
   - 支线：插话、走不通的节点挪到 x = 19.5px（随文字列从 24.5px 内移，离文字 5px 多），文字仍从 30px 起。走不通从上一行的竖线用虚线（2 实 3 空）弯过去；插话从上方淡入的竖线落到节点，再一段曲线汇回主线。主线在支线行旁边不断。
   - 文字：动词 `--text-2`，对象 `--text-muted`，中间"·"用 `--text-dim`；命令用等宽 12px；右侧结果（"✓ 通过"、"失败"、"未完成"）12px `--text-dim`。进行中的动词扫光（同"进行中"）。走不通整行 `--text-dim`，插话的"你插话"用 `--tint`。
   - 文件胶囊：高 22px、胶囊圆角，`--surface-1` 底，`--chip-shadow`；左边 13px 的类型图标，文件名 12px；编辑的胶囊里接 11px 的 +N（`--ok-text`）−M（`--danger`）。胶囊之间 6px。
-  - 类型图标（2026-10-12 定，由 8.5px 的类型字母改，原先只有 TS / JS 有颜色、不认识的类型什么都没有）：每种类型用它的标志图形，线性、只给图标上色。Hugeicons 免费版有的用它的，没有的（Markdown、Rust、Go、Docker、Vue、Swift、Kotlin）借 Tabler 的（`markdown`、`brand-*`，MIT）。先按文件名认，再按扩展名（不分大小写），都认不出的是通用文件图标。
+  - 类型图标（M1.12 改，2026-10-13 定：用官方的，不自己画；原先是 Hugeicons、Tabler 的线性图标，只给图标上色）：用 [material-icon-theme](https://github.com/material-extensions/vscode-material-icon-theme)（MIT，VS Code 最常用的图标主题，Paseo 也用它）的原版 SVG，颜色是图标自己的，不再用 `--file-*` 变量。按它的清单认：先认完整文件名（不分大小写，如 `package.json` 是 Node、`.gitignore` 是 git、`tsconfig.json` 是 TS 配置），再认最长的扩展名（`panes.test.ts` 先认 `test.ts`，是测试图标），再按扩展名对应的语言，都认不出的是它的通用文件图标。浅色外观用它的浅色版（清单里的 `light`，如 pnpm）。只打包用得到的图标：认法表跟着清单一起生成，SVG 在用到时才加载。文件树、查看标签、文件胶囊用同一套。
 
-    | 类型 | 认法 | 图标 | 颜色（浅 / 深） |
-    |---|---|---|---|
-    | TypeScript | `ts` `mts` `cts` | TS 方块 | `--file-ts` `#3178c6` / `#5a9ae6` |
-    | React | `tsx` `jsx` | 原子 | `--file-tsx` `#1c9bbd` / `#3fb9d9` |
-    | JavaScript | `js` `mjs` `cjs` | JS 方块 | `--file-js` `#b8960c` / `#e8cd4f` |
-    | npm | 文件名 `package.json` | npm | `--file-npm` `#cb3837` / `#e5605a` |
-    | JSON | `json` `jsonc` `json5` | 花括号文件 | `--file-json` `#b7791f` / `#e0a83c` |
-    | Markdown | `md` `mdx` `markdown` | M↓ | `--file-md` `#4f6b94` / `#8fa8cc` |
-    | CSS | `css` `scss` `sass` `less` | CSS3 盾 | `--file-css` `#6f42c1` / `#a37ee8` |
-    | HTML | `html` `htm` | HTML5 盾 | `--file-html` `#e34c26` / `#f0744f` |
-    | Python | `py` `pyi` | Python | `--file-py` `#3572a5` / `#6ea4d6` |
-    | Rust | `rs` | 齿轮 R | `--file-rs` `#c2652a` / `#e38a52` |
-    | Go | `go` | Go | `--file-go` `#0092b8` / `#3fc6e8` |
-    | Shell | `sh` `bash` `zsh` `fish` | 终端 | `--file-sh` `#3f9142` / `#6cc070` |
-    | Java | `java` | 咖啡杯 | `--file-java` `#b07219` / `#d9954a` |
-    | Kotlin | `kt` `kts` | Kotlin | `--file-kotlin` `#7f52ff` / `#a487ff` |
-    | Swift | `swift` | 雨燕 | `--file-swift` `#f05138` / `#f57a62` |
-    | PHP | `php` | PHP | `--file-php` `#4f5d95` / `#8a97d0` |
-    | Dart | `dart` | Dart | `--file-dart` `#00a39b` / `#3cc7be` |
-    | C / C++ | `c` `h` `cc` `cpp` `cxx` `hpp` | C++ | `--file-c` `#d6336c` / `#f06595` |
-    | Vue | `vue` | V | `--file-vue` `#3fa776` / `#5fc795` |
-    | Docker | 文件名 `Dockerfile`、`Dockerfile.*`，扩展名 `dockerfile` | 鲸鱼 | `--file-docker` `#1d8fe1` / `#4fb0f2` |
-    | SQL | `sql` | SQL | `--file-sql` `#d07b00` / `#eaa040` |
-    | 图片 | `png` `jpg` `jpeg` `gif` `webp` `ico` `bmp` `avif` | 图片文件 | `--file-image` `#a05cc0` / `#c48ae0` |
-    | SVG | `svg` | SVG | `--file-svg` `#d99a1e` / `#f0b84a` |
-    | PDF | `pdf` | PDF | `--file-pdf` `#d93a32` / `#ec6a62` |
-    | 表格 | `csv` `tsv` | CSV | `--file-csv` `#2f9e58` / `#58c27e` |
-    | XML | `xml` | XML | `--file-xml` `#d9772b` / `#ee9a55` |
-    | Git | 文件名 `.gitignore` `.gitattributes` `.gitmodules` | 分支 | `--file-git` `#e8553a` / `#f07a5f` |
-    | 锁文件 | 文件名 `pnpm-lock.yaml` `package-lock.json`，扩展名 `lock` | 带锁文件 | `--text-muted` |
-    | 配置 | 文件名 `.env`、`.env.*`，扩展名 `yml` `yaml` `toml` `ini` `conf` `cfg` `properties` | 齿轮 | `--text-muted` |
-    | 文本 | `txt` `log` | TXT | `--text-muted` |
-    | 压缩包 | `zip` `tar` `gz` `tgz` `7z` `rar` | 压缩文件 | `--text-muted` |
-    | 其他 | — | 通用文件 | `--text-muted` |
   - 详情块不变（`--code` 底、圆角 `--r`），竖线在它旁边接着往下。不做成卡片。
   - 没有内容可看的推理（模型把推理藏起来了，只有一个空块）：整行不是按钮，没有悬停底色、点不开，也没有详情块（2026-10-12 定）。
 - 回复：Markdown，下方一行信息：复制、改动汇总胶囊、用量、时间。

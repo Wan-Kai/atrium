@@ -335,7 +335,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 文件类型图标统一换成 material-icon-theme 的原版图标（MIT，VS Code、Paseo 用的那套），对话里的文件胶囊一起换（2026-10-13 定：用官方的，不自己画）。
   - 协议：列文件、读文件；diff 沿用 `watch_diff`。
   - 不做（Paseo 有的）：分支切换、新建 / 重命名 / 删除文件、右键菜单、并排 diff、忽略空白、diff 里的评论、编辑文件、文件树的排序切换。
-- **参考**：原型 `files-changes-prototype.html`（A 版；B 分栏、C 浮层没选）、[paseo-architecture](research/paseo-architecture.md) §6.1、[SPEC-0001 · 工作区改动](specs/0001-mvp1-single-session-chat.md#模型与输入框m172026-10-10-定)、[design-language · 右栏](architecture/design-language.md#右栏改动面板)。Paseo 的对应源码：`packages/app/src/components/file-explorer-pane.tsx`、`git/changed-files-tree.tsx`、`git/diff-tree.ts`、`panels/file-panel.tsx`、`workspace-tabs/open-beside.ts`。
+- **参考**：原型 `files-changes-prototype.html`（A 版；B 分栏、C 浮层没选）、[paseo-architecture](research/paseo-architecture.md) §6.1、[SPEC-0001 · M1.12 的文件与更改](specs/0001-mvp1-single-session-chat.md#m112-的文件与更改协议版本-142026-10-13-定)（以及它沿用的"工作区改动"）、[design-language · 右栏、查看标签](architecture/design-language.md#右栏文件与更改)、[domain-model](architecture/domain-model.md)"已决定 19"、[security.md](architecture/security.md)"子进程与文件"。Paseo 的对应源码：`packages/app/src/components/file-explorer-pane.tsx`、`git/changed-files-tree.tsx`、`git/diff-tree.ts`、`panels/file-panel.tsx`、`workspace-tabs/open-beside.ts`。
 - **完成标准**：SPEC-0001 里这一节的行为都有测试；约 2 万行的 diff 在查看标签里打开、滚动、切换标签不超过性能预算；查看标签反复开关的泄漏测试通过；大文件、二进制、图片、读不了的文件都有说法。
 
 #### MVP 2：看得见内部
