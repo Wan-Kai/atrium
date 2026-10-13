@@ -1,6 +1,7 @@
 import { type AtriumClient, CommandError, type IndexView } from "@atrium/client";
 import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
+  Archive,
   ArrowUp,
   CaretDown,
   CaretUp,
@@ -64,6 +65,10 @@ const UNKNOWN_REASONS: Readonly<Record<MergeUnknownReason, string>> = {
   git_failed: "无法判断是否已合并：git 出错了，稍后会再看",
   base_unknown: "无法判断是否已合并：看不出这个 worktree 从哪里开始",
 };
+
+/** A row's archive button, shown on hover left of its "···" like a project's "+". */
+const ROW_ARCHIVE =
+  "rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)] aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-transparent aria-disabled:hover:text-[var(--text-dim)]";
 
 /** Where collapsed projects are remembered in this browser profile (domain-model §7, ViewState). */
 const COLLAPSED_KEY = "atrium.collapsedProjects";
@@ -444,8 +449,8 @@ async function selectChat(client: AtriumClient, listed: ListedChat): Promise<unk
  * @remarks
  * Shown without chats too, as its heading holds the way to start one (SPEC-0001, "对话"). Each chat is a
  * container like a workspace (ADR-0007): its row shows its name, latest activity and status, is
- * lit while selected, and its "···" menu renames or archives it, asking first only when some of
- * its sessions run (SPEC-0001, "M1.11 的对话归档"). The rest of the chats open in place, and
+ * lit while selected; on hover its archive button archives it, asking first only when some of its
+ * sessions run, and its "···" menu renames it (SPEC-0001, "M1.11 的对话归档"). The rest of the chats open in place, and
  * "收起" closes them again; the archived ones are listed last.
  *
  * @sideEffects Sends commands when used.
@@ -540,34 +545,32 @@ function ChatRows({
               onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
             >
+              <button
+                type="button"
+                aria-label={`归档对话 ${name}`}
+                title="归档"
+                onClick={() => {
+                  const running = listed.sessions.filter((session) => session.running).length;
+                  if (running > 0) setArchiving({ chat, running });
+                  else archive(chat.id);
+                }}
+                className={ROW_ARCHIVE}
+              >
+                <Archive size={14} />
+              </button>
               <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
                 {(close) => (
-                  <>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className={MENU_ITEM}
-                      onClick={() => {
-                        close();
-                        setRenaming(chat.id);
-                      }}
-                    >
-                      重命名
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className={MENU_ITEM}
-                      onClick={() => {
-                        close();
-                        const running = listed.sessions.filter((session) => session.running).length;
-                        if (running > 0) setArchiving({ chat, running });
-                        else archive(chat.id);
-                      }}
-                    >
-                      归档
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={MENU_ITEM}
+                    onClick={() => {
+                      close();
+                      setRenaming(chat.id);
+                    }}
+                  >
+                    重命名
+                  </button>
                 )}
               </MenuButton>
             </span>
@@ -811,8 +814,9 @@ function workspaceHint(workspace: Workspace): string {
  * One workspace's row: its name, merge state and whether something runs in it.
  *
  * @remarks
- * See `Sidebar`; merge labels follow design-language ("标签"). A worktree's menu can archive it,
- * except while it has changes not committed (SPEC-0001, "M1.11 的工作区归档").
+ * See `Sidebar`; merge labels follow design-language ("标签"). On hover a worktree's archive
+ * button asks to archive it, faded and saying why while it has changes not committed (SPEC-0001,
+ * "M1.11 的工作区归档"); `aria-disabled` rather than `disabled`, so the reason still shows.
  *
  * @sideEffects Sends commands when used.
  * @param props - The client, the workspace, whether it is selected, runs or is being renamed,
@@ -840,6 +844,7 @@ function WorkspaceRow({
 }) {
   const name = workspaceName(workspace);
   const leave = use(LeavePage);
+  const dirty = workspace.merge?.dirty === true;
   return (
     <div
       role="button"
@@ -882,36 +887,33 @@ function WorkspaceRow({
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
+        {workspace.kind === "worktree" ? (
+          <button
+            type="button"
+            aria-label={`归档工作区 ${name}`}
+            aria-disabled={dirty}
+            title={dirty ? "有未提交的改动，先提交或丢弃" : "归档"}
+            onClick={() => {
+              if (!dirty) onArchive();
+            }}
+            className={ROW_ARCHIVE}
+          >
+            <Archive size={14} />
+          </button>
+        ) : null}
         <MenuButton label={`工作区 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
           {(close) => (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className={MENU_ITEM}
-                onClick={() => {
-                  close();
-                  setRenaming(workspace.id);
-                }}
-              >
-                重命名
-              </button>
-              {workspace.kind === "worktree" ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-                  disabled={workspace.merge?.dirty === true}
-                  title={workspace.merge?.dirty === true ? "有未提交的改动，先提交或丢弃" : undefined}
-                  onClick={() => {
-                    close();
-                    onArchive();
-                  }}
-                >
-                  归档…
-                </button>
-              ) : null}
-            </>
+            <button
+              type="button"
+              role="menuitem"
+              className={MENU_ITEM}
+              onClick={() => {
+                close();
+                setRenaming(workspace.id);
+              }}
+            >
+              重命名
+            </button>
           )}
         </MenuButton>
       </span>

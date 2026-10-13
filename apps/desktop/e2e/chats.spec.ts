@@ -71,8 +71,7 @@ test("archives a chat with its sessions and restores it from 已归档的对话,
     await expect(rows).toHaveText([/^留下的对话/, /^要归档的对话/], { timeout: 30_000 });
 
     await rows.nth(1).hover();
-    await rows.nth(1).getByRole("button", { name: "对话 要归档的对话" }).click();
-    await window.getByRole("menuitem", { name: "归档" }).click();
+    await rows.nth(1).getByRole("button", { name: "归档对话 要归档的对话" }).click();
 
     await expect(rows).toHaveText([/^留下的对话/], { timeout: 30_000 });
     await launched.quit();
