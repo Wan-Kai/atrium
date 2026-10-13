@@ -2,17 +2,21 @@ import type { TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import {
   droppedReference,
-  acceptCommand,
+  commandArguments,
   composeMessage,
   enterDirectory,
   filterCommands,
+  groupCommands,
   historyOf,
   isLongPaste,
   lineCount,
   mentionAt,
   removeMention,
   slashQuery,
+  tagCommand,
   typedMessage,
+  untagCommand,
+  writtenCommand,
 } from "./composer-text";
 
 describe("slashQuery", () => {
@@ -29,10 +33,54 @@ describe("slashQuery", () => {
   });
 });
 
-describe("acceptCommand", () => {
-  it("puts the command in place of the first word, keeping what follows, the caret after it", () => {
-    expect(acceptCommand("/rev", "review")).toStrictEqual({ text: "/review ", caret: 8 });
-    expect(acceptCommand("/re src/a.ts", "review")).toStrictEqual({ text: "/review src/a.ts", caret: 8 });
+describe("tagCommand and untagCommand", () => {
+  it("takes the first word and one space after it out, leaving what follows for the tag's arguments", () => {
+    expect(tagCommand("/rev")).toBe("");
+    expect(tagCommand("/re src/a.ts")).toBe("src/a.ts");
+    expect(tagCommand("/re  two spaces")).toBe(" two spaces");
+  });
+
+  it("writes the tag back as /name, a space before what followed, the caret after the name", () => {
+    const tag = { source: "prompt", name: "review" } as const;
+
+    expect(untagCommand(tag, "src/a.ts")).toStrictEqual({ text: "/review src/a.ts", caret: 7 });
+    expect(untagCommand(tag, "")).toStrictEqual({ text: "/review", caret: 7 });
+  });
+});
+
+describe("groupCommands", () => {
+  it("puts the commands under their kinds, built-in, extension, template, skill, keeping each one's order", () => {
+    const listed = [
+      { name: "b", source: "skill" },
+      { name: "c", source: "extension" },
+      { name: "a", source: "prompt" },
+      { name: "d", source: "extension" },
+    ] as const;
+
+    expect(groupCommands(listed)).toStrictEqual([
+      { source: "extension", commands: [listed[1], listed[3]] },
+      { source: "prompt", commands: [listed[2]] },
+      { source: "skill", commands: [listed[0]] },
+    ]);
+    expect(groupCommands([{ name: "x", source: "builtin" }, ...listed]).map((group) => group.source)).toStrictEqual([
+      "builtin",
+      "extension",
+      "prompt",
+      "skill",
+    ]);
+  });
+});
+
+describe("writtenCommand and commandArguments", () => {
+  it("writes a tag and its arguments as typed, and reads the arguments back", () => {
+    const tag = { source: "skill", name: "skill:tdd" } as const;
+
+    expect(writtenCommand(tag, "go on")).toBe("/skill:tdd go on");
+    expect(writtenCommand(tag, "")).toBe("/skill:tdd");
+    expect(writtenCommand(null, "plain")).toBe("plain");
+    expect(commandArguments(tag, "/skill:tdd go on\n\nmore")).toBe("go on\n\nmore");
+    expect(commandArguments(tag, "/skill:tdd")).toBe("");
+    expect(commandArguments(tag, "something else")).toBe("something else");
   });
 });
 
@@ -147,18 +195,28 @@ describe("composeMessage", () => {
         text: "Fix it  ",
         pastes: [{ id: "p1", text: "line 1\nline 2" }],
         files: ["src/a.ts", "docs/", "My Notes.md"],
+        command: null,
       }),
     ).toBe('Fix it\n\nline 1\nline 2\n\n@src/a.ts @docs/ @"My Notes.md"');
   });
 
   it("leaves out a paste of nothing but white space", () => {
-    expect(composeMessage({ text: "hi", pastes: [{ id: "p1", text: " \n " }], files: [] })).toBe("hi");
+    expect(composeMessage({ text: "hi", pastes: [{ id: "p1", text: " \n " }], files: [], command: null })).toBe("hi");
   });
 
   it("leaves out what is empty", () => {
-    expect(composeMessage({ text: "hi", pastes: [], files: [] })).toBe("hi");
-    expect(composeMessage({ text: " ", pastes: [], files: ["a.ts"] })).toBe("@a.ts");
-    expect(composeMessage({ text: "", pastes: [], files: [] })).toBe("");
+    expect(composeMessage({ text: "hi", pastes: [], files: [], command: null })).toBe("hi");
+    expect(composeMessage({ text: " ", pastes: [], files: ["a.ts"], command: null })).toBe("@a.ts");
+    expect(composeMessage({ text: "", pastes: [], files: [], command: null })).toBe("");
+  });
+
+  it("starts with the chosen command, its arguments after it", () => {
+    const command = { source: "prompt", name: "review" } as const;
+
+    expect(composeMessage({ text: "src  ", pastes: [{ id: "p1", text: "pasted" }], files: [], command })).toBe(
+      "/review src\n\npasted",
+    );
+    expect(composeMessage({ text: " ", pastes: [], files: [], command })).toBe("/review");
   });
 });
 

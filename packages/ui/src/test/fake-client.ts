@@ -5,6 +5,7 @@ import type {
   DiffView,
   IndexView,
   InstallJob,
+  MessageTag,
   ModelListView,
   SessionView,
   SetupView,
@@ -549,13 +550,19 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       index.setState({ preferences: { ...index.getState().preferences, ...kept } });
       return {};
     },
-    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = [], previews: readonly string[] = []) {
+    prompt(
+      sessionId: string,
+      text: string,
+      attachmentIds: readonly string[] = [],
+      previews: readonly string[] = [],
+      command?: MessageTag,
+    ) {
       calls.push(`prompt ${sessionId} ${text}${attachmentIds.map((id) => ` +${id}`).join("")}`);
       const view = views.get(sessionId);
       const clientMessageId = `q${calls.length}`;
       if (previews.length > 0) sent.set(clientMessageId, previews);
       const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
-      const shown = { clientMessageId, text, ...images };
+      const shown = { clientMessageId, text, ...images, ...(command === undefined ? {} : { command }) };
       view?.setState({ pending: [...view.getState().pending, shown] });
       // As the client does, a message that did not go is taken back out.
       return (answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const })).catch((error: unknown) => {

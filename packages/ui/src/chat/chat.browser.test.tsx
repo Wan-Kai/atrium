@@ -745,6 +745,23 @@ describe("ConversationArea", () => {
     await expect.element(screen.getByTestId("user-message")).toHaveTextContent("你好");
   });
 
+  it("sends a tagged message as /name and its text, the pending bubble starting with the tag", async () => {
+    const { client, calls } = fakeClient();
+    const screen = await render(
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.type(box, "/rev");
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+
+    await userEvent.keyboard("{Enter}src{Enter}");
+
+    await vi.waitFor(() => expect(calls.at(-1)).toBe("prompt s1 /review src"));
+    await expect.element(screen.getByTestId("user-message")).toHaveAttribute("data-pending", "true");
+    expect(screen.getByTestId("user-text").element().textContent).toBe("reviewsrc");
+    await expect.element(screen.getByTestId("user-text").getByTestId("command-tag")).toHaveTextContent("review");
+  });
+
   it.each(["exited", "lost"] as const)("opens a session that is %s again before sending to it", async (status) => {
     const { client, calls, views } = fakeClient();
     const screen = await render(
@@ -1322,9 +1339,10 @@ describe("ConversationArea's composer", () => {
     expect(calls).toContain("searchFiles s1 a");
     await vi.waitFor(() =>
       expect(pageDrafts().read("s1")).toStrictEqual({
-        text: "/review 看看 ",
+        text: "看看 ",
         pastes: [],
         files: ["src/a.ts"],
+        command: { source: "prompt", name: "review" },
         images: [],
       }),
     );

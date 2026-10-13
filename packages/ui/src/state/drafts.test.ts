@@ -35,9 +35,14 @@ function kept(id: string, attachmentId: string | null = id): KeptImage {
   return { id, image: { mimeType: "image/webp", data: id, preview: id }, attachmentId };
 }
 
-const TEXT = { text: "half a thought", pastes: [{ id: "p1", text: "pasted" }], files: ["src/a.ts"] };
+const TEXT = {
+  text: "half a thought",
+  pastes: [{ id: "p1", text: "pasted" }],
+  files: ["src/a.ts"],
+  command: null,
+};
 const DRAFT = { ...TEXT, images: [] };
-const EMPTY = { text: "", pastes: [], files: [], images: [] };
+const EMPTY = { text: "", pastes: [], files: [], command: null, images: [] };
 
 describe("createDrafts", () => {
   it("keeps a session's draft under its own key, in memory and in storage, telling those listening", () => {
@@ -77,10 +82,24 @@ describe("createDrafts", () => {
     expect(createDrafts(storage).read("s1")).toStrictEqual(DRAFT);
   });
 
+  it("reads a draft stored before commands were tags as having none, and one with a broken command as none", () => {
+    const { storage, store } = memory();
+    store.set("atrium-draft:s1", JSON.stringify({ text: "old", pastes: [], files: [] }));
+    store.set("atrium-draft:s2", JSON.stringify({ ...TEXT, command: { source: "plugin", name: "x" } }));
+    store.set("atrium-draft:s3", JSON.stringify({ ...TEXT, command: { source: "prompt", name: 1 } }));
+    store.set("atrium-draft:s4", JSON.stringify({ ...TEXT, command: { source: "prompt" } }));
+    store.set("atrium-draft:s5", JSON.stringify({ ...TEXT, command: "review" }));
+    const drafts = createDrafts(storage);
+
+    expect(drafts.read("s1")).toStrictEqual({ ...EMPTY, text: "old" });
+    expect(["s2", "s3", "s4", "s5"].map((key) => drafts.read(key))).toStrictEqual([EMPTY, EMPTY, EMPTY, EMPTY]);
+  });
+
   it.each([
-    ["only text", { text: "a", pastes: [], files: [] }],
-    ["only a pasted text", { text: "", pastes: [{ id: "p1", text: "x" }], files: [] }],
-    ["only a file", { text: "", pastes: [], files: ["a.ts"] }],
+    ["only text", { text: "a", pastes: [], files: [], command: null }],
+    ["only a pasted text", { text: "", pastes: [{ id: "p1", text: "x" }], files: [], command: null }],
+    ["only a file", { text: "", pastes: [], files: ["a.ts"], command: null }],
+    ["only a command", { text: "", pastes: [], files: [], command: { source: "skill" as const, name: "skill:tdd" } }],
   ])("stores a draft with %s", (_case, text) => {
     const { storage, store } = memory();
 

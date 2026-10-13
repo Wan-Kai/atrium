@@ -696,6 +696,37 @@ describe("createAtriumClient: sessions", () => {
     expect(client.session("s1")?.getState()).toMatchObject({ pending: [], items: [turn("t1", "client-1-4")] });
   });
 
+  it("shows the tag a message went with on its pending copy, sending only its text", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(snapshot(0));
+
+    void client.prompt("s1", "/review src", [], [], { source: "prompt", name: "review" }).catch(() => undefined);
+    void client.steer("s1", "/skill:tdd", [], [], { source: "skill", name: "skill:tdd" }).catch(() => undefined);
+
+    expect(client.session("s1")?.getState().pending).toStrictEqual([
+      { clientMessageId: "client-1-4", text: "/review src", command: { source: "prompt", name: "review" } },
+      { clientMessageId: "client-1-5", text: "/skill:tdd", command: { source: "skill", name: "skill:tdd" } },
+    ]);
+    expect(
+      latest()
+        .sent.slice(-2)
+        .map(({ type, text }) => [type, text]),
+    ).toStrictEqual([
+      ["prompt", "/review src"],
+      ["steer", "/skill:tdd"],
+    ]);
+    expect(Object.keys(present(latest().sent.at(-1), "the steer"))).toStrictEqual([
+      "type",
+      "requestId",
+      "traceparent",
+      "sessionId",
+      "text",
+    ]);
+  });
+
   it("takes a pending prompt back when it fails or an extension handles it", async () => {
     const { client, latest } = await connected();
     const watching = client.watch(["s1"]);

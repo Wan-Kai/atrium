@@ -13,7 +13,7 @@ import { createStore } from "zustand/vanilla";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/use-draft";
-import { historyOf } from "./composer-text";
+import { type ChosenCommand, historyOf } from "./composer-text";
 import { ChangesPanel } from "./changes-panel";
 import { FastToggle } from "./fast-toggle";
 import { shownModel } from "./model-choice";
@@ -236,8 +236,8 @@ function SessionArea({
   readonly containerId: string | null;
   readonly sessionId: string;
   readonly store: StoreApi<SessionView>;
-  readonly onSend: (text: string, images: readonly SentImage[]) => void;
-  readonly onSteer: (text: string, images: readonly SentImage[]) => void;
+  readonly onSend: ComposerProps["onSend"];
+  readonly onSteer: NonNullable<ComposerProps["onSteer"]>;
   readonly act: Act;
   readonly session: () => Promise<string>;
   readonly notice: ReactNode;
@@ -559,9 +559,15 @@ export function ConversationArea({
    * @sideEffects Sends commands; may upload images; updates component state.
    * @param text - The message.
    * @param images - Its uploaded images.
+   * @param command - The tag it was sent with, for its pending copy.
    * @param steer - Whether to send it as a steer.
    */
-  async function send(text: string, images: readonly SentImage[], steer = false): Promise<void> {
+  async function send(
+    text: string,
+    images: readonly SentImage[],
+    command: ChosenCommand | null,
+    steer = false,
+  ): Promise<void> {
     setFailure(null);
     const failed = launchOver(launches.getState(), sessionId);
     if (failed !== undefined) dismiss(launches, failed.id);
@@ -571,6 +577,7 @@ export function ConversationArea({
       id = await target();
       const to = id;
       const previews = images.map(({ image }) => image.preview);
+      const tag = command ?? undefined;
       /**
        * Sends the message with these uploads.
        *
@@ -582,7 +589,7 @@ export function ConversationArea({
        * @returns The command's result.
        */
       const deliver = (ids: readonly string[]) =>
-        steer ? client.steer(to, text, ids, previews) : client.prompt(to, text, ids, previews);
+        steer ? client.steer(to, text, ids, previews, tag) : client.prompt(to, text, ids, previews, tag);
       try {
         await deliver(images.map((image) => image.attachmentId));
       } catch (error) {
@@ -637,10 +644,11 @@ export function ConversationArea({
    * @sideEffects Sends commands.
    * @param text - The message.
    * @param images - Its uploaded images.
+   * @param command - The tag it was sent with.
    */
-  const onSend = (text: string, images: readonly SentImage[]): void => {
+  const onSend = (text: string, images: readonly SentImage[], command: ChosenCommand | null): void => {
     // Fire and forget: see above.
-    void send(text, images);
+    void send(text, images, command);
   };
   /**
    * Creates the empty state's session as soon as the user edits its box.
@@ -665,10 +673,11 @@ export function ConversationArea({
    * @sideEffects Sends commands.
    * @param text - The steer.
    * @param images - Its uploaded images.
+   * @param command - The tag it was sent with.
    */
-  const onSteer = (text: string, images: readonly SentImage[]): void => {
+  const onSteer = (text: string, images: readonly SentImage[], command: ChosenCommand | null): void => {
     // Fire and forget: `send` reports its own failures.
-    void send(text, images, true);
+    void send(text, images, command, true);
   };
 
   const modelList = useStore(client.models(workspaceId));

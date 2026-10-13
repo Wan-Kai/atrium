@@ -7,6 +7,7 @@ import "../styles.css";
 import type { CatalogModel } from "@atrium/protocol";
 import { pageDrafts } from "../state/use-draft";
 import { Composer, type ComposerProps } from "./composer";
+import type { ChosenCommand } from "./composer-text";
 import { compressImage } from "./images";
 import { ModelPicker } from "./model-picker";
 
@@ -40,16 +41,20 @@ function freshKey(): string {
  *
  * @sideEffects Renders.
  * @param props - Props besides `onSend`.
- * @returns The screen, the box, what was sent, and the searches asked for.
+ * @returns The screen, the box, what was sent and the tag it went with, and the searches asked for.
  */
 async function composer(props: Partial<ComposerProps> = {}) {
   const sent: string[] = [];
+  const tags: (ChosenCommand | null)[] = [];
   const searched: string[] = [];
   const screen = await render(
     <div style={{ paddingTop: 480 }}>
       <Composer
         draftKey={freshKey()}
-        onSend={(text) => sent.push(text)}
+        onSend={(text, _images, command) => {
+          sent.push(text);
+          tags.push(command);
+        }}
         onListCommands={async () => COMMANDS}
         onSearchFiles={async (query) => {
           searched.push(query);
@@ -59,7 +64,7 @@ async function composer(props: Partial<ComposerProps> = {}) {
       />
     </div>,
   );
-  return { screen, box: screen.getByRole("textbox", { name: "消息" }), sent, searched };
+  return { screen, box: screen.getByRole("textbox", { name: "消息" }), sent, tags, searched };
 }
 
 describe("Composer's / commands", () => {
@@ -74,7 +79,20 @@ describe("Composer's / commands", () => {
         .getByRole("option")
         .elements()
         .map((option) => option.textContent),
-    ).toStrictEqual(["/mcp扩展Manage MCP servers", "/review模板Reviews the change", "/skill:tdd技能Test first"]);
+    ).toStrictEqual(["/mcpManage MCP servers", "/reviewReviews the change", "/skill:tddTest first"]);
+    expect(
+      screen
+        .getByRole("group")
+        .elements()
+        .map((group) => [group.getAttribute("aria-label"), group.querySelectorAll('[role="option"]').length]),
+    ).toStrictEqual([
+      ["扩展", 1],
+      ["模板", 1],
+      ["技能", 1],
+    ]);
+    expect(iconColors(list.element())).toStrictEqual(
+      ["var(--ok-text)", "var(--attn-text)", "var(--ctx-tools)"].map(colorOf),
+    );
     await userEvent.type(box, "rev");
 
     expect(
@@ -82,17 +100,95 @@ describe("Composer's / commands", () => {
         .getByRole("option")
         .elements()
         .map((option) => option.textContent),
-    ).toStrictEqual(["/review模板Reviews the change"]);
+    ).toStrictEqual(["/reviewReviews the change"]);
   });
 
-  it("puts the chosen command in the box with Enter, without sending", async () => {
-    const { screen, box, sent } = await composer();
+  it("turns the chosen command into a tag with Enter, the caret after it, and sends it before the text", async () => {
+    const { screen, box, sent, tags } = await composer();
 
     await userEvent.type(box, "/re{ArrowDown}{Enter}");
 
-    await expect.element(box).toHaveValue("/review ");
+    await expect.element(screen.getByTestId("command-tag")).toHaveTextContent("review");
+    await expect.element(box).toHaveValue("");
     await expect.element(screen.getByRole("listbox")).not.toBeInTheDocument();
     expect(sent).toStrictEqual([]);
+    await userEvent.keyboard("src/a.ts{Enter}");
+    expect([sent, tags]).toStrictEqual([["/review src/a.ts"], [{ source: "prompt", name: "review" }]]);
+    await expect.element(screen.getByTestId("command-tag")).not.toBeInTheDocument();
+  });
+
+  it("keeps what followed the / word when it becomes a tag", async () => {
+    const { screen, box } = await composer();
+
+    await userEvent.type(box, " src/a.ts{Home}/rev");
+    await userEvent.click(screen.getByRole("option", { name: /review/ }));
+
+    await expect.element(box).toHaveValue("src/a.ts");
+    await expect.element(screen.getByTestId("command-tag")).toHaveTextContent("review");
+    expect((box.element() as HTMLTextAreaElement).selectionStart).toBe(0);
+  });
+
+  it("goes down the list as drawn, group by group, whatever order the matches came in", async () => {
+    const { screen, box } = await composer({
+      onListCommands: async () => [
+        { name: "preview", description: null, source: "prompt" },
+        { name: "skill:review", description: null, source: "skill" },
+      ],
+    });
+
+    await userEvent.type(box, "/rev");
+    await expect.element(screen.getByRole("option", { name: "/preview" })).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{Enter}");
+
+    await expect.element(screen.getByTestId("command-tag")).toHaveTextContent("preview");
+  });
+
+  it("writes the tag back as /name on Backspace at the start, the caret after the name", async () => {
+    const { screen, box } = await composer();
+    await userEvent.type(box, "/rev{Enter}look");
+    (box.element() as HTMLTextAreaElement).setSelectionRange(0, 0);
+
+    await userEvent.keyboard("{Backspace}");
+
+    await expect.element(box).toHaveValue("/review look");
+    await expect.element(screen.getByTestId("command-tag")).not.toBeInTheDocument();
+    expect((box.element() as HTMLTextAreaElement).selectionStart).toBe(7);
+  });
+
+  it("leaves the tag alone on Backspace past the start, or with text selected from it", async () => {
+    const { screen, box } = await composer();
+
+    await userEvent.type(box, "/rev{Enter}abc{Backspace}");
+    (box.element() as HTMLTextAreaElement).setSelectionRange(0, 1);
+    await userEvent.keyboard("{Backspace}");
+
+    await expect.element(box).toHaveValue("b");
+    await expect.element(screen.getByTestId("command-tag")).toBeVisible();
+  });
+
+  it("lists nothing for a / typed after a tag, and asks for more words in its hint", async () => {
+    const { screen, box } = await composer();
+
+    await userEvent.type(box, "/rev{Enter}/");
+
+    await expect.element(screen.getByRole("listbox")).not.toBeInTheDocument();
+    await userEvent.clear(box);
+    await expect.element(box).toHaveAttribute("placeholder", "接着写要说的话（可选）");
+  });
+
+  it("starts the text 6px after the tag, the tag at the box's left and centred on the first line", async () => {
+    const { screen, box } = await composer();
+    await userEvent.type(box, "/skill{Enter}");
+    const tag = screen.getByTestId("command-tag").element().getBoundingClientRect();
+    const field = box.element() as HTMLTextAreaElement;
+    const style = getComputedStyle(field);
+    const top = field.getBoundingClientRect().top + Number.parseFloat(style.paddingTop);
+
+    expect([
+      Math.round(tag.left - field.getBoundingClientRect().left),
+      Math.round(Number.parseFloat(style.textIndent) - tag.width),
+      Math.round(tag.top + tag.height / 2 - (top + Number.parseFloat(style.lineHeight) / 2)),
+    ]).toStrictEqual([0, 6, 0]);
   });
 
   it("sends a command typed whole with Enter, the list open or not", async () => {
@@ -117,7 +213,8 @@ describe("Composer's / commands", () => {
     await userEvent.type(box, "/{ArrowDown}{ArrowDown}{ArrowUp}");
     await expect.element(screen.getByRole("option", { name: /review/ })).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{Tab}");
-    await expect.element(box).toHaveValue("/review ");
+    await expect.element(screen.getByTestId("command-tag")).toHaveTextContent("review");
+    await expect.element(box).toHaveValue("");
 
     await userEvent.clear(box);
     await userEvent.type(box, "/{Escape}");
@@ -140,6 +237,27 @@ describe("Composer's / commands", () => {
     await expect.element(screen.getByText("读不到命令列表")).toBeVisible();
   });
 });
+
+/**
+ * A colour as the page computes it.
+ *
+ * @sideEffects Adds a probe to the page and takes it off.
+ * @param value - A CSS colour.
+ * @returns The computed colour.
+ */
+function colorOf(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  document.body.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
+}
+
+/** The colours of the command icons in a list, in order. */
+function iconColors(list: Element): string[] {
+  return [...list.querySelectorAll('[data-testid="command-icon"]')].map((icon) => getComputedStyle(icon).color);
+}
 
 /** A search answering each query with its own promise. */
 function answering(
@@ -304,6 +422,7 @@ describe("Composer's draft", () => {
         text: "半句话",
         pastes: [],
         files: ["src/session.ts"],
+        command: null,
         images: [],
       }),
     );
@@ -312,6 +431,25 @@ describe("Composer's draft", () => {
 
     await expect.element(first.screen.getByRole("textbox", { name: "消息" })).toHaveValue("半句话");
     await expect.element(first.screen.getByRole("button", { name: "移除 src/session.ts" })).toBeVisible();
+  });
+
+  it("keeps a tag in the draft, and brings it back", async () => {
+    const first = await composer({ draftKey: "s1" });
+    await userEvent.type(first.box, "/tdd{Enter}先写测试");
+    await vi.waitFor(() =>
+      expect(pageDrafts().read("s1")).toStrictEqual({
+        text: "先写测试",
+        pastes: [],
+        files: [],
+        command: { source: "skill", name: "skill:tdd" },
+        images: [],
+      }),
+    );
+
+    await first.screen.rerender(<Composer key="again" onSend={() => undefined} draftKey="s1" />);
+
+    await expect.element(first.screen.getByTestId("command-tag")).toHaveTextContent("skill:tdd");
+    await expect.element(first.screen.getByRole("textbox", { name: "消息" })).toHaveValue("先写测试");
   });
 
   it("forgets the draft once sent", async () => {

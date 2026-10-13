@@ -27,23 +27,28 @@ import {
 } from "react";
 import { type Draft, type KeptImage } from "../state/drafts";
 import { pageDrafts, useDraft } from "../state/use-draft";
+import { CommandIcon, CommandTag } from "./command-tag";
 import {
+  type ChosenCommand,
+  type CommandKind,
   type DraftText,
   type Mention,
-  acceptCommand,
   composeMessage,
   droppedReference,
   enterDirectory,
   filterCommands,
+  groupCommands,
   isLongPaste,
   lineCount,
   mentionAt,
   removeMention,
   slashQuery,
+  tagCommand,
+  untagCommand,
 } from "./composer-text";
 import { type CompressedImage, ImageTooLargeError, compressImage } from "./images";
 
-const EMPTY_DRAFT: Draft = { text: "", pastes: [], files: [], images: [] };
+const EMPTY_DRAFT: Draft = { text: "", pastes: [], files: [], command: null, images: [] };
 
 /** An image sent with a message: its upload and the image itself, to upload again if needed. */
 export interface SentImage {
@@ -53,10 +58,10 @@ export interface SentImage {
 
 /** Props of {@link Composer}. */
 export interface ComposerProps {
-  /** Sends a message with its images; while a run goes on, the host queues it. */
-  readonly onSend: (text: string, images: readonly SentImage[]) => void;
+  /** Sends a message with its images and the tag it started with; while a run goes on, the host queues it. */
+  readonly onSend: (text: string, images: readonly SentImage[], command: ChosenCommand | null) => void;
   /** Sends a steer (⌘+Enter); without it ⌘+Enter sends as Enter does. */
-  readonly onSteer?: (text: string, images: readonly SentImage[]) => void;
+  readonly onSteer?: (text: string, images: readonly SentImage[], command: ChosenCommand | null) => void;
   /** Stops the run (the button while running, and Esc). */
   readonly onStop?: () => void;
   /** Whether a run goes on: the button stops, Enter queues and ⌘+Enter steers. */
@@ -118,8 +123,9 @@ type CommandList = readonly SlashCommand[] | "loading" | "failed";
 /** What the `@` list shows: the last answer and the query it was for, or why there is none. */
 type FileList = { readonly query: string; readonly files: readonly FileCandidate[] } | "fd_missing" | "failed";
 
-/** How each kind of command is labelled in the `/` list. */
-const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
+/** The heading of each kind's group in the `/` list. */
+const KIND_NAMES: Readonly<Record<CommandKind, string>> = {
+  builtin: "内置",
   extension: "扩展",
   prompt: "模板",
   skill: "技能",
@@ -134,7 +140,9 @@ const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
  * button is "停止" and Esc stops too; Enter queues and ⌘+Enter steers, as the placeholder then
  * says; while a stop waits for pi nothing is sent and the text stays.
  *
- * `/` at the start lists pi's commands, asked for each time the list opens; `@` lists files and
+ * `/` at the start lists pi's commands, asked for each time the list opens, grouped by kind; the
+ * one chosen becomes a tag at the start of the text, which Backspace before the text writes back
+ * as `/name`, and which goes out first as `/name` (SPEC-0001, "M1.11 的 `/` 命令"); `@` lists files and
  * directories as you type, and the one chosen becomes a capsule above the text, Tab going into a
  * directory instead. ↑ ↓ move through a list, Enter or Tab choose, Esc closes it. A paste of
  * more than 8 lines or 800 characters becomes a capsule too. The message goes out as the text,
@@ -177,7 +185,7 @@ export function Composer({
   held = false,
 }: ComposerProps) {
   const drafts = pageDrafts();
-  const { text, pastes, files, images } = useDraft(draftKey);
+  const { text, pastes, files, command, images } = useDraft(draftKey);
   /**
    * Changes part of the draft.
    *
@@ -238,11 +246,24 @@ export function Composer({
   /** Where the caret goes once the text just set has rendered. */
   const pendingCaret = useRef<number | null>(null);
   const listId = useId();
+  /** Holds the tag; the text's first line starts after it. */
+  const tagSlot = useRef<HTMLSpanElement>(null);
+  const [indent, setIndent] = useState(0);
+  const tagged = command !== null;
+  useLayoutEffect(() => {
+    const slot = tagSlot.current;
+    if (slot === null) return undefined;
+    // The slot takes the tag and the 6px after it; its width changes with the name and the font.
+    const observer = new ResizeObserver(() => setIndent(slot.getBoundingClientRect().width));
+    observer.observe(slot);
+    return () => observer.disconnect();
+  }, [tagged]);
 
-  const commandQuery = onListCommands === undefined ? null : slashQuery(text, caret);
+  // After a tag the text is its arguments, which start no other command.
+  const commandQuery = onListCommands === undefined || command !== null ? null : slashQuery(text, caret);
   const mention = commandQuery === null && onSearchFiles !== undefined ? mentionAt(text, caret) : null;
   const listOpen = dismissed !== text && (commandQuery !== null || mention !== null);
-  const message = composeMessage({ text, pastes, files });
+  const message = composeMessage({ text, pastes, files, command });
   const uploading = images.some((image) => image.attachmentId === null);
   const empty = message === "" && images.length === 0;
 
@@ -375,7 +396,11 @@ export function Composer({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- only a new query asks again.
   }, [fileQuery]);
 
-  const commandItems = commandQuery !== null && Array.isArray(commands) ? filterCommands(commands, commandQuery) : [];
+  // In the order the list shows them, group by group, so ↑ ↓ go down the list as drawn.
+  const commandItems =
+    commandQuery !== null && Array.isArray(commands)
+      ? groupCommands(filterCommands(commands, commandQuery)).flatMap((group) => group.commands)
+      : [];
   const fileItems = mention !== null && typeof found === "object" && found !== null ? found.files : [];
   /** The files shown were found for what is typed now, not for an earlier query. */
   const filesFresh = mention !== null && typeof found === "object" && found !== null && found.query === mention.query;
@@ -411,11 +436,8 @@ export function Composer({
    */
   const choose = (into: boolean): void => {
     if (commandQuery !== null) {
-      const command = commandItems[highlighted];
-      if (command === undefined) return;
-      const accepted = acceptCommand(text, command.name);
-      place(accepted.text, accepted.caret);
-      setDismissed(accepted.text);
+      const chosen = commandItems[highlighted];
+      if (chosen !== undefined) tag(chosen);
       return;
     }
     const file = fileItems[highlighted];
@@ -426,6 +448,22 @@ export function Composer({
       return;
     }
     refer(mention, file.path);
+  };
+
+  /**
+   * Makes the command being typed a tag, the caret before what followed it.
+   *
+   * @remarks
+   * See `Composer`.
+   *
+   * @sideEffects Updates the text and the tag; moves the caret.
+   * @param chosen - The command chosen from the list.
+   */
+  const tag = (chosen: ChosenCommand): void => {
+    pendingCaret.current = 0;
+    change({ text: tagCommand(text), command: { source: chosen.source, name: chosen.name } });
+    setCaret(0);
+    setActive(0);
   };
 
   /**
@@ -459,7 +497,7 @@ export function Composer({
     const sent = images.flatMap((one) =>
       one.attachmentId === null || one.image === null ? [] : [{ attachmentId: one.attachmentId, image: one.image }],
     );
-    (steer ? (onSteer ?? onSend) : onSend)(message, sent);
+    (steer ? (onSteer ?? onSend) : onSend)(message, sent, command);
     drafts.update(draftKey, () => EMPTY_DRAFT);
     setNote(null);
     setBrowsing(null);
@@ -498,6 +536,15 @@ export function Composer({
    */
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     if (event.nativeEvent.isComposing) return;
+    // The caret at the start with nothing selected: a selection always ends after where it starts.
+    if (event.key === "Backspace" && command !== null && event.currentTarget.selectionEnd === 0) {
+      event.preventDefault();
+      const back = untagCommand(command, text);
+      pendingCaret.current = back.caret;
+      change({ text: back.text, command: null });
+      setCaret(back.caret);
+      return;
+    }
     if (listOpen) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -600,12 +647,8 @@ export function Composer({
               setActive(index);
               // The click happens before the highlight renders, so choose by index.
               if (commandQuery !== null) {
-                const command = commandItems[index];
-                if (command !== undefined) {
-                  const accepted = acceptCommand(text, command.name);
-                  place(accepted.text, accepted.caret);
-                  setDismissed(accepted.text);
-                }
+                const chosen = commandItems[index];
+                if (chosen !== undefined) tag(chosen);
               } else {
                 const file = fileItems[index];
                 if (file !== undefined && mention !== null && filesFresh) {
@@ -704,6 +747,11 @@ export function Composer({
             </div>
           ) : null}
           <div className="relative px-1.5 pt-1.5">
+            {command === null ? null : (
+              <span ref={tagSlot} className="pointer-events-none absolute top-1.5 left-1.5 flex h-[1lh] items-center">
+                <CommandTag command={command} />
+              </span>
+            )}
             <textarea
               ref={box}
               aria-label="消息"
@@ -711,12 +759,15 @@ export function Composer({
               aria-activedescendant={listOpen && itemCount > 0 ? `${listId}-${highlighted}` : undefined}
               rows={1}
               value={text}
+              style={command === null ? undefined : { textIndent: indent }}
               placeholder={
-                running
-                  ? stopping
-                    ? "正在停止…"
-                    : "回车排队 · ⌘回车插话 · Esc 停止"
-                  : "发消息或描述任务，@ 引用文件，/ 使用命令"
+                command !== null
+                  ? "接着写要说的话（可选）"
+                  : running
+                    ? stopping
+                      ? "正在停止…"
+                      : "回车排队 · ⌘回车插话 · Esc 停止"
+                    : "发消息或描述任务，@ 引用文件，/ 使用命令"
               }
               onChange={(event) => {
                 setText(event.target.value);
@@ -927,28 +978,41 @@ function SuggestionList({
     >
       {note === null ? (
         kind === "command" ? (
-          commandItems.map((command, index) => (
-            <button
-              key={command.name}
-              id={`${id}-${index}`}
-              type="button"
-              role="option"
-              aria-selected={index === highlighted}
-              tabIndex={-1}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => onPick(index, false)}
-              className={`${option} aria-selected:bg-[var(--selected)] hover:bg-[var(--hover)]`}
-            >
-              <span className="font-mono text-[length:var(--fs-meta)] text-[var(--text)]">/{command.name}</span>
-              <span className="rounded-[var(--r-sm)] bg-[var(--surface-2)] px-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
-                {SOURCE_NAMES[command.source]}
-              </span>
-              {command.description === null ? null : (
-                <span className="min-w-0 flex-1 truncate text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-                  {command.description}
-                </span>
-              )}
-            </button>
+          groupCommands(commandItems).map((group) => (
+            <div key={group.source} role="group" aria-label={KIND_NAMES[group.source]}>
+              <div
+                aria-hidden="true"
+                className="px-2.5 pt-2 pb-1 text-[length:var(--fs-meta)] text-[var(--text-dim)] first:pt-1"
+              >
+                {KIND_NAMES[group.source]}
+              </div>
+              {group.commands.map((command) => {
+                const index = commandItems.indexOf(command);
+                return (
+                  <button
+                    key={command.name}
+                    id={`${id}-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === highlighted}
+                    tabIndex={-1}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => onPick(index, false)}
+                    className={`${option} aria-selected:bg-[var(--selected)] hover:bg-[var(--hover)]`}
+                  >
+                    <CommandIcon source={command.source} size={16} />
+                    <span className="font-mono text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--text)]">
+                      /{command.name}
+                    </span>
+                    {command.description === null ? null : (
+                      <span className="min-w-0 flex-1 truncate text-right text-[length:var(--fs-sm)] text-[var(--text-muted)]">
+                        {command.description}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           ))
         ) : (
           fileItems.map((file, index) => (

@@ -1,4 +1,5 @@
-import type { SlashCommand, TranscriptItem, Turn } from "@atrium/protocol";
+import type { MessageTag } from "@atrium/client";
+import type { MessageCommand, TranscriptItem, Turn } from "@atrium/protocol";
 
 /** What the input box holds besides images (SPEC-0001, "输入框"). */
 export interface DraftText {
@@ -8,7 +9,18 @@ export interface DraftText {
   readonly pastes: readonly { readonly id: string; readonly text: string }[];
   /** Referenced files and directories, relative to the session's directory; a directory ends in `/`. */
   readonly files: readonly string[];
+  /** The command chosen from the `/` list, shown as a tag before the text. */
+  readonly command: ChosenCommand | null;
 }
+
+/** A command chosen from the `/` list, shown as a tag at the start of the box; a skill's name starts with `skill:`. */
+export type ChosenCommand = MessageTag;
+
+/** What kind of command a `/` list entry is: Atrium's built-in, or one of pi's three kinds. */
+export type CommandKind = MessageTag["source"];
+
+/** The order the `/` list shows the kinds in (SPEC-0001, "M1.11 的 `/` 命令"). */
+const KIND_ORDER: readonly CommandKind[] = ["builtin", "extension", "prompt", "skill"];
 
 /** The `@` word the caret is in. */
 export interface Mention {
@@ -42,21 +54,100 @@ export function slashQuery(text: string, caret: number): string | null {
 }
 
 /**
- * The box with a chosen command in place of its first word.
+ * What stays in the box once the command being typed becomes a tag.
  *
  * @remarks
- * What follows the word stays, as the command's arguments; a space follows a command that had
- * none.
+ * The first word goes into the tag, with one space after it; what follows stays as the command's
+ * arguments, the caret before it (SPEC-0001, "M1.11 的 `/` 命令").
  *
  * @sideEffects none
  * @param text - The box's text.
- * @param name - The command's name.
+ * @returns The text after the tag.
+ */
+export function tagCommand(text: string): string {
+  return text.replace(/^\S*\s?/, "");
+}
+
+/**
+ * The box with a tag written back as `/name`, as Backspace before the text does.
+ *
+ * @remarks
+ * A space keeps the name and what followed it apart; the caret goes after the name, so it can be
+ * changed (SPEC-0001, "M1.11 的 `/` 命令").
+ *
+ * @sideEffects none
+ * @param command - The tag.
+ * @param text - The text after it.
  * @returns The new text and where the caret goes.
  */
-export function acceptCommand(text: string, name: string): { readonly text: string; readonly caret: number } {
-  const wordEnd = text.search(/\s/);
-  const rest = wordEnd === -1 ? " " : text.slice(wordEnd);
-  return { text: `/${name}${rest}`, caret: name.length + 2 };
+export function untagCommand(command: ChosenCommand, text: string): { readonly text: string; readonly caret: number } {
+  return { text: writtenCommand(command, text), caret: command.name.length + 1 };
+}
+
+/**
+ * A tag and the text after it, written as typed: `/name text`.
+ *
+ * @remarks
+ * How a tag goes out to pi, comes back on ↑ and is copied (SPEC-0001, "M1.11 的 `/` 命令").
+ *
+ * @sideEffects none
+ * @param command - The tag, or `null` for none.
+ * @param text - The text after it.
+ * @returns The written message.
+ */
+export function writtenCommand(command: ChosenCommand | null, text: string): string {
+  if (command === null) return text;
+  return text === "" ? `/${command.name}` : `/${command.name} ${text}`;
+}
+
+/**
+ * What a message sent with a tag says after it.
+ *
+ * @remarks
+ * A pending message is kept as it went out, `/name text`; its bubble shows the tag and the rest.
+ *
+ * @sideEffects none
+ * @param command - The tag it went with.
+ * @param text - The message.
+ * @returns The text after `/name`, or the whole message when it does not start with it.
+ */
+export function commandArguments(command: ChosenCommand, text: string): string {
+  const written = `/${command.name}`;
+  return text.startsWith(written) ? text.slice(written.length).trimStart() : text;
+}
+
+/**
+ * The tag a turn's message shows, from the command the host found it started with.
+ *
+ * @remarks
+ * Only skills come back from pi: as the tag `skill:name` (SPEC-0001, "M1.11 的 `/` 命令").
+ *
+ * @sideEffects none
+ * @param command - The turn's command.
+ * @returns The tag, or `null`.
+ */
+export function messageTag(command: MessageCommand | null): ChosenCommand | null {
+  return command === null ? null : { source: "skill", name: `skill:${command.name}` };
+}
+
+/**
+ * The listed commands under their kinds, in the `/` list's order.
+ *
+ * @remarks
+ * Built-in, extension, template, skill; each keeps the order it came in, and a kind with no
+ * command has no group (SPEC-0001, "M1.11 的 `/` 命令").
+ *
+ * @sideEffects none
+ * @param commands - The commands.
+ * @returns The groups.
+ */
+export function groupCommands<T extends { readonly source: CommandKind }>(
+  commands: readonly T[],
+): { readonly source: CommandKind; readonly commands: readonly T[] }[] {
+  return KIND_ORDER.map((source) => ({
+    source,
+    commands: commands.filter((command) => command.source === source),
+  })).filter((group) => group.commands.length > 0);
 }
 
 /**
@@ -70,7 +161,7 @@ export function acceptCommand(text: string, name: string): { readonly text: stri
  * @param wanted - The query, in lower case.
  * @returns Whether it starts with it.
  */
-function startsWith(command: SlashCommand, wanted: string): boolean {
+function startsWith(command: { readonly name: string }, wanted: string): boolean {
   const name = command.name.toLowerCase();
   return name.startsWith(wanted) || name.startsWith(`skill:${wanted}`);
 }
@@ -87,7 +178,7 @@ function startsWith(command: SlashCommand, wanted: string): boolean {
  * @param query - What follows the `/`.
  * @returns The matching commands.
  */
-export function filterCommands(commands: readonly SlashCommand[], query: string): SlashCommand[] {
+export function filterCommands<T extends { readonly name: string }>(commands: readonly T[], query: string): T[] {
   const wanted = query.toLowerCase();
   const matching = commands.filter((command) => command.name.toLowerCase().includes(wanted));
   return [
@@ -204,7 +295,8 @@ function reference(path: string): string {
  * @remarks
  * The box's text, then each pasted text in the order pasted, then the referenced files on one
  * line, a blank line apart; empty parts are left out and trailing space is trimmed (SPEC-0001,
- * "模型与输入框"). Files go as paths only, for the agent to read itself.
+ * "模型与输入框"). Files go as paths only, for the agent to read itself. A tag goes first, as
+ * `/name`, the text after it (SPEC-0001, "M1.11 的 `/` 命令").
  *
  * @sideEffects none
  * @param draft - What the box holds.
@@ -212,7 +304,11 @@ function reference(path: string): string {
  */
 export function composeMessage(draft: DraftText): string {
   const files = draft.files.map(reference).join(" ");
-  return [draft.text.trimEnd(), ...draft.pastes.map((paste) => paste.text), files]
+  return [
+    draft.command === null ? draft.text.trimEnd() : writtenCommand(draft.command, draft.text.trim()),
+    ...draft.pastes.map((paste) => paste.text),
+    files,
+  ]
     .filter((part) => part.trim() !== "")
     .join("\n\n");
 }
@@ -259,8 +355,7 @@ export function isLongPaste(text: string): boolean {
  * @returns The typed message.
  */
 export function typedMessage(user: Pick<Turn["user"], "command" | "text">): string {
-  if (user.command === null) return user.text;
-  return user.text === "" ? `/skill:${user.command.name}` : `/skill:${user.command.name} ${user.text}`;
+  return writtenCommand(messageTag(user.command), user.text);
 }
 
 /**

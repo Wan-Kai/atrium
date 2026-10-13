@@ -2,7 +2,7 @@ import type { SessionView } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
 import { ArrowDown } from "../design/icons";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
-import { typedMessage } from "./composer-text";
+import { commandArguments, typedMessage } from "./composer-text";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
 import { LoadStepContext } from "./steps";
@@ -258,7 +258,8 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
             {view.pending.map((message) => (
               <UserBubble
                 key={message.clientMessageId}
-                text={message.text}
+                text={message.command === undefined ? message.text : commandArguments(message.command, message.text)}
+                command={message.command ?? null}
                 images={message.images ?? 0}
                 clientMessageId={message.clientMessageId}
               />

@@ -1,4 +1,4 @@
-import type { DraftText } from "../chat/composer-text";
+import type { ChosenCommand, DraftText } from "../chat/composer-text";
 import type { CompressedImage } from "../chat/images";
 
 /** An image in a session's box; `image` is `null` while it is compressed, `attachmentId` while it uploads. */
@@ -8,7 +8,7 @@ export interface KeptImage {
   readonly attachmentId: string | null;
 }
 
-/** What a session's box holds: the text, the capsules and the images. */
+/** What a session's box holds: the text, the capsules, the tag and the images. */
 export interface Draft extends DraftText {
   readonly images: readonly KeptImage[];
 }
@@ -36,6 +36,27 @@ function isPaste(value: unknown): value is DraftText["pastes"][number] {
   return typeof value.id === "string" && typeof value.text === "string";
 }
 
+/** The kinds a stored tag may be. */
+const COMMAND_KINDS: ReadonlySet<unknown> = new Set(["builtin", "extension", "prompt", "skill"]);
+
+/**
+ * Whether a stored value is a draft's tag.
+ *
+ * @remarks
+ * See `isDraft`.
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @returns Whether it is one.
+ */
+function isCommand(value: unknown): value is ChosenCommand {
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: `in` throws on anything not an object, which reads as no draft too.
+  if (typeof value !== "object" || value === null) return false;
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: a missing field is then not a kind or a string either.
+  if (!("source" in value) || !("name" in value)) return false;
+  return COMMAND_KINDS.has(value.source) && typeof value.name === "string";
+}
+
 /**
  * Whether a stored value is a draft.
  *
@@ -46,13 +67,16 @@ function isPaste(value: unknown): value is DraftText["pastes"][number] {
  * @param value - The parsed value.
  * @returns Whether it is a draft.
  */
-function isDraft(value: unknown): value is DraftText {
+function isDraft(value: unknown): value is Omit<DraftText, "command"> & { readonly command?: ChosenCommand | null } {
   // Stryker disable next-line ConditionalExpression,LogicalOperator: `in` throws on anything not an object, which reads as no draft too.
   if (typeof value !== "object" || value === null) return false;
   // Stryker disable next-line ConditionalExpression,LogicalOperator: a missing field is then not a string or list, so no draft either.
   if (!("text" in value) || !("pastes" in value) || !("files" in value)) return false;
   const { text, pastes, files } = value;
+  // One stored before commands were tags has none.
+  const command = "command" in value ? value.command : null;
   return (
+    (command === null || isCommand(command)) &&
     typeof text === "string" &&
     Array.isArray(pastes) &&
     pastes.every(isPaste) &&
@@ -79,7 +103,7 @@ export interface Drafts {
   drop(keys: Iterable<string>): void;
 }
 
-const EMPTY: Draft = { text: "", pastes: [], files: [], images: [] };
+const EMPTY: Draft = { text: "", pastes: [], files: [], command: null, images: [] };
 
 /** One draft, and what storage held when it was read or written. */
 interface Entry {
@@ -101,7 +125,13 @@ interface Entry {
  * @returns Whether it is empty.
  */
 function isEmpty(draft: Draft): boolean {
-  return draft.text === "" && draft.pastes.length === 0 && draft.files.length === 0 && draft.images.length === 0;
+  return (
+    draft.text === "" &&
+    draft.pastes.length === 0 &&
+    draft.files.length === 0 &&
+    draft.command === null &&
+    draft.images.length === 0
+  );
 }
 
 /**
@@ -119,7 +149,9 @@ function parseStored(stored: string | null): DraftText {
   if (stored === null) return EMPTY;
   try {
     const parsed: unknown = JSON.parse(stored);
-    return isDraft(parsed) ? { text: parsed.text, pastes: parsed.pastes, files: parsed.files } : EMPTY;
+    return isDraft(parsed)
+      ? { text: parsed.text, pastes: parsed.pastes, files: parsed.files, command: parsed.command ?? null }
+      : EMPTY;
   } catch {
     return EMPTY;
   }
@@ -197,19 +229,24 @@ export function createDrafts(storage: DraftStorage): Drafts {
    * Keeps a draft in memory and in storage.
    *
    * @remarks
-   * An empty text and no capsules leave nothing stored.
+   * An empty text, no capsules and no tag leave nothing stored.
    *
    * @sideEffects Writes storage; updates memory.
    * @param key - The draft's key.
    * @param draft - The draft.
    */
   const keep = (key: string, draft: Draft): void => {
-    if (draft.text === "" && draft.pastes.length === 0 && draft.files.length === 0) {
+    if (draft.text === "" && draft.pastes.length === 0 && draft.files.length === 0 && draft.command === null) {
       unstore(key);
       entries.set(key, { draft, stored: null, unsaved: false });
       return;
     }
-    const stored = JSON.stringify({ text: draft.text, pastes: draft.pastes, files: draft.files });
+    const stored = JSON.stringify({
+      text: draft.text,
+      pastes: draft.pastes,
+      files: draft.files,
+      command: draft.command,
+    });
     try {
       storage.setItem(PREFIX + key, stored);
       entries.set(key, { draft, stored, unsaved: false });

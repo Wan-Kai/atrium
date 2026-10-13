@@ -13,6 +13,7 @@ import {
 } from "../design/icons";
 import { type ReactNode, createContext, use, useEffect, useMemo, useState } from "react";
 import { useClock } from "../state/clock";
+import { messageTag } from "./composer-text";
 import { Fold } from "./fold";
 import { Markdown } from "./markdown";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
@@ -458,7 +459,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
         images={turn.user.images}
         timestamp={turn.user.timestamp}
         auto={turn.user.auto}
-        command={turn.user.command}
+        command={messageTag(turn.user.command)}
         turnId={turn.id}
         clientMessageId={turn.user.clientMessageId}
         settled={turn.outcome !== "running"}

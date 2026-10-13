@@ -39,7 +39,15 @@ import {
 import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
-import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
+import {
+  type MessageTag,
+  type PendingMessage,
+  type SessionView,
+  applySessionEvent,
+  loadingView,
+  prependOlder,
+  withWholeStep,
+} from "./session-view";
 
 /** Connection state exposed to the UI. */
 export type ConnectionState =
@@ -184,13 +192,15 @@ export interface AtriumClient {
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
   /**
    * Sends a message with uploaded images, showing it at once as pending until it opens a turn or
-   * goes into the queue; `previews` are the images as the page shows them, kept for `sentPreviews`.
+   * goes into the queue; `previews` are the images as the page shows them, kept for `sentPreviews`;
+   * `command` is the tag it was sent with, for the pending copy only.
    */
   prompt(
     sessionId: string,
     text: string,
     attachmentIds?: readonly string[],
     previews?: readonly string[],
+    command?: MessageTag,
   ): Promise<CommandResult<"prompt">>;
   /** Sends a steer, delivered before the agent's next step; while idle it is sent as a message, pending meanwhile. */
   steer(
@@ -198,6 +208,7 @@ export interface AtriumClient {
     text: string,
     attachmentIds?: readonly string[],
     previews?: readonly string[],
+    command?: MessageTag,
   ): Promise<CommandResult<"steer">>;
   /**
    * The previews of the images a message sent from this page went with, by its `clientMessageId`;
@@ -674,6 +685,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param text - The message.
    * @param attachmentIds - Its uploaded images.
    * @param previews - The images as the page shows them, kept by the message's id while it goes.
+   * @param command - The tag it was sent with, shown on the pending copy.
    * @returns The command's result.
    */
   async function sendShown<T extends "prompt" | "steer">(
@@ -682,6 +694,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     text: string,
     attachmentIds: readonly string[],
     previews: readonly string[],
+    command: MessageTag | undefined,
   ): Promise<CommandResult<T>> {
     const requestId = `${options.clientId}-${++nextRequest}`;
     if (previews.length > 0) {
@@ -691,7 +704,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     }
     const view = views.get(sessionId);
     const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
-    const shown = { clientMessageId: requestId, text, ...images };
+    const shown: PendingMessage = {
+      clientMessageId: requestId,
+      text,
+      ...images,
+      ...(command === undefined ? {} : { command }),
+    };
     view?.setState({ pending: [...view.getState().pending, shown] });
     /**
      * Takes the optimistic copy back out.
@@ -1218,10 +1236,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       index.setState(withPreferences(index.getState(), shown), true);
       return request("set_preferences", changes);
     },
-    prompt: (sessionId, text, attachmentIds = [], previews = []) =>
-      sendShown("prompt", sessionId, text, attachmentIds, previews),
-    steer: (sessionId, text, attachmentIds = [], previews = []) =>
-      sendShown("steer", sessionId, text, attachmentIds, previews),
+    prompt: (sessionId, text, attachmentIds = [], previews = [], command) =>
+      sendShown("prompt", sessionId, text, attachmentIds, previews, command),
+    steer: (sessionId, text, attachmentIds = [], previews = [], command) =>
+      sendShown("steer", sessionId, text, attachmentIds, previews, command),
     sentPreviews: (clientMessageId) => sentImages.get(clientMessageId) ?? null,
     uploadAttachment: (mimeType, data) => request("upload_attachment", { mimeType, data }),
     stop: (sessionId) => request("stop", { sessionId }),

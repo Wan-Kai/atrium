@@ -70,6 +70,8 @@ import {
   Search01Icon,
   Settings01Icon,
   SqlIcon,
+  PuzzleIcon,
+  SlashIcon,
   SparklesIcon,
   SquareIcon,
   StopCircleIcon,
@@ -276,6 +278,8 @@ export const Trash = drawn(Delete02Icon);
 export const ChatAdd = drawn(BubbleChatAddIcon);
 export const PlusSquare = drawn(AddSquareIcon);
 export const Question = drawn(HelpCircleIcon);
+export const Puzzle = drawn(PuzzleIcon);
+export const Slash = drawn(SlashIcon);
 export const Sparkle = drawn(SparklesIcon);
 export const Square = drawn(SquareIcon);
 export const Stop = drawn(StopCircleIcon);
