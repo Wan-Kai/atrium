@@ -546,7 +546,7 @@ function ChatRows({
             </span>
             <StatusIcon status={listed.status} />
             <span
-              className="hidden group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
+              className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
               // The menu belongs to the row but must not select it.
               onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
@@ -888,7 +888,7 @@ function WorkspaceRow({
       </span>
       <StatusIcon status={status} />
       <span
-        className="hidden group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
+        className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
         // The menu belongs to the row but must not select it.
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}

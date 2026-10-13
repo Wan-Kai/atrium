@@ -192,6 +192,12 @@ function computedColor(color: string): string {
   return computed;
 }
 
+/** The space, in pixels, between `element` and what follows it. */
+function gapAfter(element: Element): number | undefined {
+  const next = element.nextElementSibling?.getBoundingClientRect().left;
+  return next === undefined ? undefined : next - element.getBoundingClientRect().right;
+}
+
 /**
  * Archives a chat with the button its row's hover shows.
  *
@@ -997,6 +1003,7 @@ describe("Workbench workspace archiving (M1.11)", () => {
         .element()
         .nextElementSibling?.contains(rows.nth(2).getByRole("button", { name: "工作区 fix/typo" }).element()),
     ).toBe(true);
+    expect(gapAfter(archive.element())).toBe(4);
     expect(calls).not.toContain(`selectContainer ${FEATURE}`);
   });
 
@@ -1156,6 +1163,7 @@ describe("Workbench sidebar: archived chats", () => {
         .element()
         .nextElementSibling?.contains(section.getByRole("button", { name: "对话 解释 merge-tree" }).element()),
     ).toBe(true);
+    expect(gapAfter(archive.element())).toBe(4);
 
     await archiveChatRow(screen, "解释 merge-tree");
 
