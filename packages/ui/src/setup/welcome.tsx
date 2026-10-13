@@ -1,4 +1,4 @@
-import { ArrowUpRight, Eye, GitBranch, TerminalWindow } from "../design/icons";
+import { ArrowUpRight, CaretUp, Eye, GitBranch, TerminalWindow } from "../design/icons";
 import { type ReactNode, useContext, useEffect, useRef } from "react";
 import {
   BAND_HOVER_MS,
@@ -233,7 +233,8 @@ function createBandPainter(surface: HTMLCanvasElement, seed: number): BandPainte
  *
  * @remarks
  * SPEC-0001 ("首次启动 · 欢迎页"): the sidebar, a process summary, a reply and the status bar, in a
- * glass window leaning back and fading out at the bottom.
+ * glass window leaning back and fading out at the bottom. The inbox's card, folded, follows the
+ * projects rather than sitting at the bottom as in the sidebar, where the fade would hide it.
  *
  * @sideEffects none
  * @returns The preview.
@@ -260,11 +261,6 @@ function Preview() {
           <i className="size-[9px] rounded-full bg-[#28c840]" />
         </div>
         <div className="atrium-preview-side">
-          <div className="mx-2 mt-2.5 mb-1 text-[11px] text-[var(--text-dim)]">等你处理</div>
-          <PreviewRow
-            name="重构宿主进程管理"
-            mark={<span className="text-[11.5px] font-semibold text-[var(--attn-text)]">?</span>}
-          />
           <div className="mx-2 mt-2.5 mb-1 text-[11px] text-[var(--text-dim)]">项目</div>
           <PreviewRow name="main" selected />
           <PreviewRow
@@ -285,6 +281,16 @@ function Preview() {
             faded
             mark={<span className="text-[11.5px] text-[var(--ok-text)]">✓ 已合并</span>}
           />
+          <div className="mt-2.5 flex h-7 items-center gap-1.5 rounded-[11px] bg-[var(--surface-1)] px-2 text-[11.5px] whitespace-nowrap text-[var(--text-muted)] shadow-[var(--card-shadow)]">
+            等你处理
+            <span className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-1.5 text-[11px] leading-4 font-semibold text-[var(--attn-text)]">
+              2
+            </span>
+            <span className="flex-1" />
+            <span className="font-semibold text-[var(--attn-text)]">?</span>
+            <span className="font-semibold text-[var(--danger)]">!</span>
+            <CaretUp size={12} />
+          </div>
         </div>
         <div className="px-[34px] pt-10 text-[13px]">
           <div className="ml-auto w-fit max-w-[70%] rounded-2xl bg-[var(--selected)] px-3.5 py-[9px] text-[var(--text-2)]">
@@ -296,7 +302,7 @@ function Preview() {
           </div>
           <div className="leading-[1.65] text-[var(--text-2)]">
             改好了。收件箱是会话列表的派生视图：<PreviewCode>Inbox.tsx</PreviewCode> 筛出等你处理的会话，
-            <PreviewCode>Sidebar.tsx</PreviewCode> 把它挂在项目列表上方。6 条测试全部通过。
+            <PreviewCode>Sidebar.tsx</PreviewCode> 把它收成“设置”上方的一张卡片。6 条测试全部通过。
           </div>
           <div className="mt-[22px] flex justify-center gap-[18px] text-[length:var(--fs-sm)] text-[var(--text-dim)]">
             <span>1 轮 7 步 · 48 tok/s</span>
