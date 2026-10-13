@@ -91,6 +91,8 @@ export interface ComposerProps {
   readonly compress?: (image: Blob) => Promise<CompressedImage>;
   /** The user changed the text, the pasted texts or the files: the empty state creates its session. */
   readonly onEdit?: () => void;
+  /** Nothing goes while the first message from the new-workspace page is on its way; typing goes on. */
+  readonly held?: boolean;
 }
 
 /**
@@ -141,7 +143,8 @@ const SOURCE_NAMES: Readonly<Record<SlashCommand["source"], string>> = {
  * is the page's (`pageDrafts`), kept per session, so it outlives the box: an image that finishes
  * uploading after the tab went away is there when it comes back, and nothing goes while an image is
  * still compressed or uploaded. A file found for an earlier query is not chosen while the new
- * query's answer is on its way. The bottom bar has the "+" menu on the left and the model button and the send button on
+ * query's answer is on its way. While `held`, the box takes text but sends nothing, until the
+ * new-workspace page's first message has gone (SPEC-0001, "M1.11 的新建工作区"). The bottom bar has the "+" menu on the left and the model button and the send button on
  * the right; the button at the top right opens the box tall.
  *
  * @sideEffects Calls the handlers as the user acts; reads and writes the draft in storage; asks
@@ -171,6 +174,7 @@ export function Composer({
   autoFocus = false,
   compress = compressImage,
   onEdit,
+  held = false,
 }: ComposerProps) {
   const drafts = pageDrafts();
   const { text, pastes, files, images } = useDraft(draftKey);
@@ -451,7 +455,7 @@ export function Composer({
    */
   const send = (steer: boolean): void => {
     // A message sent while a stop waits for pi would be refused; the text stays to send later.
-    if (empty || stopping || uploading) return;
+    if (empty || stopping || uploading || held) return;
     const sent = images.flatMap((one) =>
       one.attachmentId === null || one.image === null ? [] : [{ attachmentId: one.attachmentId, image: one.image }],
     );
@@ -810,7 +814,7 @@ export function Composer({
                 <button
                   type="button"
                   aria-label="发送"
-                  disabled={empty || stopping || uploading}
+                  disabled={empty || stopping || uploading || held}
                   onClick={() => send(false)}
                   className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] enabled:cursor-pointer disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
                 >

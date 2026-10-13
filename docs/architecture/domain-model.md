@@ -715,6 +715,7 @@ classDiagram
 | `list_projects` / `add_project` / `remove_project` / `rename_project` | ProjectService |
 | `list_workspaces` / `rename_workspace` / `window_focused` | WorkspaceService |
 | `archive_workspace` / `restore_workspace` | WorkspaceArchiver（git 的部分）→ SessionManager（停 pi、归档会话）→ ProjectService（记录）（M1.11） |
+| `list_bases` / `create_workspace` | WorktreeCreator（git 的部分，和 WorkspaceArchiver 排同一个队）→ ProjectService（记录，带起点提交）→ WorkspaceService（重扫）（M1.11） |
 | `rename_chat` | ChatRecords（`chats.json`） |
 | `archive_chat` / `restore_chat` | SessionManager（停 pi、归档或放回会话）→ ChatRecords（记录）（M1.11） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` | SessionManager |

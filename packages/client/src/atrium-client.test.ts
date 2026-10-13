@@ -417,6 +417,7 @@ describe("createAtriumClient: commands", () => {
     const { client, latest } = await connected();
     const calls = [
       client.createSession("wks_0123456789abcdef"),
+      client.createSession("wks_0123456789abcdef", false),
       client.archiveSession("s1"),
       client.renameSession("s1", "名字"),
       client.addProject("/work/app"),
@@ -425,6 +426,8 @@ describe("createAtriumClient: commands", () => {
       client.renameWorkspace("wks_0123456789abcdef", null),
       client.archiveWorkspace("wks_0123456789abcdef"),
       client.restoreWorkspace("wks_0123456789abcdef"),
+      client.listBases("prj_0123456789abcdef"),
+      client.createWorkspace("prj_0123456789abcdef", "atrium/a", "origin/main"),
       client.renameChat(CHAT, "合并原理"),
       client.archiveChat(CHAT),
       client.restoreChat(CHAT),
@@ -433,9 +436,12 @@ describe("createAtriumClient: commands", () => {
       client.handOff("s1"),
       client.takeBack("s1"),
     ];
-    latest().answer("create_session", { sessionId: "s9" });
+    answerAt(latest(), "create_session", 0, { sessionId: "s9" });
+    answerAt(latest(), "create_session", 1, { sessionId: "s8" });
     latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
     latest().answer("hand_off", { file: "/pi/s1.jsonl" });
+    latest().answer("list_bases", { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
+    latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
     for (const type of [
       "archive_session",
       "rename_session",
@@ -456,6 +462,7 @@ describe("createAtriumClient: commands", () => {
 
     expect(await Promise.all(calls)).toStrictEqual([
       { sessionId: "s9" },
+      { sessionId: "s8" },
       {},
       {},
       { projectId: "prj_0123456789abcdef" },
@@ -464,6 +471,8 @@ describe("createAtriumClient: commands", () => {
       {},
       {},
       {},
+      { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] },
+      { workspaceId: "wks_00000000000000aa" },
       {},
       {},
       {},
@@ -479,6 +488,7 @@ describe("createAtriumClient: commands", () => {
         .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([
       { type: "create_session", containerId: "wks_0123456789abcdef" },
+      { type: "create_session", containerId: "wks_0123456789abcdef", go: false },
       { type: "archive_session", sessionId: "s1" },
       { type: "rename_session", sessionId: "s1", name: "名字" },
       { type: "add_project", path: "/work/app" },
@@ -487,6 +497,8 @@ describe("createAtriumClient: commands", () => {
       { type: "rename_workspace", workspaceId: "wks_0123456789abcdef", name: null },
       { type: "archive_workspace", workspaceId: "wks_0123456789abcdef" },
       { type: "restore_workspace", workspaceId: "wks_0123456789abcdef" },
+      { type: "list_bases", projectId: "prj_0123456789abcdef" },
+      { type: "create_workspace", projectId: "prj_0123456789abcdef", branch: "atrium/a", base: "origin/main" },
       { type: "rename_chat", chatId: CHAT, name: "合并原理" },
       { type: "archive_chat", chatId: CHAT },
       { type: "restore_chat", chatId: CHAT },

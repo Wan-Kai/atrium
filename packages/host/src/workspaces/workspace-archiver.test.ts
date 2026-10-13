@@ -11,6 +11,7 @@ import { createProjectService } from "../projects/project-service";
 import { PROJECTS_FILE } from "../store/index-schema";
 import { loadIndexFile } from "../store/index-file";
 import { createWorkspaceArchiver } from "./workspace-archiver";
+import { type WorktreeQueue, createWorktreeQueue } from "./worktree-queue";
 
 // Each test builds real repositories and runs git; next to the other test files running at once,
 // that takes well over the default 5 seconds.
@@ -51,6 +52,7 @@ async function scene(): Promise<GitScene> {
  * @param worktrees - The worktrees to record as workspaces.
  * @param git - git, or `null` for none.
  * @param stopping - What else happens while a workspace's sessions stop, as a running pi might do.
+ * @param queue - The queue of worktree changes it shares, if any.
  * @returns The archiver, the services, the sessions' calls, the scans asked for, the clock and logs.
  */
 async function archiver(
@@ -58,6 +60,7 @@ async function archiver(
   worktrees: readonly string[],
   git: GitRunner | null = realGit(),
   stopping: (dir: string) => Promise<unknown> = async () => undefined,
+  queue?: WorktreeQueue,
 ) {
   const index = await createTempDir("index");
   onTestFinished(index.cleanup);
@@ -99,6 +102,7 @@ async function archiver(
     refresh: (workspaceId) => refreshed.push(workspaceId),
     clock,
     logger,
+    ...(queue === undefined ? {} : { queue }),
   });
   return { archive, projects, ids, calls, refreshed, clock, records };
 }
@@ -639,6 +643,26 @@ describe("WorkspaceArchiver one at a time", () => {
 
     expect(archivedOf(projects, id)).toBeNull();
     expect(await there(feature)).toBe(true);
+  });
+
+  it("waits for a worktree change before it in the queue it shares, and closes after it", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const queue = createWorktreeQueue();
+    const { archive, projects, ids } = await archiver(repo, [feature], realGit(), undefined, queue);
+    const id = present(ids[feature], "feature");
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    const before = queue.run(() => held);
+
+    const archiving = archive.archive(id);
+    const closing = archive.close();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(archivedOf(projects, id)).toBeNull();
+    release();
+    await before;
+    await closing;
+    expect(archivedOf(projects, id)).not.toBeNull();
+    await archiving;
   });
 
   it("goes on after one that failed", async () => {

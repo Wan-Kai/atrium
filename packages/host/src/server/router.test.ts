@@ -93,6 +93,8 @@ function fakeCommands() {
     renameWorkspace: record("renameWorkspace", {}),
     archiveWorkspace: record("archiveWorkspace", {}),
     restoreWorkspace: record("restoreWorkspace", {}),
+    listBases: record("listBases", { main: null, current: "main", local: ["main"], remote: [] }),
+    createWorkspace: record("createWorkspace", { workspaceId: WORKSPACE }),
     renameChat: record("renameChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
@@ -285,6 +287,7 @@ describe("createRouter", () => {
     );
     await route(connection, withTrace({ type: "open_session", requestId: "r6", sessionId: "s2" }));
     await route(connection, withTrace({ type: "create_session", requestId: "r7", containerId: WORKSPACE }));
+    await route(connection, withTrace({ type: "create_session", requestId: "r7a", containerId: WORKSPACE, go: false }));
     await route(connection, withTrace({ type: "close_tab", requestId: "r8", sessionId: "s2" }));
     await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: CHAT }));
     await route(connection, withTrace({ type: "archive_session", requestId: "r10", sessionId: "s2" }));
@@ -306,7 +309,8 @@ describe("createRouter", () => {
       ["fetchTranscript", "s1", 2, "t9", 50],
       ["fetchStep", "s1", 2, "t9", "3"],
       ["openSession", "client-1", "s2"],
-      ["createSession", "client-1", WORKSPACE],
+      ["createSession", "client-1", WORKSPACE, true],
+      ["createSession", "client-1", WORKSPACE, false],
       ["closeTab", "client-1", "s2"],
       ["selectContainer", "client-1", CHAT],
       ["archiveSession", "s2"],
@@ -326,6 +330,7 @@ describe("createRouter", () => {
       { type: "response", requestId: "r5", ok: true, result: { step: { kind: "text", id: "3", text: "whole" } } },
       { type: "response", requestId: "r6", ok: true, result: {} },
       { type: "response", requestId: "r7", ok: true, result: { sessionId: "s3" } },
+      { type: "response", requestId: "r7a", ok: true, result: { sessionId: "s3" } },
       ...["r8", "r9", "r10", "r10a", "r10b", "r11", "r12"].map((requestId) => ({
         type: "response",
         requestId,
@@ -439,6 +444,11 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "rename_chat", requestId: "r15", chatId: CHAT, name: "合并原理" }));
     await route(connection, withTrace({ type: "archive_workspace", requestId: "r16", workspaceId: WORKSPACE }));
     await route(connection, withTrace({ type: "restore_workspace", requestId: "r17", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "list_bases", requestId: "r18", projectId: PROJECT }));
+    await route(
+      connection,
+      withTrace({ type: "create_workspace", requestId: "r19", projectId: PROJECT, branch: "atrium/a", base: "main" }),
+    );
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -459,7 +469,15 @@ describe("createRouter", () => {
       ["renameChat", CHAT, "合并原理"],
       ["archiveWorkspace", WORKSPACE],
       ["restoreWorkspace", WORKSPACE],
+      ["listBases", PROJECT],
+      ["createWorkspace", PROJECT, "atrium/a", "main"],
     ]);
+    expect(sent[19]).toStrictEqual({
+      type: "response",
+      requestId: "r19",
+      ok: true,
+      result: { workspaceId: WORKSPACE },
+    });
     expect(sent[14]).toStrictEqual({ type: "response", requestId: "r14", ok: true, result: SETUP });
     expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
     expect(sent[10]).toStrictEqual({

@@ -122,6 +122,16 @@ async function assemble() {
       archive: async (workspaceId) => void archiving.push(`archive ${workspaceId}`),
       restore: async (workspaceId) => void archiving.push(`restore ${workspaceId}`),
     },
+    creator: {
+      bases: async (projectId) => {
+        archiving.push(`bases ${projectId}`);
+        return { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] };
+      },
+      create: async (projectId, branch, base) => {
+        archiving.push(`create ${projectId} ${branch} ${base}`);
+        return "wks_new";
+      },
+    },
     preferences,
     chats: () => catalog.chats(),
     chatRecords,
@@ -315,6 +325,21 @@ describe("IndexCommands.archiveWorkspace", () => {
       {},
     ]);
     expect(archiving).toStrictEqual(["archive wks_1", "restore wks_2"]);
+  });
+
+  it("hands listing bases and creating a workspace to the creator", async () => {
+    const { commands, archiving } = await assemble();
+
+    expect(await commands.listBases("prj_1")).toStrictEqual({
+      main: "origin/main",
+      current: "main",
+      local: ["main"],
+      remote: ["origin/main"],
+    });
+    expect(await commands.createWorkspace("prj_1", "atrium/a", "origin/main")).toStrictEqual({
+      workspaceId: "wks_new",
+    });
+    expect(archiving).toStrictEqual(["bases prj_1", "create prj_1 atrium/a origin/main"]);
   });
 });
 

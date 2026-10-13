@@ -22,6 +22,16 @@ import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run
 import { StatusBar } from "./status-bar";
 import { MessageImagesContext, messageImages } from "./message-images";
 import { Transcript } from "./transcript";
+import {
+  type Launch,
+  type NewWorkspaceState,
+  createNewWorkspaceStore,
+  describeWorktreeError,
+  dismiss,
+  holdsBack,
+  launchOver,
+} from "../state/new-workspace";
+import { LaunchView } from "./launch-timeline";
 
 /** What to say when pi cannot be used, by the status the host found. */
 const PI_STATUS_TEXT: Readonly<Record<string, string>> = {
@@ -62,6 +72,21 @@ export function describeSendError(error: unknown): string {
   if (error.code === "queue_item_not_found") return "这条排队的消息已经发出或删掉了";
   if (error.code === "interaction_closed") return "这个问题已经回答过、超时或作废了";
   return "宿主出错了，消息没有发出";
+}
+
+/**
+ * Explains why a step of sending from the new-workspace page failed, in Chinese.
+ *
+ * @remarks
+ * Creating the worktree has words of its own; the session's and the message's steps fail as a
+ * send does (SPEC-0001, "M1.11 的新建工作区").
+ *
+ * @sideEffects none
+ * @param error - What the step rejected with.
+ * @returns The sentence to show.
+ */
+export function describeLaunchError(error: unknown): string {
+  return describeWorktreeError(error) ?? describeSendError(error);
 }
 
 /**
@@ -180,12 +205,15 @@ function SessionModelPicker({
  * a message goes into the host's queue and ⌘+Enter steers; the capsule bar shows the queue and
  * the steers on their way, and questions from extensions and a failed session wait above the
  * input box (SPEC-0001, "运行控制"). The status bar under it shows the session's figures, with
- * the groups chosen in the global preferences (SPEC-0001, "状态栏").
+ * the groups chosen in the global preferences (SPEC-0001, "状态栏"). A session made from the
+ * new-workspace page shows the steps of its making above the transcript, and its box sends
+ * nothing until the first message has gone (SPEC-0001, "M1.11 的新建工作区").
  *
  * @sideEffects Subscribes to the session's store and the preferences; loads older items when
  * asked; sends run control commands and status bar choices, reporting their failures through `act`.
  * @param props - The client, the session, its view store, what to do with a message and a steer,
- * how to run a command whose failure should show, and a notice to show above the input box.
+ * how to run a command whose failure should show, a notice to show above the input box, and what
+ * the new-workspace page set going here.
  * @returns The transcript and input box.
  */
 function SessionArea({
@@ -202,6 +230,7 @@ function SessionArea({
   takesFocus,
   onFocusTaken,
   changes,
+  launch,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -220,6 +249,8 @@ function SessionArea({
   readonly onFocusTaken: () => void;
   /** The workspace's git changes for the capsule, when it has some, and the changes panel. */
   readonly changes: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void } | undefined;
+  /** What sending from the new-workspace page set going here, until its first message has gone. */
+  readonly launch: Launch | undefined;
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
@@ -243,6 +274,12 @@ function SessionArea({
   };
   return (
     <>
+      {launch === undefined ? null : (
+        <LaunchView
+          launch={launch}
+          reason={launch.failure === undefined ? null : describeLaunchError(launch.failure)}
+        />
+      )}
       <MessageImagesContext value={images}>
         <Transcript
           view={view}
@@ -276,6 +313,7 @@ function SessionArea({
         onStop={() => act(() => client.stop(sessionId))}
         running={running}
         stopping={view.control.stopping}
+        held={holdsBack(launch)}
         above={
           <ControlTrack
             control={view.control}
@@ -316,12 +354,15 @@ function SessionArea({
  * active session is opened whenever it shows, which starts a pi that is not running (as after a
  * restart) and explains here why it cannot. A session whose pi has exited, or that the host lost
  * in a restart, is opened again before the message goes. A failed send is explained above the input box, and the
- * message goes back into its box when the box is still empty. The empty
+ * message goes back into its box when the box is still empty. A session the new-workspace page
+ * made shows the steps of its making until its first message has gone; one failed stays until the
+ * next send. The empty
  * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计").
  *
  * @sideEffects Watches the active session; creates and opens sessions and sends messages
  * through the client.
- * @param props - The client, the container, its active session, and how to create a session.
+ * @param props - The client, the container, its active session, how to create a session, and what
+ * the new-workspace page set going.
  * @returns The area.
  */
 export function ConversationArea({
@@ -329,14 +370,18 @@ export function ConversationArea({
   containerId,
   sessionId,
   create,
+  launches = NO_LAUNCHES,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
   readonly sessionId: string | null;
   /** Creates a session where the client is and returns its id. */
   readonly create: () => Promise<string>;
+  /** What the new-workspace page set going; none when left out. */
+  readonly launches?: StoreApi<NewWorkspaceState>;
 }) {
   const [failure, setFailure] = useState<string | null>(null);
+  const launch = useStore(launches, (state) => launchOver(state, sessionId));
   const [store, setStore] = useState<StoreApi<SessionView> | undefined>(undefined);
   // The session being created in each container, shared by every send there until it exists;
   // only read in event handlers.
@@ -518,6 +563,8 @@ export function ConversationArea({
    */
   async function send(text: string, images: readonly SentImage[], steer = false): Promise<void> {
     setFailure(null);
+    const failed = launchOver(launches.getState(), sessionId);
+    if (failed !== undefined) dismiss(launches, failed.id);
     let id: string | null = null;
     let latest = images;
     try {
@@ -737,6 +784,7 @@ export function ConversationArea({
             takesFocus={handing?.sessionId === sessionId}
             onFocusTaken={() => handTo(null)}
             changes={capsule}
+            launch={launch}
           />
         )}
       </div>
@@ -746,6 +794,9 @@ export function ConversationArea({
     </div>
   );
 }
+
+/** No launches, where the new-workspace page is not given. */
+const NO_LAUNCHES = createNewWorkspaceStore();
 
 /** The changes of no workspace, for chats. */
 const NO_CHANGES = createStore<ChangesView>(() => null);

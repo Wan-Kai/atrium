@@ -140,8 +140,11 @@ export interface AtriumClient {
   watch(sessionIds: readonly string[]): Promise<void>;
   /** Creates a chat with its first session, opened as the active tab, and returns the session's id. */
   createChat(): Promise<CommandResult<"create_chat">>;
-  /** Creates a session in a workspace or chat, opened as the active tab, and returns its id. */
-  createSession(containerId: ContainerId): Promise<CommandResult<"create_session">>;
+  /**
+   * Creates a session in a workspace or chat, opened as the active tab, and returns its id; with
+   * `go` false the client stays where it is.
+   */
+  createSession(containerId: ContainerId, go?: boolean): Promise<CommandResult<"create_session">>;
   /** Opens a session as the active tab, at once in the list; `watch` it to see it. */
   openSession(sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes this client's tab of a session, at once in the list. */
@@ -165,6 +168,10 @@ export interface AtriumClient {
   archiveWorkspace(workspaceId: string): Promise<CommandResult<"archive_workspace">>;
   /** Brings an archived workspace back, adding its worktree where it was. */
   restoreWorkspace(workspaceId: string): Promise<CommandResult<"restore_workspace">>;
+  /** Where a new worktree of a project may start: its main branch, its local workspace's branch, every branch. */
+  listBases(projectId: string): Promise<CommandResult<"list_bases">>;
+  /** Creates a worktree workspace on a new branch from a base. */
+  createWorkspace(projectId: string, branch: string, base: string): Promise<CommandResult<"create_workspace">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
   /** Archives a chat with its sessions, stopping those that run. */
@@ -1170,7 +1177,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (live !== undefined) await request("subscribe_sessions", { sessionIds: [...watched] });
     },
     createChat: () => request("create_chat", {}),
-    createSession: (containerId) => request("create_session", { containerId }),
+    createSession: (containerId, go) =>
+      request("create_session", go === undefined ? { containerId } : { containerId, go }),
     openSession(sessionId) {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withTabOpen(index.getState(), sessionId), true);
@@ -1197,6 +1205,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     renameWorkspace: (workspaceId, name) => request("rename_workspace", { workspaceId, name }),
     archiveWorkspace: (workspaceId) => request("archive_workspace", { workspaceId }),
     restoreWorkspace: (workspaceId) => request("restore_workspace", { workspaceId }),
+    listBases: (projectId) => request("list_bases", { projectId }),
+    createWorkspace: (projectId, branch, base) => request("create_workspace", { projectId, branch, base }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
     archiveChat: (chatId) => request("archive_chat", { chatId }),
     restoreChat: (chatId) => request("restore_chat", { chatId }),

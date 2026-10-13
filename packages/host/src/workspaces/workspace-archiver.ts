@@ -6,6 +6,7 @@ import type { Logger } from "../platform/logger";
 import type { ProjectService } from "../projects/project-service";
 import type { WorkspaceRecord } from "../store/index-schema";
 import { type ListedWorktree, parseWorktreeList } from "./worktree-list";
+import { type WorktreeQueue, createWorktreeQueue } from "./worktree-queue";
 
 /** Archives worktree workspaces and brings them back (SPEC-0001, "M1.11 的工作区归档"). */
 export interface WorkspaceArchiver {
@@ -18,7 +19,7 @@ export interface WorkspaceArchiver {
 }
 
 /** How long git may take to remove or add a worktree's directory, which may hold a large `node_modules`. */
-const WORKTREE_TIMEOUT_MS = 600_000;
+export const WORKTREE_TIMEOUT_MS = 600_000;
 
 /** What archiving a workspace does to the sessions in it. */
 export interface WorkspaceSessions {
@@ -51,12 +52,14 @@ export interface WorkspaceSessions {
  * - the directory only ever comes from the index, after `--`; logs carry the workspace's id and
  *   git's exit code, never paths or branches.
  *
- * One archive or restore runs at a time.
+ * One archive or restore runs at a time, and none while a worktree is created when the queue is
+ * shared with the creator.
  *
  * @sideEffects none until a call; then runs git, removes or adds worktrees, stops and archives
  * sessions, writes `projects.json` and logs.
  * @param options - The projects, git (or `null` without it), the sessions, how to scan a
- * workspace's project again, the clock and the logger.
+ * workspace's project again, the clock, the logger, and the queue of worktree changes (its own
+ * unless given).
  * @returns The archiver.
  */
 export function createWorkspaceArchiver(options: {
@@ -66,25 +69,9 @@ export function createWorkspaceArchiver(options: {
   readonly refresh: (workspaceId: string) => void;
   readonly clock: Clock;
   readonly logger: Logger;
+  readonly queue?: WorktreeQueue;
 }): WorkspaceArchiver {
-  /** The last archive or restore, which the next one waits for. */
-  let last: Promise<unknown> = Promise.resolve();
-
-  /**
-   * Runs one archive or restore once those before it have ended.
-   *
-   * @remarks
-   * Two at once could both pass their checks for one workspace.
-   *
-   * @sideEffects Runs `work` later.
-   * @param work - The archive or restore.
-   * @returns What it returns.
-   */
-  function oneAtATime(work: () => Promise<void>): Promise<void> {
-    const next = last.then(work);
-    last = next.catch(() => undefined);
-    return next;
-  }
+  const queue = options.queue ?? createWorktreeQueue();
 
   /**
    * A workspace's record.
@@ -248,7 +235,7 @@ export function createWorkspaceArchiver(options: {
 
   return {
     archive: (workspaceId) =>
-      oneAtATime(async () => {
+      queue.run(async () => {
         const record = recordOf(workspaceId);
         if (record.kind === "local") throw new CommandError("workspace_is_local", { workspaceId });
         if ((record.archived ?? null) !== null) return;
@@ -272,7 +259,7 @@ export function createWorkspaceArchiver(options: {
         await options.sessions.archiveWorkspace(workspaceId);
       }),
     restore: (workspaceId) =>
-      oneAtATime(async () => {
+      queue.run(async () => {
         const record = recordOf(workspaceId);
         const archived = record.archived ?? null;
         if (archived === null) return;
@@ -282,7 +269,7 @@ export function createWorkspaceArchiver(options: {
         await options.projects.setArchived(workspaceId, null);
         options.refresh(workspaceId);
       }),
-    close: () => last.then(() => undefined),
+    close: () => queue.idle(),
   };
 }
 

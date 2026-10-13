@@ -13,8 +13,11 @@ import {
 } from "./turn-layout";
 import { useRevealedText } from "./use-revealed-text";
 
-/** What stands on the rail for a row (design-language, "消息流 · 过程"). */
-type RailNode = "dot" | "search" | "live" | "dead" | "steer";
+/**
+ * What stands on the rail for a row (design-language, "消息流 · 过程"); `wait` and `fail` are the
+ * new-workspace timeline's steps not started and failed (design-language, "新建工作区页").
+ */
+export type RailNode = "dot" | "search" | "live" | "dead" | "steer" | "wait" | "fail";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
@@ -22,6 +25,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
   live: 7,
   dead: 7,
   steer: 7,
+  wait: 7,
+  fail: 7,
   search: 11,
 };
 
@@ -30,7 +35,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
  *
  * @remarks
  * Each state has its own shape, not only its own colour (design-language, "原则" 3): a grey dot
- * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer.
+ * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer;
+ * on the new-workspace timeline, a hollow grey ring not started and a red × failed.
  *
  * @sideEffects none
  * @param props - The node.
@@ -39,6 +45,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
 function NodeGlyph({ node }: { readonly node: RailNode }) {
   if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
   if (node === "dead") return <X size={10} weight="bold" className="text-[var(--text-dim)]" />;
+  if (node === "fail") return <X size={10} weight="bold" className="text-[var(--danger)]" />;
+  if (node === "wait") return <span className="size-1.5 rounded-full shadow-[inset_0_0_0_1px_var(--rail)]" />;
   if (node === "steer") {
     return <span className="size-2 rounded-full bg-[var(--main)] shadow-[inset_0_0_0_1.5px_var(--tint)]" />;
   }
@@ -81,7 +89,7 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
  * @param props - The node, and whether the row is the rail's first or last.
  * @returns The marks, absolutely placed in the row's left 30px.
  */
-function RailMarks({
+export function RailMarks({
   node,
   first,
   last,

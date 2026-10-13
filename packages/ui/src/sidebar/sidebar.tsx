@@ -11,10 +11,11 @@ import {
   Monitor,
   Moon,
   GearSix,
+  Plus,
   PlusCircle,
   Sun,
 } from "../design/icons";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, createContext, use, useState } from "react";
 import { useStore } from "zustand";
 import { Fold } from "../chat/fold";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
@@ -128,12 +129,13 @@ function readCollapsed(): ReadonlySet<string> {
  * show their merge state and whether a session runs in them, and are selected by clicking.
  * Chats are listed like workspaces, by their latest activity. Search matches workspace names, chat
  * names and session titles, replacing the projects and chats with its results while it has text. Renaming happens in place. "设置" carries a blue dot while a newer pi
- * is out (SPEC-0001, "设置 · pi").
+ * is out (SPEC-0001, "设置 · pi"). While a project's new-workspace page shows, its row is the one
+ * selected, and going to a workspace, chat or session leaves the page (SPEC-0001, "M1.11 的新建工作区").
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
  * projects in `localStorage`.
- * @param props - The client, how to start a new chat, how to choose a folder, and how to open the
- * settings.
+ * @param props - The client, how to start a new chat, how to choose a folder, how to open the
+ * settings, and the new-workspace page.
  * @returns The sidebar.
  */
 export function Sidebar({
@@ -141,14 +143,19 @@ export function Sidebar({
   onNewChat,
   pickDirectory,
   onSettings,
+  page,
 }: {
   readonly client: AtriumClient;
   readonly onNewChat: () => void;
   /** Asks the user for a folder; `undefined` where the app cannot ask. */
   readonly pickDirectory: (() => Promise<string | null>) | undefined;
   readonly onSettings: () => void;
+  /** The new-workspace page; without it, projects have no "+". */
+  readonly page?: SidebarPage;
 }) {
-  const index = useStore(client.index);
+  const listed = useStore(client.index);
+  // While the page shows, the client's place is not where the user is.
+  const index = page?.projectId == null ? listed : { ...listed, layout: { ...listed.layout, container: null } };
   const update = useStore(client.setup, (setup) => setup.state !== null && piUpdateAvailable(setup.state.pi));
   const now = useClock().now();
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -196,135 +203,162 @@ export function Sidebar({
   const appearance = APPEARANCES.find((entry) => entry.appearance === index.preferences.appearance) ?? APPEARANCES[0];
 
   return (
-    <nav
-      aria-label="侧栏"
-      className="flex h-full w-[270px] shrink-0 flex-col bg-[var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150"
-    >
-      <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <Inbox client={client} index={index} now={now} />
-        <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
-          <span className="flex-1">项目</span>
-          <button
-            type="button"
-            className={ICON_BUTTON}
-            aria-label="搜索工作区、对话和会话"
-            aria-pressed={searching}
-            onClick={() => {
-              setSearching(!searching);
-              setQuery("");
-            }}
-          >
-            <MagnifyingGlass size={15} />
-          </button>
-          {pickDirectory === undefined ? null : (
+    <LeavePage value={page?.leave ?? stay}>
+      <nav
+        aria-label="侧栏"
+        className="flex h-full w-[270px] shrink-0 flex-col bg-[var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150"
+      >
+        <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <Inbox client={client} index={index} now={now} />
+          <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
+            <span className="flex-1">项目</span>
             <button
               type="button"
               className={ICON_BUTTON}
-              aria-label="添加项目"
-              onClick={() =>
-                run(async () => {
-                  const path = await pickDirectory();
-                  if (path !== null) await client.addProject(path);
-                })
-              }
-            >
-              <FolderPlus size={17} />
-            </button>
-          )}
-        </div>
-        {problem === null ? null : (
-          <p role="alert" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
-            {problem}
-          </p>
-        )}
-        {searching ? (
-          <div className="relative mt-0.5 mb-1.5">
-            <MagnifyingGlass
-              size={13}
-              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
-            />
-            <input
               aria-label="搜索工作区、对话和会话"
-              placeholder="搜索工作区、对话和会话"
-              // A search box opened on purpose takes the keyboard at once.
-              // oxlint-disable-next-line jsx-a11y/no-autofocus
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setSearching(false);
-                  setQuery("");
-                }
+              aria-pressed={searching}
+              onClick={() => {
+                setSearching(!searching);
+                setQuery("");
               }}
-              className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
-            />
+            >
+              <MagnifyingGlass size={15} />
+            </button>
+            {pickDirectory === undefined ? null : (
+              <button
+                type="button"
+                className={ICON_BUTTON}
+                aria-label="添加项目"
+                onClick={() =>
+                  run(async () => {
+                    const path = await pickDirectory();
+                    if (path !== null) await client.addProject(path);
+                  })
+                }
+              >
+                <FolderPlus size={17} />
+              </button>
+            )}
           </div>
-        ) : null}
-        {query.trim() !== "" ? (
-          <SearchResults client={client} index={index} query={query.trim()} now={now} />
-        ) : (
-          <>
-            {index.projects.map((project) => (
-              <ProjectRows
-                key={project.id}
+          {problem === null ? null : (
+            <p role="alert" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
+              {problem}
+            </p>
+          )}
+          {searching ? (
+            <div className="relative mt-0.5 mb-1.5">
+              <MagnifyingGlass
+                size={13}
+                className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
+              />
+              <input
+                aria-label="搜索工作区、对话和会话"
+                placeholder="搜索工作区、对话和会话"
+                // A search box opened on purpose takes the keyboard at once.
+                // oxlint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    setSearching(false);
+                    setQuery("");
+                  }
+                }}
+                className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
+              />
+            </div>
+          ) : null}
+          {query.trim() !== "" ? (
+            <SearchResults client={client} index={index} query={query.trim()} now={now} />
+          ) : (
+            <>
+              {index.projects.map((project) => (
+                <ProjectRows
+                  key={project.id}
+                  client={client}
+                  index={index}
+                  project={project}
+                  onNewWorkspace={page === undefined ? undefined : () => page.open(project.id)}
+                  pageHere={page?.projectId === project.id}
+                  open={!collapsed.has(project.id)}
+                  onToggle={() => toggle(project.id)}
+                  renaming={renaming}
+                  setRenaming={setRenaming}
+                  run={run}
+                  now={now}
+                />
+              ))}
+              {index.ready && index.projects.length === 0 ? (
+                <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
+                  还没有项目，点上面的文件夹按钮添加
+                </p>
+              ) : null}
+              <ChatRows
                 client={client}
                 index={index}
-                project={project}
-                open={!collapsed.has(project.id)}
-                onToggle={() => toggle(project.id)}
+                now={now}
+                onNewChat={onNewChat}
                 renaming={renaming}
                 setRenaming={setRenaming}
                 run={run}
-                now={now}
               />
-            ))}
-            {index.ready && index.projects.length === 0 ? (
-              <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
-                还没有项目，点上面的文件夹按钮添加
-              </p>
-            ) : null}
-            <ChatRows
-              client={client}
-              index={index}
-              now={now}
-              onNewChat={onNewChat}
-              renaming={renaming}
-              setRenaming={setRenaming}
-              run={run}
-            />
-          </>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
-        <button
-          type="button"
-          onClick={onSettings}
-          title="设置（⌘,）"
-          className="inline-flex h-7 items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]"
-        >
-          <GearSix size={16} className="text-[var(--text-muted)]" />
-          设置
-          {update ? <UpdateDot /> : null}
-        </button>
-        <span className="flex-1" />
-        <button
-          type="button"
-          className={ICON_BUTTON}
-          aria-label={appearance?.label}
-          title={appearance?.label}
-          onClick={() => {
-            const at = APPEARANCES.findIndex((entry) => entry.appearance === index.preferences.appearance);
-            const next = APPEARANCES[(at + 1) % APPEARANCES.length]?.appearance ?? "system";
-            run(() => client.setPreferences({ appearance: next }));
-          }}
-        >
-          {appearance?.icon}
-        </button>
-      </div>
-    </nav>
+            </>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
+          <button
+            type="button"
+            onClick={onSettings}
+            title="设置（⌘,）"
+            className="inline-flex h-7 items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]"
+          >
+            <GearSix size={16} className="text-[var(--text-muted)]" />
+            设置
+            {update ? <UpdateDot /> : null}
+          </button>
+          <span className="flex-1" />
+          <button
+            type="button"
+            className={ICON_BUTTON}
+            aria-label={appearance?.label}
+            title={appearance?.label}
+            onClick={() => {
+              const at = APPEARANCES.findIndex((entry) => entry.appearance === index.preferences.appearance);
+              const next = APPEARANCES[(at + 1) % APPEARANCES.length]?.appearance ?? "system";
+              run(() => client.setPreferences({ appearance: next }));
+            }}
+          >
+            {appearance?.icon}
+          </button>
+        </div>
+      </nav>
+    </LeavePage>
   );
+}
+
+/** The new-workspace page, as the sidebar opens, marks and leaves it (SPEC-0001, "M1.11 的新建工作区"). */
+export interface SidebarPage {
+  /** The project whose page shows, or `null`. */
+  readonly projectId: string | null;
+  readonly open: (projectId: string) => void;
+  readonly leave: () => void;
+}
+
+/** Leaves the new-workspace page, as going to a workspace, chat or session from the sidebar does. */
+const LeavePage = createContext<() => void>(() => undefined);
+
+/**
+ * Leaves nothing.
+ *
+ * @remarks
+ * For a sidebar given no new-workspace page.
+ *
+ * @sideEffects none
+ */
+function stay(): void {
+  // Nothing: see above.
 }
 
 /**
@@ -447,6 +481,7 @@ function ChatRows({
       (error) => describeChatArchiveError(error, "没能归档这个对话"),
     );
   const shown = expanded ? chats : chats.slice(0, RECENT_CHATS);
+  const leave = use(LeavePage);
   return (
     <section aria-label="对话">
       <div className="mt-1.5 flex h-[34px] items-center pl-2 text-[var(--text-muted)]">对话</div>
@@ -463,9 +498,14 @@ function ChatRows({
             role="button"
             tabIndex={0}
             aria-current={index.layout.container === chat.id}
-            onClick={() => run(() => selectChat(client, listed))}
+            onClick={() => {
+              leave();
+              run(() => selectChat(client, listed));
+            }}
             onKeyDown={(event) => {
-              if (event.key === "Enter") run(() => selectChat(client, listed));
+              if (event.key !== "Enter") return;
+              leave();
+              run(() => selectChat(client, listed));
             }}
             className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
             data-testid="chat-row"
@@ -561,11 +601,14 @@ function ChatRows({
  * See `Sidebar`. A collapsed project holding the current workspace is shown selected. Archived
  * workspaces are left out, listed only in the project's menu; archiving one asks first
  * (SPEC-0001, "M1.11 的工作区归档"). Opening and closing fold the workspaces' rows in and out and
- * cross-fade the folder (SPEC-0001, "侧栏"; design-language, "动效").
+ * cross-fade the folder (SPEC-0001, "侧栏"; design-language, "动效"). Hovering shows "+", which
+ * opens the project's new-workspace page; the row is selected while the page shows (SPEC-0001,
+ * "M1.11 的新建工作区").
  *
  * @sideEffects Sends commands when used; animates the rows and the folder when opened or closed.
- * @param props - The client, the list, the project, whether it is open, the sidebar's renaming
- * and command helpers, and the time now.
+ * @param props - The client, the list, the project, whether it is open, how to open its
+ * new-workspace page and whether it shows, the sidebar's renaming and command helpers, and the
+ * time now.
  * @returns The rows.
  */
 function ProjectRows({
@@ -574,6 +617,8 @@ function ProjectRows({
   project,
   open,
   onToggle,
+  onNewWorkspace,
+  pageHere,
   renaming,
   setRenaming,
   run,
@@ -584,6 +629,10 @@ function ProjectRows({
   readonly project: Project;
   readonly open: boolean;
   readonly onToggle: () => void;
+  /** Opens the project's new-workspace page; without it, the row has no "+". */
+  readonly onNewWorkspace: (() => void) | undefined;
+  /** Whether the project's new-workspace page shows, which selects the row. */
+  readonly pageHere: boolean;
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
@@ -615,7 +664,7 @@ function ProjectRows({
         role="button"
         tabIndex={0}
         aria-expanded={open}
-        aria-current={!open && holdsCurrent}
+        aria-current={pageHere || (!open && holdsCurrent)}
         onClick={onToggle}
         onKeyDown={(event) => {
           if (event.key === "Enter") onToggle();
@@ -651,6 +700,17 @@ function ProjectRows({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
+          {onNewWorkspace === undefined ? null : (
+            <button
+              type="button"
+              aria-label={`在 ${project.name} 新建工作区`}
+              title="新建工作区"
+              onClick={onNewWorkspace}
+              className="rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+            >
+              <Plus size={14} />
+            </button>
+          )}
           <MenuButton label={`项目 ${project.name}`} compact content={<DotsThree size={14} weight="bold" />}>
             {(close) => (
               <>
@@ -771,15 +831,21 @@ function WorkspaceRow({
   readonly onArchive: () => void;
 }) {
   const name = workspaceName(workspace);
+  const leave = use(LeavePage);
   return (
     <div
       role="button"
       tabIndex={0}
       aria-current={selected}
       title={workspaceHint(workspace)}
-      onClick={() => run(() => client.selectContainer(workspace.id))}
+      onClick={() => {
+        leave();
+        run(() => client.selectContainer(workspace.id));
+      }}
       onKeyDown={(event) => {
-        if (event.key === "Enter") run(() => client.selectContainer(workspace.id));
+        if (event.key !== "Enter") return;
+        leave();
+        run(() => client.selectContainer(workspace.id));
       }}
       className={`${ROW} pl-9 aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
       data-testid="workspace-row"
@@ -935,6 +1001,7 @@ function SearchResults({
   readonly query: string;
   readonly now: number;
 }) {
+  const leave = use(LeavePage);
   const needle = query.toLowerCase();
   const workspaces = index.workspaces.filter(
     (workspace) => workspace.archivedAt === null && workspaceName(workspace).toLowerCase().includes(needle),
@@ -955,6 +1022,7 @@ function SearchResults({
    * @param session - The session.
    */
   const open = (session: SessionSummary) => {
+    leave();
     // Fire and forget: opening shows the session or its failure there.
     void client.openSession(session.sessionId).catch(() => undefined);
   };
@@ -973,6 +1041,7 @@ function SearchResults({
           key={workspace.id}
           type="button"
           onClick={() => {
+            leave();
             // Fire and forget: the list shows where the client is.
             void client.selectContainer(workspace.id).catch(() => undefined);
           }}
@@ -995,6 +1064,7 @@ function SearchResults({
           key={listed.chat.id}
           type="button"
           onClick={() => {
+            leave();
             // Fire and forget: the list shows where the client is.
             void selectChat(client, listed).catch(() => undefined);
           }}
@@ -1092,6 +1162,7 @@ function Inbox({
   readonly now: number;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const leave = use(LeavePage);
   const entries = inboxOf(index.sessions);
   if (entries.length === 0) return null;
   const shown = expanded ? entries : entries.slice(0, INBOX_SHOWN);
@@ -1112,6 +1183,7 @@ function Inbox({
           current={index.layout.container === session.containerId && active === session.sessionId}
           testId="inbox-row"
           onOpen={() => {
+            leave();
             // Fire and forget: opening shows the session or its failure there.
             void client.openSession(session.sessionId).catch(() => undefined);
           }}

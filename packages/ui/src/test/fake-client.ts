@@ -11,6 +11,7 @@ import type {
 } from "@atrium/client";
 import {
   type Chat,
+  type CommandResult,
   CommandError,
   type DiffTarget,
   type DiscoveredDirectory,
@@ -147,6 +148,10 @@ export const READY_SETUP: SetupState = {
 export interface FakeAnswers {
   readonly createChat?: () => Promise<void>;
   readonly createSession?: () => Promise<void>;
+  /** A project's bases; `origin/main` and a local `main` when left out. */
+  readonly bases?: (projectId: string) => Promise<CommandResult<"list_bases">>;
+  /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
+  readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
   /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
   readonly archiveChat?: () => Promise<void>;
@@ -372,10 +377,45 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       });
       return { sessionId: addDraft(chatId) };
     },
-    async createSession(containerId: string) {
-      calls.push(`createSession ${containerId}`);
+    async createSession(containerId: string, go?: boolean) {
+      calls.push(`createSession ${containerId}${go === false ? " stay" : ""}`);
       await answers.createSession?.();
-      return { sessionId: addDraft(containerId) };
+      // As the host does: told not to go, the tab opens and the client stays.
+      const layout = index.getState().layout;
+      const sessionId = addDraft(containerId);
+      if (go === false) index.setState({ layout: { ...index.getState().layout, container: layout.container } });
+      return { sessionId };
+    },
+    async listBases(projectId: string) {
+      calls.push(`listBases ${projectId}`);
+      return (
+        (await answers.bases?.(projectId)) ?? {
+          main: "origin/main",
+          current: "main",
+          local: ["main"],
+          remote: ["origin/main"],
+        }
+      );
+    },
+    async createWorkspace(projectId: string, branch: string, base: string) {
+      calls.push(`createWorkspace ${projectId} ${branch} ${base}`);
+      await answers.createWorkspace?.();
+      created += 1;
+      const id = `wks_made${created}`;
+      index.setState({
+        workspaces: [
+          ...index.getState().workspaces,
+          workspace({
+            id,
+            projectId,
+            kind: "worktree",
+            dir: `/work/made${created}`,
+            branch,
+            createdAt: Date.now(),
+          }),
+        ],
+      });
+      return { workspaceId: id };
     },
     async openSession(sessionId: string) {
       calls.push(`openSession ${sessionId}`);

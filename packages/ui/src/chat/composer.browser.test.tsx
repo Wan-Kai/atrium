@@ -321,6 +321,16 @@ describe("Composer's draft", () => {
 
     await vi.waitFor(() => expect(localStorage.getItem("atrium-draft:s1")).toBeNull());
   });
+
+  it("takes text but sends nothing while held, by Enter or the button", async () => {
+    const { screen, box, sent } = await composer({ held: true });
+
+    await userEvent.type(box, "下一条{Enter}");
+
+    await expect.element(box).toHaveValue("下一条");
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    expect(sent).toStrictEqual([]);
+  });
 });
 
 /**

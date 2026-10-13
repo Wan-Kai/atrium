@@ -229,6 +229,24 @@ export const RestoreWorkspaceCommand = z.strictObject({
 });
 export type RestoreWorkspaceCommand = z.infer<typeof RestoreWorkspaceCommand>;
 
+/** Lists where a new worktree of a project may start: its main branch, local and remote branches. */
+export const ListBasesCommand = z.strictObject({
+  type: z.literal("list_bases"),
+  ...commandFields,
+  projectId: ProjectId,
+});
+export type ListBasesCommand = z.infer<typeof ListBasesCommand>;
+
+/** Creates a worktree workspace on a new branch from a base, next to the project's repository. */
+export const CreateWorkspaceCommand = z.strictObject({
+  type: z.literal("create_workspace"),
+  ...commandFields,
+  projectId: ProjectId,
+  branch: BranchName,
+  base: BranchName,
+});
+export type CreateWorkspaceCommand = z.infer<typeof CreateWorkspaceCommand>;
+
 /** Names a chat, or with `null` goes back to its first session's title. */
 export const RenameChatCommand = z.strictObject({
   type: z.literal("rename_chat"),
@@ -263,6 +281,11 @@ export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
   ...commandFields,
   containerId: ContainerId,
+  /**
+   * `false` opens the tab without taking the client there, for a new workspace's session the user
+   * has left the page of (SPEC-0001, "M1.11 的新建工作区"); it goes there when left out.
+   */
+  go: z.boolean().optional(),
 });
 export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 
@@ -607,6 +630,8 @@ export const Command = z.discriminatedUnion("type", [
   RenameWorkspaceCommand,
   ArchiveWorkspaceCommand,
   RestoreWorkspaceCommand,
+  ListBasesCommand,
+  CreateWorkspaceCommand,
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
@@ -700,6 +725,13 @@ export const CommandResult = {
   rename_workspace: z.strictObject({}),
   archive_workspace: z.strictObject({}),
   restore_workspace: z.strictObject({}),
+  list_bases: z.strictObject({
+    main: BranchName.nullable(),
+    current: BranchName.nullable(),
+    local: z.array(BranchName),
+    remote: z.array(BranchName),
+  }),
+  create_workspace: z.strictObject({ workspaceId: WorkspaceId }),
   rename_chat: z.strictObject({}),
   archive_chat: z.strictObject({}),
   restore_chat: z.strictObject({}),

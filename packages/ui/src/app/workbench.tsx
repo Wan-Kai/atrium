@@ -11,7 +11,10 @@ import { type SettingsSection, SettingsPanel } from "../settings/settings-panel"
 import { FirstLaunch, type FirstLaunchStart, firstLaunchStart } from "../setup/first-launch";
 import { useInstallSeed } from "../state/install-seed";
 import { Sidebar } from "../sidebar/sidebar";
+import { type NewWorkspaceState, closePage, createNewWorkspaceStore, openPage } from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
+import { NewWorkspacePage } from "./new-workspace-page";
+import type { StoreApi } from "zustand";
 
 /** What the user calls each index file in the reset notice. */
 const FILE_NAMES: Readonly<Record<IndexFileName, string>> = {
@@ -75,12 +78,14 @@ function fireAndForget(command: Promise<unknown>): void {
  * SPEC-0001 ("标签栏", roadmap M1.5): ⌘N new chat, ⌘T new session where the client is, ⌘W close
  * the tab, ⌘1–9 go to a tab, ⌘⇧[ and ⌘⇧] the previous and next tab. Brackets are matched by
  * key position, since Shift changes the character. The keys read the list at the moment they
- * are pressed.
+ * are pressed. On the new-workspace page, ⌘N and ⌘T leave it, and the keys for tabs do nothing,
+ * as it has none (SPEC-0001, "M1.11 的新建工作区").
  *
- * @sideEffects Listens for keys on the window while mounted; sends commands.
+ * @sideEffects Listens for keys on the window while mounted; sends commands; may leave the page.
  * @param client - The client.
+ * @param pages - The new-workspace page's store.
  */
-function useTabShortcuts(client: AtriumClient): void {
+function useTabShortcuts(client: AtriumClient, pages: StoreApi<NewWorkspaceState>): void {
   useEffect(() => {
     /**
      * Acts on a ⌘ shortcut.
@@ -99,9 +104,12 @@ function useTabShortcuts(client: AtriumClient): void {
       const open = tabs?.open ?? [];
       const at = open.indexOf(tabs?.active ?? "");
       const key = event.key.toLowerCase();
+      const onPage = pages.getState().page !== null;
       let target: string | undefined;
+      if (!event.shiftKey && (key === "n" || key === "t")) closePage(pages);
       if (!event.shiftKey && key === "n") fireAndForget(client.createChat());
       else if (!event.shiftKey && key === "t") fireAndForget(createHere(client));
+      else if (onPage) return;
       else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
       else if (!event.shiftKey && /^[1-9]$/.test(event.key)) target = open[Number(event.key) - 1];
       else if (event.shiftKey && event.code === "BracketLeft") target = open[at - 1];
@@ -112,7 +120,7 @@ function useTabShortcuts(client: AtriumClient): void {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client]);
+  }, [client, pages]);
 }
 
 /** Where the settings' last part shown is remembered in this browser profile (SPEC-0001, "设置"). */
@@ -331,7 +339,9 @@ export function Workbench({
  * @remarks
  * SPEC-0001 ("界面"). Focusing the window asks the host to look at workspaces and sessions again
  * (domain-model, "已决定 12"). Index files reset at the host's start are mentioned once per host
- * run, until dismissed. Starting a session when the client is nowhere starts a chat.
+ * run, until dismissed. Starting a session when the client is nowhere starts a chat. A project's
+ * new-workspace page shows in place of the tab bar and the conversation area, this window's own;
+ * what it sets going shows over its session once there (SPEC-0001, "M1.11 的新建工作区").
  *
  * @sideEffects Subscribes to the client's list; listens for focus and keys; sends commands.
  * @param props - The client, the connection status line, how to choose a folder, how to open an
@@ -356,6 +366,8 @@ function MainWindow({
   const sessionId = activeSession(index);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const settings = useSettings();
+  const [pages] = useState(createNewWorkspaceStore);
+  const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
   useDraftCleanup(index);
 
   useEffect(() => {
@@ -375,8 +387,9 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client);
-  useSeenErrors(client, index, sessionId);
+  useTabShortcuts(client, pages);
+  // On the new-workspace page no session shows.
+  useSeenErrors(client, index, pageProject === null ? sessionId : null);
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
@@ -384,12 +397,20 @@ function MainWindow({
       <div className="flex h-full">
         <Sidebar
           client={client}
-          onNewChat={() => fireAndForget(client.createChat())}
+          onNewChat={() => {
+            closePage(pages);
+            fireAndForget(client.createChat());
+          }}
           pickDirectory={pickDirectory}
           onSettings={settings.show}
+          page={{
+            projectId: pageProject,
+            open: (projectId) => openPage(pages, projectId, Math.random),
+            leave: () => closePage(pages),
+          }}
         />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
-          {container === null ? (
+          {container === null || pageProject !== null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
           ) : (
             <TabBar client={client} containerId={container} onNew={() => fireAndForget(createHere(client))} />
@@ -407,12 +428,17 @@ function MainWindow({
               </button>
             </div>
           ) : null}
-          <ConversationArea
-            client={client}
-            containerId={container}
-            sessionId={sessionId}
-            create={() => createHere(client)}
-          />
+          {pageProject === null ? (
+            <ConversationArea
+              client={client}
+              containerId={container}
+              sessionId={sessionId}
+              create={() => createHere(client)}
+              launches={pages}
+            />
+          ) : (
+            <NewWorkspacePage client={client} store={pages} />
+          )}
           <footer className="flex shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
         </main>
       </div>

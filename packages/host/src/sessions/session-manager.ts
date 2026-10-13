@@ -879,9 +879,10 @@ export function createSessionManager(options: {
    * @param clientId - The client.
    * @param containerId - Where the session goes.
    * @param cwd - Its working directory.
+   * @param go - Whether the client goes to the container, as it does unless it moved meanwhile.
    * @returns The new session's id.
    */
-  async function create(clientId: string, containerId: string, cwd: string): Promise<string> {
+  async function create(clientId: string, containerId: string, cwd: string, go = true): Promise<string> {
     const asked = options.layouts.of(clientId).container;
     const sessionId = options.newSessionId();
     await options.catalog.record({ sessionId, containerId, cwd });
@@ -891,7 +892,7 @@ export function createSessionManager(options: {
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {
       const stayed = options.layouts.of(clientId).container === asked;
-      await options.layouts.open(clientId, containerId, sessionId, stayed);
+      await options.layouts.open(clientId, containerId, sessionId, go && stayed);
       options.onChange();
     });
     return sessionId;
@@ -1016,7 +1017,7 @@ export function createSessionManager(options: {
         throw error;
       }
     },
-    async createSession(clientId, containerId) {
+    async createSession(clientId, containerId, go = true) {
       if (isChatId(containerId)) {
         const chat = chatOf(containerId);
         if (options.chats.archived(containerId) !== null) {
@@ -1026,7 +1027,7 @@ export function createSessionManager(options: {
       }
       const dir = options.workspaces.dirOf(containerId);
       if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: containerId });
-      return { sessionId: await create(clientId, containerId, dir) };
+      return { sessionId: await create(clientId, containerId, dir, go) };
     },
     async openSession(clientId, sessionId) {
       const entry = await inClientOrder(clientId, async () => {

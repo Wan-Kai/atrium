@@ -65,6 +65,11 @@ export const ErrorCode = z.enum([
   "worktree_remove_failed",
   /** An archived worktree could not be added back; `params.reason` is `no_branch`, `dir_taken` or `branch_gone`, or absent when git failed. */
   "worktree_restore_failed",
+  /**
+   * A worktree workspace could not be created; `params.reason` is `not_git`, `branch_invalid`,
+   * `base_missing`, `branch_exists` or `dir_taken`, or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
+   */
+  "worktree_create_failed",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */

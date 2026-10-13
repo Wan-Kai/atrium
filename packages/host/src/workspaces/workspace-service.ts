@@ -518,7 +518,7 @@ async function creationTimes(common: string): Promise<Map<string, number>> {
  * @param run - Runs git in the project.
  * @returns The ref, or `null`.
  */
-async function mainBranchRef(
+export async function mainBranchRef(
   project: ProjectRecord,
   run: (...args: string[]) => Promise<{ readonly code: number; readonly stdout: string } | null>,
 ): Promise<string | null> {

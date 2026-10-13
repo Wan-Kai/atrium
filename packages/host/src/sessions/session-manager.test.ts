@@ -265,6 +265,23 @@ describe("SessionManager creating sessions", () => {
     });
   });
 
+  it("opens a new session's tab without taking the client there when told not to go", async () => {
+    const { manager, layouts } = await manage({ rules: SESSION_ONE });
+    await manager.selectContainer("client-1", CHAT);
+
+    const { sessionId } = await manager.createSession("client-1", WORKSPACE, false);
+
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHAT,
+      tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
+    });
+    const next = await manager.createSession("client-1", WORKSPACE);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: WORKSPACE,
+      tabs: { [WORKSPACE]: { open: [sessionId, next.sessionId], active: next.sessionId } },
+    });
+  });
+
   it("creates a chat in its own directory, records and opens it before pi starts, then starts pi there with its id", async () => {
     const at = await place();
     const tools = Promise.withResolvers<SessionTools | null>();

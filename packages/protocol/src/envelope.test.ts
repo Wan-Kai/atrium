@@ -45,9 +45,19 @@ const commands: Command[] = [
   { type: "rename_workspace", requestId: "r17", traceparent, workspaceId: WORKSPACE, name: null },
   { type: "archive_workspace", requestId: "r17a", traceparent, workspaceId: WORKSPACE },
   { type: "restore_workspace", requestId: "r17b", traceparent, workspaceId: WORKSPACE },
+  { type: "list_bases", requestId: "r17c", traceparent, projectId: PROJECT },
+  {
+    type: "create_workspace",
+    requestId: "r17d",
+    traceparent,
+    projectId: PROJECT,
+    branch: "atrium/brave-otter",
+    base: "origin/main",
+  },
   { type: "window_focused", requestId: "r18", traceparent },
   { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE },
   { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
+  { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE, go: false },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: "合并原理" },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: null },
   { type: "archive_chat", requestId: "r19a", traceparent, chatId: CHAT },
@@ -493,6 +503,7 @@ describe("parseClientMessage", () => {
       "close_tab",
       "create_chat",
       "create_session",
+      "create_workspace",
       "discover_projects",
       "fetch_image",
       "fetch_step",
@@ -500,6 +511,7 @@ describe("parseClientMessage", () => {
       "hand_off",
       "install_node",
       "install_pi",
+      "list_bases",
       "list_branches",
       "list_commands",
       "list_models",
@@ -606,6 +618,11 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["the old chats' container", { type: "create_session", requestId: "r1", traceparent, containerId: "chats" }, "r1"],
+    [
+      "going there by a word",
+      { type: "create_session", requestId: "r1", traceparent, containerId: WORKSPACE, go: "no" },
+      "r1",
+    ],
     [
       "a chat id with a path in it",
       { type: "rename_chat", requestId: "r1", traceparent, chatId: "cht_../x", name: null },
@@ -747,6 +764,21 @@ describe("parseClientMessage", () => {
     ["archiving no workspace", { type: "archive_workspace", requestId: "r1", traceparent }, "r1"],
     ["restoring a chat", { type: "restore_workspace", requestId: "r1", traceparent, workspaceId: CHAT }, "r1"],
     ["archiving no chat", { type: "archive_chat", requestId: "r1", traceparent }, "r1"],
+    [
+      "listing the bases of a workspace",
+      { type: "list_bases", requestId: "r1", traceparent, projectId: WORKSPACE },
+      "r1",
+    ],
+    [
+      "creating a workspace on no branch",
+      { type: "create_workspace", requestId: "r1", traceparent, projectId: PROJECT, branch: "", base: "main" },
+      "r1",
+    ],
+    [
+      "creating a workspace from nowhere",
+      { type: "create_workspace", requestId: "r1", traceparent, projectId: PROJECT, branch: "atrium/a" },
+      "r1",
+    ],
     [
       "restoring a workspace as a chat",
       { type: "restore_chat", requestId: "r1", traceparent, chatId: WORKSPACE },
@@ -1001,6 +1033,14 @@ describe("CommandResult", () => {
     expect(CommandResult.list_branches.parse({ branches: [], head: null })).toStrictEqual({ branches: [], head: null });
     expect(CommandResult.list_branches.safeParse({ branches: [""], head: null }).success).toBe(false);
     expect(CommandResult.set_main_branch.parse({})).toStrictEqual({});
+    const bases = { main: "origin/main", current: "main", local: ["main", "atrium/a"], remote: ["origin/main"] };
+    expect(CommandResult.list_bases.parse(bases)).toStrictEqual(bases);
+    const none = { main: null, current: null, local: [], remote: [] };
+    expect(CommandResult.list_bases.parse(none)).toStrictEqual(none);
+    expect(CommandResult.list_bases.safeParse({ ...none, local: [""] }).success).toBe(false);
+    expect(CommandResult.list_bases.safeParse({ main: null, local: [], remote: [] }).success).toBe(false);
+    expect(CommandResult.create_workspace.parse({ workspaceId: WORKSPACE })).toStrictEqual({ workspaceId: WORKSPACE });
+    expect(CommandResult.create_workspace.safeParse({ workspaceId: PROJECT }).success).toBe(false);
     for (const wrong of [
       { ...discovered, path: "" },
       { ...discovered, sessions: 0 },
@@ -1368,6 +1408,7 @@ describe("HostMessage", () => {
       "workspace_unsaved_commits",
       "worktree_remove_failed",
       "worktree_restore_failed",
+      "worktree_create_failed",
       "fast_unavailable",
       "pi_rejected",
       "session_handed_off",

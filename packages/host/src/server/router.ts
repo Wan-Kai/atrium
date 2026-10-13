@@ -88,7 +88,7 @@ export function createRouter(options: RouterOptions): Route {
       case "create_chat":
         return options.sessions.createChat(connection.clientId);
       case "create_session":
-        return options.sessions.createSession(connection.clientId, command.containerId);
+        return options.sessions.createSession(connection.clientId, command.containerId, command.go ?? true);
       case "close_tab":
         return options.sessions.closeTab(connection.clientId, command.sessionId);
       case "select_container":
@@ -121,6 +121,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.archiveWorkspace(command.workspaceId);
       case "restore_workspace":
         return options.index.restoreWorkspace(command.workspaceId);
+      case "list_bases":
+        return options.index.listBases(command.projectId);
+      case "create_workspace":
+        return options.index.createWorkspace(command.projectId, command.branch, command.base);
       case "rename_chat":
         return options.index.renameChat(command.chatId, command.name);
       case "window_focused":

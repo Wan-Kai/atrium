@@ -43,6 +43,7 @@ import {
   FolderOpenIcon,
   FoldVerticalIcon,
   GitBranchIcon,
+  GitCommitIcon,
   GitCompareIcon,
   GitMergeIcon,
   HelpCircleIcon,
@@ -254,6 +255,7 @@ export const FolderPlus = drawn(FolderAddIcon);
 export const Gauge = drawn(DashboardSpeed02Icon);
 export const GearSix = drawn(Settings01Icon);
 export const GitBranch = drawn(GitBranchIcon);
+export const GitCommit = drawn(GitCommitIcon);
 export const GitDiff = drawn(GitCompareIcon);
 export const GitMerge = drawn(GitMergeIcon);
 export const ImageIcon = drawn(Image01Icon);
