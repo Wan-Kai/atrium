@@ -46,6 +46,7 @@ import {
   GitBranchIcon,
   GitCommitIcon,
   GitCompareIcon,
+  GitForkIcon,
   GitMergeIcon,
   HelpCircleIcon,
   Html5Icon,
@@ -261,6 +262,7 @@ export const GearSix = drawn(Settings01Icon);
 export const GitBranch = drawn(GitBranchIcon);
 export const GitCommit = drawn(GitCommitIcon);
 export const GitDiff = drawn(GitCompareIcon);
+export const GitFork = drawn(GitForkIcon);
 export const GitMerge = drawn(GitMergeIcon);
 export const ImageIcon = drawn(Image01Icon);
 export const Info = drawn(InformationCircleIcon);

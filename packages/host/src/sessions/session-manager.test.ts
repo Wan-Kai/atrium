@@ -1,5 +1,12 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
+import {
+  CommandError,
+  type ForkSessionCommand,
+  IDLE_CONTROL,
+  type SessionEvent,
+  type SessionModel,
+  UNKNOWN_METRICS,
+} from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -15,7 +22,7 @@ import { CHATS_FILE, layoutsFile, SESSIONS_FILE } from "../store/index-schema";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
 import { createSessionCatalog } from "./session-catalog";
-import type { TurnStarts } from "../store/turn-starts";
+import { type TurnStarts, loadTurnStarts } from "../store/turn-starts";
 import { type SessionTools, createSessionManager } from "./session-manager";
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -2015,6 +2022,227 @@ describe("SessionManager exporting", () => {
     await expect(manager.exportSession("nope")).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
+  });
+});
+
+/** What an assistant message carries besides its text; a user message has none of it, which pi ignores. */
+const ASSISTANT_ENDS = { stopReason: "stop", usage: { input: 3, output: 1 } };
+
+/** pi's entries of `pi-session-1` with two turns, `u1` and `u2`. */
+const TWO_TURNS = {
+  data: {
+    entries: [
+      ["u1", null, "user", "one"],
+      ["a1", "u1", "assistant", "first"],
+      ["u2", "a1", "user", "two"],
+      ["a2", "u2", "assistant", "second"],
+    ].map(([id, parentId, role, text]) => ({
+      type: "message",
+      id,
+      parentId,
+      timestamp: "2026-10-13T00:00:00.000Z",
+      message: { role, content: [{ type: "text", text }], timestamp: 1, ...ASSISTANT_ENDS },
+    })),
+    leafId: "a2",
+  },
+};
+
+/**
+ * A scripted pi that runs `pi-session-1` with two turns, and forks or clones it into `pi-session-2`.
+ *
+ * @remarks
+ * The fork's file is written where the catalog looks, unless `elsewhere`.
+ *
+ * @sideEffects none
+ * @param at - The directories.
+ * @param rules - Rules over these.
+ * @param elsewhere - Whether the fork's file goes where the catalog does not look.
+ * @returns The behavior.
+ */
+function forking(
+  at: Awaited<ReturnType<typeof place>>,
+  rules: Readonly<Record<string, object>> = {},
+  elsewhere = false,
+): ScriptedPiBehavior {
+  const file = elsewhere
+    ? join(at.root, "elsewhere.jsonl")
+    : join(sessionFolder({ directory: at.piSessions, perCwd: false }, at.workspace), "pi-session-2.jsonl");
+  const header = { type: "session", id: "pi-session-2", timestamp: "", cwd: at.workspace };
+  const user = { type: "message", id: "u1", parentId: null, timestamp: "", message: { role: "user", content: "one" } };
+  const switchesTo = { sessionId: "pi-session-2", file, text: `${JSON.stringify(header)}\n${JSON.stringify(user)}\n` };
+  return {
+    receivedToStderr: true,
+    argvToStderr: true,
+    rules: {
+      ...SESSION_ONE,
+      get_entries: TWO_TURNS,
+      fork: { switchesTo, data: { text: "two", cancelled: false } },
+      clone: { switchesTo, data: { cancelled: false } },
+      ...rules,
+    },
+  };
+}
+
+/** A `fork_session` command for a turn of `pi-session-1`. */
+function forkCommand(entry: string, sessionId = "pi-session-1"): ForkSessionCommand {
+  return {
+    type: "fork_session",
+    requestId: "r1",
+    traceparent,
+    sessionId,
+    turnId: `${sessionId}:${entry}`,
+    name: "one（分叉）",
+  };
+}
+
+/** The fork commands pi received, without request ids. */
+function forkCommands(received: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  const types = new Set(["fork", "clone", "set_session_name"]);
+  return withoutIds(received.filter((command) => types.has(String(command["type"]))));
+}
+
+/** A manager running `pi-session-1`, with its tab open, over the scripted pi `forking` makes. */
+async function forkable(
+  rules: Readonly<Record<string, object>> = {},
+  elsewhere = false,
+  turnStarts?: (sessionId: string) => Promise<TurnStarts>,
+) {
+  const at = await place();
+  const original = await terminalSession(at, "pi-session-1", at.workspace);
+  const managed = await manage(forking(at, rules, elsewhere), at, turnStarts);
+  await managed.catalog.scan();
+  await managed.manager.openSession("client-1", "pi-session-1");
+  return { ...managed, original };
+}
+
+describe("SessionManager forking", () => {
+  it("forks before the next turn with a pi of its own on the session's file, names the fork and opens it as the active tab", async () => {
+    const { manager, layouts, piReceived, starts, resources, original, at } = await forkable();
+
+    expect(await manager.forkSession("client-1", forkCommand("u1"))).toStrictEqual({ sessionId: "pi-session-2" });
+
+    expect(forkCommands(piReceived())).toStrictEqual([
+      { type: "fork", entryId: "u2" },
+      { type: "set_session_name", name: "one（分叉）" },
+    ]);
+    expect(
+      starts()
+        .filter((line) => "argv" in line)
+        .map(({ argv, cwd }) => [argv.slice(2), cwd]),
+    ).toStrictEqual([
+      [["--session", original], at.workspace],
+      [["--session", original], at.workspace],
+    ]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: WORKSPACE,
+      tabs: { [WORKSPACE]: { open: ["pi-session-1", "pi-session-2"], active: "pi-session-2" } },
+    });
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+    expect(resources.snapshot()["timer"]).toBe(0);
+  });
+
+  it("clones the whole branch after the last turn, opening the fork without taking a client that went elsewhere there", async () => {
+    const { manager, layouts, piReceived } = await forkable();
+
+    const pending = manager.forkSession("client-1", forkCommand("u2"));
+    await manager.selectContainer("client-1", CHAT);
+    await pending;
+
+    expect(forkCommands(piReceived())).toStrictEqual([
+      { type: "clone" },
+      { type: "set_session_name", name: "one（分叉）" },
+    ]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHAT,
+      tabs: { [WORKSPACE]: { open: ["pi-session-1", "pi-session-2"], active: "pi-session-2" } },
+    });
+  });
+
+  it("gives the fork the record of which messages opened turns", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const turns = join(at.home, "turn-starts");
+    const load = async (sessionId: string) => (await loadTurnStarts(turns, sessionId, 0)).starts;
+    await (await load("pi-session-1")).record(["u1", "u2"], ["u2"]);
+    const { manager, catalog } = await manage(forking(at), at, load);
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+
+    await manager.forkSession("client-1", forkCommand("u1"));
+
+    const copied = await load("pi-session-2");
+    expect([[...copied.opened], [...copied.auto]]).toStrictEqual([["u1", "u2"], ["u2"]]);
+  });
+
+  it.each([
+    ["pi refuses", { fork: { fail: "Invalid entry ID for forking" } }, false, "rejected"],
+    ["an extension calls it off", { fork: { data: { text: "two", cancelled: true } } }, false, "cancelled"],
+    ["pi exits", { fork: { exit: 1 } }, false, "exited"],
+    ["the fork's file is not where sessions are", {}, true, "not_found"],
+  ])(
+    "fails when %s, logging only why, stopping its pi and opening nothing",
+    async (_case, rules, elsewhere, reason) => {
+      const { manager, layouts, records, resources } = await forkable(rules, elsewhere);
+
+      await expect(manager.forkSession("client-1", forkCommand("u1"))).rejects.toStrictEqual(
+        new CommandError("fork_failed"),
+      );
+      expect(records.filter((record) => record["msg"] === "fork failed")).toMatchObject([
+        { sessionId: "pi-session-1", reason },
+      ]);
+      expect(layouts.of("client-1").tabs[WORKSPACE]).toStrictEqual({ open: ["pi-session-1"], active: "pi-session-1" });
+      await vi.waitFor(() => expect(resources.snapshot()["pi-process"]).toBe(1));
+    },
+  );
+
+  it("calls a fork under way off when the host closes", async () => {
+    const { manager, records, resources, piReceived } = await forkable({ fork: { silent: true } });
+
+    const failed = manager.forkSession("client-1", forkCommand("u1")).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(forkCommands(piReceived())).toStrictEqual([{ type: "fork", entryId: "u2" }]));
+    await manager.close();
+
+    expect(await failed).toStrictEqual(new CommandError("fork_failed"));
+    expect(records.filter((record) => record["msg"] === "fork failed")).toMatchObject([
+      { sessionId: "pi-session-1", reason: "aborted" },
+    ]);
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("refuses a draft, and a session unknown, gone, handed off or never started here", async () => {
+    const at = await place();
+    const gone = await terminalSession(at, "pi-session-3", at.workspace);
+    await terminalSession(at, "pi-session-4", at.workspace);
+    await terminalSession(at, "pi-session-5", at.workspace);
+    const { manager, catalog } = await manage(forking(at), at);
+    // Recorded, so its file going leaves it missing rather than unknown.
+    await catalog.record({ sessionId: "pi-session-3", containerId: WORKSPACE, cwd: at.workspace });
+    await catalog.scan();
+    await rm(gone);
+    await catalog.scan();
+    await manager.handOff("pi-session-4");
+    const { sessionId: draft } = await manager.createChat("client-1");
+
+    const refusals = [draft, "nope", "pi-session-3", "pi-session-4", "pi-session-5"].map((sessionId) =>
+      manager.forkSession("client-1", forkCommand("u1", sessionId)).catch((error: unknown) => error),
+    );
+
+    expect(await Promise.all(refusals)).toStrictEqual([
+      new CommandError("session_is_draft", { sessionId: draft }),
+      new CommandError("session_not_found", { sessionId: "nope" }),
+      new CommandError("session_not_found", { sessionId: "pi-session-3" }),
+      new CommandError("session_handed_off", { sessionId: "pi-session-4" }),
+      new CommandError("turn_not_found"),
+    ]);
+  });
+
+  it("forks all the same when the record cannot be copied, logging that", async () => {
+    const { manager, records } = await forkable({}, false, () => Promise.reject(new Error("disk full")));
+
+    expect(await manager.forkSession("client-1", forkCommand("u1"))).toStrictEqual({ sessionId: "pi-session-2" });
+    expect(records.filter((record) => record["msg"] === "turn starts could not be copied")).toMatchObject([
+      { sessionId: "pi-session-2", err: { message: "disk full" } },
+    ]);
   });
 });
 

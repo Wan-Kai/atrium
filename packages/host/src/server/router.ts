@@ -191,6 +191,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.compactSession(command.sessionId, command.instructions);
       case "export_session":
         return options.sessions.exportSession(command.sessionId);
+      case "fork_session":
+        return options.sessions.forkSession(connection.clientId, command);
       case "list_commands":
         return options.sessions.listCommands(command.sessionId);
       case "search_files":

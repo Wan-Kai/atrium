@@ -65,6 +65,16 @@ async function line(clock: UiClock) {
   );
 }
 
+/** The colour CSS gives `value`, as computed. */
+function colorOf(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value;
+  document.body.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
+}
+
 describe("SessionNoticeLine", () => {
   it("says what was done for the session shown, for 3 seconds", async () => {
     const { clock, timers } = heldClock();
@@ -97,5 +107,19 @@ describe("SessionNoticeLine", () => {
     await expect.element(screen.getByRole("status")).toBeVisible();
     fire(timers, 1);
     await expect.element(screen.getByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("keeps a failure in the danger colour until another notice takes its place", async () => {
+    const { clock, timers } = heldClock();
+    const screen = await line(clock);
+
+    showNotice("s1", "已复制最后一条回复");
+    await expect.element(screen.getByRole("status")).toBeVisible();
+    expect(getComputedStyle(screen.getByRole("status").element()).color).toBe(colorOf("var(--text-muted)"));
+    showNotice("s1", "没能分叉：pi 出错了", true);
+    await expect.element(screen.getByRole("status")).toHaveTextContent("没能分叉：pi 出错了");
+
+    expect(getComputedStyle(screen.getByRole("status").element()).color).toBe(colorOf("var(--danger)"));
+    expect(timers.map((timer) => [timer.ms, timer.cancelled])).toStrictEqual([[3000, true]]);
   });
 });

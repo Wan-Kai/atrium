@@ -48,6 +48,8 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 **fork / clone**（`src/core/agent-session-runtime.ts`）
 
 - RPC `fork {entryId}`：必须是 user 消息，新文件包含到它的父条目为止，返回该消息文本。`clone`：复制整条当前路径。新会话 id、新文件，`parentSession` 指向原文件。
+  - 应答：`fork` 是 `{text, cancelled}`，`clone` 是 `{cancelled}`；extension 在 `session_before_fork` 里取消时 `cancelled: true`，不换会话。RPC 的 `fork` 没有 `position`，固定从这条消息之前截断，所以复制到最后一条只能用 `clone`（它内部是 `position: "at"` 的 fork）。
+  - 新文件写在原会话的会话目录里，有对话就立刻写盘；条目 id 不变（label 重新生成），原文件不动（契约 `fork-clone`，pi 1.1.0，2026-10-13 核实）。
 - 所有"换会话"操作（new / switch / fork / import）都会拆掉当前运行时重建，**RPC 不发任何"会话已切换"事件**，要重新 `get_state`。Atrium 因此一个会话固定一个进程，不用 `switch_session`。
 
 ## 2. 运行时（`src/core/agent-session.ts`，`packages/agent/src/agent.ts`）

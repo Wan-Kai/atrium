@@ -406,6 +406,20 @@ export const ExportSessionCommand = z.strictObject({
 export type ExportSessionCommand = z.infer<typeof ExportSessionCommand>;
 
 /**
+ * Forks a session after one of its turns into a new session in its container, which opens as the
+ * client's active tab (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+ */
+export const ForkSessionCommand = z.strictObject({
+  type: z.literal("fork_session"),
+  ...sessionCommandFields,
+  /** The turn the new session ends with; the last turn copies the whole branch. */
+  turnId: z.string().min(1).max(256),
+  /** The new session's name, which the UI words. */
+  name: Name,
+});
+export type ForkSessionCommand = z.infer<typeof ForkSessionCommand>;
+
+/**
  * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
  *
  * @remarks
@@ -681,6 +695,7 @@ export const Command = z.discriminatedUnion("type", [
   SetFastCommand,
   CompactSessionCommand,
   ExportSessionCommand,
+  ForkSessionCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
@@ -788,6 +803,7 @@ export const CommandResult = {
   compact_session: z.strictObject({}),
   /** The page pi wrote, whole. */
   export_session: z.strictObject({ html: z.string().min(1) }),
+  fork_session: z.strictObject({ sessionId: SessionId }),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),

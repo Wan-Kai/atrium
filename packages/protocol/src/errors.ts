@@ -82,6 +82,10 @@ export const ErrorCode = z.enum([
   "compact_failed",
   /** `export_session`: pi's page is over 20 MB (`params.reason` `too_large`), or pi failed to write it (`failed`). */
   "export_failed",
+  /** `fork_session`: the temporary pi did not start, exited, took over 30 s, or an extension called the fork off. */
+  "fork_failed",
+  /** `fork_session`: the session has no such turn. */
+  "turn_not_found",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
   "session_handed_off",
   /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */

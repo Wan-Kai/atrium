@@ -5,6 +5,7 @@ import {
   CaretDown,
   Database,
   FileText,
+  GitFork,
   Key,
   PencilSimple,
   Question,
@@ -269,19 +270,67 @@ function FileChange({
   );
 }
 
+/** How a turn's "从这里分叉" behaves, where a session can be forked. */
+export interface ForkFromTurn {
+  /** Forks after the turn. */
+  readonly fork: (turnId: string) => void;
+  /** Whether the session runs, stops or compacts, so no fork can be made now. */
+  readonly blocked: boolean;
+}
+
 /**
- * The line under a finished turn: copy, files changed, usage and time.
+ * The "从这里分叉" button beside a reply's copy.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的 `/` 命令 · 分叉"), design-language ("分叉按钮"): drawn as the copy button;
+ * while the session runs it is faded, keeps its colours on hover, shows a not-allowed cursor, says
+ * "运行中不能分叉" and does nothing.
+ *
+ * @sideEffects Forks the session when clicked and not blocked.
+ * @param props - The turn and how forking behaves.
+ * @returns The button.
+ */
+function ForkButton({ turnId, fork }: { readonly turnId: string; readonly fork: ForkFromTurn }) {
+  return (
+    <button
+      type="button"
+      aria-label="从这里分叉"
+      title={fork.blocked ? "运行中不能分叉" : "从这里分叉"}
+      aria-disabled={fork.blocked}
+      className={`rounded-[var(--r)] p-1 text-[var(--text-dim)] ${
+        fork.blocked ? "cursor-not-allowed opacity-40" : "hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+      }`}
+      onClick={() => {
+        if (!fork.blocked) fork.fork(turnId);
+      }}
+    >
+      <GitFork size={14} />
+    </button>
+  );
+}
+
+/**
+ * The line under a finished turn: copy, fork, files changed, usage and time.
  *
  * @remarks
  * "复制、本轮用量（这一轮的输入 + 输出 token）、时间" (SPEC-0001, "消息下方的信息"); the files chip
  * opens the turn's changes (SPEC-0001, "每轮改动汇总"). Copy takes the reply's Markdown source,
- * the one copy there is. The time is when the turn ended.
+ * the one copy there is; forking sits right of it where the session can be forked. The time is
+ * when the turn ended.
  *
  * @sideEffects none
- * @param props - The turn and its reply.
+ * @param props - The turn, its reply and how forking behaves, if offered.
  * @returns The info row and, when open, the files.
  */
-function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: string | null }) {
+function TurnFooter({
+  turn,
+  reply,
+  fork,
+}: {
+  readonly turn: Turn;
+  readonly reply: string | null;
+  readonly fork: ForkFromTurn | undefined;
+}) {
   const [filesOpen, setFilesOpen] = useState(false);
   const added = turn.changes.reduce((sum, change) => sum + (change.added ?? 0), 0);
   const removed = turn.changes.reduce((sum, change) => sum + (change.removed ?? 0), 0);
@@ -292,6 +341,7 @@ function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: stri
         data-testid="turn-footer"
       >
         {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
+        {fork === undefined ? null : <ForkButton turnId={turn.id} fork={fork} />}
         {turn.changes.length === 0 ? null : (
           <button
             type="button"
@@ -392,6 +442,8 @@ export interface TurnViewProps {
   readonly runStartedAt: number | null;
   /** "重试" for a failed turn, when offered. */
   readonly onRetry?: () => void;
+  /** "从这里分叉" under the reply, where the session can be forked. */
+  readonly fork?: ForkFromTurn;
 }
 
 /**
@@ -408,10 +460,10 @@ export interface TurnViewProps {
  * failed turn shows pi's error.
  *
  * @sideEffects Holds a finished turn open for a second on the clock.
- * @param props - The turn and the run's start.
+ * @param props - The turn, the run's start, and "重试" and forking where offered.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
+export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -536,7 +588,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
           <StreamedText text={reply.text} streaming={running} />
         </div>
       )}
-      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} />}
+      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} fork={fork} />}
     </div>
   );
 }

@@ -84,6 +84,7 @@ function fakeCommands() {
     setFast: record("setFast", {}),
     compactSession: record("compactSession", {}),
     exportSession: record("exportSession", { html: "<html></html>" }),
+    forkSession: record("forkSession", { sessionId: "s2" }),
     listCommands: record("listCommands", { commands: [] }),
     searchFiles: record("searchFiles", { files: [] }),
   };
@@ -378,6 +379,10 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "compact_session", requestId: "r15", ...session, instructions: "API" }));
     await route(connection, withTrace({ type: "compact_session", requestId: "r16", ...session }));
     await route(connection, withTrace({ type: "export_session", requestId: "r17", ...session }));
+    await route(
+      connection,
+      withTrace({ type: "fork_session", requestId: "r18", ...session, turnId: "t1", name: "修 bug（分叉）" }),
+    );
 
     expect(calls).toStrictEqual([
       ["steer", "s1", "also"],
@@ -397,6 +402,11 @@ describe("createRouter", () => {
       ["compactSession", "s1", "API"],
       ["compactSession", "s1", undefined],
       ["exportSession", "s1"],
+      [
+        "forkSession",
+        "client-1",
+        { type: "fork_session", requestId: "r18", traceparent, ...session, turnId: "t1", name: "修 bug（分叉）" },
+      ],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
@@ -408,6 +418,7 @@ describe("createRouter", () => {
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
       ...["r14", "r15", "r16"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r17", ok: true, result: { html: "<html></html>" } },
+      { type: "response", requestId: "r18", ok: true, result: { sessionId: "s2" } },
     ]);
   });
 

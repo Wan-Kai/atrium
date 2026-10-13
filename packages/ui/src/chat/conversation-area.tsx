@@ -18,7 +18,8 @@ import { ChangesPanel } from "./changes-panel";
 import { FastToggle } from "./fast-toggle";
 import { shownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
-import { showNotice } from "../state/session-notices";
+import { clearNotice, showNotice } from "../state/session-notices";
+import { sessionTitle } from "../sidebar/names";
 import { type BuiltinCall, builtinBlocked, lastReply, namedLevel, namedModel } from "./builtin-commands";
 import { download } from "./download";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
@@ -81,6 +82,51 @@ export function describeSendError(error: unknown): string {
     return error.params?.["reason"] === "too_large" ? "会话太大（超过 20 MB），没能导出" : "没能导出：pi 出错了";
   }
   return "宿主出错了，消息没有发出";
+}
+
+/**
+ * Explains why a fork failed, in Chinese.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的 `/` 命令 · 分叉"): pi's own words never reach the UI.
+ *
+ * @sideEffects none
+ * @param error - What `fork_session` rejected with.
+ * @returns The sentence to show.
+ */
+function describeForkError(error: unknown): string {
+  if (!(error instanceof CommandError)) return "没能分叉";
+  if (error.code === "session_busy") return "运行中不能分叉";
+  if (error.code === "turn_not_found") return "没能分叉：找不到这一轮";
+  if (error.code === "fork_failed") return "没能分叉：pi 出错了";
+  return "没能分叉";
+}
+
+/** How much of the original's title a fork's name keeps, so the name stays within the 256 characters a name may have. */
+const FORK_TITLE_LENGTH = 250;
+
+/**
+ * Forks a session after a turn, naming the fork after it.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的 `/` 命令 · 分叉"): the fork is named the session's title, as the sidebar
+ * shows it, with "（分叉）"; the host opens it as the active tab. A failure shows beside the tab
+ * bar until something takes its place; trying again takes away the last one first.
+ *
+ * @sideEffects Sends `fork_session`; changes the session's notice.
+ * @param client - The client.
+ * @param sessionId - The session.
+ * @param turnId - The turn the fork ends with.
+ */
+function forkFrom(client: AtriumClient, sessionId: string, turnId: string): void {
+  const shown = client.index.getState().sessions.find((one) => one.sessionId === sessionId);
+  if (shown === undefined) return;
+  clearNotice(sessionId);
+  const name = `${sessionTitle(shown).slice(0, FORK_TITLE_LENGTH)}（分叉）`;
+  // Fire and forget: a failure is shown.
+  void client.forkSession(sessionId, turnId, name).catch((error: unknown) => {
+    showNotice(sessionId, describeForkError(error), true);
+  });
 }
 
 /**
@@ -313,6 +359,7 @@ function SessionArea({
             client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
           }}
           onRetry={actions.retry}
+          onFork={(turnId) => forkFrom(client, sessionId, turnId)}
         />
       </MessageImagesContext>
       <ControlCards control={view.control} actions={actions} />

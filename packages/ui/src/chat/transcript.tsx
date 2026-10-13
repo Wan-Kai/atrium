@@ -7,7 +7,7 @@ import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
 import { LoadStepContext } from "./steps";
 import { RunStatus } from "./run-status";
-import { NoticeView, TurnView } from "./turn-view";
+import { type ForkFromTurn, NoticeView, TurnView } from "./turn-view";
 
 /**
  * Asks for older items when the top of the transcript comes into view.
@@ -199,6 +199,8 @@ export interface TranscriptProps {
   readonly onLoadStep: (turnId: string, stepId: string) => void;
   /** The error card's "重试", offered on the last turn when it failed and nothing runs. */
   readonly onRetry?: () => void;
+  /** Forks the session after a turn, offered under every finished turn's reply. */
+  readonly onFork?: (turnId: string) => void;
 }
 
 /**
@@ -214,14 +216,16 @@ export interface TranscriptProps {
  * before the host starts the run (SPEC-0001, "过程的呈现"); one sent while a turn runs goes into the
  * queue and adds no line. A failed last turn offers "重试" while no
  * run goes on and pi is not being restarted (SPEC-0001, "运行控制"). While pi compacts the
- * context, a line at the bottom says so (SPEC-0001, "M1.11 的 `/` 命令 · 压缩").
+ * context, a line at the bottom says so (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
+ * turn offers "从这里分叉", greyed while a run goes on, stops or pi compacts (SPEC-0001, "M1.11 的
+ * `/` 命令 · 分叉").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
- * @param props - The session's view, how to load older items, how to fetch a step whole, and how
- * to retry.
+ * @param props - The session's view, how to load older items, how to fetch a step whole, how to
+ * retry and how to fork.
  * @returns The scrollable conversation.
  */
-export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: TranscriptProps) {
+export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -230,6 +234,8 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
   useKeepPlaceOnPrepend(scroller, content);
   const last = view.items.at(-1);
   const turnRunning = last?.kind === "turn" && last.outcome === "running";
+  const blocked = view.run !== null || view.control.stopping || view.control.compacting;
+  const fork: ForkFromTurn | undefined = onFork === undefined ? undefined : { fork: onFork, blocked };
   return (
     <LoadStepContext value={onLoadStep}>
       <div className="relative min-h-0 flex-1">
@@ -248,6 +254,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
                   key={item.id}
                   turn={item}
                   runStartedAt={view.run?.startedAt ?? null}
+                  {...(fork === undefined ? {} : { fork })}
                   {...(item === last && view.run === null && !view.control.restarting && onRetry !== undefined
                     ? { onRetry }
                     : {})}

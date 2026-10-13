@@ -152,6 +152,11 @@ export interface SessionController {
   entryOfTurn(turnId: string): string | null;
   /** Waits for the read of pi's entries under way, if any, which ties a turn just ended to its entry. */
   entriesRead(): Promise<void>;
+  /**
+   * Where a fork after a turn cuts the session: the entry of the user message that opens the next
+   * turn, or `null` after the last turn (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+   */
+  forkPoint(turnId: string): string | null;
   /** Stops pi for good, as the host asks (archiving, closing): no restart follows. */
   shutdown(): Promise<void>;
 }
@@ -1751,6 +1756,22 @@ export function createSessionController(options: {
     },
     entryOfTurn: (turnId) => transcript.entryOfTurn(turnId),
     entriesRead: () => refreshing ?? Promise.resolve(),
+    forkPoint(turnId) {
+      // A run, a stop or a compaction still writes the file the fork reads; a pi that has exited
+      // writes nothing, and the fork has a pi of its own.
+      if (run !== null || sending || starting || compacting || stopping !== null || restarting !== null) {
+        throw new CommandError("session_busy");
+      }
+      const turns = transcript.items().filter((item) => item.kind === "turn");
+      const at = turns.findIndex((turn) => turn.id === turnId);
+      if (at === -1) throw new CommandError("turn_not_found");
+      const next = turns[at + 1];
+      if (next === undefined) return null;
+      // Only a turn seen live and never tied to its entry has none, and an idle session has none.
+      const entryId = transcript.entryOfTurn(next.id);
+      if (entryId === null) throw new CommandError("turn_not_found");
+      return entryId;
+    },
     async shutdown() {
       shuttingDown = true;
       metrics.close();

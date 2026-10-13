@@ -4,6 +4,8 @@ import { type StoreApi, createStore } from "zustand/vanilla";
 export interface SessionNotice {
   readonly sessionId: string;
   readonly text: string;
+  /** A failure, which stays until another notice takes its place (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"). */
+  readonly problem: boolean;
 }
 
 /** The page's notice, made on first use; see `pageNotices`. */
@@ -28,13 +30,28 @@ export function pageNotices(): StoreApi<SessionNotice | null> {
  * Shows a notice for a session beside the tab bar, in place of any other.
  *
  * @remarks
- * See `pageNotices`; the line takes itself away.
+ * See `pageNotices`; the line takes itself away, unless it tells of a failure, as the "···" menu's
+ * failures stay.
  *
  * @sideEffects Updates the page's notice.
  * @param sessionId - The session it is about.
  * @param text - What to say.
+ * @param problem - Whether it tells of a failure.
  */
-export function showNotice(sessionId: string, text: string): void {
+export function showNotice(sessionId: string, text: string, problem = false): void {
   // A new object each time, so the line tells one showing of the same words from the next.
-  pageNotices().setState({ sessionId, text }, true);
+  pageNotices().setState({ sessionId, text, problem }, true);
+}
+
+/**
+ * Takes away a session's notice, if it has the line.
+ *
+ * @remarks
+ * For a failure the user tries again after: the old words would read as the new attempt's.
+ *
+ * @sideEffects May update the page's notice.
+ * @param sessionId - The session.
+ */
+export function clearNotice(sessionId: string): void {
+  if (pageNotices().getState()?.sessionId === sessionId) pageNotices().setState(null, true);
 }

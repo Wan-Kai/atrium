@@ -193,6 +193,8 @@ export interface FakeAnswers {
   readonly compactSession?: () => Promise<void>;
   /** The page an export hands over; a small page when left out. */
   readonly exportSession?: () => Promise<string>;
+  /** The fork's session id; `fork-1` when left out. */
+  readonly forkSession?: () => Promise<string>;
   /** A turn's image, or none; the host has none when left out. */
   readonly image?: (
     turnId: string,
@@ -674,6 +676,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async exportSession(sessionId: string) {
       calls.push(`exportSession ${sessionId}`);
       return { html: (await answers.exportSession?.()) ?? "<html></html>" };
+    },
+    async forkSession(sessionId: string, turnId: string, name: string) {
+      calls.push(`forkSession ${sessionId} ${turnId} ${name}`);
+      return { sessionId: (await answers.forkSession?.()) ?? "fork-1" };
     },
     changes(workspaceId: string) {
       let store = changeStores.get(workspaceId);

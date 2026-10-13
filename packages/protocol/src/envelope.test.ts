@@ -144,6 +144,7 @@ const commands: Command[] = [
   { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1" },
   { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1", instructions: "留下接口设计" },
   { type: "export_session", requestId: "r43", traceparent, sessionId: "s1" },
+  { type: "fork_session", requestId: "r43", traceparent, sessionId: "s1", turnId: "t1", name: "修 bug（分叉）" },
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
@@ -515,6 +516,7 @@ describe("parseClientMessage", () => {
       "fetch_image",
       "fetch_step",
       "fetch_transcript",
+      "fork_session",
       "hand_off",
       "install_node",
       "install_pi",
@@ -817,6 +819,16 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     [
+      "a fork without a turn",
+      { type: "fork_session", requestId: "r1", traceparent, sessionId: "s1", turnId: "", name: "n" },
+      "r1",
+    ],
+    [
+      "a fork named only with spaces",
+      { type: "fork_session", requestId: "r1", traceparent, sessionId: "s1", turnId: "t1", name: "  " },
+      "r1",
+    ],
+    [
       "Fast neither on nor off",
       { type: "set_fast", requestId: "r1", traceparent, sessionId: "s1", enabled: "on" },
       "r1",
@@ -931,6 +943,8 @@ describe("CommandResult", () => {
     expect(CommandResult.fetch_image.safeParse({ mimeType: "image/png", data: "" }).success).toBe(false);
     expect(CommandResult.export_session.parse({ html: "<html></html>" })).toStrictEqual({ html: "<html></html>" });
     expect(CommandResult.export_session.safeParse({ html: "" }).success).toBe(false);
+    expect(CommandResult.fork_session.parse({ sessionId: "s2" })).toStrictEqual({ sessionId: "s2" });
+    expect(CommandResult.fork_session.safeParse({}).success).toBe(false);
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
       hasOlder: false,
@@ -1445,6 +1459,8 @@ describe("HostMessage", () => {
       "already_compacted",
       "compact_failed",
       "export_failed",
+      "fork_failed",
+      "turn_not_found",
       "session_handed_off",
       "login_unavailable",
       "login_not_found",

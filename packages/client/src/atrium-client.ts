@@ -248,6 +248,11 @@ export interface AtriumClient {
   compactSession(sessionId: string, instructions?: string): Promise<CommandResult<"compact_session">>;
   /** A session as pi's HTML page, for `/export` to download. */
   exportSession(sessionId: string): Promise<CommandResult<"export_session">>;
+  /**
+   * Forks a session after a turn into a new one with this name, which the host opens as the active
+   * tab (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+   */
+  forkSession(sessionId: string, turnId: string, name: string): Promise<CommandResult<"fork_session">>;
   /** The `/` commands of a session's pi, which starts if it has not. */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
@@ -1295,6 +1300,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       // Stryker disable next-line ConditionalExpression,EqualityOperator: undefined is left out of the JSON either way.
       request("compact_session", instructions === undefined ? { sessionId } : { sessionId, instructions }),
     exportSession: (sessionId) => request("export_session", { sessionId }),
+    forkSession: (sessionId, turnId, name) => request("fork_session", { sessionId, turnId, name }),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

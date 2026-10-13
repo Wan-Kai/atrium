@@ -48,6 +48,7 @@ import {
   type SessionPi,
   createSessionController,
 } from "./session-controller";
+import { forkWithPi } from "./session-forker";
 import { type TitleSubject, createTitleGenerator, firstExchange, titleInput } from "./titles";
 import { type TracedPi, startTracedPi } from "./traced-pi";
 
@@ -180,7 +181,10 @@ async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
  *   switch, which is logged, nothing is sent and Fast is unavailable on that pi, as it is without
  *   `fast`: words pi does not know as a command would go to the model. A session's Fast is its
  *   controller's, else its record's, else the one last chosen; a switch is recorded for the
- *   session and reported to `fast` (SPEC-0001, "Fast").
+ *   session and reported to `fast` (SPEC-0001, "Fast");
+ * - a fork is made by a pi of its own on the session's file (`forkWithPi`), takes the original's
+ *   turn starts, and opens as a tab of the original's container, where the client goes as for a
+ *   new session; `close` calls off forks under way (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
  *
  * Subscribing sends each newly watched session's snapshot to that connection before any later
  * event (domain-model §7); a draft without pi has an empty one, and its subscribers get the real
@@ -260,6 +264,8 @@ export function createSessionManager(options: {
   let closed = false;
   /** Each session's `@` search under way, which the next one calls off. */
   const searches = new Map<string, AbortController>();
+  /** Aborted by `close`, which calls off forks under way. */
+  const closing = new AbortController();
   /** Each client's last tab or place change, which the next one waits for. */
   const clientTurns = new Map<string, Promise<unknown>>();
   /** Each session's last hand-off or take-back, which the next one waits for. */
@@ -988,6 +994,29 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Gives a forked session the record of which of its user messages opened turns.
+   *
+   * @remarks
+   * pi keeps entry ids when it forks (pi-internals.md §1), so the original's record holds for the
+   * fork; without it, the fork would show steers as turns of their own (SPEC-0001, "M1.11 的 `/`
+   * 命令 · 分叉"). Entries past the fork point are left in, as they name nothing there. A failure
+   * is only logged: the fork is made, and shows as it would without the record.
+   *
+   * @sideEffects Reads and writes turn start files; may log.
+   * @param from - The original session.
+   * @param to - The fork.
+   */
+  async function copyTurnStarts(from: string, to: string): Promise<void> {
+    if (options.turnStarts === undefined) return;
+    try {
+      const starts = await options.turnStarts(from);
+      await (await options.turnStarts(to)).record([...starts.opened], [...starts.auto]);
+    } catch (error) {
+      options.logger.warn({ ...failureFields(error), sessionId: to }, "turn starts could not be copied");
+    }
+  }
+
+  /**
    * Discards a draft whose last tab closed: stops its pi, forgets it, and removes its chat's
    * directory when it was the chat's only session.
    *
@@ -1245,6 +1274,56 @@ export function createSessionManager(options: {
         await rm(dir, { recursive: true, force: true });
       }
     },
+    async forkSession(clientId, { sessionId, turnId, name }) {
+      const asked = options.layouts.of(clientId).container;
+      await options.catalog.ready();
+      const entry = entryOf(sessionId);
+      if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
+      if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
+      notHandedOff(sessionId);
+      // Turns are known only to a controller, which the session's pi starting makes.
+      const controller = sessions.get(sessionId)?.controller;
+      if (controller === undefined) throw new CommandError("turn_not_found");
+      // A turn that just ended is tied to its entry by the read its end started.
+      await controller.entriesRead();
+      const at = controller.forkPoint(turnId);
+      const tools = await readyTools();
+      const traced = startTracedPi({
+        launch: { piPath: tools.pi.piPath, args: ["--session", entry.file], cwd: entry.cwd },
+        deps: createPiDeps({
+          clock: options.clock,
+          resources: options.resources,
+          logger: options.logger,
+          env: tools.env,
+        }),
+        tracer: options.tracer,
+      });
+      running.add(traced.process);
+      // Fire and forget: `exited` never rejects.
+      void traced.process.exited.then(() => running.delete(traced.process));
+      const forked = await forkWithPi({
+        pi: traced,
+        at,
+        name,
+        clock: timers,
+        signal: closing.signal,
+        onFailed: (reason) => options.logger.warn({ sessionId, reason }, "fork failed"),
+      });
+      await copyTurnStarts(sessionId, forked.sessionId);
+      await options.catalog.scan();
+      const found = options.catalog.find(forked.sessionId);
+      if (found === undefined) {
+        options.logger.warn({ sessionId, reason: "not_found" }, "fork failed");
+        throw new CommandError("fork_failed");
+      }
+      await inClientOrder(clientId, async () => {
+        // As for a new session: the client goes to it only if it stayed where it was.
+        const stayed = options.layouts.of(clientId).container === asked;
+        await options.layouts.open(clientId, found.containerId, forked.sessionId, stayed);
+        options.onChange();
+      });
+      return { sessionId: forked.sessionId };
+    },
     listCommands: async (sessionId) => (await commanded(sessionId)).controller.listCommands(),
     async searchFiles(sessionId, query) {
       await options.catalog.ready();
@@ -1361,6 +1440,7 @@ export function createSessionManager(options: {
     },
     async close() {
       closed = true;
+      closing.abort();
       for (const search of searches.values()) search.abort();
       const titlesClosed = titles.close();
       // Controllers first, so restarts under way stop rather than start pi again.

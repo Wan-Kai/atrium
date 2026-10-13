@@ -2307,6 +2307,86 @@ describe("createSessionController exporting", () => {
   });
 });
 
+/** Three turns read from pi, each a user message alone. */
+const THREE_TURNS: EntriesPage = {
+  entries: [userEntry("u1", null, "one"), userEntry("u2", "u1", "two"), userEntry("u3", "u2", "three")],
+  leafId: "u3",
+};
+
+describe("createSessionController's fork point", () => {
+  it("is the user message opening the next turn, none after the last turn, and refuses a turn it does not know", () => {
+    const { pi } = manualPi();
+    const { controller } = control(pi, THREE_TURNS);
+
+    expect(["s1:u1", "s1:u2", "s1:u3"].map((turnId) => controller.forkPoint(turnId))).toStrictEqual(["u2", "u3", null]);
+    expect(() => controller.forkPoint("s1:u9")).toThrow(new CommandError("turn_not_found"));
+  });
+
+  it("passes over what is not a turn, such as a compaction, to the next turn", () => {
+    const compacted: LogEntry = {
+      id: "c1",
+      parentId: "u1",
+      kind: "compaction",
+      summary: "s",
+      tokensBefore: 10,
+      system: null,
+      timestamp: 0,
+    };
+    const { controller } = control(manualPi().pi, {
+      entries: [userEntry("u1", null, "one"), compacted, userEntry("u2", "c1", "two")],
+      leafId: "u2",
+    });
+
+    expect(controller.snapshot().items.map((item) => item.kind)).toStrictEqual(["turn", "notice", "turn"]);
+    expect(controller.forkPoint("s1:u1")).toBe("u2");
+  });
+
+  it("refuses a next turn not tied to its entry yet", async () => {
+    const { pi, emit, pages } = manualPi();
+    const { controller } = control(pi, { entries: [userEntry("u1", null, "one")], leafId: "u1" });
+    pages.push(() => new Promise(() => undefined));
+    await controller.prompt(prompt("q1", "two"));
+    emit({ type: "agent_start" }, userEnd("two"), replyEnd("stop"), { type: "agent_settled" });
+
+    expect(() => controller.forkPoint("s1:u1")).toThrow(new CommandError("turn_not_found"));
+  });
+
+  it("refuses while a message is on its way, a run is about to start or goes on, a stop waits for pi or pi compacts", async () => {
+    const { pi, emit, holdAbort } = manualPi();
+    const { controller } = control(pi, THREE_TURNS);
+    const busy = () => controller.forkPoint("s1:u3");
+    emit({ type: "compaction_start", reason: "threshold" });
+    expect(busy).toThrow(new CommandError("session_busy"));
+    emit({ type: "compaction_end" });
+    const sending = controller.prompt(prompt("q1", "four"));
+    expect(busy).toThrow(new CommandError("session_busy"));
+    await sending;
+    expect(busy).toThrow(new CommandError("session_busy"));
+    emit({ type: "agent_start" });
+    expect(busy).toThrow(new CommandError("session_busy"));
+    holdAbort();
+    // Fire and forget: the stop stays pending while abort is held.
+    void controller.stop();
+    emit({ type: "agent_settled" });
+
+    expect(busy).toThrow(new CommandError("session_busy"));
+  });
+
+  it("refuses while pi restarts, but not once pi has exited", async () => {
+    const restarting = manualPi();
+    const { controller } = control(restarting.pi, THREE_TURNS, { respawn: () => new Promise(() => undefined) });
+    const exited = manualPi();
+    const after = control(exited.pi, THREE_TURNS).controller;
+    restarting.crash();
+    exited.crash();
+    await settle();
+
+    expect(() => controller.forkPoint("s1:u3")).toThrow(new CommandError("session_busy"));
+    expect(after.exited).toBe(true);
+    expect(after.forkPoint("s1:u3")).toBeNull();
+  });
+});
+
 describe("createSessionController's model", () => {
   it("carries the model pi started with, or none", () => {
     expect(control(manualPi().pi, empty, { model: opus }).controller.snapshot().model).toStrictEqual(opus);

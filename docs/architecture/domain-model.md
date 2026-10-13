@@ -728,7 +728,7 @@ classDiagram
 | `search_files(sessionId, query)` | FileSearch |
 | `watch_changes(workspaceIds)` / `watch_diff(target)` | ChangesService |
 | `compact_session` / `export_session` | SessionController：调会话自己的 pi 的 `compact`（只在空闲时）、`export_html`（运行中也行）（M1.11） |
-| `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork` / `clone`、设好名字，读出新会话后停掉它，重扫容器并打开新会话（M1.11） |
+| `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork`（最后一轮用 `clone`）、设上界面给的名字，读出新会话后停掉它，复制轮的记录，重扫容器并打开新会话（M1.11） |
 | `fetch_image(sessionId, turnId, index)` | SessionManager → SessionController 找出轮的用户消息条目，pi 包的 SessionFiles 从会话文件里读出图片（M1.11） |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |

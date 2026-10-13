@@ -7,7 +7,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
-import { pageNotices } from "../state/session-notices";
+import { pageNotices, showNotice } from "../state/session-notices";
 import { caughtDownloads } from "../test/downloads";
 import { fakeClient, session } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
@@ -1032,7 +1032,7 @@ describe("ConversationArea's built-in commands", () => {
     await userEvent.type(box, "/copy{Enter}");
 
     await vi.waitFor(() => expect(copied).toStrictEqual(["**第二**"]));
-    expect(pageNotices().getState()).toStrictEqual({ sessionId: "s1", text: "已复制最后一条回复" });
+    expect(pageNotices().getState()).toStrictEqual({ sessionId: "s1", text: "已复制最后一条回复", problem: false });
     await expect.element(box).toHaveValue("");
   });
 
@@ -1179,6 +1179,122 @@ describe("ConversationArea's /export", () => {
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("发出第一条消息后才能用");
     expect(calls.filter((call) => call.startsWith("exportSession"))).toStrictEqual([]);
+  });
+});
+
+/** A forkable session s1 named `name`, its id taken for the fork's. */
+function forkable(name: string) {
+  return { sessions: [session({ sessionId: "s1", containerId: CHAT, name })] };
+}
+
+/** The fork calls among `calls`. */
+function forks(calls: readonly string[]): string[] {
+  return calls.filter((call) => call.startsWith("forkSession"));
+}
+
+describe("ConversationArea's fork button", () => {
+  afterEach(() => pageNotices().setState(null, true));
+
+  it("forks after the turn whose reply it sits under, naming the fork after the session", async () => {
+    const { client, calls } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一"), turn("t2", "第二")] });
+    const buttons = screen.getByRole("button", { name: "从这里分叉" });
+    await expect.element(buttons.nth(1)).toHaveAttribute("title", "从这里分叉");
+    expect(buttons.elements()).toHaveLength(2);
+
+    await userEvent.click(buttons.nth(0));
+    await userEvent.click(buttons.nth(1));
+
+    await vi.waitFor(() =>
+      expect(forks(calls)).toStrictEqual(["forkSession s1 t1 改登录页（分叉）", "forkSession s1 t2 改登录页（分叉）"]),
+    );
+    await expect.element(buttons.nth(0)).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("keeps the first 250 characters of a long title, the fork's name staying a name", async () => {
+    const { client, calls } = fakeClient(forkable(`${"长".repeat(250)}尾`));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await vi.waitFor(() => expect(forks(calls)).toStrictEqual([`forkSession s1 t1 ${"长".repeat(250)}（分叉）`]));
+  });
+
+  it.each([
+    ["a run", { run: { runId: "r1", startedAt: 0 } }],
+    ["a stop", { control: { ...IDLE_CONTROL, stopping: true } }],
+    ["a compaction", { control: { ...IDLE_CONTROL, compacting: true } }],
+  ])("is faded and does nothing during %s, saying so", async (_when, state) => {
+    const { client, calls } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")], ...state });
+    const button = screen.getByRole("button", { name: "从这里分叉" });
+
+    await expect.element(button).toHaveAttribute("title", "运行中不能分叉");
+    await expect.element(button).toHaveAttribute("aria-disabled", "true");
+    expect([getComputedStyle(button.element()).opacity, getComputedStyle(button.element()).cursor]).toStrictEqual([
+      "0.4",
+      "not-allowed",
+    ]);
+    await userEvent.click(button, { force: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(forks(calls)).toStrictEqual([]);
+  });
+
+  it.each([
+    [new CommandError("session_busy"), "运行中不能分叉"],
+    [new CommandError("turn_not_found"), "没能分叉：找不到这一轮"],
+    [new CommandError("fork_failed"), "没能分叉：pi 出错了"],
+    [new CommandError("session_not_found"), "没能分叉"],
+    [new ConnectionLostError("fork_session"), "没能分叉"],
+  ])("says beside the tab bar, as a failure, why it did not fork (%o)", async (failure, why) => {
+    const { client } = fakeClient(forkable("改登录页"), { forkSession: () => Promise.reject(failure) });
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await vi.waitFor(() =>
+      expect(pageNotices().getState()).toStrictEqual({ sessionId: "s1", text: why, problem: true }),
+    );
+  });
+
+  it("does nothing for a session the list does not have", async () => {
+    const { client, calls } = fakeClient();
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(forks(calls)).toStrictEqual([]);
+  });
+
+  it("takes away the session's last failure when forking again", async () => {
+    const answer = Promise.withResolvers<string>();
+    const { client } = fakeClient(forkable("改登录页"), { forkSession: () => answer.promise });
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    showNotice("s1", "没能分叉", true);
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    expect(pageNotices().getState()).toBeNull();
+    answer.resolve("fork-1");
+  });
+
+  it("leaves another session's notice when forking", async () => {
+    const { client } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    showNotice("s2", "已复制最后一条回复");
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    expect(pageNotices().getState()).toStrictEqual({ sessionId: "s2", text: "已复制最后一条回复", problem: false });
   });
 });
 

@@ -1654,6 +1654,23 @@ describe("createAtriumClient: exporting", () => {
   });
 });
 
+describe("createAtriumClient: forking", () => {
+  it("asks the host to fork a session after a turn, returning the new session", async () => {
+    const { client, latest } = await connected();
+
+    const forking = client.forkSession("s1", "s1:u2", "修 bug（分叉）");
+    latest().answer("fork_session", { sessionId: "s2" });
+
+    expect(await forking).toStrictEqual({ sessionId: "s2" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fork_session")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "fork_session", sessionId: "s1", turnId: "s1:u2", name: "修 bug（分叉）" }]);
+  });
+});
+
 describe("createAtriumClient: message images", () => {
   it("asks for one image of a turn, returning what the host read", async () => {
     const { client, latest } = await connected();

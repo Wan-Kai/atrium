@@ -4,6 +4,7 @@ import type {
   FetchImageCommand,
   FetchStepCommand,
   FetchTranscriptCommand,
+  ForkSessionCommand,
   InteractionAnswer,
   ModelRef,
   PromptCommand,
@@ -77,6 +78,11 @@ export interface SessionCommands {
   compactSession(sessionId: string, instructions: string | undefined): Promise<CommandResult<"compact_session">>;
   /** A session as pi's HTML page, starting its pi first if it has none (SPEC-0001, "M1.11 的 `/` 命令"). */
   exportSession(sessionId: string): Promise<CommandResult<"export_session">>;
+  /**
+   * Forks a session after a turn into a new session in its container, opened as the client's active
+   * tab (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+   */
+  forkSession(clientId: string, command: ForkSessionCommand): Promise<CommandResult<"fork_session">>;
   /** The `/` commands of a session's pi, starting its pi first if it has none (SPEC-0001, "模型与输入框"). */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory; a newer search calls off an older one. */

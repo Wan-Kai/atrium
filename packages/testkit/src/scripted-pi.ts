@@ -29,6 +29,11 @@ export interface ScriptedRule {
    * `outputPath` names, as pi's `export_html` does.
    */
   readonly writes?: string | number;
+  /**
+   * Before answering, writes `text` to `file` and from then on answers `get_state` with this
+   * session id and file, as pi's `fork` and `clone` move it to a new session.
+   */
+  readonly switchesTo?: { readonly sessionId: string; readonly file: string; readonly text: string };
   /** Rules for successive commands of this type, the last one repeating; the other fields are ignored. */
   readonly sequence?: readonly ScriptedRule[];
 }
@@ -182,6 +187,7 @@ if (behavior.exitCode !== undefined) {
   }
 }
 const answered = new Set();
+let switched = null;
 const counts = new Map();
 let held = [];
 const atEnd = [];
@@ -207,10 +213,18 @@ function answer(record, rule) {
   if (rule.writes !== undefined) {
     writeFileSync(record.outputPath, typeof rule.writes === "number" ? "x".repeat(rule.writes) : rule.writes);
   }
+  if (rule.switchesTo !== undefined) {
+    writeFileSync(rule.switchesTo.file, rule.switchesTo.text);
+    switched = rule.switchesTo;
+  }
+  const data =
+    record.type === "get_state" && switched !== null
+      ? { ...rule.data, sessionId: switched.sessionId, sessionFile: switched.file }
+      : rule.data;
   for (const event of rule.events ?? []) print(event);
   const response = { type: "response", command: record.type, ...(rule.noId ? {} : { id: record.id }) };
   if (rule.fail !== undefined) print({ ...response, success: false, error: rule.fail });
-  else print({ ...response, success: true, ...(rule.data === undefined ? {} : { data: rule.data }) });
+  else print({ ...response, success: true, ...(data === undefined ? {} : { data }) });
   if (rule.twice) print({ ...response, success: true });
   if (rule.exitAfter !== undefined) process.stdout.write("", () => process.exit(rule.exitAfter));
   answered.add(record.type);

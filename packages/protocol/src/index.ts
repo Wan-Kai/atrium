@@ -56,6 +56,7 @@ export {
   SetFastCommand,
   CompactSessionCommand,
   ExportSessionCommand,
+  ForkSessionCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
