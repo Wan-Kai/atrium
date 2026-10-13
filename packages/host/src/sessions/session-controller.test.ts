@@ -116,6 +116,12 @@ function replayedHistory() {
     setModel: async () => undefined,
     setThinkingLevel: async () => undefined,
     setFast: async () => undefined,
+    compact: async (instructions) => {
+      await raw.request({
+        type: "compact",
+        ...(instructions === undefined ? {} : { customInstructions: instructions }),
+      });
+    },
     commands: async () => [],
     stats: () => new Promise(() => undefined),
     stop: () => raw.stop(),
@@ -139,6 +145,8 @@ function manualPi() {
   const states: (SessionModel | null)[] = [];
   /** Failures for the next `set_model`, `set_thinking_level` or Fast switch, in order. */
   const settingFailures: unknown[] = [];
+  /** Answers to `compact`, in order; with none left, pi compacts at once. */
+  const compactAnswers: Array<() => Promise<void>> = [];
   /** Failures for the next `get_commands`, in order. */
   const commandFailures: unknown[] = [];
   /** Failures for the next `get_state`, in order. */
@@ -214,6 +222,10 @@ function manualPi() {
       sent.push(`fast ${enabled ? "on" : "off"}`);
       if (settingFailures.length > 0) throw settingFailures.shift();
     },
+    compact: (instructions) => {
+      sent.push(["compact", instructions].filter((part) => part !== undefined).join(" "));
+      return (compactAnswers.shift() ?? (async () => undefined))();
+    },
     commands: async () => {
       sent.push("get_commands");
       if (commandFailures.length > 0) throw commandFailures.shift();
@@ -244,6 +256,7 @@ function manualPi() {
     since,
     states,
     settingFailures,
+    compactAnswers,
     commandFailures,
     stateFailures,
     withImages,
@@ -308,7 +321,7 @@ describe("createSessionController on a recorded session", () => {
     await vi.waitFor(() => expect(since).toHaveLength(1));
     await controller.prompt(prompt("q2", "two", traceIds[1]));
     await vi.waitFor(() => expect(since).toHaveLength(2));
-    await raw.request({ type: "compact" });
+    expect(await controller.compact(undefined)).toStrictEqual({});
     await vi.waitFor(() => expect(since).toHaveLength(3));
     await controller.prompt(prompt("q3", "three"));
     await vi.waitFor(() => expect(since).toHaveLength(4));
@@ -2154,6 +2167,99 @@ describe("createSessionController's Fast", () => {
 
 /** A model pi may report. */
 const opus: SessionModel = { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" };
+
+/** The control of each `control_updated` among the events. */
+function compactingUpdates(events: readonly SessionEvent[]) {
+  return events.flatMap((event) => (event.type === "control_updated" ? [event.control] : []));
+}
+
+describe("createSessionController compacting on request", () => {
+  it("compacts an idle session, the queue waiting until pi answers", async () => {
+    const { pi, emit, sent, compactAnswers } = manualPi();
+    const { controller, events } = control(pi);
+    const answer = Promise.withResolvers<void>();
+    compactAnswers.push(() => answer.promise);
+
+    const compacted = controller.compact("keep the API");
+    expect(controller.snapshot().control.compacting).toBe(true);
+    expect(await controller.prompt(prompt("q1", "one"))).toMatchObject({ disposition: "queued" });
+    answer.resolve();
+
+    expect(await compacted).toStrictEqual({});
+    emit({ type: "agent_start" }, { type: "agent_settled" });
+    expect(await controller.compact(undefined)).toStrictEqual({});
+    expect(sent).toStrictEqual(["compact keep the API", "prompt one", "compact"]);
+    expect(compactingUpdates(events).map(({ compacting, queue }) => [compacting, queue.length])).toStrictEqual([
+      [true, 0],
+      [true, 1],
+      [false, 1],
+      [false, 0],
+      [true, 0],
+      [false, 0],
+    ]);
+  });
+
+  it("shows pi compacting on its own", () => {
+    const { pi, emit } = manualPi();
+    const { controller, events } = control(pi);
+
+    emit({ type: "compaction_start", reason: "threshold" });
+    expect(controller.snapshot().control.compacting).toBe(true);
+    emit({ type: "compaction_end" });
+
+    expect(controller.snapshot().control.compacting).toBe(false);
+    expect(events).toHaveLength(2);
+    expect(compactingUpdates(events).map(({ compacting }) => compacting)).toStrictEqual([true, false]);
+  });
+
+  it("refuses during a run, while pi compacts, while a stop waits for pi, and once pi has exited", async () => {
+    const { pi, emit, crash, holdAbort, sent } = manualPi();
+    const { controller } = control(pi);
+    emit({ type: "compaction_start", reason: "threshold" });
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("session_busy"));
+    emit({ type: "compaction_end" });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("session_busy"));
+    holdAbort();
+    // Fire and forget: the stop stays pending while abort is held.
+    void controller.stop();
+    emit({ type: "agent_settled" });
+
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("session_busy"));
+    crash();
+    await settle();
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(sent.filter((command) => command.startsWith("compact"))).toStrictEqual([]);
+  });
+
+  it("answers pi having nothing to compact, and fails otherwise without pi's words, logging only why", async () => {
+    const { pi, compactAnswers } = manualPi();
+    const { controller, logged } = control(pi);
+    const bug = new Error("not pi's");
+    compactAnswers.push(
+      () => Promise.reject(new ReplayRequestError("compact", "rejected", "Nothing to compact (session too small)")),
+      () => Promise.reject(new ReplayRequestError("compact", "rejected", "Already compacted")),
+      () => Promise.reject(new ReplayRequestError("compact", "rejected", "Compaction cancelled")),
+      () => Promise.reject(new ReplayRequestError("compact", "exited")),
+      () => Promise.reject(bug),
+    );
+
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("nothing_to_compact"));
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("already_compacted"));
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("compact_failed"));
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("compact_failed"));
+    await expect(controller.compact(undefined)).rejects.toBe(bug);
+
+    expect(controller.snapshot().control.compacting).toBe(false);
+    expect(logged).toStrictEqual([
+      ["warn", "compaction failed", { sessionId: "s1", reason: "rejected" }],
+      ["warn", "compaction failed", { sessionId: "s1", reason: "exited" }],
+    ]);
+  });
+});
 
 describe("createSessionController's model", () => {
   it("carries the model pi started with, or none", () => {

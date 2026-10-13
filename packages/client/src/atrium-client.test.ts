@@ -1614,6 +1614,29 @@ describe("createAtriumClient: the composer's lists", () => {
   });
 });
 
+describe("createAtriumClient: compacting", () => {
+  it("asks the host to compact a session, with what to keep in mind when given", async () => {
+    const { client, latest } = await connected();
+
+    const asked = client.compactSession("s1", "keep the API");
+    latest().answer("compact_session");
+    const plain = client.compactSession("s1");
+    latest().answer("compact_session");
+
+    expect(await asked).toStrictEqual({});
+    expect(await plain).toStrictEqual({});
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "compact_session")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "compact_session", sessionId: "s1", instructions: "keep the API" },
+      { type: "compact_session", sessionId: "s1" },
+    ]);
+  });
+});
+
 describe("createAtriumClient: message images", () => {
   it("asks for one image of a turn, returning what the host read", async () => {
     const { client, latest } = await connected();

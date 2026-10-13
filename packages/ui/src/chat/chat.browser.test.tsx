@@ -1068,6 +1068,76 @@ describe("ConversationArea's built-in commands", () => {
   });
 });
 
+/** Session s1 on file in the chat, so commands that wait for the first message can run. */
+const ON_FILE = { sessions: [session({ sessionId: "s1", containerId: CHAT })] };
+
+describe("ConversationArea's /compact", () => {
+  it("has the host compact the session, with what followed as what to keep in mind", async () => {
+    const { client, calls } = fakeClient(ON_FILE);
+    const { box } = await onOpus(client);
+
+    await userEvent.type(box, "/compact 保留接口的讨论{Enter}");
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1 保留接口的讨论"));
+    await expect.element(box).toHaveValue("");
+    await userEvent.type(box, "/compact{Enter}");
+
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1"));
+  });
+
+  it.each([
+    ["nothing_to_compact", "对话还太短，不用压缩"],
+    ["already_compacted", "刚压缩过，没有新内容"],
+    ["compact_failed", "没能压缩：pi 出错了"],
+  ] as const)("says why the host did not compact (%s), leaving the box", async (code, why) => {
+    const { client } = fakeClient(ON_FILE, { compactSession: () => Promise.reject(new CommandError(code)) });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/compact{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent(why);
+    await expect.element(box).toHaveValue("/compact");
+  });
+
+  it.each([
+    ["a run", { run: { runId: "r1", startedAt: 0 } }],
+    ["a stop", { control: { ...IDLE_CONTROL, stopping: true } }],
+    ["a compaction", { control: { ...IDLE_CONTROL, compacting: true } }],
+  ])("does not compact during %s, saying so", async (_when, state) => {
+    const { client, calls } = fakeClient(ON_FILE);
+    const { screen, box } = await onOpus(client);
+    client.session("s1")?.setState(state);
+
+    await userEvent.type(box, "/compact{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("运行中不能用，先停止");
+    await expect.element(box).toHaveValue("/compact");
+    expect(calls.filter((call) => call.startsWith("compactSession"))).toStrictEqual([]);
+  });
+
+  it("does not compact before the first message, saying so", async () => {
+    const { client, calls } = fakeClient();
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/compact{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("发出第一条消息后才能用");
+    expect(calls.filter((call) => call.startsWith("compactSession"))).toStrictEqual([]);
+  });
+
+  it("says at the bottom of the conversation while pi compacts", async () => {
+    const { client } = fakeClient(ON_FILE);
+    const { screen } = await onOpus(client);
+    const line = screen.getByText("正在压缩上下文…");
+
+    client.session("s1")?.setState({ control: { ...IDLE_CONTROL, compacting: true } });
+    await expect.element(line).toBeVisible();
+    expect(line.element().className).toBe("atrium-shimmer");
+    client.session("s1")?.setState({ control: IDLE_CONTROL });
+
+    await expect.element(line).not.toBeInTheDocument();
+  });
+});
+
 describe("ConversationArea's model button", () => {
   const OPUS = {
     providerId: "anthropic",

@@ -244,6 +244,8 @@ export interface AtriumClient {
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /** Switches a session's Fast, at once in its view; put back if the host refuses (SPEC-0001, "Fast"). */
   setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
+  /** Compacts a session's context now, with what to keep in mind when given (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
+  compactSession(sessionId: string, instructions?: string): Promise<CommandResult<"compact_session">>;
   /** The `/` commands of a session's pi, which starts if it has not. */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
@@ -1287,6 +1289,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         () => request("set_thinking_level", { sessionId, level }),
       ),
     setFast: (sessionId, enabled) => switchFast(sessionId, enabled),
+    compactSession: (sessionId, instructions) =>
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: undefined is left out of the JSON either way.
+      request("compact_session", instructions === undefined ? { sessionId } : { sessionId, instructions }),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

@@ -19,7 +19,7 @@ export {
   startPiProcess,
 } from "./process/pi-process";
 export { type Dialog, type EventTranslator, type TranslatedEvent, createEventTranslator } from "./events/translate";
-export { isBusyRejection } from "./process/rejections";
+export { compactRejection, isBusyRejection } from "./process/rejections";
 export {
   type AssistantPart,
   type LogEntry,

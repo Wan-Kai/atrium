@@ -141,6 +141,8 @@ const commands: Command[] = [
   },
   { type: "set_thinking_level", requestId: "r43", traceparent, sessionId: "s1", level: "xhigh" },
   { type: "set_fast", requestId: "r43", traceparent, sessionId: "s1", enabled: true },
+  { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1" },
+  { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1", instructions: "留下接口设计" },
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
@@ -285,6 +287,7 @@ const control: Control = {
   steers: [{ id: "r28", text: "also b" }],
   stopping: true,
   restarting: false,
+  compacting: true,
   interactions: [pick],
   failure: { reason: "crashed", attempts: 3 },
 };
@@ -502,6 +505,7 @@ describe("parseClientMessage", () => {
       "clear_attention",
       "clear_queue",
       "close_tab",
+      "compact_session",
       "create_chat",
       "create_session",
       "create_workspace",
@@ -803,6 +807,11 @@ describe("parseClientMessage", () => {
     [
       "an unknown thinking level",
       { type: "set_thinking_level", requestId: "r1", traceparent, sessionId: "s1", level: "extreme" },
+      "r1",
+    ],
+    [
+      "a compaction asked for with nothing to keep in mind",
+      { type: "compact_session", requestId: "r1", traceparent, sessionId: "s1", instructions: "" },
       "r1",
     ],
     [
@@ -1203,6 +1212,21 @@ const changes: IndexChangesEvent = {
   preferences: snapshot.preferences,
 };
 
+describe("IDLE_CONTROL", () => {
+  it("has nothing going on: no queue, steers, stop, restart, compaction, questions or failure", () => {
+    expect(IDLE_CONTROL).toStrictEqual({
+      queue: [],
+      paused: null,
+      steers: [],
+      stopping: false,
+      restarting: false,
+      compacting: false,
+      interactions: [],
+      failure: null,
+    });
+  });
+});
+
 describe("HostMessage: changes", () => {
   it.each([
     ["a negative count", { ...changesUpdated, stat: { added: -1, removed: 0 } }],
@@ -1413,6 +1437,9 @@ describe("HostMessage", () => {
       "worktree_create_failed",
       "fast_unavailable",
       "pi_rejected",
+      "nothing_to_compact",
+      "already_compacted",
+      "compact_failed",
       "session_handed_off",
       "login_unavailable",
       "login_not_found",

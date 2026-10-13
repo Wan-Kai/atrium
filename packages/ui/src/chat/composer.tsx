@@ -76,6 +76,8 @@ export interface ComposerProps {
   readonly running?: boolean;
   /** Whether a stop waits for pi to confirm. */
   readonly stopping?: boolean;
+  /** Whether pi compacts the context: built-ins that want the session idle wait, as during a run. */
+  readonly compacting?: boolean;
   /** What floats above the box: the capsule bar and its panels. */
   readonly above?: ReactNode;
   /** The model button, beside the send button. */
@@ -185,6 +187,7 @@ export function Composer({
   onStop,
   running = false,
   stopping = false,
+  compacting = false,
   above,
   picker,
   draftKey,
@@ -435,7 +438,7 @@ export function Composer({
    */
   const blockedOf = (listedCommand: ListedCommand): string | null =>
     listedCommand.source === "builtin"
-      ? builtinBlocked(listedCommand, { busy: running || stopping, draft: noFileYet })
+      ? builtinBlocked(listedCommand, { busy: running || stopping || compacting, draft: noFileYet })
       : null;
   const fileItems = mention !== null && typeof found === "object" && found !== null ? found.files : [];
   /** The files shown were found for what is typed now, not for an earlier query. */

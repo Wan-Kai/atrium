@@ -1885,6 +1885,55 @@ describe("SessionManager commands", () => {
   });
 });
 
+describe("SessionManager compacting", () => {
+  it("compacts a session, with what to keep in mind when asked, starting its pi first", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, compact: { data: { summary: "s", tokensBefore: 9 } } } },
+      at,
+    );
+    await catalog.scan();
+
+    expect(await manager.compactSession("pi-session-1", "keep the API")).toStrictEqual({});
+    expect(await manager.compactSession("pi-session-1", undefined)).toStrictEqual({});
+
+    // pi reports what it received on its stderr, which may come after its answer.
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command.type === "compact")).toStrictEqual([
+        { type: "compact", customInstructions: "keep the API" },
+        { type: "compact" },
+      ]),
+    );
+  });
+
+  it("answers pi having nothing to compact", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog } = await manage(
+      { rules: { ...SESSION_ONE, compact: { fail: "Nothing to compact (session too small)" } } },
+      at,
+    );
+    await catalog.scan();
+
+    await expect(manager.compactSession("pi-session-1", undefined)).rejects.toStrictEqual(
+      new CommandError("nothing_to_compact"),
+    );
+  });
+
+  it("refuses to compact a draft, which has nothing to compact, and an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.compactSession(sessionId, undefined)).rejects.toStrictEqual(
+      new CommandError("session_is_draft", { sessionId }),
+    );
+    await expect(manager.compactSession("nope", undefined)).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+});
+
 /** A search that records what it was asked, answering only when told. */
 function recordingSearch() {
   const asked: { readonly cwd: string; readonly query: string; readonly signal: AbortSignal }[] = [];

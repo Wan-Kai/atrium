@@ -3,7 +3,7 @@ import type { ChosenCommand } from "./composer-text";
 import { layoutTurn } from "./turn-layout";
 
 /** The names of pi's built-in commands Atrium runs itself. */
-type BuiltinName = "model" | "thinking" | "copy";
+type BuiltinName = "compact" | "model" | "thinking" | "copy";
 
 /** A built-in command as the `/` list shows it, and when it can run. */
 export interface BuiltinCommand {
@@ -12,7 +12,7 @@ export interface BuiltinCommand {
   /** What its argument is, shown in brackets in the list; `null` when it takes none. */
   readonly hint: string | null;
   readonly description: string;
-  /** Whether it can run while a run goes on or a stop waits for pi. */
+  /** Whether it can run while a run goes on, a stop waits for pi, or pi compacts. */
   readonly whileRunning: boolean;
   /** Whether it can run before the session's first message, while it has no file. */
   readonly inDraft: boolean;
@@ -20,6 +20,7 @@ export interface BuiltinCommand {
 
 /** The built-in commands, in the order the list shows them (SPEC-0001, "M1.11 的 `/` 命令"). */
 export const BUILTIN_COMMANDS: readonly BuiltinCommand[] = [
+  { source: "builtin", name: "compact", hint: "要求", description: "压缩上下文", whileRunning: false, inDraft: false },
   { source: "builtin", name: "model", hint: "服务商/模型", description: "切换模型", whileRunning: true, inDraft: true },
   { source: "builtin", name: "thinking", hint: "档位", description: "推理强度", whileRunning: true, inDraft: true },
   { source: "builtin", name: "copy", hint: null, description: "复制最后一条回复", whileRunning: true, inDraft: true },

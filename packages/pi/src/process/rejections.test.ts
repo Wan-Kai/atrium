@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isBusyRejection } from "./rejections";
+import { compactRejection, isBusyRejection } from "./rejections";
 
 describe("isBusyRejection", () => {
   it.each([
@@ -10,5 +10,17 @@ describe("isBusyRejection", () => {
     ["", false],
   ])("reads %j as busy: %s", (detail, busy) => {
     expect(isBusyRejection(detail)).toBe(busy);
+  });
+});
+
+describe("compactRejection", () => {
+  it.each([
+    ["Nothing to compact (session too small)", "nothing_to_compact"],
+    ["Already compacted", "already_compacted"],
+    ["Compaction cancelled", null],
+    ["Error: Already compacted", null],
+    ["", null],
+  ])("reads %j as %s", (detail, code) => {
+    expect(compactRejection(detail)).toBe(code);
   });
 });

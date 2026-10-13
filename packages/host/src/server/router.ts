@@ -187,6 +187,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.setThinkingLevel(command.sessionId, command.level);
       case "set_fast":
         return options.sessions.setFast(command.sessionId, command.enabled);
+      case "compact_session":
+        return options.sessions.compactSession(command.sessionId, command.instructions);
       case "list_commands":
         return options.sessions.listCommands(command.sessionId);
       case "search_files":

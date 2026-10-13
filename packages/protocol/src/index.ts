@@ -54,6 +54,7 @@ export {
   SetModelCommand,
   SetThinkingLevelCommand,
   SetFastCommand,
+  CompactSessionCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,

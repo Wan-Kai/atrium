@@ -213,7 +213,8 @@ export interface TranscriptProps {
  * the run's turn arrives the run shows on its own line, as soon as a message is sent while idle,
  * before the host starts the run (SPEC-0001, "过程的呈现"); one sent while a turn runs goes into the
  * queue and adds no line. A failed last turn offers "重试" while no
- * run goes on and pi is not being restarted (SPEC-0001, "运行控制").
+ * run goes on and pi is not being restarted (SPEC-0001, "运行控制"). While pi compacts the
+ * context, a line at the bottom says so (SPEC-0001, "M1.11 的 `/` 命令 · 压缩").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
  * @param props - The session's view, how to load older items, how to fetch a step whole, and how
@@ -267,6 +268,11 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
             {turnRunning || (view.run === null && view.pending.length === 0) ? null : (
               <RunStatus startedAt={view.run?.startedAt ?? null} />
             )}
+            {view.control.compacting ? (
+              <p role="status" className="flex min-h-[30px] items-center text-[length:var(--fs-meta)]">
+                <span className="atrium-shimmer">正在压缩上下文…</span>
+              </p>
+            ) : null}
           </div>
         </div>
         <QuestionNav items={view.items} scroller={scroller} content={content} />

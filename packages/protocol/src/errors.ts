@@ -74,6 +74,12 @@ export const ErrorCode = z.enum([
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
+  /** `compact_session`: the session is too short to compact (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
+  "nothing_to_compact",
+  /** `compact_session`: nothing was added since the last compaction. */
+  "already_compacted",
+  /** `compact_session`: pi failed to compact, or exited meanwhile; its words stay out of the reply. */
+  "compact_failed",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
   "session_handed_off",
   /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */

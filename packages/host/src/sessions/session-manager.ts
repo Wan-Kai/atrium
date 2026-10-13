@@ -641,6 +641,14 @@ export function createSessionManager(options: {
         if (!fastSwitch) throw new CommandError("fast_unavailable");
         await switchFast(traced, enabled);
       },
+      // No deadline: pi answers once its model has written the summary.
+      compact: async (instructions) => {
+        await traced.request(
+          // Stryker disable next-line ConditionalExpression,EqualityOperator: undefined is left out of the JSON either way.
+          { type: "compact", ...(instructions === undefined ? {} : { customInstructions: instructions }) },
+          { timeoutMs: null },
+        );
+      },
       commands: async () =>
         (await traced.request({ type: "get_commands" })).commands.flatMap((command) => toSlashCommand(command) ?? []),
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
@@ -1206,6 +1214,12 @@ export function createSessionManager(options: {
     setModel: async (sessionId, model) => (await commanded(sessionId)).controller.setModel(model),
     setThinkingLevel: async (sessionId, level) => (await commanded(sessionId)).controller.setThinkingLevel(level),
     setFast: async (sessionId, enabled) => (await commanded(sessionId)).controller.setFast(enabled),
+    async compactSession(sessionId, instructions) {
+      await options.catalog.ready();
+      // A draft has no conversation to compact.
+      if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
+      return (await commanded(sessionId)).controller.compact(instructions);
+    },
     listCommands: async (sessionId) => (await commanded(sessionId)).controller.listCommands(),
     async searchFiles(sessionId, query) {
       await options.catalog.ready();

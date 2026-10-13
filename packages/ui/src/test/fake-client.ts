@@ -189,6 +189,8 @@ export interface FakeAnswers {
   readonly setFast?: () => Promise<void>;
   /** Answers a model switch; succeeds at once when left out. */
   readonly setModel?: () => Promise<void>;
+  /** Answers a compaction; succeeds at once when left out. */
+  readonly compactSession?: () => Promise<void>;
   /** A turn's image, or none; the host has none when left out. */
   readonly image?: (
     turnId: string,
@@ -660,6 +662,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       modelCalls.push(`setFast ${sessionId} ${enabled ? "on" : "off"}`);
       await answers.setFast?.();
       views.get(sessionId)?.setState({ fast: enabled });
+      return {};
+    },
+    async compactSession(sessionId: string, instructions?: string) {
+      calls.push(["compactSession", sessionId, instructions].filter((part) => part !== undefined).join(" "));
+      await answers.compactSession?.();
       return {};
     },
     changes(workspaceId: string) {

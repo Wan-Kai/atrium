@@ -387,6 +387,18 @@ export const SetFastCommand = z.strictObject({
 export type SetFastCommand = z.infer<typeof SetFastCommand>;
 
 /**
+ * Compacts a session's context while it is idle, with what to keep in mind for the summary
+ * (SPEC-0001, "M1.11 的 `/` 命令 · 压缩").
+ */
+export const CompactSessionCommand = z.strictObject({
+  type: z.literal("compact_session"),
+  ...sessionCommandFields,
+  /** Left out when nothing was asked for. */
+  instructions: PromptText.min(1).optional(),
+});
+export type CompactSessionCommand = z.infer<typeof CompactSessionCommand>;
+
+/**
  * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
  *
  * @remarks
@@ -660,6 +672,7 @@ export const Command = z.discriminatedUnion("type", [
   SetModelCommand,
   SetThinkingLevelCommand,
   SetFastCommand,
+  CompactSessionCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
@@ -764,6 +777,7 @@ export const CommandResult = {
   set_model: z.strictObject({}),
   set_thinking_level: z.strictObject({}),
   set_fast: z.strictObject({}),
+  compact_session: z.strictObject({}),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),

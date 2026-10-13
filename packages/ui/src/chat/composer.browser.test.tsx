@@ -269,14 +269,21 @@ describe("Composer's built-in commands", () => {
         .getByRole("option")
         .elements()
         .map((option) => option.textContent),
-    ).toStrictEqual(["/model[服务商/模型]切换模型", "/thinking[档位]推理强度", "/copy复制最后一条回复"]);
+    ).toStrictEqual([
+      "/compact[要求]压缩上下文",
+      "/model[服务商/模型]切换模型",
+      "/thinking[档位]推理强度",
+      "/copy复制最后一条回复",
+    ]);
     expect(
       screen
         .getByRole("group")
         .elements()
         .map((group) => group.getAttribute("aria-label")),
     ).toStrictEqual(["内置"]);
-    expect(iconColors(list.element())).toStrictEqual(["var(--tint)", "var(--tint)", "var(--tint)"].map(colorOf));
+    expect(iconColors(list.element())).toStrictEqual(
+      ["var(--tint)", "var(--tint)", "var(--tint)", "var(--tint)"].map(colorOf),
+    );
     await expect.element(screen.getByText("正在读取命令…")).toBeVisible();
   });
 
@@ -365,6 +372,32 @@ describe("Composer's built-in commands", () => {
 
     await expect.element(box).toHaveValue("/copy");
   });
+
+  it.each([
+    ["a run", { running: true }, "运行中不能用，先停止"],
+    ["a stop", { stopping: true }, "运行中不能用，先停止"],
+    ["a compaction", { compacting: true }, "运行中不能用，先停止"],
+    ["a draft", { draft: true }, "发出第一条消息后才能用"],
+  ])(
+    "greys during %s a built-in that cannot run then, saying why, and does not choose it",
+    async (_when, state, why) => {
+      const { calls, onBuiltin } = builtins();
+      const { screen, box } = await composer({ onBuiltin, ...state });
+
+      await userEvent.type(box, "/");
+      const compact = screen.getByRole("option", { name: /compact/ });
+      await expect.element(compact).toHaveAttribute("aria-disabled", "true");
+      await expect.element(compact).toHaveAttribute("title", why);
+      await expect.element(screen.getByRole("option", { name: /model/ })).not.toHaveAttribute("aria-disabled");
+      await userEvent.keyboard("{Enter}");
+      // Playwright clicks nothing it sees as disabled unless forced, as a person can click anything.
+      await userEvent.click(compact, { force: true });
+
+      await expect.element(box).toHaveValue("/");
+      await expect.element(screen.getByTestId("command-tag")).not.toBeInTheDocument();
+      expect(calls).toStrictEqual([]);
+    },
+  );
 
   it("runs nothing while held", async () => {
     const { calls, onBuiltin } = builtins();

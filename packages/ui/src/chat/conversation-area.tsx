@@ -73,6 +73,9 @@ export function describeSendError(error: unknown): string {
   if (error.code === "session_stopping") return "正在等 pi 停下，停下后再发";
   if (error.code === "queue_item_not_found") return "这条排队的消息已经发出或删掉了";
   if (error.code === "interaction_closed") return "这个问题已经回答过、超时或作废了";
+  if (error.code === "nothing_to_compact") return "对话还太短，不用压缩";
+  if (error.code === "already_compacted") return "刚压缩过，没有新内容";
+  if (error.code === "compact_failed") return "没能压缩：pi 出错了";
   return "宿主出错了，消息没有发出";
 }
 
@@ -329,6 +332,7 @@ function SessionArea({
         onStop={() => act(() => client.stop(sessionId))}
         running={running}
         stopping={view.control.stopping}
+        compacting={view.control.compacting}
         held={holdsBack(launch)}
         above={
           <ControlTrack
@@ -715,13 +719,15 @@ export function ConversationArea({
    * Does what a built-in command asks, saying why if it cannot.
    *
    * @remarks
-   * SPEC-0001 ("M1.11 的 `/` 命令 · 执行"): `/model` and `/thinking` open their part of the model
+   * SPEC-0001 ("M1.11 的 `/` 命令 · 执行"): `/compact` has the host compact the context, with what
+   * followed as what to keep in mind; `/model` and `/thinking` open their part of the model
    * panel, or set what they name; `/copy` copies the last reply and says so beside the tab bar.
    * The session's state is read now, not from the last render. A model named before the container's
    * list was read waits for the list.
    *
-   * @sideEffects May open the model panel, set the model or level (creating the session first, as
-   * choosing in the panel does), load the model list, write the clipboard, or show a notice.
+   * @sideEffects May compact the session, open the model panel, set the model or level (creating
+   * the session first, as choosing in the panel does), load the model list, write the clipboard,
+   * or show a notice.
    * @param name - The command.
    * @param args - What followed its name.
    * @param view - The session's view, if there is a session.
@@ -733,6 +739,10 @@ export function ConversationArea({
     view: SessionView | undefined,
   ): Promise<string | null> {
     const models = client.models(workspaceId);
+    if (name === "compact") {
+      await client.compactSession(await target(), args === "" ? undefined : args);
+      return null;
+    }
     if (name === "copy") {
       const reply = lastReply(view?.items ?? []);
       if (reply === null || sessionId === null) return "还没有回复可复制";
@@ -778,7 +788,7 @@ export function ConversationArea({
     setFailure(null);
     const view = sessionId === null ? undefined : client.session(sessionId)?.getState();
     const file = client.index.getState().sessions.find((one) => one.sessionId === sessionId)?.file ?? null;
-    const busy = view !== undefined && (view.run !== null || view.control.stopping);
+    const busy = view !== undefined && (view.run !== null || view.control.stopping || view.control.compacting);
     let problem = builtinBlocked(command, { busy, draft: file === null });
     try {
       problem ??= await builtin(command.name, args, view);

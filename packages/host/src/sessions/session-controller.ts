@@ -1,5 +1,5 @@
 import type { Dialog, PiEvent, PiStats, TranslatedEvent } from "@atrium/pi";
-import { createEventTranslator, isBusyRejection } from "@atrium/pi";
+import { compactRejection, createEventTranslator, isBusyRejection } from "@atrium/pi";
 import {
   CommandError,
   type CommandResult,
@@ -79,6 +79,8 @@ export interface SessionPi {
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   /** Switches Atrium's Fast extension; fails with `fast_unavailable` when this pi did not load it. */
   setFast(enabled: boolean): Promise<void>;
+  /** Sends `compact`, with what to keep in mind when asked; resolves once pi has compacted. */
+  compact(instructions: string | undefined): Promise<void>;
   /** pi's slash commands, from `get_commands`. */
   commands(): Promise<SlashCommand[]>;
   /** pi's statistics for the status bar, from `get_session_stats`. */
@@ -132,6 +134,8 @@ export interface SessionController {
   setThinkingLevel(level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /** Switches Fast on or off, from pi's next request on (SPEC-0001, "Fast"). */
   setFast(enabled: boolean): Promise<CommandResult<"set_fast">>;
+  /** Compacts pi's context now, as `/compact` asks (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
+  compact(instructions: string | undefined): Promise<CommandResult<"compact_session">>;
   /** pi's `/` commands, asked for each time the list opens. */
   listCommands(): Promise<CommandResult<"list_commands">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
@@ -546,6 +550,7 @@ export function createSessionController(options: {
       steers: steers.map(({ id, text }): PendingSteer => ({ id, text })),
       stopping: stopping !== null,
       restarting: restarting !== null,
+      compacting,
       interactions: [...interactions.values()].map((open) => open.interaction),
       failure,
     };
@@ -797,9 +802,11 @@ export function createSessionController(options: {
         return;
       case "compaction_started":
         compacting = true;
+        controlChanged();
         return;
       case "compaction_finished":
         compacting = false;
+        controlChanged();
         // Fire and forget: `refresh` reports its own failures.
         void refresh();
         dispatch();
@@ -1633,6 +1640,29 @@ export function createSessionController(options: {
       if (fast !== enabled) {
         fast = enabled;
         emit({ type: "fast_updated", fast });
+      }
+      return {};
+    },
+    async compact(instructions) {
+      refuseWhenExited();
+      // pi's `compact` stops a run first; Atrium refuses instead (SPEC-0001, "M1.11 的 `/` 命令 · 压缩").
+      if (!idle() || stopping !== null) throw new CommandError("session_busy");
+      compacting = true;
+      controlChanged();
+      try {
+        await pi.compact(instructions);
+      } catch (error) {
+        if (!isPiFailure(error)) throw error;
+        // Too little, or nothing new, is an answer; anything else fails without pi's words.
+        // Stryker disable next-line StringLiteral: without pi's text there is nothing to tell apart.
+        const code = compactRejection(error.detail ?? "");
+        if (code !== null) throw new CommandError(code);
+        log("warn", "compaction failed", { sessionId, reason: error.reason });
+        throw new CommandError("compact_failed");
+      } finally {
+        compacting = false;
+        controlChanged();
+        dispatch();
       }
       return {};
     },
