@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { createPanes, memoryStorage } from "../state/panes";
@@ -34,7 +34,7 @@ async function pane({
    * @returns The elements.
    */
   const at = (shown: string | null) => (
-    <div style={{ position: "relative", display: "flex", width: room, height: 600 }}>
+    <div style={{ position: "relative", display: "flex", width: room, height: 600, overflowX: "clip" }}>
       <div style={{ flex: 1, minWidth: 0 }} />
       <ChangesPane client={client} workspaceId={shown} panes={panes} />
     </div>
@@ -85,6 +85,44 @@ function drag(separator: Element, by: number): void {
   window.dispatchEvent(new PointerEvent("pointerup", at(rect.left + 4 + by)));
 }
 
+/**
+ * What the pane's and the panel's own transitions move.
+ *
+ * @sideEffects none
+ * @param element - The pane.
+ * @param panel - The panel in it.
+ * @returns The properties each moves.
+ */
+function moves(element: Element, panel: Element): string[][] {
+  return [element, panel.parentElement as Element].map((each) =>
+    each.getAnimations().map((animation) => (animation as CSSTransition).transitionProperty),
+  );
+}
+
+/**
+ * Where the panel is a third of the way through the pane's transitions, and whether it shows past the pane.
+ *
+ * @sideEffects Pauses the pane's transitions there.
+ * @param element - The pane.
+ * @param panel - The panel in it.
+ * @returns How far the panel's left edge is from the pane's, its width, whether the pane is between 0 and the
+ * panel's width, and whether the panel is what shows 20px right of the pane.
+ */
+function midway(element: Element, panel: Element): unknown[] {
+  for (const transition of element.getAnimations({ subtree: true })) {
+    transition.pause();
+    transition.currentTime = 80;
+  }
+  const [box, shown] = [element.getBoundingClientRect(), panel.getBoundingClientRect()];
+  return [
+    Math.abs(Math.round(shown.left - box.left)),
+    Math.round(shown.width),
+    box.width > 0,
+    box.width < shown.width,
+    panel.contains(document.elementFromPoint(box.right + 20, box.top + 300)),
+  ];
+}
+
 describe("ChangesPane", () => {
   it("opens from nothing in 0.24 s, the panel at its width from the start, and closes back to nothing before it goes", async () => {
     const { screen, panes, element, changeCalls } = await pane({ open: false });
@@ -111,6 +149,54 @@ describe("ChangesPane", () => {
     expect(panel.element().isConnected).toBe(true);
     await expect.element(panel).not.toBeInTheDocument();
     expect([element.getBoundingClientRect().width, changeCalls.at(-1)]).toStrictEqual([0, "watchDiff null"]);
+  });
+
+  it("shows the panel at once, not sliding in, when open from the first frame", async () => {
+    const { screen, element } = await pane();
+    const panel = screen.getByRole("complementary", { name: "改动" }).element();
+
+    expect(moves(element, panel)).toStrictEqual([[], []]);
+  });
+
+  it("goes, ending its watch, when closed just as it starts opening", async () => {
+    const { screen, panes, element, changeCalls } = await pane({ open: false });
+    const panel = screen.getByRole("complementary", { name: "改动" });
+    // Its style drawn closed, so opening moves it from there.
+    expect(getComputedStyle(element).width).toBe("0px");
+    panes.getState().setPanelOpen(true);
+    await expect.poll(() => element.getAnimations().length).toBe(1);
+    // Still at 0 wide: closing leaves nothing to move, so the opening is cancelled, not ended.
+    const opening = element.getAnimations().at(0) as Animation;
+    opening.pause();
+    opening.currentTime = 0;
+
+    panes.getState().setPanelOpen(false);
+
+    await expect.element(panel).not.toBeInTheDocument();
+    expect([element.getBoundingClientRect().width, changeCalls.at(-1)]).toStrictEqual([0, "watchDiff null"]);
+  });
+
+  it("slides the panel out with its edge as it closes and in as it opens, cut off at the room's edge", async () => {
+    await page.viewport(1280, 800);
+    const { screen, panes, element } = await pane({ room: 900 });
+    const panel = screen.getByRole("complementary", { name: "改动" }).element();
+    await expect.poll(() => element.getBoundingClientRect().width).toBe(460);
+
+    panes.getState().setPanelOpen(false);
+    await expect.poll(() => moves(element, panel)).toStrictEqual([["width"], ["translate"]]);
+    const closing = midway(element, panel);
+    (element.getAnimations().at(0) as Animation).finish();
+    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    panes.getState().setPanelOpen(true);
+    const reopened = screen.getByRole("complementary", { name: "改动" });
+    await expect.element(reopened).toBeInTheDocument();
+    await expect.poll(() => moves(element, reopened.element())).toStrictEqual([["width"], ["translate"]]);
+    const opening = midway(element, reopened.element());
+
+    expect([closing, opening]).toStrictEqual([
+      [0, 460, true, true, false],
+      [0, 460, true, true, false],
+    ]);
   });
 
   it("widens as its edge is dragged left, from 360px to what leaves the conversation 440px, back to 560px on a double click", async () => {
@@ -163,10 +249,13 @@ describe("ChangesPane", () => {
     expect(widths).toStrictEqual([576, 560, 544, 544]);
   });
 
-  it("narrows to leave the conversation 440px while the room is short, keeping the width chosen", async () => {
-    const { panes, element } = await pane({ room: 900 });
+  it("narrows to leave the conversation 440px while the room is short, keeping the width chosen, and drags from the width shown", async () => {
+    const { screen, panes, element } = await pane({ room: 900 });
+    const narrowed = [element.getBoundingClientRect().width, panes.getState().panelWidth];
 
-    expect([element.getBoundingClientRect().width, panes.getState().panelWidth]).toStrictEqual([460, 560]);
+    drag(screen.getByRole("separator", { name: "改动面板的宽度" }).element(), 40);
+
+    expect([narrowed, panes.getState().panelWidth]).toStrictEqual([[460, 560], 420]);
   });
 
   it("keeps 360px when the room has not even that beside the conversation's 440px", async () => {

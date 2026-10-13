@@ -2005,6 +2005,16 @@ describe("ConversationArea's workspace changes", () => {
     await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
   });
 
+  it("cuts off the changes panel past the conversation area's edge, where it slides out", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
+    );
+    const room = screen.getByTestId("changes-pane").element().parentElement as Element;
+
+    expect([getComputedStyle(room).position, getComputedStyle(room).overflowX]).toStrictEqual(["relative", "clip"]);
+  });
+
   it("keeps the panel open on going to another workspace, and closes it with its own button", async () => {
     const { client } = fakeClient();
     client.changes(W).setState(changed);

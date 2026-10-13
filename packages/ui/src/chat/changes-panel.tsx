@@ -405,7 +405,8 @@ export function ChangesPanel({
           <X size={14} />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-auto" data-testid="changes-body">
+      {/* Contained, so a frame where the panel moves does not walk every line of the diff (design-language, "右栏"). */}
+      <div className="min-h-0 flex-1 overflow-auto [contain:strict]" data-testid="changes-body">
         {body}
       </div>
     </aside>

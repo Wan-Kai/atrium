@@ -907,7 +907,8 @@ export function ConversationArea({
       </p>
     );
   return (
-    <div className="relative flex min-h-0 flex-1">
+    // The changes panel's room: it cuts the panel off as it slides out past its edge.
+    <div className="relative flex min-h-0 flex-1 overflow-x-clip">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {store === undefined || sessionId === null ? (
           <>
