@@ -27,6 +27,14 @@ import {
 } from "react";
 import { type Draft, type KeptImage } from "../state/drafts";
 import { pageDrafts, useDraft } from "../state/use-draft";
+import {
+  type BuiltinCall,
+  type BuiltinCommand,
+  BUILTIN_COMMANDS,
+  builtinBlocked,
+  builtinCall,
+  tagPlaceholder,
+} from "./builtin-commands";
 import { CommandIcon, CommandTag } from "./command-tag";
 import {
   type ChosenCommand,
@@ -98,6 +106,13 @@ export interface ComposerProps {
   readonly onEdit?: () => void;
   /** Nothing goes while the first message from the new-workspace page is on its way; typing goes on. */
   readonly held?: boolean;
+  /**
+   * Runs a built-in command instead of sending, resolving whether it ran; without it the `/` list
+   * has no built-ins and a typed `/name` goes to pi.
+   */
+  readonly onBuiltin?: (call: BuiltinCall) => Promise<boolean>;
+  /** Whether the session has no file yet, before its first message: some built-ins wait for one. */
+  readonly draft?: boolean;
 }
 
 /**
@@ -118,8 +133,10 @@ function imageFailure(error: unknown): string {
   return "读不了这张图片";
 }
 
-/** What the `/` list shows. */
+/** What pi's `/` commands are: the list, or why there is none yet. */
 type CommandList = readonly SlashCommand[] | "loading" | "failed";
+/** A command in the `/` list: Atrium's built-in or one of pi's. */
+type ListedCommand = BuiltinCommand | SlashCommand;
 /** What the `@` list shows: the last answer and the query it was for, or why there is none. */
 type FileList = { readonly query: string; readonly files: readonly FileCandidate[] } | "fd_missing" | "failed";
 
@@ -183,6 +200,8 @@ export function Composer({
   compress = compressImage,
   onEdit,
   held = false,
+  onBuiltin,
+  draft: noFileYet = false,
 }: ComposerProps) {
   const drafts = pageDrafts();
   const { text, pastes, files, command, images } = useDraft(draftKey);
@@ -396,11 +415,28 @@ export function Composer({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- only a new query asks again.
   }, [fileQuery]);
 
+  // The built-ins show at once, pi's join them once they come.
+  const listed: readonly ListedCommand[] = [
+    ...(onBuiltin === undefined ? [] : BUILTIN_COMMANDS),
+    ...(Array.isArray(commands) ? commands : []),
+  ];
   // In the order the list shows them, group by group, so ↑ ↓ go down the list as drawn.
   const commandItems =
-    commandQuery !== null && Array.isArray(commands)
-      ? groupCommands(filterCommands(commands, commandQuery)).flatMap((group) => group.commands)
-      : [];
+    commandQuery === null ? [] : groupCommands(filterCommands(listed, commandQuery)).flatMap((group) => group.commands);
+  /**
+   * Why a command in the list cannot be chosen now, if it cannot.
+   *
+   * @remarks
+   * Only built-ins wait: for the run to end, or for the session's first message.
+   *
+   * @sideEffects none
+   * @param listedCommand - The command.
+   * @returns The reason, or `null`.
+   */
+  const blockedOf = (listedCommand: ListedCommand): string | null =>
+    listedCommand.source === "builtin"
+      ? builtinBlocked(listedCommand, { busy: running || stopping, draft: noFileYet })
+      : null;
   const fileItems = mention !== null && typeof found === "object" && found !== null ? found.files : [];
   /** The files shown were found for what is typed now, not for an earlier query. */
   const filesFresh = mention !== null && typeof found === "object" && found !== null && found.query === mention.query;
@@ -437,7 +473,7 @@ export function Composer({
   const choose = (into: boolean): void => {
     if (commandQuery !== null) {
       const chosen = commandItems[highlighted];
-      if (chosen !== undefined) tag(chosen);
+      if (chosen !== undefined && blockedOf(chosen) === null) tag(chosen);
       return;
     }
     const file = fileItems[highlighted];
@@ -483,15 +519,28 @@ export function Composer({
   };
 
   /**
-   * Sends the message or a steer, unless there is nothing, and clears the box.
+   * Sends the message or a steer, unless there is nothing, and clears the box; runs a built-in
+   * command instead when the box starts with one.
    *
    * @remarks
-   * Shared by the keys and the send button.
+   * Shared by the keys and the send button. A built-in clears the box once it has run, unless
+   * something was changed there meanwhile; one that did not run leaves the box as it was
+   * (SPEC-0001, "M1.11 的 `/` 命令 · 执行").
    *
-   * @sideEffects Calls `onSend` or `onSteer`; clears the box and the capsules.
+   * @sideEffects Calls `onSend`, `onSteer` or `onBuiltin`; clears the box and the capsules.
    * @param steer - Whether to send it as a steer.
    */
   const send = (steer: boolean): void => {
+    const call = onBuiltin === undefined || held ? null : builtinCall(text, command);
+    if (call !== null) {
+      const ran = drafts.read(draftKey);
+      setBrowsing(null);
+      // Fire and forget: `onBuiltin` shows its own failures.
+      void (async () => {
+        if (await onBuiltin?.(call)) drafts.update(draftKey, (now) => (now === ran ? EMPTY_DRAFT : now));
+      })();
+      return;
+    }
     // A message sent while a stop waits for pi would be refused; the text stays to send later.
     if (empty || stopping || uploading || held) return;
     const sent = images.flatMap((one) =>
@@ -640,6 +689,7 @@ export function Composer({
             kind={commandQuery === null ? "file" : "command"}
             commands={commandQuery === null ? null : commands === null ? "loading" : commands}
             commandItems={commandItems}
+            blockedOf={blockedOf}
             files={found}
             fileItems={fileItems}
             highlighted={highlighted}
@@ -648,7 +698,7 @@ export function Composer({
               // The click happens before the highlight renders, so choose by index.
               if (commandQuery !== null) {
                 const chosen = commandItems[index];
-                if (chosen !== undefined) tag(chosen);
+                if (chosen !== undefined && blockedOf(chosen) === null) tag(chosen);
               } else {
                 const file = fileItems[index];
                 if (file !== undefined && mention !== null && filesFresh) {
@@ -762,7 +812,7 @@ export function Composer({
               style={command === null ? undefined : { textIndent: indent }}
               placeholder={
                 command !== null
-                  ? "接着写要说的话（可选）"
+                  ? tagPlaceholder(command)
                   : running
                     ? stopping
                       ? "正在停止…"
@@ -928,11 +978,14 @@ function Capsule({
  * The list above the box while `/` or `@` is typed.
  *
  * @remarks
- * The highlighted option follows ↑ ↓ in the box, which keeps the focus; a click chooses.
+ * The highlighted option follows ↑ ↓ in the box, which keeps the focus; a click chooses. A
+ * built-in shows its argument in brackets; one that cannot run now is greyed, says why on hover
+ * and cannot be chosen. The built-ins show while pi's commands are still being read, with a line
+ * below saying so (SPEC-0001, "M1.11 的 `/` 命令 · 菜单").
  *
  * @sideEffects Calls `onPick`.
- * @param props - The list's id and kind, what it holds, which option is highlighted, and what a
- * click does.
+ * @param props - The list's id and kind, what it holds, why a command cannot be chosen, which
+ * option is highlighted, and what a click does.
  * @returns The list.
  */
 function SuggestionList({
@@ -940,6 +993,7 @@ function SuggestionList({
   kind,
   commands,
   commandItems,
+  blockedOf,
   files,
   fileItems,
   highlighted,
@@ -948,17 +1002,20 @@ function SuggestionList({
   readonly id: string;
   readonly kind: "command" | "file";
   readonly commands: CommandList | null;
-  readonly commandItems: readonly SlashCommand[];
+  readonly commandItems: readonly ListedCommand[];
+  readonly blockedOf: (command: ListedCommand) => string | null;
   readonly files: FileList | null;
   readonly fileItems: readonly FileCandidate[];
   readonly highlighted: number;
   readonly onPick: (index: number, into: boolean) => void;
 }) {
   let note: string | null = null;
+  // Below the commands listed so far, while pi's are not there.
+  let waiting: string | null = null;
   if (kind === "command") {
-    if (commands === "loading") note = "正在读取命令…";
-    else if (commands === "failed") note = "读不到命令列表";
-    else if (commandItems.length === 0) note = "没有匹配的命令";
+    if (commands === "loading") waiting = "正在读取命令…";
+    else if (commands === "failed") waiting = "读不到命令列表";
+    if (commandItems.length === 0) note = waiting ?? "没有匹配的命令";
   } else if (files === "fd_missing") {
     note = "没有找到 fd，@ 引用文件要用它：在终端里打开一次 pi 会自动下载，或运行 brew install fd";
   } else if (files === "failed") {
@@ -978,42 +1035,55 @@ function SuggestionList({
     >
       {note === null ? (
         kind === "command" ? (
-          groupCommands(commandItems).map((group) => (
-            <div key={group.source} role="group" aria-label={KIND_NAMES[group.source]}>
-              <div
-                aria-hidden="true"
-                className="px-2.5 pt-2 pb-1 text-[length:var(--fs-meta)] text-[var(--text-dim)] first:pt-1"
-              >
-                {KIND_NAMES[group.source]}
-              </div>
-              {group.commands.map((command) => {
-                const index = commandItems.indexOf(command);
-                return (
-                  <button
-                    key={command.name}
-                    id={`${id}-${index}`}
-                    type="button"
-                    role="option"
-                    aria-selected={index === highlighted}
-                    tabIndex={-1}
-                    onPointerDown={(event) => event.preventDefault()}
-                    onClick={() => onPick(index, false)}
-                    className={`${option} aria-selected:bg-[var(--selected)] hover:bg-[var(--hover)]`}
-                  >
-                    <CommandIcon source={command.source} size={16} />
-                    <span className="font-mono text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--text)]">
-                      /{command.name}
-                    </span>
-                    {command.description === null ? null : (
-                      <span className="min-w-0 flex-1 truncate text-right text-[length:var(--fs-sm)] text-[var(--text-muted)]">
-                        {command.description}
+          <>
+            {groupCommands(commandItems).map((group) => (
+              <div key={group.source} role="group" aria-label={KIND_NAMES[group.source]}>
+                <div
+                  aria-hidden="true"
+                  className="px-2.5 pt-2 pb-1 text-[length:var(--fs-meta)] text-[var(--text-dim)] first:pt-1"
+                >
+                  {KIND_NAMES[group.source]}
+                </div>
+                {group.commands.map((command) => {
+                  const index = commandItems.indexOf(command);
+                  const blocked = blockedOf(command);
+                  return (
+                    <button
+                      key={command.name}
+                      id={`${id}-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={index === highlighted}
+                      aria-disabled={blocked === null ? undefined : true}
+                      title={blocked ?? undefined}
+                      tabIndex={-1}
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={() => onPick(index, false)}
+                      className={`${option} aria-selected:bg-[var(--selected)] hover:bg-[var(--hover)] aria-disabled:cursor-not-allowed aria-disabled:opacity-45`}
+                    >
+                      <CommandIcon source={command.source} size={16} />
+                      <span className="font-mono text-[length:var(--fs-meta)] whitespace-nowrap text-[var(--text)]">
+                        /{command.name}
                       </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          ))
+                      {"hint" in command && command.hint !== null ? (
+                        <span className="font-mono text-[length:var(--fs-sm)] whitespace-nowrap text-[var(--text-dim)]">
+                          [{command.hint}]
+                        </span>
+                      ) : null}
+                      {command.description === null ? null : (
+                        <span className="min-w-0 flex-1 truncate text-right text-[length:var(--fs-sm)] text-[var(--text-muted)]">
+                          {command.description}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            {waiting === null ? null : (
+              <p className="px-2.5 pt-2 pb-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">{waiting}</p>
+            )}
+          </>
         ) : (
           fileItems.map((file, index) => (
             <button

@@ -17,7 +17,9 @@ import { type ChosenCommand, historyOf } from "./composer-text";
 import { ChangesPanel } from "./changes-panel";
 import { FastToggle } from "./fast-toggle";
 import { shownModel } from "./model-choice";
-import { ModelPicker } from "./model-picker";
+import { ModelPicker, type PickerRequest } from "./model-picker";
+import { showNotice } from "../state/session-notices";
+import { type BuiltinCall, builtinBlocked, lastReply, namedLevel, namedModel } from "./builtin-commands";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
 import { MessageImagesContext, messageImages } from "./message-images";
@@ -143,7 +145,7 @@ type Act = (command: () => Promise<unknown>, describe?: (error: unknown) => stri
  * @sideEffects Subscribes to the container's models and to the preferences; asks for the models
  * when the panel opens; sends model and Fast commands through `act`.
  * @param props - The client, the container, the session's model and Fast, whether it is disabled,
- * the session to change, and how to run a command.
+ * the session to change, how to run a command, and the latest request to open the panel.
  * @returns The buttons.
  */
 function SessionModelPicker({
@@ -154,6 +156,7 @@ function SessionModelPicker({
   disabled,
   session,
   act,
+  request,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -163,6 +166,7 @@ function SessionModelPicker({
   readonly disabled: boolean;
   readonly session: () => Promise<string>;
   readonly act: Act;
+  readonly request: PickerRequest | null;
 }) {
   const key = workspaceOf(containerId);
   const list = useStore(client.models(key));
@@ -192,6 +196,7 @@ function SessionModelPicker({
         }}
         onChooseModel={(ref) => act(async () => client.setModel(await session(), ref), describeModelError)}
         onChooseLevel={(level) => act(async () => client.setThinkingLevel(await session(), level), describeModelError)}
+        request={request}
       />
     </>
   );
@@ -211,9 +216,10 @@ function SessionModelPicker({
  *
  * @sideEffects Subscribes to the session's store and the preferences; loads older items when
  * asked; sends run control commands and status bar choices, reporting their failures through `act`.
- * @param props - The client, the session, its view store, what to do with a message and a steer,
- * how to run a command whose failure should show, a notice to show above the input box, and what
- * the new-workspace page set going here.
+ * @param props - The client, the session, its view store, what to do with a message, a steer and a
+ * built-in command, how to run a command whose failure should show, a notice to show above the
+ * input box, the latest request to open the model panel, and what the new-workspace page set going
+ * here.
  * @returns The transcript and input box.
  */
 function SessionArea({
@@ -223,9 +229,11 @@ function SessionArea({
   store,
   onSend,
   onSteer,
+  onBuiltin,
   act,
   session,
   notice,
+  pickerRequest,
   attaching,
   takesFocus,
   onFocusTaken,
@@ -238,9 +246,11 @@ function SessionArea({
   readonly store: StoreApi<SessionView>;
   readonly onSend: ComposerProps["onSend"];
   readonly onSteer: NonNullable<ComposerProps["onSteer"]>;
+  readonly onBuiltin: NonNullable<ComposerProps["onBuiltin"]>;
   readonly act: Act;
   readonly session: () => Promise<string>;
   readonly notice: ReactNode;
+  readonly pickerRequest: PickerRequest | null;
   /** The composer's ways to add images and reference dropped files, for the session's model. */
   readonly attaching: (model: SessionModel | null) => Partial<ComposerProps>;
   /** Whether the box takes the focus, as for a session just created from the empty state. */
@@ -254,6 +264,10 @@ function SessionArea({
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
+  const draft = useStore(
+    client.index,
+    (index) => (index.sessions.find((one) => one.sessionId === sessionId)?.file ?? null) === null,
+  );
   // One per session, so thumbnails do not load again on every render.
   const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
   useEffect(() => {
@@ -310,6 +324,8 @@ function SessionArea({
         onSearchFiles={async (query) => (await client.searchFiles(await session(), query)).files}
         onSend={onSend}
         onSteer={onSteer}
+        onBuiltin={onBuiltin}
+        draft={draft}
         onStop={() => act(() => client.stop(sessionId))}
         running={running}
         stopping={view.control.stopping}
@@ -331,6 +347,7 @@ function SessionArea({
             disabled={view.control.stopping}
             session={session}
             act={act}
+            request={pickerRequest}
           />
         }
       />
@@ -680,6 +697,98 @@ export function ConversationArea({
     void send(text, images, command, true);
   };
 
+  /** The latest request from `/model` or `/thinking` to open a part of the model panel. */
+  const [pickerRequest, setPickerRequest] = useState<PickerRequest | null>(null);
+  /**
+   * Opens a part of the model panel, as its shortcut does.
+   *
+   * @remarks
+   * Each request is new, so the same part opens again after it was closed.
+   *
+   * @sideEffects Updates component state.
+   * @param part - The models, or the thinking level.
+   */
+  const openPicker = (part: PickerRequest["part"]): void =>
+    setPickerRequest((last) => ({ part, id: (last?.id ?? 0) + 1 }));
+
+  /**
+   * Does what a built-in command asks, saying why if it cannot.
+   *
+   * @remarks
+   * SPEC-0001 ("M1.11 的 `/` 命令 · 执行"): `/model` and `/thinking` open their part of the model
+   * panel, or set what they name; `/copy` copies the last reply and says so beside the tab bar.
+   * The session's state is read now, not from the last render. A model named before the container's
+   * list was read waits for the list.
+   *
+   * @sideEffects May open the model panel, set the model or level (creating the session first, as
+   * choosing in the panel does), load the model list, write the clipboard, or show a notice.
+   * @param name - The command.
+   * @param args - What followed its name.
+   * @param view - The session's view, if there is a session.
+   * @returns Why it did not run, or `null` when it did.
+   */
+  async function builtin(
+    name: BuiltinCall["command"]["name"],
+    args: string,
+    view: SessionView | undefined,
+  ): Promise<string | null> {
+    const models = client.models(workspaceId);
+    if (name === "copy") {
+      const reply = lastReply(view?.items ?? []);
+      if (reply === null || sessionId === null) return "还没有回复可复制";
+      const copied = await navigator.clipboard.writeText(reply).then(
+        () => true,
+        () => false,
+      );
+      if (!copied) return "复制失败";
+      showNotice(sessionId, "已复制最后一条回复");
+      return null;
+    }
+    if (args === "") {
+      openPicker(name === "model" ? "model" : "effort");
+      return null;
+    }
+    if (name === "model") {
+      if (models.getState().status !== "ready") await client.loadModels(workspaceId);
+      const ref = namedModel(args, models.getState().models);
+      if (ref === null) return "没有这个模型";
+      await client.setModel(await target(), ref);
+      return null;
+    }
+    const shown = shownModel(view?.model ?? null, client.index.getState().preferences, models.getState());
+    const named = namedLevel(args, shown?.levels ?? []);
+    if ("problem" in named) return named.problem;
+    await client.setThinkingLevel(await target(), named.level);
+    return null;
+  }
+
+  /**
+   * Runs a built-in command from the input box, unless it cannot run now.
+   *
+   * @remarks
+   * See `builtin`; a command that cannot run while a run goes on, or before the first message,
+   * says so instead (SPEC-0001, "M1.11 的 `/` 命令 · 执行"). Its failure shows above the input box,
+   * as a send's does.
+   *
+   * @sideEffects As `builtin`; updates component state.
+   * @param call - The command and what followed its name.
+   * @returns Whether it ran.
+   */
+  async function runBuiltin({ command, args }: BuiltinCall): Promise<boolean> {
+    setFailure(null);
+    const view = sessionId === null ? undefined : client.session(sessionId)?.getState();
+    const file = client.index.getState().sessions.find((one) => one.sessionId === sessionId)?.file ?? null;
+    const busy = view !== undefined && (view.run !== null || view.control.stopping);
+    let problem = builtinBlocked(command, { busy, draft: file === null });
+    try {
+      problem ??= await builtin(command.name, args, view);
+    } catch (error) {
+      problem = describeModelError(error);
+    }
+    setFailure(problem);
+    return problem === null;
+  }
+
   const modelList = useStore(client.models(workspaceId));
   const preferences = useStore(client.index, (index) => index.preferences);
   const baseDir = useStore(
@@ -756,6 +865,8 @@ export function ConversationArea({
               onListCommands={async () => (await client.listCommands(await target())).commands}
               onSearchFiles={async (query) => (await client.searchFiles(await target(), query)).files}
               onSend={onSend}
+              onBuiltin={runBuiltin}
+              draft
               onEdit={onEmptyEdit}
               above={capsule === undefined ? undefined : <ChangesTrack changes={capsule} />}
               picker={
@@ -767,6 +878,7 @@ export function ConversationArea({
                   disabled={false}
                   session={target}
                   act={act}
+                  request={pickerRequest}
                 />
               }
             />
@@ -786,9 +898,11 @@ export function ConversationArea({
             store={store}
             onSend={onSend}
             onSteer={onSteer}
+            onBuiltin={runBuiltin}
             act={act}
             session={target}
             notice={notice}
+            pickerRequest={pickerRequest}
             attaching={attaching}
             takesFocus={handing?.sessionId === sessionId}
             onFocusTaken={() => handTo(null)}

@@ -8,6 +8,7 @@ import { sessionStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
 import { SessionMenu } from "./session-menus";
+import { SessionNoticeLine } from "./session-notice";
 
 /**
  * Runs a tab command without waiting for it.
@@ -29,7 +30,7 @@ function run(command: () => Promise<unknown>): void {
  * @remarks
  * Follows SPEC-0001 ("标签栏"): the container's open sessions as tabs (title, status, close),
  * "+" for a new session there, "历史" listing all its sessions newest first, and at the right
- * end the active session's "···". Tabs shrink to about 96px and then scroll
+ * end the active session's "···", with a line before it saying what a command just did. Tabs shrink to about 96px and then scroll
  * sideways. Switching and closing show at once; the host confirms them.
  *
  * @sideEffects Subscribes to the client's list; sends commands when used.
@@ -132,6 +133,7 @@ export function TabBar({
       </span>
       <span className="min-w-0 flex-1" />
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+        {active === undefined ? null : <SessionNoticeLine sessionId={active.sessionId} />}
         {active === undefined ? null : <SessionMenu key={active.sessionId} client={client} session={active} />}
       </span>
     </div>

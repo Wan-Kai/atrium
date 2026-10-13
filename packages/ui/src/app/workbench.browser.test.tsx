@@ -6,6 +6,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { describeArchiveError, describeRestoreError } from "../sidebar/archive";
+import { pageNotices, showNotice } from "../state/session-notices";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
@@ -1414,6 +1415,19 @@ describe("Workbench tabs", () => {
 
     await expect.element(screen.getByRole("menuitem", { name: "复制会话文件路径" })).toBeDisabled();
     await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeDisabled();
+  });
+
+  it("says beside the active session's menu what a command just did for it", async () => {
+    onTestFinished(() => pageNotices().setState(null, true));
+    const { screen } = await workbench();
+    const menu = screen.getByRole("button", { name: "当前会话" });
+    await expect.element(menu).toBeVisible();
+
+    showNotice("s1", "已复制最后一条回复");
+
+    const line = screen.getByRole("status").filter({ hasText: "已复制最后一条回复" });
+    await expect.element(line).toBeVisible();
+    expect(line.element().parentElement?.contains(menu.element())).toBe(true);
   });
 
   it("has no display mode to switch, from a menu or with Ctrl+O", async () => {

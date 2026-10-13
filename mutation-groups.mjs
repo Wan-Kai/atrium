@@ -73,6 +73,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/chat/turn-layout.ts",
       "packages/ui/src/chat/model-choice.ts",
       "packages/ui/src/chat/composer-text.ts",
+      "packages/ui/src/chat/builtin-commands.ts",
       "packages/ui/src/chat/changes.ts",
       "packages/ui/src/chat/file-kind.ts",
       "packages/ui/src/chat/status-figures.ts",

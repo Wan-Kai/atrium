@@ -187,6 +187,8 @@ export interface FakeAnswers {
   readonly setPreferences?: () => Promise<void>;
   /** Answers a Fast switch, which then shows in the session's view; succeeds at once when left out. */
   readonly setFast?: () => Promise<void>;
+  /** Answers a model switch; succeeds at once when left out. */
+  readonly setModel?: () => Promise<void>;
   /** A turn's image, or none; the host has none when left out. */
   readonly image?: (
     turnId: string,
@@ -632,6 +634,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async setModel(sessionId: string, model: ModelRef) {
       modelCalls.push(`setModel ${sessionId} ${model.providerId}/${model.modelId}`);
+      await answers.setModel?.();
       return {};
     },
     async uploadAttachment(mimeType: string) {

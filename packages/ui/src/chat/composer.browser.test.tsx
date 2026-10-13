@@ -6,6 +6,7 @@ import { render } from "vitest-browser-react";
 import "../styles.css";
 import type { CatalogModel } from "@atrium/protocol";
 import { pageDrafts } from "../state/use-draft";
+import type { BuiltinCall } from "./builtin-commands";
 import { Composer, type ComposerProps } from "./composer";
 import type { ChosenCommand } from "./composer-text";
 import { compressImage } from "./images";
@@ -235,6 +236,152 @@ describe("Composer's / commands", () => {
     await userEvent.type(box, "/");
 
     await expect.element(screen.getByText("读不到命令列表")).toBeVisible();
+  });
+});
+
+/**
+ * A way to run built-in commands that records each and answers as told.
+ *
+ * @sideEffects none; the handler records its calls.
+ * @param answer - Whether a command ran, once it has.
+ * @returns The handler and its calls, as name and argument.
+ */
+function builtins(answer: () => Promise<boolean> = async () => true) {
+  const calls: (readonly [string, string])[] = [];
+  const onBuiltin = async (call: BuiltinCall): Promise<boolean> => {
+    calls.push([call.command.name, call.args]);
+    return answer();
+  };
+  return { calls, onBuiltin };
+}
+
+describe("Composer's built-in commands", () => {
+  it("lists the built-ins first, each with its argument, while pi's commands are still read", async () => {
+    const { onBuiltin } = builtins();
+    const { screen, box } = await composer({ onBuiltin, onListCommands: () => new Promise(() => undefined) });
+
+    await userEvent.type(box, "/");
+
+    const list = screen.getByRole("listbox", { name: "命令" });
+    await expect.element(list).toBeVisible();
+    expect(
+      screen
+        .getByRole("option")
+        .elements()
+        .map((option) => option.textContent),
+    ).toStrictEqual(["/model[服务商/模型]切换模型", "/thinking[档位]推理强度", "/copy复制最后一条回复"]);
+    expect(
+      screen
+        .getByRole("group")
+        .elements()
+        .map((group) => group.getAttribute("aria-label")),
+    ).toStrictEqual(["内置"]);
+    expect(iconColors(list.element())).toStrictEqual(["var(--tint)", "var(--tint)", "var(--tint)"].map(colorOf));
+    await expect.element(screen.getByText("正在读取命令…")).toBeVisible();
+  });
+
+  it("puts pi's commands after the built-ins once they come, and says when none match", async () => {
+    const { onBuiltin } = builtins();
+    const { screen, box } = await composer({ onBuiltin });
+
+    await userEvent.type(box, "/");
+
+    await expect.element(screen.getByRole("option", { name: /mcp/ })).toBeVisible();
+    expect(
+      screen
+        .getByRole("group")
+        .elements()
+        .map((group) => group.getAttribute("aria-label")),
+    ).toStrictEqual(["内置", "扩展", "模板", "技能"]);
+    await expect.element(screen.getByText("正在读取命令…")).not.toBeInTheDocument();
+    await userEvent.type(box, "zzz");
+    await expect.element(screen.getByText("没有匹配的命令")).toBeVisible();
+  });
+
+  it("runs a built-in's tag on Enter instead of sending, its text the argument, and clears the box once it ran", async () => {
+    const { calls, onBuiltin } = builtins();
+    const { screen, box, sent } = await composer({ onBuiltin });
+
+    await userEvent.type(box, "/mo{Enter}");
+    await expect.element(screen.getByTestId("command-tag")).toHaveTextContent("model");
+    await expect.element(box).toHaveAttribute("placeholder", "服务商/模型（可选）");
+    await userEvent.keyboard(" openai/gpt-5 {Enter}");
+
+    expect([calls, sent]).toStrictEqual([[["model", "openai/gpt-5"]], []]);
+    await expect.element(box).toHaveValue("");
+    await expect.element(screen.getByTestId("command-tag")).not.toBeInTheDocument();
+  });
+
+  it("says Enter runs a built-in that takes no argument", async () => {
+    const { onBuiltin } = builtins();
+    const { box } = await composer({ onBuiltin });
+
+    await userEvent.type(box, "/cop{Enter}");
+
+    await expect.element(box).toHaveAttribute("placeholder", "回车执行");
+  });
+
+  it("runs a built-in typed out, with ⌘Enter too, while a run goes on", async () => {
+    const { calls, onBuiltin } = builtins();
+    const steered: string[] = [];
+    const { box, sent } = await composer({ onBuiltin, running: true, onSteer: (text) => steered.push(text) });
+
+    await userEvent.type(box, "/thinking high{Meta>}{Enter}{/Meta}");
+
+    expect([calls, sent, steered]).toStrictEqual([[["thinking", "high"]], [], []]);
+    await expect.element(box).toHaveValue("");
+  });
+
+  it("leaves the box as it was when the command did not run", async () => {
+    const { calls, onBuiltin } = builtins(async () => false);
+    const { box } = await composer({ onBuiltin });
+
+    await userEvent.type(box, "/copy{Enter}");
+
+    expect(calls).toStrictEqual([["copy", ""]]);
+    await expect.element(box).toHaveValue("/copy");
+  });
+
+  it("keeps what was typed while the command ran", async () => {
+    const { promise, resolve } = Promise.withResolvers<boolean>();
+    const { calls, onBuiltin } = builtins(() => promise);
+    const { box } = await composer({ onBuiltin });
+
+    await userEvent.type(box, "/copy{Enter}");
+    await userEvent.type(box, " more");
+    expect(calls).toStrictEqual([["copy", ""]]);
+    resolve(true);
+
+    await expect.element(box).toHaveValue("/copy more");
+  });
+
+  it("goes back through the history from the newest after a built-in ran", async () => {
+    const { onBuiltin } = builtins();
+    const { box } = await composer({ onBuiltin, history: ["/copy", "older"] });
+
+    await userEvent.type(box, "{ArrowUp}{Enter}");
+    await expect.element(box).toHaveValue("");
+    await userEvent.keyboard("{ArrowUp}");
+
+    await expect.element(box).toHaveValue("/copy");
+  });
+
+  it("runs nothing while held", async () => {
+    const { calls, onBuiltin } = builtins();
+    const { box, sent } = await composer({ onBuiltin, held: true });
+
+    await userEvent.type(box, "/copy{Enter}");
+
+    expect([calls, sent]).toStrictEqual([[], []]);
+    await expect.element(box).toHaveValue("/copy");
+  });
+
+  it("sends a built-in's name to pi when it has no way to run built-ins", async () => {
+    const { box, sent } = await composer();
+
+    await userEvent.type(box, "/model openai/gpt-5{Enter}");
+
+    expect(sent).toStrictEqual(["/model openai/gpt-5"]);
   });
 });
 

@@ -1,12 +1,13 @@
-import type { SessionView } from "@atrium/client";
+import type { AtriumClient, SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
-import { type TranscriptItem, type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
+import { type ThinkingLevel, type TranscriptItem, type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
+import { pageNotices } from "../state/session-notices";
 import { fakeClient, session } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
@@ -908,6 +909,165 @@ function tall(area: ReactNode) {
   );
 }
 
+/** Opus, which thinks at four levels. */
+const BUILTIN_OPUS = {
+  providerId: "anthropic",
+  modelId: "claude-opus-5-5",
+  name: "Claude Opus 5.5",
+  contextWindow: 1_000_000,
+  maxOutput: 128_000,
+  supportsImage: true,
+  thinkingLevels: ["off", "low", "medium", "high"] as ThinkingLevel[],
+  fast: null,
+};
+/** Haiku, which does not think. */
+const BUILTIN_HAIKU = { ...BUILTIN_OPUS, modelId: "haiku", name: "Haiku", thinkingLevels: ["off"] as ThinkingLevel[] };
+/** The list of both. */
+const BUILTIN_MODELS = {
+  status: "ready" as const,
+  models: [BUILTIN_OPUS, BUILTIN_HAIKU],
+  defaultModel: null,
+  error: null,
+};
+
+/**
+ * Renders the area on session s1 with Opus at a low level, and its box.
+ *
+ * @sideEffects Renders.
+ * @param client - The client.
+ * @returns The screen and the box.
+ */
+async function onOpus(client: AtriumClient) {
+  const screen = await render(
+    tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+  );
+  client
+    .session("s1")
+    ?.setState({ model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "low" } });
+  return { screen, box: screen.getByRole("textbox", { name: "消息" }) };
+}
+
+describe("ConversationArea's built-in commands", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    pageNotices().setState(null, true);
+  });
+  it("opens the model list for /model, and the thinking level, focused, for /thinking, emptying the box", async () => {
+    const { client } = fakeClient({}, { models: BUILTIN_MODELS });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/model{Enter}");
+    await expect.element(screen.getByRole("dialog", { name: "模型与推理强度" })).toBeVisible();
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(2);
+    await expect.element(screen.getByRole("slider")).not.toBeInTheDocument();
+    await expect.element(box).toHaveValue("");
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.type(box, "/thinking{Enter}");
+    await expect.element(screen.getByRole("slider")).toHaveFocus();
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(0);
+  });
+
+  it("switches to the model named, reading the list first when it is not ready", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: BUILTIN_MODELS });
+    const { box } = await onOpus(client);
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels null"]));
+
+    await userEvent.type(box, "/model anthropic/haiku{Enter}");
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels null", "setModel s1 anthropic/haiku"]));
+    await expect.element(box).toHaveValue("");
+
+    client.models(null).setState({ status: "loading" });
+    await userEvent.type(box, "/model anthropic/claude-opus-5-5{Enter}");
+    await vi.waitFor(() =>
+      expect(modelCalls.slice(2)).toStrictEqual(["loadModels null", "setModel s1 anthropic/claude-opus-5-5"]),
+    );
+  });
+
+  it("says when no model is called that, or the switch is refused, leaving the box", async () => {
+    const { client, modelCalls } = fakeClient(
+      {},
+      { models: BUILTIN_MODELS, setModel: () => Promise.reject(new CommandError("pi_rejected", { detail: "nope" })) },
+    );
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/model haiku{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("没有这个模型");
+    await expect.element(box).toHaveValue("/model haiku");
+
+    await userEvent.clear(box);
+    await userEvent.type(box, "/model anthropic/haiku{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 没有接受这个设置：nope");
+    await expect.element(box).toHaveValue("/model anthropic/haiku");
+    expect(modelCalls).toContain("setModel s1 anthropic/haiku");
+  });
+
+  it("sets the thinking level named, or says it has no such level or the model does not support it", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: BUILTIN_MODELS });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/thinking max{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("当前模型不支持这个档位");
+    await userEvent.clear(box);
+    await userEvent.type(box, "/thinking hard{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("没有这个档位");
+    await userEvent.clear(box);
+    await userEvent.type(box, "/thinking high{Enter}");
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setThinkingLevel s1 high"));
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+    await expect.element(box).toHaveValue("");
+  });
+
+  it("copies the last reply's Markdown with /copy and says so beside the tab bar", async () => {
+    const copied: string[] = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => {
+      copied.push(text);
+    });
+    const { client } = fakeClient();
+    const { box } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一"), turn("t2", "**第二**")] });
+
+    await userEvent.type(box, "/copy{Enter}");
+
+    await vi.waitFor(() => expect(copied).toStrictEqual(["**第二**"]));
+    expect(pageNotices().getState()).toStrictEqual({ sessionId: "s1", text: "已复制最后一条回复" });
+    await expect.element(box).toHaveValue("");
+  });
+
+  it("says when there is no reply to copy yet, or the clipboard refuses it", async () => {
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(() => Promise.reject(new Error("denied")));
+    const { client } = fakeClient();
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/copy{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("还没有回复可复制");
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    await userEvent.type(box, "{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("复制失败");
+    await expect.element(box).toHaveValue("/copy");
+    expect(pageNotices().getState()).toBeNull();
+  });
+
+  it("runs built-ins before a session exists, creating it to switch the model", async () => {
+    const { client, calls, modelCalls } = fakeClient({}, { models: BUILTIN_MODELS });
+    const create = async () => (await client.createSession(CHAT)).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "/copy{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("还没有回复可复制");
+    await userEvent.clear(box);
+    await userEvent.type(box, "/model anthropic/haiku{Enter}");
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setModel new1 anthropic/haiku"));
+    expect(calls).toContain("createSession cht_a");
+  });
+});
+
 describe("ConversationArea's model button", () => {
   const OPUS = {
     providerId: "anthropic",
@@ -1329,7 +1489,7 @@ describe("ConversationArea's composer", () => {
     );
     const box = screen.getByRole("textbox", { name: "消息" });
 
-    await userEvent.type(box, "/");
+    await userEvent.type(box, "/rev");
     await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
     await userEvent.keyboard("{Enter}看看 @a");
     await expect.element(screen.getByRole("option", { name: "src/a.ts" })).toBeVisible();
