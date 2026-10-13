@@ -67,6 +67,12 @@ async function show(value: Turn, runStartedAt: number | null = null) {
   return { screen };
 }
 
+/** A button's text and background colours, as computed. */
+function paint(button: Element): string[] {
+  const style = getComputedStyle(button);
+  return [style.color, style.backgroundColor];
+}
+
 /**
  * Renders a finished turn with its process and every step opened, as a click on each would.
  *
@@ -437,12 +443,21 @@ describe("TurnView", () => {
     expect(screen.container.textContent).toContain("已停止");
   });
 
-  it("shows a failed turn's error behind a toggle", async () => {
+  it("shows a failed turn's error behind 详情 at the line's right end, its chevron turning down", async () => {
     const { screen } = await show(turn([], { outcome: "failed", error: "429 rate limited" }));
+    const card = screen.getByTestId("turn-error");
+    const details = screen.getByRole("button", { name: "详情" });
 
-    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错展开看原始报错");
-    await screen.getByRole("button", { name: "展开看原始报错" }).click();
-    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错收起429 rate limited");
+    await expect.element(card).toHaveTextContent("回复出错详情");
+    expect(details.element().getBoundingClientRect().right).toBe(card.element().getBoundingClientRect().right);
+    const chevron = details.element().querySelector(".atrium-fold-chevron") as Element;
+    expect(getComputedStyle(chevron).rotate).toBe("none");
+    await details.click();
+
+    await expect.element(details).toHaveAttribute("aria-expanded", "true");
+    await expect.element(card).toHaveTextContent("回复出错详情429 rate limited");
+    for (const transition of chevron.getAnimations()) transition.finish();
+    expect(getComputedStyle(chevron).rotate).toBe("90deg");
   });
 
   it("shows a failure that looks like a credentials problem with the sidebar's key, offering 去登录 before 重试", async () => {
@@ -455,10 +470,18 @@ describe("TurnView", () => {
     );
     const card = screen.getByTestId("turn-error");
 
-    await expect.element(card).toHaveTextContent("登录已失效去登录重试展开看原始报错");
+    await expect.element(card).toHaveTextContent("登录已失效去登录重试详情");
     expect(card.element().querySelector("svg")?.outerHTML).toBe(iconMarkup(<Key size={14} />));
     const root = getComputedStyle(document.documentElement);
     expect(getComputedStyle(card.element()).color).toBe(colorOf(root.getPropertyValue("--attn")));
+    // 去登录 is the one main button; 重试 is plain text.
+    expect([
+      paint(screen.getByRole("button", { name: "去登录" }).element()),
+      paint(screen.getByRole("button", { name: "重试" }).element()),
+    ]).toStrictEqual([
+      [colorOf(root.getPropertyValue("--attn-text")), colorOf(root.getPropertyValue("--attn-soft"))],
+      [colorOf(root.getPropertyValue("--text-muted")), "rgba(0, 0, 0, 0)"],
+    ]);
     await screen.getByRole("button", { name: "去登录" }).click();
     await screen.getByRole("button", { name: "重试" }).click();
     expect(asked).toStrictEqual(["login", "retry"]);
@@ -471,10 +494,14 @@ describe("TurnView", () => {
         <TurnView turn={auth} runStartedAt={null} />
       </OpenLogin>,
     );
-    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效展开看原始报错");
+    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效详情");
 
     await screen.rerender(<TurnView turn={auth} runStartedAt={null} onRetry={() => undefined} />);
-    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效重试展开看原始报错");
+    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效重试详情");
+    expect(paint(screen.getByRole("button", { name: "重试" }).element())).toStrictEqual([
+      colorOf(getComputedStyle(document.documentElement).getPropertyValue("--attn-text")),
+      colorOf(getComputedStyle(document.documentElement).getPropertyValue("--attn-soft")),
+    ]);
 
     const other = turn([], { outcome: "failed", error: "429 rate limited" });
     await screen.rerender(
@@ -483,10 +510,32 @@ describe("TurnView", () => {
       </OpenLogin>,
     );
     const card = screen.getByTestId("turn-error");
-    await expect.element(card).toHaveTextContent("回复出错重试展开看原始报错");
+    await expect.element(card).toHaveTextContent("回复出错重试详情");
     expect(card.element().querySelector("svg")?.outerHTML).toBe(iconMarkup(<Warning size={14} />));
     const root = getComputedStyle(document.documentElement);
     expect(getComputedStyle(card.element()).color).toBe(colorOf(root.getPropertyValue("--danger")));
+    expect(paint(screen.getByRole("button", { name: "重试" }).element())).toStrictEqual([
+      colorOf(root.getPropertyValue("--danger")),
+      colorOf(root.getPropertyValue("--danger-soft")),
+    ]);
+  });
+
+  it("ends a failed turn with no reply and no changes at its error, leaving the info row out", async () => {
+    const { screen } = await show(turn([command], { outcome: "failed", error: "429 rate limited" }));
+    await expect.element(screen.getByTestId("turn-error")).toBeVisible();
+    expect(screen.container.querySelector('[data-testid="turn-footer"]')).toBeNull();
+
+    await screen.rerender(
+      <TurnView turn={turn([command, answer], { outcome: "failed", error: "429" })} runStartedAt={null} />,
+    );
+    await expect.element(screen.getByTestId("turn-footer").getByRole("button", { name: "复制回复" })).toBeVisible();
+    await screen.rerender(
+      <TurnView
+        turn={turn([edit], { outcome: "failed", error: "429", changes: [{ path: "src/a.ts", added: 1, removed: 1 }] })}
+        runStartedAt={null}
+      />,
+    );
+    await expect.element(screen.getByTestId("turn-footer")).toMatchTextContent(/^改了 1 个文件/);
   });
 
   it("shows the info row: copy, files changed, usage and the time the turn ended", async () => {

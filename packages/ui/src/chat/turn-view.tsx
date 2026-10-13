@@ -3,6 +3,7 @@ import {
   ArrowClockwise,
   ArrowsInLineVertical,
   CaretDown,
+  CaretRight,
   Database,
   FileText,
   GitFork,
@@ -376,19 +377,19 @@ function TurnFooter({
 /** Opens the settings at "模型与账户", for the error card's "去登录"; none where there are no settings. */
 export const OpenLogin = createContext<(() => void) | null>(null);
 
-/** The pill buttons on the error card. */
-const CARD_BUTTON =
-  "rounded-[var(--r-pill)] px-2.5 text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]";
+/** The error card's one main button, on a light wash of the card's colour. */
+const CARD_PRIMARY = "rounded-[var(--r-pill)] px-2.5 leading-[22px] font-medium hover:brightness-95";
 
 /**
  * pi's error for a failed turn, folded until asked for.
  *
  * @remarks
- * A short line, with the raw error behind "展开看原始报错" (SPEC-0001, "运行出错与停止"); a turn
- * pi went away in has no text of pi's. The last turn offers "重试", which runs it again as the
- * host does after a restart (SPEC-0001, "运行控制"). An error that looks like a credentials
+ * A short line, with the raw error behind "详情" at its right end (SPEC-0001, "运行出错与停止");
+ * a turn pi went away in has no text of pi's. The last turn offers "重试", which runs it again as
+ * the host does after a restart (SPEC-0001, "运行控制"). An error that looks like a credentials
  * problem, by the rule the host sets the sidebar's key by, shows the key and "登录已失效"; where
- * "重试" is offered, "去登录" comes first.
+ * "重试" is offered, "去登录" is the one main button and "重试" plain text, so the line has one
+ * thing to do first (design-language, "失败的一轮").
  *
  * @sideEffects Calls `onRetry` or opens the settings when asked.
  * @param props - pi's error text, if there is any, and what "重试" does, if it is offered.
@@ -398,31 +399,43 @@ function TurnError({ error, onRetry }: { readonly error: string | null; readonly
   const [open, setOpen] = useState(false);
   const openLogin = use(OpenLogin);
   const auth = error !== null && isAuthFailure(error);
+  const login = auth && onRetry !== undefined && openLogin !== null ? openLogin : null;
+  const wash = auth ? "bg-[var(--attn-soft)] text-[var(--attn-text)]" : "bg-[var(--danger-soft)] text-[var(--danger)]";
   return (
     <div
       className={`my-1 text-[length:var(--fs-meta)] ${auth ? "text-[var(--attn)]" : "text-[var(--danger)]"}`}
       data-testid="turn-error"
     >
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-h-[26px] items-center gap-1.5">
         {auth ? <Key size={14} /> : <Warning size={14} />}
         <span>{auth ? "登录已失效" : "回复出错"}</span>
-        {auth && onRetry !== undefined && openLogin !== null ? (
-          <button type="button" className={CARD_BUTTON} onClick={openLogin}>
+        {login === null ? null : (
+          <button type="button" className={`${CARD_PRIMARY} ${wash}`} onClick={login}>
             去登录
           </button>
-        ) : null}
+        )}
         {onRetry === undefined ? null : (
-          <button type="button" className={CARD_BUTTON} onClick={onRetry}>
+          <button
+            type="button"
+            className={
+              login === null
+                ? `${CARD_PRIMARY} ${wash}`
+                : "rounded-[var(--r)] px-1.5 leading-[22px] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+            }
+            onClick={onRetry}
+          >
             重试
           </button>
         )}
         {error === null || error === "" ? null : (
           <button
             type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text-muted)]"
+            aria-expanded={open}
+            className="ml-auto inline-flex items-center gap-0.5 rounded-[var(--r)] px-1 leading-[22px] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
             onClick={() => setOpen(!open)}
           >
-            {open ? "收起" : "展开看原始报错"}
+            详情
+            <CaretRight size={12} className={`atrium-fold-chevron ${open ? "rotate-90" : ""}`} />
           </button>
         )}
       </div>
@@ -457,7 +470,8 @@ export interface TurnViewProps {
  * while it runs with nothing to show yet, the run's line stands in its place until the first
  * step or the reply's first text. Steps that arrive while the turn is shown play their entrance;
  * the ones there when it was first shown do not. The reply streams below, revealed smoothly; a
- * failed turn shows pi's error.
+ * failed turn shows pi's error, and ends there when it has no reply and changed no files: its info
+ * row would hold nothing worth reading (SPEC-0001, "消息下方的信息").
  *
  * @sideEffects Holds a finished turn open for a second on the clock.
  * @param props - The turn, the run's start, and "重试" and forking where offered.
@@ -588,7 +602,9 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
           <StreamedText text={reply.text} streaming={running} />
         </div>
       )}
-      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} fork={fork} />}
+      {running || (turn.outcome === "failed" && reply === null && turn.changes.length === 0) ? null : (
+        <TurnFooter turn={turn} reply={reply?.text ?? null} fork={fork} />
+      )}
     </div>
   );
 }

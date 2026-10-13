@@ -370,6 +370,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 新建工作区 · 端到端：真实 app 和 git 仓库，本地 main 领先 origin 时从项目页用第一条消息建 worktree，回复出现在新工作区里、侧栏选中它；worktree 在 `repo.worktrees/` 下、在新分支上、从 `origin/main` 的提交起、没有上游配置 | `apps/desktop/e2e/new-workspace.spec.ts` | 已覆盖 |
 | 认证类失败的判断（protocol 一份，宿主的 `auth` 关注状态和对话里的错误卡片共用）：每个关键词各自认得出、`401` 按整词、其他失败不算 | `packages/protocol/src/listing.test.ts` | 已覆盖 |
 | 认证类失败的错误卡片：橙色钥匙和"登录已失效"，有"重试"的地方前面多一个"去登录"，没有设置可开或不是最后一轮时不显示；其他失败仍是红色"回复出错"；"去登录"打开设置的"模型与账户" | `packages/ui/src/chat/turn.browser.test.tsx` "credentials""去登录 only"、`packages/ui/src/app/workbench.browser.test.tsx` "去登录" | 已覆盖 |
+| 失败的一轮（2026-10-13）：错误卡片只有一个主按钮，同色浅底（登录失效又能重试时是"去登录"、`--attn-soft` 底 `--attn-text` 字，"重试"是 `--text-muted` 的文字按钮；其他是"重试"，`--danger-soft` 底 `--danger` 字）；"详情"在这一行最右，点开原始报错、`aria-expanded`，› 0.3 秒转向下；没有回复也没有改动的失败轮不显示信息行，有部分回复或改了文件时照常显示 | `packages/ui/src/chat/turn.browser.test.tsx` "behind 详情"、"credentials"、"去登录 only"、"ends a failed turn" | 已覆盖 |
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
