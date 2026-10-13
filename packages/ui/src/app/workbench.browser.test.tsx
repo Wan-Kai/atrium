@@ -446,6 +446,64 @@ describe("Workbench sidebar", () => {
     expect(localStorage.getItem("atrium.inboxOpen")).toBe("false");
   });
 
+  it("unfolds the inbox's list upwards in 0.28 s, the rows one after another, and folds it away, the chevron turning", async () => {
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen } = await workbench({ initial: needing() });
+    const inbox = screen.getByRole("region", { name: "等你处理" });
+    const heading = inbox.getByRole("button", { name: /^等你处理/ });
+    const chevron = heading.element().querySelector(".atrium-fold-chevron") as Element;
+    expect(getComputedStyle(chevron).rotate).toBe("none");
+
+    await heading.click();
+
+    const unfolding = screen.getByTestId("inbox-list").element();
+    expect([unfolding.getAttribute("data-fold"), heightFrames(unfolding)[0]]).toStrictEqual(["opening", "0px"]);
+    expect(foldTimings(unfolding)).toStrictEqual([
+      [280, 0],
+      [260, 40],
+      [260, 54],
+      [260, 68],
+      [260, 82],
+    ]);
+    expect(
+      chevron
+        .getAnimations()
+        .map((turn) => [(turn as CSSTransition).transitionProperty, turn.effect?.getTiming().duration]),
+    ).toStrictEqual([["rotate", 300]]);
+    for (const turn of chevron.getAnimations()) turn.finish();
+    expect(getComputedStyle(chevron).rotate).toBe("180deg");
+    await expect.element(screen.getByTestId("inbox-list")).toHaveAttribute("data-fold", "open");
+    await heading.click();
+
+    const folding = screen.getByTestId("inbox-list").element();
+    expect(folding.getAttribute("data-fold")).toBe("closing");
+    expect(foldTimings(folding)).toStrictEqual([
+      [280, 40],
+      [220, 42],
+      [220, 28],
+      [220, 14],
+      [220, 0],
+    ]);
+    await expect.element(screen.getByTestId("inbox-list")).not.toBeInTheDocument();
+  });
+
+  it("unfolds the inbox's list only to the 228px it scrolls beyond", async () => {
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen } = await workbench({ initial: needing() });
+    const inbox = screen.getByRole("region", { name: "等你处理" });
+    const heading = inbox.getByRole("button", { name: /^等你处理/ });
+    await heading.click();
+    await inbox.getByRole("button", { name: "还有 3 条" }).click();
+    await heading.click();
+    await expect.element(screen.getByTestId("inbox-list")).not.toBeInTheDocument();
+
+    await heading.click();
+
+    const unfolding = screen.getByTestId("inbox-list").element();
+    expect(unfolding.scrollHeight).toBeGreaterThan(228);
+    expect(heightFrames(unfolding)).toStrictEqual(["0px", "228px"]);
+  });
+
   it("opens the inbox's card as it was left", async () => {
     localStorage.setItem("atrium.inboxOpen", "true");
     onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));

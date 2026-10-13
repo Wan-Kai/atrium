@@ -36,7 +36,8 @@ function reducedMotion(): boolean {
  * Folding: the height goes from where it is now to 0 while the rows, last first, fade out and
  * rise 6px. Unfolding is the reverse, first row first (design-language, "动效 · 过程轨道"). A fold
  * turned back halfway starts from the height it has reached, so it does not jump; an unfold from
- * folded starts from nothing, the element having just been put back at its full height.
+ * folded starts from nothing, the element having just been put back at its full height. An unfold
+ * ends at the element's `max-height`, if it has one lower than its content, where it scrolls.
  *
  * @sideEffects Starts Web Animations on the element and on its `[data-fold-row]` children.
  * @param element - The folding element.
@@ -61,7 +62,10 @@ function play(element: HTMLElement, closing: boolean, duration: number): Animati
       fill: closing ? "forwards" : "backwards",
     });
   }
-  const to = closing ? 0 : element.scrollHeight;
+  // "none" reads as NaN, which leaves the content's height.
+  const to = closing
+    ? 0
+    : Math.min(element.scrollHeight, Number.parseFloat(getComputedStyle(element).maxHeight) || Infinity);
   return element.animate([{ height: `${from}px` }, { height: `${to}px` }], {
     duration,
     delay: closing ? 40 : 0,

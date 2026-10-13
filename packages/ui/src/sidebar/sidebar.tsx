@@ -2,7 +2,6 @@ import { type AtriumClient, CommandError, type IndexView } from "@atrium/client"
 import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
   ArrowUp,
-  CaretDown,
   CaretUp,
   ChatAdd,
   DotsThree,
@@ -86,7 +85,7 @@ const INBOX_OPEN_KEY = "atrium.inboxOpen";
 const ROW =
   "group relative my-0.5 flex h-[34px] cursor-default select-none items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]";
 
-/** How long a project's workspaces take to fold away or unfold (design-language, "动效"). */
+/** How long a project's workspaces, or the inbox's list, take to fold away or unfold (design-language, "动效"). */
 const PROJECT_FOLD_MS = 280;
 
 /** The class of a small icon button in the sidebar. */
@@ -1141,6 +1140,7 @@ function SessionLine({
       onClick={onOpen}
       aria-current={current}
       data-testid={testId}
+      data-fold-row
       className={`${ROW} h-auto w-full items-start py-[7px] text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
     >
       <span className="min-w-0 flex-1">
@@ -1165,7 +1165,9 @@ function SessionLine({
  * SPEC-0001 ("收件箱"): left out when empty or switched off in the settings. Folded into its
  * heading at first, with how many and one icon of each status there, by priority; its heading opens
  * and folds it, remembered in this browser profile like collapsed projects. It opens upwards, the
- * list above the heading, so the heading stays where it was clicked. Open, it shows three
+ * list above the heading, so the heading stays where it was clicked; the list unfolds and folds as
+ * a project's workspaces do, the chevron turning (design-language, "动效 · 收件箱展开收起"). Open,
+ * it shows three
  * at most until "还有 N 条" opens the rest, which "收起" closes again; a long list scrolls in the
  * card. A row is lit while its session is the one shown.
  *
@@ -1198,35 +1200,39 @@ function Inbox({
       className="mx-3 shrink-0 rounded-[14px] bg-[var(--surface-1)] px-1 pt-0.5 pb-1 shadow-[var(--card-shadow)]"
     >
       {/* Opens upwards: the heading stays put, the list grows above it. */}
-      {open ? (
-        <div className="flex max-h-[228px] flex-col overflow-y-auto">
-          {shown.map(({ session, status, at }) => (
-            <SessionLine
-              key={session.sessionId}
-              index={index}
-              session={session}
-              when={timeAgo(at, now)}
-              status={status}
-              current={index.layout.container === session.containerId && active === session.sessionId}
-              testId="inbox-row"
-              onOpen={() => {
-                leave();
-                // Fire and forget: opening shows the session or its failure there.
-                void client.openSession(session.sessionId).catch(() => undefined);
-              }}
-            />
-          ))}
-          {entries.length > INBOX_SHOWN ? (
-            <button
-              type="button"
-              onClick={() => setExpanded(!expanded)}
-              className="shrink-0 rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-            >
-              {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
+      <Fold
+        open={open}
+        testId="inbox-list"
+        duration={PROJECT_FOLD_MS}
+        className="flex max-h-[228px] flex-col overflow-y-auto"
+      >
+        {shown.map(({ session, status, at }) => (
+          <SessionLine
+            key={session.sessionId}
+            index={index}
+            session={session}
+            when={timeAgo(at, now)}
+            status={status}
+            current={index.layout.container === session.containerId && active === session.sessionId}
+            testId="inbox-row"
+            onOpen={() => {
+              leave();
+              // Fire and forget: opening shows the session or its failure there.
+              void client.openSession(session.sessionId).catch(() => undefined);
+            }}
+          />
+        ))}
+        {entries.length > INBOX_SHOWN ? (
+          <button
+            type="button"
+            data-fold-row
+            onClick={() => setExpanded(!expanded)}
+            className="shrink-0 rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+          >
+            {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
+          </button>
+        ) : null}
+      </Fold>
       <button
         type="button"
         aria-expanded={open}
@@ -1242,7 +1248,7 @@ function Inbox({
         </span>
         <span className="flex-1" />
         {open ? null : statuses.map((status) => <StatusIcon key={status} status={status} />)}
-        {open ? <CaretDown size={14} /> : <CaretUp size={14} />}
+        <CaretUp size={14} className={`atrium-fold-chevron ${open ? "rotate-180" : ""}`} />
       </button>
     </section>
   );
