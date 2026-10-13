@@ -246,7 +246,7 @@ M1.11，2026-10-13 定，行为见 [SPEC-0001 · 模型与输入框](../specs/00
   - 支线：插话、走不通的节点挪到 x = 19.5px（随文字列从 24.5px 内移，离文字 5px 多），文字仍从 30px 起。走不通从上一行的竖线用虚线（2 实 3 空）弯过去；插话从上方淡入的竖线落到节点，再一段曲线汇回主线。主线在支线行旁边不断。
   - 文字：动词 `--text-2`，对象 `--text-muted`，中间"·"用 `--text-dim`；命令用等宽 12px；右侧结果（"✓ 通过"、"失败"、"未完成"）12px `--text-dim`。进行中的动词扫光（同"进行中"）。走不通整行 `--text-dim`，插话的"你插话"用 `--tint`。
   - 文件胶囊：高 22px、胶囊圆角，`--surface-1` 底，`--chip-shadow`；左边 13px 的类型图标，文件名 12px；编辑的胶囊里接 11px 的 +N（`--ok-text`）−M（`--danger`）。胶囊之间 6px。
-  - 类型图标（M1.12 改，2026-10-13 定：用官方的，不自己画；原先是 Hugeicons、Tabler 的线性图标，只给图标上色）：用 [material-icon-theme](https://github.com/material-extensions/vscode-material-icon-theme)（MIT，VS Code 最常用的图标主题，Paseo 也用它）的原版 SVG，颜色是图标自己的，不再用 `--file-*` 变量。按它的清单认：先认完整文件名（不分大小写，如 `package.json` 是 Node、`.gitignore` 是 git、`tsconfig.json` 是 TS 配置），再认最长的扩展名（`panes.test.ts` 先认 `test.ts`，是测试图标），再按扩展名对应的语言，都认不出的是它的通用文件图标。浅色外观用它的浅色版（清单里的 `light`，如 pnpm）。只打包用得到的图标：认法表跟着清单一起生成，SVG 在用到时才加载。文件树、查看标签、文件胶囊用同一套。
+  - 类型图标（M1.12 改，2026-10-13 定：用官方的，不自己画；原先是 Hugeicons、Tabler 的线性图标，只给图标上色）：用 [material-icon-theme](https://github.com/material-extensions/vscode-material-icon-theme)（MIT，VS Code 最常用的图标主题，Paseo 也用它）的原版 SVG，颜色是图标自己的，不再用 `--file-*` 变量。按它的清单认：先认完整文件名（不分大小写，如 `package.json` 是 Node、`.gitignore` 是 git、`tsconfig.json` 是 TS 配置），再认最长的扩展名（`panes.test.ts` 先认 `test.ts`，是测试图标），都认不出的是它的通用文件图标。清单里还有按语言认的一张表，要 VS Code 的语言表才能用；常见的扩展名清单里都直接有，不另做（2026-10-13 实现时定）。浅色外观用它的浅色版（清单里的 `light`，如 pnpm）。只打包用得到的图标：`scripts/file-icons.mjs` 从固定版本的清单生成认法表（`packages/ui/src/files/file-icons.json`），只把表里用到的 SVG 连同许可证复制到 `packages/ui/public/file-icons/`，界面用到时才加载。文件树、查看标签、文件胶囊用同一套。
 
   - 详情块不变（`--code` 底、圆角 `--r`），竖线在它旁边接着往下。不做成卡片。
   - 没有内容可看的推理（模型把推理藏起来了，只有一个空块）：整行不是按钮，没有悬停底色、点不开，也没有详情块（2026-10-12 定）。

@@ -202,32 +202,19 @@ function railReach(container: HTMLElement): number {
 }
 
 /**
- * The file chips' type marks: each one's kind and colour.
+ * The file chips' type icons, as shown.
+ *
+ * @remarks
+ * A chip holds a light and a dark variant where the theme has both; only the one shown counts.
  *
  * @sideEffects none
  * @param container - What holds the chips.
- * @returns Each chip's mark, in order.
+ * @returns Each chip's icon, in order.
  */
-function fileMarks(container: Element): string[][] {
-  return [...container.querySelectorAll('[data-testid="file-chip"] [data-testid="file-mark"]')].map((mark) => [
-    mark.getAttribute("data-kind") ?? "",
-    getComputedStyle(mark).color,
-  ]);
-}
-
-/**
- * The muted text colour of the page's theme, as computed.
- *
- * @sideEffects Adds and removes a probe element.
- * @returns The colour.
- */
-function mutedColor(): string {
-  const probe = document.createElement("span");
-  probe.style.color = "var(--text-muted)";
-  document.body.append(probe);
-  const color = getComputedStyle(probe).color;
-  probe.remove();
-  return color;
+function fileIcons(container: Element): string[] {
+  return [...container.querySelectorAll('[data-testid="file-chip"] [data-testid="file-icon"]')]
+    .filter((icon) => getComputedStyle(icon).display !== "none")
+    .map((icon) => icon.getAttribute("data-icon") ?? "");
 }
 
 /** Where an element's first animation takes its height, from first frame to last. */
@@ -691,12 +678,12 @@ describe("TurnView", () => {
       .element(screen.getByRole("button", { name: /^探索了代码库 · 读了 7 个文件，搜索了 1 次$/ }))
       .toBeVisible();
     await expect.element(screen.getByTestId("explored-files")).toHaveTextContent("a.tsb.tsxc.mdd.jsonMakefile+1 个");
-    expect(fileMarks(screen.getByTestId("explored-files").element())).toStrictEqual([
-      ["ts", "rgb(49, 120, 198)"],
-      ["react", "rgb(28, 155, 189)"],
-      ["md", "rgb(79, 107, 148)"],
-      ["json", "rgb(183, 121, 31)"],
-      ["file", mutedColor()],
+    expect(fileIcons(screen.getByTestId("explored-files").element())).toStrictEqual([
+      "typescript",
+      "react_ts",
+      "markdown",
+      "json",
+      "makefile",
     ]);
     expect(railNodes(screen.container).slice(0, 1)).toStrictEqual(["search"]);
   });
