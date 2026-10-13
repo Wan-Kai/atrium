@@ -274,6 +274,7 @@ describe("Composer's built-in commands", () => {
       "/model[服务商/模型]切换模型",
       "/thinking[档位]推理强度",
       "/copy复制最后一条回复",
+      "/export导出为 HTML",
     ]);
     expect(
       screen
@@ -282,7 +283,7 @@ describe("Composer's built-in commands", () => {
         .map((group) => group.getAttribute("aria-label")),
     ).toStrictEqual(["内置"]);
     expect(iconColors(list.element())).toStrictEqual(
-      ["var(--tint)", "var(--tint)", "var(--tint)", "var(--tint)"].map(colorOf),
+      ["var(--tint)", "var(--tint)", "var(--tint)", "var(--tint)", "var(--tint)"].map(colorOf),
     );
     await expect.element(screen.getByText("正在读取命令…")).toBeVisible();
   });

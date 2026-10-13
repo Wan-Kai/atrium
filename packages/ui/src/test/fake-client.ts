@@ -191,6 +191,8 @@ export interface FakeAnswers {
   readonly setModel?: () => Promise<void>;
   /** Answers a compaction; succeeds at once when left out. */
   readonly compactSession?: () => Promise<void>;
+  /** The page an export hands over; a small page when left out. */
+  readonly exportSession?: () => Promise<string>;
   /** A turn's image, or none; the host has none when left out. */
   readonly image?: (
     turnId: string,
@@ -668,6 +670,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(["compactSession", sessionId, instructions].filter((part) => part !== undefined).join(" "));
       await answers.compactSession?.();
       return {};
+    },
+    async exportSession(sessionId: string) {
+      calls.push(`exportSession ${sessionId}`);
+      return { html: (await answers.exportSession?.()) ?? "<html></html>" };
     },
     changes(workspaceId: string) {
       let store = changeStores.get(workspaceId);

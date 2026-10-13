@@ -143,6 +143,7 @@ const commands: Command[] = [
   { type: "set_fast", requestId: "r43", traceparent, sessionId: "s1", enabled: true },
   { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1" },
   { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1", instructions: "留下接口设计" },
+  { type: "export_session", requestId: "r43", traceparent, sessionId: "s1" },
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
@@ -510,6 +511,7 @@ describe("parseClientMessage", () => {
       "create_session",
       "create_workspace",
       "discover_projects",
+      "export_session",
       "fetch_image",
       "fetch_step",
       "fetch_transcript",
@@ -927,6 +929,8 @@ describe("CommandResult", () => {
     });
     expect(CommandResult.fetch_image.safeParse({ mimeType: "image/svg+xml", data: "eA==" }).success).toBe(false);
     expect(CommandResult.fetch_image.safeParse({ mimeType: "image/png", data: "" }).success).toBe(false);
+    expect(CommandResult.export_session.parse({ html: "<html></html>" })).toStrictEqual({ html: "<html></html>" });
+    expect(CommandResult.export_session.safeParse({ html: "" }).success).toBe(false);
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
       hasOlder: false,
@@ -1440,6 +1444,7 @@ describe("HostMessage", () => {
       "nothing_to_compact",
       "already_compacted",
       "compact_failed",
+      "export_failed",
       "session_handed_off",
       "login_unavailable",
       "login_not_found",

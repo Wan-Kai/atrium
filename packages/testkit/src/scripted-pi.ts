@@ -24,6 +24,11 @@ export interface ScriptedRule {
   readonly twice?: true;
   /** Exit with this code right after answering. */
   readonly exitAfter?: number;
+  /**
+   * Before answering, writes this text, or this many bytes of `x`, to the file the command's
+   * `outputPath` names, as pi's `export_html` does.
+   */
+  readonly writes?: string | number;
   /** Rules for successive commands of this type, the last one repeating; the other fields are ignored. */
   readonly sequence?: readonly ScriptedRule[];
 }
@@ -199,6 +204,9 @@ function handle(record) {
   else answer(record, rule);
 }
 function answer(record, rule) {
+  if (rule.writes !== undefined) {
+    writeFileSync(record.outputPath, typeof rule.writes === "number" ? "x".repeat(rule.writes) : rule.writes);
+  }
   for (const event of rule.events ?? []) print(event);
   const response = { type: "response", command: record.type, ...(rule.noId ? {} : { id: record.id }) };
   if (rule.fail !== undefined) print({ ...response, success: false, error: rule.fail });

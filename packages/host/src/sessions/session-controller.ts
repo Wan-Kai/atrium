@@ -81,6 +81,8 @@ export interface SessionPi {
   setFast(enabled: boolean): Promise<void>;
   /** Sends `compact`, with what to keep in mind when asked; resolves once pi has compacted. */
   compact(instructions: string | undefined): Promise<void>;
+  /** Sends `export_html`, pi writing the page to `outputPath`. */
+  exportHtml(outputPath: string): Promise<void>;
   /** pi's slash commands, from `get_commands`. */
   commands(): Promise<SlashCommand[]>;
   /** pi's statistics for the status bar, from `get_session_stats`. */
@@ -136,6 +138,8 @@ export interface SessionController {
   setFast(enabled: boolean): Promise<CommandResult<"set_fast">>;
   /** Compacts pi's context now, as `/compact` asks (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
   compact(instructions: string | undefined): Promise<CommandResult<"compact_session">>;
+  /** Has pi write the session as its HTML page to `outputPath`, during a run too. */
+  exportHtml(outputPath: string): Promise<void>;
   /** pi's `/` commands, asked for each time the list opens. */
   listCommands(): Promise<CommandResult<"list_commands">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
@@ -1665,6 +1669,17 @@ export function createSessionController(options: {
         dispatch();
       }
       return {};
+    },
+    async exportHtml(outputPath) {
+      refuseWhenExited();
+      try {
+        await pi.exportHtml(outputPath);
+      } catch (error) {
+        if (!isPiFailure(error)) throw error;
+        // pi's words stay out of the reply and the log (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令").
+        log("warn", "export failed", { sessionId, reason: error.reason });
+        throw new CommandError("export_failed", { reason: "failed" });
+      }
     },
     async listCommands() {
       refuseWhenExited();

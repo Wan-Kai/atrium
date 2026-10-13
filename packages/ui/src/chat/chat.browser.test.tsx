@@ -8,6 +8,7 @@ import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
 import { pageNotices } from "../state/session-notices";
+import { caughtDownloads } from "../test/downloads";
 import { fakeClient, session } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
@@ -1135,6 +1136,49 @@ describe("ConversationArea's /compact", () => {
     client.session("s1")?.setState({ control: IDLE_CONTROL });
 
     await expect.element(line).not.toBeInTheDocument();
+  });
+});
+
+describe("ConversationArea's /export", () => {
+  it("downloads pi's page of the session as atrium-<id>.html, during a run too", async () => {
+    const downloads = caughtDownloads();
+    const { client, calls } = fakeClient(ON_FILE, { exportSession: async () => "<html>会话</html>" });
+    const { box } = await onOpus(client);
+    client.session("s1")?.setState({ run: { runId: "r1", startedAt: 0 } });
+
+    await userEvent.type(box, "/export{Enter}");
+
+    await vi.waitFor(() => expect(downloads.names).toStrictEqual(["atrium-s1.html"]));
+    expect(await downloads.contents()).toStrictEqual([["text/html;charset=utf-8", "<html>会话</html>"]]);
+    expect(calls).toContain("exportSession s1");
+    await expect.element(box).toHaveValue("");
+  });
+
+  it.each([
+    [{ reason: "too_large" }, "会话太大（超过 20 MB），没能导出"],
+    [{ reason: "failed" }, "没能导出：pi 出错了"],
+  ])("says why the host did not export (%o), leaving the box", async (params, why) => {
+    const downloads = caughtDownloads();
+    const { client } = fakeClient(ON_FILE, {
+      exportSession: () => Promise.reject(new CommandError("export_failed", params)),
+    });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/export{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent(why);
+    await expect.element(box).toHaveValue("/export");
+    expect(downloads.names).toStrictEqual([]);
+  });
+
+  it("does not export before the first message, saying so", async () => {
+    const { client, calls } = fakeClient();
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/export{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("发出第一条消息后才能用");
+    expect(calls.filter((call) => call.startsWith("exportSession"))).toStrictEqual([]);
   });
 });
 

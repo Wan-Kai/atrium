@@ -20,6 +20,7 @@ import { shownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
 import { showNotice } from "../state/session-notices";
 import { type BuiltinCall, builtinBlocked, lastReply, namedLevel, namedModel } from "./builtin-commands";
+import { download } from "./download";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
 import { MessageImagesContext, messageImages } from "./message-images";
@@ -76,6 +77,9 @@ export function describeSendError(error: unknown): string {
   if (error.code === "nothing_to_compact") return "对话还太短，不用压缩";
   if (error.code === "already_compacted") return "刚压缩过，没有新内容";
   if (error.code === "compact_failed") return "没能压缩：pi 出错了";
+  if (error.code === "export_failed") {
+    return error.params?.["reason"] === "too_large" ? "会话太大（超过 20 MB），没能导出" : "没能导出：pi 出错了";
+  }
   return "宿主出错了，消息没有发出";
 }
 
@@ -720,12 +724,12 @@ export function ConversationArea({
    *
    * @remarks
    * SPEC-0001 ("M1.11 的 `/` 命令 · 执行"): `/compact` has the host compact the context, with what
-   * followed as what to keep in mind; `/model` and `/thinking` open their part of the model
+   * followed as what to keep in mind; `/export` downloads pi's page of the session; `/model` and `/thinking` open their part of the model
    * panel, or set what they name; `/copy` copies the last reply and says so beside the tab bar.
    * The session's state is read now, not from the last render. A model named before the container's
    * list was read waits for the list.
    *
-   * @sideEffects May compact the session, open the model panel, set the model or level (creating
+   * @sideEffects May compact the session, download its page, open the model panel, set the model or level (creating
    * the session first, as choosing in the panel does), load the model list, write the clipboard,
    * or show a notice.
    * @param name - The command.
@@ -741,6 +745,11 @@ export function ConversationArea({
     const models = client.models(workspaceId);
     if (name === "compact") {
       await client.compactSession(await target(), args === "" ? undefined : args);
+      return null;
+    }
+    if (name === "export") {
+      const id = await target();
+      download(`atrium-${id}.html`, (await client.exportSession(id)).html, "text/html;charset=utf-8");
       return null;
     }
     if (name === "copy") {

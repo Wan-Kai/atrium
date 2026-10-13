@@ -3,6 +3,7 @@ import type { SessionSummary, TranscriptItem } from "@atrium/protocol";
 import { DotsThree } from "../design/icons";
 import { useState } from "react";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
+import { download } from "../chat/download";
 import { transcriptMarkdown } from "../chat/turn-layout";
 import { sessionTitle } from "../sidebar/names";
 import { RenameField } from "../sidebar/rename-field";
@@ -37,25 +38,6 @@ export async function wholeTranscript(client: AtriumClient, sessionId: string): 
     if (after === undefined || after.items.length <= before.items.length) break;
   }
   throw new Error("the transcript changed while it was being exported");
-}
-
-/**
- * Saves text as a file through the browser's download.
- *
- * @remarks
- * In the app, Electron asks where to save it.
- *
- * @sideEffects Creates and revokes an object URL; clicks a temporary link.
- * @param name - The file's name.
- * @param text - Its content.
- */
-function download(name: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  URL.revokeObjectURL(url);
 }
 
 /**
@@ -223,6 +205,7 @@ export function SessionMenu({ client, session }: { readonly client: AtriumClient
                       download(
                         `atrium-${session.sessionId}.md`,
                         transcriptMarkdown(await wholeTranscript(client, session.sessionId)),
+                        "text/markdown;charset=utf-8",
                       ),
                     "导出时对话记录刚好更新了，请再试一次",
                   );

@@ -122,6 +122,7 @@ function replayedHistory() {
         ...(instructions === undefined ? {} : { customInstructions: instructions }),
       });
     },
+    exportHtml: async () => undefined,
     commands: async () => [],
     stats: () => new Promise(() => undefined),
     stop: () => raw.stop(),
@@ -145,6 +146,8 @@ function manualPi() {
   const states: (SessionModel | null)[] = [];
   /** Failures for the next `set_model`, `set_thinking_level` or Fast switch, in order. */
   const settingFailures: unknown[] = [];
+  /** Failures for the next `export_html`, in order. */
+  const exportFailures: unknown[] = [];
   /** Answers to `compact`, in order; with none left, pi compacts at once. */
   const compactAnswers: Array<() => Promise<void>> = [];
   /** Failures for the next `get_commands`, in order. */
@@ -226,6 +229,10 @@ function manualPi() {
       sent.push(["compact", instructions].filter((part) => part !== undefined).join(" "));
       return (compactAnswers.shift() ?? (async () => undefined))();
     },
+    exportHtml: async (outputPath) => {
+      sent.push(`export_html ${outputPath}`);
+      if (exportFailures.length > 0) throw exportFailures.shift();
+    },
     commands: async () => {
       sent.push("get_commands");
       if (commandFailures.length > 0) throw commandFailures.shift();
@@ -257,6 +264,7 @@ function manualPi() {
     states,
     settingFailures,
     compactAnswers,
+    exportFailures,
     commandFailures,
     stateFailures,
     withImages,
@@ -2258,6 +2266,44 @@ describe("createSessionController compacting on request", () => {
       ["warn", "compaction failed", { sessionId: "s1", reason: "rejected" }],
       ["warn", "compaction failed", { sessionId: "s1", reason: "exited" }],
     ]);
+  });
+});
+
+describe("createSessionController exporting", () => {
+  it("has pi write the page where asked, during a run too", async () => {
+    const { pi, emit, sent } = manualPi();
+    const { controller } = control(pi);
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" });
+
+    await controller.exportHtml("/tmp/x/session.html");
+
+    expect(sent).toStrictEqual(["prompt one", "export_html /tmp/x/session.html"]);
+  });
+
+  it("fails without pi's words, logging only why, and passes on what is not pi's", async () => {
+    const { pi, exportFailures } = manualPi();
+    const { controller, logged } = control(pi);
+    const bug = new Error("not pi's");
+    exportFailures.push(new ReplayRequestError("export_html", "rejected", "EACCES /secret/path"), bug);
+
+    await expect(controller.exportHtml("/tmp/x/session.html")).rejects.toStrictEqual(
+      new CommandError("export_failed", { reason: "failed" }),
+    );
+    await expect(controller.exportHtml("/tmp/x/session.html")).rejects.toBe(bug);
+    expect(logged).toStrictEqual([["warn", "export failed", { sessionId: "s1", reason: "rejected" }]]);
+  });
+
+  it("refuses once pi has exited", async () => {
+    const { pi, crash, sent } = manualPi();
+    const { controller } = control(pi);
+    crash();
+    await settle();
+
+    await expect(controller.exportHtml("/tmp/x/session.html")).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(sent.filter((command) => command.startsWith("export_html"))).toStrictEqual([]);
   });
 });
 

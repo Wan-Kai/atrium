@@ -1,5 +1,6 @@
 import { present } from "@atrium/testkit";
-import { access } from "node:fs/promises";
+import { access, mkdir, readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runScenario } from "../../test/contract";
 
@@ -54,6 +55,32 @@ describe("pi contract: session files and entries", () => {
         expect(newer.entries[0]?.parentId).toBe(all.leafId);
         expect(newer.entries.at(-1)?.id).toBe(newer.leafId);
         expect(unknown).toMatchObject({ reason: "rejected", detail: "Entry not found: 00000000" });
+      },
+    );
+  });
+
+  it("export-html: writes the page where told, only once there is a session file", async () => {
+    await runScenario(
+      {
+        scenario: "export-html",
+        session: true,
+        script: { replies: [{ blocks: [{ type: "text", text: "exported" }] }] },
+      },
+      async ({ pi, cwd, until }) => {
+        await mkdir(join(cwd, "out"));
+        const outputPath = join(cwd, "out", "session.html");
+        const early = await pi.request({ type: "export_html", outputPath }).catch((error: unknown) => error);
+        await pi.request({ type: "prompt", message: "hi" });
+        await until((event) => event.type === "agent_settled");
+        const before = await readdir(cwd);
+
+        expect(early).toMatchObject({
+          reason: "rejected",
+          detail: "Nothing to export yet - start a conversation first",
+        });
+        expect(await pi.request({ type: "export_html", outputPath })).toStrictEqual({ path: outputPath });
+        expect(await readFile(outputPath, "utf8")).toMatch(/^<!DOCTYPE html>/i);
+        expect(await readdir(cwd)).toStrictEqual(before);
       },
     );
   });

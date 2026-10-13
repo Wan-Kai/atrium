@@ -2,7 +2,9 @@ import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@
 import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { PONG_ENTRIES as getEntries, PONG_TURN as turn } from "../../test/scripted-chat";
@@ -1929,6 +1931,88 @@ describe("SessionManager compacting", () => {
       new CommandError("session_is_draft", { sessionId }),
     );
     await expect(manager.compactSession("nope", undefined)).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+});
+
+/** Where pi was told to write the export, from what it received. */
+function exportPaths(received: readonly Record<string, unknown>[]): string[] {
+  return received.flatMap((command) => (command["type"] === "export_html" ? [String(command["outputPath"])] : []));
+}
+
+/**
+ * The directory pi was told to write the one export into, once pi has said what it received.
+ *
+ * @sideEffects none; waits for pi's stderr.
+ * @param piReceived - What pi received so far.
+ * @returns The directory.
+ */
+async function exportDir(piReceived: () => Record<string, unknown>[]): Promise<string> {
+  await vi.waitFor(() => expect(exportPaths(piReceived())).toHaveLength(1));
+  return dirname(present(exportPaths(piReceived())[0], "the export's path"));
+}
+
+describe("SessionManager exporting", () => {
+  it("hands over the page pi wrote in a directory of its own, and removes it", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, export_html: { writes: "<html>会话</html>" } } },
+      at,
+    );
+    await catalog.scan();
+
+    expect(await manager.exportSession("pi-session-1")).toStrictEqual({ html: "<html>会话</html>" });
+
+    const dir = await exportDir(piReceived);
+    expect(dir.startsWith(join(tmpdir(), "atrium-export-"))).toBe(true);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("refuses a page over 20 MB, removing it, and hands over one of exactly 20 MB", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const size = 20 * 1024 * 1024;
+    const { manager, catalog, piReceived } = await manage(
+      {
+        receivedToStderr: true,
+        rules: { ...SESSION_ONE, export_html: { sequence: [{ writes: size + 1 }, { writes: size }] } },
+      },
+      at,
+    );
+    await catalog.scan();
+
+    await expect(manager.exportSession("pi-session-1")).rejects.toStrictEqual(
+      new CommandError("export_failed", { reason: "too_large" }),
+    );
+    expect(existsSync(await exportDir(piReceived))).toBe(false);
+    expect((await manager.exportSession("pi-session-1")).html).toHaveLength(size);
+  });
+
+  it("fails when pi does, removing the directory it was given", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, export_html: { fail: "Nothing to export yet" } } },
+      at,
+    );
+    await catalog.scan();
+
+    await expect(manager.exportSession("pi-session-1")).rejects.toStrictEqual(
+      new CommandError("export_failed", { reason: "failed" }),
+    );
+    expect(existsSync(await exportDir(piReceived))).toBe(false);
+  });
+
+  it("refuses to export a draft, which has no file yet, and an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.exportSession(sessionId)).rejects.toStrictEqual(
+      new CommandError("session_is_draft", { sessionId }),
+    );
+    await expect(manager.exportSession("nope")).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
   });

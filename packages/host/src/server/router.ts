@@ -189,6 +189,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.setFast(command.sessionId, command.enabled);
       case "compact_session":
         return options.sessions.compactSession(command.sessionId, command.instructions);
+      case "export_session":
+        return options.sessions.exportSession(command.sessionId);
       case "list_commands":
         return options.sessions.listCommands(command.sessionId);
       case "search_files":

@@ -7,6 +7,7 @@ import { render } from "vitest-browser-react";
 import "../styles.css";
 import { describeArchiveError, describeRestoreError } from "../sidebar/archive";
 import { pageNotices, showNotice } from "../state/session-notices";
+import { caughtDownloads } from "../test/downloads";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
@@ -1591,6 +1592,17 @@ describe("Workbench attention and hand-off (M1.9)", () => {
     await expect.element(banner).not.toBeInTheDocument();
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
     expect(calls).toContain("takeBack s1");
+  });
+
+  it("exports the active session as Markdown, downloading atrium-<id>.md", async () => {
+    const downloads = caughtDownloads();
+    const { screen } = await workbench();
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "导出为 Markdown" }).click();
+
+    await vi.waitFor(() => expect(downloads.names).toStrictEqual(["atrium-s1.md"]));
+    expect((await downloads.contents()).map(([type]) => type)).toStrictEqual(["text/markdown;charset=utf-8"]);
   });
 
   it("cannot hand off a draft, which has no file, nor a session running", async () => {

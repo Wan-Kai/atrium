@@ -39,6 +39,7 @@ function drivenPi() {
     setThinkingLevel: async () => undefined,
     setFast: async () => undefined,
     compact: async () => undefined,
+    exportHtml: async () => undefined,
     commands: async () => [],
     stats: async () => ({
       turns: 1,

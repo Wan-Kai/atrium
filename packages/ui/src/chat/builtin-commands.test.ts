@@ -31,6 +31,7 @@ describe("BUILTIN_COMMANDS", () => {
       ["builtin", "model", "服务商/模型", "切换模型", true, true],
       ["builtin", "thinking", "档位", "推理强度", true, true],
       ["builtin", "copy", null, "复制最后一条回复", true, true],
+      ["builtin", "export", null, "导出为 HTML", true, false],
     ]);
   });
 });

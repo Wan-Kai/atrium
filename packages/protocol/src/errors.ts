@@ -80,6 +80,8 @@ export const ErrorCode = z.enum([
   "already_compacted",
   /** `compact_session`: pi failed to compact, or exited meanwhile; its words stay out of the reply. */
   "compact_failed",
+  /** `export_session`: pi's page is over 20 MB (`params.reason` `too_large`), or pi failed to write it (`failed`). */
+  "export_failed",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
   "session_handed_off",
   /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */

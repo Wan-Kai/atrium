@@ -1637,6 +1637,23 @@ describe("createAtriumClient: compacting", () => {
   });
 });
 
+describe("createAtriumClient: exporting", () => {
+  it("asks the host for a session's page, returning it", async () => {
+    const { client, latest } = await connected();
+
+    const exporting = client.exportSession("s1");
+    latest().answer("export_session", { html: "<html></html>" });
+
+    expect(await exporting).toStrictEqual({ html: "<html></html>" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "export_session")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "export_session", sessionId: "s1" }]);
+  });
+});
+
 describe("createAtriumClient: message images", () => {
   it("asks for one image of a turn, returning what the host read", async () => {
     const { client, latest } = await connected();

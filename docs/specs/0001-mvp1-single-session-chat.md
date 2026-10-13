@@ -777,7 +777,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **`/` 命令**
 
 - `list_commands(sessionId)` 调会话自己的 pi 的 `get_commands`，每次弹出列表时请求一次，宿主不缓存。pi 没在运行（宿主重启后恢复的草稿、已退出的会话）就先启动它，和第一次发消息时一样；只输入了 `/` 没发消息的草稿，关掉时照样丢弃。空状态（还没有会话）下输入 `/` 时先新建会话，和在空状态下发送时新建的是同一个。
-- 列表三类：extension 命令、提示词模板、skill（名字形如 `skill:<名字>`），带描述和参数提示。↑↓ 选择，回车或 Tab 选中后插入 `/名字 `；已经完整打出列表里高亮的那个命令时，回车直接发送（2026-10-10 定）。发送时由 pi 展开或交给 extension 处理（`handled`）。pi 终端界面的内置命令（`/model`、`/compact` 等）在 RPC 里不能直接输入，M1.11 起由 Atrium 接上其中 7 个并列在最前面，选中的命令显示成标签（2026-10-13 定，见"M1.11 的 `/` 命令"）。插话不接受 extension 命令（pi 拒绝，见"运行控制"）。
+- 列表三类：extension 命令、提示词模板、skill（名字形如 `skill:<名字>`），带描述和参数提示。↑↓ 选择，回车或 Tab 选中后插入 `/名字 `；已经完整打出列表里高亮的那个命令时，回车直接发送（2026-10-10 定）。发送时由 pi 展开或交给 extension 处理（`handled`）。pi 终端界面的内置命令（`/model`、`/compact` 等）在 RPC 里不能直接输入，M1.11 起由 Atrium 接上其中 6 个并列在最前面，选中的命令显示成标签（2026-10-13 定，见"M1.11 的 `/` 命令"）。插话不接受 extension 命令（pi 拒绝，见"运行控制"）。
 
 **`@` 引用**
 
@@ -882,13 +882,13 @@ M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {sp
 
 ### M1.11 的 `/` 命令（协议版本 13，2026-10-13 自用时定）
 
-pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的能力 RPC 有（`compact`、`fork`、`clone`、`export_html`、`set_model` 等）。Atrium 把其中 7 个接上：列在 `/` 菜单里，选中后由界面执行，不发给模型。选中的命令在输入框里显示成一个标签，不再是 `/名字` 这串字。分叉不做成命令，是每一轮回复下方的按钮（见下面"复制与分叉"）。原型见 `prototype/ui` 分支的 `prototypes/slash-commands-prototype.html`（方案 B）和 `fork-button-prototype.html`；`slash-dialogs-prototype.html` 里 `/fork`、`/session`、`/hotkeys` 的浮层没有采用（2026-10-13 定）。
+pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的能力 RPC 有（`compact`、`fork`、`clone`、`export_html`、`set_model` 等）。Atrium 把其中 6 个接上：列在 `/` 菜单里，选中后由界面执行，不发给模型。选中的命令在输入框里显示成一个标签，不再是 `/名字` 这串字。分叉不做成命令，是每一轮回复下方的按钮（见下面"复制与分叉"）。原型见 `prototype/ui` 分支的 `prototypes/slash-commands-prototype.html`（方案 B）和 `fork-button-prototype.html`；`slash-dialogs-prototype.html` 里 `/fork`、`/session`、`/hotkeys` 的浮层没有采用（2026-10-13 定）。
 
 **菜单**
 
 - 分四组，依次是内置、extension、模板、skill，组名是小标题；每行左边是类型图标（内置是斜杠、extension 是拼图、模板是文档、skill 是星光），然后是 `/名字`、灰色的参数提示，右边是描述。过滤、↑↓、回车或 Tab 选中照旧。
 - 内置命令由界面列出，名字、参数提示和中文描述写在界面里，不问 pi；其余三类照旧来自 `get_commands`。只输入了 `/`、pi 还没启动好时，内置命令先列出来，其余的到了再补上。
-- 其余的不列出：`/fork`（做成回复下方的按钮）；`/name`、`/new`、`/resume`、`/login`、`/logout`、`/settings`、`/changelog`、`/quit`（Atrium 已有的改名、新建会话、"历史"、设置、关标签就是这些，不另设命令）；`/session`、`/hotkeys`（快捷键以设置里的为准）；`/tree`（Atrium 没有分支导航）、`/scoped-models`（Atrium 的模型菜单没有"轮换范围"）、`/share`（会上传到 GitHub gist，外发要单独设计）、`/bug`、`/import`（导入外部会话文件要单独设计）、`/trust`（项目信任 Atrium 另有安排）。
+- 其余的不列出：`/fork`（做成回复下方的按钮）；`/name`、`/new`、`/resume`、`/login`、`/logout`、`/settings`、`/changelog`、`/quit`（Atrium 已有的改名、新建会话、"历史"、设置、关标签就是这些，不另设命令）；`/session`、`/hotkeys`（快捷键以设置里的为准）；`/tree`（Atrium 没有分支导航）、`/scoped-models`（Atrium 的模型菜单没有"轮换范围"）、`/share`（会上传到 GitHub gist，外发要单独设计）、`/bug`、`/import`（导入外部会话文件要单独设计）、`/trust`（项目信任 Atrium 另有安排）；`/reload`（重启会话的 pi，2026-10-13 定不做）。
 - 运行中（有运行、在停止或在压缩）不能用的命令在菜单里置灰，悬停说明"运行中不能用，先停止"；还没发出第一条消息（草稿，没有会话文件）时不能用的置灰，说明"发出第一条消息后才能用"。置灰的选不中。
 
 **标签**
@@ -914,7 +914,6 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `/clone` | 复制当前会话，见下面"复制与分叉" | 不能 | 不能 |
 | `/copy` | 把最后一条回复的 Markdown 复制到剪贴板，标签栏旁一行"已复制最后一条回复"，3 秒后消失；还没有回复时说明"还没有回复可复制" | 能 | 能 |
 | `/export` | 导出成 pi 的 HTML 页面并下载（`atrium-<会话 id>.html`，同"···"菜单的"导出为 Markdown"的下载方式） | 能 | 不能 |
-| `/reload` | 重启这个会话的 pi，让新装的 extension、skill、模板生效 | 不能 | 能 |
 
 **压缩**
 
@@ -933,8 +932,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 **其他宿主命令**
 
-- `export_session(sessionId)`：调会话自己的 pi 的 `export_html`，输出到宿主的临时目录，读出内容后删掉文件，应答 `{ html }`；文件超过 20 MB 或 pi 出错应答 `export_failed`。不让 pi 写进工作目录（它默认写到当前目录）。
-- `reload_session(sessionId)`：只在空闲时（不空闲应答 `session_busy`），停掉会话的 pi 再按原样启动（同崩溃后重启，但不算崩溃、不显示提示）。应答在新 pi 启动好之后。
+- `export_session(sessionId)`：调会话自己的 pi 的 `export_html`，输出到宿主在系统临时目录下新建的一个目录（`atrium-export-*`），读出内容后删掉整个目录，应答 `{ html }`；运行中也可以导出。文件超过 20 MB 应答 `export_failed`（`reason: too_large`，界面说"会话太大（超过 20 MB），没能导出"），pi 出错应答 `export_failed`（`reason: failed`，"没能导出：pi 出错了"；pi 的原话不进界面，日志只记会话 id 和失败类别）。草稿应答 `session_is_draft`。不让 pi 写进工作目录（它默认写到当前目录）。
 
 **气泡里的命令**
 
@@ -945,7 +943,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 **协议**
 
-新增命令 `compact_session`、`fork_session`、`export_session`、`reload_session`；`Turn.user` 多了 `command`；新增错误码 `nothing_to_compact`、`already_compacted`、`compact_failed`、`fork_failed`、`turn_not_found`、`export_failed`。偏好里的 `inbox`（2026-10-13 加的"显示'等你处理'"开关，当时没升版本）也算在 13 里。
+新增命令 `compact_session`、`fork_session`、`export_session`；`Turn.user` 多了 `command`；新增错误码 `nothing_to_compact`、`already_compacted`、`compact_failed`、`fork_failed`、`turn_not_found`、`export_failed`。偏好里的 `inbox`（2026-10-13 加的"显示'等你处理'"开关，当时没升版本）也算在 13 里。
 
 ### 状态栏（M1.8，2026-10-10 定）
 
@@ -1063,7 +1061,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `steer(sessionId, text, attachmentIds?)` | 直接插话（⌘+回车） |
 | `upload_attachment(mimeType, data)` | 上传一张已压缩的图片，应答带 `attachmentId`（见上文"附件"） |
 | `fetch_image(sessionId, turnId, index)` | 取一轮用户消息里的第 `index` 张图片，给缩略图用（M1.11，见上文"M1.11 的消息图片"） |
-| `compact_session(sessionId, instructions?)` / `reload_session(sessionId)` | 手动压缩上下文、重启会话的 pi（M1.11，见上文"M1.11 的 `/` 命令"） |
+| `compact_session(sessionId, instructions?)` | 手动压缩上下文（M1.11，见上文"M1.11 的 `/` 命令"） |
 | `fork_session(sessionId, turnId \| null)` | 从一轮之后分叉出新会话，`null` 是复制整个会话（M1.11） |
 | `export_session(sessionId)` | 导出成 pi 的 HTML 页面（M1.11） |
 | `ping()` | 心跳 |

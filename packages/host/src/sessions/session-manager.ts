@@ -25,7 +25,8 @@ import {
   isChatId,
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
-import { mkdir, rmdir, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
@@ -55,6 +56,9 @@ export interface SessionTools {
   readonly env: Readonly<Record<string, string>>;
   readonly pi: PiInspection;
 }
+
+/** The largest page `export_session` hands over (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令"). */
+const EXPORT_MAX_BYTES = 20 * 1024 * 1024;
 
 /** The session layer: every session's controller, and the session commands. */
 export interface SessionManager extends SessionCommands {
@@ -649,6 +653,9 @@ export function createSessionManager(options: {
           { timeoutMs: null },
         );
       },
+      exportHtml: async (outputPath) => {
+        await traced.request({ type: "export_html", outputPath });
+      },
       commands: async () =>
         (await traced.request({ type: "get_commands" })).commands.flatMap((command) => toSlashCommand(command) ?? []),
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
@@ -1219,6 +1226,24 @@ export function createSessionManager(options: {
       // A draft has no conversation to compact.
       if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
       return (await commanded(sessionId)).controller.compact(instructions);
+    },
+    async exportSession(sessionId) {
+      await options.catalog.ready();
+      // pi exports from the session's file, which a draft does not have yet.
+      if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
+      const { controller } = await commanded(sessionId);
+      // pi writes to its working directory unless told where; the host's own directory keeps the
+      // page out of your files, and goes once read (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令").
+      const dir = await mkdtemp(join(tmpdir(), "atrium-export-"));
+      try {
+        const file = join(dir, "session.html");
+        await controller.exportHtml(file);
+        if ((await stat(file)).size > EXPORT_MAX_BYTES)
+          throw new CommandError("export_failed", { reason: "too_large" });
+        return { html: await readFile(file, "utf8") };
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     },
     listCommands: async (sessionId) => (await commanded(sessionId)).controller.listCommands(),
     async searchFiles(sessionId, query) {

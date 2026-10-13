@@ -398,6 +398,13 @@ export const CompactSessionCommand = z.strictObject({
 });
 export type CompactSessionCommand = z.infer<typeof CompactSessionCommand>;
 
+/** Exports a session as pi's HTML page, for `/export` to download (SPEC-0001, "M1.11 的 `/` 命令"). */
+export const ExportSessionCommand = z.strictObject({
+  type: z.literal("export_session"),
+  ...sessionCommandFields,
+});
+export type ExportSessionCommand = z.infer<typeof ExportSessionCommand>;
+
 /**
  * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
  *
@@ -673,6 +680,7 @@ export const Command = z.discriminatedUnion("type", [
   SetThinkingLevelCommand,
   SetFastCommand,
   CompactSessionCommand,
+  ExportSessionCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
@@ -778,6 +786,8 @@ export const CommandResult = {
   set_thinking_level: z.strictObject({}),
   set_fast: z.strictObject({}),
   compact_session: z.strictObject({}),
+  /** The page pi wrote, whole. */
+  export_session: z.strictObject({ html: z.string().min(1) }),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),

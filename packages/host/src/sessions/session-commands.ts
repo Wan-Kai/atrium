@@ -75,6 +75,8 @@ export interface SessionCommands {
   setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
   /** Compacts a session's context now, starting its pi first if it has none (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
   compactSession(sessionId: string, instructions: string | undefined): Promise<CommandResult<"compact_session">>;
+  /** A session as pi's HTML page, starting its pi first if it has none (SPEC-0001, "M1.11 的 `/` 命令"). */
+  exportSession(sessionId: string): Promise<CommandResult<"export_session">>;
   /** The `/` commands of a session's pi, starting its pi first if it has none (SPEC-0001, "模型与输入框"). */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory; a newer search calls off an older one. */

@@ -3,7 +3,7 @@ import type { ChosenCommand } from "./composer-text";
 import { layoutTurn } from "./turn-layout";
 
 /** The names of pi's built-in commands Atrium runs itself. */
-type BuiltinName = "compact" | "model" | "thinking" | "copy";
+type BuiltinName = "compact" | "model" | "thinking" | "copy" | "export";
 
 /** A built-in command as the `/` list shows it, and when it can run. */
 export interface BuiltinCommand {
@@ -24,6 +24,7 @@ export const BUILTIN_COMMANDS: readonly BuiltinCommand[] = [
   { source: "builtin", name: "model", hint: "服务商/模型", description: "切换模型", whileRunning: true, inDraft: true },
   { source: "builtin", name: "thinking", hint: "档位", description: "推理强度", whileRunning: true, inDraft: true },
   { source: "builtin", name: "copy", hint: null, description: "复制最后一条回复", whileRunning: true, inDraft: true },
+  { source: "builtin", name: "export", hint: null, description: "导出为 HTML", whileRunning: true, inDraft: false },
 ];
 
 /** A built-in command to run, and what followed its name. */

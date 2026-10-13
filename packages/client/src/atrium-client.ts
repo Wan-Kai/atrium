@@ -246,6 +246,8 @@ export interface AtriumClient {
   setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
   /** Compacts a session's context now, with what to keep in mind when given (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
   compactSession(sessionId: string, instructions?: string): Promise<CommandResult<"compact_session">>;
+  /** A session as pi's HTML page, for `/export` to download. */
+  exportSession(sessionId: string): Promise<CommandResult<"export_session">>;
   /** The `/` commands of a session's pi, which starts if it has not. */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
@@ -1292,6 +1294,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     compactSession: (sessionId, instructions) =>
       // Stryker disable next-line ConditionalExpression,EqualityOperator: undefined is left out of the JSON either way.
       request("compact_session", instructions === undefined ? { sessionId } : { sessionId, instructions }),
+    exportSession: (sessionId) => request("export_session", { sessionId }),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

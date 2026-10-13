@@ -127,6 +127,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 | `get_tree` | `{tree, leafId}` |
 | `get_messages` | 当前分支**投影后的上下文**（压缩后旧消息已被摘要替换） |
 | `set_session_name {name}` | 写 `session_info`，发 `session_info_changed` |
+| `export_html {outputPath?}` | `{path}`：把当前会话写成一个独立的 HTML 页面（含条目、系统提示词和工具说明）。不给 `outputPath` 时写到 pi 的当前目录（`pi-session-<会话文件名>.html`）；给了就写到那里，不建上级目录。会话文件还没写出来时报错 `Nothing to export yet - start a conversation first`（1.1.0，契约测试 `export-html`，2026-10-13） |
 | `get_commands` | `{commands: [{name, description?, source: extension \| prompt \| skill, sourceInfo}]}` |
 | `fork {entryId}` / `clone` / `new_session` / `switch_session` | 换会话（见第 1 节） |
 
