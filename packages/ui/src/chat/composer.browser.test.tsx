@@ -180,16 +180,21 @@ describe("Composer's / commands", () => {
   it("starts the text 6px after the tag, the tag at the box's left and centred on the first line", async () => {
     const { screen, box } = await composer();
     await userEvent.type(box, "/skill{Enter}");
-    const tag = screen.getByTestId("command-tag").element().getBoundingClientRect();
     const field = box.element() as HTMLTextAreaElement;
-    const style = getComputedStyle(field);
-    const top = field.getBoundingClientRect().top + Number.parseFloat(style.paddingTop);
 
-    expect([
-      Math.round(tag.left - field.getBoundingClientRect().left),
-      Math.round(Number.parseFloat(style.textIndent) - tag.width),
-      Math.round(tag.top + tag.height / 2 - (top + Number.parseFloat(style.lineHeight) / 2)),
-    ]).toStrictEqual([0, 6, 0]);
+    // The indent follows the tag's width once it is laid out.
+    await expect
+      .poll(() => {
+        const tag = screen.getByTestId("command-tag").element().getBoundingClientRect();
+        const style = getComputedStyle(field);
+        const top = field.getBoundingClientRect().top + Number.parseFloat(style.paddingTop);
+        return [
+          Math.round(tag.left - field.getBoundingClientRect().left),
+          Math.round(Number.parseFloat(style.textIndent) - tag.width),
+          Math.round(tag.top + tag.height / 2 - (top + Number.parseFloat(style.lineHeight) / 2)),
+        ];
+      })
+      .toStrictEqual([0, 6, 0]);
   });
 
   it("sends a command typed whole with Enter, the list open or not", async () => {
