@@ -260,6 +260,7 @@ classDiagram
   - 失败后被重试的回复：出错的助手消息后面跟着一条 `context_edit`（`replacement` 为空）把它从上下文里去掉，重试的回复挂在这条编辑下面。在它之后加一个 RetryStep（"正在重试"），它已输出的部分（通常没有）照常是步骤，不作为回复。上下文溢出的恢复不同：pi 屏蔽失败的回复（和它的工具结果）后紧接着写压缩条目，再重试，不发自动重试事件，所以这种情况只有压缩提示条，没有 RetryStep。
   - 压缩条目排在它总结的条目之后，链条不断，压缩前的条目照常重建，压缩处显示提示条；`firstKeptEntryId` 可能落在一轮中间。
   - 插话和追加消息在文件里都是普通的用户消息，没有任何标记。宿主当场看到的用户消息记下"开启新的一轮"还是"插话"，重建以记录为准（随轮的当场数据存放，M1.5 起持久化）；没有记录的，紧跟在工具结果之后、下一次模型回复之前的算插话（SteerStep），其余开始新的一轮。运行停在工具结果上（工具要求结束本轮、pi 崩溃）时这条推断会把下一轮并进来，只影响没有记录的历史。
+  - 用 skill 开头的消息，pi 存成 `<skill name="…" location="…">正文</skill>` 加参数。pi 包认出这个格式，用户消息记成"skill 名 + 参数"（`command`），正文不进对话记录；认不出的照原文。模板在 pi 里就展开了，存的是全文，不认（M1.11，SPEC-0001"M1.11 的 `/` 命令"）。
   - 工具结果按调用 id 配对，不按位置；一轮结束后仍没有结果的工具调用显示为"未完成"。
   - 可能有多个根（`branch_summary` 的父为空）；叶子用 `get_entries` 返回的 `leafId`，不用最后一条。会话被 fork 或 clone 成新文件时，缓存全部作废。
   - 实时事件不带条目 id。轮在实时时由宿主编号，运行结束后按顺序对应到新的用户消息条目并沿用实时编号，见 SPEC-0001"对话记录"。
@@ -726,6 +727,9 @@ classDiagram
 | `list_commands(sessionId)` | SessionController |
 | `search_files(sessionId, query)` | FileSearch |
 | `watch_changes(workspaceIds)` / `watch_diff(target)` | ChangesService |
+| `compact_session` / `export_session` | SessionController：空闲时调会话自己的 pi 的 `compact`、`export_html`（M1.11） |
+| `reload_session` | SessionManager：停掉会话的 pi，再按原样启动（M1.11） |
+| `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork` / `clone`、设好名字，读出新会话后停掉它，重扫容器并打开新会话（M1.11） |
 | `fetch_image(sessionId, turnId, index)` | SessionManager → SessionController 找出轮的用户消息条目，pi 包的 SessionFiles 从会话文件里读出图片（M1.11） |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |

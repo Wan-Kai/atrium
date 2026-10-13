@@ -325,7 +325,7 @@ Electron 主进程
 
 - 用户消息下方：时间、复制。用户消息超过约 12 行时折叠，末尾"展开"。MVP 1 不做编辑和重发（涉及分叉，和会话树一起做）。
 - 带图片的用户消息在气泡上方靠右排一行缩略图，每张 64px 见方、圆角、裁成正方形，多了换行（2026-10-12 定，原先只写"N 张图片"）。这个页面里发出的消息直接用界面留着的压缩图；其他的（历史会话、刷新或重启之后）显示时用 `fetch_image` 向宿主取，一张一张取，取过的在页面里留着。取的途中显示灰色占位；取不到时显示带图片图标的占位，悬停说明"图片不可用"，不影响这条消息别的部分。运行中的轮取不到时，等这一轮结束再取一次（见"M1.11 的消息图片"）。排队项仍只写图片张数。点开看大图以后再做。
-- 回复下方：复制回复、本轮用量（这一轮的输入 + 输出 token）、时间。复制的是回复的 Markdown 原文，只有这一个复制，不另设"···"菜单（2026-10-12 定，原先复制显示的纯文字、"···"里再放"复制为 Markdown"，两个复制重复）。不做复制整轮、点赞、点踩、分享。
+- 回复下方：复制回复、分叉（M1.11，见"M1.11 的 `/` 命令 · 复制与分叉"）、本轮用量（这一轮的输入 + 输出 token）、时间。复制的是回复的 Markdown 原文，只有这一个复制，不另设"···"菜单（2026-10-12 定，原先复制显示的纯文字、"···"里再放"复制为 Markdown"，两个复制重复）。不做复制整轮、点赞、点踩、分享。
 
 **对话记录的其他设计**（调研 Paseo、Zed、Cursor、Claude 桌面端后确定）
 
@@ -777,7 +777,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 **`/` 命令**
 
 - `list_commands(sessionId)` 调会话自己的 pi 的 `get_commands`，每次弹出列表时请求一次，宿主不缓存。pi 没在运行（宿主重启后恢复的草稿、已退出的会话）就先启动它，和第一次发消息时一样；只输入了 `/` 没发消息的草稿，关掉时照样丢弃。空状态（还没有会话）下输入 `/` 时先新建会话，和在空状态下发送时新建的是同一个。
-- 列表三类：extension 命令、提示词模板、skill（名字形如 `skill:<名字>`），带描述和参数提示。↑↓ 选择，回车或 Tab 选中后插入 `/名字 `；已经完整打出列表里高亮的那个命令时，回车直接发送（2026-10-10 定）。发送时由 pi 展开或交给 extension 处理（`handled`）。pi 终端界面的内置命令（`/model`、`/compact` 等）在 RPC 里不存在，不列出。插话不接受 extension 命令（pi 拒绝，见"运行控制"）。
+- 列表三类：extension 命令、提示词模板、skill（名字形如 `skill:<名字>`），带描述和参数提示。↑↓ 选择，回车或 Tab 选中后插入 `/名字 `；已经完整打出列表里高亮的那个命令时，回车直接发送（2026-10-10 定）。发送时由 pi 展开或交给 extension 处理（`handled`）。pi 终端界面的内置命令（`/model`、`/compact` 等）在 RPC 里不能直接输入，M1.11 起由 Atrium 接上其中 7 个并列在最前面，选中的命令显示成标签（2026-10-13 定，见"M1.11 的 `/` 命令"）。插话不接受 extension 命令（pi 拒绝，见"运行控制"）。
 
 **`@` 引用**
 
@@ -879,6 +879,71 @@ M1.11 的新建工作区（协议版本 12，2026-10-13 自用时定，原先在
 M1.11 去掉显示模式（协议版本 10，2026-10-12 定）：偏好和 `set_preferences` 去掉 `displayMode`；`preferences.json` 升到 v3，迁移时删掉这个字段。
 
 M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {speed, moreUsage} | null`）：新增命令 `set_fast`，新增事件 `fast_updated`，新增错误码 `fast_unavailable`；会话快照多了 `fast`，模型多了 `fast`，偏好多了 `lastFast`。
+
+### M1.11 的 `/` 命令（协议版本 13，2026-10-13 自用时定）
+
+pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的能力 RPC 有（`compact`、`fork`、`clone`、`export_html`、`set_model` 等）。Atrium 把其中 7 个接上：列在 `/` 菜单里，选中后由界面执行，不发给模型。选中的命令在输入框里显示成一个标签，不再是 `/名字` 这串字。分叉不做成命令，是每一轮回复下方的按钮（见下面"复制与分叉"）。原型见 `prototype/ui` 分支的 `prototypes/slash-commands-prototype.html`（方案 B）和 `fork-button-prototype.html`；`slash-dialogs-prototype.html` 里 `/fork`、`/session`、`/hotkeys` 的浮层没有采用（2026-10-13 定）。
+
+**菜单**
+
+- 分四组，依次是内置、extension、模板、skill，组名是小标题；每行左边是类型图标（内置是斜杠、extension 是拼图、模板是文档、skill 是星光），然后是 `/名字`、灰色的参数提示，右边是描述。过滤、↑↓、回车或 Tab 选中照旧。
+- 内置命令由界面列出，名字、参数提示和中文描述写在界面里，不问 pi；其余三类照旧来自 `get_commands`。只输入了 `/`、pi 还没启动好时，内置命令先列出来，其余的到了再补上。
+- 其余的不列出：`/fork`（做成回复下方的按钮）；`/name`、`/new`、`/resume`、`/login`、`/logout`、`/settings`、`/changelog`、`/quit`（Atrium 已有的改名、新建会话、"历史"、设置、关标签就是这些，不另设命令）；`/session`、`/hotkeys`（快捷键以设置里的为准）；`/tree`（Atrium 没有分支导航）、`/scoped-models`（Atrium 的模型菜单没有"轮换范围"）、`/share`（会上传到 GitHub gist，外发要单独设计）、`/bug`、`/import`（导入外部会话文件要单独设计）、`/trust`（项目信任 Atrium 另有安排）。
+- 运行中（有运行、在停止或在压缩）不能用的命令在菜单里置灰，悬停说明"运行中不能用，先停止"；还没发出第一条消息（草稿，没有会话文件）时不能用的置灰，说明"发出第一条消息后才能用"。置灰的选不中。
+
+**标签**
+
+- 选中一个命令后，输入框开头的 `/名字` 换成一个标签：灰色圆角胶囊，里面是类型图标（按类型上色，不加底色）和名字（不带 `/`）。光标在标签后面，后面打的字就是命令的参数或要说的话。
+- 光标在最前面时按退格，标签变回 `/名字` 这串字，可以接着改。
+- 只有从菜单选中才变成标签；手打完整的 `/名字` 再空格不变（照样能用，见下面"执行"）。标签记在草稿里，切走再回来、重启后还在。
+- ↑ 调出的历史消息是文字，不还原成标签。
+
+**执行**
+
+- 回车（⌘+回车也一样）时，输入框开头是内置命令（标签，或手打的 `/名字`，后面空格或结束）就由界面执行，不发消息、不进排队；执行成功清空输入框，失败时输入框不动，在上方说明原因（同发送失败）。
+- 其余命令照旧发给 pi：发出的文字是 `/名字 参数`，标签本身不进文字。
+- 内置命令和做法：
+
+| 命令 | 做法 | 运行中 | 草稿 |
+|---|---|---|---|
+| `/compact [要求]` | 压缩上下文，"要求"交给 pi 作为压缩时的附加说明；见下面"压缩" | 不能 | 不能 |
+| `/model [服务商/模型]` | 不带参数打开模型菜单（同 ⌘⇧I）；带参数直接换，找不到时说明"没有这个模型" | 能 | 能 |
+| `/thinking [档位]` | 不带参数打开推理强度框（同 ⌘⇧E）；带参数（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`，当前模型支持的）直接换 | 能 | 能 |
+| `/clone` | 复制当前会话，见下面"复制与分叉" | 不能 | 不能 |
+| `/copy` | 把最后一条回复的 Markdown 复制到剪贴板，标签栏旁一行"已复制最后一条回复"，3 秒后消失；还没有回复时说明"还没有回复可复制" | 能 | 能 |
+| `/export` | 导出成 pi 的 HTML 页面并下载（`atrium-<会话 id>.html`，同"···"菜单的"导出为 Markdown"的下载方式） | 能 | 不能 |
+| `/reload` | 重启这个会话的 pi，让新装的 extension、skill、模板生效 | 不能 | 能 |
+
+**压缩**
+
+- `compact_session(sessionId, instructions?)`：宿主在会话空闲时（没有运行、没在停止或压缩）调 pi 的 `compact`；不空闲应答 `session_busy`。pi 的 `compact` 会先停掉正在进行的运行，所以运行中一律不让压缩，不是靠 pi 停。
+- 压缩期间排队照旧暂停出队（同自动压缩），发的新消息进排队；对话区底部一行灰色"正在压缩上下文…"（带闪光），等应答。完成后照旧出现"上下文已压缩 · 压缩前 N tokens"的提示条，状态栏重读。
+- pi 报"Nothing to compact"应答 `nothing_to_compact`（"对话还太短，不用压缩"），"Already compacted"应答 `already_compacted`（"刚压缩过，没有新内容"），其余失败 `compact_failed`（"没能压缩：pi 出错了"；pi 的原话不进界面，日志只记会话 id 和失败类别）。草稿应答 `session_is_draft`。
+
+**复制与分叉**
+
+- 分叉是界面上的按钮，不是命令：每一轮回复下方那行"复制、用量、时间"里，复制右边一个分叉图标，悬停说明"从这里分叉"。点了新开一个会话：带上到这一轮为止的对话，输入框是空的，在同一个容器里打开成标签并切过去；原会话不变。会话运行中（有运行、在停止或在压缩）时按钮变淡、点不了，悬停说明"运行中不能分叉"。失败在标签栏旁的问题行说明（同"···"菜单的失败）。
+- `/clone` 等于在最后一轮上分叉。
+- pi 的 `fork`、`clone` 会让正在运行的 pi 换到新的会话文件上，和 Atrium"一个会话一个 pi"冲突，所以宿主另起一个临时 pi 来做：`pi --mode rpc --session <原文件>`，调 `clone` 或 `fork(entryId)`，再用 `get_state` 读出新会话的文件和 id，然后停掉临时 pi，重扫这个容器，把新会话打开成标签。原会话的 pi 不受影响。
+- `fork_session(sessionId, turnId | null)`：应答 `{ sessionId }`。`null` 或最后一轮用 pi 的 `clone`（当前分支的完整副本）；其他的轮用 pi 的 `fork`，`entryId` 是下一轮开头的那条用户消息（宿主找条目的办法同 `fetch_image`），pi 返回的那条消息的文字不用。找不到这一轮应答 `turn_not_found`。
+- 新会话的名字：临时 pi 停掉之前，宿主用 `set_session_name` 把它设成原会话的标题加"（分叉）"，不然两个标签同名分不清。
+- 只在原会话空闲时做（不空闲应答 `session_busy`），草稿应答 `session_is_draft`，交给终端时应答 `session_handed_off`。临时 pi 起不来、退出或超时（30 秒）应答 `fork_failed`，日志只记会话 id 和原因类别。不进新建工作区、归档、恢复的那个队列：分叉只读原文件、写新文件，不碰工作区。
+
+**其他宿主命令**
+
+- `export_session(sessionId)`：调会话自己的 pi 的 `export_html`，输出到宿主的临时目录，读出内容后删掉文件，应答 `{ html }`；文件超过 20 MB 或 pi 出错应答 `export_failed`。不让 pi 写进工作目录（它默认写到当前目录）。
+- `reload_session(sessionId)`：只在空闲时（不空闲应答 `session_busy`），停掉会话的 pi 再按原样启动（同崩溃后重启，但不算崩溃、不显示提示）。应答在新 pi 启动好之后。
+
+**气泡里的命令**
+
+- 发出的消息由命令开头时，待发的气泡开头显示同样的标签，后面是参数。
+- skill：pi 把 skill 展开成 `<skill name="…" location="…">…</skill>` 加参数存进会话文件。宿主（`packages/pi` 解析）认出这个格式，`Turn.user` 多一个 `command: { kind: "skill", name } | null`，文字只留参数；气泡显示标签加参数，skill 的正文不显示，↑ 历史调出的是 `/skill:名字 参数`；会话的兜底标题用参数的第一行，没有参数时用 skill 名字。认不出的照原文显示。
+- 模板：pi 存的是展开后的全文，看不出来自哪个模板；Atrium 不另记。待发的气泡显示标签，pi 收下这一轮后换成展开后的全文。
+- extension 命令：被 extension 处理掉（`handled`）的照旧去掉待发气泡；extension 自己发出的消息照原文显示。
+
+**协议**
+
+新增命令 `compact_session`、`fork_session`、`export_session`、`reload_session`；`Turn.user` 多了 `command`；新增错误码 `nothing_to_compact`、`already_compacted`、`compact_failed`、`fork_failed`、`turn_not_found`、`export_failed`。偏好里的 `inbox`（2026-10-13 加的"显示'等你处理'"开关，当时没升版本）也算在 13 里。
 
 ### 状态栏（M1.8，2026-10-10 定）
 
@@ -996,6 +1061,9 @@ M1.11 的 Fast（协议版本 6；7 起模型的 `fastCredits` 换成 `fast: {sp
 | `steer(sessionId, text, attachmentIds?)` | 直接插话（⌘+回车） |
 | `upload_attachment(mimeType, data)` | 上传一张已压缩的图片，应答带 `attachmentId`（见上文"附件"） |
 | `fetch_image(sessionId, turnId, index)` | 取一轮用户消息里的第 `index` 张图片，给缩略图用（M1.11，见上文"M1.11 的消息图片"） |
+| `compact_session(sessionId, instructions?)` / `reload_session(sessionId)` | 手动压缩上下文、重启会话的 pi（M1.11，见上文"M1.11 的 `/` 命令"） |
+| `fork_session(sessionId, turnId \| null)` | 从一轮之后分叉出新会话，`null` 是复制整个会话（M1.11） |
+| `export_session(sessionId)` | 导出成 pi 的 HTML 页面（M1.11） |
 | `ping()` | 心跳 |
 | `report_client_issue(kind, message, details?)` | 界面的错误和性能问题写进宿主日志 |
 | `stop(sessionId)` | 停止：暂停出队，再 `clear_queue` + `abort` |
