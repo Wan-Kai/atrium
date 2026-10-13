@@ -1131,8 +1131,20 @@ describe("CommandResult", () => {
     expect(CommandResult.list_dir.safeParse({ entries }).success).toBe(false);
     const texts = { size: 3, content: { kind: "text", text: "abc" } };
     expect(CommandResult.read_file.parse(texts)).toStrictEqual(texts);
-    const image = { size: 4, content: { kind: "image", mimeType: "image/webp", data: "UklGRg==" } };
-    expect(CommandResult.read_file.parse(image)).toStrictEqual(image);
+    const images = ["image/png", "image/jpeg", "image/gif", "image/webp"].map((mimeType) => ({
+      size: 4,
+      content: { kind: "image", mimeType, data: "UklGRg==" },
+    }));
+    expect(images.map((image) => CommandResult.read_file.parse(image))).toStrictEqual(images);
+    const largest = {
+      size: 10 * 1024 * 1024,
+      content: { kind: "image", mimeType: "image/png", data: "a".repeat(13_981_016) },
+    };
+    expect(CommandResult.read_file.safeParse(largest).success).toBe(true);
+    expect(
+      CommandResult.read_file.safeParse({ ...largest, content: { ...largest.content, data: "a".repeat(13_981_017) } })
+        .success,
+    ).toBe(false);
     expect(
       ["binary", "too_large", "link"].map((kind) => CommandResult.read_file.parse({ size: 9, content: { kind } })),
     ).toStrictEqual([

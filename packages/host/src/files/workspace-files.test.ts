@@ -1,7 +1,7 @@
 import { CommandError, type DirEntry } from "@atrium/protocol";
 import { GIT_SCENE_ENV, createTempDir } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { chmod, mkdir, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
@@ -417,9 +417,13 @@ describe("WorkspaceFiles.readFile", () => {
 
   it("refuses a socket, which does not open as a file", async () => {
     const { dir } = await scene();
+    // Made under a short path, as a socket's may not pass 104 bytes, then moved in.
+    const short = await mkdtemp("/tmp/atrium-socket-");
+    onTestFinished(() => rm(short, { recursive: true, force: true }));
     const server = createServer();
-    await new Promise<void>((resolve) => server.listen(join(dir, "s"), resolve));
+    await new Promise<void>((resolve) => server.listen(join(short, "s"), resolve));
     onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    await rename(join(short, "s"), join(dir, "s"));
 
     expect(await codeOf(filesOf(dir, null).files.readFile(WORKSPACE, "s"))).toBe("path_invalid");
   });

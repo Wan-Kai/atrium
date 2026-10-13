@@ -114,8 +114,7 @@ export function createWorkspaceFiles(options: {
       const { target, check } = await locate(options.dirOf, workspaceId, path);
       let dir: FileHandle;
       try {
-        // A link followed despite this would fail the check below, the opened directory not being the link.
-        // Stryker disable next-line ArithmeticOperator,BitwiseOperator: see above.
+        // Without O_NOFOLLOW a link would still fail the check below, the opened directory not being the link.
         dir = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY);
       } catch (error) {
         throw failure(workspaceId, openFailure(error, await lstat(target).catch(() => null)));
