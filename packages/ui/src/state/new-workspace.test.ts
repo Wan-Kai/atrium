@@ -423,6 +423,21 @@ describe("launch", () => {
     expect(store.getState().page).toMatchObject({ projectId: "p2", choice: { kind: "new", branch: null } });
   });
 
+  it("goes on when the page was closed while naming, with nothing opened in its place", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const { client, calls, release } = fakeClient(["nameBranch"]);
+
+    const going = launch(store, client, memoryDrafts(), MESSAGE, () => "l1");
+    await settle();
+    closePage(store);
+    release("nameBranch");
+    await going;
+
+    expect(calls[1]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main"]);
+    expect(store.getState()).toStrictEqual({ page: null, launches: [] });
+  });
+
   it("goes into a workspace already there, setting the model and level chosen instead of listing commands", async () => {
     const store = pageOpen();
     choose(store, {

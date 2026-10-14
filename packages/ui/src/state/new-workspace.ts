@@ -366,6 +366,7 @@ export async function launch(
   if (page === null) return;
   const { projectId, choice, model } = page;
   const id = newId();
+  // Stryker disable next-line ConditionalExpression: only a new worktree has a branch, so the next check holds too.
   const naming = choice.kind === "new" && choice.branch === null && message.text.trim() !== "";
   const worktree =
     choice.kind === "new"
@@ -423,6 +424,7 @@ export async function launch(
         );
         ({ branch } = named);
         const now = store.getState().page;
+        // Stryker disable next-line ConditionalExpression: the choices are held while naming, so it is still a new worktree.
         if (now?.launchId === id && now.choice.kind === "new") {
           store.setState({ page: { ...now, choice: { ...now.choice, branch } } });
         }
