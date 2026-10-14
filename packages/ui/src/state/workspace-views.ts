@@ -22,6 +22,15 @@ export type ViewerTab =
     }
   | { readonly kind: "diff" };
 
+/** Where a viewer tab was left: its scroll, and whether it wraps long lines. */
+export interface ViewerPlace {
+  readonly scrollTop: number;
+  readonly wrap: boolean;
+}
+
+/** A viewer tab not left anywhere yet. */
+const NO_PLACE: ViewerPlace = { scrollTop: 0, wrap: false };
+
 /** A container's viewer tabs and what goes with them. */
 export interface ContainerView {
   /** In the order opened; they come after the session tabs. */
@@ -35,6 +44,8 @@ export interface ContainerView {
    * whether it went: once done, showing the tab again does not.
    */
   readonly reveal: { readonly path: string; readonly count: number; readonly done: boolean } | null;
+  /** Where each open viewer tab was left, by `viewerKey`; forgotten as it closes. */
+  readonly places: Readonly<Record<string, ViewerPlace>>;
 }
 
 /** The workspace views of a window. */
@@ -43,6 +54,8 @@ export interface WorkspaceViews {
   readonly containers: Readonly<Record<string, ContainerView>>;
   /** The panel tab chosen in each workspace while this window is open. */
   readonly panelTabs: Readonly<Record<string, PanelTab>>;
+  /** The tab each workspace's open panel shows, none having been chosen, while it stays open. */
+  readonly panelDefaults: Readonly<Record<string, PanelTab>>;
   readonly storage: PaneStorage;
 }
 
@@ -52,7 +65,7 @@ export type TabRef =
   | { readonly kind: "viewer"; readonly key: string };
 
 /** A container with nothing open beside its sessions. */
-export const NO_VIEW: ContainerView = { tabs: [], active: null, choice: null, reveal: null };
+export const NO_VIEW: ContainerView = { tabs: [], active: null, choice: null, reveal: null, places: {} };
 
 /**
  * The key a viewer tab goes by.
@@ -79,7 +92,7 @@ export function viewerKey(tab: ViewerTab): string {
  * @returns The store.
  */
 export function createWorkspaceViews(storage: PaneStorage): StoreApi<WorkspaceViews> {
-  return createStore<WorkspaceViews>()(() => ({ containers: {}, panelTabs: {}, storage }));
+  return createStore<WorkspaceViews>()(() => ({ containers: {}, panelTabs: {}, panelDefaults: {}, storage }));
 }
 
 /**
@@ -142,7 +155,7 @@ export function openFile(views: StoreApi<WorkspaceViews>, containerId: string, p
     if (open !== undefined) tabs = view.tabs.map((each) => (each === open && pinned ? tab : each));
     else if (!pinned && preview !== -1) tabs = view.tabs.with(preview, tab);
     else tabs = [...view.tabs, tab];
-    return { ...view, tabs, active: key };
+    return { ...view, tabs, active: key, places: placesOf(tabs, view.places) };
   });
 }
 
@@ -280,12 +293,76 @@ export function closeViewer(
   // Stryker disable next-line ConditionalExpression: a session's tab has no `key`; the kind is for the type.
   const at = order.findIndex((tab) => tab.kind === "viewer" && tab.key === key);
   const next = view.active === key ? (order[at - 1] ?? order[at + 1]) : undefined;
-  update(views, containerId, (now) => ({
-    ...now,
-    tabs: now.tabs.filter((tab) => viewerKey(tab) !== key),
-    active: next === undefined ? (now.active === key ? null : now.active) : next.kind === "viewer" ? next.key : null,
-  }));
+  update(views, containerId, (now) => {
+    const tabs = now.tabs.filter((tab) => viewerKey(tab) !== key);
+    return {
+      ...now,
+      tabs,
+      active: next === undefined ? (now.active === key ? null : now.active) : next.kind === "viewer" ? next.key : null,
+      places: placesOf(tabs, now.places),
+    };
+  });
   return next?.kind === "session" ? next.id : null;
+}
+
+/**
+ * The places of the tabs still open.
+ *
+ * @remarks
+ * A tab closed, or a preview replaced by another, forgets where it was left (SPEC-0001, "M1.12
+ * 的文件与更改 · 查看标签").
+ *
+ * @sideEffects none
+ * @param tabs - The tabs open.
+ * @param places - The places kept.
+ * @returns Those of the tabs open.
+ */
+function placesOf(
+  tabs: readonly ViewerTab[],
+  places: Readonly<Record<string, ViewerPlace>>,
+): Readonly<Record<string, ViewerPlace>> {
+  const open = new Set(tabs.map(viewerKey));
+  return Object.fromEntries(Object.entries(places).filter(([key]) => open.has(key)));
+}
+
+/**
+ * Where a viewer tab was left.
+ *
+ * @remarks
+ * A tab never left has no scroll and does not wrap.
+ *
+ * @sideEffects none
+ * @param view - The container's view.
+ * @param key - The tab's key.
+ * @returns Its place.
+ */
+export function placeOf(view: ContainerView, key: string): ViewerPlace {
+  return Object.hasOwn(view.places, key) ? (view.places[key] ?? NO_PLACE) : NO_PLACE;
+}
+
+/**
+ * Keeps where an open viewer tab is left.
+ *
+ * @remarks
+ * A tab closed meanwhile keeps nothing, as its place was forgotten with it.
+ *
+ * @sideEffects Writes the store.
+ * @param views - The views.
+ * @param containerId - The container.
+ * @param key - The tab's key.
+ * @param change - What changes in its place.
+ */
+export function keepPlace(
+  views: StoreApi<WorkspaceViews>,
+  containerId: string,
+  key: string,
+  change: Partial<ViewerPlace>,
+): void {
+  if (!viewOf(views.getState(), containerId).tabs.some((tab) => viewerKey(tab) === key)) return;
+  update(views, containerId, (view) => ({
+    ...view,
+    places: { ...view.places, [key]: { ...placeOf(view, key), ...change } },
+  }));
 }
 
 /**
@@ -322,18 +399,37 @@ function panelTabKey(workspaceId: string): string {
  *
  * @remarks
  * SPEC-0001 ("M1.12 的文件与更改 · 右栏"): the one chosen last, kept in the storage; never chosen,
- * 更改 when the workspace has changes and 文件 when not, as Paseo.
+ * 更改 when the workspace had changes as its panel opened and 文件 when not, as Paseo. The open
+ * panel holds the one it fell back to (`holdPanelDefault`), so the capsule knows what it shows.
  *
  * @sideEffects Reads the storage.
  * @param state - The views.
  * @param workspaceId - The workspace.
- * @param changed - Whether it has changes.
+ * @param changed - Whether it has changes, for a panel not holding its tab yet.
  * @returns The tab.
  */
 export function panelTabOf(state: WorkspaceViews, workspaceId: string, changed: boolean): PanelTab {
   const chosen = state.panelTabs[workspaceId] ?? state.storage.getItem(panelTabKey(workspaceId));
   if (chosen === "files" || chosen === "changes") return chosen;
-  return changed ? "changes" : "files";
+  return state.panelDefaults[workspaceId] ?? (changed ? "changes" : "files");
+}
+
+/**
+ * Holds the tab a workspace's open panel fell back to, or with `null` lets it go.
+ *
+ * @remarks
+ * See `panelTabOf`. The panel lets it go as it closes: opened again, it looks at the changes anew.
+ *
+ * @sideEffects Writes the store.
+ * @param views - The views.
+ * @param workspaceId - The workspace.
+ * @param tab - The tab, or `null`.
+ */
+export function holdPanelDefault(views: StoreApi<WorkspaceViews>, workspaceId: string, tab: PanelTab | null): void {
+  views.setState((state) => {
+    const { [workspaceId]: _held, ...others } = state.panelDefaults;
+    return { panelDefaults: tab === null ? others : { ...others, [workspaceId]: tab } };
+  });
 }
 
 /**

@@ -159,6 +159,8 @@ export function TabBar({
                     className={MENU_ITEM}
                     onClick={() => {
                       close();
+                      // Shows the session over a viewer tab, even the one already active.
+                      showViewer(views, containerId, null);
                       run(() => client.openSession(session.sessionId));
                     }}
                   >

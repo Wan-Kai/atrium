@@ -10,8 +10,9 @@ import { useDiffMode, useShownDiff } from "./use-diff";
  *
  * @remarks
  * SPEC-0001 ("M1.12 的文件与更改 · 查看标签"): the whole area, its input box, capsules and status
- * bar too, gives way to it. A file tab is drawn afresh for each file, so its reading and scroll are
- * its own; it has the file's diff when the diff is watched and has one.
+ * bar too, gives way to it. The caller draws it afresh for each tab of each workspace, so a tab's
+ * reading, scroll and wrapping are its own; a file tab has the file's diff when the diff is
+ * watched and has one.
  *
  * @sideEffects Subscribes to the client and the views; through the tab, reads the file or shows
  * the diff.
@@ -36,9 +37,9 @@ export function ActiveViewer({
   const diff = shown?.files.find((file) => file.path === path) ?? null;
   return (
     <FileViewer
-      key={path}
       client={client}
       workspaceId={workspaceId}
+      views={views}
       path={path}
       diff={diff}
       onShowDiff={() => openDiff(views, workspaceId, path)}

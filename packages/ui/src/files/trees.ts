@@ -179,3 +179,21 @@ const RESTORED_DEPTH = 5;
 export function restoredDirs(paths: Iterable<string>): Set<string> {
   return new Set([...paths].filter((path) => path.split("/").length <= RESTORED_DEPTH));
 }
+
+/**
+ * The expanded directories that show: those whose every parent is expanded too.
+ *
+ * @remarks
+ * A directory stays expanded inside a folded one, to show again with it; only those showing read
+ * again on a refresh (SPEC-0001, "M1.12 的文件与更改 · 文件").
+ *
+ * @sideEffects none
+ * @param open - The expanded directories.
+ * @returns Those showing.
+ */
+export function shownDirs(open: ReadonlySet<string>): string[] {
+  return [...open].filter((path) => {
+    const parts = path.split("/");
+    return parts.slice(1).every((_, at) => open.has(parts.slice(0, at + 1).join("/")));
+  });
+}

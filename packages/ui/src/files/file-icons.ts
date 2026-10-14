@@ -8,6 +8,21 @@ interface IconLookups {
 }
 
 /**
+ * A lookup's own entry for a key.
+ *
+ * @remarks
+ * Not the object's inherited members: a file named `constructor` is no icon's.
+ *
+ * @sideEffects none
+ * @param lookup - The lookup.
+ * @param key - The key.
+ * @returns The icon's name, or `undefined`.
+ */
+function own(lookup: Readonly<Record<string, string>>, key: string): string | undefined {
+  return Object.hasOwn(lookup, key) ? lookup[key] : undefined;
+}
+
+/**
  * The icon for a file name, from the lookups in order of preference.
  *
  * @remarks
@@ -22,11 +37,11 @@ interface IconLookups {
  * @returns The icon's name, or the plain file icon.
  */
 function lookUp(lookups: readonly IconLookups[], name: string): string {
-  const named = lookups.map((one) => one.fileNames[name]).find((icon) => icon !== undefined);
+  const named = lookups.map((one) => own(one.fileNames, name)).find((icon) => icon !== undefined);
   if (named !== undefined) return named;
   for (let dot = name.indexOf("."); dot !== -1; dot = name.indexOf(".", dot + 1)) {
     const extension = name.slice(dot + 1);
-    const found = lookups.map((one) => one.fileExtensions[extension]).find((icon) => icon !== undefined);
+    const found = lookups.map((one) => own(one.fileExtensions, extension)).find((icon) => icon !== undefined);
     if (found !== undefined) return found;
   }
   return table.file;

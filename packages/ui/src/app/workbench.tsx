@@ -1,7 +1,7 @@
 import type { AtriumClient, IndexView } from "@atrium/client";
 import { type Appearance, type IndexFileName, isChatId } from "@atrium/protocol";
 import { SidebarLeft, X } from "../design/icons";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
 import { ConversationArea } from "../chat/conversation-area";
@@ -154,9 +154,11 @@ function useTabShortcuts(
  * Shows the session again whenever the container's active session changes under a viewer tab.
  *
  * @remarks
- * The host makes a session active when one is created or opened (⌘T, the history menu, the
- * sidebar); it should then show, not stay behind the viewer tab. Going to another container
- * keeps each container's viewer tab as it was (SPEC-0001, "M1.12 的文件与更改 · 查看标签").
+ * The host makes a session active when one is created (⌘T, "+") or opened; it should then show,
+ * not stay behind the viewer tab. A session chosen in the sidebar or "历史" is shown by the choice
+ * itself, even the one already active. Going to another container keeps each container's viewer
+ * tab as it was (SPEC-0001, "M1.12 的文件与更改 · 查看标签"). Done before the page paints, so the
+ * viewer tab does not flash first.
  *
  * @sideEffects Writes the views.
  * @param views - The workspace views.
@@ -164,12 +166,13 @@ function useTabShortcuts(
  * @param sessionId - Its active session.
  */
 function useSessionShows(views: StoreApi<WorkspaceViews>, container: string | null, sessionId: string | null): void {
-  const [seen, setSeen] = useState({ container, sessionId });
-  if (seen.container !== container || seen.sessionId !== sessionId) {
-    // Adjusting state while rendering, as React advises for state that follows other values.
-    setSeen({ container, sessionId });
-    if (seen.container === container && container !== null && sessionId !== null) showViewer(views, container, null);
-  }
+  const seen = useRef({ container, sessionId });
+  useLayoutEffect(() => {
+    const before = seen.current;
+    seen.current = { container, sessionId };
+    if (before.container === container && before.sessionId !== sessionId && container !== null && sessionId !== null)
+      showViewer(views, container, null);
+  }, [views, container, sessionId]);
 }
 
 /**
@@ -351,9 +354,9 @@ function useDraftCleanup(index: IndexView): void {
  * Marks the error of the session shown as seen while the window has the focus.
  *
  * @remarks
- * SPEC-0001 ("会话状态"): the session is the current container's active tab, the window has the
- * focus, and its error was not seen yet; looked at again when the window gains the focus. A
- * sign-in problem is not marked: it goes once a run starts.
+ * SPEC-0001 ("会话状态"): the session is the current container's active tab with no viewer tab
+ * over it, the window has the focus, and its error was not seen yet; looked at again when the
+ * window gains the focus. A sign-in problem is not marked: it goes once a run starts.
  *
  * @sideEffects Sends `clear_attention`; listens for focus on the window while there is an error
  * to mark.
@@ -512,6 +515,7 @@ function MainWindow({
   const [views] = useState(() => createWorkspaceViews(localStorage));
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
+  const viewer = useStore(views, (state) => (container === null ? null : viewOf(state, container).active));
   useDraftCleanup(index);
 
   useEffect(() => {
@@ -534,8 +538,8 @@ function MainWindow({
   useTabShortcuts(client, pages, views);
   useSessionShows(views, container, sessionId);
   usePaneShortcuts(client, pages, panes);
-  // On the new-workspace page no session shows.
-  useSeenErrors(client, index, pageProject === null ? sessionId : null);
+  // On the new-workspace page, or under a viewer tab, no session shows.
+  useSeenErrors(client, index, pageProject === null && viewer === null ? sessionId : null);
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
@@ -547,6 +551,7 @@ function MainWindow({
             closePage(pages);
             fireAndForget(client.createChat());
           }}
+          showSession={(session) => showViewer(views, session.containerId, null)}
           pickDirectory={pickDirectory}
           onSettings={settings.show}
           page={{

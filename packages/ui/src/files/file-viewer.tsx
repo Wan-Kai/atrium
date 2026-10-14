@@ -1,6 +1,7 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import type { DiffFile, FileContent } from "@atrium/protocol";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
+import type { StoreApi } from "zustand";
 import { splitPath } from "../chat/changes";
 import { TextWrap } from "../design/icons";
 import { CodeLines } from "./code-lines";
@@ -8,7 +9,9 @@ import { CenterNote, DiffCounts } from "./diff-parts";
 import { formatSize, highlightable, linesOf } from "./file-facts";
 import { FileIcon } from "./file-icon";
 import { type TokenLines, highlight } from "./highlight";
+import type { WorkspaceViews } from "../state/workspace-views";
 import { useRunEnds } from "./use-diff";
+import { useViewerPlace } from "./viewer-place";
 
 /** A file as last read: its size and content, gone, or not readable. */
 type Reading =
@@ -105,28 +108,34 @@ function useTokens(path: string, text: string | null, lines: readonly string[], 
  * SPEC-0001 ("M1.12 的文件与更改 · 查看标签"); design-language ("查看标签"). Text shows numbered and
  * coloured as the chat's code blocks, not wrapped until asked; an image shows itself, never past
  * its size; anything else says in a line why it does not show. While the file has a diff, the
- * top row has its counts and "查看改动", to the 改动 tab.
+ * top row has its counts and "查看改动", to the 改动 tab. Its scroll and wrapping are kept by tab
+ * (`useViewerPlace`).
  *
- * @sideEffects Reads the file; asks the highlighting worker; the handlers act.
- * @param props - The client, the workspace, the file, its diff if it has one, and what
+ * @sideEffects Reads the file; asks the highlighting worker; reads and writes the views; the
+ * handlers act.
+ * @param props - The client, the workspace, the views, the file, its diff if it has one, and what
  * "查看改动" does.
  * @returns The tab's content.
  */
 export function FileViewer({
   client,
   workspaceId,
+  views,
   path,
   diff,
   onShowDiff,
 }: {
   readonly client: AtriumClient;
   readonly workspaceId: string;
+  readonly views: StoreApi<WorkspaceViews>;
   readonly path: string;
   readonly diff: DiffFile | null;
   readonly onShowDiff: () => void;
 }) {
-  const reading = useReading(client, workspaceId, path, diff === null ? "" : JSON.stringify(diff));
-  const [wrap, setWrap] = useState(false);
+  // Turned to text only when another diff comes.
+  const changed = useMemo(() => (diff === null ? "" : JSON.stringify(diff)), [diff]);
+  const reading = useReading(client, workspaceId, path, changed);
+  const { wrap, switchWrap, body: scrolled } = useViewerPlace(views, workspaceId, `file:${path}`, reading !== null);
   const text = reading?.kind === "read" && reading.content.kind === "text" ? reading.content.text : null;
   const [lines, setLines] = useState<{ readonly text: string | null; readonly lines: readonly string[] }>({
     text: null,
@@ -187,13 +196,13 @@ export function FileViewer({
           aria-label="换行"
           title="换行"
           aria-pressed={wrap}
-          onClick={() => setWrap(!wrap)}
+          onClick={switchWrap}
           className={VIEWER_BUTTON}
         >
           <TextWrap size={14} />
         </button>
       </header>
-      <div data-testid="viewer-body" className="min-h-0 flex-1 overflow-auto [contain:strict]">
+      <div ref={scrolled} data-testid="viewer-body" className="min-h-0 flex-1 overflow-auto [contain:strict]">
         {body}
       </div>
     </section>

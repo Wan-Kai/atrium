@@ -3,6 +3,8 @@ import type { CommandResult, DiffFile } from "@atrium/protocol";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { memoryStorage } from "../state/panes";
+import { createWorkspaceViews, keepPlace, openFile, placeOf, viewOf } from "../state/workspace-views";
 import { fakeClient, session } from "../test/fake-client";
 import { FileViewer } from "./file-viewer";
 
@@ -29,7 +31,8 @@ const DIFF: DiffFile = {
  * @sideEffects Renders.
  * @param read - How the file reads.
  * @param diff - Its diff, if any.
- * @returns The screen, the client and its calls, what "查看改动" was asked, and how to draw it with another diff.
+ * @returns The screen, the client and its calls, the views, what "查看改动" was asked, and how to draw it
+ * with another diff.
  */
 async function viewer(read: () => Promise<CommandResult<"read_file">>, diff: DiffFile | null = null) {
   // A session running in the workspace, so a run can end.
@@ -38,9 +41,11 @@ async function viewer(read: () => Promise<CommandResult<"read_file">>, diff: Dif
     { readFile: read },
   );
   const onShowDiff = vi.fn<() => void>();
+  const views = createWorkspaceViews(memoryStorage());
+  openFile(views, W, "src/a.ts", true);
   const drawn = (shown: DiffFile | null) => (
     <div style={{ display: "flex", height: 300, width: 400 }}>
-      <FileViewer client={client} workspaceId={W} path="src/a.ts" diff={shown} onShowDiff={onShowDiff} />
+      <FileViewer client={client} workspaceId={W} views={views} path="src/a.ts" diff={shown} onShowDiff={onShowDiff} />
     </div>
   );
   const screen = await render(drawn(diff));
@@ -49,6 +54,7 @@ async function viewer(read: () => Promise<CommandResult<"read_file">>, diff: Dif
     client,
     calls,
     index,
+    views,
     onShowDiff,
     redraw: (shown: DiffFile | null) => screen.rerender(drawn(shown)),
   };
@@ -124,6 +130,15 @@ describe("FileViewer", () => {
 
     await expect.element(wrap).toHaveAttribute("aria-pressed", "true");
     expect(body.scrollWidth > body.clientWidth).toBe(false);
+  });
+
+  it("keeps where it was left when it goes before the file reads", async () => {
+    const { screen, views } = await viewer(async () => new Promise(() => undefined));
+    keepPlace(views, W, "file:src/a.ts", { scrollTop: 300 });
+
+    await screen.unmount();
+
+    expect(placeOf(viewOf(views.getState(), W), "file:src/a.ts").scrollTop).toBe(300);
   });
 
   it.each([

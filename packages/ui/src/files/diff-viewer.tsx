@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import type { DiffFile, DiffHunk, DiffMode } from "@atrium/protocol";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { diffTotals, splitPath } from "../chat/changes";
 import { ArrowsInLineVertical, ArrowsOutLineVertical, CaretDown, TextWrap } from "../design/icons";
@@ -21,6 +21,7 @@ import { VIEWER_BUTTON } from "./file-viewer";
 import { type Token, type TokenLines, highlight } from "./highlight";
 import { changeTree, treeOrder } from "./trees";
 import { useShownDiff } from "./use-diff";
+import { useViewerPlace } from "./viewer-place";
 
 /** A file's hunks coloured, each line's tokens in the hunk's order. */
 type Coloured = readonly (readonly (readonly Token[] | undefined)[])[];
@@ -265,11 +266,16 @@ function useColoured(files: readonly DiffFile[], inView: ReadonlySet<string>): R
       mounted.current = false;
     };
   }, []);
-  return new Map(
-    [...done].flatMap(([path, { key, coloured }]) =>
-      files.some((file) => file.path === path && hunksKey(file) === key) ? [[path, coloured] as const] : [],
-    ),
-  );
+  // Those still as they were coloured, found by path, as the tab draws again whenever the panes move.
+  return useMemo(() => {
+    const byPath = new Map(files.map((file) => [file.path, file]));
+    return new Map(
+      [...done].flatMap(([path, { key, coloured }]) => {
+        const file = byPath.get(path);
+        return file !== undefined && hunksKey(file) === key ? [[path, coloured] as const] : [];
+      }),
+    );
+  }, [files, done]);
 }
 
 /**
@@ -282,6 +288,7 @@ function useColoured(files: readonly DiffFile[], inView: ReadonlySet<string>): R
  * it goes to that file's header, unfolding it, and the header's background fades from
  * `--selected` in 1s. Below the last file there is room to bring it to the top. The scroll area is
  * contained, so a move of the panes beside it does not walk its lines (design-language, "右栏").
+ * Its scroll and wrapping are kept by tab (`useViewerPlace`).
  *
  * @sideEffects Subscribes to the client and the views; reads and writes the views' storage; asks
  * the highlighting worker; scrolls and animates its files' headers.
@@ -308,10 +315,10 @@ export function DiffViewer({
   // The folds of another mode are its own (adjusting state while rendering, as React advises).
   if (folds.key !== key) setFolds({ key, folded: keptPaths(storage, key) });
   const { folded } = folds;
-  const [wrap, setWrap] = useState(false);
+  // A file asked for is gone to after this, from where the tab was left.
+  const { wrap, switchWrap, body } = useViewerPlace(views, workspaceId, "diff", shown !== null);
   const [inView, setInView] = useState<ReadonlySet<string>>(new Set());
   const anchors = useRef(new Map<string, HTMLElement>());
-  const body = useRef<HTMLDivElement>(null);
   // The header's flash, cancelled when the tab goes: a running animation keeps its element, and
   // with it the whole tab, alive until it ends.
   const flash = useRef<Animation | null>(null);
@@ -378,7 +385,7 @@ export function DiffViewer({
     return () => observer.disconnect();
     // Observes the files' sections again whenever they may be others.
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- see above.
-  }, [ordered.files, folded]);
+  }, [ordered.files, folded, body]);
 
   useEffect(() => {
     // Going to a file is done once (`revealed`); a folded file unfolds first.
@@ -429,7 +436,7 @@ export function DiffViewer({
           aria-label="换行"
           title="换行"
           aria-pressed={wrap}
-          onClick={() => setWrap(!wrap)}
+          onClick={switchWrap}
           className={VIEWER_BUTTON}
         >
           <TextWrap size={14} />

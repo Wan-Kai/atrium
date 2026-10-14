@@ -1,6 +1,7 @@
-import { CommandError, type SessionView } from "@atrium/client";
+import { CommandError, type IndexView, type SessionView } from "@atrium/client";
 import { type DiffFile, IDLE_CONTROL } from "@atrium/protocol";
 import type { ReactNode } from "react";
+import type { StoreApi } from "zustand";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -1767,6 +1768,19 @@ async function viewing() {
 }
 
 /**
+ * Gives session s1 an error not seen yet.
+ *
+ * @sideEffects Sets the list.
+ * @param index - The list's store.
+ */
+function failS1(index: StoreApi<IndexView>): void {
+  const error = { reason: "error" as const, at: Date.now(), cleared: false };
+  index.setState({
+    sessions: index.getState().sessions.map((each) => (each.sessionId === "s1" ? { ...each, attention: error } : each)),
+  });
+}
+
+/**
  * Each tab's tooltip, whether it is selected, and whether its title is in italics.
  *
  * @sideEffects none
@@ -1943,6 +1957,57 @@ describe("Workbench viewer tabs (M1.12)", () => {
         ["调研 pi RPC", true, false],
         ["a.ts", false, true],
       ]);
+  });
+});
+
+describe("Workbench viewer tabs and sessions chosen (M1.12)", () => {
+  it("shows a session chosen in the search, the inbox or 历史 over a viewer tab, even the one active", async () => {
+    const { screen, tree, tabs, index } = await viewing();
+    const conversation = screen.getByRole("textbox", { name: "消息" });
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await expect.element(conversation).not.toBeInTheDocument();
+    failS1(index);
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "重构");
+    await screen
+      .getByRole("region", { name: "搜索结果" })
+      .getByRole("button", { name: /重构宿主/ })
+      .click();
+    await expect.element(conversation).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await tabs.nth(2).click();
+    await expect.element(conversation).not.toBeInTheDocument();
+    failS1(index);
+    await screen.getByRole("button", { name: /^等你处理/ }).click();
+    await screen.getByTestId("inbox-row").click();
+    await expect.element(conversation).toBeVisible();
+
+    await tabs.nth(2).click();
+    await expect.element(conversation).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "历史" }).click();
+    await screen.getByRole("menuitem", { name: /重构宿主/ }).click();
+
+    await expect.element(conversation).toBeVisible();
+    expect(tabsOf(tabs)).toStrictEqual([
+      ["重构宿主", true, false],
+      ["调研 pi RPC", false, false],
+      ["a.ts", false, true],
+    ]);
+  });
+
+  it("marks the error of a session seen only once no viewer tab is over it", async () => {
+    const { screen, tree, tabs, index, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await expect.element(screen.getByRole("region", { name: "a.ts" })).toBeVisible();
+    failS1(index);
+    await expect.element(screen.getByRole("button", { name: /^等你处理/ })).toBeVisible();
+    const behind = calls.filter((call) => call.startsWith("clearAttention"));
+
+    await tabs.nth(0).click();
+
+    await vi.waitFor(() => expect(calls).toContain("clearAttention s1"));
+    expect(behind).toStrictEqual([]);
   });
 });
 

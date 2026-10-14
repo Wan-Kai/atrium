@@ -1,5 +1,5 @@
 import type { DiffFile, DiffHunk, DiffMode } from "@atrium/protocol";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { type PaneStorage, memoryStorage } from "../state/panes";
@@ -61,11 +61,12 @@ const FILES: DiffFile[] = [
 ];
 
 /**
- * The 改动 tab on workspace W in a frame 300px high, the host having sent the files given.
+ * The 改动 tab, open, on workspace W in a frame 300px high, the host having sent the files given.
  *
  * @sideEffects Renders.
  * @param options - The files, the mode, and the storage.
- * @returns The screen, the views, the storage, how to show another mode, and the tab's scroll area.
+ * @returns The screen, the client, the views, the storage, how to show another mode, how to switch
+ * away from the tab and back, and the tab's scroll area.
  */
 async function viewer({
   files = FILES,
@@ -76,6 +77,7 @@ async function viewer({
   client.changes(W).setState({ stat: { added: 1, removed: 1 }, dirty: true, ahead: 0, branch: "feat", base: "main" });
   client.diff.setState({ target: { workspaceId: W, mode }, status: "ready", files, tooLarge: false, error: null });
   const views = createWorkspaceViews(storage);
+  openDiff(views, W, null);
   const drawn = (shown: DiffMode) => (
     <div style={{ display: "flex", height: 300, width: 500 }}>
       <DiffViewer client={client} workspaceId={W} views={views} mode={shown} />
@@ -98,8 +100,32 @@ async function viewer({
     });
     await screen.rerender(drawn(shown));
   };
-  return { screen, views, storage, switchTo, body: screen.getByTestId("viewer-body").element() };
+  /**
+   * Switches away from the tab and back, drawing it afresh.
+   *
+   * @sideEffects Renders.
+   * @returns The new scroll area.
+   */
+  const away = async (): Promise<HTMLElement> => {
+    await screen.rerender(<div />);
+    await screen.rerender(drawn(mode));
+    return screen.getByTestId("viewer-body").element() as HTMLElement;
+  };
+  return { screen, client, views, storage, switchTo, away, body: screen.getByTestId("viewer-body").element() };
 }
+
+/** FILES sent again, `src/chat/a.ts` edited otherwise. */
+const EDITED: DiffFile[] = FILES.map((file) =>
+  file.path === "src/chat/a.ts"
+    ? {
+        ...file,
+        hunks: file.hunks.map((hunk) => ({
+          ...hunk,
+          lines: hunk.lines.map((line) => ({ ...line, text: line.text.replace("fresh = 1", "fresh = 2") })),
+        })),
+      }
+    : file,
+);
 
 /**
  * Where an element's top is, from the top of a scroll area.
@@ -165,6 +191,25 @@ describe("DiffViewer", () => {
     await expect
       .poll(() => [...line.querySelectorAll("span[style]")].map((token) => getComputedStyle(token).color).at(0))
       .toBe("rgb(215, 58, 73)");
+  });
+
+  it("colours a file again once a diff sent again changes it, showing it uncoloured meanwhile", async () => {
+    const { screen, client } = await viewer();
+    const region = screen.getByRole("region", { name: "src/chat/a.ts" }).element();
+    await expect.poll(() => region.querySelectorAll("span[style]").length).toBeGreaterThan(0);
+    const shown: [string, number][] = [];
+    const observer = new MutationObserver(() =>
+      shown.push([region.textContent, region.querySelectorAll("span[style]").length]),
+    );
+    observer.observe(region, { subtree: true, childList: true, characterData: true });
+    onTestFinished(() => observer.disconnect());
+
+    client.diff.setState({ files: EDITED });
+
+    await expect.element(screen.getByText("const fresh = 2;")).toBeInTheDocument();
+    const line = screen.getByText("const fresh = 2;").element();
+    await expect.poll(() => line.querySelectorAll("span[style]").length).toBeGreaterThan(0);
+    expect(shown[0]).toStrictEqual(["a.tssrc/chat/+1−1@@ -3,2 +3,2 @@3keep();4old();4const fresh = 2;", 0]);
   });
 
   it("folds a file from its header and all from the top row, keeping what is folded for the mode", async () => {
@@ -259,6 +304,35 @@ describe("DiffViewer", () => {
     await screen.getByRole("button", { name: "换行" }).click();
 
     await expect.poll(() => body.scrollWidth > body.clientWidth).toBe(false);
+  });
+
+  it("is where it was left, wrapping or not, once switched back to", async () => {
+    const { screen, away, body } = await viewer();
+    await expect.element(screen.getByText("line 40")).toBeInTheDocument();
+    body.scrollTop = 300;
+    await screen.getByRole("button", { name: "换行" }).click();
+    await expect.element(screen.getByRole("button", { name: "换行" })).toHaveAttribute("aria-pressed", "true");
+    // Wrapping moves the lines a little under the scroll.
+    const left = body.scrollTop;
+
+    const back = await away();
+
+    expect([back === body, left > 250, back.scrollTop]).toStrictEqual([false, true, left]);
+    await expect.element(screen.getByRole("button", { name: "换行" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("goes to the file asked for rather than where it was left", async () => {
+    const { screen, views, away, body } = await viewer();
+    await expect.element(screen.getByText("line 40")).toBeInTheDocument();
+    body.scrollTop = 300;
+    await screen.rerender(<div />);
+    openDiff(views, W, "src/chat/a.ts");
+
+    const back = await away();
+
+    const header = screen.getByRole("region", { name: "src/chat/a.ts" }).getByRole("button");
+    await expect.poll(() => topIn(header.element(), back)).toBe(0);
+    expect(back.scrollTop).not.toBe(300);
   });
 
   it("names the branch's commits as its mode, and says when there are no changes", async () => {

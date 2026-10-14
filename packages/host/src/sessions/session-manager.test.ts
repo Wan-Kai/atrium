@@ -1078,7 +1078,7 @@ describe("SessionManager archiving and renaming", () => {
     const notFound = new CommandError("session_not_found", { sessionId });
     expect([
       answers,
-      sent().filter((type) => ["prompt", "steer"].includes(type)),
+      sent().filter((type) => ["prompt", "steer"].some((asked) => asked === type)),
       catalog.find(sessionId)?.archived,
     ]).toStrictEqual([[notFound, notFound], [], true]);
   });

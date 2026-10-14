@@ -53,11 +53,12 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
 export function languageOf(path: string, languages: readonly LanguageInfo[]): string | null {
   // Stryker disable next-line StringLiteral: splitting always gives a last part, so the fallback never runs.
   const name = (path.split("/").at(-1) ?? "").toLowerCase();
-  const named = BY_NAME[name];
+  // Their own entries, not the objects' inherited members: a file named `constructor` has none.
+  const named = Object.hasOwn(BY_NAME, name) ? BY_NAME[name] : undefined;
   if (named !== undefined) return named;
   const dot = name.lastIndexOf(".");
   if (dot === -1) return null;
   const extension = name.slice(dot + 1);
   const known = languages.find((language) => language.id === extension || language.aliases?.includes(extension));
-  return known?.id ?? BY_EXTENSION[extension] ?? null;
+  return known?.id ?? (Object.hasOwn(BY_EXTENSION, extension) ? (BY_EXTENSION[extension] ?? null) : null);
 }

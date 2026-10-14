@@ -436,6 +436,15 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 压缩中算忙：交给终端应答 `session_busy`，停空闲 pi 时不停它 | `session-manager.test.ts` "counts a compaction as busy" | 已覆盖 |
 | 分叉途中原会话算忙：消息进排队、放开后发出；再分叉、压缩、交给终端应答 `session_busy` | `packages/host/src/sessions/session-controller.test.ts` "holds the session busy for a fork"；`session-manager.test.ts` "holds the session busy until the fork's pi is done" | 已覆盖 |
 | 新建 worktree 的起点只收完整的 ref（`refs/heads/`、`refs/remotes/`）或 `HEAD`，短名、标签、像选项的都是 `base_missing`；git 超时也是 `worktree_create_failed`，日志只记原因 | `packages/host/src/workspaces/worktree-creator.test.ts` "is no full branch name"、"starts from HEAD"、"when git times out" | 已覆盖 |
+| 右栏默认标签：有未提交改动或领先基线的提交时是"更改"；开着的面板守住打开时的默认，关上才放开；胶囊按面板实际所在的标签决定转到"更改"还是关上 | `packages/ui/src/files/right-panel.browser.test.tsx` "for commits ahead of the base"；`packages/ui/src/state/workspace-views.test.ts` "the open panel holds"；`packages/ui/src/chat/chat.browser.test.tsx` "turns a panel that opened at 文件 to 更改" | 已覆盖 |
+| 文件树：一个目录先发的读后回来不盖掉后读的；刷新只读展开且看得见的目录，折起的里面的等它再露出来才读，露出来时立刻读 | `right-panel.browser.test.tsx` "keeps a directory's latest listing"、"only the expanded directories showing"、"only as it shows"；`packages/ui/src/files/trees.test.ts`（`shownDirs`） | 已覆盖 |
+| 查看标签的滚动位置和换行按标签记：切走切回不变，关掉（或预览被换掉）就忘；文件读回来之前切走不改记下的位置；别的工作区同路径的文件各读各的；"改动"标签被要求去某个文件时去那里 | `workspace-views.test.ts` "viewer places"；`chat.browser.test.tsx` "keeps each viewer tab's scroll and wrapping"、"reads a file afresh in another workspace"；`packages/ui/src/files/file-viewer.browser.test.tsx` "before the file reads"；`packages/ui/src/files/diff-viewer.browser.test.tsx` "where it was left"、"rather than where it was left" | 已覆盖 |
+| 从搜索、收件箱、"历史"点一个会话（哪怕就是当前的）把它显示到查看标签前面；宿主换了激活会话时同样；查看标签盖着时不把会话的错误标为看过 | `packages/ui/src/app/workbench.browser.test.tsx` "chosen in the search, the inbox or 历史"、"when the host makes another active"、"only once no viewer tab is over it" | 已覆盖 |
+| 文件标签显示时也订阅 diff（关面板时） | `chat.browser.test.tsx` "watches the diff while a file tab shows" | 已覆盖 |
+| "改动"标签：重新发来的 diff 改了某个文件时，这个文件先无色显示新内容，再重新上色 | `diff-viewer.browser.test.tsx` "colours a file again once a diff sent again changes it" | 已覆盖 |
+| 一次运行结束即使同时另一个会话开始跑也算结束（文件树、文件标签重读） | `packages/ui/src/files/use-diff.browser.test.tsx` "as another starts" | 已覆盖 |
+| 上色 worker 出错：等着的文本无色返回，下一次另起一个 worker | `packages/ui/src/files/highlight.browser.test.ts` | 已覆盖 |
+| 文件图标和语言只认表里自己的条目，`constructor`、`__proto__` 这类名字不算 | `packages/ui/src/files/file-icons.test.ts`、`packages/ui/src/files/languages.test.ts` "nor by an object's own members" | 已覆盖 |
 
 ## 安全（security.md）
 

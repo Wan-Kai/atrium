@@ -143,6 +143,27 @@ function holding(held: string) {
 }
 
 /**
+ * Lists the top directory as `old.md` the first time, answering only when let go, and as `new.md`
+ * after.
+ *
+ * @sideEffects none
+ * @returns How to list, and how to let the first answer go.
+ */
+function lateFirst() {
+  const gate = Promise.withResolvers<void>();
+  let reads = 0;
+  return {
+    listDir: async (): Promise<CommandResult<"list_dir">> => {
+      reads += 1;
+      const first = reads === 1;
+      await (first ? gate.promise : undefined);
+      return { entries: [{ name: first ? "old.md" : "new.md", kind: "file" }], truncated: false };
+    },
+    release: () => gate.resolve(),
+  };
+}
+
+/**
  * The colour of a row's changed dot.
  *
  * @sideEffects none
@@ -165,6 +186,12 @@ describe("RightPanel's tabs", () => {
 
     await expect.element(clean.screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
     await expect.element(clean.screen.getByRole("tab", { name: "更改" })).toHaveTextContent("更改");
+  });
+
+  it("opens at 更改 for commits ahead of the base, though without a branch there are no counts", async () => {
+    const { screen } = await panel({ changes: { ...DIRTY, stat: null, dirty: false, ahead: 2 } });
+
+    await expect.element(screen.getByRole("tab", { name: /更改/ })).toHaveAttribute("aria-selected", "true");
   });
 
   it("stays at the tab it opened at while changes come and go", async () => {
@@ -370,13 +397,14 @@ describe("RightPanel's 文件", () => {
 
   it("restores what was expanded five levels down at most", async () => {
     const storage = memoryStorage();
-    storage.setItem(`atrium.openDirs:${W}`, JSON.stringify(["a/b/c/d/e", "a/b/c/d/e/f"]));
+    const chain = ["a", "a/b", "a/b/c", "a/b/c/d", "a/b/c/d/e", "a/b/c/d/e/f"];
+    storage.setItem(`atrium.openDirs:${W}`, JSON.stringify(chain));
 
     const { calls } = await panel({ changes: null, storage });
 
     await expect
       .poll(() => calls.filter((call) => call.startsWith("listDir")).toSorted())
-      .toStrictEqual([`listDir ${W} `, `listDir ${W} a/b/c/d/e`]);
+      .toStrictEqual(["", ...chain.slice(0, 5)].map((path) => `listDir ${W} ${path}`));
   });
 
   it("folds every directory at once", async () => {
@@ -442,6 +470,50 @@ describe("RightPanel's 文件", () => {
     });
 
     await expect.element(failed.screen.getByText("读不了这个工作区的文件")).toBeVisible();
+  });
+
+  it("keeps a directory's latest listing, though an earlier read answers after it", async () => {
+    const { listDir, release } = lateFirst();
+    const { screen } = await panel({ changes: null, listDir });
+    await screen.getByRole("button", { name: "刷新" }).click();
+    await expect.element(screen.getByRole("button", { name: "new.md" })).toBeVisible();
+
+    release();
+    // The late answer has come by the next task.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    await expect.element(screen.getByRole("button", { name: "old.md" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "new.md" }).query()).not.toBeNull();
+  });
+
+  it("reads again on refresh only the expanded directories showing, and those inside a folded one as it shows again", async () => {
+    const { screen, calls } = await panel({ changes: null });
+    await screen.getByRole("button", { name: "src" }).click();
+    await screen.getByRole("button", { name: "chat" }).click();
+    await expect.element(screen.getByRole("button", { name: "a.ts" })).toBeVisible();
+    await screen.getByRole("button", { name: "src" }).click();
+    const reads = () => calls.filter((call) => call.startsWith("listDir"));
+    const before = reads().length;
+
+    await screen.getByRole("button", { name: "刷新" }).click();
+    await expect.poll(() => reads().length).toBe(before + 1);
+    await screen.getByRole("button", { name: "src" }).click();
+
+    await expect.element(screen.getByRole("button", { name: "a.ts" })).toBeVisible();
+    expect(reads().slice(before)).toStrictEqual([`listDir ${W} `]);
+  });
+
+  it("reads a directory kept expanded inside a folded one only as it shows, and then at once", async () => {
+    const storage = memoryStorage();
+    storage.setItem(`atrium.openDirs:${W}`, JSON.stringify(["src/chat"]));
+    const { screen, calls } = await panel({ changes: null, storage });
+    await expect.element(screen.getByRole("button", { name: "src" })).toBeVisible();
+    const before = calls.filter((call) => call.startsWith("listDir"));
+
+    await screen.getByRole("button", { name: "src" }).click();
+
+    await expect.element(screen.getByRole("button", { name: "a.ts" })).toBeVisible();
+    expect(before).toStrictEqual([`listDir ${W} `]);
   });
 
   it("reads every expanded directory again on refresh, at a run's end and when the diff comes again", async () => {

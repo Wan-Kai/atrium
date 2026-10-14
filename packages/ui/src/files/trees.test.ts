@@ -1,6 +1,6 @@
 import type { DiffFile } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
-import { type ChangeNode, changeTree, restoredDirs, sortEntries, treeOrder } from "./trees";
+import { type ChangeNode, changeTree, restoredDirs, shownDirs, sortEntries, treeOrder } from "./trees";
 
 /**
  * A changed file.
@@ -137,5 +137,11 @@ describe("sortEntries", () => {
 describe("restoredDirs", () => {
   it("keeps the expanded directories at most five levels down", () => {
     expect([...restoredDirs(["a", "a/b/c/d/e", "a/b/c/d/e/f", "x/y"])]).toStrictEqual(["a", "a/b/c/d/e", "x/y"]);
+  });
+});
+
+describe("shownDirs", () => {
+  it("keeps the expanded directories whose every parent is expanded", () => {
+    expect(shownDirs(new Set(["a", "a/b", "a/b/c", "x/y", "a/q/r", "m"]))).toStrictEqual(["a", "a/b", "a/b/c", "m"]);
   });
 });

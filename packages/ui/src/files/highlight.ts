@@ -19,33 +19,59 @@ export interface HighlightReply {
   readonly texts: readonly TokenLines[] | null;
 }
 
-let worker: Worker | null = null;
-let next = 0;
-const waiting = new Map<number, (texts: readonly TokenLines[] | null) => void>();
-
 /**
- * The page's highlighting worker, started on first use.
+ * A way to colour texts of a file through a highlighting worker, started on first use.
  *
  * @remarks
- * One for the page, kept for its life, as Shiki's grammars are worth keeping loaded. Should it
- * fail, every text waiting goes without colours.
+ * One worker at a time, kept while it works, as Shiki's grammars are worth keeping loaded. Should
+ * it fail, every text waiting goes without colours, and the next texts start another: what the
+ * failed one holds is not known.
  *
- * @sideEffects Starts the worker the first time.
- * @returns The worker.
+ * @sideEffects none until used; see `highlight`.
+ * @param start - Starts a worker.
+ * @returns The way to colour, as `highlight`.
  */
-function highlighter(): Worker {
-  if (worker !== null) return worker;
-  const started = new Worker(new URL("./highlight.worker.ts", import.meta.url), { type: "module" });
-  started.addEventListener("message", (event: MessageEvent<HighlightReply>) => {
-    waiting.get(event.data.id)?.(event.data.texts);
-    waiting.delete(event.data.id);
-  });
-  started.addEventListener("error", () => {
-    for (const settle of waiting.values()) settle(null);
-    waiting.clear();
-  });
-  worker = started;
-  return started;
+export function createHighlighter(
+  start: () => Worker,
+): (path: string, texts: readonly string[]) => Promise<readonly TokenLines[] | null> {
+  let worker: Worker | null = null;
+  let next = 0;
+  const waiting = new Map<number, (texts: readonly TokenLines[] | null) => void>();
+
+  /**
+   * The worker, started when there is none.
+   *
+   * @remarks
+   * See `createHighlighter`.
+   *
+   * @sideEffects Starts a worker when there is none.
+   * @returns The worker.
+   */
+  const highlighter = (): Worker => {
+    if (worker !== null) return worker;
+    const started = start();
+    started.addEventListener("message", (event: MessageEvent<HighlightReply>) => {
+      waiting.get(event.data.id)?.(event.data.texts);
+      waiting.delete(event.data.id);
+    });
+    started.addEventListener("error", () => {
+      started.terminate();
+      if (worker === started) worker = null;
+      for (const settle of waiting.values()) settle(null);
+      waiting.clear();
+    });
+    worker = started;
+    return started;
+  };
+
+  return (path, texts) => {
+    const id = next++;
+    return new Promise((settle) => {
+      waiting.set(id, settle);
+      const request: HighlightRequest = { id, path, texts };
+      highlighter().postMessage(request);
+    });
+  };
 }
 
 /**
@@ -53,21 +79,17 @@ function highlighter(): Worker {
  *
  * @remarks
  * SPEC-0001 ("M1.12 的文件与更改 · 查看标签"): as the file's language, by its name (`languageOf`).
- * Several texts go at once, as a diff's hunk sides do, to save the trips.
+ * Several texts go at once, as a diff's hunk sides do, to save the trips. One worker for the page
+ * (`createHighlighter`).
  *
- * @sideEffects Starts the worker the first time; posts it the texts.
+ * @sideEffects Starts the worker the first time, and again after it fails; posts it the texts.
  * @param path - The file's path, for its language.
  * @param texts - The texts, each without a last line break.
  * @returns Each text's lines of tokens, or `null` when the language is not known or it failed.
  */
-export function highlight(path: string, texts: readonly string[]): Promise<readonly TokenLines[] | null> {
-  const id = next++;
-  return new Promise((settle) => {
-    waiting.set(id, settle);
-    const request: HighlightRequest = { id, path, texts };
-    highlighter().postMessage(request);
-  });
-}
+export const highlight = createHighlighter(
+  () => new Worker(new URL("./highlight.worker.ts", import.meta.url), { type: "module" }),
+);
 
 /**
  * A token's colours as a style: CSS picks the appearance's (`.code-tokens` in `styles.css`).

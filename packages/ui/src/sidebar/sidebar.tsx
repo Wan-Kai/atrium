@@ -158,13 +158,14 @@ function readCollapsed(): ReadonlySet<string> {
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
  * projects and the inbox's card in `localStorage`.
- * @param props - The client, how to start a new chat, how to choose a folder, how to open the
- * settings, the new-workspace page, and whether the sidebar is folded.
+ * @param props - The client, how to start a new chat, how to show a session chosen, how to choose
+ * a folder, how to open the settings, the new-workspace page, and whether the sidebar is folded.
  * @returns The sidebar.
  */
 export function Sidebar({
   client,
   onNewChat,
+  showSession = noShow,
   pickDirectory,
   onSettings,
   page,
@@ -172,6 +173,11 @@ export function Sidebar({
 }: {
   readonly client: AtriumClient;
   readonly onNewChat: () => void;
+  /**
+   * Brings a session chosen in the search or the inbox forward in its container, over a viewer
+   * tab, before it opens (SPEC-0001, "M1.12 的文件与更改 · 查看标签").
+   */
+  readonly showSession?: (session: SessionSummary) => void;
   /** Asks the user for a folder; `undefined` where the app cannot ask. */
   readonly pickDirectory: (() => Promise<string | null>) | undefined;
   readonly onSettings: () => void;
@@ -301,7 +307,7 @@ export function Sidebar({
               </div>
             ) : null}
             {query.trim() !== "" ? (
-              <SearchResults client={client} index={index} query={query.trim()} now={now} />
+              <SearchResults client={client} index={index} query={query.trim()} now={now} showSession={showSession} />
             ) : (
               <>
                 {index.projects.map((project) => (
@@ -337,7 +343,7 @@ export function Sidebar({
               </>
             )}
           </div>
-          <Inbox client={client} index={index} now={now} />
+          <Inbox client={client} index={index} now={now} showSession={showSession} />
           <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
             <button
               type="button"
@@ -390,6 +396,18 @@ const LeavePage = createContext<() => void>(() => undefined);
  * @sideEffects none
  */
 function stay(): void {
+  // Nothing: see above.
+}
+
+/**
+ * Shows nothing more of a session chosen than opening it does.
+ *
+ * @remarks
+ * For a sidebar given no viewer tabs to bring a session over.
+ *
+ * @sideEffects none
+ */
+function noShow(): void {
   // Nothing: see above.
 }
 
@@ -1018,7 +1036,7 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
  * line.
  *
  * @sideEffects Sends commands when used.
- * @param props - The client, the list, the query and the time now.
+ * @param props - The client, the list, the query, the time now, and how to show a session chosen.
  * @returns The results.
  */
 function SearchResults({
@@ -1026,11 +1044,13 @@ function SearchResults({
   index,
   query,
   now,
+  showSession,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly query: string;
   readonly now: number;
+  readonly showSession: (session: SessionSummary) => void;
 }) {
   const leave = use(LeavePage);
   const needle = query.toLowerCase();
@@ -1054,6 +1074,7 @@ function SearchResults({
    */
   const open = (session: SessionSummary) => {
     leave();
+    showSession(session);
     // Fire and forget: opening shows the session or its failure there.
     void client.openSession(session.sessionId).catch(() => undefined);
   };
@@ -1189,17 +1210,19 @@ function SessionLine({
  *
  * @sideEffects Sends `open_session` when a row is clicked; remembers the card opened or folded in
  * `localStorage`.
- * @param props - The client, the list and the time now.
+ * @param props - The client, the list, the time now, and how to show a session chosen.
  * @returns The inbox, or nothing.
  */
 function Inbox({
   client,
   index,
   now,
+  showSession,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly now: number;
+  readonly showSession: (session: SessionSummary) => void;
 }) {
   const [open, setOpen] = useState(() => localStorage.getItem(INBOX_OPEN_KEY) === "true");
   const [expanded, setExpanded] = useState(false);
@@ -1233,6 +1256,7 @@ function Inbox({
             testId="inbox-row"
             onOpen={() => {
               leave();
+              showSession(session);
               // Fire and forget: opening shows the session or its failure there.
               void client.openSession(session.sessionId).catch(() => undefined);
             }}

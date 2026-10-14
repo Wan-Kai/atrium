@@ -1,6 +1,6 @@
 import type { AtriumClient, ChangesView, DiffView } from "@atrium/client";
 import type { DiffMode } from "@atrium/protocol";
-import { type KeyboardEvent, type ReactNode, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { splitPath } from "../chat/changes";
 import { FileDiff, Files, X } from "../design/icons";
@@ -9,6 +9,7 @@ import {
   type WorkspaceViews,
   chooseDiff,
   choosePanelTab,
+  holdPanelDefault,
   openDiff,
   openFile,
   panelTabOf,
@@ -43,18 +44,20 @@ function useComings(value: unknown): number {
  *
  * @remarks
  * SPEC-0001 ("M1.12 的文件与更改 · 右栏"): a workspace that never chose a tab opens at 更改 when
- * it has changes, at 文件 when not; the tab then stays while changes come and go.
+ * it has changes, at 文件 when not; the tab then stays while changes come and go. Changes are
+ * what is not committed, or commits ahead of the base: the counts are only there with a branch
+ * and a base.
  *
  * @sideEffects none
  * @param changes - The workspace's changes, `null` until known.
- * @returns Whether it had changes; `false` until known.
+ * @returns Whether it had changes; `null` until known.
  */
-function useOpenedChanged(changes: ChangesView): boolean {
-  const known = changes === null ? null : changes.stat !== null;
+function useOpenedChanged(changes: ChangesView): boolean | null {
+  const known = changes === null ? null : changes.dirty || changes.ahead > 0;
   const [opened, setOpened] = useState(known);
   // Adjusting state while rendering, as React advises for state that follows other values.
   if (opened === null && known !== null) setOpened(known);
-  return opened ?? false;
+  return opened;
 }
 
 /**
@@ -104,10 +107,12 @@ function PanelTabButton({
  * SPEC-0001 ("M1.12 的文件与更改 · 右栏"), as Paseo's: two tabs, the one chosen kept by workspace,
  * and a close button. What a tree opens shows in a viewer tab. The conversation area watches the
  * diff (`useDiffWatch`); while the panel closes, it is no longer watched and the panel keeps
- * showing the last one it had. Esc inside the panel closes it.
+ * showing the last one it had. Esc inside the panel closes it. While open it holds the tab it
+ * opened at (`holdPanelDefault`), so the capsule knows where it is.
  *
- * @sideEffects Subscribes to the client and the views; through its tabs, reads directories and
- * reads and writes the views' storage; may ask for the diff again.
+ * @sideEffects Subscribes to the client and the views; holds its default tab in the views while
+ * mounted; through its tabs, reads directories and reads and writes the views' storage; may ask
+ * for the diff again.
  * @param props - The client, the workspace, the workspace views, and how to close.
  * @returns The panel.
  */
@@ -125,7 +130,12 @@ export function RightPanel({
   const changes = useStore(client.changes(workspaceId));
   const mode = useDiffMode(client, views, workspaceId);
   const changed = useOpenedChanged(changes);
-  const tab = useStore(views, (state) => panelTabOf(state, workspaceId, changed));
+  const tab = useStore(views, (state) => panelTabOf(state, workspaceId, changed ?? false));
+  useEffect(() => {
+    if (changed === null) return undefined;
+    holdPanelDefault(views, workspaceId, changed ? "changes" : "files");
+    return () => holdPanelDefault(views, workspaceId, null);
+  }, [views, workspaceId, changed]);
   const view = useStore(views, (state) => viewOf(state, workspaceId));
   const storage = useStore(views, (state) => state.storage);
   const dir = useStore(client.index, (index) => index.workspaces.find((one) => one.id === workspaceId)?.dir ?? "");

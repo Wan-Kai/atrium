@@ -12,7 +12,10 @@ import {
   keptPathsKey,
   openDiff,
   openFile,
+  holdPanelDefault,
+  keepPlace,
   panelTabOf,
+  placeOf,
   pinViewer,
   revealed,
   showViewer,
@@ -224,6 +227,41 @@ describe("closeViewer", () => {
   });
 });
 
+describe("viewer places", () => {
+  it("keeps where each open tab was left, from the top and not wrapping at first", () => {
+    const { store, view } = views();
+    openFile(store, W, "a.ts", true);
+    openDiff(store, W, null);
+    const first = placeOf(view(), "file:a.ts");
+
+    keepPlace(store, W, "file:a.ts", { scrollTop: 120 });
+    keepPlace(store, W, "file:a.ts", { wrap: true });
+    keepPlace(store, W, "diff", { wrap: true });
+
+    expect([first, placeOf(view(), "file:a.ts"), placeOf(view(), "diff"), placeOf(view(), "toString")]).toStrictEqual([
+      { scrollTop: 0, wrap: false },
+      { scrollTop: 120, wrap: true },
+      { scrollTop: 0, wrap: true },
+      { scrollTop: 0, wrap: false },
+    ]);
+  });
+
+  it("forgets a tab's place as it closes or another preview takes its place, keeping none for a tab not open", () => {
+    const { store, view } = views();
+    openFile(store, W, "a.ts", false);
+    openFile(store, W, "b.ts", true);
+    keepPlace(store, W, "file:a.ts", { scrollTop: 120 });
+    keepPlace(store, W, "file:b.ts", { scrollTop: 80 });
+
+    openFile(store, W, "c.ts", false);
+    const replaced = view().places;
+    closeViewer(store, W, "file:b.ts", []);
+    keepPlace(store, W, "file:b.ts", { scrollTop: 40 });
+
+    expect([replaced, view().places]).toStrictEqual([{ "file:b.ts": { scrollTop: 80, wrap: false } }, {}]);
+  });
+});
+
 describe("revealed", () => {
   it("marks going to the file done, keeping which file, and does nothing with none asked", () => {
     const { store, view } = views();
@@ -274,6 +312,24 @@ describe("panel tab", () => {
     choosePanelTab(store, W, "changes");
 
     expect([before, files, panelTabOf(store.getState(), W, false)]).toStrictEqual(["changes", "files", "changes"]);
+  });
+
+  it("is the one the open panel holds until it lets go, unless one is chosen, by workspace", () => {
+    const { store } = views();
+    holdPanelDefault(store, W, "files");
+    holdPanelDefault(store, "wks_0000000000000002", "changes");
+    const held = [panelTabOf(store.getState(), W, true), panelTabOf(store.getState(), "wks_0000000000000002", false)];
+    choosePanelTab(store, "wks_0000000000000002", "files");
+    const chosen = panelTabOf(store.getState(), "wks_0000000000000002", false);
+
+    holdPanelDefault(store, W, null);
+
+    expect([held, chosen, panelTabOf(store.getState(), W, true)]).toStrictEqual([
+      ["files", "changes"],
+      "files",
+      "changes",
+    ]);
+    expect(store.getState().panelDefaults).toStrictEqual({ wks_0000000000000002: "changes" });
   });
 
   it("reads a kept value that names no tab as none", () => {

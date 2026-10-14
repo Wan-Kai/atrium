@@ -56,11 +56,18 @@ describe("languageOf", () => {
     ).toStrictEqual(known);
   });
 
-  it("knows none for a file without an extension, or one no language has", () => {
+  it("knows none for a file without an extension, or one no language has, nor by an object's own members", () => {
     expect(
-      ["LICENSE", "notes.txt", "a.lock", "dir.d/plain", "bin/python"].map((path) =>
-        languageOf(path, bundledLanguagesInfo),
-      ),
-    ).toStrictEqual([null, null, null, null, null]);
+      [
+        "LICENSE",
+        "notes.txt",
+        "a.lock",
+        "dir.d/plain",
+        "bin/python",
+        "constructor",
+        "a.constructor",
+        "a.__proto__",
+      ].map((path) => languageOf(path, bundledLanguagesInfo)),
+    ).toStrictEqual([null, null, null, null, null, null, null, null]);
   });
 });

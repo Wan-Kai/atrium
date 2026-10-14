@@ -7,8 +7,8 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
-import { memoryStorage } from "../state/panes";
-import { createWorkspaceViews, openDiff, openFile, showViewer } from "../state/workspace-views";
+import { createPanes, memoryStorage } from "../state/panes";
+import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer } from "../state/workspace-views";
 import { pageNotices, showNotice } from "../state/session-notices";
 import { caughtDownloads } from "../test/downloads";
 import { fakeClient, session } from "../test/fake-client";
@@ -1961,6 +1961,13 @@ describe("ConversationArea's images", () => {
 
 describe("ConversationArea's workspace changes", () => {
   const W = "wks_0000000000000001";
+  /** Another workspace. */
+  const OTHER_W = "wks_0000000000000002";
+  /** A file of 200 numbered lines. */
+  const LONG_FILE = {
+    size: 2000,
+    content: { kind: "text" as const, text: Array.from({ length: 200 }, (_, line) => `line ${line}`).join("\n") },
+  };
   // A window's width, so the panel opens beside the conversation rather than over it.
   beforeEach(() => page.viewport(1280, 800));
   const changed = { stat: { added: 1234, removed: 3 }, dirty: true, ahead: 0, branch: "feat", base: "origin/main" };
@@ -2055,6 +2062,33 @@ describe("ConversationArea's workspace changes", () => {
     await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).not.toBeInTheDocument();
   });
 
+  it("turns a panel that opened at 文件 to 更改 from the capsule once changes come, rather than closing it", async () => {
+    const { client } = fakeClient();
+    client.changes(W).setState({ ...changed, stat: { added: 0, removed: 0 }, dirty: false });
+    const panes = createPanes(memoryStorage());
+    const views = createWorkspaceViews(memoryStorage());
+    const screen = await render(
+      tall(
+        <ConversationArea
+          client={client}
+          containerId={W}
+          sessionId="s1"
+          create={noCreate}
+          panes={panes}
+          views={views}
+        />,
+      ),
+    );
+    panes.getState().setPanelOpen(true);
+    await expect.element(screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
+    client.changes(W).setState(changed);
+
+    await screen.getByRole("button", { name: "查看改动" }).click();
+
+    await expect.element(screen.getByRole("tab", { name: /更改/ })).toHaveAttribute("aria-selected", "true");
+    expect(panes.getState().panelOpen).toBe(true);
+  });
+
   it("watches the diff while the 改动 tab shows, the panel closed, and stops once it goes", async () => {
     const { client, changeCalls } = fakeClient();
     client.changes(W).setState(changed);
@@ -2065,6 +2099,27 @@ describe("ConversationArea's workspace changes", () => {
     await vi.waitFor(() => expect(changeCalls).toStrictEqual([`watchChanges ${W}`]));
 
     openDiff(views, W, null);
+    await vi.waitFor(() => expect(changeCalls.at(-1)).toBe(`watchDiff ${W} uncommitted`));
+    showViewer(views, W, null);
+
+    await vi.waitFor(() =>
+      expect(changeCalls).toStrictEqual([`watchChanges ${W}`, `watchDiff ${W} uncommitted`, "watchDiff null"]),
+    );
+  });
+
+  it("watches the diff while a file tab shows, the panel closed, and stops once it goes", async () => {
+    const { client, changeCalls } = fakeClient(
+      {},
+      { readFile: async () => ({ size: 6, content: { kind: "text" as const, text: "hello\n" } }) },
+    );
+    client.changes(W).setState(changed);
+    const views = createWorkspaceViews(memoryStorage());
+    await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    await vi.waitFor(() => expect(changeCalls).toStrictEqual([`watchChanges ${W}`]));
+
+    openFile(views, W, "src/a.ts", false);
     await vi.waitFor(() => expect(changeCalls.at(-1)).toBe(`watchDiff ${W} uncommitted`));
     showViewer(views, W, null);
 
@@ -2092,6 +2147,63 @@ describe("ConversationArea's workspace changes", () => {
     showViewer(views, W, null);
 
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+  });
+
+  it("keeps each viewer tab's scroll and wrapping as it switches away and back, forgetting them once it closes", async () => {
+    const { client } = fakeClient({}, { readFile: async () => LONG_FILE });
+    const views = createWorkspaceViews(memoryStorage());
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    const wrap = screen.getByRole("button", { name: "换行" });
+    openFile(views, W, "src/a.ts", true);
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    screen.getByTestId("viewer-body").element().scrollTop = 400;
+    await wrap.click();
+    await expect.element(wrap).toHaveAttribute("aria-pressed", "true");
+    // Wrapping moves the lines a little under the scroll.
+    const left = screen.getByTestId("viewer-body").element().scrollTop;
+    openFile(views, W, "src/b.ts", true);
+    await expect.element(screen.getByRole("region", { name: "src/b.ts" })).toBeInTheDocument();
+    const other = [screen.getByTestId("viewer-body").element().scrollTop, wrap.element().ariaPressed];
+
+    showViewer(views, W, "file:src/a.ts");
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    const back = [left > 350, screen.getByTestId("viewer-body").element().scrollTop, wrap.element().ariaPressed];
+    closeViewer(views, W, "file:src/a.ts", ["s1"]);
+    await expect.element(screen.getByRole("region", { name: "src/a.ts" })).not.toBeInTheDocument();
+    openFile(views, W, "src/a.ts", true);
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+
+    expect([
+      other,
+      back,
+      [screen.getByTestId("viewer-body").element().scrollTop, wrap.element().ariaPressed],
+    ]).toStrictEqual([
+      [0, "false"],
+      [true, left, "true"],
+      [0, "false"],
+    ]);
+  });
+
+  it("reads a file afresh in another workspace with the same file open, from that tab's own place", async () => {
+    const { client, calls } = fakeClient({}, { readFile: async () => LONG_FILE });
+    const views = createWorkspaceViews(memoryStorage());
+    openFile(views, W, "src/a.ts", true);
+    openFile(views, OTHER_W, "src/a.ts", true);
+    const drawn = (containerId: string) =>
+      tall(
+        <ConversationArea client={client} containerId={containerId} sessionId={null} create={noCreate} views={views} />,
+      );
+    const screen = await render(drawn(W));
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    screen.getByTestId("viewer-body").element().scrollTop = 400;
+
+    await screen.rerender(drawn(OTHER_W));
+
+    await vi.waitFor(() => expect(calls).toContain(`readFile ${OTHER_W} src/a.ts`));
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    expect(screen.getByTestId("viewer-body").element().scrollTop).toBe(0);
   });
 });
 

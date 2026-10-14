@@ -102,8 +102,8 @@ export function useDiffWatch(
  * A count that goes up each time a run in a workspace ends.
  *
  * @remarks
- * The files tree and a file tab read again then (SPEC-0001, "M1.12 的文件与更改"): fewer of the
- * workspace's sessions are running than before.
+ * The files tree and a file tab read again then (SPEC-0001, "M1.12 的文件与更改"): a session of
+ * the workspace that was running is not any more, though another may have started meanwhile.
  *
  * @sideEffects Subscribes to the client's list.
  * @param client - The client.
@@ -111,12 +111,19 @@ export function useDiffWatch(
  * @returns The count, 0 at first.
  */
 export function useRunEnds(client: AtriumClient, workspaceId: string): number {
-  const running = useStore(
-    client.index,
-    (index) => index.sessions.filter((session) => session.containerId === workspaceId && session.running).length,
+  // The running sessions' ids, one a line: text, so the list sent again with the same ones is the same.
+  const running = useStore(client.index, (index) =>
+    index.sessions
+      .filter((session) => session.containerId === workspaceId && session.running)
+      .map((session) => session.sessionId)
+      .join("\n"),
   );
   const [seen, setSeen] = useState({ running, ends: 0 });
-  // Adjusting state while rendering, as React advises for state that follows other values.
-  if (running !== seen.running) setSeen({ running, ends: seen.ends + Number(running < seen.running) });
+  if (running !== seen.running) {
+    const now = new Set(running.split("\n"));
+    const ended = seen.running !== "" && seen.running.split("\n").some((id) => !now.has(id));
+    // Adjusting state while rendering, as React advises for state that follows other values.
+    setSeen({ running, ends: seen.ends + Number(ended) });
+  }
   return seen.ends;
 }

@@ -54,4 +54,22 @@ describe("useRunEnds", () => {
 
     await expect.element(said).toHaveTextContent("1:1");
   });
+
+  it("counts a run ending as another starts, from none running", async () => {
+    const { client, index } = fakeClient({ sessions: [session({ sessionId: "s1", containerId: W, running: false })] });
+    const screen = await render(<Ends client={client} />);
+    const said = screen.getByRole("paragraph");
+    await expect.element(said).toHaveTextContent("0:0");
+    index.setState({ sessions: [session({ sessionId: "s1", containerId: W, running: true })] });
+    await expect.element(said).toHaveTextContent("1:0");
+
+    index.setState({
+      sessions: [
+        session({ sessionId: "s1", containerId: W, running: false }),
+        session({ sessionId: "s2", containerId: W, running: true }),
+      ],
+    });
+
+    await expect.element(said).toHaveTextContent("1:1");
+  });
 });

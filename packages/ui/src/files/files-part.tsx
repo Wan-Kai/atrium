@@ -8,7 +8,7 @@ import { CenterNote } from "./diff-parts";
 import { ROW_BUTTON } from "./changes-part";
 import { FileIcon } from "./file-icon";
 import { TreeArrow, TreeRow } from "./tree-row";
-import { restoredDirs, sortEntries } from "./trees";
+import { restoredDirs, shownDirs, sortEntries } from "./trees";
 
 /** A directory as read: its entries sorted, or that it could not be read. */
 type Listing = { readonly entries: readonly DirEntry[]; readonly truncated: boolean } | "failed";
@@ -34,7 +34,8 @@ function joinPath(dir: string, name: string): string {
  *
  * @remarks
  * SPEC-0001 ("M1.12 的文件与更改 · 文件"): read again, a directory that reads the same is left as
- * it was, so nothing redraws. One that cannot be read lists nothing.
+ * it was, so nothing redraws. One that cannot be read lists nothing. Only a directory's latest
+ * read counts: an earlier one answering late would put back what it read before.
  *
  * @sideEffects Sends `list_dir`; updates component state as answers come, until unmounted.
  * @param client - The client.
@@ -45,6 +46,8 @@ function useListings(client: AtriumClient, workspaceId: string) {
   const [listings, setListings] = useState<ReadonlyMap<string, Listing>>(new Map());
   const [reading, setReading] = useState<ReadonlySet<string>>(new Set());
   const mounted = useRef(true);
+  // How many times each directory was read: an answer counts only if it is to the latest.
+  const asked = useRef(new Map<string, number>());
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -54,9 +57,11 @@ function useListings(client: AtriumClient, workspaceId: string) {
   const read = useCallback(
     (paths: Iterable<string>) => {
       for (const path of paths) {
+        const turn = (asked.current.get(path) ?? 0) + 1;
+        asked.current.set(path, turn);
         setReading((now) => new Set([...now, path]));
         /**
-         * Keeps a directory's listing, unless it reads as before.
+         * Keeps a directory's listing, unless it reads as before or was read again since.
          *
          * @remarks
          * See `useListings`.
@@ -65,7 +70,7 @@ function useListings(client: AtriumClient, workspaceId: string) {
          * @param listing - The listing.
          */
         const arrived = (listing: Listing): void => {
-          if (!mounted.current) return;
+          if (!mounted.current || asked.current.get(path) !== turn) return;
           setReading((now) => new Set([...now].filter((each) => each !== path)));
           setListings((now) =>
             JSON.stringify(now.get(path)) === JSON.stringify(listing) ? now : new Map([...now, [path, listing]]),
@@ -88,8 +93,9 @@ function useListings(client: AtriumClient, workspaceId: string) {
  * @remarks
  * SPEC-0001 ("M1.12 的文件与更改 · 文件"). Each directory is read the first time it expands, its
  * arrow a spinner meanwhile; what is expanded is kept by workspace and expands again, five levels
- * down at most. Every directory expanded reads again on refresh, at a run's end and when the diff
- * comes again (`refreshes` counts these). A changed file has a dot: green when new, orange
+ * down at most. Every directory expanded and showing reads again on refresh, at a run's end and
+ * when the diff comes again (`refreshes` counts these); one inside a folded directory reads as it
+ * shows again, if it never read. A changed file has a dot: green when new, orange
  * otherwise. A click opens a file in the preview tab, a double click pins it; a link opens too, to
  * say it is one.
  *
@@ -121,13 +127,13 @@ export function FilesPart({
   const [open, setOpen] = useState(() => restoredDirs(keptPaths(storage, key)));
   const { listings, reading, read } = useListings(client, workspaceId);
   const [asked, setAsked] = useState(0);
-  // Every directory expanded, read on first showing and again on each refresh asked for.
+  // Every directory expanded, those showing read on first showing and again on each refresh asked for.
   const expanded = useRef(open);
   useEffect(() => {
     expanded.current = open;
   });
   useEffect(() => {
-    read(["", ...expanded.current]);
+    read(["", ...shownDirs(expanded.current)]);
     // Read again on each refresh (SPEC-0001, "M1.12 的文件与更改 · 文件").
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- see above.
   }, [read, refreshes, asked]);
@@ -145,7 +151,8 @@ export function FilesPart({
   const toggle = (path: string): void => {
     const next = new Set(open);
     if (!next.delete(path)) next.add(path);
-    if (next.has(path) && !listings.has(path)) read([path]);
+    // It, and what was expanded inside it, if never read.
+    read(shownDirs(next).filter((dir) => (dir === path || dir.startsWith(`${path}/`)) && !listings.has(dir)));
     keepPaths(storage, key, next);
     setOpen(next);
   };

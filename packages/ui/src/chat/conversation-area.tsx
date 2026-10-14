@@ -523,7 +523,8 @@ export function ConversationArea({
   );
   const panelOpen = useStore(panes, (state) => state.panelOpen);
   const viewer = useStore(views, (state) => (workspaceId === null ? NO_VIEW : viewOf(state, workspaceId)).active);
-  useDiffWatch(client, views, workspaceId, workspaceId !== null && (panelOpen || viewer === "diff"));
+  // A file tab's counts and its reading again as its diff changes want the diff too.
+  useDiffWatch(client, views, workspaceId, workspaceId !== null && (panelOpen || viewer !== null));
   /**
    * The capsule's counts, and what clicking it does: open the panel at 更改, or close it when it
    * shows 更改 already (SPEC-0001, "M1.12 的文件与更改 · 右栏").
@@ -535,7 +536,8 @@ export function ConversationArea({
           stat: changes.stat,
           open: panelOpen,
           onToggle: () => {
-            const onChanges = panelTabOf(views.getState(), workspaceId, true) === "changes";
+            // An open panel holds the tab it shows; a closed one opens at 更改 all the same.
+            const onChanges = panelTabOf(views.getState(), workspaceId, false) === "changes";
             choosePanelTab(views, workspaceId, "changes");
             panes.getState().setPanelOpen(!(panelOpen && onChanges));
           },
@@ -934,7 +936,14 @@ export function ConversationArea({
     <div className="relative flex min-h-0 flex-1 overflow-x-clip">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {workspaceId !== null && viewer !== null ? (
-          <ActiveViewer client={client} workspaceId={workspaceId} views={views} viewerKey={viewer} />
+          <ActiveViewer
+            // A tab's reading, scroll and wrapping are its own, in each workspace.
+            key={`${workspaceId}\n${viewer}`}
+            client={client}
+            workspaceId={workspaceId}
+            views={views}
+            viewerKey={viewer}
+          />
         ) : store === undefined || sessionId === null ? (
           <>
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
