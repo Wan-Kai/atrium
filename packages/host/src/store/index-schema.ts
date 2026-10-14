@@ -27,11 +27,17 @@ const WorkspaceRecord = z.looseObject({
   baseCommit: z.string().nullable(),
   external: z.boolean(),
   /**
-   * When it was archived and what it had checked out then; absent or `null` when it is not
-   * (SPEC-0001, "M1.11 的工作区归档"). Added without a new version: older files have none.
+   * When it was archived, what it had checked out then and the sessions archived with it; absent
+   * or `null` when it is not (SPEC-0001, "M1.11 的工作区归档"). Added without a new version: older
+   * files have none, and older archives no sessions.
    */
   archived: z
-    .strictObject({ at: z.number(), branch: z.string().nullable(), head: z.string().nullable() })
+    .strictObject({
+      at: z.number(),
+      branch: z.string().nullable(),
+      head: z.string().nullable(),
+      sessions: z.array(z.string()).optional(),
+    })
     .nullable()
     .optional(),
 });

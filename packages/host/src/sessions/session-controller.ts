@@ -157,6 +157,13 @@ export interface SessionController {
    * turn, or `null` after the last turn (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
    */
   forkPoint(turnId: string): string | null;
+  /**
+   * Keeps the session busy while a fork reads its file, until the release given is called:
+   * messages queue, and compacting or forking again is refused.
+   */
+  holdForFork(): () => void;
+  /** Whether a fork reads the session's file; the session counts as busy meanwhile. */
+  readonly forking: boolean;
   /** Stops pi for good, as the host asks (archiving, closing): no restart follows. */
   shutdown(): Promise<void>;
 }
@@ -491,6 +498,8 @@ export function createSessionController(options: {
   /** The stop in progress, shared by every caller until pi confirms or exits. */
   let stopping: Promise<CommandResult<"stop">> | null = null;
   let compacting = false;
+  /** Whether a fork reads the session's file (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"). */
+  let forking = false;
   /** A model was chosen whose result pi has not reported yet; read after the next entries. */
   let choiceToRead = false;
   /** A message on its way to pi, whose disposition has not come back yet. */
@@ -940,13 +949,13 @@ export function createSessionController(options: {
    *
    * @remarks
    * pi takes a message when no run goes on or is about to start, nothing is on its way, it does
-   * not compact, it is not being restarted and it is there.
+   * not compact, no fork reads its file, it is not being restarted and it is there.
    *
    * @sideEffects none
    * @returns Whether the session is idle.
    */
   function idle(): boolean {
-    return run === null && !sending && !starting && !compacting && restarting === null && !exited;
+    return run === null && !sending && !starting && !compacting && !forking && restarting === null && !exited;
   }
 
   /**
@@ -1549,6 +1558,9 @@ export function createSessionController(options: {
     get submitting() {
       return sending || starting;
     },
+    get forking() {
+      return forking;
+    },
     snapshot,
     items: () => transcript.items(),
     attach(started) {
@@ -1759,7 +1771,7 @@ export function createSessionController(options: {
     forkPoint(turnId) {
       // A run, a stop or a compaction still writes the file the fork reads; a pi that has exited
       // writes nothing, and the fork has a pi of its own.
-      if (run !== null || sending || starting || compacting || stopping !== null || restarting !== null) {
+      if (run !== null || sending || starting || compacting || forking || stopping !== null || restarting !== null) {
         throw new CommandError("session_busy");
       }
       const turns = transcript.items().filter((item) => item.kind === "turn");
@@ -1771,6 +1783,14 @@ export function createSessionController(options: {
       const entryId = transcript.entryOfTurn(next.id);
       if (entryId === null) throw new CommandError("turn_not_found");
       return entryId;
+    },
+    holdForFork() {
+      forking = true;
+      return () => {
+        forking = false;
+        // Messages sent meanwhile went to the queue.
+        dispatch();
+      };
     },
     async shutdown() {
       shuttingDown = true;

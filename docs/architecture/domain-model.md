@@ -40,7 +40,7 @@ classDiagram
       alias?
       baseCommit?
       external: bool
-      archived?  归档时间、分支、提交（M1.11）
+      archived?  归档时间、分支、提交，和一起归档的会话（M1.11；会话 2026-10-14 加，早先的没有）
       branch?  [扫描]
       createdAt  [扫描]
       name()  alias 或 branch 或目录名

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { systemClock } from "../platform/clock";
-import { type GitRunner, createGitRunner } from "../platform/git";
+import { GitError, type GitRunner, createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
 import { createProjectService } from "../projects/project-service";
 import { PROJECTS_FILE } from "../store/index-schema";
@@ -95,6 +95,20 @@ async function failure(promise: Promise<unknown>): Promise<{ code: string; param
 }
 
 /**
+ * Real git that times out adding a worktree.
+ *
+ * @sideEffects none until run; then runs git.
+ * @returns The runner.
+ */
+function timingOutWorktree(): GitRunner {
+  const git = realGit();
+  return {
+    run: (args, options) =>
+      args[0] === "worktree" ? Promise.reject(new GitError("worktree", "timeout")) : git.run(args, options),
+  };
+}
+
+/**
  * Real git that notes each command's first two arguments and the time it was given.
  *
  * @sideEffects none until run; then appends to `seen` and runs git.
@@ -119,7 +133,7 @@ describe("createWorktreeCreator: create", () => {
     await repo.commit(repo.repo, "local.txt", "local\n");
     const { create, projects, projectId, refreshed, records } = await creator(repo);
 
-    const workspaceId = await create.create(projectId, "atrium/brave-otter", "origin/main");
+    const workspaceId = await create.create(projectId, "atrium/brave-otter", "refs/remotes/origin/main");
 
     const dir = join(repo.root, "repo.worktrees", "brave-otter");
     expect(projects.workspaces().find((record) => record.id === workspaceId)).toStrictEqual({
@@ -149,7 +163,7 @@ describe("createWorktreeCreator: create", () => {
     // Adding the projects ran git too.
     const before = seen.length;
 
-    await create.create(projectId, "fix", "main");
+    await create.create(projectId, "fix", "refs/heads/main");
 
     expect(seen.slice(before)).toStrictEqual([
       ["rev-parse --show-toplevel", null],
@@ -165,7 +179,7 @@ describe("createWorktreeCreator: create", () => {
     const local = await repo.commit(repo.repo, "local.txt", "local\n");
     const { create, projects, projectId } = await creator(repo);
 
-    const workspaceId = await create.create(projectId, "fix", "main");
+    const workspaceId = await create.create(projectId, "fix", "refs/heads/main");
 
     const record = present(
       projects.workspaces().find((one) => one.id === workspaceId),
@@ -209,25 +223,22 @@ describe("createWorktreeCreator: create", () => {
     });
   });
 
-  it("refuses a base that names no commit, an existing branch, and a taken folder", async () => {
+  it("refuses a base that is no full branch name or names no commit, an existing branch, and a taken folder", async () => {
     const repo = await scene();
     const { create, projectId } = await creator(repo);
     await repo.git(repo.repo, "branch", "taken");
     await mkdir(join(repo.root, "repo.worktrees", "here"), { recursive: true });
 
-    expect(await failure(create.create(projectId, "a", "origin/nothing"))).toStrictEqual({
-      code: "worktree_create_failed",
-      params: { reason: "base_missing", base: "origin/nothing" },
-    });
-    expect(await failure(create.create(projectId, "a", "--all"))).toStrictEqual({
-      code: "worktree_create_failed",
-      params: { reason: "base_missing", base: "--all" },
-    });
-    expect(await failure(create.create(projectId, "taken", "main"))).toStrictEqual({
+    // A short name, even of a branch, could be a tag of that name; `--all` is git's option.
+    const missing = ["refs/remotes/origin/nothing", "refs/tags/v1", "main", "origin/main", "--all"];
+    expect(await Promise.all(missing.map((base) => failure(create.create(projectId, "a", base))))).toStrictEqual(
+      missing.map((base) => ({ code: "worktree_create_failed", params: { reason: "base_missing", base } })),
+    );
+    expect(await failure(create.create(projectId, "taken", "refs/heads/main"))).toStrictEqual({
       code: "worktree_create_failed",
       params: { reason: "branch_exists", branch: "taken" },
     });
-    expect(await failure(create.create(projectId, "atrium/here", "main"))).toStrictEqual({
+    expect(await failure(create.create(projectId, "atrium/here", "refs/heads/main"))).toStrictEqual({
       code: "worktree_create_failed",
       params: { reason: "dir_taken", dir: join(repo.root, "repo.worktrees", "here") },
     });
@@ -239,7 +250,7 @@ describe("createWorktreeCreator: create", () => {
     const dir = join(repo.root, "repo.worktrees", "gone");
     await projects.recordWorktrees(projectId, [dir]);
 
-    expect(await failure(create.create(projectId, "gone", "main"))).toStrictEqual({
+    expect(await failure(create.create(projectId, "gone", "refs/heads/main"))).toStrictEqual({
       code: "worktree_create_failed",
       params: { reason: "dir_taken", dir },
     });
@@ -249,23 +260,23 @@ describe("createWorktreeCreator: create", () => {
     const repo = await scene();
     const { create, projects, plainId } = await creator(repo);
 
-    expect(await failure(create.create(plainId, "a", "main"))).toStrictEqual({
+    expect(await failure(create.create(plainId, "a", "refs/heads/main"))).toStrictEqual({
       code: "worktree_create_failed",
       params: { reason: "not_git" },
     });
-    expect(await failure(create.create("prj_ffffffffffffffff", "a", "main"))).toStrictEqual({
+    expect(await failure(create.create("prj_ffffffffffffffff", "a", "refs/heads/main"))).toStrictEqual({
       code: "project_not_found",
       params: { projectId: "prj_ffffffffffffffff" },
     });
     // A folder inside the repository is a plain project, whose repository is not its own.
     await mkdir(join(repo.repo, "sub"));
     const inside = await projects.add(join(repo.repo, "sub"));
-    expect(await failure(create.create(inside, "a", "main"))).toStrictEqual({
+    expect(await failure(create.create(inside, "a", "refs/heads/main"))).toStrictEqual({
       code: "worktree_create_failed",
       params: { reason: "not_git" },
     });
     const without = await creator(repo, null);
-    expect(await failure(without.create.create(without.projectId, "a", "main"))).toStrictEqual({
+    expect(await failure(without.create.create(without.projectId, "a", "refs/heads/main"))).toStrictEqual({
       code: "worktree_create_failed",
       params: undefined,
     });
@@ -277,7 +288,7 @@ describe("createWorktreeCreator: create", () => {
     // A file where the worktrees' folder goes: nothing is at the worktree's path, but git cannot make it.
     await writeFile(join(repo.root, "repo.worktrees"), "");
 
-    expect(await failure(create.create(projectId, "a", "main"))).toStrictEqual({
+    expect(await failure(create.create(projectId, "a", "refs/heads/main"))).toStrictEqual({
       code: "worktree_create_failed",
       params: undefined,
     });
@@ -288,13 +299,37 @@ describe("createWorktreeCreator: create", () => {
     ]);
   });
 
+  it("starts from HEAD", async () => {
+    const repo = await scene();
+    const head = await repo.commit(repo.repo, "local.txt", "local\n");
+    const { create, projects, projectId } = await creator(repo);
+
+    const workspaceId = await create.create(projectId, "fix", "HEAD");
+
+    expect(projects.workspaces().find((record) => record.id === workspaceId)?.baseCommit).toBe(head);
+  });
+
+  it("says git failed when git times out, logging only why", async () => {
+    const repo = await scene();
+    const { create, projects, projectId, records } = await creator(repo, timingOutWorktree());
+
+    expect(await failure(create.create(projectId, "a", "refs/heads/main"))).toStrictEqual({
+      code: "worktree_create_failed",
+      params: undefined,
+    });
+    expect(projects.workspaces()).toHaveLength(2);
+    expect(records.filter((record) => record["msg"] === "worktree add failed")).toMatchObject([
+      { projectId, reason: "timeout" },
+    ]);
+  });
+
   it("waits for the worktree change before it", async () => {
     const repo = await scene();
     const { create, projects, projectId, queue } = await creator(repo);
     const { promise: held, resolve: release } = Promise.withResolvers<void>();
     const before = queue.run(() => held);
 
-    const creating = create.create(projectId, "a", "main");
+    const creating = create.create(projectId, "a", "refs/heads/main");
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(projects.workspaces()).toHaveLength(2);
     release();

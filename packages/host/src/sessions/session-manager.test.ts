@@ -260,6 +260,16 @@ async function terminalSession(at: Awaited<ReturnType<typeof place>>, id: string
   return path;
 }
 
+/**
+ * What a command failed with, for a list of answers.
+ *
+ * @sideEffects none
+ * @param error - The failure.
+ * @returns It.
+ */
+function caught(error: unknown): unknown {
+  return error;
+}
 describe("SessionManager creating sessions", () => {
   it("opens a new session's tab where it belongs but leaves the client where it went while pi started", async () => {
     const { manager, layouts } = await manage({ rules: SESSION_ONE });
@@ -1038,6 +1048,41 @@ describe("SessionManager archiving and renaming", () => {
     expect(resources.snapshot()["pi-process"]).toBe(0);
   });
 
+  it("starts no pi for a session archived: a message, an insert, an open or a command finds no session", async () => {
+    const { manager, resources } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    await manager.archiveSession(sessionId);
+    const notFound = new CommandError("session_not_found", { sessionId });
+
+    const answers = await Promise.all([
+      manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" }).catch(caught),
+      manager.steer({ type: "steer", requestId: "q2", traceparent, sessionId, text: "and" }).catch(caught),
+      manager.openSession("client-1", sessionId).catch(caught),
+      manager.listCommands(sessionId).catch(caught),
+    ]);
+
+    expect([answers, resources.snapshot()["pi-process"]]).toStrictEqual([[notFound, notFound, notFound, notFound], 0]);
+  });
+
+  it("finds no session for a message or an insert sent while it is being archived", async () => {
+    const { manager, catalog, sent } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+
+    const archiving = manager.archiveSession(sessionId);
+    const answers = await Promise.all([
+      manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" }).catch(caught),
+      manager.steer({ type: "steer", requestId: "q2", traceparent, sessionId, text: "and" }).catch(caught),
+    ]);
+    await archiving;
+
+    const notFound = new CommandError("session_not_found", { sessionId });
+    expect([
+      answers,
+      sent().filter((type) => ["prompt", "steer"].includes(type)),
+      catalog.find(sessionId)?.archived,
+    ]).toStrictEqual([[notFound, notFound], [], true]);
+  });
+
   it("renames a session in pi, starting its pi first when it is not running", async () => {
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
@@ -1139,6 +1184,75 @@ describe("SessionManager chats' archive", () => {
     expect(changes()).toBe(before + 1);
   });
 
+  it("finds no session for a message sent while its chat is being archived, and creates none in it", async () => {
+    const entered = Promise.withResolvers<void>();
+    const writing = Promise.withResolvers<void>();
+    const { manager, resources } = await manage(
+      { rules: SESSION_ONE },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (records) => ({
+        ...records,
+        setArchived: async (chatId, archive) => {
+          entered.resolve();
+          await writing.promise;
+          return records.setArchived(chatId, archive);
+        },
+      }),
+    );
+    const { sessionId } = await started(manager, manager.createChat("client-1"));
+
+    const archiving = manager.archiveChat(CHAT);
+    await entered.promise;
+    const answers = await Promise.all([
+      manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" }).catch(caught),
+      manager.createSession("client-1", CHAT).catch(caught),
+    ]);
+    writing.resolve();
+    await archiving;
+
+    expect([answers, resources.snapshot()["pi-process"]]).toStrictEqual([
+      [new CommandError("session_not_found", { sessionId }), new CommandError("chat_not_found", { chatId: CHAT })],
+      0,
+    ]);
+  });
+
+  it("archives and restores a chat in the order asked, even while its archive still writes", async () => {
+    const writing = Promise.withResolvers<void>();
+    // Only the archive's write waits.
+    const waits: Promise<void>[] = [writing.promise];
+    const { manager, catalog, chatRecords } = await manage(
+      { rules: SESSION_ONE },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (records) => ({
+        ...records,
+        setArchived: async (chatId, archive) => {
+          await waits.shift();
+          return records.setArchived(chatId, archive);
+        },
+      }),
+    );
+    const { sessionId } = await manager.createChat("client-1");
+
+    const archiving = manager.archiveChat(CHAT);
+    const restoring = manager.restoreChat(CHAT);
+    writing.resolve();
+    await Promise.all([archiving, restoring]);
+
+    expect([chatRecords.archived(CHAT), catalog.find(sessionId)?.archived]).toStrictEqual([null, false]);
+  });
+
   it("starts no session in an archived chat", async () => {
     const { manager } = await manage({ rules: SESSION_ONE });
     await manager.createChat("client-1");
@@ -1195,6 +1309,50 @@ describe("SessionManager workspaces", () => {
     expect([sessionId, chat].map((id) => present(catalog.find(id), id).archived)).toStrictEqual([false, false]);
     expect(layouts.of("client-1")).toStrictEqual(layout);
     expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps a workspace's sessions from starting, and new ones from being created, from its stop until released", async () => {
+    const { manager, catalog, resources } = await manage({ rules: SESSION_ONE });
+    const { sessionId: running } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const { sessionId: gone } = await manager.createSession("client-1", WORKSPACE);
+    await manager.archiveSession(gone);
+    const { sessionId: draft } = await manager.createSession("client-1", WORKSPACE);
+    const stopped = await manager.stopWorkspace(WORKSPACE);
+    const answers = await Promise.all([
+      manager.openSession("client-1", running).catch(caught),
+      manager.createSession("client-1", WORKSPACE).catch(caught),
+    ]);
+    manager.releaseWorkspace(WORKSPACE);
+
+    expect([stopped, answers]).toStrictEqual([
+      [running, draft],
+      [
+        new CommandError("session_not_found", { sessionId: running }),
+        new CommandError("workspace_not_found", { workspaceId: WORKSPACE }),
+      ],
+    ]);
+    expect(await manager.openSession("client-1", running)).toStrictEqual({});
+    expect([catalog.find(running)?.archived, resources.snapshot()["pi-process"]]).toStrictEqual([false, 1]);
+  });
+
+  it("restores the sessions given, or all archived in the workspace", async () => {
+    const { manager, catalog, changes } = await manage({ rules: SESSION_ONE });
+    const ids: string[] = [];
+    for (const _ of [1, 2, 3]) ids.push((await manager.createSession("client-1", WORKSPACE)).sessionId);
+    const { sessionId: chat } = await manager.createChat("client-1");
+    for (const sessionId of [...ids, chat]) await manager.archiveSession(sessionId);
+    const archived = () => [...ids, chat].map((sessionId) => catalog.find(sessionId)?.archived);
+    const before = changes();
+
+    await manager.restoreWorkspace(WORKSPACE, [present(ids[1], "the second")]);
+    const some = archived();
+    await manager.restoreWorkspace(WORKSPACE, null);
+
+    expect([some, archived(), changes()]).toStrictEqual([
+      [true, false, true, true],
+      [false, false, false, true],
+      before + 2,
+    ]);
   });
 
   it("lists its sessions with whether they run", async () => {
@@ -1916,6 +2074,29 @@ describe("SessionManager compacting", () => {
     );
   });
 
+  it("counts a compaction as busy: a hand-off is refused and stopping idle pi keeps it", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived, resources } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, compact: { silent: true } } },
+      at,
+    );
+    await catalog.scan();
+    const compacting = manager.compactSession("pi-session-1", undefined).catch(caught);
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command.type === "compact")).toStrictEqual([
+        { type: "compact" },
+      ]),
+    );
+
+    const handedOff = await manager.handOff("pi-session-1").catch(caught);
+    await manager.stopIdle();
+
+    expect([handedOff, resources.snapshot()["pi-process"]]).toStrictEqual([new CommandError("session_busy"), 1]);
+    await manager.close();
+    await compacting;
+  });
+
   it("answers pi having nothing to compact", async () => {
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
@@ -2207,6 +2388,25 @@ describe("SessionManager forking", () => {
       { sessionId: "pi-session-1", reason: "aborted" },
     ]);
     expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("holds the session busy until the fork's pi is done: a message queues, a fork, a compaction or a hand-off is refused", async () => {
+    const { manager, piReceived } = await forkable({ fork: { silent: true } });
+    const pending = manager.forkSession("client-1", forkCommand("u1")).catch(caught);
+    await vi.waitFor(() => expect(forkCommands(piReceived())).toStrictEqual([{ type: "fork", entryId: "u2" }]));
+    const busy = new CommandError("session_busy");
+
+    // The hand-off first: a message in the queue would keep it back on its own.
+    const answers = [
+      await manager.handOff("pi-session-1").catch(caught),
+      await manager.forkSession("client-1", forkCommand("u1")).catch(caught),
+      await manager.compactSession("pi-session-1", undefined).catch(caught),
+      await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "ping" }),
+    ];
+    await manager.close();
+    await pending;
+
+    expect(answers).toMatchObject([busy, busy, busy, { disposition: "queued" }]);
   });
 
   it("refuses a draft, and a session unknown, gone, handed off or never started here", async () => {

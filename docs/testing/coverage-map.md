@@ -426,6 +426,17 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 性能：改动标签显示约 2 万行 diff 时折叠、展开左栏，渲染主线程上每段 ≤ 4 毫秒；在会话和它之间切换 ≤ 100 毫秒（三次的中位数）；用滚轮滚到底每段 ≤ 4 毫秒（三遍的中位数） | `apps/desktop/e2e/changes.perf.spec.ts` | 已覆盖 |
 | 泄漏：打开两个文件标签和改动标签（都上了色）再用 ⌘W 关掉，来回 15 轮不留脱离的 DOM | `apps/desktop/e2e/viewers.leak.spec.ts` | 已覆盖 |
 
+## M1.11、M1.12 三方审查后补（2026-10-14）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 归档的会话不再起 pi：消息、插话、打开、要起 pi 的命令都应答 `session_not_found`；归档途中（停 pi 到写完索引）发来的消息、插话同样，不发给 pi | `packages/host/src/sessions/session-manager.test.ts` "starts no pi for a session archived"、"while it is being archived" | 已覆盖 |
+| 对话归档途中：其中会话的消息应答 `session_not_found`、新建会话应答 `chat_not_found`，不起 pi；同一个对话的归档和恢复按收到的顺序做 | `session-manager.test.ts` "while its chat is being archived"、"in the order asked" | 已覆盖 |
+| 工作区归档：从停 pi 到做完或失败，其中会话不起 pi、不能新建会话，之后放开；索引记下这次归档的会话；恢复时先放回记下的会话再清标记，早先没记的放回工作区里所有归档的会话 | `session-manager.test.ts` "from its stop until released"、"restores the sessions given"；`packages/host/src/workspaces/workspace-archiver.test.ts`（各条的 `release`、`sessions`）、"puts back the sessions archived with it" | 已覆盖 |
+| 压缩中算忙：交给终端应答 `session_busy`，停空闲 pi 时不停它 | `session-manager.test.ts` "counts a compaction as busy" | 已覆盖 |
+| 分叉途中原会话算忙：消息进排队、放开后发出；再分叉、压缩、交给终端应答 `session_busy` | `packages/host/src/sessions/session-controller.test.ts` "holds the session busy for a fork"；`session-manager.test.ts` "holds the session busy until the fork's pi is done" | 已覆盖 |
+| 新建 worktree 的起点只收完整的 ref（`refs/heads/`、`refs/remotes/`）或 `HEAD`，短名、标签、像选项的都是 `base_missing`；git 超时也是 `worktree_create_failed`，日志只记原因 | `packages/host/src/workspaces/worktree-creator.test.ts` "is no full branch name"、"starts from HEAD"、"when git times out" | 已覆盖 |
+
 ## 安全（security.md）
 
 | 要求 | 测试 | 状态 |

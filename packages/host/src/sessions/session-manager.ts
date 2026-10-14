@@ -61,16 +61,47 @@ export interface SessionTools {
 /** The largest page `export_session` hands over (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令"). */
 const EXPORT_MAX_BYTES = 20 * 1024 * 1024;
 
+/**
+ * Runs work after the work run before it under the same key.
+ *
+ * @remarks
+ * A failed one does not hold up the next. The key is dropped once nothing waits on it.
+ *
+ * @sideEffects Runs `work` once the key's earlier work is done; updates `turns`.
+ * @param turns - The work under way, by key.
+ * @param key - The key.
+ * @param work - The work.
+ * @returns What `work` returns.
+ */
+async function inTurn<T>(turns: Map<string, Promise<unknown>>, key: string, work: () => Promise<T>): Promise<T> {
+  const turn = (turns.get(key) ?? Promise.resolve()).then(work);
+  const settled = turn.catch(() => undefined);
+  turns.set(key, settled);
+  try {
+    return await turn;
+  } finally {
+    // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
+    if (turns.get(key) === settled) turns.delete(key);
+  }
+}
+
 /** The session layer: every session's controller, and the session commands. */
 export interface SessionManager extends SessionCommands {
   /** Every session of a registered container, with whether it runs. */
   summaries(): SessionSummary[];
   /** Stops the sessions of workspaces that went away and drops them from every layout. */
   forgetWorkspaces(workspaceIds: readonly string[]): Promise<void>;
-  /** Stops the pi of every session in a workspace, archiving nothing. */
-  stopWorkspace(workspaceId: string): Promise<void>;
+  /**
+   * Keeps a workspace's sessions from starting, and new ones from being created in it, until
+   * released; stops their pi, archiving nothing; resolves to those not archived.
+   */
+  stopWorkspace(workspaceId: string): Promise<string[]>;
+  /** Lets a workspace's sessions start again, once its archiving is done or failed. */
+  releaseWorkspace(workspaceId: string): void;
   /** Archives every session in a workspace, as `archiveSession` does, and drops it from every layout. */
   archiveWorkspace(workspaceId: string): Promise<void>;
+  /** Unarchives the sessions given, or with `null` all archived in the workspace. */
+  restoreWorkspace(workspaceId: string, sessionIds: readonly string[] | null): Promise<void>;
   /** Looks at the containers' session files again: the window gained focus, or containers changed. */
   rescan(): void;
   /** Stops the pi of every session with nothing going on; resolves once they have exited. */
@@ -258,6 +289,13 @@ export function createSessionManager(options: {
   const created = new Set<string>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
+  /**
+   * Sessions, and containers whose sessions, are being archived, which nothing may start again
+   * (SPEC-0001, "`archive_session`").
+   */
+  const archiving = new Set<string>();
+  /** Each chat's archive or restore under way, for the next to wait for. */
+  const chatTurns = new Map<string, Promise<unknown>>();
   /** Background work, such as scans after a run, that `close` waits for. */
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
@@ -311,15 +349,24 @@ export function createSessionManager(options: {
    * @returns What `work` returns.
    */
   async function inHandOrder<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
-    const turn = (handTurns.get(sessionId) ?? Promise.resolve()).then(work);
-    const settled = turn.catch(() => undefined);
-    handTurns.set(sessionId, settled);
-    try {
-      return await turn;
-    } finally {
-      // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
-      if (handTurns.get(sessionId) === settled) handTurns.delete(sessionId);
-    }
+    return inTurn(handTurns, sessionId, work);
+  }
+
+  /**
+   * Runs a chat's archive or restore after the one asked for before it.
+   *
+   * @remarks
+   * SPEC-0001 ("M1.11 的对话归档"): a restore while the archive still stops pi would unmark the
+   * chat, and the archive would then archive its sessions, leaving them archived in a chat shown
+   * again. A failed one does not hold up the next.
+   *
+   * @sideEffects Runs `work` once the chat's earlier archive or restore is done.
+   * @param chatId - The chat.
+   * @param work - The archive or restore.
+   * @returns What `work` returns.
+   */
+  async function inChatOrder<T>(chatId: string, work: () => Promise<T>): Promise<T> {
+    return inTurn(chatTurns, chatId, work);
   }
 
   /**
@@ -882,7 +929,7 @@ export function createSessionManager(options: {
      * @returns The running session.
      */
     const start = async (): Promise<Running> => {
-      entryOf(sessionId);
+      notArchived(sessionId);
       const tools = await readyTools();
       return connect(sessionId, await spawn(tools, await launchOf(sessionId)));
     };
@@ -1065,13 +1112,15 @@ export function createSessionManager(options: {
     async createSession(clientId, containerId, go = true) {
       if (isChatId(containerId)) {
         const chat = chatOf(containerId);
-        if (options.chats.archived(containerId) !== null) {
+        if (options.chats.archived(containerId) !== null || archiving.has(containerId)) {
           throw new CommandError("chat_not_found", { chatId: containerId });
         }
         return { sessionId: await create(clientId, containerId, chat.dir) };
       }
       const dir = options.workspaces.dirOf(containerId);
-      if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: containerId });
+      if (dir === undefined || archiving.has(containerId)) {
+        throw new CommandError("workspace_not_found", { workspaceId: containerId });
+      }
       return { sessionId: await create(clientId, containerId, dir, go) };
     },
     async openSession(clientId, sessionId) {
@@ -1080,6 +1129,7 @@ export function createSessionManager(options: {
         // The scan may have ended because the host is closing.
         if (closed) return undefined;
         const found = entryOf(sessionId);
+        notArchived(sessionId);
         // The tab opens first, so a session that cannot start explains why in its own tab.
         await options.layouts.open(clientId, found.containerId, sessionId);
         options.onChange();
@@ -1130,9 +1180,11 @@ export function createSessionManager(options: {
     },
     async archiveSession(sessionId) {
       entryOf(sessionId);
-      await stopSession(sessionId);
-      forget(sessionId);
-      await options.catalog.archive(sessionId);
+      await whileArchiving(sessionId, async () => {
+        await stopSession(sessionId);
+        forget(sessionId);
+        await options.catalog.archive(sessionId);
+      });
       await options.layouts.forgetSessions([sessionId]);
       options.onChange();
       return {};
@@ -1140,31 +1192,40 @@ export function createSessionManager(options: {
     async archiveChat(chatId) {
       await options.catalog.ready();
       chatOf(chatId);
-      if (options.chats.archived(chatId) !== null) return {};
-      const inside = options.catalog.list().filter((entry) => entry.containerId === chatId);
-      const archiving = inside.filter((entry) => !entry.archived).map((entry) => entry.sessionId);
-      await options.chats.setArchived(chatId, {
-        at: options.clock.now(),
-        sessions: archiving,
-        first: chatOf(chatId).firstSessionId,
+      await inChatOrder(chatId, async () => {
+        if (options.chats.archived(chatId) !== null) return;
+        await whileArchiving(chatId, async () => {
+          // A session created before the mark is listed already: the index records it at once.
+          const archived = options.catalog
+            .list()
+            .filter((entry) => entry.containerId === chatId && !entry.archived)
+            .map((entry) => entry.sessionId);
+          await options.chats.setArchived(chatId, {
+            at: options.clock.now(),
+            sessions: archived,
+            first: chatOf(chatId).firstSessionId,
+          });
+          await Promise.all(archived.map((sessionId) => stopSession(sessionId)));
+          for (const sessionId of archived) {
+            forget(sessionId);
+            await options.catalog.archive(sessionId);
+          }
+        });
+        await options.layouts.forgetContainers([chatId]);
+        options.onChange();
       });
-      await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
-      for (const sessionId of archiving) {
-        forget(sessionId);
-        await options.catalog.archive(sessionId);
-      }
-      await options.layouts.forgetContainers([chatId]);
-      options.onChange();
       return {};
     },
     async restoreChat(chatId) {
       await options.catalog.ready();
       chatOf(chatId);
-      const archive = options.chats.archived(chatId);
-      if (archive === null) return {};
-      for (const sessionId of archive.sessions) await options.catalog.unarchive(sessionId);
-      await options.chats.setArchived(chatId, null);
-      options.onChange();
+      await inChatOrder(chatId, async () => {
+        const archive = options.chats.archived(chatId);
+        if (archive === null) return;
+        for (const sessionId of archive.sessions) await options.catalog.unarchive(sessionId);
+        await options.chats.setArchived(chatId, null);
+        options.onChange();
+      });
       return {};
     },
     async renameSession(sessionId, name) {
@@ -1205,7 +1266,7 @@ export function createSessionManager(options: {
         // A discard under way sees this message, keeps the draft, and its pi starts again here.
         await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
-        entryOf(sessionId);
+        notArchived(sessionId);
         notHandedOff(sessionId);
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
@@ -1223,7 +1284,7 @@ export function createSessionManager(options: {
         // A discard under way sees this message, keeps the draft, and its pi starts again here.
         await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
-        entryOf(sessionId);
+        notArchived(sessionId);
         notHandedOff(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.steer(command, images);
@@ -1287,28 +1348,36 @@ export function createSessionManager(options: {
       // A turn that just ended is tied to its entry by the read its end started.
       await controller.entriesRead();
       const at = controller.forkPoint(turnId);
-      const tools = await readyTools();
-      const traced = startTracedPi({
-        launch: { piPath: tools.pi.piPath, args: ["--session", entry.file], cwd: entry.cwd },
-        deps: createPiDeps({
-          clock: options.clock,
-          resources: options.resources,
-          logger: options.logger,
-          env: tools.env,
-        }),
-        tracer: options.tracer,
-      });
-      running.add(traced.process);
-      // Fire and forget: `exited` never rejects.
-      void traced.process.exited.then(() => running.delete(traced.process));
-      const forked = await forkWithPi({
-        pi: traced,
-        at,
-        name,
-        clock: timers,
-        signal: closing.signal,
-        onFailed: (reason) => options.logger.warn({ sessionId, reason }, "fork failed"),
-      });
+      // Busy until the temporary pi has read the file and stopped: a message sent meanwhile would
+      // be written to the file it reads.
+      const release = controller.holdForFork();
+      let forked: Awaited<ReturnType<typeof forkWithPi>>;
+      try {
+        const tools = await readyTools();
+        const traced = startTracedPi({
+          launch: { piPath: tools.pi.piPath, args: ["--session", entry.file], cwd: entry.cwd },
+          deps: createPiDeps({
+            clock: options.clock,
+            resources: options.resources,
+            logger: options.logger,
+            env: tools.env,
+          }),
+          tracer: options.tracer,
+        });
+        running.add(traced.process);
+        // Fire and forget: `exited` never rejects.
+        void traced.process.exited.then(() => running.delete(traced.process));
+        forked = await forkWithPi({
+          pi: traced,
+          at,
+          name,
+          clock: timers,
+          signal: closing.signal,
+          onFailed: (reason) => options.logger.warn({ sessionId, reason }, "fork failed"),
+        });
+      } finally {
+        release();
+      }
       await copyTurnStarts(sessionId, forked.sessionId);
       await options.catalog.scan();
       const found = options.catalog.find(forked.sessionId);
@@ -1421,8 +1490,14 @@ export function createSessionManager(options: {
       options.onChange();
     },
     async stopWorkspace(workspaceId) {
+      // Marked first, so nothing starts or is created in it until it is released (see `notArchived`).
+      archiving.add(workspaceId);
       const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
       await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
+      return inside.filter((entry) => !entry.archived).map((entry) => entry.sessionId);
+    },
+    releaseWorkspace(workspaceId) {
+      archiving.delete(workspaceId);
     },
     async archiveWorkspace(workspaceId) {
       // Archived with its workspace (SPEC-0001, "M1.11 的工作区归档"), drafts too; archiving one again changes nothing.
@@ -1433,6 +1508,17 @@ export function createSessionManager(options: {
         await options.catalog.archive(entry.sessionId);
       }
       await options.layouts.forgetContainers([workspaceId]);
+      options.onChange();
+    },
+    async restoreWorkspace(workspaceId, sessionIds) {
+      // A workspace archived before its sessions were recorded gets back all those archived in it.
+      const back =
+        sessionIds ??
+        options.catalog
+          .list()
+          .filter((entry) => entry.containerId === workspaceId && entry.archived)
+          .map((entry) => entry.sessionId);
+      for (const sessionId of back) await options.catalog.unarchive(sessionId);
       options.onChange();
     },
     rescan() {
@@ -1486,12 +1572,51 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Refuses a command that would start pi on, or send to, a session archived or being archived.
+   *
+   * @remarks
+   * SPEC-0001 ("`archive_session`"): an archived session keeps no pi. Marked before its pi stops,
+   * so nothing slips in between the stop and the index being written.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @throws {CommandError} `session_not_found`, also for an unknown session.
+   */
+  function notArchived(sessionId: string): void {
+    const entry = entryOf(sessionId);
+    if (entry.archived || archiving.has(sessionId) || archiving.has(entry.containerId)) {
+      throw new CommandError("session_not_found", { sessionId });
+    }
+  }
+
+  /**
+   * Archives a session, or a container's sessions, keeping anything from starting them meanwhile.
+   *
+   * @remarks
+   * See `notArchived`; a container's mark also keeps sessions from being created in it. The mark
+   * goes once archived, or once archiving failed.
+   *
+   * @sideEffects Updates what is being archived; what `archive` does.
+   * @param id - The session or container.
+   * @param archive - Stops and archives.
+   * @returns What `archive` returns.
+   */
+  async function whileArchiving<T>(id: string, archive: () => Promise<T>): Promise<T> {
+    archiving.add(id);
+    try {
+      return await archive();
+    } finally {
+      archiving.delete(id);
+    }
+  }
+
+  /**
    * Whether a session has something going on that handing it off would cut short.
    *
    * @remarks
    * A run (a stop under way is one), a message on its way, a run pi said it started that has not
-   * begun yet, a restart under way, or messages in the host's queue, which only Atrium would send
-   * (SPEC-0001, "交给终端").
+   * begun yet, a restart, a compaction or a fork under way, or messages in the host's queue, which
+   * only Atrium would send (SPEC-0001, "交给终端", "M1.11 的 `/` 命令 · 压缩").
    *
    * @sideEffects none
    * @param sessionId - The session.
@@ -1502,7 +1627,13 @@ export function createSessionManager(options: {
     const controller = sessions.get(sessionId)?.controller;
     if (controller === undefined) return false;
     const { control } = controller.snapshot();
-    return controller.submitting || control.restarting || control.queue.length > 0;
+    return (
+      controller.submitting ||
+      controller.forking ||
+      control.restarting ||
+      control.compacting ||
+      control.queue.length > 0
+    );
   }
 
   /**

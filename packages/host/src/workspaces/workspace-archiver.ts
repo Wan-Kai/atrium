@@ -23,10 +23,17 @@ export const WORKTREE_TIMEOUT_MS = 600_000;
 
 /** What archiving a workspace does to the sessions in it. */
 export interface WorkspaceSessions {
-  /** Stops the pi of every session in the workspace. */
-  stopWorkspace(workspaceId: string): Promise<void>;
+  /**
+   * Keeps the workspace's sessions from starting, and new ones from being created in it, until
+   * released; stops their pi; resolves to those not archived.
+   */
+  stopWorkspace(workspaceId: string): Promise<string[]>;
+  /** Lets the workspace's sessions start again. */
+  releaseWorkspace(workspaceId: string): void;
   /** Archives every session in the workspace, stopping its pi, and drops the workspace from every layout. */
   archiveWorkspace(workspaceId: string): Promise<void>;
+  /** Unarchives the sessions given, or with `null` all archived in the workspace. */
+  restoreWorkspace(workspaceId: string, sessionIds: readonly string[] | null): Promise<void>;
 }
 
 /**
@@ -40,11 +47,15 @@ export interface WorkspaceSessions {
  *   no branch, remote branch or tag holds is refused, checked by git on the spot rather than by
  *   the last scan: before anything happens, and again once its sessions' pi have stopped, as they
  *   may have changed it meanwhile;
- * - the index marks the workspace archived, with the branch and commit of the second check,
- *   before the directory goes, and unmarks it if git will not remove it; a crash between leaves
- *   it archived with its directory there, which restoring only shows again;
+ * - from their pi stopping until it is done or failed, nothing starts the sessions or creates one
+ *   in the workspace;
+ * - the index marks the workspace archived, with the branch and commit of the second check and
+ *   the sessions it archives, before the directory goes, and unmarks it if git will not remove
+ *   it; a crash between leaves it archived with its directory there, which restoring only shows
+ *   again;
  * - the sessions are archived only once the directory is gone; a worktree whose directory had
- *   already gone is archived without git;
+ *   already gone is archived without git; restoring unarchives them before unmarking, or all
+ *   archived in it for an archive that recorded none;
  * - restoring adds the worktree back on its branch, or detached at its commit, after pruning
  *   registrations whose directories are gone; a branch deleted since is not restored, as git
  *   would start it afresh from a remote one of that name; one already back is only shown again;
@@ -241,22 +252,27 @@ export function createWorkspaceArchiver(options: {
         if ((record.archived ?? null) !== null) return;
         const run = runnerOf(record, await gitOr("worktree_remove_failed"));
         await checked(record, run);
-        await options.sessions.stopWorkspace(workspaceId);
-        const { listed, present } = await checked(record, run);
-        await options.projects.setArchived(workspaceId, {
-          at: options.clock.now(),
-          branch: listed?.branch ?? null,
-          head: listed?.head ?? null,
-        });
-        if (present !== undefined) {
-          const removed = await run(["worktree", "remove", "--", record.dir], undefined, WORKTREE_TIMEOUT_MS);
-          if (removed.code !== 0) {
-            options.logger.warn({ workspaceId, code: removed.code }, "worktree remove failed");
-            await options.projects.setArchived(workspaceId, null);
-            throw new CommandError("worktree_remove_failed");
+        const sessions = await options.sessions.stopWorkspace(workspaceId);
+        try {
+          const { listed, present } = await checked(record, run);
+          await options.projects.setArchived(workspaceId, {
+            at: options.clock.now(),
+            branch: listed?.branch ?? null,
+            head: listed?.head ?? null,
+            sessions,
+          });
+          if (present !== undefined) {
+            const removed = await run(["worktree", "remove", "--", record.dir], undefined, WORKTREE_TIMEOUT_MS);
+            if (removed.code !== 0) {
+              options.logger.warn({ workspaceId, code: removed.code }, "worktree remove failed");
+              await options.projects.setArchived(workspaceId, null);
+              throw new CommandError("worktree_remove_failed");
+            }
           }
+          await options.sessions.archiveWorkspace(workspaceId);
+        } finally {
+          options.sessions.releaseWorkspace(workspaceId);
         }
-        await options.sessions.archiveWorkspace(workspaceId);
       }),
     restore: (workspaceId) =>
       queue.run(async () => {
@@ -266,6 +282,7 @@ export function createWorkspaceArchiver(options: {
         const run = runnerOf(record, await gitOr("worktree_restore_failed"));
         const { present } = await listedOf(record, run, "worktree_restore_failed");
         if (present === undefined) await addBack(record, archived, run);
+        await options.sessions.restoreWorkspace(workspaceId, archived.sessions ?? null);
         await options.projects.setArchived(workspaceId, null);
         options.refresh(workspaceId);
       }),

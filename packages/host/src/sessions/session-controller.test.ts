@@ -2372,6 +2372,24 @@ describe("createSessionController's fork point", () => {
     expect(busy).toThrow(new CommandError("session_busy"));
   });
 
+  it("holds the session busy for a fork until released: messages queue, compacting and forking again are refused", async () => {
+    const { pi, sent } = manualPi();
+    const { controller } = control(pi, THREE_TURNS);
+
+    const release = controller.holdForFork();
+    const held = [
+      controller.forking,
+      await controller.prompt(prompt("q1", "four")),
+      await controller.compact(undefined).catch((error: unknown) => error),
+    ];
+    expect(() => controller.forkPoint("s1:u3")).toThrow(new CommandError("session_busy"));
+    const before = [...sent];
+    release();
+
+    expect(held).toMatchObject([true, { disposition: "queued" }, new CommandError("session_busy")]);
+    expect([before, sent, controller.forking]).toStrictEqual([[], ["prompt four"], false]);
+  });
+
   it("refuses while pi restarts, but not once pi has exited", async () => {
     const restarting = manualPi();
     const { controller } = control(restarting.pi, THREE_TURNS, { respawn: () => new Promise(() => undefined) });

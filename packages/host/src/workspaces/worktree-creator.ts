@@ -1,7 +1,7 @@
 import { CommandError, type CommandResult } from "@atrium/protocol";
 import { stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import type { GitRunner } from "../platform/git";
+import { GitError, type GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ProjectRecord, ProjectService } from "../projects/project-service";
 import { WORKTREE_TIMEOUT_MS } from "./workspace-archiver";
@@ -23,8 +23,8 @@ export interface WorktreeCreator {
  * Follows SPEC-0001 ("M1.11 的新建工作区") and security.md ("子进程与文件"):
  * - only a project whose directory is the top of a repository gets worktrees (`not_git`);
  * - the branch must be one git accepts as a new branch's name, which never starts with `-`
- *   (`branch_invalid`), and must not exist yet (`branch_exists`); the base must name a commit
- *   (`base_missing`);
+ *   (`branch_invalid`), and must not exist yet (`branch_exists`); the base must be a branch's or
+ *   remote branch's full name, or `HEAD`, and name a commit (`base_missing`);
  * - the worktree goes to `<repository's folder>/<repository's name>.worktrees/<branch's last
  *   segment>`, where nothing may be yet, nor a workspace's record, as an archived one keeps its
  *   directory's path (`dir_taken`);
@@ -32,7 +32,7 @@ export interface WorktreeCreator {
  *   push never goes to the main branch) and starts where the base was when checked;
  * - the workspace is recorded with that commit, then its project is scanned again;
  * - what the client gives goes to git after `--end-of-options`, or as an option's value once
- *   checked; logs carry ids and git's exit code, never branches or paths.
+ *   checked; logs carry ids and git's exit code, or why git failed, never branches or paths.
  *
  * Creating waits in the queue it shares with archiving and restoring.
  *
@@ -143,6 +143,10 @@ export function createWorktreeCreator(options: {
     if (named.code !== 0 || named.stdout.trim() !== branch) {
       throw new CommandError("worktree_create_failed", { reason: "branch_invalid" });
     }
+    // A short name could be a tag's as well as a branch's; a full one also never reads as an option.
+    if (base !== "HEAD" && !base.startsWith("refs/heads/") && !base.startsWith("refs/remotes/")) {
+      throw new CommandError("worktree_create_failed", { reason: "base_missing", base });
+    }
     // `^{commit}` already keeps the base from matching an option; `--end-of-options` makes sure.
     // Stryker disable next-line StringLiteral: no base found reads differently without it, as the comment above says.
     const commit = await run(["rev-parse", "--verify", "--quiet", "--end-of-options", `${base}^{commit}`]);
@@ -193,7 +197,12 @@ export function createWorktreeCreator(options: {
     create: (projectId, branch, base) =>
       options.queue.run(async () => {
         const project = projectOf(projectId);
-        const { dir, start } = await add(project, branch, base);
+        const { dir, start } = await add(project, branch, base).catch((error: unknown) => {
+          // git timing out or not starting is git failing, as an exit code is.
+          if (!(error instanceof GitError)) throw error;
+          options.logger.warn({ projectId, reason: error.reason }, "worktree add failed");
+          throw new CommandError("worktree_create_failed");
+        });
         const workspaceId = await options.projects.addWorktree(projectId, dir, start);
         options.logger.info({ projectId, workspaceId }, "worktree created");
         options.refresh(workspaceId);
