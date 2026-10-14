@@ -566,6 +566,7 @@ function ChatRows({
               <RenameField
                 initial={name}
                 label="对话名称"
+                restores="清空恢复为第一个会话的标题"
                 onDone={(alias) => {
                   setRenaming(null);
                   if (alias !== undefined && alias !== chat.alias) run(() => client.renameChat(chat.id, alias));
@@ -907,6 +908,7 @@ function WorkspaceRow({
         <RenameField
           initial={name}
           label="工作区名称"
+          restores="清空恢复为分支名"
           onDone={(alias) => {
             setRenaming(null);
             if (alias !== undefined && alias !== workspace.alias)

@@ -131,6 +131,61 @@ function choice(screen: Screen, name: "项目" | "工作区" | "起点" | "分�
 }
 
 /**
+ * The first icon in a menu's item.
+ *
+ * @sideEffects none
+ * @param item - The item.
+ * @returns Its icon.
+ * @throws When it has none.
+ */
+function firstIcon(item: Element): Element {
+  const icon = item.querySelector("svg");
+  if (icon === null) throw new Error("no icon");
+  return icon;
+}
+
+/**
+ * The workspaces, the worktree with changes not committed and two commits ahead.
+ *
+ * @sideEffects none
+ * @param workspaces - The workspaces.
+ * @returns Them, the worktree changed.
+ */
+function changedFeature<T extends { readonly id: string }>(workspaces: readonly T[]): T[] {
+  return workspaces.map((one) =>
+    one.id === FEATURE ? { ...one, merge: { dirty: true, ahead: 2, verdict: "pending", reason: null } } : one,
+  );
+}
+
+/**
+ * What describes an element.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns The element its `aria-describedby` names.
+ * @throws When there is none.
+ */
+function describedBy(element: Element): Element {
+  const hint = document.getElementById(element.getAttribute("aria-describedby") ?? "");
+  if (hint === null) throw new Error("not described");
+  return hint;
+}
+
+/**
+ * An element's last child.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its last child.
+ * @throws When it has none.
+ */
+function lastChild(element: Element): Element {
+  const last = element.lastElementChild;
+  if (last === null) throw new Error("no child");
+  return last;
+}
+
+/**
  * Sends a message from the box.
  *
  * @sideEffects Types into the page.
@@ -202,19 +257,21 @@ describe("The new-workspace page (M1.11)", () => {
     expect(calls).toContain(`listBases ${PROJECT.id}`);
 
     await choice(screen, "起点").click();
-    await expect.element(screen.getByRole("group", { name: "本地分支" })).toHaveTextContent("本地分支devmain");
-    await expect.element(screen.getByRole("group", { name: "远程分支" })).toHaveTextContent("远程分支origin/main");
-    await screen.getByRole("menuitem", { name: "dev", exact: true }).click();
+    await expect.element(screen.getByRole("group", { name: "本地分支" })).toHaveTextContent("本地分支devmain当前");
+    await expect
+      .element(screen.getByRole("group", { name: "远程分支" }))
+      .toHaveTextContent("远程分支origin/main主分支");
+    await screen.getByRole("menuitemradio", { name: "dev", exact: true }).click();
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 dev");
 
     await choice(screen, "工作区").click();
     expect(
       screen
-        .getByRole("menuitem")
+        .getByRole("menuitemradio")
         .elements()
         .map((item) => item.textContent),
-    ).toStrictEqual(["新建 worktree", "main", "feat/sidebar"]);
-    await screen.getByRole("menuitem", { name: "feat/sidebar" }).click();
+    ).toStrictEqual(["新建 worktree", "main1 会话", "feat/sidebar1 会话"]);
+    await screen.getByRole("menuitemradio", { name: /^feat\/sidebar/ }).click();
 
     await expect.element(choice(screen, "工作区")).toHaveTextContent("feat/sidebar");
     await expect.element(choice(screen, "起点")).not.toBeInTheDocument();
@@ -222,9 +279,78 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(screen.getByText("发出第一条消息时，在这个工作区里新建会话")).toBeVisible();
 
     await choice(screen, "工作区").click();
-    await screen.getByRole("menuitem", { name: "新建 worktree" }).click();
+    await screen.getByRole("menuitemradio", { name: "新建 worktree" }).click();
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/main");
     await expect.element(choice(screen, "分支名")).toHaveTextContent("atrium/brave-badger");
+  });
+
+  it("lists each choice on one line, its icon on the left, what is worth knowing on the right, the one chosen ticked", async () => {
+    const { screen, index } = await newWorkspacePage();
+    index.setState({ workspaces: changedFeature(index.getState().workspaces) });
+
+    await choice(screen, "项目").click();
+    const project = screen.getByRole("menuitemradio", { name: /^atrium/ });
+    await expect.element(project).toHaveTextContent("atrium/work");
+    await expect.element(project).toHaveAttribute("aria-checked", "true");
+    await expect.element(project).toHaveAttribute("title", "/work/atrium");
+    await userEvent.keyboard("{Escape}");
+
+    await choice(screen, "工作区").click();
+    const items = screen.getByRole("menuitemradio");
+    await expect.element(items.nth(2)).toHaveTextContent("feat/sidebar21 会话");
+    expect(items.elements().map((item) => item.getAttribute("aria-checked"))).toStrictEqual(["true", "false", "false"]);
+    expect(items.elements().map((item) => getComputedStyle(firstIcon(item)).color)).toStrictEqual([
+      "rgb(47, 111, 237)",
+      "rgb(110, 110, 116)",
+      "rgb(47, 111, 237)",
+    ]);
+    await expect.element(items.nth(2).getByTitle("有未提交的改动")).toBeVisible();
+    await expect.element(items.nth(1).getByTitle("有未提交的改动")).not.toBeInTheDocument();
+    const row = getComputedStyle(items.nth(1).element());
+    expect([row.height, row.fontSize, row.color]).toStrictEqual(["32px", "13px", "rgb(44, 44, 48)"]);
+    const tick = lastChild(items.nth(0).element());
+    expect(getComputedStyle(tick).color).toBe("rgb(47, 111, 237)");
+    expect(firstIcon(tick).getAttribute("width")).toBe("14");
+    expect(lastChild(items.nth(1).element()).childElementCount).toBe(0);
+  });
+
+  it("filters the bases as typed into the line atop their menu, marking the main and the current branch", async () => {
+    const { screen } = await newWorkspacePage({
+      bases: async () => ({
+        main: "origin/main",
+        current: "dev",
+        local: ["dev", "main"],
+        remote: ["origin/dev", "origin/main"],
+      }),
+    });
+
+    await choice(screen, "起点").click();
+    const filter = screen.getByRole("textbox", { name: "过滤分支" });
+    await expect.element(filter).toHaveFocus();
+    expect(
+      screen
+        .getByRole("menuitemradio")
+        .elements()
+        .map((item) => [item.textContent, item.getAttribute("aria-checked")]),
+    ).toStrictEqual([
+      ["dev当前", "false"],
+      ["main", "false"],
+      ["origin/dev", "false"],
+      ["origin/main主分支", "true"],
+    ]);
+
+    await userEvent.type(filter, "MA");
+    await vi.waitFor(() =>
+      expect(
+        screen
+          .getByRole("menuitemradio")
+          .elements()
+          .map((item) => item.textContent),
+      ).toStrictEqual(["main", "origin/main主分支"]),
+    );
+    await userEvent.type(filter, "zz");
+    await expect.element(screen.getByText("没有匹配的分支")).toBeVisible();
+    await expect.element(screen.getByRole("menuitemradio")).not.toBeInTheDocument();
   });
 
   it("sends the full ref of the base chosen, local or remote, though it says its short name", async () => {
@@ -236,7 +362,7 @@ describe("The new-workspace page (M1.11)", () => {
     });
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 main");
     await choice(screen, "起点").click();
-    await screen.getByRole("group", { name: "远程分支" }).getByRole("menuitem", { name: "origin/v1" }).click();
+    await screen.getByRole("group", { name: "远程分支" }).getByRole("menuitemradio", { name: "origin/v1" }).click();
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/v1");
     await send(screen, "一");
     await vi.waitFor(() =>
@@ -268,7 +394,14 @@ describe("The new-workspace page (M1.11)", () => {
   it("edits the branch in place, keeping it on Enter and not on Escape", async () => {
     const { screen } = await newWorkspacePage();
 
+    const before = choice(screen, "分支名").element().getBoundingClientRect();
     await choice(screen, "分支名").click();
+    const field = screen.getByRole("textbox", { name: "分支名" });
+    await expect.element(field).toHaveAccessibleDescription("⏎ 保存 esc 取消");
+    const box = field.element().getBoundingClientRect();
+    // Its text where the button's was, the hint above it, clear of the input box below.
+    expect(box.left + 6 - before.left).toBe(28);
+    expect(box.top - describedBy(field.element()).getBoundingClientRect().bottom).toBe(4);
     await userEvent.fill(screen.getByRole("textbox", { name: "分支名" }), "fix/login");
     await userEvent.keyboard("{Enter}");
     await expect.element(choice(screen, "分支名")).toHaveTextContent("fix/login");
@@ -403,7 +536,7 @@ describe("The new-workspace page (M1.11)", () => {
 
     await expect.element(choice(screen, "工作区")).toHaveTextContent("main");
     await choice(screen, "工作区").click();
-    const worktree = screen.getByRole("menuitem", { name: "新建 worktree" });
+    const worktree = screen.getByRole("menuitemradio", { name: "新建 worktree" });
     await expect.element(worktree).toBeDisabled();
     await expect.element(worktree).toHaveAttribute("title", "这个项目不是 git 仓库");
     await userEvent.keyboard("{Escape}");

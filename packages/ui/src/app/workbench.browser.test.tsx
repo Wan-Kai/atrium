@@ -849,6 +849,9 @@ describe("Workbench sidebar", () => {
     await row.getByRole("button", { name: "对话 合并原理" }).click();
     await screen.getByRole("menuitem", { name: "重命名" }).click();
 
+    await expect
+      .element(screen.getByRole("textbox", { name: "对话名称" }))
+      .toHaveAccessibleDescription("⏎ 保存 esc 取消 清空恢复为第一个会话的标题");
     await userEvent.fill(screen.getByRole("textbox", { name: "对话名称" }), "merge-tree");
     await userEvent.keyboard("{Enter}");
     await vi.waitFor(() => expect(calls).toContain(`renameChat ${CHAT} merge-tree`));
@@ -870,6 +873,9 @@ describe("Workbench sidebar", () => {
     await row.getByRole("button", { name: "工作区 feat/sidebar" }).click();
     await screen.getByRole("menuitem", { name: "重命名" }).click();
 
+    await expect
+      .element(screen.getByRole("textbox", { name: "工作区名称" }))
+      .toHaveAccessibleDescription("⏎ 保存 esc 取消 清空恢复为分支名");
     await userEvent.fill(screen.getByRole("textbox", { name: "工作区名称" }), "侧栏");
     await userEvent.keyboard("{Enter}");
     await vi.waitFor(() => expect(calls).toContain(`renameWorkspace ${FEATURE} 侧栏`));
@@ -1688,8 +1694,13 @@ describe("Workbench tabs", () => {
 
     await screen.getByRole("button", { name: "当前会话" }).click();
     await screen.getByRole("menuitem", { name: "重命名" }).click();
+    const tab = screen.getByRole("tab", { selected: true });
+    await expect.element(tab.getByRole("textbox", { name: "会话名称" })).toHaveValue("重构宿主");
+    await expect.element(tab.getByRole("textbox", { name: "会话名称" })).toHaveAccessibleDescription("⏎ 保存 esc 取消");
+    await expect.element(tab.getByRole("button")).not.toBeInTheDocument();
     await userEvent.fill(screen.getByRole("textbox", { name: "会话名称" }), "新名字");
     await userEvent.keyboard("{Enter}");
+    await expect.element(tab.getByRole("button", { name: "关闭 重构宿主" })).toBeInTheDocument();
     await screen.getByRole("button", { name: "当前会话" }).click();
     await screen.getByRole("menuitem", { name: "归档" }).click();
 
@@ -1697,6 +1708,37 @@ describe("Workbench tabs", () => {
     expect(calls).toContain("renameSession s1 新名字");
     await screen.getByRole("button", { name: "当前会话" }).click();
     await expect.element(screen.getByRole("menuitem", { name: "复制会话文件路径" })).toBeEnabled();
+  });
+
+  it("says next to the menu when renaming the session failed, until the next thing done from the menu", async () => {
+    const { screen, calls } = await workbench({
+      answers: { renameSession: () => Promise.reject(new Error("gone")) },
+    });
+
+    /**
+     * Renames the session to a name the host refuses, and sees it said.
+     *
+     * @sideEffects Clicks and types in the page.
+     */
+    const failToRename = async (): Promise<void> => {
+      await screen.getByRole("button", { name: "当前会话" }).click();
+      await screen.getByRole("menuitem", { name: "重命名" }).click();
+      await userEvent.fill(screen.getByRole("textbox", { name: "会话名称" }), "新名字");
+      await userEvent.keyboard("{Enter}");
+      await expect.element(screen.getByRole("status").filter({ hasText: "改名失败" })).toBeVisible();
+    };
+    await failToRename();
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+    await expect.element(screen.getByText("改名失败")).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+
+    await failToRename();
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "归档" }).click();
+    await vi.waitFor(() => expect(calls).toContain("archiveSession s1"));
+    await expect.element(screen.getByText("改名失败")).not.toBeInTheDocument();
   });
 
   it("cannot rename a draft or copy its path, as it has no file yet", async () => {

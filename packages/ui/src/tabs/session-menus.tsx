@@ -5,8 +5,6 @@ import { useState } from "react";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { download } from "../chat/download";
 import { transcriptMarkdown } from "../chat/turn-layout";
-import { sessionTitle } from "../sidebar/names";
-import { RenameField } from "../sidebar/rename-field";
 import { terminalCommand } from "./hand-off";
 
 /** The most pages an export fetches, so a host that keeps saying "more" cannot loop it forever. */
@@ -87,17 +85,32 @@ function handOffBlocked(
  * terminal, export.
  *
  * @remarks
- * SPEC-0001 ("标签栏", "交给终端"). Renaming asks for the name in place of the menu; renaming,
- * copying and the terminal need the session's file, which a draft does not have yet. Going on in
- * a terminal copies the command that does it. Failures are shown next to the menu.
+ * SPEC-0001 ("标签栏", "交给终端"). Renaming happens on the session's tab, which the tab bar
+ * holds, so it says here whether the last rename failed; renaming, copying and the terminal need
+ * the session's file, which a draft does not have yet. Going on in a terminal copies the command
+ * that does it. Failures are shown next to the menu, until the next action.
  *
  * @sideEffects Sends commands; writes the clipboard; downloads an export.
- * @param props - The client and the session.
+ * @param props - The client, the session, whether its last rename failed, how to start renaming
+ * it, and what to do as another action starts.
  * @returns The menu.
  */
-export function SessionMenu({ client, session }: { readonly client: AtriumClient; readonly session: SessionSummary }) {
+export function SessionMenu({
+  client,
+  session,
+  renameFailed,
+  onRename,
+  onAction,
+}: {
+  readonly client: AtriumClient;
+  readonly session: SessionSummary;
+  readonly renameFailed: boolean;
+  readonly onRename: () => void;
+  /** Called as an action other than renaming starts, which clears a rename's failure. */
+  readonly onAction: () => void;
+}) {
   const [problem, setProblem] = useState<string | null>(null);
-  const [renaming, setRenaming] = useState(false);
+  const shown = problem ?? (renameFailed ? "改名失败" : null);
 
   /**
    * Runs a menu action, showing a failure next to the menu.
@@ -111,29 +124,18 @@ export function SessionMenu({ client, session }: { readonly client: AtriumClient
    */
   const run = (action: () => Promise<unknown>, failure: string | ((error: unknown) => string)): void => {
     setProblem(null);
+    onAction();
     // Fire and forget: a failure is shown.
     void action().catch((error: unknown) => setProblem(typeof failure === "string" ? failure : failure(error)));
   };
 
   return (
     <>
-      {problem === null ? null : (
+      {shown === null ? null : (
         <span role="status" className="text-[length:var(--fs-sm)] text-[var(--danger)]">
-          {problem}
+          {shown}
         </span>
       )}
-      {renaming ? (
-        <span className="flex w-56">
-          <RenameField
-            initial={sessionTitle(session)}
-            label="会话名称"
-            onDone={(name) => {
-              setRenaming(false);
-              if (typeof name === "string") run(() => client.renameSession(session.sessionId, name), "改名失败");
-            }}
-          />
-        </span>
-      ) : null}
       <MenuButton label="当前会话" content={<DotsThree size={16} weight="bold" />}>
         {(close) => {
           // Read as the menu opens, so it shows the session as it is then.
@@ -148,7 +150,8 @@ export function SessionMenu({ client, session }: { readonly client: AtriumClient
                 title={session.state === "draft" ? "发出第一条消息后才能改名" : undefined}
                 onClick={() => {
                   close();
-                  setRenaming(true);
+                  setProblem(null);
+                  onRename();
                 }}
               >
                 重命名

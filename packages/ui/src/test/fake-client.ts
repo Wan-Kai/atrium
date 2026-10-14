@@ -154,6 +154,8 @@ export interface FakeAnswers {
   /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
   readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
+  /** Answers renaming a session; renamed at once when left out. */
+  readonly renameSession?: () => Promise<void>;
   /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
   readonly archiveChat?: () => Promise<void>;
   /** Answers restoring a chat, which then shows again; restored at once when left out. */
@@ -461,6 +463,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async renameSession(sessionId: string, name: string) {
       calls.push(`renameSession ${sessionId} ${name}`);
+      await answers.renameSession?.();
       return {};
     },
     async clearAttention(sessionId: string) {
