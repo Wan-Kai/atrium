@@ -125,7 +125,7 @@ describe("ModelPicker's button", () => {
 });
 
 describe("ModelPicker's panel", () => {
-  it("opens above the button, asks for the list, and lists the models by provider with their basics", async () => {
+  it("opens above the button, asks for the list, and lists the providers, then the current one's models with their basics", async () => {
     const { screen, chip, calls } = await picker(shown(SOL, "medium"));
 
     await userEvent.click(chip);
@@ -136,17 +136,111 @@ describe("ModelPicker's panel", () => {
       chip.element().getBoundingClientRect().top,
     );
     expect(calls).toStrictEqual([["open"]]);
-    await expect.element(screen.getByRole("group", { name: "ChatGPT 订阅" })).toBeVisible();
-    await expect.element(screen.getByRole("group", { name: "Anthropic" })).toBeVisible();
+    const providers = screen.getByRole("tablist", { name: "服务商" }).getByRole("tab");
+    expect(
+      providers.elements().map((tab) => [tab.getAttribute("aria-label"), tab.getAttribute("aria-selected")]),
+    ).toStrictEqual([
+      ["ChatGPT 订阅", "true"],
+      ["Anthropic", "false"],
+    ]);
+    await expect
+      .element(screen.getByRole("tabpanel", { name: "ChatGPT 订阅" }))
+      .toMatchTextContent(/^ChatGPT 订阅2 个模型/);
     const rows = screen.getByRole("menuitemradio");
     expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
       "GPT-6 Sol上下文 400K · 输出 128K · 支持图片",
       "GPT-6 Astra上下文 1M · 输出 128K",
-      "Claude Opus 5.5上下文 400K · 输出 64K · 支持图片",
     ]);
     await expect.element(rows.nth(0)).toHaveAttribute("aria-checked", "true");
     await expect.element(rows.nth(1)).toHaveAttribute("aria-checked", "false");
     await expect.element(screen.getByRole("slider", { name: "推理强度" })).toHaveAttribute("aria-valuetext", "中");
+  });
+
+  it("shows another provider's models on a click on its icon, not on hover, the panel keeping its size", async () => {
+    const { screen, chip } = await picker(shown(SOL, "medium"));
+    await userEvent.click(chip);
+    const panel = screen.getByRole("dialog").element().getBoundingClientRect();
+    const anthropic = screen.getByRole("tab", { name: "Anthropic" });
+
+    await userEvent.hover(anthropic);
+    await expect.element(screen.getByRole("tab", { name: "ChatGPT 订阅" })).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(anthropic);
+
+    await expect.element(anthropic).toHaveAttribute("aria-selected", "true");
+    await expect.element(screen.getByRole("tabpanel", { name: "Anthropic" })).toMatchTextContent(/^Anthropic1 个模型/);
+    expect(
+      screen
+        .getByRole("menuitemradio")
+        .elements()
+        .map((row) => [row.textContent, row.getAttribute("aria-checked")]),
+    ).toStrictEqual([["Claude Opus 5.5上下文 400K · 输出 64K · 支持图片", "false"]]);
+    const after = screen.getByRole("dialog").element().getBoundingClientRect();
+    expect([after.width, after.height]).toStrictEqual([panel.width, panel.height]);
+  });
+
+  it("opens on the current model's provider, marked", async () => {
+    const { screen, chip } = await picker(shown(OPUS, "medium"));
+    await userEvent.click(chip);
+
+    await expect.element(screen.getByRole("tab", { name: "Anthropic" })).toHaveAttribute("aria-selected", "true");
+    await expect
+      .element(screen.getByRole("tab", { name: "Anthropic" }).getByRole("img", { name: "当前模型" }))
+      .toBeVisible();
+    await expect
+      .element(screen.getByRole("tab", { name: "ChatGPT 订阅" }).getByRole("img", { name: "当前模型" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("opens on the first provider, unmarked, when there is no current model", async () => {
+    const { screen, chip } = await picker(null);
+    await userEvent.click(chip);
+
+    await expect.element(screen.getByRole("tab", { name: "ChatGPT 订阅" })).toHaveAttribute("aria-selected", "true");
+    await expect.element(screen.getByRole("img", { name: "当前模型" })).not.toBeInTheDocument();
+  });
+
+  it("lays the providers' icons in a narrow column beside a column of models that keeps its height", async () => {
+    const { screen, chip } = await picker(shown(SOL, "medium"));
+    await userEvent.click(chip);
+
+    const panel = screen.getByRole("dialog").element().getBoundingClientRect();
+    const tab = screen.getByRole("tab", { name: "ChatGPT 订阅" }).element();
+    const icon = tab.querySelector("img")?.getBoundingClientRect();
+    const models = screen.getByRole("tabpanel").element().getBoundingClientRect();
+    expect([panel.width, tab.getBoundingClientRect().width, tab.getBoundingClientRect().height]).toStrictEqual([
+      372, 44, 40,
+    ]);
+    expect([icon?.width, icon?.height]).toStrictEqual([22, 22]);
+    expect([models.left - tab.getBoundingClientRect().right, models.height]).toStrictEqual([12, 320]);
+    expect(getComputedStyle(tab).backgroundColor).toBe("rgba(0, 0, 0, 0.06)");
+    const dot = screen.getByRole("img", { name: "当前模型" }).element().getBoundingClientRect();
+    expect([
+      dot.width,
+      dot.top - tab.getBoundingClientRect().top,
+      tab.getBoundingClientRect().right - dot.right,
+    ]).toStrictEqual([6, 6, 7]);
+  });
+
+  it("says a provider's name to the left of its icon while hovered or focused", async () => {
+    const { screen, chip } = await picker(shown(SOL, "medium"));
+    await userEvent.click(chip);
+    const anthropic = screen.getByRole("tab", { name: "Anthropic" });
+
+    await userEvent.hover(anthropic);
+
+    const tip = screen.getByRole("tooltip");
+    await expect.element(tip).toHaveTextContent("Anthropic");
+    const box = anthropic.element().getBoundingClientRect();
+    const said = tip.element().getBoundingClientRect();
+    expect([
+      Math.round(box.left - said.right),
+      Math.round(said.top + said.height / 2 - (box.top + box.height / 2)),
+    ]).toStrictEqual([8, 0]);
+    await userEvent.unhover(anthropic);
+    await expect.element(screen.getByRole("tooltip")).not.toBeInTheDocument();
+
+    (screen.getByRole("tab", { name: "ChatGPT 订阅" }).element() as HTMLElement).focus();
+    await expect.element(screen.getByRole("tooltip")).toHaveTextContent("ChatGPT 订阅");
   });
 
   it("marks the models with Fast with a bolt after their names", async () => {
@@ -164,6 +258,7 @@ describe("ModelPicker's panel", () => {
     const { screen, chip, calls } = await picker(shown(SOL, "medium"));
     await userEvent.click(chip);
 
+    await userEvent.click(screen.getByRole("tab", { name: "Anthropic" }));
     await userEvent.click(screen.getByRole("menuitemradio", { name: /Claude Opus 5.5/ }));
 
     expect(calls).toStrictEqual([["open"], ["model", { providerId: "anthropic", modelId: "claude-opus-5-5" }]]);
@@ -204,7 +299,7 @@ describe("ModelPicker's panel", () => {
     await userEvent.click(chip);
 
     await expect.element(screen.getByRole("button", { name: "刷新模型列表" })).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(3);
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(2);
   });
 
   it("says it is reading before the first list arrives", async () => {
@@ -254,7 +349,7 @@ describe("ModelPicker's panel", () => {
 
     await userEvent.keyboard("{Meta>}{Shift>}i{/Shift}{/Meta}");
     await expect.element(screen.getByRole("dialog")).toBeVisible();
-    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(3);
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(2);
     await expect.element(screen.getByRole("slider")).not.toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
 
@@ -269,7 +364,7 @@ describe("ModelPicker's panel", () => {
 
     await again({ part: "model", id: 2 });
     await expect.element(screen.getByRole("dialog")).toBeVisible();
-    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(3);
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(2);
     await expect.element(screen.getByRole("slider")).not.toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
     await again({ part: "model", id: 2 });

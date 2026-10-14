@@ -1,13 +1,25 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import type { CommandResult } from "@atrium/protocol";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { Composer } from "../chat/composer";
 import { describeLaunchError } from "../chat/conversation-area";
 import { LaunchView } from "../chat/launch-timeline";
-import { MENU_ITEM, MenuButton } from "../chat/menu-button";
+import { MenuButton } from "../chat/menu-button";
 import { ModelPicker } from "../chat/model-picker";
-import { CaretDown, Folder, GitBranch, GitCommit, PencilSimple } from "../design/icons";
+import {
+  ArrowUp,
+  CaretDown,
+  Check,
+  Folder,
+  GitBranch,
+  GitCommit,
+  MagnifyingGlass,
+  Monitor,
+  PencilSimple,
+  Plus,
+  Sparkle,
+} from "../design/icons";
 import {
   type NewWorkspacePage as Page,
   type NewWorkspaceState,
@@ -20,7 +32,6 @@ import {
   launch,
   pageDraftKey,
   pageModel,
-  suggestBranch,
 } from "../state/new-workspace";
 import { pageDrafts } from "../state/use-draft";
 import { sortWorkspaces, workspaceName } from "../sidebar/names";
@@ -33,6 +44,160 @@ type Bases =
 
 /** The class of a heading inside a choice's menu. */
 const MENU_HEADING = "px-2.5 pt-1.5 pb-1 text-[length:var(--fs-sm)] text-[var(--text-dim)]";
+
+/** The class of a small label after a base's name. */
+const BADGE = "inline-flex h-4 shrink-0 items-center rounded-[4px] px-[5px] text-[11px]";
+
+/**
+ * One choice in a menu above the page's input box: its icon, name and what is worth knowing about
+ * it on one line, ticked when chosen.
+ *
+ * @remarks
+ * design-language ("新建工作区页"): 32px rows, the name cut short when long, the tick in a 14px
+ * slot of its own so the names line up whether ticked or not.
+ *
+ * @sideEffects none
+ * @param props - The icon, name, extra words, whether it is chosen, its hover text, whether it can
+ * be chosen, and what choosing it does.
+ * @returns The item.
+ */
+function ChoiceItem({
+  icon,
+  name,
+  meta,
+  checked,
+  title,
+  disabled = false,
+  onChoose,
+}: {
+  readonly icon: ReactNode;
+  readonly name: ReactNode;
+  readonly meta?: ReactNode;
+  readonly checked: boolean;
+  readonly title?: string | undefined;
+  readonly disabled?: boolean;
+  readonly onChoose: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={checked}
+      title={title}
+      disabled={disabled}
+      onClick={onChoose}
+      className="flex h-8 w-full items-center gap-2 rounded-[var(--r)] px-2.5 text-left text-[length:var(--fs-meta)] text-[var(--text-2)] enabled:hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:text-[var(--text-dim)]"
+    >
+      {icon}
+      <span className="flex min-w-0 flex-1 items-center gap-1.5">{name}</span>
+      {meta === undefined ? null : (
+        <span className="flex shrink-0 items-center gap-1.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+          {meta}
+        </span>
+      )}
+      <span className="flex w-3.5 shrink-0 justify-center text-[var(--tint)]">
+        {checked ? <Check size={14} /> : null}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Where a project lies: its directory's last two levels, or the whole of it when that short.
+ *
+ * @remarks
+ * design-language ("新建工作区页"): enough to tell projects of the same name apart; the whole path
+ * shows on hover.
+ *
+ * @sideEffects none
+ * @param path - The project's path.
+ * @returns The words, e.g. "…/MT/projects".
+ */
+function parentLabel(path: string): string {
+  const parent = path.split("/").slice(0, -1);
+  return parent.length > 3 ? `…/${parent.slice(-2).join("/")}` : parent.join("/");
+}
+
+/**
+ * The bases' menu: a line to filter them by, then the local and remote branches.
+ *
+ * @remarks
+ * design-language ("新建工作区页"): the line has the focus as the menu opens; what is typed matches
+ * any part of a name, in either case. The main branch and the local current one carry a label.
+ *
+ * @sideEffects Focuses the filter as it appears.
+ * @param props - The bases, the base chosen, and what choosing one does.
+ * @returns The menu's content.
+ */
+function BaseMenu({
+  bases,
+  chosen,
+  onChoose,
+}: {
+  readonly bases: CommandResult<"list_bases">;
+  readonly chosen: string | null;
+  readonly onChoose: (ref: string) => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    field.current?.focus();
+  }, []);
+  const wanted = filter.trim().toLowerCase();
+  const groups = (
+    [
+      ["本地分支", "local", bases.local],
+      ["远程分支", "remote", bases.remote],
+    ] as const
+  ).map(
+    ([heading, kind, names]) => [heading, kind, names.filter((name) => name.toLowerCase().includes(wanted))] as const,
+  );
+  return (
+    <>
+      <div className="-mx-1 -mt-1 mb-1 flex h-[34px] items-center gap-2 px-3.5 shadow-[inset_0_-0.5px_0_var(--line)]">
+        <MagnifyingGlass size={14} className="shrink-0 text-[var(--text-dim)]" />
+        <input
+          ref={field}
+          aria-label="过滤分支"
+          placeholder="过滤分支…"
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          className="min-w-0 flex-1 bg-transparent text-[length:var(--fs-meta)] text-[var(--text)] outline-none placeholder:text-[var(--text-dim)]"
+        />
+      </div>
+      {groups.every(([, , names]) => names.length === 0) ? (
+        <p className={MENU_HEADING}>没有匹配的分支</p>
+      ) : (
+        groups.map(([heading, kind, names]) =>
+          names.length === 0 ? null : (
+            <div key={heading} role="group" aria-label={heading}>
+              <p className={MENU_HEADING}>{heading}</p>
+              {names.map((name) => (
+                <ChoiceItem
+                  key={name}
+                  icon={<GitBranch size={14} className="shrink-0 text-[var(--text-muted)]" />}
+                  name={
+                    <>
+                      <span className="truncate font-[family-name:var(--font-mono)]">{name}</span>
+                      {kind === "remote" && name === bases.main ? (
+                        <span className={`${BADGE} bg-[var(--linked)] text-[var(--tint)]`}>主分支</span>
+                      ) : null}
+                      {kind === "local" && name === bases.current ? (
+                        <span className={`${BADGE} bg-[var(--surface-2)] text-[var(--text-muted)]`}>当前</span>
+                      ) : null}
+                    </>
+                  }
+                  checked={chosen === baseRef(kind, name)}
+                  onChoose={() => onChoose(baseRef(kind, name))}
+                />
+              ))}
+            </div>
+          ),
+        )
+      )}
+    </>
+  );
+}
 
 /**
  * The bases of the page's project, asked for as the page shows it.
@@ -146,18 +311,18 @@ function Choices({
       >
         {(close) =>
           index.projects.map((one) => (
-            <button
+            <ChoiceItem
               key={one.id}
-              type="button"
-              role="menuitem"
-              className={MENU_ITEM}
-              onClick={() => {
+              icon={<Folder size={16} className="shrink-0 text-[var(--text-muted)]" />}
+              name={<span className="truncate">{one.name}</span>}
+              meta={parentLabel(one.path)}
+              title={one.path}
+              checked={one.id === page.projectId}
+              onChoose={() => {
                 close();
                 choose(store, { projectId: one.id });
               }}
-            >
-              {one.name}
-            </button>
+            />
           ))
         }
       </MenuButton>
@@ -176,39 +341,55 @@ function Choices({
       >
         {(close) => (
           <>
-            <button
-              type="button"
-              role="menuitem"
+            <ChoiceItem
+              icon={<Plus size={16} className="shrink-0 text-[var(--tint)]" />}
+              name="新建 worktree"
+              checked={choice.kind === "new"}
               disabled={notGit}
               title={notGit ? "这个项目不是 git 仓库" : undefined}
-              className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-              onClick={() => {
+              onChoose={() => {
                 close();
                 if (choice.kind === "new") return;
                 choose(store, {
-                  choice: {
-                    kind: "new",
-                    branch: suggestBranch(Math.random),
-                    base: ready === null ? null : defaultBase(ready),
-                  },
+                  choice: { kind: "new", branch: null, base: ready === null ? null : defaultBase(ready) },
                 });
               }}
-            >
-              新建 worktree
-            </button>
+            />
+            {workspaces.length === 0 ? null : <div className="mx-2.5 my-1 h-[0.5px] bg-[var(--line)]" />}
             {workspaces.map((one) => (
-              <button
+              <ChoiceItem
                 key={one.id}
-                type="button"
-                role="menuitem"
-                className={MENU_ITEM}
-                onClick={() => {
+                icon={
+                  one.kind === "local" ? (
+                    <Monitor size={16} className="shrink-0 text-[var(--text-muted)]" />
+                  ) : (
+                    <GitBranch size={16} className="shrink-0 text-[var(--tint)]" />
+                  )
+                }
+                name={<span className="truncate">{workspaceName(one)}</span>}
+                meta={
+                  <>
+                    {one.merge?.dirty === true ? (
+                      <span title="有未提交的改动" className="size-1.5 rounded-full bg-[var(--attn)]" />
+                    ) : null}
+                    {one.merge !== null && one.merge.ahead > 0 ? (
+                      <span className="flex items-center">
+                        <ArrowUp size={11} />
+                        {one.merge.ahead}
+                      </span>
+                    ) : null}
+                    <span>
+                      {index.sessions.filter((session) => session.containerId === one.id && !session.archived).length}{" "}
+                      会话
+                    </span>
+                  </>
+                }
+                checked={choice.kind === "existing" && choice.workspaceId === one.id}
+                onChoose={() => {
                   close();
                   choose(store, { choice: { kind: "existing", workspaceId: one.id } });
                 }}
-              >
-                {workspaceName(one)}
-              </button>
+              />
             ))}
           </>
         )}
@@ -232,45 +413,31 @@ function Choices({
               ready === null ? (
                 <p className={MENU_HEADING}>{bases === null ? "正在读取分支…" : "读不到分支"}</p>
               ) : (
-                (
-                  [
-                    ["本地分支", "local", ready.local],
-                    ["远程分支", "remote", ready.remote],
-                  ] as const
-                ).map(([heading, kind, names]) =>
-                  names.length === 0 ? null : (
-                    <div key={heading} role="group" aria-label={heading}>
-                      <p className={MENU_HEADING}>{heading}</p>
-                      {names.map((name) => (
-                        <button
-                          key={name}
-                          type="button"
-                          role="menuitem"
-                          className={MENU_ITEM}
-                          onClick={() => {
-                            close();
-                            choose(store, { choice: { ...choice, base: baseRef(kind, name) } });
-                          }}
-                        >
-                          {name}
-                        </button>
-                      ))}
-                    </div>
-                  ),
-                )
+                <BaseMenu
+                  bases={ready}
+                  chosen={choice.base}
+                  onChoose={(ref) => {
+                    close();
+                    choose(store, { choice: { ...choice, base: ref } });
+                  }}
+                />
               )
             }
           </MenuButton>
           {editing ? (
-            <span className="flex h-[26px] w-[240px] items-center">
+            <span className="flex h-[26px] w-[240px] items-center gap-1.5 px-2 text-[length:var(--fs-meta)]">
+              <PencilSimple size={14} className="shrink-0 text-[var(--text-muted)]" />
               <RenameField
-                initial={choice.branch}
+                initial={choice.branch ?? ""}
                 label="分支名"
+                placeholder="输入分支名，留空让 AI 起名"
+                restores="清空恢复自动起名"
+                above
                 onDone={(name) => {
                   setEditing(false);
                   const now = store.getState().page?.choice;
-                  if (typeof name === "string" && now?.kind === "new")
-                    choose(store, { choice: { ...now, branch: name } });
+                  // Cleared, the model names it again.
+                  if (name !== undefined && now?.kind === "new") choose(store, { choice: { ...now, branch: name } });
                 }}
               />
             </span>
@@ -278,13 +445,17 @@ function Choices({
             <button
               type="button"
               aria-label="分支名"
-              title="分支名"
+              title={choice.branch === null ? "发出后，AI 按第一条消息起分支名；点这里自己写" : "分支名"}
               disabled={held}
               onClick={() => setEditing(true)}
               className="flex h-[26px] max-w-[240px] items-center gap-1.5 whitespace-nowrap rounded-[var(--r-btn)] px-2 text-[length:var(--fs-meta)] text-[var(--text-2)] enabled:hover:bg-[var(--hover)] disabled:text-[var(--text-dim)]"
             >
-              <PencilSimple size={14} className="shrink-0 text-[var(--text-muted)]" />
-              <span className="truncate">{choice.branch}</span>
+              {choice.branch === null ? (
+                <Sparkle size={14} className="shrink-0 text-[var(--tint)]" />
+              ) : (
+                <PencilSimple size={14} className="shrink-0 text-[var(--text-muted)]" />
+              )}
+              <span className="truncate">{choice.branch ?? "自动起名"}</span>
             </button>
           )}
         </>

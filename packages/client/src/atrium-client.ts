@@ -180,6 +180,8 @@ export interface AtriumClient {
   listBases(projectId: string): Promise<CommandResult<"list_bases">>;
   /** Creates a worktree workspace on a new branch from a base. */
   createWorkspace(projectId: string, branch: string, base: string): Promise<CommandResult<"create_workspace">>;
+  /** Asks a model for a new worktree's branch name by the first message, on the page's model or `null`. */
+  nameBranch(projectId: string, text: string, model: ModelRef | null): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
   /** Archives a chat with its sessions, stopping those that run. */
@@ -1238,6 +1240,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     restoreWorkspace: (workspaceId) => request("restore_workspace", { workspaceId }),
     listBases: (projectId) => request("list_bases", { projectId }),
     createWorkspace: (projectId, branch, base) => request("create_workspace", { projectId, branch, base }),
+    nameBranch: (projectId, text, model) => request("name_branch", { projectId, text, model }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
     archiveChat: (chatId) => request("archive_chat", { chatId }),
     restoreChat: (chatId) => request("restore_chat", { chatId }),

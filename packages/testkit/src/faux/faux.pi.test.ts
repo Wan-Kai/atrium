@@ -116,10 +116,13 @@ async function normalizedRun(script: FauxScript): Promise<string> {
  *
  * @sideEffects Creates a temporary directory, removed after the test; runs pi.
  * @param script - What the faux model answers.
- * @returns What pi printed, how it exited, and whether the extension wrote its process id.
+ * @param systemPrompt - What pi is told to do.
+ * @returns What pi printed, how it exited, whether the extension wrote its process id, and the
+ * instructions the model was given.
  */
-async function printRun(script: FauxScript) {
-  const dir: TempDir = await createTempDir("faux-print");
+async function printRun(script: FauxScript, systemPrompt = "Name it.") {
+  // pi tells the model its directory too, so one named for a branch must not make it a branch's call.
+  const dir: TempDir = await createTempDir("faux-branch-print");
   cleanups.push(dir.cleanup);
   const launch = await fauxPi(script, dir.path);
   const child = spawn(
@@ -133,7 +136,7 @@ async function printRun(script: FauxScript) {
       "--thinking",
       "off",
       "--system-prompt",
-      "Name it.",
+      systemPrompt,
       ...launch.args,
     ],
     { cwd: dir.path, env: { PATH: process.env["PATH"] ?? "", HOME: dir.path, TMPDIR: tmpdir(), ...launch.env } },
@@ -147,7 +150,7 @@ async function printRun(script: FauxScript) {
     .filter((line) => line !== "")
     .map((line) => JSON.parse(line) as PiRecord);
   const wrotePid = (await readdir(dir.path)).includes(FAUX_PID_FILE);
-  return { records, code, wrotePid };
+  return { records, code, wrotePid, prints: await launch.prints() };
 }
 
 describe("faux model in pi's print mode", () => {
@@ -162,6 +165,25 @@ describe("faux model in pi's print mode", () => {
     const { records } = await printRun({ replies: [] });
 
     expect(lastAssistant(records)).toMatchObject({ stopReason: "error", errorMessage: "faux script has no title" });
+  });
+
+  it("answers with the script's branch when asked for a branch, and keeps what the model was told", async () => {
+    const { records, prints } = await printRun(
+      { replies: [], title: "登录修复", branch: "fix-login" },
+      "Name a git branch for it.",
+    );
+
+    expect(lastAssistant(records)).toMatchObject({
+      stopReason: "stop",
+      content: [{ type: "text", text: "fix-login" }],
+    });
+    expect(prints).toStrictEqual([{ systemPrompt: expect.stringMatching(/^Name a git branch for it\./) }]);
+  });
+
+  it("answers with an error when asked for a branch without one", async () => {
+    const { records } = await printRun({ replies: [], title: "登录修复" }, "Name a git branch for it.");
+
+    expect(lastAssistant(records)).toMatchObject({ stopReason: "error", errorMessage: "faux script has no branch" });
   });
 });
 

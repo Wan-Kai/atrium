@@ -1,6 +1,7 @@
 import { type AtriumClient, isChatId } from "@atrium/client";
 import type { ContainerId, SessionSummary } from "@atrium/protocol";
 import { CaretDown, ClockCounterClockwise, FileDiff, Plus, SidebarRight, X } from "../design/icons";
+import { useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { splitPath } from "../chat/changes";
@@ -16,6 +17,7 @@ import {
   viewerKey,
 } from "../state/workspace-views";
 import { sessionTitle, timeAgo } from "../sidebar/names";
+import { RenameField } from "../sidebar/rename-field";
 import { sessionStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
@@ -48,7 +50,9 @@ function run(command: () => Promise<unknown>): void {
  * panel's toggle; while the sidebar is folded the bar starts 120px in, clear of the traffic
  * lights and the sidebar's toggle (SPEC-0001, "界面 · 左栏折叠与右栏"). The container's viewer
  * tabs follow its sessions'; while one shows, no session tab is selected, and a session tab
- * clicked shows its session again (SPEC-0001, "M1.12 的文件与更改 · 查看标签").
+ * clicked shows its session again (SPEC-0001, "M1.12 的文件与更改 · 查看标签"). The "···" menu's
+ * rename happens on the session's tab (design-language, "改名框"); a failure shows next to the
+ * menu, until the next action there.
  *
  * @sideEffects Subscribes to the client's list, the panes and the views; sends commands and
  * writes the views when used.
@@ -84,6 +88,8 @@ export function TabBar({
     .filter((session) => session.containerId === containerId && !session.archived)
     .toSorted((a, b) => b.updatedAt - a.updatedAt);
   const active = tabs.active === null ? undefined : byId.get(tabs.active);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameFailed, setRenameFailed] = useState<string | null>(null);
 
   return (
     <div
@@ -100,6 +106,13 @@ export function TabBar({
             key={session.sessionId}
             session={session}
             selected={session.sessionId === tabs.active && view.active === null}
+            renaming={session.sessionId === renaming}
+            onRenamed={(name) => {
+              setRenaming(null);
+              if (typeof name !== "string") return;
+              // Fire and forget: a failure is shown.
+              void client.renameSession(session.sessionId, name).catch(() => setRenameFailed(session.sessionId));
+            }}
             onSelect={() => {
               showViewer(views, containerId, null);
               run(() => client.openSession(session.sessionId));
@@ -185,7 +198,19 @@ export function TabBar({
       <span className="min-w-0 flex-1" />
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         {active === undefined ? null : <SessionNoticeLine sessionId={active.sessionId} />}
-        {active === undefined ? null : <SessionMenu key={active.sessionId} client={client} session={active} />}
+        {active === undefined ? null : (
+          <SessionMenu
+            key={active.sessionId}
+            client={client}
+            session={active}
+            renameFailed={renameFailed === active.sessionId}
+            onRename={() => {
+              setRenameFailed(null);
+              setRenaming(active.sessionId);
+            }}
+            onAction={() => setRenameFailed(null)}
+          />
+        )}
         <PanelToggle panes={panes} usable={!isChatId(containerId)} />
       </span>
     </div>
@@ -290,20 +315,28 @@ function ViewerTabButton({
  * One tab: the session's title, its status, and a close button.
  *
  * @remarks
- * The close button shows on hover and on the active tab (prototype `app-prototype.html`).
+ * The close button shows on hover and on the active tab (prototype `app-prototype.html`). While
+ * the session is renamed, the title is the rename field and the close button is gone
+ * (design-language, "改名框").
  *
  * @sideEffects none; the callbacks send commands.
- * @param props - The session, whether its tab is active, and what selecting and closing do.
+ * @param props - The session, whether its tab is active, whether it is being renamed, and what
+ * renaming, selecting and closing do.
  * @returns The tab.
  */
 function Tab({
   session,
   selected,
+  renaming,
+  onRenamed,
   onSelect,
   onClose,
 }: {
   readonly session: SessionSummary;
   readonly selected: boolean;
+  readonly renaming: boolean;
+  /** Called once renaming ends, with the name, `null` for an empty one, or `undefined` when cancelled. */
+  readonly onRenamed: (name: string | null | undefined) => void;
   readonly onSelect: () => void;
   readonly onClose: () => void;
 }) {
@@ -321,18 +354,24 @@ function Tab({
       className="group flex h-[30px] max-w-[200px] min-w-24 shrink items-center gap-1.5 rounded-[var(--r)] pr-1 pl-2.5 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-selected:bg-[var(--selected)] aria-selected:text-[var(--text)]"
     >
       <StatusIcon status={sessionStatus(session)} />
-      <span className="min-w-0 flex-1 truncate">{title}</span>
-      <button
-        type="button"
-        aria-label={`关闭 ${title}`}
-        onClick={(event) => {
-          event.stopPropagation();
-          onClose();
-        }}
-        className="inline-flex size-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] opacity-0 group-hover:opacity-100 group-aria-selected:opacity-100 hover:bg-[var(--hover)]"
-      >
-        <X size={11} />
-      </button>
+      {renaming ? (
+        <RenameField initial={title} label="会话名称" onDone={onRenamed} />
+      ) : (
+        <>
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+          <button
+            type="button"
+            aria-label={`关闭 ${title}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onClose();
+            }}
+            className="inline-flex size-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] opacity-0 group-hover:opacity-100 group-aria-selected:opacity-100 hover:bg-[var(--hover)]"
+          >
+            <X size={11} />
+          </button>
+        </>
+      )}
     </div>
   );
 }

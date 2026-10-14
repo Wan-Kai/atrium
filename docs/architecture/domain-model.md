@@ -592,6 +592,9 @@ classDiagram
     class TitleGenerator {
       generate(sessionId)
     }
+    class BranchNamer {
+      name(projectId, text, model)
+    }
     class PiIntegration {
       <<模块>>
       PiAdapter
@@ -623,6 +626,8 @@ classDiagram
     SessionController --> PiIntegration : PiAdapter、EventTranslator
     SessionController ..> TitleGenerator : 第一轮结束后
     TitleGenerator --> PiIntegration : OneShotPi
+    WsServer --> BranchNamer
+    BranchNamer --> PiIntegration : OneShotPi
     SetupService --> PiIntegration : PiCatalog
     SetupService ..> SessionManager : 更新前确认无运行
     WorkspaceService --> MergeInspector
@@ -635,6 +640,7 @@ classDiagram
 - **SessionCatalog** 在宿主里：用 SessionFiles 的扫描结果，按索引里记录的容器、或文件头的 `cwd` 把会话归到容器，按 id 去重并报告冲突。归类是 Atrium 的业务规则，所以不放进 pi 包。
 - **Connection** 属于 `server/`，持有一个客户端的 socket、clientId 和发送方法。客户端订阅了哪些会话（打开着或可见的）记在 `sync/` 的 **SubscriptionRegistry**，以不透明的 connectionId 作键：业务模块（SessionManager）通过它知道"谁在看哪个会话"，又不必依赖 `server/`（overview.md，"宿主内部的依赖"）。宿主只给订阅者推送对话记录的增量（参照 Paseo）；客户端打开会话时清除它的关注状态。
 - **TitleGenerator** 负责标题的提示词、截断和写回规则，调 OneShotPi 单独起一次性进程，不借正在运行的会话。
+- **BranchNamer**（`workspaces/`，2026-10-14 加）按新建工作区页的第一条消息给新 worktree 起分支名：选模型同 TitleGenerator（再退到 pi 的默认模型），调 OneShotPi，整理成 `atrium/<名字>`，避开已有的分支和 worktree 目录（SPEC-0001"AI 起分支名"）。它不知道 OneShotPi 和偏好在哪，由 `main.ts` 注入。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
 - **FileSearch** 在会话的工作目录里调 `fd`，参数和排序照 pi 的终端界面，git 仓库和普通目录一样（2026-10-10 定，原先打算 git 仓库用 `git ls-files`、其他目录自己遍历）。
 - **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个）。主干按"已决定 15"：项目设置（ProjectService）或 `origin/HEAD`；和 WorkspaceService 不同的是，`origin` 上没有主干时退到本地主干（照 Paseo）。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。

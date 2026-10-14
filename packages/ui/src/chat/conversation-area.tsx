@@ -263,6 +263,27 @@ function SessionModelPicker({
 }
 
 /**
+ * The one line of the empty state, a blinking caret after it.
+ *
+ * @remarks
+ * design-language ("空状态"): the same everywhere there is nothing yet, with no session open or
+ * in one with nothing in it. It fills the room above the input box, as the transcript would.
+ *
+ * @sideEffects none
+ * @returns The line.
+ */
+function EmptyLine() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+      <p data-testid="empty-line" className="flex items-center text-[20px] font-medium text-[var(--text)]">
+        每天都做一些改变出来
+        <span aria-hidden="true" className="atrium-caret" />
+      </p>
+    </div>
+  );
+}
+
+/**
  * The transcript and the input box of a session, subscribed to its view.
  *
  * @remarks
@@ -272,7 +293,8 @@ function SessionModelPicker({
  * input box (SPEC-0001, "运行控制"). The status bar under it shows the session's figures, with
  * the groups chosen in the global preferences (SPEC-0001, "状态栏"). A session made from the
  * new-workspace page shows the steps of its making above the transcript, and its box sends
- * nothing until the first message has gone (SPEC-0001, "M1.11 的新建工作区").
+ * nothing until the first message has gone (SPEC-0001, "M1.11 的新建工作区"). With nothing in it
+ * yet, it says the empty state's line in place of the transcript (design-language, "空状态").
  *
  * @sideEffects Subscribes to the session's store and the preferences; loads older items when
  * asked; sends run control commands and status bar choices, reporting their failures through `act`.
@@ -337,6 +359,15 @@ function SessionArea({
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- see above.
   }, [takesFocus]);
   const running = view.run !== null;
+  // Nothing in it yet: loaded, and nothing sent, running, compacting, further back or being made.
+  const blank =
+    view.status !== "loading" &&
+    view.items.length === 0 &&
+    !view.hasOlder &&
+    view.pending.length === 0 &&
+    !running &&
+    !view.control.compacting &&
+    launch === undefined;
   const actions: RunActions = {
     resume: () => act(() => client.resumeQueue(sessionId)),
     clear: () => act(() => client.clearQueue(sessionId)),
@@ -354,21 +385,25 @@ function SessionArea({
           reason={launch.failure === undefined ? null : describeLaunchError(launch.failure)}
         />
       )}
-      <MessageImagesContext value={images}>
-        <Transcript
-          view={view}
-          onLoadOlder={() => {
-            // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-            client.loadOlder(sessionId).catch(() => undefined);
-          }}
-          onLoadStep={(turnId, stepId) => {
-            // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-            client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-          }}
-          onRetry={actions.retry}
-          onFork={(turnId) => forkFrom(client, sessionId, turnId)}
-        />
-      </MessageImagesContext>
+      {blank ? (
+        <EmptyLine />
+      ) : (
+        <MessageImagesContext value={images}>
+          <Transcript
+            view={view}
+            onLoadOlder={() => {
+              // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+              client.loadOlder(sessionId).catch(() => undefined);
+            }}
+            onLoadStep={(turnId, stepId) => {
+              // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+              client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+            }}
+            onRetry={actions.retry}
+            onFork={(turnId) => forkFrom(client, sessionId, turnId)}
+          />
+        </MessageImagesContext>
+      )}
       <ControlCards control={view.control} actions={actions} />
       {notice}
       <Composer
@@ -435,9 +470,8 @@ function SessionArea({
  * in a restart, is opened again before the message goes. A failed send is explained above the input box, and the
  * message goes back into its box when the box is still empty. A session the new-workspace page
  * made shows the steps of its making until its first message has gone; one failed stays until the
- * next send. The empty
- * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计"). The
- * right panel is open or not, and as wide, in every workspace alike; a viewer tab shown takes the
+ * next send. The empty state says one line, the same everywhere, a blinking caret after it
+ * (design-language, "空状态"). The right panel is open or not, and as wide, in every workspace alike; a viewer tab shown takes the
  * whole area but the panel; the workspace's diff is watched while either needs it (SPEC-0001,
  * "M1.12 的文件与更改").
  *
@@ -957,18 +991,7 @@ export function ConversationArea({
           />
         ) : store === undefined || sessionId === null ? (
           <>
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
-              <p className="text-[20px] font-medium text-[var(--text)]">
-                {containerId === null ? "开始一段对话" : "新会话"}
-              </p>
-              <p className="text-[length:var(--fs-meta)]">
-                {containerId === null
-                  ? "不绑定项目和工作区，直接输入就开始"
-                  : isChatId(containerId)
-                    ? "在这个对话里开始，直接输入就会新建会话"
-                    : "在这个工作区里开始，直接输入就会新建会话"}
-              </p>
-            </div>
+            <EmptyLine />
             {notice}
             <Composer
               {...attaching(null)}

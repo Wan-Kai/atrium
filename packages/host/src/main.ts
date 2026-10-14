@@ -5,6 +5,7 @@ import {
   inspectNode,
   inspectPi,
   queryModels,
+  runOneShot,
   sessionsLocation,
 } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
@@ -56,6 +57,7 @@ import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
 import { SubscriptionRegistry } from "./sync/subscriptions";
 import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspector";
+import { createBranchNamer } from "./workspaces/branch-namer";
 import { createWorkspaceArchiver } from "./workspaces/workspace-archiver";
 import { createWorktreeCreator } from "./workspaces/worktree-creator";
 import { createWorktreeQueue } from "./workspaces/worktree-queue";
@@ -257,6 +259,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     },
     clock,
   });
+  // The title model chosen in the settings, when pi lists it; it names new worktrees' branches too.
+  const titleModel = titleModelLookup({
+    chosen: () => preferences.read().titleModel,
+    list: (dir) => models.list(dir, false),
+    chatsRoot: join(home.root, "chats"),
+    // As the model lister asks for chats.
+    chatsDir: home.root,
+  });
   // Who else wants to know the sessions changed: an update waits for running sessions to finish.
   const sessionListeners = new Set<() => void>();
   const sessions = createSessionManager({
@@ -321,13 +331,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
             },
           },
         }),
-    titleModel: titleModelLookup({
-      chosen: () => preferences.read().titleModel,
-      list: (dir) => models.list(dir, false),
-      chatsRoot: join(home.root, "chats"),
-      // As the model lister asks for chats.
-      chatsDir: home.root,
-    }),
+    titleModel,
     turnStarts: async (sessionId) => {
       const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
@@ -368,6 +372,25 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     queue: worktreeQueue,
   });
   const creator = createWorktreeCreator({ projects, git, queue: worktreeQueue, refresh: rescanWorkspace, logger });
+  // Names a new worktree's branch by the first message (SPEC-0001, "AI 起分支名").
+  const namer = createBranchNamer({
+    projects,
+    git,
+    titleModel,
+    models: (dir) => models.list(dir, false),
+    oneShot: async ({ timeoutMs, ...request }) => {
+      const found = await toolbox.current();
+      if (found?.pi.status !== "ready") {
+        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+      }
+      return runOneShot(
+        { piPath: found.pi.piPath, ...request },
+        createPiDeps({ clock, resources, logger, env: found.env }),
+        { timeoutMs },
+      );
+    },
+    logger,
+  });
   const indexCommands = createIndexCommands({
     projects,
     workspaces: {
@@ -383,6 +406,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     sessions,
     archiver,
     creator,
+    namer,
     preferences,
     chats: () => catalog.chats(),
     chatRecords,

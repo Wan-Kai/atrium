@@ -114,6 +114,53 @@ async function viewer({
   return { screen, client, views, storage, switchTo, away, body: screen.getByTestId("viewer-body").element() };
 }
 
+/** A file with one line far wider than the tab. */
+const WIDE: DiffFile = {
+  path: "src/wide.ts",
+  oldPath: null,
+  status: "added",
+  added: 1,
+  removed: 0,
+  content: "text",
+  hunks: [
+    {
+      oldStart: 0,
+      oldCount: 0,
+      newStart: 1,
+      newCount: 1,
+      lines: [{ kind: "add", oldNumber: null, newNumber: 1, text: "x".repeat(400) }],
+    },
+  ],
+};
+
+/**
+ * A file's code, the part that scrolls sideways.
+ *
+ * @sideEffects none
+ * @param section - The file's section.
+ * @returns The code's scroll area, after the header.
+ * @throws When the file shows no code.
+ */
+function codeOf(section: Element): HTMLElement {
+  const code = section.lastElementChild;
+  if (!(code instanceof HTMLElement) || code.tagName === "BUTTON") throw new Error("the file shows no code");
+  return code;
+}
+
+/**
+ * A file's first line.
+ *
+ * @sideEffects none
+ * @param section - The file's section.
+ * @returns The line.
+ * @throws When the file shows no lines.
+ */
+function firstRow(section: Element): Element {
+  const row = section.querySelector("[data-kind]");
+  if (row === null) throw new Error("the file shows no lines");
+  return row;
+}
+
 /** FILES sent again, `src/chat/a.ts` edited otherwise. */
 const EDITED: DiffFile[] = FILES.map((file) =>
   file.path === "src/chat/a.ts"
@@ -277,6 +324,24 @@ describe("DiffViewer", () => {
     ]).toStrictEqual([[["var(--selected)", "var(--main)"]], true]);
   });
 
+  it("ends at the last file's last line when that file is longer than the tab, leaving no room below it", async () => {
+    const { screen, body } = await viewer({ files: FILES.filter((file) => file.path.startsWith("src/")) });
+    await expect.element(screen.getByText("line 40")).toBeInTheDocument();
+
+    // Scrolled to the end each time, as colouring the lines may move it; measured from the bottom of
+    // what shows, above the sideways scrollbar.
+    await expect
+      .poll(() => {
+        body.scrollTop = body.scrollHeight;
+        return Math.round(
+          body.getBoundingClientRect().top +
+            body.clientHeight -
+            screen.getByText("line 40").element().getBoundingClientRect().bottom,
+        );
+      })
+      .toBe(4);
+  });
+
   it("stops the header's flash when it goes, so it does not keep the tab alive", async () => {
     const { screen, views } = await viewer();
     const header = screen.getByRole("region", { name: "z.json" }).getByRole("button");
@@ -290,20 +355,37 @@ describe("DiffViewer", () => {
   });
 
   it("wraps long lines only when asked", async () => {
-    const line = { kind: "add" as const, oldNumber: null, newNumber: 1, text: "x".repeat(400) };
-    const hunk = { oldStart: 0, oldCount: 0, newStart: 1, newCount: 1, lines: [line] };
-    const { screen, body } = await viewer({
-      files: [
-        { path: "src/wide.ts", oldPath: null, status: "added", added: 1, removed: 0, content: "text", hunks: [hunk] },
-      ],
-    });
-    await expect.element(screen.getByRole("region", { name: "src/wide.ts" })).toBeVisible();
+    const { screen } = await viewer({ files: [WIDE] });
+    const code = codeOf(screen.getByRole("region", { name: "src/wide.ts" }).element());
     // A group is laid out once it shows, a frame after it is added.
-    await expect.poll(() => body.scrollWidth > body.clientWidth).toBe(true);
+    await expect.poll(() => code.scrollWidth > code.clientWidth).toBe(true);
 
     await screen.getByRole("button", { name: "换行" }).click();
 
-    await expect.poll(() => body.scrollWidth > body.clientWidth).toBe(false);
+    await expect.poll(() => code.scrollWidth > code.clientWidth).toBe(false);
+  });
+
+  it("scrolls a long line sideways within its own file, the headers and the other files staying put", async () => {
+    const { screen, body } = await viewer({ files: [WIDE, ...FILES] });
+    const wide = screen.getByRole("region", { name: "src/wide.ts" });
+    const code = codeOf(wide.element());
+    // Files go in the tree's order, this one below the others; its lines are laid out once shown.
+    wide.element().scrollIntoView();
+    await expect.poll(() => code.scrollWidth > code.clientWidth).toBe(true);
+    const header = wide.getByRole("button").element();
+    const left = header.getBoundingClientRect().left;
+
+    code.scrollLeft = 200;
+
+    expect([
+      body.scrollWidth - body.clientWidth,
+      code.scrollLeft,
+      header.getBoundingClientRect().left - left,
+      // Its line's colour runs to the end of the line; a short file's, to the tab's edge.
+      Math.round(firstRow(wide.element()).getBoundingClientRect().width) - code.scrollWidth,
+      firstRow(screen.getByRole("region", { name: "src/chat/a.ts" }).element()).getBoundingClientRect().width -
+        body.clientWidth,
+    ]).toStrictEqual([0, 200, 0, 0, 0]);
   });
 
   it("is where it was left, wrapping or not, once switched back to", async () => {

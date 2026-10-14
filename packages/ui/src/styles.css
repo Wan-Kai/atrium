@@ -13,10 +13,15 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* The shadcn colours Streamdown's classes name where Atrium's own styles do not reach, such as a table
+   seen larger; one missing falls back to the text colour, which drew its blocks in black lines
+   (design-language, "消息流"). */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
   --color-tint: var(--tint);
   --color-danger: var(--danger);
   --color-attn-text: var(--attn-text);
@@ -86,6 +91,209 @@ body {
   list-style: none;
 }
 
+/* Code blocks, tables and Mermaid diagrams lie flat in a reply: one surface, no lines, the language
+   in a corner and the buttons only while hovered (design-language, "消息流"). Unlayered, these win over
+   Streamdown's own utility classes. */
+.atrium-markdown :is([data-streamdown="code-block"], [data-streamdown="mermaid-block"]) {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-md);
+  background: var(--code);
+}
+
+.atrium-markdown :is([data-streamdown="code-block-header"], [data-streamdown="mermaid-block"] > div:first-child) {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 1;
+  height: auto;
+  padding: 1px 4px;
+  border-radius: var(--r-sm);
+  background: var(--code);
+  color: var(--text-dim);
+  font: var(--fs-xs) / 18px var(--font-mono);
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.atrium-markdown :is([data-streamdown="code-block-header"], [data-streamdown="mermaid-block"] > div:first-child) span {
+  margin: 0;
+}
+
+.atrium-markdown [data-streamdown="code-block-body"] {
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font: var(--fs-mono) / 1.6 var(--font-mono);
+}
+
+.atrium-markdown [data-streamdown="code-block-body"] pre {
+  background: none;
+  font: inherit;
+}
+
+/* The button groups: Streamdown's, sat in a wrapper it places, and Atrium's own on a Mermaid block. */
+.atrium-markdown :is([data-streamdown="code-block"], [data-streamdown="mermaid-block"]) > div:has(> [data-streamdown]) {
+  top: 5px;
+  right: 6px;
+}
+
+.atrium-markdown
+  :is([data-streamdown="code-block-actions"], [data-streamdown="mermaid-block-actions"], .atrium-block-actions) {
+  display: flex;
+  gap: 0;
+  padding: 1px;
+  border: 0;
+  border-radius: var(--r);
+  background: var(--code);
+  backdrop-filter: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.atrium-markdown [data-streamdown="table-wrapper"] > div:first-child:not(:last-child) {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  z-index: 1;
+  gap: 0;
+  padding: 1px;
+  border-radius: var(--r);
+  background: var(--main);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.atrium-markdown
+  :is(
+    [data-streamdown="code-block"],
+    [data-streamdown="mermaid-block"],
+    [data-streamdown="table-wrapper"],
+    .atrium-mermaid
+  ):is(:hover, :focus-within)
+  :is(
+    [data-streamdown="code-block-actions"],
+    [data-streamdown="mermaid-block-actions"],
+    .atrium-block-actions,
+    [data-streamdown="table-wrapper"] > div:first-child:not(:last-child)
+  ) {
+  opacity: 1;
+}
+
+.atrium-markdown
+  :is([data-streamdown="code-block"], [data-streamdown="mermaid-block"], .atrium-mermaid):is(:hover, :focus-within)
+  :is([data-streamdown="code-block-header"], [data-streamdown="mermaid-block"] > div:first-child) {
+  opacity: 0;
+}
+
+.atrium-markdown
+  :is(
+    [data-streamdown="code-block-actions"],
+    [data-streamdown="mermaid-block-actions"],
+    .atrium-block-actions,
+    [data-streamdown="table-wrapper"] > div:first-child
+  )
+  button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--r-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.atrium-markdown
+  :is(
+    [data-streamdown="code-block-actions"],
+    [data-streamdown="mermaid-block-actions"],
+    .atrium-block-actions,
+    [data-streamdown="table-wrapper"] > div:first-child
+  )
+  button:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* A Mermaid block: Atrium's switch and copy sit left of Streamdown's own zoom, which is one button. */
+.atrium-mermaid {
+  position: relative;
+}
+
+.atrium-mermaid > .atrium-block-actions {
+  position: absolute;
+  top: 5px;
+  right: 34px;
+  z-index: 2;
+}
+
+.atrium-markdown [data-streamdown="mermaid-block"] > div:last-child {
+  display: grid;
+  place-items: center;
+  padding: 20px 14px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+/* A table has no frame: a muted header over a strong line, soft lines between rows. */
+.atrium-markdown [data-streamdown="table-wrapper"] {
+  position: relative;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.atrium-markdown [data-streamdown="table-wrapper"] > div:last-child {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.atrium-markdown [data-streamdown="table"],
+.atrium-markdown [data-streamdown="table-body"] > tr {
+  border: 0;
+}
+
+.atrium-markdown [data-streamdown="table-header"] {
+  background: none;
+}
+
+.atrium-markdown [data-streamdown="table-header-cell"] {
+  padding: 6px 20px 8px 0;
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--text-muted);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+}
+
+.atrium-markdown [data-streamdown="table-cell"] {
+  padding: 8px 20px 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.atrium-markdown [data-streamdown="table-body"] > tr:last-child > [data-streamdown="table-cell"] {
+  border-bottom: 0;
+}
+
+/* Streamdown's own margins go; a block in the reply itself keeps the 12px every block has below it. */
+.atrium-markdown
+  > :is([data-streamdown="code-block"], [data-streamdown="table-wrapper"], .atrium-mermaid):not(:last-child) {
+  margin-bottom: 0.75rem;
+}
+
+.atrium-markdown [data-streamdown="inline-code"] {
+  border-radius: var(--r-sm);
+}
+
 /* Counters and timers never jump (design-language, "字体"). */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
@@ -135,6 +343,29 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .atrium-run-cat-eyes {
+    animation: none;
+  }
+}
+
+/* The empty state's caret (design-language, "空状态"): on and off as a text caret, never fading;
+   steady when motion is reduced, which would otherwise make it flicker every millisecond. */
+@keyframes atrium-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.atrium-caret {
+  width: 2px;
+  height: 1.15em;
+  margin-left: 3px;
+  border-radius: 1px;
+  background: var(--tint);
+  animation: atrium-caret-blink 1.06s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-caret {
     animation: none;
   }
 }

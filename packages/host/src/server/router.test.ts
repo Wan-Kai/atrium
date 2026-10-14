@@ -98,6 +98,7 @@ function fakeCommands() {
     restoreWorkspace: record("restoreWorkspace", {}),
     listBases: record("listBases", { main: null, current: "main", local: ["main"], remote: [] }),
     createWorkspace: record("createWorkspace", { workspaceId: WORKSPACE }),
+    nameBranch: record("nameBranch", { branch: "atrium/fix-it" }),
     renameChat: record("renameChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
@@ -481,6 +482,10 @@ describe("createRouter", () => {
       connection,
       withTrace({ type: "create_workspace", requestId: "r19", projectId: PROJECT, branch: "atrium/a", base: "main" }),
     );
+    await route(
+      connection,
+      withTrace({ type: "name_branch", requestId: "r20", projectId: PROJECT, text: "Fix it", model: MODEL }),
+    );
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -503,7 +508,14 @@ describe("createRouter", () => {
       ["restoreWorkspace", WORKSPACE],
       ["listBases", PROJECT],
       ["createWorkspace", PROJECT, "atrium/a", "main"],
+      ["nameBranch", PROJECT, "Fix it", MODEL],
     ]);
+    expect(sent[20]).toStrictEqual({
+      type: "response",
+      requestId: "r20",
+      ok: true,
+      result: { branch: "atrium/fix-it" },
+    });
     expect(sent[19]).toStrictEqual({
       type: "response",
       requestId: "r19",

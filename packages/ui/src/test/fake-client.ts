@@ -151,9 +151,13 @@ export interface FakeAnswers {
   readonly createSession?: () => Promise<void>;
   /** A project's bases; `origin/main` and a local `main` when left out. */
   readonly bases?: (projectId: string) => Promise<CommandResult<"list_bases">>;
+  /** Answers naming a branch with the name; `atrium/fix-login` at once when left out. */
+  readonly nameBranch?: () => Promise<string>;
   /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
   readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
+  /** Answers renaming a session; renamed at once when left out. */
+  readonly renameSession?: () => Promise<void>;
   /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
   readonly archiveChat?: () => Promise<void>;
   /** Answers restoring a chat, which then shows again; restored at once when left out. */
@@ -411,6 +415,10 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
         }
       );
     },
+    async nameBranch(projectId: string, text: string, model: ModelRef | null) {
+      calls.push(`nameBranch ${projectId} ${text} ${model === null ? "null" : `${model.providerId}/${model.modelId}`}`);
+      return { branch: (await answers.nameBranch?.()) ?? "atrium/fix-login" };
+    },
     async createWorkspace(projectId: string, branch: string, base: string) {
       calls.push(`createWorkspace ${projectId} ${branch} ${base}`);
       await answers.createWorkspace?.();
@@ -461,6 +469,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async renameSession(sessionId: string, name: string) {
       calls.push(`renameSession ${sessionId} ${name}`);
+      await answers.renameSession?.();
       return {};
     },
     async clearAttention(sessionId: string) {

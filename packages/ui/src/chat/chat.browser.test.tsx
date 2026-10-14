@@ -7,6 +7,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
+import { createNewWorkspaceStore } from "../state/new-workspace";
 import { createPanes, memoryStorage } from "../state/panes";
 import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer } from "../state/workspace-views";
 import { pageNotices, showNotice } from "../state/session-notices";
@@ -217,6 +218,23 @@ function above(items: TranscriptItem[], below: number) {
       <div style={{ height: below, flex: "none" }} />
     </div>
   );
+}
+
+/**
+ * An element's last child element.
+ *
+ * @remarks
+ * Throws rather than returning nothing, so a test reads it without a conditional.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its last child.
+ * @throws When it has none.
+ */
+function lastChild(element: Element): Element {
+  const child = element.lastElementChild;
+  if (child === null) throw new Error("no child");
+  return child;
 }
 
 /**
@@ -691,7 +709,7 @@ describe("ConversationArea", () => {
     const screen = await render(
       <ConversationArea client={client} containerId={null} sessionId={null} create={create} />,
     );
-    await expect.element(screen.getByText("开始一段对话")).toBeVisible();
+    await expect.element(screen.getByTestId("empty-line")).toBeVisible();
     const box = screen.getByRole("textbox", { name: "消息" });
 
     await userEvent.type(box, "一{Enter}");
@@ -722,18 +740,103 @@ describe("ConversationArea", () => {
     pageDrafts().drop(["new1"]);
   });
 
-  it.each([
-    [null, "不绑定项目和工作区，直接输入就开始"],
-    [CHAT, "在这个对话里开始，直接输入就会新建会话"],
-    ["wks_000000000000000a", "在这个工作区里开始，直接输入就会新建会话"],
-  ])("says where a new session goes in %s when none is open", async (containerId, hint) => {
-    const { client } = fakeClient();
+  it.each([null, CHAT, "wks_000000000000000a"])(
+    "says only one line in %s when no session is open, a blinking caret after it",
+    async (containerId) => {
+      const { client } = fakeClient();
 
+      const screen = await render(
+        <ConversationArea client={client} containerId={containerId} sessionId={null} create={async () => ""} />,
+      );
+
+      const line = screen.getByTestId("empty-line");
+      await expect.element(line).toBeVisible();
+      expect(line.element().textContent).toBe("每天都做一些改变出来");
+      const caret = lastChild(line.element());
+      expect(caret.getAttribute("aria-hidden")).toBe("true");
+      const style = getComputedStyle(caret);
+      expect([style.width, style.height, style.marginLeft, style.backgroundColor]).toStrictEqual([
+        "2px",
+        "23px",
+        "3px",
+        "rgb(47, 111, 237)",
+      ]);
+      expect([style.animationName, style.animationDuration, style.animationTimingFunction]).toStrictEqual([
+        "atrium-caret-blink",
+        "1.06s",
+        "steps(1)",
+      ]);
+      expect(getComputedStyle(line.element()).fontSize).toBe("20px");
+      expect(screen.container.querySelectorAll("p")).toHaveLength(1);
+    },
+  );
+
+  it("says the same line in a session with nothing in it yet, until a message goes", async () => {
+    const { client } = fakeClient();
     const screen = await render(
-      <ConversationArea client={client} containerId={containerId} sessionId={null} create={async () => ""} />,
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
     );
 
-    await expect.element(screen.getByText(hint)).toBeVisible();
+    await expect.element(screen.getByTestId("empty-line")).toHaveTextContent("每天都做一些改变出来");
+    expect(screen.container.querySelector("[data-testid='transcript']")).toBeNull();
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
+
+    await expect.element(screen.getByTestId("transcript")).toHaveTextContent("你好进行中");
+    expect(screen.container.querySelector("[data-testid='empty-line']")).toBeNull();
+  });
+
+  it.each<[string, Partial<SessionView>]>([
+    ["loads", { status: "loading" }],
+    ["has older items", { hasOlder: true }],
+    ["runs", { run: { runId: "r1", startedAt: 0 } }],
+    ["compacts", { control: { ...IDLE_CONTROL, compacting: true } }],
+    ["has a turn", { items: [turn("t1", "你好")] }],
+  ])("does not say the line in a session that %s", async (_case, fields) => {
+    const { client, views } = fakeClient();
+    await client.watch(["s1"]);
+    views.get("s1")?.setState(fields);
+
+    const screen = await render(
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
+    );
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect(screen.container.querySelector("[data-testid='empty-line']")).toBeNull();
+  });
+
+  it("does not say the line in a session the new-workspace page is making", async () => {
+    const { client } = fakeClient();
+    const launches = createNewWorkspaceStore();
+    launches.setState({
+      launches: [
+        {
+          id: "l1",
+          worktree: null,
+          named: null,
+          steps: ["session", "message"],
+          done: 1,
+          failure: undefined,
+          text: "你好",
+          images: [],
+          workspaceId: "wks_000000000000000a",
+          sessionId: "s1",
+        },
+      ],
+    });
+
+    const screen = await render(
+      <ConversationArea
+        client={client}
+        containerId="wks_000000000000000a"
+        sessionId="s1"
+        create={noCreate}
+        launches={launches}
+      />,
+    );
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect(screen.container.querySelector("[data-testid='empty-line']")).toBeNull();
   });
 
   it("watches the active session and sends to it", async () => {

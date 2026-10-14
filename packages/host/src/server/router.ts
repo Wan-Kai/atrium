@@ -128,6 +128,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.listBases(command.projectId);
       case "create_workspace":
         return options.index.createWorkspace(command.projectId, command.branch, command.base);
+      case "name_branch":
+        return options.index.nameBranch(command.projectId, command.text, command.model);
       case "rename_chat":
         return options.index.renameChat(command.chatId, command.name);
       case "window_focused":

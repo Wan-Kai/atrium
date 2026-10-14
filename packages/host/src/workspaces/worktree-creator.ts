@@ -17,6 +17,22 @@ export interface WorktreeCreator {
 }
 
 /**
+ * Where a new worktree of a repository on a branch goes.
+ *
+ * @remarks
+ * `<repository's folder>/<repository's name>.worktrees/<branch's last segment>` (SPEC-0001, "M1.11
+ * 的新建工作区"); naming a branch checks the same place (`createBranchNamer`).
+ *
+ * @sideEffects none
+ * @param repo - The repository's directory.
+ * @param branch - The new branch.
+ * @returns The worktree's directory.
+ */
+export function worktreeDir(repo: string, branch: string): string {
+  return join(dirname(repo), `${basename(repo)}.worktrees`, branch.slice(branch.lastIndexOf("/") + 1));
+}
+
+/**
  * Creates the worktree creator.
  *
  * @remarks
@@ -154,11 +170,7 @@ export function createWorktreeCreator(options: {
     // Stryker disable next-line StringLiteral: without it git matches the name's tail, which only a branch ending in this whole name would.
     const taken = await run(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
     if (taken.code === 0) throw new CommandError("worktree_create_failed", { reason: "branch_exists", branch });
-    const dir = join(
-      dirname(project.path),
-      `${basename(project.path)}.worktrees`,
-      branch.slice(branch.lastIndexOf("/") + 1),
-    );
+    const dir = worktreeDir(project.path, branch);
     const recorded = options.projects.workspaces().some((workspace) => workspace.dir === dir);
     if (recorded || (await stat(dir).catch(() => null)) !== null) {
       throw new CommandError("worktree_create_failed", { reason: "dir_taken", dir });

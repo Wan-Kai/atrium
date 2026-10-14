@@ -71,6 +71,7 @@ function fakeClient(held: readonly Method[] = [], failing: Partial<Record<Method
     return result;
   }
   const client: LaunchClient = {
+    nameBranch: (...args) => answer("nameBranch", args, { branch: "atrium/fix-login" }),
     createWorkspace: (...args) => answer("createWorkspace", args, { workspaceId: "wks_new" }),
     createSession: (...args) => answer("createSession", args, { sessionId: "s1" }),
     listCommands: (...args) => answer("listCommands", args, { commands: [] }),
@@ -97,7 +98,7 @@ async function settle(): Promise<void> {
 /** A store with the page open on project p1, on a new worktree `atrium/brave-badger` from `origin/main`. */
 function pageOpen() {
   const store = createNewWorkspaceStore();
-  openPage(store, "p1", () => 0);
+  openPage(store, "p1");
   choose(store, { choice: { kind: "new", branch: "atrium/brave-badger", base: "origin/main" } });
   return store;
 }
@@ -198,14 +199,14 @@ describe("pageModel", () => {
 });
 
 describe("the page", () => {
-  it("opens on a new worktree with a suggested branch and the usual model, and closes", () => {
+  it("opens on a new worktree whose branch the model names, on the usual model, and closes", () => {
     const store = createNewWorkspaceStore();
     expect(store.getState()).toStrictEqual({ page: null, launches: [] });
 
-    openPage(store, "p1", () => 0);
+    openPage(store, "p1");
     expect(store.getState().page).toStrictEqual({
       projectId: "p1",
-      choice: { kind: "new", branch: "atrium/brave-badger", base: null },
+      choice: { kind: "new", branch: null, base: null },
       model: { ref: null, level: null },
       launchId: null,
     });
@@ -228,8 +229,8 @@ describe("the page", () => {
     choose(store, { choice: { kind: "existing", workspaceId: "w2" } });
     choose(store, { projectId: "p2" });
     expect(store.getState().page?.choice).toStrictEqual({ kind: "existing", workspaceId: "w2" });
-    choose(store, { projectId: "p1" }, () => 0.5);
-    expect(store.getState().page?.choice).toStrictEqual({ kind: "new", branch: "atrium/merry-otter", base: null });
+    choose(store, { projectId: "p1" });
+    expect(store.getState().page?.choice).toStrictEqual({ kind: "new", branch: null, base: null });
 
     choose(store, { choice: { kind: "existing", workspaceId: "w1" } });
     choose(store, { model: { ref: null, level: "low" } });
@@ -262,6 +263,7 @@ describe("launch", () => {
         {
           id: "l1",
           worktree: { branch: "atrium/brave-badger", base: "origin/main" },
+          named: null,
           steps: ["worktree", "session", "message"],
           done: 0,
           failure: undefined,
@@ -302,6 +304,138 @@ describe("launch", () => {
       ["listCommands", "s1"],
       ["prompt", "s1", "fix it", ["a1"], ["data:p"]],
     ]);
+  });
+
+  it("names the branch by the message on the page's model first, showing the name on the page", async () => {
+    const store = pageOpen();
+    const chosen = { providerId: "x", modelId: "y" };
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" }, model: { ref: chosen, level: null } });
+    const { client, calls, release } = fakeClient(["nameBranch", "createWorkspace", "createSession"]);
+
+    const going = launch(store, client, memoryDrafts(), { text: "fix the login", images: [] }, () => "l1");
+    await settle();
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      worktree: { branch: null, base: "origin/main" },
+      named: null,
+      steps: ["name", "worktree", "session", "message"],
+      done: 0,
+    });
+
+    release("nameBranch");
+    await settle();
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      worktree: { branch: "atrium/fix-login", base: "origin/main" },
+      named: "model",
+      done: 1,
+    });
+    expect(store.getState().page?.choice).toStrictEqual({
+      kind: "new",
+      branch: "atrium/fix-login",
+      base: "origin/main",
+    });
+
+    release("createWorkspace");
+    await settle();
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 2, workspaceId: "wks_new" });
+
+    release("createSession");
+    await going;
+    expect(calls.slice(0, 2)).toStrictEqual([
+      ["nameBranch", "p1", "fix the login", chosen],
+      ["createWorkspace", "p1", "atrium/fix-login", "origin/main"],
+    ]);
+  });
+
+  it("names the branch randomly when the model could not, and goes on", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const failed = new CommandError("branch_name_failed", { reason: "taken" });
+    const { client, calls, release } = fakeClient(["createWorkspace"], { nameBranch: failed });
+
+    const going = launch(
+      store,
+      client,
+      memoryDrafts(),
+      MESSAGE,
+      () => "l1",
+      () => 0.5,
+    );
+    await settle();
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      worktree: { branch: "atrium/merry-otter" },
+      named: "random",
+      done: 1,
+      failure: undefined,
+    });
+
+    release("createWorkspace");
+    await going;
+    expect(calls.slice(0, 2)).toStrictEqual([
+      ["nameBranch", "p1", "hi", null],
+      ["createWorkspace", "p1", "atrium/merry-otter", "origin/main"],
+    ]);
+    expect(store.getState().launches).toStrictEqual([]);
+  });
+
+  it("names a branch randomly, without the step, for a message with no text", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const { client, calls } = fakeClient(["createWorkspace"]);
+
+    void launch(
+      store,
+      client,
+      memoryDrafts(),
+      { text: " ", images: [IMAGE] },
+      () => "l1",
+      () => 0,
+    );
+    await settle();
+
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      worktree: { branch: "atrium/brave-badger", base: "origin/main" },
+      named: null,
+      steps: ["worktree", "session", "message"],
+    });
+    expect(calls).toStrictEqual([["createWorkspace", "p1", "atrium/brave-badger", "origin/main"]]);
+  });
+
+  it("names no more when the worktree failed after naming, and leaves a page the user went to alone", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const refused = new CommandError("worktree_create_failed");
+    const failing = fakeClient([], { createWorkspace: refused });
+    await launch(store, failing.client, memoryDrafts(), MESSAGE, () => "l1");
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 1, failure: refused, named: "model" });
+
+    const again = fakeClient();
+    await launch(store, again.client, memoryDrafts(), MESSAGE, () => "l2");
+    expect(again.calls[0]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main"]);
+
+    openPage(store, "p1");
+    const held = fakeClient(["nameBranch"]);
+    const going = launch(store, held.client, memoryDrafts(), MESSAGE, () => "l3");
+    await settle();
+    closePage(store);
+    openPage(store, "p2");
+    held.release("nameBranch");
+    await going;
+    expect(store.getState().page).toMatchObject({ projectId: "p2", choice: { kind: "new", branch: null } });
+  });
+
+  it("goes on when the page was closed while naming, with nothing opened in its place", async () => {
+    const store = pageOpen();
+    choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
+    const { client, calls, release } = fakeClient(["nameBranch"]);
+
+    const going = launch(store, client, memoryDrafts(), MESSAGE, () => "l1");
+    await settle();
+    closePage(store);
+    release("nameBranch");
+    await going;
+
+    expect(calls[1]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main"]);
+    expect(store.getState()).toStrictEqual({ page: null, launches: [] });
   });
 
   it("goes into a workspace already there, setting the model and level chosen instead of listing commands", async () => {
@@ -373,7 +507,7 @@ describe("launch", () => {
     const going = launch(store, client, memoryDrafts(), { text: "hi", images: [] }, () => "l1");
     await settle();
     closePage(store);
-    openPage(store, "p2", () => 0);
+    openPage(store, "p2");
     release("createWorkspace");
     await going;
 
@@ -449,16 +583,16 @@ describe("launch", () => {
     const busy = new CommandError("session_busy");
     await launch(store, fakeClient([], { prompt: busy }).client, memoryDrafts(), MESSAGE, () => "l2");
     const going = fakeClient(["createWorkspace"]);
-    openPage(store, "p1", () => 0);
+    openPage(store, "p1");
     choose(store, { choice: { kind: "new", branch: "b", base: "origin/main" } });
     void launch(store, going.client, memoryDrafts(), MESSAGE, () => "l3");
     await settle();
-    openPage(store, "p1", () => 0);
+    openPage(store, "p1");
     choose(store, { choice: { kind: "new", branch: "c", base: "origin/main" } });
     const refused = new CommandError("worktree_create_failed", { reason: "branch_exists", branch: "c" });
     await launch(store, fakeClient([], { createWorkspace: refused }).client, memoryDrafts(), MESSAGE, () => "l1");
 
-    openPage(store, "p2", () => 0);
+    openPage(store, "p2");
 
     expect(store.getState().launches.map((one) => one.id)).toStrictEqual(["l2", "l3"]);
     going.release("createWorkspace");
@@ -486,7 +620,7 @@ describe("launch", () => {
     const store = pageOpen();
     const busy = new CommandError("session_busy");
     await launch(store, fakeClient([], { prompt: busy }).client, memoryDrafts(), MESSAGE, () => "l1");
-    openPage(store, "p1", () => 0);
+    openPage(store, "p1");
     const going = fakeClient(["createWorkspace"]);
     void launch(store, going.client, memoryDrafts(), MESSAGE, () => "l2");
     await settle();

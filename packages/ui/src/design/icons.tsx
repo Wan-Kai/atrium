@@ -23,19 +23,20 @@ import {
   ComputerTerminal01Icon,
   Copy01Icon,
   CornerDownRightIcon,
-  Delete02Icon,
   DashboardSpeed02Icon,
   DatabaseIcon,
+  Delete02Icon,
   Download04Icon,
   File01Icon,
   File02Icon,
   FileDiffIcon,
   Files01Icon,
   FlashIcon,
+  FlowchartIcon,
+  FoldVerticalIcon,
   Folder01Icon,
   FolderAddIcon,
   FolderOpenIcon,
-  FoldVerticalIcon,
   GitBranchIcon,
   GitCommitIcon,
   GitCompareIcon,
@@ -51,14 +52,17 @@ import {
   MoreHorizontalIcon,
   PaintBoardIcon,
   PencilEdit01Icon,
+  PuzzleIcon,
   RefreshIcon,
   ReloadIcon,
   Search01Icon,
+  SearchAddIcon,
+  SearchMinusIcon,
   Settings01Icon,
-  PuzzleIcon,
   SidebarLeftIcon,
   SidebarRightIcon,
   SlashIcon,
+  SourceCodeIcon,
   SparklesIcon,
   SquareIcon,
   StopCircleIcon,
@@ -163,6 +167,7 @@ export const CaretUp = drawn(ArrowUp01Icon);
 export const Check = drawn(Tick02Icon);
 export const CheckCircle = drawn(CheckmarkCircle02Icon);
 export const CircleNotch = drawn(Loading03Icon);
+export const Code = drawn(SourceCodeIcon);
 export const ClockCounterClockwise = drawn(Clock02Icon);
 export const Coins = drawn(Coins01Icon);
 export const Copy = drawn(Copy01Icon);
@@ -175,6 +180,7 @@ export const File = drawn(File01Icon);
 export const FileText = drawn(File02Icon);
 export const FileDiff = drawn(FileDiffIcon);
 export const Files = drawn(Files01Icon);
+export const Flowchart = drawn(FlowchartIcon);
 export const Folder = drawn(Folder01Icon);
 export const FolderOpen = drawn(FolderOpenIcon);
 export const FolderPlus = drawn(FolderAddIcon);
@@ -190,6 +196,8 @@ export const Info = drawn(InformationCircleIcon);
 export const Key = drawn(Key01Icon);
 export const Lightning = drawn(FlashIcon);
 export const MagnifyingGlass = drawn(Search01Icon);
+export const MagnifyingGlassMinus = drawn(SearchMinusIcon);
+export const MagnifyingGlassPlus = drawn(SearchAddIcon);
 export const MetaLogo = drawn(META);
 export const MinusSquare = drawn(MinusSignSquareIcon);
 export const Monitor = drawn(ComputerIcon);

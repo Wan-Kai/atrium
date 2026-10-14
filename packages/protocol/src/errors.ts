@@ -80,6 +80,11 @@ export const ErrorCode = z.enum([
    * `base_missing`, `branch_exists` or `dir_taken`, or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
    */
   "worktree_create_failed",
+  /**
+   * No branch name came of `name_branch`; `params.reason` is `not_git`, `no_model`, `failed`,
+   * `invalid` or `taken` (SPEC-0001, "AI 起分支名").
+   */
+  "branch_name_failed",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */

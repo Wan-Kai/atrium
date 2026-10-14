@@ -50,6 +50,11 @@ export interface FauxScript {
    * an error, so the title stays the fallback.
    */
   readonly title?: string;
+  /**
+   * What pi answers in print mode when told to name a git branch (instructions that say "git
+   * branch"), as when the host names a new worktree's branch; without it, an error.
+   */
+  readonly branch?: string;
   /** More models after `FAUX_MODEL`, for switching models. */
   readonly models?: readonly FauxModel[];
   /**
@@ -71,6 +76,8 @@ export const FAUX_GATES_ENV = "FAUX_PI_GATES";
 export const FAUX_PID_FILE = "pi.pid";
 /** The file beside the gates where the faux extension adds each request body, as pi's extensions left it, one JSON per line. */
 export const FAUX_PAYLOADS_FILE = "payloads.jsonl";
+/** The file beside the script where pi in print mode adds the instructions the model was given, one JSON per line. */
+export const FAUX_PRINTS_FILE = "prints.jsonl";
 /**
  * Environment variable giving the faux models a base address of their own, for an extension that
  * asks next to it, as Fast asks for Codex's model list; not in the script, whose fixture header
@@ -94,6 +101,8 @@ export interface FauxPiLaunch {
   pid(): Promise<number>;
   /** The bodies of the requests made so far, as pi's `before_provider_request` hooks left them. */
   payloads(): Promise<unknown[]>;
+  /** What the model was told by each pi in print mode so far. */
+  prints(): Promise<{ readonly systemPrompt: string }[]>;
 }
 
 /**
@@ -106,7 +115,8 @@ export interface FauxPiLaunch {
  * credentials never reach the test.
  *
  * @sideEffects Creates `dir/pi-agent` and `dir/faux-gates`, and writes `dir/faux-script.json`;
- * `release` writes a file into `dir/faux-gates`; `pid` reads `dir/pi.pid`.
+ * `release` writes a file into `dir/faux-gates`; `pid` reads `dir/pi.pid`; `prints` reads
+ * `dir/prints.jsonl`.
  * @param script - Replies the faux model gives, in order.
  * @param dir - A temporary directory owned by the test.
  * @returns Arguments and environment variables for the pi process.
@@ -127,6 +137,17 @@ export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLau
         .split("\n")
         .filter((line) => line !== "")
         .map((line): unknown => JSON.parse(line));
+    },
+    prints: async () => {
+      const text = await readFile(join(dir, FAUX_PRINTS_FILE), "utf8").catch(() => "");
+      return text
+        .split("\n")
+        .filter((line) => line !== "")
+        .map((line) => {
+          const record: unknown = JSON.parse(line);
+          const told = typeof record === "object" && record !== null ? Reflect.get(record, "systemPrompt") : undefined;
+          return { systemPrompt: typeof told === "string" ? told : "" };
+        });
     },
     agentDir,
     args: [

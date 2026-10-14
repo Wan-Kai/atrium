@@ -114,7 +114,13 @@ const FileDiff = memo(function FileDiff({
 }) {
   const { name, dir } = splitPath(file.path);
   return (
-    <section ref={(element) => anchor(file.path, element)} aria-label={file.path} data-path={file.path}>
+    <section
+      ref={(element) => anchor(file.path, element)}
+      aria-label={file.path}
+      data-path={file.path}
+      // The last file is at least as tall as the tab, so it can come to the top, and no taller.
+      className="last:min-h-full"
+    >
       <button
         type="button"
         aria-expanded={!folded}
@@ -133,18 +139,26 @@ const FileDiff = memo(function FileDiff({
         <StatusIcon status={file.status} />
       </button>
       {folded ? null : (
-        <div
-          className={`code-tokens pb-1 font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] leading-[1.7] ${wrap ? "" : "min-w-max"}`}
-        >
-          {file.content === "binary" ? (
-            <p className="px-3 py-2 text-[var(--text-dim)]">二进制文件</p>
-          ) : file.content === "too_large" ? (
-            <p className="px-3 py-2 text-[var(--text-dim)]">改动太大，不显示</p>
-          ) : (
-            file.hunks.map((hunk, index) => (
-              <HunkLines key={`${hunk.oldStart},${hunk.newStart}`} hunk={hunk} tokens={coloured?.[index]} wrap={wrap} />
-            ))
-          )}
+        // Each file scrolls sideways on its own, so the headers and the other files stay put.
+        <div className="overflow-x-auto">
+          <div
+            className={`code-tokens pb-1 font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] leading-[1.7] ${wrap ? "" : "min-w-max"}`}
+          >
+            {file.content === "binary" ? (
+              <p className="px-3 py-2 text-[var(--text-dim)]">二进制文件</p>
+            ) : file.content === "too_large" ? (
+              <p className="px-3 py-2 text-[var(--text-dim)]">改动太大，不显示</p>
+            ) : (
+              file.hunks.map((hunk, index) => (
+                <HunkLines
+                  key={`${hunk.oldStart},${hunk.newStart}`}
+                  hunk={hunk}
+                  tokens={coloured?.[index]}
+                  wrap={wrap}
+                />
+              ))
+            )}
+          </div>
         </div>
       )}
     </section>
@@ -286,7 +300,8 @@ function useColoured(files: readonly DiffFile[], inView: ReadonlySet<string>): R
  * are the right panel's. The top row says the mode, the files and their totals, with "全部折叠 /
  * 展开" and wrapping; what is folded is kept by workspace and mode. Opened from a file in the tree,
  * it goes to that file's header, unfolding it, and the header's background fades from
- * `--selected` in 1s. Below the last file there is room to bring it to the top. The scroll area is
+ * `--selected` in 1s. The last file is at least as tall as the tab, so it can come to the top,
+ * with no more room below it than that takes (2026-10-14). The scroll area is
  * contained, so a move of the panes beside it does not walk its lines (design-language, "右栏").
  * Its scroll and wrapping are kept by tab (`useViewerPlace`).
  *
@@ -456,7 +471,6 @@ export function DiffViewer({
                 anchor={anchor}
               />
             ))}
-            <div aria-hidden="true" className="h-[calc(100%-32px)]" />
           </>
         )}
       </div>

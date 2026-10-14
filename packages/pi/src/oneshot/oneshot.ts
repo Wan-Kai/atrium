@@ -91,8 +91,9 @@ function replyOf(line: string): Reply | undefined {
  * Runs pi once without a session and answers its reply's text.
  *
  * @remarks
- * SPEC-0001 ("自动生成标题"): `pi --mode json -p --no-session --no-tools --thinking off --model …
- * --system-prompt …` with the content on stdin, since `ps` shows arguments. pi leads its own
+ * SPEC-0001 ("自动生成标题"): `pi --mode json -p --no-session --no-tools --no-context-files
+ * --thinking off --model … --system-prompt …` with the content on stdin, since `ps` shows
+ * arguments; the directory's AGENTS.md is not sent along. pi leads its own
  * process group, as the session's pi does, so a deadline or an abort can kill its whole tree; it is
  * counted as a `pi-oneshot` resource until it is gone. The last assistant reply is the answer; a
  * reply that failed or was aborted, a non-zero exit, no reply with text, the deadline and an abort
@@ -135,6 +136,8 @@ export async function runOneShot(
       "-p",
       "--no-session",
       "--no-tools",
+      // Else pi adds the directory's AGENTS.md and CLAUDE.md to the instructions it sends.
+      "--no-context-files",
       "--thinking",
       "off",
       "--model",

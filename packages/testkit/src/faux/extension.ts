@@ -14,6 +14,7 @@ import {
   FAUX_GATES_ENV,
   FAUX_PAYLOADS_FILE,
   FAUX_PID_FILE,
+  FAUX_PRINTS_FILE,
   FAUX_MODEL,
   FAUX_PROVIDER,
   FAUX_SCRIPT_ENV,
@@ -118,6 +119,29 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
 }
 
 /**
+ * What the model was told, all of it: the instructions and whatever pi added after them.
+ *
+ * @remarks
+ * pi 1.0 sends its system prompt as a `system` message whose `sections` are its parts (the
+ * instructions, the directory, the context files), not as `systemPrompt`; older pi sent the
+ * text whole.
+ *
+ * @sideEffects none
+ * @param context - The request's context.
+ * @returns The text, the parts joined by blank lines; empty when there is none.
+ */
+function instructionsOf(context: { readonly systemPrompt?: string; readonly messages: readonly unknown[] }): string {
+  const system: unknown = context.messages.find(
+    (message) => typeof message === "object" && message !== null && "role" in message && message.role === "system",
+  );
+  if (typeof system !== "object" || system === null) return context.systemPrompt ?? "";
+  const sections = "sections" in system && typeof system.sections === "object" ? system.sections : null;
+  const parts = Object.values(sections ?? {}).filter((part): part is string => typeof part === "string");
+  const content = "content" in system && typeof system.content === "string" ? system.content : "";
+  return [content, ...parts].filter((part) => part !== "").join("\n\n");
+}
+
+/**
  * pi extension that registers pi-ai's faux provider and answers from a script file.
  *
  * @remarks
@@ -129,8 +153,10 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  *
  * Replies scripted with `waitFor` hold until the test releases them; pi's process id goes into
  * `pi.pid` beside the gates, so a test can kill that very process. A pi in print mode (`-p`), as
- * the host's one-shot call for a title, answers the script's `title` instead, or an error without
- * one, and leaves `pi.pid` to the session's pi (SPEC-0001, "自动生成标题"). Each request's body, as
+ * the host's one-shot call for a title, answers the script's `title` instead, or its `branch` when
+ * told to name a git branch, in those words (SPEC-0001, "AI 起分支名"), or an error without one; it adds what the model
+ * was told to `prints.jsonl` beside the script, and leaves `pi.pid` to the session's pi (SPEC-0001,
+ * "自动生成标题"). Each request's body, as
  * pi's extensions leave it, goes into `payloads.jsonl` beside the gates, and the models can stand in
  * for a real provider (`script.provider`), at a base address of the test's (`FAUX_PI_BASE_URL`), as
  * Fast's test needs (ADR-0008). Two commands cover the
@@ -138,7 +164,7 @@ function toAssistantMessage(reply: FauxReply): AssistantMessage {
  * session tree, the only way to make a branch inside one session file.
  *
  * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid` and adds to `payloads.jsonl`
- * unless printing; registers a
+ * unless printing, and adds to `prints.jsonl` when printing; registers a
  * provider and three commands with pi.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
@@ -167,21 +193,31 @@ export default function fauxExtension(pi: ExtensionApi): void {
   // A one-shot pi in print mode asks for a title; it must not pass for the session's pi.
   const printing = process.argv.includes("-p");
   if (gates !== "" && !printing) writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
-  const titled: FauxReply =
-    script.title === undefined
-      ? { blocks: [], error: "faux script has no title" }
-      : { blocks: [{ type: "text", text: script.title }] };
   const payloads = gates === "" || printing ? null : join(dirname(gates), FAUX_PAYLOADS_FILE);
   faux.setResponses(
-    (printing ? [titled] : script.replies).map((reply) => {
-      const message = toAssistantMessage(reply);
-      const gate = reply.waitFor;
-      return async (_context, options, _state, model) => {
-        if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
-        if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
-        return message;
-      };
-    }),
+    printing
+      ? [
+          (context) => {
+            const told = instructionsOf(context);
+            appendFileSync(join(dirname(scriptPath), FAUX_PRINTS_FILE), `${JSON.stringify({ systemPrompt: told })}\n`);
+            const asked = told.includes("git branch") ? "branch" : "title";
+            const answer = script[asked];
+            return toAssistantMessage(
+              answer === undefined
+                ? { blocks: [], error: `faux script has no ${asked}` }
+                : { blocks: [{ type: "text", text: answer }] },
+            );
+          },
+        ]
+      : script.replies.map((reply) => {
+          const message = toAssistantMessage(reply);
+          const gate = reply.waitFor;
+          return async (_context, options, _state, model) => {
+            if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
+            if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
+            return message;
+          };
+        }),
   );
   // The faux provider takes no thinking map, so it is added to the models it made; each model
   // carries its own base address, so a test's goes on each.

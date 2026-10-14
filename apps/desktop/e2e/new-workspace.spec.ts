@@ -44,3 +44,37 @@ test("creates a worktree from a project's new-workspace page with the first mess
     await scene.cleanup();
   }
 });
+
+test("names the new worktree's branch by the first message through pi, when no name was written", async () => {
+  const pi = await fauxPiEnvironment({
+    replies: [{ blocks: [{ type: "text", text: "好的" }] }],
+    branch: "Fix the login timeout",
+    title: "登录超时",
+  });
+  const scene = await createGitScene("e2e-name-branch");
+  const repo = await realpath(scene.repo);
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    await addProject(launched.app, window, repo);
+    await expect(window.getByTestId("workspace-row")).toHaveText(["main"], { timeout: 30_000 });
+    const project = window.getByTestId("project-row");
+    await project.hover();
+    await project.getByRole("button", { name: "在 repo 新建工作区" }).click();
+    await expect(window.getByRole("button", { name: "分支名", exact: true })).toHaveText("自动起名");
+    await expect(window.getByRole("button", { name: "起点", exact: true })).toHaveText("基于 origin/main", {
+      timeout: 30_000,
+    });
+    await window.getByRole("textbox", { name: "消息" }).fill("登录老是超时，修一下");
+    await window.getByRole("textbox", { name: "消息" }).press("Enter");
+
+    await expect(window.getByTestId("reply")).toHaveText("好的", { timeout: 60_000 });
+    await expect(window.getByTestId("workspace-row")).toHaveText(["main", "atrium/fix-the-login-timeout"]);
+    const dir = join(dirname(repo), "repo.worktrees", "fix-the-login-timeout");
+    expect(await scene.git(dir, "branch", "--show-current")).toBe("atrium/fix-the-login-timeout");
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+    await scene.cleanup();
+  }
+});
