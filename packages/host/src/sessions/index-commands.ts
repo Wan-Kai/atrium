@@ -1,9 +1,16 @@
-import { CommandError, type CommandResult, type DiscoveredDirectory, type Preferences } from "@atrium/protocol";
+import {
+  CommandError,
+  type CommandResult,
+  type DiscoveredDirectory,
+  type ModelRef,
+  type Preferences,
+} from "@atrium/protocol";
 import { checkProxy } from "../platform/proxy";
 import type { ProjectService } from "../projects/project-service";
 import type { ChatRecords } from "../store/chat-records";
 import type { PreferenceStore } from "../store/preferences";
 import type { IndexCursor, IndexFeed } from "../sync/index-feed";
+import type { BranchNamer } from "../workspaces/branch-namer";
 import type { WorkspaceArchiver } from "../workspaces/workspace-archiver";
 import type { WorkspaceService } from "../workspaces/workspace-service";
 import type { WorktreeCreator } from "../workspaces/worktree-creator";
@@ -25,6 +32,8 @@ export interface IndexCommands {
   listBases(projectId: string): Promise<CommandResult<"list_bases">>;
   /** Creates a worktree workspace on a new branch from a base. */
   createWorkspace(projectId: string, branch: string, base: string): Promise<CommandResult<"create_workspace">>;
+  /** Asks a model for a new worktree's branch name by the first message. */
+  nameBranch(projectId: string, text: string, model: ModelRef | null): Promise<CommandResult<"name_branch">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
   windowFocused(): Promise<CommandResult<"window_focused">>;
@@ -53,7 +62,7 @@ export interface IndexCommands {
  * is written, and kept with its address in one form (SPEC-0001, "设置 · 接口").
  *
  * @sideEffects none until a command arrives.
- * @param options - The services, the workspace archiver and creator, the chats and their names,
+ * @param options - The services, the workspace archiver, creator and branch namer, the chats and their names,
  * the feed and the model lister.
  * @returns The commands.
  */
@@ -64,6 +73,7 @@ export function createIndexCommands(options: {
   readonly sessions: Pick<SessionManager, "forgetWorkspaces" | "rescan">;
   readonly archiver: Pick<WorkspaceArchiver, "archive" | "restore">;
   readonly creator: WorktreeCreator;
+  readonly namer: BranchNamer;
   readonly preferences: PreferenceStore;
   /** The chats there are (`SessionCatalog.chats`). */
   readonly chats: () => readonly ContainerDir[];
@@ -113,6 +123,9 @@ export function createIndexCommands(options: {
     listBases: (projectId) => options.creator.bases(projectId),
     async createWorkspace(projectId, branch, base) {
       return { workspaceId: await options.creator.create(projectId, branch, base) };
+    },
+    async nameBranch(projectId, text, model) {
+      return { branch: await options.namer.name(projectId, text, model) };
     },
     async renameChat(chatId, name) {
       if (!options.chats().some((chat) => chat.id === chatId)) throw new CommandError("chat_not_found", { chatId });

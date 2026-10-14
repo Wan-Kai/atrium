@@ -83,14 +83,15 @@ function useHintPlace(
  * branch's name" (SPEC-0001, "命名"); callers that need a name ignore it.
  *
  * @sideEffects Focuses and selects its text when it appears; shows its hint in `document.body`.
- * @param props - The current name, its label, what an empty name goes back to, whether the hint
- * goes above, and what to do on saving or cancelling.
+ * @param props - The current name, its label, what an empty name goes back to, what the empty
+ * field says, whether the hint goes above, and what to do on saving or cancelling.
  * @returns The field.
  */
 export function RenameField({
   initial,
   label,
   restores,
+  placeholder,
   above = false,
   onDone,
 }: {
@@ -98,6 +99,8 @@ export function RenameField({
   readonly label: string;
   /** What the hint says an empty name goes back to, where it goes back to something. */
   readonly restores?: string;
+  /** What the field says while empty. */
+  readonly placeholder?: string;
   readonly above?: boolean;
   /** Called once, with the new name, `null` for an empty one, or `undefined` when cancelled. */
   readonly onDone: (name: string | null | undefined) => void;
@@ -144,6 +147,7 @@ export function RenameField({
         aria-label={label}
         aria-describedby={hint}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => setValue(event.target.value)}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -152,7 +156,7 @@ export function RenameField({
           if (event.key === "Escape") finish(undefined);
         }}
         onBlur={() => finish(trimmed())}
-        className="-mx-1.5 h-[26px] min-w-0 flex-1 rounded-[var(--r-sm)] bg-[var(--main)] px-1.5 text-[var(--text)] [box-shadow:inset_0_0_0_1px_var(--tint),var(--focus-ring)] outline-none"
+        className="-mx-1.5 h-[26px] min-w-0 flex-1 rounded-[var(--r-sm)] bg-[var(--main)] px-1.5 text-[var(--text)] placeholder:text-[var(--text-dim)] [box-shadow:inset_0_0_0_1px_var(--tint),var(--focus-ring)] outline-none"
       />
       {createPortal(
         <div

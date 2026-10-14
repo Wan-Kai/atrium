@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo } from "react";
+import { useMemo } from "react";
 import { type Launch, type LaunchStep, baseName } from "../state/new-workspace";
 import { MessageImagesContext } from "./message-images";
 import { UserBubble } from "./messages";
@@ -6,6 +6,7 @@ import { type RailNode, RailMarks } from "./steps";
 
 /** Each step's words on the timeline (SPEC-0001, "M1.11 的新建工作区"). */
 const STEP_WORDS: Readonly<Record<LaunchStep, string>> = {
+  name: "起名",
   worktree: "创建 worktree",
   session: "启动会话",
   message: "发出消息",
@@ -29,12 +30,37 @@ function launchNode(launch: Launch, at: number): RailNode {
 }
 
 /**
+ * The words after a step's name on the timeline.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的新建工作区"): naming says what it goes by, then the name, or that it fell
+ * back on a random one; creating the worktree says its branch, unless naming just said it, and its
+ * base, once the branch is known.
+ *
+ * @sideEffects none
+ * @param launch - The launch.
+ * @param step - The step.
+ * @returns The words, or `null` for none.
+ */
+function stepDetail(launch: Launch, step: LaunchStep): string | null {
+  const { worktree, named } = launch;
+  if (worktree === null) return null;
+  const { branch } = worktree;
+  if (step === "name") {
+    if (named === null || branch === null) return "按第一条消息";
+    return named === "model" ? branch : `没起成，用随机名 ${branch}`;
+  }
+  if (step !== "worktree" || branch === null) return null;
+  return named === "model" ? `基于 ${baseName(worktree.base)}` : `${branch} · 基于 ${baseName(worktree.base)}`;
+}
+
+/**
  * What sending from the new-workspace page set going: a timeline of its steps, and the message
  * below it until it has gone.
  *
  * @remarks
  * SPEC-0001 ("M1.11 的新建工作区"); styled as the process rail (design-language, "新建工作区页").
- * The first step says the branch and its base. A failed step says why under it, and the message
+ * The steps say the branch and its base (`stepDetail`). A failed step says why under it, and the message
  * has gone back into the box, so it no longer shows here. Once the message is being sent, the
  * session's own pending copy shows below instead (`sendShown` in the client). The message's
  * images are the previews the page kept.
@@ -53,14 +79,7 @@ export function LaunchView({ launch, reason }: { readonly launch: Launch; readon
       <ol>
         {launch.steps.map((step, at) => {
           const node = launchNode(launch, at);
-          let detail: ReactNode = null;
-          if (step === "worktree" && launch.worktree !== null) {
-            detail = (
-              <span className="min-w-0 truncate text-[var(--text-dim)]">
-                {launch.worktree.branch} · 基于 {baseName(launch.worktree.base)}
-              </span>
-            );
-          }
+          const detail = stepDetail(launch, step);
           return (
             <li
               key={step}
@@ -77,7 +96,7 @@ export function LaunchView({ launch, reason }: { readonly launch: Launch; readon
                 >
                   {STEP_WORDS[step]}
                 </span>
-                {detail}
+                {detail === null ? null : <span className="min-w-0 truncate text-[var(--text-dim)]">{detail}</span>}
               </div>
               {node === "fail" && reason !== null ? (
                 <p role="alert" className="pb-1.5 text-[length:var(--fs-meta)] text-[var(--danger)]">

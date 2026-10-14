@@ -54,6 +54,15 @@ const commands: Command[] = [
     branch: "atrium/brave-otter",
     base: "origin/main",
   },
+  {
+    type: "name_branch",
+    requestId: "r17e",
+    traceparent,
+    projectId: PROJECT,
+    text: "登录接口偶尔超时",
+    model: { providerId: "anthropic", modelId: "claude-opus-5-5" },
+  },
+  { type: "name_branch", requestId: "r17f", traceparent, projectId: PROJECT, text: "fix it", model: null },
   { type: "window_focused", requestId: "r18", traceparent },
   { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE },
   { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
@@ -531,6 +540,7 @@ describe("parseClientMessage", () => {
       "list_models",
       "login",
       "logout",
+      "name_branch",
       "open_session",
       "ping",
       "prompt",
@@ -792,6 +802,16 @@ describe("parseClientMessage", () => {
     [
       "creating a workspace from nowhere",
       { type: "create_workspace", requestId: "r1", traceparent, projectId: PROJECT, branch: "atrium/a" },
+      "r1",
+    ],
+    [
+      "naming a branch from no message",
+      { type: "name_branch", requestId: "r1", traceparent, projectId: PROJECT, text: "", model: null },
+      "r1",
+    ],
+    [
+      "naming a branch with no model given",
+      { type: "name_branch", requestId: "r1", traceparent, projectId: PROJECT, text: "fix it" },
       "r1",
     ],
     [
@@ -1087,6 +1107,10 @@ describe("CommandResult", () => {
     expect(CommandResult.list_bases.safeParse({ main: null, local: [], remote: [] }).success).toBe(false);
     expect(CommandResult.create_workspace.parse({ workspaceId: WORKSPACE })).toStrictEqual({ workspaceId: WORKSPACE });
     expect(CommandResult.create_workspace.safeParse({ workspaceId: PROJECT }).success).toBe(false);
+    expect(CommandResult.name_branch.parse({ branch: "atrium/fix-login" })).toStrictEqual({
+      branch: "atrium/fix-login",
+    });
+    expect(CommandResult.name_branch.safeParse({ branch: "" }).success).toBe(false);
     for (const wrong of [
       { ...discovered, path: "" },
       { ...discovered, sessions: 0 },
@@ -1531,6 +1555,7 @@ describe("HostMessage", () => {
       "worktree_remove_failed",
       "worktree_restore_failed",
       "worktree_create_failed",
+      "branch_name_failed",
       "fast_unavailable",
       "pi_rejected",
       "nothing_to_compact",

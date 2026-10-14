@@ -28,6 +28,7 @@ export {
   RestoreWorkspaceCommand,
   ListBasesCommand,
   CreateWorkspaceCommand,
+  NameBranchCommand,
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,

@@ -18,6 +18,7 @@ import {
   Monitor,
   PencilSimple,
   Plus,
+  Sparkle,
 } from "../design/icons";
 import {
   type NewWorkspacePage as Page,
@@ -31,7 +32,6 @@ import {
   launch,
   pageDraftKey,
   pageModel,
-  suggestBranch,
 } from "../state/new-workspace";
 import { pageDrafts } from "../state/use-draft";
 import { sortWorkspaces, workspaceName } from "../sidebar/names";
@@ -351,11 +351,7 @@ function Choices({
                 close();
                 if (choice.kind === "new") return;
                 choose(store, {
-                  choice: {
-                    kind: "new",
-                    branch: suggestBranch(Math.random),
-                    base: ready === null ? null : defaultBase(ready),
-                  },
+                  choice: { kind: "new", branch: null, base: ready === null ? null : defaultBase(ready) },
                 });
               }}
             />
@@ -432,14 +428,16 @@ function Choices({
             <span className="flex h-[26px] w-[240px] items-center gap-1.5 px-2 text-[length:var(--fs-meta)]">
               <PencilSimple size={14} className="shrink-0 text-[var(--text-muted)]" />
               <RenameField
-                initial={choice.branch}
+                initial={choice.branch ?? ""}
                 label="分支名"
+                placeholder="输入分支名，留空让 AI 起名"
+                restores="清空恢复自动起名"
                 above
                 onDone={(name) => {
                   setEditing(false);
                   const now = store.getState().page?.choice;
-                  if (typeof name === "string" && now?.kind === "new")
-                    choose(store, { choice: { ...now, branch: name } });
+                  // Cleared, the model names it again.
+                  if (name !== undefined && now?.kind === "new") choose(store, { choice: { ...now, branch: name } });
                 }}
               />
             </span>
@@ -447,13 +445,17 @@ function Choices({
             <button
               type="button"
               aria-label="分支名"
-              title="分支名"
+              title={choice.branch === null ? "发出后，AI 按第一条消息起分支名；点这里自己写" : "分支名"}
               disabled={held}
               onClick={() => setEditing(true)}
               className="flex h-[26px] max-w-[240px] items-center gap-1.5 whitespace-nowrap rounded-[var(--r-btn)] px-2 text-[length:var(--fs-meta)] text-[var(--text-2)] enabled:hover:bg-[var(--hover)] disabled:text-[var(--text-dim)]"
             >
-              <PencilSimple size={14} className="shrink-0 text-[var(--text-muted)]" />
-              <span className="truncate">{choice.branch}</span>
+              {choice.branch === null ? (
+                <Sparkle size={14} className="shrink-0 text-[var(--tint)]" />
+              ) : (
+                <PencilSimple size={14} className="shrink-0 text-[var(--text-muted)]" />
+              )}
+              <span className="truncate">{choice.branch ?? "自动起名"}</span>
             </button>
           )}
         </>

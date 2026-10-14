@@ -248,6 +248,19 @@ export const CreateWorkspaceCommand = z.strictObject({
 });
 export type CreateWorkspaceCommand = z.infer<typeof CreateWorkspaceCommand>;
 
+/**
+ * Asks a model for a new worktree's branch name from the first message (SPEC-0001, "AI 起分支名");
+ * `model` is the one the page's session would use, `null` when none was chosen.
+ */
+export const NameBranchCommand = z.strictObject({
+  type: z.literal("name_branch"),
+  ...commandFields,
+  projectId: ProjectId,
+  text: MessageText,
+  model: ModelRef.nullable(),
+});
+export type NameBranchCommand = z.infer<typeof NameBranchCommand>;
+
 /** Names a chat, or with `null` goes back to its first session's title. */
 export const RenameChatCommand = z.strictObject({
   type: z.literal("rename_chat"),
@@ -685,6 +698,7 @@ export const Command = z.discriminatedUnion("type", [
   RestoreWorkspaceCommand,
   ListBasesCommand,
   CreateWorkspaceCommand,
+  NameBranchCommand,
   RenameChatCommand,
   ArchiveChatCommand,
   RestoreChatCommand,
@@ -790,6 +804,7 @@ export const CommandResult = {
     remote: z.array(BranchName),
   }),
   create_workspace: z.strictObject({ workspaceId: WorkspaceId }),
+  name_branch: z.strictObject({ branch: BranchName }),
   rename_chat: z.strictObject({}),
   archive_chat: z.strictObject({}),
   restore_chat: z.strictObject({}),

@@ -11,7 +11,8 @@ import type { Drafts } from "./drafts";
 type WorkspaceChoice =
   | {
       readonly kind: "new";
-      readonly branch: string;
+      /** The branch's name; `null` for one a model gives it by the first message (SPEC-0001, "AI 起分支名"). */
+      readonly branch: string | null;
       /** The base chosen; `null` for the default, once the bases are known (`defaultBase`). */
       readonly base: string | null;
     }
@@ -39,13 +40,18 @@ export interface LaunchImage {
 }
 
 /** One step of a launch, as its timeline names it. */
-export type LaunchStep = "worktree" | "session" | "message";
+export type LaunchStep = "name" | "worktree" | "session" | "message";
 
 /** What sending from the page set going, until its message has gone. */
 export interface Launch {
   readonly id: string;
-  /** The new worktree's branch and base, for the first step's words; `null` into a workspace already there. */
-  readonly worktree: { readonly branch: string; readonly base: string } | null;
+  /**
+   * The new worktree's branch and base, for the steps' words; `null` into a workspace already
+   * there. The branch is `null` until named.
+   */
+  readonly worktree: { readonly branch: string | null; readonly base: string } | null;
+  /** How the `name` step named the branch: by the model, or randomly when it could not; `null` until then. */
+  readonly named: "model" | "random" | null;
   readonly steps: readonly LaunchStep[];
   /** How many steps are done. */
   readonly done: number;
@@ -105,8 +111,8 @@ const ANIMALS = [
  * A branch name for a new worktree, like `atrium/brave-otter`.
  *
  * @remarks
- * SPEC-0001 ("M1.11 的新建工作区"): random, and the user may change it. Two words from sixteen
- * each rarely meet one taken; the host refuses one that is.
+ * SPEC-0001 ("M1.11 的新建工作区"): when the model could not name it, or there is no text to name
+ * it by. Two words from sixteen each rarely meet one taken; the host refuses one that is.
  *
  * @sideEffects none
  * @param random - A number in [0, 1), as `Math.random` gives.
@@ -193,7 +199,7 @@ export function createNewWorkspaceStore(): StoreApi<NewWorkspaceState> {
 }
 
 /**
- * Opens the page for a project, with a new worktree on a suggested branch.
+ * Opens the page for a project, with a new worktree whose branch the model names.
  *
  * @remarks
  * Opening it again starts afresh, as the page is only a way in (SPEC-0001, "M1.11 的新建工作区").
@@ -202,14 +208,13 @@ export function createNewWorkspaceStore(): StoreApi<NewWorkspaceState> {
  * @sideEffects Updates the store.
  * @param store - The store.
  * @param projectId - The project.
- * @param random - Picks the suggested branch's words.
  */
-export function openPage(store: StoreApi<NewWorkspaceState>, projectId: string, random: () => number): void {
+export function openPage(store: StoreApi<NewWorkspaceState>, projectId: string): void {
   store.setState(({ launches }) => ({
     launches: launches.filter((one) => one.sessionId !== null || one.failure === undefined),
     page: {
       projectId,
-      choice: { kind: "new", branch: suggestBranch(random), base: null },
+      choice: { kind: "new", branch: null, base: null },
       model: { ref: null, level: null },
       launchId: null,
     },
@@ -256,17 +261,15 @@ export function closePage(store: StoreApi<NewWorkspaceState>): void {
  *
  * @remarks
  * The workspaces and bases are a project's own, so going to another project goes back to a new
- * worktree from the default base, keeping the branch's name.
+ * worktree from the default base, keeping the branch's name, or else naming it by the message.
  *
  * @sideEffects Updates the store.
  * @param store - The store.
  * @param change - The fields to change.
- * @param random - Picks a branch's words, when the page had none to keep.
  */
 export function choose(
   store: StoreApi<NewWorkspaceState>,
   change: Partial<Pick<NewWorkspacePage, "projectId" | "choice" | "model">>,
-  random: () => number = Math.random,
 ): void {
   const { page } = store.getState();
   if (page === null) return;
@@ -274,7 +277,7 @@ export function choose(
     store.setState({ page: { ...page, ...change } });
     return;
   }
-  const branch = page.choice.kind === "new" ? page.choice.branch : suggestBranch(random);
+  const branch = page.choice.kind === "new" ? page.choice.branch : null;
   store.setState({ page: { ...page, choice: { kind: "new", branch, base: null }, ...change } });
 }
 
@@ -324,14 +327,18 @@ export function dismiss(store: StoreApi<NewWorkspaceState>, launchId: string): v
 /** What a launch asks of the client. */
 export type LaunchClient = Pick<
   AtriumClient,
-  "createWorkspace" | "createSession" | "listCommands" | "setModel" | "setThinkingLevel" | "prompt"
+  "nameBranch" | "createWorkspace" | "createSession" | "listCommands" | "setModel" | "setThinkingLevel" | "prompt"
 >;
 
 /**
- * Sends the page's first message: creates the worktree, then the session, then sends.
+ * Sends the page's first message: names the branch, creates the worktree, then the session, then
+ * sends.
  *
  * @remarks
- * SPEC-0001 ("M1.11 的新建工作区"). The steps show on a timeline. Once the worktree is there,
+ * SPEC-0001 ("M1.11 的新建工作区"). The steps show on a timeline. A branch left to the model is
+ * named by the message's text on the page's model (SPEC-0001, "AI 起分支名"); when that fails, for
+ * whatever reason, or the message has no text, the name is random, and the launch goes on. While
+ * the user is on the page, its button then shows the name, so sending again names no more. Once the worktree is there,
  * the page goes into it, so sending again does not make a second one. Once the session is there,
  * what was typed since moves into its box, and the page closes, as the host shows the session;
  * a user who left the page stays where they went (`go: false`). pi's start is waited for by
@@ -345,6 +352,7 @@ export type LaunchClient = Pick<
  * @param drafts - The page's drafts.
  * @param message - The message and its uploaded images.
  * @param newId - Makes the launch's id.
+ * @param random - Picks a random branch name's words.
  */
 export async function launch(
   store: StoreApi<NewWorkspaceState>,
@@ -352,16 +360,24 @@ export async function launch(
   drafts: Pick<Drafts, "handOver" | "restore">,
   message: { readonly text: string; readonly images: readonly LaunchImage[] },
   newId: () => string,
+  random: () => number = Math.random,
 ): Promise<void> {
   const page = store.getState().page;
   if (page === null) return;
   const { projectId, choice, model } = page;
   const id = newId();
-  const worktree = choice.kind === "new" ? { branch: choice.branch, base: choice.base ?? "HEAD" } : null;
+  const naming = choice.kind === "new" && choice.branch === null && message.text.trim() !== "";
+  const worktree =
+    choice.kind === "new"
+      ? { branch: naming ? null : (choice.branch ?? suggestBranch(random)), base: choice.base ?? "HEAD" }
+      : null;
+  let steps: LaunchStep[] = ["session", "message"];
+  if (worktree !== null) steps = naming ? ["name", "worktree", ...steps] : ["worktree", ...steps];
   const started: Launch = {
     id,
     worktree,
-    steps: worktree === null ? ["session", "message"] : ["worktree", "session", "message"],
+    named: null,
+    steps,
     done: 0,
     failure: undefined,
     ...message,
@@ -399,10 +415,23 @@ export async function launch(
   try {
     let workspaceId = started.workspaceId;
     if (worktree !== null) {
-      workspaceId = (await client.createWorkspace(projectId, worktree.branch, worktree.base)).workspaceId;
+      let { branch } = worktree;
+      if (branch === null) {
+        const named = await client.nameBranch(projectId, message.text, model.ref).then(
+          (answer) => ({ branch: answer.branch, named: "model" as const }),
+          () => ({ branch: suggestBranch(random), named: "random" as const }),
+        );
+        ({ branch } = named);
+        const now = store.getState().page;
+        if (now?.launchId === id && now.choice.kind === "new") {
+          store.setState({ page: { ...now, choice: { ...now.choice, branch } } });
+        }
+        update({ worktree: { ...worktree, branch }, named: named.named, done: 1 });
+      }
+      workspaceId = (await client.createWorkspace(projectId, branch, worktree.base)).workspaceId;
       const now = store.getState().page;
       if (now?.launchId === id) store.setState({ page: { ...now, choice: { kind: "existing", workspaceId } } });
-      update({ workspaceId, done: 1 });
+      update({ workspaceId, done: steps.indexOf("worktree") + 1 });
     }
     // Set by now: given, or just created.
     // Stryker disable next-line StringLiteral: never used, as the line above says.

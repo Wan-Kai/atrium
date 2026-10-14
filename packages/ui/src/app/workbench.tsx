@@ -556,7 +556,7 @@ function MainWindow({
           onSettings={settings.show}
           page={{
             projectId: pageProject,
-            open: (projectId) => openPage(pages, projectId, Math.random),
+            open: (projectId) => openPage(pages, projectId),
             leave: () => closePage(pages),
           }}
           folded={folded}

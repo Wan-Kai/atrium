@@ -428,6 +428,7 @@ describe("createAtriumClient: commands", () => {
       client.restoreWorkspace("wks_0123456789abcdef"),
       client.listBases("prj_0123456789abcdef"),
       client.createWorkspace("prj_0123456789abcdef", "atrium/a", "origin/main"),
+      client.nameBranch("prj_0123456789abcdef", "Fix it", { providerId: "faux", modelId: "m" }),
       client.renameChat(CHAT, "合并原理"),
       client.archiveChat(CHAT),
       client.restoreChat(CHAT),
@@ -442,6 +443,7 @@ describe("createAtriumClient: commands", () => {
     latest().answer("hand_off", { file: "/pi/s1.jsonl" });
     latest().answer("list_bases", { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
     latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
+    latest().answer("name_branch", { branch: "atrium/fix-it" });
     for (const type of [
       "archive_session",
       "rename_session",
@@ -473,6 +475,7 @@ describe("createAtriumClient: commands", () => {
       {},
       { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] },
       { workspaceId: "wks_00000000000000aa" },
+      { branch: "atrium/fix-it" },
       {},
       {},
       {},
@@ -499,6 +502,12 @@ describe("createAtriumClient: commands", () => {
       { type: "restore_workspace", workspaceId: "wks_0123456789abcdef" },
       { type: "list_bases", projectId: "prj_0123456789abcdef" },
       { type: "create_workspace", projectId: "prj_0123456789abcdef", branch: "atrium/a", base: "origin/main" },
+      {
+        type: "name_branch",
+        projectId: "prj_0123456789abcdef",
+        text: "Fix it",
+        model: { providerId: "faux", modelId: "m" },
+      },
       { type: "rename_chat", chatId: CHAT, name: "合并原理" },
       { type: "archive_chat", chatId: CHAT },
       { type: "restore_chat", chatId: CHAT },

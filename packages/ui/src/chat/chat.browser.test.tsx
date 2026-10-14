@@ -813,6 +813,7 @@ describe("ConversationArea", () => {
         {
           id: "l1",
           worktree: null,
+          named: null,
           steps: ["session", "message"],
           done: 1,
           failure: undefined,

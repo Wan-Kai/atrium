@@ -132,6 +132,12 @@ async function assemble() {
         return "wks_new";
       },
     },
+    namer: {
+      name: async (projectId, text, model) => {
+        archiving.push(`name ${projectId} ${text} ${JSON.stringify(model)}`);
+        return "atrium/fix-it";
+      },
+    },
     preferences,
     chats: () => catalog.chats(),
     chatRecords,
@@ -325,6 +331,15 @@ describe("IndexCommands.archiveWorkspace", () => {
       {},
     ]);
     expect(archiving).toStrictEqual(["archive wks_1", "restore wks_2"]);
+  });
+
+  it("hands naming a branch to the namer", async () => {
+    const { commands, archiving } = await assemble();
+
+    const model = { providerId: "faux", modelId: "m" };
+
+    expect(await commands.nameBranch("prj_1", "Fix it", model)).toStrictEqual({ branch: "atrium/fix-it" });
+    expect(archiving).toStrictEqual([`name prj_1 Fix it ${JSON.stringify(model)}`]);
   });
 
   it("hands listing bases and creating a workspace to the creator", async () => {

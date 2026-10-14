@@ -49,7 +49,7 @@ function list() {
  * Renders the workbench over a fake client and opens the project's new-workspace page.
  *
  * @remarks
- * Random words are the first of each list, so the branch suggested is `atrium/brave-badger`.
+ * Random words are the first of each list, so a random branch is `atrium/brave-badger`.
  *
  * @sideEffects Renders; makes `Math.random` answer 0 until the test ends; hovers and clicks.
  * @param answers - How some commands answer.
@@ -245,7 +245,7 @@ describe("The new-workspace page (M1.11)", () => {
     expect(calls.filter((call) => call.startsWith("listBases"))).toStrictEqual([`listBases ${PROJECT.id}`]);
   });
 
-  it("chooses a new worktree from the main branch on a suggested branch, or another base, or a workspace there", async () => {
+  it("chooses a new worktree from the main branch on a branch named for it, or another base, or a workspace there", async () => {
     const { screen, calls } = await newWorkspacePage({
       bases: async () => ({ main: "origin/main", current: "main", local: ["dev", "main"], remote: ["origin/main"] }),
     });
@@ -253,7 +253,7 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(choice(screen, "项目")).toHaveTextContent("atrium");
     await expect.element(choice(screen, "工作区")).toHaveTextContent("新建 worktree");
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/main");
-    await expect.element(choice(screen, "分支名")).toHaveTextContent("atrium/brave-badger");
+    await expect.element(choice(screen, "分支名")).toHaveTextContent("自动起名");
     expect(calls).toContain(`listBases ${PROJECT.id}`);
 
     await choice(screen, "起点").click();
@@ -281,7 +281,7 @@ describe("The new-workspace page (M1.11)", () => {
     await choice(screen, "工作区").click();
     await screen.getByRole("menuitemradio", { name: "新建 worktree" }).click();
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/main");
-    await expect.element(choice(screen, "分支名")).toHaveTextContent("atrium/brave-badger");
+    await expect.element(choice(screen, "分支名")).toHaveTextContent("自动起名");
   });
 
   it("lists each choice on one line, its icon on the left, what is worth knowing on the right, the one chosen ticked", async () => {
@@ -366,11 +366,9 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/v1");
     await send(screen, "一");
     await vi.waitFor(() =>
-      expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/v1`),
+      expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/fix-login refs/remotes/origin/v1`),
     );
-    await vi.waitFor(() =>
-      expect(steps(screen)[0]).toStrictEqual(["live", "创建 worktreeatrium/brave-badger · 基于 origin/v1"]),
-    );
+    await vi.waitFor(() => expect(steps(screen)[1]).toStrictEqual(["live", "创建 worktree基于 origin/v1"]));
   });
 
   it("holds the send back until the bases come, rather than start from HEAD", async () => {
@@ -386,18 +384,36 @@ describe("The new-workspace page (M1.11)", () => {
     await userEvent.type(box, "{Enter}");
 
     await vi.waitFor(() =>
-      expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/main`),
+      expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/fix-login refs/remotes/origin/main`),
     );
     expect(before).toStrictEqual([]);
   });
 
-  it("edits the branch in place, keeping it on Enter and not on Escape", async () => {
+  it("says the model names the branch, with a sparkle, until one is written", async () => {
+    const { screen } = await newWorkspacePage();
+
+    const button = choice(screen, "分支名");
+    await expect.element(button).toHaveAttribute("title", "发出后，AI 按第一条消息起分支名；点这里自己写");
+    expect(getComputedStyle(firstIcon(button.element())).color).toBe("rgb(47, 111, 237)");
+    await button.click();
+    const field = screen.getByRole("textbox", { name: "分支名" });
+    await expect.element(field).toHaveValue("");
+    await expect.element(field).toHaveAttribute("placeholder", "输入分支名，留空让 AI 起名");
+    expect(getComputedStyle(field.element(), "::placeholder").color).toBe("rgb(161, 161, 167)");
+    await userEvent.fill(field, "fix/login");
+    await userEvent.keyboard("{Enter}");
+
+    await expect.element(button).toHaveAttribute("title", "分支名");
+    expect(getComputedStyle(firstIcon(button.element())).color).toBe("rgb(110, 110, 116)");
+  });
+
+  it("edits the branch in place, keeping it on Enter and not on Escape, and names it again once cleared", async () => {
     const { screen } = await newWorkspacePage();
 
     const before = choice(screen, "分支名").element().getBoundingClientRect();
     await choice(screen, "分支名").click();
     const field = screen.getByRole("textbox", { name: "分支名" });
-    await expect.element(field).toHaveAccessibleDescription("⏎ 保存 esc 取消");
+    await expect.element(field).toHaveAccessibleDescription("⏎ 保存 esc 取消 清空恢复自动起名");
     const box = field.element().getBoundingClientRect();
     // Its text where the button's was, the hint above it, clear of the input box below.
     expect(box.left + 6 - before.left).toBe(28);
@@ -410,12 +426,59 @@ describe("The new-workspace page (M1.11)", () => {
     await userEvent.fill(screen.getByRole("textbox", { name: "分支名" }), "other");
     await userEvent.keyboard("{Escape}");
     await expect.element(choice(screen, "分支名")).toHaveTextContent("fix/login");
+
+    await choice(screen, "分支名").click();
+    await expect.element(screen.getByRole("textbox", { name: "分支名" })).toHaveValue("fix/login");
+    await userEvent.clear(screen.getByRole("textbox", { name: "分支名" }));
+    await userEvent.keyboard("{Enter}");
+    await expect.element(choice(screen, "分支名")).toHaveTextContent("自动起名");
   });
 
-  it("creates the worktree and the session, then sends, step by step, holding the box back till the message goes", async () => {
+  it("goes without naming a branch written, saying the branch on its worktree's step", async () => {
+    const made = Promise.withResolvers<void>();
+    const { screen, calls } = await newWorkspacePage({ createWorkspace: () => made.promise });
+    await choice(screen, "分支名").click();
+    await userEvent.fill(screen.getByRole("textbox", { name: "分支名" }), "fix/login");
+    await userEvent.keyboard("{Enter}");
+
+    await send(screen, "修复登录");
+
+    await vi.waitFor(() =>
+      expect(steps(screen)).toStrictEqual([
+        ["live", "创建 worktreefix/login · 基于 origin/main"],
+        ["wait", "启动会话"],
+        ["wait", "发出消息"],
+      ]),
+    );
+    expect(calls.filter((call) => call.startsWith("nameBranch"))).toStrictEqual([]);
+    made.resolve();
+  });
+
+  it("names the branch randomly when the model could not, and says so", async () => {
+    const made = Promise.withResolvers<void>();
+    const { screen } = await newWorkspacePage({
+      nameBranch: () => Promise.reject(new CommandError("branch_name_failed", { reason: "failed" })),
+      createWorkspace: () => made.promise,
+    });
+
+    await send(screen, "修复登录");
+
+    await vi.waitFor(() =>
+      expect(steps(screen).slice(0, 2)).toStrictEqual([
+        ["dot", "起名没起成，用随机名 atrium/brave-badger"],
+        ["live", "创建 worktreeatrium/brave-badger · 基于 origin/main"],
+      ]),
+    );
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+    made.resolve();
+  });
+
+  it("names the branch, creates the worktree and the session, then sends, step by step, holding the box back till the message goes", async () => {
+    const named = Promise.withResolvers<string>();
     const made = Promise.withResolvers<void>();
     const sent = Promise.withResolvers<void>();
     const { screen, calls } = await newWorkspacePage({
+      nameBranch: () => named.promise,
       createWorkspace: () => made.promise,
       prompt: async () => {
         await sent.promise;
@@ -427,7 +490,18 @@ describe("The new-workspace page (M1.11)", () => {
 
     await vi.waitFor(() =>
       expect(steps(screen)).toStrictEqual([
-        ["live", "创建 worktreeatrium/brave-badger · 基于 origin/main"],
+        ["live", "起名按第一条消息"],
+        ["wait", "创建 worktree"],
+        ["wait", "启动会话"],
+        ["wait", "发出消息"],
+      ]),
+    );
+    expect(calls).toContain(`nameBranch ${PROJECT.id} 修复登录 null`);
+    named.resolve("atrium/fix-login");
+    await vi.waitFor(() =>
+      expect(steps(screen)).toStrictEqual([
+        ["dot", "起名atrium/fix-login"],
+        ["live", "创建 worktree基于 origin/main"],
         ["wait", "启动会话"],
         ["wait", "发出消息"],
       ]),
@@ -437,14 +511,15 @@ describe("The new-workspace page (M1.11)", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "下一条{Enter}");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
     await expect.element(choice(screen, "工作区")).toBeDisabled();
-    expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/main`);
+    expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/fix-login refs/remotes/origin/main`);
 
     made.resolve();
 
     await expect.element(screen.getByRole("tablist")).toBeVisible();
     await vi.waitFor(() =>
       expect(steps(screen)).toStrictEqual([
-        ["dot", "创建 worktreeatrium/brave-badger · 基于 origin/main"],
+        ["dot", "起名atrium/fix-login"],
+        ["dot", "创建 worktree基于 origin/main"],
         ["dot", "启动会话"],
         ["live", "发出消息"],
       ]),
@@ -452,7 +527,7 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(screen.getByTestId("launch-message")).not.toBeInTheDocument();
     await expect.element(screen.getByTestId("user-message")).toHaveTextContent("修复登录");
     await expect
-      .element(screen.getByTestId("workspace-row").filter({ hasText: "atrium/brave-badger" }))
+      .element(screen.getByTestId("workspace-row").filter({ hasText: "atrium/fix-login" }))
       .toHaveAttribute("aria-current", "true");
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("下一条");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
@@ -461,15 +536,18 @@ describe("The new-workspace page (M1.11)", () => {
 
     await expect.element(screen.getByTestId("launch-step").first()).not.toBeInTheDocument();
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
-    expect(calls.filter((call) => /^(createWorkspace|createSession|listCommands|prompt) /.test(call))).toStrictEqual([
-      `createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/main`,
+    expect(
+      calls.filter((call) => /^(nameBranch|createWorkspace|createSession|listCommands|prompt) /.test(call)),
+    ).toStrictEqual([
+      `nameBranch ${PROJECT.id} 修复登录 null`,
+      `createWorkspace ${PROJECT.id} atrium/fix-login refs/remotes/origin/main`,
       "createSession wks_made1",
       "listCommands new2",
       "prompt new2 修复登录",
     ]);
   });
 
-  it("stops at a worktree that could not be created, saying why, with the message back in the box to send again", async () => {
+  it("stops at a worktree that could not be created, saying why, with the message back in the box and the name on the page", async () => {
     const { screen, calls } = await newWorkspacePage({
       createWorkspace: () =>
         Promise.reject(new CommandError("worktree_create_failed", { reason: "branch_exists", branch: "x" })),
@@ -479,7 +557,8 @@ describe("The new-workspace page (M1.11)", () => {
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("这个分支名已经有了，换一个");
     expect(steps(screen)).toStrictEqual([
-      ["fail", "创建 worktreeatrium/brave-badger · 基于 origin/main这个分支名已经有了，换一个"],
+      ["dot", "起名atrium/fix-login"],
+      ["fail", "创建 worktree基于 origin/main这个分支名已经有了，换一个"],
       ["wait", "启动会话"],
       ["wait", "发出消息"],
     ]);
@@ -487,6 +566,7 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
     await expect.element(screen.getByTestId("launch-message")).not.toBeInTheDocument();
     await expect.element(choice(screen, "分支名")).toBeEnabled();
+    await expect.element(choice(screen, "分支名")).toHaveTextContent("atrium/fix-login");
     expect(calls.filter((call) => call.startsWith("createSession"))).toStrictEqual([]);
   });
 
@@ -504,7 +584,7 @@ describe("The new-workspace page (M1.11)", () => {
       .element(screen.getByTestId("workspace-row").filter({ hasText: "feat/sidebar" }))
       .toHaveAttribute("aria-current", "true");
     await expect
-      .element(screen.getByTestId("workspace-row").filter({ hasText: "atrium/brave-badger" }))
+      .element(screen.getByTestId("workspace-row").filter({ hasText: "atrium/fix-login" }))
       .toHaveAttribute("aria-current", "false");
   });
 
@@ -514,7 +594,7 @@ describe("The new-workspace page (M1.11)", () => {
     await send(screen, "修复登录");
 
     await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 正在忙，等这一轮结束再发");
-    expect(steps(screen).map(([node]) => node)).toStrictEqual(["dot", "dot", "fail"]);
+    expect(steps(screen).map(([node]) => node)).toStrictEqual(["dot", "dot", "dot", "fail"]);
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("修复登录");
 
     await screen.getByRole("button", { name: "发送" }).click();
@@ -661,6 +741,7 @@ describe("The new-workspace page (M1.11)", () => {
 
     await vi.waitFor(() => expect(calls).toContain("prompt new2 修复登录"));
     expect(modelCalls).toContain("setModel new2 anthropic/claude-opus-5-5");
+    expect(calls).toContain(`nameBranch ${PROJECT.id} 修复登录 anthropic/claude-opus-5-5`);
     expect(calls.filter((call) => call.startsWith("listCommands"))).toStrictEqual([]);
   });
 });
