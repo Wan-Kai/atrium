@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-14：M1.12 的代码写完，在 `m1.12-files-changes` 分支上，等三方审查后合并回 `main`。右栏换成"文件""更改"两个标签（默认宽 320px），旧的改动面板删掉；查看标签（文件、改动）进标签栏、和会话一起数 ⌘1–9、⌘W 关；diff 和文件内容在 worker 里用 Shiki 上色；`list_dir`、`read_file` 和 material-icon-theme 的图标先前已提交。长内容按 64 行一组、`content-visibility: auto`，2 万行的 diff 折叠左栏、滚动每段 ≤ 4 毫秒，切换到改动标签约 60 毫秒（testing.md "性能预算"新加了切换和滚动两项）；改动标签离开时停掉文件头的闪动，否则动画留着整个标签不回收（泄漏测试查出来的）。**
+
 **2026-10-13：新建 M1.12 文件与更改，在 `m1.12-files-changes` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。右栏照 Paseo 改成"文件""更改"两个标签，只放树；点文件在对话区的标签页里看内容或 diff。设计已定（原型 `files-changes-prototype.html` 的 A 版），先改 SPEC-0001、design-language、domain-model，再写代码。**
 
 **2026-10-12：M1.11 自用进行中，到目前为止的改动经三方审查（Astra、Grok、Claude）后先合并回 `main`，里程碑没有结束（一周自用、新账户的首次启动检查还没做），之后继续在 `m1.11-self-use` 分支上。这一段做的：每个对话是一个独立的容器（[ADR-0007](adr/0007-each-chat-is-its-own-container.md)，索引升到 v2）；Fast 开关，哪些模型支持以 Codex 的模型列表为准、列表为空或查不到时按内置规则（[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)）；过程轨道，运行结束后折进轮的标题；发送的消息显示图片缩略图，宿主从 pi 的会话文件读回；worktree 工作区的归档与恢复（删目录、留分支，恢复前查分支还在、目录没被占用）；浏览器不内置，留在外部（[ADR-0009](adr/0009-browser-stays-external.md)）；另有图标换成 Hugeicons、回复排版、文件类型标志等界面调整。三方审查的问题都修了：归档停掉会话后再查一次、先记下归档再删目录、git 期限 10 分钟、退出时等归档做完；关标签丢草稿时与发消息和别的窗口打开的竞争；`fetch_image` 等条目读完；Fast 切换中途来了别的事件仍按宿主最后的结果。单元、宿主、界面、pi 测试和 `pnpm check` 通过，git、host、shared、pi 四组变异分数 100%；界面组这次没有重跑。**
