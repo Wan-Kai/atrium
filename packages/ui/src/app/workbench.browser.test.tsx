@@ -2043,7 +2043,7 @@ describe("Workbench keys and focus", () => {
   it("starts a chat with ⌘T when the client is nowhere", async () => {
     const { calls, screen } = await workbench({ initial: { ...list(), layout: { container: null, tabs: {} } } });
 
-    await expect.element(screen.getByText("开始一段对话")).toBeVisible();
+    await expect.element(screen.getByTestId("empty-line")).toBeVisible();
     await userEvent.keyboard("{Meta>}t{/Meta}");
 
     await vi.waitFor(() => expect(calls).toContain("createChat"));

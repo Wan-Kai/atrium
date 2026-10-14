@@ -220,6 +220,23 @@ function above(items: TranscriptItem[], below: number) {
 }
 
 /**
+ * An element's last child element.
+ *
+ * @remarks
+ * Throws rather than returning nothing, so a test reads it without a conditional.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its last child.
+ * @throws When it has none.
+ */
+function lastChild(element: Element): Element {
+  const child = element.lastElementChild;
+  if (child === null) throw new Error("no child");
+  return child;
+}
+
+/**
  * How far a scroller's view is from its end, in whole pixels.
  *
  * @sideEffects none
@@ -691,7 +708,7 @@ describe("ConversationArea", () => {
     const screen = await render(
       <ConversationArea client={client} containerId={null} sessionId={null} create={create} />,
     );
-    await expect.element(screen.getByText("开始一段对话")).toBeVisible();
+    await expect.element(screen.getByTestId("empty-line")).toBeVisible();
     const box = screen.getByRole("textbox", { name: "消息" });
 
     await userEvent.type(box, "一{Enter}");
@@ -722,19 +739,36 @@ describe("ConversationArea", () => {
     pageDrafts().drop(["new1"]);
   });
 
-  it.each([
-    [null, "不绑定项目和工作区，直接输入就开始"],
-    [CHAT, "在这个对话里开始，直接输入就会新建会话"],
-    ["wks_000000000000000a", "在这个工作区里开始，直接输入就会新建会话"],
-  ])("says where a new session goes in %s when none is open", async (containerId, hint) => {
-    const { client } = fakeClient();
+  it.each([null, CHAT, "wks_000000000000000a"])(
+    "says only one line in %s when no session is open, a blinking caret after it",
+    async (containerId) => {
+      const { client } = fakeClient();
 
-    const screen = await render(
-      <ConversationArea client={client} containerId={containerId} sessionId={null} create={async () => ""} />,
-    );
+      const screen = await render(
+        <ConversationArea client={client} containerId={containerId} sessionId={null} create={async () => ""} />,
+      );
 
-    await expect.element(screen.getByText(hint)).toBeVisible();
-  });
+      const line = screen.getByTestId("empty-line");
+      await expect.element(line).toBeVisible();
+      expect(line.element().textContent).toBe("每天都做一些改变出来");
+      const caret = lastChild(line.element());
+      expect(caret.getAttribute("aria-hidden")).toBe("true");
+      const style = getComputedStyle(caret);
+      expect([style.width, style.height, style.marginLeft, style.backgroundColor]).toStrictEqual([
+        "2px",
+        "23px",
+        "3px",
+        "rgb(47, 111, 237)",
+      ]);
+      expect([style.animationName, style.animationDuration, style.animationTimingFunction]).toStrictEqual([
+        "atrium-caret-blink",
+        "1.06s",
+        "steps(1)",
+      ]);
+      expect(getComputedStyle(line.element()).fontSize).toBe("20px");
+      expect(screen.container.querySelectorAll("p")).toHaveLength(1);
+    },
+  );
 
   it("watches the active session and sends to it", async () => {
     const { client, calls } = fakeClient();

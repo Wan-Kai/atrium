@@ -347,6 +347,29 @@ body {
   }
 }
 
+/* The empty state's caret (design-language, "空状态"): on and off as a text caret, never fading;
+   steady when motion is reduced, which would otherwise make it flicker every millisecond. */
+@keyframes atrium-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.atrium-caret {
+  width: 2px;
+  height: 1.15em;
+  margin-left: 3px;
+  border-radius: 1px;
+  background: var(--tint);
+  animation: atrium-caret-blink 1.06s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-caret {
+    animation: none;
+  }
+}
+
 /* The process rail (design-language, "动效 · 过程轨道"). A new step: its node pops in, the line
    above grows down to it, its words rise 6px and fade in a little later. */
 @keyframes atrium-node-in {

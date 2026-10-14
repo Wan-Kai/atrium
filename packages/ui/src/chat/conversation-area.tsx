@@ -435,9 +435,8 @@ function SessionArea({
  * in a restart, is opened again before the message goes. A failed send is explained above the input box, and the
  * message goes back into its box when the box is still empty. A session the new-workspace page
  * made shows the steps of its making until its first message has gone; one failed stays until the
- * next send. The empty
- * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计"). The
- * right panel is open or not, and as wide, in every workspace alike; a viewer tab shown takes the
+ * next send. The empty state says one line, the same everywhere, a blinking caret after it
+ * (design-language, "空状态"). The right panel is open or not, and as wide, in every workspace alike; a viewer tab shown takes the
  * whole area but the panel; the workspace's diff is watched while either needs it (SPEC-0001,
  * "M1.12 的文件与更改").
  *
@@ -957,16 +956,10 @@ export function ConversationArea({
           />
         ) : store === undefined || sessionId === null ? (
           <>
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
-              <p className="text-[20px] font-medium text-[var(--text)]">
-                {containerId === null ? "开始一段对话" : "新会话"}
-              </p>
-              <p className="text-[length:var(--fs-meta)]">
-                {containerId === null
-                  ? "不绑定项目和工作区，直接输入就开始"
-                  : isChatId(containerId)
-                    ? "在这个对话里开始，直接输入就会新建会话"
-                    : "在这个工作区里开始，直接输入就会新建会话"}
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+              <p data-testid="empty-line" className="flex items-center text-[20px] font-medium text-[var(--text)]">
+                每天都做一些改变出来
+                <span aria-hidden="true" className="atrium-caret" />
               </p>
             </div>
             {notice}
