@@ -378,6 +378,11 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 认证类失败的判断（protocol 一份，宿主的 `auth` 关注状态和对话里的错误卡片共用）：每个关键词各自认得出、`401` 按整词、其他失败不算 | `packages/protocol/src/listing.test.ts` | 已覆盖 |
 | 认证类失败的错误卡片：橙色钥匙和"登录已失效"，有"重试"的地方前面多一个"去登录"，没有设置可开或不是最后一轮时不显示；其他失败仍是红色"回复出错"；"去登录"打开设置的"模型与账户" | `packages/ui/src/chat/turn.browser.test.tsx` "credentials""去登录 only"、`packages/ui/src/app/workbench.browser.test.tsx` "去登录" | 已覆盖 |
 | 失败的一轮（2026-10-13）：错误卡片只有一个主按钮，同色浅底（登录失效又能重试时是"去登录"、`--attn-soft` 底 `--attn-text` 字，"重试"是 `--text-muted` 的文字按钮；其他是"重试"，`--danger-soft` 底 `--danger` 字）；"详情"在这一行最右，点开原始报错、`aria-expanded`，› 0.3 秒转向下；没有回复也没有改动的失败轮不显示信息行，有部分回复或改了文件时照常显示 | `packages/ui/src/chat/turn.browser.test.tsx` "behind 详情"、"credentials"、"去登录 only"、"ends a failed turn" | 已覆盖 |
+| 回复里的代码块（2026-10-14，原型 B"平铺"）：`--code` 底、圆角 10px、不描边，内边距 12px 14px，12.5px 等宽、行高 20px，没有行号，高亮不带主题底色；语言名在右上角（11px `--text-dim`、垫 `--code` 底）；只有"复制"一个按钮，用 Atrium 的图标；深色外观是深色的 `--code` | `packages/ui/src/chat/markdown.browser.test.tsx` "lays a code block flat"、"dark code colour" | 已覆盖 |
+| 块的按钮悬停或里面有焦点时才出现，语言名同时淡出 | `markdown.browser.test.tsx` "while hovered or focused inside" | 已覆盖 |
+| 回复里的表格不加框、占满宽度：表头 13px 半粗 `--text-muted`、下面 1px `--line-strong`，行间 1px `--line-soft`、最后一行下面没有线；悬停时出现"复制表格""放大"；放大后的表格边框是 `--line`，不是黑色 | `markdown.browser.test.tsx` "without a frame"、"seen larger" | 已覆盖 |
+| 代码块、表格、图下面和别的块一样隔 12px；行内代码 `--surface-2` 底、圆角 6px | `markdown.browser.test.tsx` "keeps 12px under"、"inline code" | 已覆盖 |
+| Mermaid：平铺在 `--code` 上，节点用 token 的中性色（浅色 `--main` 白、深色 `--main` 深）；悬停有"看源码""复制""放大"，切到源码再切回图；还在输出的块（插件已加载）显示源码、没有切换 | `markdown.browser.test.tsx` "Mermaid flat"、"Mermaid in dark colours"、"still being written" | 已覆盖 |
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
