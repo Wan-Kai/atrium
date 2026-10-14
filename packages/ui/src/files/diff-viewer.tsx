@@ -139,18 +139,26 @@ const FileDiff = memo(function FileDiff({
         <StatusIcon status={file.status} />
       </button>
       {folded ? null : (
-        <div
-          className={`code-tokens pb-1 font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] leading-[1.7] ${wrap ? "" : "min-w-max"}`}
-        >
-          {file.content === "binary" ? (
-            <p className="px-3 py-2 text-[var(--text-dim)]">二进制文件</p>
-          ) : file.content === "too_large" ? (
-            <p className="px-3 py-2 text-[var(--text-dim)]">改动太大，不显示</p>
-          ) : (
-            file.hunks.map((hunk, index) => (
-              <HunkLines key={`${hunk.oldStart},${hunk.newStart}`} hunk={hunk} tokens={coloured?.[index]} wrap={wrap} />
-            ))
-          )}
+        // Each file scrolls sideways on its own, so the headers and the other files stay put.
+        <div className="overflow-x-auto">
+          <div
+            className={`code-tokens pb-1 font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)] leading-[1.7] ${wrap ? "" : "min-w-max"}`}
+          >
+            {file.content === "binary" ? (
+              <p className="px-3 py-2 text-[var(--text-dim)]">二进制文件</p>
+            ) : file.content === "too_large" ? (
+              <p className="px-3 py-2 text-[var(--text-dim)]">改动太大，不显示</p>
+            ) : (
+              file.hunks.map((hunk, index) => (
+                <HunkLines
+                  key={`${hunk.oldStart},${hunk.newStart}`}
+                  hunk={hunk}
+                  tokens={coloured?.[index]}
+                  wrap={wrap}
+                />
+              ))
+            )}
+          </div>
         </div>
       )}
     </section>
