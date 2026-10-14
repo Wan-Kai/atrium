@@ -30,7 +30,7 @@ describe("createPanes", () => {
     });
   });
 
-  it("writes each choice down, and starts from what was written", () => {
+  it("writes each choice down, but not a width passed through, and starts from what was written", () => {
     const storage = memoryStorage();
     const panes = createPanes(storage);
 
@@ -52,6 +52,8 @@ describe("createPanes", () => {
       panelOpen: true,
       panelWidth: 480,
     });
+    panes.getState().setPanelWidth(400, false);
+    expect([panes.getState().panelWidth, storage.getItem("atrium.rightPanelWidth")]).toStrictEqual([400, "480"]);
     panes.getState().toggleSidebar();
     expect([panes.getState().sidebarCollapsed, storage.getItem("atrium.sidebarCollapsed")]).toStrictEqual([
       false,

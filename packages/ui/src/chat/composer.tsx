@@ -526,15 +526,18 @@ export function Composer({
    * command instead when the box starts with one.
    *
    * @remarks
-   * Shared by the keys and the send button. A built-in clears the box once it has run, unless
-   * something was changed there meanwhile; one that did not run leaves the box as it was
-   * (SPEC-0001, "M1.11 的 `/` 命令 · 执行").
+   * Shared by the keys and the send button. A built-in's argument has the long pastes and the
+   * files in it, as a message would. It clears the box once it has run, unless something was
+   * changed there meanwhile; one that did not run leaves the box as it was (SPEC-0001, "M1.11 的
+   * `/` 命令 · 执行").
    *
    * @sideEffects Calls `onSend`, `onSteer` or `onBuiltin`; clears the box and the capsules.
    * @param steer - Whether to send it as a steer.
    */
   const send = (steer: boolean): void => {
-    const call = onBuiltin === undefined || held ? null : builtinCall(text, command);
+    const typed = onBuiltin === undefined || held ? null : builtinCall(text, command);
+    const call =
+      typed === null ? null : { ...typed, args: composeMessage({ text: typed.args, pastes, files, command: null }) };
     if (call !== null) {
       const ran = drafts.read(draftKey);
       setBrowsing(null);

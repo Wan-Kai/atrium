@@ -541,8 +541,8 @@ const LINE_CLASS =
  * One step on the rail, and its detail when open.
  *
  * @remarks
- * Clicking a row opens or closes its detail (SPEC-0001, "过程的呈现"); the display mode sets
- * where it starts. A step going on keeps its detail shut too until clicked, then shows it as it
+ * Clicking a row opens or closes its detail (SPEC-0001, "过程的呈现"); it starts shut. A step
+ * going on keeps its detail shut too until clicked, then shows it as it
  * comes: opening on its own and shutting when done made the view jump at every step. A step with
  * nothing to show (`hasDetail`) is words alone, not a button. A failed
  * call branches off as a dead end, a steer joins from the side.

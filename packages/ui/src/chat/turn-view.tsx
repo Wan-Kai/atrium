@@ -1,4 +1,5 @@
-import { type Notice, type Step, type Turn, isAuthFailure } from "@atrium/protocol";
+import { isAuthFailure } from "@atrium/client";
+import type { Notice, Step, Turn } from "@atrium/protocol";
 import {
   ArrowClockwise,
   ArrowsInLineVertical,

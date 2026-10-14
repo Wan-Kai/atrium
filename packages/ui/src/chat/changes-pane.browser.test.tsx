@@ -17,7 +17,8 @@ const FITTED = "max(240px, min(320px, 100% - 440px))";
  *
  * @sideEffects Renders into the page.
  * @param options - The room's width, the workspace, and whether the panel starts open.
- * @returns The screen, the client, the panes, the pane, and how to show another workspace or a chat.
+ * @returns The screen, the client, the panes and their storage, the pane, and how to show another workspace
+ * or a chat.
  */
 async function pane({
   room = 1200,
@@ -25,7 +26,8 @@ async function pane({
   open = true,
 }: { room?: number; workspaceId?: string | null; open?: boolean } = {}) {
   const { client } = fakeClient();
-  const panes = createPanes(memoryStorage());
+  const storage = memoryStorage();
+  const panes = createPanes(storage);
   const views = createWorkspaceViews(memoryStorage());
   panes.getState().setPanelOpen(open);
   /**
@@ -46,6 +48,7 @@ async function pane({
     screen,
     client,
     panes,
+    storage,
     element: screen.getByTestId("changes-pane").element(),
     show: (shown: string | null) => screen.rerender(at(shown)),
   };
@@ -234,6 +237,19 @@ describe("ChangesPane", () => {
     window.dispatchEvent(new PointerEvent("pointerup", { clientX: rect.left - 40, bubbles: true }));
     await expect.poll(() => separator.hasAttribute("data-dragging")).toBe(false);
     expect(getComputedStyle(element).transitionDuration).toBe("0.24s");
+  });
+
+  it("writes the width dragged to down once let go, not on every move", async () => {
+    const { screen, panes, storage } = await pane();
+    const separator = screen.getByRole("separator", { name: "右栏的宽度" }).element();
+    const rect = separator.getBoundingClientRect();
+    separator.dispatchEvent(new PointerEvent("pointerdown", { clientX: rect.left, bubbles: true }));
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: rect.left - 40, bubbles: true }));
+    const moving = [panes.getState().panelWidth, storage.getItem("atrium.rightPanelWidth")];
+
+    window.dispatchEvent(new PointerEvent("pointerup", { clientX: rect.left - 40, bubbles: true }));
+
+    expect([moving, storage.getItem("atrium.rightPanelWidth")]).toStrictEqual([[360, null], "360"]);
   });
 
   it("steps 16px with the arrow keys on its edge", async () => {

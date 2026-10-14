@@ -1087,6 +1087,48 @@ describe("ConversationArea's /compact", () => {
     await vi.waitFor(() => expect(calls).toContain("compactSession s1"));
   });
 
+  it("takes the long pastes and the files into what to keep in mind, as a message would, emptying the box", async () => {
+    const { client, calls } = fakeClient(ON_FILE);
+    pageDrafts().update("s1", () => ({
+      text: "保留接口的讨论",
+      pastes: [{ id: "p1", text: "第一条\n第二条" }],
+      files: ["src/a.ts"],
+      command: { source: "builtin", name: "compact" },
+      images: [],
+    }));
+    const { box } = await onOpus(client);
+    await expect.element(box).toHaveValue("保留接口的讨论");
+
+    await userEvent.type(box, "{Enter}");
+
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1 保留接口的讨论\n\n第一条\n第二条\n\n@src/a.ts"));
+    await vi.waitFor(() =>
+      expect(pageDrafts().read("s1")).toStrictEqual({ text: "", pastes: [], files: [], command: null, images: [] }),
+    );
+  });
+
+  it("says why it did not run only in the session it was run in", async () => {
+    const answer = Promise.withResolvers<void>();
+    const { client, calls } = fakeClient(
+      { sessions: [...ON_FILE.sessions, session({ sessionId: "s2", containerId: CHAT })] },
+      { compactSession: async () => answer.promise },
+    );
+    const drawn = (shown: string) => (
+      <ConversationArea client={client} containerId={CHAT} sessionId={shown} create={noCreate} />
+    );
+    const screen = await render(tall(drawn("s1")));
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/compact{Enter}");
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1"));
+    await screen.rerender(tall(drawn("s2")));
+
+    answer.reject(new CommandError("compact_failed"));
+    // The answer is through, and drawn, before what is typed after it shows.
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "x");
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("x");
+
+    expect(screen.getByRole("alert").query()).toBeNull();
+  });
+
   it.each([
     ["nothing_to_compact", "对话还太短，不用压缩"],
     ["already_compacted", "刚压缩过，没有新内容"],
@@ -1224,10 +1266,21 @@ describe("ConversationArea's fork button", () => {
     await vi.waitFor(() => expect(forks(calls)).toStrictEqual([`forkSession s1 t1 ${"长".repeat(250)}（分叉）`]));
   });
 
+  it("cuts a long title between characters, leaving out an emoji the cut would split", async () => {
+    const { client, calls } = fakeClient(forkable(`${"长".repeat(249)}😀尾`));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await vi.waitFor(() => expect(forks(calls)).toStrictEqual([`forkSession s1 t1 ${"长".repeat(249)}（分叉）`]));
+  });
+
   it.each([
     ["a run", { run: { runId: "r1", startedAt: 0 } }],
     ["a stop", { control: { ...IDLE_CONTROL, stopping: true } }],
     ["a compaction", { control: { ...IDLE_CONTROL, compacting: true } }],
+    ["a restart of pi", { control: { ...IDLE_CONTROL, restarting: true } }],
   ])("is faded and does nothing during %s, saying so", async (_when, state) => {
     const { client, calls } = fakeClient(forkable("改登录页"));
     const { screen } = await onOpus(client);

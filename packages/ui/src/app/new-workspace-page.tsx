@@ -11,6 +11,8 @@ import { CaretDown, Folder, GitBranch, GitCommit, PencilSimple } from "../design
 import {
   type NewWorkspacePage as Page,
   type NewWorkspaceState,
+  baseName,
+  baseRef,
   choose,
   closePage,
   defaultBase,
@@ -221,7 +223,7 @@ function Choices({
             content={
               <>
                 <GitCommit size={14} className="shrink-0 text-[var(--text-muted)]" />
-                <span className="truncate">基于 {choice.base ?? "HEAD"}</span>
+                <span className="truncate">基于 {baseName(choice.base ?? "HEAD")}</span>
                 <CaretDown size={12} className="shrink-0 text-[var(--text-dim)]" />
               </>
             }
@@ -232,10 +234,10 @@ function Choices({
               ) : (
                 (
                   [
-                    ["本地分支", ready.local],
-                    ["远程分支", ready.remote],
+                    ["本地分支", "local", ready.local],
+                    ["远程分支", "remote", ready.remote],
                   ] as const
-                ).map(([heading, names]) =>
+                ).map(([heading, kind, names]) =>
                   names.length === 0 ? null : (
                     <div key={heading} role="group" aria-label={heading}>
                       <p className={MENU_HEADING}>{heading}</p>
@@ -247,7 +249,7 @@ function Choices({
                           className={MENU_ITEM}
                           onClick={() => {
                             close();
-                            choose(store, { choice: { ...choice, base: name } });
+                            choose(store, { choice: { ...choice, base: baseRef(kind, name) } });
                           }}
                         >
                           {name}
@@ -299,7 +301,7 @@ function Choices({
  * Typing creates nothing; sending sets the launch going (`launch`), whose timeline shows at the
  * top until the session exists, when the page gives way to it. The box keeps a draft per project,
  * has no `/` or `@` menu, as there is no session to ask, and sends nothing while the first message
- * is on its way. The model button shows and chooses the page's model, set on the session before
+ * is on its way, nor, for a new worktree, before the bases come. The model button shows and chooses the page's model, set on the session before
  * the message; its list is the chosen workspace's, or the local one's for a new worktree. A page
  * whose project went away closes.
  *
@@ -360,7 +362,8 @@ export function NewWorkspacePage({
         key={projectId}
         draftKey={pageDraftKey(projectId)}
         autoFocus
-        held={held}
+        // Until the bases come, a new worktree would start from HEAD rather than the default one.
+        held={held || (page.choice.kind === "new" && bases === null)}
         onSend={(text, images) => {
           // Fire and forget: the launch shows its own failures.
           void launch(store, client, pageDrafts(), { text, images }, () => crypto.randomUUID());

@@ -25,7 +25,8 @@ export interface Panes {
   readonly panelWidth: number;
   readonly toggleSidebar: () => void;
   readonly setPanelOpen: (open: boolean) => void;
-  readonly setPanelWidth: (width: number) => void;
+  /** Chooses a width, writing it down unless `keep` is false, as while a drag passes through it. */
+  readonly setPanelWidth: (width: number, keep?: boolean) => void;
 }
 
 /**
@@ -101,8 +102,8 @@ export function createPanes(storage: PaneStorage): StoreApi<Panes> {
       storage.setItem(PANEL_OPEN_KEY, String(open));
       set({ panelOpen: open });
     },
-    setPanelWidth: (width) => {
-      storage.setItem(PANEL_WIDTH_KEY, String(width));
+    setPanelWidth: (width, keep = true) => {
+      if (keep) storage.setItem(PANEL_WIDTH_KEY, String(width));
       set({ panelWidth: width });
     },
   }));

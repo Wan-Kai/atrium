@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo } from "react";
-import type { Launch, LaunchStep } from "../state/new-workspace";
+import { type Launch, type LaunchStep, baseName } from "../state/new-workspace";
 import { MessageImagesContext } from "./message-images";
 import { UserBubble } from "./messages";
 import { type RailNode, RailMarks } from "./steps";
@@ -57,7 +57,7 @@ export function LaunchView({ launch, reason }: { readonly launch: Launch; readon
           if (step === "worktree" && launch.worktree !== null) {
             detail = (
               <span className="min-w-0 truncate text-[var(--text-dim)]">
-                {launch.worktree.branch} · 基于 {launch.worktree.base}
+                {launch.worktree.branch} · 基于 {baseName(launch.worktree.base)}
               </span>
             );
           }

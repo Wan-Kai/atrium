@@ -1,4 +1,5 @@
 import { CommandError } from "@atrium/client";
+import type { CommandResult } from "@atrium/protocol";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -226,6 +227,44 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(choice(screen, "分支名")).toHaveTextContent("atrium/brave-badger");
   });
 
+  it("sends the full ref of the base chosen, local or remote, though it says its short name", async () => {
+    // The worktree is still being made, so its step stays to be read.
+    const made = Promise.withResolvers<void>();
+    const { screen, calls } = await newWorkspacePage({
+      bases: async () => ({ main: null, current: "main", local: ["main", "v1"], remote: ["origin/v1"] }),
+      createWorkspace: () => made.promise,
+    });
+    await expect.element(choice(screen, "起点")).toHaveTextContent("基于 main");
+    await choice(screen, "起点").click();
+    await screen.getByRole("group", { name: "远程分支" }).getByRole("menuitem", { name: "origin/v1" }).click();
+    await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/v1");
+    await send(screen, "一");
+    await vi.waitFor(() =>
+      expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/v1`),
+    );
+    await vi.waitFor(() =>
+      expect(steps(screen)[0]).toStrictEqual(["live", "创建 worktreeatrium/brave-badger · 基于 origin/v1"]),
+    );
+  });
+
+  it("holds the send back until the bases come, rather than start from HEAD", async () => {
+    const bases = Promise.withResolvers<CommandResult<"list_bases">>();
+    const { screen, calls } = await newWorkspacePage({ bases: () => bases.promise });
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "修复登录{Enter}");
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    bases.resolve({ main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
+    await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+    const before = calls.filter((call) => call.startsWith("createWorkspace"));
+    await userEvent.type(box, "{Enter}");
+
+    await vi.waitFor(() =>
+      expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/main`),
+    );
+    expect(before).toStrictEqual([]);
+  });
+
   it("edits the branch in place, keeping it on Enter and not on Escape", async () => {
     const { screen } = await newWorkspacePage();
 
@@ -265,7 +304,7 @@ describe("The new-workspace page (M1.11)", () => {
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "下一条{Enter}");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
     await expect.element(choice(screen, "工作区")).toBeDisabled();
-    expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/brave-badger origin/main`);
+    expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/main`);
 
     made.resolve();
 
@@ -290,7 +329,7 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(screen.getByTestId("launch-step").first()).not.toBeInTheDocument();
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
     expect(calls.filter((call) => /^(createWorkspace|createSession|listCommands|prompt) /.test(call))).toStrictEqual([
-      `createWorkspace ${PROJECT.id} atrium/brave-badger origin/main`,
+      `createWorkspace ${PROJECT.id} atrium/brave-badger refs/remotes/origin/main`,
       "createSession wks_made1",
       "listCommands new2",
       "prompt new2 修复登录",

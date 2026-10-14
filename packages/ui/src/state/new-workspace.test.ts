@@ -7,6 +7,8 @@ import {
   choose,
   closePage,
   createNewWorkspaceStore,
+  baseName,
+  baseRef,
   defaultBase,
   describeWorktreeError,
   dismiss,
@@ -111,17 +113,37 @@ function onlyLaunch(state: NewWorkspaceState) {
   return state.launches[0];
 }
 
-describe("suggestBranch, defaultBase, pageDraftKey", () => {
+describe("suggestBranch, defaultBase, baseRef, baseName, pageDraftKey", () => {
   it("names a branch atrium/<adjective>-<animal> from two random words", () => {
     expect(suggestBranch(() => 0)).toBe("atrium/brave-badger");
     expect(suggestBranch(() => 0.5)).toBe("atrium/merry-otter");
     expect(suggestBranch(() => 0.9999)).toBe("atrium/swift-wren");
   });
 
-  it("starts from the main branch, else the local workspace's branch, else HEAD", () => {
-    expect(defaultBase({ main: "origin/main", current: "dev" })).toBe("origin/main");
-    expect(defaultBase({ main: null, current: "dev" })).toBe("dev");
-    expect(defaultBase({ main: null, current: null })).toBe("HEAD");
+  it("starts from the main branch, else the local workspace's branch, else HEAD, as full refs", () => {
+    expect([
+      defaultBase({ main: "origin/main", current: "dev" }),
+      defaultBase({ main: null, current: "dev" }),
+      defaultBase({ main: null, current: null }),
+    ]).toStrictEqual(["refs/remotes/origin/main", "refs/heads/dev", "HEAD"]);
+  });
+
+  it("writes a branch's full ref, and a ref's short name", () => {
+    expect([
+      baseRef("local", "feat/x"),
+      baseRef("remote", "origin/main"),
+      baseName("refs/heads/feat/x"),
+      baseName("refs/remotes/origin/main"),
+      baseName("HEAD"),
+      baseName("refs/tags/v1"),
+    ]).toStrictEqual([
+      "refs/heads/feat/x",
+      "refs/remotes/origin/main",
+      "feat/x",
+      "origin/main",
+      "HEAD",
+      "refs/tags/v1",
+    ]);
   });
 
   it("keeps each project's box apart", () => {
@@ -359,16 +381,19 @@ describe("launch", () => {
     expect(store.getState().page).toMatchObject({ projectId: "p2", choice: { kind: "new" }, launchId: null });
   });
 
-  it("goes on when the page was closed and nothing opened in its place", async () => {
+  it("goes on when the page was closed and nothing opened in its place, leaving what was typed to the next page", async () => {
     const store = pageOpen();
+    const drafts = memoryDrafts();
     const { client, calls, release } = fakeClient(["createWorkspace"]);
 
-    const going = launch(store, client, memoryDrafts(), MESSAGE, () => "l1");
+    const going = launch(store, client, drafts, MESSAGE, () => "l1");
     await settle();
+    drafts.update(pageDraftKey("p1"), (draft) => ({ ...draft, text: "next" }));
     closePage(store);
     release("createWorkspace");
     await going;
 
+    expect([drafts.read(pageDraftKey("p1")).text, drafts.read("s1").text]).toStrictEqual(["next", ""]);
     expect(calls.slice(1)).toStrictEqual([
       ["createSession", "wks_new", false],
       ["listCommands", "s1"],
@@ -479,7 +504,7 @@ describe("describeWorktreeError", () => {
   it.each([
     [{ reason: "branch_exists", branch: "a" }, "这个分支名已经有了，换一个"],
     [{ reason: "branch_invalid" }, "git 不接受这个分支名"],
-    [{ reason: "base_missing", base: "origin/x" }, "找不到起点 origin/x"],
+    [{ reason: "base_missing", base: "refs/remotes/origin/x" }, "找不到起点 origin/x"],
     [{ reason: "dir_taken", dir: "/code/app.worktrees/a" }, "目录 /code/app.worktrees/a 已经存在，换个分支名"],
     [{ reason: "not_git" }, "这个项目不是 git 仓库"],
     [{ reason: "later" }, "没能建好工作区：git 出错了"],

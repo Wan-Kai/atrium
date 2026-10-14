@@ -1,5 +1,5 @@
-import { type AtriumClient, CommandError, ConnectionLostError, type SessionView } from "@atrium/client";
-import { type DiffStat, isChatId, type SessionModel } from "@atrium/protocol";
+import { type AtriumClient, CommandError, ConnectionLostError, type SessionView, isChatId } from "@atrium/client";
+import type { DiffStat, SessionModel } from "@atrium/protocol";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
@@ -126,7 +126,10 @@ function forkFrom(client: AtriumClient, sessionId: string, turnId: string): void
   const shown = client.index.getState().sessions.find((one) => one.sessionId === sessionId);
   if (shown === undefined) return;
   clearNotice(sessionId);
-  const name = `${sessionTitle(shown).slice(0, FORK_TITLE_LENGTH)}（分叉）`;
+  const title = sessionTitle(shown);
+  // Cut between characters: a pair of surrogates, as an emoji, goes whole or not at all.
+  const cut = /[\uD800-\uDBFF]/.test(title.charAt(FORK_TITLE_LENGTH - 1)) ? FORK_TITLE_LENGTH - 1 : FORK_TITLE_LENGTH;
+  const name = `${title.slice(0, cut)}（分叉）`;
   // Fire and forget: a failure is shown.
   void client.forkSession(sessionId, turnId, name).catch((error: unknown) => {
     showNotice(sessionId, describeForkError(error), true);
@@ -470,6 +473,11 @@ export function ConversationArea({
   const [ownViews] = useState(() => createWorkspaceViews(memoryStorage()));
   const views = givenViews ?? ownViews;
   const [failure, setFailure] = useState<string | null>(null);
+  // The session shown now, for an answer that comes after the area has moved on.
+  const shownNow = useRef(sessionId);
+  useEffect(() => {
+    shownNow.current = sessionId;
+  });
   const launch = useStore(launches, (state) => launchOver(state, sessionId));
   const [store, setStore] = useState<StoreApi<SessionView> | undefined>(undefined);
   // The session being created in each container, shared by every send there until it exists;
@@ -859,13 +867,15 @@ export function ConversationArea({
    * @remarks
    * See `builtin`; a command that cannot run while a run goes on, or before the first message,
    * says so instead (SPEC-0001, "M1.11 的 `/` 命令 · 执行"). Its failure shows above the input box,
-   * as a send's does.
+   * as a send's does, and only in the session it was run in: an answer coming once another session
+   * shows says nothing there, nor clears what it says.
    *
    * @sideEffects As `builtin`; updates component state.
    * @param call - The command and what followed its name.
    * @returns Whether it ran.
    */
   async function runBuiltin({ command, args }: BuiltinCall): Promise<boolean> {
+    const from = sessionId;
     setFailure(null);
     const view = sessionId === null ? undefined : client.session(sessionId)?.getState();
     const file = client.index.getState().sessions.find((one) => one.sessionId === sessionId)?.file ?? null;
@@ -876,7 +886,8 @@ export function ConversationArea({
     } catch (error) {
       problem = describeModelError(error);
     }
-    setFailure(problem);
+    // From the empty state, the session made for it shows by now.
+    if (from === null || shownNow.current === from) setFailure(problem);
     return problem === null;
   }
 

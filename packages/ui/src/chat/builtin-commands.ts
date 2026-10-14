@@ -1,4 +1,5 @@
-import { type CatalogModel, type ModelRef, ThinkingLevel, type TranscriptItem } from "@atrium/protocol";
+import { ThinkingLevel } from "@atrium/client";
+import type { CatalogModel, ModelRef, TranscriptItem } from "@atrium/protocol";
 import type { ChosenCommand } from "./composer-text";
 import { layoutTurn } from "./turn-layout";
 

@@ -169,6 +169,45 @@
       }
     },
     {
+      "files": ["packages/ui/src/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@atrium/protocol",
+                "allowTypeImports": true,
+                "message": "The UI may use the protocol only for types; take values through @atrium/client (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
+              }
+            ],
+            "patterns": [
+              {
+                "group": ["@earendil-works/*"],
+                "message": "Only packages/pi may import pi (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/ui/src/**/*.test.ts", "packages/ui/src/**/*.test.tsx", "packages/ui/src/test/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["@earendil-works/*"],
+                "message": "Only packages/pi may import pi (overview.md, \u5305\u4e4b\u95f4\u7684\u4f9d\u8d56)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["packages/host/src/**/*.test.ts"],
       "rules": {
         "no-restricted-imports": [

@@ -1,5 +1,5 @@
-import type { AtriumClient } from "@atrium/client";
-import { CommandError, type CommandResult, type ModelRef, type ThinkingLevel } from "@atrium/protocol";
+import { type AtriumClient, CommandError } from "@atrium/client";
+import type { CommandResult, ModelRef, ThinkingLevel } from "@atrium/protocol";
 import { type StoreApi, createStore } from "zustand/vanilla";
 import type { CompressedImage } from "../chat/images";
 import { type ShownModel, shownModel } from "../chat/model-choice";
@@ -123,14 +123,45 @@ export function suggestBranch(random: () => number): string {
  *
  * @remarks
  * The main branch on `origin`; without one, the local workspace's branch; else `HEAD`
- * (SPEC-0001, "M1.11 的新建工作区").
+ * (SPEC-0001, "M1.11 的新建工作区"). As a full ref (`baseRef`).
  *
  * @sideEffects none
  * @param bases - What `list_bases` answered.
  * @returns The base.
  */
 export function defaultBase(bases: Pick<CommandResult<"list_bases">, "main" | "current">): string {
-  return bases.main ?? bases.current ?? "HEAD";
+  if (bases.main !== null) return baseRef("remote", bases.main);
+  return bases.current === null ? "HEAD" : baseRef("local", bases.current);
+}
+
+/**
+ * The full ref of a branch `list_bases` names.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的新建工作区"): `create_workspace` takes `refs/heads/…` or `refs/remotes/…`,
+ * as a short name could be taken for a tag of the same name.
+ *
+ * @sideEffects none
+ * @param kind - Whether the branch is local or remote.
+ * @param name - Its short name, as `main` or `origin/main`.
+ * @returns The ref.
+ */
+export function baseRef(kind: "local" | "remote", name: string): string {
+  return `${kind === "local" ? "refs/heads" : "refs/remotes"}/${name}`;
+}
+
+/**
+ * A base's short name, as the page and the errors write it.
+ *
+ * @remarks
+ * See `baseRef`; `HEAD` is itself.
+ *
+ * @sideEffects none
+ * @param ref - The full ref.
+ * @returns The name.
+ */
+export function baseName(ref: string): string {
+  return ref.replace(/^refs\/(?:heads|remotes)\//, "");
 }
 
 /**
@@ -378,8 +409,12 @@ export async function launch(
     const into = workspaceId ?? "";
     sessionId = (await client.createSession(into, onPage())).sessionId;
     update({ sessionId });
-    drafts.handOver(pageDraftKey(projectId), sessionId);
-    if (onPage()) store.setState({ page: null });
+    // What was typed meanwhile goes with the session, unless the page was left: then it is the
+    // next new workspace's.
+    if (onPage()) {
+      drafts.handOver(pageDraftKey(projectId), sessionId);
+      store.setState({ page: null });
+    }
     if (model.ref !== null) await client.setModel(sessionId, model.ref);
     if (model.level !== null) await client.setThinkingLevel(sessionId, model.level);
     if (model.ref === null && model.level === null) await client.listCommands(sessionId);
@@ -417,7 +452,7 @@ export function describeWorktreeError(error: unknown): string | null {
   const reasons: Readonly<Record<string, string>> = {
     branch_exists: "这个分支名已经有了，换一个",
     branch_invalid: "git 不接受这个分支名",
-    base_missing: `找不到起点 ${String(params["base"])}`,
+    base_missing: `找不到起点 ${baseName(String(params["base"]))}`,
     dir_taken: `目录 ${String(params["dir"])} 已经存在，换个分支名`,
     not_git: "这个项目不是 git 仓库",
   };

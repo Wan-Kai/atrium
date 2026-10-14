@@ -1,5 +1,5 @@
-import type { AtriumClient } from "@atrium/client";
-import { type ContainerId, type SessionSummary, isChatId } from "@atrium/protocol";
+import { type AtriumClient, isChatId } from "@atrium/client";
+import type { ContainerId, SessionSummary } from "@atrium/protocol";
 import { CaretDown, ClockCounterClockwise, FileDiff, Plus, SidebarRight, X } from "../design/icons";
 import { type StoreApi, useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";

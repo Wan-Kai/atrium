@@ -80,9 +80,10 @@ export function ChangesPane({
    * @sideEffects Writes the panes.
    * @param separator - The separator.
    * @param next - The width wanted.
+   * @param keep - Whether to write it down, not while a drag passes through it.
    */
-  const choose = (separator: Element, next: number): void =>
-    setPanelWidth(fitPanelWidth(next, separator.parentElement?.offsetParent?.clientWidth ?? 0));
+  const choose = (separator: Element, next: number, keep = true): void =>
+    setPanelWidth(fitPanelWidth(next, separator.parentElement?.offsetParent?.clientWidth ?? 0), keep);
 
   return (
     <div
@@ -121,25 +122,27 @@ export function ChangesPane({
                * Follows the pointer.
                *
                * @remarks
-               * Dragging left widens the panel.
+               * Dragging left widens the panel. Written down only as the drag ends, not on every move.
                *
                * @sideEffects Writes the panes.
                * @param move - The pointer's move.
                */
-              const follow = (move: PointerEvent): void => choose(separator, from.width + from.x - move.clientX);
+              const follow = (move: PointerEvent): void => choose(separator, from.width + from.x - move.clientX, false);
               /**
                * Ends the drag.
                *
                * @remarks
-               * The width stays as dragged to.
+               * The width stays as dragged to, and is written down now.
                *
-               * @sideEffects Stops listening on the window; updates component state.
+               * @sideEffects Stops listening on the window; writes the panes and their storage; updates
+               * component state.
                */
               const end = (): void => {
                 window.removeEventListener("pointermove", follow);
                 window.removeEventListener("pointerup", end);
                 window.removeEventListener("pointercancel", end);
                 ending.current = null;
+                setPanelWidth(panes.getState().panelWidth);
                 setDragging(false);
               };
               ending.current = end;

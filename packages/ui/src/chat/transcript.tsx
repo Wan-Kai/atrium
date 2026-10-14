@@ -217,8 +217,8 @@ export interface TranscriptProps {
  * queue and adds no line. A failed last turn offers "重试" while no
  * run goes on and pi is not being restarted (SPEC-0001, "运行控制"). While pi compacts the
  * context, a line at the bottom says so (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
- * turn offers "从这里分叉", greyed while a run goes on, stops or pi compacts (SPEC-0001, "M1.11 的
- * `/` 命令 · 分叉").
+ * turn offers "从这里分叉", greyed while a run goes on, stops, pi compacts or is restarted
+ * (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
  * @param props - The session's view, how to load older items, how to fetch a step whole, how to
@@ -234,7 +234,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork }: T
   useKeepPlaceOnPrepend(scroller, content);
   const last = view.items.at(-1);
   const turnRunning = last?.kind === "turn" && last.outcome === "running";
-  const blocked = view.run !== null || view.control.stopping || view.control.compacting;
+  const blocked = view.run !== null || view.control.stopping || view.control.compacting || view.control.restarting;
   const fork: ForkFromTurn | undefined = onFork === undefined ? undefined : { fork: onFork, blocked };
   return (
     <LoadStepContext value={onLoadStep}>

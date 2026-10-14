@@ -1,5 +1,5 @@
-import type { AtriumClient, IndexView } from "@atrium/client";
-import { type Appearance, type IndexFileName, isChatId } from "@atrium/protocol";
+import { type AtriumClient, type IndexView, isChatId } from "@atrium/client";
+import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { SidebarLeft, X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";

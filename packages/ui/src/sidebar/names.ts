@@ -1,5 +1,5 @@
-import type { IndexView } from "@atrium/client";
-import { type Chat, isChatId, type MergeUnknownReason, type SessionSummary, type Workspace } from "@atrium/protocol";
+import { type IndexView, isChatId } from "@atrium/client";
+import type { Chat, MergeUnknownReason, SessionSummary, Workspace } from "@atrium/protocol";
 
 /**
  * A workspace's name.

@@ -445,6 +445,13 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 一次运行结束即使同时另一个会话开始跑也算结束（文件树、文件标签重读） | `packages/ui/src/files/use-diff.browser.test.tsx` "as another starts" | 已覆盖 |
 | 上色 worker 出错：等着的文本无色返回，下一次另起一个 worker | `packages/ui/src/files/highlight.browser.test.ts` | 已覆盖 |
 | 文件图标和语言只认表里自己的条目，`constructor`、`__proto__` 这类名字不算 | `packages/ui/src/files/file-icons.test.ts`、`packages/ui/src/files/languages.test.ts` "nor by an object's own members" | 已覆盖 |
+| 拖右栏的边时宽度只在松手时写进存储，拖动途中不写 | `packages/ui/src/chat/changes-pane.browser.test.tsx` "once let go, not on every move"；`packages/ui/src/state/panes.test.ts` "not a width passed through" | 已覆盖 |
+| `/compact` 要记住的内容和消息一样带上长粘贴和 `@` 文件，并清空输入框 | `chat.browser.test.tsx` "takes the long pastes and the files into what to keep in mind" | 已覆盖 |
+| 内置命令失败只在发出它的会话里说原因，切到别的会话后不显示 | `chat.browser.test.tsx` "only in the session it was run in" | 已覆盖 |
+| 分叉：重启 pi 时按钮变灰；名字截断不切开 emoji（代理对） | `chat.browser.test.tsx` "is faded and does nothing during %s"（"a restart of pi"）、"cuts a long title between characters" | 已覆盖 |
+| 新建工作区：起点发完整的 ref（本地 `refs/heads/`、远程 `refs/remotes/`），界面和错误只显示短名；分支列表回来之前不让发送 | `packages/ui/src/state/new-workspace.test.ts` "as full refs"、"a ref's short name"；`packages/ui/src/app/new-workspace.browser.test.tsx` "sends the full ref of the base chosen"、"holds the send back until the bases come" | 已覆盖 |
+| 新建工作区的页面在创建途中被关掉时，输入的内容留在新页面上，不交给建好的会话 | `new-workspace.test.ts` "goes on when the page was closed" | 已覆盖 |
+| UI 只经 `@atrium/client` 拿协议的值（只有类型可直接从 `@atrium/protocol` 引），由 oxlint 的 `no-restricted-imports` 守住 | `pnpm check`（`.oxlintrc.json`） | 已覆盖 |
 
 ## 安全（security.md）
 
