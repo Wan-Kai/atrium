@@ -148,6 +148,7 @@ describe("runOneShot", () => {
         "-p",
         "--no-session",
         "--no-tools",
+        "--no-context-files",
         "--thinking",
         "off",
         "--model",

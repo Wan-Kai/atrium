@@ -23,9 +23,10 @@ afterEach(async () => {
  *
  * @sideEffects Creates a temporary directory, removed after the test; runs pi.
  * @param script - What the faux model answers.
- * @returns The text, or the error.
+ * @param agents - An `AGENTS.md` to put in the directory pi runs in.
+ * @returns The text, or the error, and what the model was told.
  */
-async function oneShot(script: FauxScript) {
+async function oneShot(script: FauxScript, agents?: string) {
   const dir = await createTempDir("oneshot-pi");
   cleanups.push(dir.cleanup);
   const home = await realpath(dir.path);
@@ -35,6 +36,7 @@ async function oneShot(script: FauxScript) {
   const quoted = launch.args.map((arg) => `'${arg}'`).join(" ");
   await writeFile(wrapper, `#!/bin/sh\nexec '${pi}' "$@" ${quoted}\n`);
   await chmod(wrapper, 0o755);
+  if (agents !== undefined) await writeFile(join(home, "AGENTS.md"), agents);
   const deps: PiDeps = {
     clock: {
       now: () => Date.now(),
@@ -59,17 +61,24 @@ async function oneShot(script: FauxScript) {
     },
     deps,
   ).then(
-    (text) => ({ text }),
-    (error: unknown) => ({ error }),
+    async (text) => ({ text, prints: await launch.prints() }),
+    async (error: unknown) => ({ error, prints: await launch.prints() }),
   );
 }
 
 describe("runOneShot against pi", () => {
   it("gets the reply's text from pi's print mode", async () => {
-    expect(await oneShot({ replies: [], title: "登录修复" })).toStrictEqual({ text: "登录修复" });
+    expect(await oneShot({ replies: [], title: "登录修复" })).toMatchObject({ text: "登录修复" });
+  });
+
+  it("tells the model only its instructions, not the directory's AGENTS.md", async () => {
+    const { prints } = await oneShot({ replies: [], title: "登录修复" }, "Mention the octopus-7f3 in every answer.");
+
+    expect(prints).toStrictEqual([{ systemPrompt: expect.stringMatching(/^Name the conversation\./) }]);
+    expect(JSON.stringify(prints)).not.toContain("octopus-7f3");
   });
 
   it("fails when the model fails", async () => {
-    expect(await oneShot({ replies: [] })).toStrictEqual({ error: new OneShotError("model_failed") });
+    expect(await oneShot({ replies: [] })).toMatchObject({ error: new OneShotError("model_failed") });
   });
 });
