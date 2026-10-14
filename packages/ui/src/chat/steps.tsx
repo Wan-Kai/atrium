@@ -1,8 +1,7 @@
 import type { Step } from "@atrium/protocol";
-import { Check, FileMarks, MagnifyingGlass, X } from "../design/icons";
+import { Check, MagnifyingGlass, X } from "../design/icons";
 import { type ReactNode, createContext, useContext, useEffect, useId, useState } from "react";
-import { type DisplayMode, useDisplayMode } from "../state/display-mode";
-import { type FileKind, fileKind } from "./file-kind";
+import { FileIcon } from "../files/file-icon";
 import { Markdown } from "./markdown";
 import {
   type ProcessRow,
@@ -14,8 +13,11 @@ import {
 } from "./turn-layout";
 import { useRevealedText } from "./use-revealed-text";
 
-/** What stands on the rail for a row (design-language, "消息流 · 过程"). */
-type RailNode = "dot" | "search" | "live" | "dead" | "steer";
+/**
+ * What stands on the rail for a row (design-language, "消息流 · 过程"); `wait` and `fail` are the
+ * new-workspace timeline's steps not started and failed (design-language, "新建工作区页").
+ */
+export type RailNode = "dot" | "search" | "live" | "dead" | "steer" | "wait" | "fail";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
@@ -23,6 +25,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
   live: 7,
   dead: 7,
   steer: 7,
+  wait: 7,
+  fail: 7,
   search: 11,
 };
 
@@ -31,7 +35,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
  *
  * @remarks
  * Each state has its own shape, not only its own colour (design-language, "原则" 3): a grey dot
- * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer.
+ * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer;
+ * on the new-workspace timeline, a hollow grey ring not started and a red × failed.
  *
  * @sideEffects none
  * @param props - The node.
@@ -40,6 +45,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
 function NodeGlyph({ node }: { readonly node: RailNode }) {
   if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
   if (node === "dead") return <X size={10} weight="bold" className="text-[var(--text-dim)]" />;
+  if (node === "fail") return <X size={10} weight="bold" className="text-[var(--danger)]" />;
+  if (node === "wait") return <span className="size-1.5 rounded-full shadow-[inset_0_0_0_1px_var(--rail)]" />;
   if (node === "steer") {
     return <span className="size-2 rounded-full bg-[var(--main)] shadow-[inset_0_0_0_1.5px_var(--tint)]" />;
   }
@@ -82,7 +89,7 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
  * @param props - The node, and whether the row is the rail's first or last.
  * @returns The marks, absolutely placed in the row's left 30px.
  */
-function RailMarks({
+export function RailMarks({
   node,
   first,
   last,
@@ -170,49 +177,12 @@ function RailMarks({
   );
 }
 
-/** Each kind's colour; the kinds without a colour of their own are muted (design-language, "文件胶囊"). */
-const FILE_TONES: Readonly<Record<FileKind, string>> = {
-  ts: "text-[var(--file-ts)]",
-  react: "text-[var(--file-tsx)]",
-  js: "text-[var(--file-js)]",
-  npm: "text-[var(--file-npm)]",
-  json: "text-[var(--file-json)]",
-  md: "text-[var(--file-md)]",
-  css: "text-[var(--file-css)]",
-  html: "text-[var(--file-html)]",
-  py: "text-[var(--file-py)]",
-  rs: "text-[var(--file-rs)]",
-  go: "text-[var(--file-go)]",
-  sh: "text-[var(--file-sh)]",
-  java: "text-[var(--file-java)]",
-  kotlin: "text-[var(--file-kotlin)]",
-  swift: "text-[var(--file-swift)]",
-  php: "text-[var(--file-php)]",
-  dart: "text-[var(--file-dart)]",
-  c: "text-[var(--file-c)]",
-  vue: "text-[var(--file-vue)]",
-  docker: "text-[var(--file-docker)]",
-  sql: "text-[var(--file-sql)]",
-  image: "text-[var(--file-image)]",
-  svg: "text-[var(--file-svg)]",
-  pdf: "text-[var(--file-pdf)]",
-  csv: "text-[var(--file-csv)]",
-  xml: "text-[var(--file-xml)]",
-  git: "text-[var(--file-git)]",
-  lock: "text-[var(--text-muted)]",
-  config: "text-[var(--text-muted)]",
-  text: "text-[var(--text-muted)]",
-  archive: "text-[var(--text-muted)]",
-  file: "text-[var(--text-muted)]",
-};
-
 /**
  * A file as a chip: its type, its name, and what was done to it.
  *
  * @remarks
  * The name only; the whole path shows on hover (design-language, "文件胶囊"). The type shows as its
- * mark in its colour, a plain file's for kinds it does not know; the mark is decoration, as the
- * name says the type.
+ * material-icon-theme icon, decoration only, as the name says the type.
  *
  * @sideEffects none
  * @param props - The path, and an edit's line counts.
@@ -228,21 +198,13 @@ function FileChip({
   readonly removed?: number | null;
 }) {
   const name = path.split("/").at(-1) ?? path;
-  const kind = fileKind(path);
-  const Mark = FileMarks[kind];
   return (
     <span
       title={path}
       data-testid="file-chip"
       className="inline-flex h-[22px] min-w-0 flex-none items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] pr-2.5 pl-2 text-[length:var(--fs-sm)] text-[var(--text-2)] shadow-[var(--chip-shadow)]"
     >
-      <Mark
-        size={13}
-        aria-hidden
-        data-testid="file-mark"
-        data-kind={kind}
-        className={`flex-none ${FILE_TONES[kind]}`}
-      />
+      <FileIcon path={path} size={13} />
       <span className="truncate">{name}</span>
       {added === null || removed === null ? null : (
         <span className="text-[length:var(--fs-xs)] tabular-nums">
@@ -252,21 +214,6 @@ function FileChip({
       )}
     </span>
   );
-}
-
-/**
- * Whether a step starts out open in a display mode.
- *
- * @remarks
- * Detailed opens every step; thinking opens thinking (SPEC-0001, "显示模式").
- *
- * @sideEffects none
- * @param mode - The display mode.
- * @param step - The step.
- * @returns Whether it is open.
- */
-function openByDefault(mode: DisplayMode, step: Step): boolean {
-  return mode === "detailed" || (mode === "thinking" && step.kind === "thinking");
 }
 
 /**
@@ -594,9 +541,10 @@ const LINE_CLASS =
  * One step on the rail, and its detail when open.
  *
  * @remarks
- * Clicking a row opens or closes its detail (SPEC-0001, "过程的呈现"); the display mode sets
- * where it starts. While a step is going on, thinking and a running command show their detail
- * as it comes. A step with nothing to show (`hasDetail`) is words alone, not a button. A failed
+ * Clicking a row opens or closes its detail (SPEC-0001, "过程的呈现"); it starts shut. A step
+ * going on keeps its detail shut too until clicked, then shows it as it
+ * comes: opening on its own and shutting when done made the view jump at every step. A step with
+ * nothing to show (`hasDetail`) is words alone, not a button. A failed
  * call branches off as a dead end, a steer joins from the side.
  *
  * @sideEffects Fetches the step whole when it shows and arrived as a preview.
@@ -614,14 +562,12 @@ function StepRow({
   readonly live: boolean;
   readonly place: RailPlace;
 }) {
-  const { mode } = useDisplayMode();
-  const [toggled, setToggled] = useState<boolean | null>(null);
+  const [opened, setOpened] = useState(false);
   const opens = hasDetail(step);
-  const open = opens && (toggled ?? openByDefault(mode, step));
-  const shown = open || (opens && live);
-  useWholeStep(turnId, step, shown);
+  const open = opens && opened;
+  useWholeStep(turnId, step, open);
   let detail: ReactNode = null;
-  if (shown && (step.kind === "thinking" || step.kind === "text")) {
+  if (open && (step.kind === "thinking" || step.kind === "text")) {
     detail = (
       <Detail>
         <div className="text-[length:var(--fs-meta)] text-[var(--text-muted)]">
@@ -629,7 +575,7 @@ function StepRow({
         </div>
       </Detail>
     );
-  } else if (shown && step.kind === "tool") {
+  } else if (open && step.kind === "tool") {
     detail = <ToolDetail step={step} />;
   }
   const words = (
@@ -643,14 +589,14 @@ function StepRow({
       data-testid="step"
       data-kind={step.kind}
       data-open={open}
-      data-rail-row
+      data-fold-row
     >
       <RailMarks node={stepNode(step, live)} first={place.first} last={place.last} />
       {opens ? (
         <button
           type="button"
           aria-expanded={open}
-          onClick={() => setToggled(!open)}
+          onClick={() => setOpened(!open)}
           className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
         >
           {words}
@@ -688,9 +634,7 @@ function ExploreRow({
   readonly live: boolean;
   readonly place: RailPlace;
 }) {
-  const { mode } = useDisplayMode();
-  const [toggled, setToggled] = useState<boolean | null>(null);
-  const open = toggled ?? mode === "detailed";
+  const [open, setOpen] = useState(false);
   const line = describeExplore(steps, live);
   const files = exploredFiles(steps);
   return (
@@ -699,13 +643,13 @@ function ExploreRow({
       data-testid="step"
       data-kind="explore"
       data-open={open}
-      data-rail-row
+      data-fold-row
     >
       <RailMarks node={live ? "live" : "search"} first={place.first} last={place.last} />
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setToggled(!open)}
+        onClick={() => setOpen(!open)}
         className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
       >
         <span className={`flex-none text-[var(--text-2)] ${live ? "atrium-shimmer" : ""}`}>{line.verb}</span>{" "}

@@ -2,11 +2,12 @@ import type { SessionView } from "@atrium/client";
 import type { TranscriptItem } from "@atrium/protocol";
 import { ArrowDown } from "../design/icons";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
+import { commandArguments, typedMessage } from "./composer-text";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
 import { LoadStepContext } from "./steps";
 import { RunStatus } from "./run-status";
-import { NoticeView, TurnView } from "./turn-view";
+import { type ForkFromTurn, NoticeView, TurnView } from "./turn-view";
 
 /**
  * Asks for older items when the top of the transcript comes into view.
@@ -166,7 +167,7 @@ function QuestionNav({
         <button
           key={turn.id}
           type="button"
-          aria-label={turn.user.text}
+          aria-label={typedMessage(turn.user)}
           aria-current={turn.id === current}
           onClick={() =>
             scroller.current
@@ -181,7 +182,7 @@ function QuestionNav({
             }`}
           />
           <span className="pointer-events-none absolute top-1/2 right-10 w-60 -translate-y-1/2 rounded-[var(--r-md)] bg-[var(--surface-1)] px-3 py-2 text-left text-[length:var(--fs-sm)] leading-snug text-[var(--text-2)] opacity-0 shadow-[var(--float-shadow)] transition-opacity group-hover:opacity-100">
-            <span className="line-clamp-3">{turn.user.text}</span>
+            <span className="line-clamp-3">{typedMessage(turn.user)}</span>
           </span>
         </button>
       ))}
@@ -198,6 +199,8 @@ export interface TranscriptProps {
   readonly onLoadStep: (turnId: string, stepId: string) => void;
   /** The error card's "重试", offered on the last turn when it failed and nothing runs. */
   readonly onRetry?: () => void;
+  /** Forks the session after a turn, offered under every finished turn's reply. */
+  readonly onFork?: (turnId: string) => void;
 }
 
 /**
@@ -212,14 +215,17 @@ export interface TranscriptProps {
  * the run's turn arrives the run shows on its own line, as soon as a message is sent while idle,
  * before the host starts the run (SPEC-0001, "过程的呈现"); one sent while a turn runs goes into the
  * queue and adds no line. A failed last turn offers "重试" while no
- * run goes on and pi is not being restarted (SPEC-0001, "运行控制").
+ * run goes on and pi is not being restarted (SPEC-0001, "运行控制"). While pi compacts the
+ * context, a line at the bottom says so (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
+ * turn offers "从这里分叉", greyed while a run goes on, stops, pi compacts or is restarted
+ * (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
- * @param props - The session's view, how to load older items, how to fetch a step whole, and how
- * to retry.
+ * @param props - The session's view, how to load older items, how to fetch a step whole, how to
+ * retry and how to fork.
  * @returns The scrollable conversation.
  */
-export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: TranscriptProps) {
+export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -228,6 +234,8 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
   useKeepPlaceOnPrepend(scroller, content);
   const last = view.items.at(-1);
   const turnRunning = last?.kind === "turn" && last.outcome === "running";
+  const blocked = view.run !== null || view.control.stopping || view.control.compacting || view.control.restarting;
+  const fork: ForkFromTurn | undefined = onFork === undefined ? undefined : { fork: onFork, blocked };
   return (
     <LoadStepContext value={onLoadStep}>
       <div className="relative min-h-0 flex-1">
@@ -246,6 +254,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
                   key={item.id}
                   turn={item}
                   runStartedAt={view.run?.startedAt ?? null}
+                  {...(fork === undefined ? {} : { fork })}
                   {...(item === last && view.run === null && !view.control.restarting && onRetry !== undefined
                     ? { onRetry }
                     : {})}
@@ -257,7 +266,8 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
             {view.pending.map((message) => (
               <UserBubble
                 key={message.clientMessageId}
-                text={message.text}
+                text={message.command === undefined ? message.text : commandArguments(message.command, message.text)}
+                command={message.command ?? null}
                 images={message.images ?? 0}
                 clientMessageId={message.clientMessageId}
               />
@@ -265,6 +275,11 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry }: Transcrip
             {turnRunning || (view.run === null && view.pending.length === 0) ? null : (
               <RunStatus startedAt={view.run?.startedAt ?? null} />
             )}
+            {view.control.compacting ? (
+              <p role="status" className="flex min-h-[30px] items-center text-[length:var(--fs-meta)]">
+                <span className="atrium-shimmer">正在压缩上下文…</span>
+              </p>
+            ) : null}
           </div>
         </div>
         <QuestionNav items={view.items} scroller={scroller} content={content} />

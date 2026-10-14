@@ -82,8 +82,8 @@ atrium/
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
 │   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
-│   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）
-│   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、改动面板的 diff，监听有人看的工作区）
+│   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接）
+│   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）
 │   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具、git 调用（并发上限 4）
 │   │   └── test/harness.ts         第 4 层测试用的宿主：起真实宿主，用 client 连上去
 │   ├── client/                     客户端层：不依赖 DOM，也不依赖 React
@@ -96,10 +96,10 @@ atrium/
 │   ├── ui/                         React 界面（功能目录直接放在 src 下，2026-10-08 按实际结构改）
 │   │   └── src/
 │   │       ├── app/                根组件、工作台（侧栏 + 标签栏 + 对话区）、全局快捷键、连接状态
-│   │       ├── state/              把 client 的 store 包成 hooks；显示模式；ViewState（折叠、草稿，存 localStorage；图片只在内存）
+│   │       ├── state/              把 client 的 store 包成 hooks；ViewState（折叠、草稿，存 localStorage；图片只在内存）
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
-│   │       ├── tabs/               标签栏、历史、显示模式和会话菜单
+│   │       ├── tabs/               标签栏、历史和会话菜单
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框
 │   │       ├── test/               浏览器测试用的假客户端
 │   │       └── 以后：status-bar/、interactions/、onboarding/、settings/
@@ -136,7 +136,7 @@ protocol  ←──  pi  ←──  host
 | pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止（唯一例外见下文 testkit 的 faux extension） |
 | host | protocol、pi | DOM、client（生产代码）、ui、Electron | tsconfig 的 `lib` 不含 DOM；oxlint 禁止 `packages/host/src` import `@atrium/client`（client 只作第 4 层测试的开发依赖） |
 | client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
-| ui | client、protocol（只用类型） | host、pi | 没有声明依赖 |
+| ui | client、protocol（只用类型） | host、pi | 没有声明依赖；oxlint 只许生产代码 `import type` protocol，要用的值（`CommandError`、`isChatId` 等）由 client 转出（测试不限） |
 | desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口经 `atrium://app/` 加载宿主提供的页面 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
@@ -188,6 +188,7 @@ main.ts 负责组装全部
 
 ### 桌面端怎么启动宿主
 
+- 窗口：`titleBarStyle: "hiddenInset"`，红绿灯 `trafficLightPosition: { x: 12, y: 17 }`：14pt 的按钮中心离窗口顶部 24pt，和标签、侧栏开关对齐（2026-10-13 定；系统默认的位置中心在 18pt，高出 6pt）；`vibrancy: "sidebar"`、底色透明，侧栏透出 macOS 的侧栏材质；页面看到预加载脚本的桥（`window.atrium`）就把 `<html>` 标上 `data-material`，窗口底色和侧栏底色随之透明（[design-language · 阴影与材质](design-language.md#阴影与材质)，2026-10-13 定）。
 - Electron 主进程用 `utilityProcess.fork` 启动宿主：宿主跑在 Electron 自带的 Node 里，用户不需要另装 Node 来跑宿主（pi 本身仍用系统里的 Node）。
 - 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后 PWA 和无界面运行都用它。
 - 窗口从固定的来源 `atrium://app/` 加载界面（2026-10-08 定）：主进程用 `protocol.handle` 把这个协议的请求转给宿主的静态文件服务，只把内容安全策略换成允许连接宿主端口的版本；WebSocket 仍连宿主的随机端口，宿主的 `Origin` 白名单里加上 `atrium://app`。宿主端口每次启动都不同，直接加载 `http://127.0.0.1:<端口>` 时页面来源跟着变，`localStorage` 里的客户端 id、折叠状态、草稿重启后就丢了；固定来源让它们保留下来。开发时页面来自 Vite 的固定端口，不受影响。

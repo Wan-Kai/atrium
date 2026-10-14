@@ -14,7 +14,6 @@ import "../styles.css";
 import atriumLogo from "../design/brand/atrium.svg";
 import { Workbench } from "../app/workbench";
 import { ClockContext, type UiClock } from "../state/clock";
-import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { READY_SETUP, fakeClient } from "../test/fake-client";
 import { FirstLaunch, type FirstLaunchStart } from "./first-launch";
 
@@ -156,22 +155,18 @@ async function workbench(
   await page.viewport(1280, 820);
   const fake = fakeClient(options.initial, { ...options.answers, setup });
   fake.index.setState({ ready: options.ready ?? true });
-  const displayMode = createDisplayMode("summary", () => undefined);
-  onTestFinished(followPreferences(displayMode, fake.client));
   const screen = await render(
-    <DisplayModeContext value={displayMode}>
-      <div style={{ height: "820px" }}>
-        <Workbench
-          client={fake.client}
-          status={null}
-          pickDirectory={undefined}
-          setNativeAppearance={undefined}
-          openUrl={() => undefined}
-          reveal={undefined}
-          pathForFile={undefined}
-        />
-      </div>
-    </DisplayModeContext>,
+    <div style={{ height: "820px" }}>
+      <Workbench
+        client={fake.client}
+        status={null}
+        pickDirectory={undefined}
+        setNativeAppearance={undefined}
+        openUrl={() => undefined}
+        reveal={undefined}
+        pathForFile={undefined}
+      />
+    </div>,
   );
   return { screen, ...fake };
 }
@@ -218,13 +213,13 @@ function listWith(setupDone: boolean): Parameters<typeof fakeClient>[0] {
     preferences: {
       setupDone,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     },
   };
 }
@@ -262,20 +257,16 @@ describe("First launch · when it shows", () => {
     const fake = fakeClient({}, { setup: NO_PI });
     fake.index.setState({ ready: false });
     fake.connection.setState({ status: "connecting", traceId: "t" }, true);
-    const displayMode = createDisplayMode("summary", () => undefined);
-    onTestFinished(followPreferences(displayMode, fake.client));
     const screen = await render(
-      <DisplayModeContext value={displayMode}>
-        <Workbench
-          client={fake.client}
-          status={null}
-          pickDirectory={undefined}
-          setNativeAppearance={undefined}
-          openUrl={() => undefined}
-          reveal={undefined}
-          pathForFile={undefined}
-        />
-      </DisplayModeContext>,
+      <Workbench
+        client={fake.client}
+        status={null}
+        pickDirectory={undefined}
+        setNativeAppearance={undefined}
+        openUrl={() => undefined}
+        reveal={undefined}
+        pathForFile={undefined}
+      />,
     );
 
     expect(fake.calls).toStrictEqual([]);

@@ -485,13 +485,13 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
-      displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
       proxy: null,
+      inbox: true,
     };
     const models: ModelListView = {
       status: "ready",
@@ -511,13 +511,13 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
-      displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openrouter", modelId: "claude-haiku-4-5" },
       proxy: null,
+      inbox: true,
     };
     const models: ModelListView = {
       status: "ready",
@@ -542,13 +542,13 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
-      displayMode: "summary" as const,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: { providerId: "openai", modelId: "gpt-5-mini" },
       proxy: null,
+      inbox: true,
     };
     const models: ModelListView = { status: "loading", models: [], defaultModel: null, error: null };
     const { screen } = await accounts([CLAUDE], { answers: { models }, initial: { preferences } });

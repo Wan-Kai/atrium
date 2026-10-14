@@ -1,4 +1,5 @@
 import type { ChangesService } from "../changes/changes-service";
+import type { WorkspaceFiles } from "../files/workspace-files";
 import type { AttachmentStore } from "./attachments";
 import {
   type Command,
@@ -26,6 +27,8 @@ export interface RouterOptions {
   readonly attachments: AttachmentStore;
   /** What each connection shows of workspaces' git changes. */
   readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff">;
+  /** A workspace's files, for the right panel's file tree and the viewer tabs. */
+  readonly files: WorkspaceFiles;
   readonly index: IndexCommands;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
@@ -88,13 +91,17 @@ export function createRouter(options: RouterOptions): Route {
       case "create_chat":
         return options.sessions.createChat(connection.clientId);
       case "create_session":
-        return options.sessions.createSession(connection.clientId, command.containerId);
+        return options.sessions.createSession(connection.clientId, command.containerId, command.go ?? true);
       case "close_tab":
         return options.sessions.closeTab(connection.clientId, command.sessionId);
       case "select_container":
         return options.sessions.selectContainer(connection.clientId, command.containerId);
       case "archive_session":
         return options.sessions.archiveSession(command.sessionId);
+      case "archive_chat":
+        return options.sessions.archiveChat(command.chatId);
+      case "restore_chat":
+        return options.sessions.restoreChat(command.chatId);
       case "rename_session":
         return options.sessions.renameSession(command.sessionId, command.name);
       case "clear_attention":
@@ -117,6 +124,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.index.archiveWorkspace(command.workspaceId);
       case "restore_workspace":
         return options.index.restoreWorkspace(command.workspaceId);
+      case "list_bases":
+        return options.index.listBases(command.projectId);
+      case "create_workspace":
+        return options.index.createWorkspace(command.projectId, command.branch, command.base);
       case "rename_chat":
         return options.index.renameChat(command.chatId, command.name);
       case "window_focused":
@@ -127,14 +138,18 @@ export function createRouter(options: RouterOptions): Route {
       case "watch_diff":
         options.changes.watchDiff(connection.id, command.target);
         return {};
+      case "list_dir":
+        return options.files.listDir(command.workspaceId, command.path);
+      case "read_file":
+        return options.files.readFile(command.workspaceId, command.path);
       case "set_preferences":
         return options.index.setPreferences({
           ...(command.setupDone === undefined ? {} : { setupDone: command.setupDone }),
           ...(command.appearance === undefined ? {} : { appearance: command.appearance }),
-          ...(command.displayMode === undefined ? {} : { displayMode: command.displayMode }),
           ...(command.statusBar === undefined ? {} : { statusBar: command.statusBar }),
           ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
           ...(command.proxy === undefined ? {} : { proxy: command.proxy }),
+          ...(command.inbox === undefined ? {} : { inbox: command.inbox }),
         });
       case "subscribe_sessions":
         return options.sessions.subscribe(connection.id, command.sessionIds);
@@ -179,6 +194,12 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.setThinkingLevel(command.sessionId, command.level);
       case "set_fast":
         return options.sessions.setFast(command.sessionId, command.enabled);
+      case "compact_session":
+        return options.sessions.compactSession(command.sessionId, command.instructions);
+      case "export_session":
+        return options.sessions.exportSession(command.sessionId);
+      case "fork_session":
+        return options.sessions.forkSession(connection.clientId, command);
       case "list_commands":
         return options.sessions.listCommands(command.sessionId);
       case "search_files":

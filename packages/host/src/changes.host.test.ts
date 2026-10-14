@@ -1,6 +1,6 @@
 import type { AtriumClient } from "@atrium/client";
 import { GIT_SCENE_ENV, createGitScene } from "@atrium/testkit";
-import { realpath, writeFile } from "node:fs/promises";
+import { mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -90,5 +90,29 @@ describe("workspace changes over the WebSocket", () => {
     await client.watchChanges([]);
 
     expect(host?.resources.snapshot()["changes.watch"]).toBe(0);
+  });
+});
+
+describe("workspace files over the WebSocket", () => {
+  it("lists a workspace's directories without .git or what git ignores, and reads its files, not through a link", async () => {
+    const { repo, client, workspaceId } = await showing();
+    await writeFile(join(repo, ".gitignore"), "dist/\n");
+    await mkdir(join(repo, "dist"));
+    await mkdir(join(repo, "src"));
+    await writeFile(join(repo, "src", "a.ts"), "export {};\n");
+    await symlink("/etc", join(repo, "etc"));
+
+    const root = await client.listDir(workspaceId, "");
+    const file = await client.readFile(workspaceId, "src/a.ts");
+    const through = await client.readFile(workspaceId, "etc/hosts").catch((error: unknown) => error);
+
+    expect(root.entries.toSorted((a, b) => a.name.localeCompare(b.name))).toStrictEqual([
+      { name: ".gitignore", kind: "file" },
+      { name: "etc", kind: "link" },
+      { name: "README.md", kind: "file" },
+      { name: "src", kind: "dir" },
+    ]);
+    expect(file).toStrictEqual({ size: 11, content: { kind: "text", text: "export {};\n" } });
+    expect(through).toMatchObject({ code: "path_invalid" });
   });
 });

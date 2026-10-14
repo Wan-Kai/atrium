@@ -60,6 +60,8 @@ export const Control = z.strictObject({
   stopping: z.boolean(),
   /** pi crashed and the host is starting it again. */
   restarting: z.boolean(),
+  /** pi is compacting the context, asked for or on its own; the queue waits meanwhile. */
+  compacting: z.boolean(),
   /** Questions from extensions waiting for an answer, oldest first. */
   interactions: z.array(Interaction),
   /** Set once pi crashed three times in a row; cleared when the next run starts. */
@@ -74,6 +76,7 @@ export const IDLE_CONTROL: Control = {
   steers: [],
   stopping: false,
   restarting: false,
+  compacting: false,
   interactions: [],
   failure: null,
 };

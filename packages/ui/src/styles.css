@@ -179,6 +179,25 @@ body {
   transition: rotate 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
 }
 
+/* A project's folder cross-fades between closed and open, the one going shrinking to 0.6, as its
+   colour follows (design-language, "动效 · 侧栏项目展开收起"). */
+.atrium-folder {
+  display: grid;
+  transition: color 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+
+.atrium-folder > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05),
+    scale 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+
+.atrium-folder > [data-shown="false"] {
+  opacity: 0;
+  scale: 0.6;
+}
+
 /* The folded header's summary comes in from 4px to the left once the fold is well under way. */
 @keyframes atrium-summary-in {
   from {
@@ -330,4 +349,14 @@ body {
   box-shadow:
     inset 0 0 0 1px rgba(94, 132, 255, 0.45),
     0 0 16px -4px rgba(94, 132, 255, 0.5);
+}
+
+/* A viewer tab's coloured code: each token's colour for the appearance (files/highlight.ts). A
+   colour left out lets the line's own show. */
+.code-tokens span[style] {
+  color: var(--l);
+}
+
+.dark .code-tokens span[style] {
+  color: var(--d);
 }

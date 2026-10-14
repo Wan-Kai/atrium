@@ -81,6 +81,17 @@ export const FileChange = z.strictObject({
 });
 export type FileChange = z.infer<typeof FileChange>;
 
+/**
+ * The command a user message started with, when the message still says which (SPEC-0001,
+ * "M1.11 的 `/` 命令"): only a skill's, which pi keeps as a block the host can read back.
+ */
+export const MessageCommand = z.strictObject({
+  kind: z.literal("skill"),
+  /** The skill's name, without `skill:`. */
+  name: z.string().min(1).max(256),
+});
+export type MessageCommand = z.infer<typeof MessageCommand>;
+
 /** A user message and everything up to the next one (SPEC-0001, "对话记录"). */
 export const Turn = z.strictObject({
   kind: z.literal("turn"),
@@ -92,6 +103,8 @@ export const Turn = z.strictObject({
     clientMessageId: z.string().nullable(),
     /** Sent by the host to have the agent go on after an interrupted run (SPEC-0001, "运行控制"). */
     auto: z.boolean(),
+    /** The skill the message started with; `text` is then only what followed its name. */
+    command: MessageCommand.nullable(),
     timestamp: Timestamp,
   }),
   steps: z.array(Step),

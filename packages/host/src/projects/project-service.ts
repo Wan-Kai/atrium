@@ -26,6 +26,8 @@ export interface ProjectService {
   setMainBranch(projectId: string, branch: string | null): Promise<void>;
   /** Registers worktrees found in a project that have no record yet, as external. */
   recordWorktrees(projectId: string, dirs: readonly string[]): Promise<void>;
+  /** Registers a worktree Atrium just created, with the commit it started at; returns its workspace. */
+  addWorktree(projectId: string, dir: string, baseCommit: string): Promise<WorkspaceId>;
   /** Calls `listener` after every change; returns a function that stops it. */
   onChange(listener: () => void): () => void;
 }
@@ -41,7 +43,9 @@ export interface ProjectService {
  *   directory, a subdirectory of a repository included, is a plain one without worktrees;
  * - a project's name defaults to its directory's, numbered `app (1)` when taken; renaming to a
  *   taken name fails with `name_taken`;
- * - removing a project forgets it and its workspaces; nothing on disk changes.
+ * - removing a project forgets it and its workspaces; nothing on disk changes;
+ * - a worktree Atrium created is recorded with its starting commit; a scan may have recorded it
+ *   as external just before, and that record becomes Atrium's (SPEC-0001, "M1.11 的新建工作区").
  *
  * Each change is written before the call returns.
  *
@@ -274,6 +278,23 @@ export function createProjectService(options: {
           })),
         ],
       });
+    },
+    async addWorktree(projectId, dir, baseCommit) {
+      projectOf(projectId);
+      const document = options.file.read();
+      const scanned = document.workspaces.find((workspace) => workspace.dir === dir);
+      const id = scanned?.id ?? options.newId("wks");
+      const record = { id, projectId, kind: "worktree" as const, dir, alias: null, baseCommit, external: false };
+      await save({
+        ...document,
+        workspaces:
+          scanned === undefined
+            ? [...document.workspaces, record]
+            : document.workspaces.map((workspace) =>
+                workspace.id === id ? { ...workspace, baseCommit, external: false } : workspace,
+              ),
+      });
+      return id;
     },
     onChange(listener) {
       listeners.add(listener);

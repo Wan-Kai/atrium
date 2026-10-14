@@ -71,8 +71,13 @@ export const Chat = z.strictObject({
   dir: Path,
   /** The name the user gave it; `null` for none. */
   alias: z.string().min(1).max(256).nullable(),
-  /** Its session created first, not archived; `null` for none. The chat is named after it unless aliased. */
+  /**
+   * Its session created first, not archived; `null` for none. The chat is named after it unless
+   * aliased. An archived chat's is the one it had then, so it keeps its name.
+   */
   firstSessionId: SessionId.nullable(),
+  /** When it was archived; `null` when it is not (SPEC-0001, "M1.11 的对话归档"). */
+  archivedAt: Timestamp.nullable(),
 });
 export type Chat = z.infer<typeof Chat>;
 
@@ -90,6 +95,25 @@ export const Attention = z.strictObject({
   cleared: z.boolean(),
 });
 export type Attention = z.infer<typeof Attention>;
+
+/** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
+const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
+
+/**
+ * Whether a failure looks like a credentials problem.
+ *
+ * @remarks
+ * A best guess on pi's own text (SPEC-0001, "会话状态"): a wrong guess only changes the icon. The
+ * host sets `auth` attention by it and the conversation's error card shows the key by it, so the
+ * sidebar and the card agree (SPEC-0001, "运行出错与停止").
+ *
+ * @sideEffects none
+ * @param text - pi's text.
+ * @returns Whether to ask the user to sign in.
+ */
+export function isAuthFailure(text: string): boolean {
+  return AUTH_FAILURE.test(text);
+}
 
 /** A session as the sidebar, tabs and history list it. */
 export const SessionSummary = z.strictObject({
@@ -135,10 +159,6 @@ export type Layout = z.infer<typeof Layout>;
 export const Appearance = z.enum(["system", "light", "dark"]);
 export type Appearance = z.infer<typeof Appearance>;
 
-/** How much of a turn's process shows (SPEC-0001, "显示模式"). */
-export const DisplayMode = z.enum(["summary", "thinking", "detailed"]);
-export type DisplayMode = z.infer<typeof DisplayMode>;
-
 /** The status bar groups switched on or off, by id. */
 export const StatusBarChoices = z.record(StatusGroupId, z.boolean());
 export type StatusBarChoices = z.infer<typeof StatusBarChoices>;
@@ -167,18 +187,19 @@ export type ProxySetting = z.infer<typeof ProxySetting>;
  * later shows as its own default says (SPEC-0001, "状态栏（M1.8）"). `setupDone` says first launch
  * was gone through; `titleModel` names the model that names sessions, `null` for each session's own
  * (SPEC-0001, "首次启动", "设置"). `proxy` is the network proxy pi and the host's own requests go
- * through, `null` for the login shell's (SPEC-0001, "设置 · pi").
+ * through, `null` for the login shell's (SPEC-0001, "设置 · pi"). `inbox` says whether the sidebar
+ * shows "等你处理" (SPEC-0001, "侧栏 · 收件箱").
  */
 export const Preferences = z.strictObject({
   setupDone: z.boolean(),
   appearance: Appearance,
-  displayMode: DisplayMode,
   lastModel: ModelRef.nullable(),
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
   lastFast: z.boolean(),
   statusBar: StatusBarChoices,
   titleModel: ModelRef.nullable(),
   proxy: ProxySetting.nullable(),
+  inbox: z.boolean(),
 });
 export type Preferences = z.infer<typeof Preferences>;
 

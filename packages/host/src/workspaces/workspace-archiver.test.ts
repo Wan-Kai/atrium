@@ -11,6 +11,7 @@ import { createProjectService } from "../projects/project-service";
 import { PROJECTS_FILE } from "../store/index-schema";
 import { loadIndexFile } from "../store/index-file";
 import { createWorkspaceArchiver } from "./workspace-archiver";
+import { type WorktreeQueue, createWorktreeQueue } from "./worktree-queue";
 
 // Each test builds real repositories and runs git; next to the other test files running at once,
 // that takes well over the default 5 seconds.
@@ -44,13 +45,15 @@ async function scene(): Promise<GitScene> {
  *
  * @remarks
  * git and the index are real; the sessions record what was asked of them, and whether the
- * worktree's directory was there at that moment.
+ * worktree's directory was there at that moment, or for a restore whether it was still archived;
+ * each workspace has one session not archived, `ses_in_<id>`.
  *
  * @sideEffects Creates the index directory.
  * @param repo - The scene.
  * @param worktrees - The worktrees to record as workspaces.
  * @param git - git, or `null` for none.
  * @param stopping - What else happens while a workspace's sessions stop, as a running pi might do.
+ * @param queue - The queue of worktree changes it shares, if any.
  * @returns The archiver, the services, the sessions' calls, the scans asked for, the clock and logs.
  */
 async function archiver(
@@ -58,6 +61,7 @@ async function archiver(
   worktrees: readonly string[],
   git: GitRunner | null = realGit(),
   stopping: (dir: string) => Promise<unknown> = async () => undefined,
+  queue?: WorktreeQueue,
 ) {
   const index = await createTempDir("index");
   onTestFinished(index.cleanup);
@@ -91,14 +95,23 @@ async function archiver(
       stopWorkspace: async (workspaceId) => {
         calls.push(`stop ${workspaceId} ${(await there(dirOf(workspaceId))) ? "there" : "gone"}`);
         await stopping(dirOf(workspaceId));
+        return [`ses_in_${workspaceId}`];
+      },
+      releaseWorkspace: (workspaceId) => {
+        calls.push(`release ${workspaceId}`);
       },
       archiveWorkspace: async (workspaceId) => {
         calls.push(`archive ${workspaceId} ${(await there(dirOf(workspaceId))) ? "there" : "gone"}`);
+      },
+      restoreWorkspace: async (workspaceId, sessionIds) => {
+        const archived = archivedOf(projects, workspaceId) === null ? "shown" : "archived";
+        calls.push(`restore ${workspaceId} ${JSON.stringify(sessionIds)} ${archived}`);
       },
     },
     refresh: (workspaceId) => refreshed.push(workspaceId),
     clock,
     logger,
+    ...(queue === undefined ? {} : { queue }),
   });
   return { archive, projects, ids, calls, refreshed, clock, records };
 }
@@ -154,11 +167,16 @@ describe("WorkspaceArchiver.archive", () => {
 
     await archive.archive(id);
 
-    expect(calls).toStrictEqual([`stop ${id} there`, `archive ${id} gone`]);
+    expect(calls).toStrictEqual([`stop ${id} there`, `archive ${id} gone`, `release ${id}`]);
     expect(await there(feature)).toBe(false);
     expect(await repo.git(repo.repo, "rev-parse", "refs/heads/feature")).toBe(commit);
     expect(await repo.git(repo.repo, "worktree", "list", "--porcelain")).not.toContain(feature);
-    expect(archivedOf(projects, id)).toStrictEqual({ at: 1_000, branch: "feature", head: commit });
+    expect(archivedOf(projects, id)).toStrictEqual({
+      at: 1_000,
+      branch: "feature",
+      head: commit,
+      sessions: [`ses_in_${id}`],
+    });
   });
 
   it("archives a worktree detached at a commit a branch, remote branch or tag holds, or only a local branch", async () => {
@@ -184,12 +202,14 @@ describe("WorkspaceArchiver.archive", () => {
 
     for (const dir of all) await archive.archive(present(ids[dir], dir));
 
-    expect(all.map((dir) => archivedOf(projects, present(ids[dir], dir)))).toStrictEqual([
-      { at: 1_000, branch: null, head: main },
-      { at: 1_000, branch: null, head: tag },
-      { at: 1_000, branch: null, head: pushed },
-      { at: 1_000, branch: null, head: kept },
-    ]);
+    expect(all.map((dir) => archivedOf(projects, present(ids[dir], dir)))).toStrictEqual(
+      [main, tag, pushed, kept].map((head, at) => ({
+        at: 1_000,
+        branch: null,
+        head,
+        sessions: [`ses_in_${String(ids[present(all[at], "dir")])}`],
+      })),
+    );
   });
 
   it("refuses a worktree with changes or untracked files, or detached at a commit nothing holds, doing nothing", async () => {
@@ -244,7 +264,7 @@ describe("WorkspaceArchiver.archive", () => {
       new CommandError("workspace_is_local", { workspaceId: local }),
       new CommandError("workspace_not_found", { workspaceId: "wks_ffffffffffffffff" }),
     ]);
-    expect(calls).toStrictEqual([`stop ${id} there`, `archive ${id} gone`]);
+    expect(calls).toStrictEqual([`stop ${id} there`, `archive ${id} gone`, `release ${id}`]);
   });
 
   it("archives a worktree whose directory went without asking git to remove it, keeping what git still lists", async () => {
@@ -268,24 +288,23 @@ describe("WorkspaceArchiver.archive", () => {
     await archive.archive(present(ids[pruned], "pruned"));
     await archive.archive(present(ids[locked], "locked"));
 
-    expect(calls).toStrictEqual([
-      `stop ${String(ids[gone])} gone`,
-      `archive ${String(ids[gone])} gone`,
-      `stop ${String(ids[pruned])} gone`,
-      `archive ${String(ids[pruned])} gone`,
-      `stop ${String(ids[locked])} gone`,
-      `archive ${String(ids[locked])} gone`,
-    ]);
+    expect(calls).toStrictEqual(
+      [gone, pruned, locked].flatMap((dir) => [
+        `stop ${String(ids[dir])} gone`,
+        `archive ${String(ids[dir])} gone`,
+        `release ${String(ids[dir])}`,
+      ]),
+    );
     expect([
       archivedOf(projects, present(ids[gone], "gone")),
       archivedOf(projects, present(ids[pruned], "pruned")),
     ]).toStrictEqual([
-      { at: 1_000, branch: "gone", head },
-      { at: 1_000, branch: null, head: null },
+      { at: 1_000, branch: "gone", head, sessions: [`ses_in_${String(ids[gone])}`] },
+      { at: 1_000, branch: null, head: null, sessions: [`ses_in_${String(ids[pruned])}`] },
     ]);
   });
 
-  it("stops the sessions but archives nothing when git will not remove the worktree, logging only git's exit code", async () => {
+  it("stops the sessions but archives nothing when git will not remove the worktree, letting them start again, logging only git's exit code", async () => {
     const repo = await scene();
     const locked = await repo.worktree("locked");
     await repo.git(repo.repo, "worktree", "lock", "--", locked);
@@ -294,7 +313,7 @@ describe("WorkspaceArchiver.archive", () => {
 
     await expect(archive.archive(id)).rejects.toStrictEqual(new CommandError("worktree_remove_failed"));
 
-    expect(calls).toStrictEqual([`stop ${id} there`]);
+    expect(calls).toStrictEqual([`stop ${id} there`, `release ${id}`]);
     expect(await there(locked)).toBe(true);
     expect(archivedOf(projects, id)).toBeNull();
     expect(logged(records)).toStrictEqual([["worktree remove failed", id, 128]]);
@@ -328,7 +347,7 @@ describe("WorkspaceArchiver.archive", () => {
       new CommandError("workspace_unsaved_commits"),
       undefined,
     ]);
-    expect(calls).toStrictEqual([`stop ${String(ids[changed])} there`]);
+    expect(calls).toStrictEqual([`stop ${String(ids[changed])} there`, `release ${String(ids[changed])}`]);
     expect(await Promise.all(all.map((dir) => there(dir)))).toStrictEqual([true, true, false]);
     expect([
       archivedOf(projects, present(ids[changed], "changed")),
@@ -338,6 +357,7 @@ describe("WorkspaceArchiver.archive", () => {
       at: 1_000,
       branch: "moved",
       head: latest[1],
+      sessions: [`ses_in_${String(ids[moved])}`],
     });
   });
 
@@ -364,11 +384,12 @@ describe("WorkspaceArchiver.archive", () => {
     const failure = await archive.archive(present(ids[locked], "locked")).catch((error: unknown) => error);
 
     expect(failure).toStrictEqual(new CommandError("worktree_remove_failed"));
+    const featured = { at: 1_000, branch: "feature", head, sessions: [`ses_in_${String(ids[feature])}`] };
     expect(seen).toStrictEqual([
-      { at: 1_000, branch: "feature", head },
+      featured,
       null,
-      { at: 1_000, branch: "feature", head },
-      { at: 1_000, branch: "locked", head },
+      featured,
+      { at: 1_000, branch: "locked", head, sessions: [`ses_in_${String(ids[locked])}`] },
     ]);
     expect(archivedOf(projects, present(ids[locked], "locked"))).toBeNull();
   });
@@ -521,6 +542,26 @@ describe("WorkspaceArchiver.restore", () => {
     expect(refreshed).toStrictEqual([featureId, detachedId]);
   });
 
+  it("puts back the sessions archived with it before showing it again, or all archived in it for an older archive", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const older = await repo.worktree("older");
+    const { archive, projects, ids, calls } = await archiver(repo, [feature, older]);
+    const [featureId, olderId] = [present(ids[feature], "feature"), present(ids[older], "older")];
+    await archive.archive(featureId);
+    await archive.archive(olderId);
+    const { sessions: _sessions, ...recorded } = present(archivedOf(projects, olderId), "the archive");
+    await projects.setArchived(olderId, recorded);
+
+    await archive.restore(featureId);
+    await archive.restore(olderId);
+
+    expect(calls.filter((call) => call.startsWith("restore"))).toStrictEqual([
+      `restore ${featureId} ["ses_in_${featureId}"] archived`,
+      `restore ${olderId} null archived`,
+    ]);
+  });
+
   it("adds a worktree back where git still had it registered, its directory gone", async () => {
     const repo = await scene();
     const gone = await repo.worktree("gone");
@@ -639,6 +680,26 @@ describe("WorkspaceArchiver one at a time", () => {
 
     expect(archivedOf(projects, id)).toBeNull();
     expect(await there(feature)).toBe(true);
+  });
+
+  it("waits for a worktree change before it in the queue it shares, and closes after it", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    const queue = createWorktreeQueue();
+    const { archive, projects, ids } = await archiver(repo, [feature], realGit(), undefined, queue);
+    const id = present(ids[feature], "feature");
+    const { promise: held, resolve: release } = Promise.withResolvers<void>();
+    const before = queue.run(() => held);
+
+    const archiving = archive.archive(id);
+    const closing = archive.close();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(archivedOf(projects, id)).toBeNull();
+    release();
+    await before;
+    await closing;
+    expect(archivedOf(projects, id)).not.toBeNull();
+    await archiving;
   });
 
   it("goes on after one that failed", async () => {

@@ -39,7 +39,15 @@ import {
 import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
-import { type SessionView, applySessionEvent, loadingView, prependOlder, withWholeStep } from "./session-view";
+import {
+  type MessageTag,
+  type PendingMessage,
+  type SessionView,
+  applySessionEvent,
+  loadingView,
+  prependOlder,
+  withWholeStep,
+} from "./session-view";
 
 /** Connection state exposed to the UI. */
 export type ConnectionState =
@@ -140,8 +148,11 @@ export interface AtriumClient {
   watch(sessionIds: readonly string[]): Promise<void>;
   /** Creates a chat with its first session, opened as the active tab, and returns the session's id. */
   createChat(): Promise<CommandResult<"create_chat">>;
-  /** Creates a session in a workspace or chat, opened as the active tab, and returns its id. */
-  createSession(containerId: ContainerId): Promise<CommandResult<"create_session">>;
+  /**
+   * Creates a session in a workspace or chat, opened as the active tab, and returns its id; with
+   * `go` false the client stays where it is.
+   */
+  createSession(containerId: ContainerId, go?: boolean): Promise<CommandResult<"create_session">>;
   /** Opens a session as the active tab, at once in the list; `watch` it to see it. */
   openSession(sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes this client's tab of a session, at once in the list. */
@@ -165,21 +176,31 @@ export interface AtriumClient {
   archiveWorkspace(workspaceId: string): Promise<CommandResult<"archive_workspace">>;
   /** Brings an archived workspace back, adding its worktree where it was. */
   restoreWorkspace(workspaceId: string): Promise<CommandResult<"restore_workspace">>;
+  /** Where a new worktree of a project may start: its main branch, its local workspace's branch, every branch. */
+  listBases(projectId: string): Promise<CommandResult<"list_bases">>;
+  /** Creates a worktree workspace on a new branch from a base. */
+  createWorkspace(projectId: string, branch: string, base: string): Promise<CommandResult<"create_workspace">>;
   /** Names a chat, or with `null` goes back to its first session's title. */
   renameChat(chatId: string, name: string | null): Promise<CommandResult<"rename_chat">>;
+  /** Archives a chat with its sessions, stopping those that run. */
+  archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
+  /** Brings an archived chat back with the sessions archived with it. */
+  restoreChat(chatId: string): Promise<CommandResult<"restore_chat">>;
   /** Tells the host the window gained focus, so it looks at workspaces and sessions again. */
   windowFocused(): Promise<CommandResult<"window_focused">>;
   /** Changes preferences, at once in the list; a proxy shows once the host has checked it. */
   setPreferences(changes: Partial<Preferences>): Promise<CommandResult<"set_preferences">>;
   /**
    * Sends a message with uploaded images, showing it at once as pending until it opens a turn or
-   * goes into the queue; `previews` are the images as the page shows them, kept for `sentPreviews`.
+   * goes into the queue; `previews` are the images as the page shows them, kept for `sentPreviews`;
+   * `command` is the tag it was sent with, for the pending copy only.
    */
   prompt(
     sessionId: string,
     text: string,
     attachmentIds?: readonly string[],
     previews?: readonly string[],
+    command?: MessageTag,
   ): Promise<CommandResult<"prompt">>;
   /** Sends a steer, delivered before the agent's next step; while idle it is sent as a message, pending meanwhile. */
   steer(
@@ -187,6 +208,7 @@ export interface AtriumClient {
     text: string,
     attachmentIds?: readonly string[],
     previews?: readonly string[],
+    command?: MessageTag,
   ): Promise<CommandResult<"steer">>;
   /**
    * The previews of the images a message sent from this page went with, by its `clientMessageId`;
@@ -222,10 +244,23 @@ export interface AtriumClient {
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /** Switches a session's Fast, at once in its view; put back if the host refuses (SPEC-0001, "Fast"). */
   setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
+  /** Compacts a session's context now, with what to keep in mind when given (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
+  compactSession(sessionId: string, instructions?: string): Promise<CommandResult<"compact_session">>;
+  /** A session as pi's HTML page, for `/export` to download. */
+  exportSession(sessionId: string): Promise<CommandResult<"export_session">>;
+  /**
+   * Forks a session after a turn into a new one with this name, which the host opens as the active
+   * tab (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+   */
+  forkSession(sessionId: string, turnId: string, name: string): Promise<CommandResult<"fork_session">>;
   /** The `/` commands of a session's pi, which starts if it has not. */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
   searchFiles(sessionId: string, query: string): Promise<CommandResult<"search_files">>;
+  /** One directory of a workspace, for the right panel's file tree (SPEC-0001, "M1.12 的文件与更改"). */
+  listDir(workspaceId: string, path: string): Promise<CommandResult<"list_dir">>;
+  /** One file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
+  readFile(workspaceId: string, path: string): Promise<CommandResult<"read_file">>;
   /** One image of a turn's user message, for its thumbnail (SPEC-0001, "M1.11 的消息图片"). */
   fetchImage(sessionId: string, turnId: string, index: number): Promise<CommandResult<"fetch_image">>;
   /**
@@ -663,6 +698,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
    * @param text - The message.
    * @param attachmentIds - Its uploaded images.
    * @param previews - The images as the page shows them, kept by the message's id while it goes.
+   * @param command - The tag it was sent with, shown on the pending copy.
    * @returns The command's result.
    */
   async function sendShown<T extends "prompt" | "steer">(
@@ -671,6 +707,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     text: string,
     attachmentIds: readonly string[],
     previews: readonly string[],
+    command: MessageTag | undefined,
   ): Promise<CommandResult<T>> {
     const requestId = `${options.clientId}-${++nextRequest}`;
     if (previews.length > 0) {
@@ -680,7 +717,12 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     }
     const view = views.get(sessionId);
     const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
-    const shown = { clientMessageId: requestId, text, ...images };
+    const shown: PendingMessage = {
+      clientMessageId: requestId,
+      text,
+      ...images,
+      ...(command === undefined ? {} : { command }),
+    };
     view?.setState({ pending: [...view.getState().pending, shown] });
     /**
      * Takes the optimistic copy back out.
@@ -1166,7 +1208,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (live !== undefined) await request("subscribe_sessions", { sessionIds: [...watched] });
     },
     createChat: () => request("create_chat", {}),
-    createSession: (containerId) => request("create_session", { containerId }),
+    createSession: (containerId, go) =>
+      request("create_session", go === undefined ? { containerId } : { containerId, go }),
     openSession(sessionId) {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withTabOpen(index.getState(), sessionId), true);
@@ -1193,7 +1236,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     renameWorkspace: (workspaceId, name) => request("rename_workspace", { workspaceId, name }),
     archiveWorkspace: (workspaceId) => request("archive_workspace", { workspaceId }),
     restoreWorkspace: (workspaceId) => request("restore_workspace", { workspaceId }),
+    listBases: (projectId) => request("list_bases", { projectId }),
+    createWorkspace: (projectId, branch, base) => request("create_workspace", { projectId, branch, base }),
     renameChat: (chatId, name) => request("rename_chat", { chatId, name }),
+    archiveChat: (chatId) => request("archive_chat", { chatId }),
+    restoreChat: (chatId) => request("restore_chat", { chatId }),
     windowFocused: () => request("window_focused", {}),
     setPreferences(changes) {
       // A proxy shows once the host has checked it and written its address in one form.
@@ -1202,10 +1249,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       index.setState(withPreferences(index.getState(), shown), true);
       return request("set_preferences", changes);
     },
-    prompt: (sessionId, text, attachmentIds = [], previews = []) =>
-      sendShown("prompt", sessionId, text, attachmentIds, previews),
-    steer: (sessionId, text, attachmentIds = [], previews = []) =>
-      sendShown("steer", sessionId, text, attachmentIds, previews),
+    prompt: (sessionId, text, attachmentIds = [], previews = [], command) =>
+      sendShown("prompt", sessionId, text, attachmentIds, previews, command),
+    steer: (sessionId, text, attachmentIds = [], previews = [], command) =>
+      sendShown("steer", sessionId, text, attachmentIds, previews, command),
     sentPreviews: (clientMessageId) => sentImages.get(clientMessageId) ?? null,
     uploadAttachment: (mimeType, data) => request("upload_attachment", { mimeType, data }),
     stop: (sessionId) => request("stop", { sessionId }),
@@ -1227,6 +1274,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       ),
     listCommands: (sessionId) => request("list_commands", { sessionId }),
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
+    listDir: (workspaceId, path) => request("list_dir", { workspaceId, path }),
+    readFile: (workspaceId, path) => request("read_file", { workspaceId, path }),
     fetchImage: (sessionId, turnId, place) => request("fetch_image", { sessionId, turnId, index: place }),
     setup,
     loadSetup: (refresh = false) => loadSetup(refresh),
@@ -1253,6 +1302,11 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         () => request("set_thinking_level", { sessionId, level }),
       ),
     setFast: (sessionId, enabled) => switchFast(sessionId, enabled),
+    compactSession: (sessionId, instructions) =>
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: undefined is left out of the JSON either way.
+      request("compact_session", instructions === undefined ? { sessionId } : { sessionId, instructions }),
+    exportSession: (sessionId) => request("export_session", { sessionId }),
+    forkSession: (sessionId, turnId, name) => request("fork_session", { sessionId, turnId, name }),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

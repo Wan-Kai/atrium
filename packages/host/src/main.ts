@@ -42,6 +42,7 @@ import { startWsServer } from "./server/ws-server";
 import { discoverProjects } from "./projects/discovery";
 import { createIndexCommands } from "./sessions/index-commands";
 import { createFileSearch } from "./files/file-search";
+import { createWorkspaceFiles } from "./files/workspace-files";
 import { createLayouts } from "./sessions/layouts";
 import { createModelLister } from "./sessions/model-lister";
 import { createSessionCatalog } from "./sessions/session-catalog";
@@ -49,13 +50,15 @@ import { createSessionManager } from "./sessions/session-manager";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
 import { loadIndex } from "./store/load-index";
-import { createChatNames } from "./store/chat-names";
+import { createChatRecords, listChats } from "./store/chat-records";
 import { createPreferenceStore } from "./store/preferences";
 import { loadTurnStarts } from "./store/turn-starts";
 import { createIndexFeed } from "./sync/index-feed";
 import { SubscriptionRegistry } from "./sync/subscriptions";
 import { createMergeInspector, parseGitVersion } from "./workspaces/merge-inspector";
 import { createWorkspaceArchiver } from "./workspaces/workspace-archiver";
+import { createWorktreeCreator } from "./workspaces/worktree-creator";
+import { createWorktreeQueue } from "./workspaces/worktree-queue";
 import { createWorkspaceService } from "./workspaces/workspace-service";
 
 /** How often clients ping the host, and how long they wait for the answer (SPEC-0001, "握手与心跳"). */
@@ -209,16 +212,14 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   const layouts = createLayouts({ file: index.layouts, clock });
-  const chatNames = createChatNames(index.chats);
+  const chatRecords = createChatRecords(index.chats);
   const feed = createIndexFeed({
     registry: subscriptions,
     generation: hostInstanceId,
     build: () => ({
       projects: projects.projects().map(({ id, path, name, mainBranch }) => ({ id, path, name, mainBranch })),
       workspaces: workspaces.list(),
-      chats: catalog
-        .chats()
-        .map(({ id, dir, firstSessionId }) => ({ id, dir, alias: chatNames.alias(id), firstSessionId })),
+      chats: listChats(catalog.chats(), chatRecords),
       sessions: sessions.summaries(),
       preferences: preferences.read(),
       resets: [...index.resets],
@@ -268,6 +269,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     subscriptions,
     catalog,
     layouts,
+    chats: chatRecords,
     // A run ending in a workspace may have changed its files.
     workspaces: {
       dirOf: (workspaceId) => workspaces.dirOf(workspaceId),
@@ -341,18 +343,31 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     // New worktrees may hold sessions started in a terminal.
     sessions.rescan();
   });
+  // Creating, archiving and restoring worktrees go one at a time (SPEC-0001, "M1.11 的新建工作区").
+  const worktreeQueue = createWorktreeQueue();
+  /**
+   * Scans a workspace's project again and works out its changes.
+   *
+   * @remarks
+   * After a worktree was created or restored.
+   *
+   * @sideEffects Asks for a scan and a recount.
+   * @param workspaceId - The workspace.
+   */
+  const rescanWorkspace = (workspaceId: string): void => {
+    workspaces.refresh(workspaceId);
+    changes.refresh(workspaceId);
+  };
   const archiver = createWorkspaceArchiver({
     projects,
     git,
     sessions,
-    // A restored worktree is scanned again, and its changes worked out.
-    refresh: (workspaceId) => {
-      workspaces.refresh(workspaceId);
-      changes.refresh(workspaceId);
-    },
+    refresh: rescanWorkspace,
     clock,
     logger,
+    queue: worktreeQueue,
   });
+  const creator = createWorktreeCreator({ projects, git, queue: worktreeQueue, refresh: rescanWorkspace, logger });
   const indexCommands = createIndexCommands({
     projects,
     workspaces: {
@@ -367,9 +382,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     },
     sessions,
     archiver,
+    creator,
     preferences,
     chats: () => catalog.chats(),
-    chatNames,
+    chatRecords,
     feed,
     listModels: createModelLister({
       catalog: models,
@@ -481,6 +497,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       piLatest,
       attachments,
       changes,
+      files: createWorkspaceFiles({ dirOf: (workspaceId) => workspaces.dirOf(workspaceId), git, logger }),
       logger,
       tracer: tracing.tracer,
       clock,
@@ -600,8 +617,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     cancelReport();
     await toolbox.close();
     await server.close();
-    // Before the sessions and the index, which an archive or restore under way still uses.
-    await archiver.close();
+    // Before the sessions and the index, which a worktree being created, archived or restored still uses.
+    await worktreeQueue.idle();
     await loginService.close();
     await installs.close();
     await piLatest.close();

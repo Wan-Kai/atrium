@@ -48,6 +48,8 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 **fork / clone**（`src/core/agent-session-runtime.ts`）
 
 - RPC `fork {entryId}`：必须是 user 消息，新文件包含到它的父条目为止，返回该消息文本。`clone`：复制整条当前路径。新会话 id、新文件，`parentSession` 指向原文件。
+  - 应答：`fork` 是 `{text, cancelled}`，`clone` 是 `{cancelled}`；extension 在 `session_before_fork` 里取消时 `cancelled: true`，不换会话。RPC 的 `fork` 没有 `position`，固定从这条消息之前截断，所以复制到最后一条只能用 `clone`（它内部是 `position: "at"` 的 fork）。
+  - 新文件写在原会话的会话目录里，有对话就立刻写盘；条目 id 不变（label 重新生成），原文件不动（契约 `fork-clone`，pi 1.1.0，2026-10-13 核实）。
 - 所有"换会话"操作（new / switch / fork / import）都会拆掉当前运行时重建，**RPC 不发任何"会话已切换"事件**，要重新 `get_state`。Atrium 因此一个会话固定一个进程，不用 `switch_session`。
 
 ## 2. 运行时（`src/core/agent-session.ts`，`packages/agent/src/agent.ts`）
@@ -83,7 +85,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - 可重试的助手错误（过载、限流、5xx；不含上下文超长）：发 `auto_retry_start {attempt, maxAttempts, delayMs, errorMessage}`，写一条省略失败尝试的 `context_edit`，退避后 `continue()`；成功或用尽发 `auto_retry_end {success, finalError?}`。`abort_retry` 可取消。
 - 设置：`retry.maxRetries` 默认 **3**，`retry.baseDelayMs` 默认 2000（`docs/settings.md`）；RPC `set_auto_retry {enabled}`。
 - 上下文超长：省略失败尝试，以 `overflow` 原因压缩后重试一次。
-- 手动压缩（RPC `compact`）在可压缩的内容不足时报错 `Nothing to compact (session too small)`；保留多少不压缩由设置 `compaction.keepRecentTokens`（默认 20000）决定。返回的 `summary` 不只是模型的原话：pi 会加上自己的框架，例如没有更早历史时的 `No prior history.`，以及切开一轮时的 `**Turn Context (split turn):**` 段（2026-10-06 在 pi 1.0.2 上由契约测试 `compaction` 观察到）。
+- 手动压缩（RPC `compact`）先 `abort()` 掉进行中的运行，再发 `compaction_start {reason: "manual"}`；成败都会发 `compaction_end`。可压缩的内容不足时报错 `Nothing to compact (session too small)`，当前分支最后一条已经是压缩条目时报错 `Already compacted`，extension 取消时报 `Compaction cancelled`（1.0.2 `agent-session.js` `compact`，2026-10-13 核实；宿主按开头认出前两种，见 `packages/pi/src/process/rejections.ts`）；保留多少不压缩由设置 `compaction.keepRecentTokens`（默认 20000）决定。返回的 `summary` 不只是模型的原话：pi 会加上自己的框架，例如没有更早历史时的 `No prior history.`，以及切开一轮时的 `**Turn Context (split turn):**` 段（2026-10-06 在 pi 1.0.2 上由契约测试 `compaction` 观察到）。
 
 **中断**：`abort()` 依次中止重试、压缩、分支摘要和 agent，**等真正空闲后才返回**。不清队列，要先 `clear_queue`。
 
@@ -127,6 +129,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 | `get_tree` | `{tree, leafId}` |
 | `get_messages` | 当前分支**投影后的上下文**（压缩后旧消息已被摘要替换） |
 | `set_session_name {name}` | 写 `session_info`，发 `session_info_changed` |
+| `export_html {outputPath?}` | `{path}`：把当前会话写成一个独立的 HTML 页面（含条目、系统提示词和工具说明）。不给 `outputPath` 时写到 pi 的当前目录（`pi-session-<会话文件名>.html`）；给了就写到那里，不建上级目录。会话文件还没写出来时报错 `Nothing to export yet - start a conversation first`（1.1.0，契约测试 `export-html`，2026-10-13） |
 | `get_commands` | `{commands: [{name, description?, source: extension \| prompt \| skill, sourceInfo}]}` |
 | `fork {entryId}` / `clone` / `new_session` / `switch_session` | 换会话（见第 1 节） |
 

@@ -18,7 +18,12 @@ test("puts a chat that failed in the background into the inbox until it is looke
 
     const inbox = window.getByRole("region", { name: "等你处理" });
     const rows = inbox.getByTestId("inbox-row");
-    await expect(rows).toHaveCount(1, { timeout: 30_000 });
+    // Folded at first into its heading, with the count and the status.
+    const heading = inbox.getByRole("button", { name: /^等你处理/ });
+    await expect(heading).toHaveText("等你处理1", { timeout: 30_000 });
+    await expect(heading.getByRole("img", { name: "出错" })).toBeVisible();
+    await heading.click();
+    await expect(rows).toHaveCount(1);
     await expect(rows).toContainText("一");
     await expect(rows.getByRole("img", { name: "出错" })).toBeVisible();
     await expect(tabs.filter({ hasText: "一" }).getByRole("img", { name: "出错" })).toBeVisible();

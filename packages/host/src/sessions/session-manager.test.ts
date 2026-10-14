@@ -1,18 +1,28 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import { CommandError, IDLE_CONTROL, type SessionEvent, type SessionModel, UNKNOWN_METRICS } from "@atrium/protocol";
+import {
+  CommandError,
+  type ForkSessionCommand,
+  IDLE_CONTROL,
+  type SessionEvent,
+  type SessionModel,
+  UNKNOWN_METRICS,
+} from "@atrium/protocol";
 import { type ScriptedPiBehavior, createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { appendFile, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { PONG_ENTRIES as getEntries, PONG_TURN as turn } from "../../test/scripted-chat";
 import { systemClock } from "../platform/clock";
 import { loadIndexFile } from "../store/index-file";
-import { layoutsFile, SESSIONS_FILE } from "../store/index-schema";
+import { type ChatRecords, createChatRecords } from "../store/chat-records";
+import { CHATS_FILE, layoutsFile, SESSIONS_FILE } from "../store/index-schema";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
 import { createSessionCatalog } from "./session-catalog";
-import type { TurnStarts } from "../store/turn-starts";
+import { type TurnStarts, loadTurnStarts } from "../store/turn-starts";
 import { type SessionTools, createSessionManager } from "./session-manager";
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -98,6 +108,7 @@ async function started(manager: Manager, created: Promise<{ sessionId: string }>
  * @param files - The file search behind `@`, if a test needs it.
  * @param titleModel - The title model pi can use in a directory, if a test needs one.
  * @param fast - Fast's extension and the Fast of sessions without their own, if a test needs them.
+ * @param chats - The chats' records, if a test needs them to fail; else over `chats.json`.
  * @returns The manager and what tests look at.
  */
 async function manage(
@@ -109,6 +120,7 @@ async function manage(
   files?: Parameters<typeof createSessionManager>[0]["files"],
   titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
   fast?: Parameters<typeof createSessionManager>[0]["fast"],
+  chats?: (records: ChatRecords) => ChatRecords,
 ) {
   const at = where ?? (await place());
   const recording = recordingTracing();
@@ -137,6 +149,7 @@ async function manage(
     file: (await loadIndexFile(index, layoutsFile({ sessions: [] }), 0)).file,
     clock: systemClock,
   });
+  const chatRecords = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
   const refreshed: string[] = [];
   let changes = 0;
   let next = 0;
@@ -147,6 +160,7 @@ async function manage(
     subscriptions,
     catalog,
     layouts,
+    chats: chats === undefined ? chatRecords : chats(chatRecords),
     workspaces: {
       dirOf: (id) => (id === WORKSPACE ? at.workspace : undefined),
       refresh: (id) => refreshed.push(id),
@@ -172,6 +186,7 @@ async function manage(
     manager,
     catalog,
     layouts,
+    chatRecords,
     received,
     subscriptions,
     refreshed,
@@ -245,6 +260,16 @@ async function terminalSession(at: Awaited<ReturnType<typeof place>>, id: string
   return path;
 }
 
+/**
+ * What a command failed with, for a list of answers.
+ *
+ * @sideEffects none
+ * @param error - The failure.
+ * @returns It.
+ */
+function caught(error: unknown): unknown {
+  return error;
+}
 describe("SessionManager creating sessions", () => {
   it("opens a new session's tab where it belongs but leaves the client where it went while pi started", async () => {
     const { manager, layouts } = await manage({ rules: SESSION_ONE });
@@ -256,6 +281,23 @@ describe("SessionManager creating sessions", () => {
     expect(layouts.of("client-1")).toStrictEqual({
       container: CHAT,
       tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
+    });
+  });
+
+  it("opens a new session's tab without taking the client there when told not to go", async () => {
+    const { manager, layouts } = await manage({ rules: SESSION_ONE });
+    await manager.selectContainer("client-1", CHAT);
+
+    const { sessionId } = await manager.createSession("client-1", WORKSPACE, false);
+
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHAT,
+      tabs: { [WORKSPACE]: { open: [sessionId], active: sessionId } },
+    });
+    const next = await manager.createSession("client-1", WORKSPACE);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: WORKSPACE,
+      tabs: { [WORKSPACE]: { open: [sessionId, next.sessionId], active: next.sessionId } },
     });
   });
 
@@ -1006,6 +1048,41 @@ describe("SessionManager archiving and renaming", () => {
     expect(resources.snapshot()["pi-process"]).toBe(0);
   });
 
+  it("starts no pi for a session archived: a message, an insert, an open or a command finds no session", async () => {
+    const { manager, resources } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    await manager.archiveSession(sessionId);
+    const notFound = new CommandError("session_not_found", { sessionId });
+
+    const answers = await Promise.all([
+      manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" }).catch(caught),
+      manager.steer({ type: "steer", requestId: "q2", traceparent, sessionId, text: "and" }).catch(caught),
+      manager.openSession("client-1", sessionId).catch(caught),
+      manager.listCommands(sessionId).catch(caught),
+    ]);
+
+    expect([answers, resources.snapshot()["pi-process"]]).toStrictEqual([[notFound, notFound, notFound, notFound], 0]);
+  });
+
+  it("finds no session for a message or an insert sent while it is being archived", async () => {
+    const { manager, catalog, sent } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await started(manager, manager.createSession("client-1", WORKSPACE));
+
+    const archiving = manager.archiveSession(sessionId);
+    const answers = await Promise.all([
+      manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" }).catch(caught),
+      manager.steer({ type: "steer", requestId: "q2", traceparent, sessionId, text: "and" }).catch(caught),
+    ]);
+    await archiving;
+
+    const notFound = new CommandError("session_not_found", { sessionId });
+    expect([
+      answers,
+      sent().filter((type) => ["prompt", "steer"].some((asked) => asked === type)),
+      catalog.find(sessionId)?.archived,
+    ]).toStrictEqual([[notFound, notFound], [], true]);
+  });
+
   it("renames a session in pi, starting its pi first when it is not running", async () => {
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
@@ -1015,6 +1092,175 @@ describe("SessionManager archiving and renaming", () => {
     expect(await manager.renameSession("pi-session-1", "重构")).toStrictEqual({});
 
     expect(sent()).toContain("set_session_name");
+  });
+});
+
+describe("SessionManager chats' archive", () => {
+  it("archives a chat with its sessions, drafts too: records them and its first session, stops their pi and drops the chat from layouts", async () => {
+    const { manager, catalog, layouts, chatRecords, resources, changes } = await manage({ rules: SESSION_ONE });
+    const { sessionId: elsewhere } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const { sessionId: first } = await started(manager, manager.createChat("client-1"));
+    const { sessionId: gone } = await manager.createSession("client-1", CHAT);
+    await manager.archiveSession(gone);
+    const { sessionId: draft } = await manager.createSession("client-1", CHAT);
+    await manager.subscribe("c1", [elsewhere, first]);
+    const before = changes();
+    const from = Date.now();
+
+    expect(await manager.archiveChat(CHAT)).toStrictEqual({});
+
+    const archive = present(chatRecords.archived(CHAT), CHAT);
+    expect(archive).toStrictEqual({ at: archive.at, sessions: [first, draft], first });
+    expect(archive.at).toBeGreaterThanOrEqual(from);
+    expect(archive.at).toBeLessThanOrEqual(Date.now());
+    const archived = (sessionId: string) => present(catalog.find(sessionId), sessionId).archived;
+    expect([first, draft, gone, elsewhere].map(archived)).toStrictEqual([true, true, true, false]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: null,
+      tabs: { [WORKSPACE]: { open: [elsewhere], active: elsewhere } },
+    });
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("changes nothing archiving a chat archived already, and finds no chat that is not there", async () => {
+    const { manager, chatRecords, changes } = await manage({ rules: SESSION_ONE });
+    await manager.createChat("client-1");
+    await manager.archiveChat(CHAT);
+    const archive = chatRecords.archived(CHAT);
+    const before = changes();
+
+    expect(await manager.archiveChat(CHAT)).toStrictEqual({});
+
+    expect([chatRecords.archived(CHAT), changes()]).toStrictEqual([archive, before]);
+    await expect(manager.archiveChat("cht_none")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_none" }),
+    );
+    await expect(manager.restoreChat("cht_none")).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: "cht_none" }),
+    );
+  });
+
+  it("records the archive before its sessions: when it cannot be written, no session is archived", async () => {
+    const { manager, catalog } = await manage(
+      { rules: SESSION_ONE },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (records) => ({
+        ...records,
+        setArchived: () => Promise.reject(new Error("disk full")),
+      }),
+    );
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.archiveChat(CHAT)).rejects.toThrow("disk full");
+
+    expect(present(catalog.find(sessionId), sessionId).archived).toBe(false);
+  });
+
+  it("restores the sessions archived with a chat, not one archived before, and goes nowhere", async () => {
+    const { manager, catalog, layouts, chatRecords, changes } = await manage({ rules: SESSION_ONE });
+    const { sessionId: first } = await manager.createChat("client-1");
+    const { sessionId: gone } = await manager.createSession("client-1", CHAT);
+    await manager.archiveSession(gone);
+    const { sessionId: draft } = await manager.createSession("client-1", CHAT);
+    await manager.archiveChat(CHAT);
+    const layout = layouts.of("client-1");
+    const before = changes();
+
+    expect(await manager.restoreChat(CHAT)).toStrictEqual({});
+
+    const archived = (sessionId: string) => present(catalog.find(sessionId), sessionId).archived;
+    expect([first, draft, gone].map(archived)).toStrictEqual([false, false, true]);
+    expect(chatRecords.archived(CHAT)).toBeNull();
+    expect(layouts.of("client-1")).toStrictEqual(layout);
+    expect(changes()).toBe(before + 1);
+    expect(await manager.restoreChat(CHAT)).toStrictEqual({});
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("finds no session for a message sent while its chat is being archived, and creates none in it", async () => {
+    const entered = Promise.withResolvers<void>();
+    const writing = Promise.withResolvers<void>();
+    const { manager, resources } = await manage(
+      { rules: SESSION_ONE },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (records) => ({
+        ...records,
+        setArchived: async (chatId, archive) => {
+          entered.resolve();
+          await writing.promise;
+          return records.setArchived(chatId, archive);
+        },
+      }),
+    );
+    const { sessionId } = await started(manager, manager.createChat("client-1"));
+
+    const archiving = manager.archiveChat(CHAT);
+    await entered.promise;
+    const answers = await Promise.all([
+      manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" }).catch(caught),
+      manager.createSession("client-1", CHAT).catch(caught),
+    ]);
+    writing.resolve();
+    await archiving;
+
+    expect([answers, resources.snapshot()["pi-process"]]).toStrictEqual([
+      [new CommandError("session_not_found", { sessionId }), new CommandError("chat_not_found", { chatId: CHAT })],
+      0,
+    ]);
+  });
+
+  it("archives and restores a chat in the order asked, even while its archive still writes", async () => {
+    const writing = Promise.withResolvers<void>();
+    // Only the archive's write waits.
+    const waits: Promise<void>[] = [writing.promise];
+    const { manager, catalog, chatRecords } = await manage(
+      { rules: SESSION_ONE },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (records) => ({
+        ...records,
+        setArchived: async (chatId, archive) => {
+          await waits.shift();
+          return records.setArchived(chatId, archive);
+        },
+      }),
+    );
+    const { sessionId } = await manager.createChat("client-1");
+
+    const archiving = manager.archiveChat(CHAT);
+    const restoring = manager.restoreChat(CHAT);
+    writing.resolve();
+    await Promise.all([archiving, restoring]);
+
+    expect([chatRecords.archived(CHAT), catalog.find(sessionId)?.archived]).toStrictEqual([null, false]);
+  });
+
+  it("starts no session in an archived chat", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    await manager.createChat("client-1");
+    await manager.archiveChat(CHAT);
+
+    await expect(manager.createSession("client-1", CHAT)).rejects.toStrictEqual(
+      new CommandError("chat_not_found", { chatId: CHAT }),
+    );
   });
 });
 
@@ -1063,6 +1309,50 @@ describe("SessionManager workspaces", () => {
     expect([sessionId, chat].map((id) => present(catalog.find(id), id).archived)).toStrictEqual([false, false]);
     expect(layouts.of("client-1")).toStrictEqual(layout);
     expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps a workspace's sessions from starting, and new ones from being created, from its stop until released", async () => {
+    const { manager, catalog, resources } = await manage({ rules: SESSION_ONE });
+    const { sessionId: running } = await started(manager, manager.createSession("client-1", WORKSPACE));
+    const { sessionId: gone } = await manager.createSession("client-1", WORKSPACE);
+    await manager.archiveSession(gone);
+    const { sessionId: draft } = await manager.createSession("client-1", WORKSPACE);
+    const stopped = await manager.stopWorkspace(WORKSPACE);
+    const answers = await Promise.all([
+      manager.openSession("client-1", running).catch(caught),
+      manager.createSession("client-1", WORKSPACE).catch(caught),
+    ]);
+    manager.releaseWorkspace(WORKSPACE);
+
+    expect([stopped, answers]).toStrictEqual([
+      [running, draft],
+      [
+        new CommandError("session_not_found", { sessionId: running }),
+        new CommandError("workspace_not_found", { workspaceId: WORKSPACE }),
+      ],
+    ]);
+    expect(await manager.openSession("client-1", running)).toStrictEqual({});
+    expect([catalog.find(running)?.archived, resources.snapshot()["pi-process"]]).toStrictEqual([false, 1]);
+  });
+
+  it("restores the sessions given, or all archived in the workspace", async () => {
+    const { manager, catalog, changes } = await manage({ rules: SESSION_ONE });
+    const ids: string[] = [];
+    for (const _ of [1, 2, 3]) ids.push((await manager.createSession("client-1", WORKSPACE)).sessionId);
+    const { sessionId: chat } = await manager.createChat("client-1");
+    for (const sessionId of [...ids, chat]) await manager.archiveSession(sessionId);
+    const archived = () => [...ids, chat].map((sessionId) => catalog.find(sessionId)?.archived);
+    const before = changes();
+
+    await manager.restoreWorkspace(WORKSPACE, [present(ids[1], "the second")]);
+    const some = archived();
+    await manager.restoreWorkspace(WORKSPACE, null);
+
+    expect([some, archived(), changes()]).toStrictEqual([
+      [true, false, true, true],
+      [false, false, false, true],
+      before + 2,
+    ]);
   });
 
   it("lists its sessions with whether they run", async () => {
@@ -1759,6 +2049,400 @@ describe("SessionManager commands", () => {
     await expect(manager.listCommands("nope")).rejects.toStrictEqual(
       new CommandError("session_not_found", { sessionId: "nope" }),
     );
+  });
+});
+
+describe("SessionManager compacting", () => {
+  it("compacts a session, with what to keep in mind when asked, starting its pi first", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, compact: { data: { summary: "s", tokensBefore: 9 } } } },
+      at,
+    );
+    await catalog.scan();
+
+    expect(await manager.compactSession("pi-session-1", "keep the API")).toStrictEqual({});
+    expect(await manager.compactSession("pi-session-1", undefined)).toStrictEqual({});
+
+    // pi reports what it received on its stderr, which may come after its answer.
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command.type === "compact")).toStrictEqual([
+        { type: "compact", customInstructions: "keep the API" },
+        { type: "compact" },
+      ]),
+    );
+  });
+
+  it("counts a compaction as busy: a hand-off is refused and stopping idle pi keeps it", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived, resources } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, compact: { silent: true } } },
+      at,
+    );
+    await catalog.scan();
+    const compacting = manager.compactSession("pi-session-1", undefined).catch(caught);
+    await vi.waitFor(() =>
+      expect(withoutIds(piReceived()).filter((command) => command.type === "compact")).toStrictEqual([
+        { type: "compact" },
+      ]),
+    );
+
+    const handedOff = await manager.handOff("pi-session-1").catch(caught);
+    await manager.stopIdle();
+
+    expect([handedOff, resources.snapshot()["pi-process"]]).toStrictEqual([new CommandError("session_busy"), 1]);
+    await manager.close();
+    await compacting;
+  });
+
+  it("answers pi having nothing to compact", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog } = await manage(
+      { rules: { ...SESSION_ONE, compact: { fail: "Nothing to compact (session too small)" } } },
+      at,
+    );
+    await catalog.scan();
+
+    await expect(manager.compactSession("pi-session-1", undefined)).rejects.toStrictEqual(
+      new CommandError("nothing_to_compact"),
+    );
+  });
+
+  it("refuses to compact a draft, which has nothing to compact, and an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.compactSession(sessionId, undefined)).rejects.toStrictEqual(
+      new CommandError("session_is_draft", { sessionId }),
+    );
+    await expect(manager.compactSession("nope", undefined)).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+});
+
+/** Where pi was told to write the export, from what it received. */
+function exportPaths(received: readonly Record<string, unknown>[]): string[] {
+  return received.flatMap((command) => (command["type"] === "export_html" ? [String(command["outputPath"])] : []));
+}
+
+/**
+ * The directory pi was told to write the one export into, once pi has said what it received.
+ *
+ * @sideEffects none; waits for pi's stderr.
+ * @param piReceived - What pi received so far.
+ * @returns The directory.
+ */
+async function exportDir(piReceived: () => Record<string, unknown>[]): Promise<string> {
+  await vi.waitFor(() => expect(exportPaths(piReceived())).toHaveLength(1));
+  return dirname(present(exportPaths(piReceived())[0], "the export's path"));
+}
+
+describe("SessionManager exporting", () => {
+  it("hands over the page pi wrote in a directory of its own, and removes it", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, export_html: { writes: "<html>会话</html>" } } },
+      at,
+    );
+    await catalog.scan();
+
+    expect(await manager.exportSession("pi-session-1")).toStrictEqual({ html: "<html>会话</html>" });
+
+    const dir = await exportDir(piReceived);
+    expect(dir.startsWith(join(tmpdir(), "atrium-export-"))).toBe(true);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it("refuses a page over 20 MB, removing it, and hands over one of exactly 20 MB", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const size = 20 * 1024 * 1024;
+    const { manager, catalog, piReceived } = await manage(
+      {
+        receivedToStderr: true,
+        rules: { ...SESSION_ONE, export_html: { sequence: [{ writes: size + 1 }, { writes: size }] } },
+      },
+      at,
+    );
+    await catalog.scan();
+
+    await expect(manager.exportSession("pi-session-1")).rejects.toStrictEqual(
+      new CommandError("export_failed", { reason: "too_large" }),
+    );
+    expect(existsSync(await exportDir(piReceived))).toBe(false);
+    expect((await manager.exportSession("pi-session-1")).html).toHaveLength(size);
+  });
+
+  it("fails when pi does, removing the directory it was given", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, piReceived } = await manage(
+      { receivedToStderr: true, rules: { ...SESSION_ONE, export_html: { fail: "Nothing to export yet" } } },
+      at,
+    );
+    await catalog.scan();
+
+    await expect(manager.exportSession("pi-session-1")).rejects.toStrictEqual(
+      new CommandError("export_failed", { reason: "failed" }),
+    );
+    expect(existsSync(await exportDir(piReceived))).toBe(false);
+  });
+
+  it("refuses to export a draft, which has no file yet, and an unknown session", async () => {
+    const { manager } = await manage({ rules: SESSION_ONE });
+    const { sessionId } = await manager.createChat("client-1");
+
+    await expect(manager.exportSession(sessionId)).rejects.toStrictEqual(
+      new CommandError("session_is_draft", { sessionId }),
+    );
+    await expect(manager.exportSession("nope")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "nope" }),
+    );
+  });
+});
+
+/** What an assistant message carries besides its text; a user message has none of it, which pi ignores. */
+const ASSISTANT_ENDS = { stopReason: "stop", usage: { input: 3, output: 1 } };
+
+/** pi's entries of `pi-session-1` with two turns, `u1` and `u2`. */
+const TWO_TURNS = {
+  data: {
+    entries: [
+      ["u1", null, "user", "one"],
+      ["a1", "u1", "assistant", "first"],
+      ["u2", "a1", "user", "two"],
+      ["a2", "u2", "assistant", "second"],
+    ].map(([id, parentId, role, text]) => ({
+      type: "message",
+      id,
+      parentId,
+      timestamp: "2026-10-13T00:00:00.000Z",
+      message: { role, content: [{ type: "text", text }], timestamp: 1, ...ASSISTANT_ENDS },
+    })),
+    leafId: "a2",
+  },
+};
+
+/**
+ * A scripted pi that runs `pi-session-1` with two turns, and forks or clones it into `pi-session-2`.
+ *
+ * @remarks
+ * The fork's file is written where the catalog looks, unless `elsewhere`.
+ *
+ * @sideEffects none
+ * @param at - The directories.
+ * @param rules - Rules over these.
+ * @param elsewhere - Whether the fork's file goes where the catalog does not look.
+ * @returns The behavior.
+ */
+function forking(
+  at: Awaited<ReturnType<typeof place>>,
+  rules: Readonly<Record<string, object>> = {},
+  elsewhere = false,
+): ScriptedPiBehavior {
+  const file = elsewhere
+    ? join(at.root, "elsewhere.jsonl")
+    : join(sessionFolder({ directory: at.piSessions, perCwd: false }, at.workspace), "pi-session-2.jsonl");
+  const header = { type: "session", id: "pi-session-2", timestamp: "", cwd: at.workspace };
+  const user = { type: "message", id: "u1", parentId: null, timestamp: "", message: { role: "user", content: "one" } };
+  const switchesTo = { sessionId: "pi-session-2", file, text: `${JSON.stringify(header)}\n${JSON.stringify(user)}\n` };
+  return {
+    receivedToStderr: true,
+    argvToStderr: true,
+    rules: {
+      ...SESSION_ONE,
+      get_entries: TWO_TURNS,
+      fork: { switchesTo, data: { text: "two", cancelled: false } },
+      clone: { switchesTo, data: { cancelled: false } },
+      ...rules,
+    },
+  };
+}
+
+/** A `fork_session` command for a turn of `pi-session-1`. */
+function forkCommand(entry: string, sessionId = "pi-session-1"): ForkSessionCommand {
+  return {
+    type: "fork_session",
+    requestId: "r1",
+    traceparent,
+    sessionId,
+    turnId: `${sessionId}:${entry}`,
+    name: "one（分叉）",
+  };
+}
+
+/** The fork commands pi received, without request ids. */
+function forkCommands(received: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  const types = new Set(["fork", "clone", "set_session_name"]);
+  return withoutIds(received.filter((command) => types.has(String(command["type"]))));
+}
+
+/** A manager running `pi-session-1`, with its tab open, over the scripted pi `forking` makes. */
+async function forkable(
+  rules: Readonly<Record<string, object>> = {},
+  elsewhere = false,
+  turnStarts?: (sessionId: string) => Promise<TurnStarts>,
+) {
+  const at = await place();
+  const original = await terminalSession(at, "pi-session-1", at.workspace);
+  const managed = await manage(forking(at, rules, elsewhere), at, turnStarts);
+  await managed.catalog.scan();
+  await managed.manager.openSession("client-1", "pi-session-1");
+  return { ...managed, original };
+}
+
+describe("SessionManager forking", () => {
+  it("forks before the next turn with a pi of its own on the session's file, names the fork and opens it as the active tab", async () => {
+    const { manager, layouts, piReceived, starts, resources, original, at } = await forkable();
+
+    expect(await manager.forkSession("client-1", forkCommand("u1"))).toStrictEqual({ sessionId: "pi-session-2" });
+
+    expect(forkCommands(piReceived())).toStrictEqual([
+      { type: "fork", entryId: "u2" },
+      { type: "set_session_name", name: "one（分叉）" },
+    ]);
+    expect(
+      starts()
+        .filter((line) => "argv" in line)
+        .map(({ argv, cwd }) => [argv.slice(2), cwd]),
+    ).toStrictEqual([
+      [["--session", original], at.workspace],
+      [["--session", original], at.workspace],
+    ]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: WORKSPACE,
+      tabs: { [WORKSPACE]: { open: ["pi-session-1", "pi-session-2"], active: "pi-session-2" } },
+    });
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+    expect(resources.snapshot()["timer"]).toBe(0);
+  });
+
+  it("clones the whole branch after the last turn, opening the fork without taking a client that went elsewhere there", async () => {
+    const { manager, layouts, piReceived } = await forkable();
+
+    const pending = manager.forkSession("client-1", forkCommand("u2"));
+    await manager.selectContainer("client-1", CHAT);
+    await pending;
+
+    expect(forkCommands(piReceived())).toStrictEqual([
+      { type: "clone" },
+      { type: "set_session_name", name: "one（分叉）" },
+    ]);
+    expect(layouts.of("client-1")).toStrictEqual({
+      container: CHAT,
+      tabs: { [WORKSPACE]: { open: ["pi-session-1", "pi-session-2"], active: "pi-session-2" } },
+    });
+  });
+
+  it("gives the fork the record of which messages opened turns", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const turns = join(at.home, "turn-starts");
+    const load = async (sessionId: string) => (await loadTurnStarts(turns, sessionId, 0)).starts;
+    await (await load("pi-session-1")).record(["u1", "u2"], ["u2"]);
+    const { manager, catalog } = await manage(forking(at), at, load);
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+
+    await manager.forkSession("client-1", forkCommand("u1"));
+
+    const copied = await load("pi-session-2");
+    expect([[...copied.opened], [...copied.auto]]).toStrictEqual([["u1", "u2"], ["u2"]]);
+  });
+
+  it.each([
+    ["pi refuses", { fork: { fail: "Invalid entry ID for forking" } }, false, "rejected"],
+    ["an extension calls it off", { fork: { data: { text: "two", cancelled: true } } }, false, "cancelled"],
+    ["pi exits", { fork: { exit: 1 } }, false, "exited"],
+    ["the fork's file is not where sessions are", {}, true, "not_found"],
+  ])(
+    "fails when %s, logging only why, stopping its pi and opening nothing",
+    async (_case, rules, elsewhere, reason) => {
+      const { manager, layouts, records, resources } = await forkable(rules, elsewhere);
+
+      await expect(manager.forkSession("client-1", forkCommand("u1"))).rejects.toStrictEqual(
+        new CommandError("fork_failed"),
+      );
+      expect(records.filter((record) => record["msg"] === "fork failed")).toMatchObject([
+        { sessionId: "pi-session-1", reason },
+      ]);
+      expect(layouts.of("client-1").tabs[WORKSPACE]).toStrictEqual({ open: ["pi-session-1"], active: "pi-session-1" });
+      await vi.waitFor(() => expect(resources.snapshot()["pi-process"]).toBe(1));
+    },
+  );
+
+  it("calls a fork under way off when the host closes", async () => {
+    const { manager, records, resources, piReceived } = await forkable({ fork: { silent: true } });
+
+    const failed = manager.forkSession("client-1", forkCommand("u1")).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(forkCommands(piReceived())).toStrictEqual([{ type: "fork", entryId: "u2" }]));
+    await manager.close();
+
+    expect(await failed).toStrictEqual(new CommandError("fork_failed"));
+    expect(records.filter((record) => record["msg"] === "fork failed")).toMatchObject([
+      { sessionId: "pi-session-1", reason: "aborted" },
+    ]);
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("holds the session busy until the fork's pi is done: a message queues, a fork, a compaction or a hand-off is refused", async () => {
+    const { manager, piReceived } = await forkable({ fork: { silent: true } });
+    const pending = manager.forkSession("client-1", forkCommand("u1")).catch(caught);
+    await vi.waitFor(() => expect(forkCommands(piReceived())).toStrictEqual([{ type: "fork", entryId: "u2" }]));
+    const busy = new CommandError("session_busy");
+
+    // The hand-off first: a message in the queue would keep it back on its own.
+    const answers = [
+      await manager.handOff("pi-session-1").catch(caught),
+      await manager.forkSession("client-1", forkCommand("u1")).catch(caught),
+      await manager.compactSession("pi-session-1", undefined).catch(caught),
+      await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "ping" }),
+    ];
+    await manager.close();
+    await pending;
+
+    expect(answers).toMatchObject([busy, busy, busy, { disposition: "queued" }]);
+  });
+
+  it("refuses a draft, and a session unknown, gone, handed off or never started here", async () => {
+    const at = await place();
+    const gone = await terminalSession(at, "pi-session-3", at.workspace);
+    await terminalSession(at, "pi-session-4", at.workspace);
+    await terminalSession(at, "pi-session-5", at.workspace);
+    const { manager, catalog } = await manage(forking(at), at);
+    // Recorded, so its file going leaves it missing rather than unknown.
+    await catalog.record({ sessionId: "pi-session-3", containerId: WORKSPACE, cwd: at.workspace });
+    await catalog.scan();
+    await rm(gone);
+    await catalog.scan();
+    await manager.handOff("pi-session-4");
+    const { sessionId: draft } = await manager.createChat("client-1");
+
+    const refusals = [draft, "nope", "pi-session-3", "pi-session-4", "pi-session-5"].map((sessionId) =>
+      manager.forkSession("client-1", forkCommand("u1", sessionId)).catch((error: unknown) => error),
+    );
+
+    expect(await Promise.all(refusals)).toStrictEqual([
+      new CommandError("session_is_draft", { sessionId: draft }),
+      new CommandError("session_not_found", { sessionId: "nope" }),
+      new CommandError("session_not_found", { sessionId: "pi-session-3" }),
+      new CommandError("session_handed_off", { sessionId: "pi-session-4" }),
+      new CommandError("turn_not_found"),
+    ]);
+  });
+
+  it("forks all the same when the record cannot be copied, logging that", async () => {
+    const { manager, records } = await forkable({}, false, () => Promise.reject(new Error("disk full")));
+
+    expect(await manager.forkSession("client-1", forkCommand("u1"))).toStrictEqual({ sessionId: "pi-session-2" });
+    expect(records.filter((record) => record["msg"] === "turn starts could not be copied")).toMatchObject([
+      { sessionId: "pi-session-2", err: { message: "disk full" } },
+    ]);
   });
 });
 

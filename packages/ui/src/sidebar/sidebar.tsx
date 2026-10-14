@@ -2,6 +2,8 @@ import { type AtriumClient, CommandError, type IndexView } from "@atrium/client"
 import type { Appearance, Chat, MergeUnknownReason, Project, SessionSummary, Workspace } from "@atrium/protocol";
 import {
   ArrowUp,
+  CaretUp,
+  ChatAdd,
   DotsThree,
   Folder,
   FolderOpen,
@@ -11,16 +13,25 @@ import {
   Monitor,
   Moon,
   GearSix,
-  PlusCircle,
+  Plus,
   Sun,
+  Trash,
 } from "../design/icons";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, createContext, use, useState } from "react";
 import { useStore } from "zustand";
+import { Fold } from "../chat/fold";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { UpdateDot } from "../settings/settings-panel";
 import { piUpdateAvailable } from "../setup/pi-version";
 import { useClock } from "../state/clock";
-import { ArchiveDialog, ArchivedWorkspaces, describeRestoreError } from "./archive";
+import {
+  ArchiveDialog,
+  ArchivedChats,
+  ArchivedWorkspaces,
+  ChatArchiveDialog,
+  describeChatArchiveError,
+  describeRestoreError,
+} from "./archive";
 import {
   chatName,
   isDone,
@@ -54,12 +65,34 @@ const UNKNOWN_REASONS: Readonly<Record<MergeUnknownReason, string>> = {
   base_unknown: "无法判断是否已合并：看不出这个 worktree 从哪里开始",
 };
 
+/**
+ * A row's archive button, shown on hover left of its "···": a red trash can on a faint red.
+ *
+ * @remarks
+ * The one icon with a ground (design-language, "侧栏"): archiving removes a worktree's directory or
+ * puts a chat away, and the red says so where the old drawer said nothing.
+ */
+const ROW_ARCHIVE =
+  "rounded-[var(--r)] bg-[var(--danger-soft)] p-1 text-[var(--danger)] hover:bg-[color-mix(in_srgb,var(--danger)_20%,transparent)] aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-[var(--danger-soft)]";
+
 /** Where collapsed projects are remembered in this browser profile (domain-model §7, ViewState). */
 const COLLAPSED_KEY = "atrium.collapsedProjects";
+
+/** Where an opened inbox card is remembered in this browser profile, like collapsed projects. */
+const INBOX_OPEN_KEY = "atrium.inboxOpen";
 
 /** The class of a sidebar row; selected rows get `--selected`. */
 const ROW =
   "group relative my-0.5 flex h-[34px] cursor-default select-none items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]";
+
+/** How long a project's workspaces, or the inbox's list, take to fold away or unfold (design-language, "动效"). */
+const PROJECT_FOLD_MS = 280;
+
+/** How the sidebar's width and what is in it move as it folds and unfolds (design-language, "动效 · 左栏折叠展开"). */
+const FOLD_MOTION = {
+  width: "[transition:width_240ms_cubic-bezier(.2,.8,.2,1)]",
+  inside: "[transition:opacity_200ms,translate_240ms_cubic-bezier(.2,.8,.2,1)]",
+} as const;
 
 /** The class of a small icon button in the sidebar. */
 const ICON_BUTTON =
@@ -108,36 +141,53 @@ function readCollapsed(): ReadonlySet<string> {
 }
 
 /**
- * The sidebar: new chat, projects with their workspaces, search, chats, the settings and the
- * appearance switch.
+ * The sidebar: projects with their workspaces, search, chats with "新建对话" by their heading, the
+ * inbox's card, the settings and the appearance switch.
  *
  * @remarks
- * Follows SPEC-0001 ("侧栏"); the inbox comes with M1.9. Projects can be collapsed; a collapsed
+ * Follows SPEC-0001 ("侧栏"). The inbox stays at the bottom, over "设置", while the rest scrolls
+ * above it (SPEC-0001, "收件箱"). Projects can be collapsed; a collapsed
  * project shows how many worktrees wait to be merged and whether something runs in it. Workspaces
  * show their merge state and whether a session runs in them, and are selected by clicking.
  * Chats are listed like workspaces, by their latest activity. Search matches workspace names, chat
  * names and session titles, replacing the projects and chats with its results while it has text. Renaming happens in place. "设置" carries a blue dot while a newer pi
- * is out (SPEC-0001, "设置 · pi").
+ * is out (SPEC-0001, "设置 · pi"). While a project's new-workspace page shows, its row is the one
+ * selected, and going to a workspace, chat or session leaves the page (SPEC-0001, "M1.11 的新建工作区").
+ * Folded, its width goes to 0 while what is in it keeps its own, fades and moves 24px left, and
+ * none of it can be focused (SPEC-0001, "界面 · 左栏折叠与右栏"; design-language, "动效").
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
- * projects in `localStorage`.
- * @param props - The client, how to start a new chat, how to choose a folder, and how to open the
- * settings.
+ * projects and the inbox's card in `localStorage`.
+ * @param props - The client, how to start a new chat, how to show a session chosen, how to choose
+ * a folder, how to open the settings, the new-workspace page, and whether the sidebar is folded.
  * @returns The sidebar.
  */
 export function Sidebar({
   client,
   onNewChat,
+  showSession = noShow,
   pickDirectory,
   onSettings,
+  page,
+  folded = false,
 }: {
   readonly client: AtriumClient;
   readonly onNewChat: () => void;
+  /**
+   * Brings a session chosen in the search or the inbox forward in its container, over a viewer
+   * tab, before it opens (SPEC-0001, "M1.12 的文件与更改 · 查看标签").
+   */
+  readonly showSession?: (session: SessionSummary) => void;
   /** Asks the user for a folder; `undefined` where the app cannot ask. */
   readonly pickDirectory: (() => Promise<string | null>) | undefined;
   readonly onSettings: () => void;
+  /** The new-workspace page; without it, projects have no "+". */
+  readonly page?: SidebarPage;
+  readonly folded?: boolean;
 }) {
-  const index = useStore(client.index);
+  const listed = useStore(client.index);
+  // While the page shows, the client's place is not where the user is.
+  const index = page?.projectId == null ? listed : { ...listed, layout: { ...listed.layout, container: null } };
   const update = useStore(client.setup, (setup) => setup.state !== null && piUpdateAvailable(setup.state.pi));
   const now = useClock().now();
   const [collapsed, setCollapsed] = useState(readCollapsed);
@@ -166,150 +216,199 @@ export function Sidebar({
    * Runs a command, showing its failure under the projects' heading.
    *
    * @remarks
-   * Sidebar commands have no other place to report.
+   * Sidebar commands have no other place to report. A command whose failures read otherwise says
+   * how; the rest are explained as `describeProjectError` does.
    *
    * @sideEffects Sends the command; may set the problem line.
    * @param command - The command.
+   * @param describe - How to explain its failure.
    */
-  const run = (command: () => Promise<unknown>): void => {
+  const run = (
+    command: () => Promise<unknown>,
+    describe = (error: unknown) => describeProjectError(error, client.index.getState().projects),
+  ): void => {
     setProblem(null);
     // Fire and forget: the failure is shown.
-    void command().catch((error: unknown) => setProblem(describeProjectError(error, client.index.getState().projects)));
+    void command().catch((error: unknown) => setProblem(describe(error)));
   };
 
   const appearance = APPEARANCES.find((entry) => entry.appearance === index.preferences.appearance) ?? APPEARANCES[0];
 
   return (
-    <nav
-      aria-label="侧栏"
-      className="flex h-full w-[270px] shrink-0 flex-col bg-[var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150"
-    >
-      <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
-      <button
-        type="button"
-        onClick={onNewChat}
-        title="新建对话（⌘N）"
-        className="mx-3 mb-2 flex h-9 items-center justify-center gap-2 rounded-[var(--r-btn)] text-[var(--text)] shadow-[inset_0_0_0_0.5px_var(--line)] hover:bg-[var(--selected)]"
+    <LeavePage value={page?.leave ?? stay}>
+      <nav
+        aria-label="侧栏"
+        inert={folded}
+        className={`${folded ? "w-0" : "w-[270px]"} h-full shrink-0 overflow-hidden [background:var(--sidebar-bg)] shadow-[inset_-0.5px_0_0_var(--line)] backdrop-blur-[32px] backdrop-saturate-150 ${FOLD_MOTION.width}`}
       >
-        <PlusCircle size={16} />
-        新建对话
-      </button>
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-        <Inbox client={client} index={index} now={now} />
-        <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
-          <span className="flex-1">项目</span>
-          <button
-            type="button"
-            className={ICON_BUTTON}
-            aria-label="搜索工作区、对话和会话"
-            aria-pressed={searching}
-            onClick={() => {
-              setSearching(!searching);
-              setQuery("");
-            }}
-          >
-            <MagnifyingGlass size={15} />
-          </button>
-          {pickDirectory === undefined ? null : (
+        <div
+          data-testid="sidebar-inside"
+          className={`flex h-full w-[270px] flex-col ${folded ? "-translate-x-6 opacity-0" : ""} ${FOLD_MOTION.inside}`}
+        >
+          <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+            <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
+              <span className="flex-1">项目</span>
+              <button
+                type="button"
+                className={ICON_BUTTON}
+                aria-label="搜索工作区、对话和会话"
+                aria-pressed={searching}
+                onClick={() => {
+                  setSearching(!searching);
+                  setQuery("");
+                }}
+              >
+                <MagnifyingGlass size={15} />
+              </button>
+              {pickDirectory === undefined ? null : (
+                <button
+                  type="button"
+                  className={ICON_BUTTON}
+                  aria-label="添加项目"
+                  onClick={() =>
+                    run(async () => {
+                      const path = await pickDirectory();
+                      if (path !== null) await client.addProject(path);
+                    })
+                  }
+                >
+                  <FolderPlus size={17} />
+                </button>
+              )}
+            </div>
+            {problem === null ? null : (
+              <p role="alert" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
+                {problem}
+              </p>
+            )}
+            {searching ? (
+              <div className="relative mt-0.5 mb-1.5">
+                <MagnifyingGlass
+                  size={13}
+                  className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
+                />
+                <input
+                  aria-label="搜索工作区、对话和会话"
+                  placeholder="搜索工作区、对话和会话"
+                  // A search box opened on purpose takes the keyboard at once.
+                  // oxlint-disable-next-line jsx-a11y/no-autofocus
+                  autoFocus
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setSearching(false);
+                      setQuery("");
+                    }
+                  }}
+                  className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
+                />
+              </div>
+            ) : null}
+            {query.trim() !== "" ? (
+              <SearchResults client={client} index={index} query={query.trim()} now={now} showSession={showSession} />
+            ) : (
+              <>
+                {index.projects.map((project) => (
+                  <ProjectRows
+                    key={project.id}
+                    client={client}
+                    index={index}
+                    project={project}
+                    onNewWorkspace={page === undefined ? undefined : () => page.open(project.id)}
+                    pageHere={page?.projectId === project.id}
+                    open={!collapsed.has(project.id)}
+                    onToggle={() => toggle(project.id)}
+                    renaming={renaming}
+                    setRenaming={setRenaming}
+                    run={run}
+                    now={now}
+                  />
+                ))}
+                {index.ready && index.projects.length === 0 ? (
+                  <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
+                    还没有项目，点上面的文件夹按钮添加
+                  </p>
+                ) : null}
+                <ChatRows
+                  client={client}
+                  index={index}
+                  now={now}
+                  onNewChat={onNewChat}
+                  renaming={renaming}
+                  setRenaming={setRenaming}
+                  run={run}
+                />
+              </>
+            )}
+          </div>
+          <Inbox client={client} index={index} now={now} showSession={showSession} />
+          <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
+            <button
+              type="button"
+              onClick={onSettings}
+              title="设置（⌘,）"
+              className="inline-flex h-7 items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]"
+            >
+              <GearSix size={16} className="text-[var(--text-muted)]" />
+              设置
+              {update ? <UpdateDot /> : null}
+            </button>
+            <span className="flex-1" />
             <button
               type="button"
               className={ICON_BUTTON}
-              aria-label="添加项目"
-              onClick={() =>
-                run(async () => {
-                  const path = await pickDirectory();
-                  if (path !== null) await client.addProject(path);
-                })
-              }
-            >
-              <FolderPlus size={17} />
-            </button>
-          )}
-        </div>
-        {problem === null ? null : (
-          <p role="alert" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
-            {problem}
-          </p>
-        )}
-        {searching ? (
-          <div className="relative mt-0.5 mb-1.5">
-            <MagnifyingGlass
-              size={13}
-              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
-            />
-            <input
-              aria-label="搜索工作区、对话和会话"
-              placeholder="搜索工作区、对话和会话"
-              // A search box opened on purpose takes the keyboard at once.
-              // oxlint-disable-next-line jsx-a11y/no-autofocus
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setSearching(false);
-                  setQuery("");
-                }
+              aria-label={appearance?.label}
+              title={appearance?.label}
+              onClick={() => {
+                const at = APPEARANCES.findIndex((entry) => entry.appearance === index.preferences.appearance);
+                const next = APPEARANCES[(at + 1) % APPEARANCES.length]?.appearance ?? "system";
+                run(() => client.setPreferences({ appearance: next }));
               }}
-              className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
-            />
+            >
+              {appearance?.icon}
+            </button>
           </div>
-        ) : null}
-        {query.trim() !== "" ? (
-          <SearchResults client={client} index={index} query={query.trim()} now={now} />
-        ) : (
-          <>
-            {index.projects.map((project) => (
-              <ProjectRows
-                key={project.id}
-                client={client}
-                index={index}
-                project={project}
-                open={!collapsed.has(project.id)}
-                onToggle={() => toggle(project.id)}
-                renaming={renaming}
-                setRenaming={setRenaming}
-                run={run}
-                now={now}
-              />
-            ))}
-            {index.ready && index.projects.length === 0 ? (
-              <p className="px-2 py-1 text-[length:var(--fs-meta)] text-[var(--text-dim)]">
-                还没有项目，点上面的文件夹按钮添加
-              </p>
-            ) : null}
-            <ChatRows client={client} index={index} now={now} renaming={renaming} setRenaming={setRenaming} run={run} />
-          </>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1 px-3 pt-2 pb-3">
-        <button
-          type="button"
-          onClick={onSettings}
-          title="设置（⌘,）"
-          className="inline-flex h-7 items-center gap-2 rounded-[var(--r)] px-2 text-[var(--text-2)] hover:bg-[var(--hover)]"
-        >
-          <GearSix size={16} className="text-[var(--text-muted)]" />
-          设置
-          {update ? <UpdateDot /> : null}
-        </button>
-        <span className="flex-1" />
-        <button
-          type="button"
-          className={ICON_BUTTON}
-          aria-label={appearance?.label}
-          title={appearance?.label}
-          onClick={() => {
-            const at = APPEARANCES.findIndex((entry) => entry.appearance === index.preferences.appearance);
-            const next = APPEARANCES[(at + 1) % APPEARANCES.length]?.appearance ?? "system";
-            run(() => client.setPreferences({ appearance: next }));
-          }}
-        >
-          {appearance?.icon}
-        </button>
-      </div>
-    </nav>
+        </div>
+      </nav>
+    </LeavePage>
   );
+}
+
+/** The new-workspace page, as the sidebar opens, marks and leaves it (SPEC-0001, "M1.11 的新建工作区"). */
+export interface SidebarPage {
+  /** The project whose page shows, or `null`. */
+  readonly projectId: string | null;
+  readonly open: (projectId: string) => void;
+  readonly leave: () => void;
+}
+
+/** Leaves the new-workspace page, as going to a workspace, chat or session from the sidebar does. */
+const LeavePage = createContext<() => void>(() => undefined);
+
+/**
+ * Leaves nothing.
+ *
+ * @remarks
+ * For a sidebar given no new-workspace page.
+ *
+ * @sideEffects none
+ */
+function stay(): void {
+  // Nothing: see above.
+}
+
+/**
+ * Shows nothing more of a session chosen than opening it does.
+ *
+ * @remarks
+ * For a sidebar given no viewer tabs to bring a session over.
+ *
+ * @sideEffects none
+ */
+function noShow(): void {
+  // Nothing: see above.
 }
 
 /**
@@ -339,8 +438,8 @@ interface ListedChat {
  * The chats the sidebar lists, latest activity first.
  *
  * @remarks
- * A chat whose sessions are all archived is left out; its activity is its sessions' latest, its
- * status their highest (SPEC-0001, "对话").
+ * An archived chat, or one whose sessions are all archived, is left out; its activity is its
+ * sessions' latest, its status their highest (SPEC-0001, "对话", "M1.11 的对话归档").
  *
  * @sideEffects none
  * @param index - The list.
@@ -348,6 +447,7 @@ interface ListedChat {
  */
 function listedChats(index: Pick<IndexView, "chats" | "sessions">): ListedChat[] {
   return index.chats
+    .filter((chat) => chat.archivedAt === null)
     .map((chat) => {
       const sessions = index.sessions.filter((session) => session.containerId === chat.id && !session.archived);
       return {
@@ -382,22 +482,26 @@ async function selectChat(client: AtriumClient, listed: ListedChat): Promise<unk
 }
 
 /**
- * The "对话" heading and the chats' rows: the latest five, then "显示全部 N 个".
+ * The "对话" heading with "新建对话" on its right, and the chats' rows: the latest five, then
+ * "显示全部 N 个".
  *
  * @remarks
- * Each chat is a container like a workspace (ADR-0007): its row shows its name, latest activity
- * and status, is lit while selected, and its "···" menu renames it. The rest of the chats open in
- * place, and "收起" closes them again (SPEC-0001, "对话").
+ * Shown without chats too, as its heading holds the way to start one (SPEC-0001, "对话"). Each chat is a
+ * container like a workspace (ADR-0007): its row shows its name, latest activity and status, is
+ * lit while selected; on hover its archive button archives it, asking first only when some of its
+ * sessions run, and its "···" menu renames it (SPEC-0001, "M1.11 的对话归档"). The rest of the chats open in place, and
+ * "收起" closes them again; the archived ones are listed last.
  *
  * @sideEffects Sends commands when used.
- * @param props - The client, the list, the time now, and the sidebar's renaming and command
- * helpers.
- * @returns The rows, or nothing without chats.
+ * @param props - The client, the list, the time now, how to start a new chat, and the sidebar's
+ * renaming and command helpers.
+ * @returns The section.
  */
 function ChatRows({
   client,
   index,
   now,
+  onNewChat,
   renaming,
   setRenaming,
   run,
@@ -405,17 +509,38 @@ function ChatRows({
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly now: number;
+  readonly onNewChat: () => void;
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
-  readonly run: (command: () => Promise<unknown>) => void;
+  readonly run: (command: () => Promise<unknown>, describe?: (error: unknown) => string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [archiving, setArchiving] = useState<{ readonly chat: Chat; readonly running: number } | null>(null);
   const chats = listedChats(index);
-  if (chats.length === 0) return null;
+  /**
+   * Archives a chat, explaining a failure in the problem line.
+   *
+   * @remarks
+   * See `ChatRows`.
+   *
+   * @sideEffects Sends `archive_chat`.
+   * @param chatId - The chat.
+   */
+  const archive = (chatId: string): void =>
+    run(
+      () => client.archiveChat(chatId),
+      (error) => describeChatArchiveError(error, "没能归档这个对话"),
+    );
   const shown = expanded ? chats : chats.slice(0, RECENT_CHATS);
+  const leave = use(LeavePage);
   return (
     <section aria-label="对话">
-      <div className="mt-1.5 flex h-[34px] items-center pl-2 text-[var(--text-muted)]">对话</div>
+      <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
+        <span className="flex-1">对话</span>
+        <button type="button" className={ICON_BUTTON} aria-label="新建对话" title="新建对话（⌘N）" onClick={onNewChat}>
+          <ChatAdd size={17} />
+        </button>
+      </div>
       {shown.map((listed) => {
         const { chat } = listed;
         const name = chatName(chat, index.sessions);
@@ -425,9 +550,14 @@ function ChatRows({
             role="button"
             tabIndex={0}
             aria-current={index.layout.container === chat.id}
-            onClick={() => run(() => selectChat(client, listed))}
+            onClick={() => {
+              leave();
+              run(() => selectChat(client, listed));
+            }}
             onKeyDown={(event) => {
-              if (event.key === "Enter") run(() => selectChat(client, listed));
+              if (event.key !== "Enter") return;
+              leave();
+              run(() => selectChat(client, listed));
             }}
             className={`${ROW} aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
             data-testid="chat-row"
@@ -449,11 +579,24 @@ function ChatRows({
             </span>
             <StatusIcon status={listed.status} />
             <span
-              className="hidden group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
+              className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
               // The menu belongs to the row but must not select it.
               onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
             >
+              <button
+                type="button"
+                aria-label={`归档对话 ${name}`}
+                title="归档"
+                onClick={() => {
+                  const running = listed.sessions.filter((session) => session.running).length;
+                  if (running > 0) setArchiving({ chat, running });
+                  else archive(chat.id);
+                }}
+                className={ROW_ARCHIVE}
+              >
+                <Trash size={14} />
+              </button>
               <MenuButton label={`对话 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
                 {(close) => (
                   <button
@@ -482,6 +625,21 @@ function ChatRows({
           {expanded ? "收起" : `显示全部 ${chats.length} 个`}
         </button>
       ) : null}
+      <ArchivedChats
+        client={client}
+        chats={index.chats.filter((chat) => chat.archivedAt !== null)}
+        sessions={index.sessions}
+        now={now}
+        run={run}
+      />
+      {archiving === null ? null : (
+        <ChatArchiveDialog
+          name={chatName(archiving.chat, index.sessions)}
+          running={archiving.running}
+          onArchive={() => archive(archiving.chat.id)}
+          onClose={() => setArchiving(null)}
+        />
+      )}
     </section>
   );
 }
@@ -492,11 +650,15 @@ function ChatRows({
  * @remarks
  * See `Sidebar`. A collapsed project holding the current workspace is shown selected. Archived
  * workspaces are left out, listed only in the project's menu; archiving one asks first
- * (SPEC-0001, "M1.11 的工作区归档").
+ * (SPEC-0001, "M1.11 的工作区归档"). Opening and closing fold the workspaces' rows in and out and
+ * cross-fade the folder (SPEC-0001, "侧栏"; design-language, "动效"). Hovering shows "+", which
+ * opens the project's new-workspace page; the row is selected while the page shows (SPEC-0001,
+ * "M1.11 的新建工作区").
  *
- * @sideEffects Sends commands when used.
- * @param props - The client, the list, the project, whether it is open, the sidebar's renaming
- * and command helpers, and the time now.
+ * @sideEffects Sends commands when used; animates the rows and the folder when opened or closed.
+ * @param props - The client, the list, the project, whether it is open, how to open its
+ * new-workspace page and whether it shows, the sidebar's renaming and command helpers, and the
+ * time now.
  * @returns The rows.
  */
 function ProjectRows({
@@ -505,6 +667,8 @@ function ProjectRows({
   project,
   open,
   onToggle,
+  onNewWorkspace,
+  pageHere,
   renaming,
   setRenaming,
   run,
@@ -515,6 +679,10 @@ function ProjectRows({
   readonly project: Project;
   readonly open: boolean;
   readonly onToggle: () => void;
+  /** Opens the project's new-workspace page; without it, the row has no "+". */
+  readonly onNewWorkspace: (() => void) | undefined;
+  /** Whether the project's new-workspace page shows, which selects the row. */
+  readonly pageHere: boolean;
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
   readonly run: (command: () => Promise<unknown>) => void;
@@ -546,7 +714,7 @@ function ProjectRows({
         role="button"
         tabIndex={0}
         aria-expanded={open}
-        aria-current={!open && holdsCurrent}
+        aria-current={pageHere || (!open && holdsCurrent)}
         onClick={onToggle}
         onKeyDown={(event) => {
           if (event.key === "Enter") onToggle();
@@ -554,8 +722,9 @@ function ProjectRows({
         className={`${ROW} aria-[current=true]:bg-[var(--selected)]`}
         data-testid="project-row"
       >
-        <span className={open ? "text-[var(--tint)]" : "text-[var(--text-muted)]"}>
-          {open ? <FolderOpen size={15} /> : <Folder size={15} />}
+        <span className={`atrium-folder ${open ? "text-[var(--tint)]" : "text-[var(--text-muted)]"}`}>
+          <Folder size={15} data-folder="closed" data-shown={!open} />
+          <FolderOpen size={15} data-folder="open" data-shown={open} />
         </span>
         {renaming === project.id ? (
           <RenameField
@@ -581,6 +750,17 @@ function ProjectRows({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
+          {onNewWorkspace === undefined ? null : (
+            <button
+              type="button"
+              aria-label={`在 ${project.name} 新建工作区`}
+              title="新建工作区"
+              onClick={onNewWorkspace}
+              className="rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+            >
+              <Plus size={14} />
+            </button>
+          )}
           <MenuButton label={`项目 ${project.name}`} compact content={<DotsThree size={14} weight="bold" />}>
             {(close) => (
               <>
@@ -614,21 +794,27 @@ function ProjectRows({
           </MenuButton>
         </span>
       </div>
-      {open
-        ? workspaces.map((workspace) => (
-            <WorkspaceRow
-              key={workspace.id}
-              client={client}
-              workspace={workspace}
-              selected={index.layout.container === workspace.id}
-              status={status(workspace)}
-              renaming={renaming === workspace.id}
-              setRenaming={setRenaming}
-              run={run}
-              onArchive={() => setArchiving(workspace)}
-            />
-          ))
-        : null}
+      {/* The rows' 2px gaps stay the same open, folding and folded (design-language, "动效"). */}
+      <Fold
+        open={open}
+        testId="project-workspaces"
+        duration={PROJECT_FOLD_MS}
+        className="-mb-0.5 flow-root [&>:first-child]:mt-0"
+      >
+        {workspaces.map((workspace) => (
+          <WorkspaceRow
+            key={workspace.id}
+            client={client}
+            workspace={workspace}
+            selected={index.layout.container === workspace.id}
+            status={status(workspace)}
+            renaming={renaming === workspace.id}
+            setRenaming={setRenaming}
+            run={run}
+            onArchive={() => setArchiving(workspace)}
+          />
+        ))}
+      </Fold>
       {archiving === null ? null : (
         <ArchiveDialog
           client={client}
@@ -667,8 +853,9 @@ function workspaceHint(workspace: Workspace): string {
  * One workspace's row: its name, merge state and whether something runs in it.
  *
  * @remarks
- * See `Sidebar`; merge labels follow design-language ("标签"). A worktree's menu can archive it,
- * except while it has changes not committed (SPEC-0001, "M1.11 的工作区归档").
+ * See `Sidebar`; merge labels follow design-language ("标签"). On hover a worktree's archive
+ * button asks to archive it, faded and saying why while it has changes not committed (SPEC-0001,
+ * "M1.11 的工作区归档"); `aria-disabled` rather than `disabled`, so the reason still shows.
  *
  * @sideEffects Sends commands when used.
  * @param props - The client, the workspace, whether it is selected, runs or is being renamed,
@@ -695,18 +882,26 @@ function WorkspaceRow({
   readonly onArchive: () => void;
 }) {
   const name = workspaceName(workspace);
+  const leave = use(LeavePage);
+  const dirty = workspace.merge?.dirty === true;
   return (
     <div
       role="button"
       tabIndex={0}
       aria-current={selected}
       title={workspaceHint(workspace)}
-      onClick={() => run(() => client.selectContainer(workspace.id))}
+      onClick={() => {
+        leave();
+        run(() => client.selectContainer(workspace.id));
+      }}
       onKeyDown={(event) => {
-        if (event.key === "Enter") run(() => client.selectContainer(workspace.id));
+        if (event.key !== "Enter") return;
+        leave();
+        run(() => client.selectContainer(workspace.id));
       }}
       className={`${ROW} pl-9 aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
       data-testid="workspace-row"
+      data-fold-row
     >
       {renaming ? (
         <RenameField
@@ -726,41 +921,38 @@ function WorkspaceRow({
       </span>
       <StatusIcon status={status} />
       <span
-        className="hidden group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
+        className="hidden gap-1 group-hover:inline-flex has-[[aria-expanded=true]]:inline-flex"
         // The menu belongs to the row but must not select it.
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
+        {workspace.kind === "worktree" ? (
+          <button
+            type="button"
+            aria-label={`归档工作区 ${name}`}
+            aria-disabled={dirty}
+            title={dirty ? "有未提交的改动，先提交或丢弃" : "归档"}
+            onClick={() => {
+              if (!dirty) onArchive();
+            }}
+            className={ROW_ARCHIVE}
+          >
+            <Trash size={14} />
+          </button>
+        ) : null}
         <MenuButton label={`工作区 ${name}`} compact content={<DotsThree size={14} weight="bold" />}>
           {(close) => (
-            <>
-              <button
-                type="button"
-                role="menuitem"
-                className={MENU_ITEM}
-                onClick={() => {
-                  close();
-                  setRenaming(workspace.id);
-                }}
-              >
-                重命名
-              </button>
-              {workspace.kind === "worktree" ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-                  disabled={workspace.merge?.dirty === true}
-                  title={workspace.merge?.dirty === true ? "有未提交的改动，先提交或丢弃" : undefined}
-                  onClick={() => {
-                    close();
-                    onArchive();
-                  }}
-                >
-                  归档…
-                </button>
-              ) : null}
-            </>
+            <button
+              type="button"
+              role="menuitem"
+              className={MENU_ITEM}
+              onClick={() => {
+                close();
+                setRenaming(workspace.id);
+              }}
+            >
+              重命名
+            </button>
           )}
         </MenuButton>
       </span>
@@ -844,7 +1036,7 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
  * line.
  *
  * @sideEffects Sends commands when used.
- * @param props - The client, the list, the query and the time now.
+ * @param props - The client, the list, the query, the time now, and how to show a session chosen.
  * @returns The results.
  */
 function SearchResults({
@@ -852,12 +1044,15 @@ function SearchResults({
   index,
   query,
   now,
+  showSession,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly query: string;
   readonly now: number;
+  readonly showSession: (session: SessionSummary) => void;
 }) {
+  const leave = use(LeavePage);
   const needle = query.toLowerCase();
   const workspaces = index.workspaces.filter(
     (workspace) => workspace.archivedAt === null && workspaceName(workspace).toLowerCase().includes(needle),
@@ -878,6 +1073,8 @@ function SearchResults({
    * @param session - The session.
    */
   const open = (session: SessionSummary) => {
+    leave();
+    showSession(session);
     // Fire and forget: opening shows the session or its failure there.
     void client.openSession(session.sessionId).catch(() => undefined);
   };
@@ -896,6 +1093,7 @@ function SearchResults({
           key={workspace.id}
           type="button"
           onClick={() => {
+            leave();
             // Fire and forget: the list shows where the client is.
             void client.selectContainer(workspace.id).catch(() => undefined);
           }}
@@ -918,6 +1116,7 @@ function SearchResults({
           key={listed.chat.id}
           type="button"
           onClick={() => {
+            leave();
             // Fire and forget: the list shows where the client is.
             void selectChat(client, listed).catch(() => undefined);
           }}
@@ -978,6 +1177,7 @@ function SessionLine({
       onClick={onOpen}
       aria-current={current}
       data-testid={testId}
+      data-fold-row
       className={`${ROW} h-auto w-full items-start py-[7px] text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
     >
       <span className="min-w-0 flex-1">
@@ -995,60 +1195,101 @@ function SessionLine({
 }
 
 /**
- * The inbox: the sessions waiting for the user, across every project and chat.
+ * The inbox: a card at the bottom of the sidebar with the sessions waiting for the user, across
+ * every project and chat.
  *
  * @remarks
- * SPEC-0001 ("收件箱"): left out when empty; five at most until "还有 N 条" opens the rest, which
- * "收起" closes again. A row is lit while its session is the one shown.
+ * SPEC-0001 ("收件箱"): left out when empty or switched off in the settings. Folded into its
+ * heading at first, with how many and one icon of each status there, by priority; its heading opens
+ * and folds it, remembered in this browser profile like collapsed projects. It opens upwards, the
+ * list above the heading, so the heading stays where it was clicked; the list unfolds and folds as
+ * a project's workspaces do, the chevron turning (design-language, "动效 · 收件箱展开收起"). Open,
+ * it shows three
+ * at most until "还有 N 条" opens the rest, which "收起" closes again; a long list scrolls in the
+ * card. A row is lit while its session is the one shown.
  *
- * @sideEffects Sends `open_session` when a row is clicked.
- * @param props - The client, the list and the time now.
+ * @sideEffects Sends `open_session` when a row is clicked; remembers the card opened or folded in
+ * `localStorage`.
+ * @param props - The client, the list, the time now, and how to show a session chosen.
  * @returns The inbox, or nothing.
  */
 function Inbox({
   client,
   index,
   now,
+  showSession,
 }: {
   readonly client: AtriumClient;
   readonly index: IndexView;
   readonly now: number;
+  readonly showSession: (session: SessionSummary) => void;
 }) {
+  const [open, setOpen] = useState(() => localStorage.getItem(INBOX_OPEN_KEY) === "true");
   const [expanded, setExpanded] = useState(false);
+  const leave = use(LeavePage);
   const entries = inboxOf(index.sessions);
-  if (entries.length === 0) return null;
+  if (!index.preferences.inbox || entries.length === 0) return null;
   const shown = expanded ? entries : entries.slice(0, INBOX_SHOWN);
   const active = activeOf(index);
+  // Sorted by priority already, so each status comes where it ranks.
+  const statuses = [...new Set(entries.map(({ status }) => status))];
   return (
-    <section aria-label="等你处理" className="mb-1">
-      <div className="mt-1.5 flex h-[34px] items-center pr-2 pl-2 text-[var(--text-muted)]">
-        <span className="flex-1">等你处理</span>
-        <span className="text-[length:var(--fs-sm)] tabular-nums">{entries.length}</span>
-      </div>
-      {shown.map(({ session, status, at }) => (
-        <SessionLine
-          key={session.sessionId}
-          index={index}
-          session={session}
-          when={timeAgo(at, now)}
-          status={status}
-          current={index.layout.container === session.containerId && active === session.sessionId}
-          testId="inbox-row"
-          onOpen={() => {
-            // Fire and forget: opening shows the session or its failure there.
-            void client.openSession(session.sessionId).catch(() => undefined);
-          }}
-        />
-      ))}
-      {entries.length > INBOX_SHOWN ? (
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-        >
-          {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
-        </button>
-      ) : null}
+    <section
+      aria-label="等你处理"
+      className="mx-3 shrink-0 rounded-[14px] bg-[var(--surface-1)] px-1 pt-0.5 pb-1 shadow-[var(--card-shadow)]"
+    >
+      {/* Opens upwards: the heading stays put, the list grows above it. */}
+      <Fold
+        open={open}
+        testId="inbox-list"
+        duration={PROJECT_FOLD_MS}
+        className="flex max-h-[228px] flex-col overflow-y-auto"
+      >
+        {shown.map(({ session, status, at }) => (
+          <SessionLine
+            key={session.sessionId}
+            index={index}
+            session={session}
+            when={timeAgo(at, now)}
+            status={status}
+            current={index.layout.container === session.containerId && active === session.sessionId}
+            testId="inbox-row"
+            onOpen={() => {
+              leave();
+              showSession(session);
+              // Fire and forget: opening shows the session or its failure there.
+              void client.openSession(session.sessionId).catch(() => undefined);
+            }}
+          />
+        ))}
+        {entries.length > INBOX_SHOWN ? (
+          <button
+            type="button"
+            data-fold-row
+            onClick={() => setExpanded(!expanded)}
+            className="shrink-0 rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+          >
+            {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
+          </button>
+        ) : null}
+      </Fold>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => {
+          setOpen(!open);
+          localStorage.setItem(INBOX_OPEN_KEY, String(!open));
+        }}
+        className="flex h-8 w-full items-center gap-1.5 rounded-[var(--r)] pr-1.5 pl-2 text-left text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)]"
+      >
+        等你处理
+        <span className="rounded-[var(--r-pill)] bg-[var(--attn-soft)] px-[7px] text-[length:var(--fs-sm)] leading-[18px] font-semibold text-[var(--attn-text)] tabular-nums">
+          {entries.length}
+        </span>
+        <span className="flex-1" />
+        {open ? null : statuses.map((status) => <StatusIcon key={status} status={status} />)}
+        <CaretUp size={14} className={`atrium-fold-chevron ${open ? "rotate-180" : ""}`} />
+      </button>
     </section>
   );
 }

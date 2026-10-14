@@ -15,7 +15,7 @@ const A = "wks_000000000000000a";
 const C = "cht_c";
 
 /** A chat without a name. */
-const chat = (id: string) => ({ id, dir: `/home/chats/${id}`, alias: null, firstSessionId: null });
+const chat = (id: string) => ({ id, dir: `/home/chats/${id}`, alias: null, firstSessionId: null, archivedAt: null });
 
 /** A session of `containerId`. */
 const session = (sessionId: string, containerId: string) => ({
@@ -57,13 +57,13 @@ describe("emptyIndex", () => {
       preferences: {
         setupDone: false,
         appearance: "system",
-        displayMode: "summary",
         lastModel: null,
         thinkingByModel: {},
         lastFast: false,
         statusBar: {},
         titleModel: null,
         proxy: null,
+        inbox: true,
       },
       resets: [],
     });
@@ -251,13 +251,13 @@ describe("withContainer and withPreferences", () => {
     expect(withPreferences(emptyIndex(), { appearance: "dark" }).preferences).toStrictEqual({
       setupDone: false,
       appearance: "dark",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
   });
 

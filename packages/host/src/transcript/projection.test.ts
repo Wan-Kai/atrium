@@ -16,8 +16,8 @@ function recordedBranch(leaf: string): LogEntry[] {
 }
 
 /** A user message entry. */
-function user(id: string, text: string, timestamp = 0): LogEntry {
-  return { id, parentId: null, kind: "user", text, images: 0, timestamp };
+function user(id: string, text: string, timestamp = 0, skill: string | null = null): LogEntry {
+  return { id, parentId: null, kind: "user", text, images: 0, skill, timestamp };
 }
 
 /** An assistant message entry. */
@@ -79,7 +79,7 @@ function turn(entryId: string, userText: string, fields: Partial<Turn>): Turn {
   return {
     kind: "turn",
     id: `s:${entryId}`,
-    user: { text: userText, images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    user: { text: userText, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,
@@ -214,6 +214,35 @@ describe("projectTranscript", () => {
 
     expect(stepKinds(items)).toStrictEqual([["tool", "steer", "text"], ["text"]]);
     expect((items[0] as Turn).steps[1]).toStrictEqual({ kind: "steer", id: "1", text: "also check b" });
+  });
+
+  it("tags a turn that started with a skill, and writes a steer that did as it was typed", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "the tests", 0, "review"),
+        reply("a1", [bash("c1")], { stopReason: "toolUse" }),
+        result("r1", "c1", "out"),
+        user("u2", "", 0, "lint"),
+        reply("a2", [bash("c2")], { stopReason: "toolUse" }),
+        result("r2", "c2", "out"),
+        user("u3", "only src", 0, "lint"),
+        reply("a3", [says("done")]),
+        user("u4", "next"),
+        reply("a4", [says("ok")]),
+      ],
+      "s",
+      none,
+    );
+
+    const turns = items as Turn[];
+    expect(turns.map((item) => [item.user.text, item.user.command])).toStrictEqual([
+      ["the tests", { kind: "skill", name: "review" }],
+      ["next", null],
+    ]);
+    expect(turns[0]?.steps.filter((step) => step.kind === "steer")).toStrictEqual([
+      { kind: "steer", id: "1", text: "/skill:lint" },
+      { kind: "steer", id: "3", text: "/skill:lint only src" },
+    ]);
   });
 
   it("numbers retries as pi does: consecutive failures count up, a success resets", () => {
@@ -503,7 +532,7 @@ describe("projectTranscript", () => {
       {
         ...turn("u1", "go", {}),
         id: "live-7",
-        user: { text: "go", images: 0, clientMessageId: "client-3", auto: false, timestamp: 1_000 },
+        user: { text: "go", images: 0, clientMessageId: "client-3", auto: false, command: null, timestamp: 1_000 },
         startedAt: 1_000,
         durationMs: 42,
         steps: [

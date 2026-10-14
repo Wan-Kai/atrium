@@ -2,6 +2,7 @@ import { agentDirectory, expandTilde } from "../env/agent-dir";
 import { open, readFile, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readSkillBlock } from "../history/skill-block";
 import { type LineSplitter, createLineSplitter } from "../process/jsonl";
 
 /** Where pi keeps its session files. */
@@ -197,13 +198,31 @@ function parseJson(text: string): unknown {
  * The text of a user message entry.
  *
  * @remarks
- * User content is a string or a list of blocks; only text blocks count.
+ * User content is a string or a list of blocks; only text blocks count. A message that started
+ * with a skill gives what followed the skill's name, or the name when nothing did (SPEC-0001,
+ * "M1.11 的 `/` 命令"), not the skill's file.
  *
  * @sideEffects none
  * @param record - An entry.
  * @returns The text, or `null` when the entry is not a user message with text.
  */
 function userText(record: unknown): string | null {
+  const text = rawUserText(record);
+  const skill = text === null ? null : readSkillBlock(text);
+  return skill === null ? text : skill.args || skill.name;
+}
+
+/**
+ * The text of a user message entry as pi keeps it.
+ *
+ * @remarks
+ * See `userText`.
+ *
+ * @sideEffects none
+ * @param record - An entry.
+ * @returns The text, or `null` when the entry is not a user message with text.
+ */
+function rawUserText(record: unknown): string | null {
   const message = field(record, "type") === "message" ? field(record, "message") : undefined;
   if (field(message, "role") !== "user") return null;
   const content = field(message, "content");

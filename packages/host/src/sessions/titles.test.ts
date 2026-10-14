@@ -27,7 +27,7 @@ function turn(text: string, steps: Turn["steps"]): Turn {
   return {
     kind: "turn",
     id: "t1",
-    user: { text, images: 0, clientMessageId: null, auto: false, timestamp: 1 },
+    user: { text, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 1 },
     steps,
     outcome: "done",
     error: null,

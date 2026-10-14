@@ -187,6 +187,9 @@ importers:
       lefthook:
         specifier: 2.1.16
         version: 2.1.16
+      material-icon-theme:
+        specifier: 5.39.0
+        version: 5.39.0
       oxfmt:
         specifier: 0.71.0
         version: 0.71.0
@@ -380,6 +383,9 @@ importers:
       react-dom:
         specifier: 19.3.0
         version: 19.3.0(react@19.3.0)
+      shiki:
+        specifier: 4.5.0
+        version: 4.5.0
       streamdown:
         specifier: 2.7.0
         version: 2.7.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(supports-color@7.2.0)
@@ -2483,6 +2489,9 @@ packages:
   chardet@2.2.0:
     resolution: {integrity: sha512-rddelWYNPRrXq6PtNEN2S3f6t9ILzvqaN5pVgi4kqt9jHQaXIial9PznB5iSPVlQSLNaaH22ItWz3EJtQ10+OA==}
 
+  chroma-js@3.2.0:
+    resolution: {integrity: sha512-os/OippSlX1RlWWr+QDPcGUZs0uoqr32urfxESG9U93lhUfbnlyckte84Q8P1UQY/qth983AS1JONKmLS4T0nw==}
+
   cli-width@4.1.0:
     resolution: {integrity: sha512-ouuZd4/dm2Sw5Gmqy6bGyNNNe1qt9RpmxveLSO7KcgsTnU7RXfsw+/bukWGo1abgBiMAic068rclZsO4IWmmxQ==}
     engines: {node: '>= 12'}
@@ -3411,6 +3420,10 @@ packages:
     resolution: {integrity: sha512-HnslJfsZkRPBDJRHvVtAaWlZHEpSu7u8LgQuJCELjRKuWR+hpq4A7sLq3p8HaI9ypVoXDXxV34CsQJEe1+J5Aw==}
     engines: {node: '>= 20'}
     hasBin: true
+
+  material-icon-theme@5.39.0:
+    resolution: {integrity: sha512-6dUQXJgNBlklaILIOlCZXhSBTsBmLkt11XMoTY7Uyb4ZikelGgZHOY4AdOWBA+SXz51cVWfOVnTHrTwGM91eYw==}
+    engines: {vscode: ^1.55.0}
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -6373,6 +6386,8 @@ snapshots:
 
   chardet@2.2.0: {}
 
+  chroma-js@3.2.0: {}
+
   cli-width@4.1.0: {}
 
   clsx@2.1.1: {}
@@ -7340,6 +7355,10 @@ snapshots:
   marked@16.4.2: {}
 
   marked@18.0.11: {}
+
+  material-icon-theme@5.39.0:
+    dependencies:
+      chroma-js: 3.2.0
 
   math-intrinsics@1.1.0: {}
 

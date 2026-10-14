@@ -42,6 +42,8 @@ function fakeCommands() {
     closeTab: record("closeTab", {}),
     selectContainer: record("selectContainer", {}),
     archiveSession: record("archiveSession", {}),
+    archiveChat: record("archiveChat", {}),
+    restoreChat: record("restoreChat", {}),
     renameSession: record("renameSession", {}),
     clearAttention: record("clearAttention", {}),
     handOff: record("handOff", { file: "/s.jsonl" }),
@@ -80,6 +82,9 @@ function fakeCommands() {
     setModel: record("setModel", {}),
     setThinkingLevel: record("setThinkingLevel", {}),
     setFast: record("setFast", {}),
+    compactSession: record("compactSession", {}),
+    exportSession: record("exportSession", { html: "<html></html>" }),
+    forkSession: record("forkSession", { sessionId: "s2" }),
     listCommands: record("listCommands", { commands: [] }),
     searchFiles: record("searchFiles", { files: [] }),
   };
@@ -91,6 +96,8 @@ function fakeCommands() {
     renameWorkspace: record("renameWorkspace", {}),
     archiveWorkspace: record("archiveWorkspace", {}),
     restoreWorkspace: record("restoreWorkspace", {}),
+    listBases: record("listBases", { main: null, current: "main", local: ["main"], remote: [] }),
+    createWorkspace: record("createWorkspace", { workspaceId: WORKSPACE }),
     renameChat: record("renameChat", {}),
     windowFocused: record("windowFocused", {}),
     setPreferences: record("setPreferences", {}),
@@ -211,6 +218,17 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
     },
     attachments,
     changes,
+    files: {
+      listDir: async (workspaceId, path) => {
+        calls.push(["listDir", workspaceId, path]);
+        if (path === "gone") throw new CommandError("path_not_found");
+        return { entries: [{ name: "a.ts", kind: "file" }], truncated: false };
+      },
+      readFile: async (workspaceId, path) => {
+        calls.push(["readFile", workspaceId, path]);
+        return { size: 1, content: { kind: "text", text: "a" } };
+      },
+    },
     tracer: recording.tracer,
     logger: recording.logger,
   });
@@ -283,9 +301,12 @@ describe("createRouter", () => {
     );
     await route(connection, withTrace({ type: "open_session", requestId: "r6", sessionId: "s2" }));
     await route(connection, withTrace({ type: "create_session", requestId: "r7", containerId: WORKSPACE }));
+    await route(connection, withTrace({ type: "create_session", requestId: "r7a", containerId: WORKSPACE, go: false }));
     await route(connection, withTrace({ type: "close_tab", requestId: "r8", sessionId: "s2" }));
     await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: CHAT }));
     await route(connection, withTrace({ type: "archive_session", requestId: "r10", sessionId: "s2" }));
+    await route(connection, withTrace({ type: "archive_chat", requestId: "r10a", chatId: CHAT }));
+    await route(connection, withTrace({ type: "restore_chat", requestId: "r10b", chatId: CHAT }));
     await route(connection, withTrace({ type: "rename_session", requestId: "r11", sessionId: "s2", name: "名字" }));
     await route(connection, withTrace({ type: "clear_attention", requestId: "r12", sessionId: "s2" }));
     await route(connection, withTrace({ type: "hand_off", requestId: "r13", sessionId: "s2" }));
@@ -302,10 +323,13 @@ describe("createRouter", () => {
       ["fetchTranscript", "s1", 2, "t9", 50],
       ["fetchStep", "s1", 2, "t9", "3"],
       ["openSession", "client-1", "s2"],
-      ["createSession", "client-1", WORKSPACE],
+      ["createSession", "client-1", WORKSPACE, true],
+      ["createSession", "client-1", WORKSPACE, false],
       ["closeTab", "client-1", "s2"],
       ["selectContainer", "client-1", CHAT],
       ["archiveSession", "s2"],
+      ["archiveChat", CHAT],
+      ["restoreChat", CHAT],
       ["renameSession", "s2", "名字"],
       ["clearAttention", "s2"],
       ["handOff", "s2"],
@@ -320,7 +344,13 @@ describe("createRouter", () => {
       { type: "response", requestId: "r5", ok: true, result: { step: { kind: "text", id: "3", text: "whole" } } },
       { type: "response", requestId: "r6", ok: true, result: {} },
       { type: "response", requestId: "r7", ok: true, result: { sessionId: "s3" } },
-      ...["r8", "r9", "r10", "r11", "r12"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      { type: "response", requestId: "r7a", ok: true, result: { sessionId: "s3" } },
+      ...["r8", "r9", "r10", "r10a", "r10b", "r11", "r12"].map((requestId) => ({
+        type: "response",
+        requestId,
+        ok: true,
+        result: {},
+      })),
       { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl" } },
       { type: "response", requestId: "r14", ok: true, result: {} },
       { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },
@@ -357,6 +387,13 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "list_commands", requestId: "r12", ...session }));
     await route(connection, withTrace({ type: "search_files", requestId: "r13", ...session, query: "src/" }));
     await route(connection, withTrace({ type: "set_fast", requestId: "r14", ...session, enabled: false }));
+    await route(connection, withTrace({ type: "compact_session", requestId: "r15", ...session, instructions: "API" }));
+    await route(connection, withTrace({ type: "compact_session", requestId: "r16", ...session }));
+    await route(connection, withTrace({ type: "export_session", requestId: "r17", ...session }));
+    await route(
+      connection,
+      withTrace({ type: "fork_session", requestId: "r18", ...session, turnId: "t1", name: "修 bug（分叉）" }),
+    );
 
     expect(calls).toStrictEqual([
       ["steer", "s1", "also"],
@@ -373,6 +410,14 @@ describe("createRouter", () => {
       ["listCommands", "s1"],
       ["searchFiles", "s1", "src/"],
       ["setFast", "s1", false],
+      ["compactSession", "s1", "API"],
+      ["compactSession", "s1", undefined],
+      ["exportSession", "s1"],
+      [
+        "forkSession",
+        "client-1",
+        { type: "fork_session", requestId: "r18", traceparent, ...session, turnId: "t1", name: "修 bug（分叉）" },
+      ],
     ]);
     expect(sent).toStrictEqual([
       { type: "response", requestId: "r1", ok: true, result: { disposition: "queued" } },
@@ -382,7 +427,9 @@ describe("createRouter", () => {
       ...["r8", "r9", "r10", "r11"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
       { type: "response", requestId: "r12", ok: true, result: { commands: [] } },
       { type: "response", requestId: "r13", ok: true, result: { files: [] } },
-      { type: "response", requestId: "r14", ok: true, result: {} },
+      ...["r14", "r15", "r16"].map((requestId) => ({ type: "response", requestId, ok: true, result: {} })),
+      { type: "response", requestId: "r17", ok: true, result: { html: "<html></html>" } },
+      { type: "response", requestId: "r18", ok: true, result: { sessionId: "s2" } },
     ]);
   });
 
@@ -408,7 +455,7 @@ describe("createRouter", () => {
     );
     await route(
       connection,
-      withTrace({ type: "set_preferences", requestId: "r8", displayMode: "thinking", setupDone: true, proxy: PROXY }),
+      withTrace({ type: "set_preferences", requestId: "r8", appearance: "light", setupDone: true, proxy: PROXY }),
     );
     await route(connection, withTrace({ type: "set_preferences", requestId: "r9" }));
     await route(connection, withTrace({ type: "list_models", requestId: "r10", workspaceId: WORKSPACE }));
@@ -421,6 +468,7 @@ describe("createRouter", () => {
         statusBar: { cost: true },
         titleModel: MODEL,
         proxy: null,
+        inbox: false,
       }),
     );
     await route(connection, withTrace({ type: "check_setup", requestId: "r13" }));
@@ -428,6 +476,11 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "rename_chat", requestId: "r15", chatId: CHAT, name: "合并原理" }));
     await route(connection, withTrace({ type: "archive_workspace", requestId: "r16", workspaceId: WORKSPACE }));
     await route(connection, withTrace({ type: "restore_workspace", requestId: "r17", workspaceId: WORKSPACE }));
+    await route(connection, withTrace({ type: "list_bases", requestId: "r18", projectId: PROJECT }));
+    await route(
+      connection,
+      withTrace({ type: "create_workspace", requestId: "r19", projectId: PROJECT, branch: "atrium/a", base: "main" }),
+    );
 
     expect(calls).toStrictEqual([
       ["subscribeIndex", "connection-7", undefined],
@@ -438,17 +491,25 @@ describe("createRouter", () => {
       ["renameWorkspace", WORKSPACE, null],
       ["windowFocused"],
       ["setPreferences", { appearance: "dark", titleModel: null }],
-      ["setPreferences", { displayMode: "thinking", setupDone: true, proxy: PROXY }],
+      ["setPreferences", { setupDone: true, appearance: "light", proxy: PROXY }],
       ["setPreferences", {}],
       ["listModels", WORKSPACE, false],
       ["listModels", null, true],
-      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL, proxy: null }],
+      ["setPreferences", { statusBar: { cost: true }, titleModel: MODEL, proxy: null, inbox: false }],
       ["checkSetup", false],
       ["checkSetup", true],
       ["renameChat", CHAT, "合并原理"],
       ["archiveWorkspace", WORKSPACE],
       ["restoreWorkspace", WORKSPACE],
+      ["listBases", PROJECT],
+      ["createWorkspace", PROJECT, "atrium/a", "main"],
     ]);
+    expect(sent[19]).toStrictEqual({
+      type: "response",
+      requestId: "r19",
+      ok: true,
+      result: { workspaceId: WORKSPACE },
+    });
     expect(sent[14]).toStrictEqual({ type: "response", requestId: "r14", ok: true, result: SETUP });
     expect(sent[2]).toStrictEqual({ type: "response", requestId: "r2", ok: true, result: { projectId: PROJECT } });
     expect(sent[10]).toStrictEqual({
@@ -533,6 +594,30 @@ describe("createRouter", () => {
         ok: false,
         error: { code: "workspace_not_found", params: { workspaceId: "wks_ffffffffffffffff" } },
       },
+    ]);
+  });
+
+  it("hands listing a directory and reading a file to the workspace files", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "list_dir", requestId: "r1", workspaceId: WORKSPACE, path: "src" }));
+    await route(connection, withTrace({ type: "read_file", requestId: "r2", workspaceId: WORKSPACE, path: "a.ts" }));
+    await route(connection, withTrace({ type: "list_dir", requestId: "r3", workspaceId: WORKSPACE, path: "gone" }));
+
+    expect(calls).toStrictEqual([
+      ["listDir", WORKSPACE, "src"],
+      ["readFile", WORKSPACE, "a.ts"],
+      ["listDir", WORKSPACE, "gone"],
+    ]);
+    expect(sent).toStrictEqual([
+      {
+        type: "response",
+        requestId: "r1",
+        ok: true,
+        result: { entries: [{ name: "a.ts", kind: "file" }], truncated: false },
+      },
+      { type: "response", requestId: "r2", ok: true, result: { size: 1, content: { kind: "text", text: "a" } } },
+      { type: "response", requestId: "r3", ok: false, error: { code: "path_not_found" } },
     ]);
   });
 

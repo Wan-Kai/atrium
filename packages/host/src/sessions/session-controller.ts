@@ -1,5 +1,5 @@
 import type { Dialog, PiEvent, PiStats, TranslatedEvent } from "@atrium/pi";
-import { createEventTranslator, isBusyRejection } from "@atrium/pi";
+import { compactRejection, createEventTranslator, isBusyRejection } from "@atrium/pi";
 import {
   CommandError,
   type CommandResult,
@@ -79,6 +79,10 @@ export interface SessionPi {
   setThinkingLevel(level: ThinkingLevel): Promise<void>;
   /** Switches Atrium's Fast extension; fails with `fast_unavailable` when this pi did not load it. */
   setFast(enabled: boolean): Promise<void>;
+  /** Sends `compact`, with what to keep in mind when asked; resolves once pi has compacted. */
+  compact(instructions: string | undefined): Promise<void>;
+  /** Sends `export_html`, pi writing the page to `outputPath`. */
+  exportHtml(outputPath: string): Promise<void>;
   /** pi's slash commands, from `get_commands`. */
   commands(): Promise<SlashCommand[]>;
   /** pi's statistics for the status bar, from `get_session_stats`. */
@@ -132,6 +136,10 @@ export interface SessionController {
   setThinkingLevel(level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /** Switches Fast on or off, from pi's next request on (SPEC-0001, "Fast"). */
   setFast(enabled: boolean): Promise<CommandResult<"set_fast">>;
+  /** Compacts pi's context now, as `/compact` asks (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
+  compact(instructions: string | undefined): Promise<CommandResult<"compact_session">>;
+  /** Has pi write the session as its HTML page to `outputPath`, during a run too. */
+  exportHtml(outputPath: string): Promise<void>;
   /** pi's `/` commands, asked for each time the list opens. */
   listCommands(): Promise<CommandResult<"list_commands">>;
   /** Runs the last turn again, as after an automatic restart; starts pi first if it has exited. */
@@ -144,6 +152,18 @@ export interface SessionController {
   entryOfTurn(turnId: string): string | null;
   /** Waits for the read of pi's entries under way, if any, which ties a turn just ended to its entry. */
   entriesRead(): Promise<void>;
+  /**
+   * Where a fork after a turn cuts the session: the entry of the user message that opens the next
+   * turn, or `null` after the last turn (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+   */
+  forkPoint(turnId: string): string | null;
+  /**
+   * Keeps the session busy while a fork reads its file, until the release given is called:
+   * messages queue, and compacting or forking again is refused.
+   */
+  holdForFork(): () => void;
+  /** Whether a fork reads the session's file; the session counts as busy meanwhile. */
+  readonly forking: boolean;
   /** Stops pi for good, as the host asks (archiving, closing): no restart follows. */
   shutdown(): Promise<void>;
 }
@@ -478,6 +498,8 @@ export function createSessionController(options: {
   /** The stop in progress, shared by every caller until pi confirms or exits. */
   let stopping: Promise<CommandResult<"stop">> | null = null;
   let compacting = false;
+  /** Whether a fork reads the session's file (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"). */
+  let forking = false;
   /** A model was chosen whose result pi has not reported yet; read after the next entries. */
   let choiceToRead = false;
   /** A message on its way to pi, whose disposition has not come back yet. */
@@ -546,6 +568,7 @@ export function createSessionController(options: {
       steers: steers.map(({ id, text }): PendingSteer => ({ id, text })),
       stopping: stopping !== null,
       restarting: restarting !== null,
+      compacting,
       interactions: [...interactions.values()].map((open) => open.interaction),
       failure,
     };
@@ -797,9 +820,11 @@ export function createSessionController(options: {
         return;
       case "compaction_started":
         compacting = true;
+        controlChanged();
         return;
       case "compaction_finished":
         compacting = false;
+        controlChanged();
         // Fire and forget: `refresh` reports its own failures.
         void refresh();
         dispatch();
@@ -924,13 +949,13 @@ export function createSessionController(options: {
    *
    * @remarks
    * pi takes a message when no run goes on or is about to start, nothing is on its way, it does
-   * not compact, it is not being restarted and it is there.
+   * not compact, no fork reads its file, it is not being restarted and it is there.
    *
    * @sideEffects none
    * @returns Whether the session is idle.
    */
   function idle(): boolean {
-    return run === null && !sending && !starting && !compacting && restarting === null && !exited;
+    return run === null && !sending && !starting && !compacting && !forking && restarting === null && !exited;
   }
 
   /**
@@ -1533,6 +1558,9 @@ export function createSessionController(options: {
     get submitting() {
       return sending || starting;
     },
+    get forking() {
+      return forking;
+    },
     snapshot,
     items: () => transcript.items(),
     attach(started) {
@@ -1636,6 +1664,40 @@ export function createSessionController(options: {
       }
       return {};
     },
+    async compact(instructions) {
+      refuseWhenExited();
+      // pi's `compact` stops a run first; Atrium refuses instead (SPEC-0001, "M1.11 的 `/` 命令 · 压缩").
+      if (!idle() || stopping !== null) throw new CommandError("session_busy");
+      compacting = true;
+      controlChanged();
+      try {
+        await pi.compact(instructions);
+      } catch (error) {
+        if (!isPiFailure(error)) throw error;
+        // Too little, or nothing new, is an answer; anything else fails without pi's words.
+        // Stryker disable next-line StringLiteral: without pi's text there is nothing to tell apart.
+        const code = compactRejection(error.detail ?? "");
+        if (code !== null) throw new CommandError(code);
+        log("warn", "compaction failed", { sessionId, reason: error.reason });
+        throw new CommandError("compact_failed");
+      } finally {
+        compacting = false;
+        controlChanged();
+        dispatch();
+      }
+      return {};
+    },
+    async exportHtml(outputPath) {
+      refuseWhenExited();
+      try {
+        await pi.exportHtml(outputPath);
+      } catch (error) {
+        if (!isPiFailure(error)) throw error;
+        // pi's words stay out of the reply and the log (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令").
+        log("warn", "export failed", { sessionId, reason: error.reason });
+        throw new CommandError("export_failed", { reason: "failed" });
+      }
+    },
     async listCommands() {
       refuseWhenExited();
       try {
@@ -1706,6 +1768,30 @@ export function createSessionController(options: {
     },
     entryOfTurn: (turnId) => transcript.entryOfTurn(turnId),
     entriesRead: () => refreshing ?? Promise.resolve(),
+    forkPoint(turnId) {
+      // A run, a stop or a compaction still writes the file the fork reads; a pi that has exited
+      // writes nothing, and the fork has a pi of its own.
+      if (run !== null || sending || starting || compacting || forking || stopping !== null || restarting !== null) {
+        throw new CommandError("session_busy");
+      }
+      const turns = transcript.items().filter((item) => item.kind === "turn");
+      const at = turns.findIndex((turn) => turn.id === turnId);
+      if (at === -1) throw new CommandError("turn_not_found");
+      const next = turns[at + 1];
+      if (next === undefined) return null;
+      // Only a turn seen live and never tied to its entry has none, and an idle session has none.
+      const entryId = transcript.entryOfTurn(next.id);
+      if (entryId === null) throw new CommandError("turn_not_found");
+      return entryId;
+    },
+    holdForFork() {
+      forking = true;
+      return () => {
+        forking = false;
+        // Messages sent meanwhile went to the queue.
+        dispatch();
+      };
+    },
     async shutdown() {
       shuttingDown = true;
       metrics.close();

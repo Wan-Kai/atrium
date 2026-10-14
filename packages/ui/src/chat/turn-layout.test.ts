@@ -36,7 +36,7 @@ function turn(steps: Step[], fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id: "t1",
-    user: { text: "do it", images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    user: { text: "do it", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps,
     outcome: "done",
     error: null,
@@ -337,12 +337,22 @@ describe("transcriptMarkdown", () => {
 
     expect(
       transcriptMarkdown([
-        turn(steps, { user: { text: "list\nfiles", images: 0, clientMessageId: null, auto: false, timestamp: 0 } }),
+        turn(steps, {
+          user: { text: "list\nfiles", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
+        }),
         { kind: "notice", id: "n", notice: "compacted", tokensBefore: 152_000, summary: "", timestamp: 0 },
         turn([], { outcome: "failed", error: "429" }),
       ]),
     ).toBe(
       "> list\n> files\n\n- 运行了 · ls（通过）\n\n**Done.**\n\n---\n\n> 上下文已压缩 · 压缩前 152K tokens\n\n---\n\n> do it\n\n> 出错：429\n",
+    );
+  });
+
+  it("writes a question that started with a skill as it was typed", () => {
+    const user = { text: "this\nfile", images: 0, clientMessageId: null, auto: false, timestamp: 0 };
+
+    expect(transcriptMarkdown([turn([], { user: { ...user, command: { kind: "skill", name: "review" } } })])).toBe(
+      "> /skill:review this\n> file\n",
     );
   });
 });

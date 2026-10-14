@@ -167,7 +167,7 @@ function turn(id: string, clientMessageId: string | null = null) {
   return {
     kind: "turn",
     id,
-    user: { text: "hi", images: 0, clientMessageId, auto: false, timestamp: 0 },
+    user: { text: "hi", images: 0, clientMessageId, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,
@@ -417,6 +417,7 @@ describe("createAtriumClient: commands", () => {
     const { client, latest } = await connected();
     const calls = [
       client.createSession("wks_0123456789abcdef"),
+      client.createSession("wks_0123456789abcdef", false),
       client.archiveSession("s1"),
       client.renameSession("s1", "名字"),
       client.addProject("/work/app"),
@@ -425,15 +426,22 @@ describe("createAtriumClient: commands", () => {
       client.renameWorkspace("wks_0123456789abcdef", null),
       client.archiveWorkspace("wks_0123456789abcdef"),
       client.restoreWorkspace("wks_0123456789abcdef"),
+      client.listBases("prj_0123456789abcdef"),
+      client.createWorkspace("prj_0123456789abcdef", "atrium/a", "origin/main"),
       client.renameChat(CHAT, "合并原理"),
+      client.archiveChat(CHAT),
+      client.restoreChat(CHAT),
       client.windowFocused(),
       client.clearAttention("s1"),
       client.handOff("s1"),
       client.takeBack("s1"),
     ];
-    latest().answer("create_session", { sessionId: "s9" });
+    answerAt(latest(), "create_session", 0, { sessionId: "s9" });
+    answerAt(latest(), "create_session", 1, { sessionId: "s8" });
     latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
     latest().answer("hand_off", { file: "/pi/s1.jsonl" });
+    latest().answer("list_bases", { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
+    latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
     for (const type of [
       "archive_session",
       "rename_session",
@@ -443,6 +451,8 @@ describe("createAtriumClient: commands", () => {
       "archive_workspace",
       "restore_workspace",
       "rename_chat",
+      "archive_chat",
+      "restore_chat",
       "window_focused",
       "clear_attention",
       "take_back",
@@ -452,12 +462,17 @@ describe("createAtriumClient: commands", () => {
 
     expect(await Promise.all(calls)).toStrictEqual([
       { sessionId: "s9" },
+      { sessionId: "s8" },
       {},
       {},
       { projectId: "prj_0123456789abcdef" },
       {},
       {},
       {},
+      {},
+      {},
+      { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] },
+      { workspaceId: "wks_00000000000000aa" },
       {},
       {},
       {},
@@ -473,6 +488,7 @@ describe("createAtriumClient: commands", () => {
         .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([
       { type: "create_session", containerId: "wks_0123456789abcdef" },
+      { type: "create_session", containerId: "wks_0123456789abcdef", go: false },
       { type: "archive_session", sessionId: "s1" },
       { type: "rename_session", sessionId: "s1", name: "名字" },
       { type: "add_project", path: "/work/app" },
@@ -481,7 +497,11 @@ describe("createAtriumClient: commands", () => {
       { type: "rename_workspace", workspaceId: "wks_0123456789abcdef", name: null },
       { type: "archive_workspace", workspaceId: "wks_0123456789abcdef" },
       { type: "restore_workspace", workspaceId: "wks_0123456789abcdef" },
+      { type: "list_bases", projectId: "prj_0123456789abcdef" },
+      { type: "create_workspace", projectId: "prj_0123456789abcdef", branch: "atrium/a", base: "origin/main" },
       { type: "rename_chat", chatId: CHAT, name: "合并原理" },
+      { type: "archive_chat", chatId: CHAT },
+      { type: "restore_chat", chatId: CHAT },
       { type: "window_focused" },
       { type: "clear_attention", sessionId: "s1" },
       { type: "hand_off", sessionId: "s1" },
@@ -674,6 +694,37 @@ describe("createAtriumClient: sessions", () => {
       text: "hello",
     });
     expect(client.session("s1")?.getState()).toMatchObject({ pending: [], items: [turn("t1", "client-1-4")] });
+  });
+
+  it("shows the tag a message went with on its pending copy, sending only its text", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    latest().receive(snapshot(0));
+
+    void client.prompt("s1", "/review src", [], [], { source: "prompt", name: "review" }).catch(() => undefined);
+    void client.steer("s1", "/skill:tdd", [], [], { source: "skill", name: "skill:tdd" }).catch(() => undefined);
+
+    expect(client.session("s1")?.getState().pending).toStrictEqual([
+      { clientMessageId: "client-1-4", text: "/review src", command: { source: "prompt", name: "review" } },
+      { clientMessageId: "client-1-5", text: "/skill:tdd", command: { source: "skill", name: "skill:tdd" } },
+    ]);
+    expect(
+      latest()
+        .sent.slice(-2)
+        .map(({ type, text }) => [type, text]),
+    ).toStrictEqual([
+      ["prompt", "/review src"],
+      ["steer", "/skill:tdd"],
+    ]);
+    expect(Object.keys(present(latest().sent.at(-1), "the steer"))).toStrictEqual([
+      "type",
+      "requestId",
+      "traceparent",
+      "sessionId",
+      "text",
+    ]);
   });
 
   it("takes a pending prompt back when it fails or an extension handles it", async () => {
@@ -998,13 +1049,13 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
     preferences: {
       setupDone: false,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     },
     resets: [],
     ...fields,
@@ -1148,17 +1199,17 @@ describe("createAtriumClient: the list", () => {
     expect(client.index.getState().layout.tabs).toStrictEqual({ wks_0123456789abcdef: { open: [], active: null } });
     const selected = client.selectContainer(CHAT);
     expect(client.index.getState().layout.container).toBe(CHAT);
-    const preferred = client.setPreferences({ displayMode: "detailed" });
+    const preferred = client.setPreferences({ appearance: "dark" });
     expect(client.index.getState().preferences).toStrictEqual({
       setupDone: false,
-      appearance: "system",
-      displayMode: "detailed",
+      appearance: "dark",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
 
     for (const type of ["open_session", "close_tab", "select_container", "set_preferences"]) latest().answer(type);
@@ -1172,7 +1223,7 @@ describe("createAtriumClient: the list", () => {
       { type: "open_session", sessionId: "s1" },
       { type: "close_tab", sessionId: "s1" },
       { type: "select_container", containerId: CHAT },
-      { type: "set_preferences", displayMode: "detailed" },
+      { type: "set_preferences", appearance: "dark" },
     ]);
   });
 
@@ -1560,6 +1611,89 @@ describe("createAtriumClient: the composer's lists", () => {
       { type: "list_commands", sessionId: "s1" },
       { type: "search_files", sessionId: "s1", query: "src" },
     ]);
+  });
+});
+
+describe("createAtriumClient: a workspace's files", () => {
+  it("lists a directory and reads a file of a workspace, returning what the host answers", async () => {
+    const { client, latest } = await connected();
+    const entries = [{ name: "src", kind: "dir" }];
+    const content = { kind: "text", text: "a" };
+
+    const W1 = "wks_0000000000000001";
+    const listing = client.listDir(W1, "src");
+    latest().answer("list_dir", { entries, truncated: false });
+    const reading = client.readFile(W1, "src/a.ts");
+    latest().answer("read_file", { size: 1, content });
+
+    expect(await listing).toStrictEqual({ entries, truncated: false });
+    expect(await reading).toStrictEqual({ size: 1, content });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["list_dir", "read_file"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "list_dir", workspaceId: W1, path: "src" },
+      { type: "read_file", workspaceId: W1, path: "src/a.ts" },
+    ]);
+  });
+});
+
+describe("createAtriumClient: compacting", () => {
+  it("asks the host to compact a session, with what to keep in mind when given", async () => {
+    const { client, latest } = await connected();
+
+    const asked = client.compactSession("s1", "keep the API");
+    latest().answer("compact_session");
+    const plain = client.compactSession("s1");
+    latest().answer("compact_session");
+
+    expect(await asked).toStrictEqual({});
+    expect(await plain).toStrictEqual({});
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "compact_session")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "compact_session", sessionId: "s1", instructions: "keep the API" },
+      { type: "compact_session", sessionId: "s1" },
+    ]);
+  });
+});
+
+describe("createAtriumClient: exporting", () => {
+  it("asks the host for a session's page, returning it", async () => {
+    const { client, latest } = await connected();
+
+    const exporting = client.exportSession("s1");
+    latest().answer("export_session", { html: "<html></html>" });
+
+    expect(await exporting).toStrictEqual({ html: "<html></html>" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "export_session")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "export_session", sessionId: "s1" }]);
+  });
+});
+
+describe("createAtriumClient: forking", () => {
+  it("asks the host to fork a session after a turn, returning the new session", async () => {
+    const { client, latest } = await connected();
+
+    const forking = client.forkSession("s1", "s1:u2", "修 bug（分叉）");
+    latest().answer("fork_session", { sessionId: "s2" });
+
+    expect(await forking).toStrictEqual({ sessionId: "s2" });
+    expect(
+      latest()
+        .commands()
+        .filter((command) => command["type"] === "fork_session")
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([{ type: "fork_session", sessionId: "s1", turnId: "s1:u2", name: "修 bug（分叉）" }]);
   });
 });
 

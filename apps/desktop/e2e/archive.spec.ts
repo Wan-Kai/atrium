@@ -50,8 +50,8 @@ test("archives a worktree after asking, removing its directory and keeping its b
     await window.keyboard.press("Meta+T");
     await expect(window.getByRole("tab")).toHaveText(["新会话"], { timeout: 30_000 });
 
-    await openMenu(window, "workspace-row", "feature/old", "工作区 feature/old");
-    await window.getByRole("menuitem", { name: "归档…" }).click();
+    await rows.nth(1).hover();
+    await rows.nth(1).getByRole("button", { name: "归档工作区 feature/old" }).click();
     const dialog = window.getByRole("alertdialog", { name: "归档工作区「feature/old」？" });
     await expect(dialog).toContainText("分支 feature/old 保留");
     await dialog.getByRole("button", { name: "归档", exact: true }).click();

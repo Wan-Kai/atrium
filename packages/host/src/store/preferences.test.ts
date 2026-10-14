@@ -21,41 +21,46 @@ async function indexDirectory(): Promise<string> {
   return index.path;
 }
 
+/** A file from before M1.11 took the display mode out, which still has it. */
+const BEFORE = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
+
+/** `BEFORE` as saved again: the current version, without the display mode. */
+const UPGRADED = { version: 3, appearance: "light", lastModel: null, thinkingByModel: {} };
+
 describe("PreferenceStore", () => {
-  it("follows the system and shows summaries until told otherwise, then keeps what it was told", async () => {
+  it("follows the system until told otherwise, then keeps what it was told", async () => {
     const index = await indexDirectory();
     const { file } = await loadIndexFile(index, PREFERENCES_FILE, 0);
     const store = createPreferenceStore(file);
     expect(store.read()).toStrictEqual({
       setupDone: false,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
 
+    await store.set({ appearance: "light" });
     await store.set({ appearance: "dark" });
-    await store.set({ displayMode: "detailed" });
 
     expect(store.read()).toStrictEqual({
       setupDone: false,
       appearance: "dark",
-      displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
-      version: 2,
+      version: 3,
       appearance: "dark",
-      displayMode: "detailed",
       lastModel: null,
       thinkingByModel: {},
     });
@@ -72,13 +77,13 @@ describe("PreferenceStore", () => {
     expect(store.read()).toStrictEqual({
       setupDone: false,
       appearance: "system",
-      displayMode: "summary",
       lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
       thinkingByModel: { "anthropic/claude-opus-5-5": "max", "openai/gpt-6": "low" },
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
   });
 
@@ -99,8 +104,7 @@ describe("PreferenceStore", () => {
 
   it("remembers Fast as last switched, off until then, also in a file from before it", async () => {
     const index = await indexDirectory();
-    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
-    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    await writeFile(join(index, "preferences.json"), JSON.stringify(BEFORE));
     const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
     const old = store.read().lastFast;
 
@@ -110,7 +114,7 @@ describe("PreferenceStore", () => {
 
     expect([old, on, store.read().lastFast]).toStrictEqual([false, true, false]);
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
-      ...before,
+      ...UPGRADED,
       lastFast: false,
     });
   });
@@ -127,13 +131,13 @@ describe("PreferenceStore", () => {
     expect(store.read()).toStrictEqual({
       setupDone: false,
       appearance: "light",
-      displayMode: "thinking",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     });
   });
 
@@ -146,9 +150,8 @@ describe("PreferenceStore", () => {
 
     expect(store.read().statusBar).toStrictEqual({ tokens: false });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
-      version: 2,
+      version: 3,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       statusBar: { tokens: false },
@@ -157,14 +160,13 @@ describe("PreferenceStore", () => {
 
   it("reads a file from before the status bar could be set as all defaults, and leaves out ids no group could have", async () => {
     const index = await indexDirectory();
-    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
-    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    await writeFile(join(index, "preferences.json"), JSON.stringify(BEFORE));
     const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
     expect(store.read().statusBar).toStrictEqual({});
 
     await writeFile(
       join(index, "preferences.json"),
-      JSON.stringify({ ...before, statusBar: { "": true, ["g".repeat(65)]: false, later: true } }),
+      JSON.stringify({ ...BEFORE, statusBar: { "": true, ["g".repeat(65)]: false, later: true } }),
     );
     const again = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
 
@@ -173,8 +175,7 @@ describe("PreferenceStore", () => {
 
   it("has first launch to do and titles from the session's model until told otherwise, also in a file from before M1.10", async () => {
     const index = await indexDirectory();
-    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
-    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    await writeFile(join(index, "preferences.json"), JSON.stringify(BEFORE));
     const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
     const old = store.read();
 
@@ -186,7 +187,7 @@ describe("PreferenceStore", () => {
       titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
     });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
-      ...before,
+      ...UPGRADED,
       setupDone: true,
       titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
     });
@@ -194,8 +195,7 @@ describe("PreferenceStore", () => {
 
   it("has no proxy until one is set, also in a file from before it, and reads one the host would refuse as none", async () => {
     const index = await indexDirectory();
-    const before = { version: 2, appearance: "light", displayMode: "summary", lastModel: null, thinkingByModel: {} };
-    await writeFile(join(index, "preferences.json"), JSON.stringify(before));
+    await writeFile(join(index, "preferences.json"), JSON.stringify(BEFORE));
     const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
     const old = store.read();
 
@@ -204,16 +204,32 @@ describe("PreferenceStore", () => {
     expect(old.proxy).toBeNull();
     expect(store.read().proxy).toStrictEqual({ url: "http://127.0.0.1:7897", noProxy: [".example.com"] });
     expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
-      ...before,
+      ...UPGRADED,
       proxy: { url: "http://127.0.0.1:7897", noProxy: [".example.com"] },
     });
 
     await writeFile(
       join(index, "preferences.json"),
-      JSON.stringify({ ...before, proxy: { url: "http://me:secret@127.0.0.1:7897", noProxy: [] } }),
+      JSON.stringify({ ...BEFORE, proxy: { url: "http://me:secret@127.0.0.1:7897", noProxy: [] } }),
     );
     const handWritten = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
 
     expect(handWritten.read().proxy).toBeNull();
+  });
+
+  it("shows 等你处理 until told not to, also from a file from before it", async () => {
+    const index = await indexDirectory();
+    await writeFile(join(index, "preferences.json"), JSON.stringify(BEFORE));
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    const old = store.read();
+
+    await store.set({ inbox: false });
+
+    expect(old.inbox).toBe(true);
+    expect(store.read().inbox).toBe(false);
+    expect(JSON.parse(await readFile(join(index, "preferences.json"), "utf8"))).toStrictEqual({
+      ...UPGRADED,
+      inbox: false,
+    });
   });
 });

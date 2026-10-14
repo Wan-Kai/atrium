@@ -11,6 +11,12 @@ import {
   UNKNOWN_METRICS,
 } from "@atrium/protocol";
 
+/** The tag a message was sent with, as the page showed it: a command's kind and name, without the `/`. */
+export interface MessageTag {
+  readonly source: "builtin" | "extension" | "prompt" | "skill";
+  readonly name: string;
+}
+
 /** A user message shown before the host confirms it (domain-model §7). */
 export interface PendingMessage {
   /** The `requestId` of the `prompt` that sent it; the turn it opens carries the same id. */
@@ -18,6 +24,8 @@ export interface PendingMessage {
   readonly text: string;
   /** How many images go with it, when any. */
   readonly images?: number;
+  /** The tag it was sent with, when any; `text` starts with it written as `/name` (SPEC-0001, "M1.11 的 `/` 命令"). */
+  readonly command?: MessageTag;
 }
 
 /** What the client knows about one session it watches. */

@@ -26,7 +26,11 @@ export {
   RenameWorkspaceCommand,
   ArchiveWorkspaceCommand,
   RestoreWorkspaceCommand,
+  ListBasesCommand,
+  CreateWorkspaceCommand,
   RenameChatCommand,
+  ArchiveChatCommand,
+  RestoreChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -50,11 +54,16 @@ export {
   SetModelCommand,
   SetThinkingLevelCommand,
   SetFastCommand,
+  CompactSessionCommand,
+  ExportSessionCommand,
+  ForkSessionCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
   WatchChangesCommand,
   WatchDiffCommand,
+  ListDirCommand,
+  ReadFileCommand,
   CheckSetupCommand,
   LoginCommand,
   AnswerLoginCommand,
@@ -80,6 +89,7 @@ export {
   DiffUpdatedEvent,
 } from "./changes";
 export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
+export { DirEntry, FILE_LIMITS, FileContent, ShownImageType, WorkspacePath } from "./files";
 export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export {
   CredentialsChangedEvent,
@@ -108,7 +118,6 @@ export {
   Attention,
   Chat,
   ContainerTabs,
-  DisplayMode,
   IndexChangesEvent,
   IndexFileName,
   IndexSnapshotEvent,
@@ -122,6 +131,7 @@ export {
   SessionSummary,
   SnapshotReason,
   Workspace,
+  isAuthFailure,
 } from "./listing";
 export {
   ControlUpdatedEvent,
@@ -142,7 +152,16 @@ export {
   TurnFinishedEvent,
   TurnStartedEvent,
 } from "./events";
-export { FileChange, Notice, STEP_TEXT_LIMIT, Step, ToolDetails, TranscriptItem, Turn } from "./transcript";
+export {
+  FileChange,
+  MessageCommand,
+  Notice,
+  STEP_TEXT_LIMIT,
+  Step,
+  ToolDetails,
+  TranscriptItem,
+  Turn,
+} from "./transcript";
 export { ClientMessage, HostMessage, type ParsedCommand, ResponseMessage, parseClientMessage } from "./envelope";
 export {
   type RandomBytes,

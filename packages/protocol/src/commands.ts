@@ -2,9 +2,10 @@ import { z } from "zod";
 import { parseTraceparent } from "./trace";
 import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
+import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
 import { InteractionAnswer } from "./control";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
-import { Appearance, BranchName, DisplayMode, ProxySetting, StatusBarChoices } from "./listing";
+import { Appearance, BranchName, ProxySetting, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
@@ -229,6 +230,24 @@ export const RestoreWorkspaceCommand = z.strictObject({
 });
 export type RestoreWorkspaceCommand = z.infer<typeof RestoreWorkspaceCommand>;
 
+/** Lists where a new worktree of a project may start: its main branch, local and remote branches. */
+export const ListBasesCommand = z.strictObject({
+  type: z.literal("list_bases"),
+  ...commandFields,
+  projectId: ProjectId,
+});
+export type ListBasesCommand = z.infer<typeof ListBasesCommand>;
+
+/** Creates a worktree workspace on a new branch from a base, next to the project's repository. */
+export const CreateWorkspaceCommand = z.strictObject({
+  type: z.literal("create_workspace"),
+  ...commandFields,
+  projectId: ProjectId,
+  branch: BranchName,
+  base: BranchName,
+});
+export type CreateWorkspaceCommand = z.infer<typeof CreateWorkspaceCommand>;
+
 /** Names a chat, or with `null` goes back to its first session's title. */
 export const RenameChatCommand = z.strictObject({
   type: z.literal("rename_chat"),
@@ -237,6 +256,22 @@ export const RenameChatCommand = z.strictObject({
   name: Name.nullable(),
 });
 export type RenameChatCommand = z.infer<typeof RenameChatCommand>;
+
+/** Archives a chat with its sessions, stopping those that run (SPEC-0001, "M1.11 的对话归档"). */
+export const ArchiveChatCommand = z.strictObject({
+  type: z.literal("archive_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type ArchiveChatCommand = z.infer<typeof ArchiveChatCommand>;
+
+/** Brings an archived chat back with the sessions archived with it. */
+export const RestoreChatCommand = z.strictObject({
+  type: z.literal("restore_chat"),
+  ...commandFields,
+  chatId: ChatId,
+});
+export type RestoreChatCommand = z.infer<typeof RestoreChatCommand>;
 
 /** The window gained focus: the host scans workspaces, merge states and session files again. */
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
@@ -247,6 +282,11 @@ export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
   ...commandFields,
   containerId: ContainerId,
+  /**
+   * `false` opens the tab without taking the client there, for a new workspace's session the user
+   * has left the page of (SPEC-0001, "M1.11 的新建工作区"); it goes there when left out.
+   */
+  go: z.boolean().optional(),
 });
 export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 
@@ -301,10 +341,10 @@ export const SetPreferencesCommand = z.strictObject({
   ...commandFields,
   setupDone: z.boolean().optional(),
   appearance: Appearance.optional(),
-  displayMode: DisplayMode.optional(),
   statusBar: StatusBarChoices.optional(),
   titleModel: ModelRef.nullable().optional(),
   proxy: ProxySetting.nullable().optional(),
+  inbox: z.boolean().optional(),
 });
 export type SetPreferencesCommand = z.infer<typeof SetPreferencesCommand>;
 
@@ -346,6 +386,39 @@ export const SetFastCommand = z.strictObject({
   enabled: z.boolean(),
 });
 export type SetFastCommand = z.infer<typeof SetFastCommand>;
+
+/**
+ * Compacts a session's context while it is idle, with what to keep in mind for the summary
+ * (SPEC-0001, "M1.11 的 `/` 命令 · 压缩").
+ */
+export const CompactSessionCommand = z.strictObject({
+  type: z.literal("compact_session"),
+  ...sessionCommandFields,
+  /** Left out when nothing was asked for. */
+  instructions: PromptText.min(1).optional(),
+});
+export type CompactSessionCommand = z.infer<typeof CompactSessionCommand>;
+
+/** Exports a session as pi's HTML page, for `/export` to download (SPEC-0001, "M1.11 的 `/` 命令"). */
+export const ExportSessionCommand = z.strictObject({
+  type: z.literal("export_session"),
+  ...sessionCommandFields,
+});
+export type ExportSessionCommand = z.infer<typeof ExportSessionCommand>;
+
+/**
+ * Forks a session after one of its turns into a new session in its container, which opens as the
+ * client's active tab (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+ */
+export const ForkSessionCommand = z.strictObject({
+  type: z.literal("fork_session"),
+  ...sessionCommandFields,
+  /** The turn the new session ends with; the last turn copies the whole branch. */
+  turnId: z.string().min(1).max(256),
+  /** The new session's name, which the UI words. */
+  name: Name,
+});
+export type ForkSessionCommand = z.infer<typeof ForkSessionCommand>;
 
 /**
  * Uploads one compressed image for a later `prompt` or `steer` (SPEC-0001, "附件").
@@ -395,6 +468,24 @@ export const WatchDiffCommand = z.strictObject({
   target: DiffTarget.nullable(),
 });
 export type WatchDiffCommand = z.infer<typeof WatchDiffCommand>;
+
+/** Lists one directory of a workspace, for the right panel's file tree (SPEC-0001, "M1.12 的文件与更改"). */
+export const ListDirCommand = z.strictObject({
+  type: z.literal("list_dir"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+  path: WorkspacePath,
+});
+export type ListDirCommand = z.infer<typeof ListDirCommand>;
+
+/** Reads one file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
+export const ReadFileCommand = z.strictObject({
+  type: z.literal("read_file"),
+  ...commandFields,
+  workspaceId: WorkspaceId,
+  path: WorkspacePath,
+});
+export type ReadFileCommand = z.infer<typeof ReadFileCommand>;
 
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
@@ -592,7 +683,11 @@ export const Command = z.discriminatedUnion("type", [
   RenameWorkspaceCommand,
   ArchiveWorkspaceCommand,
   RestoreWorkspaceCommand,
+  ListBasesCommand,
+  CreateWorkspaceCommand,
   RenameChatCommand,
+  ArchiveChatCommand,
+  RestoreChatCommand,
   WindowFocusedCommand,
   CreateSessionCommand,
   CloseTabCommand,
@@ -617,11 +712,16 @@ export const Command = z.discriminatedUnion("type", [
   SetModelCommand,
   SetThinkingLevelCommand,
   SetFastCommand,
+  CompactSessionCommand,
+  ExportSessionCommand,
+  ForkSessionCommand,
   ListCommandsCommand,
   SearchFilesCommand,
   UploadAttachmentCommand,
   WatchChangesCommand,
   WatchDiffCommand,
+  ListDirCommand,
+  ReadFileCommand,
   CheckSetupCommand,
   LoginCommand,
   AnswerLoginCommand,
@@ -683,7 +783,16 @@ export const CommandResult = {
   rename_workspace: z.strictObject({}),
   archive_workspace: z.strictObject({}),
   restore_workspace: z.strictObject({}),
+  list_bases: z.strictObject({
+    main: BranchName.nullable(),
+    current: BranchName.nullable(),
+    local: z.array(BranchName),
+    remote: z.array(BranchName),
+  }),
+  create_workspace: z.strictObject({ workspaceId: WorkspaceId }),
   rename_chat: z.strictObject({}),
+  archive_chat: z.strictObject({}),
+  restore_chat: z.strictObject({}),
   window_focused: z.strictObject({}),
   create_session: z.strictObject({ sessionId: SessionId }),
   close_tab: z.strictObject({}),
@@ -712,12 +821,20 @@ export const CommandResult = {
   set_model: z.strictObject({}),
   set_thinking_level: z.strictObject({}),
   set_fast: z.strictObject({}),
+  compact_session: z.strictObject({}),
+  /** The page pi wrote, whole. */
+  export_session: z.strictObject({ html: z.string().min(1) }),
+  fork_session: z.strictObject({ sessionId: SessionId }),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),
   upload_attachment: z.strictObject({ attachmentId: z.string().min(1).max(128) }),
   watch_changes: z.strictObject({}),
   watch_diff: z.strictObject({}),
+  /** In no order; the UI sorts them. `truncated` when the directory had more than were listed. */
+  list_dir: z.strictObject({ entries: z.array(DirEntry).max(FILE_LIMITS.entries), truncated: z.boolean() }),
+  /** `size` in bytes; 0 for a link. */
+  read_file: z.strictObject({ size: z.number().int().nonnegative(), content: FileContent }),
   check_setup: SetupState,
   login: z.strictObject({ loginId: z.string().min(1).max(64) }),
   answer_login: z.strictObject({}),

@@ -14,13 +14,13 @@ import { type EventSink, SubscriptionRegistry } from "./subscriptions";
 const PREFERENCES: Preferences = {
   setupDone: false,
   appearance: "system",
-  displayMode: "summary",
   lastModel: null,
   thinkingByModel: {},
   lastFast: false,
   statusBar: {},
   titleModel: null,
   proxy: null,
+  inbox: true,
 };
 
 /**
@@ -79,7 +79,7 @@ const CHAT = "cht_a";
  * @returns The chat.
  */
 function chat(id: string, alias: string | null = null): Chat {
-  return { id, dir: `/home/.atrium/chats/${id}`, alias, firstSessionId: null };
+  return { id, dir: `/home/.atrium/chats/${id}`, alias, firstSessionId: null, archivedAt: null };
 }
 
 /**

@@ -17,7 +17,7 @@
 原则：
 
 - 对话内容只在 pi 里有一份（[ADR-0006](../adr/0006-organize-sessions-by-workspace.md)）。能从 pi 或 git 推出来的，Atrium 只缓存，不写进索引。
-- 每个字段只有一个可写来源。显示模式、状态栏分组是全局偏好；标签页、当前容器是某个客户端的布局；两者不混放。
+- 每个字段只有一个可写来源。外观、状态栏分组是全局偏好；标签页、当前容器是某个客户端的布局；两者不混放。
 - 只在宿主内存里的东西（排队、待交互请求、当场计时）宿主重启后丢失，界面显示"未知"或"—"，不假装恢复。
 
 ## 1. 项目、工作区、会话
@@ -40,7 +40,7 @@ classDiagram
       alias?
       baseCommit?
       external: bool
-      archived?  归档时间、分支、提交（M1.11）
+      archived?  归档时间、分支、提交，和一起归档的会话（M1.11；会话 2026-10-14 加，早先的没有）
       branch?  [扫描]
       createdAt  [扫描]
       name()  alias 或 branch 或目录名
@@ -50,6 +50,7 @@ classDiagram
       id  cht_目录名
       dir  ~/.atrium/chats/<目录名>  [扫描]
       alias?
+      archived?  at + sessions + first，M1.11
       firstSessionId?  [扫描]
       name()  alias 或第一个会话的标题
     }
@@ -104,6 +105,7 @@ classDiagram
   - 对话里可以有多个会话，都以对话的目录为工作目录。终端里在对话目录开的 pi 会话按 `cwd` 归到这个对话。
   - `alias` 是自定义名称，存在 `chats.json`；`firstSessionId` 是对话里没归档的会话中最早建的一个（按索引记录的创建时间，没有记录的按文件修改时间），名称由界面按 `alias ?? 第一个会话的标题` 得出。
   - 所有会话都归档了的对话不在侧栏列出。
+  - 归档对话（M1.11，2026-10-12 加）：`chats.json` 里记下归档时间、这次归档了哪些会话和当时的第一个会话（`archived: { at, sessions, first }`），恢复时只放回这些会话；协议里的对话只带 `archivedAt`。归档后对话里没有没归档的会话，`firstSessionId` 就用记下的 `first`，名称和归档前一样。
 - **SessionContainer** 只表达"会话放在哪、怎么列、新会话在哪个目录建"。工作区和对话都对其中所有会话给同一个目录；新建对话时新建一个目录。标签页不在接口上，在 **ClientLayout**。
 - **Session** 是逻辑会话，以 pi 的会话 id 为主键，文件路径只是可更新的定位：
   - `draft`：pi 已分配 id，但还没有用户消息，文件尚未写出；只能由宿主记住，扫描找不到。
@@ -122,10 +124,10 @@ classDiagram
 ~/.atrium/                    目录 0700，文件 0600（security.md）
 ├── host.lock                 宿主单实例锁：{ pid, startedAt }
 ├── projects.json             项目与工作区登记
-├── chats.json                对话的自定义名称（2026-10-12 加）
+├── chats.json                对话的自定义名称（2026-10-12 加）、归档（M1.11，v2）
 ├── sessions.json             Atrium 记录的会话：所属容器、工作目录、草稿、归档、关注状态、已交给终端（M1.9）、Fast（M1.11）
 ├── layouts.json              按客户端的布局：每个容器打开的标签页、当前标签；只留最近用过的 10 个客户端
-├── preferences.json          全局偏好：外观、显示模式、网络代理……
+├── preferences.json          全局偏好：外观、状态栏、网络代理……
 ├── turns/<会话 id>.json      插话记录：宿主当场看到的用户消息开启了新一轮还是插话（SPEC-0001"对话记录"）；
 │                             随会话变长，单独放，不拖累其他文件
 ├── chats/<目录名>/           每个对话的工作目录，对话 id 由目录名得出
@@ -258,6 +260,7 @@ classDiagram
   - 失败后被重试的回复：出错的助手消息后面跟着一条 `context_edit`（`replacement` 为空）把它从上下文里去掉，重试的回复挂在这条编辑下面。在它之后加一个 RetryStep（"正在重试"），它已输出的部分（通常没有）照常是步骤，不作为回复。上下文溢出的恢复不同：pi 屏蔽失败的回复（和它的工具结果）后紧接着写压缩条目，再重试，不发自动重试事件，所以这种情况只有压缩提示条，没有 RetryStep。
   - 压缩条目排在它总结的条目之后，链条不断，压缩前的条目照常重建，压缩处显示提示条；`firstKeptEntryId` 可能落在一轮中间。
   - 插话和追加消息在文件里都是普通的用户消息，没有任何标记。宿主当场看到的用户消息记下"开启新的一轮"还是"插话"，重建以记录为准（随轮的当场数据存放，M1.5 起持久化）；没有记录的，紧跟在工具结果之后、下一次模型回复之前的算插话（SteerStep），其余开始新的一轮。运行停在工具结果上（工具要求结束本轮、pi 崩溃）时这条推断会把下一轮并进来，只影响没有记录的历史。
+  - 用 skill 开头的消息，pi 存成 `<skill name="…" location="…">正文</skill>` 加参数。pi 包认出这个格式，用户消息记成"skill 名 + 参数"（`command`），正文不进对话记录；认不出的照原文。模板在 pi 里就展开了，存的是全文，不认（M1.11，SPEC-0001"M1.11 的 `/` 命令"）。
   - 工具结果按调用 id 配对，不按位置；一轮结束后仍没有结果的工具调用显示为"未完成"。
   - 可能有多个根（`branch_summary` 的父为空）；叶子用 `get_entries` 返回的 `leafId`，不用最后一条。会话被 fork 或 clone 成新文件时，缓存全部作废。
   - 实时事件不带条目 id。轮在实时时由宿主编号，运行结束后按顺序对应到新的用户消息条目并沿用实时编号，见 SPEC-0001"对话记录"。
@@ -489,7 +492,6 @@ classDiagram
       <<索引，全局>>
       setupDone
       appearance
-      displayMode
       statusBar: StatusGroupId[]
       lastModel: ModelRef?
       thinkingByModel
@@ -701,7 +703,7 @@ classDiagram
 
 **客户端的状态**：IndexView、每个 SessionView 和布局各是一个 Zustand vanilla store（`zustand/vanilla`，不依赖 DOM），SessionView 在订阅时创建、退订时释放；UI 通过选择器订阅，不直接碰 WebSocket。
 
-**ViewState** 在 `packages/ui/src/state/`，保存草稿、展开的过程、滚动位置，存 localStorage；client 的布局 store 只镜像宿主上按客户端记录的标签页和当前容器。
+**ViewState** 在 `packages/ui/src/state/`，保存草稿、展开的过程、滚动位置，存 localStorage；右栏选的标签、文件树展开了哪些、更改树和"改动"标签收起了哪些也在这里（M1.12）。查看标签只在内存里（"已决定 19"）。client 的布局 store 只镜像宿主上按客户端记录的标签页和当前容器。
 
 **多客户端**
 
@@ -714,7 +716,9 @@ classDiagram
 | `list_projects` / `add_project` / `remove_project` / `rename_project` | ProjectService |
 | `list_workspaces` / `rename_workspace` / `window_focused` | WorkspaceService |
 | `archive_workspace` / `restore_workspace` | WorkspaceArchiver（git 的部分）→ SessionManager（停 pi、归档会话）→ ProjectService（记录）（M1.11） |
-| `rename_chat` | ChatNames（`chats.json`） |
+| `list_bases` / `create_workspace` | WorktreeCreator（git 的部分，和 WorkspaceArchiver 排同一个队）→ ProjectService（记录，带起点提交）→ WorkspaceService（重扫）（M1.11） |
+| `rename_chat` | ChatRecords（`chats.json`） |
+| `archive_chat` / `restore_chat` | SessionManager（停 pi、归档或放回会话）→ ChatRecords（记录）（M1.11） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` | SessionManager |
 | `subscribe_index(cursor?)` | IndexFeed |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
@@ -723,6 +727,8 @@ classDiagram
 | `list_commands(sessionId)` | SessionController |
 | `search_files(sessionId, query)` | FileSearch |
 | `watch_changes(workspaceIds)` / `watch_diff(target)` | ChangesService |
+| `compact_session` / `export_session` | SessionController：调会话自己的 pi 的 `compact`（只在空闲时）、`export_html`（运行中也行）（M1.11） |
+| `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork`（最后一轮用 `clone`）、设上界面给的名字，读出新会话后停掉它，复制轮的记录，重扫容器并打开新会话（M1.11） |
 | `fetch_image(sessionId, turnId, index)` | SessionManager → SessionController 找出轮的用户消息条目，pi 包的 SessionFiles 从会话文件里读出图片（M1.11） |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |
@@ -758,7 +764,8 @@ classDiagram
 16. **交给终端后点了才继续**（2026-10-10 定）：交接记在索引里，宿主重启后仍在；切到标签不自动启动 pi，用户点"在 Atrium 里继续"才重新加载。pi 没有跨进程的写锁，两边同时写会悄悄分叉。
 17. **会话状态、收件箱、工作区汇总在界面派生**（2026-10-10 定）：宿主只在会话摘要里给出运行、关注状态、待回答、已交接，界面按 §4 的优先级算。
 18. **对话记录不按序号补拉**（2026-10-10 定）：缺口或 `epoch` 变了就重拿快照。
+19. **查看标签只在界面里**（M1.12，2026-10-13 定）：看文件、看 diff 的查看标签和会话标签排在同一个标签栏里，但不是会话，不进 ClientLayout：按容器记在这个窗口的界面状态里，不发给宿主，别的窗口看不到，刷新、重启后没有了。会话标签仍只由宿主的布局决定；界面把两者按顺序合在一起显示，⌘W、⌘1–9 等快捷键一起算（SPEC-0001"M1.12 的文件与更改"）。它只是看一眼的东西，记进宿主要升布局的版本、要处理文件不在了的情况，得不偿失（Paseo 把它们记在客户端本地）。
 
 ## 待定
 
-- [ ] **外部改动的处理**：会话文件被终端 pi 改过时怎么提示、怎么合并，等文件区设计时再定。现在只预留口子：SessionCatalog 记录每个文件最后一次读到的大小和修改时间，发现变化时发 `session_changed_externally`，界面暂不处理。
+- [ ] **外部改动的处理**：会话文件被终端 pi 改过时怎么提示、怎么合并，还没定（M1.12 的文件区只读，没有碰到这个问题）。现在只预留口子：SessionCatalog 记录每个文件最后一次读到的大小和修改时间，发现变化时发 `session_changed_externally`，界面暂不处理。

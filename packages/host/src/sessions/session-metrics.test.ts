@@ -166,7 +166,7 @@ describe("createMetricsTracker: pi's statistics", () => {
     feed(
       { kind: "agent_started" },
       request,
-      { kind: "message_finished", message: { kind: "user", text: "hi", images: 0, timestamp: 0 } },
+      { kind: "message_finished", message: { kind: "user", text: "hi", images: 0, skill: null, timestamp: 0 } },
       { kind: "assistant_started" },
       output,
       { kind: "part_delta", index: 0, delta: "x" },

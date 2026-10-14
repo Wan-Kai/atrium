@@ -6,7 +6,7 @@ import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
-import type { Step, Turn } from "./transcript";
+import { type Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
 import { PROTOCOL_VERSION } from "./version";
 
@@ -45,11 +45,23 @@ const commands: Command[] = [
   { type: "rename_workspace", requestId: "r17", traceparent, workspaceId: WORKSPACE, name: null },
   { type: "archive_workspace", requestId: "r17a", traceparent, workspaceId: WORKSPACE },
   { type: "restore_workspace", requestId: "r17b", traceparent, workspaceId: WORKSPACE },
+  { type: "list_bases", requestId: "r17c", traceparent, projectId: PROJECT },
+  {
+    type: "create_workspace",
+    requestId: "r17d",
+    traceparent,
+    projectId: PROJECT,
+    branch: "atrium/brave-otter",
+    base: "origin/main",
+  },
   { type: "window_focused", requestId: "r18", traceparent },
   { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE },
   { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
+  { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE, go: false },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: "合并原理" },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: null },
+  { type: "archive_chat", requestId: "r19a", traceparent, chatId: CHAT },
+  { type: "restore_chat", requestId: "r19b", traceparent, chatId: CHAT },
   { type: "close_tab", requestId: "r20", traceparent, sessionId: "s1" },
   { type: "select_container", requestId: "r21", traceparent, containerId: WORKSPACE },
   { type: "select_container", requestId: "r22", traceparent, containerId: CHAT },
@@ -60,7 +72,6 @@ const commands: Command[] = [
   { type: "take_back", requestId: "r24c", traceparent, sessionId: "s1" },
   { type: "rename_session", requestId: "r25", traceparent, sessionId: "s1", name: "重构" },
   { type: "set_preferences", requestId: "r26", traceparent, appearance: "dark" },
-  { type: "set_preferences", requestId: "r27", traceparent, displayMode: "detailed" },
   { type: "set_preferences", requestId: "r60", traceparent, statusBar: { session: false, cost: true } },
   {
     type: "set_preferences",
@@ -77,6 +88,7 @@ const commands: Command[] = [
     proxy: { url: "http://127.0.0.1:7897", noProxy: [".example.com", "b".repeat(255)] },
   },
   { type: "set_preferences", requestId: "r66", traceparent, proxy: null },
+  { type: "set_preferences", requestId: "r79", traceparent, inbox: false },
   { type: "steer", requestId: "r28", traceparent, sessionId: "s1", text: "also b" },
   { type: "stop", requestId: "r29", traceparent, sessionId: "s1" },
   { type: "resume_queue", requestId: "r30", traceparent, sessionId: "s1" },
@@ -129,6 +141,10 @@ const commands: Command[] = [
   },
   { type: "set_thinking_level", requestId: "r43", traceparent, sessionId: "s1", level: "xhigh" },
   { type: "set_fast", requestId: "r43", traceparent, sessionId: "s1", enabled: true },
+  { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1" },
+  { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1", instructions: "留下接口设计" },
+  { type: "export_session", requestId: "r43", traceparent, sessionId: "s1" },
+  { type: "fork_session", requestId: "r43", traceparent, sessionId: "s1", turnId: "t1", name: "修 bug（分叉）" },
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
@@ -144,6 +160,10 @@ const commands: Command[] = [
   { type: "watch_diff", requestId: "r54", traceparent, target: { workspaceId: WORKSPACE, mode: "uncommitted" } },
   { type: "watch_diff", requestId: "r55", traceparent, target: { workspaceId: WORKSPACE, mode: "base" } },
   { type: "watch_diff", requestId: "r56", traceparent, target: null },
+  { type: "list_dir", requestId: "r90", traceparent, workspaceId: WORKSPACE, path: "" },
+  { type: "list_dir", requestId: "r91", traceparent, workspaceId: WORKSPACE, path: "src/files" },
+  { type: "read_file", requestId: "r92", traceparent, workspaceId: WORKSPACE, path: "src/files/a.ts" },
+  { type: "read_file", requestId: "r93", traceparent, workspaceId: WORKSPACE, path: "a".repeat(4096) },
   { type: "check_setup", requestId: "r61", traceparent },
   { type: "check_setup", requestId: "r62", traceparent, refresh: true },
   { type: "login", requestId: "r65", traceparent, providerId: "anthropic", method: "oauth" },
@@ -273,6 +293,7 @@ const control: Control = {
   steers: [{ id: "r28", text: "also b" }],
   stopping: true,
   restarting: false,
+  compacting: true,
   interactions: [pick],
   failure: { reason: "crashed", attempts: 3 },
 };
@@ -348,7 +369,7 @@ const steps: Step[] = [
 const turn: Turn = {
   kind: "turn",
   id: "s1:e1",
-  user: { text: "hi", images: 1, clientMessageId: "r4", auto: false, timestamp: 1 },
+  user: { text: "hi", images: 1, clientMessageId: "r4", auto: false, command: null, timestamp: 1 },
   steps,
   outcome: "done",
   error: null,
@@ -480,6 +501,7 @@ describe("parseClientMessage", () => {
       "add_project",
       "answer_interaction",
       "answer_login",
+      "archive_chat",
       "archive_session",
       "archive_workspace",
       "cancel_install",
@@ -489,23 +511,30 @@ describe("parseClientMessage", () => {
       "clear_attention",
       "clear_queue",
       "close_tab",
+      "compact_session",
       "create_chat",
       "create_session",
+      "create_workspace",
       "discover_projects",
+      "export_session",
       "fetch_image",
       "fetch_step",
       "fetch_transcript",
+      "fork_session",
       "hand_off",
       "install_node",
       "install_pi",
+      "list_bases",
       "list_branches",
       "list_commands",
+      "list_dir",
       "list_models",
       "login",
       "logout",
       "open_session",
       "ping",
       "prompt",
+      "read_file",
       "remove_project",
       "remove_queued",
       "rename_chat",
@@ -513,6 +542,7 @@ describe("parseClientMessage", () => {
       "rename_session",
       "rename_workspace",
       "report_client_issue",
+      "restore_chat",
       "restore_workspace",
       "resume_queue",
       "retry_run",
@@ -603,6 +633,11 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["the old chats' container", { type: "create_session", requestId: "r1", traceparent, containerId: "chats" }, "r1"],
+    [
+      "going there by a word",
+      { type: "create_session", requestId: "r1", traceparent, containerId: WORKSPACE, go: "no" },
+      "r1",
+    ],
     [
       "a chat id with a path in it",
       { type: "rename_chat", requestId: "r1", traceparent, chatId: "cht_../x", name: null },
@@ -698,6 +733,8 @@ describe("parseClientMessage", () => {
     ],
     ["an unknown container", { type: "select_container", requestId: "r1", traceparent, containerId: "inbox" }, "r1"],
     ["an unknown appearance", { type: "set_preferences", requestId: "r1", traceparent, appearance: "sepia" }, "r1"],
+    // The display mode went in M1.11 (SPEC-0001, "过程的显示").
+    ["a display mode", { type: "set_preferences", requestId: "r1", traceparent, displayMode: "summary" }, "r1"],
     [
       "a status bar group id over 64 characters",
       { type: "set_preferences", requestId: "r1", traceparent, statusBar: { ["g".repeat(65)]: true } },
@@ -741,6 +778,27 @@ describe("parseClientMessage", () => {
     ],
     ["archiving no workspace", { type: "archive_workspace", requestId: "r1", traceparent }, "r1"],
     ["restoring a chat", { type: "restore_workspace", requestId: "r1", traceparent, workspaceId: CHAT }, "r1"],
+    ["archiving no chat", { type: "archive_chat", requestId: "r1", traceparent }, "r1"],
+    [
+      "listing the bases of a workspace",
+      { type: "list_bases", requestId: "r1", traceparent, projectId: WORKSPACE },
+      "r1",
+    ],
+    [
+      "creating a workspace on no branch",
+      { type: "create_workspace", requestId: "r1", traceparent, projectId: PROJECT, branch: "", base: "main" },
+      "r1",
+    ],
+    [
+      "creating a workspace from nowhere",
+      { type: "create_workspace", requestId: "r1", traceparent, projectId: PROJECT, branch: "atrium/a" },
+      "r1",
+    ],
+    [
+      "restoring a workspace as a chat",
+      { type: "restore_chat", requestId: "r1", traceparent, chatId: WORKSPACE },
+      "r1",
+    ],
     [
       "an image at no place",
       { type: "fetch_image", requestId: "r1", traceparent, sessionId: "s1", turnId: "t", index: -1 },
@@ -759,6 +817,21 @@ describe("parseClientMessage", () => {
     [
       "an unknown thinking level",
       { type: "set_thinking_level", requestId: "r1", traceparent, sessionId: "s1", level: "extreme" },
+      "r1",
+    ],
+    [
+      "a compaction asked for with nothing to keep in mind",
+      { type: "compact_session", requestId: "r1", traceparent, sessionId: "s1", instructions: "" },
+      "r1",
+    ],
+    [
+      "a fork without a turn",
+      { type: "fork_session", requestId: "r1", traceparent, sessionId: "s1", turnId: "", name: "n" },
+      "r1",
+    ],
+    [
+      "a fork named only with spaces",
+      { type: "fork_session", requestId: "r1", traceparent, sessionId: "s1", turnId: "t1", name: "  " },
       "r1",
     ],
     [
@@ -824,6 +897,18 @@ describe("parseClientMessage", () => {
       "r1",
     ],
     ["a diff without a target", { type: "watch_diff", requestId: "r1", traceparent }, "r1"],
+    [
+      "a path over 4096 characters",
+      { type: "read_file", requestId: "r1", traceparent, workspaceId: WORKSPACE, path: "a".repeat(4097) },
+      "r1",
+    ],
+    ["a listing without a path", { type: "list_dir", requestId: "r1", traceparent, workspaceId: WORKSPACE }, "r1"],
+    ["a read of no workspace", { type: "read_file", requestId: "r1", traceparent, path: "a.ts" }, "r1"],
+    [
+      "a read in a project",
+      { type: "read_file", requestId: "r1", traceparent, workspaceId: PROJECT, path: "a.ts" },
+      "r1",
+    ],
     ["a cancel without the job", { type: "cancel_install", requestId: "r1", traceparent }, "r1"],
     ["an install of a given command", { type: "install_pi", requestId: "r1", traceparent, command: "sh" }, "r1"],
   ])("calls a message with %s invalid", (_case, message, requestId) => {
@@ -874,6 +959,10 @@ describe("CommandResult", () => {
     });
     expect(CommandResult.fetch_image.safeParse({ mimeType: "image/svg+xml", data: "eA==" }).success).toBe(false);
     expect(CommandResult.fetch_image.safeParse({ mimeType: "image/png", data: "" }).success).toBe(false);
+    expect(CommandResult.export_session.parse({ html: "<html></html>" })).toStrictEqual({ html: "<html></html>" });
+    expect(CommandResult.export_session.safeParse({ html: "" }).success).toBe(false);
+    expect(CommandResult.fork_session.parse({ sessionId: "s2" })).toStrictEqual({ sessionId: "s2" });
+    expect(CommandResult.fork_session.safeParse({}).success).toBe(false);
     expect(CommandResult.fetch_transcript.parse({ items: [turn], hasOlder: false })).toStrictEqual({
       items: [turn],
       hasOlder: false,
@@ -990,6 +1079,14 @@ describe("CommandResult", () => {
     expect(CommandResult.list_branches.parse({ branches: [], head: null })).toStrictEqual({ branches: [], head: null });
     expect(CommandResult.list_branches.safeParse({ branches: [""], head: null }).success).toBe(false);
     expect(CommandResult.set_main_branch.parse({})).toStrictEqual({});
+    const bases = { main: "origin/main", current: "main", local: ["main", "atrium/a"], remote: ["origin/main"] };
+    expect(CommandResult.list_bases.parse(bases)).toStrictEqual(bases);
+    const none = { main: null, current: null, local: [], remote: [] };
+    expect(CommandResult.list_bases.parse(none)).toStrictEqual(none);
+    expect(CommandResult.list_bases.safeParse({ ...none, local: [""] }).success).toBe(false);
+    expect(CommandResult.list_bases.safeParse({ main: null, local: [], remote: [] }).success).toBe(false);
+    expect(CommandResult.create_workspace.parse({ workspaceId: WORKSPACE })).toStrictEqual({ workspaceId: WORKSPACE });
+    expect(CommandResult.create_workspace.safeParse({ workspaceId: PROJECT }).success).toBe(false);
     for (const wrong of [
       { ...discovered, path: "" },
       { ...discovered, sessions: 0 },
@@ -1013,6 +1110,64 @@ describe("CommandResult", () => {
     ];
     expect(CommandResult.search_files.parse({ files })).toStrictEqual({ files });
     expect(CommandResult.search_files.safeParse({ files: [{ path: "", directory: false }] }).success).toBe(false);
+    const entries = [
+      { name: "src", kind: "dir" },
+      { name: "a.ts", kind: "file" },
+      { name: "latest", kind: "link" },
+    ];
+    expect(CommandResult.list_dir.parse({ entries, truncated: false })).toStrictEqual({ entries, truncated: false });
+    expect(CommandResult.list_dir.safeParse({ entries: [{ name: "", kind: "file" }], truncated: false }).success).toBe(
+      false,
+    );
+    expect(
+      CommandResult.list_dir.safeParse({ entries: [{ name: "fifo", kind: "fifo" }], truncated: true }).success,
+    ).toBe(false);
+    expect(
+      CommandResult.list_dir.safeParse({
+        entries: Array.from({ length: 5001 }, () => ({ name: "a", kind: "file" })),
+        truncated: true,
+      }).success,
+    ).toBe(false);
+    expect(CommandResult.list_dir.safeParse({ entries }).success).toBe(false);
+    const texts = { size: 3, content: { kind: "text", text: "abc" } };
+    expect(CommandResult.read_file.parse(texts)).toStrictEqual(texts);
+    const images = ["image/png", "image/jpeg", "image/gif", "image/webp"].map((mimeType) => ({
+      size: 4,
+      content: { kind: "image", mimeType, data: "UklGRg==" },
+    }));
+    expect(images.map((image) => CommandResult.read_file.parse(image))).toStrictEqual(images);
+    const largest = {
+      size: 10 * 1024 * 1024,
+      content: { kind: "image", mimeType: "image/png", data: "a".repeat(13_981_016) },
+    };
+    expect(CommandResult.read_file.safeParse(largest).success).toBe(true);
+    expect(
+      CommandResult.read_file.safeParse({ ...largest, content: { ...largest.content, data: "a".repeat(13_981_017) } })
+        .success,
+    ).toBe(false);
+    expect(
+      ["binary", "too_large", "link"].map((kind) => CommandResult.read_file.parse({ size: 9, content: { kind } })),
+    ).toStrictEqual([
+      { size: 9, content: { kind: "binary" } },
+      { size: 9, content: { kind: "too_large" } },
+      { size: 9, content: { kind: "link" } },
+    ]);
+    expect(
+      CommandResult.read_file.safeParse({
+        size: 4,
+        content: { kind: "image", mimeType: "image/svg+xml", data: "PHN2" },
+      }).success,
+    ).toBe(false);
+    expect(
+      CommandResult.read_file.safeParse({ size: 0, content: { kind: "image", mimeType: "image/png", data: "" } })
+        .success,
+    ).toBe(false);
+    expect(
+      CommandResult.read_file.safeParse({ size: 1, content: { kind: "text", text: "a".repeat(1024 * 1024 + 1) } })
+        .success,
+    ).toBe(false);
+    expect(CommandResult.read_file.safeParse({ size: 1, content: { kind: "binary", text: "a" } }).success).toBe(false);
+    expect(CommandResult.read_file.safeParse({ size: -1, content: { kind: "binary" } }).success).toBe(false);
     expect(CommandResult.upload_attachment.parse({ attachmentId: "a1" })).toStrictEqual({ attachmentId: "a1" });
     expect(CommandResult.upload_attachment.safeParse({}).success).toBe(false);
     expect(CommandResult.watch_changes.parse({})).toStrictEqual({});
@@ -1080,8 +1235,15 @@ const snapshot: IndexSnapshotEvent = {
       dir: "/Users/test/.atrium/chats/0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
       alias: null,
       firstSessionId: "s2",
+      archivedAt: null,
     },
-    { id: "cht_x", dir: "/Users/test/.atrium/chats/x", alias: "合并原理", firstSessionId: null },
+    {
+      id: "cht_x",
+      dir: "/Users/test/.atrium/chats/x",
+      alias: "合并原理",
+      firstSessionId: null,
+      archivedAt: 1_700_000_200_000,
+    },
   ],
   sessions: [
     {
@@ -1120,13 +1282,13 @@ const snapshot: IndexSnapshotEvent = {
   preferences: {
     setupDone: true,
     appearance: "system",
-    displayMode: "summary",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high", "faux/faux-1": "off" },
     lastFast: true,
     statusBar: { cost: true, session: false },
     titleModel: { providerId: "anthropic", modelId: "claude-haiku-4-5" },
     proxy: { url: "http://127.0.0.1:7897", noProxy: Array.from({ length: 100 }, () => "h") },
+    inbox: false,
   },
   resets: ["layouts"],
 };
@@ -1143,6 +1305,21 @@ const changes: IndexChangesEvent = {
   layout: snapshot.layout,
   preferences: snapshot.preferences,
 };
+
+describe("IDLE_CONTROL", () => {
+  it("has nothing going on: no queue, steers, stop, restart, compaction, questions or failure", () => {
+    expect(IDLE_CONTROL).toStrictEqual({
+      queue: [],
+      paused: null,
+      steers: [],
+      stopping: false,
+      restarting: false,
+      compacting: false,
+      interactions: [],
+      failure: null,
+    });
+  });
+});
 
 describe("HostMessage: changes", () => {
   it.each([
@@ -1270,10 +1447,6 @@ describe("HostMessage", () => {
       ...["generation_changed", "cursor_expired", "too_many_changes"].map((reason) => ({ ...snapshot, reason })),
       { ...snapshot, sessions: [{ ...session, attention: { reason: "auth", at: 0, cleared: true } }] },
       ...["light", "dark"].map((appearance) => ({ ...snapshot, preferences: { ...snapshot.preferences, appearance } })),
-      ...["thinking", "detailed"].map((displayMode) => ({
-        ...snapshot,
-        preferences: { ...snapshot.preferences, displayMode },
-      })),
       { ...snapshot, layout: { container: null, tabs: {} }, resets: ["projects", "chats", "sessions", "preferences"] },
       {
         ...snapshot,
@@ -1341,6 +1514,8 @@ describe("HostMessage", () => {
       "project_exists",
       "name_taken",
       "path_not_found",
+      "path_invalid",
+      "read_failed",
       "session_is_draft",
       "session_stopping",
       "queue_item_not_found",
@@ -1355,8 +1530,15 @@ describe("HostMessage", () => {
       "workspace_unsaved_commits",
       "worktree_remove_failed",
       "worktree_restore_failed",
+      "worktree_create_failed",
       "fast_unavailable",
       "pi_rejected",
+      "nothing_to_compact",
+      "already_compacted",
+      "compact_failed",
+      "export_failed",
+      "fork_failed",
+      "turn_not_found",
       "session_handed_off",
       "login_unavailable",
       "login_not_found",
@@ -1402,6 +1584,8 @@ describe("HostMessage", () => {
       { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: undefined }] },
     ],
     ["a workspace archived at no time", { ...snapshot, workspaces: [{ ...snapshot.workspaces[0], archivedAt: -1 }] }],
+    ["a chat without when it was archived", { ...snapshot, chats: [{ ...snapshot.chats[0], archivedAt: undefined }] }],
+    ["a chat archived at no time", { ...snapshot, chats: [{ ...snapshot.chats[0], archivedAt: -1 }] }],
     [
       "an unknown merge verdict",
       {
@@ -1511,6 +1695,24 @@ describe("HostMessage", () => {
     ],
   ])("rejects %s", (_case, message) => {
     expect(HostMessage.safeParse(message).success).toBe(false);
+  });
+});
+
+describe("Turn", () => {
+  it("names the skill a user message started with, by a name pi could have given it", () => {
+    const skilled = { ...turn, user: { ...turn.user, command: { kind: "skill", name: "review" } } };
+
+    expect(Turn.parse(skilled)).toStrictEqual(skilled);
+    expect(Turn.safeParse({ ...turn, user: { ...turn.user, command: { kind: "skill", name: "" } } }).success).toBe(
+      false,
+    );
+    expect(
+      Turn.safeParse({ ...turn, user: { ...turn.user, command: { kind: "skill", name: "x".repeat(257) } } }).success,
+    ).toBe(false);
+    expect(
+      Turn.safeParse({ ...turn, user: { ...turn.user, command: { kind: "prompt", name: "commit" } } }).success,
+    ).toBe(false);
+    expect(Turn.safeParse({ ...turn, user: { ...turn.user, command: undefined } }).success).toBe(false);
   });
 });
 

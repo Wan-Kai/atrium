@@ -5,7 +5,7 @@ import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import type { ShownModel } from "./model-choice";
-import { ModelPicker } from "./model-picker";
+import { ModelPicker, type PickerRequest } from "./model-picker";
 
 /** A model as the catalog lists it. */
 function model(providerId: string, modelId: string, name: string, fields: Partial<CatalogModel> = {}): CatalogModel {
@@ -40,28 +40,52 @@ function shown(listed: CatalogModel, level: ThinkingLevel | null): ShownModel {
   };
 }
 
-/** Renders a picker at the bottom of a page, recording what it asks for. */
+/**
+ * Renders a picker at the bottom of a page, recording what it asks for.
+ *
+ * @sideEffects Renders.
+ * @param current - The model shown.
+ * @param list - The models.
+ * @param options - Whether it is disabled, and the request to open it there as it appears.
+ * @returns The screen, the calls, the button, and a way to render it again with another request
+ * and whether it is disabled.
+ */
 async function picker(
   current: ShownModel | null,
   list: ModelListView = READY,
-  options: { readonly disabled?: boolean } = {},
+  options: { readonly disabled?: boolean; readonly request?: PickerRequest | null } = {},
 ) {
   const calls: unknown[][] = [];
-  const screen = await render(
+  /**
+   * The picker in its page.
+   *
+   * @sideEffects none
+   * @param request - The request to open it.
+   * @param disabled - Whether it is disabled.
+   * @returns The page.
+   */
+  const page = (request: PickerRequest | null, disabled: boolean) => (
     <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 520, width: 640 }}>
       <ModelPicker
         shown={current}
         list={list}
-        disabled={options.disabled ?? false}
+        disabled={disabled}
         onOpen={() => calls.push(["open"])}
         onRefresh={() => calls.push(["refresh"])}
         onChooseModel={(ref: ModelRef) => calls.push(["model", ref])}
         onChooseLevel={(level: ThinkingLevel) => calls.push(["level", level])}
+        request={request}
       />
       <button type="button">outside</button>
-    </div>,
+    </div>
   );
-  return { screen, calls, chip: screen.getByRole("button", { name: /模型与推理强度/ }) };
+  const screen = await render(page(options.request ?? null, options.disabled ?? false));
+  return {
+    screen,
+    calls,
+    chip: screen.getByRole("button", { name: /模型与推理强度/ }),
+    again: async (request: PickerRequest | null, disabled = false) => screen.rerender(page(request, disabled)),
+  };
 }
 
 describe("ModelPicker's button", () => {
@@ -237,6 +261,34 @@ describe("ModelPicker's panel", () => {
     await userEvent.keyboard("{Meta>}{Shift>}e{/Shift}{/Meta}");
     await expect.element(screen.getByRole("slider")).toHaveFocus();
     expect(screen.getByRole("menuitemradio").elements()).toHaveLength(0);
+  });
+
+  it("opens a part on each new request as its shortcut does, but not on the one there as it appears", async () => {
+    const { screen, calls, again } = await picker(shown(SOL, "medium"), READY, { request: { part: "model", id: 1 } });
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+
+    await again({ part: "model", id: 2 });
+    await expect.element(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(3);
+    await expect.element(screen.getByRole("slider")).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await again({ part: "model", id: 2 });
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+
+    await again({ part: "effort", id: 3 });
+    await expect.element(screen.getByRole("slider")).toHaveFocus();
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(0);
+    expect(calls).toStrictEqual([["open"], ["open"]]);
+  });
+
+  it("does not open on a request while disabled, nor on that request once enabled", async () => {
+    const { screen, calls, again } = await picker(shown(SOL, "medium"), READY, { disabled: true });
+
+    await again({ part: "model", id: 1 }, true);
+    await again({ part: "model", id: 1 });
+
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+    expect(calls).toStrictEqual([]);
   });
 
   it("does not open from the keyboard while disabled", async () => {

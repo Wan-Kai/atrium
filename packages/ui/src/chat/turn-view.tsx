@@ -1,18 +1,22 @@
+import { isAuthFailure } from "@atrium/client";
 import type { Notice, Step, Turn } from "@atrium/protocol";
 import {
   ArrowClockwise,
   ArrowsInLineVertical,
   CaretDown,
+  CaretRight,
   Database,
   FileText,
+  GitFork,
+  Key,
   PencilSimple,
   Question,
   Stop,
   Warning,
 } from "../design/icons";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, createContext, use, useEffect, useMemo, useState } from "react";
 import { useClock } from "../state/clock";
-import { useDisplayMode } from "../state/display-mode";
+import { messageTag } from "./composer-text";
 import { Fold } from "./fold";
 import { Markdown } from "./markdown";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
@@ -66,8 +70,10 @@ function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
  * A run's process header: "进行中 · 12s" while it runs, then "› 已完成，用时 N · 读了 …".
  *
  * @remarks
- * The cat stands on the rail while the run lasts; finished, a chevron takes its place, pointing
- * down while the process is open and right while it is folded (SPEC-0001, "过程的呈现"). The
+ * The cat shows while the run lasts; finished, a chevron takes its place, pointing down while the
+ * process is open and right while it is folded (SPEC-0001, "过程的呈现"). Both start at the
+ * reply's left edge rather than on the rail, so the header lines up with the reply below
+ * (design-language, "消息流 · 过程"); the chevron's box is pulled left by its inner margin. The
  * summary is said only while folded: open, the rail says it. A failed command is mentioned in
  * grey, "N 条命令没走通": the agent often recovers, so red is too loud. Once the process has
  * folded or unfolded in view, the summary comes in after the fold is well under way.
@@ -108,12 +114,10 @@ function ProcessHeader({
       {running ? (
         <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
       ) : (
-        <span className="flex min-w-0 items-center gap-1.5 pl-[30px]">
+        <span className="flex min-w-0 items-center gap-1.5">
           <CaretDown
             size={13}
-            className={`atrium-fold-chevron absolute top-[15px] left-[10.5px] -translate-x-1/2 -translate-y-1/2 group-hover:text-[var(--text-2)] ${
-              open ? "" : "-rotate-90"
-            }`}
+            className={`atrium-fold-chevron -ml-[4.5px] flex-none group-hover:text-[var(--text-2)] ${open ? "" : "-rotate-90"}`}
           />
           <span className="flex-none font-medium text-[var(--text)]">{headerTitle(turn, process)}</span>
           {open || parts.length === 0 ? null : " "}
@@ -268,19 +272,67 @@ function FileChange({
   );
 }
 
+/** How a turn's "从这里分叉" behaves, where a session can be forked. */
+export interface ForkFromTurn {
+  /** Forks after the turn. */
+  readonly fork: (turnId: string) => void;
+  /** Whether the session runs, stops or compacts, so no fork can be made now. */
+  readonly blocked: boolean;
+}
+
 /**
- * The line under a finished turn: copy, files changed, usage and time.
+ * The "从这里分叉" button beside a reply's copy.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的 `/` 命令 · 分叉"), design-language ("分叉按钮"): drawn as the copy button;
+ * while the session runs it is faded, keeps its colours on hover, shows a not-allowed cursor, says
+ * "运行中不能分叉" and does nothing.
+ *
+ * @sideEffects Forks the session when clicked and not blocked.
+ * @param props - The turn and how forking behaves.
+ * @returns The button.
+ */
+function ForkButton({ turnId, fork }: { readonly turnId: string; readonly fork: ForkFromTurn }) {
+  return (
+    <button
+      type="button"
+      aria-label="从这里分叉"
+      title={fork.blocked ? "运行中不能分叉" : "从这里分叉"}
+      aria-disabled={fork.blocked}
+      className={`rounded-[var(--r)] p-1 text-[var(--text-dim)] ${
+        fork.blocked ? "cursor-not-allowed opacity-40" : "hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+      }`}
+      onClick={() => {
+        if (!fork.blocked) fork.fork(turnId);
+      }}
+    >
+      <GitFork size={14} />
+    </button>
+  );
+}
+
+/**
+ * The line under a finished turn: copy, fork, files changed, usage and time.
  *
  * @remarks
  * "复制、本轮用量（这一轮的输入 + 输出 token）、时间" (SPEC-0001, "消息下方的信息"); the files chip
  * opens the turn's changes (SPEC-0001, "每轮改动汇总"). Copy takes the reply's Markdown source,
- * the one copy there is. The time is when the turn ended.
+ * the one copy there is; forking sits right of it where the session can be forked. The time is
+ * when the turn ended.
  *
  * @sideEffects none
- * @param props - The turn and its reply.
+ * @param props - The turn, its reply and how forking behaves, if offered.
  * @returns The info row and, when open, the files.
  */
-function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: string | null }) {
+function TurnFooter({
+  turn,
+  reply,
+  fork,
+}: {
+  readonly turn: Turn;
+  readonly reply: string | null;
+  readonly fork: ForkFromTurn | undefined;
+}) {
   const [filesOpen, setFilesOpen] = useState(false);
   const added = turn.changes.reduce((sum, change) => sum + (change.added ?? 0), 0);
   const removed = turn.changes.reduce((sum, change) => sum + (change.removed ?? 0), 0);
@@ -291,6 +343,7 @@ function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: stri
         data-testid="turn-footer"
       >
         {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
+        {fork === undefined ? null : <ForkButton turnId={turn.id} fork={fork} />}
         {turn.changes.length === 0 ? null : (
           <button
             type="button"
@@ -322,29 +375,54 @@ function TurnFooter({ turn, reply }: { readonly turn: Turn; readonly reply: stri
   );
 }
 
+/** Opens the settings at "模型与账户", for the error card's "去登录"; none where there are no settings. */
+export const OpenLogin = createContext<(() => void) | null>(null);
+
+/** The error card's one main button, on a light wash of the card's colour. */
+const CARD_PRIMARY = "rounded-[var(--r-pill)] px-2.5 leading-[22px] font-medium hover:brightness-95";
+
 /**
  * pi's error for a failed turn, folded until asked for.
  *
  * @remarks
- * A short line, with the raw error behind "展开看原始报错" (SPEC-0001, "运行出错与停止"); a turn
- * pi went away in has no text of pi's. The last turn offers "重试", which runs it again as the
- * host does after a restart (SPEC-0001, "运行控制").
+ * A short line, with the raw error behind "详情" at its right end (SPEC-0001, "运行出错与停止");
+ * a turn pi went away in has no text of pi's. The last turn offers "重试", which runs it again as
+ * the host does after a restart (SPEC-0001, "运行控制"). An error that looks like a credentials
+ * problem, by the rule the host sets the sidebar's key by, shows the key and "登录已失效"; where
+ * "重试" is offered, "去登录" is the one main button and "重试" plain text, so the line has one
+ * thing to do first (design-language, "失败的一轮").
  *
- * @sideEffects Calls `onRetry` when asked.
+ * @sideEffects Calls `onRetry` or opens the settings when asked.
  * @param props - pi's error text, if there is any, and what "重试" does, if it is offered.
  * @returns The error card.
  */
 function TurnError({ error, onRetry }: { readonly error: string | null; readonly onRetry?: () => void }) {
   const [open, setOpen] = useState(false);
+  const openLogin = use(OpenLogin);
+  const auth = error !== null && isAuthFailure(error);
+  const login = auth && onRetry !== undefined && openLogin !== null ? openLogin : null;
+  const wash = auth ? "bg-[var(--attn-soft)] text-[var(--attn-text)]" : "bg-[var(--danger-soft)] text-[var(--danger)]";
   return (
-    <div className="my-1 text-[length:var(--fs-meta)] text-[var(--danger)]" data-testid="turn-error">
-      <div className="flex items-center gap-1.5">
-        <Warning size={14} />
-        <span>回复出错</span>
+    <div
+      className={`my-1 text-[length:var(--fs-meta)] ${auth ? "text-[var(--attn)]" : "text-[var(--danger)]"}`}
+      data-testid="turn-error"
+    >
+      <div className="flex min-h-[26px] items-center gap-1.5">
+        {auth ? <Key size={14} /> : <Warning size={14} />}
+        <span>{auth ? "登录已失效" : "回复出错"}</span>
+        {login === null ? null : (
+          <button type="button" className={`${CARD_PRIMARY} ${wash}`} onClick={login}>
+            去登录
+          </button>
+        )}
         {onRetry === undefined ? null : (
           <button
             type="button"
-            className="rounded-[var(--r-pill)] px-2.5 text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]"
+            className={
+              login === null
+                ? `${CARD_PRIMARY} ${wash}`
+                : "rounded-[var(--r)] px-1.5 leading-[22px] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+            }
             onClick={onRetry}
           >
             重试
@@ -353,10 +431,12 @@ function TurnError({ error, onRetry }: { readonly error: string | null; readonly
         {error === null || error === "" ? null : (
           <button
             type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text-muted)]"
+            aria-expanded={open}
+            className="ml-auto inline-flex items-center gap-0.5 rounded-[var(--r)] px-1 leading-[22px] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
             onClick={() => setOpen(!open)}
           >
-            {open ? "收起" : "展开看原始报错"}
+            详情
+            <CaretRight size={12} className={`atrium-fold-chevron ${open ? "rotate-90" : ""}`} />
           </button>
         )}
       </div>
@@ -376,6 +456,8 @@ export interface TurnViewProps {
   readonly runStartedAt: number | null;
   /** "重试" for a failed turn, when offered. */
   readonly onRetry?: () => void;
+  /** "从这里分叉" under the reply, where the session can be forked. */
+  readonly fork?: ForkFromTurn;
 }
 
 /**
@@ -385,19 +467,18 @@ export interface TurnViewProps {
  * "突出结果，折叠过程" (SPEC-0001, "对话区"). The process shows on its rail while the turn runs;
  * a turn that finishes in view stays open a second so "完成" can be seen, then folds into its
  * header, smoothly (SPEC-0001, "过程的呈现": "跑完后的折叠"). A turn already finished when shown
- * is simply folded, unless opened or in detailed mode; folded, steers stay visible and, in
- * thinking mode, thinking (SPEC-0001, "显示模式"). A turn without process steps has no header;
+ * is simply folded until opened; folded, steers stay visible (SPEC-0001, "过程的显示"). A turn without process steps has no header;
  * while it runs with nothing to show yet, the run's line stands in its place until the first
  * step or the reply's first text. Steps that arrive while the turn is shown play their entrance;
  * the ones there when it was first shown do not. The reply streams below, revealed smoothly; a
- * failed turn shows pi's error.
+ * failed turn shows pi's error, and ends there when it has no reply and changed no files: its info
+ * row would hold nothing worth reading (SPEC-0001, "消息下方的信息").
  *
  * @sideEffects Holds a finished turn open for a second on the clock.
- * @param props - The turn and the run's start.
+ * @param props - The turn, the run's start, and "重试" and forking where offered.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
-  const { mode } = useDisplayMode();
+export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -423,17 +504,14 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
    */
   const isLive = (step: Step): boolean =>
     running && (step.kind === "tool" ? step.status === "running" : step.id === lastId);
-  const open = running || lingering || (expanded ?? mode === "detailed");
+  const open = running || lingering || (expanded ?? false);
   const [wasOpen, setWasOpen] = useState(open);
   const [moved, setMoved] = useState(false);
   if (open !== wasOpen) {
     setWasOpen(open);
     setMoved(true);
   }
-  const lead = process.filter(
-    (row) =>
-      row.kind === "step" && (row.step.kind === "steer" || (mode === "thinking" && row.step.kind === "thinking")),
-  );
+  const lead = process.filter((row) => row.kind === "step" && row.step.kind === "steer");
   const waiting = running && process.length === 0 && (reply === null || reply.text === "");
   return (
     <div
@@ -448,6 +526,7 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
         images={turn.user.images}
         timestamp={turn.user.timestamp}
         auto={turn.user.auto}
+        command={messageTag(turn.user.command)}
         turnId={turn.id}
         clientMessageId={turn.user.clientMessageId}
         settled={turn.outcome !== "running"}
@@ -524,7 +603,9 @@ export function TurnView({ turn, runStartedAt, onRetry }: TurnViewProps) {
           <StreamedText text={reply.text} streaming={running} />
         </div>
       )}
-      {running ? null : <TurnFooter turn={turn} reply={reply?.text ?? null} />}
+      {running || (turn.outcome === "failed" && reply === null && turn.changes.length === 0) ? null : (
+        <TurnFooter turn={turn} reply={reply?.text ?? null} fork={fork} />
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type {
   FetchImageCommand,
   FetchStepCommand,
   FetchTranscriptCommand,
+  ForkSessionCommand,
   InteractionAnswer,
   ModelRef,
   PromptCommand,
@@ -24,8 +25,11 @@ import type { PromptImage } from "./session-controller";
 export interface SessionCommands {
   /** Creates a chat, starts its pi and opens it as the client's active tab. */
   createChat(clientId: string): Promise<CommandResult<"create_chat">>;
-  /** Creates a session in a workspace or chat, starts its pi and opens it as the client's active tab. */
-  createSession(clientId: string, containerId: ContainerId): Promise<CommandResult<"create_session">>;
+  /**
+   * Creates a session in a workspace or chat, starts its pi and opens it as the active tab of the
+   * container; `go` takes the client there, unless it moved meanwhile.
+   */
+  createSession(clientId: string, containerId: ContainerId, go?: boolean): Promise<CommandResult<"create_session">>;
   /** Opens a session as the client's active tab, starting its pi unless it runs or is a restored draft. */
   openSession(clientId: string, sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes the client's tab of a session; a draft without messages is discarded. */
@@ -34,6 +38,10 @@ export interface SessionCommands {
   selectContainer(clientId: string, containerId: ContainerId | null): Promise<CommandResult<"select_container">>;
   /** Hides a session in Atrium and stops its pi. */
   archiveSession(sessionId: string): Promise<CommandResult<"archive_session">>;
+  /** Archives a chat with its sessions, stopping their pi (SPEC-0001, "M1.11 的对话归档"). */
+  archiveChat(chatId: string): Promise<CommandResult<"archive_chat">>;
+  /** Brings an archived chat back with the sessions archived with it. */
+  restoreChat(chatId: string): Promise<CommandResult<"restore_chat">>;
   /** Names a session in pi. */
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
   /** Marks a session's error as seen; a sign-in problem stays until the next run (SPEC-0001, "会话状态"). */
@@ -66,6 +74,15 @@ export interface SessionCommands {
   setThinkingLevel(sessionId: string, level: ThinkingLevel): Promise<CommandResult<"set_thinking_level">>;
   /** Switches a session's Fast, starting its pi first if it has none (SPEC-0001, "Fast"). */
   setFast(sessionId: string, enabled: boolean): Promise<CommandResult<"set_fast">>;
+  /** Compacts a session's context now, starting its pi first if it has none (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
+  compactSession(sessionId: string, instructions: string | undefined): Promise<CommandResult<"compact_session">>;
+  /** A session as pi's HTML page, starting its pi first if it has none (SPEC-0001, "M1.11 的 `/` 命令"). */
+  exportSession(sessionId: string): Promise<CommandResult<"export_session">>;
+  /**
+   * Forks a session after a turn into a new session in its container, opened as the client's active
+   * tab (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+   */
+  forkSession(clientId: string, command: ForkSessionCommand): Promise<CommandResult<"fork_session">>;
   /** The `/` commands of a session's pi, starting its pi first if it has none (SPEC-0001, "模型与输入框"). */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory; a newer search calls off an older one. */

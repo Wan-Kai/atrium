@@ -18,7 +18,7 @@ const ENTRIES: LogEntry[] = (() => {
   };
   const usage = { input: 1200, output: 300, cacheRead: 0, cacheWrite: 0, reasoning: null };
   for (let turn = 0; turn < 2000; turn += 1) {
-    add({ kind: "user", text: `问题 ${turn}`, images: 0, timestamp: turn * 10 });
+    add({ kind: "user", text: `问题 ${turn}`, images: 0, skill: null, timestamp: turn * 10 });
     add({
       kind: "assistant",
       parts: [

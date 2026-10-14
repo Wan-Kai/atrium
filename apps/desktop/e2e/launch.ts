@@ -23,9 +23,8 @@ export interface LaunchedApp {
 
 /** `preferences.json` with first launch done and the rest as a new home has it. */
 const DONE_PREFERENCES = `${JSON.stringify({
-  version: 2,
+  version: 3,
   appearance: "system",
-  displayMode: "summary",
   lastModel: null,
   thinkingByModel: {},
   setupDone: true,

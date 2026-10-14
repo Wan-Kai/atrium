@@ -1,4 +1,4 @@
-import { Appearance, Attention, DisplayMode, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
+import { Appearance, Attention, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
 import { basename } from "node:path";
 import { z } from "zod";
 import type { IndexFileSpec } from "./index-file";
@@ -27,11 +27,17 @@ const WorkspaceRecord = z.looseObject({
   baseCommit: z.string().nullable(),
   external: z.boolean(),
   /**
-   * When it was archived and what it had checked out then; absent or `null` when it is not
-   * (SPEC-0001, "M1.11 的工作区归档"). Added without a new version: older files have none.
+   * When it was archived, what it had checked out then and the sessions archived with it; absent
+   * or `null` when it is not (SPEC-0001, "M1.11 的工作区归档"). Added without a new version: older
+   * files have none, and older archives no sessions.
    */
   archived: z
-    .strictObject({ at: z.number(), branch: z.string().nullable(), head: z.string().nullable() })
+    .strictObject({
+      at: z.number(),
+      branch: z.string().nullable(),
+      head: z.string().nullable(),
+      sessions: z.array(z.string()).optional(),
+    })
     .nullable()
     .optional(),
 });
@@ -51,18 +57,35 @@ export const PROJECTS_FILE: IndexFileSpec<ProjectsDocument> = {
   empty: () => ({ projects: [], workspaces: [] }),
 };
 
-/** A chat's name, as `chats.json` keeps it; a chat without one has no record (ADR-0007). */
-const ChatRecord = z.looseObject({ id: z.string(), alias: z.string() });
+/**
+ * What `chats.json` keeps of a chat: its name and whether it is archived; a chat with neither has
+ * no record (ADR-0007; SPEC-0001, "M1.11 的对话归档").
+ */
+const ChatRecord = z.looseObject({
+  id: z.string(),
+  alias: z.string().optional(),
+  archived: z
+    .looseObject({
+      at: z.number().int().nonnegative(),
+      sessions: z.array(z.string()),
+      first: z.string().nullable(),
+    })
+    .optional(),
+});
 
 const ChatsDocument = z.looseObject({ chats: z.array(ChatRecord) });
 export type ChatsDocument = z.infer<typeof ChatsDocument>;
 
-/** `chats.json`: the names given to chats (domain-model §1, "索引的存储"). */
+/** `chats.json`: the names given to chats and which are archived (domain-model §1, "索引的存储"). */
 export const CHATS_FILE: IndexFileSpec<ChatsDocument> = {
   name: "chats",
-  version: 1,
+  version: 2,
   schema: ChatsDocument,
   empty: () => ({ chats: [] }),
+  migrations: {
+    // M1.11 archives chats: a record may have an archive and no name, which version 1 cannot read.
+    1: (document) => document,
+  },
 };
 
 /** The container every chat's session was filed under in version 1 of `sessions.json`. */
@@ -211,7 +234,6 @@ function splitChats(client: unknown, containers: ReadonlyMap<string, string>): u
 
 const PreferencesDocument = z.looseObject({
   appearance: Appearance,
-  displayMode: DisplayMode,
   /** The model last chosen in any session; `null` until one is (SPEC-0001, "模型与输入框"). */
   lastModel: ModelRef.nullable(),
   /** Each model's last thinking level, keyed `providerId/modelId`. */
@@ -226,18 +248,22 @@ const PreferencesDocument = z.looseObject({
   proxy: ProxySetting.nullable().optional(),
   /** Fast as last switched in any session; absent before M1.11's Fast (SPEC-0001, "Fast"). */
   lastFast: z.boolean().optional(),
+  /** Whether the sidebar shows "等你处理"; absent before M1.11's bottom card (SPEC-0001, "侧栏 · 收件箱"). */
+  inbox: z.boolean().optional(),
 });
 export type PreferencesDocument = z.infer<typeof PreferencesDocument>;
 
 /** `preferences.json`: global preferences, the same for every client (domain-model §5). */
 export const PREFERENCES_FILE: IndexFileSpec<PreferencesDocument> = {
   name: "preferences",
-  version: 2,
+  version: 3,
   schema: PreferencesDocument,
-  empty: () => ({ appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} }),
+  empty: () => ({ appearance: "system", lastModel: null, thinkingByModel: {} }),
   migrations: {
     // M1.7 remembers models; before, none was chosen.
     1: (document) => ({ ...document, lastModel: null, thinkingByModel: {} }),
+    // M1.11 took the display mode out (SPEC-0001, "过程的显示").
+    2: ({ displayMode: _gone, ...document }) => document,
   },
 };
 

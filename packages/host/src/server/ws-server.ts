@@ -83,6 +83,8 @@ export interface WsServerOptions {
   readonly attachments: AttachmentStore;
   /** Workspaces' git changes; a closed connection stops showing them. */
   readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff" | "disconnect">;
+  /** A workspace's files, for the right panel's file tree and the viewer tabs. */
+  readonly files: RouterOptions["files"];
   readonly logger: Logger;
   readonly tracer: Tracer;
   readonly clock: Clock;
@@ -144,6 +146,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     piLatest: options.piLatest,
     attachments: options.attachments,
     changes: options.changes,
+    files: options.files,
     tracer: options.tracer,
     logger: options.logger,
   });

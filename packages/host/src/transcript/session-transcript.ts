@@ -14,7 +14,7 @@ import {
 import { projectTranscript } from "./projection";
 import { forTransport, itemForTransport } from "./rules";
 import { type SessionLog, createSessionLog } from "./session-log";
-import { TurnDraft, type TurnFacts } from "./turn-draft";
+import { TurnDraft, type TurnFacts, messageCommand, steerText } from "./turn-draft";
 
 /** Fields the controller adds to every event it publishes. */
 type Envelope = "sessionId" | "epoch" | "seq" | "traceId";
@@ -295,7 +295,9 @@ export function createSessionTranscript(options: {
     if (message.kind === "user") {
       if (live?.draft.takesSteer === true) {
         seen.push(null);
-        return [{ type: "step_added", turnId: live.draft.id, step: live.draft.steer(message.text, message.timestamp) }];
+        return [
+          { type: "step_added", turnId: live.draft.id, step: live.draft.steer(steerText(message), message.timestamp) },
+        ];
       }
       const events = finishLive(false);
       const { clientMessageId, auto } = origin();
@@ -306,6 +308,7 @@ export function createSessionTranscript(options: {
           images: message.images,
           clientMessageId,
           auto,
+          command: messageCommand(message),
           timestamp: message.timestamp,
         },
         null,

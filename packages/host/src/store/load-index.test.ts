@@ -42,7 +42,6 @@ const DOCUMENTS = {
   },
   preferences: {
     appearance: "dark",
-    displayMode: "thinking",
     lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
     thinkingByModel: { "anthropic/claude-opus-5-5": "high" },
   },
@@ -54,10 +53,10 @@ const tab = (open: string[], active: string | null) => ({ open, active });
 /** Each file's current format version. */
 const VERSIONS: Record<keyof typeof DOCUMENTS, number> = {
   projects: 1,
-  chats: 1,
+  chats: 2,
   sessions: 2,
   layouts: 2,
-  preferences: 2,
+  preferences: 3,
 };
 
 /**
@@ -135,7 +134,12 @@ describe("loadIndex", () => {
       { sessions: [{ ...DOCUMENTS.sessions.sessions[0], sessionId: 1 }] },
       { sessions: [] },
     ],
-    ["chats", "a chat with no name", { chats: [{ id: "cht_a" }] }, { chats: [] }],
+    [
+      "chats",
+      "a chat archived at no time",
+      { chats: [{ id: "cht_a", archived: { at: -1, sessions: [], first: null } }] },
+      { chats: [] },
+    ],
     ["layouts", "no clients", {}, { clients: [] }],
     ["layouts", "a client with no id", { clients: [{ seenAt: 2, container: null, tabs: {} }] }, { clients: [] }],
     [
@@ -147,8 +151,8 @@ describe("loadIndex", () => {
     [
       "preferences",
       "an unknown appearance",
-      { appearance: "sepia", displayMode: "summary" },
-      { appearance: "system", displayMode: "summary", lastModel: null, thinkingByModel: {} },
+      { appearance: "sepia" },
+      { appearance: "system", lastModel: null, thinkingByModel: {} },
     ],
   ] as const)("resets %s with %s, keeping it aside and logging where", async (name, _case, document, empty) => {
     const dir = await home();

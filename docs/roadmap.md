@@ -16,6 +16,10 @@
 
 ## 当前状态
 
+**2026-10-14：M1.12 文件与更改完成，三方审查（Astra、Grok、Claude）后已合并回 `main`（M1.11 自用的改动一起合并）。右栏换成"文件""更改"两个标签（默认宽 320px），旧的改动面板删掉；查看标签（文件、改动）进标签栏、和会话一起数 ⌘1–9、⌘W 关；diff 和文件内容在 worker 里用 Shiki 上色；`list_dir`、`read_file` 和 material-icon-theme 的图标先前已提交。长内容按 64 行一组、`content-visibility: auto`，2 万行的 diff 折叠左栏、滚动每段 ≤ 4 毫秒，切换到改动标签约 60 毫秒（testing.md "性能预算"新加了切换和滚动两项）；改动标签离开时停掉文件头的闪动，否则动画留着整个标签不回收（泄漏测试查出来的）。三方审查的问题都修了：宿主一边，归档的会话不再起 pi，对话、工作区归档途中不起 pi、不新建会话，恢复工作区时放回这次归档记下的会话；压缩、分叉途中算忙；新建 worktree 的起点只收完整的 ref。界面一边，右栏有提交领先基线时也默认"更改"、打开着的面板守住默认；文件树只读展开且看得见的目录、先发的读不盖后读的；查看标签的滚动和换行按标签记，关掉就忘；从搜索、收件箱、"历史"点会话（哪怕是当前的）会把它显示出来；`/compact` 带上长粘贴和 `@` 文件，内置命令的失败只在发出它的会话里说；新建工作区发完整的 ref、界面显示短名，分支列表回来前不让发送；拖右栏只在松手时写存储；UI 只经 `@atrium/client` 拿协议的值（oxlint 守住）。单元、宿主、界面测试、相关端到端和 `pnpm check` 通过；变异分数 git 100%、host 99.98%、ui 99.47%。下一步回到 [M1.11](#m111-自用) 的自用。**
+
+**2026-10-13：新建 M1.12 文件与更改，在 `m1.12-files-changes` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。右栏照 Paseo 改成"文件""更改"两个标签，只放树；点文件在对话区的标签页里看内容或 diff。设计已定（原型 `files-changes-prototype.html` 的 A 版），先改 SPEC-0001、design-language、domain-model，再写代码。**
+
 **2026-10-12：M1.11 自用进行中，到目前为止的改动经三方审查（Astra、Grok、Claude）后先合并回 `main`，里程碑没有结束（一周自用、新账户的首次启动检查还没做），之后继续在 `m1.11-self-use` 分支上。这一段做的：每个对话是一个独立的容器（[ADR-0007](adr/0007-each-chat-is-its-own-container.md)，索引升到 v2）；Fast 开关，哪些模型支持以 Codex 的模型列表为准、列表为空或查不到时按内置规则（[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)）；过程轨道，运行结束后折进轮的标题；发送的消息显示图片缩略图，宿主从 pi 的会话文件读回；worktree 工作区的归档与恢复（删目录、留分支，恢复前查分支还在、目录没被占用）；浏览器不内置，留在外部（[ADR-0009](adr/0009-browser-stays-external.md)）；另有图标换成 Hugeicons、回复排版、文件类型标志等界面调整。三方审查的问题都修了：归档停掉会话后再查一次、先记下归档再删目录、git 期限 10 分钟、退出时等归档做完；关标签丢草稿时与发消息和别的窗口打开的竞争；`fetch_image` 等条目读完；Fast 切换中途来了别的事件仍按宿主最后的结果。单元、宿主、界面、pi 测试和 `pnpm check` 通过，git、host、shared、pi 四组变异分数 100%；界面组这次没有重跑。**
 
 **2026-10-11：M1.11 自用开始，在 `m1.11-self-use` 分支上。先补了自用要用的工具：Electron 主进程每分钟把各进程的内存和 CPU 交给宿主写进日志（原来只写在 testing.md 里，没有实现），`pnpm usage` 按宿主的每次运行汇总每小时的用量、标出最低值上涨的项；`pnpm package` 打包成本机用的 Atrium.app（只做 ad-hoc 签名，不公证），从程序坞打开，也用它做新账户的首次启动检查。定了标志：一只猫，用作应用图标和欢迎页的 logo。补了发送后的等待动画；新建会话改为先打开标签、pi 在后台启动，省掉第一条消息等 pi 启动的时间。设置里加了网络代理，交给 pi、安装和宿主自己的请求（原先宿主查最新版本不走代理）。记录在 [self-use.md](research/self-use.md)。**
@@ -113,6 +117,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 定稿稿：
   - `app-prototype.html`：完整主界面（侧栏、标签栏、消息流、过程、输入框、模型与推理强度、状态栏）。
   - `onboarding-prototype.html`：首次启动（欢迎页、安装 pi、登录、添加项目）。
+  - `files-changes-prototype.html`：M1.12 的右栏"文件""更改"和查看标签（定的是 A 版）。
   - `brand/`（官方品牌图标，来源见 `brand/SOURCES.md`）、`fonts/`（标题字体子集）。
 - 过程稿（只作参考）：`sidebar-prototype.html`、`conversation-prototype.html`、`icons-prototype.html`、`tags-prototype.html`、`fonts-prototype.html`、`cta-prototype.html`、`effort-prototype.html`、`effort-chip-prototype.html`。
 - 本地预览：
@@ -319,6 +324,22 @@ MVP 1 里还没设计、做到时先补设计的：
 - Fast：输入框里模型按钮左边的 ⚡ 开关，只在支持的模型上显示，哪些模型支持问 Codex 的模型列表（查不到时按内置规则：ChatGPT 订阅的 GPT-5.5、5.6、6、6.1 系列）；每个会话一份，新会话沿用上一次的选择。由 Atrium 自带的 pi 扩展给请求加 `service_tier: "priority"`（[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)，2026-10-12 定）。
 - 浏览器：不内置浏览器，agent 的浏览器操作放在外部的 ego lite，定制功能以后做成浏览器插件；对话和工作区里不放浏览器标签页（[ADR-0009](adr/0009-browser-stays-external.md)，2026-10-12 定）。
 
+##### M1.12 文件与更改 ✅
+
+- **目标**：右栏照 Paseo 改成"文件""更改"两个标签，只放树、不放 diff；点文件在对话区打开一个查看标签，看文件内容或 diff（2026-10-13 定）。
+- **范围**：
+  - 右栏：顶部"文件""更改"两个标签，"更改"后面带改了几个文件；默认打开"更改"，没有改动时打开"文件"。只放树，默认宽 320px、最窄 240px（原来 560 / 360），对话照旧最少留 440px；开关、拖动、动效不变。
+  - 更改：比较范围（未提交 / 已提交）、合计、刷新照旧；改了的文件按目录排成树：目录在前、按名字排，只有一个子目录的目录连成一行，目录行带里面的合计，文件行带增删和状态图标；默认全部展开。
+  - 文件：工作区的文件树，只列 git 管的文件和没被忽略的新文件（`.gitignore` 忽略的不列）；目录在前、按名字排，展开目录时才读；展开到哪按工作区记在本机；改过的文件带一个小圆点。
+  - 查看标签：标签栏里一种新的标签，排在会话标签后面，切过去时占满对话区（输入框也让出去）。从树里单击打开的是预览标签（标题斜体，下一次单击别的文件把它换掉），双击才固定。只在界面里，不进宿主的布局，重启不保留。
+    - 文件内容：只读，行号、语法高亮、换行开关；顶部是路径、大小、行数，有改动时有"查看改动"。图片显示图片，二进制和太大的文件只显示一行说明。
+    - diff：一个共用的"改动"标签，所有文件连着、按更改树的顺序，点哪个文件滚到哪个；文件头吸顶、点它折叠；带语法高亮；全部折叠 / 展开、换行开关。行的样式同现在的面板。
+  - 文件类型图标统一换成 material-icon-theme 的原版图标（MIT，VS Code、Paseo 用的那套），对话里的文件胶囊一起换（2026-10-13 定：用官方的，不自己画）。
+  - 协议：列文件、读文件；diff 沿用 `watch_diff`。
+  - 不做（Paseo 有的）：分支切换、新建 / 重命名 / 删除文件、右键菜单、并排 diff、忽略空白、diff 里的评论、编辑文件、文件树的排序切换。
+- **参考**：原型 `files-changes-prototype.html`（A 版；B 分栏、C 浮层没选）、[paseo-architecture](research/paseo-architecture.md) §6.1、[SPEC-0001 · M1.12 的文件与更改](specs/0001-mvp1-single-session-chat.md#m112-的文件与更改协议版本-142026-10-13-定)（以及它沿用的"工作区改动"）、[design-language · 右栏、查看标签](architecture/design-language.md#右栏文件与更改)、[domain-model](architecture/domain-model.md)"已决定 19"、[security.md](architecture/security.md)"子进程与文件"。Paseo 的对应源码：`packages/app/src/components/file-explorer-pane.tsx`、`git/changed-files-tree.tsx`、`git/diff-tree.ts`、`panels/file-panel.tsx`、`workspace-tabs/open-beside.ts`。
+- **完成标准**：SPEC-0001 里这一节的行为都有测试；约 2 万行的 diff 在查看标签里打开、滚动、切换标签不超过性能预算；查看标签反复开关的泄漏测试通过；大文件、二进制、图片、读不了的文件都有说法。
+
 #### MVP 2：看得见内部
 
 开工前写 SPEC-0002。
@@ -337,7 +358,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口（归档 2026-10-12 提前在 M1.11 做了，见 SPEC-0001"M1.11 的工作区归档"）；新会话时可选"当前工作区 / 新建 worktree"。
 - 参考：[SPEC-0001 · worktree 合并状态](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §6 git 状态。
 
-v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、文件区（外部改动的处理留到文件区设计）。
+v0.1 不做：沙箱隔离、插件系统、会话树、agent 自扩展、对外分发的签名与公证（本机用的打包在 M1.11 做了）、空闲进程回收、编辑文件（M1.12 的文件区只读；外部改动的处理留到做编辑时设计）。
 
 成功标准：连续两周把 Atrium 当作日常编码的主力工具；至少有一次通过上下文检查器发现问题，并用 extension 修好。
 

@@ -21,10 +21,12 @@ import {
   type SessionSummary,
   type ThinkingLevel,
   UNKNOWN_METRICS,
+  isAuthFailure,
   isChatId,
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
-import { mkdir, rmdir, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, rmdir, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
@@ -33,10 +35,11 @@ import type { ResourceTracker } from "../platform/resources";
 import type { SubscriptionRegistry } from "../sync/subscriptions";
 import type { EntriesPage } from "../transcript/session-transcript";
 import type { WorkspaceService } from "../workspaces/workspace-service";
+import type { ChatRecords } from "../store/chat-records";
 import type { TurnStarts } from "../store/turn-starts";
 import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
-import { type CatalogEntry, chatIdOf, type SessionCatalog } from "./session-catalog";
+import { type CatalogChat, type CatalogEntry, chatIdOf, type SessionCatalog } from "./session-catalog";
 import type { SessionCommands } from "./session-commands";
 import {
   type PromptImage,
@@ -45,6 +48,7 @@ import {
   type SessionPi,
   createSessionController,
 } from "./session-controller";
+import { forkWithPi } from "./session-forker";
 import { type TitleSubject, createTitleGenerator, firstExchange, titleInput } from "./titles";
 import { type TracedPi, startTracedPi } from "./traced-pi";
 
@@ -54,16 +58,50 @@ export interface SessionTools {
   readonly pi: PiInspection;
 }
 
+/** The largest page `export_session` hands over (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令"). */
+const EXPORT_MAX_BYTES = 20 * 1024 * 1024;
+
+/**
+ * Runs work after the work run before it under the same key.
+ *
+ * @remarks
+ * A failed one does not hold up the next. The key is dropped once nothing waits on it.
+ *
+ * @sideEffects Runs `work` once the key's earlier work is done; updates `turns`.
+ * @param turns - The work under way, by key.
+ * @param key - The key.
+ * @param work - The work.
+ * @returns What `work` returns.
+ */
+async function inTurn<T>(turns: Map<string, Promise<unknown>>, key: string, work: () => Promise<T>): Promise<T> {
+  const turn = (turns.get(key) ?? Promise.resolve()).then(work);
+  const settled = turn.catch(() => undefined);
+  turns.set(key, settled);
+  try {
+    return await turn;
+  } finally {
+    // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
+    if (turns.get(key) === settled) turns.delete(key);
+  }
+}
+
 /** The session layer: every session's controller, and the session commands. */
 export interface SessionManager extends SessionCommands {
   /** Every session of a registered container, with whether it runs. */
   summaries(): SessionSummary[];
   /** Stops the sessions of workspaces that went away and drops them from every layout. */
   forgetWorkspaces(workspaceIds: readonly string[]): Promise<void>;
-  /** Stops the pi of every session in a workspace, archiving nothing. */
-  stopWorkspace(workspaceId: string): Promise<void>;
+  /**
+   * Keeps a workspace's sessions from starting, and new ones from being created in it, until
+   * released; stops their pi, archiving nothing; resolves to those not archived.
+   */
+  stopWorkspace(workspaceId: string): Promise<string[]>;
+  /** Lets a workspace's sessions start again, once its archiving is done or failed. */
+  releaseWorkspace(workspaceId: string): void;
   /** Archives every session in a workspace, as `archiveSession` does, and drops it from every layout. */
   archiveWorkspace(workspaceId: string): Promise<void>;
+  /** Unarchives the sessions given, or with `null` all archived in the workspace. */
+  restoreWorkspace(workspaceId: string, sessionIds: readonly string[] | null): Promise<void>;
   /** Looks at the containers' session files again: the window gained focus, or containers changed. */
   rescan(): void;
   /** Stops the pi of every session with nothing going on; resolves once they have exited. */
@@ -151,7 +189,10 @@ async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
  * - closing the last tab of a draft that never got a message discards it: its pi stops, its
  *   record goes, and when it was its chat's only session the chat's empty directory is removed
  *   (domain-model, "已决定 13");
- * - archiving hides a session and stops its pi;
+ * - archiving hides a session and stops its pi; archiving a chat records which of its sessions it
+ *   archives and its first session before archiving them, so a failure leaves nothing half done
+ *   but the record, and restoring brings back only those, before clearing the record; an archived
+ *   chat takes no new session (SPEC-0001, "M1.11 的对话归档");
  * - a client's tab and place changes take effect in the order its commands came, at once for a
  *   session the index knows; one it does not know yet waits for the first scan, and a tab closed
  *   meanwhile must not open again; once closing, queued changes do nothing;
@@ -171,7 +212,10 @@ async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
  *   switch, which is logged, nothing is sent and Fast is unavailable on that pi, as it is without
  *   `fast`: words pi does not know as a command would go to the model. A session's Fast is its
  *   controller's, else its record's, else the one last chosen; a switch is recorded for the
- *   session and reported to `fast` (SPEC-0001, "Fast").
+ *   session and reported to `fast` (SPEC-0001, "Fast");
+ * - a fork is made by a pi of its own on the session's file (`forkWithPi`), takes the original's
+ *   turn starts, and opens as a tab of the original's container, where the client goes as for a
+ *   new session; `close` calls off forks under way (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
  *
  * Subscribing sends each newly watched session's snapshot to that connection before any later
  * event (domain-model §7); a draft without pi has an empty one, and its subscribers get the real
@@ -181,7 +225,7 @@ async function switchFast(traced: TracedPi, enabled: boolean): Promise<void> {
  * @sideEffects none until a command arrives; then creates directories, spawns pi, writes the
  * index and publishes.
  * @param options - The chats root, the detected tools, the subscription registry, the catalog,
- * layouts and workspaces, a callback for list changes, and the host's clock, resources, tracer,
+ * layouts, chats' records and workspaces, a callback for list changes, and the host's clock, resources, tracer,
  * logger and id sources.
  * @returns The manager.
  */
@@ -192,6 +236,8 @@ export function createSessionManager(options: {
   readonly subscriptions: SubscriptionRegistry;
   readonly catalog: SessionCatalog;
   readonly layouts: Layouts;
+  /** Which chats are archived, and with which sessions (SPEC-0001, "M1.11 的对话归档"). */
+  readonly chats: Pick<ChatRecords, "archived" | "setArchived">;
   readonly workspaces: Pick<WorkspaceService, "dirOf" | "refresh">;
   readonly onChange: () => void;
   readonly clock: Clock;
@@ -243,12 +289,21 @@ export function createSessionManager(options: {
   const created = new Set<string>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
+  /**
+   * Sessions, and containers whose sessions, are being archived, which nothing may start again
+   * (SPEC-0001, "`archive_session`").
+   */
+  const archiving = new Set<string>();
+  /** Each chat's archive or restore under way, for the next to wait for. */
+  const chatTurns = new Map<string, Promise<unknown>>();
   /** Background work, such as scans after a run, that `close` waits for. */
   const background = new Set<Promise<void>>();
   /** Set by `close`; a session being started then stops its pi instead of keeping it. */
   let closed = false;
   /** Each session's `@` search under way, which the next one calls off. */
   const searches = new Map<string, AbortController>();
+  /** Aborted by `close`, which calls off forks under way. */
+  const closing = new AbortController();
   /** Each client's last tab or place change, which the next one waits for. */
   const clientTurns = new Map<string, Promise<unknown>>();
   /** Each session's last hand-off or take-back, which the next one waits for. */
@@ -294,15 +349,24 @@ export function createSessionManager(options: {
    * @returns What `work` returns.
    */
   async function inHandOrder<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
-    const turn = (handTurns.get(sessionId) ?? Promise.resolve()).then(work);
-    const settled = turn.catch(() => undefined);
-    handTurns.set(sessionId, settled);
-    try {
-      return await turn;
-    } finally {
-      // Stryker disable next-line ConditionalExpression,BlockStatement: only frees memory; a settled turn holds up nothing.
-      if (handTurns.get(sessionId) === settled) handTurns.delete(sessionId);
-    }
+    return inTurn(handTurns, sessionId, work);
+  }
+
+  /**
+   * Runs a chat's archive or restore after the one asked for before it.
+   *
+   * @remarks
+   * SPEC-0001 ("M1.11 的对话归档"): a restore while the archive still stops pi would unmark the
+   * chat, and the archive would then archive its sessions, leaving them archived in a chat shown
+   * again. A failed one does not hold up the next.
+   *
+   * @sideEffects Runs `work` once the chat's earlier archive or restore is done.
+   * @param chatId - The chat.
+   * @param work - The archive or restore.
+   * @returns What `work` returns.
+   */
+  async function inChatOrder<T>(chatId: string, work: () => Promise<T>): Promise<T> {
+    return inTurn(chatTurns, chatId, work);
   }
 
   /**
@@ -634,6 +698,17 @@ export function createSessionManager(options: {
         if (!fastSwitch) throw new CommandError("fast_unavailable");
         await switchFast(traced, enabled);
       },
+      // No deadline: pi answers once its model has written the summary.
+      compact: async (instructions) => {
+        await traced.request(
+          // Stryker disable next-line ConditionalExpression,EqualityOperator: undefined is left out of the JSON either way.
+          { type: "compact", ...(instructions === undefined ? {} : { customInstructions: instructions }) },
+          { timeoutMs: null },
+        );
+      },
+      exportHtml: async (outputPath) => {
+        await traced.request({ type: "export_html", outputPath });
+      },
       commands: async () =>
         (await traced.request({ type: "get_commands" })).commands.flatMap((command) => toSlashCommand(command) ?? []),
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
@@ -854,7 +929,7 @@ export function createSessionManager(options: {
      * @returns The running session.
      */
     const start = async (): Promise<Running> => {
-      entryOf(sessionId);
+      notArchived(sessionId);
       const tools = await readyTools();
       return connect(sessionId, await spawn(tools, await launchOf(sessionId)));
     };
@@ -873,9 +948,10 @@ export function createSessionManager(options: {
    * @param clientId - The client.
    * @param containerId - Where the session goes.
    * @param cwd - Its working directory.
+   * @param go - Whether the client goes to the container, as it does unless it moved meanwhile.
    * @returns The new session's id.
    */
-  async function create(clientId: string, containerId: string, cwd: string): Promise<string> {
+  async function create(clientId: string, containerId: string, cwd: string, go = true): Promise<string> {
     const asked = options.layouts.of(clientId).container;
     const sessionId = options.newSessionId();
     await options.catalog.record({ sessionId, containerId, cwd });
@@ -885,7 +961,7 @@ export function createSessionManager(options: {
     // In order from here: the client could not name the session before.
     await inClientOrder(clientId, async () => {
       const stayed = options.layouts.of(clientId).container === asked;
-      await options.layouts.open(clientId, containerId, sessionId, stayed);
+      await options.layouts.open(clientId, containerId, sessionId, go && stayed);
       options.onChange();
     });
     return sessionId;
@@ -948,6 +1024,46 @@ export function createSessionManager(options: {
   }
 
   /**
+   * A chat there is, archived or not.
+   *
+   * @remarks
+   * A chat is found by its directory (`SessionCatalog.chats`).
+   *
+   * @sideEffects none
+   * @param chatId - The chat.
+   * @returns The chat with its first session.
+   * @throws {CommandError} `chat_not_found` when there is no such chat.
+   */
+  function chatOf(chatId: string): CatalogChat {
+    const chat = options.catalog.chats().find((candidate) => candidate.id === chatId);
+    if (chat === undefined) throw new CommandError("chat_not_found", { chatId });
+    return chat;
+  }
+
+  /**
+   * Gives a forked session the record of which of its user messages opened turns.
+   *
+   * @remarks
+   * pi keeps entry ids when it forks (pi-internals.md §1), so the original's record holds for the
+   * fork; without it, the fork would show steers as turns of their own (SPEC-0001, "M1.11 的 `/`
+   * 命令 · 分叉"). Entries past the fork point are left in, as they name nothing there. A failure
+   * is only logged: the fork is made, and shows as it would without the record.
+   *
+   * @sideEffects Reads and writes turn start files; may log.
+   * @param from - The original session.
+   * @param to - The fork.
+   */
+  async function copyTurnStarts(from: string, to: string): Promise<void> {
+    if (options.turnStarts === undefined) return;
+    try {
+      const starts = await options.turnStarts(from);
+      await (await options.turnStarts(to)).record([...starts.opened], [...starts.auto]);
+    } catch (error) {
+      options.logger.warn({ ...failureFields(error), sessionId: to }, "turn starts could not be copied");
+    }
+  }
+
+  /**
    * Discards a draft whose last tab closed: stops its pi, forgets it, and removes its chat's
    * directory when it was the chat's only session.
    *
@@ -993,15 +1109,19 @@ export function createSessionManager(options: {
         throw error;
       }
     },
-    async createSession(clientId, containerId) {
+    async createSession(clientId, containerId, go = true) {
       if (isChatId(containerId)) {
-        const chat = options.catalog.chats().find((candidate) => candidate.id === containerId);
-        if (chat === undefined) throw new CommandError("chat_not_found", { chatId: containerId });
+        const chat = chatOf(containerId);
+        if (options.chats.archived(containerId) !== null || archiving.has(containerId)) {
+          throw new CommandError("chat_not_found", { chatId: containerId });
+        }
         return { sessionId: await create(clientId, containerId, chat.dir) };
       }
       const dir = options.workspaces.dirOf(containerId);
-      if (dir === undefined) throw new CommandError("workspace_not_found", { workspaceId: containerId });
-      return { sessionId: await create(clientId, containerId, dir) };
+      if (dir === undefined || archiving.has(containerId)) {
+        throw new CommandError("workspace_not_found", { workspaceId: containerId });
+      }
+      return { sessionId: await create(clientId, containerId, dir, go) };
     },
     async openSession(clientId, sessionId) {
       const entry = await inClientOrder(clientId, async () => {
@@ -1009,6 +1129,7 @@ export function createSessionManager(options: {
         // The scan may have ended because the host is closing.
         if (closed) return undefined;
         const found = entryOf(sessionId);
+        notArchived(sessionId);
         // The tab opens first, so a session that cannot start explains why in its own tab.
         await options.layouts.open(clientId, found.containerId, sessionId);
         options.onChange();
@@ -1059,11 +1180,52 @@ export function createSessionManager(options: {
     },
     async archiveSession(sessionId) {
       entryOf(sessionId);
-      await stopSession(sessionId);
-      forget(sessionId);
-      await options.catalog.archive(sessionId);
+      await whileArchiving(sessionId, async () => {
+        await stopSession(sessionId);
+        forget(sessionId);
+        await options.catalog.archive(sessionId);
+      });
       await options.layouts.forgetSessions([sessionId]);
       options.onChange();
+      return {};
+    },
+    async archiveChat(chatId) {
+      await options.catalog.ready();
+      chatOf(chatId);
+      await inChatOrder(chatId, async () => {
+        if (options.chats.archived(chatId) !== null) return;
+        await whileArchiving(chatId, async () => {
+          // A session created before the mark is listed already: the index records it at once.
+          const archived = options.catalog
+            .list()
+            .filter((entry) => entry.containerId === chatId && !entry.archived)
+            .map((entry) => entry.sessionId);
+          await options.chats.setArchived(chatId, {
+            at: options.clock.now(),
+            sessions: archived,
+            first: chatOf(chatId).firstSessionId,
+          });
+          await Promise.all(archived.map((sessionId) => stopSession(sessionId)));
+          for (const sessionId of archived) {
+            forget(sessionId);
+            await options.catalog.archive(sessionId);
+          }
+        });
+        await options.layouts.forgetContainers([chatId]);
+        options.onChange();
+      });
+      return {};
+    },
+    async restoreChat(chatId) {
+      await options.catalog.ready();
+      chatOf(chatId);
+      await inChatOrder(chatId, async () => {
+        const archive = options.chats.archived(chatId);
+        if (archive === null) return;
+        for (const sessionId of archive.sessions) await options.catalog.unarchive(sessionId);
+        await options.chats.setArchived(chatId, null);
+        options.onChange();
+      });
       return {};
     },
     async renameSession(sessionId, name) {
@@ -1104,7 +1266,7 @@ export function createSessionManager(options: {
         // A discard under way sees this message, keeps the draft, and its pi starts again here.
         await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
-        entryOf(sessionId);
+        notArchived(sessionId);
         notHandedOff(sessionId);
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
@@ -1122,7 +1284,7 @@ export function createSessionManager(options: {
         // A discard under way sees this message, keeps the draft, and its pi starts again here.
         await discarding.get(sessionId)?.catch(() => undefined);
         await options.catalog.ready();
-        entryOf(sessionId);
+        notArchived(sessionId);
         notHandedOff(sessionId);
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.steer(command, images);
@@ -1149,6 +1311,88 @@ export function createSessionManager(options: {
     setModel: async (sessionId, model) => (await commanded(sessionId)).controller.setModel(model),
     setThinkingLevel: async (sessionId, level) => (await commanded(sessionId)).controller.setThinkingLevel(level),
     setFast: async (sessionId, enabled) => (await commanded(sessionId)).controller.setFast(enabled),
+    async compactSession(sessionId, instructions) {
+      await options.catalog.ready();
+      // A draft has no conversation to compact.
+      if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
+      return (await commanded(sessionId)).controller.compact(instructions);
+    },
+    async exportSession(sessionId) {
+      await options.catalog.ready();
+      // pi exports from the session's file, which a draft does not have yet.
+      if (entryOf(sessionId).state === "draft") throw new CommandError("session_is_draft", { sessionId });
+      const { controller } = await commanded(sessionId);
+      // pi writes to its working directory unless told where; the host's own directory keeps the
+      // page out of your files, and goes once read (SPEC-0001, "M1.11 的 `/` 命令 · 其他宿主命令").
+      const dir = await mkdtemp(join(tmpdir(), "atrium-export-"));
+      try {
+        const file = join(dir, "session.html");
+        await controller.exportHtml(file);
+        if ((await stat(file)).size > EXPORT_MAX_BYTES)
+          throw new CommandError("export_failed", { reason: "too_large" });
+        return { html: await readFile(file, "utf8") };
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    },
+    async forkSession(clientId, { sessionId, turnId, name }) {
+      const asked = options.layouts.of(clientId).container;
+      await options.catalog.ready();
+      const entry = entryOf(sessionId);
+      if (entry.state === "missing") throw new CommandError("session_not_found", { sessionId });
+      if (entry.file === null) throw new CommandError("session_is_draft", { sessionId });
+      notHandedOff(sessionId);
+      // Turns are known only to a controller, which the session's pi starting makes.
+      const controller = sessions.get(sessionId)?.controller;
+      if (controller === undefined) throw new CommandError("turn_not_found");
+      // A turn that just ended is tied to its entry by the read its end started.
+      await controller.entriesRead();
+      const at = controller.forkPoint(turnId);
+      // Busy until the temporary pi has read the file and stopped: a message sent meanwhile would
+      // be written to the file it reads.
+      const release = controller.holdForFork();
+      let forked: Awaited<ReturnType<typeof forkWithPi>>;
+      try {
+        const tools = await readyTools();
+        const traced = startTracedPi({
+          launch: { piPath: tools.pi.piPath, args: ["--session", entry.file], cwd: entry.cwd },
+          deps: createPiDeps({
+            clock: options.clock,
+            resources: options.resources,
+            logger: options.logger,
+            env: tools.env,
+          }),
+          tracer: options.tracer,
+        });
+        running.add(traced.process);
+        // Fire and forget: `exited` never rejects.
+        void traced.process.exited.then(() => running.delete(traced.process));
+        forked = await forkWithPi({
+          pi: traced,
+          at,
+          name,
+          clock: timers,
+          signal: closing.signal,
+          onFailed: (reason) => options.logger.warn({ sessionId, reason }, "fork failed"),
+        });
+      } finally {
+        release();
+      }
+      await copyTurnStarts(sessionId, forked.sessionId);
+      await options.catalog.scan();
+      const found = options.catalog.find(forked.sessionId);
+      if (found === undefined) {
+        options.logger.warn({ sessionId, reason: "not_found" }, "fork failed");
+        throw new CommandError("fork_failed");
+      }
+      await inClientOrder(clientId, async () => {
+        // As for a new session: the client goes to it only if it stayed where it was.
+        const stayed = options.layouts.of(clientId).container === asked;
+        await options.layouts.open(clientId, found.containerId, forked.sessionId, stayed);
+        options.onChange();
+      });
+      return { sessionId: forked.sessionId };
+    },
     listCommands: async (sessionId) => (await commanded(sessionId)).controller.listCommands(),
     async searchFiles(sessionId, query) {
       await options.catalog.ready();
@@ -1246,8 +1490,14 @@ export function createSessionManager(options: {
       options.onChange();
     },
     async stopWorkspace(workspaceId) {
+      // Marked first, so nothing starts or is created in it until it is released (see `notArchived`).
+      archiving.add(workspaceId);
       const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
       await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
+      return inside.filter((entry) => !entry.archived).map((entry) => entry.sessionId);
+    },
+    releaseWorkspace(workspaceId) {
+      archiving.delete(workspaceId);
     },
     async archiveWorkspace(workspaceId) {
       // Archived with its workspace (SPEC-0001, "M1.11 的工作区归档"), drafts too; archiving one again changes nothing.
@@ -1260,11 +1510,23 @@ export function createSessionManager(options: {
       await options.layouts.forgetContainers([workspaceId]);
       options.onChange();
     },
+    async restoreWorkspace(workspaceId, sessionIds) {
+      // A workspace archived before its sessions were recorded gets back all those archived in it.
+      const back =
+        sessionIds ??
+        options.catalog
+          .list()
+          .filter((entry) => entry.containerId === workspaceId && entry.archived)
+          .map((entry) => entry.sessionId);
+      for (const sessionId of back) await options.catalog.unarchive(sessionId);
+      options.onChange();
+    },
     rescan() {
       inBackground("session scan", () => options.catalog.scan());
     },
     async close() {
       closed = true;
+      closing.abort();
       for (const search of searches.values()) search.abort();
       const titlesClosed = titles.close();
       // Controllers first, so restarts under way stop rather than start pi again.
@@ -1310,12 +1572,51 @@ export function createSessionManager(options: {
   }
 
   /**
+   * Refuses a command that would start pi on, or send to, a session archived or being archived.
+   *
+   * @remarks
+   * SPEC-0001 ("`archive_session`"): an archived session keeps no pi. Marked before its pi stops,
+   * so nothing slips in between the stop and the index being written.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @throws {CommandError} `session_not_found`, also for an unknown session.
+   */
+  function notArchived(sessionId: string): void {
+    const entry = entryOf(sessionId);
+    if (entry.archived || archiving.has(sessionId) || archiving.has(entry.containerId)) {
+      throw new CommandError("session_not_found", { sessionId });
+    }
+  }
+
+  /**
+   * Archives a session, or a container's sessions, keeping anything from starting them meanwhile.
+   *
+   * @remarks
+   * See `notArchived`; a container's mark also keeps sessions from being created in it. The mark
+   * goes once archived, or once archiving failed.
+   *
+   * @sideEffects Updates what is being archived; what `archive` does.
+   * @param id - The session or container.
+   * @param archive - Stops and archives.
+   * @returns What `archive` returns.
+   */
+  async function whileArchiving<T>(id: string, archive: () => Promise<T>): Promise<T> {
+    archiving.add(id);
+    try {
+      return await archive();
+    } finally {
+      archiving.delete(id);
+    }
+  }
+
+  /**
    * Whether a session has something going on that handing it off would cut short.
    *
    * @remarks
    * A run (a stop under way is one), a message on its way, a run pi said it started that has not
-   * begun yet, a restart under way, or messages in the host's queue, which only Atrium would send
-   * (SPEC-0001, "交给终端").
+   * begun yet, a restart, a compaction or a fork under way, or messages in the host's queue, which
+   * only Atrium would send (SPEC-0001, "交给终端", "M1.11 的 `/` 命令 · 压缩").
    *
    * @sideEffects none
    * @param sessionId - The session.
@@ -1326,7 +1627,13 @@ export function createSessionManager(options: {
     const controller = sessions.get(sessionId)?.controller;
     if (controller === undefined) return false;
     const { control } = controller.snapshot();
-    return controller.submitting || control.restarting || control.queue.length > 0;
+    return (
+      controller.submitting ||
+      controller.forking ||
+      control.restarting ||
+      control.compacting ||
+      control.queue.length > 0
+    );
   }
 
   /**
@@ -1408,21 +1715,4 @@ function draftSnapshot(sessionId: string, fast: boolean): SessionSnapshotEvent {
 function failureFields(error: unknown): Record<string, unknown> {
   if (error instanceof PiRequestError) return { command: error.command, reason: error.reason };
   return { err: error };
-}
-
-/** pi's texts of a failure that comes from credentials (pi-internals.md §3, "一次性调用"). */
-const AUTH_FAILURE = /no api key|oauth|\b401\b|unauthorized|authentication|invalid[ _]api[ _]key|\/login/i;
-
-/**
- * Whether a failure looks like a credentials problem.
- *
- * @remarks
- * A best guess on pi's own text (SPEC-0001, "会话状态"): a wrong guess only changes the icon.
- *
- * @sideEffects none
- * @param text - pi's text.
- * @returns Whether to ask the user to sign in.
- */
-function isAuthFailure(text: string): boolean {
-  return AUTH_FAILURE.test(text);
 }

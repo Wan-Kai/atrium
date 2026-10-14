@@ -1,11 +1,13 @@
 import type { Step, Turn } from "@atrium/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { render } from "vitest-browser-react";
 import { ClockContext, type UiClock } from "../state/clock";
-import { DisplayModeContext, type DisplayMode, createDisplayMode } from "../state/display-mode";
+import { Key, Sparkle, Warning } from "../design/icons";
 import "../styles.css";
 import { LoadStepContext } from "./steps";
-import { NoticeView, TurnView } from "./turn-view";
+import { NoticeView, OpenLogin, TurnView } from "./turn-view";
 
 const at = Date.UTC(2026, 9, 7, 14, 31);
 
@@ -14,7 +16,7 @@ function turn(steps: Step[], fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id: "t1",
-    user: { text: "改一下侧栏", images: 0, clientMessageId: null, auto: false, timestamp: at },
+    user: { text: "改一下侧栏", images: 0, clientMessageId: null, auto: false, command: null, timestamp: at },
     steps,
     outcome: "done",
     error: null,
@@ -53,19 +55,75 @@ const steer: Step = { kind: "steer", id: "3", text: "顺便加个测试" };
 const answer: Step = { kind: "text", id: "4", text: "改好了，**一处**改动。" };
 
 /**
- * Renders a turn in a display mode.
+ * Renders a turn.
+ *
+ * @sideEffects Renders into the page.
+ * @param value - The turn.
+ * @param runStartedAt - When its run started, for a running turn.
+ * @returns The screen.
+ */
+async function show(value: Turn, runStartedAt: number | null = null) {
+  const screen = await render(<TurnView turn={value} runStartedAt={runStartedAt} />);
+  return { screen };
+}
+
+/** A button's text and background colours, as computed. */
+function paint(button: Element): string[] {
+  const style = getComputedStyle(button);
+  return [style.color, style.backgroundColor];
+}
+
+/**
+ * Renders a finished turn with its process and every step opened, as a click on each would.
  *
  * @remarks
- * Each render gets a mode store of its own, so modes do not leak between tests.
+ * What the detailed display mode showed before M1.11 took the modes out (SPEC-0001, "过程的显
+ * 示"); waits for the unfolding to finish so what is measured has settled.
+ *
+ * @sideEffects Renders into the page and clicks in it.
+ * @param value - The turn.
+ * @returns The screen.
  */
-async function show(value: Turn, mode: DisplayMode = "summary", runStartedAt: number | null = null) {
-  const store = createDisplayMode(mode);
-  const screen = await render(
-    <DisplayModeContext value={store}>
-      <TurnView turn={value} runStartedAt={runStartedAt} />
-    </DisplayModeContext>,
-  );
-  return { screen, store };
+async function opened(value: Turn) {
+  const { screen } = await show(value);
+  await screen.getByTestId("process-header").click();
+  // Opening a row can bring rows of its own, so open until none is left closed.
+  const closed = (): HTMLButtonElement | null =>
+    screen.container.querySelector<HTMLButtonElement>('[data-testid="step"] > button[aria-expanded="false"]');
+  for (let toggle = closed(); toggle !== null; toggle = closed()) {
+    toggle.click();
+    await new Promise(requestAnimationFrame);
+  }
+  await Promise.all(document.getAnimations().map((animation) => animation.finished));
+  return { screen };
+}
+
+/**
+ * Where an element's first drawn shape starts, in viewport pixels.
+ *
+ * @remarks
+ * For an icon, whose box is wider than what it draws.
+ *
+ * @sideEffects none
+ * @param element - What holds the icon.
+ * @returns The left edge of the icon's first path.
+ * @throws {Error} When there is no path.
+ */
+function drawnLeft(element: Element): number {
+  const path = element.querySelector("svg path");
+  if (path === null) throw new Error("no path");
+  return path.getBoundingClientRect().left;
+}
+
+/**
+ * A running turn with these steps, as the transcript renders it.
+ *
+ * @sideEffects none
+ * @param steps - The steps.
+ * @returns The element.
+ */
+function runningView(steps: Step[]) {
+  return <TurnView turn={turn(steps, { outcome: "running", durationMs: null })} runStartedAt={at} />;
 }
 
 /** The steps shown, by kind. */
@@ -144,38 +202,55 @@ function railReach(container: HTMLElement): number {
 }
 
 /**
- * The file chips' type marks: each one's kind and colour.
+ * The file chips' type icons, as shown.
+ *
+ * @remarks
+ * A chip holds a light and a dark variant where the theme has both; only the one shown counts.
  *
  * @sideEffects none
  * @param container - What holds the chips.
- * @returns Each chip's mark, in order.
+ * @returns Each chip's icon, in order.
  */
-function fileMarks(container: Element): string[][] {
-  return [...container.querySelectorAll('[data-testid="file-chip"] [data-testid="file-mark"]')].map((mark) => [
-    mark.getAttribute("data-kind") ?? "",
-    getComputedStyle(mark).color,
-  ]);
-}
-
-/**
- * The muted text colour of the page's theme, as computed.
- *
- * @sideEffects Adds and removes a probe element.
- * @returns The colour.
- */
-function mutedColor(): string {
-  const probe = document.createElement("span");
-  probe.style.color = "var(--text-muted)";
-  document.body.append(probe);
-  const color = getComputedStyle(probe).color;
-  probe.remove();
-  return color;
+function fileIcons(container: Element): string[] {
+  return [...container.querySelectorAll('[data-testid="file-chip"] [data-testid="file-icon"]')]
+    .filter((icon) => getComputedStyle(icon).display !== "none")
+    .map((icon) => icon.getAttribute("data-icon") ?? "");
 }
 
 /** Where an element's first animation takes its height, from first frame to last. */
 function heightFrames(element: Element): unknown[] {
   const effect = element.getAnimations()[0]?.effect as KeyframeEffect | undefined;
   return effect?.getKeyframes().map((frame) => frame["height"]) ?? [];
+}
+
+/**
+ * A colour as the browser computes it.
+ *
+ * @remarks
+ * CSS variables hold colours as written; an element's computed colour is `rgb(…)`.
+ *
+ * @sideEffects Adds and removes an element.
+ * @param value - The colour as written.
+ * @returns It as computed.
+ */
+function colorOf(value: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = value.trim();
+  document.body.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
+}
+
+/**
+ * An icon's SVG as it renders.
+ *
+ * @sideEffects none
+ * @param icon - The icon.
+ * @returns Its markup.
+ */
+function iconMarkup(icon: ReactElement): string {
+  return renderToStaticMarkup(icon);
 }
 
 describe("TurnView", () => {
@@ -204,7 +279,7 @@ describe("TurnView", () => {
   });
 
   it("opens a step's detail on click: a command's output, an edit's diff", async () => {
-    const { screen } = await show(turn([command, edit, answer]), "detailed");
+    const { screen } = await opened(turn([command, edit, answer]));
     const details = screen.container.querySelectorAll('[data-testid="step-detail"]');
 
     expect(details).toHaveLength(2);
@@ -219,23 +294,6 @@ describe("TurnView", () => {
     await screen.getByRole("button", { name: /^运行了 pnpm test 失败$/ }).click();
 
     expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(1);
-  });
-
-  it("opens thinking in thinking mode, even folded, and says how long it took", async () => {
-    const { screen } = await show(turn([thinking, command, answer]), "thinking");
-
-    expect(shownSteps(screen.container)).toStrictEqual(["thinking"]);
-    await expect.element(screen.getByRole("button", { name: /思考了 6 秒 · 先看侧栏…/ })).toBeVisible();
-    expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toBe("先看侧栏。再决定。");
-  });
-
-  it("follows the display mode as it changes", async () => {
-    const { screen, store } = await show(turn([command, answer]));
-    expect(shownSteps(screen.container)).toStrictEqual([]);
-
-    store.getState().set("detailed");
-
-    await vi.waitFor(() => expect(shownSteps(screen.container)).toStrictEqual(["tool"]));
   });
 
   it("calls a process of thinking only by how long it thought", async () => {
@@ -256,37 +314,41 @@ describe("TurnView", () => {
     expect(screen.container.querySelector('[data-testid="process-header"]')).toBeNull();
   });
 
-  it("shows a running turn's process open with the step going on, and no info row", async () => {
+  it("shows a running turn's process open with the step going on, its detail shut until clicked, and no info row", async () => {
     const live: Step = { ...command, status: "running", output: "running…" };
     const { screen } = await show(
       turn([thinking, live], { outcome: "running", durationMs: null, usage: null }),
-      "summary",
       Date.now() - 5_000,
     );
 
     await expect.element(screen.getByTestId("process-header")).toMatchTextContent(/^进行中 · [56]s$/);
     expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool"]);
-    await expect.element(screen.getByRole("button", { name: /^正在运行 pnpm test$/ })).toBeVisible();
-    expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toContain("running…");
+    const going = screen.getByRole("button", { name: /^正在运行 pnpm test$/ });
+    await expect.element(going).toHaveAttribute("aria-expanded", "false");
+    // Opening on its own and shutting when done made the view jump at every step.
+    expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(0);
     expect(screen.container.querySelector('[data-testid="turn-footer"]')).toBeNull();
+
+    await going.click();
+    await expect.element(going).toHaveAttribute("aria-expanded", "true");
+    expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toContain("running…");
   });
 
-  it("streams the thinking going on as 思考中, open", async () => {
-    const { screen } = await show(
-      turn([{ ...thinking, durationMs: null }], { outcome: "running" }),
-      "summary",
-      Date.now(),
-    );
+  it("streams the thinking going on as 思考中 once opened", async () => {
+    const { screen } = await show(turn([{ ...thinking, durationMs: null }], { outcome: "running" }), Date.now());
+    const going = screen.getByRole("button", { name: /思考中/ });
 
-    await expect.element(screen.getByRole("button", { name: /思考中/ })).toBeVisible();
+    await expect.element(going).toBeVisible();
+    expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(0);
+    await going.click();
     await vi.waitFor(() =>
       expect(screen.container.querySelector('[data-testid="step-detail"]')?.textContent).toBe("先看侧栏。再决定。"),
     );
   });
 
-  it("keeps thinking with nothing to show from opening, in any mode", async () => {
+  it("keeps thinking with nothing to show from opening, even with every other step opened", async () => {
     const hidden: Step = { ...thinking, text: " \n" };
-    const { screen } = await show(turn([hidden, command, answer]), "detailed");
+    const { screen } = await opened(turn([hidden, command, answer]));
 
     expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool"]);
     expect(screen.getByTestId("step").first().element().textContent?.trim()).toBe("思考了 6 秒");
@@ -297,7 +359,6 @@ describe("TurnView", () => {
   it("shows no empty block under thinking going on that has nothing to show yet", async () => {
     const { screen } = await show(
       turn([{ ...thinking, text: "", durationMs: null }], { outcome: "running" }),
-      "summary",
       Date.now(),
     );
 
@@ -309,14 +370,11 @@ describe("TurnView", () => {
 
   it("fetches a step that arrived as a preview once it is opened, and only then", async () => {
     const asked: string[] = [];
-    const store = createDisplayMode("summary");
     const preview: Step = { ...command, status: "done", output: "…the end", partial: true };
     const screen = await render(
-      <DisplayModeContext value={store}>
-        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
-          <TurnView turn={turn([preview, answer], { id: "t7" })} runStartedAt={null} />
-        </LoadStepContext>
-      </DisplayModeContext>,
+      <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+        <TurnView turn={turn([preview, answer], { id: "t7" })} runStartedAt={null} />
+      </LoadStepContext>,
     );
     await screen.getByTestId("process-header").click();
     expect(asked).toStrictEqual([]);
@@ -326,14 +384,12 @@ describe("TurnView", () => {
     expect(asked).toStrictEqual(["t7/1"]);
     await expect.element(screen.getByTestId("step-loading")).toHaveTextContent("正在加载完整内容…");
     await screen.rerender(
-      <DisplayModeContext value={store}>
-        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
-          <TurnView
-            turn={turn([{ ...preview, output: "the start…the end", partial: false }, answer], { id: "t7" })}
-            runStartedAt={null}
-          />
-        </LoadStepContext>
-      </DisplayModeContext>,
+      <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+        <TurnView
+          turn={turn([{ ...preview, output: "the start…the end", partial: false }, answer], { id: "t7" })}
+          runStartedAt={null}
+        />
+      </LoadStepContext>,
     );
     await expect.element(screen.getByTestId("step-detail")).toHaveTextContent("输出bashthe start…the end");
     expect(asked).toStrictEqual(["t7/1"]);
@@ -341,16 +397,13 @@ describe("TurnView", () => {
 
   it("fetches a file change that arrived as a preview when the file is opened", async () => {
     const asked: string[] = [];
-    const store = createDisplayMode("summary");
     const screen = await render(
-      <DisplayModeContext value={store}>
-        <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
-          <TurnView
-            turn={turn([{ ...edit, partial: true }, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] })}
-            runStartedAt={null}
-          />
-        </LoadStepContext>
-      </DisplayModeContext>,
+      <LoadStepContext value={(turnId, stepId) => asked.push(`${turnId}/${stepId}`)}>
+        <TurnView
+          turn={turn([{ ...edit, partial: true }, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] })}
+          runStartedAt={null}
+        />
+      </LoadStepContext>,
     );
 
     await screen
@@ -377,12 +430,99 @@ describe("TurnView", () => {
     expect(screen.container.textContent).toContain("已停止");
   });
 
-  it("shows a failed turn's error behind a toggle", async () => {
+  it("shows a failed turn's error behind 详情 at the line's right end, its chevron turning down", async () => {
     const { screen } = await show(turn([], { outcome: "failed", error: "429 rate limited" }));
+    const card = screen.getByTestId("turn-error");
+    const details = screen.getByRole("button", { name: "详情" });
 
-    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错展开看原始报错");
-    await screen.getByRole("button", { name: "展开看原始报错" }).click();
-    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("回复出错收起429 rate limited");
+    await expect.element(card).toHaveTextContent("回复出错详情");
+    expect(details.element().getBoundingClientRect().right).toBe(card.element().getBoundingClientRect().right);
+    const chevron = details.element().querySelector(".atrium-fold-chevron") as Element;
+    expect(getComputedStyle(chevron).rotate).toBe("none");
+    await details.click();
+
+    await expect.element(details).toHaveAttribute("aria-expanded", "true");
+    await expect.element(card).toHaveTextContent("回复出错详情429 rate limited");
+    for (const transition of chevron.getAnimations()) transition.finish();
+    expect(getComputedStyle(chevron).rotate).toBe("90deg");
+  });
+
+  it("shows a failure that looks like a credentials problem with the sidebar's key, offering 去登录 before 重试", async () => {
+    const asked: string[] = [];
+    const failed = turn([], { outcome: "failed", error: "OAuth refresh failed for anthropic: invalid_grant" });
+    const screen = await render(
+      <OpenLogin value={() => asked.push("login")}>
+        <TurnView turn={failed} runStartedAt={null} onRetry={() => asked.push("retry")} />
+      </OpenLogin>,
+    );
+    const card = screen.getByTestId("turn-error");
+
+    await expect.element(card).toHaveTextContent("登录已失效去登录重试详情");
+    expect(card.element().querySelector("svg")?.outerHTML).toBe(iconMarkup(<Key size={14} />));
+    const root = getComputedStyle(document.documentElement);
+    expect(getComputedStyle(card.element()).color).toBe(colorOf(root.getPropertyValue("--attn")));
+    // 去登录 is the one main button; 重试 is plain text.
+    expect([
+      paint(screen.getByRole("button", { name: "去登录" }).element()),
+      paint(screen.getByRole("button", { name: "重试" }).element()),
+    ]).toStrictEqual([
+      [colorOf(root.getPropertyValue("--attn-text")), colorOf(root.getPropertyValue("--attn-soft"))],
+      [colorOf(root.getPropertyValue("--text-muted")), "rgba(0, 0, 0, 0)"],
+    ]);
+    await screen.getByRole("button", { name: "去登录" }).click();
+    await screen.getByRole("button", { name: "重试" }).click();
+    expect(asked).toStrictEqual(["login", "retry"]);
+  });
+
+  it("offers 去登录 only where 重试 is, and only with settings to open; other failures stay red", async () => {
+    const auth = turn([], { outcome: "failed", error: "No API key found for anthropic." });
+    const screen = await render(
+      <OpenLogin value={() => undefined}>
+        <TurnView turn={auth} runStartedAt={null} />
+      </OpenLogin>,
+    );
+    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效详情");
+
+    await screen.rerender(<TurnView turn={auth} runStartedAt={null} onRetry={() => undefined} />);
+    await expect.element(screen.getByTestId("turn-error")).toHaveTextContent("登录已失效重试详情");
+    expect(paint(screen.getByRole("button", { name: "重试" }).element())).toStrictEqual([
+      colorOf(getComputedStyle(document.documentElement).getPropertyValue("--attn-text")),
+      colorOf(getComputedStyle(document.documentElement).getPropertyValue("--attn-soft")),
+    ]);
+
+    const other = turn([], { outcome: "failed", error: "429 rate limited" });
+    await screen.rerender(
+      <OpenLogin value={() => undefined}>
+        <TurnView turn={other} runStartedAt={null} onRetry={() => undefined} />
+      </OpenLogin>,
+    );
+    const card = screen.getByTestId("turn-error");
+    await expect.element(card).toHaveTextContent("回复出错重试详情");
+    expect(card.element().querySelector("svg")?.outerHTML).toBe(iconMarkup(<Warning size={14} />));
+    const root = getComputedStyle(document.documentElement);
+    expect(getComputedStyle(card.element()).color).toBe(colorOf(root.getPropertyValue("--danger")));
+    expect(paint(screen.getByRole("button", { name: "重试" }).element())).toStrictEqual([
+      colorOf(root.getPropertyValue("--danger")),
+      colorOf(root.getPropertyValue("--danger-soft")),
+    ]);
+  });
+
+  it("ends a failed turn with no reply and no changes at its error, leaving the info row out", async () => {
+    const { screen } = await show(turn([command], { outcome: "failed", error: "429 rate limited" }));
+    await expect.element(screen.getByTestId("turn-error")).toBeVisible();
+    expect(screen.container.querySelector('[data-testid="turn-footer"]')).toBeNull();
+
+    await screen.rerender(
+      <TurnView turn={turn([command, answer], { outcome: "failed", error: "429" })} runStartedAt={null} />,
+    );
+    await expect.element(screen.getByTestId("turn-footer").getByRole("button", { name: "复制回复" })).toBeVisible();
+    await screen.rerender(
+      <TurnView
+        turn={turn([edit], { outcome: "failed", error: "429", changes: [{ path: "src/a.ts", added: 1, removed: 1 }] })}
+        runStartedAt={null}
+      />,
+    );
+    await expect.element(screen.getByTestId("turn-footer")).toMatchTextContent(/^改了 1 个文件/);
   });
 
   it("shows the info row: copy, files changed, usage and the time the turn ended", async () => {
@@ -405,6 +545,33 @@ describe("TurnView", () => {
     );
   });
 
+  it("starts a message that started with a skill with its tag, copying it as it was typed", async () => {
+    const written: string[] = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => {
+      written.push(text);
+    });
+    const plain = turn([answer]);
+    const { screen } = await show({ ...plain, user: { ...plain.user, command: { kind: "skill", name: "review" } } });
+    const tag = screen.getByTestId("command-tag");
+    const icon = tag.element().querySelector("svg");
+
+    expect(screen.getByTestId("user-text").element().textContent).toBe("skill:review改一下侧栏");
+    expect([
+      tag.element().getBoundingClientRect().height,
+      icon?.outerHTML,
+      getComputedStyle(icon as Element).color,
+    ]).toStrictEqual([22, iconMarkup(<Sparkle size={14} />), colorOf("var(--ctx-tools)")]);
+    await screen.getByTestId("user-message").getByRole("button", { name: "复制" }).click();
+    expect(written).toStrictEqual(["/skill:review 改一下侧栏"]);
+  });
+
+  it("has no tag on a message typed as it is", async () => {
+    const { screen } = await show(turn([answer]));
+
+    expect(screen.getByTestId("user-text").element().textContent).toBe("改一下侧栏");
+    expect(screen.getByTestId("command-tag").elements()).toHaveLength(0);
+  });
+
   it("copies the reply's Markdown source, from its one copy button", async () => {
     const written: string[] = [];
     vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => {
@@ -420,9 +587,8 @@ describe("TurnView", () => {
   });
 
   it("draws the process on a rail: a failed command branches off, a steer joins, and it ends at the last step", async () => {
-    const { screen } = await show(
+    const { screen } = await opened(
       turn([thinking, command, edit, steer, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
-      "detailed",
     );
 
     expect(railNodes(screen.container)).toStrictEqual(["dot", "dead", "dot", "steer"]);
@@ -433,10 +599,9 @@ describe("TurnView", () => {
     await expect.element(screen.getByRole("button", { name: /^你插话 · 顺便加个测试$/ })).toBeVisible();
   });
 
-  it("lines the header's and rows' text up 30px in, the main line's nodes at 10.5px and the branches' at 19.5px", async () => {
-    const { screen } = await show(
+  it("lines the rows' text up 30px in, the main line's nodes at 10.5px and the branches' at 19.5px", async () => {
+    const { screen } = await opened(
       turn([thinking, command, edit, steer, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
-      "detailed",
     );
     const header = screen.getByTestId("process-header").element();
     const title = screen.getByText(/^已完成/).element();
@@ -447,20 +612,48 @@ describe("TurnView", () => {
       rows: rows.map((row) => textStart(row, row.getBoundingClientRect().left)),
       nodes: rows.map(nodeCenter),
     }).toStrictEqual({
-      header: 30,
+      header: 14.5,
       rows: [30, 30, 30, 30],
       nodes: [10.5, 19.5, 10.5, 19.5],
     });
   });
 
+  it("starts the folded header's arrow at the reply's left edge, the title 6px after it", async () => {
+    const { screen } = await show(turn([thinking, command, answer]));
+    const header = screen.getByTestId("process-header").element();
+    const left = header.getBoundingClientRect().left;
+
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect({
+      arrow: Math.round(drawnLeft(header) - left),
+      title: textStart(screen.getByText(/^已完成/).element(), left),
+      reply: Math.round(screen.getByTestId("reply").element().getBoundingClientRect().left - left),
+    }).toStrictEqual({ arrow: 0, title: 14.5, reply: 0 });
+  });
+
+  it('starts the running cat at the reply\'s left edge and "进行中" 24px in', async () => {
+    const live: Step = { ...command, status: "running", output: "running…" };
+    const { screen } = await show(
+      turn([thinking, live], { outcome: "running", durationMs: null, usage: null }),
+      Date.now(),
+    );
+    const status = screen.getByTestId("run-status").element();
+    const left = screen.getByTestId("process-header").element().getBoundingClientRect().left;
+
+    expect({
+      cat: Math.round(screen.getByTestId("run-cat").element().getBoundingClientRect().left - left),
+      text: textStart(status, left),
+    }).toStrictEqual({ cat: 0, text: 24 });
+  });
+
   it("says a stopped or failed turn in its header alone, the rail ending at the last step", async () => {
-    const stopped = await show(turn([thinking, command], { outcome: "stopped" }), "detailed");
+    const stopped = await opened(turn([thinking, command], { outcome: "stopped" }));
     await expect.element(stopped.screen.getByTestId("process-header")).toMatchTextContent(/^已停止，用时 2 分 13 秒$/);
     expect(railNodes(stopped.screen.container)).toStrictEqual(["dot", "dead"]);
     expect(railReach(stopped.screen.container)).toBe(0);
     await stopped.screen.unmount();
 
-    const failed = await show(turn([thinking, edit], { outcome: "failed" }), "detailed");
+    const failed = await opened(turn([thinking, edit], { outcome: "failed" }));
     await expect.element(failed.screen.getByTestId("process-header")).toMatchTextContent(/^出错了，用时 2 分 13 秒$/);
     expect(railNodes(failed.screen.container)).toStrictEqual(["dot", "dot"]);
     expect(railReach(failed.screen.container)).toBe(0);
@@ -479,18 +672,18 @@ describe("TurnView", () => {
       partial: false,
     }));
     const grep: Step = { ...command, id: "g", tool: "grep", status: "done", details: null };
-    const { screen } = await show(turn([...reads, grep, answer]), "detailed");
+    const { screen } = await opened(turn([...reads, grep, answer]));
 
     await expect
       .element(screen.getByRole("button", { name: /^探索了代码库 · 读了 7 个文件，搜索了 1 次$/ }))
       .toBeVisible();
     await expect.element(screen.getByTestId("explored-files")).toHaveTextContent("a.tsb.tsxc.mdd.jsonMakefile+1 个");
-    expect(fileMarks(screen.getByTestId("explored-files").element())).toStrictEqual([
-      ["ts", "rgb(49, 120, 198)"],
-      ["react", "rgb(28, 155, 189)"],
-      ["md", "rgb(79, 107, 148)"],
-      ["json", "rgb(183, 121, 31)"],
-      ["file", mutedColor()],
+    expect(fileIcons(screen.getByTestId("explored-files").element())).toStrictEqual([
+      "typescript",
+      "react_ts",
+      "markdown",
+      "json",
+      "makefile",
     ]);
     expect(railNodes(screen.container).slice(0, 1)).toStrictEqual(["search"]);
   });
@@ -505,14 +698,11 @@ describe("TurnView", () => {
         return () => timers.delete(ms);
       },
     };
-    const store = createDisplayMode("summary");
     const steps = [thinking, { ...command, status: "done" as const }];
     /** The turn, running or finished. */
     const view = (value: Turn) => (
       <ClockContext value={clock}>
-        <DisplayModeContext value={store}>
-          <TurnView turn={value} runStartedAt={at} />
-        </DisplayModeContext>
+        <TurnView turn={value} runStartedAt={at} />
       </ClockContext>
     );
     const screen = await render(view(turn(steps, { outcome: "running", durationMs: null })));
@@ -545,13 +735,10 @@ describe("TurnView", () => {
         return () => timers.delete(run);
       },
     };
-    const store = createDisplayMode("summary");
     /** The turn, running or finished. */
     const view = (value: Turn) => (
       <ClockContext value={clock}>
-        <DisplayModeContext value={store}>
-          <TurnView turn={value} runStartedAt={at} />
-        </DisplayModeContext>
+        <TurnView turn={value} runStartedAt={at} />
       </ClockContext>
     );
     const screen = await render(view(turn([thinking], { outcome: "running", durationMs: null })));
@@ -570,7 +757,7 @@ describe("TurnView", () => {
   });
 
   it("unfolds a folded process from nothing, and folds it from where it is", async () => {
-    const { screen } = await show(turn([command, edit, answer]), "summary");
+    const { screen } = await show(turn([command, edit, answer]));
     const header = screen.getByTestId("process-header");
     /** Where the process's height animation starts and ends. */
     const heights = () => heightFrames(screen.getByTestId("process").element());
@@ -587,11 +774,11 @@ describe("TurnView", () => {
   });
 
   it("folds and unfolds in 0.4 s, the rows a little quicker", async () => {
-    const { screen } = await show(turn([command, edit, answer]), "summary");
+    const { screen } = await show(turn([command, edit, answer]));
     const header = screen.getByTestId("process-header");
     /** How long the process's height and each row take, and when each row starts. */
     const timings = () =>
-      [screen.getByTestId("process").element(), ...screen.container.querySelectorAll("[data-rail-row]")].map(
+      [screen.getByTestId("process").element(), ...screen.container.querySelectorAll("[data-fold-row]")].map(
         (element) => {
           const timing = element.getAnimations()[0]?.effect?.getTiming();
           return [timing?.duration, timing?.delay];
@@ -619,7 +806,7 @@ describe("TurnView", () => {
     vi.spyOn(window, "matchMedia").mockImplementation(
       (query) => ({ matches: query === "(prefers-reduced-motion: reduce)" }) as MediaQueryList,
     );
-    const { screen } = await show(turn([command, answer]), "summary");
+    const { screen } = await show(turn([command, answer]));
     await screen.getByTestId("process-header").click();
     expect(shownSteps(screen.container)).toStrictEqual(["tool"]);
 
@@ -629,16 +816,9 @@ describe("TurnView", () => {
   });
 
   it("plays the entrance of steps that arrive while shown, not of those already there", async () => {
-    const store = createDisplayMode("summary");
-    /** The running turn with these steps. */
-    const view = (steps: Step[]) => (
-      <DisplayModeContext value={store}>
-        <TurnView turn={turn(steps, { outcome: "running", durationMs: null })} runStartedAt={at} />
-      </DisplayModeContext>
-    );
-    const screen = await render(view([thinking]));
+    const screen = await render(runningView([thinking]));
 
-    await screen.rerender(view([thinking, { ...command, status: "running" }]));
+    await screen.rerender(runningView([thinking, { ...command, status: "running" }]));
 
     expect(
       [...screen.container.querySelectorAll('[data-testid="step"]')].map((step) =>

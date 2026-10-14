@@ -1,12 +1,14 @@
-import { CommandError, type SessionView } from "@atrium/client";
-import { IDLE_CONTROL } from "@atrium/protocol";
+import { CommandError, type IndexView, type SessionView } from "@atrium/client";
+import { type DiffFile, IDLE_CONTROL } from "@atrium/protocol";
 import type { ReactNode } from "react";
+import type { StoreApi } from "zustand";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { describeArchiveError, describeRestoreError } from "../sidebar/archive";
-import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
+import { pageNotices, showNotice } from "../state/session-notices";
+import { caughtDownloads } from "../test/downloads";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
@@ -58,6 +60,211 @@ function list() {
 }
 
 /**
+ * The list, with six sessions needing the user and two that no longer do: errors, a question and
+ * a login, from the newest error three minutes ago to the oldest fifty.
+ */
+function needing() {
+  const initial = list();
+  const minute = 60_000;
+  /** An error not seen yet, set `minutesAgo`. */
+  const error = (minutesAgo: number) => ({
+    attention: { reason: "error" as const, at: Date.now() - minutesAgo * minute, cleared: false },
+  });
+  return {
+    ...initial,
+    sessions: [
+      ...initial.sessions,
+      session({ sessionId: "e1", containerId: FEATURE, name: "错一", ...error(30) }),
+      session({ sessionId: "e2", containerId: LOCAL, name: "错二", ...error(3) }),
+      session({ sessionId: "e3", containerId: CHAT, name: "错三", ...error(50) }),
+      session({ sessionId: "e4", containerId: LOCAL, name: "错四", ...error(40) }),
+      session({
+        sessionId: "seen",
+        containerId: LOCAL,
+        ...error(1),
+        attention: { ...error(1).attention, cleared: true },
+      }),
+      session({ sessionId: "gone", containerId: LOCAL, ...error(1), archived: true }),
+      session({ sessionId: "a1", containerId: FEATURE, name: "问一", asking: Date.now() - 12 * minute }),
+      session({
+        sessionId: "k1",
+        containerId: CHAT,
+        name: "钥一",
+        attention: { reason: "auth", at: 0, cleared: false },
+      }),
+    ],
+  };
+}
+
+/**
+ * How long each animation under an element takes and when it starts, the element's own first.
+ *
+ * @remarks
+ * For the project's fold: the height, then each workspace row's fade.
+ *
+ * @sideEffects none
+ * @param element - The fold.
+ * @returns `[duration, delay]` per animation.
+ */
+function foldTimings(element: Element): unknown[][] {
+  return [element, ...element.querySelectorAll("[data-fold-row]")].map((each) => {
+    const timing = each.getAnimations()[0]?.effect?.getTiming();
+    return [timing?.duration, timing?.delay];
+  });
+}
+
+/**
+ * The heights an element's first animation goes through.
+ *
+ * @sideEffects none
+ * @param element - The animated element.
+ * @returns The keyframes' heights.
+ */
+function heightFrames(element: Element): unknown[] {
+  const effect = element.getAnimations()[0]?.effect as KeyframeEffect | undefined;
+  return effect?.getKeyframes().map((frame) => frame["height"]) ?? [];
+}
+
+/**
+ * Stops every animation under an element at its end, without finishing it.
+ *
+ * @remarks
+ * Shows the last frame of a fold while it is still on screen.
+ *
+ * @sideEffects Pauses and seeks the animations.
+ * @param element - The fold.
+ */
+function holdAtEnd(element: Element): void {
+  for (const animation of element.getAnimations({ subtree: true })) {
+    const timing = animation.effect?.getComputedTiming();
+    animation.pause();
+    animation.currentTime = timing?.endTime ?? 0;
+  }
+}
+
+/**
+ * The gap between the bottom of one element and the top of another.
+ *
+ * @sideEffects none
+ * @param above - The upper element.
+ * @param below - The lower element.
+ * @returns The gap in pixels.
+ */
+function gap(above: Element, below: Element): number {
+  return below.getBoundingClientRect().top - above.getBoundingClientRect().bottom;
+}
+
+/**
+ * The project row's folder icons: which, how visible and scaled, and the transitions on each.
+ *
+ * @sideEffects none
+ * @param row - The project row.
+ * @returns One entry per icon.
+ */
+function folderIcons(row: Element): unknown[][] {
+  return [...row.querySelectorAll<SVGElement>("[data-folder]")].map((icon) => [
+    icon.dataset["folder"],
+    getComputedStyle(icon).opacity,
+    getComputedStyle(icon).scale,
+    icon
+      .getAnimations()
+      .map((animation) => [(animation as CSSTransition).transitionProperty, animation.effect?.getTiming().duration])
+      .toSorted(([a], [b]) => String(a).localeCompare(String(b))),
+  ]);
+}
+
+/**
+ * What a color, given as CSS (a variable, a mix), computes to on this page.
+ *
+ * @remarks
+ * Lets a test compare a button's computed colors with the design tokens' without writing out
+ * their values.
+ *
+ * @sideEffects Adds a probe element to the page and removes it.
+ * @param color - The CSS color.
+ * @returns Its computed `rgb(...)` form.
+ */
+function computedColor(color: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = color;
+  document.body.append(probe);
+  const computed = getComputedStyle(probe).color;
+  probe.remove();
+  return computed;
+}
+
+/** The space, in pixels, between `element` and what follows it. */
+function gapAfter(element: Element): number | undefined {
+  const next = element.nextElementSibling?.getBoundingClientRect().left;
+  return next === undefined ? undefined : next - element.getBoundingClientRect().right;
+}
+
+/**
+ * Archives a chat with the button its row's hover shows.
+ *
+ * @sideEffects Hovers the chat's row and clicks its archive button.
+ * @param screen - The rendered workbench.
+ * @param name - The chat's name.
+ */
+async function archiveChatRow(screen: Awaited<ReturnType<typeof workbench>>["screen"], name: string) {
+  const row = screen.getByTestId("chat-row").filter({ hasText: name });
+  await row.hover();
+  await row.getByRole("button", { name: `归档对话 ${name}` }).click();
+}
+
+/**
+ * Opens a chat's "···" menu in the sidebar.
+ *
+ * @sideEffects Hovers the chat's row and clicks its menu button.
+ * @param screen - The rendered workbench.
+ * @param name - The chat's name.
+ */
+async function chatMenu(screen: Awaited<ReturnType<typeof workbench>>["screen"], name: string) {
+  const row = screen.getByTestId("chat-row").filter({ hasText: name });
+  await row.hover();
+  await row.getByRole("button", { name: `对话 ${name}` }).click();
+}
+
+/**
+ * The list with the chat's session c1 changed.
+ *
+ * @sideEffects none
+ * @param fields - What changes.
+ * @returns The list.
+ */
+function withC1(fields: Partial<ReturnType<typeof session>>) {
+  const base = list();
+  return {
+    ...base,
+    sessions: base.sessions.map((one) => (one.sessionId === "c1" ? { ...one, ...fields } : one)),
+  };
+}
+
+/**
+ * A list with two archived chats, one with a session left out of its archive, and the chat with
+ * c1 not archived.
+ */
+function withArchivedChats() {
+  const base = list();
+  const minute = 60_000;
+  return {
+    ...base,
+    sessions: [
+      ...base.sessions,
+      session({ sessionId: "a1", containerId: "cht_old", prompt: "解释 rebase", archived: true }),
+      session({ sessionId: "a2", containerId: "cht_older", prompt: "写周报", archived: true }),
+      // Not archived with its chat; the chat stays hidden all the same.
+      session({ sessionId: "a3", containerId: "cht_older", prompt: "提纲" }),
+    ],
+    chats: [
+      ...base.chats,
+      chat({ id: "cht_older", firstSessionId: "a2", alias: "周报", archivedAt: Date.now() - 120 * minute }),
+      chat({ id: "cht_old", firstSessionId: "a1", archivedAt: Date.now() - 5 * minute }),
+    ],
+  };
+}
+
+/**
  * Renders the workbench over a fake client.
  *
  * @remarks
@@ -79,25 +286,19 @@ async function workbench(
   // The size of the app's window, so the sidebar and tab bar sit side by side.
   await page.viewport(1280, 820);
   const fake = fakeClient(options.initial ?? list(), options.answers);
-  const displayMode = createDisplayMode("summary", (mode) => {
-    void fake.client.setPreferences({ displayMode: mode });
-  });
-  onTestFinished(followPreferences(displayMode, fake.client));
   const native: string[] = [];
   const opened: string[] = [];
   const revealed: string[] = [];
   const screen = await render(
-    <DisplayModeContext value={displayMode}>
-      <Workbench
-        client={fake.client}
-        status={options.status ?? <span>已连接宿主</span>}
-        pickDirectory={async () => options.picked ?? null}
-        setNativeAppearance={(appearance) => native.push(appearance)}
-        openUrl={(url) => opened.push(url)}
-        reveal={(path) => revealed.push(path)}
-        pathForFile={undefined}
-      />
-    </DisplayModeContext>,
+    <Workbench
+      client={fake.client}
+      status={options.status ?? <span>已连接宿主</span>}
+      pickDirectory={async () => options.picked ?? null}
+      setNativeAppearance={(appearance) => native.push(appearance)}
+      openUrl={(url) => opened.push(url)}
+      reveal={(path) => revealed.push(path)}
+      pathForFile={undefined}
+    />,
   );
   return { screen, ...fake, native, opened, revealed };
 }
@@ -118,17 +319,15 @@ describe("Workbench connection line", () => {
     await expect.element(screen.getByRole("status")).toHaveTextContent("已连接宿主 0.1.0");
     expect(footer?.getBoundingClientRect().height).toBe(0);
     await screen.rerender(
-      <DisplayModeContext value={createDisplayMode("summary", () => undefined)}>
-        <Workbench
-          client={fakeClient(list()).client}
-          status={<ConnectionStatus view={{ status: "reconnecting", attempt: 1, code: 1006 }} />}
-          pickDirectory={undefined}
-          setNativeAppearance={undefined}
-          openUrl={() => undefined}
-          reveal={undefined}
-          pathForFile={undefined}
-        />
-      </DisplayModeContext>,
+      <Workbench
+        client={fakeClient(list()).client}
+        status={<ConnectionStatus view={{ status: "reconnecting", attempt: 1, code: 1006 }} />}
+        pickDirectory={undefined}
+        setNativeAppearance={undefined}
+        openUrl={() => undefined}
+        reveal={undefined}
+        pathForFile={undefined}
+      />,
     );
     await expect.element(screen.getByRole("status")).toBeVisible();
     expect(screen.container.querySelector("footer")?.getBoundingClientRect().height).toBe(24);
@@ -185,63 +384,145 @@ describe("Workbench sidebar", () => {
     await expect.element(screen.getByTestId("project-row").getByRole("img", { name: "待授权" })).toBeVisible();
   });
 
-  it("collects the sessions that need the user above the projects, five at first, opening one when clicked", async () => {
-    const initial = list();
-    const minute = 60_000;
-    /** An error not seen yet, set `minutesAgo`. */
-    const error = (minutesAgo: number) => ({
-      attention: { reason: "error" as const, at: Date.now() - minutesAgo * minute, cleared: false },
-    });
-    const { screen, calls } = await workbench({
-      initial: {
-        ...initial,
-        sessions: [
-          ...initial.sessions,
-          session({ sessionId: "e1", containerId: FEATURE, name: "错一", ...error(30) }),
-          session({ sessionId: "e2", containerId: LOCAL, name: "错二", ...error(3) }),
-          session({ sessionId: "e3", containerId: CHAT, name: "错三", ...error(50) }),
-          session({ sessionId: "e4", containerId: LOCAL, name: "错四", ...error(40) }),
-          session({
-            sessionId: "seen",
-            containerId: LOCAL,
-            ...error(1),
-            attention: { ...error(1).attention, cleared: true },
-          }),
-          session({ sessionId: "gone", containerId: LOCAL, ...error(1), archived: true }),
-          session({ sessionId: "a1", containerId: FEATURE, name: "问一", asking: Date.now() - 12 * minute }),
-          session({
-            sessionId: "k1",
-            containerId: CHAT,
-            name: "钥一",
-            attention: { reason: "auth", at: 0, cleared: false },
-          }),
-        ],
-      },
-    });
+  it("collects the sessions that need the user in a card over 设置, folded at first, three when opened, opening one when clicked", async () => {
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen, calls } = await workbench({ initial: needing() });
+    // As tall as the window, as in the app, so the card sits at the bottom.
+    screen.container.style.height = "820px";
 
     const inbox = screen.getByRole("region", { name: "等你处理" });
     await expect.element(inbox).toBeVisible();
-    expect(inbox.element().firstElementChild?.textContent).toBe("等你处理6");
+    // Under the scrolling projects and chats, right over 设置.
+    expect(inbox.element().previousElementSibling?.contains(screen.getByTestId("project-row").element())).toBe(true);
+    expect(inbox.element().nextElementSibling?.contains(screen.getByRole("button", { name: "设置" }).element())).toBe(
+      true,
+    );
+    const heading = inbox.getByRole("button", { name: /^等你处理/ });
+    await expect.element(heading).toHaveAttribute("aria-expanded", "false");
+    expect(heading.element().textContent).toBe("等你处理6");
+    expect(
+      [...heading.element().querySelectorAll("[role=img]")].map((icon) => icon.getAttribute("aria-label")),
+    ).toStrictEqual(["待回答", "待授权", "出错"]);
     const rows = inbox.getByTestId("inbox-row");
+    expect(rows.elements()).toHaveLength(0);
+    const headingTop = heading.element().getBoundingClientRect().top;
+
+    await heading.click();
+    await expect.element(heading).toHaveAttribute("aria-expanded", "true");
+    // It opens upwards, the heading staying put under the list.
+    expect(heading.element().getBoundingClientRect().top).toBe(headingTop);
+    expect(inbox.element().lastElementChild).toBe(heading.element());
+    expect(localStorage.getItem("atrium.inboxOpen")).toBe("true");
+    expect(heading.element().querySelectorAll("[role=img]")).toHaveLength(0);
     expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
       "问一atrium · feat/sidebar12 分钟前",
       expect.stringMatching(/^钥一对话 · 解释 merge-tree/),
       "错二atrium · main3 分钟前",
-      "错一atrium · feat/sidebar30 分钟前",
-      "错四atrium · main40 分钟前",
     ]);
     await expect.element(rows.nth(0).getByRole("img", { name: "待回答" })).toBeVisible();
     await expect.element(rows.nth(1).getByRole("img", { name: "待授权" })).toBeVisible();
-    await inbox.getByRole("button", { name: "还有 1 条" }).click();
+    await inbox.getByRole("button", { name: "还有 3 条" }).click();
+    expect(rows.elements().map((row) => row.textContent?.slice(0, 2))).toStrictEqual([
+      "问一",
+      "钥一",
+      "错二",
+      "错一",
+      "错四",
+      "错三",
+    ]);
+    expect(heading.element().getBoundingClientRect().top).toBe(headingTop);
     await expect.element(rows.nth(5)).toHaveTextContent("错三对话 · 解释 merge-tree50 分钟前");
     await inbox.getByRole("button", { name: "收起" }).click();
-    await expect.element(rows.nth(5)).not.toBeInTheDocument();
+    await expect.element(rows.nth(3)).not.toBeInTheDocument();
 
     // A question stays until answered; an error would leave once seen.
     await rows.nth(0).click();
     await vi.waitFor(() => expect(calls).toContain("openSession a1"));
     await expect.element(rows.nth(0)).toHaveAttribute("aria-current", "true");
     await expect.element(rows.nth(1)).toHaveAttribute("aria-current", "false");
+
+    await heading.click();
+    await expect.element(heading).toHaveAttribute("aria-expanded", "false");
+    await expect.element(rows.nth(0)).not.toBeInTheDocument();
+    expect(localStorage.getItem("atrium.inboxOpen")).toBe("false");
+  });
+
+  it("unfolds the inbox's list upwards in 0.28 s, the rows one after another, and folds it away, the chevron turning", async () => {
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen } = await workbench({ initial: needing() });
+    const inbox = screen.getByRole("region", { name: "等你处理" });
+    const heading = inbox.getByRole("button", { name: /^等你处理/ });
+    const chevron = heading.element().querySelector(".atrium-fold-chevron") as Element;
+    expect(getComputedStyle(chevron).rotate).toBe("none");
+
+    await heading.click();
+
+    const unfolding = screen.getByTestId("inbox-list").element();
+    expect([unfolding.getAttribute("data-fold"), heightFrames(unfolding)[0]]).toStrictEqual(["opening", "0px"]);
+    expect(foldTimings(unfolding)).toStrictEqual([
+      [280, 0],
+      [260, 40],
+      [260, 54],
+      [260, 68],
+      [260, 82],
+    ]);
+    expect(
+      chevron
+        .getAnimations()
+        .map((turn) => [(turn as CSSTransition).transitionProperty, turn.effect?.getTiming().duration]),
+    ).toStrictEqual([["rotate", 300]]);
+    for (const turn of chevron.getAnimations()) turn.finish();
+    expect(getComputedStyle(chevron).rotate).toBe("180deg");
+    await expect.element(screen.getByTestId("inbox-list")).toHaveAttribute("data-fold", "open");
+    await heading.click();
+
+    const folding = screen.getByTestId("inbox-list").element();
+    expect(folding.getAttribute("data-fold")).toBe("closing");
+    expect(foldTimings(folding)).toStrictEqual([
+      [280, 40],
+      [220, 42],
+      [220, 28],
+      [220, 14],
+      [220, 0],
+    ]);
+    await expect.element(screen.getByTestId("inbox-list")).not.toBeInTheDocument();
+  });
+
+  it("unfolds the inbox's list only to the 228px it scrolls beyond", async () => {
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen } = await workbench({ initial: needing() });
+    const inbox = screen.getByRole("region", { name: "等你处理" });
+    const heading = inbox.getByRole("button", { name: /^等你处理/ });
+    await heading.click();
+    await inbox.getByRole("button", { name: "还有 3 条" }).click();
+    await heading.click();
+    await expect.element(screen.getByTestId("inbox-list")).not.toBeInTheDocument();
+
+    await heading.click();
+
+    const unfolding = screen.getByTestId("inbox-list").element();
+    expect(unfolding.scrollHeight).toBeGreaterThan(228);
+    expect(heightFrames(unfolding)).toStrictEqual(["0px", "228px"]);
+  });
+
+  it("opens the inbox's card as it was left", async () => {
+    localStorage.setItem("atrium.inboxOpen", "true");
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen } = await workbench({ initial: needing() });
+    const inbox = screen.getByRole("region", { name: "等你处理" });
+
+    await expect.element(inbox.getByRole("button", { name: /^等你处理/ })).toHaveAttribute("aria-expanded", "true");
+    expect(inbox.getByTestId("inbox-row").elements()).toHaveLength(3);
+  });
+
+  it("leaves the inbox out when switched off in the settings, the statuses still showing elsewhere", async () => {
+    const { screen, client } = await workbench({ initial: needing() });
+    await expect.element(screen.getByRole("region", { name: "等你处理" })).toBeVisible();
+
+    await client.setPreferences({ inbox: false });
+
+    await expect.element(screen.getByRole("region", { name: "等你处理" })).not.toBeInTheDocument();
+    await expect.element(screen.getByTestId("workspace-row").nth(1).getByRole("img", { name: "待回答" })).toBeVisible();
   });
 
   it("leaves the inbox out when nothing needs the user", async () => {
@@ -264,6 +545,88 @@ describe("Workbench sidebar", () => {
     await expect.element(screen.getByTestId("project-row").getByRole("img", { name: "运行中" })).toBeVisible();
     await expect.element(screen.getByTestId("project-row")).toHaveAttribute("aria-current", "true");
     expect(localStorage.getItem("atrium.collapsedProjects")).toBe(JSON.stringify([PROJECT.id]));
+  });
+
+  it("folds a project's workspaces away in 0.28 s, the rows one after another, and unfolds them from nothing", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));
+    const project = screen.getByTestId("project-row");
+    // Still, the fold leaves the rows' menus unclipped; moving, it clips the rows.
+    expect(getComputedStyle(screen.getByTestId("project-workspaces").element()).overflow).toBe("visible");
+
+    await project.click();
+
+    const fold = screen.getByTestId("project-workspaces").element();
+    expect([fold.getAttribute("data-fold"), getComputedStyle(fold).overflow]).toStrictEqual(["closing", "hidden"]);
+    expect(foldTimings(fold)).toStrictEqual([
+      [280, 40],
+      [220, 28],
+      [220, 14],
+      [220, 0],
+    ]);
+    await expect.element(screen.getByTestId("project-workspaces")).not.toBeInTheDocument();
+    await project.click();
+
+    const unfolding = screen.getByTestId("project-workspaces").element();
+    expect(unfolding.getAttribute("data-fold")).toBe("opening");
+    expect(heightFrames(unfolding)[0]).toBe("0px");
+    expect(foldTimings(unfolding)).toStrictEqual([
+      [280, 0],
+      [260, 40],
+      [260, 54],
+      [260, 68],
+    ]);
+    await expect.element(screen.getByTestId("project-workspaces")).toHaveAttribute("data-fold", "open");
+    expect(getComputedStyle(unfolding).overflow).toBe("visible");
+  });
+
+  it("keeps the rows 2px apart and the chats where they were, before, at the end of and after a fold", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));
+    const project = screen.getByTestId("project-row");
+    const rows = screen.getByTestId("workspace-row");
+    const chats = screen.getByRole("region", { name: "对话" }).element().firstElementChild as Element;
+
+    expect([gap(project.element(), rows.nth(0).element()), gap(rows.nth(2).element(), chats)]).toStrictEqual([2, 6]);
+    await project.click();
+    const fold = screen.getByTestId("project-workspaces").element();
+    holdAtEnd(fold);
+
+    expect(gap(project.element(), chats)).toBe(6);
+    for (const animation of fold.getAnimations({ subtree: true })) animation.finish();
+    await expect.element(rows).not.toBeInTheDocument();
+    expect(gap(project.element(), chats)).toBe(6);
+  });
+
+  it("cross-fades the project's folder between closed and open, scaling it, as its colour follows", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.collapsedProjects"));
+    const row = screen.getByTestId("project-row").element();
+
+    expect(folderIcons(row)).toStrictEqual([
+      ["closed", "0", "0.6", []],
+      ["open", "1", "none", []],
+    ]);
+    await screen.getByTestId("project-row").click();
+
+    const moving = [
+      ["opacity", 300],
+      ["scale", 300],
+    ];
+    expect(folderIcons(row).map((icon) => icon[3])).toStrictEqual([moving, moving]);
+    expect(
+      row
+        .querySelector(".atrium-folder")
+        ?.getAnimations()
+        .map((animation) => (animation as CSSTransition).transitionProperty),
+    ).toStrictEqual(["color"]);
+    for (const transition of row.getAnimations({ subtree: true }).filter((one) => one instanceof CSSTransition)) {
+      transition.finish();
+    }
+    expect(folderIcons(row)).toStrictEqual([
+      ["closed", "1", "none", []],
+      ["open", "0", "0.6", []],
+    ]);
   });
 
   it("adds the folder the user picks as a project, and nothing when cancelled", async () => {
@@ -379,6 +742,34 @@ describe("Workbench sidebar", () => {
     expect(calls.filter((call) => /^(selectContainer|openSession c)/.test(call))).toStrictEqual([]);
   });
 
+  it("starts a chat from the icon on 对话's heading, shown with no chats too, and from nowhere else in the sidebar", async () => {
+    const { screen, calls } = await workbench({ initial: { ...list(), chats: [] } });
+    const section = screen.getByRole("region", { name: "对话" });
+
+    expect(section.element().textContent).toBe("对话");
+    expect(
+      screen
+        .getByRole("navigation", { name: "侧栏" })
+        .getByRole("button", { name: /新建对话/ })
+        .elements(),
+    ).toHaveLength(1);
+    const button = section.getByRole("button", { name: "新建对话", exact: true });
+    await expect.element(button).toHaveAttribute("title", "新建对话（⌘N）");
+    // On the heading's line, as 项目's buttons are.
+    expect(button.element().parentElement?.textContent).toBe("对话");
+    await button.click();
+
+    await vi.waitFor(() => expect(calls).toContain("createChat"));
+  });
+
+  it("puts the chats' rows right under the heading", async () => {
+    const { screen } = await workbench();
+    const section = screen.getByRole("region", { name: "对话" });
+
+    await expect.element(section.getByTestId("chat-row")).toBeVisible();
+    expect(section.element().textContent).toMatch(/^对话解释 merge-tree/);
+  });
+
   it("names a chat by its alias, else its first session's title, else as new", async () => {
     const initial = list();
     await workbench({
@@ -398,11 +789,9 @@ describe("Workbench sidebar", () => {
     });
 
     const rows = page.getByRole("region", { name: "对话" }).getByTestId("chat-row");
-    expect(rows.elements().map((row) => row.querySelector(".truncate")?.textContent)).toStrictEqual([
-      "解释 merge-tree",
-      "新对话",
-      "周报",
-    ]);
+    await expect
+      .poll(() => rows.elements().map((row) => row.querySelector(".truncate")?.textContent))
+      .toStrictEqual(["解释 merge-tree", "新对话", "周报"]);
   });
 
   it("opens a chat's latest session when it has no tab open, and goes back to its tabs when it has", async () => {
@@ -512,6 +901,227 @@ describe("Workbench sidebar", () => {
       'setPreferences {"appearance":"dark"}',
     ]);
   });
+
+  it("paints the sidebar in DeepSeek Harness's colours when light, see-through when dark", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => document.documentElement.classList.remove("dark"));
+    const sidebar = screen.getByRole("navigation", { name: "侧栏" }).element();
+
+    expect(getComputedStyle(sidebar).backgroundImage).toBe(
+      "linear-gradient(rgb(213, 219, 233) 0%, rgb(218, 224, 233) 10%, rgb(225, 228, 234) 25%, rgb(227, 231, 233) 35%, rgb(227, 231, 233) 65%, rgb(226, 228, 230) 75%, rgb(222, 225, 231) 85%, rgb(216, 219, 227) 100%)",
+    );
+    document.documentElement.classList.add("dark");
+
+    expect([getComputedStyle(sidebar).backgroundImage, getComputedStyle(sidebar).backgroundColor]).toStrictEqual([
+      "none",
+      "rgba(95, 102, 114, 0.42)",
+    ]);
+  });
+
+  it("lets the window's material through the sidebar in the desktop app, light and dark", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => {
+      document.documentElement.classList.remove("dark");
+      delete document.documentElement.dataset["material"];
+    });
+    const sidebar = screen.getByRole("navigation", { name: "侧栏" }).element();
+    const main = screen.getByRole("main").element();
+    document.documentElement.dataset["material"] = "";
+    const painted = () => [
+      getComputedStyle(document.body).backgroundColor,
+      getComputedStyle(sidebar).backgroundImage,
+      getComputedStyle(sidebar).backgroundColor,
+      getComputedStyle(main).backgroundColor,
+    ];
+
+    expect(painted()).toStrictEqual(["rgba(0, 0, 0, 0)", "none", "rgba(0, 0, 0, 0)", "rgb(255, 255, 255)"]);
+    document.documentElement.classList.add("dark");
+    expect(painted()).toStrictEqual(["rgba(0, 0, 0, 0)", "none", "rgba(0, 0, 0, 0)", "rgb(21, 21, 23)"]);
+  });
+});
+
+/**
+ * How an element's changes are animated: the properties, their durations and their curves.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns The three, as computed.
+ */
+function motion(element: Element): string[] {
+  const style = getComputedStyle(element);
+  return [style.transitionProperty, style.transitionDuration, style.transitionTimingFunction];
+}
+
+/**
+ * Where an element is in the window, and how wide.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its left, top and width in pixels.
+ */
+function placed(element: Element): number[] {
+  const rect = element.getBoundingClientRect();
+  return [rect.left, rect.top, rect.width];
+}
+
+const PANE_CURVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+
+/**
+ * Whether a press at an element's middle would drag the window, by Electron's rule.
+ *
+ * @remarks
+ * Electron lays the page's `-webkit-app-region` areas over one another in page order, each
+ * `drag` adding and each `no-drag` taking away, so the last that covers a point decides it. A
+ * browser has no such regions, so a click there tells nothing.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns `true` if the window would take the press as a drag.
+ */
+function dragsWindowAt(element: Element): boolean {
+  const rect = element.getBoundingClientRect();
+  const [x, y] = [rect.left + rect.width / 2, rect.top + rect.height / 2];
+  const regions = [...document.querySelectorAll("*")]
+    .map(
+      (each) => [getComputedStyle(each).getPropertyValue("-webkit-app-region"), each.getBoundingClientRect()] as const,
+    )
+    .filter(([region, at]) => region !== "none" && at.left <= x && x < at.right && at.top <= y && y < at.bottom);
+  return regions.at(-1)?.[0] === "drag";
+}
+
+describe("Workbench panes", () => {
+  it("keeps its sidebar toggle pressable over the window's drag areas, folded or not", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.sidebarCollapsed"));
+    const toggle = screen.getByRole("button", { name: "折叠侧栏" });
+    const pressable = [dragsWindowAt(toggle.element())];
+
+    await toggle.click();
+    const unfold = screen.getByRole("button", { name: "展开侧栏" });
+    await expect.poll(() => placed(unfold.element())).toStrictEqual([84, 10, 28]);
+    pressable.push(dragsWindowAt(unfold.element()));
+
+    expect(pressable).toStrictEqual([false, false]);
+  });
+
+  it("folds the sidebar away from its toggle and ⌘B, the toggle moving beside the traffic lights and the tabs making room, and remembers it", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.sidebarCollapsed"));
+    const nav = screen.getByRole("navigation", { name: "侧栏" }).element();
+    const inside = screen.getByTestId("sidebar-inside").element();
+    const bar = screen.getByTestId("tab-bar").element();
+    const toggle = screen.getByRole("button", { name: "折叠侧栏" });
+
+    expect([placed(toggle.element()), placed(nav)[2], getComputedStyle(bar).paddingLeft]).toStrictEqual([
+      [226, 10, 28],
+      270,
+      "12px",
+    ]);
+    expect([toggle.element().getAttribute("title"), toggle.element().getAttribute("aria-expanded")]).toStrictEqual([
+      "折叠侧栏（⌘B）",
+      "true",
+    ]);
+    expect([motion(nav), motion(inside), motion(toggle.element()), motion(bar)]).toStrictEqual([
+      ["width", "0.24s", PANE_CURVE],
+      ["opacity, translate", "0.2s, 0.24s", `ease, ${PANE_CURVE}`],
+      ["left", "0.24s", PANE_CURVE],
+      ["padding-left", "0.24s", PANE_CURVE],
+    ]);
+    await toggle.click();
+
+    await expect.poll(() => placed(nav)[2]).toBe(0);
+    const unfold = screen.getByRole("button", { name: "展开侧栏" });
+    await expect.poll(() => placed(unfold.element())).toStrictEqual([84, 10, 28]);
+    await expect.poll(() => getComputedStyle(bar).paddingLeft).toBe("120px");
+    await expect
+      .poll(() => [getComputedStyle(inside).opacity, getComputedStyle(inside).translate])
+      .toStrictEqual(["0", "-24px"]);
+    expect([
+      (nav as HTMLElement).inert,
+      unfold.element().getAttribute("title"),
+      unfold.element().getAttribute("aria-expanded"),
+      localStorage.getItem("atrium.sidebarCollapsed"),
+    ]).toStrictEqual([true, "展开侧栏（⌘B）", "false", "true"]);
+    await userEvent.keyboard("{Meta>}b{/Meta}");
+
+    await expect.poll(() => placed(nav)[2]).toBe(270);
+    await expect.poll(() => placed(toggle.element())).toStrictEqual([226, 10, 28]);
+    expect([(nav as HTMLElement).inert, localStorage.getItem("atrium.sidebarCollapsed")]).toStrictEqual([
+      false,
+      "false",
+    ]);
+  });
+
+  it("starts as left: the sidebar folded, the changes panel open and as wide as it was", async () => {
+    localStorage.setItem("atrium.sidebarCollapsed", "true");
+    localStorage.setItem("atrium.changesOpen", "true");
+    localStorage.setItem("atrium.rightPanelWidth", "300");
+    onTestFinished(() => {
+      for (const key of ["atrium.sidebarCollapsed", "atrium.changesOpen", "atrium.rightPanelWidth"]) {
+        localStorage.removeItem(key);
+      }
+    });
+    const { screen } = await workbench();
+
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).toBeVisible();
+    expect([
+      placed(screen.getByRole("navigation", { name: "侧栏" }).element())[2],
+      placed(screen.getByRole("button", { name: "展开侧栏" }).element()),
+      placed(screen.getByTestId("changes-pane").element())[2],
+      screen.getByRole("button", { name: "右栏" }).element().getAttribute("aria-pressed"),
+    ]).toStrictEqual([0, [84, 10, 28], 300, "true"]);
+  });
+
+  it("opens and closes the changes panel from the tab bar's last button and ⌥⌘B, open in every workspace, hidden in a chat", async () => {
+    const { screen, changeCalls } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.changesOpen"));
+    const toggle = screen.getByRole("button", { name: "右栏" });
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
+    const said = () => [
+      toggle.element().getAttribute("aria-pressed"),
+      toggle.element().getAttribute("aria-disabled"),
+      toggle.element().getAttribute("title"),
+      localStorage.getItem("atrium.changesOpen"),
+    ];
+
+    expect(said()).toStrictEqual(["false", "false", "文件与更改（⌥⌘B）", null]);
+    expect([...screen.getByTestId("tab-bar").element().querySelectorAll("button")].at(-1)).toBe(toggle.element());
+    await toggle.click();
+    await expect.element(panel).toBeVisible();
+    expect(said()).toStrictEqual(["true", "false", "文件与更改（⌥⌘B）", "true"]);
+    await screen.getByTestId("workspace-row").nth(1).click();
+
+    await vi.waitFor(() => expect(changeCalls).toContain(`watchDiff ${FEATURE} base`));
+    await expect.element(panel).toBeVisible();
+    await screen.getByTestId("chat-row").click();
+
+    await expect.element(panel).not.toBeInTheDocument();
+    expect(said()).toStrictEqual(["false", "true", "对话没有工作区", "true"]);
+    await toggle.click({ force: true });
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+    expect(said()).toStrictEqual(["false", "true", "对话没有工作区", "true"]);
+    await screen.getByTestId("workspace-row").nth(0).click();
+
+    await expect.element(panel).toBeVisible();
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+    await expect.element(panel).not.toBeInTheDocument();
+    expect(said()).toStrictEqual(["false", "false", "文件与更改（⌥⌘B）", "false"]);
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+    await expect.element(panel).toBeVisible();
+  });
+
+  it("leaves the changes panel as it was on ⌥⌘B over the new-workspace page", async () => {
+    const { screen } = await workbench();
+    onTestFinished(() => localStorage.removeItem("atrium.changesOpen"));
+    const project = screen.getByTestId("project-row");
+    await project.hover();
+    await project.getByRole("button", { name: "在 atrium 新建工作区" }).click();
+    await expect.element(screen.getByText("新建工作区", { exact: true })).toBeVisible();
+
+    await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
+
+    expect(localStorage.getItem("atrium.changesOpen")).toBeNull();
+  });
 });
 
 /**
@@ -554,6 +1164,20 @@ async function workspaceMenu(screen: Awaited<ReturnType<typeof workbench>>["scre
 }
 
 /**
+ * Archives the n-th workspace row with the button its hover shows.
+ *
+ * @sideEffects Hovers and clicks in the page.
+ * @param screen - The rendered workbench.
+ * @param nth - Which row, from 0.
+ * @param name - The workspace's name.
+ */
+async function archiveWorkspaceRow(screen: Awaited<ReturnType<typeof workbench>>["screen"], nth: number, name: string) {
+  const row = screen.getByTestId("workspace-row").nth(nth);
+  await row.hover();
+  await row.getByRole("button", { name: `归档工作区 ${name}` }).click();
+}
+
+/**
  * Opens the project's "···" menu.
  *
  * @sideEffects Hovers and clicks in the page.
@@ -568,8 +1192,7 @@ async function projectMenu(screen: Awaited<ReturnType<typeof workbench>>["screen
 describe("Workbench workspace archiving (M1.11)", () => {
   it("asks before archiving a worktree, saying its branch is kept and its running sessions stop, then hides it", async () => {
     const { screen, calls } = await workbench({ initial: archivable() });
-    await workspaceMenu(screen, 2, "fix/typo");
-    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    await archiveWorkspaceRow(screen, 2, "fix/typo");
 
     const dialog = screen.getByRole("alertdialog", { name: "归档工作区「fix/typo」？" });
     await expect
@@ -599,8 +1222,7 @@ describe("Workbench workspace archiving (M1.11)", () => {
         workspaces: [...base.workspaces, workspace({ id: "wks_00000000000000d1", branch: null, head: "abc1234" })],
       },
     });
-    await workspaceMenu(screen, 2, "wks_00000000000000d1");
-    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    await archiveWorkspaceRow(screen, 2, "wks_00000000000000d1");
 
     await expect
       .element(screen.getByRole("alertdialog"))
@@ -617,8 +1239,7 @@ describe("Workbench workspace archiving (M1.11)", () => {
         workspaces: [...base.workspaces, workspace({ id: "wks_00000000000000d2", branch: null, head: null })],
       },
     });
-    await workspaceMenu(screen, 2, "wks_00000000000000d2");
-    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    await archiveWorkspaceRow(screen, 2, "wks_00000000000000d2");
 
     await expect
       .element(screen.getByRole("alertdialog"))
@@ -627,18 +1248,50 @@ describe("Workbench workspace archiving (M1.11)", () => {
       );
   });
 
-  it("offers archiving only for a worktree, and not while it has changes not committed", async () => {
-    const { screen } = await workbench();
+  it("offers archiving only for a worktree, on hover left of its menu, faded and saying why while it has changes not committed", async () => {
+    const { screen, calls } = await workbench();
+    const rows = screen.getByTestId("workspace-row");
+
+    await rows.nth(0).hover();
+    await expect.element(rows.nth(0).getByRole("button", { name: "工作区 main" })).toBeVisible();
+    expect(
+      rows
+        .nth(0)
+        .getByRole("button", { name: /^归档/ })
+        .elements(),
+    ).toHaveLength(0);
     await workspaceMenu(screen, 0, "main");
-
-    await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeVisible();
-    await expect.element(screen.getByRole("menuitem", { name: "归档…" })).not.toBeInTheDocument();
-
+    expect(
+      screen
+        .getByRole("menuitem")
+        .elements()
+        .map((item) => item.textContent),
+    ).toStrictEqual(["重命名"]);
     await userEvent.keyboard("{Escape}");
-    await workspaceMenu(screen, 1, "feat/sidebar");
-    const archive = screen.getByRole("menuitem", { name: "归档…" });
-    await expect.element(archive).toBeDisabled();
-    await expect.element(archive).toHaveAttribute("title", "有未提交的改动，先提交或丢弃");
+
+    await rows.nth(1).hover();
+    const dirty = rows.nth(1).getByRole("button", { name: "归档工作区 feat/sidebar" });
+    await expect.element(dirty).toHaveAttribute("aria-disabled", "true");
+    await expect.element(dirty).toHaveAttribute("title", "有未提交的改动，先提交或丢弃");
+    await dirty.click({ force: true });
+    await expect.element(screen.getByRole("alertdialog")).not.toBeInTheDocument();
+
+    await rows.nth(2).hover();
+    const archive = rows.nth(2).getByRole("button", { name: "归档工作区 fix/typo" });
+    await expect.element(archive).toHaveAttribute("aria-disabled", "false");
+    await expect.element(archive).toHaveAttribute("title", "归档");
+    // A red trash can on a faint red, so it reads as taking something away.
+    expect([
+      getComputedStyle(archive.element()).color,
+      getComputedStyle(archive.element()).backgroundColor,
+    ]).toStrictEqual([computedColor("var(--danger)"), computedColor("var(--danger-soft)")]);
+    expect(
+      archive
+        .element()
+        .nextElementSibling?.contains(rows.nth(2).getByRole("button", { name: "工作区 fix/typo" }).element()),
+    ).toBe(true);
+    expect(gapAfter(archive.element())).toBe(4);
+    expect(calls).not.toContain(`selectContainer ${FEATURE}`);
   });
 
   it("cancels with 取消, Escape or a click outside, archiving nothing", async () => {
@@ -650,8 +1303,7 @@ describe("Workbench workspace archiving (M1.11)", () => {
       () => screen.getByTestId("archive-scrim").click({ position: { x: 5, y: 5 } }),
     ];
     for (const cancel of ways) {
-      await workspaceMenu(screen, 2, "fix/typo");
-      await screen.getByRole("menuitem", { name: "归档…" }).click();
+      await archiveWorkspaceRow(screen, 2, "fix/typo");
       await expect.element(dialog).toBeVisible();
       await cancel();
       await expect.element(dialog).not.toBeInTheDocument();
@@ -664,8 +1316,7 @@ describe("Workbench workspace archiving (M1.11)", () => {
   it("waits while archiving, then says why it failed and lets the user try again", async () => {
     const answer = Promise.withResolvers<void>();
     const { screen, calls } = await workbench({ answers: { archiveWorkspace: () => answer.promise } });
-    await workspaceMenu(screen, 2, "fix/typo");
-    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    await archiveWorkspaceRow(screen, 2, "fix/typo");
     const dialog = screen.getByRole("alertdialog");
     await dialog.getByRole("button", { name: "归档" }).click();
 
@@ -685,8 +1336,7 @@ describe("Workbench workspace archiving (M1.11)", () => {
 
   it("lays the dialog out as a 380 px card over a blurred scrim, its buttons 30 px tall", async () => {
     const { screen } = await workbench();
-    await workspaceMenu(screen, 2, "fix/typo");
-    await screen.getByRole("menuitem", { name: "归档…" }).click();
+    await archiveWorkspaceRow(screen, 2, "fix/typo");
     const dialog = screen.getByRole("alertdialog").element();
     const scrim = screen.getByTestId("archive-scrim").element();
 
@@ -772,6 +1422,153 @@ describe("Workbench workspace archiving (M1.11)", () => {
     await expect
       .element(screen.getByRole("alert"))
       .toHaveTextContent("没能恢复：git 没能加回这个 worktree，分支可能正被别处检出");
+  });
+});
+
+describe("Workbench sidebar: archived chats", () => {
+  it("archives a chat none of whose sessions runs at once, and lists it under 已归档的对话, opened and closed in place", async () => {
+    const { screen, calls } = await workbench();
+    const section = screen.getByRole("region", { name: "对话" });
+    await expect.element(section.getByRole("button", { name: "已归档的对话" })).not.toBeInTheDocument();
+    await chatMenu(screen, "解释 merge-tree");
+    expect(
+      screen
+        .getByRole("menuitem")
+        .elements()
+        .map((item) => item.textContent),
+    ).toStrictEqual(["重命名"]);
+    await userEvent.keyboard("{Escape}");
+    const archive = section.getByRole("button", { name: "归档对话 解释 merge-tree" });
+    await expect.element(archive).toHaveAttribute("title", "归档");
+    // A red trash can on a faint red, so it reads as taking something away.
+    expect([
+      getComputedStyle(archive.element()).color,
+      getComputedStyle(archive.element()).backgroundColor,
+    ]).toStrictEqual([computedColor("var(--danger)"), computedColor("var(--danger-soft)")]);
+    expect(
+      archive
+        .element()
+        .nextElementSibling?.contains(section.getByRole("button", { name: "对话 解释 merge-tree" }).element()),
+    ).toBe(true);
+    expect(gapAfter(archive.element())).toBe(4);
+
+    await archiveChatRow(screen, "解释 merge-tree");
+
+    await vi.waitFor(() => expect(calls).toContain(`archiveChat ${CHAT}`));
+    await expect.element(screen.getByRole("alertdialog")).not.toBeInTheDocument();
+    await expect.element(section.getByTestId("chat-row")).not.toBeInTheDocument();
+    const archived = section.getByRole("button", { name: "已归档的对话" });
+    await expect.element(archived).toHaveAttribute("aria-expanded", "false");
+    await archived.click();
+    await expect
+      .element(section.getByRole("list", { name: "已归档的对话" }))
+      .toHaveTextContent("解释 merge-tree刚刚恢复");
+    await archived.click();
+    await expect.element(section.getByRole("list", { name: "已归档的对话" })).not.toBeInTheDocument();
+  });
+
+  it("asks first when some of a chat's sessions run, archiving nothing when cancelled", async () => {
+    const base = withC1({ running: true });
+    const { screen, calls } = await workbench({
+      initial: {
+        ...base,
+        sessions: [...base.sessions, session({ sessionId: "c2", containerId: CHAT, prompt: "追问", running: true })],
+      },
+    });
+    await archiveChatRow(screen, "解释 merge-tree");
+    const dialog = screen.getByRole("alertdialog");
+
+    await expect.element(dialog).toHaveAccessibleName("归档对话「解释 merge-tree」？");
+    await expect
+      .element(dialog)
+      .toHaveAccessibleDescription("其中 2 个会话正在运行，归档会停止它们；之后可以在“已归档的对话”里恢复");
+    await expect.element(dialog.getByRole("button", { name: "取消" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(calls).not.toContain(`archiveChat ${CHAT}`);
+
+    await archiveChatRow(screen, "解释 merge-tree");
+    await dialog.getByRole("button", { name: "归档" }).click();
+
+    await expect.element(dialog).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(calls).toContain(`archiveChat ${CHAT}`));
+    expect(calls).not.toContain(`selectContainer ${CHAT}`);
+  });
+
+  it("hides archived chats from the chats and search, listing them newest first by the names they had", async () => {
+    const { screen } = await workbench({ initial: withArchivedChats() });
+    const section = screen.getByRole("region", { name: "对话" });
+
+    expect(
+      section
+        .getByTestId("chat-row")
+        .elements()
+        .map((row) => row.textContent),
+    ).toStrictEqual([expect.stringMatching(/^解释 merge-tree/)]);
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "周报");
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await section.getByRole("button", { name: "已归档的对话" }).click();
+
+    await expect
+      .element(section.getByRole("list", { name: "已归档的对话" }))
+      .toHaveTextContent("解释 rebase5 分钟前恢复周报2 小时前恢复");
+  });
+
+  it("restores an archived chat from the list, showing it again, and drops the list with the last", async () => {
+    const { screen, calls } = await workbench({
+      initial: {
+        ...withC1({ archived: true }),
+        chats: [chat({ id: CHAT, firstSessionId: "c1", archivedAt: Date.now() })],
+      },
+    });
+    const section = screen.getByRole("region", { name: "对话" });
+    await section.getByRole("button", { name: "已归档的对话" }).click();
+
+    await section.getByRole("button", { name: "恢复 解释 merge-tree" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain(`restoreChat ${CHAT}`));
+    await expect.element(section.getByTestId("chat-row")).toHaveTextContent("解释 merge-tree1 分钟前");
+    await expect.element(section.getByRole("button", { name: "已归档的对话" })).not.toBeInTheDocument();
+    expect(calls).not.toContain(`selectContainer ${CHAT}`);
+  });
+
+  it("shows eight archived chats before the list scrolls", async () => {
+    const base = list();
+    const { screen } = await workbench({
+      initial: {
+        ...base,
+        chats: Array.from({ length: 10 }, (_, n) =>
+          chat({ id: `cht_${n}`, firstSessionId: null, alias: `对话${n}`, archivedAt: Date.now() - n * 60_000 }),
+        ),
+      },
+    });
+    await screen.getByRole("button", { name: "已归档的对话" }).click();
+    const shown = screen.getByRole("list", { name: "已归档的对话" }).element();
+
+    expect([shown.clientHeight, shown.scrollHeight]).toStrictEqual([256, 320]);
+  });
+
+  it("explains an archive or a restore that failed, and a chat that went", async () => {
+    const failures = [new CommandError("internal_error"), new CommandError("chat_not_found")];
+    const { screen } = await workbench({
+      initial: withArchivedChats(),
+      answers: {
+        archiveChat: () => Promise.reject(failures.shift()),
+        restoreChat: () => Promise.reject(new CommandError("internal_error")),
+      },
+    });
+    const problem = screen.getByRole("alert");
+
+    await archiveChatRow(screen, "解释 merge-tree");
+    await expect.element(problem).toHaveTextContent("没能归档这个对话");
+    await archiveChatRow(screen, "解释 merge-tree");
+    await expect.element(problem).toHaveTextContent("这个对话已经不在了");
+    await screen.getByRole("button", { name: "已归档的对话" }).click();
+    await screen.getByRole("button", { name: "恢复 周报" }).click();
+    await expect.element(problem).toHaveTextContent("没能恢复这个对话");
   });
 });
 
@@ -914,21 +1711,303 @@ describe("Workbench tabs", () => {
     await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeDisabled();
   });
 
-  it("switches the display mode with Ctrl+O and from its menu, saving it with the preferences", async () => {
+  it("says beside the active session's menu what a command just did for it", async () => {
+    onTestFinished(() => pageNotices().setState(null, true));
+    const { screen } = await workbench();
+    const menu = screen.getByRole("button", { name: "当前会话" });
+    await expect.element(menu).toBeVisible();
+
+    showNotice("s1", "已复制最后一条回复");
+
+    const line = screen.getByRole("status").filter({ hasText: "已复制最后一条回复" });
+    await expect.element(line).toBeVisible();
+    expect(line.element().parentElement?.contains(menu.element())).toBe(true);
+  });
+
+  it("has no display mode to switch, from a menu or with Ctrl+O", async () => {
     const { screen, calls } = await workbench();
-    const menu = screen.getByRole("button", { name: "显示模式（Ctrl+O 切换）" });
-    await expect.element(menu).toHaveTextContent("摘要模式");
+    await expect.element(screen.getByRole("button", { name: "当前会话" })).toBeVisible();
 
     await userEvent.keyboard("{Control>}o{/Control}");
-    await expect.element(menu).toHaveTextContent("思考模式");
-    await menu.click();
-    await screen.getByRole("menuitemradio", { name: /详细/ }).click();
 
-    await expect.element(menu).toHaveTextContent("详细模式");
-    expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
-      'setPreferences {"displayMode":"thinking"}',
-      'setPreferences {"displayMode":"detailed"}',
+    expect(screen.container.ownerDocument.body.textContent).not.toMatch(/摘要模式|思考模式|详细模式/);
+    expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([]);
+  });
+});
+
+/**
+ * The workbench in the local workspace with the right panel open at 文件, the workspace holding
+ * `a.ts`, `b.ts` and `c.md`.
+ *
+ * @sideEffects Renders; writes `localStorage`, cleaned when the test ends.
+ * @returns As `workbench`, and the files tree and the tab list.
+ */
+async function viewing() {
+  localStorage.setItem("atrium.changesOpen", "true");
+  onTestFinished(() => {
+    for (const key of ["atrium.changesOpen", `atrium.panelTab:${LOCAL}`, `atrium.openDirs:${LOCAL}`]) {
+      localStorage.removeItem(key);
+    }
+  });
+  const fake = await workbench({
+    answers: {
+      listDir: async () => ({
+        entries: [
+          { name: "a.ts", kind: "file" },
+          { name: "b.ts", kind: "file" },
+          { name: "c.md", kind: "file" },
+        ],
+        truncated: false,
+      }),
+      readFile: async () => ({ size: 2, content: { kind: "text", text: "x\n" } }),
+    },
+  });
+  const tree = fake.screen.getByTestId("files-tree");
+  await expect.element(tree.getByRole("button", { name: "a.ts" })).toBeVisible();
+  return { ...fake, tree, tabs: fake.screen.getByRole("tablist", { name: "打开的会话" }).getByRole("tab") };
+}
+
+/**
+ * Gives session s1 an error not seen yet.
+ *
+ * @sideEffects Sets the list.
+ * @param index - The list's store.
+ */
+function failS1(index: StoreApi<IndexView>): void {
+  const error = { reason: "error" as const, at: Date.now(), cleared: false };
+  index.setState({
+    sessions: index.getState().sessions.map((each) => (each.sessionId === "s1" ? { ...each, attention: error } : each)),
+  });
+}
+
+/**
+ * Each tab's tooltip, whether it is selected, and whether its title is in italics.
+ *
+ * @sideEffects none
+ * @param tabs - The tabs.
+ * @returns Them so described.
+ */
+function tabsOf(tabs: ReturnType<typeof page.getByRole>): [string | null, boolean, boolean][] {
+  return tabs
+    .elements()
+    .map((tab): [string | null, boolean, boolean] => [
+      tab.getAttribute("title"),
+      tab.getAttribute("aria-selected") === "true",
+      getComputedStyle(tab.querySelector("span.truncate") ?? tab).fontStyle === "italic",
     ]);
+}
+
+/**
+ * A new file of one line, as a diff has it.
+ *
+ * @sideEffects none
+ * @param path - Its path.
+ * @returns The file.
+ */
+function newFile(path: string): DiffFile {
+  return { path, oldPath: null, status: "added", added: 1, removed: 0, content: "text", hunks: [] };
+}
+
+describe("Workbench viewer tabs (M1.12)", () => {
+  it("opens a file from the tree in a preview tab after the sessions, in place of the conversation", async () => {
+    const { screen, tree, tabs } = await viewing();
+
+    await tree.getByRole("button", { name: "a.ts" }).click();
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", false, false],
+        ["a.ts", true, true],
+      ]);
+    await expect.element(screen.getByRole("region", { name: "a.ts" })).toHaveTextContent("a.ts2 B · 1 行1x");
+    expect(screen.getByRole("textbox", { name: "消息" }).query()).toBeNull();
+  });
+
+  it("replaces the preview with the next file clicked, and pins a tab double-clicked, in the tree or the bar", async () => {
+    const { tree, tabs } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await tree.getByRole("button", { name: "b.ts" }).click();
+    await expect.poll(() => tabs.elements().length).toBe(3);
+
+    await tabs.nth(2).dblClick();
+    await tree.getByRole("button", { name: "c.md" }).click();
+    await expect.poll(() => tabs.elements().length).toBe(4);
+    await tree.getByRole("button", { name: "a.ts" }).dblClick();
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", false, false],
+        ["b.ts", false, false],
+        ["a.ts", true, false],
+      ]);
+  });
+
+  it("goes back to the conversation from a session's tab", async () => {
+    const { screen, tree, tabs, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await expect.element(screen.getByRole("region", { name: "a.ts" })).toBeVisible();
+    const before = calls.length;
+
+    await tabs.nth(0).click();
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect([tabsOf(tabs), calls.slice(before)]).toStrictEqual([
+      [
+        ["重构宿主", true, false],
+        ["调研 pi RPC", false, false],
+        ["a.ts", false, true],
+      ],
+      ["openSession s1"],
+    ]);
+  });
+
+  it("closes the viewer tab shown to the one on its left, the session there shown", async () => {
+    const { screen, tree, tabs, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).dblClick();
+    await tree.getByRole("button", { name: "b.ts" }).dblClick();
+    await expect.poll(() => tabs.elements().length).toBe(4);
+    const before = calls.length;
+
+    await screen.getByRole("button", { name: "关闭 b.ts" }).click();
+    await expect.poll(() => tabsOf(tabs)[2]).toStrictEqual(["a.ts", true, false]);
+    await screen.getByRole("button", { name: "关闭 a.ts" }).click();
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", true, false],
+      ]);
+    // The area opens the session the host made active, as it does any (SPEC-0001, "标签栏").
+    await vi.waitFor(() =>
+      expect(calls.slice(before)).toStrictEqual([
+        "readFile wks_000000000000000a a.ts",
+        "openSession s2",
+        "watch s2",
+        "openSession s2",
+      ]),
+    );
+  });
+
+  it("counts viewer tabs with the sessions' for ⌘1–9 and ⌘⇧[ ], and closes the one shown with ⌘W", async () => {
+    const { tree, tabs, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).dblClick();
+    await tree.getByRole("button", { name: "b.ts" }).dblClick();
+    await expect.poll(() => tabs.elements().length).toBe(4);
+    const shown = () => tabsOf(tabs).findIndex((tab) => tab[1]);
+
+    await userEvent.keyboard("{Meta>}3{/Meta}");
+    await expect.poll(shown).toBe(2);
+    await userEvent.keyboard("{Meta>}{Shift>}]{/Shift}{/Meta}");
+    await expect.poll(shown).toBe(3);
+    await userEvent.keyboard("{Meta>}{Shift>}[[[[{/Shift}{/Meta}");
+    await vi.waitFor(() => expect(calls).toContain("openSession s2"));
+    await expect.poll(shown).toBe(1);
+    await userEvent.keyboard("{Meta>}4{/Meta}");
+    await userEvent.keyboard("{Meta>}w{/Meta}");
+
+    await expect.poll(() => tabsOf(tabs).map((tab) => tab[0])).toStrictEqual(["重构宿主", "调研 pi RPC", "a.ts"]);
+    expect([shown(), calls.filter((call) => call.startsWith("closeTab"))]).toStrictEqual([2, []]);
+  });
+
+  it("opens the one 改动 tab from the 更改 tree, saying on hover what it compares", async () => {
+    const { screen, client, tabs } = await viewing();
+    client
+      .changes(LOCAL)
+      .setState({ stat: { added: 2, removed: 0 }, dirty: true, ahead: 0, branch: "main", base: null });
+    await screen.getByRole("tab", { name: /更改/ }).click();
+    await vi.waitFor(() =>
+      expect(client.diff.getState().target).toStrictEqual({ workspaceId: LOCAL, mode: "uncommitted" }),
+    );
+    client.diff.setState({ status: "ready", files: [newFile("a.ts"), newFile("b.ts")], tooLarge: false, error: null });
+    const tree = screen.getByTestId("changes-tree");
+
+    await tree.getByRole("button", { name: /a\.ts/ }).click();
+    await tree.getByRole("button", { name: /b\.ts/ }).click();
+
+    await expect.element(screen.getByRole("region", { name: "改动" })).toBeVisible();
+    expect([tabsOf(tabs), tabs.nth(2).element().textContent]).toStrictEqual([
+      [
+        ["重构宿主", false, false],
+        ["调研 pi RPC", false, false],
+        ["未提交的改动", true, false],
+      ],
+      "改动",
+    ]);
+  });
+
+  it("shows the session again when the host makes another active, keeping the viewer tab over a trip elsewhere", async () => {
+    const { screen, tree, tabs, index } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await screen.getByTestId("workspace-row").nth(1).click();
+    await expect.poll(() => tabsOf(tabs).map((tab) => tab[0])).not.toContain("a.ts");
+    await screen.getByTestId("workspace-row").nth(0).click();
+    await expect.poll(() => tabsOf(tabs).at(-1)).toStrictEqual(["a.ts", true, true]);
+
+    index.setState({ layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2"], active: "s2" } } } });
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", true, false],
+        ["a.ts", false, true],
+      ]);
+  });
+});
+
+describe("Workbench viewer tabs and sessions chosen (M1.12)", () => {
+  it("shows a session chosen in the search, the inbox or 历史 over a viewer tab, even the one active", async () => {
+    const { screen, tree, tabs, index } = await viewing();
+    const conversation = screen.getByRole("textbox", { name: "消息" });
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await expect.element(conversation).not.toBeInTheDocument();
+    failS1(index);
+    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "重构");
+    await screen
+      .getByRole("region", { name: "搜索结果" })
+      .getByRole("button", { name: /重构宿主/ })
+      .click();
+    await expect.element(conversation).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    await tabs.nth(2).click();
+    await expect.element(conversation).not.toBeInTheDocument();
+    failS1(index);
+    await screen.getByRole("button", { name: /^等你处理/ }).click();
+    await screen.getByTestId("inbox-row").click();
+    await expect.element(conversation).toBeVisible();
+
+    await tabs.nth(2).click();
+    await expect.element(conversation).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "历史" }).click();
+    await screen.getByRole("menuitem", { name: /重构宿主/ }).click();
+
+    await expect.element(conversation).toBeVisible();
+    expect(tabsOf(tabs)).toStrictEqual([
+      ["重构宿主", true, false],
+      ["调研 pi RPC", false, false],
+      ["a.ts", false, true],
+    ]);
+  });
+
+  it("marks the error of a session seen only once no viewer tab is over it", async () => {
+    const { screen, tree, tabs, index, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await expect.element(screen.getByRole("region", { name: "a.ts" })).toBeVisible();
+    failS1(index);
+    await expect.element(screen.getByRole("button", { name: /^等你处理/ })).toBeVisible();
+    const behind = calls.filter((call) => call.startsWith("clearAttention"));
+
+    await tabs.nth(0).click();
+
+    await vi.waitFor(() => expect(calls).toContain("clearAttention s1"));
+    expect(behind).toStrictEqual([]);
   });
 });
 
@@ -1084,6 +2163,17 @@ describe("Workbench attention and hand-off (M1.9)", () => {
     expect(calls).toContain("takeBack s1");
   });
 
+  it("exports the active session as Markdown, downloading atrium-<id>.md", async () => {
+    const downloads = caughtDownloads();
+    const { screen } = await workbench();
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await screen.getByRole("menuitem", { name: "导出为 Markdown" }).click();
+
+    await vi.waitFor(() => expect(downloads.names).toStrictEqual(["atrium-s1.md"]));
+    expect((await downloads.contents()).map(([type]) => type)).toStrictEqual(["text/markdown;charset=utf-8"]);
+  });
+
   it("cannot hand off a draft, which has no file, nor a session running", async () => {
     const initial = list();
     const { screen } = await workbench({
@@ -1124,6 +2214,35 @@ describe("Workbench attention and hand-off (M1.9)", () => {
 
     await expect.element(item).toBeDisabled();
     await expect.element(item).toHaveAttribute("title", "先停止运行或清空排队，再交给终端");
+  });
+
+  it("opens the settings at 模型与账户 from 去登录 on a turn that failed for its credentials", async () => {
+    localStorage.removeItem("atrium.settings.section");
+    onTestFinished(() => localStorage.removeItem("atrium.settings.section"));
+    const { screen, views } = await workbench();
+    await vi.waitFor(() => expect(views.has("s1")).toBe(true));
+    views.get("s1")?.setState({
+      items: [
+        {
+          kind: "turn",
+          id: "t1",
+          user: { text: "你好", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
+          steps: [],
+          outcome: "failed",
+          error: "OAuth refresh failed for anthropic",
+          startedAt: 0,
+          durationMs: 1000,
+          usage: null,
+          changes: [],
+        },
+      ],
+    });
+
+    await screen.getByRole("button", { name: "去登录" }).click();
+
+    const dialog = screen.getByRole("dialog", { name: "设置" });
+    await expect.element(dialog.getByRole("heading", { level: 2 })).toHaveTextContent("模型与账户");
+    expect(localStorage.getItem("atrium.settings.section")).toBe("accounts");
   });
 
   it("says why a hand-off was refused", async () => {

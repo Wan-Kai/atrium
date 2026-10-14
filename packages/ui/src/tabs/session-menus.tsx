@@ -1,12 +1,12 @@
 import { type AtriumClient, CommandError, type SessionView } from "@atrium/client";
 import type { SessionSummary, TranscriptItem } from "@atrium/protocol";
-import { CaretDown, Check, DotsThree, Eye } from "../design/icons";
+import { DotsThree } from "../design/icons";
 import { useState } from "react";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
+import { download } from "../chat/download";
 import { transcriptMarkdown } from "../chat/turn-layout";
 import { sessionTitle } from "../sidebar/names";
 import { RenameField } from "../sidebar/rename-field";
-import { DISPLAY_MODES, useDisplayMode } from "../state/display-mode";
 import { terminalCommand } from "./hand-off";
 
 /** The most pages an export fetches, so a host that keeps saying "more" cannot loop it forever. */
@@ -38,71 +38,6 @@ export async function wholeTranscript(client: AtriumClient, sessionId: string): 
     if (after === undefined || after.items.length <= before.items.length) break;
   }
   throw new Error("the transcript changed while it was being exported");
-}
-
-/**
- * Saves text as a file through the browser's download.
- *
- * @remarks
- * In the app, Electron asks where to save it.
- *
- * @sideEffects Creates and revokes an object URL; clicks a temporary link.
- * @param name - The file's name.
- * @param text - Its content.
- */
-function download(name: string, text: string): void {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = name;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-/**
- * The display mode menu at the tab bar's right end.
- *
- * @remarks
- * Shows the three modes with their hints; Ctrl+O cycles them (SPEC-0001, "显示模式").
- *
- * @sideEffects Changing the mode saves it with the preferences.
- * @returns The menu.
- */
-export function DisplayModeMenu() {
-  const { mode, set } = useDisplayMode();
-  const current = DISPLAY_MODES.find((entry) => entry.mode === mode);
-  return (
-    <MenuButton
-      label="显示模式（Ctrl+O 切换）"
-      content={
-        <>
-          <Eye size={14} />
-          {current?.label}模式
-          <CaretDown size={10} />
-        </>
-      }
-    >
-      {(close) =>
-        DISPLAY_MODES.map((entry) => (
-          <button
-            key={entry.mode}
-            type="button"
-            role="menuitemradio"
-            aria-checked={entry.mode === mode}
-            className={MENU_ITEM}
-            onClick={() => {
-              set(entry.mode);
-              close();
-            }}
-          >
-            <span className="w-3.5">{entry.mode === mode ? <Check size={13} /> : null}</span>
-            <span>{entry.label}</span>
-            <span className="ml-auto pl-3 text-[length:var(--fs-sm)] text-[var(--text-dim)]">{entry.hint}</span>
-          </button>
-        ))
-      }
-    </MenuButton>
-  );
 }
 
 /**
@@ -270,6 +205,7 @@ export function SessionMenu({ client, session }: { readonly client: AtriumClient
                       download(
                         `atrium-${session.sessionId}.md`,
                         transcriptMarkdown(await wholeTranscript(client, session.sessionId)),
+                        "text/markdown;charset=utf-8",
                       ),
                     "导出时对话记录刚好更新了，请再试一次",
                   );

@@ -21,6 +21,12 @@ const DOTS_EASE_MS = 380;
 /** Which parts of the panel are open: both, or one from its shortcut. */
 type PanelMode = "all" | "model" | "effort";
 
+/** A request to open one part of the panel, as its shortcut does; each new `id` opens it again. */
+export interface PickerRequest {
+  readonly part: "model" | "effort";
+  readonly id: number;
+}
+
 /** Props of {@link ModelPicker}. */
 export interface ModelPickerProps {
   /** The model to show; `null` when there is none yet. */
@@ -35,6 +41,8 @@ export interface ModelPickerProps {
   readonly onRefresh: () => void;
   readonly onChooseModel: (model: ModelRef) => void;
   readonly onChooseLevel: (level: ThinkingLevel) => void;
+  /** The latest request to open a part of the panel, as `/model` and `/thinking` make. */
+  readonly request?: PickerRequest | null;
 }
 
 /**
@@ -49,10 +57,12 @@ export interface ModelPickerProps {
  * the current one, a click switching and closing; below, the thinking level box, which does not
  * close the panel. ⌘⇧I opens only the models, ⌘⇧E only the thinking level with the box focused.
  * Opening asks for the list, which the host answers from its cache; "刷新" makes pi look again,
- * with the old list shown meanwhile. Escape and a click outside close it.
+ * with the old list shown meanwhile. Escape and a click outside close it. A new `request` opens a
+ * part as its shortcut does (SPEC-0001, "M1.11 的 `/` 命令"); the one there as the button appears
+ * was meant for an earlier one.
  *
  * @sideEffects Listens for ⌘⇧I and ⌘⇧E on the window; while open, for clicks and Escape on the
- * document; draws the dots on a canvas; calls the handlers.
+ * document; draws the dots on a canvas; calls the handlers; opens on a new request.
  * @param props - The model, the list, whether it is disabled, and what to do.
  * @returns The button and, when open, the panel.
  */
@@ -64,6 +74,7 @@ export function ModelPicker({
   onRefresh,
   onChooseModel,
   onChooseLevel,
+  request = null,
 }: ModelPickerProps) {
   const [mode, setMode] = useState<PanelMode | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -100,6 +111,16 @@ export function ModelPicker({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const handled = useRef(request?.id);
+  useEffect(() => {
+    if (request === null || request.id === handled.current) return;
+    handled.current = request.id;
+    if (opening.current.disabled) return;
+    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- opens on the request, as a key does.
+    setMode(request.part);
+    opening.current.onOpen();
+  }, [request]);
 
   useEffect(() => {
     if (mode === null) return undefined;

@@ -32,8 +32,18 @@ export const ErrorCode = z.enum([
   "project_exists",
   /** Another project has that name; `params.name` repeats it. */
   "name_taken",
-  /** The path is not a directory, or does not exist; `params.path` repeats it. */
+  /**
+   * The path is not a directory, or does not exist; `params.path` repeats it. For `list_dir` and
+   * `read_file`, nothing is at the path, and no `params` (SPEC-0001, "M1.12 的文件与更改").
+   */
   "path_not_found",
+  /**
+   * `list_dir` or `read_file` named a path that is not a plain one inside the workspace: absolute,
+   * with an empty, `.` or `..` part, through a link, or not a directory or file as the command needs.
+   */
+  "path_invalid",
+  /** `read_file` failed partway, as on a disk error. */
+  "read_failed",
   /** The session has had no message yet, so pi has no file to keep its name in. */
   "session_is_draft",
   /** A stop is waiting for pi to confirm; the session takes no new message until then. */
@@ -65,10 +75,27 @@ export const ErrorCode = z.enum([
   "worktree_remove_failed",
   /** An archived worktree could not be added back; `params.reason` is `no_branch`, `dir_taken` or `branch_gone`, or absent when git failed. */
   "worktree_restore_failed",
+  /**
+   * A worktree workspace could not be created; `params.reason` is `not_git`, `branch_invalid`,
+   * `base_missing`, `branch_exists` or `dir_taken`, or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
+   */
+  "worktree_create_failed",
   /** The session's pi did not load Atrium's Fast extension, so Fast cannot be switched there (ADR-0008). */
   "fast_unavailable",
   /** pi refused the command; `params.detail` is pi's own text, for "展开看原始报错". */
   "pi_rejected",
+  /** `compact_session`: the session is too short to compact (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). */
+  "nothing_to_compact",
+  /** `compact_session`: nothing was added since the last compaction. */
+  "already_compacted",
+  /** `compact_session`: pi failed to compact, or exited meanwhile; its words stay out of the reply. */
+  "compact_failed",
+  /** `export_session`: pi's page is over 20 MB (`params.reason` `too_large`), or pi failed to write it (`failed`). */
+  "export_failed",
+  /** `fork_session`: the temporary pi did not start, exited, took over 30 s, or an extension called the fork off. */
+  "fork_failed",
+  /** `fork_session`: the session has no such turn. */
+  "turn_not_found",
   /** The session was handed to pi in a terminal; take it back first (SPEC-0001, "并行、同步与关注"). */
   "session_handed_off",
   /** Atrium cannot sign in through pi now: the login program cannot load the pi found, or pi is not usable. */

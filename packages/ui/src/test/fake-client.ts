@@ -5,12 +5,14 @@ import type {
   DiffView,
   IndexView,
   InstallJob,
+  MessageTag,
   ModelListView,
   SessionView,
   SetupView,
 } from "@atrium/client";
 import {
   type Chat,
+  type CommandResult,
   CommandError,
   type DiffTarget,
   type DiscoveredDirectory,
@@ -65,7 +67,7 @@ export function workspace(fields: Partial<Workspace> & Pick<Workspace, "id">): W
  * @returns The chat.
  */
 export function chat(fields: Partial<Chat> & Pick<Chat, "id" | "firstSessionId">): Chat {
-  return { dir: `/home/chats/${fields.id}`, alias: null, ...fields };
+  return { dir: `/home/chats/${fields.id}`, alias: null, archivedAt: null, ...fields };
 }
 
 /**
@@ -147,7 +149,15 @@ export const READY_SETUP: SetupState = {
 export interface FakeAnswers {
   readonly createChat?: () => Promise<void>;
   readonly createSession?: () => Promise<void>;
+  /** A project's bases; `origin/main` and a local `main` when left out. */
+  readonly bases?: (projectId: string) => Promise<CommandResult<"list_bases">>;
+  /** Answers creating a workspace, which then shows in the list as a worktree; created at once when left out. */
+  readonly createWorkspace?: () => Promise<void>;
   readonly renameChat?: () => Promise<void>;
+  /** Answers archiving a chat, which is then archived in the list; archived at once when left out. */
+  readonly archiveChat?: () => Promise<void>;
+  /** Answers restoring a chat, which then shows again; restored at once when left out. */
+  readonly restoreChat?: () => Promise<void>;
   readonly prompt?: () => Promise<{ disposition: "started" | "queued" | "handled" }>;
   readonly addProject?: () => Promise<void>;
   readonly openSession?: () => Promise<void>;
@@ -177,6 +187,18 @@ export interface FakeAnswers {
   readonly setPreferences?: () => Promise<void>;
   /** Answers a Fast switch, which then shows in the session's view; succeeds at once when left out. */
   readonly setFast?: () => Promise<void>;
+  /** Answers a model switch; succeeds at once when left out. */
+  readonly setModel?: () => Promise<void>;
+  /** Answers a compaction; succeeds at once when left out. */
+  readonly compactSession?: () => Promise<void>;
+  /** The page an export hands over; a small page when left out. */
+  readonly exportSession?: () => Promise<string>;
+  /** The fork's session id; `fork-1` when left out. */
+  readonly forkSession?: () => Promise<string>;
+  /** A workspace directory's entries; none when left out. */
+  readonly listDir?: (workspaceId: string, path: string) => Promise<CommandResult<"list_dir">>;
+  /** A workspace file; `path_not_found` when left out. */
+  readonly readFile?: (workspaceId: string, path: string) => Promise<CommandResult<"read_file">>;
   /** A turn's image, or none; the host has none when left out. */
   readonly image?: (
     turnId: string,
@@ -225,13 +247,13 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     preferences: {
       setupDone: true,
       appearance: "system",
-      displayMode: "summary",
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
       statusBar: {},
       titleModel: null,
       proxy: null,
+      inbox: true,
     },
     resets: [],
     ...initial,
@@ -288,6 +310,9 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
         .sessions.map((one) => (one.sessionId === sessionId ? { ...one, ...fields(one) } : one)),
     });
   }
+
+  /** The sessions each chat archived here was archived with, as the host records them. */
+  const chatArchives = new Map<string, readonly string[]>();
 
   /**
    * Archives a workspace, or with `null` shows it again.
@@ -355,15 +380,56 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       index.setState({
         chats: [
           ...index.getState().chats,
-          { id: chatId, dir: `/home/chats/new${created + 1}`, alias: null, firstSessionId: `new${created + 1}` },
+          {
+            id: chatId,
+            dir: `/home/chats/new${created + 1}`,
+            alias: null,
+            firstSessionId: `new${created + 1}`,
+            archivedAt: null,
+          },
         ],
       });
       return { sessionId: addDraft(chatId) };
     },
-    async createSession(containerId: string) {
-      calls.push(`createSession ${containerId}`);
+    async createSession(containerId: string, go?: boolean) {
+      calls.push(`createSession ${containerId}${go === false ? " stay" : ""}`);
       await answers.createSession?.();
-      return { sessionId: addDraft(containerId) };
+      // As the host does: told not to go, the tab opens and the client stays.
+      const layout = index.getState().layout;
+      const sessionId = addDraft(containerId);
+      if (go === false) index.setState({ layout: { ...index.getState().layout, container: layout.container } });
+      return { sessionId };
+    },
+    async listBases(projectId: string) {
+      calls.push(`listBases ${projectId}`);
+      return (
+        (await answers.bases?.(projectId)) ?? {
+          main: "origin/main",
+          current: "main",
+          local: ["main"],
+          remote: ["origin/main"],
+        }
+      );
+    },
+    async createWorkspace(projectId: string, branch: string, base: string) {
+      calls.push(`createWorkspace ${projectId} ${branch} ${base}`);
+      await answers.createWorkspace?.();
+      created += 1;
+      const id = `wks_made${created}`;
+      index.setState({
+        workspaces: [
+          ...index.getState().workspaces,
+          workspace({
+            id,
+            projectId,
+            kind: "worktree",
+            dir: `/work/made${created}`,
+            branch,
+            createdAt: Date.now(),
+          }),
+        ],
+      });
+      return { workspaceId: id };
     },
     async openSession(sessionId: string) {
       calls.push(`openSession ${sessionId}`);
@@ -444,6 +510,36 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       archived(workspaceId, null);
       return {};
     },
+    async archiveChat(chatId: string) {
+      calls.push(`archiveChat ${chatId}`);
+      await answers.archiveChat?.();
+      const { chats, sessions } = index.getState();
+      const inside = sessions.filter((one) => one.containerId === chatId && !one.archived).map((one) => one.sessionId);
+      chatArchives.set(chatId, inside);
+      index.setState({
+        chats: chats.map((one) => (one.id === chatId ? { ...one, archivedAt: Date.now() } : one)),
+        sessions: sessions.map((one) =>
+          inside.includes(one.sessionId) ? { ...one, archived: true, running: false } : one,
+        ),
+      });
+      return {};
+    },
+    async restoreChat(chatId: string) {
+      calls.push(`restoreChat ${chatId}`);
+      await answers.restoreChat?.();
+      const { chats, sessions } = index.getState();
+      // A chat archived before the fake started brings back all its sessions.
+      const back = chatArchives.get(chatId);
+      index.setState({
+        chats: chats.map((one) => (one.id === chatId ? { ...one, archivedAt: null } : one)),
+        sessions: sessions.map((one) =>
+          one.containerId === chatId && (back === undefined || back.includes(one.sessionId))
+            ? { ...one, archived: false }
+            : one,
+        ),
+      });
+      return {};
+    },
     async renameChat(chatId: string, name: string | null) {
       calls.push(`renameChat ${chatId} ${name}`);
       await answers.renameChat?.();
@@ -466,13 +562,19 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       index.setState({ preferences: { ...index.getState().preferences, ...kept } });
       return {};
     },
-    prompt(sessionId: string, text: string, attachmentIds: readonly string[] = [], previews: readonly string[] = []) {
+    prompt(
+      sessionId: string,
+      text: string,
+      attachmentIds: readonly string[] = [],
+      previews: readonly string[] = [],
+      command?: MessageTag,
+    ) {
       calls.push(`prompt ${sessionId} ${text}${attachmentIds.map((id) => ` +${id}`).join("")}`);
       const view = views.get(sessionId);
       const clientMessageId = `q${calls.length}`;
       if (previews.length > 0) sent.set(clientMessageId, previews);
       const images = attachmentIds.length === 0 ? {} : { images: attachmentIds.length };
-      const shown = { clientMessageId, text, ...images };
+      const shown = { clientMessageId, text, ...images, ...(command === undefined ? {} : { command }) };
       view?.setState({ pending: [...view.getState().pending, shown] });
       // As the client does, a message that did not go is taken back out.
       return (answers.prompt?.() ?? Promise.resolve({ disposition: "started" as const })).catch((error: unknown) => {
@@ -542,6 +644,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     async setModel(sessionId: string, model: ModelRef) {
       modelCalls.push(`setModel ${sessionId} ${model.providerId}/${model.modelId}`);
+      await answers.setModel?.();
       return {};
     },
     async uploadAttachment(mimeType: string) {
@@ -559,6 +662,16 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`searchFiles ${sessionId} ${query}`);
       return { files: [{ path: "src/a.ts", directory: false }] };
     },
+    async listDir(workspaceId: string, path: string) {
+      calls.push(`listDir ${workspaceId} ${path}`);
+      return (await answers.listDir?.(workspaceId, path)) ?? { entries: [], truncated: false };
+    },
+    async readFile(workspaceId: string, path: string) {
+      calls.push(`readFile ${workspaceId} ${path}`);
+      const read = await answers.readFile?.(workspaceId, path);
+      if (read === undefined) throw new CommandError("path_not_found");
+      return read;
+    },
     async setThinkingLevel(sessionId: string, level: string) {
       modelCalls.push(`setThinkingLevel ${sessionId} ${level}`);
       return {};
@@ -568,6 +681,19 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       await answers.setFast?.();
       views.get(sessionId)?.setState({ fast: enabled });
       return {};
+    },
+    async compactSession(sessionId: string, instructions?: string) {
+      calls.push(["compactSession", sessionId, instructions].filter((part) => part !== undefined).join(" "));
+      await answers.compactSession?.();
+      return {};
+    },
+    async exportSession(sessionId: string) {
+      calls.push(`exportSession ${sessionId}`);
+      return { html: (await answers.exportSession?.()) ?? "<html></html>" };
+    },
+    async forkSession(sessionId: string, turnId: string, name: string) {
+      calls.push(`forkSession ${sessionId} ${turnId} ${name}`);
+      return { sessionId: (await answers.forkSession?.()) ?? "fork-1" };
     },
     changes(workspaceId: string) {
       let store = changeStores.get(workspaceId);

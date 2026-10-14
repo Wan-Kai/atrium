@@ -218,6 +218,18 @@ describe("SessionFileReader.scanFolder", () => {
     expect((await scanOnce(folder))[0]?.firstPrompt).toBe("look\nhere");
   });
 
+  it("takes what followed a skill's name as the first question, or the skill's name when nothing did", async () => {
+    const folder = await tempDir("sessions");
+    const skill = '<skill name="review" location="/skills/review/SKILL.md">\nRead the diff.\n</skill>';
+    await sessionFile(folder, "a.jsonl", [header("a"), user(`${skill}\n\n the tests `)]);
+    await sessionFile(folder, "b.jsonl", [header("b"), user(skill)]);
+
+    expect((await scanOnce(folder)).map((file) => [file.sessionId, file.firstPrompt])).toStrictEqual([
+      ["a", "the tests"],
+      ["b", "review"],
+    ]);
+  });
+
   it("leaves out files whose first line is not a session header", async () => {
     const folder = await tempDir("sessions");
     const firsts = [

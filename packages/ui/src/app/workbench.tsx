@@ -1,17 +1,31 @@
-import type { AtriumClient, IndexView } from "@atrium/client";
+import { type AtriumClient, type IndexView, isChatId } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
-import { X } from "../design/icons";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { SidebarLeft, X } from "../design/icons";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";
 import { useStore } from "zustand";
-import { ConversationArea, useDisplayModeShortcut } from "../chat/conversation-area";
+import { ConversationArea } from "../chat/conversation-area";
+import { OpenLogin } from "../chat/turn-view";
 import { applyAppearance } from "../design/appearance";
 import { DotSeedContext } from "../design/dots";
 import { type SettingsSection, SettingsPanel } from "../settings/settings-panel";
 import { FirstLaunch, type FirstLaunchStart, firstLaunchStart } from "../setup/first-launch";
 import { useInstallSeed } from "../state/install-seed";
+import { type Panes, createPanes } from "../state/panes";
 import { Sidebar } from "../sidebar/sidebar";
+import { type NewWorkspaceState, closePage, createNewWorkspaceStore, openPage } from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
+import {
+  type WorkspaceViews,
+  closeViewer,
+  createWorkspaceViews,
+  currentTab,
+  showViewer,
+  tabOrder,
+  viewOf,
+} from "../state/workspace-views";
+import { NewWorkspacePage } from "./new-workspace-page";
+import type { StoreApi } from "zustand";
 
 /** What the user calls each index file in the reset notice. */
 const FILE_NAMES: Readonly<Record<IndexFileName, string>> = {
@@ -75,12 +89,21 @@ function fireAndForget(command: Promise<unknown>): void {
  * SPEC-0001 ("标签栏", roadmap M1.5): ⌘N new chat, ⌘T new session where the client is, ⌘W close
  * the tab, ⌘1–9 go to a tab, ⌘⇧[ and ⌘⇧] the previous and next tab. Brackets are matched by
  * key position, since Shift changes the character. The keys read the list at the moment they
- * are pressed.
+ * are pressed. Viewer tabs count with the sessions', after them (SPEC-0001, "M1.12 的文件与更改 ·
+ * 查看标签"). On the new-workspace page, ⌘N and ⌘T leave it, and the keys for tabs do nothing,
+ * as it has none (SPEC-0001, "M1.11 的新建工作区").
  *
- * @sideEffects Listens for keys on the window while mounted; sends commands.
+ * @sideEffects Listens for keys on the window while mounted; sends commands; writes the views;
+ * may leave the page.
  * @param client - The client.
+ * @param pages - The new-workspace page's store.
+ * @param views - The workspace views.
  */
-function useTabShortcuts(client: AtriumClient): void {
+function useTabShortcuts(
+  client: AtriumClient,
+  pages: StoreApi<NewWorkspaceState>,
+  views: StoreApi<WorkspaceViews>,
+): void {
   useEffect(() => {
     /**
      * Acts on a ⌘ shortcut.
@@ -97,22 +120,142 @@ function useTabShortcuts(client: AtriumClient): void {
       const container = index.layout.container;
       const tabs = container === null ? undefined : index.layout.tabs[container];
       const open = tabs?.open ?? [];
-      const at = open.indexOf(tabs?.active ?? "");
+      const view = container === null ? null : viewOf(views.getState(), container);
+      const order = view === null ? [] : tabOrder(open, view);
+      const at = view === null ? -1 : currentTab(order, view, tabs?.active ?? null);
       const key = event.key.toLowerCase();
-      let target: string | undefined;
+      const onPage = pages.getState().page !== null;
+      let target: (typeof order)[number] | undefined;
+      let closing: string | null = null;
+      if (!event.shiftKey && (key === "n" || key === "t")) closePage(pages);
       if (!event.shiftKey && key === "n") fireAndForget(client.createChat());
       else if (!event.shiftKey && key === "t") fireAndForget(createHere(client));
+      else if (onPage) return;
+      else if (!event.shiftKey && key === "w" && container !== null && view?.active != null)
+        closing = closeViewer(views, container, view.active, open);
       else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
-      else if (!event.shiftKey && /^[1-9]$/.test(event.key)) target = open[Number(event.key) - 1];
-      else if (event.shiftKey && event.code === "BracketLeft") target = open[at - 1];
-      else if (event.shiftKey && event.code === "BracketRight") target = open[at + 1];
+      else if (!event.shiftKey && /^[1-9]$/.test(event.key)) target = order[Number(event.key) - 1];
+      else if (event.shiftKey && event.code === "BracketLeft") target = order[at - 1];
+      else if (event.shiftKey && event.code === "BracketRight") target = order[at + 1];
       else return;
-      if (target !== undefined) fireAndForget(client.openSession(target));
+      if (closing !== null) fireAndForget(client.openSession(closing));
+      if (target !== undefined && container !== null) {
+        showViewer(views, container, target.kind === "viewer" ? target.key : null);
+        if (target.kind === "session") fireAndForget(client.openSession(target.id));
+      }
       event.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client]);
+  }, [client, pages, views]);
+}
+
+/**
+ * Shows the session again whenever the container's active session changes under a viewer tab.
+ *
+ * @remarks
+ * The host makes a session active when one is created (⌘T, "+") or opened; it should then show,
+ * not stay behind the viewer tab. A session chosen in the sidebar or "历史" is shown by the choice
+ * itself, even the one already active. Going to another container keeps each container's viewer
+ * tab as it was (SPEC-0001, "M1.12 的文件与更改 · 查看标签"). Done before the page paints, so the
+ * viewer tab does not flash first.
+ *
+ * @sideEffects Writes the views.
+ * @param views - The workspace views.
+ * @param container - The current container.
+ * @param sessionId - Its active session.
+ */
+function useSessionShows(views: StoreApi<WorkspaceViews>, container: string | null, sessionId: string | null): void {
+  const seen = useRef({ container, sessionId });
+  useLayoutEffect(() => {
+    const before = seen.current;
+    seen.current = { container, sessionId };
+    if (before.container === container && before.sessionId !== sessionId && container !== null && sessionId !== null)
+      showViewer(views, container, null);
+  }, [views, container, sessionId]);
+}
+
+/**
+ * Handles the panes' keyboard shortcuts: ⌘B folds or unfolds the sidebar, ⌥⌘B opens or closes the
+ * changes panel.
+ *
+ * @remarks
+ * SPEC-0001 ("界面 · 左栏折叠与右栏"). Keys are matched by position, as ⌥ changes the character.
+ * The panel's key does nothing where there is no panel: in a chat, nowhere, or on the
+ * new-workspace page.
+ *
+ * @sideEffects Listens for keys on the window while mounted; writes the panes.
+ * @param client - The client.
+ * @param pages - The new-workspace page's store.
+ * @param panes - The panes.
+ */
+function usePaneShortcuts(client: AtriumClient, pages: StoreApi<NewWorkspaceState>, panes: StoreApi<Panes>): void {
+  useEffect(() => {
+    /**
+     * Acts on ⌘B or ⌥⌘B.
+     *
+     * @remarks
+     * See `usePaneShortcuts`.
+     *
+     * @sideEffects May write the panes; stops the browser's own handling of the key.
+     * @param event - The key event.
+     */
+    const onKey = (event: KeyboardEvent): void => {
+      if (!event.metaKey || event.ctrlKey || event.shiftKey || event.code !== "KeyB") return;
+      event.preventDefault();
+      const state = panes.getState();
+      if (!event.altKey) state.toggleSidebar();
+      else if (hasPanel(client.index.getState().layout.container, pages)) state.setPanelOpen(!state.panelOpen);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [client, pages, panes]);
+}
+
+/**
+ * Whether the changes panel can show: in a workspace, off the new-workspace page.
+ *
+ * @remarks
+ * See `usePaneShortcuts`.
+ *
+ * @sideEffects none
+ * @param container - Where the client is.
+ * @param pages - The new-workspace page's store.
+ * @returns Whether it can.
+ */
+function hasPanel(container: string | null, pages: StoreApi<NewWorkspaceState>): boolean {
+  return container !== null && !isChatId(container) && pages.getState().page === null;
+}
+
+/**
+ * The sidebar's toggle: at the sidebar's top right, beside the traffic lights once it is folded.
+ *
+ * @remarks
+ * design-language ("侧栏 · 折叠开关", "动效 · 左栏折叠展开"): one button over both places, moving
+ * between them as the sidebar folds, so it stays at hand; the window can still be dragged around it.
+ * It must come after the sidebar's and the tab bar's drag areas in the page: Electron lays drag
+ * areas over one another in page order, so a later `drag` would take its presses.
+ *
+ * @sideEffects Subscribes to the panes; folds or unfolds the sidebar when clicked.
+ * @param props - The panes.
+ * @returns The toggle.
+ */
+function SidebarToggle({ panes }: { readonly panes: StoreApi<Panes> }) {
+  const folded = useStore(panes, (state) => state.sidebarCollapsed);
+  const toggle = useStore(panes, (state) => state.toggleSidebar);
+  const label = folded ? "展开侧栏" : "折叠侧栏";
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-expanded={!folded}
+      title={`${label}（⌘B）`}
+      onClick={toggle}
+      className={`absolute top-2.5 z-10 inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] [transition:left_240ms_cubic-bezier(.2,.8,.2,1)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] [-webkit-app-region:no-drag] ${folded ? "left-[84px]" : "left-[226px]"}`}
+    >
+      <SidebarLeft size={16} />
+    </button>
+  );
 }
 
 /** Where the settings' last part shown is remembered in this browser profile (SPEC-0001, "设置"). */
@@ -211,9 +354,9 @@ function useDraftCleanup(index: IndexView): void {
  * Marks the error of the session shown as seen while the window has the focus.
  *
  * @remarks
- * SPEC-0001 ("会话状态"): the session is the current container's active tab, the window has the
- * focus, and its error was not seen yet; looked at again when the window gains the focus. A
- * sign-in problem is not marked: it goes once a run starts.
+ * SPEC-0001 ("会话状态"): the session is the current container's active tab with no viewer tab
+ * over it, the window has the focus, and its error was not seen yet; looked at again when the
+ * window gains the focus. A sign-in problem is not marked: it goes once a run starts.
  *
  * @sideEffects Sends `clear_attention`; listens for focus on the window while there is an error
  * to mark.
@@ -331,9 +474,15 @@ export function Workbench({
  * @remarks
  * SPEC-0001 ("界面"). Focusing the window asks the host to look at workspaces and sessions again
  * (domain-model, "已决定 12"). Index files reset at the host's start are mentioned once per host
- * run, until dismissed. Starting a session when the client is nowhere starts a chat.
+ * run, until dismissed. Starting a session when the client is nowhere starts a chat. A project's
+ * new-workspace page shows in place of the tab bar and the conversation area, this window's own;
+ * what it sets going shows over its session once there (SPEC-0001, "M1.11 的新建工作区"). An error
+ * card's "去登录" opens the settings at "模型与账户" (SPEC-0001, "运行出错与停止"). The sidebar
+ * folds, and the changes panel opens and widens, as remembered in `localStorage` (SPEC-0001,
+ * "界面 · 左栏折叠与右栏").
  *
- * @sideEffects Subscribes to the client's list; listens for focus and keys; sends commands.
+ * @sideEffects Subscribes to the client's list and the panes; listens for focus and keys; sends
+ * commands; reads and writes `localStorage`.
  * @param props - The client, the connection status line, how to choose a folder, how to open an
  * address, and how to show a path in the Finder.
  * @returns The main window.
@@ -356,7 +505,17 @@ function MainWindow({
   const sessionId = activeSession(index);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const settings = useSettings();
-  useDisplayModeShortcut();
+  const { choose: chooseSection, show: showSettings } = settings;
+  const openLogin = useCallback(() => {
+    chooseSection("accounts");
+    showSettings();
+  }, [chooseSection, showSettings]);
+  const [pages] = useState(createNewWorkspaceStore);
+  const [panes] = useState(() => createPanes(localStorage));
+  const [views] = useState(() => createWorkspaceViews(localStorage));
+  const folded = useStore(panes, (state) => state.sidebarCollapsed);
+  const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
+  const viewer = useStore(views, (state) => (container === null ? null : viewOf(state, container).active));
   useDraftCleanup(index);
 
   useEffect(() => {
@@ -376,24 +535,43 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client);
-  useSeenErrors(client, index, sessionId);
+  useTabShortcuts(client, pages, views);
+  useSessionShows(views, container, sessionId);
+  usePaneShortcuts(client, pages, panes);
+  // On the new-workspace page, or under a viewer tab, no session shows.
+  useSeenErrors(client, index, pageProject === null && viewer === null ? sessionId : null);
 
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
     <>
-      <div className="flex h-full">
+      <div className="relative flex h-full">
         <Sidebar
           client={client}
-          onNewChat={() => fireAndForget(client.createChat())}
+          onNewChat={() => {
+            closePage(pages);
+            fireAndForget(client.createChat());
+          }}
+          showSession={(session) => showViewer(views, session.containerId, null)}
           pickDirectory={pickDirectory}
           onSettings={settings.show}
+          page={{
+            projectId: pageProject,
+            open: (projectId) => openPage(pages, projectId, Math.random),
+            leave: () => closePage(pages),
+          }}
+          folded={folded}
         />
         <main className="flex min-w-0 flex-1 flex-col bg-[var(--main)]">
-          {container === null ? (
+          {container === null || pageProject !== null ? (
             <div className="h-12 shrink-0 [-webkit-app-region:drag]" />
           ) : (
-            <TabBar client={client} containerId={container} onNew={() => fireAndForget(createHere(client))} />
+            <TabBar
+              client={client}
+              containerId={container}
+              onNew={() => fireAndForget(createHere(client))}
+              panes={panes}
+              views={views}
+            />
           )}
           {resets.length > 0 ? (
             <div
@@ -408,14 +586,25 @@ function MainWindow({
               </button>
             </div>
           ) : null}
-          <ConversationArea
-            client={client}
-            containerId={container}
-            sessionId={sessionId}
-            create={() => createHere(client)}
-          />
+          {pageProject === null ? (
+            <OpenLogin value={openLogin}>
+              <ConversationArea
+                client={client}
+                containerId={container}
+                sessionId={sessionId}
+                create={() => createHere(client)}
+                launches={pages}
+                panes={panes}
+                views={views}
+              />
+            </OpenLogin>
+          ) : (
+            <NewWorkspacePage client={client} store={pages} />
+          )}
           <footer className="flex shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
         </main>
+        {/* After the drag areas it lies over, or Electron lets them take its presses (SidebarToggle). */}
+        <SidebarToggle panes={panes} />
       </div>
       {settings.open ? (
         <SettingsPanel

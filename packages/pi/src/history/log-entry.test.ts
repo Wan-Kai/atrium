@@ -73,7 +73,7 @@ describe("toLogEntry", () => {
       { id: "e3", parentId: null, timestamp: 0, kind: "other" },
       { id: "e4", parentId: "e3", timestamp: 0, kind: "other" },
       { id: "e5", parentId: "e4", timestamp: 0, kind: "system", system: recordedSystem },
-      { id: "e6", parentId: "e5", timestamp: 0, kind: "user", text: "one", images: 0 },
+      { id: "e6", parentId: "e5", timestamp: 0, kind: "user", text: "one", images: 0, skill: null },
       {
         id: "e7",
         parentId: "e6",
@@ -182,7 +182,7 @@ describe("toLogEntry", () => {
         errorMessage: null,
         usage: none,
       },
-      { id: "e16", parentId: "e15", timestamp: 0, kind: "user", text: "two", images: 0 },
+      { id: "e16", parentId: "e15", timestamp: 0, kind: "user", text: "two", images: 0, skill: null },
       {
         id: "e2",
         parentId: "e16",
@@ -214,7 +214,7 @@ describe("toLogEntry", () => {
         tokensBefore: 0,
         system: recordedSystem,
       },
-      { id: "e19", parentId: "e18", timestamp: 0, kind: "user", text: "three", images: 0 },
+      { id: "e19", parentId: "e18", timestamp: 0, kind: "user", text: "three", images: 0, skill: null },
       {
         id: "e20",
         parentId: "e19",
@@ -225,7 +225,7 @@ describe("toLogEntry", () => {
         errorMessage: null,
         usage: none,
       },
-      { id: "e21", parentId: "e15", timestamp: 0, kind: "user", text: "two, differently", images: 0 },
+      { id: "e21", parentId: "e15", timestamp: 0, kind: "user", text: "two, differently", images: 0, skill: null },
       {
         id: "e22",
         parentId: "e21",
@@ -236,7 +236,7 @@ describe("toLogEntry", () => {
         errorMessage: null,
         usage: none,
       },
-      { id: "e23", parentId: "e20", timestamp: 0, kind: "user", text: "four", images: 0 },
+      { id: "e23", parentId: "e20", timestamp: 0, kind: "user", text: "four", images: 0, skill: null },
       {
         id: "e24",
         parentId: "e23",
@@ -373,7 +373,7 @@ describe("toLogEntry", () => {
           { type: "image", data: "", mimeType: "image/png" },
         ]),
       ),
-    ).toStrictEqual({ id: "u1", parentId: null, timestamp: 5, kind: "user", text: "look", images: 1 });
+    ).toStrictEqual({ id: "u1", parentId: null, timestamp: 5, kind: "user", text: "look", images: 1, skill: null });
     expect(toLogEntry(userEntry("plain"))).toStrictEqual({
       id: "u1",
       parentId: null,
@@ -381,6 +381,20 @@ describe("toLogEntry", () => {
       kind: "user",
       text: "plain",
       images: 0,
+      skill: null,
+    });
+  });
+
+  it("keeps the skill a user message started with by its name, and only what followed it as the text", () => {
+    const expanded = '<skill name="review" location="/skills/review/SKILL.md">\nRead the diff.\n</skill>\n\nthe tests';
+    expect(toLogEntry(userEntry([{ type: "text", text: expanded }]))).toStrictEqual({
+      id: "u1",
+      parentId: null,
+      timestamp: 5,
+      kind: "user",
+      text: "the tests",
+      images: 0,
+      skill: "review",
     });
   });
 

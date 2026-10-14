@@ -3,7 +3,6 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { Workbench } from "../app/workbench";
-import { DisplayModeContext, createDisplayMode, followPreferences } from "../state/display-mode";
 import { READY_SETUP, fakeClient } from "../test/fake-client";
 
 /** Where the workbench remembers the settings' part. */
@@ -29,21 +28,17 @@ async function workbench(options: { setup?: typeof READY_SETUP; stored?: string 
   onTestFinished(() => localStorage.removeItem(SECTION_KEY));
   const fake = fakeClient({}, { setup: options.setup ?? READY_SETUP });
   fake.connection.setState({ hostVersion: "0.1.0" });
-  const displayMode = createDisplayMode("summary", () => undefined);
-  onTestFinished(followPreferences(displayMode, fake.client));
   const revealed: string[] = [];
   const screen = await render(
-    <DisplayModeContext value={displayMode}>
-      <Workbench
-        client={fake.client}
-        status={null}
-        pickDirectory={undefined}
-        setNativeAppearance={undefined}
-        openUrl={() => undefined}
-        reveal={(path) => revealed.push(path)}
-        pathForFile={undefined}
-      />
-    </DisplayModeContext>,
+    <Workbench
+      client={fake.client}
+      status={null}
+      pickDirectory={undefined}
+      setNativeAppearance={undefined}
+      openUrl={() => undefined}
+      reveal={(path) => revealed.push(path)}
+      pathForFile={undefined}
+    />,
   );
   return { screen, ...fake, revealed };
 }
@@ -139,6 +134,26 @@ describe("Settings panel", () => {
     expect(index.getState().preferences.appearance).toBe("dark");
     expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
       'setPreferences {"appearance":"dark"}',
+    ]);
+  });
+
+  it("switches 等你处理 in the sidebar off and on again under 外观", async () => {
+    const { screen, calls, index } = await workbench();
+
+    await screen.getByRole("button", { name: "设置" }).click();
+    const group = screen.getByRole("dialog", { name: "设置" }).getByRole("region", { name: "侧栏" });
+    const toggle = group.getByRole("switch", { name: "显示“等你处理”" });
+    await expect.element(toggle).toHaveAttribute("aria-checked", "true");
+    await expect.element(group).toHaveTextContent("侧栏显示“等你处理”在侧栏底部汇总等你审批、回答、授权和出错的会话");
+    await toggle.click();
+
+    await expect.element(toggle).toHaveAttribute("aria-checked", "false");
+    expect(index.getState().preferences.inbox).toBe(false);
+    await toggle.click();
+    await expect.element(toggle).toHaveAttribute("aria-checked", "true");
+    expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([
+      'setPreferences {"inbox":false}',
+      'setPreferences {"inbox":true}',
     ]);
   });
 

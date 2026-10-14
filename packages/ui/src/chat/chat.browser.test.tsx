@@ -1,12 +1,16 @@
-import type { SessionView } from "@atrium/client";
+import type { AtriumClient, SessionView } from "@atrium/client";
 import { CommandError, ConnectionLostError } from "@atrium/client";
-import { type TranscriptItem, type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
+import { type ThinkingLevel, type TranscriptItem, type Turn, IDLE_CONTROL, UNKNOWN_METRICS } from "@atrium/protocol";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
+import { createPanes, memoryStorage } from "../state/panes";
+import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer } from "../state/workspace-views";
+import { pageNotices, showNotice } from "../state/session-notices";
+import { caughtDownloads } from "../test/downloads";
 import { fakeClient, session } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
@@ -46,7 +50,14 @@ function turn(id: string, text: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
-    user: { text: `问 ${id}`, images: 0, clientMessageId: null, auto: false, timestamp: Date.UTC(2026, 9, 7, 14, 31) },
+    user: {
+      text: `问 ${id}`,
+      images: 0,
+      clientMessageId: null,
+      auto: false,
+      command: null,
+      timestamp: Date.UTC(2026, 9, 7, 14, 31),
+    },
     steps: [{ kind: "text", id: "0", text }],
     outcome: "done",
     error: null,
@@ -458,6 +469,25 @@ describe("Transcript", () => {
     );
   });
 
+  it("names a question that started with a skill as it was typed", async () => {
+    await page.viewport(1280, 800);
+    const skilled = turn("t1", "看过了");
+    const screen = await render(
+      at([turn("t0", "好"), { ...skilled, user: { ...skilled.user, command: { kind: "skill", name: "review" } } }]),
+    );
+    const nav = screen.getByRole("navigation", { name: "提问导航" });
+
+    expect(
+      nav
+        .getByRole("button")
+        .elements()
+        .map((button) => [button.getAttribute("aria-label"), button.textContent]),
+    ).toStrictEqual([
+      ["问 t0", "问 t0"],
+      ["/skill:review 问 t1", "/skill:review 问 t1"],
+    ]);
+  });
+
   it("stays at the bottom as what is under it grows", async () => {
     const long = Array.from({ length: 20 }, (_, index) => turn(`a${index}`, `第 ${index} 段`));
     const screen = await render(above(long, 40));
@@ -513,7 +543,7 @@ describe("Transcript", () => {
   it("shows each turn's images: kept for a message sent from here, fetched by turn for others, again once a run ends", async () => {
     const shown = turnImages();
     const { images, loads } = shown;
-    const user = { text: "看图", images: 1, auto: false, timestamp: 0 };
+    const user = { text: "看图", images: 1, auto: false, command: null, timestamp: 0 };
     const items = (outcome: Turn["outcome"]) => [
       turn("t1", "答", { user: { ...user, clientMessageId: "q1" } }),
       turn("t2", "", { user: { ...user, clientMessageId: null }, outcome }),
@@ -719,6 +749,23 @@ describe("ConversationArea", () => {
     await expect.element(screen.getByTestId("user-message")).toHaveTextContent("你好");
   });
 
+  it("sends a tagged message as /name and its text, the pending bubble starting with the tag", async () => {
+    const { client, calls } = fakeClient();
+    const screen = await render(
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.type(box, "/rev");
+    await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
+
+    await userEvent.keyboard("{Enter}src{Enter}");
+
+    await vi.waitFor(() => expect(calls.at(-1)).toBe("prompt s1 /review src"));
+    await expect.element(screen.getByTestId("user-message")).toHaveAttribute("data-pending", "true");
+    expect(screen.getByTestId("user-text").element().textContent).toBe("reviewsrc");
+    await expect.element(screen.getByTestId("user-text").getByTestId("command-tag")).toHaveTextContent("review");
+  });
+
   it.each(["exited", "lost"] as const)("opens a session that is %s again before sending to it", async (status) => {
     const { client, calls, views } = fakeClient();
     const screen = await render(
@@ -865,6 +912,447 @@ function tall(area: ReactNode) {
   );
 }
 
+/** Opus, which thinks at four levels. */
+const BUILTIN_OPUS = {
+  providerId: "anthropic",
+  modelId: "claude-opus-5-5",
+  name: "Claude Opus 5.5",
+  contextWindow: 1_000_000,
+  maxOutput: 128_000,
+  supportsImage: true,
+  thinkingLevels: ["off", "low", "medium", "high"] as ThinkingLevel[],
+  fast: null,
+};
+/** Haiku, which does not think. */
+const BUILTIN_HAIKU = { ...BUILTIN_OPUS, modelId: "haiku", name: "Haiku", thinkingLevels: ["off"] as ThinkingLevel[] };
+/** The list of both. */
+const BUILTIN_MODELS = {
+  status: "ready" as const,
+  models: [BUILTIN_OPUS, BUILTIN_HAIKU],
+  defaultModel: null,
+  error: null,
+};
+
+/**
+ * Renders the area on session s1 with Opus at a low level, and its box.
+ *
+ * @sideEffects Renders.
+ * @param client - The client.
+ * @returns The screen and the box.
+ */
+async function onOpus(client: AtriumClient) {
+  const screen = await render(
+    tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+  );
+  client
+    .session("s1")
+    ?.setState({ model: { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "low" } });
+  return { screen, box: screen.getByRole("textbox", { name: "消息" }) };
+}
+
+describe("ConversationArea's built-in commands", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    pageNotices().setState(null, true);
+  });
+  it("opens the model list for /model, and the thinking level, focused, for /thinking, emptying the box", async () => {
+    const { client } = fakeClient({}, { models: BUILTIN_MODELS });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/model{Enter}");
+    await expect.element(screen.getByRole("dialog", { name: "模型与推理强度" })).toBeVisible();
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(2);
+    await expect.element(screen.getByRole("slider")).not.toBeInTheDocument();
+    await expect.element(box).toHaveValue("");
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.type(box, "/thinking{Enter}");
+    await expect.element(screen.getByRole("slider")).toHaveFocus();
+    expect(screen.getByRole("menuitemradio").elements()).toHaveLength(0);
+  });
+
+  it("switches to the model named, reading the list first when it is not ready", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: BUILTIN_MODELS });
+    const { box } = await onOpus(client);
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels null"]));
+
+    await userEvent.type(box, "/model anthropic/haiku{Enter}");
+    await vi.waitFor(() => expect(modelCalls).toStrictEqual(["loadModels null", "setModel s1 anthropic/haiku"]));
+    await expect.element(box).toHaveValue("");
+
+    client.models(null).setState({ status: "loading" });
+    await userEvent.type(box, "/model anthropic/claude-opus-5-5{Enter}");
+    await vi.waitFor(() =>
+      expect(modelCalls.slice(2)).toStrictEqual(["loadModels null", "setModel s1 anthropic/claude-opus-5-5"]),
+    );
+  });
+
+  it("says when no model is called that, or the switch is refused, leaving the box", async () => {
+    const { client, modelCalls } = fakeClient(
+      {},
+      { models: BUILTIN_MODELS, setModel: () => Promise.reject(new CommandError("pi_rejected", { detail: "nope" })) },
+    );
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/model haiku{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("没有这个模型");
+    await expect.element(box).toHaveValue("/model haiku");
+
+    await userEvent.clear(box);
+    await userEvent.type(box, "/model anthropic/haiku{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("pi 没有接受这个设置：nope");
+    await expect.element(box).toHaveValue("/model anthropic/haiku");
+    expect(modelCalls).toContain("setModel s1 anthropic/haiku");
+  });
+
+  it("sets the thinking level named, or says it has no such level or the model does not support it", async () => {
+    const { client, modelCalls } = fakeClient({}, { models: BUILTIN_MODELS });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/thinking max{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("当前模型不支持这个档位");
+    await userEvent.clear(box);
+    await userEvent.type(box, "/thinking hard{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("没有这个档位");
+    await userEvent.clear(box);
+    await userEvent.type(box, "/thinking high{Enter}");
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setThinkingLevel s1 high"));
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+    await expect.element(box).toHaveValue("");
+  });
+
+  it("copies the last reply's Markdown with /copy and says so beside the tab bar", async () => {
+    const copied: string[] = [];
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(async (text) => {
+      copied.push(text);
+    });
+    const { client } = fakeClient();
+    const { box } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一"), turn("t2", "**第二**")] });
+
+    await userEvent.type(box, "/copy{Enter}");
+
+    await vi.waitFor(() => expect(copied).toStrictEqual(["**第二**"]));
+    expect(pageNotices().getState()).toStrictEqual({ sessionId: "s1", text: "已复制最后一条回复", problem: false });
+    await expect.element(box).toHaveValue("");
+  });
+
+  it("says when there is no reply to copy yet, or the clipboard refuses it", async () => {
+    vi.spyOn(navigator.clipboard, "writeText").mockImplementation(() => Promise.reject(new Error("denied")));
+    const { client } = fakeClient();
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/copy{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("还没有回复可复制");
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    await userEvent.type(box, "{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("复制失败");
+    await expect.element(box).toHaveValue("/copy");
+    expect(pageNotices().getState()).toBeNull();
+  });
+
+  it("runs built-ins before a session exists, creating it to switch the model", async () => {
+    const { client, calls, modelCalls } = fakeClient({}, { models: BUILTIN_MODELS });
+    const create = async () => (await client.createSession(CHAT)).sessionId;
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId={null} create={create} />),
+    );
+    const box = screen.getByRole("textbox", { name: "消息" });
+
+    await userEvent.type(box, "/copy{Enter}");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("还没有回复可复制");
+    await userEvent.clear(box);
+    await userEvent.type(box, "/model anthropic/haiku{Enter}");
+
+    await vi.waitFor(() => expect(modelCalls).toContain("setModel new1 anthropic/haiku"));
+    expect(calls).toContain("createSession cht_a");
+  });
+});
+
+/** Session s1 on file in the chat, so commands that wait for the first message can run. */
+const ON_FILE = { sessions: [session({ sessionId: "s1", containerId: CHAT })] };
+
+describe("ConversationArea's /compact", () => {
+  it("has the host compact the session, with what followed as what to keep in mind", async () => {
+    const { client, calls } = fakeClient(ON_FILE);
+    const { box } = await onOpus(client);
+
+    await userEvent.type(box, "/compact 保留接口的讨论{Enter}");
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1 保留接口的讨论"));
+    await expect.element(box).toHaveValue("");
+    await userEvent.type(box, "/compact{Enter}");
+
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1"));
+  });
+
+  it("takes the long pastes and the files into what to keep in mind, as a message would, emptying the box", async () => {
+    const { client, calls } = fakeClient(ON_FILE);
+    pageDrafts().update("s1", () => ({
+      text: "保留接口的讨论",
+      pastes: [{ id: "p1", text: "第一条\n第二条" }],
+      files: ["src/a.ts"],
+      command: { source: "builtin", name: "compact" },
+      images: [],
+    }));
+    const { box } = await onOpus(client);
+    await expect.element(box).toHaveValue("保留接口的讨论");
+
+    await userEvent.type(box, "{Enter}");
+
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1 保留接口的讨论\n\n第一条\n第二条\n\n@src/a.ts"));
+    await vi.waitFor(() =>
+      expect(pageDrafts().read("s1")).toStrictEqual({ text: "", pastes: [], files: [], command: null, images: [] }),
+    );
+  });
+
+  it("says why it did not run only in the session it was run in", async () => {
+    const answer = Promise.withResolvers<void>();
+    const { client, calls } = fakeClient(
+      { sessions: [...ON_FILE.sessions, session({ sessionId: "s2", containerId: CHAT })] },
+      { compactSession: async () => answer.promise },
+    );
+    const drawn = (shown: string) => (
+      <ConversationArea client={client} containerId={CHAT} sessionId={shown} create={noCreate} />
+    );
+    const screen = await render(tall(drawn("s1")));
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "/compact{Enter}");
+    await vi.waitFor(() => expect(calls).toContain("compactSession s1"));
+    await screen.rerender(tall(drawn("s2")));
+
+    answer.reject(new CommandError("compact_failed"));
+    // The answer is through, and drawn, before what is typed after it shows.
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "x");
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("x");
+
+    expect(screen.getByRole("alert").query()).toBeNull();
+  });
+
+  it.each([
+    ["nothing_to_compact", "对话还太短，不用压缩"],
+    ["already_compacted", "刚压缩过，没有新内容"],
+    ["compact_failed", "没能压缩：pi 出错了"],
+  ] as const)("says why the host did not compact (%s), leaving the box", async (code, why) => {
+    const { client } = fakeClient(ON_FILE, { compactSession: () => Promise.reject(new CommandError(code)) });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/compact{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent(why);
+    await expect.element(box).toHaveValue("/compact");
+  });
+
+  it.each([
+    ["a run", { run: { runId: "r1", startedAt: 0 } }],
+    ["a stop", { control: { ...IDLE_CONTROL, stopping: true } }],
+    ["a compaction", { control: { ...IDLE_CONTROL, compacting: true } }],
+  ])("does not compact during %s, saying so", async (_when, state) => {
+    const { client, calls } = fakeClient(ON_FILE);
+    const { screen, box } = await onOpus(client);
+    client.session("s1")?.setState(state);
+
+    await userEvent.type(box, "/compact{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("运行中不能用，先停止");
+    await expect.element(box).toHaveValue("/compact");
+    expect(calls.filter((call) => call.startsWith("compactSession"))).toStrictEqual([]);
+  });
+
+  it("does not compact before the first message, saying so", async () => {
+    const { client, calls } = fakeClient();
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/compact{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("发出第一条消息后才能用");
+    expect(calls.filter((call) => call.startsWith("compactSession"))).toStrictEqual([]);
+  });
+
+  it("says at the bottom of the conversation while pi compacts", async () => {
+    const { client } = fakeClient(ON_FILE);
+    const { screen } = await onOpus(client);
+    const line = screen.getByText("正在压缩上下文…");
+
+    client.session("s1")?.setState({ control: { ...IDLE_CONTROL, compacting: true } });
+    await expect.element(line).toBeVisible();
+    expect(line.element().className).toBe("atrium-shimmer");
+    client.session("s1")?.setState({ control: IDLE_CONTROL });
+
+    await expect.element(line).not.toBeInTheDocument();
+  });
+});
+
+describe("ConversationArea's /export", () => {
+  it("downloads pi's page of the session as atrium-<id>.html, during a run too", async () => {
+    const downloads = caughtDownloads();
+    const { client, calls } = fakeClient(ON_FILE, { exportSession: async () => "<html>会话</html>" });
+    const { box } = await onOpus(client);
+    client.session("s1")?.setState({ run: { runId: "r1", startedAt: 0 } });
+
+    await userEvent.type(box, "/export{Enter}");
+
+    await vi.waitFor(() => expect(downloads.names).toStrictEqual(["atrium-s1.html"]));
+    expect(await downloads.contents()).toStrictEqual([["text/html;charset=utf-8", "<html>会话</html>"]]);
+    expect(calls).toContain("exportSession s1");
+    await expect.element(box).toHaveValue("");
+  });
+
+  it.each([
+    [{ reason: "too_large" }, "会话太大（超过 20 MB），没能导出"],
+    [{ reason: "failed" }, "没能导出：pi 出错了"],
+  ])("says why the host did not export (%o), leaving the box", async (params, why) => {
+    const downloads = caughtDownloads();
+    const { client } = fakeClient(ON_FILE, {
+      exportSession: () => Promise.reject(new CommandError("export_failed", params)),
+    });
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/export{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent(why);
+    await expect.element(box).toHaveValue("/export");
+    expect(downloads.names).toStrictEqual([]);
+  });
+
+  it("does not export before the first message, saying so", async () => {
+    const { client, calls } = fakeClient();
+    const { screen, box } = await onOpus(client);
+
+    await userEvent.type(box, "/export{Enter}");
+
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("发出第一条消息后才能用");
+    expect(calls.filter((call) => call.startsWith("exportSession"))).toStrictEqual([]);
+  });
+});
+
+/** A forkable session s1 named `name`, its id taken for the fork's. */
+function forkable(name: string) {
+  return { sessions: [session({ sessionId: "s1", containerId: CHAT, name })] };
+}
+
+/** The fork calls among `calls`. */
+function forks(calls: readonly string[]): string[] {
+  return calls.filter((call) => call.startsWith("forkSession"));
+}
+
+describe("ConversationArea's fork button", () => {
+  afterEach(() => pageNotices().setState(null, true));
+
+  it("forks after the turn whose reply it sits under, naming the fork after the session", async () => {
+    const { client, calls } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一"), turn("t2", "第二")] });
+    const buttons = screen.getByRole("button", { name: "从这里分叉" });
+    await expect.element(buttons.nth(1)).toHaveAttribute("title", "从这里分叉");
+    expect(buttons.elements()).toHaveLength(2);
+
+    await userEvent.click(buttons.nth(0));
+    await userEvent.click(buttons.nth(1));
+
+    await vi.waitFor(() =>
+      expect(forks(calls)).toStrictEqual(["forkSession s1 t1 改登录页（分叉）", "forkSession s1 t2 改登录页（分叉）"]),
+    );
+    await expect.element(buttons.nth(0)).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("keeps the first 250 characters of a long title, the fork's name staying a name", async () => {
+    const { client, calls } = fakeClient(forkable(`${"长".repeat(250)}尾`));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await vi.waitFor(() => expect(forks(calls)).toStrictEqual([`forkSession s1 t1 ${"长".repeat(250)}（分叉）`]));
+  });
+
+  it("cuts a long title between characters, leaving out an emoji the cut would split", async () => {
+    const { client, calls } = fakeClient(forkable(`${"长".repeat(249)}😀尾`));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await vi.waitFor(() => expect(forks(calls)).toStrictEqual([`forkSession s1 t1 ${"长".repeat(249)}（分叉）`]));
+  });
+
+  it.each([
+    ["a run", { run: { runId: "r1", startedAt: 0 } }],
+    ["a stop", { control: { ...IDLE_CONTROL, stopping: true } }],
+    ["a compaction", { control: { ...IDLE_CONTROL, compacting: true } }],
+    ["a restart of pi", { control: { ...IDLE_CONTROL, restarting: true } }],
+  ])("is faded and does nothing during %s, saying so", async (_when, state) => {
+    const { client, calls } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")], ...state });
+    const button = screen.getByRole("button", { name: "从这里分叉" });
+
+    await expect.element(button).toHaveAttribute("title", "运行中不能分叉");
+    await expect.element(button).toHaveAttribute("aria-disabled", "true");
+    expect([getComputedStyle(button.element()).opacity, getComputedStyle(button.element()).cursor]).toStrictEqual([
+      "0.4",
+      "not-allowed",
+    ]);
+    await userEvent.click(button, { force: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(forks(calls)).toStrictEqual([]);
+  });
+
+  it.each([
+    [new CommandError("session_busy"), "运行中不能分叉"],
+    [new CommandError("turn_not_found"), "没能分叉：找不到这一轮"],
+    [new CommandError("fork_failed"), "没能分叉：pi 出错了"],
+    [new CommandError("session_not_found"), "没能分叉"],
+    [new ConnectionLostError("fork_session"), "没能分叉"],
+  ])("says beside the tab bar, as a failure, why it did not fork (%o)", async (failure, why) => {
+    const { client } = fakeClient(forkable("改登录页"), { forkSession: () => Promise.reject(failure) });
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await vi.waitFor(() =>
+      expect(pageNotices().getState()).toStrictEqual({ sessionId: "s1", text: why, problem: true }),
+    );
+  });
+
+  it("does nothing for a session the list does not have", async () => {
+    const { client, calls } = fakeClient();
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(forks(calls)).toStrictEqual([]);
+  });
+
+  it("takes away the session's last failure when forking again", async () => {
+    const answer = Promise.withResolvers<string>();
+    const { client } = fakeClient(forkable("改登录页"), { forkSession: () => answer.promise });
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    showNotice("s1", "没能分叉", true);
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    expect(pageNotices().getState()).toBeNull();
+    answer.resolve("fork-1");
+  });
+
+  it("leaves another session's notice when forking", async () => {
+    const { client } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    showNotice("s2", "已复制最后一条回复");
+
+    await userEvent.click(screen.getByRole("button", { name: "从这里分叉" }));
+
+    expect(pageNotices().getState()).toStrictEqual({ sessionId: "s2", text: "已复制最后一条回复", problem: false });
+  });
+});
+
 describe("ConversationArea's model button", () => {
   const OPUS = {
     providerId: "anthropic",
@@ -932,13 +1420,13 @@ describe("ConversationArea's model button", () => {
         preferences: {
           setupDone: true,
           appearance: "system",
-          displayMode: "summary",
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
           lastFast: false,
           statusBar: {},
           titleModel: null,
           proxy: null,
+          inbox: true,
         },
       },
       { models: LIST },
@@ -1204,13 +1692,13 @@ describe("ConversationArea's Fast button", () => {
         preferences: {
           setupDone: true,
           appearance: "system",
-          displayMode: "summary",
           lastModel: { providerId: "openai-codex", modelId: "gpt-5.5" },
           thinkingByModel: {},
           lastFast: true,
           statusBar: {},
           titleModel: null,
           proxy: null,
+          inbox: true,
         },
       },
       { models: LIST },
@@ -1286,7 +1774,7 @@ describe("ConversationArea's composer", () => {
     );
     const box = screen.getByRole("textbox", { name: "消息" });
 
-    await userEvent.type(box, "/");
+    await userEvent.type(box, "/rev");
     await expect.element(screen.getByRole("option", { name: /review/ })).toBeVisible();
     await userEvent.keyboard("{Enter}看看 @a");
     await expect.element(screen.getByRole("option", { name: "src/a.ts" })).toBeVisible();
@@ -1296,9 +1784,10 @@ describe("ConversationArea's composer", () => {
     expect(calls).toContain("searchFiles s1 a");
     await vi.waitFor(() =>
       expect(pageDrafts().read("s1")).toStrictEqual({
-        text: "/review 看看 ",
+        text: "看看 ",
         pastes: [],
         files: ["src/a.ts"],
+        command: { source: "prompt", name: "review" },
         images: [],
       }),
     );
@@ -1344,7 +1833,7 @@ function turnOf(id: string, text: string): Turn {
   return {
     kind: "turn",
     id,
-    user: { text, images: 0, clientMessageId: null, auto: false, timestamp: 0 },
+    user: { text, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
     error: null,
@@ -1525,6 +2014,15 @@ describe("ConversationArea's images", () => {
 
 describe("ConversationArea's workspace changes", () => {
   const W = "wks_0000000000000001";
+  /** Another workspace. */
+  const OTHER_W = "wks_0000000000000002";
+  /** A file of 200 numbered lines. */
+  const LONG_FILE = {
+    size: 2000,
+    content: { kind: "text" as const, text: Array.from({ length: 200 }, (_, line) => `line ${line}`).join("\n") },
+  };
+  // A window's width, so the panel opens beside the conversation rather than over it.
+  beforeEach(() => page.viewport(1280, 800));
   const changed = { stat: { added: 1234, removed: 3 }, dirty: true, ahead: 0, branch: "feat", base: "origin/main" };
 
   it("watches the shown workspace's changes, none for the chats, and shows them in a capsule that opens the panel", async () => {
@@ -1539,10 +2037,10 @@ describe("ConversationArea's workspace changes", () => {
     const capsule = screen.getByRole("button", { name: "查看改动" });
     await expect.element(capsule).toHaveTextContent("+1.2k−3");
     await capsule.click();
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).toBeVisible();
     await expect.element(capsule).toHaveAttribute("aria-expanded", "true");
     await capsule.click();
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).not.toBeInTheDocument();
 
     await screen.rerender(
       tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
@@ -1566,26 +2064,199 @@ describe("ConversationArea's workspace changes", () => {
 
     await screen.getByRole("button", { name: "查看改动" }).click();
 
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).toBeVisible();
   });
 
-  it("closes the panel on going to another container, and with its own button", async () => {
+  it("cuts off the changes panel past the conversation area's edge, where it slides out", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
+    );
+    const room = screen.getByTestId("changes-pane").element().parentElement as Element;
+
+    expect([getComputedStyle(room).position, getComputedStyle(room).overflowX]).toStrictEqual(["relative", "clip"]);
+  });
+
+  it("keeps the panel open on going to another workspace, and closes it with its own button", async () => {
     const { client } = fakeClient();
     client.changes(W).setState(changed);
     const screen = await render(
       tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
     );
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
     await screen.getByRole("button", { name: "查看改动" }).click();
-    await screen.getByRole("button", { name: "关闭改动" }).click();
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
-    await screen.getByRole("button", { name: "查看改动" }).click();
+    await expect.element(panel).toBeVisible();
 
     await screen.rerender(
       tall(<ConversationArea client={client} containerId="wks_0000000000000002" sessionId="s1" create={noCreate} />),
     );
-    await screen.rerender(tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />));
 
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    await expect.element(panel).toBeVisible();
+    await screen.getByRole("button", { name: "关闭右栏" }).click();
+    await expect.element(panel).not.toBeInTheDocument();
+  });
+
+  it("turns the open panel to 更改 from the capsule, closing it only when it shows 更改", async () => {
+    const { client } = fakeClient();
+    client.changes(W).setState(changed);
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
+    );
+    const capsule = screen.getByRole("button", { name: "查看改动" });
+    await capsule.click();
+    const tab = screen.getByRole("tab", { name: /更改/ });
+    await expect.element(tab).toHaveAttribute("aria-selected", "true");
+    await screen.getByRole("tab", { name: "文件" }).click();
+
+    await capsule.click();
+
+    await expect.element(tab).toHaveAttribute("aria-selected", "true");
+    await capsule.click();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).not.toBeInTheDocument();
+  });
+
+  it("turns a panel that opened at 文件 to 更改 from the capsule once changes come, rather than closing it", async () => {
+    const { client } = fakeClient();
+    client.changes(W).setState({ ...changed, stat: { added: 0, removed: 0 }, dirty: false });
+    const panes = createPanes(memoryStorage());
+    const views = createWorkspaceViews(memoryStorage());
+    const screen = await render(
+      tall(
+        <ConversationArea
+          client={client}
+          containerId={W}
+          sessionId="s1"
+          create={noCreate}
+          panes={panes}
+          views={views}
+        />,
+      ),
+    );
+    panes.getState().setPanelOpen(true);
+    await expect.element(screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
+    client.changes(W).setState(changed);
+
+    await screen.getByRole("button", { name: "查看改动" }).click();
+
+    await expect.element(screen.getByRole("tab", { name: /更改/ })).toHaveAttribute("aria-selected", "true");
+    expect(panes.getState().panelOpen).toBe(true);
+  });
+
+  it("watches the diff while the 改动 tab shows, the panel closed, and stops once it goes", async () => {
+    const { client, changeCalls } = fakeClient();
+    client.changes(W).setState(changed);
+    const views = createWorkspaceViews(memoryStorage());
+    await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    await vi.waitFor(() => expect(changeCalls).toStrictEqual([`watchChanges ${W}`]));
+
+    openDiff(views, W, null);
+    await vi.waitFor(() => expect(changeCalls.at(-1)).toBe(`watchDiff ${W} uncommitted`));
+    showViewer(views, W, null);
+
+    await vi.waitFor(() =>
+      expect(changeCalls).toStrictEqual([`watchChanges ${W}`, `watchDiff ${W} uncommitted`, "watchDiff null"]),
+    );
+  });
+
+  it("watches the diff while a file tab shows, the panel closed, and stops once it goes", async () => {
+    const { client, changeCalls } = fakeClient(
+      {},
+      { readFile: async () => ({ size: 6, content: { kind: "text" as const, text: "hello\n" } }) },
+    );
+    client.changes(W).setState(changed);
+    const views = createWorkspaceViews(memoryStorage());
+    await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    await vi.waitFor(() => expect(changeCalls).toStrictEqual([`watchChanges ${W}`]));
+
+    openFile(views, W, "src/a.ts", false);
+    await vi.waitFor(() => expect(changeCalls.at(-1)).toBe(`watchDiff ${W} uncommitted`));
+    showViewer(views, W, null);
+
+    await vi.waitFor(() =>
+      expect(changeCalls).toStrictEqual([`watchChanges ${W}`, `watchDiff ${W} uncommitted`, "watchDiff null"]),
+    );
+  });
+
+  it("gives the whole area to a viewer tab, the conversation back once the session shows", async () => {
+    const { client } = fakeClient(
+      {},
+      { readFile: async () => ({ size: 6, content: { kind: "text" as const, text: "hello\n" } }) },
+    );
+    const views = createWorkspaceViews(memoryStorage());
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+
+    openFile(views, W, "src/a.ts", false);
+    await expect
+      .element(screen.getByRole("region", { name: "src/a.ts" }))
+      .toHaveTextContent("a.tssrc/6 B · 1 行1hello");
+    expect(screen.getByRole("textbox", { name: "消息" }).query()).toBeNull();
+    showViewer(views, W, null);
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+  });
+
+  it("keeps each viewer tab's scroll and wrapping as it switches away and back, forgetting them once it closes", async () => {
+    const { client } = fakeClient({}, { readFile: async () => LONG_FILE });
+    const views = createWorkspaceViews(memoryStorage());
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    const wrap = screen.getByRole("button", { name: "换行" });
+    openFile(views, W, "src/a.ts", true);
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    screen.getByTestId("viewer-body").element().scrollTop = 400;
+    await wrap.click();
+    await expect.element(wrap).toHaveAttribute("aria-pressed", "true");
+    // Wrapping moves the lines a little under the scroll.
+    const left = screen.getByTestId("viewer-body").element().scrollTop;
+    openFile(views, W, "src/b.ts", true);
+    await expect.element(screen.getByRole("region", { name: "src/b.ts" })).toBeInTheDocument();
+    const other = [screen.getByTestId("viewer-body").element().scrollTop, wrap.element().ariaPressed];
+
+    showViewer(views, W, "file:src/a.ts");
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    const back = [left > 350, screen.getByTestId("viewer-body").element().scrollTop, wrap.element().ariaPressed];
+    closeViewer(views, W, "file:src/a.ts", ["s1"]);
+    await expect.element(screen.getByRole("region", { name: "src/a.ts" })).not.toBeInTheDocument();
+    openFile(views, W, "src/a.ts", true);
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+
+    expect([
+      other,
+      back,
+      [screen.getByTestId("viewer-body").element().scrollTop, wrap.element().ariaPressed],
+    ]).toStrictEqual([
+      [0, "false"],
+      [true, left, "true"],
+      [0, "false"],
+    ]);
+  });
+
+  it("reads a file afresh in another workspace with the same file open, from that tab's own place", async () => {
+    const { client, calls } = fakeClient({}, { readFile: async () => LONG_FILE });
+    const views = createWorkspaceViews(memoryStorage());
+    openFile(views, W, "src/a.ts", true);
+    openFile(views, OTHER_W, "src/a.ts", true);
+    const drawn = (containerId: string) =>
+      tall(
+        <ConversationArea client={client} containerId={containerId} sessionId={null} create={noCreate} views={views} />,
+      );
+    const screen = await render(drawn(W));
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    screen.getByTestId("viewer-body").element().scrollTop = 400;
+
+    await screen.rerender(drawn(OTHER_W));
+
+    await vi.waitFor(() => expect(calls).toContain(`readFile ${OTHER_W} src/a.ts`));
+    await expect.element(screen.getByText("line 199")).toBeInTheDocument();
+    expect(screen.getByTestId("viewer-body").element().scrollTop).toBe(0);
   });
 });
 
