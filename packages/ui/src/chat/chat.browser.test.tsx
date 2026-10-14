@@ -7,6 +7,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
+import { createNewWorkspaceStore } from "../state/new-workspace";
 import { createPanes, memoryStorage } from "../state/panes";
 import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer } from "../state/workspace-views";
 import { pageNotices, showNotice } from "../state/session-notices";
@@ -769,6 +770,73 @@ describe("ConversationArea", () => {
       expect(screen.container.querySelectorAll("p")).toHaveLength(1);
     },
   );
+
+  it("says the same line in a session with nothing in it yet, until a message goes", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
+    );
+
+    await expect.element(screen.getByTestId("empty-line")).toHaveTextContent("每天都做一些改变出来");
+    expect(screen.container.querySelector("[data-testid='transcript']")).toBeNull();
+
+    await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "你好{Enter}");
+
+    await expect.element(screen.getByTestId("transcript")).toHaveTextContent("你好进行中");
+    expect(screen.container.querySelector("[data-testid='empty-line']")).toBeNull();
+  });
+
+  it.each<[string, Partial<SessionView>]>([
+    ["loads", { status: "loading" }],
+    ["has older items", { hasOlder: true }],
+    ["runs", { run: { runId: "r1", startedAt: 0 } }],
+    ["compacts", { control: { ...IDLE_CONTROL, compacting: true } }],
+    ["has a turn", { items: [turn("t1", "你好")] }],
+  ])("does not say the line in a session that %s", async (_case, fields) => {
+    const { client, views } = fakeClient();
+    await client.watch(["s1"]);
+    views.get("s1")?.setState(fields);
+
+    const screen = await render(
+      <ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />,
+    );
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect(screen.container.querySelector("[data-testid='empty-line']")).toBeNull();
+  });
+
+  it("does not say the line in a session the new-workspace page is making", async () => {
+    const { client } = fakeClient();
+    const launches = createNewWorkspaceStore();
+    launches.setState({
+      launches: [
+        {
+          id: "l1",
+          worktree: null,
+          steps: ["session", "message"],
+          done: 1,
+          failure: undefined,
+          text: "你好",
+          images: [],
+          workspaceId: "wks_000000000000000a",
+          sessionId: "s1",
+        },
+      ],
+    });
+
+    const screen = await render(
+      <ConversationArea
+        client={client}
+        containerId="wks_000000000000000a"
+        sessionId="s1"
+        create={noCreate}
+        launches={launches}
+      />,
+    );
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect(screen.container.querySelector("[data-testid='empty-line']")).toBeNull();
+  });
 
   it("watches the active session and sends to it", async () => {
     const { client, calls } = fakeClient();

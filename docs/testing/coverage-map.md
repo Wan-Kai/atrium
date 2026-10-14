@@ -383,7 +383,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 回复里的表格不加框、占满宽度：表头 13px 半粗 `--text-muted`、下面 1px `--line-strong`，行间 1px `--line-soft`、最后一行下面没有线；悬停时出现"复制表格""放大"；放大后的表格边框是 `--line`，不是黑色 | `markdown.browser.test.tsx` "without a frame"、"seen larger" | 已覆盖 |
 | 代码块、表格、图下面和别的块一样隔 12px；行内代码 `--surface-2` 底、圆角 6px | `markdown.browser.test.tsx` "keeps 12px under"、"inline code" | 已覆盖 |
 | Mermaid：平铺在 `--code` 上，节点用 token 的中性色（浅色 `--main` 白、深色 `--main` 深）；悬停有"看源码""复制""放大"，切到源码再切回图；还在输出的块（插件已加载）显示源码、没有切换 | `markdown.browser.test.tsx` "Mermaid flat"、"Mermaid in dark colours"、"still being written" | 已覆盖 |
-| 空状态（2026-10-14）：工作区、对话、不绑定项目的新对话一样，中间只有一句"每天都做一些改变出来"（20px），句末一个闪烁的光标（2px 宽、1.15em 高、离字 3px、`--tint`、1.06 秒一亮一灭不渐变、读屏不读）；减弱动效时常亮（浏览器测试没法切减弱动效，未测） | `packages/ui/src/chat/chat.browser.test.tsx` "says only one line" | 已覆盖 |
+| 空状态（2026-10-14）：工作区、对话、不绑定项目的新对话一样，中间只有一句"每天都做一些改变出来"（20px），句末一个闪烁的光标（2px 宽、1.15em 高、离字 3px、`--tint`、1.06 秒一亮一灭不渐变、读屏不读）；减弱动效时常亮（浏览器测试没法切减弱动效，未测）；打开着的会话还什么都没有时也显示这一句，发出第一条消息就换成对话，内容还在加载、有更早的记录、在运行、在压缩、新建工作区页正在建它时不显示 | `packages/ui/src/chat/chat.browser.test.tsx` "says only one line"、"says the same line"、"does not say the line" | 已覆盖 |
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
