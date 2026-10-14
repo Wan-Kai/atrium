@@ -1,15 +1,8 @@
-import {
-  type AtriumClient,
-  type ChangesView,
-  CommandError,
-  ConnectionLostError,
-  type SessionView,
-} from "@atrium/client";
+import { type AtriumClient, CommandError, ConnectionLostError, type SessionView } from "@atrium/client";
 import { type DiffStat, isChatId, type SessionModel } from "@atrium/protocol";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
-import { createStore } from "zustand/vanilla";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/use-draft";
@@ -37,6 +30,16 @@ import {
 } from "../state/new-workspace";
 import { LaunchView } from "./launch-timeline";
 import { type Panes, createPanes, memoryStorage } from "../state/panes";
+import {
+  NO_VIEW,
+  type WorkspaceViews,
+  choosePanelTab,
+  createWorkspaceViews,
+  panelTabOf,
+  viewOf,
+} from "../state/workspace-views";
+import { ActiveViewer } from "../files/active-viewer";
+import { NO_CHANGES, useDiffWatch } from "../files/use-diff";
 
 /** What to say when pi cannot be used, by the status the host found. */
 const PI_STATUS_TEXT: Readonly<Record<string, string>> = {
@@ -431,12 +434,14 @@ function SessionArea({
  * made shows the steps of its making until its first message has gone; one failed stays until the
  * next send. The empty
  * state's layout and logo are placeholders until designed (roadmap, "MVP 1 里还没设计"). The
- * changes panel is open or not, and as wide, in every workspace alike (SPEC-0001, "工作区改动").
+ * right panel is open or not, and as wide, in every workspace alike; a viewer tab shown takes the
+ * whole area but the panel; the workspace's diff is watched while either needs it (SPEC-0001,
+ * "M1.12 的文件与更改").
  *
  * @sideEffects Watches the active session; creates and opens sessions and sends messages
  * through the client.
  * @param props - The client, the container, its active session, how to create a session, what
- * the new-workspace page set going, and the panes.
+ * the new-workspace page set going, the panes, and the workspace views.
  * @returns The area.
  */
 export function ConversationArea({
@@ -446,6 +451,7 @@ export function ConversationArea({
   create,
   launches = NO_LAUNCHES,
   panes: given,
+  views: givenViews,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -456,9 +462,13 @@ export function ConversationArea({
   readonly launches?: StoreApi<NewWorkspaceState>;
   /** The panes; left out, the area keeps its own, which nothing outlives. */
   readonly panes?: StoreApi<Panes>;
+  /** The workspace views; left out, the area keeps its own, which nothing outlives. */
+  readonly views?: StoreApi<WorkspaceViews>;
 }) {
   const [own] = useState(() => createPanes(memoryStorage()));
   const panes = given ?? own;
+  const [ownViews] = useState(() => createWorkspaceViews(memoryStorage()));
+  const views = givenViews ?? ownViews;
   const [failure, setFailure] = useState<string | null>(null);
   const launch = useStore(launches, (state) => launchOver(state, sessionId));
   const [store, setStore] = useState<StoreApi<SessionView> | undefined>(undefined);
@@ -512,11 +522,24 @@ export function ConversationArea({
     [client],
   );
   const panelOpen = useStore(panes, (state) => state.panelOpen);
-  /** The capsule's counts and toggle, when the workspace has changes to show. */
+  const viewer = useStore(views, (state) => (workspaceId === null ? NO_VIEW : viewOf(state, workspaceId)).active);
+  useDiffWatch(client, views, workspaceId, workspaceId !== null && (panelOpen || viewer === "diff"));
+  /**
+   * The capsule's counts, and what clicking it does: open the panel at 更改, or close it when it
+   * shows 更改 already (SPEC-0001, "M1.12 的文件与更改 · 右栏").
+   */
   const capsule =
     workspaceId === null || changes === null || changes.stat === null
       ? undefined
-      : { stat: changes.stat, open: panelOpen, onToggle: () => panes.getState().setPanelOpen(!panelOpen) };
+      : {
+          stat: changes.stat,
+          open: panelOpen,
+          onToggle: () => {
+            const onChanges = panelTabOf(views.getState(), workspaceId, true) === "changes";
+            choosePanelTab(views, workspaceId, "changes");
+            panes.getState().setPanelOpen(!(panelOpen && onChanges));
+          },
+        };
   useEffect(() => {
     if (handing === null || handing.container === containerKey) return;
     // The area went elsewhere before the session the words went to showed; its own box has them.
@@ -910,7 +933,9 @@ export function ConversationArea({
     // The changes panel's room: it cuts the panel off as it slides out past its edge.
     <div className="relative flex min-h-0 flex-1 overflow-x-clip">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {store === undefined || sessionId === null ? (
+        {workspaceId !== null && viewer !== null ? (
+          <ActiveViewer client={client} workspaceId={workspaceId} views={views} viewerKey={viewer} />
+        ) : store === undefined || sessionId === null ? (
           <>
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
               <p className="text-[20px] font-medium text-[var(--text)]">
@@ -978,13 +1003,10 @@ export function ConversationArea({
           />
         )}
       </div>
-      <ChangesPane client={client} workspaceId={workspaceId} panes={panes} />
+      <ChangesPane client={client} workspaceId={workspaceId} panes={panes} views={views} />
     </div>
   );
 }
 
 /** No launches, where the new-workspace page is not given. */
 const NO_LAUNCHES = createNewWorkspaceStore();
-
-/** The changes of no workspace, for chats. */
-const NO_CHANGES = createStore<ChangesView>(() => null);

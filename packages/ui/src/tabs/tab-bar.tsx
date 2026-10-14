@@ -1,8 +1,20 @@
 import type { AtriumClient } from "@atrium/client";
 import { type ContainerId, type SessionSummary, isChatId } from "@atrium/protocol";
-import { CaretDown, ClockCounterClockwise, Plus, SidebarRight, X } from "../design/icons";
+import { CaretDown, ClockCounterClockwise, FileDiff, Plus, SidebarRight, X } from "../design/icons";
 import { type StoreApi, useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
+import { splitPath } from "../chat/changes";
+import { FileIcon } from "../files/file-icon";
+import { useDiffMode } from "../files/use-diff";
+import {
+  type ViewerTab,
+  type WorkspaceViews,
+  closeViewer,
+  pinViewer,
+  showViewer,
+  viewOf,
+  viewerKey,
+} from "../state/workspace-views";
 import { sessionTitle, timeAgo } from "../sidebar/names";
 import { sessionStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
@@ -34,10 +46,14 @@ function run(command: () => Promise<unknown>): void {
  * end the active session's "···", with a line before it saying what a command just did. Tabs shrink to about 96px and then scroll
  * sideways. Switching and closing show at once; the host confirms them. Last is the changes
  * panel's toggle; while the sidebar is folded the bar starts 120px in, clear of the traffic
- * lights and the sidebar's toggle (SPEC-0001, "界面 · 左栏折叠与右栏").
+ * lights and the sidebar's toggle (SPEC-0001, "界面 · 左栏折叠与右栏"). The container's viewer
+ * tabs follow its sessions'; while one shows, no session tab is selected, and a session tab
+ * clicked shows its session again (SPEC-0001, "M1.12 的文件与更改 · 查看标签").
  *
- * @sideEffects Subscribes to the client's list and the panes; sends commands when used.
- * @param props - The client, the container, how to start a new session in it, and the panes.
+ * @sideEffects Subscribes to the client's list, the panes and the views; sends commands and
+ * writes the views when used.
+ * @param props - The client, the container, how to start a new session in it, the panes, and
+ * the workspace views.
  * @returns The tab bar.
  */
 export function TabBar({
@@ -45,13 +61,17 @@ export function TabBar({
   containerId,
   onNew,
   panes,
+  views,
 }: {
   readonly client: AtriumClient;
   readonly containerId: ContainerId;
   readonly onNew: () => void;
   readonly panes: StoreApi<Panes>;
+  readonly views: StoreApi<WorkspaceViews>;
 }) {
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
+  const view = useStore(views, (state) => viewOf(state, containerId));
+  const mode = useDiffMode(client, views, isChatId(containerId) ? null : containerId);
   const index = useStore(client.index);
   const now = useClock().now();
   const tabs = index.layout.tabs[containerId] ?? { open: [], active: null };
@@ -79,11 +99,31 @@ export function TabBar({
           <Tab
             key={session.sessionId}
             session={session}
-            selected={session.sessionId === tabs.active}
-            onSelect={() => run(() => client.openSession(session.sessionId))}
+            selected={session.sessionId === tabs.active && view.active === null}
+            onSelect={() => {
+              showViewer(views, containerId, null);
+              run(() => client.openSession(session.sessionId));
+            }}
             onClose={() => run(() => client.closeTab(session.sessionId))}
           />
         ))}
+        {view.tabs.map((tab) => {
+          const key = viewerKey(tab);
+          return (
+            <ViewerTabButton
+              key={key}
+              tab={tab}
+              selected={key === view.active}
+              described={tab.kind === "file" ? tab.path : mode === "base" ? "已提交的改动" : "未提交的改动"}
+              onSelect={() => showViewer(views, containerId, key)}
+              onPin={() => pinViewer(views, containerId, key)}
+              onClose={() => {
+                const session = closeViewer(views, containerId, key, tabs.open);
+                if (session !== null) run(() => client.openSession(session));
+              }}
+            />
+          );
+        })}
       </div>
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         <button
@@ -151,11 +191,11 @@ export function TabBar({
 }
 
 /**
- * The changes panel's toggle, at the tab bar's right end.
+ * The right panel's toggle, at the tab bar's right end.
  *
  * @remarks
- * design-language ("右栏（改动面板）"): `--tint` while the panel is open. A chat has no workspace
- * and so no changes: the toggle is `aria-disabled` rather than `disabled`, so its reason still
+ * design-language ("右栏（文件与更改）"): `--tint` while the panel is open. A chat has no workspace
+ * and so nothing to show: the toggle is `aria-disabled` rather than `disabled`, so its reason still
  * shows on hover, as the archive icon does.
  *
  * @sideEffects Subscribes to the panes; opens or closes the panel when clicked.
@@ -168,10 +208,10 @@ function PanelToggle({ panes, usable }: { readonly panes: StoreApi<Panes>; reado
   return (
     <button
       type="button"
-      aria-label="改动面板"
+      aria-label="右栏"
       aria-pressed={usable && open}
       aria-disabled={!usable}
-      title={usable ? "改动面板（⌥⌘B）" : "对话没有工作区，没有改动"}
+      title={usable ? "文件与更改（⌥⌘B）" : "对话没有工作区"}
       onClick={() => {
         if (usable) setOpen(!open);
       }}
@@ -179,6 +219,68 @@ function PanelToggle({ panes, usable }: { readonly panes: StoreApi<Panes>; reado
     >
       <SidebarRight size={16} />
     </button>
+  );
+}
+
+/**
+ * A viewer tab: the file's type icon and name, or the diff icon and "改动", and a close button.
+ *
+ * @remarks
+ * design-language ("查看标签"): as a session's tab, its title after a 14px icon; a preview's title
+ * is in italics, and a double click pins it.
+ *
+ * @sideEffects none; the callbacks write the views.
+ * @param props - The tab, whether it shows, what its tooltip says, and what selecting, pinning
+ * and closing do.
+ * @returns The tab.
+ */
+function ViewerTabButton({
+  tab,
+  selected,
+  described,
+  onSelect,
+  onPin,
+  onClose,
+}: {
+  readonly tab: ViewerTab;
+  readonly selected: boolean;
+  readonly described: string;
+  readonly onSelect: () => void;
+  readonly onPin: () => void;
+  readonly onClose: () => void;
+}) {
+  const title = tab.kind === "file" ? splitPath(tab.path).name : "改动";
+  return (
+    <div
+      role="tab"
+      tabIndex={selected ? 0 : -1}
+      aria-selected={selected}
+      title={described}
+      onClick={onSelect}
+      onDoubleClick={onPin}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") onSelect();
+      }}
+      className="group flex h-[30px] max-w-[200px] min-w-24 shrink items-center gap-1.5 rounded-[var(--r)] pr-1 pl-2.5 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-selected:bg-[var(--selected)] aria-selected:text-[var(--text)]"
+    >
+      {tab.kind === "file" ? (
+        <FileIcon path={tab.path} size={14} />
+      ) : (
+        <FileDiff size={14} className="flex-none text-[var(--text-muted)]" />
+      )}
+      <span className={`min-w-0 flex-1 truncate ${tab.kind === "file" && tab.preview ? "italic" : ""}`}>{title}</span>
+      <button
+        type="button"
+        aria-label={`关闭 ${title}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-[var(--r-sm)] opacity-0 group-hover:opacity-100 group-aria-selected:opacity-100 hover:bg-[var(--hover)]"
+      >
+        <X size={11} />
+      </button>
+    </div>
   );
 }
 

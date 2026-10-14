@@ -3,13 +3,14 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { createPanes, memoryStorage } from "../state/panes";
+import { createWorkspaceViews } from "../state/workspace-views";
 import { fakeClient } from "../test/fake-client";
 import { ChangesPane } from "./changes-pane";
 
 const W = "wks_0000000000000001";
 const PANE_CURVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
-/** The panel's 560px, as its CSS fits it to the room. */
-const FITTED = "max(360px, min(560px, 100% - 440px))";
+/** The panel's 320px, as its CSS fits it to the room. */
+const FITTED = "max(240px, min(320px, 100% - 440px))";
 
 /**
  * The pane beside a conversation, the two sharing a room of the width given.
@@ -23,8 +24,9 @@ async function pane({
   workspaceId = W,
   open = true,
 }: { room?: number; workspaceId?: string | null; open?: boolean } = {}) {
-  const { client, changeCalls } = fakeClient();
+  const { client } = fakeClient();
   const panes = createPanes(memoryStorage());
+  const views = createWorkspaceViews(memoryStorage());
   panes.getState().setPanelOpen(open);
   /**
    * The room, with the pane in it.
@@ -36,7 +38,7 @@ async function pane({
   const at = (shown: string | null) => (
     <div style={{ position: "relative", display: "flex", width: room, height: 600, overflowX: "clip" }}>
       <div style={{ flex: 1, minWidth: 0 }} />
-      <ChangesPane client={client} workspaceId={shown} panes={panes} />
+      <ChangesPane client={client} workspaceId={shown} panes={panes} views={views} />
     </div>
   );
   const screen = await render(at(workspaceId));
@@ -44,7 +46,6 @@ async function pane({
     screen,
     client,
     panes,
-    changeCalls,
     element: screen.getByTestId("changes-pane").element(),
     show: (shown: string | null) => screen.rerender(at(shown)),
   };
@@ -125,12 +126,12 @@ function midway(element: Element, panel: Element): unknown[] {
 
 describe("ChangesPane", () => {
   it("opens from nothing in 0.24 s, the panel at its width from the start, and closes back to nothing before it goes", async () => {
-    const { screen, panes, element, changeCalls } = await pane({ open: false });
+    const { screen, panes, element } = await pane({ open: false });
     expect([element.getBoundingClientRect().width, element.childElementCount]).toStrictEqual([0, 0]);
 
     panes.getState().setPanelOpen(true);
 
-    const panel = screen.getByRole("complementary", { name: "改动" });
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
     await expect.element(panel).toBeInTheDocument();
     const style = getComputedStyle(element);
     expect([style.transitionProperty, style.transitionDuration, style.transitionTimingFunction]).toStrictEqual([
@@ -139,8 +140,8 @@ describe("ChangesPane", () => {
       PANE_CURVE,
     ]);
     expect(widthFrames(element)).toStrictEqual([["width", ["0px", FITTED]]]);
-    expect(panel.element().getBoundingClientRect().width).toBe(560);
-    await expect.poll(() => element.getBoundingClientRect().width).toBe(560);
+    expect(panel.element().getBoundingClientRect().width).toBe(320);
+    await expect.poll(() => element.getBoundingClientRect().width).toBe(320);
     panes.getState().setPanelOpen(false);
 
     await expect.poll(() => widthFrames(element)).toStrictEqual([["width", [FITTED, "0px"]]]);
@@ -148,19 +149,19 @@ describe("ChangesPane", () => {
     panel.element().dispatchEvent(new TransitionEvent("transitionend", { bubbles: true, propertyName: "opacity" }));
     expect(panel.element().isConnected).toBe(true);
     await expect.element(panel).not.toBeInTheDocument();
-    expect([element.getBoundingClientRect().width, changeCalls.at(-1)]).toStrictEqual([0, "watchDiff null"]);
+    expect(element.getBoundingClientRect().width).toBe(0);
   });
 
   it("shows the panel at once, not sliding in, when open from the first frame", async () => {
     const { screen, element } = await pane();
-    const panel = screen.getByRole("complementary", { name: "改动" }).element();
+    const panel = screen.getByRole("complementary", { name: "文件与更改" }).element();
 
     expect(moves(element, panel)).toStrictEqual([[], []]);
   });
 
-  it("goes, ending its watch, when closed just as it starts opening", async () => {
-    const { screen, panes, element, changeCalls } = await pane({ open: false });
-    const panel = screen.getByRole("complementary", { name: "改动" });
+  it("goes when closed just as it starts opening", async () => {
+    const { screen, panes, element } = await pane({ open: false });
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
     // Its style drawn closed, so opening moves it from there.
     expect(getComputedStyle(element).width).toBe("0px");
     panes.getState().setPanelOpen(true);
@@ -173,35 +174,35 @@ describe("ChangesPane", () => {
     panes.getState().setPanelOpen(false);
 
     await expect.element(panel).not.toBeInTheDocument();
-    expect([element.getBoundingClientRect().width, changeCalls.at(-1)]).toStrictEqual([0, "watchDiff null"]);
+    expect(element.getBoundingClientRect().width).toBe(0);
   });
 
   it("slides the panel out with its edge as it closes and in as it opens, cut off at the room's edge", async () => {
     await page.viewport(1280, 800);
-    const { screen, panes, element } = await pane({ room: 900 });
-    const panel = screen.getByRole("complementary", { name: "改动" }).element();
-    await expect.poll(() => element.getBoundingClientRect().width).toBe(460);
+    const { screen, panes, element } = await pane({ room: 700 });
+    const panel = screen.getByRole("complementary", { name: "文件与更改" }).element();
+    await expect.poll(() => element.getBoundingClientRect().width).toBe(260);
 
     panes.getState().setPanelOpen(false);
     await expect.poll(() => moves(element, panel)).toStrictEqual([["width"], ["translate"]]);
     const closing = midway(element, panel);
     (element.getAnimations().at(0) as Animation).finish();
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).not.toBeInTheDocument();
     panes.getState().setPanelOpen(true);
-    const reopened = screen.getByRole("complementary", { name: "改动" });
+    const reopened = screen.getByRole("complementary", { name: "文件与更改" });
     await expect.element(reopened).toBeInTheDocument();
     await expect.poll(() => moves(element, reopened.element())).toStrictEqual([["width"], ["translate"]]);
     const opening = midway(element, reopened.element());
 
     expect([closing, opening]).toStrictEqual([
-      [0, 460, true, true, false],
-      [0, 460, true, true, false],
+      [0, 260, true, true, false],
+      [0, 260, true, true, false],
     ]);
   });
 
-  it("widens as its edge is dragged left, from 360px to what leaves the conversation 440px, back to 560px on a double click", async () => {
+  it("widens as its edge is dragged left, from 240px to what leaves the conversation 440px, back to 320px on a double click", async () => {
     const { screen, panes, element } = await pane({ room: 1200 });
-    const separator = screen.getByRole("separator", { name: "改动面板的宽度" });
+    const separator = screen.getByRole("separator", { name: "右栏的宽度" });
     const widths: unknown[] = [element.getBoundingClientRect().width];
 
     for (const by of [-100, -1000, 2000]) {
@@ -210,16 +211,16 @@ describe("ChangesPane", () => {
       widths.push(panes.getState().panelWidth);
     }
     await separator.dblClick();
-    await expect.poll(() => element.getBoundingClientRect().width).toBe(560);
+    await expect.poll(() => element.getBoundingClientRect().width).toBe(320);
     widths.push(panes.getState().panelWidth);
 
-    expect(widths).toStrictEqual([560, 660, 760, 360, 560]);
-    expect(separator.element().getAttribute("aria-valuenow")).toBe("560");
+    expect(widths).toStrictEqual([320, 420, 760, 240, 320]);
+    expect(separator.element().getAttribute("aria-valuenow")).toBe("320");
   });
 
   it("follows the pointer at once while dragged, its line showing, and moves smoothly again once let go", async () => {
     const { screen, element } = await pane();
-    const separator = screen.getByRole("separator", { name: "改动面板的宽度" }).element();
+    const separator = screen.getByRole("separator", { name: "右栏的宽度" }).element();
     const rect = separator.getBoundingClientRect();
     const line = () => getComputedStyle(separator, "::after");
     expect([line().opacity, line().width, line().backgroundColor]).toStrictEqual(["0", "2px", "rgb(47, 111, 237)"]);
@@ -227,7 +228,7 @@ describe("ChangesPane", () => {
     separator.dispatchEvent(new PointerEvent("pointerdown", { clientX: rect.left, bubbles: true }));
     window.dispatchEvent(new PointerEvent("pointermove", { clientX: rect.left - 40, bubbles: true }));
 
-    await expect.poll(() => element.getBoundingClientRect().width).toBe(600);
+    await expect.poll(() => element.getBoundingClientRect().width).toBe(360);
     await expect.poll(() => line().opacity).toBe("1");
     expect([getComputedStyle(element).transitionDuration, element.getAnimations()]).toStrictEqual(["0s", []]);
     window.dispatchEvent(new PointerEvent("pointerup", { clientX: rect.left - 40, bubbles: true }));
@@ -237,7 +238,7 @@ describe("ChangesPane", () => {
 
   it("steps 16px with the arrow keys on its edge", async () => {
     const { screen, panes } = await pane();
-    const separator = screen.getByRole("separator", { name: "改动面板的宽度" });
+    const separator = screen.getByRole("separator", { name: "右栏的宽度" });
     const widths: number[] = [];
 
     for (const key of ["{ArrowLeft}", "{ArrowRight}", "{ArrowRight}", "{ArrowUp}"]) {
@@ -246,39 +247,39 @@ describe("ChangesPane", () => {
       widths.push(panes.getState().panelWidth);
     }
 
-    expect(widths).toStrictEqual([576, 560, 544, 544]);
+    expect(widths).toStrictEqual([336, 320, 304, 304]);
   });
 
   it("narrows to leave the conversation 440px while the room is short, keeping the width chosen, and drags from the width shown", async () => {
-    const { screen, panes, element } = await pane({ room: 900 });
+    const { screen, panes, element } = await pane({ room: 720 });
     const narrowed = [element.getBoundingClientRect().width, panes.getState().panelWidth];
 
-    drag(screen.getByRole("separator", { name: "改动面板的宽度" }).element(), 40);
+    drag(screen.getByRole("separator", { name: "右栏的宽度" }).element(), 20);
 
-    expect([narrowed, panes.getState().panelWidth]).toStrictEqual([[460, 560], 420]);
+    expect([narrowed, panes.getState().panelWidth]).toStrictEqual([[280, 320], 260]);
   });
 
-  it("keeps 360px when the room has not even that beside the conversation's 440px", async () => {
-    const { element } = await pane({ room: 700 });
+  it("keeps 240px when the room has not even that beside the conversation's 440px", async () => {
+    const { element } = await pane({ room: 600 });
 
-    expect(element.getBoundingClientRect().width).toBe(360);
+    expect(element.getBoundingClientRect().width).toBe(240);
   });
 
   it("stops following the pointer once gone mid-drag", async () => {
     const { screen, panes } = await pane();
-    const separator = screen.getByRole("separator", { name: "改动面板的宽度" }).element();
+    const separator = screen.getByRole("separator", { name: "右栏的宽度" }).element();
     const rect = separator.getBoundingClientRect();
     separator.dispatchEvent(new PointerEvent("pointerdown", { clientX: rect.left, bubbles: true }));
 
     await screen.unmount();
     window.dispatchEvent(new PointerEvent("pointermove", { clientX: rect.left - 100, bubbles: true }));
 
-    expect(panes.getState().panelWidth).toBe(560);
+    expect(panes.getState().panelWidth).toBe(320);
   });
 
   it("hides at once in a chat, showing nothing, and opens again back in a workspace", async () => {
     const { screen, show, element } = await pane();
-    const panel = screen.getByRole("complementary", { name: "改动" });
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
     await expect.element(panel).toBeVisible();
 
     await show(null);
@@ -293,8 +294,8 @@ describe("ChangesPane", () => {
     expect(widthFrames(element)).toStrictEqual([["width", ["0px", FITTED]]]);
   });
 
-  it("starts each workspace's panel afresh, the mode chosen in another not carried over", async () => {
-    const { screen, client, show, changeCalls } = await pane();
+  it("keeps each workspace's mode its own", async () => {
+    const { screen, client, show } = await pane();
     const dirty = { stat: { added: 1, removed: 0 }, dirty: true, ahead: 0, branch: "feat", base: "origin/main" };
     client.changes(W).setState(dirty);
     client.changes("wks_0000000000000002").setState(dirty);
@@ -304,8 +305,9 @@ describe("ChangesPane", () => {
     await expect.element(mode).toHaveTextContent("已提交");
 
     await show("wks_0000000000000002");
-
     await expect.element(mode).toHaveTextContent("未提交");
-    expect(changeCalls.at(-1)).toBe("watchDiff wks_0000000000000002 uncommitted");
+    await show(W);
+
+    await expect.element(mode).toHaveTextContent("已提交");
   });
 });

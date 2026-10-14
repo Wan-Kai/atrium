@@ -1,26 +1,27 @@
 import type { AtriumClient } from "@atrium/client";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
+import { RightPanel } from "../files/right-panel";
 import { PANEL_WIDTH, type Panes, fitPanelWidth, panelWidthCss } from "../state/panes";
-import { ChangesPanel } from "./changes-panel";
+import type { WorkspaceViews } from "../state/workspace-views";
 
 /**
- * The changes panel, drawn again only when its own props or state change.
+ * The right panel, drawn again only when its own props or state change.
  *
  * @remarks
  * The pane is drawn again whenever the panel opens or closes and whenever the conversation area
- * is; going over a large diff's tens of thousands of elements each time costs 15ms at the start of
- * every move of the panes (design-language, "右栏").
+ * is; going over a large tree each time would cost at the start of every move of the panes
+ * (design-language, "右栏（文件与更改）").
  *
- * @sideEffects As `ChangesPanel`.
+ * @sideEffects As `RightPanel`.
  */
-const StillPanel = memo(ChangesPanel);
+const StillPanel = memo(RightPanel);
 
 /**
- * The changes panel as the right pane: it opens and closes by its width, and its left edge drags.
+ * The right panel as the right pane: it opens and closes by its width, and its left edge drags.
  *
  * @remarks
- * SPEC-0001 ("工作区改动", "界面 · 左栏折叠与右栏"); design-language ("右栏（改动面板）", "动效 ·
+ * SPEC-0001 ("M1.12 的文件与更改 · 右栏", "界面 · 左栏折叠与右栏"); design-language ("右栏（文件与更改）", "动效 ·
  * 右栏打开收起"). The width goes between 0 and the panel's in 0.24s while the panel keeps its
  * own, sliding in and out with the pane's left edge: it moves by its width on the same curve, so
  * the room, which must cut off what goes past it, hides it as it goes. It stays mounted until it
@@ -28,24 +29,27 @@ const StillPanel = memo(ChangesPanel);
  * watch. Not clipped by the pane itself: the panel's width is the one chosen, fitted to the room
  * (`panelWidthCss`), the area it shares with the conversation, which must be its parent and the
  * panel's containing block; measured against a container instead, the panel would be laid out
- * again on every frame the room changes width (design-language, "右栏"). Dragging the
+ * again on every frame the room changes width (design-language, "右栏（文件与更改）"). Dragging the
  * edge, or ← → on it, chooses another, and a double click the usual one. Only a workspace has
  * one: in a chat it is hidden at once, and shows again, opening, back in a workspace. Each
- * workspace's panel starts afresh: a mode chosen or a file folded in one does not carry over.
+ * workspace's panel is its own: its tab, the mode chosen and what is folded are the workspace's.
  *
  * @sideEffects Subscribes to the panes; listens for pointer moves on the window while dragged;
- * through the panel, watches the diff.
- * @param props - The client, the workspace shown (`null` in a chat), and the panes.
+ * through the panel, reads directories.
+ * @param props - The client, the workspace shown (`null` in a chat), the panes, and the
+ * workspace views.
  * @returns The pane.
  */
 export function ChangesPane({
   client,
   workspaceId,
   panes,
+  views,
 }: {
   readonly client: AtriumClient;
   readonly workspaceId: string | null;
   readonly panes: StoreApi<Panes>;
+  readonly views: StoreApi<WorkspaceViews>;
 }) {
   const open = useStore(panes, (state) => state.panelOpen) && workspaceId !== null;
   const chosen = useStore(panes, (state) => state.panelWidth);
@@ -103,7 +107,7 @@ export function ChangesPane({
           <div
             role="separator"
             aria-orientation="vertical"
-            aria-label="改动面板的宽度"
+            aria-label="右栏的宽度"
             aria-valuenow={chosen}
             aria-valuemin={PANEL_WIDTH.least}
             tabIndex={0}
@@ -153,7 +157,7 @@ export function ChangesPane({
             }}
             className="absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize outline-none after:absolute after:inset-y-0 after:left-[3px] after:w-0.5 after:bg-[var(--tint)] after:opacity-0 after:transition-opacity hover:after:opacity-100 hover:after:delay-150 focus-visible:after:opacity-100 data-[dragging]:after:opacity-100 data-[dragging]:after:delay-0"
           />
-          <StillPanel key={workspaceId} client={client} workspaceId={workspaceId} onClose={close} />
+          <StillPanel key={workspaceId} client={client} workspaceId={workspaceId} views={views} onClose={close} />
         </div>
       ) : null}
     </div>

@@ -1,5 +1,5 @@
 import { CommandError, type SessionView } from "@atrium/client";
-import { IDLE_CONTROL } from "@atrium/protocol";
+import { type DiffFile, IDLE_CONTROL } from "@atrium/protocol";
 import type { ReactNode } from "react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
@@ -1054,28 +1054,28 @@ describe("Workbench panes", () => {
   it("starts as left: the sidebar folded, the changes panel open and as wide as it was", async () => {
     localStorage.setItem("atrium.sidebarCollapsed", "true");
     localStorage.setItem("atrium.changesOpen", "true");
-    localStorage.setItem("atrium.changesWidth", "420");
+    localStorage.setItem("atrium.rightPanelWidth", "300");
     onTestFinished(() => {
-      for (const key of ["atrium.sidebarCollapsed", "atrium.changesOpen", "atrium.changesWidth"]) {
+      for (const key of ["atrium.sidebarCollapsed", "atrium.changesOpen", "atrium.rightPanelWidth"]) {
         localStorage.removeItem(key);
       }
     });
     const { screen } = await workbench();
 
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).toBeVisible();
     expect([
       placed(screen.getByRole("navigation", { name: "侧栏" }).element())[2],
       placed(screen.getByRole("button", { name: "展开侧栏" }).element()),
       placed(screen.getByTestId("changes-pane").element())[2],
-      screen.getByRole("button", { name: "改动面板" }).element().getAttribute("aria-pressed"),
-    ]).toStrictEqual([0, [84, 10, 28], 420, "true"]);
+      screen.getByRole("button", { name: "右栏" }).element().getAttribute("aria-pressed"),
+    ]).toStrictEqual([0, [84, 10, 28], 300, "true"]);
   });
 
   it("opens and closes the changes panel from the tab bar's last button and ⌥⌘B, open in every workspace, hidden in a chat", async () => {
     const { screen, changeCalls } = await workbench();
     onTestFinished(() => localStorage.removeItem("atrium.changesOpen"));
-    const toggle = screen.getByRole("button", { name: "改动面板" });
-    const panel = screen.getByRole("complementary", { name: "改动" });
+    const toggle = screen.getByRole("button", { name: "右栏" });
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
     const said = () => [
       toggle.element().getAttribute("aria-pressed"),
       toggle.element().getAttribute("aria-disabled"),
@@ -1083,11 +1083,11 @@ describe("Workbench panes", () => {
       localStorage.getItem("atrium.changesOpen"),
     ];
 
-    expect(said()).toStrictEqual(["false", "false", "改动面板（⌥⌘B）", null]);
+    expect(said()).toStrictEqual(["false", "false", "文件与更改（⌥⌘B）", null]);
     expect([...screen.getByTestId("tab-bar").element().querySelectorAll("button")].at(-1)).toBe(toggle.element());
     await toggle.click();
     await expect.element(panel).toBeVisible();
-    expect(said()).toStrictEqual(["true", "false", "改动面板（⌥⌘B）", "true"]);
+    expect(said()).toStrictEqual(["true", "false", "文件与更改（⌥⌘B）", "true"]);
     await screen.getByTestId("workspace-row").nth(1).click();
 
     await vi.waitFor(() => expect(changeCalls).toContain(`watchDiff ${FEATURE} base`));
@@ -1095,16 +1095,16 @@ describe("Workbench panes", () => {
     await screen.getByTestId("chat-row").click();
 
     await expect.element(panel).not.toBeInTheDocument();
-    expect(said()).toStrictEqual(["false", "true", "对话没有工作区，没有改动", "true"]);
+    expect(said()).toStrictEqual(["false", "true", "对话没有工作区", "true"]);
     await toggle.click({ force: true });
     await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
-    expect(said()).toStrictEqual(["false", "true", "对话没有工作区，没有改动", "true"]);
+    expect(said()).toStrictEqual(["false", "true", "对话没有工作区", "true"]);
     await screen.getByTestId("workspace-row").nth(0).click();
 
     await expect.element(panel).toBeVisible();
     await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
     await expect.element(panel).not.toBeInTheDocument();
-    expect(said()).toStrictEqual(["false", "false", "改动面板（⌥⌘B）", "false"]);
+    expect(said()).toStrictEqual(["false", "false", "文件与更改（⌥⌘B）", "false"]);
     await userEvent.keyboard("{Meta>}{Alt>}b{/Alt}{/Meta}");
     await expect.element(panel).toBeVisible();
   });
@@ -1731,6 +1731,218 @@ describe("Workbench tabs", () => {
 
     expect(screen.container.ownerDocument.body.textContent).not.toMatch(/摘要模式|思考模式|详细模式/);
     expect(calls.filter((call) => call.startsWith("setPreferences"))).toStrictEqual([]);
+  });
+});
+
+/**
+ * The workbench in the local workspace with the right panel open at 文件, the workspace holding
+ * `a.ts`, `b.ts` and `c.md`.
+ *
+ * @sideEffects Renders; writes `localStorage`, cleaned when the test ends.
+ * @returns As `workbench`, and the files tree and the tab list.
+ */
+async function viewing() {
+  localStorage.setItem("atrium.changesOpen", "true");
+  onTestFinished(() => {
+    for (const key of ["atrium.changesOpen", `atrium.panelTab:${LOCAL}`, `atrium.openDirs:${LOCAL}`]) {
+      localStorage.removeItem(key);
+    }
+  });
+  const fake = await workbench({
+    answers: {
+      listDir: async () => ({
+        entries: [
+          { name: "a.ts", kind: "file" },
+          { name: "b.ts", kind: "file" },
+          { name: "c.md", kind: "file" },
+        ],
+        truncated: false,
+      }),
+      readFile: async () => ({ size: 2, content: { kind: "text", text: "x\n" } }),
+    },
+  });
+  const tree = fake.screen.getByTestId("files-tree");
+  await expect.element(tree.getByRole("button", { name: "a.ts" })).toBeVisible();
+  return { ...fake, tree, tabs: fake.screen.getByRole("tablist", { name: "打开的会话" }).getByRole("tab") };
+}
+
+/**
+ * Each tab's tooltip, whether it is selected, and whether its title is in italics.
+ *
+ * @sideEffects none
+ * @param tabs - The tabs.
+ * @returns Them so described.
+ */
+function tabsOf(tabs: ReturnType<typeof page.getByRole>): [string | null, boolean, boolean][] {
+  return tabs
+    .elements()
+    .map((tab): [string | null, boolean, boolean] => [
+      tab.getAttribute("title"),
+      tab.getAttribute("aria-selected") === "true",
+      getComputedStyle(tab.querySelector("span.truncate") ?? tab).fontStyle === "italic",
+    ]);
+}
+
+/**
+ * A new file of one line, as a diff has it.
+ *
+ * @sideEffects none
+ * @param path - Its path.
+ * @returns The file.
+ */
+function newFile(path: string): DiffFile {
+  return { path, oldPath: null, status: "added", added: 1, removed: 0, content: "text", hunks: [] };
+}
+
+describe("Workbench viewer tabs (M1.12)", () => {
+  it("opens a file from the tree in a preview tab after the sessions, in place of the conversation", async () => {
+    const { screen, tree, tabs } = await viewing();
+
+    await tree.getByRole("button", { name: "a.ts" }).click();
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", false, false],
+        ["a.ts", true, true],
+      ]);
+    await expect.element(screen.getByRole("region", { name: "a.ts" })).toHaveTextContent("a.ts2 B · 1 行1x");
+    expect(screen.getByRole("textbox", { name: "消息" }).query()).toBeNull();
+  });
+
+  it("replaces the preview with the next file clicked, and pins a tab double-clicked, in the tree or the bar", async () => {
+    const { tree, tabs } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await tree.getByRole("button", { name: "b.ts" }).click();
+    await expect.poll(() => tabs.elements().length).toBe(3);
+
+    await tabs.nth(2).dblClick();
+    await tree.getByRole("button", { name: "c.md" }).click();
+    await expect.poll(() => tabs.elements().length).toBe(4);
+    await tree.getByRole("button", { name: "a.ts" }).dblClick();
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", false, false],
+        ["b.ts", false, false],
+        ["a.ts", true, false],
+      ]);
+  });
+
+  it("goes back to the conversation from a session's tab", async () => {
+    const { screen, tree, tabs, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await expect.element(screen.getByRole("region", { name: "a.ts" })).toBeVisible();
+    const before = calls.length;
+
+    await tabs.nth(0).click();
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+    expect([tabsOf(tabs), calls.slice(before)]).toStrictEqual([
+      [
+        ["重构宿主", true, false],
+        ["调研 pi RPC", false, false],
+        ["a.ts", false, true],
+      ],
+      ["openSession s1"],
+    ]);
+  });
+
+  it("closes the viewer tab shown to the one on its left, the session there shown", async () => {
+    const { screen, tree, tabs, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).dblClick();
+    await tree.getByRole("button", { name: "b.ts" }).dblClick();
+    await expect.poll(() => tabs.elements().length).toBe(4);
+    const before = calls.length;
+
+    await screen.getByRole("button", { name: "关闭 b.ts" }).click();
+    await expect.poll(() => tabsOf(tabs)[2]).toStrictEqual(["a.ts", true, false]);
+    await screen.getByRole("button", { name: "关闭 a.ts" }).click();
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", true, false],
+      ]);
+    // The area opens the session the host made active, as it does any (SPEC-0001, "标签栏").
+    await vi.waitFor(() =>
+      expect(calls.slice(before)).toStrictEqual([
+        "readFile wks_000000000000000a a.ts",
+        "openSession s2",
+        "watch s2",
+        "openSession s2",
+      ]),
+    );
+  });
+
+  it("counts viewer tabs with the sessions' for ⌘1–9 and ⌘⇧[ ], and closes the one shown with ⌘W", async () => {
+    const { tree, tabs, calls } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).dblClick();
+    await tree.getByRole("button", { name: "b.ts" }).dblClick();
+    await expect.poll(() => tabs.elements().length).toBe(4);
+    const shown = () => tabsOf(tabs).findIndex((tab) => tab[1]);
+
+    await userEvent.keyboard("{Meta>}3{/Meta}");
+    await expect.poll(shown).toBe(2);
+    await userEvent.keyboard("{Meta>}{Shift>}]{/Shift}{/Meta}");
+    await expect.poll(shown).toBe(3);
+    await userEvent.keyboard("{Meta>}{Shift>}[[[[{/Shift}{/Meta}");
+    await vi.waitFor(() => expect(calls).toContain("openSession s2"));
+    await expect.poll(shown).toBe(1);
+    await userEvent.keyboard("{Meta>}4{/Meta}");
+    await userEvent.keyboard("{Meta>}w{/Meta}");
+
+    await expect.poll(() => tabsOf(tabs).map((tab) => tab[0])).toStrictEqual(["重构宿主", "调研 pi RPC", "a.ts"]);
+    expect([shown(), calls.filter((call) => call.startsWith("closeTab"))]).toStrictEqual([2, []]);
+  });
+
+  it("opens the one 改动 tab from the 更改 tree, saying on hover what it compares", async () => {
+    const { screen, client, tabs } = await viewing();
+    client
+      .changes(LOCAL)
+      .setState({ stat: { added: 2, removed: 0 }, dirty: true, ahead: 0, branch: "main", base: null });
+    await screen.getByRole("tab", { name: /更改/ }).click();
+    await vi.waitFor(() =>
+      expect(client.diff.getState().target).toStrictEqual({ workspaceId: LOCAL, mode: "uncommitted" }),
+    );
+    client.diff.setState({ status: "ready", files: [newFile("a.ts"), newFile("b.ts")], tooLarge: false, error: null });
+    const tree = screen.getByTestId("changes-tree");
+
+    await tree.getByRole("button", { name: /a\.ts/ }).click();
+    await tree.getByRole("button", { name: /b\.ts/ }).click();
+
+    await expect.element(screen.getByRole("region", { name: "改动" })).toBeVisible();
+    expect([tabsOf(tabs), tabs.nth(2).element().textContent]).toStrictEqual([
+      [
+        ["重构宿主", false, false],
+        ["调研 pi RPC", false, false],
+        ["未提交的改动", true, false],
+      ],
+      "改动",
+    ]);
+  });
+
+  it("shows the session again when the host makes another active, keeping the viewer tab over a trip elsewhere", async () => {
+    const { screen, tree, tabs, index } = await viewing();
+    await tree.getByRole("button", { name: "a.ts" }).click();
+    await screen.getByTestId("workspace-row").nth(1).click();
+    await expect.poll(() => tabsOf(tabs).map((tab) => tab[0])).not.toContain("a.ts");
+    await screen.getByTestId("workspace-row").nth(0).click();
+    await expect.poll(() => tabsOf(tabs).at(-1)).toStrictEqual(["a.ts", true, true]);
+
+    index.setState({ layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2"], active: "s2" } } } });
+
+    await expect
+      .poll(() => tabsOf(tabs))
+      .toStrictEqual([
+        ["重构宿主", false, false],
+        ["调研 pi RPC", true, false],
+        ["a.ts", false, true],
+      ]);
   });
 });
 

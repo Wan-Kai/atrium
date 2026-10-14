@@ -15,6 +15,15 @@ import { type Panes, createPanes } from "../state/panes";
 import { Sidebar } from "../sidebar/sidebar";
 import { type NewWorkspaceState, closePage, createNewWorkspaceStore, openPage } from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
+import {
+  type WorkspaceViews,
+  closeViewer,
+  createWorkspaceViews,
+  currentTab,
+  showViewer,
+  tabOrder,
+  viewOf,
+} from "../state/workspace-views";
 import { NewWorkspacePage } from "./new-workspace-page";
 import type { StoreApi } from "zustand";
 
@@ -80,14 +89,21 @@ function fireAndForget(command: Promise<unknown>): void {
  * SPEC-0001 ("标签栏", roadmap M1.5): ⌘N new chat, ⌘T new session where the client is, ⌘W close
  * the tab, ⌘1–9 go to a tab, ⌘⇧[ and ⌘⇧] the previous and next tab. Brackets are matched by
  * key position, since Shift changes the character. The keys read the list at the moment they
- * are pressed. On the new-workspace page, ⌘N and ⌘T leave it, and the keys for tabs do nothing,
+ * are pressed. Viewer tabs count with the sessions', after them (SPEC-0001, "M1.12 的文件与更改 ·
+ * 查看标签"). On the new-workspace page, ⌘N and ⌘T leave it, and the keys for tabs do nothing,
  * as it has none (SPEC-0001, "M1.11 的新建工作区").
  *
- * @sideEffects Listens for keys on the window while mounted; sends commands; may leave the page.
+ * @sideEffects Listens for keys on the window while mounted; sends commands; writes the views;
+ * may leave the page.
  * @param client - The client.
  * @param pages - The new-workspace page's store.
+ * @param views - The workspace views.
  */
-function useTabShortcuts(client: AtriumClient, pages: StoreApi<NewWorkspaceState>): void {
+function useTabShortcuts(
+  client: AtriumClient,
+  pages: StoreApi<NewWorkspaceState>,
+  views: StoreApi<WorkspaceViews>,
+): void {
   useEffect(() => {
     /**
      * Acts on a ⌘ shortcut.
@@ -104,25 +120,56 @@ function useTabShortcuts(client: AtriumClient, pages: StoreApi<NewWorkspaceState
       const container = index.layout.container;
       const tabs = container === null ? undefined : index.layout.tabs[container];
       const open = tabs?.open ?? [];
-      const at = open.indexOf(tabs?.active ?? "");
+      const view = container === null ? null : viewOf(views.getState(), container);
+      const order = view === null ? [] : tabOrder(open, view);
+      const at = view === null ? -1 : currentTab(order, view, tabs?.active ?? null);
       const key = event.key.toLowerCase();
       const onPage = pages.getState().page !== null;
-      let target: string | undefined;
+      let target: (typeof order)[number] | undefined;
+      let closing: string | null = null;
       if (!event.shiftKey && (key === "n" || key === "t")) closePage(pages);
       if (!event.shiftKey && key === "n") fireAndForget(client.createChat());
       else if (!event.shiftKey && key === "t") fireAndForget(createHere(client));
       else if (onPage) return;
+      else if (!event.shiftKey && key === "w" && container !== null && view?.active != null)
+        closing = closeViewer(views, container, view.active, open);
       else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
-      else if (!event.shiftKey && /^[1-9]$/.test(event.key)) target = open[Number(event.key) - 1];
-      else if (event.shiftKey && event.code === "BracketLeft") target = open[at - 1];
-      else if (event.shiftKey && event.code === "BracketRight") target = open[at + 1];
+      else if (!event.shiftKey && /^[1-9]$/.test(event.key)) target = order[Number(event.key) - 1];
+      else if (event.shiftKey && event.code === "BracketLeft") target = order[at - 1];
+      else if (event.shiftKey && event.code === "BracketRight") target = order[at + 1];
       else return;
-      if (target !== undefined) fireAndForget(client.openSession(target));
+      if (closing !== null) fireAndForget(client.openSession(closing));
+      if (target !== undefined && container !== null) {
+        showViewer(views, container, target.kind === "viewer" ? target.key : null);
+        if (target.kind === "session") fireAndForget(client.openSession(target.id));
+      }
       event.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client, pages]);
+  }, [client, pages, views]);
+}
+
+/**
+ * Shows the session again whenever the container's active session changes under a viewer tab.
+ *
+ * @remarks
+ * The host makes a session active when one is created or opened (⌘T, the history menu, the
+ * sidebar); it should then show, not stay behind the viewer tab. Going to another container
+ * keeps each container's viewer tab as it was (SPEC-0001, "M1.12 的文件与更改 · 查看标签").
+ *
+ * @sideEffects Writes the views.
+ * @param views - The workspace views.
+ * @param container - The current container.
+ * @param sessionId - Its active session.
+ */
+function useSessionShows(views: StoreApi<WorkspaceViews>, container: string | null, sessionId: string | null): void {
+  const [seen, setSeen] = useState({ container, sessionId });
+  if (seen.container !== container || seen.sessionId !== sessionId) {
+    // Adjusting state while rendering, as React advises for state that follows other values.
+    setSeen({ container, sessionId });
+    if (seen.container === container && container !== null && sessionId !== null) showViewer(views, container, null);
+  }
 }
 
 /**
@@ -462,6 +509,7 @@ function MainWindow({
   }, [chooseSection, showSettings]);
   const [pages] = useState(createNewWorkspaceStore);
   const [panes] = useState(() => createPanes(localStorage));
+  const [views] = useState(() => createWorkspaceViews(localStorage));
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
   useDraftCleanup(index);
@@ -483,7 +531,8 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client, pages);
+  useTabShortcuts(client, pages, views);
+  useSessionShows(views, container, sessionId);
   usePaneShortcuts(client, pages, panes);
   // On the new-workspace page no session shows.
   useSeenErrors(client, index, pageProject === null ? sessionId : null);
@@ -516,6 +565,7 @@ function MainWindow({
               containerId={container}
               onNew={() => fireAndForget(createHere(client))}
               panes={panes}
+              views={views}
             />
           )}
           {resets.length > 0 ? (
@@ -540,6 +590,7 @@ function MainWindow({
                 create={() => createHere(client)}
                 launches={pages}
                 panes={panes}
+                views={views}
               />
             </OpenLogin>
           ) : (

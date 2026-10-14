@@ -350,3 +350,13 @@ body {
     inset 0 0 0 1px rgba(94, 132, 255, 0.45),
     0 0 16px -4px rgba(94, 132, 255, 0.5);
 }
+
+/* A viewer tab's coloured code: each token's colour for the appearance (files/highlight.ts). A
+   colour left out lets the line's own show. */
+.code-tokens span[style] {
+  color: var(--l);
+}
+
+.dark .code-tokens span[style] {
+  color: var(--d);
+}

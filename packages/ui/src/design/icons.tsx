@@ -29,6 +29,8 @@ import {
   Download04Icon,
   File01Icon,
   File02Icon,
+  FileDiffIcon,
+  Files01Icon,
   FlashIcon,
   Folder01Icon,
   FolderAddIcon,
@@ -62,7 +64,9 @@ import {
   StopCircleIcon,
   Sun03Icon,
   TextAlignLeftIcon,
+  TextWrapIcon,
   Tick02Icon,
+  UnfoldVerticalIcon,
   UserIcon,
   ViewIcon,
 } from "@hugeicons/core-free-icons";
@@ -147,6 +151,7 @@ export const ArrowDown = drawn(ArrowDown02Icon);
 export const ArrowRight = drawn(ArrowRight02Icon);
 export const ArrowsClockwise = drawn(RefreshIcon);
 export const ArrowsInLineVertical = drawn(FoldVerticalIcon);
+export const ArrowsOutLineVertical = drawn(UnfoldVerticalIcon);
 export const ArrowsInSimple = drawn(ArrowShrinkIcon);
 export const ArrowsOutSimple = drawn(ArrowExpandIcon);
 export const ArrowUp = drawn(ArrowUp02Icon, 2.5);
@@ -168,6 +173,8 @@ export const DownloadSimple = drawn(Download04Icon);
 export const Eye = drawn(ViewIcon);
 export const File = drawn(File01Icon);
 export const FileText = drawn(File02Icon);
+export const FileDiff = drawn(FileDiffIcon);
+export const Files = drawn(Files01Icon);
 export const Folder = drawn(Folder01Icon);
 export const FolderOpen = drawn(FolderOpenIcon);
 export const FolderPlus = drawn(FolderAddIcon);
@@ -205,6 +212,7 @@ export const Sun = drawn(Sun03Icon);
 export const Terminal = drawn(CommandLineIcon);
 export const TerminalWindow = drawn(ComputerTerminal01Icon);
 export const TextAlignLeft = drawn(TextAlignLeftIcon);
+export const TextWrap = drawn(TextWrapIcon);
 export const User = drawn(UserIcon);
 export const Warning = drawn(Alert02Icon);
 export const WarningCircle = drawn(AlertCircleIcon);

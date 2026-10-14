@@ -7,6 +7,8 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
+import { memoryStorage } from "../state/panes";
+import { createWorkspaceViews, openDiff, openFile, showViewer } from "../state/workspace-views";
 import { pageNotices, showNotice } from "../state/session-notices";
 import { caughtDownloads } from "../test/downloads";
 import { fakeClient, session } from "../test/fake-client";
@@ -1975,10 +1977,10 @@ describe("ConversationArea's workspace changes", () => {
     const capsule = screen.getByRole("button", { name: "查看改动" });
     await expect.element(capsule).toHaveTextContent("+1.2k−3");
     await capsule.click();
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).toBeVisible();
     await expect.element(capsule).toHaveAttribute("aria-expanded", "true");
     await capsule.click();
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).not.toBeInTheDocument();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).not.toBeInTheDocument();
 
     await screen.rerender(
       tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
@@ -2002,7 +2004,7 @@ describe("ConversationArea's workspace changes", () => {
 
     await screen.getByRole("button", { name: "查看改动" }).click();
 
-    await expect.element(screen.getByRole("complementary", { name: "改动" })).toBeVisible();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).toBeVisible();
   });
 
   it("cuts off the changes panel past the conversation area's edge, where it slides out", async () => {
@@ -2021,7 +2023,7 @@ describe("ConversationArea's workspace changes", () => {
     const screen = await render(
       tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
     );
-    const panel = screen.getByRole("complementary", { name: "改动" });
+    const panel = screen.getByRole("complementary", { name: "文件与更改" });
     await screen.getByRole("button", { name: "查看改动" }).click();
     await expect.element(panel).toBeVisible();
 
@@ -2030,8 +2032,66 @@ describe("ConversationArea's workspace changes", () => {
     );
 
     await expect.element(panel).toBeVisible();
-    await screen.getByRole("button", { name: "关闭改动" }).click();
+    await screen.getByRole("button", { name: "关闭右栏" }).click();
     await expect.element(panel).not.toBeInTheDocument();
+  });
+
+  it("turns the open panel to 更改 from the capsule, closing it only when it shows 更改", async () => {
+    const { client } = fakeClient();
+    client.changes(W).setState(changed);
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} />),
+    );
+    const capsule = screen.getByRole("button", { name: "查看改动" });
+    await capsule.click();
+    const tab = screen.getByRole("tab", { name: /更改/ });
+    await expect.element(tab).toHaveAttribute("aria-selected", "true");
+    await screen.getByRole("tab", { name: "文件" }).click();
+
+    await capsule.click();
+
+    await expect.element(tab).toHaveAttribute("aria-selected", "true");
+    await capsule.click();
+    await expect.element(screen.getByRole("complementary", { name: "文件与更改" })).not.toBeInTheDocument();
+  });
+
+  it("watches the diff while the 改动 tab shows, the panel closed, and stops once it goes", async () => {
+    const { client, changeCalls } = fakeClient();
+    client.changes(W).setState(changed);
+    const views = createWorkspaceViews(memoryStorage());
+    await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    await vi.waitFor(() => expect(changeCalls).toStrictEqual([`watchChanges ${W}`]));
+
+    openDiff(views, W, null);
+    await vi.waitFor(() => expect(changeCalls.at(-1)).toBe(`watchDiff ${W} uncommitted`));
+    showViewer(views, W, null);
+
+    await vi.waitFor(() =>
+      expect(changeCalls).toStrictEqual([`watchChanges ${W}`, `watchDiff ${W} uncommitted`, "watchDiff null"]),
+    );
+  });
+
+  it("gives the whole area to a viewer tab, the conversation back once the session shows", async () => {
+    const { client } = fakeClient(
+      {},
+      { readFile: async () => ({ size: 6, content: { kind: "text" as const, text: "hello\n" } }) },
+    );
+    const views = createWorkspaceViews(memoryStorage());
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
+
+    openFile(views, W, "src/a.ts", false);
+    await expect
+      .element(screen.getByRole("region", { name: "src/a.ts" }))
+      .toHaveTextContent("a.tssrc/6 B · 1 行1hello");
+    expect(screen.getByRole("textbox", { name: "消息" }).query()).toBeNull();
+    showViewer(views, W, null);
+
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeVisible();
   });
 });
 

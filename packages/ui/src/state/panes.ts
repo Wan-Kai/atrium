@@ -1,17 +1,18 @@
 import { type StoreApi, createStore } from "zustand/vanilla";
 
-// The sidebar folded or not, and the changes panel open or not and how wide, remembered in this
-// browser profile for every workspace (SPEC-0001, "界面 · 左栏折叠与右栏").
+// The sidebar folded or not, and the right panel open or not and how wide, remembered in this
+// browser profile for every workspace (SPEC-0001, "界面 · 左栏折叠与右栏", "M1.12 的文件与更改").
 
-/** The changes panel's widths in pixels, and a key's step (design-language, "圆角、尺寸与间距"). */
-export const PANEL_WIDTH = { usual: 560, least: 360, step: 16 } as const;
+/** The right panel's widths in pixels, and a key's step (SPEC-0001, "M1.12 的文件与更改"). */
+export const PANEL_WIDTH = { usual: 320, least: 240, step: 16 } as const;
 
 /** The least the conversation keeps beside the changes panel, in pixels. */
 const CHAT_LEAST = 440;
 
 const SIDEBAR_KEY = "atrium.sidebarCollapsed";
 const PANEL_OPEN_KEY = "atrium.changesOpen";
-const PANEL_WIDTH_KEY = "atrium.changesWidth";
+// A new key since M1.12: the width kept before, mostly the old usual 560px, is not carried over.
+const PANEL_WIDTH_KEY = "atrium.rightPanelWidth";
 
 /** The part of `localStorage` the panes use. */
 export type PaneStorage = Pick<Storage, "getItem" | "setItem">;
@@ -28,10 +29,10 @@ export interface Panes {
 }
 
 /**
- * The width the changes panel shows at, given the room it and the conversation share.
+ * The width the right panel shows at, given the room it and the conversation share.
  *
  * @remarks
- * SPEC-0001 ("工作区改动"): at least 360px; at most what leaves the conversation 440px. With too
+ * SPEC-0001 ("M1.12 的文件与更改"): at least 240px; at most what leaves the conversation 440px. With too
  * little room for both, the panel keeps its least and the conversation narrows.
  *
  * @sideEffects none
@@ -44,7 +45,7 @@ export function fitPanelWidth(width: number, room: number): number {
 }
 
 /**
- * The changes panel's CSS width, as `fitPanelWidth` fits it, for an element whose containing
+ * The right panel's CSS width, as `fitPanelWidth` fits it, for an element whose containing
  * block is the room.
  *
  * @remarks

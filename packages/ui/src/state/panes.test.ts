@@ -2,31 +2,31 @@ import { describe, expect, it } from "vitest";
 import { createPanes, fitPanelWidth, memoryStorage, panelWidthCss } from "./panes";
 
 describe("fitPanelWidth", () => {
-  it("keeps the width wanted, whole, while the conversation keeps 440px and the panel 360px", () => {
+  it("keeps the width wanted, whole, while the conversation keeps 440px and the panel 240px", () => {
     expect([
-      fitPanelWidth(560.4, 1400),
+      fitPanelWidth(320.4, 1400),
       fitPanelWidth(960, 1400),
       fitPanelWidth(961, 1400),
-      fitPanelWidth(359, 1400),
-      fitPanelWidth(560, 700),
-    ]).toStrictEqual([560, 960, 960, 360, 360]);
+      fitPanelWidth(239, 1400),
+      fitPanelWidth(320, 600),
+    ]).toStrictEqual([320, 960, 960, 240, 240]);
   });
 });
 
 describe("panelWidthCss", () => {
   it("fits the width, whole, as fitPanelWidth does, against the room CSS knows", () => {
-    expect(panelWidthCss(560.4)).toBe("max(360px, min(560px, 100% - 440px))");
+    expect(panelWidthCss(320.4)).toBe("max(240px, min(320px, 100% - 440px))");
   });
 });
 
 describe("createPanes", () => {
-  it("starts unfolded, closed and 560px wide with nothing stored", () => {
+  it("starts unfolded, closed and 320px wide with nothing stored", () => {
     const { sidebarCollapsed, panelOpen, panelWidth } = createPanes(memoryStorage()).getState();
 
     expect({ sidebarCollapsed, panelOpen, panelWidth }).toStrictEqual({
       sidebarCollapsed: false,
       panelOpen: false,
-      panelWidth: 560,
+      panelWidth: 320,
     });
   });
 
@@ -45,7 +45,7 @@ describe("createPanes", () => {
     expect([
       storage.getItem("atrium.sidebarCollapsed"),
       storage.getItem("atrium.changesOpen"),
-      storage.getItem("atrium.changesWidth"),
+      storage.getItem("atrium.rightPanelWidth"),
     ]).toStrictEqual(["true", "true", "480"]);
     expect({ sidebarCollapsed, panelOpen, panelWidth }).toStrictEqual({
       sidebarCollapsed: true,
@@ -59,13 +59,20 @@ describe("createPanes", () => {
     ]);
   });
 
-  it("reads a stored width that is no number, or under 360px, as 560px, and a fraction as whole", () => {
-    const widths = ["wide", "", "359", "Infinity", "360", "400.6"].map((stored) => {
+  it("reads a stored width that is no number, or under 240px, as 320px, and a fraction as whole", () => {
+    const widths = ["wide", "", "239", "Infinity", "240", "400.6"].map((stored) => {
       const storage = memoryStorage();
-      storage.setItem("atrium.changesWidth", stored);
+      storage.setItem("atrium.rightPanelWidth", stored);
       return createPanes(storage).getState().panelWidth;
     });
 
-    expect(widths).toStrictEqual([560, 560, 560, 560, 360, 401]);
+    expect(widths).toStrictEqual([320, 320, 320, 320, 240, 401]);
+  });
+
+  it("does not carry over the width kept before M1.12", () => {
+    const storage = memoryStorage();
+    storage.setItem("atrium.changesWidth", "560");
+
+    expect(createPanes(storage).getState().panelWidth).toBe(320);
   });
 });
