@@ -114,7 +114,13 @@ const FileDiff = memo(function FileDiff({
 }) {
   const { name, dir } = splitPath(file.path);
   return (
-    <section ref={(element) => anchor(file.path, element)} aria-label={file.path} data-path={file.path}>
+    <section
+      ref={(element) => anchor(file.path, element)}
+      aria-label={file.path}
+      data-path={file.path}
+      // The last file is at least as tall as the tab, so it can come to the top, and no taller.
+      className="last:min-h-full"
+    >
       <button
         type="button"
         aria-expanded={!folded}
@@ -286,7 +292,8 @@ function useColoured(files: readonly DiffFile[], inView: ReadonlySet<string>): R
  * are the right panel's. The top row says the mode, the files and their totals, with "全部折叠 /
  * 展开" and wrapping; what is folded is kept by workspace and mode. Opened from a file in the tree,
  * it goes to that file's header, unfolding it, and the header's background fades from
- * `--selected` in 1s. Below the last file there is room to bring it to the top. The scroll area is
+ * `--selected` in 1s. The last file is at least as tall as the tab, so it can come to the top,
+ * with no more room below it than that takes (2026-10-14). The scroll area is
  * contained, so a move of the panes beside it does not walk its lines (design-language, "右栏").
  * Its scroll and wrapping are kept by tab (`useViewerPlace`).
  *
@@ -456,7 +463,6 @@ export function DiffViewer({
                 anchor={anchor}
               />
             ))}
-            <div aria-hidden="true" className="h-[calc(100%-32px)]" />
           </>
         )}
       </div>

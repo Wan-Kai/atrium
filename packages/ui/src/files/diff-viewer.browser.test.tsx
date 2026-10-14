@@ -277,6 +277,24 @@ describe("DiffViewer", () => {
     ]).toStrictEqual([[["var(--selected)", "var(--main)"]], true]);
   });
 
+  it("ends at the last file's last line when that file is longer than the tab, leaving no room below it", async () => {
+    const { screen, body } = await viewer({ files: FILES.filter((file) => file.path.startsWith("src/")) });
+    await expect.element(screen.getByText("line 40")).toBeInTheDocument();
+
+    // Scrolled to the end each time, as colouring the lines may move it; measured from the bottom of
+    // what shows, above the sideways scrollbar.
+    await expect
+      .poll(() => {
+        body.scrollTop = body.scrollHeight;
+        return Math.round(
+          body.getBoundingClientRect().top +
+            body.clientHeight -
+            screen.getByText("line 40").element().getBoundingClientRect().bottom,
+        );
+      })
+      .toBe(4);
+  });
+
   it("stops the header's flash when it goes, so it does not keep the tab alive", async () => {
     const { screen, views } = await viewer();
     const header = screen.getByRole("region", { name: "z.json" }).getByRole("button");
