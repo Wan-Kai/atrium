@@ -1,5 +1,5 @@
 import { CommandError, type ModelListView } from "@atrium/client";
-import type { ModelRef, ThinkingLevel } from "@atrium/protocol";
+import type { CatalogModel, ModelRef, ThinkingLevel } from "@atrium/protocol";
 import { ArrowClockwise, CaretDown, Check, Lightning } from "../design/icons";
 import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { DotSeedContext, paintDots, reducedMotion, sweepProgress } from "../design/dots";
@@ -246,7 +246,7 @@ function ModelPanel({
     <div
       role="dialog"
       aria-label="模型与推理强度"
-      className="absolute right-0 bottom-full z-30 mb-2 w-[340px] rounded-[var(--r-card)] bg-[var(--popover)] p-2 text-[var(--text-2)] shadow-[var(--float-shadow)]"
+      className="absolute right-0 bottom-full z-30 mb-2 w-[372px] rounded-[var(--r-card)] bg-[var(--popover)] p-2 text-[var(--text-2)] shadow-[var(--float-shadow)]"
     >
       {mode === "effort" ? null : (
         <ModelList shown={shown} list={list} onRefresh={onRefresh} onChoose={onChooseModel} />
@@ -317,54 +317,7 @@ function ModelList({
   const detail = list.error instanceof CommandError ? list.error.params?.["detail"] : undefined;
   let body;
   if (list.models.length > 0) {
-    body = groupByProvider(list.models).map(({ providerId, models }) => {
-      const provider = providerOf(providerId);
-      return (
-        <div key={providerId} role="group" aria-label={provider.name}>
-          <div className="flex items-center gap-1.5 px-2 pt-1 pb-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
-            <ProviderIcon providerId={providerId} size={14} />
-            {provider.name}
-          </div>
-          {models.map((model) => {
-            const current = shown?.providerId === model.providerId && shown.modelId === model.modelId;
-            const basics = [
-              `上下文 ${formatTokens(model.contextWindow)}`,
-              `输出 ${formatTokens(model.maxOutput)}`,
-              ...(model.supportsImage ? ["支持图片"] : []),
-            ].join(" · ");
-            return (
-              <button
-                key={model.modelId}
-                type="button"
-                role="menuitemradio"
-                aria-checked={current}
-                onClick={() => onChoose({ providerId: model.providerId, modelId: model.modelId })}
-                className="flex w-full items-center gap-3 rounded-[var(--r-md)] px-2.5 py-2 text-left hover:bg-[var(--hover)] aria-checked:bg-[var(--selected)]"
-              >
-                <span className="min-w-0 flex-1">
-                  <b className="block truncate text-[length:var(--fs-meta)] font-medium text-[var(--text)]">
-                    {model.name}
-                    {model.fast === null ? null : (
-                      <Lightning
-                        size={11}
-                        weight="fill"
-                        role="img"
-                        aria-label="支持 Fast"
-                        className="ml-1 inline align-[-1px] text-[var(--tint)]"
-                      />
-                    )}
-                  </b>
-                  <small className="mt-px block text-[length:var(--fs-xs)] text-[var(--text-dim)]">{basics}</small>
-                </span>
-                <span className="inline-flex w-4 text-[var(--accent)]">
-                  {current ? <Check size={13} weight="bold" /> : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      );
-    });
+    body = <ProviderColumns shown={shown} groups={groupByProvider(list.models)} onChoose={onChoose} />;
   } else if (list.status === "failed") {
     body = (
       <div className="px-2.5 py-2 text-[length:var(--fs-meta)]">
@@ -409,8 +362,152 @@ function ModelList({
           </button>
         </span>
       </div>
-      <div className="max-h-[320px] overflow-y-auto">{body}</div>
+      {list.models.length > 0 ? body : <div className="max-h-[320px] overflow-y-auto">{body}</div>}
     </>
+  );
+}
+
+/**
+ * The models in two columns: the providers' icons, and the chosen provider's models.
+ *
+ * @remarks
+ * SPEC-0001 ("模型与输入框"), design-language ("模型面板"). It opens on the current model's
+ * provider, or the first when there is none; a click on another provider's icon shows its models,
+ * hovering does not. The models' column keeps its height, so the panel does not jump. A
+ * provider's name shows to the left of its icon while it is hovered or focused, as the column has
+ * room only for icons. A model with Fast has a small bolt after its name (SPEC-0001, "Fast").
+ *
+ * @sideEffects Calls `onChoose`.
+ * @param props - The model shown, the models by provider, and what choosing one does.
+ * @returns The columns.
+ */
+function ProviderColumns({
+  shown,
+  groups,
+  onChoose,
+}: {
+  readonly shown: ShownModel | null;
+  readonly groups: readonly { readonly providerId: string; readonly models: readonly CatalogModel[] }[];
+  readonly onChoose: (model: ModelRef) => void;
+}) {
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [named, setNamed] = useState<{ readonly name: string; readonly top: number } | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const current = shown?.providerId;
+  const active =
+    groups.find((group) => group.providerId === chosen) ??
+    groups.find((group) => group.providerId === current) ??
+    groups[0];
+  if (active === undefined) return null;
+  const { models } = active;
+
+  /**
+   * Says a provider's name beside its icon.
+   *
+   * @remarks
+   * See `ProviderColumns`; placed from the icon, as the column of icons scrolls.
+   *
+   * @sideEffects Sets the name shown.
+   * @param icon - The provider's button.
+   * @param providerName - Its name.
+   */
+  const sayName = (icon: HTMLElement, providerName: string): void => {
+    const box = icon.getBoundingClientRect();
+    const at = root.current?.getBoundingClientRect();
+    if (at !== undefined) setNamed({ name: providerName, top: box.top + box.height / 2 - at.top });
+  };
+
+  return (
+    <div ref={root} className="relative flex h-[320px]">
+      <div
+        role="tablist"
+        aria-label="服务商"
+        aria-orientation="vertical"
+        className="mr-1.5 flex w-[50px] flex-none flex-col gap-0.5 overflow-y-auto pr-1.5 shadow-[inset_-0.5px_0_0_var(--line)]"
+      >
+        {groups.map(({ providerId }) => {
+          const provider = providerOf(providerId);
+          return (
+            <button
+              key={providerId}
+              type="button"
+              role="tab"
+              aria-selected={providerId === active.providerId}
+              aria-label={provider.name}
+              onClick={() => setChosen(providerId)}
+              onMouseEnter={(event) => sayName(event.currentTarget, provider.name)}
+              onMouseLeave={() => setNamed(null)}
+              onFocus={(event) => sayName(event.currentTarget, provider.name)}
+              onBlur={() => setNamed(null)}
+              className="relative flex h-10 w-11 flex-none items-center justify-center rounded-[var(--r-md)] hover:bg-[var(--hover)] aria-selected:bg-[var(--selected)]"
+            >
+              <ProviderIcon providerId={providerId} size={22} />
+              {providerId === current ? (
+                <span
+                  role="img"
+                  aria-label="当前模型"
+                  className="absolute top-1.5 right-[7px] size-1.5 rounded-full bg-[var(--tint)] shadow-[0_0_0_1.5px_var(--popover)]"
+                />
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+      <div role="tabpanel" aria-label={providerOf(active.providerId).name} className="min-w-0 flex-1 overflow-y-auto">
+        <div className="sticky top-0 z-[1] flex items-baseline gap-1.5 bg-[var(--popover)] px-2.5 pt-0.5 pb-1.5 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
+          <b className="text-[length:var(--fs-sm)] font-medium text-[var(--text-2)]">
+            {providerOf(active.providerId).name}
+          </b>
+          {models.length} 个模型
+        </div>
+        {models.map((model) => {
+          const picked = shown?.providerId === model.providerId && shown.modelId === model.modelId;
+          const basics = [
+            `上下文 ${formatTokens(model.contextWindow)}`,
+            `输出 ${formatTokens(model.maxOutput)}`,
+            ...(model.supportsImage ? ["支持图片"] : []),
+          ].join(" · ");
+          return (
+            <button
+              key={model.modelId}
+              type="button"
+              role="menuitemradio"
+              aria-checked={picked}
+              onClick={() => onChoose({ providerId: model.providerId, modelId: model.modelId })}
+              className="flex w-full items-center gap-3 rounded-[var(--r-md)] px-2.5 py-2 text-left hover:bg-[var(--hover)] aria-checked:bg-[var(--selected)]"
+            >
+              <span className="min-w-0 flex-1">
+                <b className="block truncate text-[length:var(--fs-meta)] font-medium text-[var(--text)]">
+                  {model.name}
+                  {model.fast === null ? null : (
+                    <Lightning
+                      size={11}
+                      weight="fill"
+                      role="img"
+                      aria-label="支持 Fast"
+                      className="ml-1 inline align-[-1px] text-[var(--tint)]"
+                    />
+                  )}
+                </b>
+                <small className="mt-px block text-[length:var(--fs-xs)] text-[var(--text-dim)]">{basics}</small>
+              </span>
+              <span className="inline-flex w-4 text-[var(--accent)]">
+                {picked ? <Check size={13} weight="bold" /> : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {named === null ? null : (
+        <div
+          role="tooltip"
+          style={{ top: named.top }}
+          className="pointer-events-none absolute right-[calc(100%+8px)] z-10 -translate-y-1/2 whitespace-nowrap rounded-[var(--r-sm)] bg-[var(--popover)] px-2 py-[3px] text-[length:var(--fs-xs)] text-[var(--text-2)] shadow-[var(--float-shadow)]"
+        >
+          {named.name}
+        </div>
+      )}
+    </div>
   );
 }
 
