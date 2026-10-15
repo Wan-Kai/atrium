@@ -402,6 +402,31 @@ describe("Workbench sidebar", () => {
     await vi.waitFor(() => expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3"]));
   });
 
+  it("leaves out a workspace whose directory is gone, from the project and the search, unless it is the current one", async () => {
+    const initial = list();
+    const gone = workspace({
+      id: "wks_0000000000000gon",
+      branch: "spike/gone",
+      createdAt: 7,
+      merge: { dirty: false, ahead: 0, verdict: "removed", reason: null },
+    });
+    const { screen, index } = await workbench({ initial: { ...initial, workspaces: [...initial.workspaces, gone] } });
+    const names = () =>
+      screen
+        .getByTestId("workspace-row")
+        .elements()
+        .map((row) => row.querySelector("span")?.textContent);
+
+    await vi.waitFor(() => expect(names()).toStrictEqual(["main", "feat/sidebar", "fix/typo"]));
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "spike");
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    index.setState({ layout: { container: gone.id, tabs: {} } });
+    await vi.waitFor(() => expect(names()).toStrictEqual(["main", "feat/sidebar", "fix/typo", "spike/gone"]));
+    await expect.element(screen.getByTestId("workspace-row").nth(3)).toHaveAttribute("aria-current", "true");
+  });
+
   it("lists every workspace of a project with five, without 显示全部", async () => {
     const initial = list();
     const tries = [6, 4].map((at) =>

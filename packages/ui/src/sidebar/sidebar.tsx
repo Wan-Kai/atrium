@@ -637,7 +637,8 @@ function ChatRows({
  * (SPEC-0001, "M1.11 的工作区归档"). Opening and closing fold the workspaces' rows in and out and
  * cross-fade the folder (SPEC-0001, "侧栏"; design-language, "动效"). Hovering shows "+", which
  * opens the project's new-workspace page; the row is selected while the page shows (SPEC-0001,
- * "M1.11 的新建工作区"). Five workspaces are listed, and the current one after them when it comes
+ * "M1.11 的新建工作区"). One whose directory is gone is left out unless it is the current one
+ * (SPEC-0001, "项目与工作区"). Five workspaces are listed, and the current one after them when it comes
  * later; "显示全部 N 个" opens the rest in place and "收起" closes them, not remembered (SPEC-0001,
  * "项目与工作区").
  *
@@ -677,7 +678,13 @@ function ProjectRows({
   const [archiving, setArchiving] = useState<Workspace | null>(null);
   const [all, setAll] = useState(false);
   const own = index.workspaces.filter((workspace) => workspace.projectId === project.id);
-  const workspaces = sortWorkspaces(own.filter((workspace) => workspace.archivedAt === null));
+  const workspaces = sortWorkspaces(
+    own.filter(
+      (workspace) =>
+        workspace.archivedAt === null &&
+        (workspace.merge?.verdict !== "removed" || workspace.id === index.layout.container),
+    ),
+  );
   const shown = all
     ? workspaces
     : workspaces.filter((workspace, at) => at < FIRST_WORKSPACES || workspace.id === index.layout.container);
@@ -1027,7 +1034,7 @@ function MergeLabels({ workspace }: { readonly workspace: Pick<Workspace, "merge
  * Search results: matching workspaces, then chats, then sessions.
  *
  * @remarks
- * Workspace names, chat names and session titles, ignoring case (SPEC-0001, "搜索"); archived
+ * Workspace names, chat names and session titles, ignoring case (SPEC-0001, "搜索"); archived and removed
  * workspaces and sessions, and chats with nothing else, are left out. Sessions show where they live on a second
  * line.
  *
@@ -1051,7 +1058,10 @@ function SearchResults({
   const leave = use(LeavePage);
   const needle = query.toLowerCase();
   const workspaces = index.workspaces.filter(
-    (workspace) => workspace.archivedAt === null && workspaceName(workspace).toLowerCase().includes(needle),
+    (workspace) =>
+      workspace.archivedAt === null &&
+      workspace.merge?.verdict !== "removed" &&
+      workspaceName(workspace).toLowerCase().includes(needle),
   );
   const chats = listedChats(index).filter((listed) =>
     chatName(listed.chat, index.sessions).toLowerCase().includes(needle),
