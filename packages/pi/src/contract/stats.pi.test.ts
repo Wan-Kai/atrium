@@ -2,7 +2,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { runScenario } from "../../test/contract";
 import { type LogEntry, type LogUsage, toLogEntry } from "../history/log-entry";
-import { contextShares } from "../history/system-prompt";
+import { contextParts } from "../history/system-prompt";
 import { piStatsOf } from "../stats/session-stats";
 
 /**
@@ -69,8 +69,8 @@ describe("pi contract: session statistics", () => {
         expect(stats.tokens.input + stats.tokens.output).toBeGreaterThan(0);
         expect(stats.context?.window).toBeGreaterThan(0);
         expect(stats.context?.tokens).toBeGreaterThan(0);
-        expect(contextShares(logged)?.system).toBeGreaterThan(0);
-        expect(contextShares(logged)?.tools).toBeGreaterThan(0);
+        expect(contextParts(logged)?.system).toBeGreaterThan(0);
+        expect(contextParts(logged)?.builtin.tokens).toBeGreaterThan(0);
       },
     );
   });

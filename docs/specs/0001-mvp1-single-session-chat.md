@@ -1060,7 +1060,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 - **自动压缩预留**：pi 在上下文超过"窗口 − `reserveTokens`"时自动压缩。宿主读 pi 的全局设置（`<pi 目录>/settings.json` 的 `compaction`）：`enabled` 为 `false` 时没有预留；`reserveTokens` 先看 `modelOverrides["服务商/模型"]`，再看 `compaction.reserveTokens`，都没有时是 16384。项目里的 `.pi/settings.json` 要等 pi 信任这个项目才生效，宿主不读它（同 `sessionDir`），所以项目里改过时会有出入。设置文件在 pi 启动时、换模型后读。
 - 协议：`context.parts` 为 `null` 或
   - `system`：数；
-  - `memory`：`{ tokens, files: [{ path, tokens }] }`，`path` 是 pi 写的路径；
+  - `memory`：`{ tokens, files: [{ path, tokens }] }`，`path` 是 pi 写的路径，家目录下的由宿主写成 `~/…`；
   - `skills`：`{ tokens, items: [{ name, tokens }] }`；
   - `builtin`：`{ tokens, items: [{ name, tokens }] }`；
   - `mcp`：`{ tokens, servers: [{ name, tools, tokens }] }`；

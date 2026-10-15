@@ -1,5 +1,6 @@
 import {
   FAST_COMMAND,
+  compactionReserve,
   type PiInspection,
   PiRequestError,
   isFastSwitch,
@@ -26,7 +27,7 @@ import {
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
 import { mkdir, mkdtemp, readFile, rm, rmdir, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
@@ -714,7 +715,7 @@ export function createSessionManager(options: {
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
       stop: () => pi.stop(),
     };
-    return { traced, view, entries, model, fast: launch.fast };
+    return { traced, view, entries, model, fast: launch.fast, env: tools.env };
   }
 
   /**
@@ -758,7 +759,7 @@ export function createSessionManager(options: {
    * @returns The session.
    */
   async function connect(sessionId: string, spawned: Awaited<ReturnType<typeof spawn>>): Promise<Running> {
-    const { traced, view, entries, model, fast } = spawned;
+    const { traced, view, entries, model, fast, env } = spawned;
     const known = sessions.get(sessionId);
     if (known !== undefined) {
       if (!known.controller.exited) {
@@ -793,6 +794,8 @@ export function createSessionManager(options: {
         options.logger.warn({ ...failureFields(error), sessionId }, "transcript refresh failed"),
       log: (level, message, fields) => options.logger[level]({ ...fields }, message),
       respawn: () => respawn(sessionId),
+      readReserve: (chosen) => compactionReserve(env, chosen),
+      home: env["HOME"] ?? homedir(),
       model,
       onModelChosen: (chosen) => options.models?.chosen(chosen),
       fast,

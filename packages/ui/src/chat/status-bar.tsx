@@ -5,8 +5,10 @@ import {
   STATUS_GROUPS,
   cacheHit,
   contextLevel,
+  type ContextRow,
+  type ContextRowKey,
   contextPercent,
-  contextSegments,
+  contextRows,
   formatCost,
   formatSeconds,
   formatSpeed,
@@ -14,6 +16,7 @@ import {
   formatWhole,
   shownGroups,
   totalTokens,
+  windowShare,
   withChoice,
 } from "./status-figures";
 
@@ -139,20 +142,6 @@ function Ring({ percent }: { readonly percent: number | null }) {
 }
 
 /**
- * A colour swatch before a context segment's name.
- *
- * @remarks
- * The same colour as the segment's part of the bar above.
- *
- * @sideEffects none
- * @param props - The colour.
- * @returns The swatch.
- */
-function Swatch({ color }: { readonly color: string }) {
-  return <span className="mr-2 inline-block size-2.5 rounded-[3px] align-[-1px]" style={{ background: color }} />;
-}
-
-/**
  * Tokens written whole, or a dash while unknown.
  *
  * @remarks
@@ -181,16 +170,248 @@ function share(tokens: number, window: number): string {
   return `${((tokens / window) * 100).toFixed(2)}%`;
 }
 
+/** What a card can do to the session: compact it, when it can be. */
+interface CardActions {
+  readonly onCompact: (() => void) | undefined;
+  readonly compactable: boolean;
+}
+
 /** How each group draws its summary and card. */
 interface GroupDrawing {
   readonly summary: (metrics: SessionMetrics) => ReactNode;
-  readonly card: (metrics: SessionMetrics) => ReactNode;
+  readonly card: (metrics: SessionMetrics, actions: CardActions) => ReactNode;
   /** The summary's colour, as the context's past 70% and 85%. */
   readonly tone?: (metrics: SessionMetrics) => string;
+  /** A card wider than the rest, 340px (design-language, "状态栏"). */
+  readonly wide?: boolean;
 }
 
-/** The context's segments' colours (design-language, "颜色"). */
-const SEGMENT_COLORS = { system: "var(--ctx-sys)", tools: "var(--ctx-tools)", messages: "var(--ctx-msgs)" } as const;
+/** The context's rows' colours (design-language, "颜色"). */
+const ROW_COLORS: Readonly<Record<ContextRowKey, string>> = {
+  messages: "var(--ctx-msgs)",
+  system: "var(--ctx-sys)",
+  memory: "var(--ctx-memory)",
+  skills: "var(--ctx-skills)",
+  builtin: "var(--ctx-tools)",
+  mcp: "var(--ctx-mcp)",
+  extensions: "var(--ctx-ext)",
+};
+
+/** The compaction reserve's stripes, in the bar and its swatch. */
+const RESERVE_STRIPES = "repeating-linear-gradient(135deg, var(--ctx-reserve) 0 2px, transparent 2px 4px)";
+
+/**
+ * One of the context card's rows, opening to what it counts when it has any.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): a colour, the name, how many things, "~N" and the
+ * share of the window; memory files are written in a monospace face (design-language, "状态栏").
+ *
+ * @sideEffects none
+ * @param props - The row, the window, whether it is open and how to open or close it.
+ * @returns The row and, when open, its things.
+ */
+function ContextLine({
+  row,
+  window,
+  open,
+  onToggle,
+}: {
+  readonly row: ContextRow;
+  readonly window: number;
+  readonly open: boolean;
+  readonly onToggle: () => void;
+}) {
+  const opens = row.items.length > 0;
+  const inside = (
+    <>
+      <span
+        aria-hidden="true"
+        className={`inline-flex w-2.5 flex-none text-[var(--text-dim)] transition-transform duration-200 ${open ? "rotate-90" : ""}`}
+      >
+        {opens ? "›" : ""}
+      </span>
+      <span className="size-2.5 flex-none rounded-[3px]" style={{ background: ROW_COLORS[row.key] }} />
+      <span className="min-w-0 flex-1 truncate text-left text-[var(--text-2)]">
+        {row.name}
+        {row.count === null ? null : (
+          <span className="ml-1 text-[length:var(--fs-sm)] text-[var(--text-dim)]">{row.count}</span>
+        )}
+      </span>
+      <span className="w-12 text-right text-[var(--text-muted)]">~{formatTokens(row.tokens)}</span>
+      <span className="w-10 text-right text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+        {windowShare(row.tokens, window)}
+      </span>
+    </>
+  );
+  return (
+    <>
+      {opens ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={onToggle}
+          className="-mx-1.5 flex h-[26px] w-[calc(100%+12px)] items-center gap-2 rounded-[6px] px-1.5 hover:bg-[var(--hover)]"
+        >
+          {inside}
+        </button>
+      ) : (
+        <div className="flex h-[26px] items-center gap-2">{inside}</div>
+      )}
+      {open ? (
+        <ul aria-label={row.name} className="mb-1 ml-[18px]">
+          {row.items.map((item) => (
+            <li key={item.name} className="flex h-[22px] items-center gap-2 text-[length:var(--fs-sm)]">
+              <span
+                title={item.name}
+                className={`min-w-0 flex-1 truncate text-[var(--text-muted)] ${row.key === "memory" ? "font-mono text-[11.5px]" : ""}`}
+              >
+                {item.name}
+              </span>
+              <span className="text-[var(--text-dim)]">~{formatTokens(item.tokens)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The context's card: what fills the window, what pi keeps free, and a way to compact.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量"). Without a model's window, or right after a
+ * compaction, it says so; without the parts, only the total and that pi compacts near the limit.
+ * Rows open and close in place, not remembered. "压缩会话" does what `/compact` does, unless the
+ * session cannot be compacted now.
+ *
+ * @sideEffects none
+ * @param props - The context and what the card can do.
+ * @returns The card.
+ */
+function ContextCard({
+  context,
+  actions,
+}: {
+  readonly context: SessionMetrics["context"];
+  readonly actions: CardActions;
+}) {
+  const [opened, setOpened] = useState<ReadonlySet<ContextRowKey>>(new Set());
+  if (context === null) {
+    return (
+      <>
+        <CardHead icon={null} title={`上下文已用 ${UNKNOWN}`} />
+        <Line name="当前模型没有给出上下文窗口" value="" />
+      </>
+    );
+  }
+  const percent = contextPercent(context);
+  if (percent === null || context.tokens === null) {
+    return (
+      <>
+        <CardHead icon={null} title={`上下文已用 ${UNKNOWN}`} />
+        <Line name="刚压缩过，下一次回复后更新" value="" />
+      </>
+    );
+  }
+  const head = (
+    <CardHead
+      icon={null}
+      title={`上下文已用 ${percent}%`}
+      total={`~${formatTokens(context.tokens)} / ${formatTokens(context.window)}`}
+    />
+  );
+  const split = contextRows(context);
+  if (split === null) {
+    return (
+      <>
+        {head}
+        <Foot>接近上限时 pi 会自动压缩</Foot>
+      </>
+    );
+  }
+  const { rows, reserve, free } = split;
+  /**
+   * Opens a row, or closes it.
+   *
+   * @remarks
+   * See `ContextCard`.
+   *
+   * @sideEffects Updates component state.
+   * @param key - The row.
+   */
+  const toggle = (key: ContextRowKey): void =>
+    setOpened((now) => {
+      const next = new Set(now);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  return (
+    <>
+      {head}
+      <div className="mt-1 mb-3 flex h-1.5 gap-0.5 overflow-hidden rounded-[var(--r-pill)] bg-[var(--line)]">
+        {rows.map((row) => (
+          <i
+            key={row.key}
+            className="h-full"
+            style={{ width: share(row.tokens, context.window), background: ROW_COLORS[row.key] }}
+          />
+        ))}
+        {reserve === null ? null : (
+          <i
+            className="ml-auto h-full"
+            style={{ width: share(reserve, context.window), background: RESERVE_STRIPES }}
+          />
+        )}
+      </div>
+      {rows.map((row) => (
+        <ContextLine
+          key={row.key}
+          row={row}
+          window={context.window}
+          open={opened.has(row.key)}
+          onToggle={() => toggle(row.key)}
+        />
+      ))}
+      {reserve === null ? null : (
+        <div className="flex h-[26px] items-center gap-2">
+          <span className="w-2.5 flex-none" />
+          <span
+            className="size-2.5 flex-none rounded-[3px] shadow-[inset_0_0_0_0.5px_var(--line-strong)]"
+            style={{ background: RESERVE_STRIPES }}
+          />
+          <span className="flex-1 text-[var(--text-2)]">自动压缩预留</span>
+          <span className="w-12 text-right text-[var(--text-muted)]">{formatTokens(reserve)}</span>
+          <span className="w-10 text-right text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+            {windowShare(reserve, context.window)}
+          </span>
+        </div>
+      )}
+      <div className="flex h-[26px] items-center gap-2">
+        <span className="w-2.5 flex-none" />
+        <span className="size-2.5 flex-none rounded-[3px] bg-[var(--line)]" />
+        <span className="flex-1 text-[var(--text-2)]">剩余空间</span>
+        <span className="w-12 text-right text-[var(--text-muted)]">~{formatTokens(free)}</span>
+        <span className="w-10 text-right text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+          {windowShare(free, context.window)}
+        </span>
+      </div>
+      <div className="mt-2 flex min-h-[26px] items-center gap-2 pt-2 text-[length:var(--fs-sm)] text-[var(--text-dim)] shadow-[inset_0_0.5px_0_var(--line)]">
+        <span className="flex-1">{reserve === null ? "自动压缩已关" : `距自动压缩还剩 ~${formatTokens(free)}`}</span>
+        <button
+          type="button"
+          disabled={!actions.compactable || actions.onCompact === undefined}
+          onClick={actions.onCompact}
+          className="inline-flex h-6 items-center rounded-[var(--r-pill)] bg-[var(--surface-1)] px-2.5 text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)] disabled:opacity-40 disabled:hover:bg-[var(--surface-1)] dark:bg-[var(--surface-2)]"
+        >
+          压缩会话
+        </button>
+      </div>
+      <div className="mt-0.5 text-[length:var(--fs-xs)] text-[var(--text-dim)]">各段按字数估算</div>
+    </>
+  );
+}
 
 /**
  * Each group's summary and card, by id (SPEC-0001, "状态栏").
@@ -265,81 +486,8 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
         </>
       );
     },
-    card: ({ context }) => {
-      if (context === null) {
-        return (
-          <>
-            <CardHead icon={null} title={`上下文已用 ${UNKNOWN}`} />
-            <Line name="当前模型没有给出上下文窗口" value="" />
-          </>
-        );
-      }
-      const percent = contextPercent(context);
-      if (percent === null || context.tokens === null) {
-        return (
-          <>
-            <CardHead icon={null} title={`上下文已用 ${UNKNOWN}`} />
-            <Line name="刚压缩过，下一次回复后更新" value="" />
-          </>
-        );
-      }
-      const parts = contextSegments(context);
-      return (
-        <>
-          <CardHead
-            icon={null}
-            title={`上下文已用 ${percent}%`}
-            total={`~${formatTokens(context.tokens)} / ${formatTokens(context.window)}`}
-          />
-          {parts === null ? null : (
-            <>
-              <div className="mt-1 mb-3 flex h-1.5 gap-0.5 overflow-hidden rounded-[var(--r-pill)] bg-[var(--line)]">
-                <i
-                  className="h-full"
-                  style={{ width: share(parts.system, context.window), background: SEGMENT_COLORS.system }}
-                />
-                <i
-                  className="h-full"
-                  style={{ width: share(parts.tools, context.window), background: SEGMENT_COLORS.tools }}
-                />
-                <i
-                  className="h-full"
-                  style={{ width: share(parts.messages, context.window), background: SEGMENT_COLORS.messages }}
-                />
-              </div>
-              <Line
-                name={
-                  <>
-                    <Swatch color={SEGMENT_COLORS.system} />
-                    系统提示词
-                  </>
-                }
-                value={`~${formatTokens(parts.system)}`}
-              />
-              <Line
-                name={
-                  <>
-                    <Swatch color={SEGMENT_COLORS.tools} />
-                    工具定义
-                  </>
-                }
-                value={`~${formatTokens(parts.tools)}`}
-              />
-              <Line
-                name={
-                  <>
-                    <Swatch color={SEGMENT_COLORS.messages} />
-                    对话消息
-                  </>
-                }
-                value={`~${formatTokens(parts.messages)}`}
-              />
-            </>
-          )}
-          <Foot>接近上限时 pi 会自动压缩</Foot>
-        </>
-      );
-    },
+    card: ({ context }, actions) => <ContextCard context={context} actions={actions} />,
+    wide: true,
   },
   cost: {
     summary: ({ cost }) => (
@@ -364,12 +512,22 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
  * @remarks
  * The card shows 120 ms after the pointer comes, stays while it is on the group or the card, and
  * goes 100 ms after it leaves, as in the prototype; CSS times it, and keyboard focus shows it too.
+ * The 8px between the group and the card belong to the card, so the pointer can cross to it and
+ * use what is in it (SPEC-0001, "状态栏").
  *
  * @sideEffects none
- * @param props - The group's drawing and the figures.
+ * @param props - The group's drawing, the figures and what its card can do.
  * @returns The group.
  */
-function Group({ drawing, metrics }: { readonly drawing: GroupDrawing; readonly metrics: SessionMetrics }) {
+function Group({
+  drawing,
+  metrics,
+  actions,
+}: {
+  readonly drawing: GroupDrawing;
+  readonly metrics: SessionMetrics;
+  readonly actions: CardActions;
+}) {
   const cardId = useId();
   // A warning colour stays on hover; only the plain grey brightens.
   const tone = drawing.tone?.(metrics) || "text-[var(--text-muted)] group-hover/item:text-[var(--text-2)]";
@@ -385,9 +543,11 @@ function Group({ drawing, metrics }: { readonly drawing: GroupDrawing; readonly 
       <div
         role="tooltip"
         id={cardId}
-        className="invisible absolute bottom-full left-1/2 z-30 mb-2 w-[300px] -translate-x-1/2 rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] opacity-0 shadow-[var(--float-shadow)] transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] dark:bg-[var(--surface-2)]"
+        className={`invisible absolute bottom-full left-1/2 z-30 -translate-x-1/2 pb-2 opacity-0 transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] ${drawing.wide === true ? "w-[340px]" : "w-[300px]"}`}
       >
-        {drawing.card(metrics)}
+        <div className="rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]">
+          {drawing.card(metrics, actions)}
+        </div>
       </div>
     </div>
   );
@@ -479,17 +639,22 @@ function Customizer({
  * the groups, a button faint until the bar is hovered. Escape or a click outside closes its panel.
  *
  * @sideEffects While the panel is open, listens for clicks and Escape on the document.
- * @param props - The session's figures, the groups chosen, and where a new choice goes.
+ * @param props - The session's figures, the groups chosen, where a new choice goes, and how and
+ * whether the session can be compacted from the context's card.
  * @returns The bar.
  */
 export function StatusBar({
   metrics,
   choices,
   onChoose,
+  onCompact,
+  compactable = false,
 }: {
   readonly metrics: SessionMetrics;
   readonly choices: StatusBarChoices;
   readonly onChoose: (choices: StatusBarChoices) => void;
+  readonly onCompact?: () => void;
+  readonly compactable?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -538,7 +703,9 @@ export function StatusBar({
     >
       {shownGroups(choices).map((id) => {
         const drawing = DRAWINGS[id];
-        return drawing === undefined ? null : <Group key={id} drawing={drawing} metrics={metrics} />;
+        return drawing === undefined ? null : (
+          <Group key={id} drawing={drawing} metrics={metrics} actions={{ onCompact, compactable }} />
+        );
       })}
       <div className="relative">
         <button

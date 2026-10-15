@@ -2,6 +2,7 @@ import type { LogEntry, PiEvent, PiStats } from "@atrium/pi";
 import {
   CommandError,
   IDLE_CONTROL,
+  type ModelRef,
   SNAPSHOT_TURNS,
   type SessionEvent,
   type SessionModel,
@@ -49,7 +50,7 @@ function control(
   entries: EntriesPage = empty,
   extra: Pick<
     Parameters<typeof createSessionController>[0],
-    "respawn" | "turnStarts" | "model" | "onModelChosen" | "fast" | "onFastChosen"
+    "respawn" | "turnStarts" | "model" | "onModelChosen" | "fast" | "onFastChosen" | "readReserve" | "home"
   > = {},
 ) {
   const events: SessionEvent[] = [];
@@ -2772,8 +2773,25 @@ const fromStats = {
   steps: 2,
   tokens: { input: 10, output: 5, cacheRead: 100, cacheWrite: 1 },
   cost: 0.01,
-  context: { tokens: 300, window: 1000, system: null, tools: null },
+  context: { tokens: 300, window: 1000, parts: null, reserve: null },
 };
+
+/**
+ * pi's compaction reserve, 8000 for Haiku and 16384 otherwise, noting each model it was read for.
+ *
+ * @remarks
+ * For the test of which model the controller reads the reserve for.
+ *
+ * @sideEffects Adds to `asked` as it reads.
+ * @param asked - Where the models go, as `provider/model`, or `null`.
+ * @returns The read.
+ */
+function reserveByModel(asked: (string | null)[]): (model: ModelRef | null) => Promise<number | null> {
+  return async (model) => {
+    asked.push(model === null ? null : `${model.providerId}/${model.modelId}`);
+    return model?.modelId === "haiku" ? 8000 : 16_384;
+  };
+}
 
 /** The figures of every `metrics_updated` among the events. */
 function published(events: readonly SessionEvent[]) {
@@ -2792,6 +2810,28 @@ describe("createSessionController's status bar figures", () => {
     expect(statsReads()).toBe(1);
     expect(events).toStrictEqual([{ type: "metrics_updated", ...at(1, null), metrics: fromStats }]);
     expect(controller.snapshot().metrics).toStrictEqual(fromStats);
+  });
+
+  it("reads pi's compaction reserve for the model pi uses now, with each read of its statistics", async () => {
+    const { pi, states, statsAnswers } = manualPi();
+    statsAnswers.push(
+      async () => piStats,
+      async () => piStats,
+    );
+    const asked: (string | null)[] = [];
+    const { controller } = control(pi, empty, {
+      model: opus,
+      readReserve: reserveByModel(asked),
+    });
+    await settle();
+    expect(controller.snapshot().metrics.context?.reserve).toBe(16_384);
+
+    states.push({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" });
+    await controller.setModel({ providerId: "anthropic", modelId: "haiku" });
+    await settle();
+
+    expect(asked).toStrictEqual(["anthropic/claude-opus-5-5", "anthropic/haiku"]);
+    expect(controller.snapshot().metrics.context?.reserve).toBe(8000);
   });
 
   it("starts from the entries it was given, publishing nothing for them", () => {

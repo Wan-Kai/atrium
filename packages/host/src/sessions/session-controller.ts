@@ -437,6 +437,10 @@ export function createSessionController(options: {
    * start, already under way, hands the session its pi instead.
    */
   readonly respawn?: () => Promise<Respawned | null>;
+  /** pi's compaction reserve for a model (SPEC-0001, "M1.13 的上下文细分与套餐用量"); unknown when left out. */
+  readonly readReserve?: (model: ModelRef | null) => Promise<number | null>;
+  /** The home directory, written as `~` in the status bar's memory files. */
+  readonly home?: string;
   /** The model pi started with; none when left out. */
   readonly model?: SessionModel | null;
   /** Told the model and thinking level pi uses after you chose one, to remember for new sessions. */
@@ -529,6 +533,8 @@ export function createSessionController(options: {
     clock,
     entries: transcript.entries(),
     readStats: () => pi.stats(),
+    readReserve: () => options.readReserve?.(model) ?? Promise.resolve(null),
+    ...(options.home === undefined ? {} : { home: options.home }),
     onChange: (now) => emit({ type: "metrics_updated", metrics: now }),
     onReadFailed: (error) => {
       // pi going away fails every request; its exit is reported as such.

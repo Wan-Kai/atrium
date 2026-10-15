@@ -160,23 +160,111 @@ export function contextLevel(percent: number | null): "normal" | "warn" | "dange
   return percent > 85 ? "danger" : "warn";
 }
 
+/** The kinds of the context card's rows, in their order (SPEC-0001, "M1.13 的上下文细分与套餐用量"). */
+export type ContextRowKey = "messages" | "system" | "memory" | "skills" | "builtin" | "mcp" | "extensions";
+
+/** A row of the context card: what it counts, its tokens, how many things, and those things. */
+export interface ContextRow {
+  readonly key: ContextRowKey;
+  readonly name: string;
+  readonly tokens: number;
+  /** How many files, skills or tools; `null` for a row of no such things. */
+  readonly count: number | null;
+  /** What the row opens to, most tokens first; empty for a row that does not open. */
+  readonly items: readonly { readonly name: string; readonly tokens: number }[];
+}
+
+/** The rows' names. */
+const ROW_NAMES: Readonly<Record<ContextRowKey, string>> = {
+  messages: "对话消息",
+  system: "系统提示词",
+  memory: "记忆文件",
+  skills: "Skills",
+  builtin: "内置工具",
+  mcp: "MCP 工具",
+  extensions: "扩展",
+};
+
 /**
- * The context split into the system prompt, the tools and the conversation.
+ * The context split by what fills it, with what pi keeps free and what is left.
  *
  * @remarks
- * The conversation is what is left, never below none, as the shares are estimates (SPEC-0001,
- * "上下文分段"); unknown unless all three can be told.
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): the conversation is what the other rows leave of
+ * the context, never below none, as they are estimates; a row of no tokens is left out but the
+ * conversation's. A memory file is named by its path; an MCP server by its name and how many tools
+ * it has. What is free is the window less the context and the reserve, never below none. Unknown
+ * unless the context's tokens and parts are known.
  *
  * @sideEffects none
  * @param context - The context.
- * @returns The three parts, or `null`.
+ * @returns The rows, the reserve and what is free, or `null`.
  */
-export function contextSegments(
+export function contextRows(
   context: Context,
-): { readonly system: number; readonly tools: number; readonly messages: number } | null {
-  const { tokens, system, tools } = context;
-  if (tokens === null || system === null || tools === null) return null;
-  return { system, tools, messages: Math.max(0, tokens - system - tools) };
+): { readonly rows: readonly ContextRow[]; readonly reserve: number | null; readonly free: number } | null {
+  const { tokens, parts, reserve } = context;
+  if (tokens === null || parts === null) return null;
+  const { system, memory, skills, builtin, mcp, extensions } = parts;
+  const others: ContextRow[] = [
+    { key: "system", name: ROW_NAMES.system, tokens: system, count: null, items: [] },
+    {
+      key: "memory",
+      name: ROW_NAMES.memory,
+      tokens: memory.tokens,
+      count: memory.files.length,
+      items: memory.files.map(({ path, tokens: fileTokens }) => ({ name: path, tokens: fileTokens })),
+    },
+    { key: "skills", name: ROW_NAMES.skills, tokens: skills.tokens, count: skills.items.length, items: skills.items },
+    {
+      key: "builtin",
+      name: ROW_NAMES.builtin,
+      tokens: builtin.tokens,
+      count: builtin.items.length,
+      items: builtin.items,
+    },
+    {
+      key: "mcp",
+      name: ROW_NAMES.mcp,
+      tokens: mcp.tokens,
+      count: mcp.servers.reduce((total, server) => total + server.tools, 0),
+      items: mcp.servers.map((server) => ({ name: `${server.name} · ${server.tools} 个`, tokens: server.tokens })),
+    },
+    {
+      key: "extensions",
+      name: ROW_NAMES.extensions,
+      tokens: extensions.tokens,
+      count: extensions.items.length,
+      items: extensions.items,
+    },
+  ];
+  const used = others.reduce((total, row) => total + row.tokens, 0);
+  const messages: ContextRow = {
+    key: "messages",
+    name: ROW_NAMES.messages,
+    tokens: Math.max(0, tokens - used),
+    count: null,
+    items: [],
+  };
+  return {
+    rows: [messages, ...others.filter((row) => row.tokens > 0)],
+    reserve,
+    free: Math.max(0, context.window - tokens - (reserve ?? 0)),
+  };
+}
+
+/**
+ * A part of the context window as a percentage, one decimal.
+ *
+ * @remarks
+ * As the context card writes each row's share (SPEC-0001, "M1.13 的上下文细分与套餐用量").
+ *
+ * @sideEffects none
+ * @param tokens - The part.
+ * @param window - The window.
+ * @returns The text, such as `8.2%`.
+ */
+export function windowShare(tokens: number, window: number): string {
+  return `${((tokens / window) * 100).toFixed(1)}%`;
 }
 
 /**

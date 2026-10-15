@@ -13,7 +13,14 @@ import { shownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
 import { clearNotice, showNotice } from "../state/session-notices";
 import { sessionTitle } from "../sidebar/names";
-import { type BuiltinCall, builtinBlocked, lastReply, namedLevel, namedModel } from "./builtin-commands";
+import {
+  type BuiltinCall,
+  COMPACT_COMMAND,
+  builtinBlocked,
+  lastReply,
+  namedLevel,
+  namedModel,
+} from "./builtin-commands";
 import { download } from "./download";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
@@ -452,6 +459,13 @@ function SessionArea({
         metrics={view.metrics}
         choices={statusBar}
         onChoose={(choices) => act(() => client.setPreferences({ statusBar: choices }))}
+        onCompact={() => {
+          // Fire and forget: it says why above the input box when it cannot.
+          void onBuiltin({ command: COMPACT_COMMAND, args: "" });
+        }}
+        compactable={
+          !running && !view.control.stopping && !view.control.compacting && view.metrics.context?.tokens != null
+        }
       />
     </>
   );

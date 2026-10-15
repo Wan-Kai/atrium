@@ -111,7 +111,7 @@ export {
   SetupProvider,
   SetupState,
 } from "./setup";
-export { SessionMetrics, StatusGroupId, UNKNOWN_METRICS } from "./metrics";
+export { ContextParts, PlanProvider, PlanUsage, SessionMetrics, StatusGroupId, UNKNOWN_METRICS } from "./metrics";
 export { Control, IDLE_CONTROL, Interaction, InteractionAnswer, PendingSteer, QueuedPrompt } from "./control";
 export { ChatId, ContainerId, isChatId, ProjectId, SessionId, WorkspaceId } from "./ids";
 export {

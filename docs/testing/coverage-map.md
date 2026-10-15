@@ -447,6 +447,17 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 性能：改动标签显示约 2 万行 diff 时折叠、展开左栏，渲染主线程上每段 ≤ 4 毫秒；在会话和它之间切换 ≤ 100 毫秒（三次的中位数）；用滚轮滚到底每段 ≤ 4 毫秒（三遍的中位数） | `apps/desktop/e2e/changes.perf.spec.ts` | 已覆盖 |
 | 泄漏：打开两个文件标签和改动标签（都上了色）再用 ⌘W 关掉，来回 15 轮不留脱离的 DOM | `apps/desktop/e2e/viewers.leak.spec.ts` | 已覆盖 |
 
+## 上下文细分与套餐用量（M1.13，协议 16，2026-10-15）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 系统消息的分段按块拆开：`project_context` 按每个 `<project_instructions path>` 块分到文件，`skills` 按每个 `<skill>` 块分到 skill（名字解开 XML 转义），各是整块的字数；没有块时为空，别的分段不拆；条目里记下每条系统消息设的分段的块 | `packages/pi/src/history/prompt-sections.test.ts`、`log-entry.test.ts` "and their pieces" | 已覆盖 |
+| 回放系统消息后分到系统提示词（`content` 和 pi 自己的分段）、记忆文件、Skills、内置工具（含 `codemode`、`tool_search`）、MCP 工具（`mcp__服务器__工具` 按服务器、带工具数，`mcp_servers` 只算合计）、扩展（其余工具和分段）；名字像 MCP 但没有工具名的算扩展；分段被替换或删掉时它的块跟着换掉；从最近存了提示词的压缩开始；各列表按 token 从多到少、再按名字；和 pi 对录下的会话的估算一致 | `packages/pi/src/history/system-prompt.test.ts` | 已覆盖 |
+| 自动压缩预留：读 pi 全局设置，没有文件或没写时 16384，模型覆盖优先、再是 `reserveTokens`；`enabled: false` 时没有；pi 不收的值（非 JSON、负数、小数、字符串、`null`）为未知 | `packages/pi/src/env/compaction.test.ts` | 已覆盖 |
+| 指标：每次读统计时一起读预留（读失败为未知）；按会话当前的模型读，换模型后按新的；家目录下的记忆文件写成 `~/…`（`/home/meow` 不算 `/home/me` 下）；收到套餐用量时推出去，没变不推 | `packages/host/src/sessions/session-metrics.test.ts`、`session-controller.test.ts` "compaction reserve" | 已覆盖 |
+| 协议：`context.parts`、`context.reserve`、`metrics.plan` 的格式；百分比超过 100、超过 8 个窗口、不认识的服务商、缺预留的都拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 上下文卡片：宽 340px；对话消息在先（总量减其余各段，不小于 0），没有 token 的段不显示；每段色块、名称、个数、"~N"、占窗口一位小数的百分比；预留斜纹行、剩余空间行；"距自动压缩还剩 ~N"，自动压缩关着时写"自动压缩已关"、没有预留行；记忆文件、工具、MCP 的行点了展开、再点收起，各自独立；"压缩会话"按了同 `/compact`，不能压缩时不可用；卡片和这一组之间的空隙属于卡片；没有分段时只显示总量 | `packages/ui/src/chat/status-bar.browser.test.tsx`、`status-figures.test.ts` "contextRows"、"windowShare" | 已覆盖（`/compact` 本身见"`/` 命令"一节） |
+
 ## M1.11、M1.12 三方审查后补（2026-10-14）
 
 | 行为 | 测试 | 状态 |

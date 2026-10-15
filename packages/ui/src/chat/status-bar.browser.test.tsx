@@ -13,8 +13,33 @@ const KNOWN: SessionMetrics = {
   cost: 0.454,
   reasoning: 12_000,
   branchTokens: 800_000,
-  context: { tokens: 84_000, window: 200_000, system: 3000, tools: 2500 },
+  context: {
+    tokens: 84_000,
+    window: 200_000,
+    parts: {
+      system: 3000,
+      memory: {
+        tokens: 4200,
+        files: [
+          { path: "~/work/atrium/AGENTS.md", tokens: 3100 },
+          { path: "~/.pi/agent/AGENTS.md", tokens: 1080 },
+        ],
+      },
+      skills: { tokens: 0, items: [] },
+      builtin: {
+        tokens: 2500,
+        items: [
+          { name: "bash", tokens: 1300 },
+          { name: "read", tokens: 1190 },
+        ],
+      },
+      mcp: { tokens: 3400, servers: [{ name: "paseo", tools: 6, tokens: 3300 }] },
+      extensions: { tokens: 0, items: [] },
+    },
+    reserve: 16_384,
+  },
   timing: { modelMs: 42_300, ttftMs: 820, tps: 48.4 },
+  plan: null,
 };
 
 /**
@@ -29,20 +54,40 @@ const KNOWN: SessionMetrics = {
  * @param choices - The groups switched from their default.
  * @returns The screen and the choices sent.
  */
-async function bar(metrics: SessionMetrics = KNOWN, choices: StatusBarChoices = {}) {
+async function bar(metrics: SessionMetrics = KNOWN, choices: StatusBarChoices = {}, compactable = true) {
   const onChoose = vi.fn<(choices: StatusBarChoices) => void>();
+  const onCompact = vi.fn<() => void>();
   const screen = await render(
     <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "space-between" }}>
       <button type="button">elsewhere</button>
-      <StatusBar metrics={metrics} choices={choices} onChoose={onChoose} />
+      <StatusBar
+        metrics={metrics}
+        choices={choices}
+        onChoose={onChoose}
+        onCompact={onCompact}
+        compactable={compactable}
+      />
     </div>,
   );
-  return { screen, onChoose };
+  return { screen, onChoose, onCompact };
 }
 
 /** The figures with `tokens` of a context of 100 used. */
 function at(tokens: number): SessionMetrics {
-  return { ...KNOWN, context: { tokens, window: 100, system: null, tools: null } };
+  return { ...KNOWN, context: { tokens, window: 100, parts: null, reserve: null } };
+}
+
+/**
+ * A value the test knows is there.
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @returns It.
+ * @throws {Error} When it is not there.
+ */
+function present<T>(value: T | null): T {
+  if (value === null) throw new Error("expected a value");
+  return value;
 }
 
 /**
@@ -151,7 +196,7 @@ describe("StatusBar", () => {
     );
   });
 
-  it("splits the context in its card: the system prompt, the tools and the conversation", async () => {
+  it("splits the context in its card: each part with its share of the window, the reserve and what is left", async () => {
     const { screen } = await bar();
 
     await userEvent.hover(screen.getByRole("button", { name: "42%" }));
@@ -159,14 +204,73 @@ describe("StatusBar", () => {
     const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
     await expect.element(card).toBeVisible();
     expect(card.element().textContent).toBe(
-      "上下文已用 42%~84K / 200K系统提示词~3K工具定义~3K对话消息~79K接近上限时 pi 会自动压缩",
+      [
+        "上下文已用 42%~84K / 200K",
+        "对话消息~71K35.4%",
+        "系统提示词~3K1.5%",
+        "›记忆文件2~4K2.1%",
+        "›内置工具2~3K1.3%",
+        "›MCP 工具6~3K1.7%",
+        "自动压缩预留16K8.2%",
+        "剩余空间~100K49.8%",
+        "距自动压缩还剩 ~100K压缩会话",
+        "各段按字数估算",
+      ].join(""),
     );
-    // No line under the title row.
+    // No line under the title row; the card is wider than the others.
     expect(shadowAround(card.getByText("~84K / 200K").element())).toBe("none");
+    expect(card.element().getBoundingClientRect().width).toBe(340);
+  });
+
+  it("opens a row to its files, tools or servers, and closes it again", async () => {
+    const { screen } = await bar();
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+    const memory = card.getByRole("button", { name: /记忆文件/ });
+
+    await memory.click();
+    await card.getByRole("button", { name: /MCP 工具/ }).click();
+
+    await expect.element(memory).toHaveAttribute("aria-expanded", "true");
+    expect(card.getByRole("list", { name: "记忆文件" }).element().textContent).toBe(
+      "~/work/atrium/AGENTS.md~3K~/.pi/agent/AGENTS.md~1K",
+    );
+    expect(card.getByRole("list", { name: "MCP 工具" }).element().textContent).toBe("paseo · 6 个~3K");
+    await memory.click();
+    await expect.element(card.getByRole("list", { name: "记忆文件" })).not.toBeInTheDocument();
+    await expect.element(card.getByRole("list", { name: "MCP 工具" })).toBeVisible();
+    await expect.element(card.getByRole("button", { name: /系统提示词/ })).not.toBeInTheDocument();
+  });
+
+  it("compacts from the card when the session can be, and keeps the card open on the way to it", async () => {
+    const { screen, onCompact } = await bar();
+    const group = screen.getByRole("button", { name: "42%" });
+    await userEvent.hover(group);
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+    await expect.element(card).toBeVisible();
+    // The gap between the group and the card is the card's, so the pointer does not leave on the way.
+    const { left, bottom } = card.element().getBoundingClientRect();
+    expect(card.element().contains(document.elementFromPoint(left + 20, bottom - 4))).toBe(true);
+    expect(group.element().getBoundingClientRect().top - bottom).toBeLessThanOrEqual(0);
+
+    await card.getByRole("button", { name: "压缩会话" }).click();
+
+    expect(onCompact).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not compact while the session cannot be, and says when pi does not compact on its own", async () => {
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), reserve: null } }, {}, false);
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+
+    await expect.element(card.getByRole("button", { name: "压缩会话" })).toBeDisabled();
+    await expect.element(card.getByText("自动压缩已关")).toBeVisible();
+    await expect.element(card.getByText("自动压缩预留")).not.toBeInTheDocument();
+    await expect.element(card.getByText("剩余空间")).toBeVisible();
   });
 
   it("says why the context is not known: no window, or a compaction just now", async () => {
-    const { screen } = await bar({ ...KNOWN, context: { tokens: null, window: 200_000, system: 3000, tools: 2500 } });
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), tokens: null } });
     await userEvent.hover(screen.getByRole("button", { name: "—" }));
     await expect.element(screen.getByText("刚压缩过，下一次回复后更新")).toBeVisible();
 
@@ -179,7 +283,7 @@ describe("StatusBar", () => {
   });
 
   it("shows the context's total alone before pi stated a system prompt", async () => {
-    const { screen } = await bar({ ...KNOWN, context: { tokens: 84_000, window: 200_000, system: null, tools: null } });
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), parts: null } });
 
     await userEvent.hover(screen.getByRole("button", { name: "42%" }));
 

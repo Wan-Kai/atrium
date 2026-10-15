@@ -29,7 +29,7 @@ export {
   type SystemParts,
   toLogEntry,
 } from "./history/log-entry";
-export { type ContextShares, contextShares } from "./history/system-prompt";
+export { contextParts } from "./history/system-prompt";
 export { type PiStats, piStatsOf } from "./stats/session-stats";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {
@@ -74,3 +74,4 @@ export {
   readLogins,
   startLogin,
 } from "./auth/login";
+export { compactionReserve } from "./env/compaction";
