@@ -111,6 +111,23 @@ function openUrl(url: string): void {
 }
 
 /**
+ * Opens an HTML file in the default browser.
+ *
+ * @remarks
+ * The desktop shell takes only an absolute path to a regular `.html` or `.htm` file (security.md,
+ * "Electron").
+ *
+ * @sideEffects Calls the desktop bridge.
+ * @param path - The file's absolute path.
+ */
+function openInBrowser(path: string): void {
+  // Fire and forget: nothing to tell the user if the browser does not come up.
+  void desktopBridge()
+    ?.openInBrowser?.(path)
+    .catch(() => undefined);
+}
+
+/**
  * Shows a path in the Finder.
  *
  * @remarks
@@ -153,6 +170,7 @@ function Connected({ client }: { readonly client: AtriumClient }) {
       pathForFile={
         bridge?.pathForFile === undefined ? undefined : (file) => desktopBridge()?.pathForFile?.(file) ?? null
       }
+      openInBrowser={bridge?.openInBrowser === undefined ? undefined : openInBrowser}
     />
   );
 }

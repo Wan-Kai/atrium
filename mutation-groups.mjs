@@ -80,6 +80,7 @@ export const MUTATION_GROUPS = {
       "packages/ui/src/files/file-facts.ts",
       "packages/ui/src/files/languages.ts",
       "packages/ui/src/files/diff-sides.ts",
+      "packages/ui/src/files/workspace-path.ts",
       "packages/ui/src/state/workspace-views.ts",
       "packages/ui/src/chat/status-figures.ts",
       "packages/ui/src/state/drafts.ts",

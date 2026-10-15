@@ -12,8 +12,9 @@ import {
   utilityProcess,
 } from "electron";
 import { randomBytes } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { lstat, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 /** Where the host's bundle and the built UI live, and how often the app's processes are sampled. */
 interface Paths {
@@ -221,6 +222,26 @@ async function isRevealable(path: string): Promise<boolean> {
 }
 
 /**
+ * Whether the page may open a path in the browser: an absolute path to an HTML file.
+ *
+ * @remarks
+ * The page asks for an HTML file shown in a file tab (SPEC-0001, "查看标签"). The file must be a
+ * regular file, not a link to somewhere else or a folder; anything else it sends is ignored
+ * (security.md, "Electron").
+ *
+ * @sideEffects Reads the file system.
+ * @param path - The path the page sent.
+ * @returns Whether to open it.
+ */
+async function isBrowsable(path: string): Promise<boolean> {
+  if (!isAbsolute(path) || !/\.html?$/iu.test(path)) return false;
+  return lstat(path).then(
+    (found) => found.isFile(),
+    () => false,
+  );
+}
+
+/**
  * Whether a URL belongs to the app's page.
  *
  * @remarks
@@ -353,6 +374,10 @@ async function main(): Promise<void> {
   ipcMain.handle("atrium:reveal", async (event, path: unknown) => {
     checkSender(event);
     if (typeof path === "string" && (await isRevealable(path))) shell.showItemInFolder(path);
+  });
+  ipcMain.handle("atrium:open-in-browser", async (event, path: unknown) => {
+    checkSender(event);
+    if (typeof path === "string" && (await isBrowsable(path))) await shell.openExternal(pathToFileURL(path).href);
   });
   ipcMain.handle("atrium:appearance", (event, appearance: unknown) => {
     checkSender(event);

@@ -6,7 +6,7 @@ import { render } from "vitest-browser-react";
 import { ClockContext, type UiClock } from "../state/clock";
 import { Key, Sparkle, Warning } from "../design/icons";
 import "../styles.css";
-import { LoadStepContext } from "./steps";
+import { LoadStepContext, OpenFileContext } from "./steps";
 import { NoticeView, OpenLogin, TurnView } from "./turn-view";
 
 const at = Date.UTC(2026, 9, 7, 14, 31);
@@ -65,6 +65,33 @@ const answer: Step = { kind: "text", id: "4", text: "改好了，**一处**改�
 async function show(value: Turn, runStartedAt: number | null = null) {
   const screen = await render(<TurnView turn={value} runStartedAt={runStartedAt} />);
   return { screen };
+}
+
+/**
+ * Renders a turn whose files open where `opens` says, its process open, and what was opened.
+ *
+ * @sideEffects Renders into the page and clicks the process open.
+ * @param value - The turn.
+ * @param opens - Whether a path can be opened.
+ * @returns The screen, and the paths opened so far.
+ */
+async function withOpener(value: Turn, opens: (path: string) => boolean) {
+  const openedPaths: string[] = [];
+  /**
+   * How a chip opens its file, where `opens` lets it.
+   *
+   * @sideEffects none; the action it returns records the path.
+   * @param path - The chip's path.
+   * @returns What opens it, or null.
+   */
+  const opener = (path: string) => (opens(path) ? () => openedPaths.push(path) : null);
+  const screen = await render(
+    <OpenFileContext value={opener}>
+      <TurnView turn={value} runStartedAt={null} />
+    </OpenFileContext>,
+  );
+  await screen.getByTestId("process-header").click();
+  return { screen, openedPaths };
 }
 
 /** A button's text and background colours, as computed. */
@@ -251,6 +278,57 @@ function colorOf(value: string): string {
  */
 function iconMarkup(icon: ReactElement): string {
   return renderToStaticMarkup(icon);
+}
+
+/**
+ * How far each press class shrinks a button held down, and which it leaves alone, as the style
+ * sheet says.
+ *
+ * @remarks
+ * A test cannot hold a button down, so it reads the rules (design-language, "动效 · 按下的实体感").
+ *
+ * @sideEffects none
+ * @returns The scale of each class while pressed, then what the rule leaves out.
+ */
+function pressedScales(): Record<string, string> {
+  const scales: Record<string, string> = {};
+  for (const sheet of document.styleSheets) {
+    for (const rule of sheet.cssRules) {
+      if (!(rule instanceof CSSStyleRule)) continue;
+      const pressed = /^\.(atrium-press(?:-sm|-row)?):active/u.exec(rule.selectorText);
+      if (pressed?.[1] !== undefined && rule.style.scale !== "") {
+        scales[pressed[1]] = `${rule.style.scale} ${rule.selectorText.slice(pressed[0].length)}`;
+      }
+    }
+  }
+  return scales;
+}
+
+/** What a press rule leaves out: a button disabled either way. */
+const NOT_DISABLED = ':not(:disabled, [aria-disabled="true"])';
+
+/**
+ * The press classes an element has.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its press classes.
+ */
+function pressOf(element: Element): string[] {
+  return ["atrium-press-sm", "atrium-press", "atrium-press-row"].filter((name) => element.classList.contains(name));
+}
+
+/**
+ * A value the test knows is there.
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @returns It.
+ * @throws {Error} When it is not there.
+ */
+function present<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("expected a value");
+  return value;
 }
 
 describe("TurnView", () => {
@@ -586,6 +664,60 @@ describe("TurnView", () => {
     expect(footer.getByRole("button").all()).toHaveLength(1);
   });
 
+  it("shows a check for 2 seconds once copied, from each copy, and nothing when the clipboard refuses", async () => {
+    const runs: (() => void)[] = [];
+    const clock: UiClock = {
+      now: () => at,
+      every: () => () => undefined,
+      after: (_ms, run) => {
+        runs.push(run);
+        return () => undefined;
+      },
+    };
+    const written = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    const screen = await render(
+      <ClockContext value={clock}>
+        <TurnView turn={turn([answer])} runStartedAt={null} />
+      </ClockContext>,
+    );
+    const copy = screen.getByTestId("turn-footer").getByRole("button", { name: "复制回复" });
+
+    await copy.click();
+    await expect.element(copy).toHaveAttribute("title", "已复制");
+    await expect.element(copy).toHaveAttribute("data-copied", "true");
+    runs.at(-1)?.();
+    await expect.element(copy).toHaveAttribute("title", "复制回复");
+    written.mockRejectedValue(new Error("denied"));
+    await copy.click();
+
+    await expect.element(copy).toHaveAttribute("data-copied", "false");
+    expect(runs).toHaveLength(1);
+  });
+
+  it("gives each button a press: small ones shrink most, rows least, and the files' caret turns smoothly", async () => {
+    const { screen } = await show(
+      turn([thinking, command, edit, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
+    );
+    const footer = screen.getByTestId("turn-footer");
+    const files = footer.getByRole("button", { name: /改了 1 个文件/ });
+
+    expect(
+      [
+        footer.getByRole("button", { name: "复制回复" }).element(),
+        files.element(),
+        screen.getByTestId("process-header").element(),
+      ].map(pressOf),
+    ).toStrictEqual([["atrium-press-sm"], ["atrium-press"], ["atrium-press-row"]]);
+    expect(pressedScales()).toStrictEqual({
+      "atrium-press-sm": `0.9 ${NOT_DISABLED}`,
+      "atrium-press": `0.95 ${NOT_DISABLED}`,
+      "atrium-press-row": `0.985 ${NOT_DISABLED}`,
+    });
+    expect(getComputedStyle(present(files.element().querySelector("svg:last-of-type"))).transitionProperty).toBe(
+      "rotate",
+    );
+  });
+
   it("draws the process on a rail: a failed command branches off, a steer joins, and it ends at the last step", async () => {
     const { screen } = await opened(
       turn([thinking, command, edit, steer, answer], { changes: [{ path: "src/a.ts", added: 1, removed: 1 }] }),
@@ -657,6 +789,55 @@ describe("TurnView", () => {
     await expect.element(failed.screen.getByTestId("process-header")).toMatchTextContent(/^出错了，用时 2 分 13 秒$/);
     expect(railNodes(failed.screen.container)).toStrictEqual(["dot", "dot"]);
     expect(railReach(failed.screen.container)).toBe(0);
+  });
+
+  it("opens an edited file from its chip without opening the row, the rest of the row opening it", async () => {
+    const { screen, openedPaths } = await withOpener(turn([edit, answer]), () => true);
+    const row = screen.getByRole("button", { name: /^编辑了/ });
+    const chip = screen.getByTestId("file-chip");
+
+    await chip.click();
+
+    expect([openedPaths, row.element().getAttribute("aria-expanded")]).toStrictEqual([["src/a.ts"], "false"]);
+    await row.click({ position: { x: 300, y: 10 } });
+    await expect.element(row).toHaveAttribute("aria-expanded", "true");
+    expect(openedPaths).toStrictEqual(["src/a.ts"]);
+  });
+
+  it("keeps a chip its opener turns down a plain chip, its row one button", async () => {
+    const { screen } = await withOpener(turn([edit, answer]), () => false);
+
+    await expect.element(screen.getByTestId("file-chip")).toBeVisible();
+
+    expect([
+      screen.getByTestId("file-chip").element().tagName,
+      screen
+        .getByRole("button", { name: /^编辑了/ })
+        .element()
+        .closest('[data-testid="step"] > button') !== null,
+    ]).toStrictEqual(["SPAN", true]);
+  });
+
+  it("opens a read file from an explore row's chip without opening the row", async () => {
+    const read: Step = {
+      kind: "tool",
+      id: "r",
+      callId: "r",
+      tool: "read",
+      args: { path: "src/b.ts" },
+      status: "done",
+      output: "",
+      details: { tool: "read", path: "src/b.ts", offset: null, limit: null },
+      partial: false,
+    };
+    const { screen, openedPaths } = await withOpener(turn([read, { ...read, id: "s" }, answer]), () => true);
+
+    await screen.getByTestId("file-chip").click();
+
+    expect([openedPaths, screen.getByRole("button", { name: /^探索了/ }).element().ariaExpanded]).toStrictEqual([
+      ["src/b.ts"],
+      "false",
+    ]);
   });
 
   it("shows looking around as one row, the files read as chips, five at most", async () => {

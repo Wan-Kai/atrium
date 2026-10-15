@@ -85,6 +85,44 @@ function colours(line: Element): string[][] {
   ]);
 }
 
+/**
+ * A file tab on `path` of workspace W, reading as a page, with how it opens in the browser.
+ *
+ * @sideEffects Renders.
+ * @param path - The file.
+ * @param opens - Whether the desktop shell can open it in the browser.
+ * @returns The screen, and what was asked to open it.
+ */
+async function browsable(path: string, opens = true) {
+  const { client } = fakeClient({}, { readFile: text("<p>hi</p>\n") });
+  const onOpenInBrowser = vi.fn<() => void>();
+  const views = createWorkspaceViews(memoryStorage());
+  const screen = await render(
+    <FileViewer
+      client={client}
+      workspaceId={W}
+      views={views}
+      path={path}
+      diff={null}
+      onShowDiff={() => undefined}
+      onOpenInBrowser={opens ? onOpenInBrowser : undefined}
+    />,
+  );
+  await expect.element(screen.getByTestId("code-lines")).toBeVisible();
+  return { screen, onOpenInBrowser };
+}
+
+/**
+ * Presses O on the window with the given modifiers held.
+ *
+ * @sideEffects Dispatches a key event.
+ * @param held - The modifiers.
+ * @returns Whether the page let the browser handle it.
+ */
+function pressO(held: KeyboardEventInit): boolean {
+  return window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyO", key: "o", cancelable: true, ...held }));
+}
+
 describe("FileViewer", () => {
   it("shows a text file numbered under its name, directory, size and lines, coloured as the appearance is", async () => {
     const { screen } = await viewer(text("const a = 1;\nlet b;\n"));
@@ -173,6 +211,46 @@ describe("FileViewer", () => {
     const { screen } = await viewer(read);
 
     await expect.element(screen.getByText(said)).toBeVisible();
+  });
+
+  it("opens an HTML file in the browser from its button and ⌘O, until the tab goes", async () => {
+    const { screen, onOpenInBrowser } = await browsable("site/index.html");
+    const button = screen.getByRole("button", { name: "在浏览器打开" });
+
+    await button.click();
+    const handled = [
+      pressO({ metaKey: true }),
+      pressO({ metaKey: true, shiftKey: true }),
+      pressO({ metaKey: true, altKey: true }),
+      pressO({ metaKey: true, ctrlKey: true }),
+      pressO({}),
+    ];
+    const whileShown = [button.element().getAttribute("title"), onOpenInBrowser.mock.calls.length];
+    await screen.unmount();
+    pressO({ metaKey: true });
+
+    expect([handled, whileShown, onOpenInBrowser.mock.calls.length]).toStrictEqual([
+      [false, true, true, true, true],
+      ["在浏览器打开 (⌘O)", 2],
+      2,
+    ]);
+  });
+
+  it.each([
+    ["an .htm file, in any case", "PAGE.HTM", true, 1],
+    ["another file", "src/a.ts", true, 0],
+    ["a file named html", "src/html", true, 0],
+    ["a file with .html inside its name", "page.html.ts", true, 0],
+    ["an HTML file without the desktop shell", "index.html", false, 0],
+  ])("offers the browser for %s only where it opens", async (_what, path, opens, buttons) => {
+    const { screen, onOpenInBrowser } = await browsable(path, opens);
+
+    pressO({ metaKey: true });
+
+    expect([
+      screen.getByRole("button", { name: "在浏览器打开" }).elements().length,
+      onOpenInBrowser.mock.calls.length,
+    ]).toStrictEqual([buttons, buttons]);
   });
 
   it("shows the file's changes with a way to them while it has a diff", async () => {

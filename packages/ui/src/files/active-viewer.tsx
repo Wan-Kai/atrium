@@ -16,7 +16,8 @@ import { useDiffMode, useShownDiff } from "./use-diff";
  *
  * @sideEffects Subscribes to the client and the views; through the tab, reads the file or shows
  * the diff.
- * @param props - The client, the workspace, the views, and the tab's key.
+ * @param props - The client, the workspace, the views, the tab's key, and how to open a file in
+ * the browser, where it can be.
  * @returns The tab's content.
  */
 export function ActiveViewer({
@@ -24,11 +25,14 @@ export function ActiveViewer({
   workspaceId,
   views,
   viewerKey,
+  openInBrowser,
 }: {
   readonly client: AtriumClient;
   readonly workspaceId: string;
   readonly views: StoreApi<WorkspaceViews>;
   readonly viewerKey: string;
+  /** Opens a file of the workspace, by its path in it, in the default browser. */
+  readonly openInBrowser?: ((path: string) => void) | undefined;
 }) {
   const mode = useDiffMode(client, views, workspaceId);
   const shown = useShownDiff(client, workspaceId, mode);
@@ -43,6 +47,7 @@ export function ActiveViewer({
       path={path}
       diff={diff}
       onShowDiff={() => openDiff(views, workspaceId, path)}
+      onOpenInBrowser={openInBrowser === undefined ? undefined : () => openInBrowser(path)}
     />
   );
 }

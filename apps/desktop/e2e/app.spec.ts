@@ -2,7 +2,9 @@ import { expect, test } from "@playwright/test";
 import { createTempDir, present } from "@atrium/testkit";
 import { execFile, spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { type LaunchedApp, launchApp } from "./launch";
 import { startCountingServer } from "./servers";
@@ -38,7 +40,7 @@ test("keeps the page's storage across a restart, since its origin stays the same
   expect(before[0]).toBe("atrium://app");
 });
 
-test("gives the page no Node access and only the bridge: bootstrap, folder choice, appearance, dropped files' paths and showing in the Finder", async () => {
+test("gives the page no Node access and only the bridge: bootstrap, folder choice, appearance, dropped files' paths, showing in the Finder and opening HTML in the browser", async () => {
   const exposed = await launched.window.evaluate(() => ({
     require: typeof (globalThis as { require?: unknown }).require,
     process: typeof (globalThis as { process?: unknown }).process,
@@ -48,7 +50,7 @@ test("gives the page no Node access and only the bridge: bootstrap, folder choic
   expect(exposed).toStrictEqual({
     require: "undefined",
     process: "undefined",
-    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile", "reveal"],
+    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile", "reveal", "openInBrowser"],
   });
 });
 
@@ -76,6 +78,45 @@ test("shows in the Finder only an absolute path that exists", async () => {
     expect(await launched.app.evaluate(() => (globalThis as unknown as { revealed: string[] }).revealed)).toStrictEqual(
       [dir.path],
     );
+  } finally {
+    await dir.cleanup();
+  }
+});
+
+test("opens in the browser only an absolute path to a regular HTML file", async () => {
+  const dir = await createTempDir("browse");
+  try {
+    await writeFile(join(dir.path, "page.html"), "<p>hi</p>\n");
+    await writeFile(join(dir.path, "OLD.HTM"), "<p>hi</p>\n");
+    await writeFile(join(dir.path, "notes.txt"), "hi\n");
+    await symlink(join(dir.path, "page.html"), join(dir.path, "link.html"));
+    await mkdir(join(dir.path, "folder.html"));
+    await launched.app.evaluate(({ shell }) => {
+      const browsed: string[] = [];
+      Object.assign(globalThis, { browsed });
+      // Record instead of opening the real browser during tests.
+      shell.openExternal = async (url: string) => {
+        browsed.push(url);
+      };
+    });
+
+    await launched.window.evaluate(async (path) => {
+      const { openInBrowser } = window.atrium as unknown as { openInBrowser: (path: unknown) => Promise<void> };
+      await openInBrowser(`${path}/page.html`);
+      await openInBrowser(`${path}/OLD.HTM`);
+      await openInBrowser(`${path}/notes.txt`);
+      await openInBrowser(`${path}/link.html`);
+      await openInBrowser(`${path}/folder.html`);
+      await openInBrowser(`${path}/missing.html`);
+      // The file itself, from wherever the app runs, but not by an absolute path.
+      await openInBrowser(`${"../".repeat(40)}${path.slice(1)}/page.html`);
+      await openInBrowser(42);
+    }, dir.path);
+
+    expect(await launched.app.evaluate(() => (globalThis as unknown as { browsed: string[] }).browsed)).toStrictEqual([
+      pathToFileURL(join(dir.path, "page.html")).href,
+      pathToFileURL(join(dir.path, "OLD.HTM")).href,
+    ]);
   } finally {
     await dir.cleanup();
   }
