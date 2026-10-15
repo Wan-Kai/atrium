@@ -676,7 +676,7 @@ describe("The new-workspace page (M1.11)", () => {
     await left(screen);
     await vi.waitFor(() => expect(calls).toContain("openSession s3"));
 
-    const searching = screen.getByRole("button", { name: "搜索工作区、对话和会话" });
+    const searching = screen.getByRole("textbox", { name: "搜索工作区、对话和会话" });
     for (const [query, words] of [
       ["feat", "feat/sidebar"],
       ["解释", "解释 merge-tree"],
@@ -684,11 +684,10 @@ describe("The new-workspace page (M1.11)", () => {
     ] as const) {
       await openFrom(screen);
       // Projects give way to the results while searching.
-      await searching.click();
-      await userEvent.fill(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), query);
+      await userEvent.fill(searching, query);
       await screen.getByRole("region", { name: "搜索结果" }).getByText(words).first().click();
       await left(screen);
-      await searching.click();
+      await userEvent.fill(searching, "");
     }
   });
 

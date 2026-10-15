@@ -370,6 +370,8 @@ async function main(): Promise<void> {
     trafficLightPosition: { x: 12, y: 17 },
     // The sidebar shows macOS's sidebar material through the page (design-language, "阴影与材质").
     vibrancy: "sidebar",
+    // Kept as it is while another window or app has the focus, rather than turning grey.
+    visualEffectState: "active",
     backgroundColor: "#00000000",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),

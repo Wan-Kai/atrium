@@ -50,6 +50,9 @@ import { StatusIcon } from "./status-icon";
 /** How many chats the sidebar lists before "显示全部 N 个" (SPEC-0001, "对话"). */
 const RECENT_CHATS = 5;
 
+/** How many of a project's workspaces the sidebar lists before "显示全部 N 个" (SPEC-0001, "项目与工作区"). */
+const FIRST_WORKSPACES = 5;
+
 /** The appearances in the order the switch goes through them, with their names and icons. */
 const APPEARANCES: readonly { readonly appearance: Appearance; readonly label: string; readonly icon: ReactNode }[] = [
   { appearance: "system", label: "外观：跟随系统", icon: <Monitor size={16} /> },
@@ -149,8 +152,9 @@ function readCollapsed(): ReadonlySet<string> {
  * above it (SPEC-0001, "收件箱"). Projects can be collapsed; a collapsed
  * project shows how many worktrees wait to be merged and whether something runs in it. Workspaces
  * show their merge state and whether a session runs in them, and are selected by clicking.
- * Chats are listed like workspaces, by their latest activity. Search matches workspace names, chat
- * names and session titles, replacing the projects and chats with its results while it has text. Renaming happens in place. "设置" carries a blue dot while a newer pi
+ * Chats are listed like workspaces, by their latest activity. The search box stays at the top, above
+ * what scrolls; it matches workspace names, chat names and session titles, replacing the projects and
+ * chats with its results while it has text, and Escape empties and leaves it (SPEC-0001, "搜索"). Renaming happens in place. "设置" carries a blue dot while a newer pi
  * is out (SPEC-0001, "设置 · pi"). While a project's new-workspace page shows, its row is the one
  * selected, and going to a workspace, chat or session leaves the page (SPEC-0001, "M1.11 的新建工作区").
  * Folded, its width goes to 0 while what is in it keeps its own, fades and moves 24px left, and
@@ -191,7 +195,6 @@ export function Sidebar({
   const update = useStore(client.setup, (setup) => setup.state !== null && piUpdateAvailable(setup.state.pi));
   const now = useClock().now();
   const [collapsed, setCollapsed] = useState(readCollapsed);
-  const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -246,21 +249,28 @@ export function Sidebar({
           className={`flex h-full w-[270px] flex-col ${folded ? "-translate-x-6 opacity-0" : ""} ${FOLD_MOTION.inside}`}
         >
           <div className="h-[50px] shrink-0 [-webkit-app-region:drag]" />
+          <div className="relative mx-3 mb-1.5 shrink-0">
+            <MagnifyingGlass
+              size={13}
+              className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
+            />
+            <input
+              aria-label="搜索工作区、对话和会话"
+              placeholder="搜索工作区、对话和会话"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setQuery("");
+                  event.currentTarget.blur();
+                }
+              }}
+              className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
+            />
+          </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
             <div className="mt-1.5 flex h-[34px] items-center pr-1 pl-2 text-[var(--text-muted)]">
               <span className="flex-1">项目</span>
-              <button
-                type="button"
-                className={ICON_BUTTON}
-                aria-label="搜索工作区、对话和会话"
-                aria-pressed={searching}
-                onClick={() => {
-                  setSearching(!searching);
-                  setQuery("");
-                }}
-              >
-                <MagnifyingGlass size={15} />
-              </button>
               {pickDirectory === undefined ? null : (
                 <button
                   type="button"
@@ -282,30 +292,6 @@ export function Sidebar({
                 {problem}
               </p>
             )}
-            {searching ? (
-              <div className="relative mt-0.5 mb-1.5">
-                <MagnifyingGlass
-                  size={13}
-                  className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[var(--text-dim)]"
-                />
-                <input
-                  aria-label="搜索工作区、对话和会话"
-                  placeholder="搜索工作区、对话和会话"
-                  // A search box opened on purpose takes the keyboard at once.
-                  // oxlint-disable-next-line jsx-a11y/no-autofocus
-                  autoFocus
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      setSearching(false);
-                      setQuery("");
-                    }
-                  }}
-                  className="h-8 w-full rounded-[var(--r-md)] bg-[var(--hover)] pr-2.5 pl-8 text-[length:var(--fs-meta)] shadow-[inset_0_0_0_0.5px_var(--line)] outline-none placeholder:text-[var(--text-dim)] focus:shadow-[inset_0_0_0_0.5px_var(--line-strong),var(--focus-ring)]"
-                />
-              </div>
-            ) : null}
             {query.trim() !== "" ? (
               <SearchResults client={client} index={index} query={query.trim()} now={now} showSession={showSession} />
             ) : (
@@ -654,7 +640,9 @@ function ChatRows({
  * (SPEC-0001, "M1.11 的工作区归档"). Opening and closing fold the workspaces' rows in and out and
  * cross-fade the folder (SPEC-0001, "侧栏"; design-language, "动效"). Hovering shows "+", which
  * opens the project's new-workspace page; the row is selected while the page shows (SPEC-0001,
- * "M1.11 的新建工作区").
+ * "M1.11 的新建工作区"). Five workspaces are listed, and the current one after them when it comes
+ * later; "显示全部 N 个" opens the rest in place and "收起" closes them, not remembered (SPEC-0001,
+ * "项目与工作区").
  *
  * @sideEffects Sends commands when used; animates the rows and the folder when opened or closed.
  * @param props - The client, the list, the project, whether it is open, how to open its
@@ -690,8 +678,12 @@ function ProjectRows({
   readonly now: number;
 }) {
   const [archiving, setArchiving] = useState<Workspace | null>(null);
+  const [all, setAll] = useState(false);
   const own = index.workspaces.filter((workspace) => workspace.projectId === project.id);
   const workspaces = sortWorkspaces(own.filter((workspace) => workspace.archivedAt === null));
+  const shown = all
+    ? workspaces
+    : workspaces.filter((workspace, at) => at < FIRST_WORKSPACES || workspace.id === index.layout.container);
   const archived = own.filter((workspace) => workspace.archivedAt !== null);
   /**
    * A workspace's status.
@@ -802,7 +794,7 @@ function ProjectRows({
         duration={PROJECT_FOLD_MS}
         className="-mb-0.5 flow-root [&>:first-child]:mt-0"
       >
-        {workspaces.map((workspace) => (
+        {shown.map((workspace) => (
           <WorkspaceRow
             key={workspace.id}
             client={client}
@@ -815,6 +807,16 @@ function ProjectRows({
             onArchive={() => setArchiving(workspace)}
           />
         ))}
+        {workspaces.length > FIRST_WORKSPACES ? (
+          <button
+            type="button"
+            data-fold-row
+            onClick={() => setAll(!all)}
+            className="rounded-[var(--r)] py-1 pr-2 pl-9 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+          >
+            {all ? "收起" : `显示全部 ${workspaces.length} 个`}
+          </button>
+        ) : null}
       </Fold>
       {archiving === null ? null : (
         <ArchiveDialog
