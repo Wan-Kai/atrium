@@ -43,6 +43,7 @@ import {
   timeAgo,
   workspaceName,
 } from "./names";
+import { MORE_ROW } from "./more-row";
 import { RenameField } from "./rename-field";
 import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
 import { StatusIcon } from "./status-icon";
@@ -604,11 +605,7 @@ function ChatRows({
         );
       })}
       {chats.length > RECENT_CHATS ? (
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-        >
+        <button type="button" onClick={() => setExpanded(!expanded)} className={MORE_ROW}>
           {expanded ? "收起" : `显示全部 ${chats.length} 个`}
         </button>
       ) : null}
@@ -808,12 +805,7 @@ function ProjectRows({
           />
         ))}
         {workspaces.length > FIRST_WORKSPACES ? (
-          <button
-            type="button"
-            data-fold-row
-            onClick={() => setAll(!all)}
-            className="rounded-[var(--r)] py-1 pr-2 pl-9 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-          >
+          <button type="button" data-fold-row onClick={() => setAll(!all)} className={`${MORE_ROW} pl-9`}>
             {all ? "收起" : `显示全部 ${workspaces.length} 个`}
           </button>
         ) : null}
@@ -1267,12 +1259,7 @@ function Inbox({
           />
         ))}
         {entries.length > INBOX_SHOWN ? (
-          <button
-            type="button"
-            data-fold-row
-            onClick={() => setExpanded(!expanded)}
-            className="shrink-0 rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-          >
+          <button type="button" data-fold-row onClick={() => setExpanded(!expanded)} className={MORE_ROW}>
             {expanded ? "收起" : `还有 ${entries.length - INBOX_SHOWN} 条`}
           </button>
         ) : null}

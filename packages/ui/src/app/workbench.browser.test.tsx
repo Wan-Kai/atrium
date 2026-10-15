@@ -19,6 +19,18 @@ const MERGED = "wks_000000000000000c";
 const CHAT = "cht_a";
 
 /**
+ * An element's width and height in pixels.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its width and height.
+ */
+function sizeOf(element: Element): [number, number] {
+  const { width, height } = element.getBoundingClientRect();
+  return [width, height];
+}
+
+/**
  * A list with one project, three workspaces, a chat and some sessions, the client in the local
  * workspace.
  */
@@ -378,6 +390,8 @@ describe("Workbench sidebar", () => {
 
     await vi.waitFor(() => expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3", "try/1"]));
     await expect.element(more).toHaveTextContent("显示全部 8 个");
+    // The whole row is the button, not just its words.
+    expect(sizeOf(more.element())).toStrictEqual([sizeOf(screen.getByTestId("workspace-row").nth(0).element())[0], 30]);
     await more.click();
     expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3", "try/2", "try/1", "fix/typo"]);
     await expect.element(more).toHaveTextContent("收起");
@@ -783,6 +797,10 @@ describe("Workbench sidebar", () => {
       "问题 12 分钟前",
       "问题 23 分钟前",
       "问题 34 分钟前",
+    ]);
+    expect(sizeOf(section.getByRole("button", { name: "显示全部 7 个" }).element())).toStrictEqual([
+      sizeOf(rows.nth(0).element())[0],
+      30,
     ]);
     await section.getByRole("button", { name: "显示全部 7 个" }).click();
     await expect.element(rows.nth(6)).toHaveTextContent("问题 56 分钟前");
