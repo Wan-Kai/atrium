@@ -45,6 +45,18 @@ function at(tokens: number): SessionMetrics {
   return { ...KNOWN, context: { tokens, window: 100, system: null, tools: null } };
 }
 
+/**
+ * The shadow of the element holding another, where a line under a row is drawn.
+ *
+ * @sideEffects none
+ * @param element - The element inside.
+ * @returns The holder's `box-shadow`, or `null` without a holder.
+ */
+function shadowAround(element: Element): string | null {
+  const holder = element.parentElement;
+  return holder === null ? null : getComputedStyle(holder).boxShadow;
+}
+
 describe("StatusBar", () => {
   it("shows the session's statistics, tokens and context by default, the cost only when chosen", async () => {
     const { screen } = await bar();
@@ -149,6 +161,8 @@ describe("StatusBar", () => {
     expect(card.element().textContent).toBe(
       "上下文已用 42%~84K / 200K系统提示词~3K工具定义~3K对话消息~79K接近上限时 pi 会自动压缩",
     );
+    // No line under the title row.
+    expect(shadowAround(card.getByText("~84K / 200K").element())).toBe("none");
   });
 
   it("says why the context is not known: no window, or a compaction just now", async () => {

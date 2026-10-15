@@ -37,7 +37,7 @@ function Sep() {
  * A card's title row: an icon, the title and, at the right, a total.
  *
  * @remarks
- * As the prototype's detail cards (design-language, "状态栏").
+ * As the prototype's detail cards, without a line under it (design-language, "状态栏").
  *
  * @sideEffects none
  * @param props - The icon, title and total.
@@ -53,7 +53,7 @@ function CardHead({
   readonly total?: string;
 }) {
   return (
-    <div className="mb-1.5 flex items-center gap-2 pb-2.5 font-medium text-[var(--text)] shadow-[inset_0_-0.5px_0_var(--line)]">
+    <div className="mb-2.5 flex items-center gap-2 font-medium text-[var(--text)]">
       {icon}
       {title}
       {total === undefined ? null : <span className="ml-auto">{total}</span>}
