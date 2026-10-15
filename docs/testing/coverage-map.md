@@ -457,6 +457,14 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 指标：每次读统计时一起读预留（读失败为未知）；按会话当前的模型读，换模型后按新的；家目录下的记忆文件写成 `~/…`（`/home/meow` 不算 `/home/me` 下）；收到套餐用量时推出去，没变不推 | `packages/host/src/sessions/session-metrics.test.ts`、`session-controller.test.ts` "compaction reserve" | 已覆盖 |
 | 协议：`context.parts`、`context.reserve`、`metrics.plan` 的格式；百分比超过 100、超过 8 个窗口、不认识的服务商、缺预留的都拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
 | 上下文卡片：宽 340px；对话消息在先（总量减其余各段，不小于 0），没有 token 的段不显示；每段色块、名称、个数、"~N"、占窗口一位小数的百分比；预留斜纹行、剩余空间行；"距自动压缩还剩 ~N"，自动压缩关着时写"自动压缩已关"、没有预留行；记忆文件、工具、MCP 的行点了展开、再点收起，各自独立；"压缩会话"按了同 `/compact`，不能压缩时不可用；卡片和这一组之间的空隙属于卡片；没有分段时只显示总量 | `packages/ui/src/chat/status-bar.browser.test.tsx`、`status-figures.test.ts` "contextRows"、"windowShare" | 已覆盖（`/compact` 本身见"`/` 命令"一节） |
+| 套餐用量的解析：ChatGPT 的 `wham/usage` 读套餐名和两个窗口（重置时间秒转毫秒，没有百分比的窗口不要，一个窗口都没有不算）；Claude 的 `api/oauth/usage` 有 `limits[]` 时读 `session`、`weekly_all`、每个模型的 `weekly_scoped`（别的种类、没有百分比、没有模型名的不要，解析不了的重置时间为未知），没有时读旧的四个窗口里不为 `null` 的 | `packages/pi/src/plan/plan.test.ts` "codexUsage"、"claudeUsage" | 已覆盖 |
+| 宿主校验扩展报的用量：服务商只能是这两家，失败是小写短代码，最多 8 个窗口，百分比夹到 0–100，长度、时间不合格的为未知，模型名、套餐名截断；其余都不要；`atrium-plan` 只认扩展注册的，不进 `/` 菜单 | `plan.test.ts` "readPlanReport"、"isPlanQuery"；`packages/pi/src/catalog/commands.test.ts` | 已覆盖 |
+| 扩展查用量：ChatGPT 发往登录地址根下的 `/wham/usage`，带 pi 的头、`originator: pi`、bearer 和账户 id；Claude 只在订阅登录时发往 `/api/oauth/usage`，带 OAuth beta，API key 的报 `no_login`；没登录、查凭据失败、连不上、HTTP 错误、不是 JSON、不是用量各报原因代码，不带服务器原文；不认识的服务商不报；扩展的接口和 pi 的对得上，和 Fast 合成一个入口 | `packages/pi/src/plan/extension.test.ts` | 已覆盖 |
+| 经会话的 pi 查：pi 列出扩展的 `atrium-plan` 才发，只要这个服务商的、合格的报告，pi 拒绝时也停止监听；真实 pi 加载合成的扩展，列出两个内部命令，查询不进对话、在应答前报出用量 | `packages/pi/src/plan/query.test.ts`；契约：`packages/pi/src/contract/plan.pi.test.ts`（夹具 `pi-1.1.0/plan.jsonl`） | 已覆盖 |
+| 宿主的用量服务：同一服务商每分钟最多问一次、一次只问一个，各服务商分开；`no_login` 立即丢掉，其余失败满 10 分钟才丢，只记服务商和代码；查不到报告或查询失败不改，只记 pi 的命令和原因；只在变化时通知，取消订阅后不再通知 | `packages/host/src/sessions/plan-usage.test.ts` | 已覆盖 |
+| 会话跟随自己模型的服务商：pi 启动后和每次运行结束后问，换模型后跟到另一家或不跟，关闭时取消订阅，宿主停掉后重新启动时再跟；没有服务时什么都不显示 | `packages/host/src/sessions/session-controller.test.ts` "plan usage" | 已覆盖 |
+| 状态栏"套餐"：只在有用量时出现，显示用得最多的窗口，≥ 80% 变橙；卡片宽 300px，标题"ChatGPT Plus 用量"和查到的时间，每个窗口的名称、重置时间、百分比；能在调节面板里关掉；窗口名、重置时间（一天内写几小时几分后，再远写周几几点）、查到的时间的写法 | `packages/ui/src/chat/status-bar.browser.test.tsx` "StatusBar's plan group"；`status-figures.test.ts` "the plan's figures" | 已覆盖 |
+| 端到端：ChatGPT 订阅的会话发完消息后状态栏出现"套餐 82%"，卡片列出两个窗口；用量是 pi 的登录经扩展查的，pi 启动时问了一次、之后一分钟内的运行没再问 | `apps/desktop/e2e/plan.spec.ts` | 已覆盖 |
 
 ## M1.11、M1.12 三方审查后补（2026-10-14）
 

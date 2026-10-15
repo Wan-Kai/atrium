@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { ClockContext, type UiClock } from "../state/clock";
 import { StatusBar } from "./status-bar";
 
 /** A session with every figure known. */
@@ -85,8 +86,8 @@ function at(tokens: number): SessionMetrics {
  * @returns It.
  * @throws {Error} When it is not there.
  */
-function present<T>(value: T | null): T {
-  if (value === null) throw new Error("expected a value");
+function present<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("expected a value");
   return value;
 }
 
@@ -339,6 +340,7 @@ describe("StatusBar's panel", () => {
       ["会话统计", "true"],
       ["Token 用量", "true"],
       ["上下文", "true"],
+      ["套餐", "true"],
       ["费用", "false"],
     ]);
     expect(panel.getByRole("switch", { name: "费用" }).element().textContent).toBe(
@@ -396,3 +398,69 @@ function colorOf(value: string): string {
   probe.remove();
   return color;
 }
+
+/** Thursday 15 October 2026, noon, local time. */
+const NOON = new Date(2026, 9, 15, 12, 0).getTime();
+
+/** A clock stopped at noon. */
+const STOPPED: UiClock = { now: () => NOON, every: () => () => undefined, after: () => () => undefined };
+
+/** ChatGPT Plus's usage found five minutes before noon. */
+const PLAN: NonNullable<SessionMetrics["plan"]> = {
+  provider: "openai-codex",
+  plan: "plus",
+  windows: [
+    { seconds: 18_000, model: null, usedPercent: 39, resetsAt: NOON + (4 * 60 + 16) * 60_000 },
+    { seconds: 604_800, model: null, usedPercent: 52.4, resetsAt: new Date(2026, 9, 18, 8, 0).getTime() },
+  ],
+  at: NOON - 5 * 60_000,
+};
+
+describe("StatusBar's plan group", () => {
+  it("shows only with usage, at its most-used window, orange from 80%", async () => {
+    const { screen } = await bar();
+    await expect.element(screen.getByRole("button", { name: /^套餐/ })).not.toBeInTheDocument();
+
+    await screen.rerender(<StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />);
+    const group = screen.getByRole("button", { name: "套餐 52%" });
+    await expect.element(group).toBeVisible();
+    const calm = getComputedStyle(group.element()).color;
+    const near = { ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] };
+    await screen.rerender(<StatusBar metrics={{ ...KNOWN, plan: near }} choices={{}} onChoose={() => undefined} />);
+    const warm = getComputedStyle(screen.getByRole("button", { name: "套餐 80%" }).element()).color;
+    await screen.rerender(
+      <StatusBar metrics={{ ...KNOWN, plan: { ...PLAN, windows: [] } }} choices={{}} onChoose={() => undefined} />,
+    );
+
+    expect([calm === warm, warm]).toStrictEqual([false, colorOf("var(--attn-text)")]);
+    await expect.element(screen.getByRole("button", { name: /^套餐/ })).not.toBeInTheDocument();
+  });
+
+  it("lists each window in its card, when it resets and how much of it is used", async () => {
+    const screen = await render(
+      <ClockContext value={STOPPED}>
+        <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "flex-end" }}>
+          <StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />
+        </div>
+      </ClockContext>,
+    );
+
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 52%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "ChatGPT Plus 用量" });
+
+    await expect.element(card).toBeVisible();
+    expect(card.element().textContent).toBe(
+      "ChatGPT Plus 用量5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
+    );
+    expect(card.element().getBoundingClientRect().width).toBe(300);
+  });
+
+  it("is switched off like the others", async () => {
+    const { screen, onChoose } = await bar({ ...KNOWN, plan: PLAN });
+
+    await screen.getByRole("button", { name: "自定义状态栏" }).click();
+    await screen.getByRole("switch", { name: "套餐" }).click();
+
+    expect(onChoose).toHaveBeenCalledWith({ plan: false });
+  });
+});

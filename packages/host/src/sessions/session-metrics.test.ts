@@ -362,6 +362,40 @@ describe("createMetricsTracker: the entries", () => {
     );
   });
 
+  it("keeps memory files' paths without a home directory, or with an empty one", async () => {
+    const clock = new FakeClock();
+    const entry: LogEntry = {
+      id: "s1",
+      parentId: null,
+      kind: "system",
+      timestamp: 0,
+      system: {
+        textChars: 0,
+        sections: { project_context: 100 },
+        pieces: { project_context: [{ name: "/work/AGENTS.md", chars: 100 }] },
+        toolsAdded: {},
+        toolsRemoved: [],
+      },
+    };
+    const paths = await Promise.all(
+      [undefined, ""].map(async (home) => {
+        const tracker = createMetricsTracker({
+          clock,
+          entries: { all: [entry], branch: [entry] },
+          home,
+          readStats: () => Promise.resolve(stats()),
+          onChange: () => undefined,
+          onReadFailed: () => undefined,
+        });
+        tracker.refresh();
+        await settle();
+        return tracker.current().context?.parts?.memory.files.map(({ path }) => path);
+      }),
+    );
+
+    expect(paths).toStrictEqual([["/work/AGENTS.md"], ["/work/AGENTS.md"]]);
+  });
+
   it("takes the entries it starts with in without publishing them", () => {
     const clock = new FakeClock();
     const published: SessionMetrics[] = [];

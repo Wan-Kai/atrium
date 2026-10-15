@@ -109,7 +109,7 @@ export function createMetricsTracker(options: {
   /** pi's compaction reserve for the session's model now; none reads it as unknown. */
   readonly readReserve?: () => Promise<number | null>;
   /** The home directory, written as `~` in memory files' paths; none keeps the paths. */
-  readonly home?: string;
+  readonly home?: string | undefined;
   readonly onChange: (metrics: SessionMetrics) => void;
   readonly onReadFailed: (error: unknown) => void;
 }): MetricsTracker {

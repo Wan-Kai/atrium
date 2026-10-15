@@ -97,6 +97,7 @@ function stand(
             ? Promise.reject(new Error("pi failed"))
             : Promise.resolve(auth ?? { ok: true, apiKey: TOKEN });
         },
+        isUsingOAuth: () => true,
       },
     },
   };

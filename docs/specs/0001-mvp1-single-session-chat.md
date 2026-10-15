@@ -1072,7 +1072,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 **套餐用量**
 
-- 只查两家：`openai-codex`（ChatGPT 订阅）和 `anthropic` 的订阅登录（ADR-0010）。宿主在会话的 pi 启动后、每次运行结束后、换模型之后，当前模型是这两家之一、并且 pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 发 `/atrium-plan <服务商>`；同一服务商 60 秒内最多问一次、正在问时不再问。
+- 只查两家：`openai-codex`（ChatGPT 订阅）和 `anthropic` 的订阅登录（ADR-0010）。宿主在会话的 pi 启动后、每次运行结束后、换模型之后，当前模型是这两家之一、并且 pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 发 `/atrium-plan <服务商>`；同一服务商 60 秒内最多问一次、正在问时不再问。`atrium-plan` 和 `atrium-fast` 一样不出现在 `/` 菜单里。
 - 扩展用 `setStatus("atrium-plan", …)` 报 `{ provider, plan, windows }` 或 `{ provider, failure }`：
   - `plan`：ChatGPT 是 `plan_type`（如 `plus`、`pro`），Claude 为 `null`；
   - `windows`：每个窗口 `{ seconds, model, usedPercent, resetsAt }`。`seconds` 是窗口长度（5 小时是 18000，一周是 604800，不知道时为 `null`），`model` 是按模型的窗口的模型名（Claude 的 `weekly_scoped`），其余为 `null`；`usedPercent` 是 0–100 的数；`resetsAt` 是毫秒时间戳或 `null`。

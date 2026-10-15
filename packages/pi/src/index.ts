@@ -50,6 +50,8 @@ export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
 export { sessionModelOf } from "./catalog/models";
 export { isFastSwitch, toSlashCommand } from "./catalog/commands";
 export { FAST_COMMAND } from "./fast/fast";
+export { type PlanReport, isPlanProvider } from "./plan/plan";
+export { queryPlanUsage } from "./plan/query";
 export { findFd } from "./locate/fd";
 export {
   ONESHOT_TIMEOUT_MS,

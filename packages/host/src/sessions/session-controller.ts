@@ -1,5 +1,5 @@
-import type { Dialog, PiEvent, PiStats, TranslatedEvent } from "@atrium/pi";
-import { compactRejection, createEventTranslator, isBusyRejection } from "@atrium/pi";
+import type { Dialog, PiEvent, PiStats, PlanReport, TranslatedEvent } from "@atrium/pi";
+import { compactRejection, createEventTranslator, isBusyRejection, isPlanProvider } from "@atrium/pi";
 import {
   CommandError,
   type CommandResult,
@@ -10,6 +10,7 @@ import {
   type InteractionAnswer,
   type ModelRef,
   type PendingSteer,
+  type PlanProvider,
   type PromptCommand,
   type RunSettledEvent,
   type SessionEvent,
@@ -22,6 +23,7 @@ import {
   parseTraceparent,
 } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
+import type { PlanUsageService } from "./plan-usage";
 import { createMetricsTracker } from "./session-metrics";
 import {
   type EntriesPage,
@@ -441,6 +443,14 @@ export function createSessionController(options: {
   readonly readReserve?: (model: ModelRef | null) => Promise<number | null>;
   /** The home directory, written as `~` in the status bar's memory files. */
   readonly home?: string;
+  /**
+   * Subscriptions' usage, shared by sessions, and how to ask this session's pi for a provider's
+   * (ADR-0010); without it, the session shows none.
+   */
+  readonly plan?: {
+    readonly service: Pick<PlanUsageService, "current" | "subscribe" | "wanted">;
+    readonly ask: (provider: PlanProvider) => Promise<PlanReport | null>;
+  };
   /** The model pi started with; none when left out. */
   readonly model?: SessionModel | null;
   /** Told the model and thinking level pi uses after you chose one, to remember for new sessions. */
@@ -534,7 +544,7 @@ export function createSessionController(options: {
     entries: transcript.entries(),
     readStats: () => pi.stats(),
     readReserve: () => options.readReserve?.(model) ?? Promise.resolve(null),
-    ...(options.home === undefined ? {} : { home: options.home }),
+    home: options.home,
     onChange: (now) => emit({ type: "metrics_updated", metrics: now }),
     onReadFailed: (error) => {
       // pi going away fails every request; its exit is reported as such.
@@ -543,6 +553,49 @@ export function createSessionController(options: {
     },
   });
   metrics.refresh();
+  /** The subscription the session's model is on, whose usage it shows; `null` for none. */
+  let planProvider: PlanProvider | null = null;
+  let stopFollowingPlan: () => void = followNothing;
+  askPlan();
+
+  /**
+   * Shows the usage of the subscription the session's model is on, following it as it changes.
+   *
+   * @remarks
+   * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): only ChatGPT's and Claude's subscriptions; the
+   * usage is the service's, shared with the provider's other sessions.
+   *
+   * @sideEffects Subscribes to the service; updates the figures.
+   */
+  function followPlan(): void {
+    const provider = model !== null && isPlanProvider(model.providerId) ? model.providerId : null;
+    if (provider === planProvider) return;
+    stopFollowingPlan();
+    planProvider = provider;
+    const plan = options.plan;
+    if (provider === null || plan === undefined) {
+      stopFollowingPlan = followNothing;
+      metrics.planChanged(null);
+      return;
+    }
+    stopFollowingPlan = plan.service.subscribe(provider, (usage) => metrics.planChanged(usage));
+    metrics.planChanged(plan.service.current(provider));
+  }
+
+  /**
+   * Asks for the usage of the subscription the session's model is on, if it is one.
+   *
+   * @remarks
+   * After pi starts, each run and a model change (ADR-0010, point 3); the service decides whether
+   * it is time to ask.
+   *
+   * @sideEffects May ask the session's pi, through the service.
+   */
+  function askPlan(): void {
+    followPlan();
+    const [provider, plan] = [planProvider, options.plan];
+    if (provider !== null && plan !== undefined) plan.service.wanted(provider, () => plan.ask(provider));
+  }
 
   /**
    * Numbers an event and sends it to the session's viewers.
@@ -636,6 +689,7 @@ export function createSessionController(options: {
     if (JSON.stringify(now) === JSON.stringify(model)) return;
     model = now;
     emit({ type: "model_updated", model });
+    askPlan();
   }
 
   /**
@@ -823,6 +877,7 @@ export function createSessionController(options: {
         // Fire and forget: `refresh` reports its own failures.
         void refresh();
         dispatch();
+        askPlan();
         return;
       case "compaction_started":
         compacting = true;
@@ -1326,6 +1381,7 @@ export function createSessionController(options: {
     const { all, branch } = transcript.entries();
     metrics.entriesChanged(all, branch);
     metrics.refresh();
+    askPlan();
   }
 
   /**
@@ -1800,9 +1856,23 @@ export function createSessionController(options: {
     },
     async shutdown() {
       shuttingDown = true;
+      stopFollowingPlan();
+      planProvider = null;
       metrics.close();
       if (!exited) await pi.stop();
       await restarting;
     },
   };
+}
+
+/**
+ * Stops following nothing.
+ *
+ * @remarks
+ * What a session that follows no subscription's usage stops.
+ *
+ * @sideEffects none
+ */
+function followNothing(): void {
+  // Nothing: see above.
 }

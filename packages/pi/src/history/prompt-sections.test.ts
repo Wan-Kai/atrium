@@ -32,6 +32,16 @@ describe("sectionPieces", () => {
     ]);
   });
 
+  it("names a skill whose name has spaces in it, and none whose block has no name", () => {
+    const spaced = "<skill>\n<name>my  skill\nhere</name>\n</skill>";
+    const nameless = "<skill>\n<description>x</description>\n</skill>";
+
+    expect(sectionPieces("skills", `${spaced}\n${nameless}`)).toStrictEqual([
+      { name: "my  skill\nhere", chars: spaced.length },
+      { name: "", chars: nameless.length },
+    ]);
+  });
+
   it("finds no pieces in a split section without blocks, and does not split any other section", () => {
     expect(sectionPieces("project_context", "Project-specific instructions and guidelines:")).toStrictEqual([]);
     expect(sectionPieces("skills", "<available_skills>\n</available_skills>")).toStrictEqual([]);

@@ -229,6 +229,21 @@ describe("contextParts", () => {
     });
   });
 
+  it("takes each of pi's own tools as built-in, and a name with mcp__ not at its start as an extension's", () => {
+    const own = ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls", "codemode", "tool_search"];
+    const message: SystemMessage = {
+      role: "system",
+      content: "",
+      toolsAdded: [...own, "x_mcp__a__b"].map((name) => tool(name)),
+      timestamp: 0,
+    };
+
+    const parts = contextParts([toLogEntry(systemEntry("s0", message))]);
+
+    expect(parts?.builtin.items.map(({ name }) => name).toSorted()).toStrictEqual(own.toSorted());
+    expect([parts?.extensions.items.map(({ name }) => name), parts?.mcp.servers]).toStrictEqual([["x_mcp__a__b"], []]);
+  });
+
   it("puts a tool named like MCP's without a tool after the server among the extensions", () => {
     const odd = tool("mcp__alone", 2);
     const parts = contextParts([toLogEntry(systemEntry("s0", { toolsAdded: [odd, tool("mcp____x", 2)] }))]);

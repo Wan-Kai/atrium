@@ -32,6 +32,7 @@ function fieldOf(value: unknown, key: string): unknown {
  * @returns Whether it is one.
  */
 function isCount(value: unknown): value is number {
+  // Stryker disable next-line ConditionalExpression: `Number.isSafeInteger` is false for anything but a number too; the check narrows the type.
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
@@ -57,17 +58,17 @@ export async function compactionReserve(
 ): Promise<number | null> {
   let text: string | null;
   try {
+    // Stryker disable next-line StringLiteral: without an encoding the bytes parse the same.
     text = await readFile(join(agentDirectory(env), "settings.json"), "utf8");
   } catch {
     text = null;
   }
-  let settings: unknown = {};
-  if (text !== null) {
-    try {
-      settings = JSON.parse(text);
-    } catch {
-      return null;
-    }
+  let settings: unknown;
+  try {
+    // No file reads as JSON `null`, which has no field.
+    settings = JSON.parse(text ?? "null");
+  } catch {
+    return null;
   }
   const compaction = fieldOf(settings, "compaction");
   const set = fieldOf(compaction, "enabled");

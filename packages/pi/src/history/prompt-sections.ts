@@ -53,6 +53,7 @@ function unescapeXml(text: string): string {
  */
 export function sectionPieces(section: string, text: string): SectionPiece[] | null {
   if (section === "project_context") {
+    // Stryker disable next-line StringLiteral: the pattern always captures the path.
     return [...text.matchAll(MEMORY_FILE)].map((block) => ({ name: block[1] ?? "", chars: block[0].length }));
   }
   if (section === "skills") {

@@ -59,11 +59,14 @@ test("switches Fast beside the model for a model Codex's list gives it, and pi's
       { model: "gpt-6.1-sol", service_tier: "priority" },
       { model: "faux-1" },
     ]);
-    // Asked by the catalog's pi, and the session's once Fast was on, each time with pi's login.
-    expect(list.requests.length).toBeGreaterThan(0);
-    expect(
-      new Set(list.requests.map(({ url, headers }) => `${url} ${String(headers["authorization"])}`)),
-    ).toStrictEqual(new Set(["/backend-api/codex/models?client_version=99.0.0 Bearer faux-key"]));
+    // Asked by the catalog's pi, and the session's once Fast was on, each time with pi's login; the
+    // session's pi asks the same server for ChatGPT's usage too (ADR-0010).
+    const lists = list.requests.filter(({ url }) => url.startsWith("/backend-api/codex/models"));
+    expect(lists.length).toBeGreaterThan(0);
+    expect(new Set(lists.map(({ url, headers }) => `${url} ${String(headers["authorization"])}`))).toStrictEqual(
+      new Set(["/backend-api/codex/models?client_version=99.0.0 Bearer faux-key"]),
+    );
+    expect(list.requests.length - lists.length).toBeGreaterThan(0);
   } finally {
     await launched.close();
     await pi.cleanup();

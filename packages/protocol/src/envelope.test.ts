@@ -511,6 +511,11 @@ const events: SessionEvent[] = [
   {
     type: "metrics_updated",
     ...at,
+    metrics: { ...unknownMetrics, plan: { provider: "anthropic", plan: null, windows: [], at: 0 } },
+  },
+  {
+    type: "metrics_updated",
+    ...at,
     metrics: {
       ...metrics,
       reasoning: null,

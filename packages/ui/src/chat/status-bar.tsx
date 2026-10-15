@@ -14,11 +14,18 @@ import {
   formatSpeed,
   formatTokens,
   formatWhole,
+  foundAgo,
+  planNearLimit,
+  planPercent,
+  planTitle,
+  resetText,
   shownGroups,
   totalTokens,
+  windowName,
   windowShare,
   withChoice,
 } from "./status-figures";
+import { useClock } from "../state/clock";
 
 /** What stands for a figure not known yet (SPEC-0001, "状态栏"). */
 const UNKNOWN = "—";
@@ -113,13 +120,14 @@ function Foot({ children }: { readonly children: ReactNode }) {
  * The context's ring: a circle that fills as the window does.
  *
  * @remarks
- * Empty while the figure is unknown.
+ * Empty while the figure is unknown. The used part is the text's colour unless given another, as
+ * the plan's is (design-language, "状态栏").
  *
  * @sideEffects none
- * @param props - The percentage used.
+ * @param props - The percentage used, and the used part's colour.
  * @returns The ring.
  */
-function Ring({ percent }: { readonly percent: number | null }) {
+function Ring({ percent, color = "currentColor" }: { readonly percent: number | null; readonly color?: string }) {
   const radius = 6.5;
   const around = 2 * Math.PI * radius;
   return (
@@ -132,7 +140,7 @@ function Ring({ percent }: { readonly percent: number | null }) {
         fill="none"
         strokeWidth="2"
         strokeLinecap="round"
-        stroke="currentColor"
+        stroke={color}
         strokeDasharray={around.toFixed(2)}
         strokeDashoffset={(around * (1 - (percent ?? 0) / 100)).toFixed(2)}
         className="transition-[stroke-dashoffset] duration-300"
@@ -184,6 +192,59 @@ interface GroupDrawing {
   readonly tone?: (metrics: SessionMetrics) => string;
   /** A card wider than the rest, 340px (design-language, "状态栏"). */
   readonly wide?: boolean;
+  /** Whether the group shows for these figures; always when left out. */
+  readonly shown?: (metrics: SessionMetrics) => boolean;
+}
+
+/**
+ * The plan's card: each window's name, when it resets, and how much of it is used.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): titled by the provider and plan, with how long ago
+ * the usage was found; a window at 80% or more is orange.
+ *
+ * @sideEffects none
+ * @param props - The usage.
+ * @returns The card.
+ */
+function PlanCard({ plan }: { readonly plan: NonNullable<SessionMetrics["plan"]> }) {
+  const now = useClock().now();
+  return (
+    <>
+      <div className="mb-2.5 flex items-center gap-2 font-medium text-[var(--text)]">
+        {planTitle(plan)}
+        <span className="ml-auto text-[length:var(--fs-sm)] font-normal text-[var(--text-dim)]">
+          {foundAgo(plan.at, now)}
+        </span>
+      </div>
+      {plan.windows.map((window) => {
+        const used = Math.round(window.usedPercent);
+        const near = planNearLimit(used);
+        return (
+          <div
+            key={`${String(window.seconds)}-${window.model ?? ""}`}
+            className="mb-2.5 last:mb-0"
+            data-testid="plan-window"
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="text-[var(--text-2)]">{windowName(window)}</span>
+              <span className="flex-1" />
+              <span className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">
+                {resetText(window.resetsAt, now)}
+              </span>
+              <span className="w-[34px] text-right text-[length:var(--fs-sm)] text-[var(--text-2)]">{used}%</span>
+            </div>
+            <div className="mt-1.5 h-[5px] overflow-hidden rounded-[var(--r-pill)] bg-[var(--line)]">
+              <i
+                className="block h-full rounded-[var(--r-pill)]"
+                style={{ width: `${String(used)}%`, background: near ? "var(--attn)" : "var(--tint)" }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
 }
 
 /** The context's rows' colours (design-language, "颜色"). */
@@ -489,6 +550,24 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
     card: ({ context }, actions) => <ContextCard context={context} actions={actions} />,
     wide: true,
   },
+  plan: {
+    shown: ({ plan }) => plan !== null && plan.windows.length > 0,
+    tone: ({ plan }) => {
+      const percent = plan === null ? null : planPercent(plan);
+      return percent !== null && planNearLimit(percent) ? "text-[var(--attn-text)]" : "";
+    },
+    summary: ({ plan }) => {
+      const percent = plan === null ? null : planPercent(plan);
+      const near = percent !== null && planNearLimit(percent);
+      return (
+        <>
+          <Ring percent={percent} color={near ? "var(--attn)" : "var(--tint)"} />
+          套餐 {percent === null ? UNKNOWN : `${String(percent)}%`}
+        </>
+      );
+    },
+    card: ({ plan }) => (plan === null ? null : <PlanCard plan={plan} />),
+  },
   cost: {
     summary: ({ cost }) => (
       <>
@@ -703,7 +782,7 @@ export function StatusBar({
     >
       {shownGroups(choices).map((id) => {
         const drawing = DRAWINGS[id];
-        return drawing === undefined ? null : (
+        return drawing === undefined || drawing.shown?.(metrics) === false ? null : (
           <Group key={id} drawing={drawing} metrics={metrics} actions={{ onCompact, compactable }} />
         );
       })}

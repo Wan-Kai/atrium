@@ -25,6 +25,7 @@ describe("compactionReserve", () => {
   it("is pi's default without a settings file, or with one that says nothing of compaction", async () => {
     expect(await compactionReserve(await agentDir(), OPUS)).toBe(16_384);
     expect(await compactionReserve(await agentDir('{"theme":"dark"}'), null)).toBe(16_384);
+    expect(await compactionReserve(await agentDir('{"compaction":null}'), OPUS)).toBe(16_384);
   });
 
   it("takes the model's override, then the setting, then the default", async () => {
@@ -51,6 +52,7 @@ describe("compactionReserve", () => {
       await compactionReserve(await agentDir('{"compaction":{"enabled":false,"reserveTokens":9}}'), OPUS),
     ).toBeNull();
     expect(await compactionReserve(await agentDir('{"compaction":{"enabled":true,"reserveTokens":9}}'), OPUS)).toBe(9);
+    expect(await compactionReserve(await agentDir('{"compaction":{"reserveTokens":0}}'), OPUS)).toBe(0);
   });
 
   it("is unknown when the settings are not ones pi takes", async () => {
