@@ -971,7 +971,7 @@ export function ConversationArea({
     failure === null ? null : (
       <p
         role="alert"
-        className="mx-auto w-full max-w-[720px] px-6 pb-2 text-[length:var(--fs-meta)] text-[var(--danger)]"
+        className="mx-auto w-full max-w-[var(--column)] px-6 pb-2 text-[length:var(--fs-meta)] text-[var(--danger)]"
       >
         {failure}
       </p>

@@ -81,6 +81,9 @@
   --r-bubble: 22px;
   --r-pill: 999px;
 
+  /* The message column's widest, with its 24px padding each side (design-language, "圆角、尺寸与间距"). */
+  --column: 800px;
+
   --background: var(--main);
   --foreground: var(--text);
   --card: var(--surface-1);

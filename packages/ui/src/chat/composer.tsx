@@ -686,7 +686,7 @@ export function Composer({
   };
 
   return (
-    <div className="mx-auto w-full max-w-[720px] px-6 pb-1">
+    <div className="mx-auto w-full max-w-[var(--column)] px-6 pb-1">
       <div className="relative">
         {above}
         {listOpen ? (

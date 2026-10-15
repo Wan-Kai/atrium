@@ -75,7 +75,7 @@ export function LaunchView({ launch, reason }: { readonly launch: Launch; readon
     return { sent: () => previews, load: () => Promise.reject(new Error("not sent yet")) };
   }, [launch.images]);
   return (
-    <section aria-label="新建工作区的进度" className="mx-auto w-full max-w-[720px] shrink-0 px-6 pt-4">
+    <section aria-label="新建工作区的进度" className="mx-auto w-full max-w-[var(--column)] shrink-0 px-6 pt-4">
       <ol>
         {launch.steps.map((step, at) => {
           const node = launchNode(launch, at);

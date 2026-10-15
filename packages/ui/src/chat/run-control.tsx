@@ -459,7 +459,7 @@ function FailureCard({ attempts, onRetry }: { readonly attempts: number; readonl
 export function ControlCards({ control, actions }: { readonly control: Control; readonly actions: RunActions }) {
   if (control.interactions.length === 0 && control.failure === null) return null;
   return (
-    <div className="mx-auto w-full max-w-[720px] px-6">
+    <div className="mx-auto w-full max-w-[var(--column)] px-6">
       {control.interactions.map((interaction) => (
         <InteractionCard
           key={interaction.id}

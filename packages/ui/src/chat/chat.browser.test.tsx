@@ -660,7 +660,39 @@ async function noCreate(): Promise<string> {
   return "";
 }
 
+/**
+ * Measures the column an element sits in: its nearest ancestor with a maximum width.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns The column's maximum width, left edge and width.
+ */
+function columnOf(element: Element): { maxWidth: string; left: number; width: number } {
+  let column = element;
+  while (getComputedStyle(column).maxWidth === "none" && column.parentElement !== null) {
+    column = column.parentElement;
+  }
+  const { left, width } = column.getBoundingClientRect();
+  return { maxWidth: getComputedStyle(column).maxWidth, left, width };
+}
+
 describe("ConversationArea", () => {
+  it("lines the messages and the input box up in one column at most 800 px wide, centred", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      <div style={{ width: 1400 }}>
+        {tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />)}
+      </div>,
+    );
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    await expect.element(screen.getByText("第一")).toBeVisible();
+    const box = screen.getByRole("textbox", { name: "消息" }).element();
+    expect([columnOf(screen.getByText("第一").element()), columnOf(box)]).toStrictEqual([
+      { maxWidth: "800px", left: 300, width: 800 },
+      { maxWidth: "800px", left: 300, width: 800 },
+    ]);
+  });
+
   it("opens the active session when it shows, and explains when it cannot start", async () => {
     const { client, calls } = fakeClient(
       {},

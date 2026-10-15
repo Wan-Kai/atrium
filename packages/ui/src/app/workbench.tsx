@@ -576,7 +576,7 @@ function MainWindow({
           {resets.length > 0 ? (
             <div
               role="status"
-              className="mx-auto mt-3 flex w-full max-w-[720px] items-center gap-2 px-6 text-[length:var(--fs-meta)] text-[var(--attn-text)]"
+              className="mx-auto mt-3 flex w-full max-w-[var(--column)] items-center gap-2 px-6 text-[length:var(--fs-meta)] text-[var(--attn-text)]"
             >
               <span className="flex-1">
                 {resets.map((name) => FILE_NAMES[name]).join("、")}的文件损坏了，已经重置；原文件留在 ~/.atrium 里
