@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-15：新建 M1.13 上下文细分与套餐用量，在 `m1.13-context-plan` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。设计已定（原型 `context-quota-prototype.html`，套餐选 B"状态栏单独一组"；[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)），先改 SPEC-0001、security.md、design-language，再写代码。**
+
 **2026-10-14：M1.12 文件与更改完成，三方审查（Astra、Grok、Claude）后已合并回 `main`（M1.11 自用的改动一起合并）。右栏换成"文件""更改"两个标签（默认宽 320px），旧的改动面板删掉；查看标签（文件、改动）进标签栏、和会话一起数 ⌘1–9、⌘W 关；diff 和文件内容在 worker 里用 Shiki 上色；`list_dir`、`read_file` 和 material-icon-theme 的图标先前已提交。长内容按 64 行一组、`content-visibility: auto`，2 万行的 diff 折叠左栏、滚动每段 ≤ 4 毫秒，切换到改动标签约 60 毫秒（testing.md "性能预算"新加了切换和滚动两项）；改动标签离开时停掉文件头的闪动，否则动画留着整个标签不回收（泄漏测试查出来的）。三方审查的问题都修了：宿主一边，归档的会话不再起 pi，对话、工作区归档途中不起 pi、不新建会话，恢复工作区时放回这次归档记下的会话；压缩、分叉途中算忙；新建 worktree 的起点只收完整的 ref。界面一边，右栏有提交领先基线时也默认"更改"、打开着的面板守住默认；文件树只读展开且看得见的目录、先发的读不盖后读的；查看标签的滚动和换行按标签记，关掉就忘；从搜索、收件箱、"历史"点会话（哪怕是当前的）会把它显示出来；`/compact` 带上长粘贴和 `@` 文件，内置命令的失败只在发出它的会话里说；新建工作区发完整的 ref、界面显示短名，分支列表回来前不让发送；拖右栏只在松手时写存储；UI 只经 `@atrium/client` 拿协议的值（oxlint 守住）。单元、宿主、界面测试、相关端到端和 `pnpm check` 通过；变异分数 git 100%、host 99.98%、ui 99.47%。下一步回到 [M1.11](#m111-自用) 的自用。**
 
 **2026-10-13：新建 M1.12 文件与更改，在 `m1.12-files-changes` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。右栏照 Paseo 改成"文件""更改"两个标签，只放树；点文件在对话区的标签页里看内容或 diff。设计已定（原型 `files-changes-prototype.html` 的 A 版），先改 SPEC-0001、design-language、domain-model，再写代码。**
@@ -340,6 +342,18 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：原型 `files-changes-prototype.html`（A 版；B 分栏、C 浮层没选）、[paseo-architecture](research/paseo-architecture.md) §6.1、[SPEC-0001 · M1.12 的文件与更改](specs/0001-mvp1-single-session-chat.md#m112-的文件与更改协议版本-142026-10-13-定)（以及它沿用的"工作区改动"）、[design-language · 右栏、查看标签](architecture/design-language.md#右栏文件与更改)、[domain-model](architecture/domain-model.md)"已决定 19"、[security.md](architecture/security.md)"子进程与文件"。Paseo 的对应源码：`packages/app/src/components/file-explorer-pane.tsx`、`git/changed-files-tree.tsx`、`git/diff-tree.ts`、`panels/file-panel.tsx`、`workspace-tabs/open-beside.ts`。
 - **完成标准**：SPEC-0001 里这一节的行为都有测试；约 2 万行的 diff 在查看标签里打开、滚动、切换标签不超过性能预算；查看标签反复开关的泄漏测试通过；大文件、二进制、图片、读不了的文件都有说法。
 
+##### M1.13 上下文细分与套餐用量
+
+- **目标**：状态栏的上下文卡片拆到记忆文件、Skills、各类工具和自动压缩预留；状态栏加"套餐"一组，显示 ChatGPT（Codex）和 Claude 订阅的 5 小时、每周用量和重置时间（2026-10-15 定）。
+- **范围**：
+  - 上下文：宿主回放系统消息时按分段名、工具名分到系统提示词、记忆文件（每个文件）、Skills（每个 skill）、内置工具、MCP 工具（按服务器）、扩展；读 pi 设置里的自动压缩预留；卡片可以展开每段、显示"距自动压缩还剩"和"压缩会话"按钮。
+  - 套餐：Atrium 自带的 pi 扩展加 `/atrium-plan <服务商>`，借 pi 的登录查 ChatGPT 的 `wham/usage` 和 Claude 订阅的 `api/oauth/usage`；宿主按服务商缓存（60 秒最多问一次），随会话指标推给界面；状态栏单独一组"套餐 N%"，悬停看各窗口。
+  - 自带扩展改成一个入口（Fast 和套餐用量），打包成 `atrium-extension.mjs`。
+  - 协议版本 16：`metrics.context` 换成 `parts` 和 `reserve`，新增 `metrics.plan`。
+  - 不做：别家 coding plan（GLM、Kimi、MiniMax 等，要逐家验证接口）、设置里看所有账户的用量（原型的 C）、由扩展报的精确工具来源和被隐藏的工具。
+- **参考**：原型 `context-quota-prototype.html`、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[SPEC-0001 · M1.13 的上下文细分与套餐用量](specs/0001-mvp1-single-session-chat.md#m113-的上下文细分与套餐用量协议版本-162026-10-15-定)、[security.md](architecture/security.md)"Atrium 自带的 pi 扩展"、[design-language · 状态栏](architecture/design-language.md#状态栏)。
+- **完成标准**：SPEC-0001 里这一节的行为都有测试；真实 pi 加载扩展、执行 `/atrium-plan` 的契约测试通过（用本地的假服务器，不连真的接口）；扩展不把凭据交给宿主、不写日志的测试通过。
+
 #### MVP 2：看得见内部
 
 开工前写 SPEC-0002。
@@ -397,4 +411,4 @@ Atrium 区别于宿主层方案的核心，按学习价值和实现难度排序�
 - 浏览器插件：ego lite 做不到的、或和 Atrium 相关的浏览器功能（例如把当前页面送进会话），自用中真遇到时再做；连宿主的鉴权、只操作"Atrium"标签组等规则见 [ADR-0009](adr/0009-browser-stays-external.md)。不内置浏览器（原先的"内嵌浏览器面板"，2026-10-12 改）
 - 手机端：先做响应式 + PWA，远程访问走 Tailscale；原生 App 视需要再做（见 [ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）
 - 空闲进程回收、文件区、forge（PR）状态
-- SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、订阅额度显示、长会话虚拟列表、extension 单向通知的显示
+- SPEC-0001 里标为"以后"的：侧聊、agent 提出的任务建议卡片、全文搜索、置顶、一个目录多个工作区、把对话移到项目、收藏模型、语音输入、长会话虚拟列表、extension 单向通知的显示
