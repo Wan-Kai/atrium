@@ -30,4 +30,5 @@
 | [0007](0007-each-chat-is-its-own-container.md) | 每个对话是一个独立的容器 | 已接受（浏览器标签页的设想被 0009 取代） | 2026-10-12 |
 | [0008](0008-atrium-own-pi-extension-for-fast.md) | 用 Atrium 自带的 pi 扩展实现 Fast | 已接受 | 2026-10-12 |
 | [0009](0009-browser-stays-external.md) | 浏览器操作放在外部浏览器，定制功能做成浏览器插件 | 已接受 | 2026-10-12 |
-| [0010](0010-plan-usage-through-atrium-extension.md) | 套餐用量经 Atrium 自带的 pi 扩展查询 | 已接受 | 2026-10-15 |
+| [0010](0010-plan-usage-through-atrium-extension.md) | 套餐用量经 Atrium 自带的 pi 扩展查询 | 已接受（第 1、3 条被 0011 取代） | 2026-10-15 |
+| [0011](0011-plan-overview-all-subscriptions.md) | 套餐总览：经任一会话的 pi 查所有订阅，Grok 的用量接口是唯一的例外地址 | 已接受 | 2026-10-16 |

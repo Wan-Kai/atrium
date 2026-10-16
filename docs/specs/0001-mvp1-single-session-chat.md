@@ -413,7 +413,7 @@ Electron 主进程
 | 会话统计 | 显示 | "N 轮 N 步 · 48 tok/s" | 模型用时、首 token 平均（TTFT）、输出速度（TPS） | 轮、步：`get_session_stats` 的 `userMessages`、`toolCalls`，按整个会话文件数（2026-10-10 定）。宿主计时：模型用时累计每次请求从发出到 `message_end`；TTFT 是发出请求到第一个增量；TPS 是最近一次回复的输出 token ÷ 流式输出时长（细节见"状态栏（M1.8）"） |
 | Token 用量 | 显示 | "1.3M tok · 缓存命中 73%" | 总量；缓存命中、未缓存输入、缓存读取、缓存写入、输出（其中推理，只有服务商报告时才有） | `get_session_stats` 的 `tokens`：统计的是整个会话文件，含其他分支和压缩消耗，详情卡片标明"本会话累计"；当前分支各轮之和另算。每条助手消息的 `usage`。缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`） |
 | 上下文 | 显示 | 圆环 + "42%" | "上下文已用 42% · ~84K / 200K"；分段彩色条与逐段的数和占比：对话消息、系统提示词、记忆文件、Skills、内置工具、MCP 工具、扩展、自动压缩预留、剩余空间，记忆文件、Skills、工具可以展开到每一项；底部"距自动压缩还剩 ~N"和"压缩会话"（M1.13 改，原先只分系统提示词、工具定义、对话消息三段） | 见下文"上下文分段"和"M1.13 的上下文细分与套餐用量"。超过 70% 变黄、超过 85% 变红；压缩后到下一次回复前显示"—" |
-| 套餐 | 显示 | 圆环 + "套餐 39%"（各窗口里用得最多的那个） | "ChatGPT Plus 用量"：每个窗口一行，名称（5 小时窗口、每周、每周 · 模型名）、重置时间、已用百分比和进度条；右上角写查到的时间 | 只在当前模型是 ChatGPT（Codex）或 Claude 订阅登录、并且查到了用量时出现（M1.13，ADR-0010）；用到 80% 变橙色。见下文"M1.13 的上下文细分与套餐用量" |
+| 套餐 | 显示 | 圆环 + "套餐 39%"（当前模型那家各窗口里用得最多的那个；当前模型不是查到的订阅时只写"套餐"） | "套餐用量"：查到的每个订阅一段，当前模型那家在前；每段写服务商和套餐名、查到的时间，每个窗口一行名称（5 小时窗口、每周、每周 · 模型名）、重置时间、已用百分比和进度条，Grok 的窗口下面列各产品占了多少 | 查到了任何一家的用量时出现（M1.14 改，原先只在当前模型是这家时出现，ADR-0011）；用到 80% 变橙色。见下文"M1.13 的上下文细分与套餐用量"和"M1.14 的套餐总览" |
 | 费用 | 不显示 | "≈ $0.45" | 按 API 价格折算，订阅用户不实际付费 | `get_session_stats` 的 `cost` |
 
 - MVP 1 就支持配置显示哪些分组。唯一入口是状态栏末尾的调节按钮（平时半透明，悬停状态栏时变实），点开在上方弹出"状态栏"面板：每行是分组名称和一句说明、下面是这一项此刻的样子（关闭时变淡）、右边是开关；底部"恢复默认"。配置全局保存，对所有会话生效。
@@ -515,6 +515,7 @@ Electron 主进程
 - **外观**：跟随系统 / 浅色 / 深色三段，和侧栏底部的外观切换是同一个偏好 `appearance`。下面一组"侧栏"：开关"显示“等你处理”"，说明"在侧栏底部汇总等你审批、回答、授权和出错的会话"，偏好 `inbox`（2026-10-13 自用时加，见"侧栏 · 收件箱"）。
 - **模型与账户**：
   - 订阅登录：和首次启动第 2 步同一份列表、同样的登录过程（订阅图标、登录中可取消、pi 的提问和设备码），已登录的显示"已登录"和"退出"。
+  - 套餐用量（M1.14）：查到的每个订阅的各窗口，同状态栏的套餐卡片，见"M1.14 的套餐总览"。
   - API Key：只列已经有 Key 的服务商，不显示 Key 本身；`stored` 为真的可以"删除"，来自环境变量的只显示"来自环境变量"，不能删。"添加 API Key"展开一行：选服务商（pi 里能存 Key、还没有 Key 的）、粘贴 Key、保存。
   - 退出登录和删除 Key 只在去掉的是**最后一个能用的凭据**时确认（"退出后没有能用的模型，新会话没法开始"）；还有别的凭据时直接执行。确认就在那一行里：提示加"取消"和"仍要退出/仍要删除"，不另弹对话框（2026-10-11 定）。环境变量的 Key 也算能用的凭据。用 Key 登录的订阅服务商在订阅列表里只显示"已登录"，在 API Key 里删除（2026-10-11 定）。
   - 生成标题用的模型：下拉，默认"跟随会话的模型"，其余选项是已登录服务商的模型（PiCatalog 的列表）。新 worktree 的分支名也用它起（2026-10-14 起，见"AI 起分支名"）。选的模型所属服务商退出登录后，选择保留，下面提示"已不可用，暂时改用会话的模型起标题"，起标题用会话的模型；重新登录后恢复。
@@ -1080,10 +1081,45 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
   - ChatGPT：`rate_limit.primary_window`、`secondary_window`，`reset_at` 是秒。Claude：有 `limits[]` 时用它（`session`、`weekly_all` 各一个窗口，`weekly_scoped` 每个模型一个），没有时用 `five_hour`、`seven_day`、`seven_day_opus`、`seven_day_sonnet` 里不为 `null` 的。
   - `failure` 是原因代码：`no_login`（这家没登录或是 API key）、`unreachable`、`http_<状态码>`、`not_json`、`unknown_shape`。
 - 宿主按格式校验（服务商是这两家之一，窗口最多 8 个（Claude 按模型分的窗口多于 8 个时扩展只报前 8 个），时长和重置时间是安全整数，百分比夹到 0–100，模型名最多 64 个字），按服务商记最近一次成功的结果和查到的时间；失败只记日志（服务商和原因代码）；`no_login` 立即丢掉之前的结果，别的失败（含超时、没有查到结果、查询出错）只在之前的结果已经查到满 10 分钟时丢掉。之后没有再查时结果留着，卡片右上角的"N 分钟前"说明它有多旧，随时间走（2026-10-16 审查后定）。
-- 协议：`metrics.plan` 为 `null` 或 `{ provider, plan, windows, at }`，是这个会话当前模型的服务商的结果（`at` 是查到的时间）。别的会话查到同一家的新结果时，这个会话也推 `metrics_updated`。
+- 协议：`metrics.plan` 为 `null` 或 `{ provider, plan, windows, at }`，是这个会话当前模型的服务商的结果（`at` 是查到的时间）。别的会话查到同一家的新结果时，这个会话也推 `metrics_updated`。（M1.14 去掉 `metrics.plan`，改成全宿主一份的 `plans_updated`；什么时候问、问哪几家也改了，见"M1.14 的套餐总览"。）
 - 状态栏的"套餐"一组：摘要是圆环和"套餐 N%"，N 是各窗口里最大的已用百分比，取整；≥ 80% 时圆环和数字用 `--attn`。卡片：标题"ChatGPT Plus 用量"（服务商名：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude；后面跟套餐名，首字母大写），右上角是查到的时间（"刚刚""N 分钟前"）；每个窗口一行：名称（18000 秒是"5 小时窗口"，604800 秒是"每周"，其余按小时或天，有模型名时加"· 模型名"）、重置时间（一天内写"N 小时 N 分后重置"，再远写"周几 HH:MM 重置"，没有时不写）、百分比和进度条（≥ 80% 用 `--attn`）。`metrics.plan` 为 `null` 或没有窗口时整组不显示。
 
 新增：`metrics.plan`、`context.parts`、`context.reserve`；去掉 `context.system`、`context.tools`。协议版本 16。
+
+### M1.14 的套餐总览（协议版本 17，2026-10-16 定）
+
+查所有订阅、加 Grok 的理由见 ADR-0011。没有另做原型：卡片和设置里的一组沿用 M1.13 的套餐卡片的样子，按服务商分段（2026-10-16 和用户确认：状态栏卡片和设置两处都放，状态栏摘要取当前模型那家）。
+
+**查哪几家、什么时候查**
+
+- 三家：`openai-codex`（ChatGPT 订阅）、`anthropic`（Claude 订阅）、`xai`（Grok：SuperGrok、X Premium 订阅）。后两家只查订阅登录，API key 的报 `no_login`。
+- 宿主在每个会话的 pi 启动后和每次运行结束后（`agent_settled`），pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 把三家都问一遍（`/atrium-plan <服务商>`），不再看会话当前的模型，换模型不再触发。同一服务商 60 秒内最多问一次、正在问时不再问，全宿主共用。
+- 结果的去留同 M1.13：`no_login` 立即丢掉这一家；别的失败（含超时、没有报告、查询出错）只在之前的结果查到满 10 分钟时丢掉。同一服务商连续报同一个原因时日志只记第一次（三家每分钟都问，没登录的那家不该每分钟记一条）。
+- 一个会话都没开时不查，留着上次的结果；宿主重启后要等第一个会话的 pi 起来才有数。
+
+**Grok 的用量**
+
+- 扩展只在 `xai` 的订阅登录时发往写死的 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，带 `authorization: Bearer <令牌>`、`x-xai-token-auth: xai-grok-cli`、`accept: application/json`（ADR-0011；其余同 ChatGPT、Claude：走 pi 的 `fetch`、15 秒为限、不跟随重定向）。
+- 回答是 `{ config: { currentPeriod: { type, start, end }, creditUsagePercent, productUsage: [{ product, usagePercent }], … } }`（2026-10-16 用 pi 的登录实测，见 ADR-0011）。报成一个窗口：
+  - `usedPercent` 是 `creditUsagePercent`；没有这个数但有 `currentPeriod` 时按 0（用了 0% 时它会被省略）；
+  - `seconds` 是 `end − start`（秒，取整；一周就是 604800，显示"每周"），`resetsAt` 是 `end`；解析不了的为 `null`；
+  - `model` 为 `null`；
+  - `parts` 是 `productUsage` 每一项 `{ name: product, usedPercent: usagePercent }`，没有 `usagePercent` 的按 0，没有产品名的不要；是窗口用量按产品的拆分，加起来约等于窗口的百分比，不是各自的上限。
+  - `plan` 为 `null`（套餐档次要另请求 `/v1/settings`，不做）。
+- `config` 不是对象、`currentPeriod` 和 `creditUsagePercent` 都没有时报 `unknown_shape`。其余字段（按需付费、预付余额、计费周期）不读。
+
+**协议**
+
+- `PlanProvider` 加 `xai`。窗口加 `parts`：`[{ name, usedPercent }]`，最多 16 项，名字 1–64 个字（扩展报的截断），百分比夹到 0–100；ChatGPT、Claude 的窗口为空数组。扩展报的窗口没有 `parts` 时按空数组，`parts` 不是数组、超过 16 项、有一项不合格时整份报告不要。
+- 去掉 `metrics.plan`。
+- 新命令 `get_plans()`：应答 `{ plans }`。新事件 `plans_updated { plans }`：任何一家的结果变了时整份推给所有连接。`plans` 是查到的订阅，每家 `{ provider, plan, windows, at }`，按 `openai-codex`、`anthropic`、`xai` 的顺序，没有查到的不列。客户端连上（含重连）后要一次，之后跟着事件换。
+- 协议版本 17。
+
+**界面**
+
+- 状态栏的"套餐"一组：`plans` 不为空时出现。摘要的圆环和"套餐 N%"取**当前会话模型的服务商**那一份（规则同 M1.13）；当前模型不是查到的订阅（如 GLM、API key 的 Claude）时，圆环是空的，只写"套餐"，颜色不变橙。
+- 卡片（宽 300px）：标题"套餐用量"。查到的每家一段，当前模型那家在前，其余按协议的顺序；段与段之间一条 0.5px `--line`。每段第一行是服务商和套餐名（同 M1.13 的写法，去掉"用量"二字：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude，`xai` 是 Grok），当前模型那家后面加"当前"（`--text-dim`），右边是这一家查到的时间；下面是它的窗口，同 M1.13。窗口有 `parts` 时，进度条下面每个产品一行：缩进、产品名（按大写字母拆开，`GrokBuild` 写"Grok Build"）、百分比，不画进度条。
+- 设置 · 模型与账户：在"订阅登录"下面加一组"套餐用量"，内容和卡片的各段一样（没有卡片标题）；`plans` 为空时写"打开会话后，Atrium 会借 pi 的登录查各订阅的用量"。
 
 ### 状态栏（M1.8，2026-10-10 定）
 
@@ -1218,6 +1254,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `search_files(sessionId, query)` | `@` 引用的候选文件和目录（在会话的工作目录里用 `fd`，与 pi 的终端界面一致） |
 | `check_setup(refresh?)` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install(jobId)` / `login(providerId, method, key?)` / `answer_login(loginId, promptId, value)` / `cancel_login(loginId)` / `logout(providerId)` / `check_pi_update()` / `discover_projects()` | 首次启动与设置：检查、一键安装和更新、登录与退出、从 pi 历史发现目录（M1.10，见上文"首次启动 · 接口"） |
 | `set_main_branch(projectId, branch)` / `list_branches(projectId)` | 项目的主干分支（M1.10，见上文"设置 · 接口"） |
+| `get_plans()` | 查到的各订阅的用量（M1.14，见上文"M1.14 的套餐总览"） |
 
 **事件（宿主 → UI）**
 
@@ -1234,6 +1271,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `install_output` / `install_updated` / `login_updated` | 安装、更新、登录的输出、状态和结果（M1.10） |
 | `pi_latest` | npm 上 pi 的最新版本和查询时间（M1.10，见上文"设置 · 接口"） |
 | `credentials_changed` | 登录成功或退出登录，凭据变了（M1.10，见上文"首次启动 · 接口"） |
+| `plans_updated` | 各订阅的用量，任何一家变了时整份推给所有连接（M1.14，见上文"M1.14 的套餐总览"） |
 | `model_updated` | 会话当前的模型和推理强度变化（M1.7，见上文"模型与输入框"） |
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知；M1.8，见上文"状态栏"） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |
