@@ -97,6 +97,7 @@ function stand(
             ? Promise.reject(new Error("pi failed"))
             : Promise.resolve(auth ?? { ok: true, apiKey: TOKEN });
         },
+        isUsingOAuth: () => true,
       },
     },
   };
@@ -384,6 +385,15 @@ describe("atriumFast", () => {
     await load().command.run("tiers", pi.ctx);
 
     expect(pi.statuses).toStrictEqual([["atrium-fast", JSON.stringify({ failure })]]);
+  });
+
+  it("follows no redirect with pi's credentials, reporting it unreachable", async () => {
+    const list = await server((response) => response.writeHead(302, { location: "/elsewhere" }).end());
+    const pi = codex(list.baseUrl);
+
+    await load().command.run("tiers", pi.ctx);
+
+    expect([pi.statuses, list.requests.length]).toStrictEqual([[["atrium-fast", '{"failure":"unreachable"}']], 1]);
   });
 
   it("asks Codex in the background at the first on, going by the built-in rule until it answers and by the list alone after", async () => {

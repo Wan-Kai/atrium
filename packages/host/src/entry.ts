@@ -25,7 +25,7 @@ function configFor(token: string, uiDir: string | undefined, extraOrigins: reado
     token,
     // Built next to this bundle (build.mjs).
     loginWorker: join(__dirname, "login-worker.mjs"),
-    fastExtension: join(__dirname, "fast-extension.mjs"),
+    fastExtension: join(__dirname, "atrium-extension.mjs"),
     ...(uiDir === undefined ? {} : { uiDir }),
     ...(extraOrigins === undefined ? {} : { extraOrigins }),
     ...piLatestUrlFor(process.env["ATRIUM_PI_LATEST_URL"]),

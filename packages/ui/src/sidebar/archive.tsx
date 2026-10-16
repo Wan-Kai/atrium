@@ -3,6 +3,7 @@ import type { Chat, SessionSummary, Workspace } from "@atrium/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MENU_ITEM } from "../chat/menu-button";
+import { MORE_ROW } from "./more-row";
 import { chatName, timeAgo, workspaceName } from "./names";
 
 /**
@@ -370,12 +371,7 @@ export function ArchivedChats({
   const newest = chats.toSorted((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
   return (
     <>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="rounded-[var(--r)] px-2 py-1 text-left text-[length:var(--fs-meta)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-      >
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={MORE_ROW}>
         已归档的对话
       </button>
       {open ? (

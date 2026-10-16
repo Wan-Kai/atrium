@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { ClockContext, type UiClock } from "../state/clock";
 import { StatusBar } from "./status-bar";
 
 /** A session with every figure known. */
@@ -13,8 +14,33 @@ const KNOWN: SessionMetrics = {
   cost: 0.454,
   reasoning: 12_000,
   branchTokens: 800_000,
-  context: { tokens: 84_000, window: 200_000, system: 3000, tools: 2500 },
+  context: {
+    tokens: 84_000,
+    window: 200_000,
+    parts: {
+      system: 3000,
+      memory: {
+        tokens: 4200,
+        files: [
+          { path: "~/work/atrium/AGENTS.md", tokens: 3100 },
+          { path: "~/.pi/agent/AGENTS.md", tokens: 1080 },
+        ],
+      },
+      skills: { tokens: 0, items: [] },
+      builtin: {
+        tokens: 2500,
+        items: [
+          { name: "bash", tokens: 1300 },
+          { name: "read", tokens: 1190 },
+        ],
+      },
+      mcp: { tokens: 3400, servers: [{ name: "paseo", tools: 6, tokens: 3300 }] },
+      extensions: { tokens: 0, items: [] },
+    },
+    reserve: 16_384,
+  },
   timing: { modelMs: 42_300, ttftMs: 820, tps: 48.4 },
+  plan: null,
 };
 
 /**
@@ -29,20 +55,52 @@ const KNOWN: SessionMetrics = {
  * @param choices - The groups switched from their default.
  * @returns The screen and the choices sent.
  */
-async function bar(metrics: SessionMetrics = KNOWN, choices: StatusBarChoices = {}) {
+async function bar(metrics: SessionMetrics = KNOWN, choices: StatusBarChoices = {}, compactable = true) {
   const onChoose = vi.fn<(choices: StatusBarChoices) => void>();
+  const onCompact = vi.fn<() => void>();
   const screen = await render(
     <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "space-between" }}>
       <button type="button">elsewhere</button>
-      <StatusBar metrics={metrics} choices={choices} onChoose={onChoose} />
+      <StatusBar
+        metrics={metrics}
+        choices={choices}
+        onChoose={onChoose}
+        onCompact={onCompact}
+        compactable={compactable}
+      />
     </div>,
   );
-  return { screen, onChoose };
+  return { screen, onChoose, onCompact };
 }
 
 /** The figures with `tokens` of a context of 100 used. */
 function at(tokens: number): SessionMetrics {
-  return { ...KNOWN, context: { tokens, window: 100, system: null, tools: null } };
+  return { ...KNOWN, context: { tokens, window: 100, parts: null, reserve: null } };
+}
+
+/**
+ * A value the test knows is there.
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @returns It.
+ * @throws {Error} When it is not there.
+ */
+function present<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("expected a value");
+  return value;
+}
+
+/**
+ * The shadow of the element holding another, where a line under a row is drawn.
+ *
+ * @sideEffects none
+ * @param element - The element inside.
+ * @returns The holder's `box-shadow`, or `null` without a holder.
+ */
+function shadowAround(element: Element): string | null {
+  const holder = element.parentElement;
+  return holder === null ? null : getComputedStyle(holder).boxShadow;
 }
 
 describe("StatusBar", () => {
@@ -139,7 +197,7 @@ describe("StatusBar", () => {
     );
   });
 
-  it("splits the context in its card: the system prompt, the tools and the conversation", async () => {
+  it("splits the context in its card: each part with its share of the window, the reserve and what is left", async () => {
     const { screen } = await bar();
 
     await userEvent.hover(screen.getByRole("button", { name: "42%" }));
@@ -147,12 +205,110 @@ describe("StatusBar", () => {
     const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
     await expect.element(card).toBeVisible();
     expect(card.element().textContent).toBe(
-      "上下文已用 42%~84K / 200K系统提示词~3K工具定义~3K对话消息~79K接近上限时 pi 会自动压缩",
+      [
+        "上下文已用 42%~84K / 200K",
+        "对话消息~71K35.4%",
+        "系统提示词~3K1.5%",
+        "›记忆文件2~4K2.1%",
+        "›内置工具2~3K1.3%",
+        "›MCP 工具6~3K1.7%",
+        "自动压缩预留16K8.2%",
+        "剩余空间~100K49.8%",
+        "距自动压缩还剩 ~100K压缩会话",
+        "各段按字数估算",
+      ].join(""),
     );
+    // No line under the title row; the card is wider than the others.
+    expect(shadowAround(card.getByText("~84K / 200K").element())).toBe("none");
+    expect(card.element().getBoundingClientRect().width).toBe(340);
+  });
+
+  it("opens a row to its files, tools or servers, and closes it again", async () => {
+    const { screen } = await bar();
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+    const memory = card.getByRole("button", { name: /记忆文件/ });
+
+    await memory.click();
+    await card.getByRole("button", { name: /MCP 工具/ }).click();
+
+    await expect.element(memory).toHaveAttribute("aria-expanded", "true");
+    expect(card.getByRole("list", { name: "记忆文件" }).element().textContent).toBe(
+      "~/work/atrium/AGENTS.md~3K~/.pi/agent/AGENTS.md~1K",
+    );
+    expect(card.getByRole("list", { name: "MCP 工具" }).element().textContent).toBe("paseo · 6 个~3K");
+    await memory.click();
+    await expect.element(card.getByRole("list", { name: "记忆文件" })).not.toBeInTheDocument();
+    await expect.element(card.getByRole("list", { name: "MCP 工具" })).toBeVisible();
+    await expect.element(card.getByRole("button", { name: /系统提示词/ })).not.toBeInTheDocument();
+  });
+
+  it("keeps a card that grows past the window within it, scrolling, a long list of skills opened", async () => {
+    const skills = Array.from({ length: 50 }, (_, place) => ({ name: `skill-${String(place)}`, tokens: 100 }));
+    const parts = present(present(KNOWN.context).parts);
+    const metrics: SessionMetrics = {
+      ...KNOWN,
+      context: { ...present(KNOWN.context), parts: { ...parts, skills: { tokens: 5000, items: skills } } },
+    };
+    const screen = await render(
+      <div style={{ display: "flex", height: "100vh", flexDirection: "column", justifyContent: "flex-end" }}>
+        <StatusBar metrics={metrics} choices={{}} onChoose={() => undefined} />
+        <div style={{ height: 30 }} />
+      </div>,
+    );
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+
+    await card.getByRole("button", { name: /Skills/ }).click();
+    await expect.element(card.getByRole("list", { name: "Skills" })).toBeInTheDocument();
+
+    const box = present(card.element().firstElementChild);
+    expect([
+      box.getBoundingClientRect().top >= 0,
+      box.scrollHeight > box.clientHeight,
+      getComputedStyle(box).overflowY,
+    ]).toStrictEqual([true, true, "auto"]);
+  });
+
+  it("compacts from the card when the session can be, and keeps the card open on the way to it", async () => {
+    const { screen, onCompact } = await bar();
+    const group = screen.getByRole("button", { name: "42%" });
+    await userEvent.hover(group);
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+    await expect.element(card).toBeVisible();
+    // The gap between the group and the card is the card's, so the pointer does not leave on the way.
+    const { left, bottom } = card.element().getBoundingClientRect();
+    expect(card.element().contains(document.elementFromPoint(left + 20, bottom - 4))).toBe(true);
+    expect(group.element().getBoundingClientRect().top - bottom).toBeLessThanOrEqual(0);
+
+    await card.getByRole("button", { name: "压缩会话" }).click();
+
+    expect(onCompact).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not compact while the session cannot be, and says when pi does not compact on its own", async () => {
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), reserve: "off" } }, {}, false);
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+
+    await expect.element(card.getByRole("button", { name: "压缩会话" })).toBeDisabled();
+    await expect.element(card.getByText("自动压缩已关")).toBeVisible();
+    await expect.element(card.getByText("自动压缩预留")).not.toBeInTheDocument();
+    await expect.element(card.getByText("剩余空间")).toBeVisible();
+  });
+
+  it("says it does not know how far automatic compaction is when pi's settings are not known", async () => {
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), reserve: null } });
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+
+    await expect.element(card.getByText("距自动压缩还剩 —")).toBeVisible();
+    await expect.element(card.getByText("自动压缩预留")).not.toBeInTheDocument();
+    await expect.element(card.getByText("自动压缩已关")).not.toBeInTheDocument();
   });
 
   it("says why the context is not known: no window, or a compaction just now", async () => {
-    const { screen } = await bar({ ...KNOWN, context: { tokens: null, window: 200_000, system: 3000, tools: 2500 } });
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), tokens: null } });
     await userEvent.hover(screen.getByRole("button", { name: "—" }));
     await expect.element(screen.getByText("刚压缩过，下一次回复后更新")).toBeVisible();
 
@@ -165,7 +321,7 @@ describe("StatusBar", () => {
   });
 
   it("shows the context's total alone before pi stated a system prompt", async () => {
-    const { screen } = await bar({ ...KNOWN, context: { tokens: 84_000, window: 200_000, system: null, tools: null } });
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), parts: null } });
 
     await userEvent.hover(screen.getByRole("button", { name: "42%" }));
 
@@ -221,6 +377,7 @@ describe("StatusBar's panel", () => {
       ["会话统计", "true"],
       ["Token 用量", "true"],
       ["上下文", "true"],
+      ["套餐", "true"],
       ["费用", "false"],
     ]);
     expect(panel.getByRole("switch", { name: "费用" }).element().textContent).toBe(
@@ -278,3 +435,104 @@ function colorOf(value: string): string {
   probe.remove();
   return color;
 }
+
+/** Thursday 15 October 2026, noon, local time. */
+const NOON = new Date(2026, 9, 15, 12, 0).getTime();
+
+/** A clock stopped at noon. */
+const STOPPED: UiClock = { now: () => NOON, every: () => () => undefined, after: () => () => undefined };
+
+/** ChatGPT Plus's usage found five minutes before noon. */
+const PLAN: NonNullable<SessionMetrics["plan"]> = {
+  provider: "openai-codex",
+  plan: "plus",
+  windows: [
+    { seconds: 18_000, model: null, usedPercent: 39, resetsAt: NOON + (4 * 60 + 16) * 60_000 },
+    { seconds: 604_800, model: null, usedPercent: 52.4, resetsAt: new Date(2026, 9, 18, 8, 0).getTime() },
+  ],
+  at: NOON - 5 * 60_000,
+};
+
+describe("StatusBar's plan group", () => {
+  it("shows only with usage, at its most-used window, orange from 80%", async () => {
+    const { screen } = await bar();
+    await expect.element(screen.getByRole("button", { name: /^套餐/ })).not.toBeInTheDocument();
+
+    await screen.rerender(<StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />);
+    const group = screen.getByRole("button", { name: "套餐 52%" });
+    await expect.element(group).toBeVisible();
+    const calm = getComputedStyle(group.element()).color;
+    const near = { ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] };
+    await screen.rerender(<StatusBar metrics={{ ...KNOWN, plan: near }} choices={{}} onChoose={() => undefined} />);
+    const warm = getComputedStyle(screen.getByRole("button", { name: "套餐 80%" }).element()).color;
+    await screen.rerender(
+      <StatusBar metrics={{ ...KNOWN, plan: { ...PLAN, windows: [] } }} choices={{}} onChoose={() => undefined} />,
+    );
+
+    expect([calm === warm, warm]).toStrictEqual([false, colorOf("var(--attn-text)")]);
+    await expect.element(screen.getByRole("button", { name: /^套餐/ })).not.toBeInTheDocument();
+  });
+
+  it("lists each window in its card, when it resets and how much of it is used", async () => {
+    const screen = await render(
+      <ClockContext value={STOPPED}>
+        <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "flex-end" }}>
+          <StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />
+        </div>
+      </ClockContext>,
+    );
+
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 52%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "ChatGPT Plus 用量" });
+
+    await expect.element(card).toBeVisible();
+    expect(card.element().textContent).toBe(
+      "ChatGPT Plus 用量5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
+    );
+    expect(card.element().getBoundingClientRect().width).toBe(300);
+  });
+
+  it("keeps its card's times going with the clock, a minute at a time, with no new usage", async () => {
+    let now = NOON;
+    const ticks: { readonly ms: number; readonly tick: () => void }[] = [];
+    const clock: UiClock = {
+      now: () => now,
+      every: (ms, tick) => {
+        const entry = { ms, tick };
+        ticks.push(entry);
+        return () => ticks.splice(ticks.indexOf(entry), 1);
+      },
+      after: () => () => undefined,
+    };
+    const screen = await render(
+      <ClockContext value={clock}>
+        <StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />
+      </ClockContext>,
+    );
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 52%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "ChatGPT Plus 用量" });
+    await expect.element(card).toBeVisible();
+    const before = card.element().textContent;
+
+    now += 10 * 60_000;
+    for (const { tick } of ticks) tick();
+
+    await expect.element(card).not.toHaveTextContent(present(before));
+    expect([before, card.element().textContent]).toStrictEqual([
+      "ChatGPT Plus 用量5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
+      "ChatGPT Plus 用量15 分钟前5 小时窗口4 小时 6 分后重置39%每周周日 08:00 重置52%",
+    ]);
+    expect(ticks.map(({ ms }) => ms)).toStrictEqual([60_000]);
+    await screen.unmount();
+    expect(ticks).toStrictEqual([]);
+  });
+
+  it("is switched off like the others", async () => {
+    const { screen, onChoose } = await bar({ ...KNOWN, plan: PLAN });
+
+    await screen.getByRole("button", { name: "自定义状态栏" }).click();
+    await screen.getByRole("switch", { name: "套餐" }).click();
+
+    expect(onChoose).toHaveBeenCalledWith({ plan: false });
+  });
+});

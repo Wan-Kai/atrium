@@ -9,10 +9,10 @@ import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
 import { createNewWorkspaceStore } from "../state/new-workspace";
 import { createPanes, memoryStorage } from "../state/panes";
-import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer } from "../state/workspace-views";
+import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer, viewOf } from "../state/workspace-views";
 import { pageNotices, showNotice } from "../state/session-notices";
 import { caughtDownloads } from "../test/downloads";
-import { fakeClient, session } from "../test/fake-client";
+import { fakeClient, session, workspace } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
 import { UserBubble } from "./messages";
@@ -660,7 +660,39 @@ async function noCreate(): Promise<string> {
   return "";
 }
 
+/**
+ * Measures the column an element sits in: its nearest ancestor with a maximum width.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns The column's maximum width, left edge and width.
+ */
+function columnOf(element: Element): { maxWidth: string; left: number; width: number } {
+  let column = element;
+  while (getComputedStyle(column).maxWidth === "none" && column.parentElement !== null) {
+    column = column.parentElement;
+  }
+  const { left, width } = column.getBoundingClientRect();
+  return { maxWidth: getComputedStyle(column).maxWidth, left, width };
+}
+
 describe("ConversationArea", () => {
+  it("lines the messages and the input box up in one column at most 800 px wide, centred", async () => {
+    const { client } = fakeClient();
+    const screen = await render(
+      <div style={{ width: 1400 }}>
+        {tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />)}
+      </div>,
+    );
+    client.session("s1")?.setState({ items: [turn("t1", "第一")] });
+    await expect.element(screen.getByText("第一")).toBeVisible();
+    const box = screen.getByRole("textbox", { name: "消息" }).element();
+    expect([columnOf(screen.getByText("第一").element()), columnOf(box)]).toStrictEqual([
+      { maxWidth: "800px", left: 300, width: 800 },
+      { maxWidth: "800px", left: 300, width: 800 },
+    ]);
+  });
+
   it("opens the active session when it shows, and explains when it cannot start", async () => {
     const { client, calls } = fakeClient(
       {},
@@ -2360,6 +2392,171 @@ describe("ConversationArea's workspace changes", () => {
     await vi.waitFor(() => expect(calls).toContain(`readFile ${OTHER_W} src/a.ts`));
     await expect.element(screen.getByText("line 199")).toBeInTheDocument();
     expect(screen.getByTestId("viewer-body").element().scrollTop).toBe(0);
+  });
+});
+
+/** A read of `path`, done. */
+function readOf(id: string, path: string): Turn["steps"][number] {
+  return {
+    kind: "tool",
+    id,
+    callId: `c${id}`,
+    tool: "read",
+    args: { path },
+    status: "done",
+    output: "",
+    details: { tool: "read", path, offset: null, limit: null },
+    partial: false,
+  };
+}
+
+/** A finished turn that read two files, one outside the workspace, then edited a third. */
+const TOUCHED = turn("t1", "改好了", {
+  steps: [
+    readOf("0", "/work/wks_0000000000000001/src/a.ts"),
+    readOf("1", "../elsewhere/c.ts"),
+    {
+      kind: "tool",
+      id: "2",
+      callId: "c2",
+      tool: "edit",
+      args: { path: "src/b.ts" },
+      status: "done",
+      output: "",
+      details: { tool: "edit", path: "src/b.ts", diff: "+1 x", added: 1, removed: 0 },
+      partial: false,
+    },
+    { kind: "text", id: "3", text: "改好了" },
+  ],
+});
+
+/**
+ * Renders the area on session s1 in `containerId`, the turn that touched files shown and its process open.
+ *
+ * @sideEffects Renders; clicks the process open.
+ * @param containerId - The workspace or chat shown.
+ * @returns The screen and the area's workspace views.
+ */
+async function touchedIn(containerId: string) {
+  const { client } = fakeClient(
+    { workspaces: [workspace({ id: "wks_0000000000000001" })] },
+    { readFile: async () => ({ size: 6, content: { kind: "text" as const, text: "hello\n" } }) },
+  );
+  const views = createWorkspaceViews(memoryStorage());
+  const screen = await render(
+    tall(<ConversationArea client={client} containerId={containerId} sessionId="s1" create={noCreate} views={views} />),
+  );
+  client.session("s1")?.setState({ items: [TOUCHED] });
+  await screen.getByTestId("process-header").click();
+  return { screen, views };
+}
+
+describe("ConversationArea's file chips", () => {
+  const W = "wks_0000000000000001";
+
+  it("opens a file the turn read or edited in the workspace in a pinned tab, none from outside it", async () => {
+    const { screen, views } = await touchedIn(W);
+    const chips = screen.getByTestId("file-chip");
+    await expect.element(chips.nth(2)).toBeVisible();
+    expect(chips.elements().map((chip) => [chip.tagName, chip.getAttribute("title")])).toStrictEqual([
+      ["BUTTON", "打开 /work/wks_0000000000000001/src/a.ts"],
+      ["SPAN", "../elsewhere/c.ts"],
+      ["BUTTON", "打开 src/b.ts"],
+    ]);
+
+    await chips.nth(2).click();
+
+    await expect.element(screen.getByRole("region", { name: "src/b.ts" })).toBeVisible();
+    // Back in the session, the conversation is drawn afresh, its process folded.
+    showViewer(views, W, null);
+    await screen.getByTestId("process-header").click();
+    await chips.nth(0).click();
+    await expect.element(screen.getByRole("region", { name: "src/a.ts" })).toBeVisible();
+    expect(viewOf(views.getState(), W).tabs).toStrictEqual([
+      { kind: "file", path: "src/b.ts", preview: false },
+      { kind: "file", path: "src/a.ts", preview: false },
+    ]);
+  });
+
+  it("still opens the edit's row from the rest of it", async () => {
+    const { screen } = await touchedIn(W);
+    const row = screen.getByRole("button", { name: /编辑了/ });
+
+    await row.click();
+
+    await expect.element(row).toHaveAttribute("aria-expanded", "true");
+    await expect.element(screen.getByRole("region", { name: "src/b.ts" })).not.toBeInTheDocument();
+  });
+
+  it("opens nothing from a chat, its chips not buttons", async () => {
+    const { screen } = await touchedIn(CHAT);
+    const chips = screen.getByTestId("file-chip");
+    await expect.element(chips.nth(2)).toBeVisible();
+
+    expect(chips.elements().map((chip) => chip.tagName)).toStrictEqual(["SPAN", "SPAN", "SPAN"]);
+  });
+});
+
+describe("ConversationArea's HTML tabs", () => {
+  const W = "wks_0000000000000001";
+
+  it.each([
+    ["its directory", "/work/site"],
+    ["its directory written with a slash at the end", "/work/site/"],
+  ])("opens an HTML tab's file in the browser by its path under %s", async (_how, dir) => {
+    const { client } = fakeClient(
+      { workspaces: [workspace({ id: W, dir })] },
+      { readFile: async () => ({ size: 10, content: { kind: "text" as const, text: "<p>hi</p>\n" } }) },
+    );
+    const views = createWorkspaceViews(memoryStorage());
+    openFile(views, W, "pages/index.html", true);
+    const opened: string[] = [];
+    const screen = await render(
+      tall(
+        <ConversationArea
+          client={client}
+          containerId={W}
+          sessionId="s1"
+          create={noCreate}
+          views={views}
+          openInBrowser={(path) => opened.push(path)}
+        />,
+      ),
+    );
+
+    await screen.getByRole("button", { name: "在浏览器打开" }).click();
+
+    expect(opened).toStrictEqual(["/work/site/pages/index.html"]);
+  });
+
+  it("offers no browser where nothing opens one, or for a workspace it does not know", async () => {
+    const { client } = fakeClient(
+      { workspaces: [workspace({ id: W })] },
+      { readFile: async () => ({ size: 10, content: { kind: "text" as const, text: "<p>hi</p>\n" } }) },
+    );
+    const views = createWorkspaceViews(memoryStorage());
+    openFile(views, W, "index.html", true);
+    openFile(views, "wks_0000000000000009", "index.html", true);
+    /** The area in `containerId`, with or without a way to the browser. */
+    const drawn = (containerId: string, openInBrowser: ((path: string) => void) | undefined) =>
+      tall(
+        <ConversationArea
+          client={client}
+          containerId={containerId}
+          sessionId={null}
+          create={noCreate}
+          views={views}
+          openInBrowser={openInBrowser}
+        />,
+      );
+    const screen = await render(drawn(W, undefined));
+    await expect.element(screen.getByTestId("code-lines")).toBeVisible();
+    const without = screen.getByRole("button", { name: "在浏览器打开" }).elements().length;
+
+    await screen.rerender(drawn("wks_0000000000000009", () => undefined));
+    await expect.element(screen.getByTestId("code-lines")).toBeVisible();
+
+    expect([without, screen.getByRole("button", { name: "在浏览器打开" }).elements().length]).toStrictEqual([0, 0]);
   });
 });
 

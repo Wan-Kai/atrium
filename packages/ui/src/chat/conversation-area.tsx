@@ -13,7 +13,14 @@ import { shownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
 import { clearNotice, showNotice } from "../state/session-notices";
 import { sessionTitle } from "../sidebar/names";
-import { type BuiltinCall, builtinBlocked, lastReply, namedLevel, namedModel } from "./builtin-commands";
+import {
+  type BuiltinCall,
+  COMPACT_COMMAND,
+  builtinBlocked,
+  lastReply,
+  namedLevel,
+  namedModel,
+} from "./builtin-commands";
 import { download } from "./download";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
@@ -35,10 +42,12 @@ import {
   type WorkspaceViews,
   choosePanelTab,
   createWorkspaceViews,
+  openFile,
   panelTabOf,
   viewOf,
 } from "../state/workspace-views";
 import { ActiveViewer } from "../files/active-viewer";
+import { workspacePath } from "../files/workspace-path";
 import { NO_CHANGES, useDiffWatch } from "../files/use-diff";
 
 /** What to say when pi cannot be used, by the status the host found. */
@@ -321,6 +330,7 @@ function SessionArea({
   onFocusTaken,
   changes,
   launch,
+  fileOpener,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -343,6 +353,8 @@ function SessionArea({
   readonly changes: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void } | undefined;
   /** What sending from the new-workspace page set going here, until its first message has gone. */
   readonly launch: Launch | undefined;
+  /** How to open a file a tool was given, from its chip; none outside a workspace. */
+  readonly fileOpener?: ((path: string) => (() => void) | null) | undefined;
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
@@ -401,6 +413,7 @@ function SessionArea({
             }}
             onRetry={actions.retry}
             onFork={(turnId) => forkFrom(client, sessionId, turnId)}
+            {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
           />
         </MessageImagesContext>
       )}
@@ -452,6 +465,13 @@ function SessionArea({
         metrics={view.metrics}
         choices={statusBar}
         onChoose={(choices) => act(() => client.setPreferences({ statusBar: choices }))}
+        onCompact={() => {
+          // Fire and forget: it says why above the input box when it cannot.
+          void onBuiltin({ command: COMPACT_COMMAND, args: "" });
+        }}
+        compactable={
+          !running && !view.control.stopping && !view.control.compacting && view.metrics.context?.tokens != null
+        }
       />
     </>
   );
@@ -478,7 +498,8 @@ function SessionArea({
  * @sideEffects Watches the active session; creates and opens sessions and sends messages
  * through the client.
  * @param props - The client, the container, its active session, how to create a session, what
- * the new-workspace page set going, the panes, and the workspace views.
+ * the new-workspace page set going, the panes, the workspace views, and how to open a file in the
+ * browser.
  * @returns The area.
  */
 export function ConversationArea({
@@ -489,6 +510,7 @@ export function ConversationArea({
   launches = NO_LAUNCHES,
   panes: given,
   views: givenViews,
+  openInBrowser,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -501,6 +523,8 @@ export function ConversationArea({
   readonly panes?: StoreApi<Panes>;
   /** The workspace views; left out, the area keeps its own, which nothing outlives. */
   readonly views?: StoreApi<WorkspaceViews>;
+  /** Opens an absolute path to an HTML file in the default browser; left out where nothing can. */
+  readonly openInBrowser?: ((path: string) => void) | undefined;
 }) {
   const [own] = useState(() => createPanes(memoryStorage()));
   const panes = given ?? own;
@@ -552,6 +576,18 @@ export function ConversationArea({
   /** The workspace shown, whose git changes the capsule and panel show; `null` for a chat. */
   const workspaceId = workspaceOf(containerId);
   const changes = useStore(workspaceId === null ? NO_CHANGES : client.changes(workspaceId));
+  const workspaceDir = useStore(
+    client.index,
+    (index) => index.workspaces.find((workspace) => workspace.id === workspaceId)?.dir ?? null,
+  );
+  // A chip's file opens in a pinned tab of the workspace (SPEC-0001, "查看标签 · 从对话里打开").
+  const fileOpener = useMemo(() => {
+    if (workspaceId === null || workspaceDir === null) return undefined;
+    return (path: string) => {
+      const relative = workspacePath(path, workspaceDir);
+      return relative === null ? null : () => openFile(views, workspaceId, relative, true);
+    };
+  }, [views, workspaceId, workspaceDir]);
   useEffect(() => {
     // Fire and forget: a lost connection asks again when it is back (SPEC-0001, "工作区改动").
     client.watchChanges(workspaceId === null ? [] : [workspaceId]).catch(() => undefined);
@@ -971,7 +1007,7 @@ export function ConversationArea({
     failure === null ? null : (
       <p
         role="alert"
-        className="mx-auto w-full max-w-[720px] px-6 pb-2 text-[length:var(--fs-meta)] text-[var(--danger)]"
+        className="mx-auto w-full max-w-[var(--column)] px-6 pb-2 text-[length:var(--fs-meta)] text-[var(--danger)]"
       >
         {failure}
       </p>
@@ -988,6 +1024,11 @@ export function ConversationArea({
             workspaceId={workspaceId}
             views={views}
             viewerKey={viewer}
+            openInBrowser={
+              openInBrowser === undefined || workspaceDir === null
+                ? undefined
+                : (path) => openInBrowser(`${workspaceDir.replace(/\/+$/u, "")}/${path}`)
+            }
           />
         ) : store === undefined || sessionId === null ? (
           <>
@@ -1043,6 +1084,7 @@ export function ConversationArea({
             onFocusTaken={() => handTo(null)}
             changes={capsule}
             launch={launch}
+            fileOpener={fileOpener}
           />
         )}
       </div>

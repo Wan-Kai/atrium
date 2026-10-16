@@ -109,7 +109,7 @@ function ProcessHeader({
       disabled={running}
       onClick={onToggle}
       data-testid="process-header"
-      className="group relative mt-3 flex min-h-[30px] w-full min-w-0 items-center text-left text-[length:var(--fs-meta)] text-[var(--text-muted)]"
+      className="atrium-press-row group relative mt-3 flex min-h-[30px] w-full min-w-0 items-center text-left text-[length:var(--fs-meta)] text-[var(--text-muted)]"
     >
       {running ? (
         <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
@@ -173,7 +173,7 @@ function FilesList({ turn }: { readonly turn: Turn }) {
             type="button"
             aria-expanded={open === change.path}
             onClick={() => setOpen(open === change.path ? null : change.path)}
-            className="flex h-[30px] w-full items-center gap-2 rounded-[var(--r)] px-2 text-left text-[length:var(--fs-meta)] text-[var(--text-2)] hover:bg-[var(--hover)]"
+            className="atrium-press-row flex h-[30px] w-full items-center gap-2 rounded-[var(--r)] px-2 text-left text-[length:var(--fs-meta)] text-[var(--text-2)] hover:bg-[var(--hover)]"
           >
             <FileText size={14} className="flex-none text-[var(--text-muted)]" />
             <span className="min-w-0 flex-1 truncate font-[family-name:var(--font-mono)] text-[length:var(--fs-sm)]">
@@ -299,7 +299,7 @@ function ForkButton({ turnId, fork }: { readonly turnId: string; readonly fork: 
       aria-label="从这里分叉"
       title={fork.blocked ? "运行中不能分叉" : "从这里分叉"}
       aria-disabled={fork.blocked}
-      className={`rounded-[var(--r)] p-1 text-[var(--text-dim)] ${
+      className={`atrium-press-sm rounded-[var(--r)] p-1 text-[var(--text-dim)] ${
         fork.blocked ? "cursor-not-allowed opacity-40" : "hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
       }`}
       onClick={() => {
@@ -349,7 +349,7 @@ function TurnFooter({
             type="button"
             aria-expanded={filesOpen}
             onClick={() => setFilesOpen(!filesOpen)}
-            className="ml-2 flex h-6 items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--hover)] px-2.5 text-[var(--text-muted)] hover:bg-[var(--selected)] hover:text-[var(--text-2)]"
+            className="atrium-press ml-2 flex h-6 items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--hover)] px-2.5 text-[var(--text-muted)] hover:bg-[var(--selected)] hover:text-[var(--text-2)]"
           >
             <PencilSimple size={12} />
             改了 {turn.changes.length} 个文件
@@ -359,7 +359,7 @@ function TurnFooter({
                 <span className="text-[var(--danger)]">−{removed}</span>
               </>
             )}
-            <CaretDown size={9} className={filesOpen ? "rotate-180" : ""} />
+            <CaretDown size={9} className={`atrium-fold-chevron ${filesOpen ? "rotate-180" : ""}`} />
           </button>
         )}
         {turn.usage === null ? null : (
@@ -379,7 +379,7 @@ function TurnFooter({
 export const OpenLogin = createContext<(() => void) | null>(null);
 
 /** The error card's one main button, on a light wash of the card's colour. */
-const CARD_PRIMARY = "rounded-[var(--r-pill)] px-2.5 leading-[22px] font-medium hover:brightness-95";
+const CARD_PRIMARY = "atrium-press rounded-[var(--r-pill)] px-2.5 leading-[22px] font-medium hover:brightness-95";
 
 /**
  * pi's error for a failed turn, folded until asked for.
@@ -421,7 +421,7 @@ function TurnError({ error, onRetry }: { readonly error: string | null; readonly
             className={
               login === null
                 ? `${CARD_PRIMARY} ${wash}`
-                : "rounded-[var(--r)] px-1.5 leading-[22px] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+                : "atrium-press rounded-[var(--r)] px-1.5 leading-[22px] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
             }
             onClick={onRetry}
           >
@@ -432,7 +432,7 @@ function TurnError({ error, onRetry }: { readonly error: string | null; readonly
           <button
             type="button"
             aria-expanded={open}
-            className="ml-auto inline-flex items-center gap-0.5 rounded-[var(--r)] px-1 leading-[22px] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+            className="atrium-press ml-auto inline-flex items-center gap-0.5 rounded-[var(--r)] px-1 leading-[22px] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
             onClick={() => setOpen(!open)}
           >
             详情
@@ -644,7 +644,7 @@ export function NoticeView({ notice }: { readonly notice: Notice }) {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] before:h-px before:flex-1 before:bg-[var(--line)] after:h-px after:flex-1 after:bg-[var(--line)] hover:text-[var(--text-muted)]"
+        className="atrium-press-row flex w-full items-center gap-2.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] before:h-px before:flex-1 before:bg-[var(--line)] after:h-px after:flex-1 after:bg-[var(--line)] hover:text-[var(--text-muted)]"
       >
         <span className="flex items-center gap-1.5">
           <ArrowsInLineVertical size={13} />

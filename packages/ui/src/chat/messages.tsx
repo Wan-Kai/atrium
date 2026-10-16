@@ -1,4 +1,5 @@
-import { Copy } from "../design/icons";
+import { Check, Copy } from "../design/icons";
+import { useClock } from "../state/clock";
 import { CommandTag } from "./command-tag";
 import { type ChosenCommand, writtenCommand } from "./composer-text";
 import { MessageThumbnails } from "./message-images";
@@ -23,27 +24,39 @@ export function timeOfDay(timestamp: number): string {
  *
  * @remarks
  * Copying uses the full text, never the part the reveal has shown so far (SPEC-0001, "平滑流式输出").
+ * Once copied, the icon is a check and the hover text "已复制" for 2 seconds, as a code block's
+ * copy says so (SPEC-0001, "消息下方的信息"); a refused clipboard says nothing.
  *
- * @sideEffects Writes to the clipboard when clicked.
+ * @sideEffects Writes to the clipboard when clicked; sets a timer while it shows the check.
  * @param props - What to copy, read when clicked, and the button's name.
  * @returns The button.
  */
 export function CopyButton({ text, label = "复制" }: { readonly text: () => string; readonly label?: string }) {
+  const clock = useClock();
+  const [copied, setCopied] = useState(0);
+  useEffect(() => (copied === 0 ? undefined : clock.after(COPIED_MS, () => setCopied(0))), [clock, copied]);
   return (
     <button
       type="button"
       aria-label={label}
-      title={label}
-      className="rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+      title={copied === 0 ? label : "已复制"}
+      data-copied={copied !== 0}
+      className="atrium-press-sm rounded-[var(--r)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
       onClick={() => {
-        // Fire and forget: a refused clipboard simply copies nothing.
-        void navigator.clipboard.writeText(text()).catch(() => undefined);
+        // Fire and forget: a refused clipboard simply copies nothing, and says nothing.
+        void navigator.clipboard.writeText(text()).then(
+          () => setCopied((times) => times + 1),
+          () => undefined,
+        );
       }}
     >
-      <Copy size={14} />
+      {copied === 0 ? <Copy size={14} /> : <Check size={14} className="text-[var(--ok-text)]" />}
     </button>
   );
 }
+
+/** How long a copy button shows its check (design-language, "动效 · 复制成功"). */
+const COPIED_MS = 2000;
 
 /** Props of {@link UserBubble}. */
 export interface UserBubbleProps {
@@ -117,7 +130,7 @@ export function UserBubble({
         {overflows || expanded ? (
           <button
             type="button"
-            className="mt-1 text-[length:var(--fs-sm)] text-[var(--tint)]"
+            className="atrium-press mt-1 text-[length:var(--fs-sm)] text-[var(--tint)]"
             onClick={() => setExpanded(!expanded)}
           >
             {expanded ? "收起" : "展开"}

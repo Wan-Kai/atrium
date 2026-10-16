@@ -19,6 +19,18 @@ const MERGED = "wks_000000000000000c";
 const CHAT = "cht_a";
 
 /**
+ * An element's width and height in pixels.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its width and height.
+ */
+function sizeOf(element: Element): [number, number] {
+  const { width, height } = element.getBoundingClientRect();
+  return [width, height];
+}
+
+/**
  * A list with one project, three workspaces, a chat and some sessions, the client in the local
  * workspace.
  */
@@ -357,6 +369,106 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0)).toHaveAttribute("title", "本地工作区（项目目录）");
   });
 
+  it("lists five of a project's workspaces and the current one, the rest behind 显示全部 N 个, opened and closed in place", async () => {
+    const initial = list();
+    const tries = [6, 4, 3, 2, 1].map((at) =>
+      workspace({ id: `wks_00000000000000t${String(at)}`, branch: `try/${String(at)}`, createdAt: at }),
+    );
+    const { screen, index } = await workbench({
+      initial: {
+        ...initial,
+        workspaces: [...initial.workspaces, ...tries],
+        layout: { container: "wks_00000000000000t1", tabs: {} },
+      },
+    });
+    const names = () =>
+      screen
+        .getByTestId("workspace-row")
+        .elements()
+        .map((row) => row.querySelector("span")?.textContent);
+    const more = screen.getByRole("group", { name: "atrium" }).getByRole("button", { name: /^显示全部|^收起$/ });
+
+    await vi.waitFor(() => expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3", "try/1"]));
+    await expect.element(more).toHaveTextContent("显示全部 8 个");
+    // The whole row is the button, not just its words.
+    expect(sizeOf(more.element())).toStrictEqual([sizeOf(screen.getByTestId("workspace-row").nth(0).element())[0], 30]);
+    await more.click();
+    expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3", "try/2", "try/1", "fix/typo"]);
+    await expect.element(more).toHaveTextContent("收起");
+    await more.click();
+    expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3", "try/1"]);
+
+    index.setState({ layout: { container: LOCAL, tabs: {} } });
+    await vi.waitFor(() => expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3"]));
+  });
+
+  it("folds a project's workspaces back behind 显示全部 once another project's is the current one", async () => {
+    const initial = list();
+    const other = { id: "prj_000000000000000b", path: "/work/other", name: "other", mainBranch: null };
+    const tries = [6, 4, 3, 2].map((at) =>
+      workspace({ id: `wks_00000000000000t${String(at)}`, branch: `try/${String(at)}`, createdAt: at }),
+    );
+    const elsewhere = workspace({ id: "wks_0000000000000oth", projectId: other.id, branch: "other/one" });
+    const { screen, index } = await workbench({
+      initial: {
+        ...initial,
+        projects: [PROJECT, other],
+        workspaces: [...initial.workspaces, ...tries, elsewhere],
+        layout: { container: LOCAL, tabs: {} },
+      },
+    });
+    const group = screen.getByRole("group", { name: "atrium" });
+    const more = group.getByRole("button", { name: /^显示全部|^收起$/ });
+    await more.click();
+    await expect.element(more).toHaveTextContent("收起");
+
+    index.setState({ layout: { container: elsewhere.id, tabs: {} } });
+    await expect.element(more).toHaveTextContent("显示全部 7 个");
+    await more.click();
+    index.setState({ layout: { container: LOCAL, tabs: {} } });
+
+    await expect.element(more).toHaveTextContent("显示全部 7 个");
+    expect(group.getByTestId("workspace-row").elements()).toHaveLength(5);
+  });
+
+  it("leaves out a workspace whose directory is gone, from the project and the search, unless it is the current one", async () => {
+    const initial = list();
+    const gone = workspace({
+      id: "wks_0000000000000gon",
+      branch: "spike/gone",
+      createdAt: 7,
+      merge: { dirty: false, ahead: 0, verdict: "removed", reason: null },
+    });
+    const { screen, index } = await workbench({ initial: { ...initial, workspaces: [...initial.workspaces, gone] } });
+    const names = () =>
+      screen
+        .getByTestId("workspace-row")
+        .elements()
+        .map((row) => row.querySelector("span")?.textContent);
+
+    await vi.waitFor(() => expect(names()).toStrictEqual(["main", "feat/sidebar", "fix/typo"]));
+    await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "spike");
+    await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    index.setState({ layout: { container: gone.id, tabs: {} } });
+    await vi.waitFor(() => expect(names()).toStrictEqual(["main", "feat/sidebar", "fix/typo", "spike/gone"]));
+    await expect.element(screen.getByTestId("workspace-row").nth(3)).toHaveAttribute("aria-current", "true");
+  });
+
+  it("lists every workspace of a project with five, without 显示全部", async () => {
+    const initial = list();
+    const tries = [6, 4].map((at) =>
+      workspace({ id: `wks_00000000000000t${String(at)}`, branch: `try/${String(at)}`, createdAt: at }),
+    );
+    const { screen } = await workbench({ initial: { ...initial, workspaces: [...initial.workspaces, ...tries] } });
+
+    await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(5));
+    await expect
+      .element(screen.getByRole("group", { name: "atrium" }).getByRole("button", { name: /^显示全部/ }))
+      .not.toBeInTheDocument();
+  });
+
   it("shows each session's highest status on its tab, and the highest of a workspace's live sessions on its row", async () => {
     const initial = list();
     const { screen } = await workbench({
@@ -650,9 +762,14 @@ describe("Workbench sidebar", () => {
     await expect.element(screen.getByRole("alert")).toHaveTextContent("这个目录已经在项目「atrium」里了");
   });
 
-  it("searches workspaces and sessions, and opens what is chosen", async () => {
+  it("searches workspaces and sessions from the box always at the top, and opens what is chosen", async () => {
     const { screen, calls } = await workbench();
-    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
+    const box = screen.getByRole("textbox", { name: "搜索工作区、对话和会话" });
+    await expect.element(box).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "搜索工作区、对话和会话" })).not.toBeInTheDocument();
+    expect(box.element().getBoundingClientRect().bottom).toBeLessThan(
+      screen.getByText("项目", { exact: true }).element().getBoundingClientRect().top,
+    );
 
     await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "SideBar");
     const results = screen.getByRole("region", { name: "搜索结果" });
@@ -662,10 +779,13 @@ describe("Workbench sidebar", () => {
     await results.getByRole("button", { name: /实现 sidebar/ }).click();
     await vi.waitFor(() => expect(calls).toContain("openSession s3"));
 
-    // Results stay after one is chosen; Escape in the box closes the search.
-    await screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }).click();
+    // Results stay after one is chosen; Escape in the box empties it and leaves it.
+    await box.click();
     await userEvent.keyboard("{Escape}");
     await expect.element(screen.getByRole("region", { name: "搜索结果" })).not.toBeInTheDocument();
+    await expect.element(box).toHaveValue("");
+    await expect.element(box).not.toHaveFocus();
+    await expect.element(screen.getByTestId("project-row")).toBeVisible();
   });
 
   it("finds chats by name in a group of their own, going to one when chosen", async () => {
@@ -673,7 +793,6 @@ describe("Workbench sidebar", () => {
     const { screen, calls } = await workbench({
       initial: { ...initial, chats: [chat({ id: CHAT, firstSessionId: "c1", alias: "Merge 原理" })] },
     });
-    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
     const box = screen.getByRole("textbox", { name: "搜索工作区、对话和会话" });
 
     await userEvent.type(box, "MERGE");
@@ -690,7 +809,6 @@ describe("Workbench sidebar", () => {
 
   it("says when nothing matches", async () => {
     const { screen } = await workbench();
-    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
 
     await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "nothing");
 
@@ -733,6 +851,10 @@ describe("Workbench sidebar", () => {
       "问题 12 分钟前",
       "问题 23 分钟前",
       "问题 34 分钟前",
+    ]);
+    expect(sizeOf(section.getByRole("button", { name: "显示全部 7 个" }).element())).toStrictEqual([
+      sizeOf(rows.nth(0).element())[0],
+      30,
     ]);
     await section.getByRole("button", { name: "显示全部 7 个" }).click();
     await expect.element(rows.nth(6)).toHaveTextContent("问题 56 分钟前");
@@ -1361,7 +1483,6 @@ describe("Workbench workspace archiving (M1.11)", () => {
     const { screen } = await workbench({ initial: archivable() });
 
     await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
-    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
     await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "old/");
     await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
     await userEvent.keyboard("{Escape}");
@@ -1511,7 +1632,6 @@ describe("Workbench sidebar: archived chats", () => {
         .elements()
         .map((row) => row.textContent),
     ).toStrictEqual([expect.stringMatching(/^解释 merge-tree/)]);
-    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
     await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "周报");
     await expect.element(screen.getByText("没有匹配的工作区、对话或会话")).toBeVisible();
     await userEvent.keyboard("{Escape}");
@@ -2009,7 +2129,6 @@ describe("Workbench viewer tabs and sessions chosen (M1.12)", () => {
     await tree.getByRole("button", { name: "a.ts" }).click();
     await expect.element(conversation).not.toBeInTheDocument();
     failS1(index);
-    await screen.getByRole("button", { name: "搜索工作区、对话和会话" }).click();
     await userEvent.type(screen.getByRole("textbox", { name: "搜索工作区、对话和会话" }), "重构");
     await screen
       .getByRole("region", { name: "搜索结果" })

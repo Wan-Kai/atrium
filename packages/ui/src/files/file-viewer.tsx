@@ -3,7 +3,7 @@ import type { DiffFile, FileContent } from "@atrium/protocol";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { StoreApi } from "zustand";
 import { splitPath } from "../chat/changes";
-import { TextWrap } from "../design/icons";
+import { ArrowUpRight, TextWrap } from "../design/icons";
 import { CodeLines } from "./code-lines";
 import { CenterNote, DiffCounts } from "./diff-parts";
 import { formatSize, highlightable, linesOf } from "./file-facts";
@@ -101,6 +101,41 @@ function useTokens(path: string, text: string | null, lines: readonly string[], 
   return tokens !== null && tokens.text === text ? tokens.lines : null;
 }
 
+/** A file the browser shows as a page. */
+const HTML_FILE = /\.html?$/iu;
+
+/**
+ * Runs `open` on ⌘O.
+ *
+ * @remarks
+ * Only while the tab that gives it shows (SPEC-0001, "查看标签"); the key does nothing else in the
+ * page.
+ *
+ * @sideEffects Listens for keys on the window while `open` is given.
+ * @param open - What ⌘O does, or null for nothing.
+ */
+function useOpenShortcut(open: (() => void) | null): void {
+  useEffect(() => {
+    if (open === null) return undefined;
+    /**
+     * Acts on ⌘O.
+     *
+     * @remarks
+     * See `useOpenShortcut`.
+     *
+     * @sideEffects Runs `open`; stops the browser's own handling of the key.
+     * @param event - The key event.
+     */
+    const onKey = (event: KeyboardEvent): void => {
+      if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.code !== "KeyO") return;
+      event.preventDefault();
+      open();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+}
+
 /**
  * A file tab: the file's name, facts and diff, then its content.
  *
@@ -109,12 +144,14 @@ function useTokens(path: string, text: string | null, lines: readonly string[], 
  * coloured as the chat's code blocks, not wrapped until asked; an image shows itself, never past
  * its size; anything else says in a line why it does not show. While the file has a diff, the
  * top row has its counts and "查看改动", to the 改动 tab. Its scroll and wrapping are kept by tab
- * (`useViewerPlace`).
+ * (`useViewerPlace`). An HTML file the host read has "在浏览器打开", also on ⌘O while the tab
+ * shows, where the desktop shell can open it: the host's read keeps to the workspace and refuses a
+ * way through a link, which the desktop shell cannot tell.
  *
- * @sideEffects Reads the file; asks the highlighting worker; reads and writes the views; the
- * handlers act.
- * @param props - The client, the workspace, the views, the file, its diff if it has one, and what
- * "查看改动" does.
+ * @sideEffects Reads the file; asks the highlighting worker; reads and writes the views; listens
+ * for ⌘O while an HTML file shows; the handlers act.
+ * @param props - The client, the workspace, the views, the file, its diff if it has one, what
+ * "查看改动" does, and how to open the file in the browser, where it can be.
  * @returns The tab's content.
  */
 export function FileViewer({
@@ -124,6 +161,7 @@ export function FileViewer({
   path,
   diff,
   onShowDiff,
+  onOpenInBrowser,
 }: {
   readonly client: AtriumClient;
   readonly workspaceId: string;
@@ -131,10 +169,18 @@ export function FileViewer({
   readonly path: string;
   readonly diff: DiffFile | null;
   readonly onShowDiff: () => void;
+  /** Opens the file in the default browser; left out where the desktop shell cannot. */
+  readonly onOpenInBrowser?: (() => void) | undefined;
 }) {
   // Turned to text only when another diff comes.
   const changed = useMemo(() => (diff === null ? "" : JSON.stringify(diff)), [diff]);
   const reading = useReading(client, workspaceId, path, changed);
+  // Only a file the host read in the workspace, not through a link (SPEC-0001, "查看标签").
+  const openInBrowser =
+    onOpenInBrowser !== undefined && HTML_FILE.test(path) && reading?.kind === "read" && reading.content.kind !== "link"
+      ? onOpenInBrowser
+      : null;
+  useOpenShortcut(openInBrowser);
   const { wrap, switchWrap, body: scrolled } = useViewerPlace(views, workspaceId, `file:${path}`, reading !== null);
   const text = reading?.kind === "read" && reading.content.kind === "text" ? reading.content.text : null;
   const [lines, setLines] = useState<{ readonly text: string | null; readonly lines: readonly string[] }>({
@@ -190,6 +236,17 @@ export function FileViewer({
               查看改动
             </button>
           </>
+        )}
+        {openInBrowser === null ? null : (
+          <button
+            type="button"
+            aria-label="在浏览器打开"
+            title="在浏览器打开 (⌘O)"
+            onClick={openInBrowser}
+            className={`atrium-press ${VIEWER_BUTTON}`}
+          >
+            <ArrowUpRight size={14} />
+          </button>
         )}
         <button
           type="button"

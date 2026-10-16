@@ -295,7 +295,7 @@ function Choices({
   const notGit = bases?.kind === "not_git";
   const ready = bases?.kind === "ready" ? bases.bases : null;
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-wrap items-center gap-1.5 px-6 pb-1.5">
+    <div className="mx-auto flex w-full max-w-[var(--column)] flex-wrap items-center gap-1.5 px-6 pb-1.5">
       <MenuButton
         chip
         align="start"

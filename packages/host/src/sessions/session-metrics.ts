@@ -1,5 +1,5 @@
-import { type ContextShares, type LogEntry, type PiStats, type TranslatedEvent, contextShares } from "@atrium/pi";
-import type { SessionMetrics } from "@atrium/protocol";
+import { type LogEntry, type PiStats, type TranslatedEvent, contextParts } from "@atrium/pi";
+import type { ContextParts, ContextReserve, PlanUsage, SessionMetrics } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
 
 /** Works out a session's status bar figures (SPEC-0001, "状态栏（M1.8）"). */
@@ -8,8 +8,10 @@ export interface MetricsTracker {
   observe(event: TranslatedEvent): void;
   /** Works out again what comes from the entries: the whole file's and the current branch's. */
   entriesChanged(all: readonly LogEntry[], branch: readonly LogEntry[]): void;
-  /** Reads pi's statistics again, as once pi has started or the model changed. */
+  /** Reads pi's statistics and compaction reserve again, as once pi has started or the model changed. */
   refresh(): void;
+  /** Takes the usage of the subscription of the session's model, or none. */
+  planChanged(plan: PlanUsage | null): void;
   /** pi exited or another took over: a request it was answering is no longer timed. */
   piChanged(): void;
   /** The figures now. */
@@ -21,6 +23,8 @@ export interface MetricsTracker {
    * A read under way is not waited for: pi's stopping ends it, and what it brings is dropped.
    */
   close(): void;
+  /** Reads and publishes again after `close`, as once the session is started anew. */
+  reopen(): void;
 }
 
 /** A request being timed: when it started, and the compaction time within it. */
@@ -46,13 +50,47 @@ function sum(values: readonly number[]): number {
 }
 
 /**
+ * The context's parts with each memory file under the home directory written from `~`.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): pi names memory files by their full paths.
+ *
+ * @sideEffects none
+ * @param parts - The parts.
+ * @param home - The home directory, or `undefined` to keep the paths.
+ * @returns The parts.
+ */
+function fromHome(parts: ContextParts, home: string | undefined): ContextParts {
+  if (home === undefined || home === "") return parts;
+  const files = parts.memory.files.map((file) =>
+    file.path.startsWith(`${home}/`) ? { ...file, path: `~${file.path.slice(home.length)}` } : file,
+  );
+  return { ...parts, memory: { ...parts.memory, files } };
+}
+
+/**
+ * Knows no compaction reserve.
+ *
+ * @remarks
+ * For a tracker not given how to read it.
+ *
+ * @sideEffects none
+ * @returns `null`.
+ */
+async function noReserve(): Promise<ContextReserve> {
+  return null;
+}
+
+/**
  * Creates the tracker of a session's status bar figures.
  *
  * @remarks
  * SPEC-0001 ("状态栏（M1.8）"). pi's `get_session_stats` is read after each assistant message,
  * compaction and run, and when asked; one read at a time, and asks during a read make one more
- * read after it. A read that fails keeps the figures known before. The whole file's reasoning
- * tokens, the branch's tokens and the system prompt's share of the context come from the entries.
+ * read after it. A read that fails keeps the figures known before. Each read also reads pi's
+ * compaction reserve, unknown when that fails (SPEC-0001, "M1.13 的上下文细分与套餐用量"). The
+ * whole file's reasoning tokens, the branch's tokens and what fills the context come from the
+ * entries; the plan's usage is given.
  * A request is timed from pi's `turn_start`, leaving out a compaction within it: the time to its
  * first output is averaged over requests that had output; the model's time adds up every request
  * that ended in an assistant message; the speed is the last reply's output tokens over the time
@@ -61,7 +99,8 @@ function sum(values: readonly number[]): number {
  *
  * @sideEffects none until used; then reads pi's statistics through `readStats`, calls `onChange`
  * and `onReadFailed`.
- * @param options - The clock, how to read pi's statistics, and where changes and failed reads go.
+ * @param options - The clock, how to read pi's statistics and compaction reserve, and where changes
+ * and failed reads go.
  * @returns The tracker.
  */
 export function createMetricsTracker(options: {
@@ -69,6 +108,10 @@ export function createMetricsTracker(options: {
   /** The entries known at the start, taken in without telling `onChange`. */
   readonly entries?: { readonly all: readonly LogEntry[]; readonly branch: readonly LogEntry[] };
   readonly readStats: () => Promise<PiStats>;
+  /** pi's compaction reserve for the session's model now; none reads it as unknown. */
+  readonly readReserve?: () => Promise<ContextReserve>;
+  /** The home directory, written as `~` in memory files' paths; none keeps the paths. */
+  readonly home?: string | undefined;
   readonly onChange: (metrics: SessionMetrics) => void;
   readonly onReadFailed: (error: unknown) => void;
 }): MetricsTracker {
@@ -76,7 +119,9 @@ export function createMetricsTracker(options: {
   let stats: PiStats | null = null;
   let reasoning: number | null = null;
   let branchTokens = 0;
-  let shares: ContextShares | null = null;
+  let parts: ContextParts | null = null;
+  let reserve: ContextReserve = null;
+  let plan: PlanUsage | null = null;
   let timed: Timed | null = null;
   let modelMs: number | null = null;
   let firstOutputs: number[] = [];
@@ -110,7 +155,8 @@ export function createMetricsTracker(options: {
           : 0,
       ),
     );
-    shares = contextShares(branch);
+    const found = contextParts(branch);
+    parts = found === null ? null : fromHome(found, options.home);
   }
 
   /**
@@ -137,8 +183,8 @@ export function createMetricsTracker(options: {
           : {
               tokens: context.tokens,
               window: context.window,
-              system: shares?.system ?? null,
-              tools: shares?.tools ?? null,
+              parts,
+              reserve,
             },
       timing:
         modelMs === null
@@ -148,6 +194,7 @@ export function createMetricsTracker(options: {
               ttftMs: firstOutputs.length === 0 ? null : Math.round(sum(firstOutputs) / firstOutputs.length),
               tps,
             },
+      plan,
     };
   }
 
@@ -185,8 +232,10 @@ export function createMetricsTracker(options: {
     reading = (async () => {
       for (;;) {
         readAgain = false;
+        const reserveRead = (options.readReserve ?? noReserve)().catch(() => null);
         try {
           stats = await options.readStats();
+          reserve = await reserveRead;
           changed();
         } catch (error) {
           options.onReadFailed(error);
@@ -246,12 +295,19 @@ export function createMetricsTracker(options: {
       changed();
     },
     refresh: read,
+    planChanged(next) {
+      plan = next;
+      changed();
+    },
     piChanged() {
       timed = null;
     },
     current,
     close() {
       closed = true;
+    },
+    reopen() {
+      closed = false;
     },
   };
 }

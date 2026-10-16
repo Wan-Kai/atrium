@@ -1,8 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { createTempDir, present } from "@atrium/testkit";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { type LaunchedApp, launchApp } from "./launch";
 import { startCountingServer } from "./servers";
 
@@ -37,7 +40,7 @@ test("keeps the page's storage across a restart, since its origin stays the same
   expect(before[0]).toBe("atrium://app");
 });
 
-test("gives the page no Node access and only the bridge: bootstrap, folder choice, appearance, dropped files' paths and showing in the Finder", async () => {
+test("gives the page no Node access and only the bridge: bootstrap, folder choice, appearance, dropped files' paths, showing in the Finder and opening HTML in the browser", async () => {
   const exposed = await launched.window.evaluate(() => ({
     require: typeof (globalThis as { require?: unknown }).require,
     process: typeof (globalThis as { process?: unknown }).process,
@@ -47,7 +50,7 @@ test("gives the page no Node access and only the bridge: bootstrap, folder choic
   expect(exposed).toStrictEqual({
     require: "undefined",
     process: "undefined",
-    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile", "reveal"],
+    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile", "reveal", "openInBrowser"],
   });
 });
 
@@ -75,6 +78,45 @@ test("shows in the Finder only an absolute path that exists", async () => {
     expect(await launched.app.evaluate(() => (globalThis as unknown as { revealed: string[] }).revealed)).toStrictEqual(
       [dir.path],
     );
+  } finally {
+    await dir.cleanup();
+  }
+});
+
+test("opens in the browser only an absolute path to a regular HTML file", async () => {
+  const dir = await createTempDir("browse");
+  try {
+    await writeFile(join(dir.path, "page.html"), "<p>hi</p>\n");
+    await writeFile(join(dir.path, "OLD.HTM"), "<p>hi</p>\n");
+    await writeFile(join(dir.path, "notes.txt"), "hi\n");
+    await symlink(join(dir.path, "page.html"), join(dir.path, "link.html"));
+    await mkdir(join(dir.path, "folder.html"));
+    await launched.app.evaluate(({ shell }) => {
+      const browsed: string[] = [];
+      Object.assign(globalThis, { browsed });
+      // Record instead of opening the real browser during tests.
+      shell.openExternal = async (url: string) => {
+        browsed.push(url);
+      };
+    });
+
+    await launched.window.evaluate(async (path) => {
+      const { openInBrowser } = window.atrium as unknown as { openInBrowser: (path: unknown) => Promise<void> };
+      await openInBrowser(`${path}/page.html`);
+      await openInBrowser(`${path}/OLD.HTM`);
+      await openInBrowser(`${path}/notes.txt`);
+      await openInBrowser(`${path}/link.html`);
+      await openInBrowser(`${path}/folder.html`);
+      await openInBrowser(`${path}/missing.html`);
+      // The file itself, from wherever the app runs, but not by an absolute path.
+      await openInBrowser(`${"../".repeat(40)}${path.slice(1)}/page.html`);
+      await openInBrowser(42);
+    }, dir.path);
+
+    expect(await launched.app.evaluate(() => (globalThis as unknown as { browsed: string[] }).browsed)).toStrictEqual([
+      pathToFileURL(join(dir.path, "page.html")).href,
+      pathToFileURL(join(dir.path, "OLD.HTM")).href,
+    ]);
   } finally {
     await dir.cleanup();
   }
@@ -151,6 +193,64 @@ test("marks the page as having macOS's sidebar material behind it, the page see-
   ]);
 
   expect(page).toStrictEqual(["", "rgba(0, 0, 0, 0)"]);
+});
+
+/**
+ * The mean colour of an empty patch of the app's sidebar, as macOS draws its window now.
+ *
+ * @remarks
+ * Only a capture of the window itself has the material in it; the page's own screenshot does not.
+ * Scaling the patch down to one pixel averages it.
+ *
+ * @sideEffects Runs `screencapture`, writing `file`.
+ * @param app - The app.
+ * @param file - Where the capture goes.
+ * @returns The red, green and blue means, 0 to 255.
+ */
+async function sidebarColour(app: LaunchedApp["app"], file: string): Promise<number[]> {
+  const source = await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => window.webContents.getURL().startsWith("atrium://app"))
+      ?.getMediaSourceId(),
+  );
+  await promisify(execFile)("screencapture", ["-x", "-o", `-l${String(source?.split(":")[1])}`, file]);
+  return app.evaluate(({ nativeImage }, path) => {
+    const image = nativeImage.createFromPath(path);
+    const scale = image.getSize().width / 1280;
+    const [blue, green, red] = image
+      .crop({ x: 20 * scale, y: 400 * scale, width: 200 * scale, height: 150 * scale })
+      .resize({ width: 1, height: 1, quality: "best" })
+      .toBitmap();
+    return [red ?? -1, green ?? -1, blue ?? -1];
+  }, file);
+}
+
+test("keeps the sidebar's material as it is when another window takes the focus", async () => {
+  const dir = await createTempDir("material");
+  // Behind another app, the window is inactive from the start and there is nothing to compare.
+  await launched.app.evaluate(({ app, BrowserWindow }) => {
+    app.focus({ steal: true });
+    BrowserWindow.getAllWindows()[0]?.focus();
+  });
+  await expect
+    .poll(() => launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow() !== null))
+    .toBe(true);
+  await launched.window.waitForTimeout(500);
+  const focused = await sidebarColour(launched.app, join(dir.path, "focused.png"));
+
+  await launched.app.evaluate(({ BrowserWindow }) => {
+    new BrowserWindow({ x: 0, y: 0, width: 120, height: 120 }).focus();
+  });
+  await expect
+    .poll(() => launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.webContents.getURL()))
+    .toBe("");
+  await launched.window.waitForTimeout(500);
+  const unfocused = await sidebarColour(launched.app, join(dir.path, "unfocused.png"));
+  await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.destroy());
+  await dir.cleanup();
+
+  // Inactive, the material would turn a flat grey; a capture is not exact to the last level.
+  expect(Math.max(...unfocused.map((channel, at) => Math.abs(channel - Number(focused[at]))))).toBeLessThanOrEqual(2);
 });
 
 test("puts the traffic lights level with the tabs: 14pt buttons 12pt in and 17pt down, centred 24pt down", async () => {

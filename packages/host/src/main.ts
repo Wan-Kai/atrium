@@ -47,6 +47,7 @@ import { createWorkspaceFiles } from "./files/workspace-files";
 import { createLayouts } from "./sessions/layouts";
 import { createModelLister } from "./sessions/model-lister";
 import { createSessionCatalog } from "./sessions/session-catalog";
+import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
 import { titleModelLookup } from "./sessions/titles";
 import { acquireHostLock, processStartedAt } from "./store/host-lock";
@@ -91,7 +92,7 @@ export interface HostConfig {
   readonly toolEnv?: Readonly<Record<string, string>>;
   /** The built login program (`dist/login-worker.mjs`); without it, logins are unavailable. */
   readonly loginWorker?: string;
-  /** The built Fast extension (`dist/fast-extension.mjs`) sessions' pi loads; without it, there is no Fast. */
+  /** Atrium's built extension (`dist/atrium-extension.mjs`) sessions' pi loads; without it, there is no Fast nor plan usage. */
   readonly fastExtension?: string;
   /** Where to look for Homebrew after PATH; defaults to where its installer puts it, tests set none. */
   readonly homebrewPlaces?: readonly string[];
@@ -332,6 +333,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           },
         }),
     titleModel,
+    plan: createPlanUsage({ clock, logger }),
     turnStarts: async (sessionId) => {
       const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");

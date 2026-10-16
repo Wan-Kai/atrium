@@ -26,10 +26,12 @@ test("shows the session's figures under the input box after a reply, with the co
     const context = bar.getByRole("button", { name: /^\d+%$/ });
     await expect(context).toBeVisible();
     await context.hover();
-    // The split comes from the system prompt and tools pi wrote into the session.
+    // The split comes from the system prompt and tools pi wrote into the session, with pi's reserve.
     const card = window.getByRole("tooltip").filter({ hasText: "上下文已用" });
     await expect(card).toContainText("系统提示词");
-    await expect(card).toContainText("工具定义");
+    await expect(card).toContainText(/内置工具\d+~/);
+    await expect(card).toContainText("自动压缩预留16K");
+    await expect(card).toContainText("剩余空间");
 
     await bar.getByRole("button", { name: "自定义状态栏" }).click();
     await window.getByRole("switch", { name: "费用" }).click();

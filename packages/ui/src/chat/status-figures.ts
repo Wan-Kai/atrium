@@ -4,6 +4,8 @@ import type { SessionMetrics, StatusBarChoices } from "@atrium/protocol";
 type Tokens = NonNullable<SessionMetrics["tokens"]>;
 /** The context's size and split. */
 type Context = NonNullable<SessionMetrics["context"]>;
+/** A subscription's usage. */
+type Plan = NonNullable<SessionMetrics["plan"]>;
 
 /** A group of the status bar, as the registry lists it (SPEC-0001, "状态栏"). */
 export interface StatusGroup {
@@ -25,6 +27,7 @@ export const STATUS_GROUPS: readonly StatusGroup[] = [
   { id: "session", name: "会话统计", description: "轮数、步数、输出速度", defaultVisible: true },
   { id: "tokens", name: "Token 用量", description: "总用量与缓存命中率", defaultVisible: true },
   { id: "context", name: "上下文", description: "已用比例，悬停看分段", defaultVisible: true },
+  { id: "plan", name: "套餐", description: "订阅的 5 小时、每周用量，悬停看重置时间", defaultVisible: true },
   { id: "cost", name: "费用", description: "按 API 价格折算，订阅不实际付费", defaultVisible: false },
 ];
 
@@ -160,23 +163,243 @@ export function contextLevel(percent: number | null): "normal" | "warn" | "dange
   return percent > 85 ? "danger" : "warn";
 }
 
+/** The kinds of the context card's rows, in their order (SPEC-0001, "M1.13 的上下文细分与套餐用量"). */
+export type ContextRowKey = "messages" | "system" | "memory" | "skills" | "builtin" | "mcp" | "extensions";
+
+/** A row of the context card: what it counts, its tokens, how many things, and those things. */
+export interface ContextRow {
+  readonly key: ContextRowKey;
+  readonly name: string;
+  readonly tokens: number;
+  /** How many files, skills or tools; `null` for a row of no such things. */
+  readonly count: number | null;
+  /** What the row opens to, most tokens first; empty for a row that does not open. */
+  readonly items: readonly { readonly name: string; readonly tokens: number }[];
+}
+
+/** The rows' names. */
+const ROW_NAMES: Readonly<Record<ContextRowKey, string>> = {
+  messages: "对话消息",
+  system: "系统提示词",
+  memory: "记忆文件",
+  skills: "Skills",
+  builtin: "内置工具",
+  mcp: "MCP 工具",
+  extensions: "扩展",
+};
+
 /**
- * The context split into the system prompt, the tools and the conversation.
+ * The context split by what fills it, with what pi keeps free and what is left.
  *
  * @remarks
- * The conversation is what is left, never below none, as the shares are estimates (SPEC-0001,
- * "上下文分段"); unknown unless all three can be told.
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): the conversation is what the other rows leave of
+ * the context, never below none, as they are estimates; a row of no tokens is left out but the
+ * conversation's. A memory file is named by its path; an MCP server by its name and how many tools
+ * it has. What is free is the window less the context and the reserve, never below none. Whether
+ * pi compacts on its own is on (with a reserve), off, or unknown. Unknown unless the context's
+ * tokens and parts are known.
  *
  * @sideEffects none
  * @param context - The context.
- * @returns The three parts, or `null`.
+ * @returns The rows, the reserve, whether pi compacts on its own and what is free, or `null`.
  */
-export function contextSegments(
-  context: Context,
-): { readonly system: number; readonly tools: number; readonly messages: number } | null {
-  const { tokens, system, tools } = context;
-  if (tokens === null || system === null || tools === null) return null;
-  return { system, tools, messages: Math.max(0, tokens - system - tools) };
+export function contextRows(context: Context): {
+  readonly rows: readonly ContextRow[];
+  readonly reserve: number | null;
+  readonly compaction: "on" | "off" | "unknown";
+  readonly free: number;
+} | null {
+  const { tokens, parts, reserve } = context;
+  if (tokens === null || parts === null) return null;
+  const { system, memory, skills, builtin, mcp, extensions } = parts;
+  const others: ContextRow[] = [
+    { key: "system", name: ROW_NAMES.system, tokens: system, count: null, items: [] },
+    {
+      key: "memory",
+      name: ROW_NAMES.memory,
+      tokens: memory.tokens,
+      count: memory.files.length,
+      items: memory.files.map(({ path, tokens: fileTokens }) => ({ name: path, tokens: fileTokens })),
+    },
+    { key: "skills", name: ROW_NAMES.skills, tokens: skills.tokens, count: skills.items.length, items: skills.items },
+    {
+      key: "builtin",
+      name: ROW_NAMES.builtin,
+      tokens: builtin.tokens,
+      count: builtin.items.length,
+      items: builtin.items,
+    },
+    {
+      key: "mcp",
+      name: ROW_NAMES.mcp,
+      tokens: mcp.tokens,
+      count: mcp.servers.reduce((total, server) => total + server.tools, 0),
+      items: mcp.servers.map((server) => ({ name: `${server.name} · ${server.tools} 个`, tokens: server.tokens })),
+    },
+    {
+      key: "extensions",
+      name: ROW_NAMES.extensions,
+      tokens: extensions.tokens,
+      count: extensions.items.length,
+      items: extensions.items,
+    },
+  ];
+  const used = others.reduce((total, row) => total + row.tokens, 0);
+  const messages: ContextRow = {
+    key: "messages",
+    name: ROW_NAMES.messages,
+    tokens: Math.max(0, tokens - used),
+    count: null,
+    items: [],
+  };
+  return {
+    rows: [messages, ...others.filter((row) => row.tokens > 0)],
+    reserve: typeof reserve === "number" ? reserve : null,
+    compaction: reserve === "off" ? "off" : reserve === null ? "unknown" : "on",
+    free: Math.max(0, context.window - tokens - (typeof reserve === "number" ? reserve : 0)),
+  };
+}
+
+/**
+ * A part of the context window as a percentage, one decimal.
+ *
+ * @remarks
+ * As the context card writes each row's share (SPEC-0001, "M1.13 的上下文细分与套餐用量").
+ *
+ * @sideEffects none
+ * @param tokens - The part.
+ * @param window - The window.
+ * @returns The text, such as `8.2%`.
+ */
+export function windowShare(tokens: number, window: number): string {
+  return `${((tokens / window) * 100).toFixed(1)}%`;
+}
+
+/** A week, in seconds. */
+const WEEK = 604_800;
+
+/** A minute, an hour and a day, in milliseconds. */
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/** The days of the week, as a reset time names them, Sunday first. */
+const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+
+/** The providers' names on the plan card (SPEC-0001, "M1.13 的上下文细分与套餐用量"). */
+const PROVIDER_NAMES: Readonly<Record<Plan["provider"], string>> = { "openai-codex": "ChatGPT", anthropic: "Claude" };
+
+/**
+ * How much of a subscription is used: the most of any of its windows, whole.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): the window nearest its limit is the one that binds.
+ *
+ * @sideEffects none
+ * @param plan - The usage.
+ * @returns The percentage, or `null` without windows.
+ */
+export function planPercent(plan: Plan): number | null {
+  if (plan.windows.length === 0) return null;
+  return Math.round(Math.max(...plan.windows.map((window) => window.usedPercent)));
+}
+
+/**
+ * Whether a subscription's use is near its limit: 80% or more.
+ *
+ * @remarks
+ * The plan's group and bars turn orange there (design-language, "状态栏").
+ *
+ * @sideEffects none
+ * @param percent - The percentage used.
+ * @returns Whether it is.
+ */
+export function planNearLimit(percent: number): boolean {
+  return percent >= 80;
+}
+
+/**
+ * The plan card's title: the provider's name, the plan's, and "用量".
+ *
+ * @remarks
+ * The plan's name as the provider gives it, its first letter in capitals ("plus" is "Plus").
+ *
+ * @sideEffects none
+ * @param plan - The usage.
+ * @returns The title, such as "ChatGPT Plus 用量".
+ */
+export function planTitle(plan: Pick<Plan, "provider" | "plan">): string {
+  const name = plan.plan === null ? "" : ` ${plan.plan.charAt(0).toUpperCase()}${plan.plan.slice(1)}`;
+  return `${PROVIDER_NAMES[plan.provider]}${name} 用量`;
+}
+
+/**
+ * A window's name by its length, and the model it counts alone.
+ *
+ * @remarks
+ * A week is "每周"; any other length in hours under two days ("5 小时窗口"), else in days; an
+ * unknown length "额度". A model's window adds "· 模型名".
+ *
+ * @sideEffects none
+ * @param window - The window's length and model.
+ * @returns The name.
+ */
+export function windowName(window: Pick<Plan["windows"][number], "seconds" | "model">): string {
+  const { seconds, model } = window;
+  let name = "额度";
+  if (seconds === WEEK) name = "每周";
+  else if (seconds !== null) {
+    name =
+      seconds < 2 * 86_400
+        ? `${String(Math.round(seconds / 3600))} 小时窗口`
+        : `${String(Math.round(seconds / 86_400))} 天`;
+  }
+  return model === null ? name : `${name} · ${model}`;
+}
+
+/**
+ * When a window resets, from now.
+ *
+ * @remarks
+ * Within a day, how long until it ("4 小时 16 分后重置", "16 分后重置"); further off, the day and
+ * time ("周日 08:00 重置"); past already, "即将重置", as the next ask will tell; unknown, nothing.
+ *
+ * @sideEffects none
+ * @param resetsAt - When, in milliseconds since the epoch, or `null`.
+ * @param now - The time now.
+ * @returns The text, or `""`.
+ */
+export function resetText(resetsAt: number | null, now: number): string {
+  if (resetsAt === null) return "";
+  const left = resetsAt - now;
+  if (left <= 0) return "即将重置";
+  if (left < DAY) {
+    const hours = Math.floor(left / HOUR);
+    const minutes = Math.floor((left % HOUR) / MINUTE);
+    return hours === 0 ? `${String(minutes)} 分后重置` : `${String(hours)} 小时 ${String(minutes)} 分后重置`;
+  }
+  const at = new Date(resetsAt);
+  const time = `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`;
+  // Stryker disable next-line StringLiteral: a day of the week is always one of the seven.
+  return `${WEEKDAYS[at.getDay()] ?? ""} ${time} 重置`;
+}
+
+/**
+ * How long ago a plan's usage was found.
+ *
+ * @remarks
+ * "刚刚" within a minute, then minutes, then hours.
+ *
+ * @sideEffects none
+ * @param at - When, in milliseconds since the epoch.
+ * @param now - The time now.
+ * @returns The text.
+ */
+export function foundAgo(at: number, now: number): string {
+  const ago = Math.max(0, now - at);
+  if (ago < MINUTE) return "刚刚";
+  if (ago < HOUR) return `${String(Math.floor(ago / MINUTE))} 分钟前`;
+  return `${String(Math.floor(ago / HOUR))} 小时前`;
 }
 
 /**

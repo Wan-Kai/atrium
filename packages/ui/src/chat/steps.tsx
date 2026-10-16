@@ -178,13 +178,40 @@ export function RailMarks({
 }
 
 /**
- * A file as a chip: its type, its name, and what was done to it.
+ * How to open a file a tool was given, by the path it was given: an opener, or `null` for one that
+ * cannot be opened; the app provides it where the session is in a workspace.
+ */
+export const OpenFileContext = createContext<((path: string) => (() => void) | null) | null>(null);
+
+/**
+ * The opener of a file a tool was given, if it can be opened here.
+ *
+ * @remarks
+ * See `OpenFileContext`.
+ *
+ * @sideEffects none
+ * @param path - The path the tool was given.
+ * @returns The opener, or `null`.
+ */
+function useFileOpener(path: string | null): (() => void) | null {
+  const open = useContext(OpenFileContext);
+  return path === null || open === null ? null : open(path);
+}
+
+/** The look of a file chip (design-language, "文件胶囊"). */
+const CHIP_CLASS =
+  "inline-flex h-[22px] min-w-0 flex-none items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] pr-2.5 pl-2 text-[length:var(--fs-sm)] text-[var(--text-2)] shadow-[var(--chip-shadow)]";
+
+/**
+ * A file as a chip: its type, its name, and what was done to it; a button that opens it, where it can be.
  *
  * @remarks
  * The name only; the whole path shows on hover (design-language, "文件胶囊"). The type shows as its
- * material-icon-theme icon, decoration only, as the name says the type.
+ * material-icon-theme icon, decoration only, as the name says the type. A file in the session's
+ * workspace opens in a pinned file tab (SPEC-0001, "查看标签 · 从对话里打开"). It lies beside its
+ * row's button rather than in it, so opening the file does not open the row.
  *
- * @sideEffects none
+ * @sideEffects Opens the file when clicked, where it can.
  * @param props - The path, and an edit's line counts.
  * @returns The chip.
  */
@@ -197,13 +224,10 @@ function FileChip({
   readonly added?: number | null;
   readonly removed?: number | null;
 }) {
+  const open = useFileOpener(path);
   const name = path.split("/").at(-1) ?? path;
-  return (
-    <span
-      title={path}
-      data-testid="file-chip"
-      className="inline-flex h-[22px] min-w-0 flex-none items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] pr-2.5 pl-2 text-[length:var(--fs-sm)] text-[var(--text-2)] shadow-[var(--chip-shadow)]"
-    >
+  const inside = (
+    <>
       <FileIcon path={path} size={13} />
       <span className="truncate">{name}</span>
       {added === null || removed === null ? null : (
@@ -212,7 +236,26 @@ function FileChip({
           <span className="text-[var(--danger)]">−{removed}</span>
         </span>
       )}
-    </span>
+    </>
+  );
+  if (open === null) {
+    return (
+      <span title={path} data-testid="file-chip" className={CHIP_CLASS}>
+        {inside}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      title={`打开 ${path}`}
+      data-testid="file-chip"
+      data-opens
+      onClick={open}
+      className={`atrium-press pointer-events-auto ${CHIP_CLASS} cursor-pointer hover:shadow-[inset_0_0_0_0.5px_var(--line-strong)]`}
+    >
+      {inside}
+    </button>
   );
 }
 
@@ -583,6 +626,12 @@ function StepRow({
       <StepWords step={step} live={live} /> <StepEnd step={step} />
     </>
   );
+  const details = step.kind === "tool" ? step.details : null;
+  const opensFile =
+    useFileOpener(
+      details?.tool === "read" || details?.tool === "edit" || details?.tool === "write" ? details.path : null,
+    ) !== null;
+  const wordsId = useId();
   return (
     <div
       className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
@@ -592,12 +641,26 @@ function StepRow({
       data-fold-row
     >
       <RailMarks node={stepNode(step, live)} first={place.first} last={place.last} />
-      {opens ? (
+      {opens && opensFile ? (
+        // The row's button lies under its words, so the file's chip in them is a button of its own.
+        <div className={`atrium-press-row relative ${LINE_CLASS} has-[>button:hover]:bg-[var(--hover)]`}>
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-labelledby={wordsId}
+            onClick={() => setOpened(!open)}
+            className="absolute inset-0 rounded-[var(--r)]"
+          />
+          <span id={wordsId} className="pointer-events-none relative flex min-w-0 items-center gap-1.5">
+            {words}
+          </span>
+        </div>
+      ) : opens ? (
         <button
           type="button"
           aria-expanded={open}
           onClick={() => setOpened(!open)}
-          className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
+          className={`atrium-press-row ${LINE_CLASS} hover:bg-[var(--hover)]`}
         >
           {words}
         </button>
@@ -650,7 +713,7 @@ function ExploreRow({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className={`${LINE_CLASS} hover:bg-[var(--hover)]`}
+        className={`atrium-press-row ${LINE_CLASS} hover:bg-[var(--hover)]`}
       >
         <span className={`flex-none text-[var(--text-2)] ${live ? "atrium-shimmer" : ""}`}>{line.verb}</span>{" "}
         <span className="text-[var(--text-dim)]">·</span>{" "}

@@ -399,8 +399,8 @@ function useSeenErrors(client: AtriumClient, index: IndexView, sessionId: string
  * @sideEffects Subscribes to the client's connection, list and setup; sets the page's appearance; asks for
  * what first launch checks; through what it shows, listens for keys and sends commands.
  * @param props - The client, the connection status line, how to choose a folder, how to set the
- * window's own appearance, how to open an address, how to show a path in the Finder, and how to
- * read a dropped file's path.
+ * window's own appearance, how to open an address, how to show a path in the Finder, how to read a
+ * dropped file's path, and how to open an HTML file in the browser.
  * @returns The window.
  */
 export function Workbench({
@@ -411,6 +411,7 @@ export function Workbench({
   openUrl,
   reveal,
   pathForFile,
+  openInBrowser,
 }: {
   readonly client: AtriumClient;
   readonly status: ReactNode;
@@ -419,6 +420,8 @@ export function Workbench({
   readonly openUrl: (url: string) => void;
   readonly reveal: ((path: string) => void) | undefined;
   readonly pathForFile: ((file: File) => string | null) | undefined;
+  /** Opens an absolute path to an HTML file in the default browser; left out where nothing can. */
+  readonly openInBrowser?: ((path: string) => void) | undefined;
 }) {
   const index = useStore(client.index);
   const setup = useStore(client.setup);
@@ -453,7 +456,14 @@ export function Workbench({
       {start === "wait" ? (
         <div className="h-full bg-[var(--main)] [-webkit-app-region:drag]" />
       ) : start === null ? (
-        <MainWindow client={client} status={status} pickDirectory={pickDirectory} openUrl={openUrl} reveal={reveal} />
+        <MainWindow
+          client={client}
+          status={status}
+          pickDirectory={pickDirectory}
+          openUrl={openUrl}
+          reveal={reveal}
+          openInBrowser={openInBrowser}
+        />
       ) : (
         <FirstLaunch
           client={client}
@@ -484,7 +494,7 @@ export function Workbench({
  * @sideEffects Subscribes to the client's list and the panes; listens for focus and keys; sends
  * commands; reads and writes `localStorage`.
  * @param props - The client, the connection status line, how to choose a folder, how to open an
- * address, and how to show a path in the Finder.
+ * address, how to show a path in the Finder, and how to open an HTML file in the browser.
  * @returns The main window.
  */
 function MainWindow({
@@ -493,12 +503,14 @@ function MainWindow({
   pickDirectory,
   openUrl,
   reveal,
+  openInBrowser,
 }: {
   readonly client: AtriumClient;
   readonly status: ReactNode;
   readonly pickDirectory: (() => Promise<string | null>) | undefined;
   readonly openUrl: (url: string) => void;
   readonly reveal: ((path: string) => void) | undefined;
+  readonly openInBrowser: ((path: string) => void) | undefined;
 }) {
   const index = useStore(client.index);
   const container = index.layout.container;
@@ -576,7 +588,7 @@ function MainWindow({
           {resets.length > 0 ? (
             <div
               role="status"
-              className="mx-auto mt-3 flex w-full max-w-[720px] items-center gap-2 px-6 text-[length:var(--fs-meta)] text-[var(--attn-text)]"
+              className="mx-auto mt-3 flex w-full max-w-[var(--column)] items-center gap-2 px-6 text-[length:var(--fs-meta)] text-[var(--attn-text)]"
             >
               <span className="flex-1">
                 {resets.map((name) => FILE_NAMES[name]).join("、")}的文件损坏了，已经重置；原文件留在 ~/.atrium 里
@@ -596,6 +608,7 @@ function MainWindow({
                 launches={pages}
                 panes={panes}
                 views={views}
+                openInBrowser={openInBrowser}
               />
             </OpenLogin>
           ) : (

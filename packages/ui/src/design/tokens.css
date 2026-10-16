@@ -60,6 +60,11 @@
   --ctx-sys: #a1a1a7;
   --ctx-tools: #8b5cf6;
   --ctx-msgs: #2f6fed;
+  --ctx-memory: #1f9d6b;
+  --ctx-skills: #d9822b;
+  --ctx-mcp: #d6409f;
+  --ctx-ext: #0e9fb5;
+  --ctx-reserve: #c9c9ce;
   --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
   --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
 
@@ -80,6 +85,9 @@
   --r-card: 16px;
   --r-bubble: 22px;
   --r-pill: 999px;
+
+  /* The message column's widest, with its 24px padding each side (design-language, "圆角、尺寸与间距"). */
+  --column: 800px;
 
   --background: var(--main);
   --foreground: var(--text);
@@ -148,6 +156,11 @@
   --ctx-sys: #9ca3af;
   --ctx-tools: #a78bfa;
   --ctx-msgs: #7aaaff;
+  --ctx-memory: #43c08c;
+  --ctx-skills: #f0a050;
+  --ctx-mcp: #ee6bbd;
+  --ctx-ext: #3cc4d8;
+  --ctx-reserve: #4a4a52;
   --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
   --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
 }

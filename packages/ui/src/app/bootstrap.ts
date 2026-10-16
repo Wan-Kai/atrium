@@ -14,6 +14,8 @@ interface AtriumBridge {
   pathForFile?(file: File): string;
   /** Shows an existing absolute path in the Finder. */
   reveal?(path: string): Promise<void>;
+  /** Opens an absolute path to an HTML file in the default browser. */
+  openInBrowser?(path: string): Promise<void>;
 }
 
 /**

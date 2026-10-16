@@ -410,6 +410,30 @@ body {
   transition: rotate 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
 }
 
+/* Pressing a button gives: it shrinks within 80 ms and springs back (snappy) once let go; a small
+   button to 0.9, a text button or chip to 0.95, a whole row to 0.985 (design-language, "动效 ·
+   按下的实体感"). A disabled one does not. */
+.atrium-press,
+.atrium-press-sm,
+.atrium-press-row {
+  transition: scale 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.05);
+}
+.atrium-press:active:not(:disabled, [aria-disabled="true"]),
+.atrium-press-sm:active:not(:disabled, [aria-disabled="true"]),
+.atrium-press-row:active:not(:disabled, [aria-disabled="true"]) {
+  transition-duration: 80ms;
+  transition-timing-function: ease-out;
+}
+.atrium-press:active:not(:disabled, [aria-disabled="true"]) {
+  scale: 0.95;
+}
+.atrium-press-sm:active:not(:disabled, [aria-disabled="true"]) {
+  scale: 0.9;
+}
+.atrium-press-row:active:not(:disabled, [aria-disabled="true"]) {
+  scale: 0.985;
+}
+
 /* A project's folder cross-fades between closed and open, the one going shrinking to 0.6, as its
    colour follows (design-language, "动效 · 侧栏项目展开收起"). */
 .atrium-folder {
