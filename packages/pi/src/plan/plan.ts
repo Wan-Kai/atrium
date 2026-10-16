@@ -7,6 +7,12 @@ export const PLAN_COMMAND = "atrium-plan";
 /** The key of the status the extension reports a subscription's usage under. */
 export const PLAN_STATUS = "atrium-plan";
 
+/** A product's share of a window's use: part of the window's percentage, not a limit of its own. */
+interface PlanPart {
+  readonly name: string;
+  readonly usedPercent: number;
+}
+
 /** A window of a subscription's usage, as the extension reports it. */
 export interface PlanWindow {
   /** How long the window is; `null` when not known. */
@@ -16,6 +22,8 @@ export interface PlanWindow {
   readonly usedPercent: number;
   /** When it resets, in milliseconds since the epoch; `null` when not known. */
   readonly resetsAt: number | null;
+  /** The window's use by product; Grok's alone, empty for the others (SPEC-0001, "M1.14 的套餐总览"). */
+  readonly parts: readonly PlanPart[];
 }
 
 /** What the extension reports to the host: a subscription's usage, or why there is none. */
@@ -24,13 +32,13 @@ export type PlanReport =
   | { readonly provider: PlanProvider; readonly failure: string };
 
 /**
- * The subscriptions whose usage Atrium asks for (ADR-0010).
+ * The subscriptions whose usage Atrium asks for (ADR-0010, ADR-0011), in the order they are listed.
  *
  * @remarks
  * The protocol's `PlanProvider` without importing its schema, which the extension's bundle would
  * then carry into every pi.
  */
-const PLAN_PROVIDERS: readonly PlanProvider[] = ["openai-codex", "anthropic"];
+export const PLAN_PROVIDERS: readonly PlanProvider[] = ["openai-codex", "anthropic", "xai"];
 
 /**
  * Whether a provider is one Atrium asks for the usage of.
@@ -57,6 +65,12 @@ const MAX_WINDOWS = 8;
 
 /** Longest model name a report may carry, as the protocol allows. */
 const MAX_MODEL = 64;
+
+/** Most products a window may carry, as the protocol allows. */
+const MAX_PARTS = 16;
+
+/** Longest product name a report may carry, as the protocol allows. */
+const MAX_PART_NAME = 64;
 
 /** Longest plan name a report may carry, as the protocol allows. */
 const MAX_PLAN = 32;
@@ -98,7 +112,7 @@ function numberOf(value: unknown): number | null {
  * A time in milliseconds since the epoch from an ISO date.
  *
  * @remarks
- * Claude gives reset times as ISO dates; one that does not parse is not known.
+ * Claude gives reset times as ISO dates, Grok its period's bounds; one that does not parse is not known.
  *
  * @sideEffects none
  * @param value - The date.
@@ -130,7 +144,7 @@ export function codexUsage(body: unknown): { plan: string | null; windows: PlanW
     if (used === null) return [];
     const seconds = numberOf(fieldOf(window, "limit_window_seconds"));
     const reset = numberOf(fieldOf(window, "reset_at"));
-    return [{ seconds, model: null, usedPercent: used, resetsAt: reset === null ? null : reset * 1000 }];
+    return [{ seconds, model: null, usedPercent: used, resetsAt: reset === null ? null : reset * 1000, parts: [] }];
   });
   if (windows.length === 0) return null;
   const plan = fieldOf(body, "plan_type");
@@ -167,19 +181,83 @@ export function claudeUsage(body: unknown): PlanWindow[] | null {
         const used = numberOf(fieldOf(limit, "percent"));
         const resetsAt = isoTime(fieldOf(limit, "resets_at"));
         if (used === null) return [];
-        if (kind === "session") return [{ seconds: FIVE_HOURS, model: null, usedPercent: used, resetsAt }];
-        if (kind === "weekly_all") return [{ seconds: WEEK, model: null, usedPercent: used, resetsAt }];
+        if (kind === "session") return [{ seconds: FIVE_HOURS, model: null, usedPercent: used, resetsAt, parts: [] }];
+        if (kind === "weekly_all") return [{ seconds: WEEK, model: null, usedPercent: used, resetsAt, parts: [] }];
         const model = fieldOf(fieldOf(fieldOf(limit, "scope"), "model"), "display_name");
         if (kind !== "weekly_scoped" || typeof model !== "string" || model === "") return [];
-        return [{ seconds: WEEK, model, usedPercent: used, resetsAt }];
+        return [{ seconds: WEEK, model, usedPercent: used, resetsAt, parts: [] }];
       })
     : CLAUDE_FLAT.flatMap(([key, seconds, model]): PlanWindow[] => {
         const used = numberOf(fieldOf(fieldOf(body, key), "utilization"));
         if (used === null) return [];
-        return [{ seconds, model, usedPercent: used, resetsAt: isoTime(fieldOf(fieldOf(body, key), "resets_at")) }];
+        const resetsAt = isoTime(fieldOf(fieldOf(body, key), "resets_at"));
+        return [{ seconds, model, usedPercent: used, resetsAt, parts: [] }];
       });
   // Atrium takes eight at most: one for each model past that would lose them all.
   return windows.length === 0 ? null : windows.slice(0, MAX_WINDOWS);
+}
+
+/**
+ * Grok's usage from its answer to `cli-chat-proxy.grok.com/v1/billing?format=credits`.
+ *
+ * @remarks
+ * ADR-0011, SPEC-0001 ("M1.14 的套餐总览"): one window, `config.creditUsagePercent` of the period
+ * `config.currentPeriod` from `start` to `end`, which is when it resets; each of
+ * `config.productUsage` a part, `product` and `usagePercent`. Grok leaves out a percentage of 0,
+ * so a missing one counts as 0 for the window when the period is there, and for a product always;
+ * a product without a name is left out. An answer with neither percentage nor period is not usage.
+ *
+ * @sideEffects none
+ * @param body - The answer.
+ * @returns The window, or `null`.
+ */
+export function grokUsage(body: unknown): PlanWindow[] | null {
+  const config = fieldOf(body, "config");
+  const period = fieldOf(config, "currentPeriod");
+  const used = numberOf(fieldOf(config, "creditUsagePercent"));
+  if (used === null && (typeof period !== "object" || period === null)) return null;
+  const start = isoTime(fieldOf(period, "start"));
+  const end = isoTime(fieldOf(period, "end"));
+  const products = fieldOf(config, "productUsage");
+  const parts = Array.isArray(products)
+    ? products.flatMap((product: unknown): PlanPart[] => {
+        const name = fieldOf(product, "product");
+        if (typeof name !== "string" || name === "") return [];
+        return [{ name, usedPercent: numberOf(fieldOf(product, "usagePercent")) ?? 0 }];
+      })
+    : [];
+  return [
+    {
+      // Stryker disable next-line ConditionalExpression: `null > start` is false too; the check narrows the type.
+      seconds: start !== null && end !== null && end > start ? Math.round((end - start) / 1000) : null,
+      model: null,
+      usedPercent: used ?? 0,
+      resetsAt: end,
+      parts: parts.slice(0, MAX_PARTS),
+    },
+  ];
+}
+
+/**
+ * A reported window's products, made to fit the protocol, or `null` when they cannot be.
+ *
+ * @remarks
+ * See `readPlanReport`. None reported is none.
+ *
+ * @sideEffects none
+ * @param value - The products as reported.
+ * @returns The products.
+ */
+function reportedParts(value: unknown): PlanPart[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_PARTS) return null;
+  const read = value.flatMap((part: unknown): PlanPart[] => {
+    const name = fieldOf(part, "name");
+    const used = numberOf(fieldOf(part, "usedPercent"));
+    if (typeof name !== "string" || name === "" || used === null) return [];
+    return [{ name: name.slice(0, MAX_PART_NAME), usedPercent: Math.min(100, Math.max(0, used)) }];
+  });
+  return read.length === value.length ? read : null;
 }
 
 /**
@@ -194,7 +272,8 @@ export function claudeUsage(body: unknown): PlanWindow[] | null {
  */
 function reportedWindow(value: unknown): PlanWindow | null {
   const used = numberOf(fieldOf(value, "usedPercent"));
-  if (used === null) return null;
+  const parts = reportedParts(fieldOf(value, "parts"));
+  if (used === null || parts === null) return null;
   const seconds = numberOf(fieldOf(value, "seconds"));
   const reported = numberOf(fieldOf(value, "resetsAt"));
   const resetsAt = reported === null ? null : Math.round(reported);
@@ -206,6 +285,7 @@ function reportedWindow(value: unknown): PlanWindow | null {
     usedPercent: Math.min(100, Math.max(0, used)),
     // Stryker disable next-line ConditionalExpression: `Number.isSafeInteger` is false for `null` too; the check narrows the type.
     resetsAt: resetsAt !== null && Number.isSafeInteger(resetsAt) && resetsAt >= 0 ? resetsAt : null,
+    parts,
   };
 }
 
@@ -217,8 +297,9 @@ function reportedWindow(value: unknown): PlanWindow | null {
  * provider must be one Atrium asks for; a failure is a short code of lowercase letters, digits and
  * `_`; at most eight windows, each with a percentage, which is held to 0–100, a length that is a
  * positive safe whole number of seconds or none, a reset time not before the epoch and a safe whole
- * number once rounded or none, and a model
- * name cut to 64 characters; a plan name is cut to 32. Anything else is no report.
+ * number once rounded or none, a model name cut to 64 characters, and at most sixteen products,
+ * each a name cut to 64 characters and a percentage held to 0–100 (none reported is none); a plan
+ * name is cut to 32. Anything else is no report.
  *
  * @sideEffects none
  * @param text - The status's text.

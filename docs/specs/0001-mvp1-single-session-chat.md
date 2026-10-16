@@ -1074,7 +1074,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 **套餐用量**
 
-- 只查两家：`openai-codex`（ChatGPT 订阅）和 `anthropic` 的订阅登录（ADR-0010）。宿主在会话的 pi 启动后、每次运行结束后、换模型之后，当前模型是这两家之一、并且 pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 发 `/atrium-plan <服务商>`；同一服务商 60 秒内最多问一次、正在问时不再问。`atrium-plan` 和 `atrium-fast` 一样不出现在 `/` 菜单里。
+- 只查两家：`openai-codex`（ChatGPT 订阅）和 `anthropic` 的订阅登录（ADR-0010）。宿主在会话的 pi 启动后、每次运行结束后、换模型之后，当前模型是这两家之一、并且 pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 发 `/atrium-plan <服务商>`；同一服务商 60 秒内最多问一次、正在问时不再问。`atrium-plan` 和 `atrium-fast` 一样不出现在 `/` 菜单里。（M1.14 改：三家都查，不看当前模型，换模型不再触发，见"M1.14 的套餐总览"。）
 - 扩展用 `setStatus("atrium-plan", …)` 报 `{ provider, plan, windows }` 或 `{ provider, failure }`：
   - `plan`：ChatGPT 是 `plan_type`（如 `plus`、`pro`），Claude 为 `null`；
   - `windows`：每个窗口 `{ seconds, model, usedPercent, resetsAt }`。`seconds` 是窗口长度（5 小时是 18000，一周是 604800，不知道时为 `null`），`model` 是按模型的窗口的模型名（Claude 的 `weekly_scoped`），其余为 `null`；`usedPercent` 是 0–100 的数；`resetsAt` 是毫秒时间戳或 `null`。
@@ -1082,7 +1082,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
   - `failure` 是原因代码：`no_login`（这家没登录或是 API key）、`unreachable`、`http_<状态码>`、`not_json`、`unknown_shape`。
 - 宿主按格式校验（服务商是这两家之一，窗口最多 8 个（Claude 按模型分的窗口多于 8 个时扩展只报前 8 个），时长和重置时间是安全整数，百分比夹到 0–100，模型名最多 64 个字），按服务商记最近一次成功的结果和查到的时间；失败只记日志（服务商和原因代码）；`no_login` 立即丢掉之前的结果，别的失败（含超时、没有查到结果、查询出错）只在之前的结果已经查到满 10 分钟时丢掉。之后没有再查时结果留着，卡片右上角的"N 分钟前"说明它有多旧，随时间走（2026-10-16 审查后定）。
 - 协议：`metrics.plan` 为 `null` 或 `{ provider, plan, windows, at }`，是这个会话当前模型的服务商的结果（`at` 是查到的时间）。别的会话查到同一家的新结果时，这个会话也推 `metrics_updated`。（M1.14 去掉 `metrics.plan`，改成全宿主一份的 `plans_updated`；什么时候问、问哪几家也改了，见"M1.14 的套餐总览"。）
-- 状态栏的"套餐"一组：摘要是圆环和"套餐 N%"，N 是各窗口里最大的已用百分比，取整；≥ 80% 时圆环和数字用 `--attn`。卡片：标题"ChatGPT Plus 用量"（服务商名：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude；后面跟套餐名，首字母大写），右上角是查到的时间（"刚刚""N 分钟前"）；每个窗口一行：名称（18000 秒是"5 小时窗口"，604800 秒是"每周"，其余按小时或天，有模型名时加"· 模型名"）、重置时间（一天内写"N 小时 N 分后重置"，再远写"周几 HH:MM 重置"，没有时不写）、百分比和进度条（≥ 80% 用 `--attn`）。`metrics.plan` 为 `null` 或没有窗口时整组不显示。
+- 状态栏的"套餐"一组：摘要是圆环和"套餐 N%"，N 是各窗口里最大的已用百分比，取整；≥ 80% 时圆环和数字用 `--attn`。卡片：标题"ChatGPT Plus 用量"（服务商名：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude；后面跟套餐名，首字母大写），右上角是查到的时间（"刚刚""N 分钟前"）；每个窗口一行：名称（18000 秒是"5 小时窗口"，604800 秒是"每周"，其余按小时或天，有模型名时加"· 模型名"）、重置时间（一天内写"N 小时 N 分后重置"，再远写"周几 HH:MM 重置"，没有时不写）、百分比和进度条（≥ 80% 用 `--attn`）。`metrics.plan` 为 `null` 或没有窗口时整组不显示。（M1.14 改：卡片列出所有订阅、按服务商分段，摘要取当前模型那家，见"M1.14 的套餐总览"。）
 
 新增：`metrics.plan`、`context.parts`、`context.reserve`；去掉 `context.system`、`context.tools`。协议版本 16。
 
@@ -1112,14 +1112,15 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 - `PlanProvider` 加 `xai`。窗口加 `parts`：`[{ name, usedPercent }]`，最多 16 项，名字 1–64 个字（扩展报的截断），百分比夹到 0–100；ChatGPT、Claude 的窗口为空数组。扩展报的窗口没有 `parts` 时按空数组，`parts` 不是数组、超过 16 项、有一项不合格时整份报告不要。
 - 去掉 `metrics.plan`。
-- 新命令 `get_plans()`：应答 `{ plans }`。新事件 `plans_updated { plans }`：任何一家的结果变了时整份推给所有连接。`plans` 是查到的订阅，每家 `{ provider, plan, windows, at }`，按 `openai-codex`、`anthropic`、`xai` 的顺序，没有查到的不列。客户端连上（含重连）后要一次，之后跟着事件换。
+- 新事件 `plans_updated { plans }`：任何一家的结果变了时整份推给所有连接；每个连接握手后也紧跟 `welcome` 推一次（和安装、登录的补发一起，同"首次启动 · 接口"），没查到任何一家时是空列表，所以连到重启过的宿主或断线期间用量没了的，都会换成新的。`plans` 是查到的订阅，每家 `{ provider, plan, windows, at }`，按 `openai-codex`、`anthropic`、`xai` 的顺序，没有查到的不列。客户端不发命令去要，只跟着事件换。
 - 协议版本 17。
 
 **界面**
 
 - 状态栏的"套餐"一组：`plans` 不为空时出现。摘要的圆环和"套餐 N%"取**当前会话模型的服务商**那一份（规则同 M1.13）；当前模型不是查到的订阅（如 GLM、API key 的 Claude）时，圆环是空的，只写"套餐"，颜色不变橙。
 - 卡片（宽 300px）：标题"套餐用量"。查到的每家一段，当前模型那家在前，其余按协议的顺序；段与段之间一条 0.5px `--line`。每段第一行是服务商和套餐名（同 M1.13 的写法，去掉"用量"二字：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude，`xai` 是 Grok），当前模型那家后面加"当前"（`--text-dim`），右边是这一家查到的时间；下面是它的窗口，同 M1.13。窗口有 `parts` 时，进度条下面每个产品一行：缩进、产品名（按大写字母拆开，`GrokBuild` 写"Grok Build"）、百分比，不画进度条。
-- 设置 · 模型与账户：在"订阅登录"下面加一组"套餐用量"，内容和卡片的各段一样（没有卡片标题）；`plans` 为空时写"打开会话后，Atrium 会借 pi 的登录查各订阅的用量"。
+- 设置 · 模型与账户：在"订阅登录"下面加一组"套餐用量"，说明"各订阅还剩多少、什么时候重置，借 pi 的登录查，每分钟最多一次。"，内容和卡片的各段一样（没有卡片标题；设置不属于哪个会话，所以不标"当前"，按协议的顺序）；`plans` 为空时写"打开会话后，Atrium 会借 pi 的登录查各订阅的用量"。用量是会话的 pi 查的，不经登录程序，所以 Atrium 加载不了 pi 的登录、只显示"登录"那一句说明时，这一组照样显示。
+- 状态栏调节面板里"套餐"一组的说明改为"当前订阅的用量，悬停看所有订阅和重置时间"（原先"订阅的 5 小时、每周用量，悬停看重置时间"）。
 
 ### 状态栏（M1.8，2026-10-10 定）
 
@@ -1254,7 +1255,6 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `search_files(sessionId, query)` | `@` 引用的候选文件和目录（在会话的工作目录里用 `fd`，与 pi 的终端界面一致） |
 | `check_setup(refresh?)` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install(jobId)` / `login(providerId, method, key?)` / `answer_login(loginId, promptId, value)` / `cancel_login(loginId)` / `logout(providerId)` / `check_pi_update()` / `discover_projects()` | 首次启动与设置：检查、一键安装和更新、登录与退出、从 pi 历史发现目录（M1.10，见上文"首次启动 · 接口"） |
 | `set_main_branch(projectId, branch)` / `list_branches(projectId)` | 项目的主干分支（M1.10，见上文"设置 · 接口"） |
-| `get_plans()` | 查到的各订阅的用量（M1.14，见上文"M1.14 的套餐总览"） |
 
 **事件（宿主 → UI）**
 
@@ -1271,7 +1271,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `install_output` / `install_updated` / `login_updated` | 安装、更新、登录的输出、状态和结果（M1.10） |
 | `pi_latest` | npm 上 pi 的最新版本和查询时间（M1.10，见上文"设置 · 接口"） |
 | `credentials_changed` | 登录成功或退出登录，凭据变了（M1.10，见上文"首次启动 · 接口"） |
-| `plans_updated` | 各订阅的用量，任何一家变了时整份推给所有连接（M1.14，见上文"M1.14 的套餐总览"） |
+| `plans_updated` | 各订阅的用量，任何一家变了时整份推给所有连接，握手后也推一次（M1.14，见上文"M1.14 的套餐总览"） |
 | `model_updated` | 会话当前的模型和推理强度变化（M1.7，见上文"模型与输入框"） |
 | `metrics_updated` | 状态栏各分组的最新取值（区分本会话累计与当前分支，允许未知；M1.8，见上文"状态栏"） |
 | `notice` | 系统事件：上下文压缩（带压缩前 token 数）、自动重试（第 N / 3 次）、进程自动重启；extension 通知原文 |

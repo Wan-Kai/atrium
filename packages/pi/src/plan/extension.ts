@@ -1,5 +1,5 @@
 import { type Login, type Registry, backendRoot, chatgptHeaders, loginFor } from "../extension/credentials";
-import { PLAN_COMMAND, PLAN_STATUS, type PlanReport, claudeUsage, codexUsage, isPlanProvider } from "./plan";
+import { PLAN_COMMAND, PLAN_STATUS, type PlanReport, claudeUsage, codexUsage, grokUsage, isPlanProvider } from "./plan";
 
 /** The part of a command's context the plan query uses: pi's model registry and its one-way status line. */
 interface PlanContext {
@@ -20,6 +20,12 @@ const USAGE_TIMEOUT_MS = 15_000;
 
 /** The beta Claude's usage answers only with (ADR-0010). */
 const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
+
+/**
+ * Where Grok's usage is: the one address the extension sends pi's credentials to that pi itself
+ * does not use (ADR-0011; security.md, "Atrium 自带的 pi 扩展"). Fixed, never from a model or a login.
+ */
+export const GROK_USAGE_URL = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 
 /**
  * Asks a provider for its usage with pi's login, and reads the answer.
@@ -71,28 +77,51 @@ function claudeHeaders(login: Login): Record<string, string> {
 }
 
 /**
+ * The headers of a request for Grok's usage with pi's login.
+ *
+ * @remarks
+ * Only the bearer token and the mark Grok's own command line sends (ADR-0011): pi's headers are
+ * for `api.x.ai`, not this server.
+ *
+ * @sideEffects none
+ * @param login - The login.
+ * @returns The headers.
+ */
+function grokHeaders(login: Login): Record<string, string> {
+  return { accept: "application/json", authorization: `Bearer ${login.apiKey}`, "x-xai-token-auth": "xai-grok-cli" };
+}
+
+/**
  * Asks a subscription for its usage.
  *
  * @remarks
  * ADR-0010: ChatGPT's `wham/usage` at the root of where pi sends Codex's requests; Claude's
- * `api/oauth/usage` at the model's base address, only with a subscription's login. A provider
- * without a login, or Claude with an API key, is `no_login`; an answer that is not usage is
+ * `api/oauth/usage` at the model's base address, only with a subscription's login. ADR-0011:
+ * Grok's billing at its fixed address, only with a subscription's login. A provider without a
+ * login, or Claude or Grok with an API key, is `no_login`; an answer that is not usage is
  * `unknown_shape`. It never rejects.
  *
  * @sideEffects Asks pi for credentials; makes one request.
  * @param ctx - The command's context.
  * @param provider - The provider, as the host named it.
+ * @param grokUrl - Where Grok's usage is.
  * @returns The report, or `null` for a provider Atrium does not ask.
  */
-async function askPlan(ctx: PlanContext, provider: string): Promise<PlanReport | null> {
+async function askPlan(ctx: PlanContext, provider: string, grokUrl: string): Promise<PlanReport | null> {
   if (!isPlanProvider(provider)) return null;
   const login = await loginFor(ctx.modelRegistry, provider);
-  if (login === null || (provider === "anthropic" && !login.oauth)) return { provider, failure: "no_login" };
+  if (login === null || (provider !== "openai-codex" && !login.oauth)) return { provider, failure: "no_login" };
   if (provider === "openai-codex") {
     const answer = await askFor(`${backendRoot(login.baseUrl)}/wham/usage`, chatgptHeaders(login));
     if ("failure" in answer) return { provider, failure: answer.failure };
     const usage = codexUsage(answer.body);
     return usage === null ? { provider, failure: "unknown_shape" } : { provider, ...usage };
+  }
+  if (provider === "xai") {
+    const answer = await askFor(grokUrl, grokHeaders(login));
+    if ("failure" in answer) return { provider, failure: answer.failure };
+    const windows = grokUsage(answer.body);
+    return windows === null ? { provider, failure: "unknown_shape" } : { provider, plan: null, windows };
   }
   const answer = await askFor(`${login.baseUrl.replace(/\/+$/u, "")}/api/oauth/usage`, claudeHeaders(login));
   if ("failure" in answer) return { provider, failure: answer.failure };
@@ -111,12 +140,14 @@ async function askPlan(ctx: PlanContext, provider: string): Promise<PlanReport |
  *
  * @sideEffects Registers a command with pi; asks providers for usage when it runs.
  * @param pi - pi's extension API.
+ * @param grokUrl - Where Grok's usage is: {@link GROK_USAGE_URL}, which tests alone change. Atrium's
+ *   one extension calls this with pi's API only, so nothing pi passes can change it.
  */
-export default function atriumPlan(pi: PlanApi): void {
+export default function atriumPlan(pi: PlanApi, grokUrl = GROK_USAGE_URL): void {
   pi.registerCommand(PLAN_COMMAND, {
     description: "Atrium's plan usage query, sent by Atrium's host",
     handler: async (args, ctx) => {
-      const report = await askPlan(ctx, args.trim());
+      const report = await askPlan(ctx, args.trim(), grokUrl);
       if (report !== null) ctx.ui.setStatus(PLAN_STATUS, JSON.stringify(report));
     },
   });

@@ -358,6 +358,7 @@ function SessionArea({
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
+  const plans = useStore(client.plans);
   const draft = useStore(
     client.index,
     (index) => (index.sessions.find((one) => one.sessionId === sessionId)?.file ?? null) === null,
@@ -463,6 +464,8 @@ function SessionArea({
       />
       <StatusBar
         metrics={view.metrics}
+        plans={plans}
+        provider={view.model?.providerId ?? null}
         choices={statusBar}
         onChoose={(choices) => act(() => client.setPreferences({ statusBar: choices }))}
         onCompact={() => {

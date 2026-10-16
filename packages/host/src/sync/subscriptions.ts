@@ -8,6 +8,7 @@ import type {
   InstallUpdatedEvent,
   LoginUpdatedEvent,
   PiLatestEvent,
+  PlansUpdatedEvent,
   SessionEvent,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
@@ -30,7 +31,8 @@ type BroadcastEvent =
   | InstallUpdatedEvent
   | InstallOutputEvent
   | PiLatestEvent
-  | CredentialsChangedEvent;
+  | CredentialsChangedEvent
+  | PlansUpdatedEvent;
 
 /** A connection that subscribed to the list, and the client behind it. */
 export interface IndexSubscriber {

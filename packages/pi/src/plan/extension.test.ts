@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ServerResponse } from "node:http";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import atrium from "../extension/atrium";
-import atriumPlan, { type PlanApi } from "./extension";
+import atriumPlan, { GROK_USAGE_URL, type PlanApi } from "./extension";
 
 /** A command's context, as pi gives it. */
 type Context = Parameters<Parameters<PlanApi["registerCommand"]>[1]["handler"]>[1];
@@ -20,6 +20,15 @@ const CODEX_ANSWER = {
   rate_limit: {
     primary_window: { used_percent: 39, limit_window_seconds: 18_000, reset_at: 1_782_770_922 },
     secondary_window: { used_percent: 52, limit_window_seconds: 604_800, reset_at: 1_783_357_722 },
+  },
+};
+
+/** Grok's answer to `v1/billing?format=credits`, cut down (ADR-0011). */
+const GROK_ANSWER = {
+  config: {
+    currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "2026-10-12T09:56:20Z", end: "2026-10-19T09:56:20Z" },
+    creditUsagePercent: 34,
+    productUsage: [{ product: "GrokBuild", usagePercent: 33 }],
   },
 };
 
@@ -97,18 +106,26 @@ function stand(
  * @sideEffects Runs the command, which may make a request.
  * @param args - What follows the command's name.
  * @param ctx - The context.
+ * @param grokUrl - Where Grok's usage is asked; nowhere real (testing.md).
  * @returns The command's name and description.
  * @throws {Error} When it registered no command.
  */
-async function run(args: string, ctx: Context): Promise<{ name: string; description: string }> {
+async function run(
+  args: string,
+  ctx: Context,
+  grokUrl = "http://127.0.0.1:9/v1/billing?format=credits",
+): Promise<{ name: string; description: string }> {
   let registered:
     | { name: string; description: string; handler: (args: string, ctx: Context) => Promise<void> }
     | undefined;
-  atriumPlan({
-    registerCommand: (name, options) => {
-      registered = { name, description: options.description, handler: options.handler };
+  atriumPlan(
+    {
+      registerCommand: (name, options) => {
+        registered = { name, description: options.description, handler: options.handler };
+      },
     },
-  });
+    grokUrl,
+  );
   if (registered === undefined) throw new Error("the extension registered no command");
   await registered.handler(args, ctx);
   return { name: registered.name, description: registered.description };
@@ -123,6 +140,9 @@ function reports(statuses: readonly (readonly [string, string | undefined])[]): 
 function codex(baseUrl: string) {
   return [{ provider: "openai-codex", id: "gpt-6.1-sol", baseUrl }];
 }
+
+/** Grok's one model, at pi's address for it, which the usage does not use. */
+const GROK = [{ provider: "xai", id: "grok-4.3", baseUrl: "https://api.x.ai/v1" }];
 
 /** Claude's one model, at `baseUrl`. */
 function claude(baseUrl: string) {
@@ -169,8 +189,8 @@ describe("atriumPlan", () => {
           provider: "openai-codex",
           plan: "pro",
           windows: [
-            { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_782_770_922_000 },
-            { seconds: 604_800, model: null, usedPercent: 52, resetsAt: 1_783_357_722_000 },
+            { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_782_770_922_000, parts: [] },
+            { seconds: 604_800, model: null, usedPercent: 52, resetsAt: 1_783_357_722_000, parts: [] },
           ],
         },
       ],
@@ -201,11 +221,77 @@ describe("atriumPlan", () => {
         {
           provider: "anthropic",
           plan: null,
-          windows: [{ seconds: 18_000, model: null, usedPercent: 84, resetsAt: Date.parse("2026-10-15T10:00:00Z") }],
+          windows: [
+            { seconds: 18_000, model: null, usedPercent: 84, resetsAt: Date.parse("2026-10-15T10:00:00Z"), parts: [] },
+          ],
         },
       ],
       ["atrium-plan", { provider: "anthropic", failure: "no_login" }],
     ]);
+  });
+
+  it("asks Grok's billing at its own address with the bearer and Grok's mark alone, only with a subscription's login", async () => {
+    const server = await usageServer(json(GROK_ANSWER));
+    const subscribed = stand(GROK);
+    const keyed = stand(GROK, { oauth: false });
+    const grokUrl = `${server.baseUrl}/v1/billing?format=credits`;
+
+    await run("xai", subscribed.ctx, grokUrl);
+    await run("xai", keyed.ctx, grokUrl);
+
+    expect(server.requests.map(({ url, headers }) => [url, headers])).toStrictEqual([
+      [
+        "/backend-api/v1/billing?format=credits",
+        expect.objectContaining({
+          authorization: `Bearer ${TOKEN}`,
+          "x-xai-token-auth": "xai-grok-cli",
+          accept: "application/json",
+        }),
+      ],
+    ]);
+    // pi's own headers are for api.x.ai.
+    expect(server.requests[0]?.headers["x-pi"]).toBeUndefined();
+    expect([...reports(subscribed.statuses), ...reports(keyed.statuses)]).toStrictEqual([
+      [
+        "atrium-plan",
+        {
+          provider: "xai",
+          plan: null,
+          windows: [
+            {
+              seconds: 604_800,
+              model: null,
+              usedPercent: 34,
+              resetsAt: Date.parse("2026-10-19T09:56:20Z"),
+              parts: [{ name: "GrokBuild", usedPercent: 33 }],
+            },
+          ],
+        },
+      ],
+      ["atrium-plan", { provider: "xai", failure: "no_login" }],
+    ]);
+  });
+
+  it("reports why Grok has no usage: unreachable, an HTTP error, or an answer that is not usage", async () => {
+    const failing = await usageServer((response) => response.writeHead(403).end("secret"));
+    const odd = await usageServer(json({ config: { hello: "world" } }));
+    const cases = [
+      [stand(GROK), "http://127.0.0.1:9/v1/billing"],
+      [stand(GROK), failing.baseUrl],
+      [stand(GROK), odd.baseUrl],
+    ] as const;
+
+    for (const [{ ctx }, url] of cases) await run("xai", ctx, url);
+
+    expect(cases.flatMap(([{ statuses }]) => reports(statuses).map(([, report]) => report))).toStrictEqual([
+      { provider: "xai", failure: "unreachable" },
+      { provider: "xai", failure: "http_403" },
+      { provider: "xai", failure: "unknown_shape" },
+    ]);
+  });
+
+  it("asks Grok at the one address ADR-0011 allows", () => {
+    expect(GROK_USAGE_URL).toBe("https://cli-chat-proxy.grok.com/v1/billing?format=credits");
   });
 
   it("reports why there is no usage: no login, a failed lookup, unreachable, an HTTP error, not JSON, not usage", async () => {

@@ -5,15 +5,18 @@ import {
   contextLevel,
   contextPercent,
   contextRows,
+  currentPlan,
   foundAgo,
   formatCost,
   formatSeconds,
   formatSpeed,
   formatTokens,
   formatWhole,
+  partName,
+  planName,
   planNearLimit,
   planPercent,
-  planTitle,
+  plansInOrder,
   resetText,
   shownGroups,
   totalTokens,
@@ -192,7 +195,7 @@ describe("the status bar's groups", () => {
       { id: "session", name: "会话统计", description: "轮数、步数、输出速度", defaultVisible: true },
       { id: "tokens", name: "Token 用量", description: "总用量与缓存命中率", defaultVisible: true },
       { id: "context", name: "上下文", description: "已用比例，悬停看分段", defaultVisible: true },
-      { id: "plan", name: "套餐", description: "订阅的 5 小时、每周用量，悬停看重置时间", defaultVisible: true },
+      { id: "plan", name: "套餐", description: "当前订阅的用量，悬停看所有订阅和重置时间", defaultVisible: true },
       { id: "cost", name: "费用", description: "按 API 价格折算，订阅不实际付费", defaultVisible: false },
     ]);
   });
@@ -217,7 +220,12 @@ describe("the status bar's groups", () => {
 
 /** A plan's window `used`% used, `seconds` long, counting `model` alone. */
 function window(used: number, seconds: number | null = 18_000, model: string | null = null) {
-  return { seconds, model, usedPercent: used, resetsAt: null };
+  return { seconds, model, usedPercent: used, resetsAt: null, parts: [] };
+}
+
+/** A provider's usage, found at `at`. */
+function usage(provider: "openai-codex" | "anthropic" | "xai", at = 0) {
+  return { provider, plan: null, windows: [window(1)], at };
 }
 
 describe("the plan's figures", () => {
@@ -228,12 +236,42 @@ describe("the plan's figures", () => {
     expect([79, 80, 100].map(planNearLimit)).toStrictEqual([false, true, true]);
   });
 
-  it("titles the card by the provider and its plan", () => {
+  it("names a subscription by the provider and its plan", () => {
     expect([
-      planTitle({ provider: "openai-codex", plan: "plus" }),
-      planTitle({ provider: "openai-codex", plan: "pro" }),
-      planTitle({ provider: "anthropic", plan: null }),
-    ]).toStrictEqual(["ChatGPT Plus 用量", "ChatGPT Pro 用量", "Claude 用量"]);
+      planName({ provider: "openai-codex", plan: "plus" }),
+      planName({ provider: "openai-codex", plan: "pro" }),
+      planName({ provider: "anthropic", plan: null }),
+      planName({ provider: "xai", plan: null }),
+    ]).toStrictEqual(["ChatGPT Plus", "ChatGPT Pro", "Claude", "Grok"]);
+  });
+
+  it("finds the session's subscription, and lists it first, the rest as the host listed them", () => {
+    const plans = [usage("openai-codex", 1), usage("anthropic", 2), usage("xai", 3)];
+
+    expect([currentPlan(plans, "anthropic")?.at, currentPlan(plans, "faux"), currentPlan(plans, null)]).toStrictEqual([
+      2,
+      null,
+      null,
+    ]);
+    expect(
+      ["xai", "anthropic", "faux", null].map((provider) => plansInOrder(plans, provider).map(({ at }) => at)),
+    ).toStrictEqual([
+      [3, 1, 2],
+      [2, 1, 3],
+      [1, 2, 3],
+      [1, 2, 3],
+    ]);
+  });
+
+  it("splits a product's run-together name into words, and leaves other names as they are", () => {
+    expect(["GrokBuild", "GrokImagine", "Grok", "API", "GPT-5 Codex", "grok chat"].map(partName)).toStrictEqual([
+      "Grok Build",
+      "Grok Imagine",
+      "Grok",
+      "API",
+      "GPT-5 Codex",
+      "grok chat",
+    ]);
   });
 
   it("names a window by its length, in hours under two days, else days, and the model it counts alone", () => {

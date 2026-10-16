@@ -5,6 +5,7 @@ import { SessionEvent } from "./events";
 import { ChangesUpdatedEvent, DiffUpdatedEvent } from "./changes";
 import { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { HelloMessage, WelcomeMessage } from "./handshake";
+import { PlansUpdatedEvent } from "./metrics";
 import {
   CredentialsChangedEvent,
   InstallOutputEvent,
@@ -51,6 +52,7 @@ export const HostMessage = z.union([
   InstallOutputEvent,
   PiLatestEvent,
   CredentialsChangedEvent,
+  PlansUpdatedEvent,
 ]);
 export type HostMessage = z.infer<typeof HostMessage>;
 

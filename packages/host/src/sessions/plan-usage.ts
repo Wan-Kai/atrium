@@ -1,14 +1,14 @@
-import { type PlanReport, PiRequestError } from "@atrium/pi";
-import type { PlanProvider, PlanUsage } from "@atrium/protocol";
+import { PLAN_PROVIDERS, type PlanReport, PiRequestError } from "@atrium/pi";
+import type { PlanProvider, PlanUsage, Plans } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 
-/** Subscriptions' usage, found through sessions' pi and shared by every session of a provider (ADR-0010). */
+/** Subscriptions' usage, found through any session's pi and the host's alone (ADR-0010, ADR-0011). */
 export interface PlanUsageService {
-  /** The provider's usage as last found, or none. */
-  current(provider: PlanProvider): PlanUsage | null;
-  /** Tells `listener` each time the provider's usage changes; returns the unsubscribe function. */
-  subscribe(provider: PlanProvider, listener: (usage: PlanUsage | null) => void): () => void;
+  /** Each provider's usage as last found, in `PlanProvider`'s order; none for a provider not found. */
+  current(): Plans;
+  /** Tells `listener` each time any provider's usage changes; returns the unsubscribe function. */
+  subscribe(listener: (plans: Plans) => void): () => void;
   /** Asks for the provider's usage through `ask`, unless it was asked within a minute or is being asked. */
   wanted(provider: PlanProvider, ask: () => Promise<PlanReport | null>): void;
 }
@@ -24,19 +24,22 @@ interface Entry {
   usage: PlanUsage | null;
   askedAt: number | null;
   asking: boolean;
-  readonly listeners: Set<(usage: PlanUsage | null) => void>;
+  /** The failure the provider last reported, until it reports usage; logged once in a row. */
+  failure: string | null;
 }
 
 /**
  * Creates the service of subscriptions' usage.
  *
  * @remarks
- * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): each provider is asked at most once a minute, one ask
- * at a time; sessions ask after their pi starts, each run and a model change. A report of usage
- * replaces what was known, stamped with the time now. A failure is logged by its provider and code
- * alone; `no_login` drops what was known at once. Any other failure, as a query that found no plan
- * query or no report, or failed, drops it only once it is ten minutes old. Listeners hear only
- * changes.
+ * SPEC-0001 ("M1.13 的上下文细分与套餐用量", "M1.14 的套餐总览"): each provider is asked at most
+ * once a minute, one ask at a time, whichever session asks; sessions ask for every provider after
+ * their pi starts and each run. A report of usage replaces what was known, stamped with the time
+ * now. A failure is logged by its provider and code alone, and only when it is not the one the
+ * provider last reported: every provider is asked each minute, and one not signed in would log a
+ * line each time. `no_login` drops what was known at once. Any other failure, as a query that found
+ * no plan query or no report, or failed, drops it only once it is ten minutes old. Listeners hear
+ * every provider's usage, only on a change.
  *
  * @sideEffects none until used; then calls the asks given and logs.
  * @param options - The clock and the logger.
@@ -44,6 +47,7 @@ interface Entry {
  */
 export function createPlanUsage(options: { readonly clock: Clock; readonly logger: Logger }): PlanUsageService {
   const entries = new Map<PlanProvider, Entry>();
+  const listeners = new Set<(plans: Plans) => void>();
 
   /**
    * The provider's entry, made on first use.
@@ -58,10 +62,21 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
   const entryOf = (provider: PlanProvider): Entry => {
     const known = entries.get(provider);
     if (known !== undefined) return known;
-    const made: Entry = { usage: null, askedAt: null, asking: false, listeners: new Set() };
+    const made: Entry = { usage: null, askedAt: null, asking: false, failure: null };
     entries.set(provider, made);
     return made;
   };
+
+  /**
+   * Every provider's usage found, in the order they are listed.
+   *
+   * @remarks
+   * See `createPlanUsage`.
+   *
+   * @sideEffects none
+   * @returns The usage.
+   */
+  const all = (): Plans => PLAN_PROVIDERS.flatMap((provider) => entries.get(provider)?.usage ?? []);
 
   /**
    * Sets the provider's usage, telling listeners when it changed.
@@ -76,7 +91,8 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
   const set = (entry: Entry, usage: PlanUsage | null): void => {
     if (JSON.stringify(usage) === JSON.stringify(entry.usage)) return;
     entry.usage = usage;
-    for (const listener of entry.listeners) listener(usage);
+    const plans = all();
+    for (const listener of listeners) listener(plans);
   };
 
   /**
@@ -98,7 +114,7 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
    * @remarks
    * See `createPlanUsage`.
    *
-   * @sideEffects May change the usage and call listeners; logs a failure.
+   * @sideEffects May change the usage and call listeners; logs a failure not logged last time.
    * @param provider - The provider asked.
    * @param report - The report, or `null` for none.
    */
@@ -109,18 +125,21 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
       return;
     }
     if ("failure" in report) {
-      options.logger.info({ provider, failure: report.failure }, "plan usage unavailable");
+      if (report.failure !== entry.failure) {
+        options.logger.info({ provider, failure: report.failure }, "plan usage unavailable");
+      }
+      entry.failure = report.failure;
       if (report.failure === "no_login") set(entry, null);
       else notFound(entry);
       return;
     }
+    entry.failure = null;
     set(entry, { provider, plan: report.plan, windows: report.windows, at: options.clock.now() });
   };
 
   return {
-    current: (provider) => entries.get(provider)?.usage ?? null,
-    subscribe(provider, listener) {
-      const { listeners } = entryOf(provider);
+    current: all,
+    subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },

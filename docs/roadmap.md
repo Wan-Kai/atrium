@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-16：M1.14 套餐总览写完，待三方审查后合并（在 worktree `atrium.worktrees/plan-overview` 里做，原工作区留给并行的 claude-bridge 上下文细分）。扩展查 Grok 的 billing（只对 xAI 订阅登录、写死地址，已用 pi 的登录实测），按产品拆成窗口的 `parts`；宿主每个会话的 pi 启动后和每次运行结束后问三家，用量全宿主一份，`plans_updated` 变了就推、握手后紧跟 `welcome` 补发一次（原计划的 `get_plans` 命令没做，客户端不用另发请求）；同一家连续同样的失败只记一次日志；状态栏卡片按服务商分段、当前模型那家在前，摘要取当前模型那家；设置 · 模型与账户加"套餐用量"，Atrium 加载不了 pi 的登录时也显示。协议 17。单元、宿主、pi（新录 `plan-xai-key` 夹具）、界面、泄漏、相关端到端和 `pnpm check` 通过；变异分数 pi 99.94%、host 100%、shared 99.95%、ui 99.53%，新代码的存活变异都补了或注明等价。界面测试里右栏的"0.24 秒打开"动画测试在整套并行时偶尔失败、单跑都过，和本次无关，记下待查。**
+
 **2026-10-16：新建 M1.14 套餐总览，在 `m1.14-plan-overview` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。自用时想看 Grok 的余量，以及不管当前用哪个模型都能一处看全各订阅：扩展加查 Grok 的 `cli-chat-proxy.grok.com/v1/billing`（pi 平时不访问的服务器，作为唯一的例外，已用 pi 的 xAI 登录实测），宿主经任一会话的 pi 查所有订阅，用量改成全宿主一份推给所有连接，状态栏的套餐卡片和设置的"模型与账户"都列出所有订阅（[ADR-0011](adr/0011-plan-overview-all-subscriptions.md)）。先改 SPEC-0001、security.md、design-language，再写代码。**
 
 **2026-10-16：M1.13 上下文细分与套餐用量完成，三方审查（Astra、Grok、Claude）后已合并回 `main`（M1.11 自用的改动一起合并：侧栏搜索置顶、项目超过 5 个工作区折叠、不列目录已不在的工作区、窗口失焦不变灰、对话区按钮的按压反馈和复制 ✓、点对话里的文件胶囊在固定标签里打开、HTML 文件在浏览器打开（⌘O））。审查的问题都修了：宿主停掉会话再启动后指标和套餐照样读和发布（原先 `close` 之后再也不更新，M1.8 起就有），停 pi 途中不再订阅套餐；套餐用量在任何一次失败（含超时、没有报告）时满 10 分钟就丢，卡片上的时间每分钟走；自动压缩分开"关"（`"off"`）和"读不到"（`null`），`enabled` 按 pi 的读法；HTML 只在宿主读到之后才给"在浏览器打开"；状态栏卡片不伸出窗口；换项目后"显示全部"收回；Claude 的窗口只报前 8 个，时长和时间只收安全整数，带凭据的请求不跟随重定向。没改的：本地工作区的项目目录被删时仍列在侧栏、套餐查询用服务商第一个模型的地址（同 pi 平时发这个登录的地址），留到以后。单元、宿主、pi、界面、相关端到端和 `pnpm check` 通过；变异分数 host 100%、pi 99.93%、shared 99.95%、ui 99.52%。下一步回到 [M1.11](#m111-自用) 的自用。**
@@ -365,8 +367,8 @@ MVP 1 里还没设计、做到时先补设计的：
 - **目标**：状态栏的套餐卡片和设置的"模型与账户"列出所有已登录订阅（ChatGPT、Claude、Grok）的用量和重置时间，不再只看当前模型那家；加上 Grok（2026-10-16 定）。
 - **范围**：
   - 扩展：`/atrium-plan xai` 只在 xAI 订阅登录时查 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，报成一个窗口加按产品的拆分（`parts`）。
-  - 宿主：每个会话的 pi 启动后、每次运行结束后经它问三家（每家 60 秒最多一次，全宿主共用）；用量改成全宿主一份，`get_plans` 和 `plans_updated` 推给所有连接；同一家连续同样的失败只记一次日志。
-  - 协议版本 17：`PlanProvider` 加 `xai`，窗口加 `parts`，去掉 `metrics.plan`，加 `get_plans`、`plans_updated`。
+  - 宿主：每个会话的 pi 启动后、每次运行结束后经它问三家（每家 60 秒最多一次，全宿主共用）；用量改成全宿主一份，`plans_updated` 变了就推给所有连接、握手后也推一次；同一家连续同样的失败只记一次日志。
+  - 协议版本 17：`PlanProvider` 加 `xai`，窗口加 `parts`，去掉 `metrics.plan`，加 `plans_updated`。
   - 界面：状态栏的套餐卡片按服务商分段、当前模型那家在前，摘要仍取当前模型那家；设置 · 模型与账户加"套餐用量"一组。
   - 不做：没有会话时另起 pi 去查；Grok 的套餐档次（要另请求 `/v1/settings`）、按需付费和预付余额；别家 coding plan。
 - **参考**：[ADR-0011](adr/0011-plan-overview-all-subscriptions.md)、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[SPEC-0001 · M1.14 的套餐总览](specs/0001-mvp1-single-session-chat.md#m114-的套餐总览协议版本-172026-10-16-定)、[security.md](architecture/security.md)"Atrium 自带的 pi 扩展"、[design-language · 状态栏](architecture/design-language.md#状态栏)。

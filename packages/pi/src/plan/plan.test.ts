@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeUsage, codexUsage, isPlanProvider, isPlanQuery, readPlanReport } from "./plan";
+import { claudeUsage, codexUsage, grokUsage, isPlanProvider, isPlanQuery, readPlanReport } from "./plan";
 
 /** ChatGPT's answer to `wham/usage`, as the public write-ups show it (ADR-0010). */
 const CODEX_ANSWER = {
@@ -48,13 +48,37 @@ const CLAUDE_ANSWER = {
   ],
 };
 
+/** Grok's answer to `v1/billing?format=credits`, as pi's xAI login got it on 2026-10-16 (ADR-0011). */
+const GROK_ANSWER = {
+  config: {
+    currentPeriod: {
+      type: "USAGE_PERIOD_TYPE_WEEKLY",
+      start: "2026-10-12T09:56:20.057003+00:00",
+      end: "2026-10-19T09:56:20.057003+00:00",
+    },
+    creditUsagePercent: 34,
+    onDemandCap: { val: 0 },
+    onDemandUsed: { val: 0 },
+    productUsage: [
+      { product: "GrokBuild", usagePercent: 33 },
+      { product: "GrokChat", usagePercent: 1 },
+      { product: "GrokImagine" },
+    ],
+    isUnifiedBillingUser: true,
+    prepaidBalance: { val: 0 },
+    topUpMethod: "TOP_UP_METHOD_SAVED_PAYMENT_METHOD",
+    billingPeriodStart: "2026-10-12T09:56:20.057003+00:00",
+    billingPeriodEnd: "2026-10-19T09:56:20.057003+00:00",
+  },
+};
+
 describe("codexUsage", () => {
   it("reads the plan and both windows, reset times in milliseconds", () => {
     expect(codexUsage(CODEX_ANSWER)).toStrictEqual({
       plan: "plus",
       windows: [
-        { seconds: 18_000, model: null, usedPercent: 27, resetsAt: 1_782_770_922_000 },
-        { seconds: 604_800, model: null, usedPercent: 4, resetsAt: 1_783_357_722_000 },
+        { seconds: 18_000, model: null, usedPercent: 27, resetsAt: 1_782_770_922_000, parts: [] },
+        { seconds: 604_800, model: null, usedPercent: 4, resetsAt: 1_783_357_722_000, parts: [] },
       ],
     });
   });
@@ -65,7 +89,10 @@ describe("codexUsage", () => {
         plan_type: 7,
         rate_limit: { primary_window: { used_percent: "27" }, secondary_window: { used_percent: 50 } },
       }),
-    ).toStrictEqual({ plan: null, windows: [{ seconds: null, model: null, usedPercent: 50, resetsAt: null }] });
+    ).toStrictEqual({
+      plan: null,
+      windows: [{ seconds: null, model: null, usedPercent: 50, resetsAt: null, parts: [] }],
+    });
   });
 
   it("finds no usage in an answer without windows", () => {
@@ -78,9 +105,9 @@ describe("codexUsage", () => {
 describe("claudeUsage", () => {
   it("reads limits[]: the session, the week, and a window for each model counted alone", () => {
     expect(claudeUsage(CLAUDE_ANSWER)).toStrictEqual([
-      { seconds: 18_000, model: null, usedPercent: 9, resetsAt: Date.parse("2026-09-02T04:09:59Z") },
-      { seconds: 604_800, model: null, usedPercent: 7, resetsAt: Date.parse("2026-09-05T17:59:59Z") },
-      { seconds: 604_800, model: "Fable", usedPercent: 12, resetsAt: Date.parse("2026-09-05T17:59:59Z") },
+      { seconds: 18_000, model: null, usedPercent: 9, resetsAt: Date.parse("2026-09-02T04:09:59Z"), parts: [] },
+      { seconds: 604_800, model: null, usedPercent: 7, resetsAt: Date.parse("2026-09-05T17:59:59Z"), parts: [] },
+      { seconds: 604_800, model: "Fable", usedPercent: 12, resetsAt: Date.parse("2026-09-05T17:59:59Z"), parts: [] },
     ]);
   });
 
@@ -117,8 +144,8 @@ describe("claudeUsage", () => {
         ],
       }),
     ).toStrictEqual([
-      { seconds: 18_000, model: null, usedPercent: 5, resetsAt: null },
-      { seconds: 604_800, model: null, usedPercent: 6, resetsAt: null },
+      { seconds: 18_000, model: null, usedPercent: 5, resetsAt: null, parts: [] },
+      { seconds: 604_800, model: null, usedPercent: 6, resetsAt: null, parts: [] },
     ]);
   });
 
@@ -131,10 +158,16 @@ describe("claudeUsage", () => {
         seven_day_sonnet: { utilization: 3, resets_at: null },
       }),
     ).toStrictEqual([
-      { seconds: 18_000, model: null, usedPercent: 35, resetsAt: Date.parse("2026-02-06T22:00:00+00:00") },
-      { seconds: 604_800, model: null, usedPercent: 14, resetsAt: null },
-      { seconds: 604_800, model: "Opus", usedPercent: 60, resetsAt: Date.parse("2026-02-12T20:00:00+00:00") },
-      { seconds: 604_800, model: "Sonnet", usedPercent: 3, resetsAt: null },
+      { seconds: 18_000, model: null, usedPercent: 35, resetsAt: Date.parse("2026-02-06T22:00:00+00:00"), parts: [] },
+      { seconds: 604_800, model: null, usedPercent: 14, resetsAt: null, parts: [] },
+      {
+        seconds: 604_800,
+        model: "Opus",
+        usedPercent: 60,
+        resetsAt: Date.parse("2026-02-12T20:00:00+00:00"),
+        parts: [],
+      },
+      { seconds: 604_800, model: "Sonnet", usedPercent: 3, resetsAt: null, parts: [] },
     ]);
   });
 
@@ -143,15 +176,96 @@ describe("claudeUsage", () => {
   });
 });
 
+/** The products Grok's answer with these `productUsage` is read to have. */
+function grokParts(productUsage: unknown) {
+  return grokUsage({ config: { creditUsagePercent: 5, productUsage } })?.[0]?.parts;
+}
+
+describe("grokUsage", () => {
+  it("reads one window for the period, resetting at its end, with each product's share; a product left out used none", () => {
+    expect(grokUsage(GROK_ANSWER)).toStrictEqual([
+      {
+        seconds: 604_800,
+        model: null,
+        usedPercent: 34,
+        resetsAt: Date.parse("2026-10-19T09:56:20.057Z"),
+        parts: [
+          { name: "GrokBuild", usedPercent: 33 },
+          { name: "GrokChat", usedPercent: 1 },
+          { name: "GrokImagine", usedPercent: 0 },
+        ],
+      },
+    ]);
+  });
+
+  it("counts a missing percentage as none used while the period is there, and knows what it can of the period", () => {
+    expect(
+      [
+        { config: { currentPeriod: { start: "2026-10-01T00:00:00Z", end: "2026-10-31T00:00:00Z" } } },
+        { config: { currentPeriod: { start: "soon", end: "2026-10-31T00:00:00Z" }, creditUsagePercent: 5 } },
+        { config: { currentPeriod: { start: "2026-10-31T00:00:00Z", end: "2026-10-31T00:00:00Z" } } },
+        { config: { currentPeriod: {}, creditUsagePercent: 5 } },
+        { config: { creditUsagePercent: 5, productUsage: "GrokBuild" } },
+      ].map(grokUsage),
+    ).toStrictEqual([
+      [{ seconds: 2_592_000, model: null, usedPercent: 0, resetsAt: Date.parse("2026-10-31T00:00:00Z"), parts: [] }],
+      [{ seconds: null, model: null, usedPercent: 5, resetsAt: Date.parse("2026-10-31T00:00:00Z"), parts: [] }],
+      [{ seconds: null, model: null, usedPercent: 0, resetsAt: Date.parse("2026-10-31T00:00:00Z"), parts: [] }],
+      [{ seconds: null, model: null, usedPercent: 5, resetsAt: null, parts: [] }],
+      [{ seconds: null, model: null, usedPercent: 5, resetsAt: null, parts: [] }],
+    ]);
+  });
+
+  it("leaves out products without a name, and keeps the first sixteen", () => {
+    const many = Array.from({ length: 18 }, (_, at) => ({ product: `P${String(at)}`, usagePercent: 1 }));
+
+    expect(
+      grokParts([{ usagePercent: 3 }, { product: "", usagePercent: 1 }, { product: 7 }, { product: "A" }]),
+    ).toStrictEqual([{ name: "A", usedPercent: 0 }]);
+    expect(grokParts(many)?.map((part) => part.name)).toStrictEqual(many.slice(0, 16).map((part) => part.product));
+  });
+
+  it("finds no usage in an answer with neither a percentage nor a period", () => {
+    expect(
+      [
+        null,
+        {},
+        { config: null },
+        { config: {} },
+        { config: { currentPeriod: null } },
+        { config: { creditUsagePercent: "5" } },
+      ].map(grokUsage),
+    ).toStrictEqual([null, null, null, null, null, null]);
+  });
+});
+
 describe("readPlanReport", () => {
   it("takes a report of usage or of a failure for a provider Atrium asks", () => {
     const usage = {
+      provider: "xai",
+      plan: null,
+      windows: [
+        {
+          seconds: 604_800,
+          model: null,
+          usedPercent: 34,
+          resetsAt: 5,
+          parts: [{ name: "GrokBuild", usedPercent: 33 }],
+        },
+      ],
+    };
+    const claude = {
       provider: "anthropic",
       plan: null,
       windows: [{ seconds: 18_000, model: null, usedPercent: 9, resetsAt: 5 }],
     };
 
     expect(readPlanReport(JSON.stringify(usage))).toStrictEqual(usage);
+    // Products not reported are none.
+    expect(readPlanReport(JSON.stringify(claude))).toStrictEqual({
+      ...claude,
+      windows: [{ seconds: 18_000, model: null, usedPercent: 9, resetsAt: 5, parts: [] }],
+    });
     expect(readPlanReport('{"provider":"openai-codex","failure":"http_503"}')).toStrictEqual({
       provider: "openai-codex",
       failure: "http_503",
@@ -164,10 +278,19 @@ describe("readPlanReport", () => {
         provider: "openai-codex",
         plan: "p".repeat(40),
         windows: [
-          { seconds: 1.5, model: "m".repeat(70), usedPercent: 120, resetsAt: 12.6 },
-          { seconds: -1, model: "", usedPercent: -3, resetsAt: -1 },
-          { seconds: "18000", model: 7, usedPercent: 50, resetsAt: "soon" },
-          { seconds: 1e300, model: null, usedPercent: 50, resetsAt: 1e300 },
+          {
+            seconds: 1.5,
+            model: "m".repeat(70),
+            usedPercent: 120,
+            resetsAt: 12.6,
+            parts: [
+              { name: "n".repeat(70), usedPercent: 130 },
+              { name: "B", usedPercent: -2 },
+            ],
+          },
+          { seconds: -1, model: "", usedPercent: -3, resetsAt: -1, parts: [] },
+          { seconds: "18000", model: 7, usedPercent: 50, resetsAt: "soon", parts: [] },
+          { seconds: 1e300, model: null, usedPercent: 50, resetsAt: 1e300, parts: [] },
         ],
       }),
     );
@@ -176,16 +299,25 @@ describe("readPlanReport", () => {
       provider: "openai-codex",
       plan: "p".repeat(32),
       windows: [
-        { seconds: null, model: "m".repeat(64), usedPercent: 100, resetsAt: 13 },
-        { seconds: null, model: null, usedPercent: 0, resetsAt: null },
-        { seconds: null, model: null, usedPercent: 50, resetsAt: null },
-        { seconds: null, model: null, usedPercent: 50, resetsAt: null },
+        {
+          seconds: null,
+          model: "m".repeat(64),
+          usedPercent: 100,
+          resetsAt: 13,
+          parts: [
+            { name: "n".repeat(64), usedPercent: 100 },
+            { name: "B", usedPercent: 0 },
+          ],
+        },
+        { seconds: null, model: null, usedPercent: 0, resetsAt: null, parts: [] },
+        { seconds: null, model: null, usedPercent: 50, resetsAt: null, parts: [] },
+        { seconds: null, model: null, usedPercent: 50, resetsAt: null, parts: [] },
       ],
     });
   });
 
-  it("takes what is just within the limits: 8 windows, a 40-letter failure, a reset at the epoch", () => {
-    const window = { seconds: 0, model: null, usedPercent: 9, resetsAt: 0 };
+  it("takes what is just within the limits: 8 windows, 16 products, a 40-letter failure, a reset at the epoch", () => {
+    const window = { seconds: 0, model: null, usedPercent: 9, resetsAt: 0, parts: [] };
     const report = readPlanReport(
       JSON.stringify({ provider: "anthropic", plan: null, windows: Array.from({ length: 8 }, () => window) }),
     );
@@ -193,7 +325,21 @@ describe("readPlanReport", () => {
     expect(report).toStrictEqual({
       provider: "anthropic",
       plan: null,
-      windows: Array.from({ length: 8 }, () => ({ seconds: null, model: null, usedPercent: 9, resetsAt: 0 })),
+      windows: Array.from({ length: 8 }, () => ({
+        seconds: null,
+        model: null,
+        usedPercent: 9,
+        resetsAt: 0,
+        parts: [],
+      })),
+    });
+    const parts = Array.from({ length: 16 }, () => ({ name: "P", usedPercent: 1 }));
+    expect(
+      readPlanReport(JSON.stringify({ provider: "xai", plan: null, windows: [{ ...window, seconds: 1, parts }] })),
+    ).toStrictEqual({
+      provider: "xai",
+      plan: null,
+      windows: [{ seconds: 1, model: null, usedPercent: 9, resetsAt: 0, parts }],
     });
     expect(readPlanReport(JSON.stringify({ provider: "anthropic", plan: "", windows: [] }))).toStrictEqual({
       provider: "anthropic",
@@ -207,7 +353,7 @@ describe("readPlanReport", () => {
   });
 
   it("takes nothing that does not fit", () => {
-    const window = { seconds: 18_000, model: null, usedPercent: 9, resetsAt: 5 };
+    const window = { seconds: 18_000, model: null, usedPercent: 9, resetsAt: 5, parts: [] };
     const texts = [
       undefined,
       "not json",
@@ -222,6 +368,16 @@ describe("readPlanReport", () => {
       JSON.stringify({ provider: "anthropic", plan: null, windows: "none" }),
       JSON.stringify({ provider: "anthropic", plan: null, windows: Array.from({ length: 9 }, () => window) }),
       JSON.stringify({ provider: "anthropic", plan: null, windows: [window, { ...window, usedPercent: null }] }),
+      ...[
+        "GrokBuild",
+        null,
+        Array.from({ length: 17 }, () => ({ name: "P", usedPercent: 1 })),
+        [{ name: "", usedPercent: 1 }],
+        [{ name: 7, usedPercent: 1 }],
+        [{ name: "P", usedPercent: "1" }],
+        [{ name: "P" }],
+        [null],
+      ].map((parts) => JSON.stringify({ provider: "xai", plan: null, windows: [{ ...window, parts }] })),
     ];
 
     expect(texts.map(readPlanReport)).toStrictEqual(texts.map(() => null));
@@ -229,7 +385,7 @@ describe("readPlanReport", () => {
 });
 
 describe("isPlanQuery, isPlanProvider", () => {
-  it("knows Atrium's plan query by name and source, and the two providers Atrium asks", () => {
+  it("knows Atrium's plan query by name and source, and the three providers Atrium asks", () => {
     const commands: Parameters<typeof isPlanQuery>[0][] = [
       { name: "atrium-plan", source: "extension" },
       { name: "atrium-plan", source: "skill" },
@@ -237,6 +393,12 @@ describe("isPlanQuery, isPlanProvider", () => {
     ];
 
     expect(commands.map(isPlanQuery)).toStrictEqual([true, false, false]);
-    expect(["openai-codex", "anthropic", "openai", null].map(isPlanProvider)).toStrictEqual([true, true, false, false]);
+    expect(["openai-codex", "anthropic", "xai", "openai", null].map(isPlanProvider)).toStrictEqual([
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
   });
 });

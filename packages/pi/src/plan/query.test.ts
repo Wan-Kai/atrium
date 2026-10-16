@@ -46,7 +46,7 @@ const QUERY = { name: "atrium-plan", source: "extension" };
 const USAGE = JSON.stringify({
   provider: "openai-codex",
   plan: "plus",
-  windows: [{ seconds: 18_000, model: null, usedPercent: 39, resetsAt: 5 }],
+  windows: [{ seconds: 18_000, model: null, usedPercent: 39, resetsAt: 5, parts: [] }],
 });
 
 describe("queryPlanUsage", () => {

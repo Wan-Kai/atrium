@@ -5,6 +5,7 @@ import {
   type InstallUpdatedEvent,
   type LoginUpdatedEvent,
   PROTOCOL_VERSION,
+  type PlansUpdatedEvent,
   type WelcomeMessage,
 } from "@atrium/protocol";
 import { type IncomingMessage, type Server, createServer } from "node:http";
@@ -74,9 +75,10 @@ export interface WsServerOptions {
   readonly installs: RouterOptions["installs"];
   /**
    * What a connection is told right after the welcome: the install job and the login under way or
-   * last ended, so a window that was away sees how they went (SPEC-0001, "首次启动 · 接口").
+   * last ended, so a window that was away sees how they went (SPEC-0001, "首次启动 · 接口"), and
+   * every subscription's usage (SPEC-0001, "M1.14 的套餐总览").
    */
-  readonly catchUp: () => readonly (InstallUpdatedEvent | LoginUpdatedEvent)[];
+  readonly catchUp: () => readonly (InstallUpdatedEvent | LoginUpdatedEvent | PlansUpdatedEvent)[];
   /** The latest pi. */
   readonly piLatest: RouterOptions["piLatest"];
   /** Images uploaded ahead of their messages; a closed connection's go. */
