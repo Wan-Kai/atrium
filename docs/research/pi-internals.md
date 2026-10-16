@@ -51,6 +51,7 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
   - 应答：`fork` 是 `{text, cancelled}`，`clone` 是 `{cancelled}`；extension 在 `session_before_fork` 里取消时 `cancelled: true`，不换会话。RPC 的 `fork` 没有 `position`，固定从这条消息之前截断，所以复制到最后一条只能用 `clone`（它内部是 `position: "at"` 的 fork）。
   - 新文件写在原会话的会话目录里，有对话就立刻写盘；条目 id 不变（label 重新生成），原文件不动（契约 `fork-clone`，pi 1.1.0，2026-10-13 核实）。
 - 所有"换会话"操作（new / switch / fork / import）都会拆掉当前运行时重建，**RPC 不发任何"会话已切换"事件**，要重新 `get_state`。Atrium 因此一个会话固定一个进程，不用 `switch_session`。
+- **新会话的 `cwd`**（2026-10-16 读仓库依赖的 1.0.2，SPEC-0002 用）：RPC `fork` / `clone` 重新读源文件头的 `cwd` 写进新文件头，没有参数能换目录。CLI `pi --fork <文件>`（`SessionManager.forkFrom`）以 pi 进程所在目录为新文件头的 `cwd`，复制源文件的全部条目（含废弃分支），不能选分叉点；不能和 `--session`、`-c`、`-r`、`--no-session` 同用。`--session <文件>` 用文件头的 `cwd`，pi 不 `chdir`；文件头的目录不存在时 RPC 模式退出。`--session` 给 id 而会话在别的项目时会在 stdin 上问要不要分叉过来，会卡住 RPC，所以总给路径。`--fork` 写的新文件头 `parentSession` 是源文件的路径；`--session-dir` 决定 RPC `fork` / `clone` 把新文件写到哪（SPEC-0002 用它把中间文件放进宿主的临时目录）；`--fork` 可以和 `--session-id` 同用，id 由调用方先定。
 
 ## 2. 运行时（`src/core/agent-session.ts`，`packages/agent/src/agent.ts`）
 
@@ -160,6 +161,9 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 
 **一次性调用**（`src/modes/print-mode.ts`、`json-event.ts`、`main.ts`，2026-10-10 按 `4c6fb7c` 核实，自动生成标题用）：`pi --mode json -p --no-session` 先输出会话头一行，之后每个会话事件一行 JSON（形状和 RPC 的事件相同，`message_update` 去掉了累积的 `partial`）。标准输入不是终端时，pi 读完整个标准输入作为第一条消息（参数里的消息接在后面），所以对话内容可以不放进参数。助手消息的结果看 `message_end` 里 `role: "assistant"` 的 `stopReason`（`error` / `aborted` 时 `errorMessage` 是原文）；`text` 模式出错时退出码为 1。`--no-tools` 关掉所有工具，`--system-prompt` 换掉默认的编程提示词，`--model <服务商>/<模型>` 解析不出时 pi 直接退出。认证问题的原文常见 `No API key found for …`（没有凭据，后面附"Use /login …"）、`OAuth refresh failed for …`（OAuth 刷新失败）、服务商的 401 / `unauthorized` / `invalid_api_key`，部分服务商写"Run `/login …` to sign in again"。
 
+**限制工具**（2026-10-16 读 1.0.2）：`--tools a,b` 白名单、`--exclude-tools a,b` 黑名单、`--no-builtin-tools`、`--no-tools`，内置和扩展的工具都算（用白名单时扩展的工具也得写上）。这是硬限制：不在白名单或在黑名单里的工具在注册表这一层就去掉，扩展的 `setActiveTools`、`executeTool` 也拿不到。扩展的 `pi.setActiveTools` / `getActiveTools` 只管声明给模型的工具（加载期不能调，下一次请求生效），工具变化写成系统消息的 `toolsAdded` / `toolsRemoved`，但进程重启后不从会话文件恢复。内置工具名：`read`、`bash`、`powershell`、`edit`、`write`、`grep`、`find`、`ls`。
+
+
 ## 4. 模型、认证（`packages/ai/src/types.ts`、`src/core/model-runtime.ts`、`src/core/auth-storage.ts`）
 
 - `Model`：`id, name, api, provider, baseUrl, input: ("text" | "image")[], cost {input, output, cacheRead, cacheWrite}（美元 / 百万 token）, reasoning, thinkingLevelMap?, contextWindow, maxTokens, …`。
@@ -186,8 +190,10 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 ## 5. extension 与宿主相关的部分（`src/core/extensions/types.ts`、`docs/rpc-extension-ui.md`）
 
 - **对话框**：`extension_ui_request {id, method}`，`select {title, options, timeout?}`、`confirm {title, message, timeout?}`、`input {title, placeholder?, timeout?}`、`editor {title, prefill?}`；回 `extension_ui_response {id, value} | {id, confirmed} | {id, cancelled: true}`。超时在 pi 侧按默认值结束，迟到的回答被忽略。**不写进会话文件。**
+  - 补充（2026-10-16 读 1.0.2）：不给 `timeout` 也不给 `signal` 时 pi 一直等；`editor` 不收这两个参数；超时或中止时 pi 按默认值结束，不告诉宿主；工具里的 `signal` 不会自动传给对话框，没绑 `signal` 时 RPC `abort` 一直等它、不应答。stdin 的每一行并发处理，挂着的对话框不挡别的命令和事件流。RPC 下 `ctx.hasUI` 为真。
 - **单向通知**：`notify {message, notifyType?}`、`setStatus`、`setWidget`、`setTitle`、`set_editor_text`。RPC 模式下 `custom()` 等终端专用方法不起作用。
 - **写会话**：`pi.appendEntry(customType, data)` 写 `custom` 条目并发 `entry_appended`；`pi.sendMessage` 写 `custom_message`（可 `triggerTurn`、`deliverAs: steer | followUp | nextTurn`）。
+  - `sendMessage` 补充（2026-10-16 读 1.0.2）：运行中、`triggerTurn` 不是 `false` 时（不写选项也算）默认按 steer 在下一个轮次边界送到，`deliverAs: "followUp"` 进 followUp 队列；这种消息不出现在 `queue_update` 里，`clear_queue` 会清掉它。空闲且 `triggerTurn: true` 时直接开一次运行，绕过 `prompt()`，不触发 `input`、`before_agent_start`。`nextTurn` 要到下一次 `prompt` 才发出和写盘。模型看到的是一条 user 消息（`content`），`details`、`display` 不给模型；RPC 事件是 `message_start` / `message_end`（`role: "custom"`），不发 `entry_appended`。运行中发 `/扩展命令` 也立即执行；扩展工具的 `execute` 可以一直等，pi 不设超时，RPC `abort` 中止传给它的 `signal`。
 - **可挂的钩子**（部分）：`session_start`、`session_before_switch/fork/compact`（可取消）、`input`、`before_agent_start`、`agent_before_settle`、`turn_end`、`message_end`、`context`、`before_provider_request`、`tool_call`（改参数或 `{block, reason}`）、`tool_result`。只有 `AgentSessionEvent` 那一部分会出现在 RPC 的 stdout。
 - **审批**（MVP 2）：做成 extension，在 `tool_call` 里调 `ctx.ui.confirm`，宿主收到的就是一个对话框请求。
 - **改请求与服务档**（1.0.2、1.1.0，2026-10-12 实测，ADR-0008）：pi-ai 的 `openai-codex-responses`、`openai-responses` 接受 `serviceTier` 并写成请求里的 `service_tier`，但 pi-coding-agent 的设置和 RPC 都不传它；只能靠扩展的 `before_provider_request`：处理函数拿到 `{payload}` 和 `ctx`（`ctx.model` 是当前模型），返回非 `undefined` 的值就替换请求，多个扩展依次处理，抛错只发 `extension_error`、请求照发。另有 `after_provider_response {status, headers}`、`provider_stream_event`（原始流事件）和 `before_provider_headers`。pi-ai 计价按 `resolveCodexServiceTier(回复的服务档, pi 自己请求的服务档)`：回复是 `default` 而 pi 请求过 priority 或 flex 时按请求的算；priority 对 `gpt-5.5` 乘 2.5、其他乘 2，flex 乘 0.5。扩展加的 priority 不算"pi 请求的"，所以按标准价。

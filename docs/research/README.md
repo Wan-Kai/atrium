@@ -9,3 +9,4 @@
 | [pi-internals.md](pi-internals.md) | pi 1.0.1 源码笔记：会话文件与条目树、运行时与队列、RPC 命令与事件、模型与认证、extension UI、实验性多客户端服务端 |
 | [self-use.md](self-use.md) | M1.11 自用记录：会话、资源趋势、pi 和 Codex 的差距、问题、需求逐条核对、新账户首次启动、H1 结论 |
 | [paseo-architecture.md](paseo-architecture.md) | Paseo 源码笔记：持久化、agent 生命周期、pi 的接入、列表与对话记录同步、关注状态、git 状态 |
+| [multi-agent.md](multi-agent.md) | 子代理与多会话：Paseo、Codex、Claude Code 怎么开子代理、控制和通知、界面，以及对 Atrium 的结论 |
