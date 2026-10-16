@@ -10,6 +10,8 @@ export interface MetricsTracker {
   entriesChanged(all: readonly LogEntry[], branch: readonly LogEntry[]): void;
   /** Reads pi's statistics and compaction reserve again, as once pi has started or the model changed. */
   refresh(): void;
+  /** Splits the context again for the session's model now, whose provider may send another prompt. */
+  modelChanged(): void;
   /** Takes the usage of the subscription of the session's model, or none. */
   planChanged(plan: PlanUsage | null): void;
   /** pi exited or another took over: a request it was answering is no longer timed. */
@@ -90,7 +92,8 @@ async function noReserve(): Promise<ContextReserve> {
  * read after it. A read that fails keeps the figures known before. Each read also reads pi's
  * compaction reserve, unknown when that fails (SPEC-0001, "M1.13 的上下文细分与套餐用量"). The
  * whole file's reasoning tokens, the branch's tokens and what fills the context come from the
- * entries; the plan's usage is given.
+ * entries, the context split for the provider of the session's model and again when it changes;
+ * the plan's usage is given.
  * A request is timed from pi's `turn_start`, leaving out a compaction within it: the time to its
  * first output is averaged over requests that had output; the model's time adds up every request
  * that ended in an assistant message; the speed is the last reply's output tokens over the time
@@ -99,8 +102,8 @@ async function noReserve(): Promise<ContextReserve> {
  *
  * @sideEffects none until used; then reads pi's statistics through `readStats`, calls `onChange`
  * and `onReadFailed`.
- * @param options - The clock, how to read pi's statistics and compaction reserve, and where changes
- * and failed reads go.
+ * @param options - The clock, how to read pi's statistics and compaction reserve, the provider of
+ * the session's model, and where changes and failed reads go.
  * @returns The tracker.
  */
 export function createMetricsTracker(options: {
@@ -112,6 +115,8 @@ export function createMetricsTracker(options: {
   readonly readReserve?: () => Promise<ContextReserve>;
   /** The home directory, written as `~` in memory files' paths; none keeps the paths. */
   readonly home?: string | undefined;
+  /** The provider of the session's model now, which decides what the system prompt is; none for unknown. */
+  readonly provider?: () => string | null;
   readonly onChange: (metrics: SessionMetrics) => void;
   readonly onReadFailed: (error: unknown) => void;
 }): MetricsTracker {
@@ -120,6 +125,9 @@ export function createMetricsTracker(options: {
   let reasoning: number | null = null;
   let branchTokens = 0;
   let parts: ContextParts | null = null;
+  /** The current branch's entries, split again when the model changes. */
+  // Stryker disable next-line ArrayDeclaration: any other start holds no system message either, so no split.
+  let lastBranch: readonly LogEntry[] = [];
   let reserve: ContextReserve = null;
   let plan: PlanUsage | null = null;
   let timed: Timed | null = null;
@@ -155,7 +163,20 @@ export function createMetricsTracker(options: {
           : 0,
       ),
     );
-    const found = contextParts(branch);
+    lastBranch = branch;
+    split();
+  }
+
+  /**
+   * Splits the context by the current branch's system prompt, for the session's model now.
+   *
+   * @remarks
+   * Through Claude Code, the system prompt is not pi's (SPEC-0001, "M1.13 的上下文细分与套餐用量").
+   *
+   * @sideEffects Updates the parts.
+   */
+  function split(): void {
+    const found = contextParts(lastBranch, options.provider?.() ?? null);
     parts = found === null ? null : fromHome(found, options.home);
   }
 
@@ -295,6 +316,10 @@ export function createMetricsTracker(options: {
       changed();
     },
     refresh: read,
+    modelChanged() {
+      split();
+      changed();
+    },
     planChanged(next) {
       plan = next;
       changed();

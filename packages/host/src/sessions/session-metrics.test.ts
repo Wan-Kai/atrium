@@ -99,9 +99,11 @@ const output = { kind: "output_started" } as const;
  * Each read waits until the test answers it with `answer` or `fail`.
  *
  * @sideEffects none
+ * @param readReserve - How pi's compaction reserve is read, if at all.
+ * @param provider - The provider of the session's model, if known.
  * @returns The tracker and what a test drives and checks.
  */
-function harness(readReserve?: () => Promise<ContextReserve>) {
+function harness(readReserve?: () => Promise<ContextReserve>, provider?: () => string | null) {
   const clock = new FakeClock(1000);
   const reads: PromiseWithResolvers<PiStats>[] = [];
   const published: SessionMetrics[] = [];
@@ -114,6 +116,7 @@ function harness(readReserve?: () => Promise<ContextReserve>) {
       return read.promise;
     },
     ...(readReserve === undefined ? {} : { readReserve }),
+    ...(provider === undefined ? {} : { provider }),
     onChange: (metrics) => published.push(metrics),
     onReadFailed: (error) => failures.push(error),
   });
@@ -317,6 +320,53 @@ describe("createMetricsTracker: the entries", () => {
         reserve: null,
       },
     });
+    expect(published).toHaveLength(2);
+  });
+
+  it("splits the context by the provider of the session's model, again when the model changed", async () => {
+    let provider: string | null = "anthropic";
+    const { tracker, published, answer } = harness(undefined, () => provider);
+    tracker.refresh();
+    await answer(stats());
+    const branch = [systemEntry("s1", 400, 200)];
+    tracker.entriesChanged(branch, branch);
+    provider = "claude-bridge";
+
+    const before = tracker.current().context?.parts?.system;
+    tracker.modelChanged();
+    const through = tracker.current().context?.parts?.system;
+    provider = null;
+    tracker.modelChanged();
+
+    expect([before, through, tracker.current().context?.parts?.system]).toStrictEqual([100, 3925, 100]);
+    expect(published.map((metrics) => metrics.context?.parts?.system)).toStrictEqual([undefined, 100, 3925, 100]);
+  });
+
+  it("splits the entries it starts with by the provider of the session's model", () => {
+    const branch = [systemEntry("s1", 400, 200)];
+
+    const tracker = createMetricsTracker({
+      clock: new FakeClock(),
+      entries: { all: branch, branch },
+      readStats: () => Promise.resolve(stats()),
+      provider: () => "claude-bridge",
+      onChange: () => undefined,
+      onReadFailed: () => undefined,
+    });
+    tracker.refresh();
+
+    return vi.waitFor(() => expect(tracker.current().context?.parts?.system).toBe(3925));
+  });
+
+  it("publishes nothing for a new model before any entries, or when the split stays the same", async () => {
+    const { tracker, published, answer } = harness(undefined, () => "openai-codex");
+    tracker.refresh();
+    await answer(stats());
+
+    tracker.modelChanged();
+    tracker.entriesChanged([systemEntry("s1", 400, 200)], [systemEntry("s1", 400, 200)]);
+    tracker.modelChanged();
+
     expect(published).toHaveLength(2);
   });
 

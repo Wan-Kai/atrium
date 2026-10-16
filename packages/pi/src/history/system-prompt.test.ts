@@ -116,6 +116,27 @@ const TDD = "<skill>\n<name>tdd</name>\n<description>Test first</description>\n<
 const DIAGNOSE = `<skill>\n<name>diagnose</name>\n<description>${"x".repeat(60)}</description>\n</skill>`;
 const SKILLS = `<available_skills>\n${TDD}\n${DIAGNOSE}\n</available_skills>`;
 
+/** A system message with a text, an addendum and every other kind of section, besides `sections`. */
+const promptWith = (sections: SystemMessage["sections"]): LogEntry[] => [
+  toLogEntry(
+    systemEntry("s0", {
+      content: "c".repeat(6),
+      sections: {
+        addendum: "a".repeat(10),
+        cwd: "/w".repeat(2),
+        project_context: MEMORY,
+        skills: SKILLS,
+        mcp_servers: "m".repeat(40),
+        todo_list: "l".repeat(21),
+        ...sections,
+      },
+      toolsAdded: [READ, CLICK, TODO],
+    }),
+  ),
+];
+/** pi's default opening, with its tools, rules and docs. */
+const DEFAULT = { preamble: "p".repeat(40), tools: "t".repeat(8), rules: "r".repeat(12), docs: "d".repeat(20) };
+
 describe("contextParts", () => {
   it("replays the system messages as pi does: text added on, sections by name, tools added and taken away", () => {
     const messages: SystemMessage[] = [
@@ -226,6 +247,30 @@ describe("contextParts", () => {
           { name: "todo_list", tokens: 6 },
         ],
       },
+    });
+  });
+
+  describe("through Claude Code", () => {
+    it("counts Claude Code's own prompt, the text and the addendum, not pi's opening, tools, rules, docs and cwd", () => {
+      const entries = promptWith(DEFAULT);
+
+      const parts = present(contextParts(entries, "claude-bridge"), "the parts");
+
+      expect(parts.system).toBe(Math.ceil((15_300 + 6 + 10) / 4));
+      expect({ ...parts, system: 0 }).toStrictEqual({ ...present(contextParts(entries), "pi's parts"), system: 0 });
+    });
+
+    it("counts an opening of your own, which pi writes with no docs", () => {
+      const parts = contextParts(promptWith({ preamble: "y".repeat(80) }), "claude-bridge");
+
+      expect(parts?.system).toBe(Math.ceil((15_300 + 80 + 6 + 10) / 4));
+    });
+
+    it("counts pi's prompt for any other provider, as for none", () => {
+      const entries = promptWith(DEFAULT);
+
+      expect(contextParts(entries, "anthropic")).toStrictEqual(contextParts(entries));
+      expect(contextParts(entries, null)?.system).toBe(Math.ceil((6 + 40 + 8 + 12 + 20 + 10 + 4) / 4));
     });
   });
 

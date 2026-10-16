@@ -1058,6 +1058,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
   - **MCP 工具**：名字是 `mcp__<服务器>__<工具>` 的工具按服务器分组，记工具数；分段 `mcp_servers` 算在这一段的合计里、不归哪个服务器。
   - **扩展**：其余的工具和其余的分段，各按名字一项。
   - 每项按字符数 ÷ 4 向上取整估 token；工具是它的声明 JSON。一段的合计按整段的字符数算，所以可能比各项之和略多。
+  - **经 Claude Code 的模型**（2026-10-16 定）：会话当前模型的服务商是 `claude-bridge`（用户自己装的 pi 扩展 pi-claude-bridge，经 Agent SDK 用本机 `claude` 的登录，算在 Claude 订阅的额度里，pi-internals.md §4"经 Claude Code 的模型"）时，发出去的系统提示词不是 pi 的：Claude Code 自己的预设在前，pi 的只带过去记忆文件、Skills、`addendum`、自定义的开场和扩展加的分段。所以**系统提示词**改为：Claude Code 预设 15,300 字符 + `content` + `addendum`，开场是自定义的（没有 `docs` 分段）时再加 `preamble`；pi 默认的 `preamble`、`tools`、`rules`、`docs`、`cwd` 不算。15,300 是 Claude Code 2.1.301 的实测：预设正文约 13,700，加上它放进第一条用户消息的环境、模型、账户和日期提醒约 1,600；Claude Code 改了预设时重新量。其余各段不变，工具也照样按 pi 的工具名分组（发出去时改名为 `mcp__custom-tools__<工具>`，不按这个分）。按会话当前的模型算，换模型后重算。
 - **自动压缩预留**：pi 在上下文超过"窗口 − `reserveTokens`"时自动压缩。宿主读 pi 的全局设置（`<pi 目录>/settings.json` 的 `compaction`）：`enabled` 按 pi 的读法（没设是开，设了按真假）为假时自动压缩关着；`reserveTokens` 先看 `modelOverrides["服务商/模型"]`，再看 `compaction.reserveTokens`，都没有时是 16384；pi 会拒绝的设置（不是非负整数，`compaction.reserveTokens` 不对时哪怕模型自己的对也算）当作读不到（2026-10-16 审查后按 pi 1.1.0 的 `settings-manager` 对齐）。项目里的 `.pi/settings.json` 要等 pi 信任这个项目才生效，宿主不读它（同 `sessionDir`），所以项目里改过时会有出入。设置文件和 pi 的统计一起读（pi 启动、每条回复、压缩、运行结束、换模型之后），文件很小，不另缓存（2026-10-16 审查后改，原先写的是只在启动和换模型后读）。
 - 协议：`context.parts` 为 `null` 或
   - `system`：数；

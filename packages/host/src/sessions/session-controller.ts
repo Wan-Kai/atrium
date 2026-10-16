@@ -545,6 +545,7 @@ export function createSessionController(options: {
     entries: transcript.entries(),
     readStats: () => pi.stats(),
     readReserve: () => options.readReserve?.(model) ?? Promise.resolve(null),
+    provider: () => model?.providerId ?? null,
     home: options.home,
     onChange: (now) => emit({ type: "metrics_updated", metrics: now }),
     onReadFailed: (error) => {
@@ -683,15 +684,17 @@ export function createSessionController(options: {
    *
    * @remarks
    * pi sends no event for a new model (pi-internals.md §3), so the controller reads it after
-   * every change it asks for.
+   * every change it asks for. The context is split again: through Claude Code, the system prompt
+   * is another (SPEC-0001, "M1.13 的上下文细分与套餐用量").
    *
-   * @sideEffects May publish `model_updated`.
+   * @sideEffects May publish `model_updated` and `metrics_updated`.
    * @param now - The model pi uses.
    */
   function modelIs(now: SessionModel | null): void {
     if (JSON.stringify(now) === JSON.stringify(model)) return;
     model = now;
     emit({ type: "model_updated", model });
+    metrics.modelChanged();
     askPlan();
   }
 

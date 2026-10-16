@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-16：M1.11 自用中接上 Claude 订阅：装了 pi-claude-bridge，实测 RPC 下的提示、工具、插话、停止都正常，用量算在订阅额度里（`isUsingOverage` 为假）。上下文卡片对 `claude-bridge` 的模型改了系统提示词的算法：Claude Code 预设 15,300 字符加 pi 带过去的部分，不算 pi 默认的开场、规则等（SPEC-0001"M1.13 的上下文细分与套餐用量"）；换模型后重算。**
+
 **2026-10-16：M1.13 上下文细分与套餐用量完成，三方审查（Astra、Grok、Claude）后已合并回 `main`（M1.11 自用的改动一起合并：侧栏搜索置顶、项目超过 5 个工作区折叠、不列目录已不在的工作区、窗口失焦不变灰、对话区按钮的按压反馈和复制 ✓、点对话里的文件胶囊在固定标签里打开、HTML 文件在浏览器打开（⌘O））。审查的问题都修了：宿主停掉会话再启动后指标和套餐照样读和发布（原先 `close` 之后再也不更新，M1.8 起就有），停 pi 途中不再订阅套餐；套餐用量在任何一次失败（含超时、没有报告）时满 10 分钟就丢，卡片上的时间每分钟走；自动压缩分开"关"（`"off"`）和"读不到"（`null`），`enabled` 按 pi 的读法；HTML 只在宿主读到之后才给"在浏览器打开"；状态栏卡片不伸出窗口；换项目后"显示全部"收回；Claude 的窗口只报前 8 个，时长和时间只收安全整数，带凭据的请求不跟随重定向。没改的：本地工作区的项目目录被删时仍列在侧栏、套餐查询用服务商第一个模型的地址（同 pi 平时发这个登录的地址），留到以后。单元、宿主、pi、界面、相关端到端和 `pnpm check` 通过；变异分数 host 100%、pi 99.93%、shared 99.95%、ui 99.52%。下一步回到 [M1.11](#m111-自用) 的自用。**
 
 **2026-10-15：M1.13 上下文细分与套餐用量写完，待三方审查后合并。上下文卡片按系统消息的分段和工具名分到系统提示词、记忆文件（每个文件）、Skills（每个 skill）、内置工具、MCP 工具（按服务器）、扩展，加上 pi 设置里的自动压缩预留、剩余空间、"距自动压缩还剩"和"压缩会话"按钮；状态栏新增"套餐"一组，Atrium 自带的扩展（Fast 与套餐用量合成一个入口 `atrium-extension.mjs`）借 pi 的登录查 ChatGPT 的 `wham/usage` 和 Claude 订阅的 `api/oauth/usage`，宿主按服务商缓存、每分钟最多问一次。协议 16。单元、宿主、pi（含新录的 `plan` 契约夹具）、界面、相关端到端和 `pnpm check` 通过；变异分数 pi 99.90%、host 100%、shared 99.95%、ui 99.51%，新代码的存活变异都补了测试或注明等价；`plan/`、`extension/` 和 `plan-usage.ts` 加进了变异分组。**
@@ -85,6 +87,7 @@ MVP 1 里还没设计、做到时先补设计的：
 架构：
 
 - pi 是唯一内核，以 `pi --mode rpc` 子进程接入，**一个会话一个进程**，不用 `switch_session`（[ADR-0001](adr/0001-use-pi-as-core.md)、[ADR-0002](adr/0002-connect-pi-via-rpc-subprocess.md)）。
+- Claude 订阅的额度经用户自己装的 pi 扩展 pi-claude-bridge（服务商 `claude-bridge`，经 Agent SDK 用本机 `claude` 的登录）用，Atrium 不自己写桥接，只在自己这边适配；pi 的 `anthropic` 订阅登录会被算成额外用量（2026-10-16 定，[pi-internals §4](research/pi-internals.md)"经 Claude Code 的模型"）。
 - 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo（pnpm workspaces）：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
 - pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
 - `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。

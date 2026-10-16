@@ -3010,6 +3010,32 @@ describe("createSessionController's status bar figures", () => {
     expect(controller.snapshot().metrics.context?.reserve).toBe(8000);
   });
 
+  it("splits the context for the model pi uses now, counting Claude Code's prompt once it goes through Claude Code", async () => {
+    const { pi, pages, states, statsAnswers } = manualPi();
+    statsAnswers.push(
+      async () => piStats,
+      async () => piStats,
+    );
+    // The entries read again after the change never come: the new model alone splits the context again.
+    pages.push(() => new Promise<EntriesPage>(() => undefined));
+    const system: LogEntry = {
+      id: "s1",
+      parentId: null,
+      kind: "system",
+      timestamp: 0,
+      system: { textChars: 0, sections: { preamble: 40, docs: 20 }, pieces: {}, toolsAdded: {}, toolsRemoved: [] },
+    };
+    const { controller } = control(pi, { entries: [system], leafId: "s1" }, { model: opus });
+    await settle();
+    expect(controller.snapshot().metrics.context?.parts?.system).toBe(15);
+
+    states.push({ providerId: "claude-bridge", modelId: "claude-opus-5-5", thinkingLevel: "off" });
+    await controller.setModel({ providerId: "claude-bridge", modelId: "claude-opus-5-5" });
+    await settle();
+
+    expect(controller.snapshot().metrics.context?.parts?.system).toBe(3825);
+  });
+
   it("starts from the entries it was given, publishing nothing for them", () => {
     const { pi } = manualPi();
     const assistant: LogEntry = {
