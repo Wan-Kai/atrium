@@ -1,5 +1,5 @@
 import { type LogEntry, type PiStats, type TranslatedEvent, contextParts } from "@atrium/pi";
-import type { ContextParts, PlanUsage, SessionMetrics } from "@atrium/protocol";
+import type { ContextParts, ContextReserve, PlanUsage, SessionMetrics } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
 
 /** Works out a session's status bar figures (SPEC-0001, "状态栏（M1.8）"). */
@@ -23,6 +23,8 @@ export interface MetricsTracker {
    * A read under way is not waited for: pi's stopping ends it, and what it brings is dropped.
    */
   close(): void;
+  /** Reads and publishes again after `close`, as once the session is started anew. */
+  reopen(): void;
 }
 
 /** A request being timed: when it started, and the compaction time within it. */
@@ -75,7 +77,7 @@ function fromHome(parts: ContextParts, home: string | undefined): ContextParts {
  * @sideEffects none
  * @returns `null`.
  */
-async function noReserve(): Promise<number | null> {
+async function noReserve(): Promise<ContextReserve> {
   return null;
 }
 
@@ -107,7 +109,7 @@ export function createMetricsTracker(options: {
   readonly entries?: { readonly all: readonly LogEntry[]; readonly branch: readonly LogEntry[] };
   readonly readStats: () => Promise<PiStats>;
   /** pi's compaction reserve for the session's model now; none reads it as unknown. */
-  readonly readReserve?: () => Promise<number | null>;
+  readonly readReserve?: () => Promise<ContextReserve>;
   /** The home directory, written as `~` in memory files' paths; none keeps the paths. */
   readonly home?: string | undefined;
   readonly onChange: (metrics: SessionMetrics) => void;
@@ -118,7 +120,7 @@ export function createMetricsTracker(options: {
   let reasoning: number | null = null;
   let branchTokens = 0;
   let parts: ContextParts | null = null;
-  let reserve: number | null = null;
+  let reserve: ContextReserve = null;
   let plan: PlanUsage | null = null;
   let timed: Timed | null = null;
   let modelMs: number | null = null;
@@ -303,6 +305,9 @@ export function createMetricsTracker(options: {
     current,
     close() {
       closed = true;
+    },
+    reopen() {
+      closed = false;
     },
   };
 }

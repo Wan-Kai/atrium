@@ -676,7 +676,10 @@ function ProjectRows({
   readonly now: number;
 }) {
   const [archiving, setArchiving] = useState<Workspace | null>(null);
-  const [all, setAll] = useState(false);
+  // Opened while one project was the current one: going to another folds it again (SPEC-0001, "侧栏").
+  const currentProject = index.workspaces.find((workspace) => workspace.id === index.layout.container)?.projectId;
+  const [allWhile, setAllWhile] = useState<string | undefined | null>(null);
+  const all = allWhile === currentProject;
   const own = index.workspaces.filter((workspace) => workspace.projectId === project.id);
   const workspaces = sortWorkspaces(
     own.filter(
@@ -812,7 +815,12 @@ function ProjectRows({
           />
         ))}
         {workspaces.length > FIRST_WORKSPACES ? (
-          <button type="button" data-fold-row onClick={() => setAll(!all)} className={`${MORE_ROW} pl-9`}>
+          <button
+            type="button"
+            data-fold-row
+            onClick={() => setAllWhile(all ? null : currentProject)}
+            className={`${MORE_ROW} pl-9`}
+          >
             {all ? "收起" : `显示全部 ${workspaces.length} 个`}
           </button>
         ) : null}

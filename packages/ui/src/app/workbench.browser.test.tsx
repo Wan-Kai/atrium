@@ -402,6 +402,35 @@ describe("Workbench sidebar", () => {
     await vi.waitFor(() => expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3"]));
   });
 
+  it("folds a project's workspaces back behind 显示全部 once another project's is the current one", async () => {
+    const initial = list();
+    const other = { id: "prj_000000000000000b", path: "/work/other", name: "other", mainBranch: null };
+    const tries = [6, 4, 3, 2].map((at) =>
+      workspace({ id: `wks_00000000000000t${String(at)}`, branch: `try/${String(at)}`, createdAt: at }),
+    );
+    const elsewhere = workspace({ id: "wks_0000000000000oth", projectId: other.id, branch: "other/one" });
+    const { screen, index } = await workbench({
+      initial: {
+        ...initial,
+        projects: [PROJECT, other],
+        workspaces: [...initial.workspaces, ...tries, elsewhere],
+        layout: { container: LOCAL, tabs: {} },
+      },
+    });
+    const group = screen.getByRole("group", { name: "atrium" });
+    const more = group.getByRole("button", { name: /^显示全部|^收起$/ });
+    await more.click();
+    await expect.element(more).toHaveTextContent("收起");
+
+    index.setState({ layout: { container: elsewhere.id, tabs: {} } });
+    await expect.element(more).toHaveTextContent("显示全部 7 个");
+    await more.click();
+    index.setState({ layout: { container: LOCAL, tabs: {} } });
+
+    await expect.element(more).toHaveTextContent("显示全部 7 个");
+    expect(group.getByTestId("workspace-row").elements()).toHaveLength(5);
+  });
+
   it("leaves out a workspace whose directory is gone, from the project and the search, unless it is the current one", async () => {
     const initial = list();
     const gone = workspace({

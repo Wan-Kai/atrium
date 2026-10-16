@@ -84,6 +84,26 @@ describe("claudeUsage", () => {
     ]);
   });
 
+  it("keeps the first eight windows, as many as Atrium takes, of an answer that scopes many models", () => {
+    const scoped = Array.from({ length: 10 }, (_, at) => ({
+      kind: "weekly_scoped",
+      percent: at,
+      resets_at: null,
+      scope: { model: { display_name: `M${String(at)}` } },
+    }));
+
+    expect(claudeUsage({ limits: scoped })?.map((window) => window.model)).toStrictEqual([
+      "M0",
+      "M1",
+      "M2",
+      "M3",
+      "M4",
+      "M5",
+      "M6",
+      "M7",
+    ]);
+  });
+
   it("leaves out limits of other kinds, without a percentage, or scoped to no model, and reset times that do not parse", () => {
     expect(
       claudeUsage({
@@ -147,6 +167,7 @@ describe("readPlanReport", () => {
           { seconds: 1.5, model: "m".repeat(70), usedPercent: 120, resetsAt: 12.6 },
           { seconds: -1, model: "", usedPercent: -3, resetsAt: -1 },
           { seconds: "18000", model: 7, usedPercent: 50, resetsAt: "soon" },
+          { seconds: 1e300, model: null, usedPercent: 50, resetsAt: 1e300 },
         ],
       }),
     );
@@ -157,6 +178,7 @@ describe("readPlanReport", () => {
       windows: [
         { seconds: null, model: "m".repeat(64), usedPercent: 100, resetsAt: 13 },
         { seconds: null, model: null, usedPercent: 0, resetsAt: null },
+        { seconds: null, model: null, usedPercent: 50, resetsAt: null },
         { seconds: null, model: null, usedPercent: 50, resetsAt: null },
       ],
     });

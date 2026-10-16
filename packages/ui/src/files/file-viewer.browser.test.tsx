@@ -93,8 +93,12 @@ function colours(line: Element): string[][] {
  * @param opens - Whether the desktop shell can open it in the browser.
  * @returns The screen, and what was asked to open it.
  */
-async function browsable(path: string, opens = true) {
-  const { client } = fakeClient({}, { readFile: text("<p>hi</p>\n") });
+async function browsable(
+  path: string,
+  opens = true,
+  read: () => Promise<CommandResult<"read_file">> = text("<p>hi</p>\n"),
+) {
+  const { client } = fakeClient({}, { readFile: read });
   const onOpenInBrowser = vi.fn<() => void>();
   const views = createWorkspaceViews(memoryStorage());
   const screen = await render(
@@ -108,7 +112,7 @@ async function browsable(path: string, opens = true) {
       onOpenInBrowser={opens ? onOpenInBrowser : undefined}
     />,
   );
-  await expect.element(screen.getByTestId("code-lines")).toBeVisible();
+  await expect.element(screen.getByRole("region", { name: path }).getByText(/行|读不了|符号链接/u)).toBeVisible();
   return { screen, onOpenInBrowser };
 }
 
@@ -251,6 +255,23 @@ describe("FileViewer", () => {
       screen.getByRole("button", { name: "在浏览器打开" }).elements().length,
       onOpenInBrowser.mock.calls.length,
     ]).toStrictEqual([buttons, buttons]);
+  });
+
+  it.each([
+    [
+      "the host refuses, as one reached through a linked folder",
+      async () => Promise.reject(new CommandError("path_invalid")),
+    ],
+    ["that is a link", async () => ({ size: 10, content: { kind: "link" as const } })],
+  ])("offers no browser for an HTML file %s", async (_what, read) => {
+    const { screen, onOpenInBrowser } = await browsable("site/index.html", true, read);
+
+    pressO({ metaKey: true });
+
+    expect([
+      screen.getByRole("button", { name: "在浏览器打开" }).elements().length,
+      onOpenInBrowser.mock.calls.length,
+    ]).toStrictEqual([0, 0]);
   });
 
   it("shows the file's changes with a way to them while it has a diff", async () => {

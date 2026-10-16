@@ -2922,6 +2922,26 @@ describe("createSessionController's plan usage", () => {
     expect(asked).toStrictEqual(["anthropic", "anthropic"]);
   });
 
+  it("follows nothing again when pi settles while it is being stopped for good", async () => {
+    const { pi, emit } = manualPi();
+    const { service, asked, listening } = plans();
+    const { controller } = control(pi, empty, { model: opus, plan: { service, ask: async () => null } });
+    await settle();
+    const stop = pi.stop.bind(pi);
+    // pi's last run settles as it goes.
+    Object.assign(pi, {
+      stop: async () => {
+        emit({ type: "agent_start" }, userEnd("a"), { type: "agent_settled" });
+        await settle();
+        await stop();
+      },
+    });
+
+    await controller.shutdown();
+
+    expect([listening("anthropic"), asked]).toStrictEqual([0, ["anthropic"]]);
+  });
+
   it("shows and asks nothing without a model", async () => {
     const { pi } = manualPi();
     const { service, asked } = plans();
@@ -2952,6 +2972,20 @@ describe("createSessionController's status bar figures", () => {
     expect(statsReads()).toBe(1);
     expect(events).toStrictEqual([{ type: "metrics_updated", ...at(1, null), metrics: fromStats }]);
     expect(controller.snapshot().metrics).toStrictEqual(fromStats);
+  });
+
+  it("reads and publishes the figures again once started anew after the host stopped it", async () => {
+    const first = manualPi();
+    const second = manualPi();
+    second.statsAnswers.push(async () => piStats);
+    const { controller, events } = control(first.pi);
+    await settle();
+    await controller.shutdown();
+
+    controller.attach({ pi: second.pi, entries: empty });
+    await settle();
+
+    expect([second.statsReads(), published(events).at(-1)]).toStrictEqual([1, fromStats]);
   });
 
   it("reads pi's compaction reserve for the model pi uses now, with each read of its statistics", async () => {

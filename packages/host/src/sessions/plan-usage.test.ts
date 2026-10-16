@@ -121,7 +121,7 @@ describe("createPlanUsage", () => {
     ]);
   });
 
-  it("changes nothing for a query that found no report or failed, logging only pi's command and reason", async () => {
+  it("keeps what it knew through a query that found no report or failed, logging only pi's command and reason", async () => {
     const { clock, service, records, heard, ask } = harness();
     await ask(codex(39));
 
@@ -143,6 +143,23 @@ describe("createPlanUsage", () => {
       ["openai-codex", undefined, "unknown"],
     ]);
     expect(JSON.stringify(records)).not.toContain("secret text");
+  });
+
+  it.each([
+    ["found no report", null],
+    ["timed out", new PiRequestError("prompt", "timeout", "")],
+    ["failed", new Error("bug")],
+  ])("drops what it knew once ten minutes old when a query %s", async (_how, report) => {
+    const { clock, service, heard, ask } = harness();
+    await ask(codex(39));
+    clock.advance(9 * 60_000);
+    await ask(report);
+    const kept = service.current("openai-codex")?.windows[0]?.usedPercent;
+
+    clock.advance(60_000);
+    await ask(report);
+
+    expect([kept, service.current("openai-codex"), heard.map(percentOf)]).toStrictEqual([39, null, [39, null]]);
   });
 
   it("tells listeners only of changes, and no longer once they unsubscribe", async () => {

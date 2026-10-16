@@ -153,7 +153,7 @@ const CLAUDE_FLAT: readonly (readonly [string, number, string | null])[] = [
  * `weekly_scoped` one for each model (`scope.model.display_name`), with `percent` and `resets_at`;
  * other kinds are left out. Without them, the older `five_hour`, `seven_day`, `seven_day_opus` and
  * `seven_day_sonnet` that are not `null`, each `utilization` and `resets_at`. Claude names no plan.
- * An answer with no window is not usage.
+ * An answer with no window is not usage; one with more than Atrium takes keeps the first eight.
  *
  * @sideEffects none
  * @param body - The answer.
@@ -178,7 +178,8 @@ export function claudeUsage(body: unknown): PlanWindow[] | null {
         if (used === null) return [];
         return [{ seconds, model, usedPercent: used, resetsAt: isoTime(fieldOf(fieldOf(body, key), "resets_at")) }];
       });
-  return windows.length === 0 ? null : windows;
+  // Atrium takes eight at most: one for each model past that would lose them all.
+  return windows.length === 0 ? null : windows.slice(0, MAX_WINDOWS);
 }
 
 /**
@@ -195,14 +196,16 @@ function reportedWindow(value: unknown): PlanWindow | null {
   const used = numberOf(fieldOf(value, "usedPercent"));
   if (used === null) return null;
   const seconds = numberOf(fieldOf(value, "seconds"));
-  const resetsAt = numberOf(fieldOf(value, "resetsAt"));
+  const reported = numberOf(fieldOf(value, "resetsAt"));
+  const resetsAt = reported === null ? null : Math.round(reported);
   const model = fieldOf(value, "model");
   return {
-    // Stryker disable next-line ConditionalExpression: `Number.isInteger` is false for `null` too; the check narrows the type.
-    seconds: seconds !== null && Number.isInteger(seconds) && seconds > 0 ? seconds : null,
+    // Stryker disable next-line ConditionalExpression: `Number.isSafeInteger` is false for `null` too; the check narrows the type.
+    seconds: seconds !== null && Number.isSafeInteger(seconds) && seconds > 0 ? seconds : null,
     model: typeof model === "string" && model !== "" ? model.slice(0, MAX_MODEL) : null,
     usedPercent: Math.min(100, Math.max(0, used)),
-    resetsAt: resetsAt !== null && resetsAt >= 0 ? Math.round(resetsAt) : null,
+    // Stryker disable next-line ConditionalExpression: `Number.isSafeInteger` is false for `null` too; the check narrows the type.
+    resetsAt: resetsAt !== null && Number.isSafeInteger(resetsAt) && resetsAt >= 0 ? resetsAt : null,
   };
 }
 
@@ -213,7 +216,8 @@ function reportedWindow(value: unknown): PlanWindow | null {
  * The host takes nothing from the extension on trust (security.md, "Atrium 自带的 pi 扩展"): the
  * provider must be one Atrium asks for; a failure is a short code of lowercase letters, digits and
  * `_`; at most eight windows, each with a percentage, which is held to 0–100, a length that is a
- * positive whole number of seconds or none, a reset time not before the epoch or none, and a model
+ * positive safe whole number of seconds or none, a reset time not before the epoch and a safe whole
+ * number once rounded or none, and a model
  * name cut to 64 characters; a plan name is cut to 32. Anything else is no report.
  *
  * @sideEffects none

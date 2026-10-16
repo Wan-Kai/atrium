@@ -34,6 +34,10 @@ export const ContextParts = z.strictObject({
 });
 export type ContextParts = z.infer<typeof ContextParts>;
 
+/** What pi keeps free before it compacts on its own; `"off"` when it does not; `null` when not known. */
+export const ContextReserve = z.union([Count, z.literal("off")]).nullable();
+export type ContextReserve = z.infer<typeof ContextReserve>;
+
 /** The subscriptions whose usage Atrium asks for (ADR-0010). */
 export const PlanProvider = z.enum(["openai-codex", "anthropic"]);
 export type PlanProvider = z.infer<typeof PlanProvider>;
@@ -90,8 +94,7 @@ export const SessionMetrics = z.strictObject({
       window: z.number().int().positive(),
       /** What fills it; `null` when pi stated no system prompt on the branch. */
       parts: ContextParts.nullable(),
-      /** What pi keeps free before it compacts on its own; `null` when it does not, or not known. */
-      reserve: Count.nullable(),
+      reserve: ContextReserve,
     })
     .nullable(),
   timing: z

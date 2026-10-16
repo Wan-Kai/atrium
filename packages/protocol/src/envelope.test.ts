@@ -523,6 +523,11 @@ const events: SessionEvent[] = [
       timing: { modelMs: 0, ttftMs: null, tps: null },
     },
   },
+  {
+    type: "metrics_updated",
+    ...at,
+    metrics: { ...metrics, context: { tokens: 1, window: 200_000, parts: null, reserve: "off" } },
+  },
 ];
 
 describe("parseClientMessage", () => {
@@ -1728,6 +1733,10 @@ describe("HostMessage", () => {
     [
       "a context without its reserve",
       { type: "metrics_updated", ...at, metrics: { ...metrics, context: { ...metrics.context, reserve: undefined } } },
+    ],
+    [
+      "a reserve that is neither a count nor off",
+      { type: "metrics_updated", ...at, metrics: { ...metrics, context: { ...metrics.context, reserve: "on" } } },
     ],
     [
       "a welcome without heartbeat",

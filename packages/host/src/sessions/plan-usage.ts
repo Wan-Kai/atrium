@@ -34,9 +34,9 @@ interface Entry {
  * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): each provider is asked at most once a minute, one ask
  * at a time; sessions ask after their pi starts, each run and a model change. A report of usage
  * replaces what was known, stamped with the time now. A failure is logged by its provider and code
- * alone; `no_login` drops what was known at once, any other failure only once it is ten minutes
- * old. A query that found no plan query or no report, or failed, changes nothing. Listeners hear
- * only changes.
+ * alone; `no_login` drops what was known at once. Any other failure, as a query that found no plan
+ * query or no report, or failed, drops it only once it is ten minutes old. Listeners hear only
+ * changes.
  *
  * @sideEffects none until used; then calls the asks given and logs.
  * @param options - The clock and the logger.
@@ -80,6 +80,19 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
   };
 
   /**
+   * Drops what was known of a provider an ask did not find, once it is ten minutes old.
+   *
+   * @remarks
+   * See `createPlanUsage`.
+   *
+   * @sideEffects May clear the usage and call listeners.
+   * @param entry - The provider's entry.
+   */
+  const notFound = (entry: Entry): void => {
+    if (entry.usage !== null && options.clock.now() - entry.usage.at >= KEEP_MS) set(entry, null);
+  };
+
+  /**
    * Takes what an ask brought.
    *
    * @remarks
@@ -91,15 +104,17 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
    */
   const take = (provider: PlanProvider, report: PlanReport | null): void => {
     const entry = entryOf(provider);
-    if (report === null) return;
-    const now = options.clock.now();
-    if ("failure" in report) {
-      options.logger.info({ provider, failure: report.failure }, "plan usage unavailable");
-      const stale = entry.usage !== null && now - entry.usage.at >= KEEP_MS;
-      if (report.failure === "no_login" || stale) set(entry, null);
+    if (report === null) {
+      notFound(entry);
       return;
     }
-    set(entry, { provider, plan: report.plan, windows: report.windows, at: now });
+    if ("failure" in report) {
+      options.logger.info({ provider, failure: report.failure }, "plan usage unavailable");
+      if (report.failure === "no_login") set(entry, null);
+      else notFound(entry);
+      return;
+    }
+    set(entry, { provider, plan: report.plan, windows: report.windows, at: options.clock.now() });
   };
 
   return {
@@ -119,14 +134,16 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
       void ask()
         .then(
           (report) => take(provider, report),
-          (error: unknown) =>
+          (error: unknown) => {
             // A failed pi request is logged by its command and reason only, as elsewhere (security.md).
             options.logger.info(
               error instanceof PiRequestError
                 ? { provider, command: error.command, reason: error.reason }
                 : { provider, reason: "unknown" },
               "plan usage not asked",
-            ),
+            );
+            notFound(entry);
+          },
         )
         .finally(() => {
           entry.asking = false;

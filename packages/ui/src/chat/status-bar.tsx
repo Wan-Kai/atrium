@@ -201,14 +201,18 @@ interface GroupDrawing {
  *
  * @remarks
  * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): titled by the provider and plan, with how long ago
- * the usage was found; a window at 80% or more is orange.
+ * the usage was found; a window at 80% or more is orange. The times go on with the clock, drawn
+ * again each minute while the card is there, though no new usage comes.
  *
- * @sideEffects none
+ * @sideEffects Draws itself again every minute while mounted.
  * @param props - The usage.
  * @returns The card.
  */
 function PlanCard({ plan }: { readonly plan: NonNullable<SessionMetrics["plan"]> }) {
-  const now = useClock().now();
+  const clock = useClock();
+  const [, setMinutes] = useState(0);
+  useEffect(() => clock.every(60_000, () => setMinutes((minutes) => minutes + 1)), [clock]);
+  const now = clock.now();
   return (
     <>
       <div className="mb-2.5 flex items-center gap-2 font-medium text-[var(--text)]">
@@ -217,12 +221,13 @@ function PlanCard({ plan }: { readonly plan: NonNullable<SessionMetrics["plan"]>
           {foundAgo(plan.at, now)}
         </span>
       </div>
-      {plan.windows.map((window) => {
+      {plan.windows.map((window, at) => {
         const used = Math.round(window.usedPercent);
         const near = planNearLimit(used);
         return (
           <div
-            key={`${String(window.seconds)}-${window.model ?? ""}`}
+            // By place too: two windows may be as long and of one model.
+            key={`${String(at)}\n${String(window.seconds)}`}
             className="mb-2.5 last:mb-0"
             data-testid="plan-window"
           >
@@ -321,8 +326,12 @@ function ContextLine({
       )}
       {open ? (
         <ul aria-label={row.name} className="mb-1 ml-[18px]">
-          {row.items.map((item) => (
-            <li key={item.name} className="flex h-[22px] items-center gap-2 text-[length:var(--fs-sm)]">
+          {/* By place too: an extension's tool and its prompt part may share a name. */}
+          {row.items.map((item, at) => (
+            <li
+              key={`${String(at)}\n${item.name}`}
+              className="flex h-[22px] items-center gap-2 text-[length:var(--fs-sm)]"
+            >
               <span
                 title={item.name}
                 className={`min-w-0 flex-1 truncate text-[var(--text-muted)] ${row.key === "memory" ? "font-mono text-[11.5px]" : ""}`}
@@ -392,7 +401,7 @@ function ContextCard({
       </>
     );
   }
-  const { rows, reserve, free } = split;
+  const { rows, reserve, compaction, free } = split;
   /**
    * Opens a row, or closes it.
    *
@@ -459,7 +468,13 @@ function ContextCard({
         </span>
       </div>
       <div className="mt-2 flex min-h-[26px] items-center gap-2 pt-2 text-[length:var(--fs-sm)] text-[var(--text-dim)] shadow-[inset_0_0.5px_0_var(--line)]">
-        <span className="flex-1">{reserve === null ? "自动压缩已关" : `距自动压缩还剩 ~${formatTokens(free)}`}</span>
+        <span className="flex-1">
+          {compaction === "off"
+            ? "自动压缩已关"
+            : compaction === "unknown"
+              ? "距自动压缩还剩 —"
+              : `距自动压缩还剩 ~${formatTokens(free)}`}
+        </span>
         <button
           type="button"
           disabled={!actions.compactable || actions.onCompact === undefined}
@@ -624,7 +639,8 @@ function Group({
         id={cardId}
         className={`invisible absolute bottom-full left-1/2 z-30 -translate-x-1/2 pb-2 opacity-0 transition-[opacity,visibility] delay-100 duration-150 group-has-[:focus-visible]/item:visible group-has-[:focus-visible]/item:opacity-100 group-hover/item:visible group-hover/item:opacity-100 group-hover/item:delay-[120ms] ${drawing.wide === true ? "w-[340px]" : "w-[300px]"}`}
       >
-        <div className="rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]">
+        {/* Never past the window: a long list opened in it scrolls (design-language, "状态栏"). */}
+        <div className="max-h-[calc(100vh-140px)] overflow-y-auto rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]">
           {drawing.card(metrics, actions)}
         </div>
       </div>

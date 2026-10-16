@@ -195,16 +195,20 @@ const ROW_NAMES: Readonly<Record<ContextRowKey, string>> = {
  * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): the conversation is what the other rows leave of
  * the context, never below none, as they are estimates; a row of no tokens is left out but the
  * conversation's. A memory file is named by its path; an MCP server by its name and how many tools
- * it has. What is free is the window less the context and the reserve, never below none. Unknown
- * unless the context's tokens and parts are known.
+ * it has. What is free is the window less the context and the reserve, never below none. Whether
+ * pi compacts on its own is on (with a reserve), off, or unknown. Unknown unless the context's
+ * tokens and parts are known.
  *
  * @sideEffects none
  * @param context - The context.
- * @returns The rows, the reserve and what is free, or `null`.
+ * @returns The rows, the reserve, whether pi compacts on its own and what is free, or `null`.
  */
-export function contextRows(
-  context: Context,
-): { readonly rows: readonly ContextRow[]; readonly reserve: number | null; readonly free: number } | null {
+export function contextRows(context: Context): {
+  readonly rows: readonly ContextRow[];
+  readonly reserve: number | null;
+  readonly compaction: "on" | "off" | "unknown";
+  readonly free: number;
+} | null {
   const { tokens, parts, reserve } = context;
   if (tokens === null || parts === null) return null;
   const { system, memory, skills, builtin, mcp, extensions } = parts;
@@ -250,8 +254,9 @@ export function contextRows(
   };
   return {
     rows: [messages, ...others.filter((row) => row.tokens > 0)],
-    reserve,
-    free: Math.max(0, context.window - tokens - (reserve ?? 0)),
+    reserve: typeof reserve === "number" ? reserve : null,
+    compaction: reserve === "off" ? "off" : reserve === null ? "unknown" : "on",
+    free: Math.max(0, context.window - tokens - (typeof reserve === "number" ? reserve : 0)),
   };
 }
 

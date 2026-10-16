@@ -243,6 +243,33 @@ describe("StatusBar", () => {
     await expect.element(card.getByRole("button", { name: /系统提示词/ })).not.toBeInTheDocument();
   });
 
+  it("keeps a card that grows past the window within it, scrolling, a long list of skills opened", async () => {
+    const skills = Array.from({ length: 50 }, (_, place) => ({ name: `skill-${String(place)}`, tokens: 100 }));
+    const parts = present(present(KNOWN.context).parts);
+    const metrics: SessionMetrics = {
+      ...KNOWN,
+      context: { ...present(KNOWN.context), parts: { ...parts, skills: { tokens: 5000, items: skills } } },
+    };
+    const screen = await render(
+      <div style={{ display: "flex", height: "100vh", flexDirection: "column", justifyContent: "flex-end" }}>
+        <StatusBar metrics={metrics} choices={{}} onChoose={() => undefined} />
+        <div style={{ height: 30 }} />
+      </div>,
+    );
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+
+    await card.getByRole("button", { name: /Skills/ }).click();
+    await expect.element(card.getByRole("list", { name: "Skills" })).toBeInTheDocument();
+
+    const box = present(card.element().firstElementChild);
+    expect([
+      box.getBoundingClientRect().top >= 0,
+      box.scrollHeight > box.clientHeight,
+      getComputedStyle(box).overflowY,
+    ]).toStrictEqual([true, true, "auto"]);
+  });
+
   it("compacts from the card when the session can be, and keeps the card open on the way to it", async () => {
     const { screen, onCompact } = await bar();
     const group = screen.getByRole("button", { name: "42%" });
@@ -260,7 +287,7 @@ describe("StatusBar", () => {
   });
 
   it("does not compact while the session cannot be, and says when pi does not compact on its own", async () => {
-    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), reserve: null } }, {}, false);
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), reserve: "off" } }, {}, false);
     await userEvent.hover(screen.getByRole("button", { name: "42%" }));
     const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
 
@@ -268,6 +295,16 @@ describe("StatusBar", () => {
     await expect.element(card.getByText("自动压缩已关")).toBeVisible();
     await expect.element(card.getByText("自动压缩预留")).not.toBeInTheDocument();
     await expect.element(card.getByText("剩余空间")).toBeVisible();
+  });
+
+  it("says it does not know how far automatic compaction is when pi's settings are not known", async () => {
+    const { screen } = await bar({ ...KNOWN, context: { ...present(KNOWN.context), reserve: null } });
+    await userEvent.hover(screen.getByRole("button", { name: "42%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "上下文已用" });
+
+    await expect.element(card.getByText("距自动压缩还剩 —")).toBeVisible();
+    await expect.element(card.getByText("自动压缩预留")).not.toBeInTheDocument();
+    await expect.element(card.getByText("自动压缩已关")).not.toBeInTheDocument();
   });
 
   it("says why the context is not known: no window, or a compaction just now", async () => {
@@ -453,6 +490,41 @@ describe("StatusBar's plan group", () => {
       "ChatGPT Plus 用量5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
     );
     expect(card.element().getBoundingClientRect().width).toBe(300);
+  });
+
+  it("keeps its card's times going with the clock, a minute at a time, with no new usage", async () => {
+    let now = NOON;
+    const ticks: { readonly ms: number; readonly tick: () => void }[] = [];
+    const clock: UiClock = {
+      now: () => now,
+      every: (ms, tick) => {
+        const entry = { ms, tick };
+        ticks.push(entry);
+        return () => ticks.splice(ticks.indexOf(entry), 1);
+      },
+      after: () => () => undefined,
+    };
+    const screen = await render(
+      <ClockContext value={clock}>
+        <StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />
+      </ClockContext>,
+    );
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 52%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "ChatGPT Plus 用量" });
+    await expect.element(card).toBeVisible();
+    const before = card.element().textContent;
+
+    now += 10 * 60_000;
+    for (const { tick } of ticks) tick();
+
+    await expect.element(card).not.toHaveTextContent(present(before));
+    expect([before, card.element().textContent]).toStrictEqual([
+      "ChatGPT Plus 用量5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
+      "ChatGPT Plus 用量15 分钟前5 小时窗口4 小时 6 分后重置39%每周周日 08:00 重置52%",
+    ]);
+    expect(ticks.map(({ ms }) => ms)).toStrictEqual([60_000]);
+    await screen.unmount();
+    expect(ticks).toStrictEqual([]);
   });
 
   it("is switched off like the others", async () => {

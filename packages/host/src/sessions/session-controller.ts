@@ -1,6 +1,7 @@
 import type { Dialog, PiEvent, PiStats, PlanReport, TranslatedEvent } from "@atrium/pi";
 import { compactRejection, createEventTranslator, isBusyRejection, isPlanProvider } from "@atrium/pi";
 import {
+  type ContextReserve,
   CommandError,
   type CommandResult,
   type Control,
@@ -440,7 +441,7 @@ export function createSessionController(options: {
    */
   readonly respawn?: () => Promise<Respawned | null>;
   /** pi's compaction reserve for a model (SPEC-0001, "M1.13 的上下文细分与套餐用量"); unknown when left out. */
-  readonly readReserve?: (model: ModelRef | null) => Promise<number | null>;
+  readonly readReserve?: (model: ModelRef | null) => Promise<ContextReserve>;
   /** The home directory, written as `~` in the status bar's memory files. */
   readonly home?: string;
   /**
@@ -587,11 +588,13 @@ export function createSessionController(options: {
    *
    * @remarks
    * After pi starts, each run and a model change (ADR-0010, point 3); the service decides whether
-   * it is time to ask.
+   * it is time to ask. Nothing while pi is being stopped for good: its last events must not follow
+   * the subscription again once `shutdown` has stopped following it.
    *
    * @sideEffects May ask the session's pi, through the service.
    */
   function askPlan(): void {
+    if (shuttingDown) return;
     followPlan();
     const [provider, plan] = [planProvider, options.plan];
     if (provider !== null && plan !== undefined) plan.service.wanted(provider, () => plan.ask(provider));
@@ -1626,9 +1629,11 @@ export function createSessionController(options: {
     snapshot,
     items: () => transcript.items(),
     attach(started) {
-      attachPi(started);
-      // Started anew after the host stopped it for good, as when a session is opened again.
+      // Started anew after the host stopped it for good, as when a session is opened again: before
+      // the new pi is taken, so its figures are read and its subscription followed again.
       shuttingDown = false;
+      metrics.reopen();
+      attachPi(started);
       dispatch();
     },
     async prompt(command, images = []) {

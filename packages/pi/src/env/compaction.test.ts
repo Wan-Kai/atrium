@@ -47,12 +47,20 @@ describe("compactionReserve", () => {
     expect(await compactionReserve(onlyOverride, SOL)).toBe(16_384);
   });
 
-  it("is none when pi does not compact on its own", async () => {
-    expect(
-      await compactionReserve(await agentDir('{"compaction":{"enabled":false,"reserveTokens":9}}'), OPUS),
-    ).toBeNull();
-    expect(await compactionReserve(await agentDir('{"compaction":{"enabled":true,"reserveTokens":9}}'), OPUS)).toBe(9);
-    expect(await compactionReserve(await agentDir('{"compaction":{"reserveTokens":0}}'), OPUS)).toBe(0);
+  it("is off when pi does not compact on its own, taking enabled as pi does", async () => {
+    const settings = [
+      '{"compaction":{"enabled":false,"reserveTokens":9}}',
+      '{"compaction":{"enabled":0}}',
+      '{"compaction":{"enabled":""}}',
+      '{"compaction":{"enabled":true,"reserveTokens":9}}',
+      '{"compaction":{"enabled":"yes","reserveTokens":9}}',
+      '{"compaction":{"enabled":null,"reserveTokens":9}}',
+      '{"compaction":{"reserveTokens":0}}',
+    ];
+
+    const found = await Promise.all(settings.map(async (text) => compactionReserve(await agentDir(text), OPUS)));
+
+    expect(found).toStrictEqual(["off", "off", "off", 9, 9, 9, 0]);
   });
 
   it("is unknown when the settings are not ones pi takes", async () => {
@@ -61,12 +69,17 @@ describe("compactionReserve", () => {
       '{"compaction":{"reserveTokens":-1}}',
       '{"compaction":{"reserveTokens":1.5}}',
       '{"compaction":{"reserveTokens":"9"}}',
-      '{"compaction":{"enabled":"yes"}}',
       '{"compaction":{"modelOverrides":{"anthropic/claude-opus-5-5":{"reserveTokens":null}}}}',
+      // pi refuses a bad ordinary setting under a model's own too, and a model's settings that are not fields.
+      '{"compaction":{"reserveTokens":-1,"modelOverrides":{"anthropic/claude-opus-5-5":{"reserveTokens":9}}}}',
+      '{"compaction":{"modelOverrides":{"anthropic/claude-opus-5-5":9}}}',
+      '{"compaction":{"modelOverrides":{"anthropic/claude-opus-5-5":[9]}}}',
+      // Refused even while off, as pi reads both.
+      '{"compaction":{"enabled":false,"reserveTokens":"9"}}',
     ];
 
     const found = await Promise.all(settings.map(async (text) => compactionReserve(await agentDir(text), OPUS)));
 
-    expect(found).toStrictEqual([null, null, null, null, null, null]);
+    expect(found).toStrictEqual([null, null, null, null, null, null, null, null, null]);
   });
 });

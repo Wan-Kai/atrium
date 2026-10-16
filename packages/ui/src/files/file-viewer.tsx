@@ -144,8 +144,9 @@ function useOpenShortcut(open: (() => void) | null): void {
  * coloured as the chat's code blocks, not wrapped until asked; an image shows itself, never past
  * its size; anything else says in a line why it does not show. While the file has a diff, the
  * top row has its counts and "查看改动", to the 改动 tab. Its scroll and wrapping are kept by tab
- * (`useViewerPlace`). An HTML file has "在浏览器打开", also on ⌘O while the tab shows, where the
- * desktop shell can open it.
+ * (`useViewerPlace`). An HTML file the host read has "在浏览器打开", also on ⌘O while the tab
+ * shows, where the desktop shell can open it: the host's read keeps to the workspace and refuses a
+ * way through a link, which the desktop shell cannot tell.
  *
  * @sideEffects Reads the file; asks the highlighting worker; reads and writes the views; listens
  * for ⌘O while an HTML file shows; the handlers act.
@@ -171,11 +172,15 @@ export function FileViewer({
   /** Opens the file in the default browser; left out where the desktop shell cannot. */
   readonly onOpenInBrowser?: (() => void) | undefined;
 }) {
-  const openInBrowser = onOpenInBrowser !== undefined && HTML_FILE.test(path) ? onOpenInBrowser : null;
-  useOpenShortcut(openInBrowser);
   // Turned to text only when another diff comes.
   const changed = useMemo(() => (diff === null ? "" : JSON.stringify(diff)), [diff]);
   const reading = useReading(client, workspaceId, path, changed);
+  // Only a file the host read in the workspace, not through a link (SPEC-0001, "查看标签").
+  const openInBrowser =
+    onOpenInBrowser !== undefined && HTML_FILE.test(path) && reading?.kind === "read" && reading.content.kind !== "link"
+      ? onOpenInBrowser
+      : null;
+  useOpenShortcut(openInBrowser);
   const { wrap, switchWrap, body: scrolled } = useViewerPlace(views, workspaceId, `file:${path}`, reading !== null);
   const text = reading?.kind === "read" && reading.content.kind === "text" ? reading.content.text : null;
   const [lines, setLines] = useState<{ readonly text: string | null; readonly lines: readonly string[] }>({

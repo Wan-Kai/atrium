@@ -1,5 +1,5 @@
 import type { LogEntry, LogUsage, PiStats, TranslatedEvent } from "@atrium/pi";
-import { type SessionMetrics, UNKNOWN_METRICS } from "@atrium/protocol";
+import { type ContextReserve, type SessionMetrics, UNKNOWN_METRICS } from "@atrium/protocol";
 import { FakeClock } from "@atrium/testkit";
 import { describe, expect, it, vi } from "vitest";
 import { createMetricsTracker } from "./session-metrics";
@@ -76,7 +76,7 @@ function systemEntry(id: string, chars: number, toolChars: number): LogEntry {
  * @param answers - The reserves, or errors.
  * @returns The read.
  */
-function inTurn(answers: (number | Error)[]): () => Promise<number | null> {
+function inTurn(answers: (number | "off" | Error)[]): () => Promise<ContextReserve> {
   return async () => {
     const next = answers.shift();
     if (next instanceof Error) throw next;
@@ -101,7 +101,7 @@ const output = { kind: "output_started" } as const;
  * @sideEffects none
  * @returns The tracker and what a test drives and checks.
  */
-function harness(readReserve?: () => Promise<number | null>) {
+function harness(readReserve?: () => Promise<ContextReserve>) {
   const clock = new FakeClock(1000);
   const reads: PromiseWithResolvers<PiStats>[] = [];
   const published: SessionMetrics[] = [];
@@ -226,18 +226,18 @@ describe("createMetricsTracker: pi's statistics", () => {
     expect(tracker.current().turns).toBe(2);
   });
 
-  it("reads pi's compaction reserve with each read, unknown when that fails", async () => {
-    const { tracker, answer } = harness(inTurn([16_384, new Error("unreadable"), 9000]));
+  it("reads pi's compaction reserve with each read, off when pi does not compact, unknown when that fails", async () => {
+    const { tracker, answer } = harness(inTurn([16_384, new Error("unreadable"), "off", 9000]));
 
-    const seen: (number | null | undefined)[] = [];
-    for (let read = 0; read < 3; read += 1) {
+    const seen: (ContextReserve | undefined)[] = [];
+    for (let read = 0; read < 4; read += 1) {
       tracker.refresh();
       await settle();
       await answer(stats());
       seen.push(tracker.current().context?.reserve);
     }
 
-    expect(seen).toStrictEqual([16_384, null, 9000]);
+    expect(seen).toStrictEqual([16_384, null, "off", 9000]);
   });
 
   it("knows no context without a model, and no context tokens after a compaction", async () => {

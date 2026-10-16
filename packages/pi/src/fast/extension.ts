@@ -75,6 +75,8 @@ async function askCodex(ctx: FastContext): Promise<FastReport> {
     // Next to where pi sends Codex's requests, so the credentials go nowhere pi does not already send them.
     response = await fetch(`${backendRoot(login.baseUrl)}/codex/models?client_version=${CLIENT_VERSION}`, {
       headers: chatgptHeaders(login),
+      // No redirect: the credentials go only where they were sent (security.md, "Atrium 自带的 pi 扩展").
+      redirect: "error",
       signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
     });
   } catch {

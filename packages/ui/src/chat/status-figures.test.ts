@@ -150,6 +150,7 @@ describe("the status bar's figures", () => {
         { key: "extensions", name: "扩展", tokens: 1700, count: 1, items: [{ name: "todo", tokens: 1700 }] },
       ],
       reserve: 16_384,
+      compaction: "on",
       free: 200_000 - 20_000 - 16_384,
     });
   });
@@ -163,9 +164,12 @@ describe("the status bar's figures", () => {
         { key: "system", name: "系统提示词", tokens: 5000, count: null, items: [] },
       ],
       reserve: null,
+      compaction: "unknown",
       free: 6000,
     });
     expect(contextRows({ tokens: 9000, window: 10_000, parts, reserve: 2000 })?.free).toBe(0);
+    const off = contextRows({ tokens: 4000, window: 10_000, parts, reserve: "off" });
+    expect([off?.reserve, off?.compaction, off?.free]).toStrictEqual([null, "off", 6000]);
   });
 
   it("knows no rows without the context's tokens or parts", () => {

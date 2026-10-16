@@ -233,6 +233,18 @@ describe("atriumPlan", () => {
     expect(JSON.stringify(cases.map(({ statuses }) => statuses))).not.toMatch(/secret|html/);
   });
 
+  it("follows no redirect with pi's credentials, reporting it unreachable", async () => {
+    const server = await usageServer((response) => response.writeHead(302, { location: "/elsewhere" }).end());
+    const { ctx, statuses } = stand(codex(server.baseUrl));
+
+    await run("openai-codex", ctx);
+
+    expect([reports(statuses), server.requests.length]).toStrictEqual([
+      [["atrium-plan", { provider: "openai-codex", failure: "unreachable" }]],
+      1,
+    ]);
+  });
+
   it("asks ChatGPT whatever pi says of its login, which pi keeps for the subscription alone", async () => {
     const server = await usageServer(json(CODEX_ANSWER));
     const { ctx, statuses } = stand(codex(server.baseUrl), { oauth: false });

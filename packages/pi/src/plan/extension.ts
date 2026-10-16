@@ -37,7 +37,8 @@ const CLAUDE_OAUTH_BETA = "oauth-2025-04-20";
 async function askFor(url: string, headers: Record<string, string>): Promise<{ body: unknown } | { failure: string }> {
   let response: Response;
   try {
-    response = await fetch(url, { headers, signal: AbortSignal.timeout(USAGE_TIMEOUT_MS) });
+    // No redirect: pi's credentials go only where they were sent (security.md, "Atrium 自带的 pi 扩展").
+    response = await fetch(url, { headers, redirect: "error", signal: AbortSignal.timeout(USAGE_TIMEOUT_MS) });
   } catch {
     return { failure: "unreachable" };
   }
