@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-16：M1.13 上下文细分与套餐用量完成，三方审查（Astra、Grok、Claude）后已合并回 `main`（M1.11 自用的改动一起合并：侧栏搜索置顶、项目超过 5 个工作区折叠、不列目录已不在的工作区、窗口失焦不变灰、对话区按钮的按压反馈和复制 ✓、点对话里的文件胶囊在固定标签里打开、HTML 文件在浏览器打开（⌘O））。审查的问题都修了：宿主停掉会话再启动后指标和套餐照样读和发布（原先 `close` 之后再也不更新，M1.8 起就有），停 pi 途中不再订阅套餐；套餐用量在任何一次失败（含超时、没有报告）时满 10 分钟就丢，卡片上的时间每分钟走；自动压缩分开"关"（`"off"`）和"读不到"（`null`），`enabled` 按 pi 的读法；HTML 只在宿主读到之后才给"在浏览器打开"；状态栏卡片不伸出窗口；换项目后"显示全部"收回；Claude 的窗口只报前 8 个，时长和时间只收安全整数，带凭据的请求不跟随重定向。没改的：本地工作区的项目目录被删时仍列在侧栏、套餐查询用服务商第一个模型的地址（同 pi 平时发这个登录的地址），留到以后。单元、宿主、pi、界面、相关端到端和 `pnpm check` 通过；变异分数 host 100%、pi 99.93%、shared 99.95%、ui 99.52%。下一步回到 [M1.11](#m111-自用) 的自用。**
+
 **2026-10-15：M1.13 上下文细分与套餐用量写完，待三方审查后合并。上下文卡片按系统消息的分段和工具名分到系统提示词、记忆文件（每个文件）、Skills（每个 skill）、内置工具、MCP 工具（按服务器）、扩展，加上 pi 设置里的自动压缩预留、剩余空间、"距自动压缩还剩"和"压缩会话"按钮；状态栏新增"套餐"一组，Atrium 自带的扩展（Fast 与套餐用量合成一个入口 `atrium-extension.mjs`）借 pi 的登录查 ChatGPT 的 `wham/usage` 和 Claude 订阅的 `api/oauth/usage`，宿主按服务商缓存、每分钟最多问一次。协议 16。单元、宿主、pi（含新录的 `plan` 契约夹具）、界面、相关端到端和 `pnpm check` 通过；变异分数 pi 99.90%、host 100%、shared 99.95%、ui 99.51%，新代码的存活变异都补了测试或注明等价；`plan/`、`extension/` 和 `plan-usage.ts` 加进了变异分组。**
 
 **2026-10-15：新建 M1.13 上下文细分与套餐用量，在 `m1.13-context-plan` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。设计已定（原型 `context-quota-prototype.html`，套餐选 B"状态栏单独一组"；[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)），先改 SPEC-0001、security.md、design-language，再写代码。**
@@ -344,7 +346,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：原型 `files-changes-prototype.html`（A 版；B 分栏、C 浮层没选）、[paseo-architecture](research/paseo-architecture.md) §6.1、[SPEC-0001 · M1.12 的文件与更改](specs/0001-mvp1-single-session-chat.md#m112-的文件与更改协议版本-142026-10-13-定)（以及它沿用的"工作区改动"）、[design-language · 右栏、查看标签](architecture/design-language.md#右栏文件与更改)、[domain-model](architecture/domain-model.md)"已决定 19"、[security.md](architecture/security.md)"子进程与文件"。Paseo 的对应源码：`packages/app/src/components/file-explorer-pane.tsx`、`git/changed-files-tree.tsx`、`git/diff-tree.ts`、`panels/file-panel.tsx`、`workspace-tabs/open-beside.ts`。
 - **完成标准**：SPEC-0001 里这一节的行为都有测试；约 2 万行的 diff 在查看标签里打开、滚动、切换标签不超过性能预算；查看标签反复开关的泄漏测试通过；大文件、二进制、图片、读不了的文件都有说法。
 
-##### M1.13 上下文细分与套餐用量
+##### M1.13 上下文细分与套餐用量 ✅
 
 - **目标**：状态栏的上下文卡片拆到记忆文件、Skills、各类工具和自动压缩预留；状态栏加"套餐"一组，显示 ChatGPT（Codex）和 Claude 订阅的 5 小时、每周用量和重置时间（2026-10-15 定）。
 - **范围**：
