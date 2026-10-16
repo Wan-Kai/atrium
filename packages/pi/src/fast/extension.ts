@@ -1,3 +1,4 @@
+import { type Registry, backendRoot, chatgptHeaders, loginFor } from "../extension/credentials";
 import {
   CODEX,
   FAST_COMMAND,
@@ -9,28 +10,10 @@ import {
   tiersFromModelList,
 } from "./fast";
 
-/** A model as pi's model registry gives it, as far as Fast needs. */
-interface RegistryModel {
-  readonly provider: string;
-  readonly id: string;
-  readonly baseUrl: string;
-}
-
 /** The part of a command's context Fast uses: pi's model registry and its one-way status line. */
 interface FastContext {
   readonly ui: { setStatus(key: string, text: string | undefined): void };
-  readonly modelRegistry: {
-    getAvailable(): readonly RegistryModel[];
-    getApiKeyAndHeaders(model: RegistryModel): Promise<
-      | {
-          readonly ok: true;
-          readonly apiKey?: string;
-          readonly headers?: Readonly<Record<string, string | null>>;
-          readonly baseUrl?: string;
-        }
-      | { readonly ok: false }
-    >;
-  };
+  readonly modelRegistry: Registry;
 }
 
 /** The part of pi's extension API Fast uses; its test checks pi's `ExtensionAPI` fits it. */
@@ -54,14 +37,6 @@ const CLIENT_VERSION = "99.0.0";
 /** How long Codex's model list may take before Fast goes by the built-in rule. */
 const LIST_TIMEOUT_MS = 15_000;
 
-/** Where the ChatGPT account id sits in the access token's claims, as pi reads it. */
-const ACCOUNT_CLAIM = "https://api.openai.com/auth";
-
-/** An access token's claims as far as the account id; whatever the token holds until read. */
-interface TokenClaims {
-  readonly [ACCOUNT_CLAIM]?: { readonly chatgpt_account_id?: unknown } | null;
-}
-
 /**
  * Asks for a payload's priority service tier, or leaves it as it is.
  *
@@ -80,50 +55,6 @@ function withPriority(payload: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * The address of Codex's model list for a model's base address.
- *
- * @remarks
- * Next to where pi sends the model's requests (the login's base address before the model's, as pi
- * takes them), by pi's own rule for `/codex/responses` (pi-internals.md §5), so the credentials go
- * nowhere pi does not already send them.
- *
- * @sideEffects none
- * @param baseUrl - The base address.
- * @returns The list's address.
- */
-function modelListUrl(baseUrl: string): string {
-  const root = baseUrl.replace(/\/+$/u, "").replace(/\/codex(?:\/responses)?$/u, "");
-  return `${root}/codex/models?client_version=${CLIENT_VERSION}`;
-}
-
-/**
- * The ChatGPT account id in an access token, as pi sends it with each Codex request.
- *
- * @remarks
- * The token is a JWT; its claims are read, not verified, as pi does. A token that is not one has
- * no account id, and the list is asked without it. Claims of any other shape read as undefined, or
- * throw into the catch, so they need no checks of their own.
- *
- * @sideEffects none
- * @param token - The access token.
- * @returns The account id, or `undefined`.
- */
-function accountIdOf(token: string): string | undefined {
-  const parts = token.split(".");
-  // Stryker disable next-line StringLiteral: Stryker's filler decodes to bytes that are not JSON, which throw as none do.
-  const payload = parts[1] ?? "";
-  try {
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- any shape reads safely below, or throws into the catch.
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as TokenClaims;
-    // Stryker disable next-line OptionalChaining: without the claim, reading through it throws into the catch.
-    const account = claims[ACCOUNT_CLAIM]?.chatgpt_account_id;
-    return typeof account === "string" ? account : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Asks Codex which of its models have Fast.
  *
  * @remarks
@@ -137,22 +68,13 @@ function accountIdOf(token: string): string | undefined {
  * @returns The report.
  */
 async function askCodex(ctx: FastContext): Promise<FastReport> {
-  const model = ctx.modelRegistry.getAvailable().find((available) => available.provider === CODEX);
-  if (model === undefined) return { failure: "no_login" };
-  // pi answers a failed lookup with `ok: false`; a throw is taken the same way, so the ask never rejects.
-  const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model).catch(() => ({ ok: false }) as const);
-  if (!auth.ok || auth.apiKey === undefined || auth.apiKey === "") return { failure: "no_login" };
-  const headers: Record<string, string> = {};
-  for (const [name, value] of Object.entries(auth.headers ?? {})) if (value !== null) headers[name] = value;
-  headers["originator"] = "pi";
-  headers["accept"] = "application/json";
-  headers["authorization"] = `Bearer ${auth.apiKey}`;
-  const account = accountIdOf(auth.apiKey);
-  if (account !== undefined) headers["chatgpt-account-id"] = account;
+  const login = await loginFor(ctx.modelRegistry, CODEX);
+  if (login === null) return { failure: "no_login" };
   let response: Response;
   try {
-    response = await fetch(modelListUrl(auth.baseUrl ?? model.baseUrl), {
-      headers,
+    // Next to where pi sends Codex's requests, so the credentials go nowhere pi does not already send them.
+    response = await fetch(`${backendRoot(login.baseUrl)}/codex/models?client_version=${CLIENT_VERSION}`, {
+      headers: chatgptHeaders(login),
       signal: AbortSignal.timeout(LIST_TIMEOUT_MS),
     });
   } catch {

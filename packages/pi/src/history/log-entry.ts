@@ -1,4 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { type SectionPiece, sectionPieces } from "./prompt-sections";
 import { readSkillBlock } from "./skill-block";
 import { type ToolArgs, contentText } from "./tools";
 
@@ -32,11 +33,13 @@ export interface LogUsage {
  * Sizes are all the host estimates the context from (SPEC-0001, "状态栏（M1.8）"), so the prompt's
  * text and the tools' declarations are not kept. `textChars` is the instruction text, its blocks
  * joined as pi joins them; a section of `null` is removed; each added tool is its declaration's
- * JSON length.
+ * JSON length. `pieces` splits the sections the context card lists piece by piece, memory files
+ * and skills (SPEC-0001, "M1.13 的上下文细分与套餐用量"), for each such section this message sets.
  */
 export interface SystemParts {
   readonly textChars: number;
   readonly sections: Readonly<Record<string, number | null>>;
+  readonly pieces: Readonly<Record<string, readonly SectionPiece[]>>;
   readonly toolsAdded: Readonly<Record<string, number>>;
   readonly toolsRemoved: readonly string[];
 }
@@ -125,6 +128,12 @@ function systemParts(message: PiSystemMessage): SystemParts {
     textChars: contentText(message.content).text.length,
     sections: Object.fromEntries(
       Object.entries(message.sections ?? {}).map(([name, text]) => [name, text === null ? null : text.length]),
+    ),
+    pieces: Object.fromEntries(
+      Object.entries(message.sections ?? {}).flatMap(([name, text]) => {
+        const pieces = text === null ? null : sectionPieces(name, text);
+        return pieces === null ? [] : [[name, pieces]];
+      }),
     ),
     toolsAdded: Object.fromEntries((message.toolsAdded ?? []).map((tool) => [tool.name, JSON.stringify(tool).length])),
     toolsRemoved: (message.toolsRemoved ?? []).map((tool) => tool.name),

@@ -19,9 +19,19 @@ export interface BuiltinCommand {
   readonly inDraft: boolean;
 }
 
+/** `/compact`, which the context card's "压缩会话" also runs (SPEC-0001, "M1.13 的上下文细分与套餐用量"). */
+export const COMPACT_COMMAND: BuiltinCommand = {
+  source: "builtin",
+  name: "compact",
+  hint: "要求",
+  description: "压缩上下文",
+  whileRunning: false,
+  inDraft: false,
+};
+
 /** The built-in commands, in the order the list shows them (SPEC-0001, "M1.11 的 `/` 命令"). */
 export const BUILTIN_COMMANDS: readonly BuiltinCommand[] = [
-  { source: "builtin", name: "compact", hint: "要求", description: "压缩上下文", whileRunning: false, inDraft: false },
+  COMPACT_COMMAND,
   { source: "builtin", name: "model", hint: "服务商/模型", description: "切换模型", whileRunning: true, inDraft: true },
   { source: "builtin", name: "thinking", hint: "档位", description: "推理强度", whileRunning: true, inDraft: true },
   { source: "builtin", name: "copy", hint: null, description: "复制最后一条回复", whileRunning: true, inDraft: true },

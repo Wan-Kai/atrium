@@ -1767,7 +1767,7 @@ describe("SessionManager models", () => {
 });
 
 /** Where the tests' Fast extension is said to be; the scripted pi only reports the path. */
-const FAST_EXTENSION = "/Applications/Atrium.app/fast-extension.mjs";
+const FAST_EXTENSION = "/Applications/Atrium.app/atrium-extension.mjs";
 
 /** pi answering a session's commands, Atrium's Fast switch among them, and Fast switches, which it handles without a run. */
 const FAST_PI = {

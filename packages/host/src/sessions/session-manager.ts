@@ -1,5 +1,7 @@
 import {
   FAST_COMMAND,
+  compactionReserve,
+  queryPlanUsage,
   type PiInspection,
   PiRequestError,
   isFastSwitch,
@@ -15,6 +17,7 @@ import {
   CommandError,
   IDLE_CONTROL,
   type ModelRef,
+  type PlanProvider,
   type SessionEvent,
   type SessionModel,
   type SessionSnapshotEvent,
@@ -26,7 +29,7 @@ import {
 } from "@atrium/protocol";
 import type { Tracer } from "@opentelemetry/api";
 import { mkdir, mkdtemp, readFile, rm, rmdir, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
@@ -36,6 +39,7 @@ import type { SubscriptionRegistry } from "../sync/subscriptions";
 import type { EntriesPage } from "../transcript/session-transcript";
 import type { WorkspaceService } from "../workspaces/workspace-service";
 import type { ChatRecords } from "../store/chat-records";
+import type { PlanUsageService } from "./plan-usage";
 import type { TurnStarts } from "../store/turn-starts";
 import type { FileSearch } from "../files/file-search";
 import type { Layouts } from "./layouts";
@@ -260,6 +264,11 @@ export function createSessionManager(options: {
   readonly titleModel?: (cwd: string, signal: AbortSignal) => Promise<ModelRef | null>;
   /** Atrium's Fast extension and the Fast new sessions start with; without it pi loads none and there is no Fast. */
   readonly fast?: SessionFast;
+  /**
+   * Subscriptions' usage, asked through Atrium's extension in sessions' pi (ADR-0010); without it,
+   * or without the extension, sessions show none.
+   */
+  readonly plan?: PlanUsageService;
 }): SessionManager {
   const sessions = new Map<string, Running>();
   /** Releases each held controller's count, so a leak test sees controllers nobody lets go of. */
@@ -714,7 +723,7 @@ export function createSessionManager(options: {
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
       stop: () => pi.stop(),
     };
-    return { traced, view, entries, model, fast: launch.fast };
+    return { traced, view, entries, model, fast: launch.fast, env: tools.env };
   }
 
   /**
@@ -758,7 +767,7 @@ export function createSessionManager(options: {
    * @returns The session.
    */
   async function connect(sessionId: string, spawned: Awaited<ReturnType<typeof spawn>>): Promise<Running> {
-    const { traced, view, entries, model, fast } = spawned;
+    const { traced, view, entries, model, fast, env } = spawned;
     const known = sessions.get(sessionId);
     if (known !== undefined) {
       if (!known.controller.exited) {
@@ -793,6 +802,18 @@ export function createSessionManager(options: {
         options.logger.warn({ ...failureFields(error), sessionId }, "transcript refresh failed"),
       log: (level, message, fields) => options.logger[level]({ ...fields }, message),
       respawn: () => respawn(sessionId),
+      readReserve: (chosen) => compactionReserve(env, chosen),
+      ...(options.plan === undefined || options.fast === undefined
+        ? {}
+        : {
+            plan: {
+              service: options.plan,
+              // The session's pi now; before the session is registered, the one just started.
+              ask: (provider: PlanProvider) =>
+                queryPlanUsage((sessions.get(sessionId)?.pi ?? traced).process, provider),
+            },
+          }),
+      home: env["HOME"] ?? homedir(),
       model,
       onModelChosen: (chosen) => options.models?.chosen(chosen),
       fast,

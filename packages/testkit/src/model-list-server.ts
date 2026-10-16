@@ -1,4 +1,4 @@
-import { type IncomingHttpHeaders, type ServerResponse, createServer } from "node:http";
+import { type IncomingHttpHeaders, type IncomingMessage, type ServerResponse, createServer } from "node:http";
 
 /** A request the stand-in received: its path with query, and its headers. */
 export interface ListRequest {
@@ -37,24 +37,25 @@ export const CODEX_MODEL_LIST = {
  * Starts a local server standing in for Codex's model list.
  *
  * @remarks
- * Tests never reach the real network (testing.md); this answers on 127.0.0.1, every request the
- * same way, and records what it was asked. The extension's unit and contract tests and the
+ * Tests never reach the real network (testing.md); this answers on 127.0.0.1 as `answer` says,
+ * every request the same way unless it looks at the request, and records what it was asked. Its
+ * base address stands for ChatGPT's backend, so it also stands in for ChatGPT's usage (ADR-0010). The extension's unit and contract tests and the
  * end-to-end test share it.
  *
  * @sideEffects Listens on a port of 127.0.0.1 until closed.
- * @param answer - Writes the response; by default Codex's list as measured.
+ * @param answer - Writes the response, given the request; by default Codex's list as measured.
  * @returns The running server.
  * @throws {Error} When the server has no port.
  */
 export async function startModelListServer(
-  answer: (response: ServerResponse) => void = (response) => {
+  answer: (response: ServerResponse, request: IncomingMessage) => void = (response) => {
     response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(CODEX_MODEL_LIST));
   },
 ): Promise<ModelListServer> {
   const requests: ListRequest[] = [];
   const server = createServer((request, response) => {
     requests.push({ url: request.url ?? "", headers: request.headers });
-    answer(response);
+    answer(response, request);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();

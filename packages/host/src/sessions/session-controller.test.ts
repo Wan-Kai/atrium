@@ -2,6 +2,9 @@ import type { LogEntry, PiEvent, PiStats } from "@atrium/pi";
 import {
   CommandError,
   IDLE_CONTROL,
+  type ModelRef,
+  type PlanProvider,
+  type PlanUsage,
   SNAPSHOT_TURNS,
   type SessionEvent,
   type SessionModel,
@@ -49,7 +52,7 @@ function control(
   entries: EntriesPage = empty,
   extra: Pick<
     Parameters<typeof createSessionController>[0],
-    "respawn" | "turnStarts" | "model" | "onModelChosen" | "fast" | "onFastChosen"
+    "respawn" | "turnStarts" | "model" | "onModelChosen" | "fast" | "onFastChosen" | "readReserve" | "home" | "plan"
   > = {},
 ) {
   const events: SessionEvent[] = [];
@@ -2772,13 +2775,170 @@ const fromStats = {
   steps: 2,
   tokens: { input: 10, output: 5, cacheRead: 100, cacheWrite: 1 },
   cost: 0.01,
-  context: { tokens: 300, window: 1000, system: null, tools: null },
+  context: { tokens: 300, window: 1000, parts: null, reserve: null },
 };
+
+/**
+ * pi's compaction reserve, 8000 for Haiku and 16384 otherwise, noting each model it was read for.
+ *
+ * @remarks
+ * For the test of which model the controller reads the reserve for.
+ *
+ * @sideEffects Adds to `asked` as it reads.
+ * @param asked - Where the models go, as `provider/model`, or `null`.
+ * @returns The read.
+ */
+function reserveByModel(asked: (string | null)[]): (model: ModelRef | null) => Promise<number | null> {
+  return async (model) => {
+    asked.push(model === null ? null : `${model.providerId}/${model.modelId}`);
+    return model?.modelId === "haiku" ? 8000 : 16_384;
+  };
+}
 
 /** The figures of every `metrics_updated` among the events. */
 function published(events: readonly SessionEvent[]) {
   return events.flatMap((event) => (event.type === "metrics_updated" ? [event.metrics] : []));
 }
+
+/**
+ * A stand-in for the service of subscriptions' usage, and what was asked of it.
+ *
+ * @remarks
+ * Asks at once whenever asked, unlike the real one, so a test sees each time the controller asks.
+ *
+ * @sideEffects none until used; then calls the asks given.
+ * @returns The service, the providers asked, how many listen to each, and how to change a usage.
+ */
+function plans() {
+  const usages = new Map<PlanProvider, PlanUsage>();
+  const listeners = new Map<PlanProvider, Set<(usage: PlanUsage | null) => void>>();
+  const asked: string[] = [];
+  const service: NonNullable<Parameters<typeof createSessionController>[0]["plan"]>["service"] = {
+    current: (provider) => usages.get(provider) ?? null,
+    subscribe(provider, listener) {
+      const set = listeners.get(provider) ?? new Set();
+      listeners.set(provider, set);
+      set.add(listener);
+      return () => set.delete(listener);
+    },
+    wanted(provider, ask) {
+      asked.push(provider);
+      void ask();
+    },
+  };
+  /** Sets a provider's usage and tells its listeners. */
+  const found = (usage: PlanUsage) => {
+    usages.set(usage.provider, usage);
+    for (const listener of listeners.get(usage.provider) ?? []) listener(usage);
+  };
+  return { service, asked, found, listening: (provider: PlanProvider) => listeners.get(provider)?.size ?? 0 };
+}
+
+/** A subscription's usage with one window at `used`%. */
+function planUsage(provider: PlanProvider, used: number): PlanUsage {
+  return {
+    provider,
+    plan: null,
+    windows: [{ seconds: 18_000, model: null, usedPercent: used, resetsAt: null }],
+    at: 1,
+  };
+}
+
+describe("createSessionController's plan usage", () => {
+  it("shows the usage of the session's subscription, asking after pi starts and each run", async () => {
+    const { pi, emit } = manualPi();
+    const { service, asked, found } = plans();
+    const queried: string[] = [];
+    found(planUsage("anthropic", 30));
+    const { controller } = control(pi, empty, {
+      model: opus,
+      plan: {
+        service,
+        ask: async (provider) => {
+          queried.push(provider);
+          return null;
+        },
+      },
+    });
+    await settle();
+    expect(controller.snapshot().metrics.plan).toStrictEqual(planUsage("anthropic", 30));
+
+    found(planUsage("anthropic", 31));
+    emit({ type: "agent_start" }, userEnd("a"), { type: "agent_settled" });
+    await settle();
+
+    expect(controller.snapshot().metrics.plan).toStrictEqual(planUsage("anthropic", 31));
+    expect(asked).toStrictEqual(["anthropic", "anthropic"]);
+    expect(queried).toStrictEqual(["anthropic", "anthropic"]);
+  });
+
+  it("follows the model to another subscription, or to none, and stops following on shutdown", async () => {
+    const { pi, states } = manualPi();
+    const { service, asked, found, listening } = plans();
+    found(planUsage("openai-codex", 60));
+    const { controller } = control(pi, empty, { model: opus, plan: { service, ask: async () => null } });
+    await settle();
+    expect(listening("anthropic")).toBe(1);
+
+    // What pi reports from now on.
+    states.splice(0, states.length, { providerId: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "high" });
+    await controller.setModel({ providerId: "openai-codex", modelId: "gpt-6.1-sol" });
+    await settle();
+    const onCodex = controller.snapshot().metrics.plan;
+    const listeningThen = [listening("anthropic"), listening("openai-codex")];
+    // What pi reports from now on.
+    states.splice(0, states.length, { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" });
+    await controller.setModel({ providerId: "faux", modelId: "faux-1" });
+    await settle();
+    const onFaux = controller.snapshot().metrics.plan;
+    found(planUsage("openai-codex", 61));
+    // What pi reports from now on.
+    states.splice(0, states.length, { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" });
+    await controller.setModel({ providerId: "anthropic", modelId: "claude-opus-5-5" });
+    await settle();
+    await controller.shutdown();
+
+    expect(onCodex).toStrictEqual(planUsage("openai-codex", 60));
+    expect(listeningThen).toStrictEqual([0, 1]);
+    expect(onFaux).toBeNull();
+    expect(controller.snapshot().metrics.plan).toBeNull();
+    expect(asked).toStrictEqual(["anthropic", "openai-codex", "anthropic"]);
+    expect([listening("anthropic"), listening("openai-codex")]).toStrictEqual([0, 0]);
+  });
+
+  it("follows its subscription again once started anew after the host stopped it", async () => {
+    const first = manualPi();
+    const second = manualPi();
+    const { service, asked, listening } = plans();
+    const { controller } = control(first.pi, empty, { model: opus, plan: { service, ask: async () => null } });
+    await settle();
+
+    await controller.shutdown();
+    const stopped = listening("anthropic");
+    controller.attach({ pi: second.pi, entries: empty, model: opus });
+    await settle();
+
+    expect([stopped, listening("anthropic")]).toStrictEqual([0, 1]);
+    expect(asked).toStrictEqual(["anthropic", "anthropic"]);
+  });
+
+  it("shows and asks nothing without a model", async () => {
+    const { pi } = manualPi();
+    const { service, asked } = plans();
+    const { controller } = control(pi, empty, { plan: { service, ask: async () => null } });
+    await settle();
+
+    expect([controller.snapshot().metrics.plan, asked]).toStrictEqual([null, []]);
+  });
+
+  it("shows and asks nothing without the service", async () => {
+    const { pi } = manualPi();
+    const { controller } = control(pi, empty, { model: opus });
+    await settle();
+
+    expect(controller.snapshot().metrics.plan).toBeNull();
+  });
+});
 
 describe("createSessionController's status bar figures", () => {
   it("reads pi's statistics once pi has started, publishing them and carrying them in snapshots", async () => {
@@ -2792,6 +2952,28 @@ describe("createSessionController's status bar figures", () => {
     expect(statsReads()).toBe(1);
     expect(events).toStrictEqual([{ type: "metrics_updated", ...at(1, null), metrics: fromStats }]);
     expect(controller.snapshot().metrics).toStrictEqual(fromStats);
+  });
+
+  it("reads pi's compaction reserve for the model pi uses now, with each read of its statistics", async () => {
+    const { pi, states, statsAnswers } = manualPi();
+    statsAnswers.push(
+      async () => piStats,
+      async () => piStats,
+    );
+    const asked: (string | null)[] = [];
+    const { controller } = control(pi, empty, {
+      model: opus,
+      readReserve: reserveByModel(asked),
+    });
+    await settle();
+    expect(controller.snapshot().metrics.context?.reserve).toBe(16_384);
+
+    states.push({ providerId: "anthropic", modelId: "haiku", thinkingLevel: "off" });
+    await controller.setModel({ providerId: "anthropic", modelId: "haiku" });
+    await settle();
+
+    expect(asked).toStrictEqual(["anthropic/claude-opus-5-5", "anthropic/haiku"]);
+    expect(controller.snapshot().metrics.context?.reserve).toBe(8000);
   });
 
   it("starts from the entries it was given, publishing nothing for them", () => {

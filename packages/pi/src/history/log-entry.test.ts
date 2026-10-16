@@ -63,6 +63,7 @@ const none = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: null
 const recordedSystem = {
   textChars: 0,
   sections: { preamble: 169, tools: 339, rules: 839, docs: 1328, cwd: 18 },
+  pieces: {},
   toolsAdded: { read: 716, bash: 575, edit: 1211, write: 462 },
   toolsRemoved: [],
 };
@@ -298,7 +299,8 @@ describe("toLogEntry", () => {
     ).toMatchObject({ usage: { input: 1, output: 9, cacheRead: 0, cacheWrite: 0, reasoning: 4 } });
   });
 
-  it("keeps a system message's sizes: its text, its sections, the tools it adds and those it takes away", () => {
+  it("keeps a system message's sizes: its text, its sections and their pieces, the tools it adds and those it takes away", () => {
+    const memory = '<project_instructions path="/w/AGENTS.md">\nBe brief.\n</project_instructions>';
     expect(
       toLogEntry({
         type: "message",
@@ -311,7 +313,7 @@ describe("toLogEntry", () => {
             { type: "text", text: "more" },
             { type: "text", text: "rules" },
           ],
-          sections: { cwd: "/w", skills: null },
+          sections: { cwd: "/w", skills: null, project_context: `Instructions:\n\n${memory}` },
           toolsAdded: [{ name: "grep", description: "Search", parameters: { type: "object" } }],
           toolsRemoved: [{ name: "bash" }],
           timestamp: 7,
@@ -324,7 +326,8 @@ describe("toLogEntry", () => {
       kind: "system",
       system: {
         textChars: 10,
-        sections: { cwd: 2, skills: null },
+        sections: { cwd: 2, skills: null, project_context: memory.length + 15 },
+        pieces: { project_context: [{ name: "/w/AGENTS.md", chars: memory.length }] },
         toolsAdded: { grep: 69 },
         toolsRemoved: ["bash"],
       },

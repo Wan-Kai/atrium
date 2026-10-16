@@ -26,7 +26,7 @@ async function stageApp() {
   const manifest = { name: "atrium", productName: own.productName, version: own.version, main: own.main };
   await writeFile(join(stage, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   for (const file of ["main.cjs", "preload.cjs"]) await cp(join(desktop, "dist", file), join(stage, "dist", file));
-  for (const file of ["entry.cjs", "login-worker.mjs", "fast-extension.mjs"]) {
+  for (const file of ["entry.cjs", "login-worker.mjs", "atrium-extension.mjs"]) {
     await cp(join(repo, "packages", "host", "dist", file), join(stage, "host", file));
   }
   await cp(join(repo, "packages", "ui", "dist"), join(stage, "ui"), { recursive: true });

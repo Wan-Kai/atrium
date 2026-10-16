@@ -1,0 +1,285 @@
+import { type ModelListServer, startModelListServer } from "@atrium/testkit";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ServerResponse } from "node:http";
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
+import atrium from "../extension/atrium";
+import atriumPlan, { type PlanApi } from "./extension";
+
+/** A command's context, as pi gives it. */
+type Context = Parameters<Parameters<PlanApi["registerCommand"]>[1]["handler"]>[1];
+
+/** What pi's model registry answers for credentials. */
+type Auth = Awaited<ReturnType<Context["modelRegistry"]["getApiKeyAndHeaders"]>>;
+
+/** A token with a ChatGPT account id, shaped as ChatGPT's access tokens are. */
+const TOKEN = `head.${Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acct-1" } })).toString("base64url")}.sig`;
+
+/** ChatGPT's answer to `wham/usage` (ADR-0010). */
+const CODEX_ANSWER = {
+  plan_type: "pro",
+  rate_limit: {
+    primary_window: { used_percent: 39, limit_window_seconds: 18_000, reset_at: 1_782_770_922 },
+    secondary_window: { used_percent: 52, limit_window_seconds: 604_800, reset_at: 1_783_357_722 },
+  },
+};
+
+/** Claude's answer to `api/oauth/usage`, the older shape (ADR-0010). */
+const CLAUDE_ANSWER = { five_hour: { utilization: 84, resets_at: "2026-10-15T10:00:00Z" }, seven_day: null };
+
+const servers: ModelListServer[] = [];
+
+afterEach(async () => {
+  for (const running of servers.splice(0)) await running.close();
+});
+
+/**
+ * Starts a local stand-in for a provider's usage, answering every request as `write` does.
+ *
+ * @remarks
+ * Tests never reach the real network (testing.md); the model list's stand-in answers any path.
+ *
+ * @sideEffects Listens on a port of 127.0.0.1 until the test ends.
+ * @param write - Writes the response.
+ * @returns The server.
+ */
+async function usageServer(write: (response: ServerResponse) => void): Promise<ModelListServer> {
+  const started = await startModelListServer(write);
+  servers.push(started);
+  return started;
+}
+
+/**
+ * Answers with `body` as JSON.
+ *
+ * @sideEffects none
+ * @param body - The answer.
+ * @returns The writer.
+ */
+function json(body: unknown): (response: ServerResponse) => void {
+  return (response) => response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
+}
+
+/**
+ * A stand-in for pi's command context: its models, its credentials and whether they are a subscription's.
+ *
+ * @remarks
+ * Keeps the statuses the extension set.
+ *
+ * @sideEffects none
+ * @param models - The models pi has credentials for.
+ * @param options - What pi answers for credentials (or `"throws"`), and whether it is OAuth.
+ * @returns The context and the statuses.
+ */
+function stand(
+  models: readonly { provider: string; id: string; baseUrl: string }[],
+  options: { readonly auth?: Auth | "throws"; readonly oauth?: boolean } = {},
+): { ctx: Context; statuses: (readonly [string, string | undefined])[] } {
+  const statuses: (readonly [string, string | undefined])[] = [];
+  return {
+    statuses,
+    ctx: {
+      ui: { setStatus: (key, text) => statuses.push([key, text]) },
+      modelRegistry: {
+        getAvailable: () => models,
+        getApiKeyAndHeaders: () =>
+          options.auth === "throws"
+            ? Promise.reject(new Error("pi failed"))
+            : Promise.resolve(options.auth ?? { ok: true, apiKey: TOKEN, headers: { "x-pi": "1", "x-unset": null } }),
+        isUsingOAuth: () => options.oauth ?? true,
+      },
+    },
+  };
+}
+
+/**
+ * Loads the extension into a stand-in for pi's extension API and runs its command.
+ *
+ * @sideEffects Runs the command, which may make a request.
+ * @param args - What follows the command's name.
+ * @param ctx - The context.
+ * @returns The command's name and description.
+ * @throws {Error} When it registered no command.
+ */
+async function run(args: string, ctx: Context): Promise<{ name: string; description: string }> {
+  let registered:
+    | { name: string; description: string; handler: (args: string, ctx: Context) => Promise<void> }
+    | undefined;
+  atriumPlan({
+    registerCommand: (name, options) => {
+      registered = { name, description: options.description, handler: options.handler };
+    },
+  });
+  if (registered === undefined) throw new Error("the extension registered no command");
+  await registered.handler(args, ctx);
+  return { name: registered.name, description: registered.description };
+}
+
+/** The statuses as JSON. */
+function reports(statuses: readonly (readonly [string, string | undefined])[]): [string, unknown][] {
+  return statuses.map(([key, text]) => [key, JSON.parse(text ?? "null")]);
+}
+
+/** ChatGPT's one model, at `baseUrl`. */
+function codex(baseUrl: string) {
+  return [{ provider: "openai-codex", id: "gpt-6.1-sol", baseUrl }];
+}
+
+/** Claude's one model, at `baseUrl`. */
+function claude(baseUrl: string) {
+  return [{ provider: "anthropic", id: "claude-opus-5-5", baseUrl }];
+}
+
+describe("atriumPlan", () => {
+  // oxlint-disable-next-line vitest/expect-expect -- a type check: typecheck fails it, not the run.
+  it("fits pi's extension API, alone and with Fast", () => {
+    expectTypeOf<ExtensionAPI>().toExtend<PlanApi>();
+    expectTypeOf<ExtensionAPI>().toExtend<Parameters<typeof atrium>[0]>();
+  });
+
+  it("asks ChatGPT's wham/usage with pi's login, as pi sends Codex's, and reports the plan and windows", async () => {
+    const server = await usageServer(json(CODEX_ANSWER));
+    const { ctx, statuses } = stand([
+      { provider: "anthropic", id: "claude-opus-5-5", baseUrl: "http://127.0.0.1:9" },
+      { provider: "openai-codex", id: "gpt-6.1-sol", baseUrl: `${server.baseUrl}/codex/responses` },
+    ]);
+
+    const registered = await run(" openai-codex ", ctx);
+
+    expect(registered).toStrictEqual({
+      name: "atrium-plan",
+      description: "Atrium's plan usage query, sent by Atrium's host",
+    });
+    expect(server.requests.map(({ url, headers }) => [url, headers])).toStrictEqual([
+      [
+        "/backend-api/wham/usage",
+        expect.objectContaining({
+          authorization: `Bearer ${TOKEN}`,
+          "chatgpt-account-id": "acct-1",
+          originator: "pi",
+          accept: "application/json",
+          "x-pi": "1",
+        }),
+      ],
+    ]);
+    expect(server.requests[0]?.headers["x-unset"]).toBeUndefined();
+    expect(reports(statuses)).toStrictEqual([
+      [
+        "atrium-plan",
+        {
+          provider: "openai-codex",
+          plan: "pro",
+          windows: [
+            { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_782_770_922_000 },
+            { seconds: 604_800, model: null, usedPercent: 52, resetsAt: 1_783_357_722_000 },
+          ],
+        },
+      ],
+    ]);
+  });
+
+  it("asks Claude's api/oauth/usage with the OAuth beta, only with a subscription's login", async () => {
+    const server = await usageServer(json(CLAUDE_ANSWER));
+    const models = [{ provider: "anthropic", id: "claude-opus-5-5", baseUrl: `${server.baseUrl}//` }];
+    const subscribed = stand(models);
+    const keyed = stand(models, { oauth: false });
+
+    await run("anthropic", subscribed.ctx);
+    await run("anthropic", keyed.ctx);
+
+    expect(
+      server.requests.map(({ url, headers }) => [
+        url,
+        headers["authorization"],
+        headers["anthropic-beta"],
+        headers["accept"],
+        headers["x-pi"],
+      ]),
+    ).toStrictEqual([["/backend-api/api/oauth/usage", `Bearer ${TOKEN}`, "oauth-2025-04-20", "application/json", "1"]]);
+    expect([...reports(subscribed.statuses), ...reports(keyed.statuses)]).toStrictEqual([
+      [
+        "atrium-plan",
+        {
+          provider: "anthropic",
+          plan: null,
+          windows: [{ seconds: 18_000, model: null, usedPercent: 84, resetsAt: Date.parse("2026-10-15T10:00:00Z") }],
+        },
+      ],
+      ["atrium-plan", { provider: "anthropic", failure: "no_login" }],
+    ]);
+  });
+
+  it("reports why there is no usage: no login, a failed lookup, unreachable, an HTTP error, not JSON, not usage", async () => {
+    const failing = await usageServer((response) => response.writeHead(503).end("secret page"));
+    const garbled = await usageServer((response) => response.writeHead(200).end("<html>"));
+    const odd = await usageServer(json({ hello: "world" }));
+    const cases = [
+      stand([]),
+      stand(codex(odd.baseUrl), { auth: { ok: false } }),
+      stand(codex(odd.baseUrl), { auth: { ok: true, apiKey: "" } }),
+      stand(codex(odd.baseUrl), { auth: "throws" }),
+      stand(codex("http://127.0.0.1:9/backend-api")),
+      stand(codex(failing.baseUrl)),
+      stand(codex(garbled.baseUrl)),
+      stand(codex(odd.baseUrl)),
+    ];
+
+    for (const { ctx } of cases) await run("openai-codex", ctx);
+
+    expect(cases.flatMap(({ statuses }) => reports(statuses).map(([, report]) => report))).toStrictEqual(
+      ["no_login", "no_login", "no_login", "no_login", "unreachable", "http_503", "not_json", "unknown_shape"].map(
+        (failure) => ({ provider: "openai-codex", failure }),
+      ),
+    );
+    expect(JSON.stringify(cases.map(({ statuses }) => statuses))).not.toMatch(/secret|html/);
+  });
+
+  it("asks ChatGPT whatever pi says of its login, which pi keeps for the subscription alone", async () => {
+    const server = await usageServer(json(CODEX_ANSWER));
+    const { ctx, statuses } = stand(codex(server.baseUrl), { oauth: false });
+
+    await run("openai-codex", ctx);
+
+    expect(reports(statuses).map(([, report]) => Object.keys(report as object))).toStrictEqual([
+      ["provider", "plan", "windows"],
+    ]);
+  });
+
+  it("reports why Claude has no usage: an HTTP error, or an answer that is not usage", async () => {
+    const failing = await usageServer((response) => response.writeHead(401).end("secret"));
+    const odd = await usageServer(json({ hello: "world" }));
+    const cases = [stand(claude(failing.baseUrl)), stand(claude(odd.baseUrl))];
+
+    for (const { ctx } of cases) await run("anthropic", ctx);
+
+    expect(cases.flatMap(({ statuses }) => reports(statuses).map(([, report]) => report))).toStrictEqual([
+      { provider: "anthropic", failure: "http_401" },
+      { provider: "anthropic", failure: "unknown_shape" },
+    ]);
+  });
+
+  it("registers Fast's switch and hook and the plan query from Atrium's one extension", () => {
+    const commands: string[] = [];
+    const hooks: string[] = [];
+
+    atrium({
+      registerCommand: (name) => commands.push(name),
+      on: (event) => {
+        hooks.push(event);
+        return () => undefined;
+      },
+    });
+
+    expect([commands, hooks]).toStrictEqual([["atrium-fast", "atrium-plan"], ["before_provider_request"]]);
+  });
+
+  it("reports nothing for a provider Atrium does not ask", async () => {
+    const server = await usageServer(json(CODEX_ANSWER));
+    const { ctx, statuses } = stand([{ provider: "github-copilot", id: "gpt-5", baseUrl: server.baseUrl }]);
+
+    await run("github-copilot", ctx);
+    await run("", ctx);
+
+    expect(statuses).toStrictEqual([]);
+    expect(server.requests).toStrictEqual([]);
+  });
+});

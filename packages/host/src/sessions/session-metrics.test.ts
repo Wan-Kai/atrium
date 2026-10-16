@@ -1,7 +1,7 @@
 import type { LogEntry, LogUsage, PiStats, TranslatedEvent } from "@atrium/pi";
 import { type SessionMetrics, UNKNOWN_METRICS } from "@atrium/protocol";
 import { FakeClock } from "@atrium/testkit";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createMetricsTracker } from "./session-metrics";
 
 /** Lets queued promises run. */
@@ -62,8 +62,31 @@ function systemEntry(id: string, chars: number, toolChars: number): LogEntry {
     parentId: null,
     kind: "system",
     timestamp: 0,
-    system: { textChars: chars, sections: {}, toolsAdded: { read: toolChars }, toolsRemoved: [] },
+    system: { textChars: chars, sections: {}, pieces: {}, toolsAdded: { read: toolChars }, toolsRemoved: [] },
   };
+}
+
+/**
+ * Reads of pi's compaction reserve that answer in turn.
+ *
+ * @remarks
+ * An error fails its read; with none left, the reserve is unknown.
+ *
+ * @sideEffects Takes from `answers` as it reads.
+ * @param answers - The reserves, or errors.
+ * @returns The read.
+ */
+function inTurn(answers: (number | Error)[]): () => Promise<number | null> {
+  return async () => {
+    const next = answers.shift();
+    if (next instanceof Error) throw next;
+    return next ?? null;
+  };
+}
+
+/** A memory file's block, as pi writes it. */
+function memory(path: string): string {
+  return `<project_instructions path="${path}">\nx\n</project_instructions>`;
 }
 
 const request = { kind: "request_started" } as const;
@@ -78,7 +101,7 @@ const output = { kind: "output_started" } as const;
  * @sideEffects none
  * @returns The tracker and what a test drives and checks.
  */
-function harness() {
+function harness(readReserve?: () => Promise<number | null>) {
   const clock = new FakeClock(1000);
   const reads: PromiseWithResolvers<PiStats>[] = [];
   const published: SessionMetrics[] = [];
@@ -90,6 +113,7 @@ function harness() {
       reads.push(read);
       return read.promise;
     },
+    ...(readReserve === undefined ? {} : { readReserve }),
     onChange: (metrics) => published.push(metrics),
     onReadFailed: (error) => failures.push(error),
   });
@@ -128,7 +152,7 @@ describe("createMetricsTracker: pi's statistics", () => {
       steps: 3,
       tokens: { input: 100, output: 20, cacheRead: 900, cacheWrite: 50 },
       cost: 0.12,
-      context: { tokens: 4000, window: 200_000, system: null, tools: null },
+      context: { tokens: 4000, window: 200_000, parts: null, reserve: null },
     };
     expect(tracker.current()).toStrictEqual(expected);
     expect(published).toStrictEqual([expected]);
@@ -202,6 +226,20 @@ describe("createMetricsTracker: pi's statistics", () => {
     expect(tracker.current().turns).toBe(2);
   });
 
+  it("reads pi's compaction reserve with each read, unknown when that fails", async () => {
+    const { tracker, answer } = harness(inTurn([16_384, new Error("unreadable"), 9000]));
+
+    const seen: (number | null | undefined)[] = [];
+    for (let read = 0; read < 3; read += 1) {
+      tracker.refresh();
+      await settle();
+      await answer(stats());
+      seen.push(tracker.current().context?.reserve);
+    }
+
+    expect(seen).toStrictEqual([16_384, null, 9000]);
+  });
+
   it("knows no context without a model, and no context tokens after a compaction", async () => {
     const { tracker, answer } = harness();
     tracker.refresh();
@@ -211,7 +249,23 @@ describe("createMetricsTracker: pi's statistics", () => {
     tracker.refresh();
     await answer(stats({ context: { tokens: null, window: 1000 } }));
 
-    expect(tracker.current().context).toStrictEqual({ tokens: null, window: 1000, system: null, tools: null });
+    expect(tracker.current().context).toStrictEqual({ tokens: null, window: 1000, parts: null, reserve: null });
+  });
+
+  it("publishes the plan's usage it is given, only when it changed", () => {
+    const { tracker, published } = harness();
+    const plan = {
+      provider: "openai-codex" as const,
+      plan: "plus",
+      windows: [{ seconds: 18_000, model: null, usedPercent: 39, resetsAt: 5000 }],
+      at: 1000,
+    };
+
+    tracker.planChanged(plan);
+    tracker.planChanged({ ...plan, windows: [...plan.windows] });
+    tracker.planChanged(null);
+
+    expect(published.map((metrics) => metrics.plan)).toStrictEqual([plan, null]);
   });
 
   it("reads nothing more and publishes nothing once closed, dropping what the read under way brings", async () => {
@@ -249,9 +303,97 @@ describe("createMetricsTracker: the entries", () => {
     expect(tracker.current()).toMatchObject({
       reasoning: 5,
       branchTokens: 116,
-      context: { tokens: 4000, window: 200_000, system: 100, tools: 51 },
+      context: {
+        tokens: 4000,
+        window: 200_000,
+        parts: {
+          system: 100,
+          memory: { tokens: 0, files: [] },
+          skills: { tokens: 0, items: [] },
+          builtin: { tokens: 50, items: [{ name: "read", tokens: 50 }] },
+          mcp: { tokens: 0, servers: [] },
+          extensions: { tokens: 0, items: [] },
+        },
+        reserve: null,
+      },
     });
     expect(published).toHaveLength(2);
+  });
+
+  it("writes memory files under the home directory from ~, and leaves others as pi named them", () => {
+    const clock = new FakeClock();
+    const files = [memory("/home/me/.pi/agent/AGENTS.md"), memory("/home/meow/AGENTS.md"), memory("/work/AGENTS.md")];
+    const section = files.join("\n\n");
+    const entry: LogEntry = {
+      id: "s1",
+      parentId: null,
+      kind: "system",
+      timestamp: 0,
+      system: {
+        textChars: 0,
+        sections: { project_context: section.length },
+        pieces: {
+          project_context: [
+            { name: "/home/me/.pi/agent/AGENTS.md", chars: 400 },
+            { name: "/home/meow/AGENTS.md", chars: 200 },
+            { name: "/work/AGENTS.md", chars: 100 },
+          ],
+        },
+        toolsAdded: {},
+        toolsRemoved: [],
+      },
+    };
+    const tracker = createMetricsTracker({
+      clock,
+      entries: { all: [entry], branch: [entry] },
+      home: "/home/me",
+      readStats: () => Promise.resolve(stats()),
+      onChange: () => undefined,
+      onReadFailed: () => undefined,
+    });
+    tracker.refresh();
+
+    return vi.waitFor(() =>
+      expect(tracker.current().context?.parts?.memory.files.map(({ path }) => path)).toStrictEqual([
+        "~/.pi/agent/AGENTS.md",
+        "/home/meow/AGENTS.md",
+        "/work/AGENTS.md",
+      ]),
+    );
+  });
+
+  it("keeps memory files' paths without a home directory, or with an empty one", async () => {
+    const clock = new FakeClock();
+    const entry: LogEntry = {
+      id: "s1",
+      parentId: null,
+      kind: "system",
+      timestamp: 0,
+      system: {
+        textChars: 0,
+        sections: { project_context: 100 },
+        pieces: { project_context: [{ name: "/work/AGENTS.md", chars: 100 }] },
+        toolsAdded: {},
+        toolsRemoved: [],
+      },
+    };
+    const paths = await Promise.all(
+      [undefined, ""].map(async (home) => {
+        const tracker = createMetricsTracker({
+          clock,
+          entries: { all: [entry], branch: [entry] },
+          home,
+          readStats: () => Promise.resolve(stats()),
+          onChange: () => undefined,
+          onReadFailed: () => undefined,
+        });
+        tracker.refresh();
+        await settle();
+        return tracker.current().context?.parts?.memory.files.map(({ path }) => path);
+      }),
+    );
+
+    expect(paths).toStrictEqual([["/work/AGENTS.md"], ["/work/AGENTS.md"]]);
   });
 
   it("takes the entries it starts with in without publishing them", () => {

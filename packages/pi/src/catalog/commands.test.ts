@@ -26,8 +26,10 @@ describe("toSlashCommand", () => {
     });
   });
 
-  it("leaves out Atrium's Fast switch, but not a template of its name", () => {
+  it("leaves out Atrium's Fast switch and plan query, but not a template of their names", () => {
     expect(toSlashCommand({ name: "atrium-fast", description: "x", source: "extension", sourceInfo })).toBeNull();
+    expect(toSlashCommand({ name: "atrium-plan", description: "x", source: "extension", sourceInfo })).toBeNull();
+    expect(toSlashCommand({ name: "atrium-plan", source: "skill", sourceInfo })?.name).toBe("atrium-plan");
     expect(toSlashCommand({ name: "atrium-fast", source: "prompt", sourceInfo })?.name).toBe("atrium-fast");
     expect(toSlashCommand({ name: "atrium-faster", source: "extension", sourceInfo })?.name).toBe("atrium-faster");
   });

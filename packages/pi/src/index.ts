@@ -29,7 +29,7 @@ export {
   type SystemParts,
   toLogEntry,
 } from "./history/log-entry";
-export { type ContextShares, contextShares } from "./history/system-prompt";
+export { contextParts } from "./history/system-prompt";
 export { type PiStats, piStatsOf } from "./stats/session-stats";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {
@@ -50,6 +50,8 @@ export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
 export { sessionModelOf } from "./catalog/models";
 export { isFastSwitch, toSlashCommand } from "./catalog/commands";
 export { FAST_COMMAND } from "./fast/fast";
+export { type PlanReport, isPlanProvider } from "./plan/plan";
+export { queryPlanUsage } from "./plan/query";
 export { findFd } from "./locate/fd";
 export {
   ONESHOT_TIMEOUT_MS,
@@ -74,3 +76,4 @@ export {
   readLogins,
   startLogin,
 } from "./auth/login";
+export { compactionReserve } from "./env/compaction";

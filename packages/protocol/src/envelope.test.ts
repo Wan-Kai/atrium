@@ -402,8 +402,29 @@ const metrics = {
   cost: 0.45,
   reasoning: 120,
   branchTokens: 8000,
-  context: { tokens: 84_000, window: 200_000, system: 3000, tools: 2500 },
+  context: {
+    tokens: 84_000,
+    window: 200_000,
+    parts: {
+      system: 1200,
+      memory: { tokens: 900, files: [{ path: "/work/atrium/AGENTS.md", tokens: 880 }] },
+      skills: { tokens: 400, items: [{ name: "tdd", tokens: 120 }] },
+      builtin: { tokens: 2000, items: [{ name: "bash", tokens: 500 }] },
+      mcp: { tokens: 500, servers: [{ name: "paseo", tools: 6, tokens: 480 }] },
+      extensions: { tokens: 0, items: [] },
+    },
+    reserve: 16_384,
+  },
   timing: { modelMs: 4200, ttftMs: 800, tps: 48.5 },
+  plan: {
+    provider: "openai-codex",
+    plan: "plus",
+    windows: [
+      { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_760_000_000_000 },
+      { seconds: null, model: "Fable", usedPercent: 12.5, resetsAt: null },
+    ],
+    at: 1_759_990_000_000,
+  },
 } as const;
 
 /** The same figures with none known yet. */
@@ -416,6 +437,7 @@ const unknownMetrics = {
   branchTokens: 0,
   context: null,
   timing: null,
+  plan: null,
 } as const;
 
 /** One valid example of every session event. */
@@ -489,10 +511,15 @@ const events: SessionEvent[] = [
   {
     type: "metrics_updated",
     ...at,
+    metrics: { ...unknownMetrics, plan: { provider: "anthropic", plan: null, windows: [], at: 0 } },
+  },
+  {
+    type: "metrics_updated",
+    ...at,
     metrics: {
       ...metrics,
       reasoning: null,
-      context: { tokens: null, window: 200_000, system: null, tools: null },
+      context: { tokens: null, window: 200_000, parts: null, reserve: null },
       timing: { modelMs: 0, ttftMs: null, tps: null },
     },
   },
@@ -1671,6 +1698,37 @@ describe("HostMessage", () => {
     ],
     ["a fractional step count", { type: "metrics_updated", ...at, metrics: { ...metrics, steps: 1.5 } }],
     ["a negative cost", { type: "metrics_updated", ...at, metrics: { ...metrics, cost: -0.01 } }],
+    [
+      "a plan used past 100%",
+      {
+        type: "metrics_updated",
+        ...at,
+        metrics: { ...metrics, plan: { ...metrics.plan, windows: [{ ...metrics.plan.windows[0], usedPercent: 101 }] } },
+      },
+    ],
+    [
+      "a plan with nine windows",
+      {
+        type: "metrics_updated",
+        ...at,
+        metrics: {
+          ...metrics,
+          plan: { ...metrics.plan, windows: Array.from({ length: 9 }, () => metrics.plan.windows[0]) },
+        },
+      },
+    ],
+    [
+      "a plan of a provider Atrium does not ask",
+      {
+        type: "metrics_updated",
+        ...at,
+        metrics: { ...metrics, plan: { ...metrics.plan, provider: "github-copilot" } },
+      },
+    ],
+    [
+      "a context without its reserve",
+      { type: "metrics_updated", ...at, metrics: { ...metrics, context: { ...metrics.context, reserve: undefined } } },
+    ],
     [
       "a welcome without heartbeat",
       { type: "welcome", protocolVersion: 2, hostVersion: "0", hostInstanceId: "h1", installSeed: 1, logDir: "/l" },

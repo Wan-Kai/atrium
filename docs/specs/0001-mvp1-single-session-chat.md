@@ -23,7 +23,6 @@ Atrium 的第一个可用版本。它要回答一个问题：**在 Atrium 里用
 - 打包、签名、自动更新；手机端和 PWA；多窗口
 - 文件系统相关：审查面板、文件路径操作（用编辑器打开、在 Finder 中显示等）
 - 系统通知
-- 订阅额度（5 小时、每周用量）：不在对话面板里显示
 
 ## 需求
 
@@ -407,19 +406,19 @@ Electron 主进程
 
 **状态栏**（参考 DeepSeek Harness）
 
-位于输入框正下方，居中。按语义分组，每组是"图标 + 一行摘要"；悬停时这组出现浅色底，并在上方弹出详情卡片（标题行 + 细分隔线 + 键值列表），鼠标可以移进卡片；鼠标移开就收起，点过之后也一样，用键盘移到这组上时照样弹出（2026-10-12 定）。
+位于输入框正下方，居中。按语义分组，每组是"图标 + 一行摘要"；悬停时这组出现浅色底，并在上方弹出详情卡片（标题行 + 键值列表；标题行下的细分隔线 2026-10-15 去掉），鼠标可以移进卡片、点里面的按钮（中间的空隙不让卡片收起）；鼠标移开就收起，点过之后也一样，用键盘移到这组上时照样弹出（2026-10-12 定）。
 
 | 分组 | 默认 | 摘要 | 详情卡片 | 数据来源 |
 |---|---|---|---|---|
 | 会话统计 | 显示 | "N 轮 N 步 · 48 tok/s" | 模型用时、首 token 平均（TTFT）、输出速度（TPS） | 轮、步：`get_session_stats` 的 `userMessages`、`toolCalls`，按整个会话文件数（2026-10-10 定）。宿主计时：模型用时累计每次请求从发出到 `message_end`；TTFT 是发出请求到第一个增量；TPS 是最近一次回复的输出 token ÷ 流式输出时长（细节见"状态栏（M1.8）"） |
 | Token 用量 | 显示 | "1.3M tok · 缓存命中 73%" | 总量；缓存命中、未缓存输入、缓存读取、缓存写入、输出（其中推理，只有服务商报告时才有） | `get_session_stats` 的 `tokens`：统计的是整个会话文件，含其他分支和压缩消耗，详情卡片标明"本会话累计"；当前分支各轮之和另算。每条助手消息的 `usage`。缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`） |
-| 上下文 | 显示 | 圆环 + "42%" | "上下文已用 42% · ~84K / 200K"；分段彩色条与图例：系统提示词、工具定义、对话消息 | 见下文"上下文分段"。超过 70% 变黄、超过 85% 变红；压缩后到下一次回复前显示"—" |
+| 上下文 | 显示 | 圆环 + "42%" | "上下文已用 42% · ~84K / 200K"；分段彩色条与逐段的数和占比：对话消息、系统提示词、记忆文件、Skills、内置工具、MCP 工具、扩展、自动压缩预留、剩余空间，记忆文件、Skills、工具可以展开到每一项；底部"距自动压缩还剩 ~N"和"压缩会话"（M1.13 改，原先只分系统提示词、工具定义、对话消息三段） | 见下文"上下文分段"和"M1.13 的上下文细分与套餐用量"。超过 70% 变黄、超过 85% 变红；压缩后到下一次回复前显示"—" |
+| 套餐 | 显示 | 圆环 + "套餐 39%"（各窗口里用得最多的那个） | "ChatGPT Plus 用量"：每个窗口一行，名称（5 小时窗口、每周、每周 · 模型名）、重置时间、已用百分比和进度条；右上角写查到的时间 | 只在当前模型是 ChatGPT（Codex）或 Claude 订阅登录、并且查到了用量时出现（M1.13，ADR-0010）；用到 80% 变橙色。见下文"M1.13 的上下文细分与套餐用量" |
 | 费用 | 不显示 | "≈ $0.45" | 按 API 价格折算，订阅用户不实际付费 | `get_session_stats` 的 `cost` |
 
 - MVP 1 就支持配置显示哪些分组。唯一入口是状态栏末尾的调节按钮（平时半透明，悬停状态栏时变实），点开在上方弹出"状态栏"面板：每行是分组名称和一句说明、下面是这一项此刻的样子（关闭时变淡）、右边是开关；底部"恢复默认"。配置全局保存，对所有会话生效。
 - 分组做成注册表：每组包含 id、名称、摘要、详情卡片、是否默认显示。以后加指标：给某组的卡片加一行，或注册新的一组，不改状态栏本身。
 - "轮"是你发出的消息数（插话也算），"步"是工具调用次数，都按整个会话文件数，和 pi 的统计一致：切过分支或插过话后，和对话区里看到的轮数不一定相同（2026-10-10 定）。
-- 订阅额度不在对话面板里显示。
 
 ### 首次启动
 
@@ -560,7 +559,7 @@ Electron 主进程
   - `write`：显示文件路径和写入的内容（没有旧内容，不显示增删行）
   - 其他工具（包括 MCP 工具）：显示工具名、参数和结果文本
   - 同一批里的工具调用可能并行，每个调用各自显示状态
-- **上下文分段**：总量用 `get_session_stats` 的 `contextUsage.tokens`，它可能为空，也可能是 pi 的估算值，为空时显示"—"。系统提示词和工具定义从会话记录还原：pi 在第一次请求时把提示词的各个分段（`sections`）和工具声明（`toolsAdded`）写成一条系统消息，之后的变化也写成系统消息（按名字修改分段、`toolsAdded` / `toolsRemoved`）；压缩条目里存有完整的检查点（`systemMessage`）。宿主沿当前分支回放这些条目，得到当前的提示词和工具集，再按字符数估算 token；对话消息 = 总量 − 系统提示词 − 工具定义。分段数字标"~"。新会话在第一次请求前、以及没有系统消息的旧会话，只显示总量。
+- **上下文分段**：总量用 `get_session_stats` 的 `contextUsage.tokens`，它可能为空，也可能是 pi 的估算值，为空时显示"—"。系统提示词和工具定义从会话记录还原：pi 在第一次请求时把提示词的各个分段（`sections`）和工具声明（`toolsAdded`）写成一条系统消息，之后的变化也写成系统消息（按名字修改分段、`toolsAdded` / `toolsRemoved`）；压缩条目里存有完整的检查点（`systemMessage`）。宿主沿当前分支回放这些条目，得到当前的提示词和工具集，按分段名和工具名分到各段（M1.13：系统提示词、记忆文件、Skills、内置工具、MCP 工具、扩展），再按字符数估算 token；对话消息 = 总量 − 其余各段。自动压缩预留来自 pi 的设置。分段数字标"~"。新会话在第一次请求前、以及没有系统消息的旧会话，只显示总量。
 - **对话框**：pi 发出 `extension_ui_request` 时，对话框类（`select` / `confirm` / `input` / `editor`）显示为卡片，回答后发 `extension_ui_response`；带超时的显示倒计时。对话框可能出现在一次运行之外，由宿主按会话保存（pi 不把它写进会话文件），所以"问题 → 回答"只在宿主存活期间保留。有未回答对话框的会话不回收进程；多个客户端同时回答，只接受第一个。单向通知类（`notify` 等）保留原文、暂时不显示。
 - **在终端中继续**：pi 没有跨进程的写锁，两个进程同时写一个会话会悄悄分叉。所以这是一次交接：Atrium 停止接受该会话的写命令并回收进程，再给出 `pi --session <文件>`；用户回到 Atrium 时重新加载。会话文件被外部改动后怎么提示，等文件区设计时再定；宿主先预留检测（比较文件大小和修改时间）和 `session_changed_externally` 事件。交接之后回到 Atrium 要点"在 Atrium 里继续"，切到标签不会自动启动 pi（M1.9，见下文"并行、同步与关注"）。
 - **同步与断线重连**（参照 Paseo）：
@@ -1045,6 +1044,47 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 新增命令 `list_dir`、`read_file`；新增错误码 `path_invalid`、`read_failed`，`path_not_found` 沿用原来的。
 
+### M1.13 的上下文细分与套餐用量（协议版本 16，2026-10-15 定）
+
+原型 `prototypes/context-quota-prototype.html`（上下文细分；套餐选 B"状态栏单独一组"）。套餐用量怎么查见 ADR-0010。
+
+**上下文细分**
+
+- 来源同"上下文分段"：宿主沿当前分支回放系统消息，只是不再把分段合成一个数，而是按分段名和工具名分开估（pi 1.1.0 `buildSystemPromptSections`，pi-internals.md §2"系统消息"）：
+  - **系统提示词**：`content`，以及分段 `preamble`、`tools`（工具的一句话说明，是文字不是定义）、`rules`、`docs`、`addendum`、`cwd`。
+  - **记忆文件**：分段 `project_context`，按其中每个 `<project_instructions path="…">` 块分到文件（全局的 `~/.pi/agent/AGENTS.md` 在前，再是各级目录的），块外的引导语算在这一段的合计里。
+  - **Skills**：分段 `skills`，按其中每个 `<skill>` 块分到 skill，名字取 `<name>`（解开 XML 转义）。
+  - **内置工具**：pi 自己的工具 `read`、`bash`、`powershell`、`edit`、`write`、`grep`、`find`、`ls`，以及 pi 内置扩展的 `codemode`、`tool_search`。
+  - **MCP 工具**：名字是 `mcp__<服务器>__<工具>` 的工具按服务器分组，记工具数；分段 `mcp_servers` 算在这一段的合计里、不归哪个服务器。
+  - **扩展**：其余的工具和其余的分段，各按名字一项。
+  - 每项按字符数 ÷ 4 向上取整估 token；工具是它的声明 JSON。一段的合计按整段的字符数算，所以可能比各项之和略多。
+- **自动压缩预留**：pi 在上下文超过"窗口 − `reserveTokens`"时自动压缩。宿主读 pi 的全局设置（`<pi 目录>/settings.json` 的 `compaction`）：`enabled` 为 `false` 时没有预留；`reserveTokens` 先看 `modelOverrides["服务商/模型"]`，再看 `compaction.reserveTokens`，都没有时是 16384。项目里的 `.pi/settings.json` 要等 pi 信任这个项目才生效，宿主不读它（同 `sessionDir`），所以项目里改过时会有出入。设置文件在 pi 启动时、换模型后读。
+- 协议：`context.parts` 为 `null` 或
+  - `system`：数；
+  - `memory`：`{ tokens, files: [{ path, tokens }] }`，`path` 是 pi 写的路径，家目录下的由宿主写成 `~/…`；
+  - `skills`：`{ tokens, items: [{ name, tokens }] }`；
+  - `builtin`：`{ tokens, items: [{ name, tokens }] }`；
+  - `mcp`：`{ tokens, servers: [{ name, tools, tokens }] }`；
+  - `extensions`：`{ tokens, items: [{ name, tokens }] }`。
+  
+  `context.reserve` 是预留的 token 数，自动压缩关着或读不到设置时为 `null`。各列表按 token 从多到少排，同样多的按名字。
+- 卡片：标题行"上下文已用 N%"和"~用量 / 窗口"；分段彩色条（预留画成斜纹、贴在条的右端）；每段一行：色块、名称、个数（记忆文件、Skills、工具）、"~N"、占窗口的百分比；记忆文件、Skills、内置工具、MCP 工具、扩展的行点了展开到每一项（文件写路径，`~` 代替家目录；MCP 写"服务器 · N 个"），再点收起，不记。没有的段不显示。最后两行是"自动压缩预留"（`reserve` 为 `null` 时不显示）和"剩余空间"（窗口 − 用量 − 预留，不小于 0）。底部"距自动压缩还剩 ~N"（同剩余空间；自动压缩关着时写"自动压缩已关"）和"压缩会话"按钮，按它同输入框里发 `/compact`；会话在运行、正在压缩或没有用量时按钮不可用。最后一行小字"各段按字数估算"。
+- `parts` 为 `null` 时卡片同原来：只有总量和一句"接近上限时 pi 会自动压缩"。
+
+**套餐用量**
+
+- 只查两家：`openai-codex`（ChatGPT 订阅）和 `anthropic` 的订阅登录（ADR-0010）。宿主在会话的 pi 启动后、每次运行结束后、换模型之后，当前模型是这两家之一、并且 pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 发 `/atrium-plan <服务商>`；同一服务商 60 秒内最多问一次、正在问时不再问。`atrium-plan` 和 `atrium-fast` 一样不出现在 `/` 菜单里。
+- 扩展用 `setStatus("atrium-plan", …)` 报 `{ provider, plan, windows }` 或 `{ provider, failure }`：
+  - `plan`：ChatGPT 是 `plan_type`（如 `plus`、`pro`），Claude 为 `null`；
+  - `windows`：每个窗口 `{ seconds, model, usedPercent, resetsAt }`。`seconds` 是窗口长度（5 小时是 18000，一周是 604800，不知道时为 `null`），`model` 是按模型的窗口的模型名（Claude 的 `weekly_scoped`），其余为 `null`；`usedPercent` 是 0–100 的数；`resetsAt` 是毫秒时间戳或 `null`。
+  - ChatGPT：`rate_limit.primary_window`、`secondary_window`，`reset_at` 是秒。Claude：有 `limits[]` 时用它（`session`、`weekly_all` 各一个窗口，`weekly_scoped` 每个模型一个），没有时用 `five_hour`、`seven_day`、`seven_day_opus`、`seven_day_sonnet` 里不为 `null` 的。
+  - `failure` 是原因代码：`no_login`（这家没登录或是 API key）、`unreachable`、`http_<状态码>`、`not_json`、`unknown_shape`。
+- 宿主按格式校验（服务商是这两家之一，窗口最多 8 个，百分比夹到 0–100，模型名最多 64 个字），按服务商记最近一次成功的结果和查到的时间；失败只记日志（服务商和原因代码），之前的结果保留 10 分钟后丢掉，`no_login` 立即丢掉。
+- 协议：`metrics.plan` 为 `null` 或 `{ provider, plan, windows, at }`，是这个会话当前模型的服务商的结果（`at` 是查到的时间）。别的会话查到同一家的新结果时，这个会话也推 `metrics_updated`。
+- 状态栏的"套餐"一组：摘要是圆环和"套餐 N%"，N 是各窗口里最大的已用百分比，取整；≥ 80% 时圆环和数字用 `--attn`。卡片：标题"ChatGPT Plus 用量"（服务商名：`openai-codex` 是 ChatGPT，`anthropic` 是 Claude；后面跟套餐名，首字母大写），右上角是查到的时间（"刚刚""N 分钟前"）；每个窗口一行：名称（18000 秒是"5 小时窗口"，604800 秒是"每周"，其余按小时或天，有模型名时加"· 模型名"）、重置时间（一天内写"N 小时 N 分后重置"，再远写"周几 HH:MM 重置"，没有时不写）、百分比和进度条（≥ 80% 用 `--attn`）。`metrics.plan` 为 `null` 或没有窗口时整组不显示。
+
+新增：`metrics.plan`、`context.parts`、`context.reserve`；去掉 `context.system`、`context.tools`。协议版本 16。
+
 ### 状态栏（M1.8，2026-10-10 定）
 
 产品层面的规则见上文"对话区"的"状态栏"和"关键流程"的"上下文分段"，这里写宿主和协议怎么做。数据对照 pi 1.1.0 源码（pi-internals.md §2"统计"）。
@@ -1056,7 +1096,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
   - `turns`、`steps`、`tokens`、`cost`：来自 `get_session_stats`，还没读到时为 `null`。`turns`、`steps` 是 `userMessages`、`toolCalls`；`tokens` 是 `{ input, output, cacheRead, cacheWrite }`（整个会话文件，含其他分支和压缩消耗），卡片标"本会话累计"；总量是四项之和，缓存命中 = `cacheRead` ÷（`input` + `cacheRead` + `cacheWrite`），分母为 0 时未知；`cost` 是美元，按 API 价格折算。
   - `reasoning`：会话文件里所有助手消息 `usage.reasoning` 之和（pi 的统计没有这一项；它已经算在输出里），没有一条消息报告时为 `null`，卡片不显示"其中推理"。
   - `branchTokens`：当前分支上助手消息 `usage` 四项之和，卡片另起一行"当前分支"。
-  - `context`：`{ tokens, window, system, tools }`。`tokens`、`window` 是 `get_session_stats` 的 `contextUsage.tokens`、`contextWindow`；pi 没给 `contextUsage` 时（没有模型、模型没有上下文窗口）整项为 `null`；压缩后到下一次回复前 `tokens` 为 `null`。`system`、`tools` 见下文"上下文分段"，还原不出来时为 `null`，卡片只显示总量。
+  - `context`：`{ tokens, window, parts, reserve }`（M1.13 改，原先是 `{ tokens, window, system, tools }`）。`tokens`、`window` 是 `get_session_stats` 的 `contextUsage.tokens`、`contextWindow`；pi 没给 `contextUsage` 时（没有模型、模型没有上下文窗口）整项为 `null`；压缩后到下一次回复前 `tokens` 为 `null`。`parts`、`reserve` 见"M1.13 的上下文细分与套餐用量"，还原不出来时 `parts` 为 `null`，卡片只显示总量。
   - `timing`：`{ modelMs, ttftMs, tps }`，宿主存活期间这个会话一次请求都没测到时整项为 `null`（宿主重启后、刚打开的会话）。
 - **什么时候读**：会话的 pi 启动后、每条助手消息的 `message_end`、`compaction_end`、`agent_settled`、换模型或推理强度之后，宿主调一次 `get_session_stats`。同一会话同时只读一次，读的期间又要读时，读完再读一次。读失败只记日志（命令和原因；pi 退出或被停掉造成的不记，它的退出另有记录），保留上一次的值；pi 退出后指标保留最后的值。`reasoning`、`branch` 和上下文分段在取条目之后重算，不问 pi。算出的 `metrics` 和上一次推的一样时不推。
 
@@ -1071,8 +1111,8 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 **上下文分段**
 
 - 宿主沿当前分支回放：从最近一条压缩条目的 `systemMessage`（完整的检查点）开始，没有压缩就从头；之后每条 `role: "system"` 的消息里，`content` 接在提示词后面，`sections` 按名字替换（值为 `null` 的删掉），`toolsAdded` / `toolsRemoved` 按工具名增删。和 pi-ai 的 `getCurrentSystemMessage` 一致，写在 `packages/pi` 里（运行时不依赖 pi 的包）。
-- 估算和 pi 的 `estimateTokens` 一致：系统提示词 = （`content` 加各个 `sections` 的字符数）÷ 4，工具定义 = 工具声明 JSON 的字符数 ÷ 4，向上取整。对话消息 = `tokens` − 系统提示词 − 工具定义，小于 0 时按 0。
-- 分支上没有系统消息（新会话第一次请求之前、pi 写系统消息之前的旧会话）时 `system`、`tools` 为 `null`。
+- 估算和 pi 的 `estimateTokens` 一致：系统提示词 = （`content` 加各个 `sections` 的字符数）÷ 4，工具定义 = 工具声明 JSON 的字符数 ÷ 4，向上取整。对话消息 = `tokens` − 系统提示词 − 工具定义，小于 0 时按 0。M1.13 起按分段名和工具名再分开，见"M1.13 的上下文细分与套餐用量"。
+- 分支上没有系统消息（新会话第一次请求之前、pi 写系统消息之前的旧会话）时 `system`、`tools`（M1.13 起是 `parts`）为 `null`。
 
 **显示哪些分组**
 
