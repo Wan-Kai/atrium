@@ -10,7 +10,7 @@ export interface MetricsTracker {
   entriesChanged(all: readonly LogEntry[], branch: readonly LogEntry[]): void;
   /** Reads pi's statistics and compaction reserve again, as once pi has started or the model changed. */
   refresh(): void;
-  /** Splits the context again for the session's model now, whose provider may send another prompt. */
+  /** Publishes the figures again for the session's model now, whose provider may send another prompt. */
   modelChanged(): void;
   /** Takes the usage of the subscription of the session's model, or none. */
   planChanged(plan: PlanUsage | null): void;
@@ -128,6 +128,8 @@ export function createMetricsTracker(options: {
   /** The current branch's entries, split again when the model changes. */
   // Stryker disable next-line ArrayDeclaration: any other start holds no system message either, so no split.
   let lastBranch: readonly LogEntry[] = [];
+  /** The provider the parts were split for: the figures split again once the session's model is another's. */
+  let splitFor: string | null = null;
   let reserve: ContextReserve = null;
   let plan: PlanUsage | null = null;
   let timed: Timed | null = null;
@@ -173,23 +175,40 @@ export function createMetricsTracker(options: {
    * @remarks
    * Through Claude Code, the system prompt is not pi's (SPEC-0001, "M1.13 的上下文细分与套餐用量").
    *
-   * @sideEffects Updates the parts.
+   * @sideEffects Updates the parts and the provider they are for.
    */
   function split(): void {
-    const found = contextParts(lastBranch, options.provider?.() ?? null);
+    splitFor = providerNow();
+    const found = contextParts(lastBranch, splitFor);
     parts = found === null ? null : fromHome(found, options.home);
+  }
+
+  /**
+   * The provider of the session's model now.
+   *
+   * @remarks
+   * One reading for both the split and the check whether to split again.
+   *
+   * @sideEffects none
+   * @returns The provider, or `null` when unknown.
+   */
+  function providerNow(): string | null {
+    return options.provider?.() ?? null;
   }
 
   /**
    * The figures as they stand.
    *
    * @remarks
-   * See `createMetricsTracker`.
+   * See `createMetricsTracker`. The parts follow the session's model as it is now, whoever asks:
+   * a snapshot published as a new pi starts sees the provider it brought.
    *
-   * @sideEffects none
+   * @sideEffects Splits the context again when the session's model is another provider's.
    * @returns The figures.
    */
   function current(): SessionMetrics {
+    // Stryker disable next-line ConditionalExpression: splitting again for the same provider gives the same parts.
+    if (providerNow() !== splitFor) split();
     const context = stats?.context ?? null;
     return {
       turns: stats?.turns ?? null,
@@ -316,10 +335,7 @@ export function createMetricsTracker(options: {
       changed();
     },
     refresh: read,
-    modelChanged() {
-      split();
-      changed();
-    },
+    modelChanged: changed,
     planChanged(next) {
       plan = next;
       changed();

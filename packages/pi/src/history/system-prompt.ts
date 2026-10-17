@@ -44,11 +44,21 @@ const CLAUDE_BRIDGE = "claude-bridge";
  */
 const CLAUDE_CODE_PROMPT = 15_300;
 
-/** pi's section that holds `APPEND_SYSTEM.md`, which pi-claude-bridge passes on. */
+/** pi's section that holds `APPEND_SYSTEM.md`, which pi-claude-bridge passes on without its tags. */
 const ADDENDUM_SECTION = "addendum";
 
-/** The section only pi's default opening has; without it, the opening is your own and passed on. */
-const DOCS_SECTION = "docs";
+/** The tags pi frames the addendum in, `<addendum>\n` and `\n</addendum>`, in characters. */
+const ADDENDUM_TAGS = 23;
+
+/**
+ * The sections pi writes with its default opening alone.
+ *
+ * @remarks
+ * An opening of your own comes without all three, and pi-claude-bridge passes it on; checking all
+ * three keeps an extension's section of one of these names from hiding it (pi 1.1.0
+ * `buildSystemPromptSections`).
+ */
+const DEFAULT_OPENING_SECTIONS = ["tools", "rules", "docs"];
 
 /**
  * Estimates tokens as pi's `estimateTokens` does: a token for four characters, rounded up.
@@ -119,8 +129,9 @@ function named(pieces: readonly SectionPiece[]): { name: string; tokens: number 
  * to MCP, and everything else to the extensions. Estimated as pi's `estimateTokens` does, a token
  * for four characters rounded up; a tool is its declaration's JSON. Written here rather than
  * imported: the host does not depend on pi's packages at run time (overview.md). Through Claude
- * Code (`claude-bridge`), the system prompt is Claude Code's own, the text, the addendum, and an
- * opening of your own: pi's default opening, tools, rules, docs and cwd are not sent.
+ * Code (`claude-bridge`), the system prompt is Claude Code's own, the text, the addendum without
+ * its tags, and an opening of your own: pi's default opening, tools, rules, docs and cwd are not
+ * sent.
  *
  * @sideEffects none
  * @param branch - The branch's entries, root first.
@@ -142,7 +153,6 @@ export function contextParts(branch: readonly LogEntry[], provider: string | nul
     if (part.textChars > 0) texts.push(part.textChars);
     for (const [name, chars] of Object.entries(part.sections)) {
       pieces.delete(name);
-      // Stryker disable next-line ConditionalExpression: a section kept as `null` adds nothing to the sum either.
       if (chars === null) sections.delete(name);
       else sections.set(name, chars);
     }
@@ -177,10 +187,11 @@ export function contextParts(branch: readonly LogEntry[], provider: string | nul
     }
   }
   const mcpChars = sum([...mcp.values()].flatMap((list) => list.map(({ chars }) => chars)));
-  const opening = sections.has(DOCS_SECTION) ? 0 : section("preamble");
+  const opening = DEFAULT_OPENING_SECTIONS.every((name) => sections.has(name)) ? 0 : section("preamble");
+  const addendum = Math.max(section(ADDENDUM_SECTION) - ADDENDUM_TAGS, 0);
   const system =
     provider === CLAUDE_BRIDGE
-      ? CLAUDE_CODE_PROMPT + text + section(ADDENDUM_SECTION) + opening
+      ? CLAUDE_CODE_PROMPT + text + addendum + opening
       : text + sum([...SYSTEM_SECTIONS].map(section));
   return {
     system: tokensOf(system),

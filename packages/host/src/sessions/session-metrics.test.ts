@@ -323,7 +323,7 @@ describe("createMetricsTracker: the entries", () => {
     expect(published).toHaveLength(2);
   });
 
-  it("splits the context by the provider of the session's model, again when the model changed", async () => {
+  it("splits the context by the provider of the session's model now, publishing it when the model changed", async () => {
     let provider: string | null = "anthropic";
     const { tracker, published, answer } = harness(undefined, () => provider);
     tracker.refresh();
@@ -332,13 +332,13 @@ describe("createMetricsTracker: the entries", () => {
     tracker.entriesChanged(branch, branch);
     provider = "claude-bridge";
 
-    const before = tracker.current().context?.parts?.system;
+    const asked = tracker.current().context?.parts?.system;
+    const publishedBefore = published.length;
     tracker.modelChanged();
-    const through = tracker.current().context?.parts?.system;
     provider = null;
     tracker.modelChanged();
 
-    expect([before, through, tracker.current().context?.parts?.system]).toStrictEqual([100, 3925, 100]);
+    expect([asked, publishedBefore, tracker.current().context?.parts?.system]).toStrictEqual([3925, 2, 100]);
     expect(published.map((metrics) => metrics.context?.parts?.system)).toStrictEqual([undefined, 100, 3925, 100]);
   });
 

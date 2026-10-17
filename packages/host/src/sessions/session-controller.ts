@@ -707,7 +707,7 @@ export function createSessionController(options: {
    * it is read like any other (SPEC-0001, "模型与输入框"). A change pi took stands even when the
    * model cannot be read back; it is read again after the next entries.
    *
-   * @sideEffects Calls pi; may publish `model_updated`; reports the choice; starts a refresh.
+   * @sideEffects Calls pi; may publish `model_updated` and `metrics_updated`; reports the choice; starts a refresh.
    * @param change - The request to pi.
    * @throws {CommandError} `session_stopping`, `pi_unavailable`, or pi's refusal of the change.
    */
@@ -737,7 +737,7 @@ export function createSessionController(options: {
    * @remarks
    * Once read, it is not read again.
    *
-   * @sideEffects Calls pi; may publish `model_updated`; reports the choice.
+   * @sideEffects Calls pi; may publish `model_updated` and `metrics_updated`; reports the choice.
    * @throws {Error} When pi does not answer.
    */
   async function readChoice(): Promise<void> {

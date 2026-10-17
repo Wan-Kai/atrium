@@ -116,13 +116,16 @@ const TDD = "<skill>\n<name>tdd</name>\n<description>Test first</description>\n<
 const DIAGNOSE = `<skill>\n<name>diagnose</name>\n<description>${"x".repeat(60)}</description>\n</skill>`;
 const SKILLS = `<available_skills>\n${TDD}\n${DIAGNOSE}\n</available_skills>`;
 
+/** An addendum of ten characters, framed in its tags as pi stores each section but the opening. */
+const ADDENDUM = `<addendum>\n${"a".repeat(10)}\n</addendum>`;
+
 /** A system message with a text, an addendum and every other kind of section, besides `sections`. */
 const promptWith = (sections: SystemMessage["sections"]): LogEntry[] => [
   toLogEntry(
     systemEntry("s0", {
       content: "c".repeat(6),
       sections: {
-        addendum: "a".repeat(10),
+        addendum: ADDENDUM,
         cwd: "/w".repeat(2),
         project_context: MEMORY,
         skills: SKILLS,
@@ -251,7 +254,7 @@ describe("contextParts", () => {
   });
 
   describe("through Claude Code", () => {
-    it("counts Claude Code's own prompt, the text and the addendum, not pi's opening, tools, rules, docs and cwd", () => {
+    it("counts Claude Code's own prompt, the text and the addendum's text, not pi's opening, tools, rules, docs and cwd", () => {
       const entries = promptWith(DEFAULT);
 
       const parts = present(contextParts(entries, "claude-bridge"), "the parts");
@@ -260,17 +263,39 @@ describe("contextParts", () => {
       expect({ ...parts, system: 0 }).toStrictEqual({ ...present(contextParts(entries), "pi's parts"), system: 0 });
     });
 
-    it("counts an opening of your own, which pi writes with no docs", () => {
+    it("counts an opening of your own, which pi writes with no tools, rules and docs", () => {
       const parts = contextParts(promptWith({ preamble: "y".repeat(80) }), "claude-bridge");
 
       expect(parts?.system).toBe(Math.ceil((15_300 + 80 + 6 + 10) / 4));
+    });
+
+    it("counts an opening of your own taken on later, when pi removes its tools, rules and docs", () => {
+      const later = toLogEntry(
+        systemEntry("s1", { sections: { preamble: "y".repeat(80), tools: null, rules: null, docs: null } }),
+      );
+
+      const parts = contextParts([...promptWith(DEFAULT), later], "claude-bridge");
+
+      expect(parts?.system).toBe(Math.ceil((15_300 + 80 + 6 + 10) / 4));
+    });
+
+    it("counts an opening of your own beside an extension's section named docs", () => {
+      const parts = contextParts(promptWith({ preamble: "y".repeat(80), docs: "e".repeat(30) }), "claude-bridge");
+
+      expect(parts?.system).toBe(Math.ceil((15_300 + 80 + 6 + 10) / 4));
+    });
+
+    it("counts no addendum shorter than its tags as less than none", () => {
+      const parts = contextParts(promptWith({ ...DEFAULT, addendum: "a".repeat(5) }), "claude-bridge");
+
+      expect(parts?.system).toBe(Math.ceil((15_300 + 6) / 4));
     });
 
     it("counts pi's prompt for any other provider, as for none", () => {
       const entries = promptWith(DEFAULT);
 
       expect(contextParts(entries, "anthropic")).toStrictEqual(contextParts(entries));
-      expect(contextParts(entries, null)?.system).toBe(Math.ceil((6 + 40 + 8 + 12 + 20 + 10 + 4) / 4));
+      expect(contextParts(entries, null)?.system).toBe(Math.ceil((6 + 40 + 8 + 12 + 20 + ADDENDUM.length + 4) / 4));
     });
   });
 

@@ -2179,6 +2179,21 @@ describe("createSessionController's Fast", () => {
 /** A model pi may report. */
 const opus: SessionModel = { providerId: "anthropic", modelId: "claude-opus-5-5", thinkingLevel: "high" };
 
+/** pi's default prompt as its system message states it: an opening of 40 characters, tools, rules and docs. */
+const defaultPrompt: LogEntry = {
+  id: "s1",
+  parentId: null,
+  kind: "system",
+  timestamp: 0,
+  system: {
+    textChars: 0,
+    sections: { preamble: 40, tools: 8, rules: 12, docs: 20 },
+    pieces: {},
+    toolsAdded: {},
+    toolsRemoved: [],
+  },
+};
+
 /** The control of each `control_updated` among the events. */
 function compactingUpdates(events: readonly SessionEvent[]) {
   return events.flatMap((event) => (event.type === "control_updated" ? [event.control] : []));
@@ -3018,22 +3033,35 @@ describe("createSessionController's status bar figures", () => {
     );
     // The entries read again after the change never come: the new model alone splits the context again.
     pages.push(() => new Promise<EntriesPage>(() => undefined));
-    const system: LogEntry = {
-      id: "s1",
-      parentId: null,
-      kind: "system",
-      timestamp: 0,
-      system: { textChars: 0, sections: { preamble: 40, docs: 20 }, pieces: {}, toolsAdded: {}, toolsRemoved: [] },
-    };
-    const { controller } = control(pi, { entries: [system], leafId: "s1" }, { model: opus });
+    const { controller } = control(pi, { entries: [defaultPrompt], leafId: "s1" }, { model: opus });
     await settle();
-    expect(controller.snapshot().metrics.context?.parts?.system).toBe(15);
+    expect(controller.snapshot().metrics.context?.parts?.system).toBe(20);
 
     states.push({ providerId: "claude-bridge", modelId: "claude-opus-5-5", thinkingLevel: "off" });
     await controller.setModel({ providerId: "claude-bridge", modelId: "claude-opus-5-5" });
     await settle();
 
     expect(controller.snapshot().metrics.context?.parts?.system).toBe(3825);
+  });
+
+  it("splits the context for the model a new pi brings, in the snapshot it starts with", async () => {
+    const first = manualPi();
+    first.statsAnswers.push(async () => piStats);
+    const { controller, events } = control(first.pi, { entries: [defaultPrompt], leafId: "s1" }, { model: opus });
+    await settle();
+    await controller.shutdown();
+    const second = manualPi();
+    const before = events.length;
+
+    controller.attach({
+      pi: second.pi,
+      entries: { entries: [defaultPrompt], leafId: "s1" },
+      model: { ...opus, providerId: "claude-bridge" },
+    });
+    await settle();
+
+    const started = events.slice(before).find((event) => event.type === "session_snapshot");
+    expect(started).toMatchObject({ metrics: { context: { parts: { system: 3825 } } } });
   });
 
   it("starts from the entries it was given, publishing nothing for them", () => {
