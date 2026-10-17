@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-17：M1.15 子对话与子代理进行中，在 `m1.15-subagents` 分支上（worktree `atrium.worktrees/spec-subagents`，从 `spec-0002-subagents` 分出，已合入 `main` 的 M1.14）。SPEC-0002 的设计经三方审查后定稿；pi 契约测试在本机 1.1.0 上实测了第二步依赖的行为（除了提示缓存都成立）；扩展与宿主的通道定为"状态加隐藏命令"（[ADR-0013](adr/0013-agent-channel-status-and-hidden-command.md)）。下一步：第一步界面的原型（入口、子对话条、面包屑、带回）。**
+
 **2026-10-17：M1.14 套餐总览完成，三方审查（Astra、Grok、Claude）后已合并回 `main`。审查的问题修了 5 条（见下一条）；"判断当前订阅只看服务商名、不分订阅登录和 API key"按用户决定先写成已知限制（SPEC-0001"M1.14 的套餐总览"、ADR-0012），以后由宿主带上会话是否订阅登录再改。下一步回到 [M1.11](#m111-自用) 的自用。**
 
 **2026-10-16：M1.14 套餐总览写完，待三方审查后合并（在 worktree `atrium.worktrees/plan-overview` 里做，原工作区留给并行的 claude-bridge 上下文细分）。扩展查 Grok 的 billing（只对 xAI 订阅登录、写死地址，已用 pi 的登录实测），按产品拆成窗口的 `parts`；宿主每个会话的 pi 启动后和每次运行结束后问三家，用量全宿主一份，`plans_updated` 变了就推、握手后紧跟 `welcome` 补发一次（原计划的 `get_plans` 命令没做，客户端不用另发请求）；同一家连续同样的失败只记一次日志；状态栏卡片按服务商分段、当前模型那家在前，摘要取当前模型那家；设置 · 模型与账户加"套餐用量"，Atrium 加载不了 pi 的登录时也显示。协议 17。单元、宿主、pi（新录 `plan-xai-key` 夹具）、界面、泄漏、相关端到端和 `pnpm check` 通过；变异分数 pi 99.94%、host 100%、shared 99.95%、ui 99.53%，新代码的存活变异都补了或注明等价。2026-10-17 自用后加了 [ADR-0012](adr/0012-claude-usage-from-replies-and-openai-mapping.md)：Claude 的用量也从回复的 `anthropic-ratelimit-unified-*` 头读（经 pi-claude-bridge 实测），`claude-bridge` 算 Claude、新的 `openai` 登录算 ChatGPT（它自己的用量 OpenAI 不让查）；之后变异分数 pi 99.81%、host 100%、ui 99.53%。界面测试里右栏的"0.24 秒打开"动画测试、宿主的 `install-job.test.ts`"ends what the command left running in its group"在整套并行时偶尔失败、单跑都过，和本次无关，记下待查。三方审查（Astra、Grok、Claude）的问题修了 5 条：Grok 百分比类型不对时报 `unknown_shape` 不当 0；回复只更新不分模型的 5 小时和每周窗口、留着按模型的窗口；回复报告只收 `anthropic`；回复不清失败去重；查询出错也按原因去重。**
@@ -97,6 +99,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - 工程约束：[coding-standards.md](architecture/coding-standards.md)（每个函数和组件写 JSDoc：what、why、副作用）、[security.md](architecture/security.md)、[observability.md](architecture/observability.md)（OpenTelemetry 追踪 + pino 日志，全链路 trace id）。MVP 只做中文，宿主只发错误码不发文案。
 - 测试与代码质量（[testing.md](architecture/testing.md)）：Vitest 5（含浏览器模式）、Playwright 驱动 Electron、fast-check、Stryker 变异测试（核心模块 ≥ 80%）、泄漏测试（资源计数回到基线；界面比较脱离文档的 DOM 节点）、性能预算、长时间运行；oxlint（类型感知）+ oxfmt + TypeScript 7 + knip + lefthook。能用真的就用真的，模型用 pi 的 faux，时间用假时钟。
 - 项目 → 工作区 → 会话；工作区与目录一一对应；另有不绑定项目的"对话"（[ADR-0006](adr/0006-organize-sessions-by-workspace.md)）。
+- 扩展和宿主之间有来有回：扩展 `setStatus("atrium-agent:<请求 id>", JSON)` 问，宿主隐藏命令 `/atrium-agent reply | deliver | cancel` 答；调用方身份看是哪个 pi 进程的管道，不另开端口和 token（[ADR-0013](adr/0013-agent-channel-status-and-hidden-command.md)）。
 - Atrium 不内置浏览器：agent 的浏览器操作在外部浏览器（默认 ego lite）里做，定制功能做成自己的浏览器插件（[ADR-0009](adr/0009-browser-stays-external.md)）。
 
 数据与运行（细节见 [domain-model.md](architecture/domain-model.md)）：
@@ -384,7 +387,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 第一步（用户开，不用来回的通道）：从回复下方或菜单开子对话（可带上下文、可新建 worktree）、子对话条、标签的"↳"和面包屑、主对话标签的状态汇总、状态栏的"含子对话"用量合计、收件箱和"历史"的写法、带回主对话、归档连带、脱离。
   - 第二步（agent 开）：ADR-0013 定扩展与宿主之间有来有回的通道；Atrium 自带扩展给主 agent 的 `agent_spawn` / `agent_send` / `agent_wait` / `agent_reply` / `agent_list` / `agent_read` / `agent_stop` / `agent_models`，给子对话的 `report_progress` / `ask_parent`（挂着等回答、超时就继续）；按不变的句柄寻址、按任务 id 等待和通知；推理档位用 pi 的档位名、不支持就报错；agent 开的子对话可以带上下文（切在当前叶子、命中提示缓存，只读由扩展拦）；三个角色（只读用 `--tools` 白名单、角色不高于调用方）；agent 开的最多 2 层、每个父会话同时最多 6 个（用户手动开的不算、不限层数）；agent 自己判断什么时候开；agent 开的子对话做完一轮、没有标签开着、排队为空时停掉它的 pi，有事再起；往上的通知和往下的交代都走宿主的排队并持久化（在会话文件里见到才算送到、按送达 id 去重），作为自定义消息进对话记录；过程轨道上的分出与合回。
   - 不做：子对话之间平级通信、不相干会话之间通信、父 agent 代答审批或提问、自定义角色文件。
-- **参考**：[SPEC-0002](specs/0002-child-conversations.md)、[multi-agent.md](research/multi-agent.md)、[pi-extension-capabilities](research/pi-extension-capabilities.md)"RPC 模式下 extension 到宿主的通道"、[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[pi-internals](research/pi-internals.md)（fork 的 cwd、限制工具、对话框、`sendMessage`）、SPEC-0001"M1.11 的 `/` 命令 · 分叉""并行、同步与关注"。
+- **参考**：[SPEC-0002](specs/0002-child-conversations.md)、[multi-agent.md](research/multi-agent.md)、[pi-extension-capabilities](research/pi-extension-capabilities.md)"RPC 模式下 extension 到宿主的通道"、[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[ADR-0013](adr/0013-agent-channel-status-and-hidden-command.md)、[pi-internals](research/pi-internals.md)（fork 的 cwd、限制工具、对话框、`sendMessage`、SPEC-0002 契约测试实测）、SPEC-0001"M1.11 的 `/` 命令 · 分叉""并行、同步与关注"。
 - **完成标准**：SPEC-0002 的行为都有测试；选定的通道、隐藏命令、`--fork` 换目录和提前写文件、`--tools` / `--exclude-tools`、终端 pi 里不出现这些工具有 pi 契约测试；反复开、归档子对话，以及 agent 反复开、做完、再开的泄漏测试通过；宿主重启后待送达的不丢、不重复（重启后暂停，你继续后送到）；主 → 子 → 孙的异步链路在子对话被回收后照样送到主对话。
 
 #### MVP 2：看得见内部
