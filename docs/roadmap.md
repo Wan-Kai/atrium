@@ -358,12 +358,12 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：原型 `context-quota-prototype.html`、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[SPEC-0001 · M1.13 的上下文细分与套餐用量](specs/0001-mvp1-single-session-chat.md#m113-的上下文细分与套餐用量协议版本-162026-10-15-定)、[security.md](architecture/security.md)"Atrium 自带的 pi 扩展"、[design-language · 状态栏](architecture/design-language.md#状态栏)。
 - **完成标准**：SPEC-0001 里这一节的行为都有测试；真实 pi 加载扩展、执行 `/atrium-plan` 的契约测试通过（用本地的假服务器，不连真的接口）；扩展不把凭据交给宿主、不写日志的测试通过。
 
-##### M1.14 子对话与子代理
+##### M1.15 子对话与子代理
 
 - **目标**：在一个会话里开子对话，子对话的状态汇总到主对话、结论带回主对话；主对话的 agent 也能自己开子对话、发消息、拿结果（2026-10-16 定单独一个里程碑，不等插件系统）。
 - **范围**：
   - 第一步（用户开，不用来回的通道）：从回复下方或菜单开子对话（可带上下文、可新建 worktree）、子对话条、标签的"↳"和面包屑、主对话标签的状态汇总、状态栏的"含子对话"用量合计、收件箱和"历史"的写法、带回主对话、归档连带、脱离。
-  - 第二步（agent 开）：ADR-0011 定扩展与宿主之间有来有回的通道；Atrium 自带扩展的 `agent_spawn` / `agent_send` / `agent_list` / `agent_read` / `agent_stop`；三个角色（只读用 `--tools` 白名单、角色不高于调用方）；agent 开的最多 2 层、每个父会话同时最多 6 个（用户手动开的不算、不限层数）；agent 自己判断什么时候开；agent 开的子对话做完一轮、没有标签开着、排队为空时停掉它的 pi，有事再起；往上的通知和往下的交代都走宿主的排队并持久化（在会话文件里见到才算送到、按送达 id 去重），作为自定义消息进对话记录；过程轨道上的分出与合回。
+  - 第二步（agent 开）：ADR-0012 定扩展与宿主之间有来有回的通道；Atrium 自带扩展给主 agent 的 `agent_spawn` / `agent_send` / `agent_wait` / `agent_reply` / `agent_list` / `agent_read` / `agent_stop` / `agent_models`，给子对话的 `report_progress` / `ask_parent`（挂着等回答、超时就继续）；按不变的句柄寻址、按任务 id 等待和通知；推理档位用 pi 的档位名、不支持就报错；agent 开的子对话可以带上下文（切在当前叶子、命中提示缓存，只读由扩展拦）；三个角色（只读用 `--tools` 白名单、角色不高于调用方）；agent 开的最多 2 层、每个父会话同时最多 6 个（用户手动开的不算、不限层数）；agent 自己判断什么时候开；agent 开的子对话做完一轮、没有标签开着、排队为空时停掉它的 pi，有事再起；往上的通知和往下的交代都走宿主的排队并持久化（在会话文件里见到才算送到、按送达 id 去重），作为自定义消息进对话记录；过程轨道上的分出与合回。
   - 不做：子对话之间平级通信、不相干会话之间通信、父 agent 代答审批或提问、自定义角色文件。
 - **参考**：[SPEC-0002](specs/0002-child-conversations.md)、[multi-agent.md](research/multi-agent.md)、[pi-extension-capabilities](research/pi-extension-capabilities.md)"RPC 模式下 extension 到宿主的通道"、[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[pi-internals](research/pi-internals.md)（fork 的 cwd、限制工具、对话框、`sendMessage`）、SPEC-0001"M1.11 的 `/` 命令 · 分叉""并行、同步与关注"。
 - **完成标准**：SPEC-0002 的行为都有测试；选定的通道、隐藏命令、`--fork` 换目录和提前写文件、`--tools` / `--exclude-tools`、终端 pi 里不出现这些工具有 pi 契约测试；反复开、归档子对话，以及 agent 反复开、做完、再开的泄漏测试通过；宿主重启后待送达的不丢、不重复（重启后暂停，你继续后送到）；主 → 子 → 孙的异步链路在子对话被回收后照样送到主对话。
@@ -373,7 +373,7 @@ MVP 1 里还没设计、做到时先补设计的：
 开工前写 SPEC-0003（SPEC-0002 已给子对话与子代理）。
 
 - 宿主注入内置 extension：放在 `extensions/` 下，按 pi package 组织，可以在终端 pi 里单独测试。
-- extension → 宿主通道：先用"通知加标记"（参考 [paseo-architecture](research/paseo-architecture.md) §3 pi 的接入）；不在 Atrium 宿主下运行时自动降级。M1.14 的 ADR-0011 先定了有来有回的通道，上下文检查器沿用它。
+- extension → 宿主通道：先用"通知加标记"（参考 [paseo-architecture](research/paseo-architecture.md) §3 pi 的接入）；不在 Atrium 宿主下运行时自动降级。M1.15 的 ADR-0012 先定了有来有回的通道，上下文检查器沿用它。
 - 审批：基于 `tool_call` 钩子，规则对齐 Codex（只读操作自动放行，写入和执行需要确认）；复用 PendingInteraction，状态"待审批"已在侧栏预留；输入框加审批模式选择器（⌘⇧M）。
 - 上下文检查器（基础版）：每次实际发给模型的内容和 token 分布，由 extension 捕获（`before_provider_request` / `context`），不从状态栏的估算升级。
 - 检查器作为单个会话内部的"对话 / 轨迹"视图切换接入（参考 DeepSeek Harness），和会话标签页不冲突。

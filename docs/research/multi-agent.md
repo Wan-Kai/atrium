@@ -50,3 +50,19 @@
 - 通知要持久化（Paseo 只在内存，重启就丢）。
 - 调用方的身份由宿主认定，不靠参数（Paseo 靠 URL 参数，谁都能冒充）。
 - 限层数和数量（Paseo 不限）；子代理的权限和父会话一致（Codex）。
+
+## 7. pi 社区的子代理扩展（2026-10-16 补）
+
+> 只读 README 和源码（链接固定到当天的提交），没有安装或运行。热度取 pi.dev/packages 和 npm 下载量（2026-10-06～12 一周）、GitHub stars（2026-10-16）。
+
+| 包 | 热度 | 工具 | 子代理怎么跑 | 子 → 父 |
+|---|---|---|---|---|
+| 官方示例 `examples/extensions/subagent` | 随 pi 分发 | 一个 `subagent`：`agent`+`task`、`tasks[]`（最多 8 个、同时 4 个）、`chain[]`（`{previous}` 文字替换）三选一 | 每个任务另起 `pi --mode json -p --no-session --tools …`，同步等完，`onUpdate` 推进度 | 只有最终回复 |
+| `pi-subagents`（nicobailon，[仓库](https://github.com/nicobailon/pi-subagents) `9e86caf`） | 周 10.9 万、3.9k★，pi.dev 全站第 4 | `subagent`（12 个顶层字段，冷门的全塞进 `options`；`action` 做管理；链式和并行改成模型写的 js workflow）、`bg_wait`、`subagents_enable`（懒加载大 schema） | 前台同进程 SDK 会话，后台独立 runner 进程；默认后台；完成后 `sendMessage(…, { triggerTurn })` 唤醒父会话 | `contact_supervisor { reason: need_decision \| interview_request \| progress_update, message?, interview? }`：前两种阻塞等父会话用 `subagent_supervisor { action: reply }` 回复（文件轮询、默认 10 分钟超时），进度不唤醒；子代理结束可交结构化验收报告 |
+| `@tintinweb/pi-subagents`（[仓库](https://github.com/tintinweb/pi-subagents) `ca93a52`） | 周 1.1 万、1.3k★ | 照搬 Claude Code：`Agent { prompt, description, subagent_type, name?, model?, thinking?, max_turns?, run_in_background?(默认 true), resume?, inherit_context?, isolation? }`、`get_subagent_result { agent_id, wait?, verbose? }`、`steer_subagent { agent_id, message }`、`SubagentWorkflow` | 同进程 `createAgentSession`；完成通知用 `<task-notification>` XML，在父会话这批工具调用之后送；同一轮派出的可合成一条 | 只有最终回复；取走结果即算已读，不再重复通知；功能关掉时字段连说明一起从 schema 删掉 |
+| `pi-interactive-subagents`（HazAT，[仓库](https://github.com/HazAT/pi-interactive-subagents) `c100577`） | 717★，git 安装，已停更约 5 个月 | `subagent { name, task, agent?, model?, tools?, cwd?, fork? }`（永远后台）、`subagent_interrupt`、`subagent_resume { sessionPath, message? }` | 在终端复用器的新窗格里起交互式 pi，人可以直接接管 | 子代理专用 `subagent_done`（最后一条回复就是交回的摘要）、`caller_ping { message }`：提问并退出，父会话用 `subagent_resume` 带答复把它拉起 |
+| `pi-subagent-manager`（championswimmer，[仓库](https://github.com/championswimmer/pi-subagent-manager) `25783af`） | 周 3.7k、110★ | 一个动词一个工具，按路径（`/root/xxx`）寻址：`agent_spawn { path, type, task, wait?, timeoutMs? }`、`agent_wait { path, timeoutMs? }`、`agent_steer { path, message?, timeoutMs? }`、`agent_status`、`agent_stop`、`agent_output { path, offset?, limit? }`（按字符分页）、`agent_types` | 同进程 SDK 会话，带 `parentSession`；默认前台；超时只报告、不杀子代理；事件先进父会话的信箱，空闲时才送，同时只有一个自动轮次 | 子代理专用 `agent_update { message }`（汇报进度，不打断、不唤醒）、`agent_pause { reason }`（这一轮停下、不交答案，等 `agent_steer` 接着在同一会话里干）；正常回复就是交付；调用方身份闭包绑定，不来自模型输入 |
+
+几家共同的做法：完成后用 `sendMessage` 带 `triggerTurn` 唤醒父会话，工具说明里明令不要轮询、不要编造结果；完整输出留在文件或 `details` 里，给模型的只是截断版加读取的办法；每个子代理有稳定的句柄（id、name 或路径），之后的查询、追加、续接都用它。
+
+坑：一个工具扛多种模式、schema 全是可选字段，模型容易传错（官方示例）；接口复杂到模型要先读指南（nicobailon）；把父会话拼成纯文字当上下文，丢了工具结果也命不中缓存（tintinweb）；默认允许无限嵌套（HazAT）；没有超时（官方示例、HazAT）。
