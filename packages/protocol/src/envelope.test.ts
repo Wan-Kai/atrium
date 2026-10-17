@@ -67,6 +67,21 @@ const commands: Command[] = [
   { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE },
   { type: "create_session", requestId: "r19", traceparent, containerId: CHAT },
   { type: "create_session", requestId: "r19", traceparent, containerId: WORKSPACE, go: false },
+  {
+    type: "create_session",
+    requestId: "r19",
+    traceparent,
+    containerId: WORKSPACE,
+    child: { parentSessionId: "s1", name: "补测试", place: "same" },
+  },
+  {
+    type: "create_session",
+    requestId: "r19",
+    traceparent,
+    containerId: WORKSPACE,
+    child: { parentSessionId: "s1", name: "补测试", place: "worktree", branch: "atrium/tests" },
+  },
+  { type: "detach_session", requestId: "r19c", traceparent, sessionId: "s2" },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: "合并原理" },
   { type: "rename_chat", requestId: "r19", traceparent, chatId: CHAT, name: null },
   { type: "archive_chat", requestId: "r19a", traceparent, chatId: CHAT },
@@ -154,6 +169,24 @@ const commands: Command[] = [
   { type: "compact_session", requestId: "r43", traceparent, sessionId: "s1", instructions: "留下接口设计" },
   { type: "export_session", requestId: "r43", traceparent, sessionId: "s1" },
   { type: "fork_session", requestId: "r43", traceparent, sessionId: "s1", turnId: "t1", name: "修 bug（分叉）" },
+  {
+    type: "fork_session",
+    requestId: "r43",
+    traceparent,
+    sessionId: "s1",
+    turnId: "t1",
+    name: "查日志",
+    child: { place: "same" },
+  },
+  {
+    type: "fork_session",
+    requestId: "r43",
+    traceparent,
+    sessionId: "s1",
+    turnId: "t1",
+    name: "查日志",
+    child: { place: "worktree", branch: "atrium/logs" },
+  },
   { type: "list_commands", requestId: "r44", traceparent, sessionId: "s1" },
   { type: "search_files", requestId: "r45", traceparent, sessionId: "s1", query: "src/ses" },
   { type: "search_files", requestId: "r46", traceparent, sessionId: "s1", query: "" },
@@ -416,6 +449,7 @@ const metrics = {
     reserve: 16_384,
   },
   timing: { modelMs: 4200, ttftMs: 800, tps: 48.5 },
+  children: { tokens: 52_000, cost: 0.42 },
 } as const;
 
 /** A subscription's usage with every field known (SPEC-0001, "M1.14 的套餐总览"). */
@@ -463,6 +497,7 @@ const unknownMetrics = {
   branchTokens: 0,
   context: null,
   timing: null,
+  children: null,
 } as const;
 
 /** One valid example of every session event. */
@@ -476,6 +511,17 @@ const asked = {
   value: "vitest",
   confirmed: null,
   timestamp: 5,
+} as const;
+
+/** The host's note to a child forked into a new worktree (SPEC-0002). */
+const noted = {
+  kind: "notice",
+  id: "note-1",
+  notice: "note",
+  note: "worktree_moved",
+  from: "/work/atrium",
+  to: "/work/atrium.worktrees/tests",
+  timestamp: 6,
 } as const;
 
 const events: SessionEvent[] = [
@@ -528,6 +574,7 @@ const events: SessionEvent[] = [
     before: null,
   },
   { type: "notice_added", ...at, notice: asked, before: null },
+  { type: "notice_added", ...at, notice: noted, before: null },
   { type: "model_updated", ...at, model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "off" } },
   { type: "model_updated", ...at, model: null },
   { type: "fast_updated", ...at, fast: false },
@@ -576,6 +623,7 @@ describe("parseClientMessage", () => {
       "create_chat",
       "create_session",
       "create_workspace",
+      "detach_session",
       "discover_projects",
       "export_session",
       "fetch_image",
@@ -1335,6 +1383,7 @@ const snapshot: IndexSnapshotEvent = {
       attention: null,
       asking: null,
       handedOff: false,
+      parent: null,
     },
     {
       sessionId: "s2",
@@ -1349,6 +1398,7 @@ const snapshot: IndexSnapshotEvent = {
       attention: { reason: "error", at: 7, cleared: false },
       asking: 8,
       handedOff: true,
+      parent: { sessionId: "s1", by: "user" },
     },
   ],
   layout: {
@@ -1377,7 +1427,27 @@ const changes: IndexChangesEvent = {
   projects: { upsert: snapshot.projects, remove: ["prj_fedcba9876543210"] },
   workspaces: { upsert: snapshot.workspaces, remove: [WORKSPACE] },
   chats: { upsert: snapshot.chats, remove: ["cht_gone"] },
-  sessions: { upsert: snapshot.sessions, remove: ["s3"] },
+  sessions: {
+    upsert: [
+      ...snapshot.sessions,
+      {
+        sessionId: "s4",
+        containerId: WORKSPACE,
+        name: "边界用例",
+        prompt: null,
+        file: null,
+        state: "draft",
+        updatedAt: 9,
+        archived: false,
+        running: false,
+        attention: null,
+        asking: null,
+        handedOff: false,
+        parent: { sessionId: "s2", by: "agent" },
+      },
+    ],
+    remove: ["s3"],
+  },
   layout: snapshot.layout,
   preferences: snapshot.preferences,
 };
@@ -1627,6 +1697,8 @@ describe("HostMessage", () => {
       "install_not_found",
       "branch_not_found",
       "proxy_invalid",
+      "child_place_invalid",
+      "command_reserved",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);

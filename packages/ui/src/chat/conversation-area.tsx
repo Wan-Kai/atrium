@@ -24,6 +24,8 @@ import {
 import { download } from "./download";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
+import { ChildCapsule } from "../children/child-capsule";
+import { askForChild } from "../children/new-child";
 import { MessageImagesContext, messageImages } from "./message-images";
 import { Transcript } from "./transcript";
 import {
@@ -91,6 +93,7 @@ export function describeSendError(error: unknown): string {
   if (error.code === "nothing_to_compact") return "对话还太短，不用压缩";
   if (error.code === "already_compacted") return "刚压缩过，没有新内容";
   if (error.code === "compact_failed") return "没能压缩：pi 出错了";
+  if (error.code === "command_reserved") return "以 /atrium- 开头的消息留给 Atrium 自己用，没有发出";
   if (error.code === "export_failed") {
     return error.params?.["reason"] === "too_large" ? "会话太大（超过 20 MB），没能导出" : "没能导出：pi 出错了";
   }
@@ -414,6 +417,7 @@ function SessionArea({
             }}
             onRetry={actions.retry}
             onFork={(turnId) => forkFrom(client, sessionId, turnId)}
+            onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
             {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
           />
         </MessageImagesContext>
@@ -447,6 +451,7 @@ function SessionArea({
             running={running}
             actions={actions}
             {...(changes === undefined ? {} : { changes })}
+            childCapsule={<ChildCapsule client={client} sessionId={sessionId} />}
           />
         }
         picker={

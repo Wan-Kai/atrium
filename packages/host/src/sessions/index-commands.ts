@@ -72,7 +72,7 @@ export function createIndexCommands(options: {
   readonly workspaces: Pick<WorkspaceService, "windowFocused" | "refresh">;
   readonly sessions: Pick<SessionManager, "forgetWorkspaces" | "rescan">;
   readonly archiver: Pick<WorkspaceArchiver, "archive" | "restore">;
-  readonly creator: WorktreeCreator;
+  readonly creator: Pick<WorktreeCreator, "bases" | "create">;
   readonly namer: BranchNamer;
   readonly preferences: PreferenceStore;
   /** The chats there are (`SessionCatalog.chats`). */

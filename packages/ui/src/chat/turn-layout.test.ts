@@ -390,4 +390,23 @@ describe("hostNoticeText", () => {
     ]);
     expect(transcriptMarkdown([ended("用哪个？", "answered", "vitest", null)])).toBe("> 用哪个？ → vitest\n");
   });
+
+  it("says where a child forked into a new worktree works now, and whose the old path is (SPEC-0002)", () => {
+    const note = {
+      kind: "notice",
+      id: "n",
+      notice: "note",
+      note: "worktree_moved",
+      from: "~/work/atrium",
+      to: "~/work/atrium.worktrees/tests",
+      timestamp: 0,
+    } as const;
+
+    expect(hostNoticeText(note)).toBe(
+      "在新的 worktree 里继续：~/work/atrium.worktrees/tests（之前的路径属于 ~/work/atrium）",
+    );
+    expect(transcriptMarkdown([note])).toBe(
+      "> 在新的 worktree 里继续：~/work/atrium.worktrees/tests（之前的路径属于 ~/work/atrium）\n",
+    );
+  });
 });

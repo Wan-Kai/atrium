@@ -296,6 +296,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       feed.changed();
       for (const listener of sessionListeners) listener();
     },
+    // A child conversation's new worktree, made as a new workspace is (SPEC-0002); the creator comes below.
+    childWorktree: (workspaceId, wanted) => creator.createFrom(workspaceId, wanted),
     clock,
     resources,
     tracer: tracing.tracer,

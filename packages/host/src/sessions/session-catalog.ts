@@ -26,7 +26,21 @@ export type CatalogEntry = Omit<SessionSummary, "running" | "asking"> & {
   readonly cwd: string;
   /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
   readonly fast: boolean | null;
+  /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
+  readonly usageAfter: string | null;
 };
+
+/** A new session's record: where it is, and for a child conversation its parent, name and baseline. */
+export interface NewRecord {
+  readonly sessionId: string;
+  readonly containerId: string;
+  readonly cwd: string;
+  readonly parent?: SessionSummary["parent"];
+  readonly name?: string;
+  readonly usageAfter?: string | null;
+  /** Its file is written already, as a fork's is; a draft otherwise. */
+  readonly persisted?: boolean;
+}
 
 /** Finds the sessions of the registered containers and keeps Atrium's records of them. */
 export interface SessionCatalog {
@@ -35,8 +49,12 @@ export interface SessionCatalog {
   /** Every chat, as the chats root last listed them and as created since. */
   chats(): CatalogChat[];
   find(sessionId: string): CatalogEntry | undefined;
-  /** Records a new draft session. */
-  record(session: { readonly sessionId: string; readonly containerId: string; readonly cwd: string }): Promise<void>;
+  /** Records a new draft session, a child conversation with its parent and name. */
+  record(session: NewRecord): Promise<void>;
+  /** Makes a child conversation an ordinary session (SPEC-0002, "脱离"); nothing for one without a parent. */
+  detach(sessionId: string): Promise<void>;
+  /** Names a recorded session in its record, as a draft child's name waits there (SPEC-0002, "概念 · 名字"). */
+  name(sessionId: string, name: string): Promise<void>;
   /** Forgets a draft that was discarded. */
   forget(sessionId: string): Promise<void>;
   /** Hides a session in Atrium; pi's file stays. */
@@ -66,6 +84,20 @@ interface SessionMarks {
   readonly attention?: Attention | null;
   readonly handedOff?: boolean;
   readonly fast?: boolean;
+}
+
+/**
+ * A record's parent, as the summary has it.
+ *
+ * @remarks
+ * Only `sessionId` and `by`; the record keeps unknown fields a later version wrote.
+ *
+ * @sideEffects none
+ * @param record - The record, if Atrium has one.
+ * @returns The parent, or `null` for an ordinary session.
+ */
+function parentOf(record: SessionRecord | undefined): SessionSummary["parent"] {
+  return record?.parent === undefined ? null : { sessionId: record.parent.sessionId, by: record.parent.by };
 }
 
 /**
@@ -161,7 +193,7 @@ export function createSessionCatalog(options: {
         sessionId: file.sessionId,
         containerId,
         cwd: file.cwd,
-        name: file.name,
+        name: file.name ?? record?.name ?? null,
         prompt: promptLine(file.firstPrompt),
         file: file.path,
         state: "persisted",
@@ -170,6 +202,8 @@ export function createSessionCatalog(options: {
         attention: record?.attention ?? null,
         handedOff: record?.handedOff ?? false,
         fast: record?.fast ?? null,
+        parent: parentOf(record),
+        usageAfter: record?.usageAfter ?? null,
       });
     }
     for (const record of records.values()) {
@@ -180,7 +214,7 @@ export function createSessionCatalog(options: {
         sessionId: record.sessionId,
         containerId,
         cwd: record.cwd,
-        name: null,
+        name: record.name ?? null,
         prompt: null,
         file: null,
         // Before the first scan, a file not found yet may well be there (domain-model §1).
@@ -190,6 +224,8 @@ export function createSessionCatalog(options: {
         attention: record.attention ?? null,
         handedOff: record.handedOff ?? false,
         fast: record.fast ?? null,
+        parent: parentOf(record),
+        usageAfter: record.usageAfter ?? null,
       });
     }
     return entries;
@@ -342,10 +378,36 @@ export function createSessionCatalog(options: {
       }
       return save([
         ...options.file.read().sessions,
-        { ...session, draft: true, archived: false, createdAt: options.clock.now() },
+        {
+          sessionId: session.sessionId,
+          containerId: session.containerId,
+          cwd: session.cwd,
+          draft: session.persisted !== true,
+          archived: false,
+          createdAt: options.clock.now(),
+          ...(session.parent ? { parent: session.parent } : {}),
+          ...(session.name === undefined ? {} : { name: session.name }),
+          ...(session.usageAfter === undefined ? {} : { usageAfter: session.usageAfter }),
+        },
       ]);
     },
     forget: (sessionId) => save(options.file.read().sessions.filter((record) => record.sessionId !== sessionId)),
+    async detach(sessionId) {
+      const sessions = options.file.read().sessions;
+      if (!sessions.some((record) => record.sessionId === sessionId && record.parent !== undefined)) return;
+      await save(
+        sessions.map((record) => {
+          if (record.sessionId !== sessionId) return record;
+          const { parent: _parent, ...rest } = record;
+          return rest;
+        }),
+      );
+    },
+    async name(sessionId, name) {
+      const sessions = options.file.read().sessions;
+      if (!sessions.some((record) => record.sessionId === sessionId && record.name !== name)) return;
+      await save(sessions.map((record) => (record.sessionId === sessionId ? { ...record, name } : record)));
+    },
     archive: (sessionId) => update(sessionId, { archived: true }),
     unarchive: (sessionId) => update(sessionId, { archived: false }),
     mark: (sessionId, change) => update(sessionId, change),

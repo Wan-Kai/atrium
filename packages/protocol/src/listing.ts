@@ -115,6 +115,14 @@ export function isAuthFailure(text: string): boolean {
   return AUTH_FAILURE.test(text);
 }
 
+/** The session a child conversation belongs to, and who opened it (SPEC-0002, "概念"). */
+export const ChildParent = z.strictObject({
+  sessionId: SessionId,
+  /** `user` from a reply or a menu; `agent` from the parent's agent (step two). */
+  by: z.enum(["user", "agent"]),
+});
+export type ChildParent = z.infer<typeof ChildParent>;
+
 /** A session as the sidebar, tabs and history list it. */
 export const SessionSummary = z.strictObject({
   sessionId: SessionId,
@@ -137,6 +145,8 @@ export const SessionSummary = z.strictObject({
   asking: Timestamp.nullable(),
   /** Handed to pi in a terminal; Atrium starts no pi for it until taken back. */
   handedOff: z.boolean(),
+  /** The session it is a child conversation of; `null` for an ordinary session (SPEC-0002). */
+  parent: ChildParent.nullable(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

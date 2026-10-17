@@ -1052,6 +1052,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         attention: null,
         asking: null,
         handedOff: false,
+        parent: null,
       },
     ],
     layout: { container: null, tabs: {} },
@@ -1703,6 +1704,32 @@ describe("createAtriumClient: forking", () => {
         .filter((command) => command["type"] === "fork_session")
         .map(({ requestId: _id, ...command }) => command),
     ).toStrictEqual([{ type: "fork_session", sessionId: "s1", turnId: "s1:u2", name: "修 bug（分叉）" }]);
+  });
+});
+
+describe("createAtriumClient: child conversations", () => {
+  it("asks the host for an empty child, a child forked from a turn, and a detach, with their places", async () => {
+    const { client, latest } = await connected();
+    const child = { parentSessionId: "s1", name: "补测试", place: "worktree", branch: "atrium/tests" } as const;
+
+    const created = client.createChild("wks_0123456789abcdef", child);
+    latest().answer("create_session", { sessionId: "s3" });
+    const forked = client.forkSession("s1", "s1:u2", "查日志", { place: "same" });
+    latest().answer("fork_session", { sessionId: "s4" });
+    const detached = client.detachSession("s3");
+    latest().answer("detach_session", {});
+
+    expect([await created, await forked, await detached]).toStrictEqual([{ sessionId: "s3" }, { sessionId: "s4" }, {}]);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["create_session", "fork_session", "detach_session"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "create_session", containerId: "wks_0123456789abcdef", child },
+      { type: "fork_session", sessionId: "s1", turnId: "s1:u2", name: "查日志", child: { place: "same" } },
+      { type: "detach_session", sessionId: "s3" },
+    ]);
   });
 });
 

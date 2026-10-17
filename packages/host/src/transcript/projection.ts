@@ -139,6 +139,16 @@ export function projectTranscript(
         notices.push(notice);
         break;
       }
+      case "note":
+        // The host's note to the model is a line of its own, not a turn (SPEC-0002, "对话记录里的自定义消息").
+        notices.push({
+          kind: "notice",
+          id: historyId(sessionId, entry.id),
+          notice: "note",
+          ...entry.note,
+          timestamp: entry.timestamp,
+        });
+        break;
       // Stryker disable next-line StringLiteral,ConditionalExpression: these cases do nothing, as no case does for other kinds.
       case "omission":
       // Stryker disable next-line StringLiteral,ConditionalExpression: see above.

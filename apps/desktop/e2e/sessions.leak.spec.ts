@@ -2,10 +2,13 @@ import { expect, test } from "@playwright/test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createGitScene } from "@atrium/testkit";
+import { realpath } from "node:fs/promises";
 import { fauxPiEnvironment } from "./faux-pi";
 import { findDetachedDomLeaks, takeHeapSnapshot } from "./heap";
 import { launchApp } from "./launch";
 import { send, sentAs } from "./messages";
+import { addProject } from "./projects";
 
 test("@leak switching between three sessions back and forth leaks no DOM", async () => {
   const pi = await fauxPiEnvironment({
@@ -48,6 +51,52 @@ test("@leak switching between three sessions back and forth leaks no DOM", async
   } finally {
     await launched.close();
     await pi.cleanup();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("@leak opening a child conversation and archiving it from its parent's capsule leaks no DOM (SPEC-0002)", async () => {
+  const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "好的" }] }] });
+  const scene = await createGitScene("e2e-children-leak");
+  const launched = await launchApp(pi.env);
+  const dir = await mkdtemp(join(tmpdir(), "atrium-heap-"));
+  try {
+    const { window, app } = launched;
+    await addProject(app, window, await realpath(scene.repo));
+    await window.getByTestId("workspace-row").click({ timeout: 30_000 });
+    await window.keyboard.press("Meta+T");
+    const tabs = window.getByRole("tab");
+    await expect(tabs).toHaveText(["新会话"], { timeout: 30_000 });
+    await send(window, "一");
+    await expect(window.getByTestId("reply")).toHaveText(["好的"], { timeout: 60_000 });
+    await expect(tabs).toHaveText(["一"], { timeout: 30_000 });
+    /** Opens an empty child from the tab bar's menu, goes back up, and archives it from the capsule. */
+    const round = async () => {
+      await window.getByRole("button", { name: "新建", exact: true }).click();
+      await window.getByRole("menuitem", { name: /子对话/ }).click();
+      await window.getByRole("dialog", { name: "开子对话" }).getByRole("button", { name: "开子对话" }).click();
+      await expect(tabs).toHaveText(["一", "子对话 1"], { timeout: 30_000 });
+      await window.getByRole("navigation", { name: "子对话的位置" }).getByRole("button", { name: "一" }).click();
+      await window.getByRole("button", { name: /^子对话 1/ }).click();
+      await window.getByRole("button", { name: "「子对话 1」的操作" }).click();
+      await window.getByRole("menuitem", { name: "归档" }).click();
+      await expect(tabs).toHaveText(["一"], { timeout: 30_000 });
+      await expect(window.getByRole("button", { name: /^子对话 1/ })).toHaveCount(0);
+    };
+    // The dialog, capsule and breadcrumb have each been shown once, so what stays cached is in the baseline.
+    await round();
+
+    await takeHeapSnapshot(window, join(dir, "baseline.heapsnapshot"));
+    for (let at = 0; at < 10; at++) await round();
+    await takeHeapSnapshot(window, join(dir, "final.heapsnapshot"));
+
+    expect(
+      await findDetachedDomLeaks(join(dir, "baseline.heapsnapshot"), join(dir, "final.heapsnapshot")),
+    ).toStrictEqual([]);
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+    await scene.cleanup();
     await rm(dir, { recursive: true, force: true });
   }
 });

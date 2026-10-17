@@ -1,4 +1,5 @@
 import type {
+  ChildPlacement,
   CommandResult,
   ContainerId,
   FetchImageCommand,
@@ -29,7 +30,14 @@ export interface SessionCommands {
    * Creates a session in a workspace or chat, starts its pi and opens it as the active tab of the
    * container; `go` takes the client there, unless it moved meanwhile.
    */
-  createSession(clientId: string, containerId: ContainerId, go?: boolean): Promise<CommandResult<"create_session">>;
+  createSession(
+    clientId: string,
+    containerId: ContainerId,
+    go?: boolean,
+    child?: ChildPlacement,
+  ): Promise<CommandResult<"create_session">>;
+  /** Makes a child conversation an ordinary session (SPEC-0002, "脱离"). */
+  detachSession(sessionId: string): Promise<CommandResult<"detach_session">>;
   /** Opens a session as the client's active tab, starting its pi unless it runs or is a restored draft. */
   openSession(clientId: string, sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes the client's tab of a session; a draft without messages is discarded. */

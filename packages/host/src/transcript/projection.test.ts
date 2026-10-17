@@ -544,4 +544,34 @@ describe("projectTranscript", () => {
     ]);
     expect(turnEntryIds).toStrictEqual(["u1"]);
   });
+
+  it("puts Atrium's note to the model after the turn it follows, as a line of its own", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [says("done")]),
+        {
+          id: "n1",
+          parentId: "a1",
+          timestamp: 7,
+          kind: "note",
+          note: { note: "worktree_moved", from: "/repo", to: "/repo.worktrees/tests" },
+        },
+        user("u2", "next"),
+      ],
+      "s",
+      none,
+    );
+
+    expect(items.map((item) => item.kind)).toStrictEqual(["turn", "notice", "turn"]);
+    expect(items[1]).toStrictEqual({
+      kind: "notice",
+      id: "s:n1",
+      notice: "note",
+      note: "worktree_moved",
+      from: "/repo",
+      to: "/repo.worktrees/tests",
+      timestamp: 7,
+    });
+  });
 });

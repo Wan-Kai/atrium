@@ -46,6 +46,7 @@ const KNOWN: SessionMetrics = {
     reserve: 16_384,
   },
   timing: { modelMs: 42_300, ttftMs: 820, tps: 48.4 },
+  children: null,
 };
 
 /** No subscription's usage found. */
@@ -388,6 +389,37 @@ describe("StatusBar", () => {
     const card = screen.getByRole("tooltip").filter({ hasText: "费用" });
     await expect.element(card).toBeVisible();
     expect(card.element().textContent).toBe("费用≈ $0.45计算方式按 API 价格折算订阅用户不实际付费");
+  });
+});
+
+describe("StatusBar with child conversations (SPEC-0002)", () => {
+  it("adds the children's tokens and cost to the session's own in their cards", async () => {
+    const { screen } = await bar({ ...KNOWN, children: { tokens: 200_000, cost: 0.1 } }, { cost: true });
+
+    await userEvent.hover(screen.getByRole("button", { name: /缓存命中/ }));
+    const tokens = screen.getByRole("tooltip").filter({ hasText: "Token 用量" });
+    await expect.element(tokens).toBeVisible();
+    expect(tokens.element().textContent).toContain("当前分支800,000 tok含子对话1,500,000 tok本会话累计");
+    await userEvent.hover(screen.getByRole("button", { name: "≈ $0.45" }));
+    const cost = screen.getByRole("tooltip").filter({ hasText: "费用" });
+    await expect.element(cost).toBeVisible();
+    expect(cost.element().textContent).toBe("费用≈ $0.45计算方式按 API 价格折算含子对话≈ $0.55订阅用户不实际付费");
+  });
+
+  it("adds the children's to nothing when the session's own are not known", async () => {
+    const { screen } = await bar(
+      { ...KNOWN, tokens: null, cost: null, children: { tokens: 200_000, cost: 0.1 } },
+      { cost: true },
+    );
+
+    await userEvent.hover(screen.getByRole("button", { name: /缓存命中/ }));
+    const tokens = screen.getByRole("tooltip").filter({ hasText: "Token 用量" });
+    await expect.element(tokens).toBeVisible();
+    expect(tokens.element().textContent).toContain("含子对话200,000 tok");
+    await userEvent.hover(screen.getByRole("button", { name: "—", exact: true }));
+    const cost = screen.getByRole("tooltip").filter({ hasText: "费用" });
+    await expect.element(cost).toBeVisible();
+    expect(cost.element().textContent).toContain("含子对话≈ $0.10");
   });
 });
 

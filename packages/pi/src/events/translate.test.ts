@@ -304,6 +304,32 @@ describe("createEventTranslator against recorded pi output", () => {
   });
 });
 
+/**
+ * pi's `message_end` for a custom message.
+ *
+ * @sideEffects none
+ * @param customType - Its type.
+ * @param details - Its details.
+ * @returns The event.
+ */
+const customEnded = (customType: string, details: unknown) =>
+  ({
+    type: "message_end",
+    message: { role: "custom", customType, content: "x", display: true, details, timestamp: 42 },
+  }) as unknown as PiEvent;
+/**
+ * pi's text delta for the first block of the streaming message.
+ *
+ * @sideEffects none
+ * @param added - The new text.
+ * @returns The event.
+ */
+const textDelta = (added: string) =>
+  ({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: added },
+  }) as unknown as PiEvent;
+
 describe("createEventTranslator on cases the fixtures do not show", () => {
   it("reports a block whose start it missed before its first growth, once", () => {
     expect(
@@ -515,6 +541,29 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
     ).toStrictEqual([
       { kind: "notified", level: "warning", text: "careful" },
       { kind: "notified", level: "info", text: "done" },
+    ]);
+  });
+
+  it("reports Atrium's note when pi writes it, mid-message without ending the message, and nothing for another", () => {
+    const note = { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" };
+
+    const translate = createEventTranslator(() => 99);
+
+    const events = [
+      ...translate({ type: "message_start", message: { role: "assistant", content: [] } } as unknown as PiEvent),
+      ...translate(textDelta("hi")),
+      ...translate(customEnded("atrium-agent", note)),
+      ...translate(customEnded("someone-else", note)),
+      ...translate(textDelta(" there")),
+    ];
+
+    expect(events).toStrictEqual([
+      started,
+      { kind: "output_started" },
+      { kind: "part_started", index: 0, part: { type: "text", text: "" } },
+      { kind: "part_delta", index: 0, delta: "hi" },
+      { kind: "note_added", note: { note: "worktree_moved", from: "/a", to: "/b" }, timestamp: 42 },
+      { kind: "part_delta", index: 0, delta: " there" },
     ]);
   });
 });

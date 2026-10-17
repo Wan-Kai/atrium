@@ -1,3 +1,4 @@
+import { AGENT_MESSAGE, type AgentNote, agentNote } from "../agent/agent";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { type SectionPiece, sectionPieces } from "./prompt-sections";
 import { readSkillBlock } from "./skill-block";
@@ -103,6 +104,8 @@ export type LogEntry = { readonly id: string; readonly parentId: string | null }
       | { readonly kind: "system"; readonly system: SystemParts }
       /** A failed reply taken out of the model's context before a retry. */
       | { readonly kind: "omission"; readonly targetId: string }
+      /** The host's note to the model, an `atrium-agent` custom message (SPEC-0002). */
+      | { readonly kind: "note"; readonly note: AgentNote }
       /** Anything the transcript does not show: model and thinking changes, labels, `!bash` messages… */
       | { readonly kind: "other" }
     ))
@@ -231,7 +234,8 @@ export function toLogMessage(message: PiMessage, fallbackTime: number): LogMessa
  * @remarks
  * Message entries become messages (`toLogMessage`), and system messages their sizes
  * (`SystemParts`), as does a compaction's stored system prompt. A `context_edit` that removes its
- * target marks a failed reply that pi retried. Everything else keeps only its place in the tree.
+ * target marks a failed reply that pi retried. Atrium's own note becomes one (SPEC-0002, "对话记录里的
+ * 自定义消息"). Everything else keeps only its place in the tree.
  * An entry time that cannot be read becomes 0.
  *
  * @sideEffects none
@@ -248,6 +252,10 @@ export function toLogEntry(entry: SessionEntry): LogEntry {
     return entry.replacement === null
       ? { ...base, kind: "omission", targetId: entry.targetId }
       : { ...base, kind: "other" };
+  }
+  if (entry.type === "custom_message") {
+    const note = entry.customType === AGENT_MESSAGE ? agentNote(entry.details) : null;
+    return note === null ? { ...base, kind: "other" } : { ...base, kind: "note", note };
   }
   if (entry.type !== "message") return { ...base, kind: "other" };
   if (entry.message.role === "system") {

@@ -498,6 +498,28 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | pi 契约：`tool_call` 钩子拦下的调用不执行，模型得到报错的工具结果，正文是钩子的理由 | 同上 "tool-block" | 已覆盖 |
 | pi 契约：工具里 `createBranchedSession` 切在当前叶子，写进给的目录、条目 id 不变、父会话照跑；另一个目录 `--fork --session-id` 起的 pi 在 `get_state` 前写出文件、`cwd` 是新目录；送自定义消息后没配对的调用补 "No result provided" | 同上 "agent-fork" | 已覆盖 |
 | faux 记下每次请求声明的工具和给模型的消息 | `packages/testkit/src/faux/extension.ts`（经上面的契约测试） | 已覆盖 |
+| 第一步 · 协议 18：`SessionSummary.parent`、`create_session.child`、`fork_session.child`、`detach_session`、`metrics.children`、`note` 提示和两个新错误码的格式，超长或缺字段的拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 第一步 · 隐藏命令：参数是一个 base64url 的 JSON 词，读不出的当没有；`/atrium-agent note` 把提示写成 `atrium-agent` 自定义消息、不开运行，别的动作和读不出的提示什么都不做；提示以 Atrium 而不是用户的口吻说新路径和旧路径属于谁；命令列表里不出现 `atrium-agent` | `packages/pi/src/agent/agent.test.ts`；`packages/pi/src/catalog/commands.test.ts` "child conversations' command"；`packages/pi/src/plan/extension.test.ts` "child conversations' command" | 已覆盖 |
+| 第一步 · 真实 pi：空闲时 `/atrium-agent note` 立即写进会话文件，下一次请求带上它 | 契约：`packages/pi/src/contract/agent-note.pi.test.ts`（夹具 `pi-1.1.0/agent-note.jsonl`） | 已覆盖 |
+| 第一步 · 提示进对话记录：pi 写出时报 `note_added`，消息中途也不打断消息；会话文件里读成 `note`，在树里的位置不变；别的扩展的自定义消息、读不出的提示不显示；宿主放在它跟着的那一轮后面成一条提示，读到后重读条目；界面写"在新的 worktree 里继续：新路径（之前的路径属于 旧路径）" | `packages/pi/src/events/translate.test.ts` "Atrium's note"；`packages/pi/src/history/log-entry.test.ts` "Atrium's note"、"another extension's custom message"；`packages/host/src/transcript/projection.test.ts` "Atrium's note"；`session-controller.test.ts` "once pi wrote Atrium's note"；`packages/ui/src/chat/turn-layout.test.ts` "SPEC-0002" | 已覆盖 |
+| 第一步 · 子对话的用量：按 pi 的算法（回复、工具结果、压缩、分支摘要、usage 条目）累加，跳过基线及以前，基线不在文件里时不算；增量读，只算写完的行，文件变短重读；读不了时保持原值；`lastEntryId` 跳过头、坏行和没写完的行 | `packages/pi/src/stats/file-usage.test.ts` | 已覆盖 |
+| 第一步 · 记录与树：索引记下父会话、名字和基线，pi 有名字后用 pi 的；脱离只去掉父会话；子、孙、祖先的列法遇环停下；归档计划：同容器的后代一起归档、别处的分支脱离、已归档的跳过 | `packages/host/src/sessions/session-catalog.test.ts` "child conversation"；`packages/host/src/sessions/child-tree.test.ts` | 已覆盖 |
+| 第一步 · 子对话合计：每个没归档的后代基线之后的用量相加，没有时为 `null`；子对话自己的指标一变就刷新上面每一层，刷新中又来的再跑一次；关闭后指标里还在 | `packages/host/src/sessions/children-usage.test.ts`；`session-metrics.test.ts` "child conversations"；`session-manager.test.ts` "children figures"、"usage its children produced" | 已覆盖 |
+| 第一步 · 新 worktree：从工作区当前的提交（分离 HEAD 也行）开，分支整理成 `atrium/…`，占用时 `-2`…`-9`，都占了拒绝；名字剩不到 2 个字时 `child-` 加随机词；普通文件夹的项目和不认识的工作区拒绝 | `packages/host/src/workspaces/worktree-creator.test.ts` "createFrom" | 已覆盖 |
+| 第一步 · 宿主开子对话：空子对话挂在父会话下、pi 写文件前就有名字、首次启动带 `--name`；不同容器、草稿、已归档或不认识的父会话拒绝；新 worktree 里开空子对话；不能建 worktree 的宿主拒绝；从某轮分叉到同一工作区只算复制之后的；分叉到新 worktree：先用临时 pi 写到带标记的临时目录，子对话的 pi 用 `--fork` 在新目录起，收到提示；停止时残留的、自己标记过的临时目录才清 | `packages/host/src/sessions/session-manager.test.ts` "SessionManager child conversations (SPEC-0002)" | 已覆盖 |
+| 第一步 · 分叉到新 worktree 后子对话的 pi 没起来：会话文件没写出的忘掉、应答 `fork_failed`；已写出的留在父会话下、带名字，`fork_failed` 带它的 `sessionId`，界面说"子对话没有开好"；临时目录都删掉 | `session-manager.test.ts` "whose pi did not start"；`packages/ui/src/children/new-child.test.ts` | 已覆盖 |
+| 第一步 · 脱离与归档连带：脱离保留它自己的子对话；归档会话、对话、工作区时同容器的后代一起归档，别处的脱离 | 同上 "detaches a child"、"archives a session with its children"、"workspace is archived"、"archives a chat" | 已覆盖 |
+| 第一步 · `/atrium-` 开头的消息、插话、排队修改报 `command_reserved`；界面写"以 /atrium- 开头的消息留给 Atrium 自己用，没有发出" | `session-manager.test.ts` "opens with /atrium-"；`packages/ui/src/chat/chat.browser.test.tsx` "refused /atrium- message" | 已覆盖 |
+| 第一步 · 草稿子对话能改名：名字写进记录（同名、不认识的会话不写），它的 pi 起了的再发 `set_session_name`，没起的不起；"重命名"对草稿子对话可用 | `session-catalog.test.ts` "names a recorded session"；`session-manager.test.ts` "names a draft child"；`workbench.browser.test.tsx` "renames a draft child conversation" | 已覆盖 |
+| 第一步 · 新建工作区的第一条消息以 `/atrium-` 开头时，界面在建 worktree 之前就报 `command_reserved`，消息放回输入框，一个命令都不发 | `packages/ui/src/state/new-workspace.test.ts` "refuses a message opening with /atrium-" | 已覆盖 |
+| 第一步 · 路由与客户端：`detach_session`、带 `child` 的 `create_session` 和 `fork_session` | `packages/host/src/server/router.test.ts`；`packages/client/src/atrium-client.test.ts` "child conversations" | 已覆盖 |
+| 第一步 · 界面规则：子对话只列直接的、没归档的、最近更新的在前；行状态取整个子树的最高（含运行中）；标签页状态被后代的待回答、待登录、出错抬高，运行中不抬；面包屑到顶层，遇环、缺父会话停下，超过三层中间折成"…" | `packages/ui/src/children/children.test.ts` | 已覆盖 |
+| 第一步 · 子对话条和弹出框：没有子对话不显示；"子对话 N"加各状态的图标和数；列表和内容一样宽、最近更新的在前，写位置、"已在终端中继续"、"+N"、时间；点行打开，菜单脱离、归档，失败在标签栏旁说 | `packages/ui/src/children/children.browser.test.tsx` "ChildCapsule"；`chat.browser.test.tsx` "children's capsule" | 已覆盖 |
+| 第一步 · 开子对话的对话框：回复下的"↳"带上到这一轮的对话（运行中变淡、不能点）；"+ 新建"菜单开空的（草稿下不能点）；名字默认"子对话 N"；工作区的会话可选新 worktree 和分支，对话的只有"当前对话"；失败留在对话框里说；Esc 关 | `children.browser.test.tsx` "NewChildDialog"；`chat.browser.test.tsx` "asks for a child"；`packages/ui/src/app/workbench.browser.test.tsx` "+ menu"、"under a draft" | 已覆盖 |
+| 第一步 · 标签、面包屑、历史、收件箱：子对话标签有"↳"，父标签被后代抬高；标签栏下的面包屑点名字回去；历史行"↳ 名字"、悬停"属于「父对话」"；收件箱行写"位置 · 父对话 › 子对话" | `workbench.browser.test.tsx` "Workbench child conversations (SPEC-0002)"；`children.browser.test.tsx` "Breadcrumb" | 已覆盖 |
+| 第一步 · 端到端：真实宿主和 pi 下从回复开子对话，带上之前的对话，标签有"↳"、面包屑点回主对话；子对话回复后主对话的子对话条列出它，token 卡片有"含子对话"；开到新 worktree：建出 `atrium/…` 分支和工作区并切过去，提示行写新旧路径，子对话接着能回复；从"+ 新建"开空的子对话；归档主对话时同工作区的子对话一起归档，新 worktree 里的脱离（没有"↳"和面包屑） | `apps/desktop/e2e/children.spec.ts` | 已覆盖 |
+| 第一步 · 泄漏：宿主开、归档子对话 200 次后没有留下 pi、计时器、句柄；界面里开子对话、从子对话条归档 10 次后没有分离的 DOM | `packages/host/src/sessions.leak.test.ts` "child conversation 200 times"；`apps/desktop/e2e/sessions.leak.spec.ts` "@leak opening a child conversation" | 已覆盖 |
+| 第一步 · 状态栏：token 和费用卡片里"含子对话"是自己的加子对话的，自己的不知道时只算子对话的 | `packages/ui/src/chat/status-bar.browser.test.tsx` "child conversations" | 已覆盖 |
 
 ## M1.11、M1.12 三方审查后补（2026-10-14）
 

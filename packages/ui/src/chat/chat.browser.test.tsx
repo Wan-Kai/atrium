@@ -11,6 +11,7 @@ import { createNewWorkspaceStore } from "../state/new-workspace";
 import { createPanes, memoryStorage } from "../state/panes";
 import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer, viewOf } from "../state/workspace-views";
 import { pageNotices, showNotice } from "../state/session-notices";
+import { pageNewChild } from "../children/new-child";
 import { caughtDownloads } from "../test/downloads";
 import { fakeClient, session, workspace } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
@@ -1370,6 +1371,51 @@ function forkable(name: string) {
 function forks(calls: readonly string[]): string[] {
   return calls.filter((call) => call.startsWith("forkSession"));
 }
+
+describe("ConversationArea's child conversations (SPEC-0002)", () => {
+  afterEach(() => pageNewChild().setState(null, true));
+
+  it("asks for a child carrying the turns up to the one whose reply it sits under, faded while forking is", async () => {
+    const { client } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一"), turn("t2", "第二")] });
+    const buttons = screen.getByRole("button", { name: "从这里开子对话" });
+    await expect.element(buttons.nth(1)).toHaveAttribute("title", "从这里开子对话");
+
+    await userEvent.click(buttons.nth(0));
+    expect(pageNewChild().getState()).toStrictEqual({ parentSessionId: "s1", turnId: "t1" });
+    pageNewChild().setState(null, true);
+    client.session("s1")?.setState({ run: { runId: "r1", startedAt: 0 } });
+    await expect.element(buttons.nth(1)).toHaveAttribute("title", "运行中不能开子对话");
+    await expect.element(buttons.nth(1)).toHaveAttribute("aria-disabled", "true");
+    expect(getComputedStyle(buttons.nth(1).element()).opacity).toBe("0.4");
+    await userEvent.click(buttons.nth(1), { force: true });
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(pageNewChild().getState()).toBeNull();
+  });
+
+  it("shows the children's capsule above the input box, and a refused /atrium- message in words", async () => {
+    const { client } = fakeClient(
+      {
+        sessions: [
+          session({ sessionId: "s1", containerId: CHAT, name: "改登录页" }),
+          session({ sessionId: "c1", containerId: CHAT, name: "补测试", parent: { sessionId: "s1", by: "user" } }),
+        ],
+      },
+      { prompt: () => Promise.reject(new CommandError("command_reserved")) },
+    );
+    const { screen } = await onOpus(client);
+
+    await expect.element(screen.getByRole("button", { name: /^子对话 1/ })).toBeInTheDocument();
+    await userEvent.fill(screen.getByRole("textbox", { name: "消息" }), "/atrium-agent note x");
+    await userEvent.keyboard("{Enter}");
+
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("以 /atrium- 开头的消息留给 Atrium 自己用，没有发出");
+  });
+});
 
 describe("ConversationArea's fork button", () => {
   afterEach(() => pageNotices().setState(null, true));

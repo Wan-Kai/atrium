@@ -1161,7 +1161,9 @@ function SearchResults({
  * A session on two lines: its title and where it lives, with a time and its status.
  *
  * @remarks
- * The inbox and the search results show sessions alike (SPEC-0001, "收件箱", "搜索").
+ * The inbox and the search results show sessions alike (SPEC-0001, "收件箱", "搜索"). A child
+ * conversation's title has a "↳" and says on hover whose it is; its place goes on to its parent,
+ * "工作区 · 主对话名 › 子对话名" (SPEC-0002, "显示 · 收件箱").
  *
  * @sideEffects Calls `onOpen` when clicked.
  * @param props - The list, the session, the time to show, its status, whether it is the one
@@ -1185,6 +1187,9 @@ function SessionLine({
   readonly onOpen: () => void;
   readonly testId?: string;
 }) {
+  const parent =
+    session.parent === null ? undefined : index.sessions.find((one) => one.sessionId === session.parent?.sessionId);
+  const place = placeOf(index, session.containerId);
   return (
     <button
       type="button"
@@ -1195,9 +1200,12 @@ function SessionLine({
       className={`${ROW} h-auto w-full items-start py-[7px] text-left aria-[current=true]:bg-[var(--selected)] aria-[current=true]:text-[var(--text)]`}
     >
       <span className="min-w-0 flex-1">
-        <span className="block truncate">{sessionTitle(session)}</span>
+        <span className="block truncate" title={parent === undefined ? undefined : `属于「${sessionTitle(parent)}」`}>
+          {session.parent === null ? "" : "↳ "}
+          {sessionTitle(session)}
+        </span>
         <span className="block text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-          {placeOf(index, session.containerId)}
+          {parent === undefined ? place : `${place} · ${sessionTitle(parent)} › ${sessionTitle(session)}`}
         </span>
       </span>
       <span className="flex shrink-0 items-center gap-2.5 pt-px text-[length:var(--fs-sm)] text-[var(--text-dim)]">

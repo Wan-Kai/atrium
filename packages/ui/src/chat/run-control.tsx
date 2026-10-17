@@ -115,11 +115,12 @@ function QueueRow({
  * SPEC-0001 ("胶囊条"): "● 排队 N" opens the queue panel above it, and opens by itself when a
  * message joins the queue; a paused queue says so, with "继续发送" in the panel.
  * "N 条插话将在下一步前送达" lists the steers pi has not delivered yet. "+A −D" on the right is the
- * workspace's git changes, opening the changes panel ("工作区改动"). Nothing shows when all three
- * are empty.
+ * workspace's git changes, opening the changes panel ("工作区改动"). The child conversations'
+ * capsule comes after the steers (SPEC-0002, "显示 · 子对话条"). Nothing shows when all are empty.
  *
  * @sideEffects Calls the actions as the user acts.
- * @param props - The run control, whether a run goes on, the actions, and the workspace's changes.
+ * @param props - The run control, whether a run goes on, the actions, the workspace's changes, and
+ * the child conversations' capsule.
  * @returns The bar, or nothing.
  */
 export function ControlTrack({
@@ -127,12 +128,15 @@ export function ControlTrack({
   running,
   actions,
   changes,
+  childCapsule,
 }: {
   readonly control: Control;
   readonly running: boolean;
   readonly actions: RunActions;
   /** The workspace's git changes, when it has some, and the changes panel (SPEC-0001, "工作区改动"). */
   readonly changes?: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void };
+  /** The child conversations' capsule, which shows nothing without children (SPEC-0002). */
+  readonly childCapsule?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const count = control.queue.length;
@@ -143,7 +147,7 @@ export function ControlTrack({
     if (count > before.current) setOpen(true);
     before.current = count;
   }, [count]);
-  if (count === 0 && control.steers.length === 0 && changes === undefined) return null;
+  if (count === 0 && control.steers.length === 0 && changes === undefined && childCapsule === undefined) return null;
   const paused = control.paused !== null;
   return (
     <>
@@ -188,6 +192,7 @@ export function ControlTrack({
             {control.steers.length} 条插话将在下一步前送达
           </span>
         ) : null}
+        {childCapsule}
         {changes === undefined ? null : <ChangesCapsule {...changes} />}
       </div>
     </>

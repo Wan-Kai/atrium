@@ -31,7 +31,8 @@ export interface ScriptedRule {
   readonly writes?: string | number;
   /**
    * Before answering, writes `text` to `file` and from then on answers `get_state` with this
-   * session id and file, as pi's `fork` and `clone` move it to a new session.
+   * session id and file, as pi's `fork` and `clone` move it to a new session. `<session-dir>` in
+   * `file` stands for the directory pi was given with `--session-dir`, where pi writes the new file.
    */
   readonly switchesTo?: { readonly sessionId: string; readonly file: string; readonly text: string };
   /** Rules for successive commands of this type, the last one repeating; the other fields are ignored. */
@@ -101,6 +102,7 @@ const SCRIPT = `
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, writeFileSync } from "node:fs";
 const behavior = JSON.parse(process.env.${BEHAVIOR_ENV} ?? "{}");
+const sessionDir = process.argv.includes("--session-dir") ? process.argv[process.argv.indexOf("--session-dir") + 1] : "";
 if (process.argv.includes("--version")) {
   process.stdout.write((behavior.version ?? "1.0.2") + "\\n");
   process.exit(0);
@@ -214,8 +216,9 @@ function answer(record, rule) {
     writeFileSync(record.outputPath, typeof rule.writes === "number" ? "x".repeat(rule.writes) : rule.writes);
   }
   if (rule.switchesTo !== undefined) {
-    writeFileSync(rule.switchesTo.file, rule.switchesTo.text);
-    switched = rule.switchesTo;
+    const file = rule.switchesTo.file.replace("<session-dir>", sessionDir);
+    writeFileSync(file, rule.switchesTo.text);
+    switched = { ...rule.switchesTo, file };
   }
   const data =
     record.type === "get_state" && switched !== null

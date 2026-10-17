@@ -87,7 +87,8 @@ function handOffBlocked(
  * @remarks
  * SPEC-0001 ("标签栏", "交给终端"). Renaming happens on the session's tab, which the tab bar
  * holds, so it says here whether the last rename failed; renaming, copying and the terminal need
- * the session's file, which a draft does not have yet. Going on in a terminal copies the command
+ * the session's file, which a draft does not have yet, though a draft child conversation can be
+ * renamed (SPEC-0002, "概念 · 名字"). Going on in a terminal copies the command
  * that does it. Failures are shown next to the menu, until the next action.
  *
  * @sideEffects Sends commands; writes the clipboard; downloads an export.
@@ -111,6 +112,8 @@ export function SessionMenu({
 }) {
   const [problem, setProblem] = useState<string | null>(null);
   const shown = problem ?? (renameFailed ? "改名失败" : null);
+  // A child's name waits in its record until pi writes its file (SPEC-0002, "概念 · 名字").
+  const unnamable = session.state === "draft" && session.parent === null;
 
   /**
    * Runs a menu action, showing a failure next to the menu.
@@ -146,8 +149,8 @@ export function SessionMenu({
                 type="button"
                 role="menuitem"
                 className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
-                disabled={session.state === "draft"}
-                title={session.state === "draft" ? "发出第一条消息后才能改名" : undefined}
+                disabled={unnamable}
+                title={unnamable ? "发出第一条消息后才能改名" : undefined}
                 onClick={() => {
                   close();
                   setProblem(null);

@@ -15,6 +15,7 @@ import {
   type PromptCommand,
   type RunSettledEvent,
   type SessionEvent,
+  type SessionMetrics,
   type SessionModel,
   type SessionSnapshotEvent,
   type SlashCommand,
@@ -160,6 +161,8 @@ export interface SessionController {
    * turn, or `null` after the last turn (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
    */
   forkPoint(turnId: string): string | null;
+  /** Takes what its child conversations produced, for its "含子对话" figures (SPEC-0002, "用量合计"). */
+  childrenChanged(totals: SessionMetrics["children"]): void;
   /**
    * Keeps the session busy while a fork reads its file, until the release given is called:
    * messages queue, and compacting or forking again is refused.
@@ -879,6 +882,11 @@ export function createSessionController(options: {
         return;
       case "steering_changed":
         delivered(event.steering);
+        return;
+      case "note_added":
+        // pi wrote the note to its file already; the read places it where a rebuild would (SPEC-0002).
+        // Fire and forget: `refresh` reports its own failures.
+        void refresh();
         return;
       case "thinking_changed":
         if (model !== null) modelIs({ ...model, thinkingLevel: event.level });
@@ -1817,6 +1825,9 @@ export function createSessionController(options: {
     },
     entryOfTurn: (turnId) => transcript.entryOfTurn(turnId),
     entriesRead: () => refreshing ?? Promise.resolve(),
+    childrenChanged(totals) {
+      metrics.childrenChanged(totals);
+    },
     forkPoint(turnId) {
       // A run, a stop or a compaction still writes the file the fork reads; a pi that has exited
       // writes nothing, and the fork has a pi of its own.

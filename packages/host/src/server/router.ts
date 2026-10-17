@@ -91,7 +91,14 @@ export function createRouter(options: RouterOptions): Route {
       case "create_chat":
         return options.sessions.createChat(connection.clientId);
       case "create_session":
-        return options.sessions.createSession(connection.clientId, command.containerId, command.go ?? true);
+        return options.sessions.createSession(
+          connection.clientId,
+          command.containerId,
+          command.go ?? true,
+          command.child,
+        );
+      case "detach_session":
+        return options.sessions.detachSession(command.sessionId);
       case "close_tab":
         return options.sessions.closeTab(connection.clientId, command.sessionId);
       case "select_container":

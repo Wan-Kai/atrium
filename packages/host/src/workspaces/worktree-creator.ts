@@ -1,10 +1,12 @@
 import { CommandError, type CommandResult } from "@atrium/protocol";
+import { randomBytes } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { GitError, type GitRunner } from "../platform/git";
 import type { Logger } from "../platform/logger";
 import type { ProjectRecord, ProjectService } from "../projects/project-service";
 import { WORKTREE_TIMEOUT_MS } from "./workspace-archiver";
+import { cleanBranchName } from "./branch-namer";
 import { mainBranchRef } from "./workspace-service";
 import type { WorktreeQueue } from "./worktree-queue";
 
@@ -14,7 +16,18 @@ export interface WorktreeCreator {
   bases(projectId: string): Promise<CommandResult<"list_bases">>;
   /** Creates a worktree on a new branch from a base, next to the project's repository; returns its workspace. */
   create(projectId: string, branch: string, base: string): Promise<string>;
+  /**
+   * Creates a worktree for a child conversation, from where a workspace is now (SPEC-0002, "概念 ·
+   * 新 worktree 的起点"), on a branch named after `wanted`; returns the workspace and its directory.
+   */
+  createFrom(workspaceId: string, wanted: string): Promise<{ readonly workspaceId: string; readonly dir: string }>;
 }
+
+/** The prefix of the branches of child conversations the user opens (SPEC-0002, "概念"). */
+const CHILD_PREFIX = "atrium/";
+
+/** The highest number a child's branch gets to avoid one taken (SPEC-0002, "概念"). */
+const LAST_SUFFIX = 9;
 
 /**
  * Where a new worktree of a repository on a branch goes.
@@ -63,6 +76,8 @@ export function createWorktreeCreator(options: {
   readonly queue: WorktreeQueue;
   readonly refresh: (workspaceId: string) => void;
   readonly logger: Logger;
+  /** Six random letters and digits, for a child's branch whose name leaves too little (SPEC-0002). */
+  readonly randomWord?: () => string;
 }): WorktreeCreator {
   /**
    * A project's record.
@@ -167,6 +182,29 @@ export function createWorktreeCreator(options: {
     // Stryker disable next-line StringLiteral: no base found reads differently without it, as the comment above says.
     const commit = await run(["rev-parse", "--verify", "--quiet", "--end-of-options", `${base}^{commit}`]);
     if (commit.code !== 0) throw new CommandError("worktree_create_failed", { reason: "base_missing", base });
+    return addAt(project, run, branch, commit.stdout.trim());
+  }
+
+  /**
+   * Adds the worktree on a new branch at a commit, once the branch's name is checked.
+   *
+   * @remarks
+   * See `createWorktreeCreator`.
+   *
+   * @sideEffects Runs git; adds the worktree; reads the file system; logs git's failure.
+   * @param project - The project.
+   * @param run - Runs git in its repository.
+   * @param branch - The new branch, a name git accepts.
+   * @param start - The commit it starts at.
+   * @returns The worktree's directory and the commit it started at.
+   * @throws {CommandError} `worktree_create_failed`.
+   */
+  async function addAt(
+    project: ProjectRecord,
+    run: Awaited<ReturnType<typeof repositoryOf>>,
+    branch: string,
+    start: string,
+  ) {
     // Stryker disable next-line StringLiteral: without it git matches the name's tail, which only a branch ending in this whole name would.
     const taken = await run(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
     if (taken.code === 0) throw new CommandError("worktree_create_failed", { reason: "branch_exists", branch });
@@ -175,7 +213,6 @@ export function createWorktreeCreator(options: {
     if (recorded || (await stat(dir).catch(() => null)) !== null) {
       throw new CommandError("worktree_create_failed", { reason: "dir_taken", dir });
     }
-    const start = commit.stdout.trim();
     const added = await run(["worktree", "add", "--quiet", "-b", branch, "--", dir, start], WORKTREE_TIMEOUT_MS);
     if (added.code !== 0) {
       options.logger.warn({ projectId: project.id, code: added.code }, "worktree add failed");
@@ -220,5 +257,65 @@ export function createWorktreeCreator(options: {
         options.refresh(workspaceId);
         return workspaceId;
       }),
+    createFrom: (workspaceId, wanted) =>
+      options.queue.run(async () => {
+        const workspace = options.projects.workspaces().find((candidate) => candidate.id === workspaceId);
+        const project = options.projects.projects().find((candidate) => candidate.id === workspace?.projectId);
+        // Only a workspace of a repository's project gets worktrees; a chat or a plain folder does not.
+        // Stryker disable next-line ConditionalExpression,LogicalOperator: a workspace not found finds no project either.
+        if (workspace === undefined || project === undefined) throw new CommandError("child_place_invalid");
+        const run = await repositoryOf(project).catch((error: unknown) => {
+          if (error instanceof CommandError && error.params?.["reason"] === "not_git") {
+            throw new CommandError("child_place_invalid");
+          }
+          throw error;
+        });
+        const projectId = project.id;
+        const { dir, start } = await (async () => {
+          // Where the parent's workspace is now, detached or not; what it has not committed stays there.
+          const head = await options.git.then((git) =>
+            // Stryker disable next-line OptionalChaining: without git, `repositoryOf` above failed already.
+            git?.run(["rev-parse", "--verify", "HEAD^{commit}"], { cwd: workspace.dir }),
+          );
+          // Stryker disable next-line OptionalChaining: there is no `head` only without git, as above.
+          if (head?.code !== 0)
+            throw new CommandError("worktree_create_failed", { reason: "base_missing", base: "HEAD" });
+          const name = cleanBranchName(wanted) ?? `child-${(options.randomWord ?? randomWord)()}`;
+          for (let suffix = 1; suffix <= LAST_SUFFIX; suffix += 1) {
+            const branch = `${CHILD_PREFIX}${name}${suffix === 1 ? "" : `-${String(suffix)}`}`;
+            // Stryker disable next-line StringLiteral: without `--verify` the full ref still matches only itself.
+            const free = (await run(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])).code !== 0;
+            const dirFree =
+              !options.projects.workspaces().some((other) => other.dir === worktreeDir(project.path, branch)) &&
+              (await stat(worktreeDir(project.path, branch)).catch(() => null)) === null;
+            if (free && dirFree) return addAt(project, run, branch, head.stdout.trim());
+          }
+          throw new CommandError("worktree_create_failed", {
+            reason: "branch_exists",
+            branch: `${CHILD_PREFIX}${name}`,
+          });
+        })().catch((error: unknown) => {
+          if (!(error instanceof GitError)) throw error;
+          options.logger.warn({ projectId, reason: error.reason }, "worktree add failed");
+          throw new CommandError("worktree_create_failed");
+        });
+        const created = await options.projects.addWorktree(projectId, dir, start);
+        options.logger.info({ projectId, workspaceId: created }, "worktree created");
+        options.refresh(created);
+        return { workspaceId: created, dir };
+      }),
   };
+}
+
+/**
+ * Six random hexadecimal digits.
+ *
+ * @remarks
+ * For a child's branch whose name leaves fewer than 2 characters (SPEC-0002, "概念").
+ *
+ * @sideEffects Uses the random number generator.
+ * @returns The word.
+ */
+function randomWord(): string {
+  return randomBytes(3).toString("hex");
 }

@@ -137,6 +137,20 @@ function harness(readReserve?: () => Promise<ContextReserve>) {
   return { tracker, clock, reads, published, failures, answer, fail, feed };
 }
 
+describe("createMetricsTracker: child conversations", () => {
+  it("publishes what the children produced when it changes, and keeps it in the figures once closed", () => {
+    const { tracker, published } = harness();
+
+    tracker.childrenChanged({ tokens: 120, cost: 0.75 });
+    tracker.childrenChanged({ tokens: 120, cost: 0.75 });
+    tracker.close();
+    tracker.childrenChanged(null);
+
+    expect(published).toStrictEqual([{ ...UNKNOWN_METRICS, children: { tokens: 120, cost: 0.75 } }]);
+    expect(tracker.current()).toStrictEqual(UNKNOWN_METRICS);
+  });
+});
+
 describe("createMetricsTracker: pi's statistics", () => {
   it("knows nothing until it has read pi's statistics, then publishes them", async () => {
     const { tracker, reads, published, answer } = harness();

@@ -2,12 +2,13 @@ import { CommandError, type IndexView, type SessionView } from "@atrium/client";
 import { type DiffFile, IDLE_CONTROL } from "@atrium/protocol";
 import type { ReactNode } from "react";
 import type { StoreApi } from "zustand";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { describeArchiveError, describeRestoreError } from "../sidebar/archive";
 import { pageNotices, showNotice } from "../state/session-notices";
+import { pageNewChild } from "../children/new-child";
 import { caughtDownloads } from "../test/downloads";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { ConnectionStatus } from "./connection-status";
@@ -1758,6 +1759,89 @@ describe("Workbench merge states", () => {
   });
 });
 
+/** The list with a child conversation of s1, open and active, and a grandchild asking. */
+function family() {
+  const initial = list();
+  return {
+    ...initial,
+    sessions: [
+      ...initial.sessions,
+      session({ sessionId: "k1", containerId: LOCAL, name: "补测试", parent: { sessionId: "s1", by: "user" } }),
+      session({
+        sessionId: "k2",
+        containerId: LOCAL,
+        name: "边界用例",
+        parent: { sessionId: "k1", by: "user" },
+        asking: Date.now(),
+      }),
+    ],
+    layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "s2", "k1"], active: "k1" } } },
+  };
+}
+
+/**
+ * The family with the child `k1` a draft still.
+ *
+ * @sideEffects none
+ * @returns The list.
+ */
+function draftedFamily() {
+  const drafted = family();
+  return {
+    ...drafted,
+    sessions: drafted.sessions.map((one) => (one.sessionId === "k1" ? { ...one, state: "draft" as const } : one)),
+  };
+}
+
+describe("Workbench child conversations (SPEC-0002)", () => {
+  afterEach(() => pageNewChild().setState(null, true));
+
+  it("marks a child's tab, raises its parent's by a descendant asking, and shows the way down under the tab bar", async () => {
+    const { screen, calls } = await workbench({ initial: family() });
+    const tabs = screen.getByRole("tab");
+
+    await expect.element(tabs.nth(2).getByLabelText("子对话")).toBeInTheDocument();
+    expect(tabs.nth(0).getByLabelText("子对话").elements()).toHaveLength(0);
+    await expect.element(tabs.nth(0).getByRole("img", { name: "待回答" })).toBeVisible();
+    await expect.element(screen.getByRole("navigation", { name: "子对话的位置" })).toHaveTextContent("重构宿主补测试");
+    await screen.getByRole("navigation").getByRole("button", { name: "重构宿主" }).click();
+
+    await vi.waitFor(() => expect(calls).toContain("openSession s1"));
+  });
+
+  it("opens an empty child of the active session from the + menu", async () => {
+    const { screen } = await workbench({ initial: family() });
+
+    await screen.getByRole("button", { name: "新建", exact: true }).click();
+    await screen.getByRole("menuitem", { name: /子对话/ }).click();
+    expect(pageNewChild().getState()).toStrictEqual({ parentSessionId: "k1", turnId: null });
+  });
+
+  it("offers no child from the + menu under a draft", async () => {
+    const { screen } = await workbench({ initial: draftedFamily() });
+
+    await screen.getByRole("button", { name: "新建", exact: true }).click();
+    await expect.element(screen.getByRole("menuitem", { name: /子对话/ })).toBeDisabled();
+  });
+
+  it("marks a child in the history and the inbox, which names its parent", async () => {
+    onTestFinished(() => localStorage.removeItem("atrium.inboxOpen"));
+    const { screen } = await workbench({ initial: family() });
+
+    await screen.getByRole("button", { name: "历史" }).click();
+    await expect
+      .element(screen.getByRole("menuitem", { name: /补测试/ }).getByTitle("属于「重构宿主」"))
+      .toHaveTextContent("↳ 补测试");
+    await screen
+      .getByRole("region", { name: "等你处理" })
+      .getByRole("button", { name: /^等你处理/ })
+      .click();
+    await expect
+      .element(screen.getByTestId("inbox-row"))
+      .toMatchTextContent(/^↳ 边界用例.* · main · 补测试 › 边界用例/);
+  });
+});
+
 describe("Workbench tabs", () => {
   it("shows the container's open sessions as tabs, the active one selected, and switches and closes them", async () => {
     const { screen, calls } = await workbench();
@@ -1871,6 +1955,35 @@ describe("Workbench tabs", () => {
 
     await expect.element(screen.getByRole("menuitem", { name: "复制会话文件路径" })).toBeDisabled();
     await expect.element(screen.getByRole("menuitem", { name: "重命名" })).toBeDisabled();
+  });
+
+  it("renames a draft child conversation, whose name waits in its record (SPEC-0002)", async () => {
+    const initial = list();
+    const { screen, calls } = await workbench({
+      initial: {
+        ...initial,
+        sessions: [
+          ...initial.sessions,
+          session({
+            sessionId: "k1",
+            containerId: LOCAL,
+            file: null,
+            state: "draft",
+            name: "补测试",
+            parent: { sessionId: "s1", by: "user" },
+          }),
+        ],
+        layout: { container: LOCAL, tabs: { [LOCAL]: { open: ["s1", "k1"], active: "k1" } } },
+      },
+    });
+
+    await screen.getByRole("button", { name: "当前会话" }).click();
+    await expect.element(screen.getByRole("menuitem", { name: "复制会话文件路径" })).toBeDisabled();
+    await screen.getByRole("menuitem", { name: "重命名" }).click();
+    await userEvent.fill(screen.getByRole("textbox", { name: "会话名称" }), "边界用例");
+    await userEvent.keyboard("{Enter}");
+
+    await vi.waitFor(() => expect(calls).toContain("renameSession k1 边界用例"));
   });
 
   it("says beside the active session's menu what a command just did for it", async () => {

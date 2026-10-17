@@ -344,7 +344,8 @@ export type LaunchClient = Pick<
  * a user who left the page stays where they went (`go: false`). pi's start is waited for by
  * setting the model chosen, or else by listing its commands, as opening the session would take
  * the window there. A failure stops the steps and puts the message back into the box it came
- * from, or the session's once there is one, when that box is empty.
+ * from, or the session's once there is one, when that box is empty. A message opening with
+ * `/atrium-` fails before any step, as the host would refuse it only once the worktree was made.
  *
  * @sideEffects Sends commands; updates the store and the drafts.
  * @param store - The store.
@@ -414,6 +415,8 @@ export async function launch(
   const onPage = (): boolean => store.getState().page?.launchId === id;
   let sessionId: string | null = null;
   try {
+    // The host refuses it at the send (SPEC-0002, "送达"); refused here, it makes no worktree first.
+    if (message.text.trimStart().startsWith("/atrium-")) throw new CommandError("command_reserved");
     let workspaceId = started.workspaceId;
     if (worktree !== null) {
       let { branch } = worktree;

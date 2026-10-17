@@ -2,6 +2,8 @@ import type { AtriumClient } from "@atrium/client";
 import { type HostMessage, PROTOCOL_VERSION } from "@atrium/protocol";
 import { createTempDir, present, writeScriptedPi } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
+import { writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -12,6 +14,8 @@ const BATCHES = 4;
 const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
 let testHost: TestHost | undefined;
+/** Where the scripted pi's sessions are read from, the latest host's. */
+let sessionsDir: string | undefined;
 
 afterEach(async () => {
   await testHost?.dispose();
@@ -82,11 +86,49 @@ async function sessionsHost(): Promise<{ readonly host: TestHost; readonly clien
     },
     "pi",
   );
-  testHost = await startTestHost({ logLevel: "warn", toolEnv: { PATH: `${bin.path}:/usr/bin:/bin`, ...scripted.env } });
+  sessionsDir = bin.path;
+  testHost = await startTestHost({
+    logLevel: "warn",
+    toolEnv: { PATH: `${bin.path}:/usr/bin:/bin`, PI_CODING_AGENT_SESSION_DIR: bin.path, ...scripted.env },
+  });
   await testHost.host.tools;
   const client = testHost.connect();
   expect(await client.connect()).toMatchObject({ status: "connected" });
   return { host: testHost, client };
+}
+
+/**
+ * A chat's session that pi wrote a file of, so child conversations can hang under it.
+ *
+ * @remarks
+ * The scripted pi writes no file; the test writes one where the host reads pi's sessions, and the
+ * window coming to the front makes the host look again (SPEC-0002: a draft has no children).
+ *
+ * @sideEffects Creates a chat and its session file; makes the host scan.
+ * @param host - The host, whose home holds the chat's directory.
+ * @param client - The client.
+ * @returns The session's id and its chat.
+ */
+async function sessionOnFile(
+  host: TestHost,
+  client: AtriumClient,
+): Promise<{ sessionId: string; containerId: string }> {
+  const { sessionId } = await client.createChat();
+  const containerId = present(
+    client.index.getState().sessions.find((one) => one.sessionId === sessionId),
+    "the new session",
+  ).containerId;
+  // The host reads only files whose directory is a container's; a chat's is under its home.
+  const cwd = join(dirname(dirname(host.host.logFile)), "chats", containerId.slice("cht_".length));
+  const entry = { type: "message", id: "u1", parentId: null, timestamp: "", message: { role: "user", content: "go" } };
+  await writeFile(
+    join(present(sessionsDir, "the sessions folder"), `${sessionId}.jsonl`),
+    `${JSON.stringify({ type: "session", id: sessionId, timestamp: "", cwd })}\n${JSON.stringify(entry)}\n`,
+  );
+  await client.windowFocused();
+  const summary = () => client.index.getState().sessions.find((one) => one.sessionId === sessionId);
+  await vi.waitFor(() => expect(summary()?.state).toBe("persisted"), { timeout: 10_000 });
+  return { sessionId, containerId };
 }
 
 /**
@@ -242,6 +284,35 @@ describe("session resources (M1.9)", () => {
       await pause();
     }
 
+    await backToBaseline(host, before, handles, processes);
+  });
+
+  it("leaves no pi, timer or handle behind after opening and archiving a child conversation 200 times (SPEC-0002)", async () => {
+    const { host, client } = await sessionsHost();
+    const parent = await sessionOnFile(host, client);
+    const { before, handles, processes } = await baseline(host);
+
+    for (let batch = 0; batch < BATCHES; batch++) {
+      for (let round = 0; round < BATCH / 2; round++) {
+        const { sessionId } = await client.createChild(parent.containerId, {
+          parentSessionId: parent.sessionId,
+          name: "子对话",
+          place: "same",
+        });
+        await client.archiveSession(sessionId);
+      }
+      await pause();
+    }
+
+    await vi.waitFor(() =>
+      expect(
+        client.index
+          .getState()
+          .sessions.filter((one) => !one.archived)
+          .map((one) => one.sessionId),
+      ).toStrictEqual([parent.sessionId]),
+    );
+    await client.closeTab(parent.sessionId);
     await backToBaseline(host, before, handles, processes);
   });
 });

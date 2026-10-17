@@ -408,6 +408,26 @@ describe("createSessionController on a recorded session", () => {
   });
 });
 
+/**
+ * pi's `message_end` for a custom message.
+ *
+ * @sideEffects none
+ * @param customType - Its type.
+ * @returns The event.
+ */
+const custom = (customType: string) =>
+  ({
+    type: "message_end",
+    message: {
+      role: "custom",
+      customType,
+      content: "x",
+      display: true,
+      details: { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" },
+      timestamp: 1,
+    },
+  }) as unknown as PiEvent;
+
 describe("createSessionController on cases the fixtures do not show", () => {
   it("snapshots the turn running and the run in progress, with the latest sequence number", async () => {
     const { pi, emit } = manualPi();
@@ -600,6 +620,17 @@ describe("createSessionController on cases the fixtures do not show", () => {
     expect(events).toStrictEqual([
       { type: "session_exited", ...at(1, null), reason: "requested", code: 0, signal: null },
     ]);
+  });
+
+  it("reads the entries again once pi wrote Atrium's note, and not for another extension's message", async () => {
+    const { pi, emit, since } = manualPi();
+    control(pi);
+
+    emit(custom("someone-else"));
+    await settle();
+    expect(since).toStrictEqual([]);
+    emit(custom("atrium-agent"));
+    await vi.waitFor(() => expect(since).toStrictEqual([undefined]));
   });
 
   it("reads one page at a time, reading again once more if asked meanwhile", async () => {

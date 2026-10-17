@@ -71,7 +71,9 @@ classDiagram
       firstPrompt?  [扫描]
       updatedAt
       archived: bool
-      title()  piName 或兜底标题
+      parent?  [索引] 父会话 id + 谁开的，SPEC-0002
+      usageAfter?  [索引] 用量的基线条目 id，SPEC-0002
+      title()  piName、记录的名字或兜底标题
     }
     class MergeState {
       <<运行时缓存>>
@@ -93,6 +95,7 @@ classDiagram
     SessionContainer <|.. Workspace
     SessionContainer <|.. Chat
     SessionContainer "1" -- "0..*" Session : 记录的容器，否则按 cwd
+    Session "0..1" <-- "0..*" Session : parent，子对话
     Workspace "1" -- "0..1" MergeState : 仅 worktree
     ClientLayout "0..*" --> "1" SessionContainer
 ```
@@ -114,6 +117,7 @@ classDiagram
   - **归属**：Atrium 自己建的会话，创建时把所属容器记进索引（`containerId`），以后以它为准（参照 Paseo：创建时写定，不再推断）。终端里 pi 开的、Atrium 没见过的会话，才按文件头里的 `cwd` 归到对应目录的容器。这样既保留"终端会话自动归位"，以后"把对话移到项目"也只需改记录。
   - pi 恢复会话时用的是文件头里的 `cwd`；工作区目录被移走或删除时，恢复报"目录不存在"，不悄悄换目录。
   - 扫描到两个文件带同一个 id 时报告冲突，不自动合并。
+  - **子对话**（SPEC-0002，M1.15）：父子关系只记在索引里（`parent: { sessionId, by }`），不读 pi 会话头的 `parentSession`（新 worktree 的子对话指向已删掉的中间文件）。子对话可以和父会话在同一个容器，也可以在另一个工作区（新建的 worktree）；层数不限，遇到环时在闭合处断开。记录里的名字（`name`）给 pi 写出文件前的草稿子对话用，pi 有了名字以 pi 的为准。`usageAfter` 是分叉出的文件里最后一条条目的 id，状态栏的"含子对话"只算它之后的；空的子对话没有基线，从头算。脱离只去掉 `parent`，它下面的关系不变。
 - **MergeState** 由 MergeInspector 计算。`unknown` 带原因：git 低于 2.38、主干引用缺失、查询失败、外部 worktree 起点无法判断。合并判定按"分支提交 + 主干提交"缓存；`dirty` 和目录是否存在每次单独刷新。界面映射：`dirty` 优先显示"未提交"，否则 `verdict` 为 `pending` 且 `ahead > 0` 显示 `↑N`（squash 合并后分支仍比主干多提交，但已判定为已合并，不显示 `↑N`），再看 `verdict`。
 
 ### 索引的存储（2026-10-08 定）
@@ -248,10 +252,10 @@ classDiagram
   - pi 不保存叶子，加载时取文件最后一条为叶子。
   - 切换模型、压缩、标签等写入的条目**不会发事件**。所以在 `agent_settled`、`compaction_end`、以及宿主自己发出的 `set_model` 等命令之后，主动再取一次 `get_entries(since)`，不只靠实时事件。
 - **不用 `get_messages` 恢复历史**：它返回的是送给模型的上下文，压缩、上下文编辑之后旧消息可能已被摘要替换，会丢掉完整的对话、工具步骤和改动。
-- **TranscriptProjection** 是给对话区看的投影：沿当前分支把条目组织成 Atrium 的"轮"。注意 pi 的 turn 是"一次助手响应及其工具执行"，比 Atrium 的一轮小；Atrium 的一轮 = 一条用户消息到下一条用户消息之间的全部内容。MVP 1 不展示会话树，但底层按树建模，以后加会话树、分叉不用重来。
+- **TranscriptProjection** 是给对话区看的投影：沿当前分支把条目组织成 Atrium 的"轮"。注意 pi 的 turn 是"一次助手响应及其工具执行"，比 Atrium 的一轮小；Atrium 的一轮 = 一条用户消息到下一条用户消息之间的全部内容（SPEC-0002 第二步起，`task`、`report` 自定义消息开头的运行也算一轮）。MVP 1 不展示会话树，但底层按树建模，以后加会话树、分叉不用重来。
 - **ContextBreakdown** 给状态栏用，是估算值：总量来自 `get_session_stats().contextUsage`（可能为空或是估算）；系统提示词和工具定义沿当前分支回放系统消息与压缩检查点得出；没有系统消息的旧会话只显示总量。MVP 2 的上下文检查器要的是"每次实际发出的请求"，另由 extension 捕获，不从这里升级。
 - **Notice** 里 `extension` 类型保留无法识别的 extension 通知原文，MVP 1 只记录不显示，MVP 2 的"带标记的通知"从这里接入。
-- 自动重试发生在一轮中间，用 **RetryStep** 显示"正在重试（第 N / 3 次）"，不拆开这一轮；**Notice** 用来显示压缩和"进程已自动重启"（M1.6）。
+- 自动重试发生在一轮中间，用 **RetryStep** 显示"正在重试（第 N / 3 次）"，不拆开这一轮；**Notice** 用来显示压缩和"进程已自动重启"（M1.6），以及 Atrium 给模型的说明（`note`，SPEC-0002：pi 的 `atrium-agent` 自定义消息，排在它跟着的那一轮后面，不开新的一轮）。
 - **InteractionStep** 只是对话记录里"问题 → 回答"的展示，活着的请求见下一节的 PendingInteraction。pi 不把对话框写进会话文件，所以这一步只在宿主存活期间存在。
 - **ToolStep** 各自带状态，同一批里的工具调用可以并行，不假设前一个结束后一个才开始。
 - **改动汇总**不建类，语义是"已观测到的工具修改"：`edit` 有 diff，显示增删行；`write` 显示写入内容（取自调用参数，pi 的结果里没有），增删行未知时不显示数字；通过 bash 等其他方式的改动统计不到。多次编辑同一文件是累计编辑量，不是净改动。
@@ -379,7 +383,8 @@ classDiagram
 |---|---|---|
 | 关闭标签 `closeTab` | 只改这个客户端的 ClientLayout | 不停运行、不动排队和进程 |
 | 停止 `stop` | 宿主先暂停出队，再对 pi `clear_queue` → `abort`；排队保留并暂停。`abort` 2 秒内没确认停下，就保持 `stopping`，拒绝新的提交、切换模型等写操作，直到确认或进程退出（参照 Paseo，避免状态分裂） | 不关进程 |
-| 归档 `archive` | 记归档标记，关掉进程，丢掉 Controller（工作区或项目移除时，其中的会话也一样丢掉 Controller） | 不删 pi 的会话文件 |
+| 归档 `archive` | 记归档标记，关掉进程，丢掉 Controller（工作区或项目移除时，其中的会话也一样丢掉 Controller）。连带子对话（SPEC-0002）：从被归档的会话往下，同一容器的子孙一起归档，别的容器的那一支脱离；归档会话、对话、工作区都这样，工作区的脱离在 worktree 删掉之后 | 不删 pi 的会话文件 |
+| 脱离 `detach` | 去掉子对话的父会话，变成普通会话（SPEC-0002） | 不动它自己的子对话 |
 | 打开 `open` | 对 `closed` 的会话以 `--session` 启动进程（`processEpoch + 1`），重建 SessionLog | 不自动重放结果未知的上一条输入 |
 | 交给终端 `handOff` | 停止接受这个会话的写命令，关掉进程（进入 `closed`），在索引里记下交接（宿主重启后仍在），给出 `pi --session <文件>`；回来时由用户点"在 Atrium 里继续"（`takeBack`）重新打开，切到标签不自动启动 pi（2026-10-10 定） | Atrium 与终端不同时写同一个会话；运行中、排队里还有消息时不交接 |
 
@@ -644,7 +649,7 @@ classDiagram
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
 - **FileSearch** 在会话的工作目录里调 `fd`，参数和排序照 pi 的终端界面，git 仓库和普通目录一样（2026-10-10 定，原先打算 git 仓库用 `git ls-files`、其他目录自己遍历）。
 - **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个）。主干按"已决定 15"：项目设置（ProjectService）或 `origin/HEAD`；和 WorkspaceService 不同的是，`origin` 上没有主干时退到本地主干（照 Paseo）。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。
-- 指标的计时和汇总是 SessionController 内部的事，不单独成服务。
+- 指标的计时和汇总是 SessionController 内部的事，不单独成服务。子对话的用量合计（SPEC-0002，M1.15）是例外，要跨会话：SessionManager 持有一个 ChildrenUsage，用 pi 包的 UsageReader 增量读每个子孙的会话文件（只算基线之后的），在索引变化、子对话自己的指标变化时刷新它上面的每一层，交给各自的 SessionController 放进指标的 `children`。
 
 ## 7. 客户端与一致性
 
@@ -725,7 +730,7 @@ classDiagram
 | `list_bases` / `create_workspace` | WorktreeCreator（git 的部分，和 WorkspaceArchiver 排同一个队）→ ProjectService（记录，带起点提交）→ WorkspaceService（重扫）（M1.11） |
 | `rename_chat` | ChatRecords（`chats.json`） |
 | `archive_chat` / `restore_chat` | SessionManager（停 pi、归档或放回会话）→ ChatRecords（记录）（M1.11） |
-| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` | SessionManager |
+| `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
 | `subscribe_index(cursor?)` | IndexFeed |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
 | `prompt` / `steer` / `stop` / `resume_queue` / `clear_queue` / `update_queued` / `remove_queued` / `steer_queued` / `answer_interaction` / `set_model` / `set_thinking_level` | SessionController |
@@ -734,7 +739,7 @@ classDiagram
 | `search_files(sessionId, query)` | FileSearch |
 | `watch_changes(workspaceIds)` / `watch_diff(target)` | ChangesService |
 | `compact_session` / `export_session` | SessionController：调会话自己的 pi 的 `compact`（只在空闲时）、`export_html`（运行中也行）（M1.11） |
-| `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork`（最后一轮用 `clone`）、设上界面给的名字，读出新会话后停掉它，复制轮的记录，重扫容器并打开新会话（M1.11） |
+| `fork_session` | SessionManager → SessionForker：由轮找到下一轮开头的用户消息条目，另起临时 pi 做 pi 的 `fork`（最后一轮用 `clone`）、设上界面给的名字，读出新会话后停掉它，复制轮的记录，重扫容器并打开新会话（M1.11）。带 `child` 时同时写下子对话的记录；放到新 worktree 的，临时 pi 写到宿主临时目录，子对话的 pi 在新目录以 `--fork` 起，收到路径说明（M1.15） |
 | `fetch_image(sessionId, turnId, index)` | SessionManager → SessionController 找出轮的用户消息条目，pi 包的 SessionFiles 从会话文件里读出图片（M1.11） |
 | `upload_attachment` | AttachmentStore：按客户端暂存压缩后的图片，被 `prompt` / `steer` 用掉或连接断开时释放（M1.7） |
 | `ping` / `report_client_issue` | Router 直接处理：应答心跳；把界面的问题写进日志 |

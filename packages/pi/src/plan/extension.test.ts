@@ -356,7 +356,7 @@ describe("atriumPlan", () => {
     ]);
   });
 
-  it("registers Fast's switch and hook and the plan query from Atrium's one extension", () => {
+  it("registers Fast's switch and hook, the plan query and the child conversations' command from Atrium's one extension", () => {
     const commands: string[] = [];
     const hooks: string[] = [];
 
@@ -366,10 +366,11 @@ describe("atriumPlan", () => {
         hooks.push(event);
         return () => undefined;
       },
+      sendMessage: () => undefined,
     });
 
     expect([commands, hooks]).toStrictEqual([
-      ["atrium-fast", "atrium-plan"],
+      ["atrium-fast", "atrium-plan", "atrium-agent"],
       ["before_provider_request", "after_provider_response"],
     ]);
   });

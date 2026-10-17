@@ -1,12 +1,14 @@
 import { isAuthFailure } from "@atrium/client";
 import type { Notice, Step, Turn } from "@atrium/protocol";
 import {
+  ArrowBendDownRight,
   ArrowClockwise,
   ArrowsInLineVertical,
   CaretDown,
   CaretRight,
   Database,
   FileText,
+  GitBranch,
   GitFork,
   Key,
   PencilSimple,
@@ -276,6 +278,8 @@ function FileChange({
 export interface ForkFromTurn {
   /** Forks after the turn. */
   readonly fork: (turnId: string) => void;
+  /** Opens a child conversation carrying the turns up to this one (SPEC-0002, "第一步 · 入口"). */
+  readonly child?: (turnId: string) => void;
   /** Whether the session runs, stops or compacts, so no fork can be made now. */
   readonly blocked: boolean;
 }
@@ -307,6 +311,44 @@ function ForkButton({ turnId, fork }: { readonly turnId: string; readonly fork: 
       }}
     >
       <GitFork size={14} />
+    </button>
+  );
+}
+
+/**
+ * The "从这里开子对话" button right of a reply's fork button.
+ *
+ * @remarks
+ * SPEC-0002 ("第一步 · 入口"; prototype A): drawn as the fork button, a "↳"; blocked when forking
+ * is, as it carries the turns the same way, saying "运行中不能开子对话".
+ *
+ * @sideEffects Asks for a child conversation when clicked and not blocked.
+ * @param props - The turn, what opening a child does, and whether it is blocked.
+ * @returns The button.
+ */
+function ChildButton({
+  turnId,
+  open,
+  blocked,
+}: {
+  readonly turnId: string;
+  readonly open: (turnId: string) => void;
+  readonly blocked: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label="从这里开子对话"
+      title={blocked ? "运行中不能开子对话" : "从这里开子对话"}
+      aria-disabled={blocked}
+      className={`atrium-press-sm rounded-[var(--r)] p-1 text-[var(--text-dim)] ${
+        blocked ? "cursor-not-allowed opacity-40" : "hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+      }`}
+      onClick={() => {
+        if (!blocked) open(turnId);
+      }}
+    >
+      <ArrowBendDownRight size={14} />
     </button>
   );
 }
@@ -344,6 +386,7 @@ function TurnFooter({
       >
         {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
         {fork === undefined ? null : <ForkButton turnId={turn.id} fork={fork} />}
+        {fork?.child === undefined ? null : <ChildButton turnId={turn.id} open={fork.child} blocked={fork.blocked} />}
         {turn.changes.length === 0 ? null : (
           <button
             type="button"
@@ -632,7 +675,13 @@ export function NoticeView({ notice }: { readonly notice: Notice }) {
         className="flex w-full items-center gap-2.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] before:h-px before:flex-1 before:bg-[var(--line)] after:h-px after:flex-1 after:bg-[var(--line)]"
       >
         <span className="flex items-center gap-1.5">
-          {notice.notice === "restarted" ? <ArrowClockwise size={13} /> : <Question size={13} />}
+          {notice.notice === "restarted" ? (
+            <ArrowClockwise size={13} />
+          ) : notice.notice === "note" ? (
+            <GitBranch size={13} />
+          ) : (
+            <Question size={13} />
+          )}
           {hostNoticeText(notice)}
         </span>
       </div>

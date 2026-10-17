@@ -1,4 +1,5 @@
 import {
+  type ChildPlacement,
   CloseCode,
   type ClientIssueKind,
   type Command,
@@ -7,6 +8,7 @@ import {
   type CommandType,
   type ContainerId,
   type DiffTarget,
+  type ForkPlacement,
   type HelloMessage,
   HostMessage,
   type InstallUpdatedEvent,
@@ -154,6 +156,13 @@ export interface AtriumClient {
    * `go` false the client stays where it is.
    */
   createSession(containerId: ContainerId, go?: boolean): Promise<CommandResult<"create_session">>;
+  /**
+   * Creates an empty child conversation of a session, in its container or a new worktree, opened
+   * as the active tab (SPEC-0002, "第一步 · 入口").
+   */
+  createChild(containerId: ContainerId, child: ChildPlacement): Promise<CommandResult<"create_session">>;
+  /** Makes a child conversation an ordinary session (SPEC-0002, "脱离"). */
+  detachSession(sessionId: string): Promise<CommandResult<"detach_session">>;
   /** Opens a session as the active tab, at once in the list; `watch` it to see it. */
   openSession(sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes this client's tab of a session, at once in the list. */
@@ -255,7 +264,12 @@ export interface AtriumClient {
    * Forks a session after a turn into a new one with this name, which the host opens as the active
    * tab (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
    */
-  forkSession(sessionId: string, turnId: string, name: string): Promise<CommandResult<"fork_session">>;
+  forkSession(
+    sessionId: string,
+    turnId: string,
+    name: string,
+    child?: ForkPlacement,
+  ): Promise<CommandResult<"fork_session">>;
   /** The `/` commands of a session's pi, which starts if it has not. */
   listCommands(sessionId: string): Promise<CommandResult<"list_commands">>;
   /** Files and directories for `@` in a session's directory. */
@@ -1223,6 +1237,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     createChat: () => request("create_chat", {}),
     createSession: (containerId, go) =>
       request("create_session", go === undefined ? { containerId } : { containerId, go }),
+    createChild: (containerId, child) => request("create_session", { containerId, child }),
+    detachSession: (sessionId) => request("detach_session", { sessionId }),
     openSession(sessionId) {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       index.setState(withTabOpen(index.getState(), sessionId), true);
@@ -1321,7 +1337,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       // Stryker disable next-line ConditionalExpression,EqualityOperator: undefined is left out of the JSON either way.
       request("compact_session", instructions === undefined ? { sessionId } : { sessionId, instructions }),
     exportSession: (sessionId) => request("export_session", { sessionId }),
-    forkSession: (sessionId, turnId, name) => request("fork_session", { sessionId, turnId, name }),
+    forkSession: (sessionId, turnId, name, child) =>
+      request("fork_session", child === undefined ? { sessionId, turnId, name } : { sessionId, turnId, name, child }),
     loadOlder(sessionId) {
       const going = olderLoading.get(sessionId);
       if (going !== undefined) return going;

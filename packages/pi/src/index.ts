@@ -31,6 +31,8 @@ export {
 } from "./history/log-entry";
 export { contextParts } from "./history/system-prompt";
 export { type PiStats, piStatsOf } from "./stats/session-stats";
+export { type FileUsage, type UsageReader, createUsageReader, lastEntryId } from "./stats/file-usage";
+export { AGENT_COMMAND, type AgentNote, encodeArgument } from "./agent/agent";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {
   type SessionDirectory,
@@ -48,7 +50,7 @@ export {
 export { type ModelList, queryModels } from "./catalog/query";
 export { type ModelCatalog, createModelCatalog } from "./catalog/model-catalog";
 export { sessionModelOf } from "./catalog/models";
-export { isFastSwitch, toSlashCommand } from "./catalog/commands";
+export { isAgentCommand, isFastSwitch, toSlashCommand } from "./catalog/commands";
 export { FAST_COMMAND } from "./fast/fast";
 export { PLAN_PROVIDERS, type PlanReport, isPlanProvider, planReplyOf } from "./plan/plan";
 export { queryPlanUsage } from "./plan/query";

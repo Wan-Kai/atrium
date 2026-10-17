@@ -15,6 +15,8 @@ import { type Panes, createPanes } from "../state/panes";
 import { Sidebar } from "../sidebar/sidebar";
 import { type NewWorkspaceState, closePage, createNewWorkspaceStore, openPage } from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
+import { Breadcrumb } from "../children/breadcrumb";
+import { NewChildDialog } from "../children/new-child-dialog";
 import {
   type WorkspaceViews,
   closeViewer,
@@ -585,6 +587,7 @@ function MainWindow({
               views={views}
             />
           )}
+          {pageProject === null && sessionId !== null ? <Breadcrumb client={client} sessionId={sessionId} /> : null}
           {resets.length > 0 ? (
             <div
               role="status"
@@ -616,6 +619,7 @@ function MainWindow({
           )}
           <footer className="flex shrink-0 items-center justify-center text-[length:var(--fs-xs)]">{status}</footer>
         </main>
+        <NewChildDialog client={client} />
         {/* After the drag areas it lies over, or Electron lets them take its presses (SidebarToggle). */}
         <SidebarToggle panes={panes} />
       </div>

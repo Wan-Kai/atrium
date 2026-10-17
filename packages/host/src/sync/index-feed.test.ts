@@ -107,6 +107,7 @@ function session(id: string, running = false): SessionSummary {
     attention: null,
     asking: null,
     handedOff: false,
+    parent: null,
   };
 }
 

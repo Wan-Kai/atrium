@@ -119,7 +119,10 @@ export const Turn = z.strictObject({
 });
 export type Turn = z.infer<typeof Turn>;
 
-/** A system event between turns: the context was compacted, or the host restarted a crashed pi. */
+/**
+ * A system event between turns: the context was compacted, the host restarted a crashed pi, an
+ * extension asked something, or the host told the model something (SPEC-0002, `note`).
+ */
 export const Notice = z.discriminatedUnion("notice", [
   z.strictObject({
     kind: z.literal("notice"),
@@ -149,6 +152,19 @@ export const Notice = z.discriminatedUnion("notice", [
     value: z.string().nullable(),
     /** The answer to a confirmation. */
     confirmed: z.boolean().nullable(),
+    timestamp: Timestamp,
+  }),
+  /**
+   * The host's note to the model, an `atrium-agent` custom message: a child conversation forked
+   * into a new worktree works in `to`, though its history names `from` (SPEC-0002).
+   */
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("note"),
+    note: z.literal("worktree_moved"),
+    from: z.string().min(1).max(4096),
+    to: z.string().min(1).max(4096),
     timestamp: Timestamp,
   }),
 ]);

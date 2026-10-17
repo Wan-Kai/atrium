@@ -290,6 +290,23 @@ export type RestoreChatCommand = z.infer<typeof RestoreChatCommand>;
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
 
+/**
+ * Where an empty child conversation goes and what it is called (SPEC-0002, "第一步"): the parent's
+ * container, or a new worktree from the parent's workspace's current commit on `branch`.
+ */
+export const ChildPlacement = z.discriminatedUnion("place", [
+  z.strictObject({ parentSessionId: SessionId, name: Name, place: z.literal("same") }),
+  z.strictObject({ parentSessionId: SessionId, name: Name, place: z.literal("worktree"), branch: BranchName }),
+]);
+export type ChildPlacement = z.infer<typeof ChildPlacement>;
+
+/** Where a child conversation forked from a turn goes; its parent is the forked session (SPEC-0002). */
+export const ForkPlacement = z.discriminatedUnion("place", [
+  z.strictObject({ place: z.literal("same") }),
+  z.strictObject({ place: z.literal("worktree"), branch: BranchName }),
+]);
+export type ForkPlacement = z.infer<typeof ForkPlacement>;
+
 /** Creates a session in a workspace or chat, starts its pi and opens it as this client's active tab. */
 export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
@@ -300,6 +317,11 @@ export const CreateSessionCommand = z.strictObject({
    * has left the page of (SPEC-0001, "M1.11 的新建工作区"); it goes there when left out.
    */
   go: z.boolean().optional(),
+  /**
+   * Makes it an empty child conversation of another session; then `containerId` is the parent's
+   * container, or unused for a new worktree (SPEC-0002, "接口与数据").
+   */
+  child: ChildPlacement.optional(),
 });
 export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 
@@ -314,6 +336,14 @@ export const SelectContainerCommand = z.strictObject({
   containerId: ContainerId.nullable(),
 });
 export type SelectContainerCommand = z.infer<typeof SelectContainerCommand>;
+
+/** Makes a child conversation an ordinary session; only the user does it (SPEC-0002, "归档、脱离、交接"). */
+export const DetachSessionCommand = z.strictObject({
+  type: z.literal("detach_session"),
+  ...commandFields,
+  sessionId: SessionId,
+});
+export type DetachSessionCommand = z.infer<typeof DetachSessionCommand>;
 
 /** Hides a session in Atrium and stops its pi; pi's file stays. */
 export const ArchiveSessionCommand = z.strictObject({
@@ -430,6 +460,8 @@ export const ForkSessionCommand = z.strictObject({
   turnId: z.string().min(1).max(256),
   /** The new session's name, which the UI words. */
   name: Name,
+  /** Makes it a child conversation of this session, carrying the turns up to `turnId` (SPEC-0002). */
+  child: ForkPlacement.optional(),
 });
 export type ForkSessionCommand = z.infer<typeof ForkSessionCommand>;
 
@@ -707,6 +739,7 @@ export const Command = z.discriminatedUnion("type", [
   CloseTabCommand,
   SelectContainerCommand,
   ArchiveSessionCommand,
+  DetachSessionCommand,
   ClearAttentionCommand,
   HandOffCommand,
   TakeBackCommand,
@@ -813,6 +846,7 @@ export const CommandResult = {
   close_tab: z.strictObject({}),
   select_container: z.strictObject({}),
   archive_session: z.strictObject({}),
+  detach_session: z.strictObject({}),
   clear_attention: z.strictObject({}),
   /** The session file, for `pi --session`. */
   hand_off: z.strictObject({ file: z.string().min(1).max(4096) }),

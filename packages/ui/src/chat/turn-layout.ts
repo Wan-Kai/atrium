@@ -438,10 +438,11 @@ const UNANSWERED: Readonly<Record<"cancelled" | "timed_out" | "stale", string>> 
 };
 
 /**
- * A notice of the host's own, in words: a restart, or an extension's question and its result.
+ * A notice of the host's own, in words: a restart, an extension's question and its result, or a note.
  *
  * @remarks
- * "进程已自动重启（第 N / 3 次）" and "问题 → 回答" (SPEC-0001, "运行控制").
+ * "进程已自动重启（第 N / 3 次）" and "问题 → 回答" (SPEC-0001, "运行控制"); a child conversation
+ * forked into a new worktree says where it works now (SPEC-0002, "对话记录里的自定义消息").
  *
  * @sideEffects none
  * @param notice - The notice.
@@ -449,6 +450,7 @@ const UNANSWERED: Readonly<Record<"cancelled" | "timed_out" | "stale", string>> 
  */
 export function hostNoticeText(notice: Exclude<Notice, { notice: "compacted" }>): string {
   if (notice.notice === "restarted") return `进程已自动重启（第 ${notice.attempt} / 3 次）`;
+  if (notice.notice === "note") return `在新的 worktree 里继续：${notice.to}（之前的路径属于 ${notice.from}）`;
   const result =
     notice.outcome === "answered"
       ? (notice.value ?? (notice.confirmed === true ? "是" : "否"))

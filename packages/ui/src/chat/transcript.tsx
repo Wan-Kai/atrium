@@ -201,6 +201,8 @@ export interface TranscriptProps {
   readonly onRetry?: () => void;
   /** Forks the session after a turn, offered under every finished turn's reply. */
   readonly onFork?: (turnId: string) => void;
+  /** Opens a child conversation carrying the turns up to one, offered beside forking (SPEC-0002). */
+  readonly onChild?: (turnId: string) => void;
   /** How to open a file a tool was given, from its chip; none where files cannot be opened. */
   readonly openFile?: (path: string) => (() => void) | null;
 }
@@ -220,14 +222,14 @@ export interface TranscriptProps {
  * run goes on and pi is not being restarted (SPEC-0001, "运行控制"). While pi compacts the
  * context, a line at the bottom says so (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
  * turn offers "从这里分叉", greyed while a run goes on, stops, pi compacts or is restarted
- * (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
+ * (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"), and "从这里开子对话" beside it, greyed alike (SPEC-0002).
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
  * @param props - The session's view, how to load older items, how to fetch a step whole, how to
- * retry, how to fork and how to open a file from its chip.
+ * retry, how to fork, how to open a child conversation and how to open a file from its chip.
  * @returns The scrollable conversation.
  */
-export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, openFile }: TranscriptProps) {
+export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onChild, openFile }: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -237,7 +239,8 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, ope
   const last = view.items.at(-1);
   const turnRunning = last?.kind === "turn" && last.outcome === "running";
   const blocked = view.run !== null || view.control.stopping || view.control.compacting || view.control.restarting;
-  const fork: ForkFromTurn | undefined = onFork === undefined ? undefined : { fork: onFork, blocked };
+  const fork: ForkFromTurn | undefined =
+    onFork === undefined ? undefined : { fork: onFork, blocked, ...(onChild === undefined ? {} : { child: onChild }) };
   return (
     <LoadStepContext value={onLoadStep}>
       <OpenFileContext value={openFile ?? null}>

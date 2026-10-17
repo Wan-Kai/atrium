@@ -1,6 +1,6 @@
 import { type AtriumClient, isChatId } from "@atrium/client";
 import type { ContainerId, SessionSummary } from "@atrium/protocol";
-import { CaretDown, ClockCounterClockwise, FileDiff, Plus, SidebarRight, X } from "../design/icons";
+import { ArrowBendDownRight, CaretDown, ClockCounterClockwise, FileDiff, Plus, SidebarRight, X } from "../design/icons";
 import { useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
@@ -18,12 +18,31 @@ import {
 } from "../state/workspace-views";
 import { sessionTitle, timeAgo } from "../sidebar/names";
 import { RenameField } from "../sidebar/rename-field";
-import { sessionStatus } from "../sidebar/status";
+import { type RowStatus, sessionStatus } from "../sidebar/status";
+import { tabStatus } from "../children/children";
+import { askForChild } from "../children/new-child";
 import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
 import type { Panes } from "../state/panes";
 import { SessionMenu } from "./session-menus";
 import { SessionNoticeLine } from "./session-notice";
+
+/**
+ * What a child conversation belongs to, for its row's hover text.
+ *
+ * @remarks
+ * "属于「主对话名」" (SPEC-0002, "显示 · 历史和搜索"); nothing for an ordinary session, or a parent
+ * the list does not have.
+ *
+ * @sideEffects none
+ * @param session - The session.
+ * @param byId - The sessions by id.
+ * @returns The text, or `undefined`.
+ */
+function childOf(session: SessionSummary, byId: ReadonlyMap<string, SessionSummary>): string | undefined {
+  const parent = session.parent === null ? undefined : byId.get(session.parent.sessionId);
+  return parent === undefined ? undefined : `属于「${sessionTitle(parent)}」`;
+}
 
 /**
  * Runs a tab command without waiting for it.
@@ -105,6 +124,7 @@ export function TabBar({
           <Tab
             key={session.sessionId}
             session={session}
+            status={tabStatus(index.sessions, session)}
             selected={session.sessionId === tabs.active && view.active === null}
             renaming={session.sessionId === renaming}
             onRenamed={(name) => {
@@ -148,6 +168,44 @@ export function TabBar({
         >
           <Plus size={15} />
         </button>
+        <MenuButton label="新建" align="start" compact content={<CaretDown size={10} />}>
+          {(close) => (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className={MENU_ITEM}
+                onClick={() => {
+                  close();
+                  onNew();
+                }}
+              >
+                <Plus size={13} />
+                <span className="flex-1">新会话</span>
+                <span className="text-[length:var(--fs-xs)] text-[var(--text-dim)]">⌘T</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={active === undefined || active.state === "draft"}
+                title={active?.state === "draft" ? "这个会话还没有消息，发一条再开子对话" : undefined}
+                className={`${MENU_ITEM} disabled:cursor-not-allowed disabled:text-[var(--text-dim)] disabled:hover:bg-transparent`}
+                onClick={() => {
+                  close();
+                  if (active !== undefined) askForChild({ parentSessionId: active.sessionId, turnId: null });
+                }}
+              >
+                <ArrowBendDownRight size={13} />
+                <span className="flex-1">子对话</span>
+                {active === undefined ? null : (
+                  <span className="max-w-32 truncate text-[length:var(--fs-xs)] text-[var(--text-dim)]">
+                    挂在「{sessionTitle(active)}」下
+                  </span>
+                )}
+              </button>
+            </>
+          )}
+        </MenuButton>
         <MenuButton
           label="历史"
           align="start"
@@ -177,7 +235,10 @@ export function TabBar({
                       run(() => client.openSession(session.sessionId));
                     }}
                   >
-                    <span className="min-w-0 flex-1 truncate">{sessionTitle(session)}</span>
+                    <span className="min-w-0 flex-1 truncate" title={childOf(session, byId)}>
+                      {session.parent === null ? "" : "↳ "}
+                      {sessionTitle(session)}
+                    </span>
                     {tabs.open.includes(session.sessionId) ? (
                       <span className="shrink-0 text-[length:var(--fs-xs)] text-[var(--text-dim)]">已打开</span>
                     ) : null}
@@ -326,6 +387,7 @@ function ViewerTabButton({
  */
 function Tab({
   session,
+  status,
   selected,
   renaming,
   onRenamed,
@@ -333,6 +395,8 @@ function Tab({
   onClose,
 }: {
   readonly session: SessionSummary;
+  /** Its status, raised by its child conversations' (SPEC-0002, "主对话标签的状态图标"). */
+  readonly status: RowStatus;
   readonly selected: boolean;
   readonly renaming: boolean;
   /** Called once renaming ends, with the name, `null` for an empty one, or `undefined` when cancelled. */
@@ -353,7 +417,10 @@ function Tab({
       }}
       className="group flex h-[30px] max-w-[200px] min-w-24 shrink items-center gap-1.5 rounded-[var(--r)] pr-1 pl-2.5 text-[length:var(--fs-meta)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)] aria-selected:bg-[var(--selected)] aria-selected:text-[var(--text)]"
     >
-      <StatusIcon status={sessionStatus(session)} />
+      <StatusIcon status={status} />
+      {session.parent === null ? null : (
+        <ArrowBendDownRight size={12} aria-label="子对话" className="shrink-0 text-[var(--text-dim)]" />
+      )}
       {renaming ? (
         <RenameField initial={title} label="会话名称" onDone={onRenamed} />
       ) : (

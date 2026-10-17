@@ -477,7 +477,7 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
         </>
       );
     },
-    card: ({ tokens, reasoning, branchTokens }) => {
+    card: ({ tokens, reasoning, branchTokens, children }) => {
       const hit = tokens === null ? null : cacheHit(tokens);
       return (
         <>
@@ -493,6 +493,12 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
           <Line name="输出" value={wholeTokens(tokens?.output)} />
           {reasoning === null ? null : <Line name="其中推理" value={wholeTokens(reasoning)} sub />}
           <Line name="当前分支" value={wholeTokens(branchTokens)} />
+          {children === null ? null : (
+            <Line
+              name="含子对话"
+              value={`${formatWhole((tokens === null ? 0 : totalTokens(tokens)) + children.tokens)} tok`}
+            />
+          )}
           <Foot>本会话累计：整个会话文件，含其他分支和压缩消耗</Foot>
         </>
       );
@@ -547,10 +553,11 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
         {cost === null ? UNKNOWN : formatCost(cost)}
       </>
     ),
-    card: ({ cost }) => (
+    card: ({ cost, children }) => (
       <>
         <CardHead icon={<Coins size={15} />} title="费用" total={cost === null ? UNKNOWN : formatCost(cost)} />
         <Line name="计算方式" value="按 API 价格折算" />
+        {children === null ? null : <Line name="含子对话" value={formatCost((cost ?? 0) + children.cost)} />}
         <Foot>订阅用户不实际付费</Foot>
       </>
     ),

@@ -27,6 +27,7 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
     attention: null,
     asking: null,
     handedOff: false,
+    parent: null,
     ...fields,
   };
 }
