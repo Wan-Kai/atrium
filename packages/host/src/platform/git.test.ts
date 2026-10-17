@@ -30,6 +30,22 @@ function alive(pid: number): boolean {
 }
 
 /**
+ * Waits until a process is gone.
+ *
+ * @remarks
+ * A process killed after its parent exited stays a zombie until launchd reaps it, and signal 0
+ * still finds it until then; on a loaded machine that can outlast the job's end. Three seconds
+ * are far more than reaping takes and far less than the `sleep 60` a process that was not killed
+ * would still be in, and within the test's own five.
+ *
+ * @sideEffects none
+ * @param pid - The process.
+ */
+async function gone(pid: number): Promise<void> {
+  await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 });
+}
+
+/**
  * Kills a process the test started, if it is still there.
  *
  * @remarks
@@ -199,7 +215,7 @@ describe("GitRunner.run", () => {
 
     expect(await run).toStrictEqual(new GitError("fetch", "timeout"));
     expect(resources.snapshot()["git.process"]).toBe(0);
-    expect(alive(helper)).toBe(false);
+    await gone(helper);
   });
 
   it("gives up on output past the limit asked for, saying it was too large", async () => {
