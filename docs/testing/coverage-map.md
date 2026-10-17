@@ -483,6 +483,7 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 设置 · 模型与账户的"套餐用量"：在订阅登录和 API Key 之间，每家一段、不标"当前"；还没有时写怎么来的；Atrium 加载不了 pi 的登录时也显示 | `packages/ui/src/settings/accounts-section.browser.test.tsx` "usage" | 已覆盖 |
 | Claude 的用量从回复读（ADR-0012）：扩展的 `after_provider_response` 钩子在模型是 `claude-bridge` 或 `anthropic` 时把 `anthropic-ratelimit-unified-5h/7d-utilization`（0–1）和 `-reset`（秒）报成 `atrium-plan-reply`；名字不分大小写，百分比留两位，没有利用率或不是数的窗口不要，两个都没有不报，别的服务商、没有模型的回复不报；钩子不改回复 | `packages/pi/src/plan/extension.test.ts` "reply hook"；`plan.test.ts` "replyUsage" | 已覆盖 |
 | 宿主收回复带来的用量：只认 `atrium-plan-reply` 里合格的用量（失败、别的状态键、不是 JSON 的不要），这个 pi 和重新启动后的 pi 都听；服务里不受每分钟一次的限制；回复带来的遇到 `no_login` 满 10 分钟才丢，查询查到的仍立即丢 | `plan.test.ts` "planReplyOf"；`packages/host/src/sessions/session-controller.test.ts` "replies bring"；`plan-usage.test.ts` "a reply brought" | 已覆盖 |
+| 三方审查后补（2026-10-17）：Grok 的总百分比或产品百分比在却不是数时整份不是用量（不当 0）；回复报告只收 `anthropic`、没有套餐名、没有产品拆分的；回复只替换长度相同、不分模型的窗口，按模型的窗口留着、没有的加在后面；回复不清上一次的失败，`no_login` 夹着回复也只记一次；查询出错按 pi 的命令和原因和扩展的失败一起去重 | `packages/pi/src/plan/plan.test.ts` "not a number"、"planReplyOf"；`packages/host/src/sessions/plan-usage.test.ts` "merges a reply"、"once in a row though replies"、"a query that failed once in a row" | 已覆盖 |
 | 服务商按订阅归并：`claude-bridge` 算 Claude、`openai` 算 ChatGPT，其余是自己（`constructor` 之类的名字也不误认）；摘要、排序和"当前"都按归并后的 | `packages/ui/src/chat/status-figures.test.ts` "claude-bridge's models"；`status-bar.browser.test.tsx` "through claude-bridge" | 已覆盖 |
 | 端到端：ChatGPT 订阅的会话运行后，状态栏卡片是"套餐用量"加标了"当前"的 ChatGPT 一段；设置 · 模型与账户里同一段、不标"当前"；用量仍只问了一次 | `apps/desktop/e2e/plan.spec.ts` | 已覆盖 |
 

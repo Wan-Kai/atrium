@@ -1094,24 +1094,25 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 - 三家：`openai-codex`（ChatGPT 订阅）、`anthropic`（Claude 订阅）、`xai`（Grok：SuperGrok、X Premium 订阅）。后两家只查订阅登录，API key 的报 `no_login`。
 - 宿主在每个会话的 pi 启动后和每次运行结束后（`agent_settled`），pi 的 `get_commands` 里有 `atrium-plan` 时，经这个会话的 pi 把三家都问一遍（`/atrium-plan <服务商>`），不再看会话当前的模型，换模型不再触发。同一服务商 60 秒内最多问一次、正在问时不再问，全宿主共用。
-- 结果的去留同 M1.13：`no_login` 立即丢掉这一家；别的失败（含超时、没有报告、查询出错）只在之前的结果查到满 10 分钟时丢掉。同一服务商连续报同一个原因时日志只记第一次（三家每分钟都问，没登录的那家不该每分钟记一条）。
+- 结果的去留同 M1.13：`no_login` 立即丢掉这一家；别的失败（含超时、没有报告、查询出错）只在之前的结果查到满 10 分钟时丢掉。同一服务商连续报同一个原因时日志只记第一次（三家每分钟都问，没登录的那家不该每分钟记一条）；查询出错（pi 没答、拒绝、退出）也算一种原因（pi 的命令加原因代码），和扩展报的失败一起去重（2026-10-17 三方审查后补）。
 - 一个会话都没开时不查，留着上次的结果；宿主重启后要等第一个会话的 pi 起来才有数。
 
 **Grok 的用量**
 
 - 扩展只在 `xai` 的订阅登录时发往写死的 `https://cli-chat-proxy.grok.com/v1/billing?format=credits`，带 `authorization: Bearer <令牌>`、`x-xai-token-auth: xai-grok-cli`、`accept: application/json`（ADR-0011；其余同 ChatGPT、Claude：走 pi 的 `fetch`、15 秒为限、不跟随重定向）。
 - 回答是 `{ config: { currentPeriod: { type, start, end }, creditUsagePercent, productUsage: [{ product, usagePercent }], … } }`（2026-10-16 用 pi 的登录实测，见 ADR-0011）。报成一个窗口：
-  - `usedPercent` 是 `creditUsagePercent`；没有这个数但有 `currentPeriod` 时按 0（用了 0% 时它会被省略）；
+  - `usedPercent` 是 `creditUsagePercent`；没有这个字段但有 `currentPeriod` 时按 0（用了 0% 时它会被省略）；字段在、却不是数时整份报 `unknown_shape`，不当 0（2026-10-17 三方审查后补）；
   - `seconds` 是 `end − start`（秒，取整；一周就是 604800，显示"每周"），`resetsAt` 是 `end`；解析不了的为 `null`；
   - `model` 为 `null`；
-  - `parts` 是 `productUsage` 每一项 `{ name: product, usedPercent: usagePercent }`，没有 `usagePercent` 的按 0，没有产品名的不要；是窗口用量按产品的拆分，加起来约等于窗口的百分比，不是各自的上限。
+  - `parts` 是 `productUsage` 每一项 `{ name: product, usedPercent: usagePercent }`，没有 `usagePercent` 的按 0、有却不是数的整份报 `unknown_shape`，没有产品名的不要；是窗口用量按产品的拆分，加起来约等于窗口的百分比，不是各自的上限。
   - `plan` 为 `null`（套餐档次要另请求 `/v1/settings`，不做）。
 - `config` 不是对象、`currentPeriod` 和 `creditUsagePercent` 都没有时报 `unknown_shape`。其余字段（按需付费、预付余额、计费周期）不读。
 
 **Claude 的用量也从回复读（ADR-0012，2026-10-17 加）**
 
 - 扩展在 pi 的 `after_provider_response` 里，当前模型的服务商是 `claude-bridge` 或 `anthropic`、回复的头里有 `anthropic-ratelimit-unified-5h-utilization` 或 `anthropic-ratelimit-unified-7d-utilization` 时，用 `setStatus("atrium-plan-reply", …)` 报 `{ provider: "anthropic", plan: null, windows }`：`5h` 是 18000 秒的窗口、`7d` 是 604800 秒的；`usedPercent` 是利用率（0–1 的小数）× 100，`resetsAt` 是同名 `-reset`（Unix 秒）× 1000，读不出的为 `null`；`parts` 为空。两个都没有时不报。只读这组头，不读凭据、不发请求。
-- 宿主在每个会话的 pi 上一直听 `atrium-plan-reply`，格式按 `readPlanReport` 校验，合格的就当作查到了这家（不算"问"，不受 60 秒的限制，也不改下一次问的时间）。
+- 宿主在每个会话的 pi 上一直听 `atrium-plan-reply`，格式按 `readPlanReport` 校验，并且只收 `provider` 是 `anthropic`、`plan` 为 `null`、每个窗口的 `parts` 为空的（同一个 pi 里别的扩展写这个键冒充别家的不收），合格的就当作查到了这家（不算"问"，不受 60 秒的限制，也不改下一次问的时间）。
+- 合并：回复只替换已有用量里长度相同、`model` 为 `null` 的窗口，别的窗口（查询查到的按模型的每周窗口）留着，已有用量里没有的加在后面；`at` 记成现在。回复不改"上一次的失败原因"（2026-10-17 三方审查后定）。
 - 用量记下是查询查到的还是回复带来的。`no_login` 只立即丢掉查询查到的；回复带来的和别的失败一样，满 10 分钟才丢。
 
 **会话的服务商按订阅归并（ADR-0012）**

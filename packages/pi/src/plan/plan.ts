@@ -282,7 +282,8 @@ export function replyUsage(headers: Readonly<Record<string, string>>): PlanWindo
  * `config.currentPeriod` from `start` to `end`, which is when it resets; each of
  * `config.productUsage` a part, `product` and `usagePercent`. Grok leaves out a percentage of 0,
  * so a missing one counts as 0 for the window when the period is there, and for a product always;
- * a product without a name is left out. An answer with neither percentage nor period is not usage.
+ * one that is there but not a number makes the answer not usage, for its shape changed. A product
+ * without a name is left out. An answer with neither percentage nor period is not usage.
  *
  * @sideEffects none
  * @param body - The answer.
@@ -291,18 +292,22 @@ export function replyUsage(headers: Readonly<Record<string, string>>): PlanWindo
 export function grokUsage(body: unknown): PlanWindow[] | null {
   const config = fieldOf(body, "config");
   const period = fieldOf(config, "currentPeriod");
-  const used = numberOf(fieldOf(config, "creditUsagePercent"));
+  const credit = fieldOf(config, "creditUsagePercent");
+  const used = numberOf(credit);
+  if (credit !== undefined && used === null) return null;
   if (used === null && (typeof period !== "object" || period === null)) return null;
   const start = isoTime(fieldOf(period, "start"));
   const end = isoTime(fieldOf(period, "end"));
   const products = fieldOf(config, "productUsage");
-  const parts = Array.isArray(products)
-    ? products.flatMap((product: unknown): PlanPart[] => {
-        const name = fieldOf(product, "product");
-        if (typeof name !== "string" || name === "") return [];
-        return [{ name, usedPercent: numberOf(fieldOf(product, "usagePercent")) ?? 0 }];
-      })
-    : [];
+  // Stryker disable next-line ArrayDeclaration: anything in place of none has no percentage and no name, so it is left out too.
+  const listed: unknown[] = Array.isArray(products) ? products : [];
+  const shares = listed.map((product) => fieldOf(product, "usagePercent"));
+  if (shares.some((share) => share !== undefined && numberOf(share) === null)) return null;
+  const parts = listed.flatMap((product: unknown): PlanPart[] => {
+    const name = fieldOf(product, "product");
+    if (typeof name !== "string" || name === "") return [];
+    return [{ name, usedPercent: numberOf(fieldOf(product, "usagePercent")) ?? 0 }];
+  });
   return [
     {
       // Stryker disable next-line ConditionalExpression: `null > start` is false too; the check narrows the type.
@@ -414,8 +419,9 @@ export function readPlanReport(text: string | undefined): PlanReport | null {
  * The usage a reply brought, if pi's event is the extension's report of it.
  *
  * @remarks
- * ADR-0012: the status `atrium-plan-reply`, read as `readPlanReport` reads the query's; a failure
- * there is no report, for a reply reports usage alone.
+ * ADR-0012: the status `atrium-plan-reply`, read as `readPlanReport` reads the query's. A reply
+ * reports Claude's usage alone, without a plan's name or products: anything else there, a failure
+ * too, is no report, so another extension of the same pi cannot pass for another subscription.
  *
  * @sideEffects none
  * @param event - One of pi's events.
@@ -426,7 +432,8 @@ export function planReplyOf(event: PiEvent): Extract<PlanReport, { windows: unkn
   if (event.type !== "extension_ui_request" || event.method !== "setStatus" || event.statusKey !== PLAN_REPLY_STATUS)
     return null;
   const report = readPlanReport(event.statusText);
-  return report === null || "failure" in report ? null : report;
+  if (report === null || "failure" in report || report.provider !== "anthropic" || report.plan !== null) return null;
+  return report.windows.every((window) => window.parts.length === 0) ? report : null;
 }
 
 /**

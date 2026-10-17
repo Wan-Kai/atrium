@@ -21,6 +21,12 @@ const ASK_EVERY_MS = 60_000;
 /** How long usage is kept through failed asks (SPEC-0001, "M1.13 的上下文细分与套餐用量"). */
 const KEEP_MS = 10 * 60_000;
 
+/** Most windows a usage carries, as the protocol allows. */
+const MAX_WINDOWS = 8;
+
+/** A window of a subscription's usage. */
+type PlanWindow = PlanUsage["windows"][number];
+
 /** A provider's usage and asking. */
 interface Entry {
   usage: PlanUsage | null;
@@ -33,15 +39,31 @@ interface Entry {
 }
 
 /**
+ * Whether a reply's window stands for a known one: as long, and for all models.
+ *
+ * @remarks
+ * See `replied` in `createPlanUsage`.
+ *
+ * @sideEffects none
+ * @param known - The window known.
+ * @param brought - The window a reply brought.
+ * @returns Whether it does.
+ */
+function sameAs(known: PlanWindow, brought: PlanWindow): boolean {
+  return known.model === null && known.seconds === brought.seconds;
+}
+
+/**
  * Creates the service of subscriptions' usage.
  *
  * @remarks
  * SPEC-0001 ("M1.13 的上下文细分与套餐用量", "M1.14 的套餐总览"): each provider is asked at most
  * once a minute, one ask at a time, whichever session asks; sessions ask for every provider after
  * their pi starts and each run. A report of usage replaces what was known, stamped with the time
- * now; so does usage a reply brought (ADR-0012), whenever it comes. A failure is logged by its
- * provider and code alone, and only when it is not the one the provider last reported: every
- * provider is asked each minute, and one not signed in would log a line each time. `no_login`
+ * now; usage a reply brought (ADR-0012) goes into it whenever it comes, as `replied` says. A
+ * failure is logged by its provider and code alone, or an ask that failed by pi's command and
+ * reason, and only when it is not the one the provider last had: every provider is asked each
+ * minute, and one not signed in would log a line each time. `no_login`
  * drops at once what an ask found; what a reply brought it drops, as any other failure does, only
  * once it is ten minutes old, for one who reaches Claude through pi-claude-bridge has no login of
  * pi's to ask with. A query that found no plan query or no report, or failed, is such a failure
@@ -115,20 +137,64 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
   };
 
   /**
-   * Takes a provider's usage, stamped with the time now.
+   * Takes the usage an ask found, stamped with the time now.
    *
    * @remarks
-   * See `createPlanUsage`.
+   * See `createPlanUsage`. It is the provider's whole usage, and ends a run of failures.
    *
    * @sideEffects May change the usage and call listeners.
    * @param report - The usage.
-   * @param source - Whether it was asked for or a reply brought it.
    */
-  const found = (report: Extract<PlanReport, { windows: unknown }>, source: "asked" | "reply"): void => {
+  const found = (report: Extract<PlanReport, { windows: unknown }>): void => {
     const entry = entryOf(report.provider);
     entry.failure = null;
-    entry.source = source;
+    entry.source = "asked";
     set(entry, { provider: report.provider, plan: report.plan, windows: report.windows, at: options.clock.now() });
+  };
+
+  /**
+   * Takes the usage a reply brought into what was known, stamped with the time now.
+   *
+   * @remarks
+   * SPEC-0001 ("M1.14 的套餐总览"), ADR-0012: a reply knows Claude's five hours and week for all
+   * models alone, so it replaces those windows of what was known, of the same length and no model,
+   * keeps the rest, such as an ask's week of one model, and adds what was not known after them. It
+   * leaves the last failure as it was: an ask's `no_login` between replies is logged once.
+   *
+   * @sideEffects May change the usage and call listeners.
+   * @param report - The usage.
+   */
+  const replied = (report: Extract<PlanReport, { windows: unknown }>): void => {
+    const entry = entryOf(report.provider);
+    const known = entry.usage?.windows ?? [];
+    const windows = [
+      ...known.map((window) => report.windows.find((brought) => sameAs(window, brought)) ?? window),
+      ...report.windows.filter((brought) => !known.some((window) => sameAs(window, brought))),
+    ];
+    entry.source = "reply";
+    set(entry, {
+      provider: report.provider,
+      plan: entry.usage?.plan ?? report.plan,
+      windows: windows.slice(0, MAX_WINDOWS),
+      at: options.clock.now(),
+    });
+  };
+
+  /**
+   * Logs a provider's failure unless it is the one it last had, and keeps it as the last.
+   *
+   * @remarks
+   * See `createPlanUsage`: an extension's failure code, or an ask that failed, by pi's command and reason.
+   *
+   * @sideEffects May log.
+   * @param entry - The provider's entry.
+   * @param failure - The failure, as one key.
+   * @param fields - What the log line carries.
+   * @param message - The log line's message.
+   */
+  const failed = (entry: Entry, failure: string, fields: Record<string, unknown>, message: string): void => {
+    if (failure !== entry.failure) options.logger.info(fields, message);
+    entry.failure = failure;
   };
 
   /**
@@ -148,20 +214,17 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
       return;
     }
     if ("failure" in report) {
-      if (report.failure !== entry.failure) {
-        options.logger.info({ provider, failure: report.failure }, "plan usage unavailable");
-      }
-      entry.failure = report.failure;
+      failed(entry, report.failure, { provider, failure: report.failure }, "plan usage unavailable");
       if (report.failure === "no_login" && entry.source !== "reply") set(entry, null);
       else notFound(entry);
       return;
     }
-    found(report, "asked");
+    found(report);
   };
 
   return {
     current: all,
-    replied: (report) => found(report, "reply"),
+    replied,
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -178,12 +241,13 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
           (report) => take(provider, report),
           (error: unknown) => {
             // A failed pi request is logged by its command and reason only, as elsewhere (security.md).
-            options.logger.info(
+            const fields =
               error instanceof PiRequestError
                 ? { provider, command: error.command, reason: error.reason }
-                : { provider, reason: "unknown" },
-              "plan usage not asked",
-            );
+                : { provider, reason: "unknown" };
+            // Kept apart from the extension's codes, which are lowercase words without a colon.
+            const failure = error instanceof PiRequestError ? `ask:${error.command}:${error.reason}` : "ask:unknown";
+            failed(entry, failure, fields, "plan usage not asked");
             notFound(entry);
           },
         )

@@ -234,6 +234,27 @@ describe("grokUsage", () => {
     expect(grokParts(many)?.map((part) => part.name)).toStrictEqual(many.slice(0, 16).map((part) => part.product));
   });
 
+  it("finds no usage when a percentage is there but not a number, the window's or a product's: its shape changed", () => {
+    const period = { start: "2026-10-12T00:00:00Z", end: "2026-10-19T00:00:00Z" };
+
+    expect(
+      [
+        { config: { currentPeriod: period, creditUsagePercent: "84" } },
+        { config: { currentPeriod: period, creditUsagePercent: null } },
+        {
+          config: { currentPeriod: period, creditUsagePercent: 5, productUsage: [{ product: "A", usagePercent: "3" }] },
+        },
+        {
+          config: {
+            currentPeriod: period,
+            creditUsagePercent: 5,
+            productUsage: [{ product: "A", usagePercent: null }],
+          },
+        },
+      ].map(grokUsage),
+    ).toStrictEqual([null, null, null, null]);
+  });
+
   it("finds no usage in an answer with neither a percentage nor a period", () => {
     expect(
       [
@@ -460,11 +481,25 @@ describe("planReplyOf", () => {
       [
         status("atrium-plan-reply", JSON.stringify(usage)),
         status("atrium-plan", JSON.stringify(usage)),
+        // Only Claude's usage, as the extension reads it, passes: another extension cannot pose as another subscription.
+        status("atrium-plan-reply", JSON.stringify({ ...usage, provider: "openai-codex" })),
+        status("atrium-plan-reply", JSON.stringify({ ...usage, plan: "max" })),
+        status(
+          "atrium-plan-reply",
+          JSON.stringify({ ...usage, windows: [{ ...usage.windows[0], parts: [{ name: "Code", usedPercent: 1 }] }] }),
+        ),
+        status(
+          "atrium-plan-reply",
+          JSON.stringify({
+            ...usage,
+            windows: [usage.windows[0], { ...usage.windows[0], parts: [{ name: "Code", usedPercent: 1 }] }],
+          }),
+        ),
         status("atrium-plan-reply", JSON.stringify({ provider: "anthropic", failure: "no_login" })),
         status("atrium-plan-reply", "not json"),
         { type: "extension_ui_request", id: "u2", method: "notify", message: JSON.stringify(usage) },
         { type: "agent_start" },
       ].map((event) => planReplyOf(event as Parameters<typeof planReplyOf>[0])),
-    ).toStrictEqual([usage, null, null, null, null, null]);
+    ).toStrictEqual([usage, null, null, null, null, null, null, null, null, null]);
   });
 });

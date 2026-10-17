@@ -29,6 +29,11 @@ function usage(used: number, provider: PlanProvider = "openai-codex"): PlanRepor
   };
 }
 
+/** A window `seconds` long, `used`% used, counting `model` alone. */
+function window(seconds: number, used: number, model: string | null = null) {
+  return { seconds, model, usedPercent: used, resetsAt: null, parts: [] };
+}
+
 /** A provider's report that it is not signed in. */
 function noLogin(provider: PlanProvider): PlanReport {
   return { provider, failure: "no_login" };
@@ -199,6 +204,78 @@ describe("createPlanUsage", () => {
       [],
       [[7, 1_661_000]],
       [],
+    ]);
+  });
+
+  it("merges a reply into what an ask found: its two windows replaced, an ask's week of one model kept", async () => {
+    const { clock, service, ask } = harness();
+    await ask(
+      {
+        provider: "anthropic",
+        plan: null,
+        windows: [window(18_000, 1), window(604_800, 2), window(604_800, 3, "Opus")],
+      },
+      "anthropic",
+    );
+    clock.advance(1000);
+
+    service.replied({ provider: "anthropic", plan: null, windows: [window(18_000, 11), window(604_800, 12)] });
+    const merged = service.current()[0];
+    service.replied({ provider: "anthropic", plan: null, windows: [window(3600, 13)] });
+
+    expect([merged?.windows, merged?.at]).toStrictEqual([
+      [window(18_000, 11), window(604_800, 12), window(604_800, 3, "Opus")],
+      1_001_000,
+    ]);
+    expect(service.current()[0]?.windows).toStrictEqual([
+      window(18_000, 11),
+      window(604_800, 12),
+      window(604_800, 3, "Opus"),
+      window(3600, 13),
+    ]);
+  });
+
+  it("logs no_login once in a row though replies come between, as one who reaches Claude through claude-bridge sees", async () => {
+    const { clock, service, ask, unavailable } = harness();
+    const claude = usage(5, "anthropic") as Extract<PlanReport, { windows: unknown }>;
+
+    await ask(noLogin("anthropic"), "anthropic");
+    service.replied(claude);
+    clock.advance(60_000);
+    await ask(noLogin("anthropic"), "anthropic");
+
+    expect(unavailable()).toStrictEqual([["anthropic", "no_login"]]);
+  });
+
+  it("logs a query that failed once in a row too, again on another reason, after usage, or after the extension's failure", async () => {
+    const { clock, ask, records } = harness();
+    const timeout = new PiRequestError("prompt", "timeout", "");
+    /** Asks a minute on, answering with `report`. */
+    const later = async (report: PlanReport | Error) => {
+      clock.advance(60_000);
+      await ask(report);
+    };
+
+    await ask(timeout);
+    await later(timeout);
+    await later(new PiRequestError("prompt", "exited", ""));
+    await later(new Error("bug"));
+    await later(new Error("bug"));
+    await later(usage(1));
+    await later(timeout);
+    await later({ provider: "openai-codex", failure: "http_500" });
+    await later(timeout);
+
+    const logged = new Set(["plan usage not asked", "plan usage unavailable"]);
+    expect(
+      records.filter((record) => logged.has(String(record["msg"]))).map(({ reason, failure }) => [reason, failure]),
+    ).toStrictEqual([
+      ["timeout", undefined],
+      ["exited", undefined],
+      ["unknown", undefined],
+      ["timeout", undefined],
+      [undefined, "http_500"],
+      ["timeout", undefined],
     ]);
   });
 
