@@ -1,6 +1,7 @@
 <!doctype html>
 <!--
   PROTOTYPE — throwaway. SPEC-0002 第一步：用户开子对话（2026-10-17）。
+  结论（2026-10-17）：选 A，弹出列表宽度按内容；"带回"按钮多余，已从三种里去掉。
   问题：开子对话的入口、子对话条、面包屑、带回主对话放在哪、长什么样。
   三种结构不同的做法：A 胶囊加弹出列表（同排队胶囊）、B 贴在输入框顶上的常驻条、C 右侧的子对话面板（整棵树）。
   每个窗口都能点：开子对话（带上下文 / 空的、当前工作区 / 新建 worktree）、切换、带回、脱离、归档。
@@ -364,7 +365,7 @@ function makeWindow(rootId, variant) {
   const crumbHtml = () => {
     const s = st.sessions[st.current];
     if (!s.parent) return "";
-    const back = `<button class="pill" data-back="${st.current}">${ic("CornerDownRightIcon", 12)}带回主对话</button>`;
+    const back = "";
     if (variant === "B") return `<div class="crumb-float">${crumbSegs()}${back}</div>`;
     return `<div class="crumb">${crumbSegs()}<span class="grow"></span>${back}</div>`;
   };
@@ -403,7 +404,7 @@ function makeWindow(rootId, variant) {
     const place = s.handedOff ? `<span class="place" title="已在终端中继续">${ic("ComputerTerminal01Icon", 12)}<span class="ptxt">已在终端中继续</span></span>` : s.place ? `<span class="place" title="${esc(s.place)}">${ic("GitBranchIcon", 12)}<span class="ptxt">${esc(s.place)}</span></span>` : "";
     const lead = status ? statusIcon(status) : s.done ? `<span class="idle"><span class="done-dot" title="做完了，还没看"></span></span>` : `<span class="idle"><i></i></span>`;
     const indent = opts.depth ? `<span class="indent" style="width:${opts.depth * 16}px"></span>` : "";
-    return `<div class="crow${id === st.current ? " cur" : ""}" data-go="${id}">${indent}${lead}<span class="name">${esc(s.title)}</span>${place}${!opts.tree && n ? `<span class="more-n">+${n}</span>` : ""}<span class="grow"></span><span class="time">${s.updated ?? ""}</span><span class="acts"><button class="pill" data-back="${id}">带回</button><button class="ib" data-rowmenu="${id}">${ic("MoreHorizontalIcon", 14)}</button></span></div>`;
+    return `<div class="crow${id === st.current ? " cur" : ""}" data-go="${id}">${indent}${lead}<span class="name">${esc(s.title)}</span>${place}${!opts.tree && n ? `<span class="more-n">+${n}</span>` : ""}<span class="grow"></span><span class="time">${s.updated ?? ""}</span><span class="acts"><button class="ib" data-rowmenu="${id}">${ic("MoreHorizontalIcon", 14)}</button></span></div>`;
   };
   const listHtml = () => kids(st, st.current).map((k) => rowHtml(k)).join("");
   const treeHtml = (id, depth) => kids(st, id).flatMap((k) => [rowHtml(k, { depth, tree: true }), ...treeHtml(k, depth + 1)]);
@@ -434,7 +435,7 @@ function makeWindow(rootId, variant) {
 
   const menuHtml = () => {
     const m = st.menu; if (!m) return "";
-    if (m.kind === "row") return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button class="mi" data-go="${m.id}">打开</button><button class="mi" data-back="${m.id}">带回主对话</button><hr><button class="mi" data-detach="${m.id}">脱离<span class="sub">变成普通会话</span></button><button class="mi danger" data-archive="${m.id}">归档${descendants(st, m.id).length ? `<span class="sub">连同下面 ${descendants(st, m.id).length} 个</span>` : ""}</button></div>`;
+    if (m.kind === "row") return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button class="mi" data-go="${m.id}">打开</button><hr><button class="mi" data-detach="${m.id}">脱离<span class="sub">变成普通会话</span></button><button class="mi danger" data-archive="${m.id}">归档${descendants(st, m.id).length ? `<span class="sub">连同下面 ${descendants(st, m.id).length} 个</span>` : ""}</button></div>`;
     if (m.kind === "fork") return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button class="mi">${ic("GitForkIcon", 14)}从这里分叉<span class="sub">平级的新会话</span></button><button class="mi" data-child="${m.i}">${ic("CornerDownRightIcon", 14)}从这里开子对话<span class="sub">挂在这里</span></button></div>`;
     if (m.kind === "plus") return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button class="mi">${ic("Add01Icon", 14)}新会话<span class="sub">⌘T</span></button><button class="mi" data-act="newchild">${ic("CornerDownRightIcon", 14)}子对话<span class="sub">挂在「${esc(st.sessions[st.current].title)}」下</span></button></div>`;
     if (m.kind === "crumb") return `<div class="menu" style="left:${m.x}px;top:${m.y}px">${m.ids.map((k) => `<button class="mi" data-go="${k}">${esc(st.sessions[k].title)}</button>`).join("")}</div>`;
