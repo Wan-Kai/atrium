@@ -115,6 +115,8 @@ export {
   ContextParts,
   ContextReserve,
   PlanProvider,
+  Plans,
+  PlansUpdatedEvent,
   PlanUsage,
   SessionMetrics,
   StatusGroupId,

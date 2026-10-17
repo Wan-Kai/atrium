@@ -50,8 +50,8 @@ describe("pi contract: Atrium's plan query", () => {
           provider: "openai-codex",
           plan: "plus",
           windows: [
-            { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_782_770_922_000 },
-            { seconds: 604_800, model: null, usedPercent: 52, resetsAt: 1_783_357_722_000 },
+            { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_782_770_922_000, parts: [] },
+            { seconds: 604_800, model: null, usedPercent: 52, resetsAt: 1_783_357_722_000, parts: [] },
           ],
         };
         expect(printed).toStrictEqual([
@@ -70,6 +70,26 @@ describe("pi contract: Atrium's plan query", () => {
           ["/backend-api/wham/usage", "Bearer faux-key", "pi"],
           ["/backend-api/wham/usage", "Bearer faux-key", "pi"],
         ]);
+      },
+    );
+  });
+
+  it("plan-xai-key: reports Grok with an API key as no login, asking nothing (ADR-0011)", async () => {
+    const usage = await startModelListServer((response) => response.writeHead(500).end());
+    servers.push(usage);
+    await runScenario(
+      {
+        scenario: "plan-xai-key",
+        // faux signs in with a key, as `xai` does with an API key rather than a subscription.
+        script: { provider: "xai", models: [{ id: "grok-4.3" }], replies: [] },
+        extensions: [ATRIUM_EXTENSION],
+        env: { [FAUX_BASE_URL_ENV]: usage.baseUrl },
+      },
+      async ({ pi }) => {
+        const queried = await queryPlanUsage(pi, "xai");
+
+        expect(queried).toStrictEqual({ provider: "xai", failure: "no_login" });
+        expect(usage.requests).toStrictEqual([]);
       },
     );
   });

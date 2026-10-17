@@ -20,20 +20,39 @@ afterEach(async () => {
   testHost = undefined;
 });
 
-/** Opens a raw `ws` socket, optionally with an Origin header or without answering pings; records what it receives and how it ended. */
+/**
+ * Opens a raw `ws` socket, optionally with an Origin header or without answering pings; records
+ * what it receives and how it ended.
+ *
+ * @remarks
+ * The subscriptions' usage every welcome brings is kept apart, in `plans`, so `messages` counts
+ * the welcome and the answers alone.
+ *
+ * @sideEffects Opens a socket.
+ * @param url - The host's address.
+ * @param options - The Origin header, and whether the socket answers pings.
+ * @returns The socket, how it ended, when it opened, and what it received.
+ */
 function openRaw(url: string, options: { origin?: string; autoPong?: boolean } = {}) {
   const socket = new WebSocket(url, {
     ...(options.origin === undefined ? {} : { origin: options.origin }),
     autoPong: options.autoPong ?? true,
   });
   const messages: string[] = [];
-  socket.on("message", (data: Buffer) => messages.push(data.toString("utf8")));
+  const plans: unknown[] = [];
+  socket.on("message", (data: Buffer) => {
+    const text = data.toString("utf8");
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed === "object" && parsed !== null && Reflect.get(parsed, "type") === "plans_updated")
+      plans.push(parsed);
+    else messages.push(text);
+  });
   const ended = new Promise<{ status?: number; code?: number; reason?: string }>((done) => {
     socket.once("unexpected-response", (_request, response) => done({ status: response.statusCode ?? 0 }));
     socket.once("close", (code, reason) => done({ code, reason: reason.toString() }));
   });
   const opened = new Promise<void>((done) => socket.once("open", () => done()));
-  return { socket, ended, opened, messages };
+  return { socket, ended, opened, messages, plans };
 }
 
 /**
@@ -448,6 +467,18 @@ describe("host connection handshake", () => {
     expect((first.welcome as { hostInstanceId: string }).hostInstanceId).not.toBe(
       (second.welcome as { hostInstanceId: string }).hostInstanceId,
     );
+  });
+
+  it("tells a connection every subscription's usage right after its welcome, none on a new host", async () => {
+    testHost = await startTestHost();
+    const { socket, opened, messages, plans } = openRaw(testHost.url);
+    await opened;
+
+    socket.send(hello({ token: testHost.token }));
+
+    await vi.waitFor(() => expect(plans).toStrictEqual([{ type: "plans_updated", plans: [] }]));
+    expect(messages.map((text) => (JSON.parse(text) as { type: string }).type)).toStrictEqual(["welcome"]);
+    socket.close();
   });
 
   it("pings clients on the injected clock and drops one that has not answered by the next ping", async () => {

@@ -169,6 +169,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   }
   const tracing = setupTracing({ logger, resources, version: packageJson.version });
   const subscriptions = new SubscriptionRegistry(resources);
+  // The host's one usage of the subscriptions, sent to every window as it changes (ADR-0011).
+  const plans = createPlanUsage({ clock, logger });
+  plans.subscribe((found) => subscriptions.broadcast({ type: "plans_updated", plans: found }));
   const hostInstanceId = randomBytes(8).toString("hex");
   const [index, installSeed] = await Promise.all([
     loadIndex(home.root, clock.now(), logger),
@@ -333,7 +336,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
           },
         }),
     titleModel,
-    plan: createPlanUsage({ clock, logger }),
+    plan: plans,
     turnStarts: async (sessionId) => {
       const { starts, setAside } = await loadTurnStarts(home.root, sessionId, clock.now());
       if (setAside !== null) logger.warn({ sessionId }, "turn starts file was damaged and has been reset");
@@ -519,7 +522,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       setup,
       logins: loginService,
       installs,
-      catchUp: () => [installs.last(), loginService.last()].filter((event) => event !== null),
+      catchUp: () => [
+        ...[installs.last(), loginService.last()].filter((event) => event !== null),
+        { type: "plans_updated", plans: plans.current() } as const,
+      ],
       piLatest,
       attachments,
       changes,

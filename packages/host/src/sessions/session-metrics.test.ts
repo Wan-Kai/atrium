@@ -255,22 +255,6 @@ describe("createMetricsTracker: pi's statistics", () => {
     expect(tracker.current().context).toStrictEqual({ tokens: null, window: 1000, parts: null, reserve: null });
   });
 
-  it("publishes the plan's usage it is given, only when it changed", () => {
-    const { tracker, published } = harness();
-    const plan = {
-      provider: "openai-codex" as const,
-      plan: "plus",
-      windows: [{ seconds: 18_000, model: null, usedPercent: 39, resetsAt: 5000 }],
-      at: 1000,
-    };
-
-    tracker.planChanged(plan);
-    tracker.planChanged({ ...plan, windows: [...plan.windows] });
-    tracker.planChanged(null);
-
-    expect(published.map((metrics) => metrics.plan)).toStrictEqual([plan, null]);
-  });
-
   it("reads nothing more and publishes nothing once closed, dropping what the read under way brings", async () => {
     const { tracker, reads, published, answer, feed } = harness();
     tracker.refresh();

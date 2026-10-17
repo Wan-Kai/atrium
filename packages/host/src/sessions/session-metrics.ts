@@ -1,5 +1,5 @@
 import { type LogEntry, type PiStats, type TranslatedEvent, contextParts } from "@atrium/pi";
-import type { ContextParts, ContextReserve, PlanUsage, SessionMetrics } from "@atrium/protocol";
+import type { ContextParts, ContextReserve, SessionMetrics } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
 
 /** Works out a session's status bar figures (SPEC-0001, "状态栏（M1.8）"). */
@@ -12,8 +12,6 @@ export interface MetricsTracker {
   refresh(): void;
   /** Publishes the figures again for the session's model now, whose provider may send another prompt. */
   modelChanged(): void;
-  /** Takes the usage of the subscription of the session's model, or none. */
-  planChanged(plan: PlanUsage | null): void;
   /** pi exited or another took over: a request it was answering is no longer timed. */
   piChanged(): void;
   /** The figures now. */
@@ -131,7 +129,6 @@ export function createMetricsTracker(options: {
   /** The provider the parts were split for: the figures split again once the session's model is another's. */
   let splitFor: string | null = null;
   let reserve: ContextReserve = null;
-  let plan: PlanUsage | null = null;
   let timed: Timed | null = null;
   let modelMs: number | null = null;
   let firstOutputs: number[] = [];
@@ -234,7 +231,6 @@ export function createMetricsTracker(options: {
               ttftMs: firstOutputs.length === 0 ? null : Math.round(sum(firstOutputs) / firstOutputs.length),
               tps,
             },
-      plan,
     };
   }
 
@@ -336,10 +332,6 @@ export function createMetricsTracker(options: {
     },
     refresh: read,
     modelChanged: changed,
-    planChanged(next) {
-      plan = next;
-      changed();
-    },
     piChanged() {
       timed = null;
     },

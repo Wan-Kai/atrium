@@ -202,6 +202,7 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - **`setStatus` 经 RPC**：`ctx.ui.setStatus(key, text)` 在 RPC 下发出 `extension_ui_request {id, method: "setStatus", statusKey, statusText}`，单向，不等回答；扩展命令的处理函数第二个参数 `ctx` 就有 `ui`。
 - **`--extension <路径>`**：加载指定文件（TypeScript 也行），`--no-extensions` 时也照样加载；可以多次给。扩展里 import 的 `@earendil-works/*` 解析到 pi 自己带的那份。扩展用 `registerProvider` 注册已有的服务商名（如 `openai-codex`）会替换它的模型和调用，测试靠这个让假模型冒充 Codex。
 - **扩展命令经 `prompt`**：`/名字 参数` 立即执行处理函数，应答 `{disposition: "handled"}`，不发 `agent_start` 等事件、不写会话文件；命令不存在时同样的文字会当普通消息发给模型，所以宿主发内部命令前要先在 `get_commands` 里确认它在。
+- **回复里的订阅用量**（2026-10-17 实测，ADR-0012）：扩展在 `after_provider_response {status, headers}` 里能读到回复的响应头，`ctx.model` 是当前模型。pi 用 Anthropic 订阅登录时回复带 `anthropic-ratelimit-unified-*`；pi-claude-bridge 0.9.3 把 Claude Code 的 SDK `rate_limit_event`（`rate_limit_info.unifiedWindows`，Agent SDK 的类型里没写）还原成同一组头交给 pi，每次请求的第一条回复前到：`-status`（`allowed` 等）、`-reset`、`-representative-claim`（如 `five_hour`）、`-overage-status`、`-5h-utilization` / `-7d-utilization`（0–1 的小数，如 `0.05`）、`-5h-reset` / `-7d-reset`（Unix 秒）。pi 1.1 新的 `openai` 订阅登录（"Sign in with ChatGPT"，`dynamic_agent_client`，令牌 resource `https://api.openai.com/v1`、权限 `chatgpt.tokens.use.direct`，pi 直接请求 `api.openai.com/v1`）查不到用量：`chatgpt.com/backend-api/wham/usage` 回 401 `no_matching_rule`，`/v1/responses` 不带 `x-codex-*`，OpenAI 说目前不支持。
 
 ## 6. 实验性多客户端服务端（`packages/server`、`client`、`protocol`、`durable`、`chord`）
 

@@ -16,6 +16,7 @@ import {
   type ModelRef,
   PROTOCOL_VERSION,
   type PiLatest,
+  type Plans,
   type Preferences,
   type SessionEvent,
   type SessionModel,
@@ -291,6 +292,11 @@ export interface AtriumClient {
    * this client heard of it (the last {@link MAX_INSTALL_OUTPUT} characters); `null` until then.
    */
   readonly installJob: StoreApi<InstallJob | null>;
+  /**
+   * Every subscription's usage the host found (SPEC-0001, "M1.14 的套餐总览"), as the host last
+   * pushed it: right after each welcome, then on each change; none until then.
+   */
+  readonly plans: StoreApi<Plans>;
   /** Runs pi's official install script. */
   installPi(): Promise<CommandResult<"install_pi">>;
   /** Installs Node.js with Homebrew. */
@@ -443,6 +449,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const installJob = createStore<InstallJob | null>(() => null);
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
+  const plans = createStore<Plans>(() => []);
   let setupAsks = 0;
   /** The latest pi the host pushed, kept while no `check_setup` answer holds it. */
   // Stryker disable next-line ObjectLiteral: an empty one reads as never found, just as nulls do.
@@ -986,6 +993,10 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       setup.setState({ state: { ...state, pi: { ...state.pi, latest, checkedAt } } });
       return;
     }
+    if (message.type === "plans_updated") {
+      plans.setState(message.plans, true);
+      return;
+    }
     if (message.type === "credentials_changed") {
       askSetupAgain();
       reloadModels();
@@ -1290,6 +1301,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     cancelLogin: (loginId) => request("cancel_login", { loginId }),
     logout: (providerId) => request("logout", { providerId }),
     installJob,
+    plans,
     installPi: () => request("install_pi", {}),
     installNode: () => request("install_node", {}),
     updatePi: () => request("update_pi", {}),

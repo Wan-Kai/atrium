@@ -1,6 +1,7 @@
-import type { SessionMetrics, StatusBarChoices } from "@atrium/protocol";
+import type { Plans, SessionMetrics, StatusBarChoices } from "@atrium/protocol";
 import { Coins, Database, Gauge, GearSix } from "../design/icons";
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { PlanSections } from "./plan-sections";
 import {
   STATUS_GROUPS,
   cacheHit,
@@ -9,23 +10,19 @@ import {
   type ContextRowKey,
   contextPercent,
   contextRows,
+  currentPlan,
   formatCost,
   formatSeconds,
   formatSpeed,
   formatTokens,
   formatWhole,
-  foundAgo,
   planNearLimit,
   planPercent,
-  planTitle,
-  resetText,
   shownGroups,
   totalTokens,
-  windowName,
   windowShare,
   withChoice,
 } from "./status-figures";
-import { useClock } from "../state/clock";
 
 /** What stands for a figure not known yet (SPEC-0001, "状态栏"). */
 const UNKNOWN = "—";
@@ -184,72 +181,25 @@ interface CardActions {
   readonly compactable: boolean;
 }
 
-/** How each group draws its summary and card. */
+/**
+ * What the groups draw from: the session's figures, every subscription's usage, and the provider
+ * of the session's model, which the plan group counts (SPEC-0001, "M1.14 的套餐总览").
+ */
+interface StatusFigures extends SessionMetrics {
+  readonly plans: Plans;
+  readonly provider: string | null;
+}
+
+/** How a group draws its summary and card. */
 interface GroupDrawing {
-  readonly summary: (metrics: SessionMetrics) => ReactNode;
-  readonly card: (metrics: SessionMetrics, actions: CardActions) => ReactNode;
+  readonly summary: (figures: StatusFigures) => ReactNode;
+  readonly card: (figures: StatusFigures, actions: CardActions) => ReactNode;
   /** The summary's colour, as the context's past 70% and 85%. */
-  readonly tone?: (metrics: SessionMetrics) => string;
+  readonly tone?: (figures: StatusFigures) => string;
   /** A card wider than the rest, 340px (design-language, "状态栏"). */
   readonly wide?: boolean;
   /** Whether the group shows for these figures; always when left out. */
-  readonly shown?: (metrics: SessionMetrics) => boolean;
-}
-
-/**
- * The plan's card: each window's name, when it resets, and how much of it is used.
- *
- * @remarks
- * SPEC-0001 ("M1.13 的上下文细分与套餐用量"): titled by the provider and plan, with how long ago
- * the usage was found; a window at 80% or more is orange. The times go on with the clock, drawn
- * again each minute while the card is there, though no new usage comes.
- *
- * @sideEffects Draws itself again every minute while mounted.
- * @param props - The usage.
- * @returns The card.
- */
-function PlanCard({ plan }: { readonly plan: NonNullable<SessionMetrics["plan"]> }) {
-  const clock = useClock();
-  const [, setMinutes] = useState(0);
-  useEffect(() => clock.every(60_000, () => setMinutes((minutes) => minutes + 1)), [clock]);
-  const now = clock.now();
-  return (
-    <>
-      <div className="mb-2.5 flex items-center gap-2 font-medium text-[var(--text)]">
-        {planTitle(plan)}
-        <span className="ml-auto text-[length:var(--fs-sm)] font-normal text-[var(--text-dim)]">
-          {foundAgo(plan.at, now)}
-        </span>
-      </div>
-      {plan.windows.map((window, at) => {
-        const used = Math.round(window.usedPercent);
-        const near = planNearLimit(used);
-        return (
-          <div
-            // By place too: two windows may be as long and of one model.
-            key={`${String(at)}\n${String(window.seconds)}`}
-            className="mb-2.5 last:mb-0"
-            data-testid="plan-window"
-          >
-            <div className="flex items-baseline gap-2">
-              <span className="text-[var(--text-2)]">{windowName(window)}</span>
-              <span className="flex-1" />
-              <span className="text-[length:var(--fs-sm)] text-[var(--text-dim)]">
-                {resetText(window.resetsAt, now)}
-              </span>
-              <span className="w-[34px] text-right text-[length:var(--fs-sm)] text-[var(--text-2)]">{used}%</span>
-            </div>
-            <div className="mt-1.5 h-[5px] overflow-hidden rounded-[var(--r-pill)] bg-[var(--line)]">
-              <i
-                className="block h-full rounded-[var(--r-pill)]"
-                style={{ width: `${String(used)}%`, background: near ? "var(--attn)" : "var(--tint)" }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
+  readonly shown?: (figures: StatusFigures) => boolean;
 }
 
 /** The context's rows' colours (design-language, "颜色"). */
@@ -566,22 +516,29 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
     wide: true,
   },
   plan: {
-    shown: ({ plan }) => plan !== null && plan.windows.length > 0,
-    tone: ({ plan }) => {
+    shown: ({ plans }) => plans.length > 0,
+    tone: ({ plans, provider }) => {
+      const plan = currentPlan(plans, provider);
       const percent = plan === null ? null : planPercent(plan);
       return percent !== null && planNearLimit(percent) ? "text-[var(--attn-text)]" : "";
     },
-    summary: ({ plan }) => {
+    summary: ({ plans, provider }) => {
+      const plan = currentPlan(plans, provider);
       const percent = plan === null ? null : planPercent(plan);
       const near = percent !== null && planNearLimit(percent);
       return (
         <>
           <Ring percent={percent} color={near ? "var(--attn)" : "var(--tint)"} />
-          套餐 {percent === null ? UNKNOWN : `${String(percent)}%`}
+          {plan === null ? "套餐" : `套餐 ${percent === null ? UNKNOWN : `${String(percent)}%`}`}
         </>
       );
     },
-    card: ({ plan }) => (plan === null ? null : <PlanCard plan={plan} />),
+    card: ({ plans, provider }) => (
+      <>
+        <div className="mb-2.5 font-medium text-[var(--text)]">套餐用量</div>
+        <PlanSections plans={plans} provider={provider} />
+      </>
+    ),
   },
   cost: {
     summary: ({ cost }) => (
@@ -615,16 +572,16 @@ const DRAWINGS: Readonly<Record<string, GroupDrawing>> = {
  */
 function Group({
   drawing,
-  metrics,
+  figures,
   actions,
 }: {
   readonly drawing: GroupDrawing;
-  readonly metrics: SessionMetrics;
+  readonly figures: StatusFigures;
   readonly actions: CardActions;
 }) {
   const cardId = useId();
   // A warning colour stays on hover; only the plain grey brightens.
-  const tone = drawing.tone?.(metrics) || "text-[var(--text-muted)] group-hover/item:text-[var(--text-2)]";
+  const tone = drawing.tone?.(figures) || "text-[var(--text-muted)] group-hover/item:text-[var(--text-2)]";
   return (
     <div className="group/item relative">
       <button
@@ -632,7 +589,7 @@ function Group({
         aria-describedby={cardId}
         className={`inline-flex h-[26px] items-center gap-1.5 rounded-[var(--r-pill)] px-2.5 whitespace-nowrap group-has-[:focus-visible]/item:bg-[var(--hover)] group-hover/item:bg-[var(--hover)] ${tone}`}
       >
-        {drawing.summary(metrics)}
+        {drawing.summary(figures)}
       </button>
       <div
         role="tooltip"
@@ -641,7 +598,7 @@ function Group({
       >
         {/* Never past the window: a long list opened in it scrolls (design-language, "状态栏"). */}
         <div className="max-h-[calc(100vh-140px)] overflow-y-auto rounded-[14px] bg-[var(--surface-1)] px-4 pt-3.5 pb-3 text-[length:var(--fs-meta)] text-[var(--text-muted)] shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]">
-          {drawing.card(metrics, actions)}
+          {drawing.card(figures, actions)}
         </div>
       </div>
     </div>
@@ -660,11 +617,11 @@ function Group({
  * @returns The panel.
  */
 function Customizer({
-  metrics,
+  figures,
   choices,
   onChoose,
 }: {
-  readonly metrics: SessionMetrics;
+  readonly figures: StatusFigures;
   readonly choices: StatusBarChoices;
   readonly onChoose: (choices: StatusBarChoices) => void;
 }) {
@@ -706,7 +663,7 @@ function Customizer({
               <span
                 className={`inline-flex h-6 items-center gap-1.5 rounded-[var(--r)] bg-[var(--hover)] px-2 text-[length:var(--fs-sm)] whitespace-nowrap text-[var(--text-muted)] tabular-nums transition-opacity ${on ? "" : "opacity-40"}`}
               >
-                {drawing?.summary(metrics)}
+                {drawing?.summary(figures)}
               </span>
             </span>
             <span
@@ -734,18 +691,23 @@ function Customizer({
  * the groups, a button faint until the bar is hovered. Escape or a click outside closes its panel.
  *
  * @sideEffects While the panel is open, listens for clicks and Escape on the document.
- * @param props - The session's figures, the groups chosen, where a new choice goes, and how and
- * whether the session can be compacted from the context's card.
+ * @param props - The session's figures, every subscription's usage and the provider of the
+ * session's model, the groups chosen, where a new choice goes, and how and whether the session can
+ * be compacted from the context's card.
  * @returns The bar.
  */
 export function StatusBar({
   metrics,
+  plans,
+  provider,
   choices,
   onChoose,
   onCompact,
   compactable = false,
 }: {
   readonly metrics: SessionMetrics;
+  readonly plans: Plans;
+  readonly provider: string | null;
   readonly choices: StatusBarChoices;
   readonly onChoose: (choices: StatusBarChoices) => void;
   readonly onCompact?: () => void;
@@ -753,6 +715,7 @@ export function StatusBar({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const figures: StatusFigures = { ...metrics, plans, provider };
   useEffect(() => {
     if (!open) return undefined;
     /**
@@ -798,8 +761,8 @@ export function StatusBar({
     >
       {shownGroups(choices).map((id) => {
         const drawing = DRAWINGS[id];
-        return drawing === undefined || drawing.shown?.(metrics) === false ? null : (
-          <Group key={id} drawing={drawing} metrics={metrics} actions={{ onCompact, compactable }} />
+        return drawing === undefined || drawing.shown?.(figures) === false ? null : (
+          <Group key={id} drawing={drawing} figures={figures} actions={{ onCompact, compactable }} />
         );
       })}
       <div className="relative">
@@ -812,7 +775,7 @@ export function StatusBar({
         >
           <GearSix size={14} />
         </button>
-        {open ? <Customizer metrics={metrics} choices={choices} onChoose={onChoose} /> : null}
+        {open ? <Customizer figures={figures} choices={choices} onChoose={onChoose} /> : null}
       </div>
     </div>
   );
