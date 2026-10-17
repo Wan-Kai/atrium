@@ -31,6 +31,35 @@ const MEMORY_SECTION = "project_context";
 /** The section that lists the skills. */
 const SKILLS_SECTION = "skills";
 
+/** The provider pi-claude-bridge registers, whose requests go through Claude Code (pi-internals.md §4). */
+const CLAUDE_BRIDGE = "claude-bridge";
+
+/**
+ * The characters of Claude Code's own prompt, ahead of what pi-claude-bridge takes from pi's.
+ *
+ * @remarks
+ * Measured on Claude Code 2.1.301 (SPEC-0001, "M1.13 的上下文细分与套餐用量"): its preset, about
+ * 13,700, and the reminders it puts in the first user message, about 1,600. Measure again when
+ * Claude Code changes its preset.
+ */
+const CLAUDE_CODE_PROMPT = 15_300;
+
+/** pi's section that holds `APPEND_SYSTEM.md`, which pi-claude-bridge passes on without its tags. */
+const ADDENDUM_SECTION = "addendum";
+
+/** The tags pi frames the addendum in, `<addendum>\n` and `\n</addendum>`, in characters. */
+const ADDENDUM_TAGS = 23;
+
+/**
+ * The sections pi writes with its default opening alone.
+ *
+ * @remarks
+ * An opening of your own comes without all three, and pi-claude-bridge passes it on; checking all
+ * three keeps an extension's section of one of these names from hiding it (pi 1.1.0
+ * `buildSystemPromptSections`).
+ */
+const DEFAULT_OPENING_SECTIONS = ["tools", "rules", "docs"];
+
 /**
  * Estimates tokens as pi's `estimateTokens` does: a token for four characters, rounded up.
  *
@@ -99,13 +128,17 @@ function named(pieces: readonly SectionPiece[]): { name: string; tokens: number 
  * the skills, pi's own tools to the built-in ones, `mcp__<server>__<tool>` tools and `mcp_servers`
  * to MCP, and everything else to the extensions. Estimated as pi's `estimateTokens` does, a token
  * for four characters rounded up; a tool is its declaration's JSON. Written here rather than
- * imported: the host does not depend on pi's packages at run time (overview.md).
+ * imported: the host does not depend on pi's packages at run time (overview.md). Through Claude
+ * Code (`claude-bridge`), the system prompt is Claude Code's own, the text, the addendum without
+ * its tags, and an opening of your own: pi's default opening, tools, rules, docs and cwd are not
+ * sent.
  *
  * @sideEffects none
  * @param branch - The branch's entries, root first.
+ * @param provider - The provider of the session's model, if known.
  * @returns The parts, or `null` when pi stated no system prompt on the branch.
  */
-export function contextParts(branch: readonly LogEntry[]): ContextParts | null {
+export function contextParts(branch: readonly LogEntry[], provider: string | null = null): ContextParts | null {
   const stored = branch.findLastIndex((entry) => entry.kind === "compaction" && entry.system !== null);
   const parts = branch.slice(Math.max(stored, 0)).flatMap((entry): SystemParts[] => {
     if (entry.kind === "system") return [entry.system];
@@ -120,7 +153,6 @@ export function contextParts(branch: readonly LogEntry[]): ContextParts | null {
     if (part.textChars > 0) texts.push(part.textChars);
     for (const [name, chars] of Object.entries(part.sections)) {
       pieces.delete(name);
-      // Stryker disable next-line ConditionalExpression: a section kept as `null` adds nothing to the sum either.
       if (chars === null) sections.delete(name);
       else sections.set(name, chars);
     }
@@ -155,8 +187,14 @@ export function contextParts(branch: readonly LogEntry[]): ContextParts | null {
     }
   }
   const mcpChars = sum([...mcp.values()].flatMap((list) => list.map(({ chars }) => chars)));
+  const opening = DEFAULT_OPENING_SECTIONS.every((name) => sections.has(name)) ? 0 : section("preamble");
+  const addendum = Math.max(section(ADDENDUM_SECTION) - ADDENDUM_TAGS, 0);
+  const system =
+    provider === CLAUDE_BRIDGE
+      ? CLAUDE_CODE_PROMPT + text + addendum + opening
+      : text + sum([...SYSTEM_SECTIONS].map(section));
   return {
-    system: tokensOf(text + sum([...SYSTEM_SECTIONS].map(section))),
+    system: tokensOf(system),
     memory: {
       tokens: tokensOf(section(MEMORY_SECTION)),
       files: named(pieces.get(MEMORY_SECTION) ?? []).map(({ name, tokens }) => ({ path: name, tokens })),

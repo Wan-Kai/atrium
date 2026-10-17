@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-17：M1.11 自用中接上 Claude 订阅，三方审查（Astra、Grok、Claude）后已合并回 `main`：装了 pi-claude-bridge，实测 RPC 下的提示、工具、插话、停止都正常，用量算在订阅额度里（`isUsingOverage` 为假）。上下文卡片对 `claude-bridge` 的模型改了系统提示词的算法：Claude Code 的预设和它放进第一条消息的提醒共 15,300 字符，加 pi 带过去的部分，不算 pi 默认的开场、规则等（SPEC-0001"M1.13 的上下文细分与套餐用量"）；按会话当前的模型算。审查后改：自定义开场看 `tools`、`rules`、`docs` 三段是否都在，`addendum` 去掉外框，pi 重新启动时发的快照也按新模型分，SPEC 写明只靠分段长度带来的出入和换模型后总量暂时对不上。**
+
 **2026-10-17：M1.14 套餐总览完成，三方审查（Astra、Grok、Claude）后已合并回 `main`。审查的问题修了 5 条（见下一条）；"判断当前订阅只看服务商名、不分订阅登录和 API key"按用户决定先写成已知限制（SPEC-0001"M1.14 的套餐总览"、ADR-0012），以后由宿主带上会话是否订阅登录再改。下一步回到 [M1.11](#m111-自用) 的自用。**
 
 **2026-10-16：M1.14 套餐总览写完，待三方审查后合并（在 worktree `atrium.worktrees/plan-overview` 里做，原工作区留给并行的 claude-bridge 上下文细分）。扩展查 Grok 的 billing（只对 xAI 订阅登录、写死地址，已用 pi 的登录实测），按产品拆成窗口的 `parts`；宿主每个会话的 pi 启动后和每次运行结束后问三家，用量全宿主一份，`plans_updated` 变了就推、握手后紧跟 `welcome` 补发一次（原计划的 `get_plans` 命令没做，客户端不用另发请求）；同一家连续同样的失败只记一次日志；状态栏卡片按服务商分段、当前模型那家在前，摘要取当前模型那家；设置 · 模型与账户加"套餐用量"，Atrium 加载不了 pi 的登录时也显示。协议 17。单元、宿主、pi（新录 `plan-xai-key` 夹具）、界面、泄漏、相关端到端和 `pnpm check` 通过；变异分数 pi 99.94%、host 100%、shared 99.95%、ui 99.53%，新代码的存活变异都补了或注明等价。2026-10-17 自用后加了 [ADR-0012](adr/0012-claude-usage-from-replies-and-openai-mapping.md)：Claude 的用量也从回复的 `anthropic-ratelimit-unified-*` 头读（经 pi-claude-bridge 实测），`claude-bridge` 算 Claude、新的 `openai` 登录算 ChatGPT（它自己的用量 OpenAI 不让查）；之后变异分数 pi 99.81%、host 100%、ui 99.53%。界面测试里右栏的"0.24 秒打开"动画测试、宿主的 `install-job.test.ts`"ends what the command left running in its group"在整套并行时偶尔失败、单跑都过，和本次无关，记下待查。三方审查（Astra、Grok、Claude）的问题修了 5 条：Grok 百分比类型不对时报 `unknown_shape` 不当 0；回复只更新不分模型的 5 小时和每周窗口、留着按模型的窗口；回复报告只收 `anthropic`；回复不清失败去重；查询出错也按原因去重。**
@@ -91,6 +93,7 @@ MVP 1 里还没设计、做到时先补设计的：
 架构：
 
 - pi 是唯一内核，以 `pi --mode rpc` 子进程接入，**一个会话一个进程**，不用 `switch_session`（[ADR-0001](adr/0001-use-pi-as-core.md)、[ADR-0002](adr/0002-connect-pi-via-rpc-subprocess.md)）。
+- Claude 订阅的额度经用户自己装的 pi 扩展 pi-claude-bridge（服务商 `claude-bridge`，经 Agent SDK 用本机 `claude` 的登录）用，Atrium 不自己写桥接，只在自己这边适配；pi 的 `anthropic` 订阅登录会被算成额外用量（2026-10-16 定，[pi-internals §4](research/pi-internals.md)"经 Claude Code 的模型"）。
 - 宿主（Node）与 UI 分离，WebSocket + token；TypeScript monorepo（pnpm workspaces）：`protocol` / `client`（无 DOM）/ `host` / `ui`（React + Vite）+ `apps/desktop`（Electron），先只做 macOS（[ADR-0005](adr/0005-split-host-and-ui-pwa-first.md)）。
 - pi 适配器**自己实现，不用 pi 自带的 `RpcClient`**：它回答不了 extension 对话框，启动方式、超时都写死（理由见 [SPEC-0001 · 风险与待定问题](specs/0001-mvp1-single-session-chat.md#风险与待定问题)）。
 - `client` 的状态用 **Zustand**（`zustand/vanilla`），按领域拆 store，UI 用选择器订阅。

@@ -182,6 +182,11 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
   - 终端里的 pi 用 `SettingsManager.getOrCreateDeviceId()`（`~/.pi/agent/settings.json` 的 `deviceId`，没有就生成 UUID）作为 `getDeviceId`。
   - `ModelRuntime.create` 在 `auth.json` 不存在时写一个 `{}`。
 - **新版本检查**（1.1.0 bundle 的 `getLatestPiRelease`，2026-10-11 核实）：pi 请求 `https://pi.dev/api/latest-version`（`accept: application/json`，10 秒为限），应答形如 `{"ok":true,"version":"1.1.0","packageName":"@earendil-works/pi-coding-agent"}`，可能带 `note`；`version` 不是非空字符串时当作没查到。环境变量 `PI_OFFLINE` 设了就不查。另有 `https://pi.dev/api/installer/releases`（`PI_INSTALLER_API_BASE`）给安装脚本和托管安装用。
+- **经 Claude Code 的模型**（pi-claude-bridge 0.9.3、Claude Code 2.1.301，2026-10-16 实测）：pi 的 `anthropic` 订阅登录直接拿 OAuth token 发请求，Anthropic 自 2026-04-04 起把这类第三方请求算到额外用量（extra usage）；经 Agent SDK 和 `claude -p` 的请求仍算在订阅额度里。社区扩展 pi-claude-bridge（`pi install npm:pi-claude-bridge`，配置 `~/.pi/agent/claude-bridge.json`）注册服务商 `claude-bridge`，模型取自 pi-ai 的 Anthropic 目录，请求经 Agent SDK 交给本机的 `claude`，用 Claude Code 自己的登录。loop、工具、压缩、会话树仍是 pi 的：Claude Code 以 `tools: []` 启动，pi 的工具作为进程内 MCP 服务器交给它（模型看到的名字是 `mcp__custom-tools__<工具>`），调用时挂起、交回 pi 执行，再按 `tool_use` id 把结果交回去。
+  - 系统提示词：Claude Code 的 `claude_code` 预设（去掉 git 说明）在前，后面依次接 pi 的记忆文件、Skills、自定义开场、`addendum` 的正文（不带 pi 存的 `<addendum>` 外框）和扩展加的分段（`prompt-capture.ts` 的 `projectCapture`）；pi 默认的开场、`tools`、`rules`、`docs`、`cwd` 不发。Skills 只在 pi 开了 `read` 工具时发。系统消息的 `content` 不转发，pi 1.1.0 写进会话的 `content` 总是空的。仍含 pi 内置提示词的请求，扩展拒绝发送（Anthropic 会按提示词把它算成额外用量）。实测发出的请求：预设正文约 13,700 字符，Claude Code 另在第一条用户消息里放环境、模型、账户和日期的提醒约 1,600 字符。量法：起一个只把请求体写到文件的本地转发代理，`ANTHROPIC_BASE_URL` 指向它跑一轮，看 `system` 里 `<project_context>` 之前的长度和第一条用户消息里的 `<system-reminder>`。
+  - 会话：同一个 pi 进程里连续的轮接着用同一个 Claude Code 会话，缓存命中；和 pi 的历史对不上时（停止、压缩、分叉、出错、pi 重新启动、中途换成它）从 pi 的历史重写 Claude Code 的会话，下一轮重新写缓存。
+  - 用量：Claude Code 的 `rate_limit_event` 经 `after_provider_response` 报成 `anthropic-ratelimit-unified-*` 响应头，并用 `notify` 发"Claude rate limit warning"；`isUsingOverage` 为假表示算在订阅额度里。助手消息的 `cost` 为 0。
+  - RPC 模式下的提示、工具、插话、停止和停止后的下一轮都正常。在 bash 工具执行中停止时，最后一条助手消息的 `stopReason` 是 `error`、"This operation was aborted"，pi 自带的 OpenAI 兼容服务商（`sankuai-openai`）实测相同；其他时机停止未测（pi-ai 的服务商在请求途中被中止时报 `aborted`）。
 
 ## 5. extension 与宿主相关的部分（`src/core/extensions/types.ts`、`docs/rpc-extension-ui.md`）
 
