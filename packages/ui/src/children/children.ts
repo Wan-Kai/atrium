@@ -20,9 +20,14 @@ export type TreeSession = Pick<
  * @returns Its children.
  */
 export function childrenOf<S extends TreeSession>(sessions: readonly S[], sessionId: string): S[] {
-  return sessions
-    .filter((session) => session.parent?.sessionId === sessionId && !session.archived)
-    .toSorted((a, b) => b.updatedAt - a.updatedAt);
+  return (
+    sessions
+      // A session named its own parent, as a hand-edited index could, is not its own child.
+      .filter(
+        (session) => session.parent?.sessionId === sessionId && session.sessionId !== sessionId && !session.archived,
+      )
+      .toSorted((a, b) => b.updatedAt - a.updatedAt)
+  );
 }
 
 /**

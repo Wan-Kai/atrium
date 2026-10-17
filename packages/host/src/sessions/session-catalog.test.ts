@@ -534,6 +534,31 @@ describe("SessionCatalog before its first scan", () => {
     expect(changes()).toBe(before + 1);
   });
 
+  it("reads a parent or a name the protocol could not carry, as a hand-edited index can hold, as none", async () => {
+    const { sessions, dirs } = await catalog();
+    for (const [sessionId, parent, name] of [
+      ["c1", "", ""],
+      ["c2", "p".repeat(129), "n".repeat(1025)],
+      ["c3", "p".repeat(128), "n".repeat(1024)],
+    ] as const) {
+      await sessions.record({
+        sessionId,
+        containerId: A,
+        cwd: dirs.a,
+        parent: { sessionId: parent, by: "user" },
+        name,
+      });
+    }
+
+    expect(
+      ["c1", "c2", "c3"].map((id) => [sessions.find(id)?.parent?.sessionId.length, sessions.find(id)?.name?.length]),
+    ).toStrictEqual([
+      [undefined, undefined],
+      [undefined, undefined],
+      [128, 1024],
+    ]);
+  });
+
   it("names a recorded session in its record, writing nothing for the same name or an unknown session", async () => {
     const { sessions, dirs, file, changes } = await catalog();
     await sessions.record({ sessionId: "c1", containerId: A, cwd: dirs.a, parent: { sessionId: "s1", by: "user" } });

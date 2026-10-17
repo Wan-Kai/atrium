@@ -125,7 +125,7 @@ function entryUsage(entry: object): FileUsage {
  * For a parent's "含子对话" figures (SPEC-0002, "用量合计"): read from the child's file, so a child
  * whose pi is not running counts too. pi only appends (pi-internals.md §1), so a file that grew is
  * read from where the last read stopped; one that shrank, or another baseline, is read again from
- * the start. A line counts once its LF is written. Entries up to and including `after` are the
+ * the start; reads of one file run one at a time. A line counts once its LF is written. Entries up to and including `after` are the
  * history copied from the parent and do not count; an `after` the file does not have counts
  * nothing, so a copied history is never counted twice.
  *
@@ -134,6 +134,8 @@ function entryUsage(entry: object): FileUsage {
  */
 export function createUsageReader(): UsageReader {
   const files = new Map<string, FileState>();
+  /** The last read of each file, settled however it ended, which the next waits for. */
+  const reading = new Map<string, Promise<unknown>>();
 
   /**
    * A file's state from the start.
@@ -167,49 +169,69 @@ export function createUsageReader(): UsageReader {
     return state;
   }
 
-  return {
-    async read(path, after, signal) {
-      let info;
+  /**
+   * Reads what a file produced since the last read of it.
+   *
+   * @remarks
+   * See `createUsageReader`; `read` runs these one at a time per file.
+   *
+   * @sideEffects Reads the file; updates its state.
+   * @param path - The file.
+   * @param after - The baseline.
+   * @param signal - Stops the read between chunks.
+   * @returns The totals, or `null` for a file that is not there.
+   */
+  async function readNow(path: string, after: string | null, signal?: AbortSignal): Promise<FileUsage | null> {
+    let info;
+    try {
+      info = await stat(path);
+    } catch {
+      files.delete(path);
+      return null;
+    }
+    let state = files.get(path);
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: starting again more often gives the same totals, only reading more.
+    if (state === undefined || state.after !== after || info.size < state.size) {
+      state = fresh(after);
+      // Stryker disable next-line CallExpression: a state not kept is started again on the next read, with the same totals.
+      files.set(path, state);
+    }
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: with nothing new the loop below reads nothing.
+    if (info.size > state.size) {
+      const file = await open(path, "r");
       try {
-        info = await stat(path);
-      } catch {
-        files.delete(path);
-        return null;
-      }
-      let state = files.get(path);
-      // Stryker disable next-line ConditionalExpression,EqualityOperator: starting again more often gives the same totals, only reading more.
-      if (state === undefined || state.after !== after || info.size < state.size) {
-        state = fresh(after);
-        // Stryker disable next-line CallExpression: a state not kept is started again on the next read, with the same totals.
-        files.set(path, state);
-      }
-      // Stryker disable next-line ConditionalExpression,EqualityOperator: with nothing new the loop below reads nothing.
-      if (info.size > state.size) {
-        const file = await open(path, "r");
-        try {
-          // Stryker disable next-line ArithmeticOperator,MethodExpression: a larger buffer reads the same bytes.
-          const buffer = Buffer.alloc(Math.min(CHUNK_BYTES, info.size - state.size));
-          // Stryker disable next-line EqualityOperator: a read at the end gets no bytes and stops the loop.
-          while (state.size < info.size) {
-            signal?.throwIfAborted();
-            const { bytesRead } = await file.read(
-              buffer,
-              0,
-              // Stryker disable next-line ArithmeticOperator,MethodExpression: what is left never exceeds the buffer but at the first read, where they are equal; a longer read stops at the file's end.
-              Math.min(buffer.length, info.size - state.size),
-              state.size,
-            );
-            // Stryker disable next-line ConditionalExpression: only a file cut short between the stat and the read gives no bytes.
-            if (bytesRead === 0) break;
-            state.splitter.push(buffer.subarray(0, bytesRead));
-            state.size += bytesRead;
-          }
-        } finally {
-          // Not seen by a test: Node lists no open file handles. A survivor in mutation testing.
-          await file.close();
+        // Stryker disable next-line ArithmeticOperator,MethodExpression: a larger buffer reads the same bytes.
+        const buffer = Buffer.alloc(Math.min(CHUNK_BYTES, info.size - state.size));
+        // Stryker disable next-line EqualityOperator: a read at the end gets no bytes and stops the loop.
+        while (state.size < info.size) {
+          signal?.throwIfAborted();
+          const { bytesRead } = await file.read(
+            buffer,
+            0,
+            // Stryker disable next-line ArithmeticOperator,MethodExpression: what is left never exceeds the buffer but at the first read, where they are equal; a longer read stops at the file's end.
+            Math.min(buffer.length, info.size - state.size),
+            state.size,
+          );
+          // Stryker disable next-line ConditionalExpression: only a file cut short between the stat and the read gives no bytes.
+          if (bytesRead === 0) break;
+          state.splitter.push(buffer.subarray(0, bytesRead));
+          state.size += bytesRead;
         }
+      } finally {
+        // Not seen by a test: Node lists no open file handles. A survivor in mutation testing.
+        await file.close();
       }
-      return { tokens: state.tokens, cost: state.cost };
+    }
+    return { tokens: state.tokens, cost: state.cost };
+  }
+
+  return {
+    read(path, after, signal) {
+      // Two reads of one file at once, as two ancestors refreshing, would add the same bytes twice.
+      const mine = (reading.get(path) ?? Promise.resolve()).then(() => readNow(path, after, signal));
+      // The next waits for this one however it ends.
+      reading.set(path, Promise.allSettled([mine]));
+      return mine;
     },
     forget(path) {
       files.delete(path);

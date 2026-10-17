@@ -873,7 +873,11 @@ export const CommandResult = {
   compact_session: z.strictObject({}),
   /** The page pi wrote, whole. */
   export_session: z.strictObject({ html: z.string().min(1) }),
-  fork_session: z.strictObject({ sessionId: SessionId }),
+  /**
+   * `noteSent: false` when a child forked into a new worktree could not be told where it works
+   * now (SPEC-0002, "带上下文的子对话怎么做出来"); absent otherwise.
+   */
+  fork_session: z.strictObject({ sessionId: SessionId, noteSent: z.literal(false).optional() }),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),

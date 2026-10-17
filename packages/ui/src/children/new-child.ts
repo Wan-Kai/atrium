@@ -42,12 +42,28 @@ export function askForChild(request: ChildRequest): void {
 }
 
 /**
+ * The child kept when opening it failed after pi wrote its file, if that is how it failed.
+ *
+ * @remarks
+ * A fork into a new worktree whose pi did not start once it wrote the child's file keeps the
+ * child under its parent, and `fork_failed` names it (SPEC-0002, "带上下文的子对话怎么做出来").
+ *
+ * @sideEffects none
+ * @param error - What `fork_session` rejected with.
+ * @returns The child's id, or `null`.
+ */
+export function keptChild(error: unknown): string | null {
+  if (!(error instanceof CommandError) || error.code !== "fork_failed") return null;
+  const kept = error.params?.["sessionId"];
+  return typeof kept === "string" ? kept : null;
+}
+
+/**
  * Explains why a child conversation could not be opened, in Chinese.
  *
  * @remarks
  * The host sends codes only (SPEC-0002, "接口与数据"); a new worktree's failures read as creating
- * a workspace's do. A child forked into a new worktree whose pi failed after writing its file is
- * kept, and `fork_failed` names it (SPEC-0002, "带上下文的子对话怎么做出来").
+ * a workspace's do. A child kept though its pi failed is told otherwise (`keptChild`).
  *
  * @sideEffects none
  * @param error - What `create_session` or `fork_session` rejected with.
@@ -57,8 +73,6 @@ export function describeChildError(error: unknown): string {
   const worktree = describeWorktreeError(error);
   if (worktree !== null) return worktree;
   if (!(error instanceof CommandError)) return "没能开子对话";
-  // pi wrote the child's file before it failed, so the child is there, under its parent.
-  if (error.code === "fork_failed" && error.params?.["sessionId"] !== undefined) return "子对话没有开好";
   const words: Readonly<Record<string, string>> = {
     child_place_invalid: "这里只能放在当前位置",
     session_busy: "运行中不能开带上下文的子对话",

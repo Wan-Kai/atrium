@@ -68,6 +68,38 @@ describe("ControlTrack", () => {
     expect(calls).toStrictEqual([["update", "i1", "ONE"], ["steerQueued", "i2"], ["remove", "i1"], ["clear"]]);
   });
 
+  it("floats one list at a time: the queue's or the child conversations'", async () => {
+    const { actions } = recording();
+    /** The bar with a child capsule that only says whether its list is open. */
+    const bar = (control: Control) => (
+      <div style={{ position: "relative", marginTop: 400, width: 600 }}>
+        <ControlTrack
+          control={control}
+          running
+          actions={actions}
+          renderChildCapsule={({ open, onToggle }) => (
+            <button type="button" className="pointer-events-auto" aria-expanded={open} onClick={onToggle}>
+              子对话
+            </button>
+          )}
+        />
+      </div>
+    );
+    const screen = await render(bar(queued("one")));
+    await screen.rerender(bar(queued("one", "two")));
+    const children = screen.getByRole("button", { name: "子对话" });
+    await expect.element(screen.getByRole("dialog", { name: "排队" })).toBeVisible();
+    await expect.element(children).toHaveAttribute("aria-expanded", "false");
+
+    await children.click();
+    await expect.element(children).toHaveAttribute("aria-expanded", "true");
+    await expect.element(screen.getByRole("dialog", { name: "排队" })).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "排队 2" }).click();
+
+    await expect.element(screen.getByRole("dialog", { name: "排队" })).toBeVisible();
+    await expect.element(children).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("says how many images a queued message has, and names one that is only images", async () => {
     const { actions } = recording();
     const control: Control = {

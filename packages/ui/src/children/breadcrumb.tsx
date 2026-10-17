@@ -1,9 +1,11 @@
 import type { AtriumClient } from "@atrium/client";
 import { useStore } from "zustand";
+import type { StoreApi } from "zustand/vanilla";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { CaretRight } from "../design/icons";
 import { sessionTitle } from "../sidebar/names";
 import { showNotice } from "../state/session-notices";
+import { type WorkspaceViews, showViewer } from "../state/workspace-views";
 import { chainOf, crumbsOf } from "./children";
 
 /** A crumb's look; the current session's is the text's own colour and does nothing. */
@@ -16,13 +18,22 @@ const CRUMB =
  * @remarks
  * SPEC-0002 ("显示 · 子对话的标签"; prototype A): "主对话名 › 子对话名", a name before the last
  * going back to that session; over three levels the middle ones fold into "…", which lists them.
- * Nothing for a session without a parent.
+ * Nothing for a session without a parent. The session chosen shows, though its workspace showed a
+ * viewer tab, as one chosen in the sidebar does.
  *
- * @sideEffects Opens a session when a crumb is chosen.
- * @param props - The client and the session shown.
+ * @sideEffects Opens a session when a crumb is chosen; writes the views.
+ * @param props - The client, the session shown and the workspace views.
  * @returns The breadcrumb, or nothing.
  */
-export function Breadcrumb({ client, sessionId }: { readonly client: AtriumClient; readonly sessionId: string }) {
+export function Breadcrumb({
+  client,
+  sessionId,
+  views,
+}: {
+  readonly client: AtriumClient;
+  readonly sessionId: string;
+  readonly views?: StoreApi<WorkspaceViews>;
+}) {
   const sessions = useStore(client.index, (index) => index.sessions);
   const chain = chainOf(sessions, sessionId);
   if (chain.length < 2) return null;
@@ -33,10 +44,12 @@ export function Breadcrumb({ client, sessionId }: { readonly client: AtriumClien
    * @remarks
    * See `Breadcrumb`.
    *
-   * @sideEffects Sends `open_session`; may show a notice.
+   * @sideEffects Sends `open_session`; writes the views; may show a notice.
    * @param target - The session.
    */
   const open = (target: string): void => {
+    const containerId = sessions.find((one) => one.sessionId === target)?.containerId;
+    if (views !== undefined && containerId !== undefined) showViewer(views, containerId, null);
     // Fire and forget: a failure is shown.
     void client.openSession(target).catch(() => showNotice(sessionId, "没能打开那个对话", true));
   };

@@ -1395,6 +1395,18 @@ describe("ConversationArea's child conversations (SPEC-0002)", () => {
     expect(pageNewChild().getState()).toBeNull();
   });
 
+  it("asks for an empty child with /child, while the session runs too", async () => {
+    const { client, calls } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ items: [turn("t1", "第一")], run: { runId: "r1", startedAt: 0 } });
+
+    await userEvent.fill(screen.getByRole("textbox", { name: "消息" }), "/child");
+    await userEvent.keyboard("{Enter}");
+
+    await vi.waitFor(() => expect(pageNewChild().getState()).toStrictEqual({ parentSessionId: "s1", turnId: null }));
+    expect(calls.filter((call) => /^(?:prompt|steer)/.test(call))).toStrictEqual([]);
+  });
+
   it("shows the children's capsule above the input box, and a refused /atrium- message in words", async () => {
     const { client } = fakeClient(
       {

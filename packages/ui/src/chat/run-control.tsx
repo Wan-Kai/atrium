@@ -128,26 +128,31 @@ export function ControlTrack({
   running,
   actions,
   changes,
-  childCapsule,
+  renderChildCapsule,
 }: {
   readonly control: Control;
   readonly running: boolean;
   readonly actions: RunActions;
   /** The workspace's git changes, when it has some, and the changes panel (SPEC-0001, "工作区改动"). */
   readonly changes?: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void };
-  /** The child conversations' capsule, which shows nothing without children (SPEC-0002). */
-  readonly childCapsule?: ReactNode;
+  /**
+   * The child conversations' capsule, which shows nothing without children (SPEC-0002), given
+   * whether its list is open: one panel at a time floats above the box.
+   */
+  readonly renderChildCapsule?: (list: { readonly open: boolean; readonly onToggle: () => void }) => ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [panel, setPanel] = useState<"queue" | "children" | null>(null);
+  const open = panel === "queue";
   const count = control.queue.length;
   const before = useRef(count);
   useEffect(() => {
     // A message joining the queue shows the panel; an emptied queue has none to show.
     // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- follows the queue the host sends.
-    if (count > before.current) setOpen(true);
+    if (count > before.current) setPanel("queue");
     before.current = count;
   }, [count]);
-  if (count === 0 && control.steers.length === 0 && changes === undefined && childCapsule === undefined) return null;
+  if (count === 0 && control.steers.length === 0 && changes === undefined && renderChildCapsule === undefined)
+    return null;
   const paused = control.paused !== null;
   return (
     <>
@@ -179,7 +184,12 @@ export function ControlTrack({
       ) : null}
       <div className="pointer-events-none absolute right-1 bottom-[calc(100%+8px)] left-1 flex gap-1.5">
         {count > 0 ? (
-          <button type="button" aria-expanded={open} className={CAPSULE} onClick={() => setOpen(!open)}>
+          <button
+            type="button"
+            aria-expanded={open}
+            className={CAPSULE}
+            onClick={() => setPanel(open ? null : "queue")}
+          >
             <span className={`size-1.5 rounded-full ${paused ? "bg-[var(--attn)]" : "bg-[var(--tint)]"}`} />
             排队 {count}
             {paused ? " · 已暂停" : ""}
@@ -192,7 +202,10 @@ export function ControlTrack({
             {control.steers.length} 条插话将在下一步前送达
           </span>
         ) : null}
-        {childCapsule}
+        {renderChildCapsule?.({
+          open: panel === "children",
+          onToggle: () => setPanel(panel === "children" ? null : "children"),
+        })}
         {changes === undefined ? null : <ChangesCapsule {...changes} />}
       </div>
     </>

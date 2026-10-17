@@ -47,6 +47,10 @@ describe("childrenOf and descendantsOf", () => {
     expect(ids(descendantsOf(sessions, "main"))).toStrictEqual(["b", "a", "a1"]);
   });
 
+  it("never list a session named its own parent as its own child", () => {
+    expect(ids(childrenOf([at("x", "x"), at("y", "x")], "x"))).toStrictEqual(["y"]);
+  });
+
   it("stop where a chain of parents loops back", () => {
     const loop = [at("x", "z"), at("y", "x"), at("z", "y")];
 

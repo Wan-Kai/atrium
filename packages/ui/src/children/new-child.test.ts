@@ -1,6 +1,6 @@
 import { CommandError } from "@atrium/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { askForChild, describeChildError, pageNewChild } from "./new-child";
+import { askForChild, describeChildError, keptChild, pageNewChild } from "./new-child";
 
 afterEach(() => pageNewChild().setState(null, true));
 
@@ -40,12 +40,26 @@ describe("describeChildError", () => {
       "主对话已在终端中继续，先接回来",
       "没能开子对话：找不到这一轮",
       "没能开子对话：pi 出错了",
-      "子对话没有开好",
+      "没能开子对话：pi 出错了",
       "没能开子对话",
       "主对话已经不在了",
       "没能开子对话",
       "没能开子对话",
       "这个分支名已经有了，换一个",
     ]);
+  });
+});
+
+describe("keptChild", () => {
+  it("names the child a failed fork kept, and nothing for any other failure", () => {
+    expect(
+      [
+        new CommandError("fork_failed", { sessionId: "c1" }),
+        new CommandError("fork_failed"),
+        new CommandError("fork_failed", { sessionId: 1 }),
+        new CommandError("session_busy", { sessionId: "c1" }),
+        Object.assign(new Error("not the host's"), { code: "fork_failed", params: { sessionId: "c1" } }),
+      ].map(keptChild),
+    ).toStrictEqual(["c1", null, null, null, null]);
   });
 });

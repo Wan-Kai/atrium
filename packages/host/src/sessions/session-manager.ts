@@ -176,6 +176,12 @@ const FORK_TEMP_PREFIX = "atrium-fork-";
 const FORK_TEMP_MARKER = ".atrium-fork";
 
 /**
+ * The usage baseline of a forked child whose file could not be read for it: no entry has this
+ * id, so the child counts nothing rather than its copied history twice (SPEC-0002, "用量合计").
+ */
+const UNREAD_BASELINE = "(unread)";
+
+/**
  * Switches Fast in a pi that lists Atrium's Fast switch.
  *
  * @remarks
@@ -212,19 +218,22 @@ function notReserved(text: string): void {
  *
  * @remarks
  * Through Atrium's extension, which words the note and writes it as an `atrium-agent` custom
- * message (SPEC-0002, "对话记录里的自定义消息"); without the extension there is no note, which
- * only leaves the model to find its directory itself.
+ * message (SPEC-0002, "对话记录里的自定义消息"); without the extension there is no note, and the
+ * user is told so, to tell the model themselves.
  *
  * @sideEffects Asks pi; writes into the child's session.
  * @param pi - The child's pi.
  * @param from - The parent's directory.
  * @param to - The child's.
+ * @returns Whether the note was sent.
+ * @throws What pi's requests reject with.
  */
-async function sendNote(pi: TracedPi, from: string, to: string): Promise<void> {
+async function sendNote(pi: TracedPi, from: string, to: string): Promise<boolean> {
   const { commands } = await pi.request({ type: "get_commands" });
-  if (!commands.some(isAgentCommand)) return;
+  if (!commands.some(isAgentCommand)) return false;
   const argument = encodeArgument({ v: 1, kind: "note", note: "worktree_moved", from, to });
   await pi.request({ type: "prompt", message: `/${AGENT_COMMAND} note ${argument}` });
+  return true;
 }
 
 /**
@@ -326,7 +335,7 @@ export function createSessionManager(options: {
     workspaceId: string,
     wanted: string,
   ) => Promise<{ readonly workspaceId: string; readonly dir: string }>;
-  /** Where temporary files of forks into new worktrees go; the system's when left out. */
+  /** Where temporary files of forks into new worktrees go, the host's own; the system's when left out. */
   readonly tempRoot?: string;
 }): SessionManager {
   const sessions = new Map<string, Running>();
@@ -359,9 +368,12 @@ export function createSessionManager(options: {
   const starting = new Map<string, Promise<Running>>();
   /**
    * Sessions, and containers whose sessions, are being archived, which nothing may start again
-   * (SPEC-0001, "`archive_session`").
+   * (SPEC-0001, "`archive_session`"), with how many archivings under way mark each: a child's
+   * archiving and its parent's may overlap.
    */
-  const archiving = new Set<string>();
+  const archiving = new Map<string, number>();
+  /** Those waiting for an archiving to end, told whenever one does. */
+  const archivingWaiters = new Set<() => void>();
   /** Each chat's archive or restore under way, for the next to wait for. */
   const chatTurns = new Map<string, Promise<unknown>>();
   /** Background work, such as scans after a run, that `close` waits for. */
@@ -1063,6 +1075,8 @@ export function createSessionManager(options: {
     const asked = options.layouts.of(clientId).container;
     const sessionId = options.newSessionId();
     await options.catalog.record({ sessionId, containerId, cwd, ...child });
+    // A parent archived meanwhile takes the child with it, or lets it go (SPEC-0002).
+    await settleChild(sessionId);
     created.add(sessionId);
     // Started as a draft's: whatever needs pi meanwhile waits for this start.
     inBackground("session start", () => ensureRunning(sessionId));
@@ -1224,7 +1238,9 @@ export function createSessionManager(options: {
     }
   }
 
-  inBackground("fork leftovers", removeForkLeftovers);
+  /** The removal of leftovers at start, which a new fork's directory waits for. */
+  let leftoversGone: Promise<unknown> = Promise.resolve();
+  inBackground("fork leftovers", () => (leftoversGone = removeForkLeftovers()));
 
   return {
     async createChat(clientId) {
@@ -1328,8 +1344,12 @@ export function createSessionManager(options: {
     },
     async detachSession(sessionId) {
       await options.catalog.ready();
-      entryOf(sessionId);
+      const entry = entryOf(sessionId);
+      // An archiving under way decided already what becomes of it.
+      notArchived(sessionId);
       await options.catalog.detach(sessionId);
+      // Its file counts for no session above it any more.
+      if (entry.file !== null) childrenUsage.forget(entry.file);
       options.onChange();
       return {};
     },
@@ -1384,7 +1404,8 @@ export function createSessionManager(options: {
         if (entry.parent === null) throw new CommandError("session_is_draft", { sessionId });
         renamed.add(sessionId);
         await options.catalog.name(sessionId, name);
-        // A pi started already was given the old name, which its file would carry.
+        // A pi started, or starting, was given the old name, which its file would carry.
+        await starting.get(sessionId)?.catch(() => undefined);
         await live(sessionId)?.pi.request({ type: "set_session_name", name });
         return {};
       }
@@ -1511,22 +1532,23 @@ export function createSessionManager(options: {
       // A turn that just ended is tied to its entry by the read its end started.
       await controller.entriesRead();
       const at = controller.forkPoint(turnId);
-      // Into a new worktree, the fork is a file in the host's own temporary directory first (SPEC-0002).
-      const temp = child?.place === "worktree" ? await forkTempDir() : null;
-      // Busy until the temporary pi has read the file and stopped: a message sent meanwhile would
-      // be written to the file it reads.
+      // Busy from the check until the temporary pi has read the file and stopped: a message sent
+      // meanwhile would be written to the file it reads.
       const release = controller.holdForFork();
+      let temp: string | null = null;
       let forked: Awaited<ReturnType<typeof forkWithPi>>;
       try {
+        // Into a new worktree, the fork is a file in the host's own temporary directory first (SPEC-0002).
+        if (child?.place === "worktree") temp = await forkTempDir();
         forked = await forkWithTemporaryPi(entry, at, name, temp);
       } catch (error) {
-        if (temp !== null) await rm(temp, { recursive: true, force: true });
+        if (temp !== null) await removeForkDir(temp);
         throw error;
       } finally {
         release();
       }
       if (child?.place === "worktree" && temp !== null) {
-        return { sessionId: await forkIntoWorktree(clientId, asked, entry, temp, child.branch, name) };
+        return forkIntoWorktree(clientId, asked, entry, temp, child.branch, name);
       }
       await copyTurnStarts(sessionId, forked.sessionId);
       await options.catalog.scan();
@@ -1543,9 +1565,14 @@ export function createSessionManager(options: {
           cwd: found.cwd,
           parent: { sessionId, by: "user" },
           name,
-          usageAfter: await lastEntryId(found.file).catch(() => null),
+          usageAfter: await lastEntryId(found.file).catch((error: unknown) => {
+            // Unknown, it counts nothing rather than the history it copied a second time.
+            options.logger.warn({ ...failureFields(error), sessionId: forked.sessionId }, "usage baseline not read");
+            return UNREAD_BASELINE;
+          }),
           persisted: true,
         });
+        await settleChild(forked.sessionId);
       }
       await inClientOrder(clientId, async () => {
         // As for a new session: the client goes to it only if it stayed where it was.
@@ -1653,13 +1680,13 @@ export function createSessionManager(options: {
     },
     async stopWorkspace(workspaceId) {
       // Marked first, so nothing starts or is created in it until it is released (see `notArchived`).
-      archiving.add(workspaceId);
+      mark([workspaceId]);
       const inside = options.catalog.list().filter((entry) => entry.containerId === workspaceId);
       await Promise.all(inside.map((entry) => stopSession(entry.sessionId)));
       return inside.filter((entry) => !entry.archived).map((entry) => entry.sessionId);
     },
     releaseWorkspace(workspaceId) {
-      archiving.delete(workspaceId);
+      unmark([workspaceId]);
     },
     async archiveWorkspace(workspaceId) {
       // Archived with its workspace (SPEC-0001, "M1.11 的工作区归档"), drafts too; archiving one again changes nothing.
@@ -1702,7 +1729,7 @@ export function createSessionManager(options: {
       // Controllers first, so restarts under way stop rather than start pi again.
       await Promise.all([...sessions.values()].map(({ controller }) => controller.shutdown()));
       await Promise.all([...running].map((pi) => pi.stop()));
-      await Promise.all([...background, titlesClosed, childrenUsage.settled()]);
+      await Promise.all([...background, titlesClosed, childrenUsage.close()]);
     },
   };
 
@@ -1808,16 +1835,27 @@ export function createSessionManager(options: {
    * Makes a temporary directory for a fork into a new worktree, marked as the host's.
    *
    * @remarks
-   * Under the system's temporary directory, where no scan and no pi in a terminal looks; its name
-   * starts with a fixed prefix and it holds a marker, so a start of the host removes only these
-   * when a fork was cut short (SPEC-0002, "带上下文的子对话怎么做出来").
+   * Under the host's own temporary directory (`tempRoot`, in Atrium's home), where no scan and no
+   * pi in a terminal looks, and no other host's start removes it; its name starts with a fixed
+   * prefix and it holds a marker, so a start of this host removes only these when a fork was cut
+   * short (SPEC-0002, "带上下文的子对话怎么做出来"). Made once that removal is done.
    *
    * @sideEffects Creates the directory and its marker.
    * @returns The directory.
    */
   async function forkTempDir(): Promise<string> {
-    const dir = await mkdtemp(join(options.tempRoot ?? tmpdir(), FORK_TEMP_PREFIX));
-    await writeFile(join(dir, FORK_TEMP_MARKER), "");
+    // The removal at start must not come upon the directory of a fork under way.
+    await leftoversGone.catch(() => undefined);
+    const root = options.tempRoot ?? tmpdir();
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    const dir = await mkdtemp(join(root, FORK_TEMP_PREFIX));
+    try {
+      await writeFile(join(dir, FORK_TEMP_MARKER), "");
+    } catch (error) {
+      // Without its marker no later start would remove it.
+      await removeForkDir(dir);
+      throw error;
+    }
     return dir;
   }
 
@@ -1849,7 +1887,7 @@ export function createSessionManager(options: {
     temp: string,
     branch: string,
     name: string,
-  ): Promise<string> {
+  ): Promise<{ sessionId: string; noteSent?: false }> {
     try {
       const file = (await readdir(temp)).find((candidate) => candidate.endsWith(".jsonl"));
       if (file === undefined) throw new CommandError("fork_failed");
@@ -1865,6 +1903,10 @@ export function createSessionManager(options: {
         name,
         usageAfter,
       });
+      // Detached at once when the parent was archived meanwhile, as it is in another workspace.
+      await settleChild(sessionId);
+      // Before its controller loads them, so its turns read as the parent's did.
+      await copyTurnStarts(parent.sessionId, sessionId);
       forkFrom.set(sessionId, intermediate);
       let started: Running;
       try {
@@ -1873,7 +1915,7 @@ export function createSessionManager(options: {
         options.logger.warn({ ...failureFields(error), sessionId }, "fork failed");
         await stopSession(sessionId);
         await options.catalog.scan();
-        if (options.catalog.find(sessionId)?.state === "draft") {
+        if (options.catalog.find(sessionId)?.state !== "persisted") {
           await options.catalog.forget(sessionId);
           throw new CommandError("fork_failed");
         }
@@ -1882,20 +1924,36 @@ export function createSessionManager(options: {
       } finally {
         forkFrom.delete(sessionId);
       }
-      await copyTurnStarts(parent.sessionId, sessionId);
-      await sendNote(started.pi, parent.cwd, place.dir).catch((error: unknown) =>
-        options.logger.warn({ ...failureFields(error), sessionId }, "note not sent"),
-      );
+      const noted = await sendNote(started.pi, parent.cwd, place.dir).catch((error: unknown) => {
+        options.logger.warn({ ...failureFields(error), sessionId }, "note not sent");
+        return false;
+      });
       await options.catalog.scan();
       await inClientOrder(clientId, async () => {
         const stayed = options.layouts.of(clientId).container === asked;
         await options.layouts.open(clientId, place.workspaceId, sessionId, stayed);
         options.onChange();
       });
-      return sessionId;
+      return noted ? { sessionId } : { sessionId, noteSent: false };
     } finally {
-      await rm(temp, { recursive: true, force: true });
+      await removeForkDir(temp);
     }
+  }
+
+  /**
+   * Removes a fork's temporary directory.
+   *
+   * @remarks
+   * What cannot be removed stays for the next start to remove; the fork's outcome is told as it
+   * was, and the path is not logged (security.md).
+   *
+   * @sideEffects Removes the directory; may log.
+   * @param dir - The directory.
+   */
+  async function removeForkDir(dir: string): Promise<void> {
+    await rm(dir, { recursive: true, force: true }).catch((error: unknown) =>
+      options.logger.warn(failureFields(error), "fork directory not removed"),
+    );
   }
 
   /**
@@ -1956,12 +2014,80 @@ export function createSessionManager(options: {
    * @param archive - Stops and archives.
    */
   async function whileArchivingAll(ids: readonly string[], archive: () => Promise<void>): Promise<void> {
-    for (const id of ids) archiving.add(id);
+    mark(ids);
     try {
       await archive();
     } finally {
-      for (const id of ids) archiving.delete(id);
+      unmark(ids);
     }
+  }
+
+  /**
+   * Marks sessions or containers as being archived.
+   *
+   * @remarks
+   * See `archiving`; each mark is taken off by an `unmark`.
+   *
+   * @sideEffects Updates what is being archived.
+   * @param ids - The sessions or containers.
+   */
+  function mark(ids: readonly string[]): void {
+    for (const id of ids) archiving.set(id, (archiving.get(id) ?? 0) + 1);
+  }
+
+  /**
+   * Takes off the marks `mark` put on, telling those waiting.
+   *
+   * @remarks
+   * An id stays marked while another archiving still marks it.
+   *
+   * @sideEffects Updates what is being archived; calls the waiters.
+   * @param ids - The sessions or containers.
+   */
+  function unmark(ids: readonly string[]): void {
+    for (const id of ids) {
+      const left = (archiving.get(id) ?? 1) - 1;
+      if (left === 0) archiving.delete(id);
+      else archiving.set(id, left);
+    }
+    const waiting = [...archivingWaiters];
+    archivingWaiters.clear();
+    for (const wake of waiting) wake();
+  }
+
+  /**
+   * Brings a child just recorded under the archiving rules, as if it had been there when its
+   * parent was archived.
+   *
+   * @remarks
+   * SPEC-0002 ("归档、脱离、交接"): an archiving that began after the parent was looked at did
+   * not see the child. Once no archiving marks the parent or its container any more, a child of
+   * an archived parent is archived too in the parent's container and detached elsewhere.
+   *
+   * @sideEffects Waits for archivings; may stop pi, archive or detach the child and write layouts.
+   * @param childId - The child.
+   * @throws {CommandError} `session_not_found` for the parent, once the child was archived with it.
+   */
+  async function settleChild(childId: string): Promise<void> {
+    const parentId = options.catalog.find(childId)?.parent?.sessionId;
+    if (parentId === undefined) return;
+    for (let parent = options.catalog.find(parentId); parent !== undefined; parent = options.catalog.find(parentId)) {
+      if (!archiving.has(parentId) && !archiving.has(parent.containerId)) break;
+      await new Promise<void>((resolve) => archivingWaiters.add(resolve));
+    }
+    const parent = options.catalog.find(parentId);
+    const child = options.catalog.find(childId);
+    if (parent?.archived !== true || child === undefined) return;
+    if (child.containerId !== parent.containerId) {
+      await options.catalog.detach(childId);
+      return;
+    }
+    await stopSession(childId);
+    forget(childId);
+    await options.catalog.archive(childId);
+    await options.layouts.forgetSessions([childId]);
+    options.onChange();
+    throw new CommandError("session_not_found", { sessionId: parentId });
   }
 
   /**
@@ -2014,11 +2140,11 @@ export function createSessionManager(options: {
    * @returns What `archive` returns.
    */
   async function whileArchiving<T>(id: string, archive: () => Promise<T>): Promise<T> {
-    archiving.add(id);
+    mark([id]);
     try {
       return await archive();
     } finally {
-      archiving.delete(id);
+      unmark([id]);
     }
   }
 

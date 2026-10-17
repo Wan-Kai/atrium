@@ -22,8 +22,9 @@ export function childrenOf<E extends TreeEntry>(entries: readonly E[], sessionId
  * A session's descendants: its children, theirs, and so on, each once.
  *
  * @remarks
- * A chain of parents that loops back, as a hand-edited index could make, stops at a session seen
- * already (SPEC-0002, "概念 · 层数"); the session itself is never its own descendant.
+ * A chain of parents that loops back, as a hand-edited index could make, stops where it comes
+ * back to the ancestor, the only place it can, as each session has one parent (SPEC-0002,
+ * "概念 · 层数"); the session itself is never its own descendant.
  *
  * @sideEffects none
  * @param entries - Every session.
@@ -84,8 +85,9 @@ export interface ArchivePlan {
  * @remarks
  * SPEC-0002 ("归档、脱离、交接"): from each archived session down, its descendants in the same
  * container, drafts too, are archived with it; a branch in another container is detached instead,
- * and the relations below it stay. Sessions archived already are passed over, and those being
- * archived (`roots`) are not listed again.
+ * and the relations below it stay. Sessions archived already are not listed but gone through,
+ * as an archiving cut short can leave one with live sessions below; those being archived
+ * (`roots`) are not listed again.
  *
  * @sideEffects none
  * @param entries - Every session.
@@ -100,12 +102,13 @@ export function archivePlan(entries: readonly TreeEntry[], roots: readonly strin
   const queue = [...roots];
   for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
     for (const child of childrenOf(entries, next)) {
-      if (seen.has(child.sessionId) || child.archived) continue;
+      if (seen.has(child.sessionId)) continue;
       seen.add(child.sessionId);
       if (child.containerId === containerId) {
-        archive.push(child.sessionId);
+        // One archived already is gone through: what is still below it goes too.
+        if (!child.archived) archive.push(child.sessionId);
         queue.push(child.sessionId);
-      } else {
+      } else if (!child.archived) {
         detach.push(child.sessionId);
       }
     }

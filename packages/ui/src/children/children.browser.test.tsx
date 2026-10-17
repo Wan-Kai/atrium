@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
+import { memoryStorage } from "../state/panes";
 import { pageNotices } from "../state/session-notices";
+import { createWorkspaceViews, openFile, viewOf } from "../state/workspace-views";
 import { PROJECT, fakeClient, session, workspace } from "../test/fake-client";
 import { Breadcrumb } from "./breadcrumb";
 import { ChildCapsule } from "./child-capsule";
@@ -38,9 +40,12 @@ function child(sessionId: string, parent: string, fields: Parameters<typeof sess
   });
 }
 
+/** The parent. */
+const MAIN = session({ sessionId: "main", containerId: W, name: "重构登录" });
+
 /** 重构登录 with four children: one running, one asking below it, one elsewhere, one handed off. */
 const FAMILY = [
-  session({ sessionId: "main", containerId: W, name: "重构登录" }),
+  MAIN,
   child("安全审查", "main", { running: true, updatedAt: Date.now() - 1000 }),
   child("补测试", "main", { containerId: OTHER, updatedAt: Date.now() - 180_000 }),
   child("边界用例", "补测试", { asking: 5, containerId: OTHER }),
@@ -114,6 +119,43 @@ describe("ChildCapsule", () => {
   });
 });
 
+describe("ChildCapsule with the workbench", () => {
+  it("shows a child opened over the file its workspace showed", async () => {
+    const { client, calls } = fakeClient(LISTED);
+    const views = createWorkspaceViews(memoryStorage());
+    openFile(views, OTHER, "src/a.ts", true);
+    const screen = await render(
+      <div className="relative mt-[400px] w-[680px]">
+        <ChildCapsule client={client} sessionId="main" views={views} />
+      </div>,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /^子对话 3/ }));
+    await userEvent.click(screen.getByText("补测试"));
+
+    await vi.waitFor(() => expect(calls).toStrictEqual(["openSession 补测试"]));
+    expect(viewOf(views.getState(), OTHER).active).toBeNull();
+  });
+
+  it("closes its list once no child is left, so the next does not open it", async () => {
+    const { client } = fakeClient({ sessions: [MAIN, child("安全审查", "main")] });
+    const screen = await render(
+      <div className="relative mt-[400px] w-[680px]">
+        <ChildCapsule client={client} sessionId="main" />
+      </div>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^子对话 1/ }));
+    await expect.element(screen.getByRole("dialog", { name: "子对话" })).toBeInTheDocument();
+
+    client.index.setState({ sessions: [MAIN, child("安全审查", "main", { archived: true })] });
+    await expect.element(screen.getByRole("button", { name: /^子对话/ })).not.toBeInTheDocument();
+    client.index.setState({ sessions: [MAIN, child("安全审查", "main"), child("补测试", "main")] });
+
+    await expect.element(screen.getByRole("button", { name: /^子对话 2/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
 describe("Breadcrumb", () => {
   it("shows nothing for a session without a parent", async () => {
     const { client } = fakeClient(LISTED);
@@ -131,6 +173,18 @@ describe("Breadcrumb", () => {
       .toHaveTextContent("重构登录补测试边界用例");
     await userEvent.click(screen.getByRole("button", { name: "重构登录" }));
     await vi.waitFor(() => expect(calls).toStrictEqual(["openSession main"]));
+  });
+
+  it("shows the session gone back to over the file its workspace showed", async () => {
+    const { client, calls } = fakeClient(LISTED);
+    const views = createWorkspaceViews(memoryStorage());
+    openFile(views, W, "src/a.ts", true);
+    const screen = await render(<Breadcrumb client={client} sessionId="边界用例" views={views} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "重构登录" }));
+
+    await vi.waitFor(() => expect(calls).toStrictEqual(["openSession main"]));
+    expect(viewOf(views.getState(), W).active).toBeNull();
   });
 
   it("folds the middle levels of a chain over three into …, which lists them", async () => {
@@ -180,6 +234,66 @@ describe("NewChildDialog", () => {
         `createChild ${W} {"parentSessionId":"main","name":"补测试","place":"worktree","branch":"atrium/tests"}`,
       ]),
     );
+  });
+
+  it("offers no new worktree in a project that is no git repository", async () => {
+    const { client } = fakeClient({
+      projects: [PROJECT],
+      workspaces: [workspace({ id: W, branch: null, head: null })],
+      sessions: [session({ sessionId: "main", containerId: W, name: "重构登录" })],
+    });
+    await render(<NewChildDialog client={client} />);
+
+    askForChild({ parentSessionId: "main", turnId: null });
+    await expect.element(page.getByRole("radio", { name: "当前工作区" })).toBeInTheDocument();
+    expect(page.getByRole("radio", { name: "新建 worktree" }).elements()).toHaveLength(0);
+  });
+
+  it("offers a new worktree from a detached HEAD", async () => {
+    const { client } = fakeClient({
+      projects: [PROJECT],
+      workspaces: [workspace({ id: W, branch: null, head: "abc1234" })],
+      sessions: [session({ sessionId: "main", containerId: W, name: "重构登录" })],
+    });
+    await render(<NewChildDialog client={client} />);
+
+    askForChild({ parentSessionId: "main", turnId: null });
+    await expect.element(page.getByRole("radio", { name: "新建 worktree" })).toBeInTheDocument();
+  });
+
+  it("closes on a child kept though its pi failed, opens it and says it did not open well", async () => {
+    const { client, calls } = fakeClient(LISTED, {
+      child: () => Promise.reject(new CommandError("fork_failed", { sessionId: "kept" })),
+    });
+    await render(<NewChildDialog client={client} />);
+
+    askForChild({ parentSessionId: "main", turnId: "main:u3" });
+    await userEvent.click(page.getByRole("radio", { name: "新建 worktree" }));
+    await userEvent.click(page.getByRole("button", { name: "开子对话" }));
+
+    await vi.waitFor(() =>
+      expect(pageNotices().getState()).toStrictEqual({ sessionId: "kept", text: "子对话没有开好", problem: true }),
+    );
+    expect(pageNewChild().getState()).toBeNull();
+    await vi.waitFor(() => expect(calls).toContain("openSession kept"));
+  });
+
+  it("says beside the tab bar when a child in a new worktree was not told where it works", async () => {
+    const { client } = fakeClient(LISTED, { unnoted: true });
+    await render(<NewChildDialog client={client} />);
+
+    askForChild({ parentSessionId: "main", turnId: "main:u3" });
+    await userEvent.click(page.getByRole("radio", { name: "新建 worktree" }));
+    await userEvent.click(page.getByRole("button", { name: "开子对话" }));
+
+    await vi.waitFor(() =>
+      expect(pageNotices().getState()).toStrictEqual({
+        sessionId: "fork-1",
+        text: "没能告诉模型换了目录",
+        problem: true,
+      }),
+    );
+    expect(pageNewChild().getState()).toBeNull();
   });
 
   it("offers no new worktree for a chat's session, says in the dialog why it failed, and closes on Escape", async () => {

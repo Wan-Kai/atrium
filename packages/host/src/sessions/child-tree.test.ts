@@ -69,12 +69,16 @@ describe("ancestorsOf", () => {
 
 describe("archivePlan", () => {
   it("archives the descendants in the same container and detaches a branch in another, leaving what is below it", () => {
-    expect(archivePlan(TREE, ["main"], "w1")).toStrictEqual({ archive: ["a", "b"], detach: ["a1"] });
+    expect(archivePlan(TREE, ["main"], "w1")).toStrictEqual({ archive: ["a", "b", "b2"], detach: ["a1"] });
   });
 
-  it("passes over sessions archived already and those being archived, so what is below an archived one stays", () => {
-    expect(archivePlan(TREE, ["b"], "w1")).toStrictEqual({ archive: [], detach: [] });
-    expect(archivePlan(TREE, ["main", "a", "b", "other"], "w1")).toStrictEqual({ archive: [], detach: ["a1"] });
+  it("lists neither sessions archived already nor those being archived, but goes through an archived one to what is below", () => {
+    expect(archivePlan(TREE, ["b"], "w1")).toStrictEqual({ archive: ["b2"], detach: [] });
+    expect(archivePlan(TREE, ["main", "a", "b", "other"], "w1")).toStrictEqual({ archive: ["b2"], detach: ["a1"] });
+    expect(archivePlan([...TREE, at("gone", "w2", "main", true)], ["main"], "w1")).toStrictEqual({
+      archive: ["a", "b", "b2"],
+      detach: ["a1"],
+    });
   });
 
   it("archives a child that has children of its own in the same container down to the end", () => {

@@ -312,8 +312,8 @@ function EmptyLine() {
  * asked; sends run control commands and status bar choices, reporting their failures through `act`.
  * @param props - The client, the session, its view store, what to do with a message, a steer and a
  * built-in command, how to run a command whose failure should show, a notice to show above the
- * input box, the latest request to open the model panel, and what the new-workspace page set going
- * here.
+ * input box, the latest request to open the model panel, what the new-workspace page set going
+ * here, and the workspace views.
  * @returns The transcript and input box.
  */
 function SessionArea({
@@ -334,6 +334,7 @@ function SessionArea({
   changes,
   launch,
   fileOpener,
+  views,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -358,6 +359,8 @@ function SessionArea({
   readonly launch: Launch | undefined;
   /** How to open a file a tool was given, from its chip; none outside a workspace. */
   readonly fileOpener?: ((path: string) => (() => void) | null) | undefined;
+  /** The workspace views, so a child opened from the capsule shows over a viewer tab. */
+  readonly views: StoreApi<WorkspaceViews>;
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
@@ -451,7 +454,9 @@ function SessionArea({
             running={running}
             actions={actions}
             {...(changes === undefined ? {} : { changes })}
-            childCapsule={<ChildCapsule client={client} sessionId={sessionId} />}
+            renderChildCapsule={(list) => (
+              <ChildCapsule client={client} sessionId={sessionId} views={views} {...list} />
+            )}
           />
         }
         picker={
@@ -883,11 +888,12 @@ export function ConversationArea({
    * @remarks
    * SPEC-0001 ("M1.11 的 `/` 命令 · 执行"): `/compact` has the host compact the context, with what
    * followed as what to keep in mind; `/export` downloads pi's page of the session; `/model` and `/thinking` open their part of the model
-   * panel, or set what they name; `/copy` copies the last reply and says so beside the tab bar.
+   * panel, or set what they name; `/copy` copies the last reply and says so beside the tab bar;
+   * `/child` opens the dialog for an empty child conversation (SPEC-0002, "第一步 · 入口").
    * The session's state is read now, not from the last render. A model named before the container's
    * list was read waits for the list.
    *
-   * @sideEffects May compact the session, download its page, open the model panel, set the model or level (creating
+   * @sideEffects May compact the session, download its page, ask for a child, open the model panel, set the model or level (creating
    * the session first, as choosing in the panel does), load the model list, write the clipboard,
    * or show a notice.
    * @param name - The command.
@@ -901,6 +907,11 @@ export function ConversationArea({
     view: SessionView | undefined,
   ): Promise<string | null> {
     const models = client.models(workspaceId);
+    if (name === "child") {
+      // Not a draft, as `inDraft` says, so there is a session.
+      if (sessionId !== null) askForChild({ parentSessionId: sessionId, turnId: null });
+      return null;
+    }
     if (name === "compact") {
       await client.compactSession(await target(), args === "" ? undefined : args);
       return null;
@@ -1092,6 +1103,7 @@ export function ConversationArea({
             onFocusTaken={() => handTo(null)}
             changes={capsule}
             launch={launch}
+            views={views}
             fileOpener={fileOpener}
           />
         )}

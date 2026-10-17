@@ -15,19 +15,24 @@ export interface ChildrenUsage {
   refreshAbove(sessionId: string): void;
   /** Resolves once every refresh asked for so far has given its totals. */
   settled(): Promise<void>;
+  /** Forgets what was read of a file no session above counts any more, as a detached child's. */
+  forget(file: string): void;
+  /** Stops the reads under way and refreshes no more; resolves once they ended. */
+  close(): Promise<void>;
 }
 
 /**
  * Creates the children's totals.
  *
  * @remarks
- * SPEC-0002 ("用量合计"): a session's figure is what all its descendants not archived produced
- * since they began, read from their files so a child whose pi is not running counts too, and
+ * SPEC-0002 ("用量合计"): a session's figure is what all its descendants, archived ones too,
+ * produced since they began, read from their files so a child whose pi is not running counts too, and
  * without the history a child copied (its `usageAfter`). A detached subtree no longer counts for
  * its old ancestors, since it is not below them any more. `null` for a session without such
  * descendants; a descendant whose file is not written yet adds nothing. Refreshes of one session
  * run one at a time, and one asked for meanwhile runs once after, so totals never go back to an
- * older read; a read that fails is only skipped.
+ * older read; a read that fails is only skipped. Tokens are whole, as the protocol counts them,
+ * though a file's own may not be.
  *
  * @sideEffects none until a refresh; refreshes read files and call `onTotals`.
  * @param options - The sessions, the file reader, and where the totals go.
@@ -40,6 +45,7 @@ export function createChildrenUsage(options: {
 }): ChildrenUsage {
   const running = new Map<string, Promise<void>>();
   const again = new Set<string>();
+  const stopping = new AbortController();
 
   /**
    * Adds up one session's descendants.
@@ -52,17 +58,18 @@ export function createChildrenUsage(options: {
    * @returns The totals.
    */
   async function totalsOf(sessionId: string): Promise<SessionMetrics["children"]> {
-    const below = descendantsOf(options.entries(), sessionId).filter((entry) => !entry.archived);
+    // Archived ones spent what they spent; only a detached subtree is no longer below.
+    const below = descendantsOf(options.entries(), sessionId);
     if (below.length === 0) return null;
     let tokens = 0;
     let cost = 0;
     for (const entry of below) {
       if (entry.file === null) continue;
-      const usage = await options.reader.read(entry.file, entry.usageAfter);
+      const usage = await options.reader.read(entry.file, entry.usageAfter, stopping.signal);
       tokens += usage?.tokens ?? 0;
       cost += usage?.cost ?? 0;
     }
-    return { tokens, cost };
+    return { tokens: Math.min(Math.round(tokens), Number.MAX_SAFE_INTEGER), cost };
   }
 
   /**
@@ -75,6 +82,7 @@ export function createChildrenUsage(options: {
    * @param sessionId - The session.
    */
   function refresh(sessionId: string): void {
+    if (stopping.signal.aborted) return;
     if (running.has(sessionId)) {
       again.add(sessionId);
       return;
@@ -88,7 +96,11 @@ export function createChildrenUsage(options: {
           // A file that could not be read keeps the totals as they were.
         }
       } while (again.has(sessionId));
-    })().finally(() => running.delete(sessionId));
+    })().finally(() => {
+      running.delete(sessionId);
+      // One asked for between the last look and now runs too.
+      if (again.delete(sessionId)) refresh(sessionId);
+    });
     running.set(sessionId, run);
   }
 
@@ -98,6 +110,13 @@ export function createChildrenUsage(options: {
       for (const ancestor of ancestorsOf(options.entries(), sessionId)) refresh(ancestor);
     },
     async settled() {
+      while (running.size > 0) await Promise.all(running.values());
+    },
+    forget(file) {
+      options.reader.forget(file);
+    },
+    async close() {
+      stopping.abort();
       while (running.size > 0) await Promise.all(running.values());
     },
   };

@@ -4,8 +4,9 @@ import { createPortal } from "react-dom";
 import { useStore } from "zustand";
 import { sessionTitle } from "../sidebar/names";
 import { suggestBranch } from "../state/new-workspace";
+import { showNotice } from "../state/session-notices";
 import { childrenOf } from "./children";
-import { type ChildRequest, describeChildError, pageNewChild } from "./new-child";
+import { type ChildRequest, describeChildError, keptChild, pageNewChild } from "./new-child";
 
 /** A field's look in the dialog. */
 const FIELD =
@@ -92,6 +93,9 @@ function ChildForm({ client, request }: { readonly client: AtriumClient; readonl
   }, [busy]);
   if (parent === undefined) return null;
   const inChat = isChatId(parent.containerId);
+  // Neither a branch nor a detached commit: the project is no git repository (SPEC-0002, "概念 · 位置").
+  const workspace = index.workspaces.find((one) => one.id === parent.containerId);
+  const onlyHere = inChat || (workspace?.branch === null && workspace.head === null);
   const title = sessionTitle(parent);
 
   /**
@@ -109,13 +113,24 @@ function ChildForm({ client, request }: { readonly client: AtriumClient; readonl
     setBusy(true);
     setError(null);
     try {
-      await (request.turnId === null
+      const made = await (request.turnId === null
         ? client.createChild(parent.containerId, { parentSessionId: parent.sessionId, name: named, ...where })
         : client.forkSession(parent.sessionId, request.turnId, named, where));
       pageNewChild().setState(null, true);
+      // It works in its new worktree, but its model was not told so.
+      if ("noteSent" in made) showNotice(made.sessionId, "没能告诉模型换了目录", true);
     } catch (failure) {
-      setError(describeChildError(failure));
-      setBusy(false);
+      const kept = keptChild(failure);
+      if (kept === null) {
+        setError(describeChildError(failure));
+        setBusy(false);
+        return;
+      }
+      // pi failed once it had written the child: it is there, under its parent, to be opened.
+      pageNewChild().setState(null, true);
+      showNotice(kept, "子对话没有开好", true);
+      // Fire and forget: opening shows the session or its failure there.
+      void client.openSession(kept).catch(() => undefined);
     }
   };
 
@@ -170,7 +185,7 @@ function ChildForm({ client, request }: { readonly client: AtriumClient; readonl
           >
             {inChat ? "当前对话" : "当前工作区"}
           </button>
-          {inChat ? null : (
+          {onlyHere ? null : (
             <button
               type="button"
               role="radio"

@@ -1,7 +1,8 @@
 import type { AtriumClient } from "@atrium/client";
 import type { SessionSummary } from "@atrium/protocol";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
+import type { StoreApi } from "zustand/vanilla";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { CaretUp, DotsThree, GitBranch, TerminalWindow } from "../design/icons";
 import { placeOf, sessionTitle, timeAgo } from "../sidebar/names";
@@ -9,6 +10,7 @@ import type { RowStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
 import { showNotice } from "../state/session-notices";
+import { type WorkspaceViews, showViewer } from "../state/workspace-views";
 import { childrenOf, descendantsOf, rowStatus } from "./children";
 
 /** The capsule's look, as the queue's above the input box (run-control's `CAPSULE`). */
@@ -27,18 +29,45 @@ const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error",
  * box as the queue's does, as wide as its rows: each direct child with its status (its whole
  * subtree's), its name, where it is when not here ("已在终端中继续" once handed off), "+N" for the
  * sessions below it, and when it last changed; clicking a row opens it, its menu opens, detaches
- * or archives it. Failures show beside the tab bar.
+ * or archives it. Failures show beside the tab bar. A child opened shows, though its workspace
+ * showed a viewer tab, as one chosen in the sidebar does. Whether the list is open is the capsule
+ * bar's to say, so that one list at a time floats there; left out, the capsule keeps it. The list
+ * closes once no child is left, so the next child does not open it by itself.
  *
- * @sideEffects Opens, detaches or archives sessions as the user acts.
- * @param props - The client and the session whose children these are.
+ * @sideEffects Opens, detaches or archives sessions as the user acts; writes the views.
+ * @param props - The client, the session whose children these are, the workspace views, and
+ * whether the list is open and how to open or close it.
  * @returns The capsule and its list, or nothing.
  */
-export function ChildCapsule({ client, sessionId }: { readonly client: AtriumClient; readonly sessionId: string }) {
+export function ChildCapsule({
+  client,
+  sessionId,
+  views,
+  open: given,
+  onToggle,
+}: {
+  readonly client: AtriumClient;
+  readonly sessionId: string;
+  readonly views?: StoreApi<WorkspaceViews> | undefined;
+  readonly open?: boolean;
+  readonly onToggle?: () => void;
+}) {
   const index = useStore(client.index);
-  const [open, setOpen] = useState(false);
+  const [kept, setKept] = useState(false);
+  const open = given ?? kept;
+  const toggle = onToggle ?? (() => setKept(!kept));
   const clock = useClock();
   const children = childrenOf(index.sessions, sessionId);
-  if (children.length === 0) return null;
+  const none = children.length === 0;
+  const toggled = useRef(toggle);
+  useEffect(() => {
+    toggled.current = toggle;
+  });
+  useEffect(() => {
+    // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- follows the children the host lists.
+    if (none && open) toggled.current();
+  }, [none, open]);
+  if (none) return null;
   const parent = index.sessions.find((session) => session.sessionId === sessionId);
   const statuses = children.map((child) => rowStatus(index.sessions, child));
   const counts = COUNTED.map((status) => [status, statuses.filter((one) => one === status).length] as const).filter(
@@ -66,7 +95,7 @@ export function ChildCapsule({ client, sessionId }: { readonly client: AtriumCli
         <div
           role="dialog"
           aria-label="子对话"
-          className="pointer-events-auto absolute bottom-[calc(100%+44px)] left-0 z-10 w-max max-w-full min-w-[300px] rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
+          className="pointer-events-auto absolute bottom-[calc(100%+8px)] left-0 z-10 w-max max-w-full min-w-[300px] rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
         >
           <div className="flex items-center justify-between gap-6 px-2 pt-1 pb-1.5 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
             <span>子对话</span>
@@ -81,7 +110,8 @@ export function ChildCapsule({ client, sessionId }: { readonly client: AtriumCli
               place={child.containerId === parent?.containerId ? null : placeOf(index, child.containerId)}
               when={timeAgo(child.updatedAt, clock.now())}
               onOpen={() => {
-                setOpen(false);
+                toggle();
+                if (views !== undefined) showViewer(views, child.containerId, null);
                 act(() => client.openSession(child.sessionId), "没能打开子对话");
               }}
               onDetach={() => act(() => client.detachSession(child.sessionId), "没能脱离子对话")}
@@ -90,7 +120,7 @@ export function ChildCapsule({ client, sessionId }: { readonly client: AtriumCli
           ))}
         </div>
       ) : null}
-      <button type="button" aria-expanded={open} className={CAPSULE} onClick={() => setOpen(!open)}>
+      <button type="button" aria-expanded={open} className={CAPSULE} onClick={toggle}>
         子对话 {children.length}
         {counts.map(([status, count]) => (
           <span key={status} className="flex items-center gap-0.5">

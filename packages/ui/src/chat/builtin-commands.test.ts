@@ -32,6 +32,7 @@ describe("BUILTIN_COMMANDS", () => {
       ["builtin", "thinking", "档位", "推理强度", true, true],
       ["builtin", "copy", null, "复制最后一条回复", true, true],
       ["builtin", "export", null, "导出为 HTML", true, false],
+      ["builtin", "child", null, "开子对话", true, false],
     ]);
   });
 });

@@ -50,8 +50,26 @@ function reader(usage: Record<string, FileUsage | "fails">): { reader: UsageRead
   };
 }
 
+/** Whether `askOnce` asked already. */
+let asked = false;
+
+/**
+ * Asks for something once, a microtask later, and never again.
+ *
+ * @remarks
+ * A microtask runs before the refresh that queued it is done, but after its last look.
+ *
+ * @sideEffects Queues a microtask the first time.
+ * @param ask - What to ask.
+ */
+function askOnce(ask: () => void): void {
+  if (asked) return;
+  asked = true;
+  queueMicrotask(ask);
+}
+
 describe("createChildrenUsage", () => {
-  it("adds up what every descendant not archived produced since its baseline, and gives null without any", async () => {
+  it("adds up what every descendant, archived ones too, produced since its baseline, in whole tokens, and gives null without any", async () => {
     const entries = [
       at("main", null),
       at("a", "main", { usageAfter: "e9" }),
@@ -63,7 +81,7 @@ describe("createChildrenUsage", () => {
     ];
     const { reader: files, reads } = reader({
       "/a.jsonl": { tokens: 100, cost: 0.5 },
-      "/a1.jsonl": { tokens: 20, cost: 0.25 },
+      "/a1.jsonl": { tokens: 20.4, cost: 0.25 },
       "/b.jsonl": { tokens: 999, cost: 9 },
     });
     const totals: (readonly [string, SessionMetrics["children"]])[] = [];
@@ -79,9 +97,14 @@ describe("createChildrenUsage", () => {
 
     expect(totals).toStrictEqual([
       ["lone", null],
-      ["main", { tokens: 120, cost: 0.75 }],
+      ["main", { tokens: 1119, cost: 9.75 }],
     ]);
-    expect(reads).toStrictEqual(["/a.jsonl after e9", "/d.jsonl after null", "/a1.jsonl after null"]);
+    expect(reads).toStrictEqual([
+      "/a.jsonl after e9",
+      "/b.jsonl after null",
+      "/d.jsonl after null",
+      "/a1.jsonl after null",
+    ]);
   });
 
   it("refreshes every session above one, and once more after a refresh asked for while one ran", async () => {
@@ -132,6 +155,51 @@ describe("createChildrenUsage", () => {
     await children.settled();
 
     expect(reads).toStrictEqual(["/a.jsonl", "/a.jsonl"]);
+  });
+
+  it("refreshes once more for a refresh asked for just as one ended", async () => {
+    const { reader: files } = reader({ "/a.jsonl": { tokens: 1, cost: 0 } });
+    const totals: string[] = [];
+    const usage = createChildrenUsage({
+      entries: () => [at("main", null), at("a", "main")],
+      reader: files,
+      onTotals: (sessionId) => {
+        totals.push(sessionId);
+        // After the refresh's last look for another, before it is done.
+        askOnce(() => usage.refresh("main"));
+      },
+    });
+
+    usage.refresh("main");
+    await usage.settled();
+    await usage.settled();
+
+    expect(totals).toStrictEqual(["main", "main"]);
+  });
+
+  it("stops its reads once closed, refreshes no more, and forgets a file in the reader", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    const forgotten: string[] = [];
+    const usage = createChildrenUsage({
+      entries: () => [at("main", null), at("a", "main")],
+      reader: {
+        read: (_path, _after, signal) => {
+          signals.push(signal);
+          return Promise.resolve({ tokens: 1, cost: 0 });
+        },
+        forget: (path) => forgotten.push(path),
+      },
+      onTotals: () => undefined,
+    });
+
+    usage.refresh("main");
+    usage.forget("/a.jsonl");
+    await usage.close();
+    usage.refresh("main");
+    await usage.settled();
+
+    expect(signals.map((signal) => signal?.aborted)).toStrictEqual([true]);
+    expect(forgotten).toStrictEqual(["/a.jsonl"]);
   });
 
   it("keeps the totals as they were when a file cannot be read", async () => {

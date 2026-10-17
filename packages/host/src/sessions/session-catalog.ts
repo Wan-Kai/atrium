@@ -90,14 +90,33 @@ interface SessionMarks {
  * A record's parent, as the summary has it.
  *
  * @remarks
- * Only `sessionId` and `by`; the record keeps unknown fields a later version wrote.
+ * Only `sessionId` and `by`; the record keeps unknown fields a later version wrote. An id no
+ * session could have, as a hand-edited index can hold, is no parent: the protocol would refuse
+ * the whole list for it.
  *
  * @sideEffects none
  * @param record - The record, if Atrium has one.
  * @returns The parent, or `null` for an ordinary session.
  */
 function parentOf(record: SessionRecord | undefined): SessionSummary["parent"] {
-  return record?.parent === undefined ? null : { sessionId: record.parent.sessionId, by: record.parent.by };
+  const parent = record?.parent;
+  if (parent === undefined || parent.sessionId === "" || parent.sessionId.length > 128) return null;
+  return { sessionId: parent.sessionId, by: parent.by };
+}
+
+/**
+ * A record's name, as the summary can carry it.
+ *
+ * @remarks
+ * As `parentOf`: an empty name, or one longer than the protocol takes, is none.
+ *
+ * @sideEffects none
+ * @param record - The record, if Atrium has one.
+ * @returns The name, or `null`.
+ */
+function nameOf(record: SessionRecord | undefined): string | null {
+  const name = record?.name;
+  return name === undefined || name === "" || name.length > 1024 ? null : name;
 }
 
 /**
@@ -193,7 +212,7 @@ export function createSessionCatalog(options: {
         sessionId: file.sessionId,
         containerId,
         cwd: file.cwd,
-        name: file.name ?? record?.name ?? null,
+        name: file.name ?? nameOf(record),
         prompt: promptLine(file.firstPrompt),
         file: file.path,
         state: "persisted",
@@ -214,7 +233,7 @@ export function createSessionCatalog(options: {
         sessionId: record.sessionId,
         containerId,
         cwd: record.cwd,
-        name: record.name ?? null,
+        name: nameOf(record),
         prompt: null,
         file: null,
         // Before the first scan, a file not found yet may well be there (domain-model §1).

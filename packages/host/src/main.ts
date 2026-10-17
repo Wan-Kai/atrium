@@ -298,6 +298,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     },
     // A child conversation's new worktree, made as a new workspace is (SPEC-0002); the creator comes below.
     childWorktree: (workspaceId, wanted) => creator.createFrom(workspaceId, wanted),
+    // This host's own, so a start of another (a second ATRIUM_HOME) leaves its forks alone (SPEC-0002).
+    tempRoot: join(home.root, "tmp"),
     clock,
     resources,
     tracer: tracing.tracer,

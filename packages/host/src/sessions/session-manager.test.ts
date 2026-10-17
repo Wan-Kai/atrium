@@ -3274,10 +3274,23 @@ const NEW_WORKSPACE = "wks_000000000000000b";
  *
  * @sideEffects Creates files; starts pi for `pi-session-1`.
  * @param rules - The scripted pi's rules, over those of `forking`.
- * @param missing - Whether a new worktree's directory is left out, so no pi starts there.
+ * @param worktrees - Whether a new worktree's directory is left out, so no pi starts there, and
+ * what a new worktree waits for, if a test holds it back, and where turn starts are kept, if
+ * not nowhere.
  * @returns The manager, what tests look at, the worktrees asked for and the temporary root.
  */
-async function withWorktrees(rules: Readonly<Record<string, object>> = {}, missing = false) {
+async function withWorktrees(
+  rules: Readonly<Record<string, object>> = {},
+  {
+    missing = false,
+    held,
+    turnStarts,
+  }: {
+    readonly missing?: boolean;
+    readonly held?: Promise<void>;
+    readonly turnStarts?: (sessionId: string) => Promise<TurnStarts>;
+  } = {},
+) {
   const at = await place();
   await terminalSession(at, "pi-session-1", at.workspace);
   const workspaces: { id: string; dir: string }[] = [];
@@ -3287,7 +3300,7 @@ async function withWorktrees(rules: Readonly<Record<string, object>> = {}, missi
   const managed = await manage(
     forking(at, rules),
     at,
-    undefined,
+    turnStarts,
     undefined,
     undefined,
     undefined,
@@ -3300,6 +3313,7 @@ async function withWorktrees(rules: Readonly<Record<string, object>> = {}, missi
       sessionsTaken: 1,
       childWorktree: async (workspaceId, wanted) => {
         asked.push(`${workspaceId} ${wanted}`);
+        await held;
         const dir = join(at.root, "app.worktrees", "tests");
         if (!missing) await mkdir(dir, { recursive: true });
         workspaces.push({ id: NEW_WORKSPACE, dir });
@@ -3310,6 +3324,62 @@ async function withWorktrees(rules: Readonly<Record<string, object>> = {}, missi
   await managed.catalog.scan();
   await managed.manager.openSession("client-1", "pi-session-1");
   return { ...managed, asked, tempRoot, worktree: join(at.root, "app.worktrees", "tests") };
+}
+
+/**
+ * Turn starts kept in memory, each read noted.
+ *
+ * @sideEffects Notes the read; recording updates `kept`.
+ * @param kept - The entries that opened turns, by session.
+ * @param loaded - Each read, with what it found.
+ * @param sessionId - The session read.
+ * @returns Its turn starts.
+ */
+function keptTurnStarts(
+  kept: Map<string, readonly string[]>,
+  loaded: [string, string[]][],
+  sessionId: string,
+): Promise<TurnStarts> {
+  const found = [...(kept.get(sessionId) ?? [])];
+  loaded.push([sessionId, found]);
+  return Promise.resolve({
+    opened: new Set(found),
+    auto: new Set(),
+    record: (entryIds) => {
+      kept.set(sessionId, [...found, ...entryIds]);
+      return Promise.resolve();
+    },
+  });
+}
+
+/**
+ * Empty turn starts that, once told to, hold back their next read until let go, as a slow disk.
+ *
+ * @remarks
+ * A fork copies the parent's turn starts after its temporary pi stopped and before it records the
+ * child, so holding them holds the fork there.
+ *
+ * @sideEffects none until read.
+ * @returns The store, when a read is held, how to start holding, and how to let go.
+ */
+function heldTurnStarts() {
+  const reached = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  let holding = false;
+  return {
+    turnStarts: async (): Promise<TurnStarts> => {
+      if (holding) {
+        reached.resolve();
+        await gate.promise;
+      }
+      return { opened: new Set(), auto: new Set(), record: () => Promise.resolve() };
+    },
+    hold: () => {
+      holding = true;
+    },
+    reached: reached.promise,
+    release: () => gate.resolve(),
+  };
 }
 
 /**
@@ -3536,7 +3606,7 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
           data: { text: "two", cancelled: false },
         },
       },
-      true,
+      { missing: true },
     );
     const fork = { ...forkCommand("u1"), name: "查日志", child: { place: "worktree", branch: "atrium/logs" } } as const;
 
@@ -3557,6 +3627,130 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
       parent: { sessionId: "pi-session-1", by: "user" },
     });
     expect(await readdir(tempRoot)).toStrictEqual([]);
+  });
+
+  it("archives a child forked beside its parent when the parent was archived while the fork ran", async () => {
+    const held = heldTurnStarts();
+    const { manager, catalog, layouts } = await forkable({}, false, held.turnStarts);
+    held.hold();
+
+    const asking = manager.forkSession("client-1", { ...forkCommand("u1"), name: "查日志", child: { place: "same" } });
+    await held.reached;
+    await manager.archiveSession("pi-session-1");
+    held.release();
+
+    await expect(asking).rejects.toStrictEqual(new CommandError("session_not_found", { sessionId: "pi-session-1" }));
+    expect(catalog.find("pi-session-2")).toMatchObject({ archived: true, parent: { sessionId: "pi-session-1" } });
+    expect(layouts.of("client-1").tabs[WORKSPACE]?.open).toStrictEqual([]);
+  });
+
+  it("waits for an archiving of the parent's workspace under way before it settles a child forked meanwhile", async () => {
+    const held = heldTurnStarts();
+    const { manager, catalog } = await forkable({}, false, held.turnStarts);
+    held.hold();
+
+    const asking = manager.forkSession("client-1", { ...forkCommand("u1"), name: "查日志", child: { place: "same" } });
+    await held.reached;
+    await manager.stopWorkspace(WORKSPACE);
+    held.release();
+    await vi.waitFor(() => expect(catalog.find("pi-session-2")?.parent).toMatchObject({ sessionId: "pi-session-1" }));
+    await manager.archiveWorkspace(WORKSPACE);
+    manager.releaseWorkspace(WORKSPACE);
+
+    await expect(asking).rejects.toStrictEqual(new CommandError("session_not_found", { sessionId: "pi-session-1" }));
+    expect(catalog.find("pi-session-2")?.archived).toBe(true);
+  });
+
+  it("detaches a child in a new worktree when its parent was archived while the worktree was made", async () => {
+    const gate = Promise.withResolvers<void>();
+    const { manager, catalog, asked } = await withWorktrees({}, { held: gate.promise });
+
+    const creating = manager.createSession("client-1", WORKSPACE, true, {
+      parentSessionId: "pi-session-1",
+      name: "补测试",
+      place: "worktree",
+      branch: "atrium/tests",
+    });
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    await manager.archiveSession("pi-session-1");
+    gate.resolve();
+
+    const { sessionId } = await creating;
+    expect(catalog.find(sessionId)).toMatchObject({ containerId: NEW_WORKSPACE, archived: false, parent: null });
+  });
+
+  it("refuses to detach a session archived or being archived", async () => {
+    const { manager, catalog, at } = await withWorktrees();
+    await catalog.record({
+      sessionId: "kid",
+      containerId: WORKSPACE,
+      cwd: at.workspace,
+      parent: { sessionId: "pi-session-1", by: "user" },
+    });
+    await manager.archiveSession("pi-session-1");
+
+    await expect(manager.detachSession("kid")).rejects.toStrictEqual(
+      new CommandError("session_not_found", { sessionId: "kid" }),
+    );
+    expect(catalog.find("kid")?.parent).toStrictEqual({ sessionId: "pi-session-1", by: "user" });
+  });
+
+  it("says the child forked into a new worktree was not told where it works when its pi has no Atrium extension", async () => {
+    const { manager, piReceived } = await withWorktrees({
+      fork: {
+        switchesTo: {
+          sessionId: "pi-session-x",
+          file: "<session-dir>/fork.jsonl",
+          text: `${JSON.stringify({ type: "session", id: "pi-session-x", cwd: "/" })}\n${JSON.stringify({ type: "message", id: "u1" })}\n`,
+        },
+        data: { text: "two", cancelled: false },
+      },
+      get_commands: { data: { commands: [] } },
+    });
+
+    expect(
+      await manager.forkSession("client-1", {
+        ...forkCommand("u1"),
+        name: "查日志",
+        child: { place: "worktree", branch: "atrium/logs" },
+      }),
+    ).toStrictEqual({ sessionId: "pi-session-2", noteSent: false });
+    expect(piReceived().filter((command) => String(command["message"]).startsWith("/atrium-agent"))).toStrictEqual([]);
+  });
+
+  it("copies the parent's turn starts to a child forked into a new worktree before its pi loads them", async () => {
+    const kept = new Map<string, readonly string[]>([["pi-session-1", ["u2"]]]);
+    const loaded: [string, string[]][] = [];
+    const { manager } = await withWorktrees(
+      {
+        fork: {
+          switchesTo: {
+            sessionId: "pi-session-x",
+            file: "<session-dir>/fork.jsonl",
+            text: `${JSON.stringify({ type: "session", id: "pi-session-x", cwd: "/" })}\n${JSON.stringify({ type: "message", id: "u1" })}\n`,
+          },
+          data: { text: "two", cancelled: false },
+        },
+      },
+      { turnStarts: (sessionId) => keptTurnStarts(kept, loaded, sessionId) },
+    );
+
+    const { sessionId } = await manager.forkSession("client-1", {
+      ...forkCommand("u1"),
+      name: "查日志",
+      child: { place: "worktree", branch: "atrium/logs" },
+    });
+
+    expect(loaded.filter(([id]) => id === sessionId).at(-1)).toStrictEqual([sessionId, ["u2"]]);
+  });
+
+  it("names a draft child's pi that is still starting once it has started", async () => {
+    const { manager, sent } = await withWorktrees({ set_session_name: { data: {} } });
+
+    const { sessionId } = await manager.createSession("client-1", WORKSPACE, true, CHILD);
+    expect(await manager.renameSession(sessionId, "边界用例")).toStrictEqual({});
+
+    expect(sent()).toContain("set_session_name");
   });
 
   it("removes only its own marked temporary directories of forks a stop cut short", async () => {
@@ -3637,7 +3831,7 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
     expect(layouts.of("client-1").tabs[WORKSPACE]).toStrictEqual({ open: [], active: null });
   });
 
-  it("detaches a child elsewhere when its parent's workspace is archived", async () => {
+  it("detaches a child elsewhere when its parent's workspace is archived, and leaves it detached once restored", async () => {
     const { manager, catalog } = await withWorktrees();
     const { sessionId: elsewhere } = await manager.createSession("client-1", WORKSPACE, true, {
       ...CHILD,
@@ -3648,8 +3842,10 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
 
     await manager.archiveWorkspace(WORKSPACE);
     manager.releaseWorkspace(WORKSPACE);
-
     expect([catalog.find("pi-session-1")?.archived, catalog.find(elsewhere)?.parent]).toStrictEqual([true, null]);
+    await manager.restoreWorkspace(WORKSPACE, null);
+
+    expect([catalog.find("pi-session-1")?.archived, catalog.find(elsewhere)?.parent]).toStrictEqual([false, null]);
   });
 
   it("updates a session's children figures when a child's own figures change, before any scan", async () => {

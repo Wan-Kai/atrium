@@ -3,8 +3,8 @@ import type { CatalogModel, ModelRef, TranscriptItem } from "@atrium/protocol";
 import type { ChosenCommand } from "./composer-text";
 import { layoutTurn } from "./turn-layout";
 
-/** The names of pi's built-in commands Atrium runs itself. */
-type BuiltinName = "compact" | "model" | "thinking" | "copy" | "export";
+/** The names of pi's built-in commands Atrium runs itself, and `child`, Atrium's own. */
+type BuiltinName = "compact" | "model" | "thinking" | "copy" | "export" | "child";
 
 /** A built-in command as the `/` list shows it, and when it can run. */
 export interface BuiltinCommand {
@@ -36,6 +36,8 @@ export const BUILTIN_COMMANDS: readonly BuiltinCommand[] = [
   { source: "builtin", name: "thinking", hint: "档位", description: "推理强度", whileRunning: true, inDraft: true },
   { source: "builtin", name: "copy", hint: null, description: "复制最后一条回复", whileRunning: true, inDraft: true },
   { source: "builtin", name: "export", hint: null, description: "导出为 HTML", whileRunning: true, inDraft: false },
+  // An empty child conversation under this session, as the tab bar's "+" menu opens (SPEC-0002, "第一步 · 入口").
+  { source: "builtin", name: "child", hint: null, description: "开子对话", whileRunning: true, inDraft: false },
 ];
 
 /** A built-in command to run, and what followed its name. */

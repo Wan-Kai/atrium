@@ -55,8 +55,20 @@ describe("agentNote", () => {
     expect(agentNote(NOTE)).toStrictEqual({ note: "worktree_moved", from: "/repo", to: "/repo.worktrees/tests" });
   });
 
-  it("reads nothing from another version, kind or note, or from paths that are missing or empty", () => {
+  it("reads a path of up to 4096 characters, as the protocol's note takes", () => {
+    const longest = `/${"a".repeat(4095)}`;
+
+    expect(agentNote({ ...NOTE, from: longest, to: longest })).toStrictEqual({
+      note: "worktree_moved",
+      from: longest,
+      to: longest,
+    });
+  });
+
+  it("reads nothing from another version, kind or note, or from paths that are missing, empty or too long", () => {
     for (const value of [
+      { ...NOTE, from: `/${"a".repeat(4096)}` },
+      { ...NOTE, to: `/${"a".repeat(4096)}` },
       null,
       "note",
       { ...NOTE, v: 2 },

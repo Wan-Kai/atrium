@@ -587,7 +587,9 @@ function MainWindow({
               views={views}
             />
           )}
-          {pageProject === null && sessionId !== null ? <Breadcrumb client={client} sessionId={sessionId} /> : null}
+          {pageProject === null && sessionId !== null ? (
+            <Breadcrumb client={client} sessionId={sessionId} views={views} />
+          ) : null}
           {resets.length > 0 ? (
             <div
               role="status"

@@ -122,6 +122,31 @@ describe("createUsageReader", () => {
     expect(await reader.read(path, null)).toStrictEqual({ tokens: 23, cost: 6 });
   });
 
+  it("counts a file once when two read it at the same time, as two ancestors do", async () => {
+    const path = await sessionPath();
+    const reader = createUsageReader();
+    await writeFile(path, lines(header, { type: "usage", id: "x1", usage: usage(4, 1) }));
+
+    expect(await Promise.all([reader.read(path, null), reader.read(path, null)])).toStrictEqual([
+      { tokens: 10, cost: 1 },
+      { tokens: 10, cost: 1 },
+    ]);
+    await appendFile(path, lines({ type: "usage", id: "x2", usage: usage(5, 2) }));
+    expect(await Promise.all([reader.read(path, null), reader.read(path, null)])).toStrictEqual([
+      { tokens: 21, cost: 3 },
+      { tokens: 21, cost: 3 },
+    ]);
+  });
+
+  it("reads a file again after a read of it was stopped", async () => {
+    const path = await sessionPath();
+    const reader = createUsageReader();
+    await writeFile(path, lines(header, { type: "usage", id: "x1", usage: usage(4, 1) }));
+
+    await expect(reader.read(path, null, AbortSignal.abort())).rejects.toThrow("This operation was aborted");
+    expect(await reader.read(path, null)).toStrictEqual({ tokens: 10, cost: 1 });
+  });
+
   it("reads a file that went and came back from the start", async () => {
     const path = await sessionPath();
     const reader = createUsageReader();

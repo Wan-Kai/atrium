@@ -48,12 +48,31 @@ export function decodeArgument(argument: string): unknown {
   return value;
 }
 
+/** The longest path a note carries: what the protocol's note notice takes. */
+const PATH_LIMIT = 4096;
+
+/**
+ * Whether a value is a path a note can carry.
+ *
+ * @remarks
+ * A longer one would make the transcript it goes into fail the protocol, and with it the whole
+ * session's (SPEC-0002, "对话记录里的自定义消息").
+ *
+ * @sideEffects none
+ * @param value - The value.
+ * @returns Whether.
+ */
+function notePath(value: unknown): value is string {
+  return typeof value === "string" && value !== "" && value.length <= PATH_LIMIT;
+}
+
 /**
  * Reads a note from what the host sent, or from a custom message's `details`.
  *
  * @remarks
- * Both carry `{ v: 1, kind: "note", note, from, to }` (ADR-0013, points 9 and 10); anything else,
- * as a later version's note, is `null`, and the transcript leaves it out.
+ * Both carry `{ v: 1, kind: "note", note, from, to }` (ADR-0013, point 10), each path at most
+ * 4096 characters; anything else, as a later version's note, is `null`, and the transcript leaves
+ * it out.
  *
  * @sideEffects none
  * @param value - The value.
@@ -63,7 +82,7 @@ export function agentNote(value: unknown): AgentNote | null {
   if (typeof value !== "object" || value === null) return null;
   const [v, kind, note, from, to] = ["v", "kind", "note", "from", "to"].map((key): unknown => Reflect.get(value, key));
   if (v !== 1 || kind !== "note" || note !== "worktree_moved") return null;
-  if (typeof from !== "string" || from === "" || typeof to !== "string" || to === "") return null;
+  if (!notePath(from) || !notePath(to)) return null;
   return { note, from, to };
 }
 

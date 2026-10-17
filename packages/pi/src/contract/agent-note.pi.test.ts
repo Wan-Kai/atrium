@@ -1,4 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { runScenario } from "../../test/contract";
@@ -13,6 +15,19 @@ const ATRIUM_EXTENSION = fileURLToPath(new URL("../extension/atrium.ts", import.
 /** The note a child forked into a new worktree gets (SPEC-0002, "带上下文的子对话怎么做出来"). */
 const NOTE = { v: 1, kind: "note", note: "worktree_moved", from: "/repo", to: "/repo.worktrees/tests" } as const;
 
+/**
+ * Everything pi has written to the session files so far.
+ *
+ * @sideEffects Reads the files.
+ * @param sessionsDir - Where pi writes them.
+ * @returns Their text, one after another.
+ */
+async function sessionText(sessionsDir: string): Promise<string> {
+  const files = (await readdir(sessionsDir, { recursive: true })).filter((name) => name.endsWith(".jsonl"));
+  const texts = await Promise.all(files.map((file) => readFile(join(sessionsDir, file), "utf8")));
+  return texts.join("");
+}
+
 describe("pi contract: Atrium's note to the model", () => {
   it("agent-note: idle, /atrium-agent note writes the note into the session at once, and the next request carries it", async () => {
     await runScenario(
@@ -24,7 +39,7 @@ describe("pi contract: Atrium's note to the model", () => {
           replies: [{ blocks: [{ type: "text", text: "first" }] }, { blocks: [{ type: "text", text: "second" }] }],
         },
       },
-      async ({ pi, events, until, contexts }) => {
+      async ({ pi, events, until, contexts, sessionsDir }) => {
         await pi.request({ type: "prompt", message: "one" });
         await until((event) => event.type === "agent_settled");
         const { commands } = await pi.request({ type: "get_commands" });
@@ -34,6 +49,8 @@ describe("pi contract: Atrium's note to the model", () => {
         const translate = createEventTranslator(() => 0);
         const noted = events.slice(before).flatMap((event) => translate(event));
         const { entries } = (await pi.request({ type: "get_entries" })) as unknown as { entries: SessionEntry[] };
+        // On disk before anything else happens, not only in pi's memory.
+        const written = await sessionText(sessionsDir);
         await pi.request({ type: "prompt", message: "two" });
         await vi.waitFor(() => expect(events.filter((event) => event.type === "agent_settled")).toHaveLength(2), {
           timeout: 20_000,
@@ -41,6 +58,12 @@ describe("pi contract: Atrium's note to the model", () => {
         const [, second] = await contexts();
 
         expect(commands.filter(isAgentCommand)).toHaveLength(1);
+        expect(
+          written
+            .split("\n")
+            .filter((line) => line.includes('"customType":"atrium-agent"'))
+            .map((line) => (JSON.parse(line) as { type: string }).type),
+        ).toStrictEqual(["custom_message"]);
         expect(answered).toStrictEqual({ disposition: "handled" });
         expect(noted).toStrictEqual([
           {

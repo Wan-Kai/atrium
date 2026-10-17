@@ -205,6 +205,8 @@ export interface FakeAnswers {
   readonly exportSession?: () => Promise<string>;
   /** The fork's session id; `fork-1` when left out. */
   readonly forkSession?: () => Promise<string>;
+  /** Whether a fork's child in a new worktree goes untold where it works (SPEC-0002). */
+  readonly unnoted?: true;
   /** A workspace directory's entries; none when left out. */
   readonly listDir?: (workspaceId: string, path: string) => Promise<CommandResult<"list_dir">>;
   /** A workspace file; `path_not_found` when left out. */
@@ -722,7 +724,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async forkSession(sessionId: string, turnId: string, name: string, child?: ForkPlacement) {
       calls.push(`forkSession ${sessionId} ${turnId} ${name}${child === undefined ? "" : ` ${JSON.stringify(child)}`}`);
       if (child !== undefined) await answers.child?.();
-      return { sessionId: (await answers.forkSession?.()) ?? "fork-1" };
+      const fork = (await answers.forkSession?.()) ?? "fork-1";
+      return answers.unnoted === true ? { sessionId: fork, noteSent: false as const } : { sessionId: fork };
     },
     changes(workspaceId: string) {
       let store = changeStores.get(workspaceId);
