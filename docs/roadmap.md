@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-17：M1.15 子对话与子代理进行中，在 `m1.15-subagents` 分支上（worktree `atrium.worktrees/spec-subagents`，从 `spec-0002-subagents` 分出，已合入 `main` 的 M1.14）。SPEC-0002 的设计经三方审查后定稿；pi 契约测试在本机 1.1.0 上实测了第二步依赖的行为（除了提示缓存都成立）；扩展与宿主的通道定为"状态加隐藏命令"（[ADR-0013](adr/0013-agent-channel-status-and-hidden-command.md)）。下一步：第一步界面的原型（入口、子对话条、面包屑、带回）。**
+**2026-10-17：M1.15 子对话与子代理进行中，在 `m1.15-subagents` 分支上（worktree `atrium.worktrees/spec-subagents`，从 `spec-0002-subagents` 分出，已合入 `main` 的 M1.14）。SPEC-0002 的设计经三方审查后定稿；pi 契约测试在本机 1.1.0 上实测了第二步依赖的行为（除了提示缓存都成立）；扩展与宿主的通道定为"状态加隐藏命令"（[ADR-0013](adr/0013-agent-channel-status-and-hidden-command.md)）。第一步界面的原型选了 A（胶囊加弹出列表），不做"带回"。下一步：第一步的实现。**
 
 **2026-10-17：M1.14 套餐总览完成，三方审查（Astra、Grok、Claude）后已合并回 `main`。审查的问题修了 5 条（见下一条）；"判断当前订阅只看服务商名、不分订阅登录和 API key"按用户决定先写成已知限制（SPEC-0001"M1.14 的套餐总览"、ADR-0012），以后由宿主带上会话是否订阅登录再改。下一步回到 [M1.11](#m111-自用) 的自用。**
 
@@ -382,9 +382,9 @@ MVP 1 里还没设计、做到时先补设计的：
 
 ##### M1.15 子对话与子代理
 
-- **目标**：在一个会话里开子对话，子对话的状态汇总到主对话、结论带回主对话；主对话的 agent 也能自己开子对话、发消息、拿结果（2026-10-16 定单独一个里程碑，不等插件系统）。
+- **目标**：在一个会话里开子对话，子对话的状态汇总到主对话；主对话的 agent 也能自己开子对话、发消息、拿结果（2026-10-16 定单独一个里程碑，不等插件系统）。
 - **范围**：
-  - 第一步（用户开，不用来回的通道）：从回复下方或菜单开子对话（可带上下文、可新建 worktree）、子对话条、标签的"↳"和面包屑、主对话标签的状态汇总、状态栏的"含子对话"用量合计、收件箱和"历史"的写法、带回主对话、归档连带、脱离。
+  - 第一步（用户开，不用来回的通道）：从回复下方或菜单开子对话（可带上下文、可新建 worktree）、子对话条、标签的"↳"和面包屑、主对话标签的状态汇总、状态栏的"含子对话"用量合计、收件箱和"历史"的写法、归档连带、脱离。
   - 第二步（agent 开）：ADR-0013 定扩展与宿主之间有来有回的通道；Atrium 自带扩展给主 agent 的 `agent_spawn` / `agent_send` / `agent_wait` / `agent_reply` / `agent_list` / `agent_read` / `agent_stop` / `agent_models`，给子对话的 `report_progress` / `ask_parent`（挂着等回答、超时就继续）；按不变的句柄寻址、按任务 id 等待和通知；推理档位用 pi 的档位名、不支持就报错；agent 开的子对话可以带上下文（切在当前叶子、命中提示缓存，只读由扩展拦）；三个角色（只读用 `--tools` 白名单、角色不高于调用方）；agent 开的最多 2 层、每个父会话同时最多 6 个（用户手动开的不算、不限层数）；agent 自己判断什么时候开；agent 开的子对话做完一轮、没有标签开着、排队为空时停掉它的 pi，有事再起；往上的通知和往下的交代都走宿主的排队并持久化（在会话文件里见到才算送到、按送达 id 去重），作为自定义消息进对话记录；过程轨道上的分出与合回。
   - 不做：子对话之间平级通信、不相干会话之间通信、父 agent 代答审批或提问、自定义角色文件。
 - **参考**：[SPEC-0002](specs/0002-child-conversations.md)、[multi-agent.md](research/multi-agent.md)、[pi-extension-capabilities](research/pi-extension-capabilities.md)"RPC 模式下 extension 到宿主的通道"、[ADR-0008](adr/0008-atrium-own-pi-extension-for-fast.md)、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[ADR-0013](adr/0013-agent-channel-status-and-hidden-command.md)、[pi-internals](research/pi-internals.md)（fork 的 cwd、限制工具、对话框、`sendMessage`、SPEC-0002 契约测试实测）、SPEC-0001"M1.11 的 `/` 命令 · 分叉""并行、同步与关注"。
