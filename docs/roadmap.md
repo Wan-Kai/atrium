@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-10-17：M1.14 套餐总览完成，三方审查（Astra、Grok、Claude）后已合并回 `main`。审查的问题修了 5 条（见下一条）；"判断当前订阅只看服务商名、不分订阅登录和 API key"按用户决定先写成已知限制（SPEC-0001"M1.14 的套餐总览"、ADR-0012），以后由宿主带上会话是否订阅登录再改。下一步回到 [M1.11](#m111-自用) 的自用。**
+
 **2026-10-16：M1.14 套餐总览写完，待三方审查后合并（在 worktree `atrium.worktrees/plan-overview` 里做，原工作区留给并行的 claude-bridge 上下文细分）。扩展查 Grok 的 billing（只对 xAI 订阅登录、写死地址，已用 pi 的登录实测），按产品拆成窗口的 `parts`；宿主每个会话的 pi 启动后和每次运行结束后问三家，用量全宿主一份，`plans_updated` 变了就推、握手后紧跟 `welcome` 补发一次（原计划的 `get_plans` 命令没做，客户端不用另发请求）；同一家连续同样的失败只记一次日志；状态栏卡片按服务商分段、当前模型那家在前，摘要取当前模型那家；设置 · 模型与账户加"套餐用量"，Atrium 加载不了 pi 的登录时也显示。协议 17。单元、宿主、pi（新录 `plan-xai-key` 夹具）、界面、泄漏、相关端到端和 `pnpm check` 通过；变异分数 pi 99.94%、host 100%、shared 99.95%、ui 99.53%，新代码的存活变异都补了或注明等价。2026-10-17 自用后加了 [ADR-0012](adr/0012-claude-usage-from-replies-and-openai-mapping.md)：Claude 的用量也从回复的 `anthropic-ratelimit-unified-*` 头读（经 pi-claude-bridge 实测），`claude-bridge` 算 Claude、新的 `openai` 登录算 ChatGPT（它自己的用量 OpenAI 不让查）；之后变异分数 pi 99.81%、host 100%、ui 99.53%。界面测试里右栏的"0.24 秒打开"动画测试、宿主的 `install-job.test.ts`"ends what the command left running in its group"在整套并行时偶尔失败、单跑都过，和本次无关，记下待查。三方审查（Astra、Grok、Claude）的问题修了 5 条：Grok 百分比类型不对时报 `unknown_shape` 不当 0；回复只更新不分模型的 5 小时和每周窗口、留着按模型的窗口；回复报告只收 `anthropic`；回复不清失败去重；查询出错也按原因去重。**
 
 **2026-10-16：新建 M1.14 套餐总览，在 `m1.14-plan-overview` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。自用时想看 Grok 的余量，以及不管当前用哪个模型都能一处看全各订阅：扩展加查 Grok 的 `cli-chat-proxy.grok.com/v1/billing`（pi 平时不访问的服务器，作为唯一的例外，已用 pi 的 xAI 登录实测），宿主经任一会话的 pi 查所有订阅，用量改成全宿主一份推给所有连接，状态栏的套餐卡片和设置的"模型与账户"都列出所有订阅（[ADR-0011](adr/0011-plan-overview-all-subscriptions.md)）。先改 SPEC-0001、security.md、design-language，再写代码。**
@@ -362,7 +364,7 @@ MVP 1 里还没设计、做到时先补设计的：
 - **参考**：原型 `context-quota-prototype.html`、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[SPEC-0001 · M1.13 的上下文细分与套餐用量](specs/0001-mvp1-single-session-chat.md#m113-的上下文细分与套餐用量协议版本-162026-10-15-定)、[security.md](architecture/security.md)"Atrium 自带的 pi 扩展"、[design-language · 状态栏](architecture/design-language.md#状态栏)。
 - **完成标准**：SPEC-0001 里这一节的行为都有测试；真实 pi 加载扩展、执行 `/atrium-plan` 的契约测试通过（用本地的假服务器，不连真的接口）；扩展不把凭据交给宿主、不写日志的测试通过。
 
-##### M1.14 套餐总览
+##### M1.14 套餐总览 ✅
 
 - **目标**：状态栏的套餐卡片和设置的"模型与账户"列出所有已登录订阅（ChatGPT、Claude、Grok）的用量和重置时间，不再只看当前模型那家；加上 Grok（2026-10-16 定）。
 - **范围**：
