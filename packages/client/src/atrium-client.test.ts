@@ -2162,6 +2162,41 @@ describe("createAtriumClient: first launch", () => {
   });
 });
 
+describe("createAtriumClient: plans", () => {
+  it("shows no plans until the host pushes them, then each push whole, and a malformed one not at all", async () => {
+    const { client, latest } = await connected();
+    const grok = {
+      provider: "xai",
+      plan: null,
+      windows: [
+        {
+          seconds: 604_800,
+          model: null,
+          usedPercent: 34,
+          resetsAt: 9,
+          parts: [{ name: "GrokBuild", usedPercent: 33 }],
+        },
+      ],
+      at: 1,
+    };
+    const before = client.plans.getState();
+
+    latest().receive(JSON.stringify({ type: "plans_updated", plans: [grok] }));
+    const pushed = client.plans.getState();
+    latest().receive(JSON.stringify({ type: "plans_updated", plans: [{ ...grok, provider: "github-copilot" }] }));
+    const afterMalformed = client.plans.getState();
+    latest().receive(JSON.stringify({ type: "plans_updated", plans: [] }));
+
+    expect([before, pushed, afterMalformed, client.plans.getState()]).toStrictEqual([[], [grok], [grok], []]);
+    // The host pushes them; the client asks for nothing but its heartbeat.
+    expect(
+      latest()
+        .commands()
+        .filter((sent) => sent["type"] !== "ping"),
+    ).toStrictEqual([]);
+  });
+});
+
 describe("createAtriumClient: images", () => {
   it("uploads an image, and sends a message with it, shown pending with its count", async () => {
     const { client, latest } = await watchingWithModel(null);

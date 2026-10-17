@@ -111,6 +111,52 @@ function model(providerId: string, modelId: string): CatalogModel {
 }
 
 describe("Settings · models and accounts", () => {
+  it("shows the subscriptions' usage when Atrium cannot log in through pi, which sessions' pi found", async () => {
+    const { screen, plans } = await accounts(null);
+    plans.setState([{ provider: "openai-codex", plan: null, windows: [], at: Date.now() }], true);
+
+    await expect
+      .element(screen.getByRole("region", { name: "套餐用量" }).getByRole("region", { name: "ChatGPT" }))
+      .toBeVisible();
+    await expect.element(screen.getByRole("region", { name: "登录" })).toBeVisible();
+  });
+
+  it("shows every subscription's usage under the logins, marking none current, and says how it comes before any", async () => {
+    const { screen, plans } = await accounts([CLAUDE]);
+    const group = screen.getByRole("region", { name: "套餐用量" });
+    await expect.element(group.getByText("打开会话后，Atrium 会借 pi 的登录查各订阅的用量")).toBeVisible();
+    const week = { seconds: 604_800, model: null, resetsAt: null };
+
+    plans.setState(
+      [
+        { provider: "openai-codex", plan: "pro", windows: [{ ...week, usedPercent: 18, parts: [] }], at: Date.now() },
+        {
+          provider: "xai",
+          plan: null,
+          windows: [{ ...week, usedPercent: 34, parts: [{ name: "GrokBuild", usedPercent: 33 }] }],
+          at: Date.now(),
+        },
+      ],
+      true,
+    );
+
+    await expect.element(group.getByRole("region", { name: "Grok" })).toBeVisible();
+    expect(
+      group
+        .getByRole("region")
+        .elements()
+        .map((section) => section.textContent),
+    ).toStrictEqual(["ChatGPT Pro刚刚每周18%", "Grok刚刚每周34%Grok Build33%"]);
+    // After the logins, before the keys.
+    expect(
+      screen
+        .getByRole("heading", { level: 4 })
+        .elements()
+        .map((heading) => heading.textContent)
+        .slice(0, 3),
+    ).toStrictEqual(["订阅登录", "套餐用量", "API Key"]);
+  });
+
   it("lists the subscriptions pi offers in SPEC-0001's order, signed-in ones with 退出", async () => {
     const { screen } = await accounts([CLAUDE, DEEPSEEK, OPENAI]);
     const group = screen.getByRole("region", { name: "订阅登录" });

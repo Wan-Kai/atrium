@@ -38,12 +38,13 @@ export type ContextParts = z.infer<typeof ContextParts>;
 export const ContextReserve = z.union([Count, z.literal("off")]).nullable();
 export type ContextReserve = z.infer<typeof ContextReserve>;
 
-/** The subscriptions whose usage Atrium asks for (ADR-0010). */
-export const PlanProvider = z.enum(["openai-codex", "anthropic"]);
+/** The subscriptions whose usage Atrium asks for, in the order they are listed (ADR-0010, ADR-0011). */
+export const PlanProvider = z.enum(["openai-codex", "anthropic", "xai"]);
 export type PlanProvider = z.infer<typeof PlanProvider>;
 
 /**
- * A subscription's usage, as Atrium's extension found it (SPEC-0001, "M1.13 的上下文细分与套餐用量").
+ * A subscription's usage, as Atrium's extension found it (SPEC-0001, "M1.13 的上下文细分与套餐用量",
+ * "M1.14 的套餐总览").
  */
 export const PlanUsage = z.strictObject({
   provider: PlanProvider,
@@ -59,6 +60,11 @@ export const PlanUsage = z.strictObject({
         usedPercent: z.number().min(0).max(100),
         /** When it resets, in milliseconds since the epoch; `null` when not known. */
         resetsAt: z.number().int().nonnegative().nullable(),
+        /** The window's use by product, part of its percentage rather than limits of their own; Grok's alone. */
+        parts: z
+          .array(z.strictObject({ name: z.string().min(1).max(64), usedPercent: z.number().min(0).max(100) }))
+          .max(16)
+          .readonly(),
       }),
     )
     .max(8)
@@ -68,6 +74,20 @@ export const PlanUsage = z.strictObject({
 });
 export type PlanUsage = z.infer<typeof PlanUsage>;
 
+/** Each subscription's usage found, one each, in `PlanProvider`'s order (SPEC-0001, "M1.14 的套餐总览"). */
+export const Plans = z.array(PlanUsage).max(PlanProvider.options.length).readonly();
+export type Plans = z.infer<typeof Plans>;
+
+/**
+ * Every subscription's usage, sent to every connection each time one changes, and to a connection
+ * right after its welcome (SPEC-0001, "M1.14 的套餐总览").
+ *
+ * @remarks
+ * The usage is the host's, not a session's (ADR-0011): any session's pi asks for all of them.
+ */
+export const PlansUpdatedEvent = z.strictObject({ type: z.literal("plans_updated"), plans: Plans });
+export type PlansUpdatedEvent = z.infer<typeof PlansUpdatedEvent>;
+
 /**
  * A session's status bar figures, each `null` while unknown (SPEC-0001, "状态栏（M1.8）").
  *
@@ -75,7 +95,7 @@ export type PlanUsage = z.infer<typeof PlanUsage>;
  * `turns`, `steps`, `tokens` and `cost` are pi's `get_session_stats`, over the whole session file;
  * `reasoning` and `branchTokens` the host adds up from the entries; `context` is pi's estimate
  * with the host's split of it and pi's compaction reserve; `timing` the host measured while it
- * ran; `plan` the usage of the subscription of the session's model.
+ * ran. The subscriptions' usage is the host's, not the session's (`plans_updated`, M1.14).
  */
 export const SessionMetrics = z.strictObject({
   turns: Count.nullable(),
@@ -107,7 +127,6 @@ export const SessionMetrics = z.strictObject({
       tps: z.number().nonnegative().nullable(),
     })
     .nullable(),
-  plan: PlanUsage.nullable(),
 });
 export type SessionMetrics = z.infer<typeof SessionMetrics>;
 
@@ -121,7 +140,6 @@ export const UNKNOWN_METRICS: SessionMetrics = {
   branchTokens: 0,
   context: null,
   timing: null,
-  plan: null,
 };
 
 /** A status bar group's id, as preferences keep it. */

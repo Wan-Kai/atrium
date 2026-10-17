@@ -1,4 +1,10 @@
-import { type SessionMetrics, type StatusBarChoices, UNKNOWN_METRICS } from "@atrium/protocol";
+import {
+  type PlanUsage,
+  type Plans,
+  type SessionMetrics,
+  type StatusBarChoices,
+  UNKNOWN_METRICS,
+} from "@atrium/protocol";
 import { describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -40,8 +46,10 @@ const KNOWN: SessionMetrics = {
     reserve: 16_384,
   },
   timing: { modelMs: 42_300, ttftMs: 820, tps: 48.4 },
-  plan: null,
 };
+
+/** No subscription's usage found. */
+const NO_PLANS: Plans = [];
 
 /**
  * A status bar with these figures and choices, in a page tall enough for its cards.
@@ -53,9 +61,18 @@ const KNOWN: SessionMetrics = {
  * @sideEffects Renders.
  * @param metrics - The figures.
  * @param choices - The groups switched from their default.
+ * @param compactable - Whether the session can be compacted.
+ * @param plans - Every subscription's usage found.
+ * @param provider - The provider of the session's model.
  * @returns The screen and the choices sent.
  */
-async function bar(metrics: SessionMetrics = KNOWN, choices: StatusBarChoices = {}, compactable = true) {
+async function bar(
+  metrics: SessionMetrics = KNOWN,
+  choices: StatusBarChoices = {},
+  compactable = true,
+  plans: Plans = NO_PLANS,
+  provider: string | null = null,
+) {
   const onChoose = vi.fn<(choices: StatusBarChoices) => void>();
   const onCompact = vi.fn<() => void>();
   const screen = await render(
@@ -63,6 +80,8 @@ async function bar(metrics: SessionMetrics = KNOWN, choices: StatusBarChoices = 
       <button type="button">elsewhere</button>
       <StatusBar
         metrics={metrics}
+        plans={plans}
+        provider={provider}
         choices={choices}
         onChoose={onChoose}
         onCompact={onCompact}
@@ -252,7 +271,7 @@ describe("StatusBar", () => {
     };
     const screen = await render(
       <div style={{ display: "flex", height: "100vh", flexDirection: "column", justifyContent: "flex-end" }}>
-        <StatusBar metrics={metrics} choices={{}} onChoose={() => undefined} />
+        <StatusBar plans={NO_PLANS} provider={null} metrics={metrics} choices={{}} onChoose={() => undefined} />
         <div style={{ height: 30 }} />
       </div>,
     );
@@ -312,7 +331,15 @@ describe("StatusBar", () => {
     await userEvent.hover(screen.getByRole("button", { name: "—" }));
     await expect.element(screen.getByText("刚压缩过，下一次回复后更新")).toBeVisible();
 
-    await screen.rerender(<StatusBar metrics={{ ...KNOWN, context: null }} choices={{}} onChoose={() => undefined} />);
+    await screen.rerender(
+      <StatusBar
+        plans={NO_PLANS}
+        provider={null}
+        metrics={{ ...KNOWN, context: null }}
+        choices={{}}
+        onChoose={() => undefined}
+      />,
+    );
     // The group drawn again is hovered again.
     await userEvent.unhover(screen.getByRole("button", { name: "—" }));
     await userEvent.hover(screen.getByRole("button", { name: "—" }));
@@ -333,7 +360,9 @@ describe("StatusBar", () => {
   it("colours the context yellow past 70% and red past 85%", async () => {
     /** The context's colour at `tokens` of 100. */
     const colorAt = async (tokens: number) => {
-      await screen.rerender(<StatusBar metrics={at(tokens)} choices={{}} onChoose={() => undefined} />);
+      await screen.rerender(
+        <StatusBar plans={NO_PLANS} provider={null} metrics={at(tokens)} choices={{}} onChoose={() => undefined} />,
+      );
       const group = screen.getByRole("button", { name: `${tokens}%` });
       await expect.element(group).toBeVisible();
       return getComputedStyle(group.element()).color;
@@ -443,52 +472,136 @@ const NOON = new Date(2026, 9, 15, 12, 0).getTime();
 const STOPPED: UiClock = { now: () => NOON, every: () => () => undefined, after: () => () => undefined };
 
 /** ChatGPT Plus's usage found five minutes before noon. */
-const PLAN: NonNullable<SessionMetrics["plan"]> = {
+const PLAN: PlanUsage = {
   provider: "openai-codex",
   plan: "plus",
   windows: [
-    { seconds: 18_000, model: null, usedPercent: 39, resetsAt: NOON + (4 * 60 + 16) * 60_000 },
-    { seconds: 604_800, model: null, usedPercent: 52.4, resetsAt: new Date(2026, 9, 18, 8, 0).getTime() },
+    { seconds: 18_000, model: null, usedPercent: 39, resetsAt: NOON + (4 * 60 + 16) * 60_000, parts: [] },
+    { seconds: 604_800, model: null, usedPercent: 52.4, resetsAt: new Date(2026, 9, 18, 8, 0).getTime(), parts: [] },
   ],
   at: NOON - 5 * 60_000,
 };
 
+/** Claude's usage found at noon. */
+const CLAUDE: PlanUsage = {
+  provider: "anthropic",
+  plan: null,
+  windows: [{ seconds: 18_000, model: null, usedPercent: 12, resetsAt: NOON + 130 * 60_000, parts: [] }],
+  at: NOON,
+};
+
+/** Grok's usage found five minutes before noon, its week split by product. */
+const GROK: PlanUsage = {
+  provider: "xai",
+  plan: null,
+  windows: [
+    {
+      seconds: 604_800,
+      model: null,
+      usedPercent: 34,
+      resetsAt: new Date(2026, 9, 19, 17, 56).getTime(),
+      parts: [
+        { name: "GrokBuild", usedPercent: 33 },
+        { name: "GrokChat", usedPercent: 1 },
+        { name: "GrokImagine", usedPercent: 0 },
+      ],
+    },
+  ],
+  at: NOON - 5 * 60_000,
+};
+
+/** ChatGPT's section of the card at noon. */
+const CHATGPT_AT_NOON = "ChatGPT Plus5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%";
+
 describe("StatusBar's plan group", () => {
-  it("shows only with usage, at its most-used window, orange from 80%", async () => {
+  it("shows with any usage, counting the session's subscription's most-used window, orange from 80%", async () => {
     const { screen } = await bar();
     await expect.element(screen.getByRole("button", { name: /^套餐/ })).not.toBeInTheDocument();
+    /** Draws the bar again with these plans, for a model of `provider`. */
+    const redraw = (plans: Plans, provider: string | null) =>
+      screen.rerender(
+        <StatusBar metrics={KNOWN} plans={plans} provider={provider} choices={{}} onChoose={() => undefined} />,
+      );
 
-    await screen.rerender(<StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />);
+    await redraw([PLAN, GROK], "openai-codex");
     const group = screen.getByRole("button", { name: "套餐 52%" });
     await expect.element(group).toBeVisible();
     const calm = getComputedStyle(group.element()).color;
-    const near = { ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] };
-    await screen.rerender(<StatusBar metrics={{ ...KNOWN, plan: near }} choices={{}} onChoose={() => undefined} />);
+    await redraw([{ ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] }, GROK], "openai-codex");
     const warm = getComputedStyle(screen.getByRole("button", { name: "套餐 80%" }).element()).color;
-    await screen.rerender(
-      <StatusBar metrics={{ ...KNOWN, plan: { ...PLAN, windows: [] } }} choices={{}} onChoose={() => undefined} />,
-    );
+    await redraw([{ ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] }, GROK], "xai");
+    await expect.element(screen.getByRole("button", { name: "套餐 34%" })).toBeVisible();
+    // Through claude-bridge, Claude's subscription; through pi's newer ChatGPT login, ChatGPT's.
+    await redraw([PLAN, CLAUDE], "claude-bridge");
+    await expect.element(screen.getByRole("button", { name: "套餐 12%" })).toBeVisible();
+    await redraw([PLAN, CLAUDE], "openai");
+    await expect.element(screen.getByRole("button", { name: "套餐 52%" })).toBeVisible();
+    // A model on no subscription found: the group stays, saying no figure, in the plain colour.
+    await redraw([{ ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] }], "faux");
+    const none = screen.getByRole("button", { name: "套餐", exact: true });
+    await expect.element(none).toBeVisible();
+    const plain = getComputedStyle(none.element()).color;
+    await redraw([{ ...PLAN, windows: [] }], "openai-codex");
+    await expect.element(screen.getByRole("button", { name: "套餐 —" })).toBeVisible();
+    await redraw([], "openai-codex");
 
-    expect([calm === warm, warm]).toStrictEqual([false, colorOf("var(--attn-text)")]);
+    expect([calm === warm, warm, plain]).toStrictEqual([false, colorOf("var(--attn-text)"), calm]);
     await expect.element(screen.getByRole("button", { name: /^套餐/ })).not.toBeInTheDocument();
   });
 
-  it("lists each window in its card, when it resets and how much of it is used", async () => {
+  it("marks Claude's section current for a model through claude-bridge", async () => {
     const screen = await render(
       <ClockContext value={STOPPED}>
         <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "flex-end" }}>
-          <StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />
+          <StatusBar
+            metrics={KNOWN}
+            plans={[PLAN, CLAUDE]}
+            provider="claude-bridge"
+            choices={{}}
+            onChoose={() => undefined}
+          />
         </div>
       </ClockContext>,
     );
 
-    await userEvent.hover(screen.getByRole("button", { name: "套餐 52%" }));
-    const card = screen.getByRole("tooltip").filter({ hasText: "ChatGPT Plus 用量" });
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 12%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "套餐用量" });
+
+    await expect.element(card).toBeVisible();
+    expect(card.element().textContent).toBe(`套餐用量Claude当前刚刚5 小时窗口2 小时 10 分后重置12%${CHATGPT_AT_NOON}`);
+  });
+
+  it("lists every subscription in its card, the session's first and marked, with Grok's products under its week", async () => {
+    const screen = await render(
+      <ClockContext value={STOPPED}>
+        <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "flex-end" }}>
+          <StatusBar
+            metrics={KNOWN}
+            plans={[PLAN, CLAUDE, GROK]}
+            provider="xai"
+            choices={{}}
+            onChoose={() => undefined}
+          />
+        </div>
+      </ClockContext>,
+    );
+
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 34%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "套餐用量" });
 
     await expect.element(card).toBeVisible();
     expect(card.element().textContent).toBe(
-      "ChatGPT Plus 用量5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
+      `套餐用量Grok当前5 分钟前每周周一 17:56 重置34%Grok Build33%Grok Chat1%Grok Imagine0%${CHATGPT_AT_NOON}Claude刚刚5 小时窗口2 小时 10 分后重置12%`,
     );
+    expect(
+      card
+        .getByRole("region")
+        .elements()
+        .map((section) => section.getAttribute("aria-label")),
+    ).toStrictEqual(["Grok", "ChatGPT Plus", "Claude"]);
+    expect(card.getByRole("list", { name: "每周按产品" }).getByRole("listitem").elements()).toHaveLength(3);
+    // The products are parts of the week: one bar, the week's, in Grok's section.
+    expect(card.getByRole("region", { name: "Grok" }).element().querySelectorAll("i")).toHaveLength(1);
     expect(card.element().getBoundingClientRect().width).toBe(300);
   });
 
@@ -506,11 +619,11 @@ describe("StatusBar's plan group", () => {
     };
     const screen = await render(
       <ClockContext value={clock}>
-        <StatusBar metrics={{ ...KNOWN, plan: PLAN }} choices={{}} onChoose={() => undefined} />
+        <StatusBar metrics={KNOWN} plans={[PLAN]} provider="openai-codex" choices={{}} onChoose={() => undefined} />
       </ClockContext>,
     );
     await userEvent.hover(screen.getByRole("button", { name: "套餐 52%" }));
-    const card = screen.getByRole("tooltip").filter({ hasText: "ChatGPT Plus 用量" });
+    const card = screen.getByRole("tooltip").filter({ hasText: "套餐用量" });
     await expect.element(card).toBeVisible();
     const before = card.element().textContent;
 
@@ -519,8 +632,8 @@ describe("StatusBar's plan group", () => {
 
     await expect.element(card).not.toHaveTextContent(present(before));
     expect([before, card.element().textContent]).toStrictEqual([
-      "ChatGPT Plus 用量5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
-      "ChatGPT Plus 用量15 分钟前5 小时窗口4 小时 6 分后重置39%每周周日 08:00 重置52%",
+      "套餐用量ChatGPT Plus当前5 分钟前5 小时窗口4 小时 16 分后重置39%每周周日 08:00 重置52%",
+      "套餐用量ChatGPT Plus当前15 分钟前5 小时窗口4 小时 6 分后重置39%每周周日 08:00 重置52%",
     ]);
     expect(ticks.map(({ ms }) => ms)).toStrictEqual([60_000]);
     await screen.unmount();
@@ -528,7 +641,7 @@ describe("StatusBar's plan group", () => {
   });
 
   it("is switched off like the others", async () => {
-    const { screen, onChoose } = await bar({ ...KNOWN, plan: PLAN });
+    const { screen, onChoose } = await bar(KNOWN, {}, true, [PLAN], "openai-codex");
 
     await screen.getByRole("button", { name: "自定义状态栏" }).click();
     await screen.getByRole("switch", { name: "套餐" }).click();

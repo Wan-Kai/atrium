@@ -416,16 +416,42 @@ const metrics = {
     reserve: 16_384,
   },
   timing: { modelMs: 4200, ttftMs: 800, tps: 48.5 },
-  plan: {
-    provider: "openai-codex",
-    plan: "plus",
-    windows: [
-      { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_760_000_000_000 },
-      { seconds: null, model: "Fable", usedPercent: 12.5, resetsAt: null },
-    ],
-    at: 1_759_990_000_000,
-  },
 } as const;
+
+/** A subscription's usage with every field known (SPEC-0001, "M1.14 的套餐总览"). */
+const plan = {
+  provider: "openai-codex",
+  plan: "plus",
+  windows: [
+    { seconds: 18_000, model: null, usedPercent: 39, resetsAt: 1_760_000_000_000, parts: [] },
+    { seconds: null, model: "Fable", usedPercent: 12.5, resetsAt: null, parts: [] },
+  ],
+  at: 1_759_990_000_000,
+} as const;
+
+/** Grok's usage, with a window split by product. */
+const grokPlan = {
+  provider: "xai",
+  plan: null,
+  windows: [
+    {
+      seconds: 604_800,
+      model: null,
+      usedPercent: 34,
+      resetsAt: 1_760_000_000_000,
+      parts: [
+        { name: "GrokBuild", usedPercent: 33 },
+        { name: "GrokImagine", usedPercent: 0 },
+      ],
+    },
+  ],
+  at: 0,
+} as const;
+
+/** A push of Grok's usage with its window's products replaced by `parts`. */
+function grokWithParts(parts: unknown) {
+  return { type: "plans_updated", plans: [{ ...grokPlan, windows: [{ ...grokPlan.windows[0], parts }] }] };
+}
 
 /** The same figures with none known yet. */
 const unknownMetrics = {
@@ -437,7 +463,6 @@ const unknownMetrics = {
   branchTokens: 0,
   context: null,
   timing: null,
-  plan: null,
 } as const;
 
 /** One valid example of every session event. */
@@ -508,11 +533,6 @@ const events: SessionEvent[] = [
   { type: "fast_updated", ...at, fast: false },
   { type: "metrics_updated", ...at, traceId: null, metrics },
   { type: "metrics_updated", ...at, metrics: unknownMetrics },
-  {
-    type: "metrics_updated",
-    ...at,
-    metrics: { ...unknownMetrics, plan: { provider: "anthropic", plan: null, windows: [], at: 0 } },
-  },
   {
     type: "metrics_updated",
     ...at,
@@ -1480,6 +1500,8 @@ describe("HostMessage", () => {
       { type: "pi_latest", latest: "1.1.0", checkedAt: 1_760_000_000_000 },
       { type: "pi_latest", latest: "2.0.0-rc.1+build.5", checkedAt: 0 },
       { type: "pi_latest", latest: null, checkedAt: null },
+      { type: "plans_updated", plans: [plan, { provider: "anthropic", plan: null, windows: [], at: 0 }, grokPlan] },
+      { type: "plans_updated", plans: [] },
     ];
 
     for (const message of messages) {
@@ -1703,33 +1725,8 @@ describe("HostMessage", () => {
     ],
     ["a fractional step count", { type: "metrics_updated", ...at, metrics: { ...metrics, steps: 1.5 } }],
     ["a negative cost", { type: "metrics_updated", ...at, metrics: { ...metrics, cost: -0.01 } }],
-    [
-      "a plan used past 100%",
-      {
-        type: "metrics_updated",
-        ...at,
-        metrics: { ...metrics, plan: { ...metrics.plan, windows: [{ ...metrics.plan.windows[0], usedPercent: 101 }] } },
-      },
-    ],
-    [
-      "a plan with nine windows",
-      {
-        type: "metrics_updated",
-        ...at,
-        metrics: {
-          ...metrics,
-          plan: { ...metrics.plan, windows: Array.from({ length: 9 }, () => metrics.plan.windows[0]) },
-        },
-      },
-    ],
-    [
-      "a plan of a provider Atrium does not ask",
-      {
-        type: "metrics_updated",
-        ...at,
-        metrics: { ...metrics, plan: { ...metrics.plan, provider: "github-copilot" } },
-      },
-    ],
+    // The usage is the host's since protocol 17, not a session's.
+    ["a session's figures still carrying a plan", { type: "metrics_updated", ...at, metrics: { ...metrics, plan } }],
     [
       "a context without its reserve",
       { type: "metrics_updated", ...at, metrics: { ...metrics, context: { ...metrics.context, reserve: undefined } } },
@@ -1781,6 +1778,27 @@ describe("HostMessage", () => {
     ["empty install output", { type: "install_output", jobId: "j1", text: "" }],
     ["a latest pi that is not a version", { type: "pi_latest", latest: "v1.1.0", checkedAt: 1 }],
     ["a check at a time before 1970", { type: "pi_latest", latest: "1.1.0", checkedAt: -1 }],
+    [
+      "a plan used past 100%",
+      { type: "plans_updated", plans: [{ ...plan, windows: [{ ...plan.windows[0], usedPercent: 101 }] }] },
+    ],
+    [
+      "a plan with nine windows",
+      { type: "plans_updated", plans: [{ ...plan, windows: Array.from({ length: 9 }, () => plan.windows[0]) }] },
+    ],
+    [
+      "a plan of a provider Atrium does not ask",
+      { type: "plans_updated", plans: [{ ...plan, provider: "github-copilot" }] },
+    ],
+    ["four plans", { type: "plans_updated", plans: [plan, plan, plan, plan] }],
+    [
+      "a window without its parts",
+      { type: "plans_updated", plans: [{ ...plan, windows: [{ ...plan.windows[0], parts: undefined }] }] },
+    ],
+    ["a product used past 100%", grokWithParts([{ name: "GrokBuild", usedPercent: 101 }])],
+    ["a product without a name", grokWithParts([{ name: "", usedPercent: 1 }])],
+    ["a product name past 64 characters", grokWithParts([{ name: "g".repeat(65), usedPercent: 1 }])],
+    ["seventeen products", grokWithParts(Array.from({ length: 17 }, () => ({ name: "P", usedPercent: 1 })))],
     [
       "a question of a kind pi does not ask",
       { ...loginUpdated, questions: [{ ...loginUpdated.questions[0], kind: "file" }] },
