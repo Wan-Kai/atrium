@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import {
   FAUX_API,
   FAUX_BASE_URL_ENV,
+  FAUX_CONTEXTS_FILE,
   FAUX_GATES_ENV,
   FAUX_PAYLOADS_FILE,
   FAUX_PID_FILE,
@@ -95,6 +96,60 @@ async function recordPayload<M extends { readonly id: string }>(
 }
 
 /**
+ * Adds what a request carried to the contexts file: the tools' names and the messages.
+ *
+ * @remarks
+ * SPEC-0002's contract tests check what the model can see: which tools a limited pi declares, and
+ * how custom messages and unanswered tool calls reach it.
+ *
+ * @sideEffects Appends a line to the file.
+ * @param file - The contexts file.
+ * @param context - The request's context, as pi gave it to the provider.
+ */
+function recordContext(
+  file: string,
+  context: { readonly messages: readonly unknown[]; readonly tools?: readonly { readonly name: string }[] },
+): void {
+  const tools = declaredTools(context);
+  appendFileSync(file, `${JSON.stringify({ tools, messages: context.messages })}\n`);
+}
+
+/**
+ * The names of the tools a request declares to the model.
+ *
+ * @remarks
+ * pi 1.1 declares tools in its system messages, `toolsAdded` and `toolsRemoved` replayed in order,
+ * and leaves `tools` empty; older pi listed them in `tools`.
+ *
+ * @sideEffects none
+ * @param context - The request's context.
+ * @returns The names, in the order they were added.
+ */
+function declaredTools(context: {
+  readonly messages: readonly unknown[];
+  readonly tools?: readonly { readonly name: string }[];
+}): string[] {
+  const names: string[] = (context.tools ?? []).map((tool) => tool.name);
+  for (const message of context.messages) {
+    if (typeof message !== "object" || message === null || Reflect.get(message, "role") !== "system") continue;
+    for (const [key, adding] of [
+      ["toolsRemoved", false],
+      ["toolsAdded", true],
+    ] as const) {
+      const listed: unknown = Reflect.get(message, key);
+      for (const tool of Array.isArray(listed) ? listed : []) {
+        const name: unknown = typeof tool === "object" && tool !== null ? Reflect.get(tool, "name") : undefined;
+        if (typeof name !== "string") continue;
+        const at = names.indexOf(name);
+        if (at !== -1) names.splice(at, 1);
+        if (adding) names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
+/**
  * Turns a scripted reply into the assistant message faux streams.
  *
  * @remarks
@@ -157,13 +212,15 @@ function instructionsOf(context: { readonly systemPrompt?: string; readonly mess
  * told to name a git branch, in those words (SPEC-0001, "AI 起分支名"), or an error without one; it adds what the model
  * was told to `prints.jsonl` beside the script, and leaves `pi.pid` to the session's pi (SPEC-0001,
  * "自动生成标题"). Each request's body, as
- * pi's extensions leave it, goes into `payloads.jsonl` beside the gates, and the models can stand in
+ * pi's extensions leave it, goes into `payloads.jsonl` beside the gates, and its tools and messages
+ * into `contexts.jsonl`, and the models can stand in
  * for a real provider (`script.provider`), at a base address of the test's (`FAUX_PI_BASE_URL`), as
  * Fast's test needs (ADR-0008). Two commands cover the
  * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具"); a third navigates the
  * session tree, the only way to make a branch inside one session file.
  *
  * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid` and adds to `payloads.jsonl`
+ * and `contexts.jsonl`
  * unless printing, and adds to `prints.jsonl` when printing; registers a
  * provider and three commands with pi.
  * @param pi - pi's extension API.
@@ -194,6 +251,7 @@ export default function fauxExtension(pi: ExtensionApi): void {
   const printing = process.argv.includes("-p");
   if (gates !== "" && !printing) writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
   const payloads = gates === "" || printing ? null : join(dirname(gates), FAUX_PAYLOADS_FILE);
+  const contexts = gates === "" || printing ? null : join(dirname(gates), FAUX_CONTEXTS_FILE);
   faux.setResponses(
     printing
       ? [
@@ -212,7 +270,8 @@ export default function fauxExtension(pi: ExtensionApi): void {
       : script.replies.map((reply) => {
           const message = toAssistantMessage(reply);
           const gate = reply.waitFor;
-          return async (_context, options, _state, model) => {
+          return async (context, options, _state, model) => {
+            if (contexts !== null) recordContext(contexts, context);
             if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
             if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
             return message;

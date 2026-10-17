@@ -203,6 +203,15 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 - **`setStatus` 经 RPC**：`ctx.ui.setStatus(key, text)` 在 RPC 下发出 `extension_ui_request {id, method: "setStatus", statusKey, statusText}`，单向，不等回答；扩展命令的处理函数第二个参数 `ctx` 就有 `ui`。
 - **`--extension <路径>`**：加载指定文件（TypeScript 也行），`--no-extensions` 时也照样加载；可以多次给。扩展里 import 的 `@earendil-works/*` 解析到 pi 自己带的那份。扩展用 `registerProvider` 注册已有的服务商名（如 `openai-codex`）会替换它的模型和调用，测试靠这个让假模型冒充 Codex。
 - **扩展命令经 `prompt`**：`/名字 参数` 立即执行处理函数，应答 `{disposition: "handled"}`，不发 `agent_start` 等事件、不写会话文件；命令不存在时同样的文字会当普通消息发给模型，所以宿主发内部命令前要先在 `get_commands` 里确认它在。
+- **SPEC-0002 契约测试实测**（2026-10-17，本机 1.1.0，`packages/pi/src/contract/subagent.pi.test.ts`，用只在测试里的探针扩展 `packages/pi/test/subagent-probe.ts`）：上面读源码得出的都成立。
+  - 通道"乙"走得通：工具里 `setStatus("atrium-probe:<id>", JSON)` 发出请求、挂着等；运行中宿主发 `/probe-reply <id> <base64url>`，应答 `handled`，工具拿到回答、这一轮接着跑；命令不进会话文件、模型看不到，也不另开一次运行。
+  - 空闲时 `sendMessage(…, {triggerTurn: true, deliverAs: "steer"})` 开一次运行，模型看到一条 user 消息；`custom_message` 的 `message_end` 之后、助手回复之前，会话目录里还没有文件；回复后文件依次是 `session`、`model_change`、`thinking_level_change`、系统消息（`message`，`role: "system"`）、`custom_message`、助手消息。
+  - 运行中同样的调用不出现在 `queue_update` 里，在这一批工具跑完后送到，还是同一次运行（只有一个 `agent_start`）；送到之前 `clear_queue` 能清掉它，应答 `{steering: [], followUp: []}`（不列出它）。
+  - `--tools read,ls,probe_ask` 只声明这三个，扩展的工具也要写上才有；`--exclude-tools bash,probe_branch` 去掉这两个；去掉的工具模型调了得到报错的工具结果 `Tool bash not found`，命令没执行。1.1.0 的工具声明在系统消息的 `toolsAdded` / `toolsRemoved` 里，请求的 `tools` 是空的。
+  - `tool_call` 钩子返回 `{block: true, reason}`：工具不执行，模型得到 `isError: true`、正文就是 `reason` 的工具结果。
+  - 工具 `execute` 里 `SessionManager.open(ctx.sessionManager.getSessionFile(), 别的目录).createBranchedSession(ctx.sessionManager.getLeafId())`：分支写在给的目录，头部 `cwd` 是父会话的目录、`parentSession` 是父会话文件，条目是父会话到发出这次调用的那条助手消息为止（含，`stopReason: "toolUse"`），id 不变；父会话照常跑完。
+  - 在另一个目录 `pi --mode rpc --session-dir <目录> --fork <分支文件> --session-id <uuid>`：应答第一条 `get_state` 时文件已经写出，`sessionId` 和头部 `id` 是给的 uuid，头部 `cwd` 是新目录，条目 id 和分支相同。之后送一条自定义消息，模型收到的消息停在那条助手消息的两个工具调用上，紧接着就是这条 user 消息；用这个 pi 自带的 pi-ai `transformMessages` 处理后，两个调用各补一条 `No result provided`，在 user 消息之前（faux 不跑 `transformMessages`，测试直接调本机 pi 带的那份）。
+  - 没有测：带上两个子对话工具后能不能命中提示缓存（faux 没有缓存，要真实模型）；`codemode` 的嵌套调用经过 `tool_call` 钩子（读源码成立，没跑）。
 
 ## 6. 实验性多客户端服务端（`packages/server`、`client`、`protocol`、`durable`、`chord`）
 

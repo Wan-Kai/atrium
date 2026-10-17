@@ -466,6 +466,18 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 状态栏"套餐"：只在有用量时出现，显示用得最多的窗口，≥ 80% 变橙；卡片宽 300px，标题"ChatGPT Plus 用量"和查到的时间，每个窗口的名称、重置时间、百分比；没有新用量时查到的时间和重置时间每分钟随时钟走，卡片卸下时停；能在调节面板里关掉；窗口名、重置时间（一天内写几小时几分后，再远写周几几点）、查到的时间的写法 | `packages/ui/src/chat/status-bar.browser.test.tsx` "StatusBar's plan group"；`status-figures.test.ts` "the plan's figures" | 已覆盖 |
 | 端到端：ChatGPT 订阅的会话发完消息后状态栏出现"套餐 82%"，卡片列出两个窗口；用量是 pi 的登录经扩展查的，pi 启动时问了一次、之后一分钟内的运行没再问 | `apps/desktop/e2e/plan.spec.ts` | 已覆盖 |
 
+## 子对话与子代理（M1.15，2026-10-17）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| pi 契约（1.1.0）：扩展在工具里用 `setStatus` 问宿主、挂着等，运行中的隐藏命令回答它，应答 `handled`，不进会话文件、模型看不到、不另开运行（SPEC-0002 通道"乙"） | `packages/pi/src/contract/subagent.pi.test.ts` "agent-channel" | 已覆盖 |
+| pi 契约：空闲时 `triggerTurn` 的自定义消息开一次运行，模型看到 user 消息；会话文件等助手回复才写出 | 同上 "custom-idle" | 已覆盖 |
+| pi 契约：运行中的自定义 steer 不列在 `queue_update` 里，工具这一批跑完后在同一次运行里送到；`clear_queue` 清掉它、不列出它 | 同上 "custom-steer"、"custom-clear" | 已覆盖 |
+| pi 契约：`--tools` 只声明列出的工具（扩展的也要写），`--exclude-tools` 去掉列出的；去掉的调不到、不执行 | 同上 "tools-allow"、"tools-exclude" | 已覆盖 |
+| pi 契约：`tool_call` 钩子拦下的调用不执行，模型得到报错的工具结果，正文是钩子的理由 | 同上 "tool-block" | 已覆盖 |
+| pi 契约：工具里 `createBranchedSession` 切在当前叶子，写进给的目录、条目 id 不变、父会话照跑；另一个目录 `--fork --session-id` 起的 pi 在 `get_state` 前写出文件、`cwd` 是新目录；送自定义消息后没配对的调用补 "No result provided" | 同上 "agent-fork" | 已覆盖 |
+| faux 记下每次请求声明的工具和给模型的消息 | `packages/testkit/src/faux/extension.ts`（经上面的契约测试） | 已覆盖 |
+
 ## M1.11、M1.12 三方审查后补（2026-10-14）
 
 | 行为 | 测试 | 状态 |

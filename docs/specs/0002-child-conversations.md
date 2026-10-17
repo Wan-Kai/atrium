@@ -338,7 +338,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 - **宿主 → 扩展**：隐藏命令，同 `/atrium-fast`、`/atrium-plan`，参数是 base64url 编码的 JSON。只有宿主会给 pi 发 `prompt`，你打的 `/atrium-` 被挡在宿主（见"送达"末尾）。
 - **调用方是谁**：请求从哪个 pi 进程的管道来，就是哪个会话，宿主不信参数里写的身份。不要 socket、端口和 token，环境变量照旧去掉 `ATRIUM_*`（security.md）。
 - 工具在 `wait: true` 时一直等是可以的：pi 不给工具设超时；RPC `abort` 会中止传给 `execute` 的 `signal`，工具要听它、马上结束，否则 `abort` 不应答。
-- 契约测试要实测的（源码读的是仓库依赖的 pi 1.0.2，本机跑的是 1.1.0）：选定的通道来回一次、运行中途送达、`triggerTurn` 加 `deliverAs: "steer"` 在空闲和在跑时的行为、只有自定义消息时会话文件什么时候写出、`clear_queue` 清掉自定义 steer、`--tools` / `--exclude-tools` 去掉的工具模型看不到也调不到、`fork` 和 `--fork` 保留条目 id、`--fork` 在应答 `get_state` 之前就写出文件、扩展在运行中用 `createBranchedSession` 切在当前叶子、没配对的工具调用在自定义消息之前补上"No result provided"、`tool_call` 钩子拦下的工具调用模型看到的结果。上下文检查器要的"扩展给宿主发数据"也用这条通道，ADR 一起定。
+- 契约测试要实测的（源码读的是仓库依赖的 pi 1.0.2，本机跑的是 1.1.0）：选定的通道来回一次、运行中途送达、`triggerTurn` 加 `deliverAs: "steer"` 在空闲和在跑时的行为、只有自定义消息时会话文件什么时候写出、`clear_queue` 清掉自定义 steer、`--tools` / `--exclude-tools` 去掉的工具模型看不到也调不到、`fork` 和 `--fork` 保留条目 id、`--fork` 在应答 `get_state` 之前就写出文件、扩展在运行中用 `createBranchedSession` 切在当前叶子、没配对的工具调用在自定义消息之前补上"No result provided"、`tool_call` 钩子拦下的工具调用模型看到的结果。2026-10-17 在本机 pi 1.1.0 上实测，除了缓存都成立（结果见 pi-internals "SPEC-0002 契约测试实测"）；通道乙走得通。上下文检查器要的"扩展给宿主发数据"也用这条通道，ADR 一起定。
 
 ## 接口与数据
 
@@ -405,7 +405,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 第一步：
 
 1. 原型：入口、子对话条、面包屑、带回。
-2. 契约测试：临时 pi 用 `--session-dir` 写中间文件；在别的目录 `--fork --session-id` 出的会话以新目录为 `cwd`、保留条目 id、应答 `get_state` 之前写出文件；只有自定义消息时会话文件什么时候写出。
+2. 契约测试（2026-10-17 完成，`subagent.pi.test.ts`；RPC `fork` 写进 `--session-dir` 由原有的 `fork-clone` 覆盖）：临时 pi 用 `--session-dir` 写中间文件；在别的目录 `--fork --session-id` 出的会话以新目录为 `cwd`、保留条目 id、应答 `get_state` 之前写出文件；只有自定义消息时会话文件什么时候写出。
 3. pi 包和协议：保留 `atrium-agent` 自定义消息（`note`）；读条目时读出费用；`SessionSummary.parent`、`create_session` / `fork_session` 的 `child`、`read_last_reply`、`detach_session`、`metrics.children`、错误码，协议版本加一。
 4. 宿主：会话记录的 `parent`、`usageAfter`、名字；新 worktree 的起点（父工作区的 `HEAD` 提交号、分支名整理和避让）；带上下文的子对话（同容器、新 worktree、失败处理、启动时清残留）；归档连带（三个入口、归档中加锁、worktree 删掉后再脱离）；脱离；用量合计；拒绝 `/atrium-` 开头的消息；新 worktree 子对话的路径说明。
 5. 界面：子对话条、标签的"↳"和面包屑、主对话标签的状态汇总、收件箱和"历史"的写法、带回、"含子对话"一行、`note` 提示行、通知开头的轮前一轮的分叉按钮变淡。

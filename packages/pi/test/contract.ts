@@ -1,4 +1,5 @@
 import {
+  type FauxContext,
   type FauxScript,
   type FixtureRecord,
   type JsonObject,
@@ -42,6 +43,8 @@ export interface ScenarioContext {
   readonly heldAfterUserMessage: (count: number) => Promise<void>;
   /** The bodies of the requests pi made so far, as its extensions left them. */
   readonly payloads: () => Promise<unknown[]>;
+  /** What each request so far carried: the tools declared and the messages. */
+  readonly contexts: () => Promise<FauxContext[]>;
 }
 
 /**
@@ -120,6 +123,8 @@ export async function runScenario(
     readonly extensions?: readonly string[];
     /** Variables added to pi's environment; the fixture has each value as `<NAME>`. */
     readonly env?: Readonly<Record<string, string>>;
+    /** More pi arguments, such as tool limits; recorded in the fixture's header. */
+    readonly args?: readonly string[];
   },
   body: (context: ScenarioContext) => Promise<void>,
 ): Promise<FixtureRecord[]> {
@@ -158,7 +163,7 @@ export async function runScenario(
         scenario: options.scenario,
         pi: version,
         script: options.script,
-        args: sessionArgs.map((arg) => arg.replace(sessionsDir, "<sessions>")),
+        args: [...sessionArgs.map((arg) => arg.replace(sessionsDir, "<sessions>")), ...(options.args ?? [])],
       },
       normalize,
     );
@@ -167,6 +172,7 @@ export async function runScenario(
         piPath,
         args: [
           ...sessionArgs,
+          ...(options.args ?? []),
           ...launch.args,
           ...(options.extensions ?? []).flatMap((atrium) => ["--extension", atrium]),
         ],
@@ -187,6 +193,7 @@ export async function runScenario(
         sessionsDir,
         release: (name) => launch.release(name),
         payloads: () => launch.payloads(),
+        contexts: () => launch.contexts(),
         until: (predicate) =>
           vi.waitFor(() => present(events.find(predicate), "the expected event"), { timeout: 20_000, interval: 10 }),
         heldAfterUserMessage: async (count) => {
@@ -238,4 +245,62 @@ async function recordOrCheck(scenario: string, version: string, records: readonl
     comparable(records),
     `pi's output differs from ${file}; run pnpm fixtures:record and review the diff`,
   ).toStrictEqual(comparable(parseFixture(stored)));
+}
+
+/** Another pi a scenario starts beside the recorded one, as the host starts a child's pi. */
+export interface OtherPi {
+  readonly pi: PiProcess;
+  /** Every event it printed so far, in order. */
+  readonly events: PiEvent[];
+  /** Waits until it has printed an event matching `predicate` and returns it. */
+  readonly until: (predicate: (event: PiEvent) => boolean) => Promise<PiEvent>;
+  /** What each of its requests carried. */
+  readonly contexts: () => Promise<FauxContext[]>;
+}
+
+/**
+ * Starts another faux pi in a directory of the scenario's, for what one pi cannot show alone.
+ *
+ * @remarks
+ * SPEC-0002 starts a child's pi on a file the parent's pi wrote (`--fork`); the scenario checks the
+ * second pi too, but only the first one's traffic goes into the fixture. The caller stops it.
+ *
+ * @sideEffects Writes the faux script under `dir`; starts pi.
+ * @param options - Its directory (the working directory, and where faux keeps its files), its
+ * faux script, its arguments, extensions and environment.
+ * @returns The running pi.
+ */
+export async function startOtherPi(options: {
+  readonly dir: string;
+  readonly script: FauxScript;
+  readonly args: readonly string[];
+  readonly extensions?: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
+}): Promise<OtherPi> {
+  await mkdir(options.dir, { recursive: true });
+  const launch = await fauxPi(options.script, options.dir);
+  const path = present(process.env["PATH"], "PATH");
+  const piPath = present(await findPi(path), "pi on PATH");
+  const pi = startPiProcess(
+    {
+      piPath,
+      args: [
+        ...options.args,
+        ...launch.args,
+        ...(options.extensions ?? []).flatMap((extension) => ["--extension", extension]),
+      ],
+      cwd: options.dir,
+      env: { ...launch.env, ...options.env },
+    },
+    contractDeps({ PATH: path, HOME: options.dir, TMPDIR: tmpdir() }),
+  );
+  const events: PiEvent[] = [];
+  pi.onEvent((event) => events.push(event));
+  return {
+    pi,
+    events,
+    contexts: () => launch.contexts(),
+    until: (predicate) =>
+      vi.waitFor(() => present(events.find(predicate), "the expected event"), { timeout: 20_000, interval: 10 }),
+  };
 }
