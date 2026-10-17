@@ -2805,17 +2805,31 @@ function published(events: readonly SessionEvent[]) {
  * Asks at once whenever asked, unlike the real one, so a test sees each time the controller asks.
  *
  * @sideEffects none until used; then calls the asks given.
- * @returns The service and the providers asked.
+ * @returns The service, the providers asked, and the usage replies brought.
  */
 function plans() {
   const asked: string[] = [];
+  const replied: unknown[] = [];
   const service: NonNullable<Parameters<typeof createSessionController>[0]["plan"]>["service"] = {
     wanted(provider, ask) {
       asked.push(provider);
       void ask();
     },
+    replied: (report) => replied.push(report),
   };
-  return { service, asked };
+  return { service, asked, replied };
+}
+
+/** The extension's report of the usage a reply brought (ADR-0012). */
+const REPLY_USAGE = {
+  provider: "anthropic",
+  plan: null,
+  windows: [{ seconds: 18_000, model: null, usedPercent: 5, resetsAt: 9, parts: [] }],
+};
+
+/** pi's event setting a status of Atrium's extension. */
+function statusEvent(statusKey: string, statusText: string): PiEvent {
+  return { type: "extension_ui_request", id: "u1", method: "setStatus", statusKey, statusText };
 }
 
 /** Every subscription, in the order the controller asks them. */
@@ -2874,6 +2888,37 @@ describe("createSessionController's plan usage", () => {
     await settle();
 
     expect(asked).toStrictEqual([...EVERY_PLAN, ...EVERY_PLAN]);
+  });
+
+  it("hands the service the usage replies bring, from this pi and the next, and nothing else pi sets", async () => {
+    const first = manualPi();
+    const second = manualPi();
+    const { service, replied } = plans();
+    const { controller } = control(first.pi, empty, { model: opus, plan: { service, ask: async () => null } });
+    await settle();
+
+    first.emit(
+      statusEvent("atrium-plan-reply", JSON.stringify(REPLY_USAGE)),
+      statusEvent("atrium-plan", JSON.stringify(REPLY_USAGE)),
+      statusEvent("atrium-plan-reply", "not json"),
+    );
+    await controller.shutdown();
+    controller.attach({ pi: second.pi, entries: empty, model: opus });
+    second.emit(statusEvent("atrium-plan-reply", JSON.stringify(REPLY_USAGE)));
+
+    expect(replied).toStrictEqual([REPLY_USAGE, REPLY_USAGE]);
+  });
+
+  it("takes a reply's usage as nothing without the service", async () => {
+    const { pi, emit } = manualPi();
+    const { controller, events } = control(pi, empty, { model: opus });
+    await settle();
+    const before = events.length;
+
+    emit(statusEvent("atrium-plan-reply", JSON.stringify(REPLY_USAGE)));
+
+    expect(events.slice(before)).toStrictEqual([]);
+    expect(controller.snapshot().exited).toBe(false);
   });
 
   it("asks nothing when pi settles while it is being stopped for good", async () => {

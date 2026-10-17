@@ -174,6 +174,34 @@ describe("createPlanUsage", () => {
     ]);
   });
 
+  it("takes usage a reply brought whenever it comes, keeping it through no_login until ten minutes old", async () => {
+    const { clock, service, heard, ask } = harness();
+    const claude = usage(5, "anthropic") as Extract<PlanReport, { windows: unknown }>;
+
+    service.replied(claude);
+    clock.advance(1000);
+    // A reply within the minute of the last is taken too: replies are not asks.
+    service.replied({ ...claude, windows: [{ ...claude.windows[0]!, usedPercent: 6 }] });
+    await ask(noLogin("anthropic"), "anthropic");
+    const kept = service.current().map(({ windows }) => windows[0]?.usedPercent);
+    clock.advance(10 * 60_000);
+    await ask(noLogin("anthropic"), "anthropic");
+    clock.advance(60_000);
+    // Asked usage again: no_login drops it at once.
+    await ask(usage(7, "anthropic"), "anthropic");
+    clock.advance(60_000);
+    await ask(noLogin("anthropic"), "anthropic");
+
+    expect(kept).toStrictEqual([6]);
+    expect(heard.map((plans) => plans.map(({ windows, at }) => [windows[0]?.usedPercent, at]))).toStrictEqual([
+      [[5, 1_000_000]],
+      [[6, 1_001_000]],
+      [],
+      [[7, 1_661_000]],
+      [],
+    ]);
+  });
+
   it("keeps what it knew through a query that found no report or failed, logging only pi's command and reason", async () => {
     const { clock, service, records, heard, ask } = harness();
     await ask(usage(39));

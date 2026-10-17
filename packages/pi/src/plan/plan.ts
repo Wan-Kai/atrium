@@ -1,11 +1,14 @@
 import type { PlanProvider } from "@atrium/protocol";
-import type { PiResponseData } from "../process/pi-process";
+import type { PiEvent, PiResponseData } from "../process/pi-process";
 
 /** The command the host asks a session's pi for a subscription's usage with: `/atrium-plan <provider>` (ADR-0010). */
 export const PLAN_COMMAND = "atrium-plan";
 
 /** The key of the status the extension reports a subscription's usage under. */
 export const PLAN_STATUS = "atrium-plan";
+
+/** The key of the status the extension reports Claude's usage under as replies bring it (ADR-0012). */
+export const PLAN_REPLY_STATUS = "atrium-plan-reply";
 
 /** A product's share of a window's use: part of the window's percentage, not a limit of its own. */
 interface PlanPart {
@@ -197,6 +200,80 @@ export function claudeUsage(body: unknown): PlanWindow[] | null {
   return windows.length === 0 ? null : windows.slice(0, MAX_WINDOWS);
 }
 
+/** The providers whose replies carry Claude's subscription's usage: pi's own and pi-claude-bridge's (ADR-0012). */
+const CLAUDE_REPLIERS: ReadonlySet<string> = new Set(["anthropic", "claude-bridge"]);
+
+/**
+ * Whether a model's replies carry Claude's subscription's usage.
+ *
+ * @remarks
+ * See `CLAUDE_REPLIERS`.
+ *
+ * @sideEffects none
+ * @param provider - The model's provider, as pi names it.
+ * @returns Whether they do.
+ */
+export function repliesWithClaudeUsage(provider: string): boolean {
+  return CLAUDE_REPLIERS.has(provider);
+}
+
+/** The prefix of the reply headers Claude's usage is in. */
+const UNIFIED = "anthropic-ratelimit-unified";
+
+/** Claude's windows the reply headers name: the abbreviation and the window's length. */
+const UNIFIED_WINDOWS: readonly (readonly [string, number])[] = [
+  ["5h", FIVE_HOURS],
+  ["7d", WEEK],
+];
+
+/**
+ * A number a header holds, if it holds one.
+ *
+ * @remarks
+ * Headers are text; an empty one is not 0.
+ *
+ * @sideEffects none
+ * @param value - The header's value.
+ * @returns The number, or `null`.
+ */
+function headerNumber(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * Claude's usage from a reply's headers.
+ *
+ * @remarks
+ * ADR-0012: `anthropic-ratelimit-unified-5h-utilization` and `-7d-utilization`, 0 to 1, each with
+ * its `-reset` in seconds; names in any case. A window without its utilization is left out;
+ * headers with neither are not usage. The percentage is kept to two places, as a fraction times
+ * 100 is not always whole.
+ *
+ * @sideEffects none
+ * @param headers - The reply's headers.
+ * @returns The windows, or `null`.
+ */
+export function replyUsage(headers: Readonly<Record<string, string>>): PlanWindow[] | null {
+  const named = new Map(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]));
+  const windows = UNIFIED_WINDOWS.flatMap(([name, seconds]): PlanWindow[] => {
+    const used = headerNumber(named.get(`${UNIFIED}-${name}-utilization`));
+    if (used === null) return [];
+    const reset = headerNumber(named.get(`${UNIFIED}-${name}-reset`));
+    return [
+      {
+        seconds,
+        model: null,
+        usedPercent: Math.round(used * 10_000) / 100,
+        resetsAt: reset === null ? null : reset * 1000,
+        parts: [],
+      },
+    ];
+  });
+  return windows.length === 0 ? null : windows;
+}
+
 /**
  * Grok's usage from its answer to `cli-chat-proxy.grok.com/v1/billing?format=credits`.
  *
@@ -331,6 +408,25 @@ export function readPlanReport(text: string | undefined): PlanReport | null {
     plan: typeof plan === "string" && plan !== "" ? plan.slice(0, MAX_PLAN) : null,
     windows: read,
   };
+}
+
+/**
+ * The usage a reply brought, if pi's event is the extension's report of it.
+ *
+ * @remarks
+ * ADR-0012: the status `atrium-plan-reply`, read as `readPlanReport` reads the query's; a failure
+ * there is no report, for a reply reports usage alone.
+ *
+ * @sideEffects none
+ * @param event - One of pi's events.
+ * @returns The report, or `null`.
+ */
+export function planReplyOf(event: PiEvent): Extract<PlanReport, { windows: unknown }> | null {
+  // Stryker disable next-line ConditionalExpression,LogicalOperator: pi gives a status key to setStatus alone; the first two checks narrow the type.
+  if (event.type !== "extension_ui_request" || event.method !== "setStatus" || event.statusKey !== PLAN_REPLY_STATUS)
+    return null;
+  const report = readPlanReport(event.statusText);
+  return report === null || "failure" in report ? null : report;
 }
 
 /**

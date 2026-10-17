@@ -1,5 +1,5 @@
 import type { Dialog, PiEvent, PiStats, PlanReport, TranslatedEvent } from "@atrium/pi";
-import { PLAN_PROVIDERS, compactRejection, createEventTranslator, isBusyRejection } from "@atrium/pi";
+import { PLAN_PROVIDERS, compactRejection, createEventTranslator, isBusyRejection, planReplyOf } from "@atrium/pi";
 import {
   type ContextReserve,
   CommandError,
@@ -449,7 +449,7 @@ export function createSessionController(options: {
    * (ADR-0011); without it, the session asks for none.
    */
   readonly plan?: {
-    readonly service: Pick<PlanUsageService, "wanted">;
+    readonly service: Pick<PlanUsageService, "wanted" | "replied">;
     readonly ask: (provider: PlanProvider) => Promise<PlanReport | null>;
   };
   /** The model pi started with; none when left out. */
@@ -497,9 +497,7 @@ export function createSessionController(options: {
   // Stryker disable next-line BooleanLiteral: the loop clears it before each read.
   let refreshAgain = false;
   let translate = createEventTranslator(() => clock.now());
-  let unsubscribe = pi.onEvent((event) => {
-    for (const translated of translate(event)) apply(translated);
-  });
+  let unsubscribe = pi.onEvent(heard);
 
   const queue: QueueItem[] = [];
   let paused: Control["paused"] = null;
@@ -555,6 +553,21 @@ export function createSessionController(options: {
   });
   metrics.refresh();
   askPlan();
+
+  /**
+   * Takes one of pi's events: the usage a reply brought goes to the service, the rest is translated.
+   *
+   * @remarks
+   * ADR-0012: Atrium's extension reports Claude's usage from each reply's headers, unasked.
+   *
+   * @sideEffects May tell the service; applies what the event means for the session.
+   * @param event - pi's event.
+   */
+  function heard(event: PiEvent): void {
+    const reply = planReplyOf(event);
+    if (reply !== null) options.plan?.service.replied(reply);
+    for (const translated of translate(event)) apply(translated);
+  }
 
   /**
    * Asks for every subscription's usage through this session's pi.
@@ -1343,9 +1356,7 @@ export function createSessionController(options: {
     exited = false;
     compacting = false;
     translate = createEventTranslator(() => clock.now());
-    unsubscribe = pi.onEvent((event) => {
-      for (const translated of translate(event)) apply(translated);
-    });
+    unsubscribe = pi.onEvent(heard);
     // Fire and forget: `exited` never rejects.
     void watchExit(pi);
     transcript.rebuild(started.entries, true);

@@ -531,6 +531,11 @@ describe("StatusBar's plan group", () => {
     const warm = getComputedStyle(screen.getByRole("button", { name: "套餐 80%" }).element()).color;
     await redraw([{ ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] }, GROK], "xai");
     await expect.element(screen.getByRole("button", { name: "套餐 34%" })).toBeVisible();
+    // Through claude-bridge, Claude's subscription; through pi's newer ChatGPT login, ChatGPT's.
+    await redraw([PLAN, CLAUDE], "claude-bridge");
+    await expect.element(screen.getByRole("button", { name: "套餐 12%" })).toBeVisible();
+    await redraw([PLAN, CLAUDE], "openai");
+    await expect.element(screen.getByRole("button", { name: "套餐 52%" })).toBeVisible();
     // A model on no subscription found: the group stays, saying no figure, in the plain colour.
     await redraw([{ ...PLAN, windows: [{ ...present(PLAN.windows[0]), usedPercent: 80 }] }], "faux");
     const none = screen.getByRole("button", { name: "套餐", exact: true });
@@ -542,6 +547,28 @@ describe("StatusBar's plan group", () => {
 
     expect([calm === warm, warm, plain]).toStrictEqual([false, colorOf("var(--attn-text)"), calm]);
     await expect.element(screen.getByRole("button", { name: /^套餐/ })).not.toBeInTheDocument();
+  });
+
+  it("marks Claude's section current for a model through claude-bridge", async () => {
+    const screen = await render(
+      <ClockContext value={STOPPED}>
+        <div style={{ display: "flex", height: 700, flexDirection: "column", justifyContent: "flex-end" }}>
+          <StatusBar
+            metrics={KNOWN}
+            plans={[PLAN, CLAUDE]}
+            provider="claude-bridge"
+            choices={{}}
+            onChoose={() => undefined}
+          />
+        </div>
+      </ClockContext>,
+    );
+
+    await userEvent.hover(screen.getByRole("button", { name: "套餐 12%" }));
+    const card = screen.getByRole("tooltip").filter({ hasText: "套餐用量" });
+
+    await expect.element(card).toBeVisible();
+    expect(card.element().textContent).toBe(`套餐用量Claude当前刚刚5 小时窗口2 小时 10 分后重置12%${CHATGPT_AT_NOON}`);
   });
 
   it("lists every subscription in its card, the session's first and marked, with Grok's products under its week", async () => {

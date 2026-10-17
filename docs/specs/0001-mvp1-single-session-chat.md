@@ -1108,6 +1108,17 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
   - `plan` 为 `null`（套餐档次要另请求 `/v1/settings`，不做）。
 - `config` 不是对象、`currentPeriod` 和 `creditUsagePercent` 都没有时报 `unknown_shape`。其余字段（按需付费、预付余额、计费周期）不读。
 
+**Claude 的用量也从回复读（ADR-0012，2026-10-17 加）**
+
+- 扩展在 pi 的 `after_provider_response` 里，当前模型的服务商是 `claude-bridge` 或 `anthropic`、回复的头里有 `anthropic-ratelimit-unified-5h-utilization` 或 `anthropic-ratelimit-unified-7d-utilization` 时，用 `setStatus("atrium-plan-reply", …)` 报 `{ provider: "anthropic", plan: null, windows }`：`5h` 是 18000 秒的窗口、`7d` 是 604800 秒的；`usedPercent` 是利用率（0–1 的小数）× 100，`resetsAt` 是同名 `-reset`（Unix 秒）× 1000，读不出的为 `null`；`parts` 为空。两个都没有时不报。只读这组头，不读凭据、不发请求。
+- 宿主在每个会话的 pi 上一直听 `atrium-plan-reply`，格式按 `readPlanReport` 校验，合格的就当作查到了这家（不算"问"，不受 60 秒的限制，也不改下一次问的时间）。
+- 用量记下是查询查到的还是回复带来的。`no_login` 只立即丢掉查询查到的；回复带来的和别的失败一样，满 10 分钟才丢。
+
+**会话的服务商按订阅归并（ADR-0012）**
+
+- 界面判断当前模型是哪个订阅时：`claude-bridge` 算 `anthropic`，`openai`（pi 1.1 的"Sign in with ChatGPT"）算 `openai-codex`，其余按服务商本身。状态栏摘要和卡片里的"当前"都按归并后的。
+- `openai` 的用量查不到（OpenAI 不支持直连令牌查额度），只在同时有 `openai-codex` 登录、查到了它时显示那一份；只有 `openai` 登录时看不到 ChatGPT 的余量。
+
 **协议**
 
 - `PlanProvider` 加 `xai`。窗口加 `parts`：`[{ name, usedPercent }]`，最多 16 项，名字 1–64 个字（扩展报的截断），百分比夹到 0–100；ChatGPT、Claude 的窗口为空数组。扩展报的窗口没有 `parts` 时按空数组，`parts` 不是数组、超过 16 项、有一项不合格时整份报告不要。

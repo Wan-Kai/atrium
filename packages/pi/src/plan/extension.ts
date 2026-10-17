@@ -1,10 +1,27 @@
 import { type Login, type Registry, backendRoot, chatgptHeaders, loginFor } from "../extension/credentials";
-import { PLAN_COMMAND, PLAN_STATUS, type PlanReport, claudeUsage, codexUsage, grokUsage, isPlanProvider } from "./plan";
+import {
+  PLAN_COMMAND,
+  PLAN_REPLY_STATUS,
+  PLAN_STATUS,
+  type PlanReport,
+  claudeUsage,
+  codexUsage,
+  grokUsage,
+  isPlanProvider,
+  repliesWithClaudeUsage,
+  replyUsage,
+} from "./plan";
 
 /** The part of a command's context the plan query uses: pi's model registry and its one-way status line. */
 interface PlanContext {
   readonly ui: { setStatus(key: string, text: string | undefined): void };
   readonly modelRegistry: Registry;
+}
+
+/** The part of a hook's context reading a reply uses: the model asked and pi's one-way status line. */
+interface ReplyContext {
+  readonly ui: { setStatus(key: string, text: string | undefined): void };
+  readonly model: { readonly provider: string } | undefined;
 }
 
 /** The part of pi's extension API the plan query uses; its test checks pi's `ExtensionAPI` fits it. */
@@ -13,6 +30,10 @@ export interface PlanApi {
     name: string,
     options: { readonly description: string; readonly handler: (args: string, ctx: PlanContext) => Promise<void> },
   ): void;
+  on(
+    event: "after_provider_response",
+    handler: (event: { readonly headers: Readonly<Record<string, string>> }, ctx: ReplyContext) => unknown,
+  ): unknown;
 }
 
 /** How long a provider's usage may take before the query gives up. */
@@ -136,9 +157,12 @@ async function askPlan(ctx: PlanContext, provider: string, grokUrl: string): Pro
  * pi loads this, with Fast, in the pi processes Atrium starts (ADR-0010). The host sends
  * `/atrium-plan <provider>`, which pi runs at once, even during a run, without a turn or an entry;
  * the usage, or why there is none, is reported as the status `atrium-plan`, which pi sends the
- * host. A provider Atrium does not ask reports nothing. Nothing is written or logged.
+ * host. A provider Atrium does not ask reports nothing. ADR-0012: each reply of a Claude model,
+ * through pi or pi-claude-bridge, has its usage headers read and reported as the status
+ * `atrium-plan-reply`, without credentials or a request. Nothing is written or logged.
  *
- * @sideEffects Registers a command with pi; asks providers for usage when it runs.
+ * @sideEffects Registers a command and a hook with pi; asks providers for usage when the command
+ * runs; reports the usage replies bring.
  * @param pi - pi's extension API.
  * @param grokUrl - Where Grok's usage is: {@link GROK_USAGE_URL}, which tests alone change. Atrium's
  *   one extension calls this with pi's API only, so nothing pi passes can change it.
@@ -150,5 +174,13 @@ export default function atriumPlan(pi: PlanApi, grokUrl = GROK_USAGE_URL): void 
       const report = await askPlan(ctx, args.trim(), grokUrl);
       if (report !== null) ctx.ui.setStatus(PLAN_STATUS, JSON.stringify(report));
     },
+  });
+  pi.on("after_provider_response", (event, ctx) => {
+    // ADR-0012: Claude's usage is in its replies' headers, whether pi or Claude Code sent the request.
+    if (ctx.model === undefined || !repliesWithClaudeUsage(ctx.model.provider)) return undefined;
+    const windows = replyUsage(event.headers);
+    if (windows !== null)
+      ctx.ui.setStatus(PLAN_REPLY_STATUS, JSON.stringify({ provider: "anthropic", plan: null, windows }));
+    return undefined;
   });
 }

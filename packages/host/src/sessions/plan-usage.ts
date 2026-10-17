@@ -11,6 +11,8 @@ export interface PlanUsageService {
   subscribe(listener: (plans: Plans) => void): () => void;
   /** Asks for the provider's usage through `ask`, unless it was asked within a minute or is being asked. */
   wanted(provider: PlanProvider, ask: () => Promise<PlanReport | null>): void;
+  /** Takes the usage a reply brought, unasked (ADR-0012). */
+  replied(report: Extract<PlanReport, { windows: unknown }>): void;
 }
 
 /** How long after asking a provider it is not asked again (ADR-0010, point 3). */
@@ -26,6 +28,8 @@ interface Entry {
   asking: boolean;
   /** The failure the provider last reported, until it reports usage; logged once in a row. */
   failure: string | null;
+  /** Whether the usage was asked for or a reply brought it; `null` without usage. */
+  source: "asked" | "reply" | null;
 }
 
 /**
@@ -35,11 +39,13 @@ interface Entry {
  * SPEC-0001 ("M1.13 的上下文细分与套餐用量", "M1.14 的套餐总览"): each provider is asked at most
  * once a minute, one ask at a time, whichever session asks; sessions ask for every provider after
  * their pi starts and each run. A report of usage replaces what was known, stamped with the time
- * now. A failure is logged by its provider and code alone, and only when it is not the one the
- * provider last reported: every provider is asked each minute, and one not signed in would log a
- * line each time. `no_login` drops what was known at once. Any other failure, as a query that found
- * no plan query or no report, or failed, drops it only once it is ten minutes old. Listeners hear
- * every provider's usage, only on a change.
+ * now; so does usage a reply brought (ADR-0012), whenever it comes. A failure is logged by its
+ * provider and code alone, and only when it is not the one the provider last reported: every
+ * provider is asked each minute, and one not signed in would log a line each time. `no_login`
+ * drops at once what an ask found; what a reply brought it drops, as any other failure does, only
+ * once it is ten minutes old, for one who reaches Claude through pi-claude-bridge has no login of
+ * pi's to ask with. A query that found no plan query or no report, or failed, is such a failure
+ * too. Listeners hear every provider's usage, only on a change.
  *
  * @sideEffects none until used; then calls the asks given and logs.
  * @param options - The clock and the logger.
@@ -62,7 +68,7 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
   const entryOf = (provider: PlanProvider): Entry => {
     const known = entries.get(provider);
     if (known !== undefined) return known;
-    const made: Entry = { usage: null, askedAt: null, asking: false, failure: null };
+    const made: Entry = { usage: null, askedAt: null, asking: false, failure: null, source: null };
     entries.set(provider, made);
     return made;
   };
@@ -109,6 +115,23 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
   };
 
   /**
+   * Takes a provider's usage, stamped with the time now.
+   *
+   * @remarks
+   * See `createPlanUsage`.
+   *
+   * @sideEffects May change the usage and call listeners.
+   * @param report - The usage.
+   * @param source - Whether it was asked for or a reply brought it.
+   */
+  const found = (report: Extract<PlanReport, { windows: unknown }>, source: "asked" | "reply"): void => {
+    const entry = entryOf(report.provider);
+    entry.failure = null;
+    entry.source = source;
+    set(entry, { provider: report.provider, plan: report.plan, windows: report.windows, at: options.clock.now() });
+  };
+
+  /**
    * Takes what an ask brought.
    *
    * @remarks
@@ -129,16 +152,16 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
         options.logger.info({ provider, failure: report.failure }, "plan usage unavailable");
       }
       entry.failure = report.failure;
-      if (report.failure === "no_login") set(entry, null);
+      if (report.failure === "no_login" && entry.source !== "reply") set(entry, null);
       else notFound(entry);
       return;
     }
-    entry.failure = null;
-    set(entry, { provider, plan: report.plan, windows: report.windows, at: options.clock.now() });
+    found(report, "asked");
   };
 
   return {
     current: all,
+    replied: (report) => found(report, "reply"),
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);

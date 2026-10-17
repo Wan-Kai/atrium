@@ -1,7 +1,16 @@
 import type { PlanUsage, Plans } from "@atrium/protocol";
 import { useEffect, useState } from "react";
 import { useClock } from "../state/clock";
-import { foundAgo, partName, planName, planNearLimit, plansInOrder, resetText, windowName } from "./status-figures";
+import {
+  foundAgo,
+  partName,
+  planName,
+  planNearLimit,
+  plansInOrder,
+  resetText,
+  subscriptionOf,
+  windowName,
+} from "./status-figures";
 
 /**
  * One subscription's usage: its name, how long ago it was found, and each window with its products.
@@ -89,7 +98,8 @@ function PlanSection({
  * new usage comes.
  *
  * @sideEffects Draws itself again every minute while mounted.
- * @param props - Every subscription's usage, and the provider of the session's model, if any.
+ * @param props - Every subscription's usage, and the provider of the session's model, if any, whose
+ * subscription is marked "当前" (`claude-bridge`'s is Claude's, `openai`'s ChatGPT's).
  * @returns The sections.
  */
 export function PlanSections({ plans, provider }: { readonly plans: Plans; readonly provider: string | null }) {
@@ -97,10 +107,11 @@ export function PlanSections({ plans, provider }: { readonly plans: Plans; reado
   const [, setMinutes] = useState(0);
   useEffect(() => clock.every(60_000, () => setMinutes((minutes) => minutes + 1)), [clock]);
   const now = clock.now();
+  const subscription = subscriptionOf(provider);
   return (
     <>
       {plansInOrder(plans, provider).map((plan) => (
-        <PlanSection key={plan.provider} plan={plan} current={plan.provider === provider} now={now} />
+        <PlanSection key={plan.provider} plan={plan} current={plan.provider === subscription} now={now} />
       ))}
     </>
   );

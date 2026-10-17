@@ -337,6 +337,29 @@ export function planName(plan: Pick<Plan, "provider" | "plan">): string {
   return `${PROVIDER_NAMES[plan.provider]}${name}`;
 }
 
+/** Providers whose models are on another provider's subscription (ADR-0012). */
+const SUBSCRIPTION_OF: ReadonlyMap<string | null, Plan["provider"]> = new Map([
+  // pi-claude-bridge reaches Claude through Claude Code's login, on the Claude subscription.
+  ["claude-bridge", "anthropic"],
+  // pi's newer "Sign in with ChatGPT", on the same ChatGPT plan as Codex's login.
+  ["openai", "openai-codex"],
+]);
+
+/**
+ * The subscription a model's provider is on, as the plans name it.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.14 的套餐总览"): `claude-bridge` is Claude's, `openai` ChatGPT's; any other is
+ * its own.
+ *
+ * @sideEffects none
+ * @param provider - The provider of the session's model, if any.
+ * @returns The subscription's provider, or `null`.
+ */
+export function subscriptionOf(provider: string | null): string | null {
+  return SUBSCRIPTION_OF.get(provider) ?? provider;
+}
+
 /**
  * The usage of the subscription the session's model is on, if found.
  *
@@ -349,7 +372,8 @@ export function planName(plan: Pick<Plan, "provider" | "plan">): string {
  * @returns The usage, or `null`.
  */
 export function currentPlan(plans: Plans, provider: string | null): Plan | null {
-  return plans.find((plan) => plan.provider === provider) ?? null;
+  const subscription = subscriptionOf(provider);
+  return plans.find((plan) => plan.provider === subscription) ?? null;
 }
 
 /**
@@ -364,7 +388,11 @@ export function currentPlan(plans: Plans, provider: string | null): Plan | null 
  * @returns The usage, reordered.
  */
 export function plansInOrder(plans: Plans, provider: string | null): Plans {
-  return [...plans.filter((plan) => plan.provider === provider), ...plans.filter((plan) => plan.provider !== provider)];
+  const subscription = subscriptionOf(provider);
+  return [
+    ...plans.filter((plan) => plan.provider === subscription),
+    ...plans.filter((plan) => plan.provider !== subscription),
+  ];
 }
 
 /**

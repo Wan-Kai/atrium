@@ -16,7 +16,7 @@
 
 ## 当前状态
 
-**2026-10-16：M1.14 套餐总览写完，待三方审查后合并（在 worktree `atrium.worktrees/plan-overview` 里做，原工作区留给并行的 claude-bridge 上下文细分）。扩展查 Grok 的 billing（只对 xAI 订阅登录、写死地址，已用 pi 的登录实测），按产品拆成窗口的 `parts`；宿主每个会话的 pi 启动后和每次运行结束后问三家，用量全宿主一份，`plans_updated` 变了就推、握手后紧跟 `welcome` 补发一次（原计划的 `get_plans` 命令没做，客户端不用另发请求）；同一家连续同样的失败只记一次日志；状态栏卡片按服务商分段、当前模型那家在前，摘要取当前模型那家；设置 · 模型与账户加"套餐用量"，Atrium 加载不了 pi 的登录时也显示。协议 17。单元、宿主、pi（新录 `plan-xai-key` 夹具）、界面、泄漏、相关端到端和 `pnpm check` 通过；变异分数 pi 99.94%、host 100%、shared 99.95%、ui 99.53%，新代码的存活变异都补了或注明等价。界面测试里右栏的"0.24 秒打开"动画测试在整套并行时偶尔失败、单跑都过，和本次无关，记下待查。**
+**2026-10-16：M1.14 套餐总览写完，待三方审查后合并（在 worktree `atrium.worktrees/plan-overview` 里做，原工作区留给并行的 claude-bridge 上下文细分）。扩展查 Grok 的 billing（只对 xAI 订阅登录、写死地址，已用 pi 的登录实测），按产品拆成窗口的 `parts`；宿主每个会话的 pi 启动后和每次运行结束后问三家，用量全宿主一份，`plans_updated` 变了就推、握手后紧跟 `welcome` 补发一次（原计划的 `get_plans` 命令没做，客户端不用另发请求）；同一家连续同样的失败只记一次日志；状态栏卡片按服务商分段、当前模型那家在前，摘要取当前模型那家；设置 · 模型与账户加"套餐用量"，Atrium 加载不了 pi 的登录时也显示。协议 17。单元、宿主、pi（新录 `plan-xai-key` 夹具）、界面、泄漏、相关端到端和 `pnpm check` 通过；变异分数 pi 99.94%、host 100%、shared 99.95%、ui 99.53%，新代码的存活变异都补了或注明等价。2026-10-17 自用后加了 [ADR-0012](adr/0012-claude-usage-from-replies-and-openai-mapping.md)：Claude 的用量也从回复的 `anthropic-ratelimit-unified-*` 头读（经 pi-claude-bridge 实测），`claude-bridge` 算 Claude、新的 `openai` 登录算 ChatGPT（它自己的用量 OpenAI 不让查）；之后变异分数 pi 99.81%、host 100%、ui 99.53%。界面测试里右栏的"0.24 秒打开"动画测试在整套并行时偶尔失败、单跑都过，和本次无关，记下待查。**
 
 **2026-10-16：新建 M1.14 套餐总览，在 `m1.14-plan-overview` 分支上（从 `m1.11-self-use` 分出，M1.11 的自用照常继续）。自用时想看 Grok 的余量，以及不管当前用哪个模型都能一处看全各订阅：扩展加查 Grok 的 `cli-chat-proxy.grok.com/v1/billing`（pi 平时不访问的服务器，作为唯一的例外，已用 pi 的 xAI 登录实测），宿主经任一会话的 pi 查所有订阅，用量改成全宿主一份推给所有连接，状态栏的套餐卡片和设置的"模型与账户"都列出所有订阅（[ADR-0011](adr/0011-plan-overview-all-subscriptions.md)）。先改 SPEC-0001、security.md、design-language，再写代码。**
 
@@ -370,6 +370,7 @@ MVP 1 里还没设计、做到时先补设计的：
   - 宿主：每个会话的 pi 启动后、每次运行结束后经它问三家（每家 60 秒最多一次，全宿主共用）；用量改成全宿主一份，`plans_updated` 变了就推给所有连接、握手后也推一次；同一家连续同样的失败只记一次日志。
   - 协议版本 17：`PlanProvider` 加 `xai`，窗口加 `parts`，去掉 `metrics.plan`，加 `plans_updated`。
   - 界面：状态栏的套餐卡片按服务商分段、当前模型那家在前，摘要仍取当前模型那家；设置 · 模型与账户加"套餐用量"一组。
+  - 自用后加（2026-10-17，[ADR-0012](adr/0012-claude-usage-from-replies-and-openai-mapping.md)）：Claude 的用量也从回复的 `anthropic-ratelimit-unified-*` 头读（经 pi-claude-bridge 的会话也有，不碰凭据、不发请求），回复带来的不因 `no_login` 立刻丢；会话的服务商按订阅归并，`claude-bridge` 算 Claude、pi 1.1 新的 `openai` 登录算 ChatGPT（它自己的用量 OpenAI 不让查，只显示同账户 `openai-codex` 查到的）。
   - 不做：没有会话时另起 pi 去查；Grok 的套餐档次（要另请求 `/v1/settings`）、按需付费和预付余额；别家 coding plan。
 - **参考**：[ADR-0011](adr/0011-plan-overview-all-subscriptions.md)、[ADR-0010](adr/0010-plan-usage-through-atrium-extension.md)、[SPEC-0001 · M1.14 的套餐总览](specs/0001-mvp1-single-session-chat.md#m114-的套餐总览协议版本-172026-10-16-定)、[security.md](architecture/security.md)"Atrium 自带的 pi 扩展"、[design-language · 状态栏](architecture/design-language.md#状态栏)。
 - **完成标准**：SPEC-0001 里这一节的行为都有测试；真实 pi 加载扩展、执行 `/atrium-plan xai` 的契约测试通过（假 pi 只能用 API key 登录，契约测试查的是"API key 报 `no_login`、不发请求"；Grok 订阅登录的地址、请求头和解析由单元测试覆盖，同 Claude）；端到端：ChatGPT 订阅的会话运行后，状态栏卡片按新的分段显示、设置 · 模型与账户里也看得到；多家同时显示由宿主和界面的测试覆盖。

@@ -123,6 +123,7 @@ async function run(
       registerCommand: (name, options) => {
         registered = { name, description: options.description, handler: options.handler };
       },
+      on: () => () => undefined,
     },
     grokUrl,
   );
@@ -367,7 +368,10 @@ describe("atriumPlan", () => {
       },
     });
 
-    expect([commands, hooks]).toStrictEqual([["atrium-fast", "atrium-plan"], ["before_provider_request"]]);
+    expect([commands, hooks]).toStrictEqual([
+      ["atrium-fast", "atrium-plan"],
+      ["before_provider_request", "after_provider_response"],
+    ]);
   });
 
   it("reports nothing for a provider Atrium does not ask", async () => {
@@ -379,5 +383,77 @@ describe("atriumPlan", () => {
 
     expect(statuses).toStrictEqual([]);
     expect(server.requests).toStrictEqual([]);
+  });
+});
+
+/** The reply hook's context: the model asked and pi's status line. */
+type ReplyContext = Parameters<Parameters<PlanApi["on"]>[1]>[1];
+
+/**
+ * Loads the extension and hands its reply hook one reply of a model of `provider`.
+ *
+ * @sideEffects none
+ * @param provider - The model's provider, or none.
+ * @param headers - The reply's headers.
+ * @returns The statuses the hook set.
+ * @throws {Error} When it registered no hook.
+ */
+function reply(provider: string | null, headers: Record<string, string>): [string, unknown][] {
+  let hook: Parameters<PlanApi["on"]>[1] | undefined;
+  const hooked: string[] = [];
+  atriumPlan({
+    registerCommand: () => undefined,
+    on: (event, handler) => {
+      hooked.push(event);
+      hook = handler;
+      return () => undefined;
+    },
+  });
+  if (hook === undefined) throw new Error("the extension registered no hook");
+  const statuses: (readonly [string, string | undefined])[] = [];
+  const ctx: ReplyContext = {
+    ui: { setStatus: (key, text) => statuses.push([key, text]) },
+    model: provider === null ? undefined : { provider },
+  };
+  const returned = hook({ headers }, ctx);
+  expect([hooked, returned]).toStrictEqual([["after_provider_response"], undefined]);
+  return reports(statuses);
+}
+
+/** The usage headers pi-claude-bridge rebuilt from Claude Code's rate limit event, as seen on 2026-10-17 (ADR-0012). */
+const BRIDGE_HEADERS = {
+  "anthropic-ratelimit-unified-status": "allowed",
+  "anthropic-ratelimit-unified-reset": "1792218000",
+  "anthropic-ratelimit-unified-representative-claim": "five_hour",
+  "anthropic-ratelimit-unified-overage-status": "rejected",
+  "anthropic-ratelimit-unified-5h-utilization": "0.05",
+  "anthropic-ratelimit-unified-5h-reset": "1792218000",
+  "anthropic-ratelimit-unified-7d-utilization": "0.07",
+  "anthropic-ratelimit-unified-7d-reset": "1792753200",
+};
+
+describe("atriumPlan's reply hook", () => {
+  it("reports Claude's usage from the headers of a reply through pi-claude-bridge or pi's own Claude, without asking", () => {
+    const usage = {
+      provider: "anthropic",
+      plan: null,
+      windows: [
+        { seconds: 18_000, model: null, usedPercent: 5, resetsAt: 1_792_218_000_000, parts: [] },
+        { seconds: 604_800, model: null, usedPercent: 7, resetsAt: 1_792_753_200_000, parts: [] },
+      ],
+    };
+
+    expect([reply("claude-bridge", BRIDGE_HEADERS), reply("anthropic", BRIDGE_HEADERS)]).toStrictEqual([
+      [["atrium-plan-reply", usage]],
+      [["atrium-plan-reply", usage]],
+    ]);
+  });
+
+  it("reports nothing for another provider's reply, a reply of no model, or one without usage", () => {
+    expect([
+      reply("openai-codex", BRIDGE_HEADERS),
+      reply(null, BRIDGE_HEADERS),
+      reply("claude-bridge", { "anthropic-ratelimit-unified-status": "allowed" }),
+    ]).toStrictEqual([[], [], []]);
   });
 });

@@ -14,6 +14,7 @@ import {
   formatWhole,
   partName,
   planName,
+  subscriptionOf,
   planNearLimit,
   planPercent,
   plansInOrder,
@@ -261,6 +262,21 @@ describe("the plan's figures", () => {
       [1, 2, 3],
       [1, 2, 3],
     ]);
+  });
+
+  it("counts claude-bridge's models on Claude's subscription and openai's on ChatGPT's, the rest on their own", () => {
+    const plans = [usage("openai-codex", 1), usage("anthropic", 2), usage("xai", 3)];
+
+    expect(["claude-bridge", "openai", "xai", "faux", "constructor", null].map(subscriptionOf)).toStrictEqual([
+      "anthropic",
+      "openai-codex",
+      "xai",
+      "faux",
+      "constructor",
+      null,
+    ]);
+    expect([currentPlan(plans, "claude-bridge")?.at, currentPlan(plans, "openai")?.at]).toStrictEqual([2, 1]);
+    expect(plansInOrder(plans, "claude-bridge").map(({ at }) => at)).toStrictEqual([2, 1, 3]);
   });
 
   it("splits a product's run-together name into words, and leaves other names as they are", () => {

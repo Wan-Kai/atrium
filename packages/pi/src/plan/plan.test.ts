@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { claudeUsage, codexUsage, grokUsage, isPlanProvider, isPlanQuery, readPlanReport } from "./plan";
+import {
+  claudeUsage,
+  codexUsage,
+  grokUsage,
+  isPlanProvider,
+  isPlanQuery,
+  planReplyOf,
+  readPlanReport,
+  replyUsage,
+} from "./plan";
 
 /** ChatGPT's answer to `wham/usage`, as the public write-ups show it (ADR-0010). */
 const CODEX_ANSWER = {
@@ -400,5 +409,62 @@ describe("isPlanQuery, isPlanProvider", () => {
       false,
       false,
     ]);
+  });
+});
+
+describe("replyUsage", () => {
+  it("reads the five hours and the week from a reply's headers, in any case, to two places", () => {
+    expect(
+      replyUsage({
+        "Anthropic-Ratelimit-Unified-5h-Utilization": "0.071",
+        "anthropic-ratelimit-unified-5h-reset": "1792218000",
+        "anthropic-ratelimit-unified-7d-utilization": "1",
+        "anthropic-ratelimit-unified-status": "allowed",
+      }),
+    ).toStrictEqual([
+      { seconds: 18_000, model: null, usedPercent: 7.1, resetsAt: 1_792_218_000_000, parts: [] },
+      { seconds: 604_800, model: null, usedPercent: 100, resetsAt: null, parts: [] },
+    ]);
+  });
+
+  it("leaves out a window whose utilization is not a number, and finds no usage without any", () => {
+    expect([
+      replyUsage({
+        "anthropic-ratelimit-unified-5h-utilization": "",
+        "anthropic-ratelimit-unified-7d-utilization": "0.5",
+        "anthropic-ratelimit-unified-7d-reset": "soon",
+      }),
+      replyUsage({
+        "anthropic-ratelimit-unified-5h-utilization": "high",
+        "anthropic-ratelimit-unified-7d-utilization": " ",
+      }),
+      replyUsage({}),
+    ]).toStrictEqual([[{ seconds: 604_800, model: null, usedPercent: 50, resetsAt: null, parts: [] }], null, null]);
+  });
+});
+
+/** pi's event setting a status of Atrium's extension. */
+function status(statusKey: string, statusText: string) {
+  return { type: "extension_ui_request", id: "u1", method: "setStatus", statusKey, statusText } as const;
+}
+
+describe("planReplyOf", () => {
+  it("takes the usage the extension reported from a reply, and nothing else pi sent", () => {
+    const usage = {
+      provider: "anthropic",
+      plan: null,
+      windows: [{ seconds: 18_000, model: null, usedPercent: 5, resetsAt: 9, parts: [] }],
+    };
+
+    expect(
+      [
+        status("atrium-plan-reply", JSON.stringify(usage)),
+        status("atrium-plan", JSON.stringify(usage)),
+        status("atrium-plan-reply", JSON.stringify({ provider: "anthropic", failure: "no_login" })),
+        status("atrium-plan-reply", "not json"),
+        { type: "extension_ui_request", id: "u2", method: "notify", message: JSON.stringify(usage) },
+        { type: "agent_start" },
+      ].map((event) => planReplyOf(event as Parameters<typeof planReplyOf>[0])),
+    ).toStrictEqual([usage, null, null, null, null, null]);
   });
 });
