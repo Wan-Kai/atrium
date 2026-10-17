@@ -143,7 +143,7 @@ body.dark .composer .chip { background: var(--main); }
 .crow .name { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .crow .place { display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; }
 .crow .more-n { font-size: var(--fs-xs); color: var(--text-muted); }
-.crow .grow { flex: 1; }
+.crow .grow { flex: 1; min-width: 16px; }
 .crow .time { font-size: var(--fs-xs); color: var(--text-dim); white-space: nowrap; }
 .crow .acts { display: flex; align-items: center; gap: 2px; }
 .crow .idle { width: 16px; height: 16px; display: grid; place-items: center; color: var(--text-dim); }
@@ -159,7 +159,7 @@ body.dark .menu { background: var(--surface-2); }
 .menu hr { border: 0; height: .5px; background: var(--line); margin: 4px 6px; }
 
 /* A：弹出列表 */
-.pop { position: absolute; left: 0; right: 0; bottom: calc(100% + 44px); z-index: 20; background: var(--surface-1); border-radius: var(--r-card); box-shadow: var(--float-shadow); padding: 6px; max-height: 300px; overflow: auto; }
+.pop { position: absolute; left: 0; width: max-content; min-width: 300px; max-width: 100%; bottom: calc(100% + 44px); z-index: 20; background: var(--surface-1); border-radius: var(--r-card); box-shadow: var(--float-shadow); padding: 6px; max-height: 300px; overflow: auto; }
 body.dark .pop { background: var(--surface-2); }
 .pop .ph2 { display: flex; justify-content: space-between; padding: 4px 8px 6px; font-size: var(--fs-xs); color: var(--text-dim); }
 
