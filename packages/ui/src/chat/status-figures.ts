@@ -1,11 +1,11 @@
-import type { SessionMetrics, StatusBarChoices } from "@atrium/protocol";
+import type { PlanUsage, Plans, SessionMetrics, StatusBarChoices } from "@atrium/protocol";
 
 /** The tokens pi counted for the whole session file. */
 type Tokens = NonNullable<SessionMetrics["tokens"]>;
 /** The context's size and split. */
 type Context = NonNullable<SessionMetrics["context"]>;
-/** A subscription's usage. */
-type Plan = NonNullable<SessionMetrics["plan"]>;
+/** A subscription's usage, as the host found it. */
+type Plan = PlanUsage;
 
 /** A group of the status bar, as the registry lists it (SPEC-0001, "状态栏"). */
 export interface StatusGroup {
@@ -27,7 +27,7 @@ export const STATUS_GROUPS: readonly StatusGroup[] = [
   { id: "session", name: "会话统计", description: "轮数、步数、输出速度", defaultVisible: true },
   { id: "tokens", name: "Token 用量", description: "总用量与缓存命中率", defaultVisible: true },
   { id: "context", name: "上下文", description: "已用比例，悬停看分段", defaultVisible: true },
-  { id: "plan", name: "套餐", description: "订阅的 5 小时、每周用量，悬停看重置时间", defaultVisible: true },
+  { id: "plan", name: "套餐", description: "当前订阅的用量，悬停看所有订阅和重置时间", defaultVisible: true },
   { id: "cost", name: "费用", description: "按 API 价格折算，订阅不实际付费", defaultVisible: false },
 ];
 
@@ -286,8 +286,12 @@ const DAY = 24 * HOUR;
 /** The days of the week, as a reset time names them, Sunday first. */
 const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
-/** The providers' names on the plan card (SPEC-0001, "M1.13 的上下文细分与套餐用量"). */
-const PROVIDER_NAMES: Readonly<Record<Plan["provider"], string>> = { "openai-codex": "ChatGPT", anthropic: "Claude" };
+/** The providers' names on the plan card (SPEC-0001, "M1.13 的上下文细分与套餐用量", "M1.14 的套餐总览"). */
+const PROVIDER_NAMES: Readonly<Record<Plan["provider"], string>> = {
+  "openai-codex": "ChatGPT",
+  anthropic: "Claude",
+  xai: "Grok",
+};
 
 /**
  * How much of a subscription is used: the most of any of its windows, whole.
@@ -319,18 +323,90 @@ export function planNearLimit(percent: number): boolean {
 }
 
 /**
- * The plan card's title: the provider's name, the plan's, and "用量".
+ * A subscription's name on the plan card: the provider's name and the plan's.
  *
  * @remarks
  * The plan's name as the provider gives it, its first letter in capitals ("plus" is "Plus").
  *
  * @sideEffects none
  * @param plan - The usage.
- * @returns The title, such as "ChatGPT Plus 用量".
+ * @returns The name, such as "ChatGPT Plus".
  */
-export function planTitle(plan: Pick<Plan, "provider" | "plan">): string {
+export function planName(plan: Pick<Plan, "provider" | "plan">): string {
   const name = plan.plan === null ? "" : ` ${plan.plan.charAt(0).toUpperCase()}${plan.plan.slice(1)}`;
-  return `${PROVIDER_NAMES[plan.provider]}${name} 用量`;
+  return `${PROVIDER_NAMES[plan.provider]}${name}`;
+}
+
+/** Providers whose models are on another provider's subscription (ADR-0012). */
+const SUBSCRIPTION_OF: ReadonlyMap<string | null, Plan["provider"]> = new Map([
+  // pi-claude-bridge reaches Claude through Claude Code's login, on the Claude subscription.
+  ["claude-bridge", "anthropic"],
+  // pi's newer "Sign in with ChatGPT", on the same ChatGPT plan as Codex's login.
+  ["openai", "openai-codex"],
+]);
+
+/**
+ * The subscription a model's provider is on, as the plans name it.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.14 的套餐总览"): `claude-bridge` is Claude's, `openai` ChatGPT's; any other is
+ * its own.
+ *
+ * @sideEffects none
+ * @param provider - The provider of the session's model, if any.
+ * @returns The subscription's provider, or `null`.
+ */
+export function subscriptionOf(provider: string | null): string | null {
+  return SUBSCRIPTION_OF.get(provider) ?? provider;
+}
+
+/**
+ * The usage of the subscription the session's model is on, if found.
+ *
+ * @remarks
+ * The plan group's summary counts this one alone (SPEC-0001, "M1.14 的套餐总览").
+ *
+ * @sideEffects none
+ * @param plans - Every subscription's usage found.
+ * @param provider - The provider of the session's model, if any.
+ * @returns The usage, or `null`.
+ */
+export function currentPlan(plans: Plans, provider: string | null): Plan | null {
+  const subscription = subscriptionOf(provider);
+  return plans.find((plan) => plan.provider === subscription) ?? null;
+}
+
+/**
+ * Every subscription's usage as the card lists it: the session's model's first, then as the host listed them.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.14 的套餐总览").
+ *
+ * @sideEffects none
+ * @param plans - Every subscription's usage found.
+ * @param provider - The provider of the session's model, if any.
+ * @returns The usage, reordered.
+ */
+export function plansInOrder(plans: Plans, provider: string | null): Plans {
+  const subscription = subscriptionOf(provider);
+  return [
+    ...plans.filter((plan) => plan.provider === subscription),
+    ...plans.filter((plan) => plan.provider !== subscription),
+  ];
+}
+
+/**
+ * A product's name as the card writes it: Grok's run-together names split ("GrokBuild" is "Grok Build").
+ *
+ * @remarks
+ * SPEC-0001 ("M1.14 的套餐总览").
+ *
+ * @sideEffects none
+ * @param name - The name as the provider gives it.
+ * @returns The name.
+ */
+export function partName(name: string): string {
+  return name.replace(/(?<=[a-z])(?=[A-Z])/gu, " ");
 }
 
 /**

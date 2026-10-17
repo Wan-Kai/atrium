@@ -35,7 +35,7 @@ async function chatHost() {
   return { ...(await openClient(testHost, "client-1")), host: testHost };
 }
 
-/** Opens a socket to the host and completes the handshake. */
+/** Opens a socket to the host and completes the handshake, which ends with the subscriptions' usage. */
 async function openClient(host: TestHost, clientId: string) {
   const socket = new WebSocket(host.url);
   const received: HostMessage[] = [];
@@ -44,7 +44,7 @@ async function openClient(host: TestHost, clientId: string) {
   socket.send(
     JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION, clientId, token: host.token, traceparent }),
   );
-  await vi.waitFor(() => expect(received).toHaveLength(1));
+  await vi.waitFor(() => expect(received.map(({ type }) => type)).toStrictEqual(["welcome", "plans_updated"]));
   return { socket, received };
 }
 
@@ -67,7 +67,9 @@ async function command(
 
 /** The session events among what the host sent. */
 function sessionEvents(received: readonly HostMessage[]): HostMessage[] {
-  return received.filter((message) => message.type !== "response" && message.type !== "welcome");
+  return received.filter(
+    (message) => message.type !== "response" && message.type !== "welcome" && message.type !== "plans_updated",
+  );
 }
 
 /** Where the response to `requestId` is among what the host sent. */

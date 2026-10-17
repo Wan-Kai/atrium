@@ -20,6 +20,7 @@ import {
   type IndexSnapshotEvent,
   type LoginMethod,
   type LoginUpdatedEvent,
+  type Plans,
   type ModelRef,
   type Preferences,
   type Project,
@@ -220,13 +221,13 @@ export interface FakeAnswers {
  * watched session has a real view store. Commands are recorded as short strings; model commands
  * apart, in `modelCalls`, as the conversation area asks for models whenever it shows. Logins and
  * install jobs only answer with their ids: a test plays the host's updates into `loginState` and
- * `installJob`.
+ * `installJob`, and its pushes of the subscriptions' usage into `plans`.
  *
  * @sideEffects none until a command; then updates its stores.
  * @param initial - The list to start from.
  * @param answers - How some commands answer.
- * @returns The client, its recorded calls, the session views, and the connection, setup, login and
- * install stores.
+ * @returns The client, its recorded calls, the session views, and the connection, setup, login,
+ * install and plans stores.
  */
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
@@ -273,6 +274,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const setup = createStore<SetupView>(() => ({ status: "idle", state: null, error: null }));
   const loginState = createStore<LoginUpdatedEvent | null>(() => null);
   const installJob = createStore<InstallJob | null>(() => null);
+  const plans = createStore<Plans>(() => []);
   let created = 0;
   let uploaded = 0;
   let logins = 0;
@@ -748,6 +750,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       return {};
     },
     installJob,
+    plans,
     async updatePi() {
       calls.push("updatePi");
       await answers.updatePi?.();
@@ -790,7 +793,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
-  return { client, calls, modelCalls, changeCalls, views, index, connection, setup, loginState, installJob };
+  return { client, calls, modelCalls, changeCalls, views, index, connection, setup, loginState, installJob, plans };
 }
 
 /** Project `prj_a` named "atrium". */

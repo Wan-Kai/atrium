@@ -1,5 +1,5 @@
 import { type PlanReport, PiRequestError } from "@atrium/pi";
-import type { PlanUsage } from "@atrium/protocol";
+import type { PlanProvider, PlanUsage, Plans } from "@atrium/protocol";
 import { FakeClock } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
@@ -10,22 +10,37 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** The first window's percentage of a usage, `null` for none. */
-function percentOf(usage: PlanUsage | null): number | null {
-  return usage?.windows[0]?.usedPercent ?? null;
+/** ChatGPT's usage in a list, `null` for none. */
+function codexIn(plans: Plans): PlanUsage | null {
+  return plans.find((plan) => plan.provider === "openai-codex") ?? null;
 }
 
-/** ChatGPT's usage with the session window at `used`%. */
-function codex(used: number): PlanReport {
+/** The first window's percentage of ChatGPT's usage in a list, `null` for none. */
+function percentOf(plans: Plans): number | null {
+  return codexIn(plans)?.windows[0]?.usedPercent ?? null;
+}
+
+/** A provider's usage with one window at `used`%. */
+function usage(used: number, provider: PlanProvider = "openai-codex"): PlanReport {
   return {
-    provider: "openai-codex",
-    plan: "plus",
-    windows: [{ seconds: 18_000, model: null, usedPercent: used, resetsAt: 9_000_000 }],
+    provider,
+    plan: provider === "openai-codex" ? "plus" : null,
+    windows: [{ seconds: 18_000, model: null, usedPercent: used, resetsAt: 9_000_000, parts: [] }],
   };
 }
 
+/** A window `seconds` long, `used`% used, counting `model` alone. */
+function window(seconds: number, used: number, model: string | null = null) {
+  return { seconds, model, usedPercent: used, resetsAt: null, parts: [] };
+}
+
+/** A provider's report that it is not signed in. */
+function noLogin(provider: PlanProvider): PlanReport {
+  return { provider, failure: "no_login" };
+}
+
 /**
- * A service over a fake clock, with what it logged and what each provider's listeners heard.
+ * A service over a fake clock, with what it logged and what its listener heard.
  *
  * @sideEffects none
  * @returns The service, the clock, the log and what was heard.
@@ -34,35 +49,60 @@ function harness() {
   const clock = new FakeClock(1_000_000);
   const { logger, records } = recordingTracing();
   const service = createPlanUsage({ clock, logger });
-  const heard: (PlanUsage | null)[] = [];
-  service.subscribe("openai-codex", (usage) => heard.push(usage));
+  const heard: Plans[] = [];
+  service.subscribe((plans) => heard.push(plans));
   /** Asks, answering with `report`, and lets the answer be taken. */
-  const ask = async (report: PlanReport | null | Error, provider: "openai-codex" | "anthropic" = "openai-codex") => {
+  const ask = async (report: PlanReport | null | Error, provider: PlanProvider = "openai-codex") => {
     service.wanted(provider, async () => {
       if (report instanceof Error) throw report;
       return report;
     });
     await settle();
   };
-  return { clock, records, service, heard, ask };
+  /** The failures logged, as provider and code. */
+  const unavailable = () =>
+    records
+      .filter((record) => record["msg"] === "plan usage unavailable")
+      .map(({ provider, failure }) => [provider, failure]);
+  return { clock, records, service, heard, ask, unavailable };
 }
 
 describe("createPlanUsage", () => {
-  it("keeps what a report found, stamped with the time, and tells the provider's listeners", async () => {
+  it("keeps what a report found, stamped with the time, and tells listeners every provider's", async () => {
     const { service, heard, ask } = harness();
-    expect(service.current("openai-codex")).toBeNull();
+    expect(service.current()).toStrictEqual([]);
 
-    await ask(codex(39));
+    await ask(usage(39));
 
     const found: PlanUsage = {
       provider: "openai-codex",
       plan: "plus",
-      windows: [{ seconds: 18_000, model: null, usedPercent: 39, resetsAt: 9_000_000 }],
+      windows: [{ seconds: 18_000, model: null, usedPercent: 39, resetsAt: 9_000_000, parts: [] }],
       at: 1_000_000,
     };
-    expect(service.current("openai-codex")).toStrictEqual(found);
-    expect(service.current("anthropic")).toBeNull();
-    expect(heard).toStrictEqual([found]);
+    expect(service.current()).toStrictEqual([found]);
+    expect(heard).toStrictEqual([[found]]);
+  });
+
+  it("lists the providers in the protocol's order, whichever was found first", async () => {
+    const { clock, service, heard, ask } = harness();
+
+    await ask(usage(5, "xai"), "xai");
+    clock.advance(1000);
+    await ask(usage(7, "anthropic"), "anthropic");
+    clock.advance(1000);
+    await ask(usage(9));
+
+    expect(service.current().map(({ provider, at }) => [provider, at])).toStrictEqual([
+      ["openai-codex", 1_002_000],
+      ["anthropic", 1_001_000],
+      ["xai", 1_000_000],
+    ]);
+    expect(heard.map((plans) => plans.map(({ provider }) => provider))).toStrictEqual([
+      ["xai"],
+      ["anthropic", "xai"],
+      ["openai-codex", "anthropic", "xai"],
+    ]);
   });
 
   it("asks a provider at most once a minute and one ask at a time, each provider on its own", async () => {
@@ -78,52 +118,170 @@ describe("createPlanUsage", () => {
     service.wanted("openai-codex", waiting("first"));
     service.wanted("openai-codex", waiting("while asking"));
     service.wanted("anthropic", waiting("claude"));
-    gate.resolve(codex(1));
+    service.wanted("xai", waiting("grok"));
+    gate.resolve(usage(1));
     await settle();
     clock.advance(59_999);
     service.wanted("openai-codex", waiting("still too soon"));
     clock.advance(1);
     service.wanted("openai-codex", waiting("a minute on"));
 
-    expect(asked).toStrictEqual(["first", "claude", "a minute on"]);
+    expect(asked).toStrictEqual(["first", "claude", "grok", "a minute on"]);
     // An ask still under way a minute on is not asked again either.
     clock.advance(60_000);
     service.wanted("openai-codex", waiting("while the last is under way"));
-    expect(asked).toHaveLength(3);
+    expect(asked).toHaveLength(4);
   });
 
   it("drops what it knew on no_login at once, on other failures once ten minutes old, logging the code alone", async () => {
-    const { clock, service, records, heard, ask } = harness();
-    await ask(codex(39));
+    const { clock, service, heard, ask, unavailable } = harness();
+    await ask(usage(39));
 
     clock.advance(9 * 60_000);
     await ask({ provider: "openai-codex", failure: "http_500" });
-    expect(service.current("openai-codex")?.windows[0]?.usedPercent).toBe(39);
+    expect(percentOf(service.current())).toBe(39);
     clock.advance(60_000);
     await ask({ provider: "openai-codex", failure: "unreachable" });
-    expect(service.current("openai-codex")).toBeNull();
+    expect(service.current()).toStrictEqual([]);
 
     clock.advance(60_000);
-    await ask(codex(40));
+    await ask(usage(40));
     clock.advance(60_000);
     await ask({ provider: "openai-codex", failure: "no_login" });
 
-    expect(service.current("openai-codex")).toBeNull();
+    expect(service.current()).toStrictEqual([]);
     expect(heard.map(percentOf)).toStrictEqual([39, null, 40, null]);
-    expect(
-      records
-        .filter((record) => record["msg"] === "plan usage unavailable")
-        .map(({ provider, failure }) => [provider, failure]),
-    ).toStrictEqual([
+    expect(unavailable()).toStrictEqual([
       ["openai-codex", "http_500"],
       ["openai-codex", "unreachable"],
       ["openai-codex", "no_login"],
     ]);
   });
 
+  it("logs a provider's failure once in a row, again once it changes or usage came between, each provider apart", async () => {
+    const { clock, ask, unavailable } = harness();
+    await ask(noLogin("xai"), "xai");
+    await ask(noLogin("anthropic"), "anthropic");
+    clock.advance(60_000);
+    await ask(noLogin("xai"), "xai");
+    clock.advance(60_000);
+    await ask({ provider: "xai", failure: "http_403" }, "xai");
+    clock.advance(60_000);
+    await ask(usage(3, "xai"), "xai");
+    clock.advance(60_000);
+    await ask({ provider: "xai", failure: "http_403" }, "xai");
+
+    expect(unavailable()).toStrictEqual([
+      ["xai", "no_login"],
+      ["anthropic", "no_login"],
+      ["xai", "http_403"],
+      ["xai", "http_403"],
+    ]);
+  });
+
+  it("takes usage a reply brought whenever it comes, keeping it through no_login until ten minutes old", async () => {
+    const { clock, service, heard, ask } = harness();
+    const claude = usage(5, "anthropic") as Extract<PlanReport, { windows: unknown }>;
+
+    service.replied(claude);
+    clock.advance(1000);
+    // A reply within the minute of the last is taken too: replies are not asks.
+    service.replied({ ...claude, windows: [{ ...claude.windows[0]!, usedPercent: 6 }] });
+    await ask(noLogin("anthropic"), "anthropic");
+    const kept = service.current().map(({ windows }) => windows[0]?.usedPercent);
+    clock.advance(10 * 60_000);
+    await ask(noLogin("anthropic"), "anthropic");
+    clock.advance(60_000);
+    // Asked usage again: no_login drops it at once.
+    await ask(usage(7, "anthropic"), "anthropic");
+    clock.advance(60_000);
+    await ask(noLogin("anthropic"), "anthropic");
+
+    expect(kept).toStrictEqual([6]);
+    expect(heard.map((plans) => plans.map(({ windows, at }) => [windows[0]?.usedPercent, at]))).toStrictEqual([
+      [[5, 1_000_000]],
+      [[6, 1_001_000]],
+      [],
+      [[7, 1_661_000]],
+      [],
+    ]);
+  });
+
+  it("merges a reply into what an ask found: its two windows replaced, an ask's week of one model kept", async () => {
+    const { clock, service, ask } = harness();
+    await ask(
+      {
+        provider: "anthropic",
+        plan: null,
+        windows: [window(18_000, 1), window(604_800, 2), window(604_800, 3, "Opus")],
+      },
+      "anthropic",
+    );
+    clock.advance(1000);
+
+    service.replied({ provider: "anthropic", plan: null, windows: [window(18_000, 11), window(604_800, 12)] });
+    const merged = service.current()[0];
+    service.replied({ provider: "anthropic", plan: null, windows: [window(3600, 13)] });
+
+    expect([merged?.windows, merged?.at]).toStrictEqual([
+      [window(18_000, 11), window(604_800, 12), window(604_800, 3, "Opus")],
+      1_001_000,
+    ]);
+    expect(service.current()[0]?.windows).toStrictEqual([
+      window(18_000, 11),
+      window(604_800, 12),
+      window(604_800, 3, "Opus"),
+      window(3600, 13),
+    ]);
+  });
+
+  it("logs no_login once in a row though replies come between, as one who reaches Claude through claude-bridge sees", async () => {
+    const { clock, service, ask, unavailable } = harness();
+    const claude = usage(5, "anthropic") as Extract<PlanReport, { windows: unknown }>;
+
+    await ask(noLogin("anthropic"), "anthropic");
+    service.replied(claude);
+    clock.advance(60_000);
+    await ask(noLogin("anthropic"), "anthropic");
+
+    expect(unavailable()).toStrictEqual([["anthropic", "no_login"]]);
+  });
+
+  it("logs a query that failed once in a row too, again on another reason, after usage, or after the extension's failure", async () => {
+    const { clock, ask, records } = harness();
+    const timeout = new PiRequestError("prompt", "timeout", "");
+    /** Asks a minute on, answering with `report`. */
+    const later = async (report: PlanReport | Error) => {
+      clock.advance(60_000);
+      await ask(report);
+    };
+
+    await ask(timeout);
+    await later(timeout);
+    await later(new PiRequestError("prompt", "exited", ""));
+    await later(new Error("bug"));
+    await later(new Error("bug"));
+    await later(usage(1));
+    await later(timeout);
+    await later({ provider: "openai-codex", failure: "http_500" });
+    await later(timeout);
+
+    const logged = new Set(["plan usage not asked", "plan usage unavailable"]);
+    expect(
+      records.filter((record) => logged.has(String(record["msg"]))).map(({ reason, failure }) => [reason, failure]),
+    ).toStrictEqual([
+      ["timeout", undefined],
+      ["exited", undefined],
+      ["unknown", undefined],
+      ["timeout", undefined],
+      [undefined, "http_500"],
+      ["timeout", undefined],
+    ]);
+  });
+
   it("keeps what it knew through a query that found no report or failed, logging only pi's command and reason", async () => {
     const { clock, service, records, heard, ask } = harness();
-    await ask(codex(39));
+    await ask(usage(39));
 
     clock.advance(60_000);
     await ask(null);
@@ -132,7 +290,7 @@ describe("createPlanUsage", () => {
     clock.advance(60_000);
     await ask(new Error("bug"));
 
-    expect(service.current("openai-codex")?.windows[0]?.usedPercent).toBe(39);
+    expect(percentOf(service.current())).toBe(39);
     expect(heard).toHaveLength(1);
     expect(
       records
@@ -151,31 +309,34 @@ describe("createPlanUsage", () => {
     ["failed", new Error("bug")],
   ])("drops what it knew once ten minutes old when a query %s", async (_how, report) => {
     const { clock, service, heard, ask } = harness();
-    await ask(codex(39));
+    await ask(usage(39));
     clock.advance(9 * 60_000);
     await ask(report);
-    const kept = service.current("openai-codex")?.windows[0]?.usedPercent;
+    const kept = percentOf(service.current());
 
     clock.advance(60_000);
     await ask(report);
 
-    expect([kept, service.current("openai-codex"), heard.map(percentOf)]).toStrictEqual([39, null, [39, null]]);
+    expect([kept, service.current(), heard.map(percentOf)]).toStrictEqual([39, [], [39, null]]);
   });
 
   it("tells listeners only of changes, and no longer once they unsubscribe", async () => {
     const { clock, service, heard, ask } = harness();
-    const later: (PlanUsage | null)[] = [];
-    const unsubscribe = service.subscribe("openai-codex", (usage) => later.push(usage));
+    const later: Plans[] = [];
+    const unsubscribe = service.subscribe((plans) => later.push(plans));
 
-    await ask(codex(39));
+    await ask(usage(39));
     clock.advance(60_000);
     // The same usage found again a minute on is a change: its time is new.
-    await ask(codex(39));
+    await ask(usage(39));
+    clock.advance(60_000);
+    // A provider not signed in that was not known changes nothing.
+    await ask({ provider: "anthropic", failure: "no_login" }, "anthropic");
     unsubscribe();
     clock.advance(60_000);
-    await ask(codex(41));
+    await ask(usage(41));
 
-    expect(heard.map((usage) => usage?.at)).toStrictEqual([1_000_000, 1_060_000, 1_120_000]);
-    expect(later.map((usage) => usage?.at)).toStrictEqual([1_000_000, 1_060_000]);
+    expect(heard.map((plans) => codexIn(plans)?.at)).toStrictEqual([1_000_000, 1_060_000, 1_180_000]);
+    expect(later.map((plans) => codexIn(plans)?.at)).toStrictEqual([1_000_000, 1_060_000]);
   });
 });

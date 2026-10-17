@@ -455,16 +455,37 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 回放系统消息后分到系统提示词（`content` 和 pi 自己的分段）、记忆文件、Skills、内置工具（含 `codemode`、`tool_search`）、MCP 工具（`mcp__服务器__工具` 按服务器、带工具数，`mcp_servers` 只算合计）、扩展（其余工具和分段）；名字像 MCP 但没有工具名的算扩展；分段被替换或删掉时它的块跟着换掉；从最近存了提示词的压缩开始；各列表按 token 从多到少、再按名字；和 pi 对录下的会话的估算一致 | `packages/pi/src/history/system-prompt.test.ts` | 已覆盖 |
 | 自动压缩预留：读 pi 全局设置，没有文件或没写时 16384，模型覆盖优先、再是 `reserveTokens`；`enabled` 按 pi 的读法为假（`false`、`0`、空字符串）时是"关"，`null`、没写、真值照常；pi 不收的值（非 JSON、负数、小数、字符串、`null`，普通设置不对时哪怕模型自己的对，模型的设置不是对象，关着也算）为未知 | `packages/pi/src/env/compaction.test.ts` | 已覆盖 |
 | 指标：每次读统计时一起读预留（读失败为未知）；按会话当前的模型读，换模型后按新的；家目录下的记忆文件写成 `~/…`（`/home/meow` 不算 `/home/me` 下）；收到套餐用量时推出去，没变不推 | `packages/host/src/sessions/session-metrics.test.ts`、`session-controller.test.ts` "compaction reserve" | 已覆盖 |
-| 协议：`context.parts`、`context.reserve`、`metrics.plan` 的格式；预留是数、`"off"` 或 `null`；百分比超过 100、超过 8 个窗口、不认识的服务商、缺预留的、预留是别的字的都拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 协议：`context.parts`、`context.reserve`、`metrics.plan` 的格式；预留是数、`"off"` 或 `null`；百分比超过 100、超过 8 个窗口、不认识的服务商、缺预留的、预留是别的字的都拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖（`metrics.plan` 在 M1.14 去掉，见"套餐总览"一节） |
 | 上下文卡片：宽 340px；对话消息在先（总量减其余各段，不小于 0），没有 token 的段不显示；每段色块、名称、个数、"~N"、占窗口一位小数的百分比；预留斜纹行、剩余空间行；"距自动压缩还剩 ~N"，自动压缩关着时写"自动压缩已关"、没有预留行，读不到设置时写"距自动压缩还剩 —"；记忆文件、工具、MCP 的行点了展开、再点收起，各自独立；"压缩会话"按了同 `/compact`，不能压缩时不可用；卡片和这一组之间的空隙属于卡片；没有分段时只显示总量 | `packages/ui/src/chat/status-bar.browser.test.tsx`、`status-figures.test.ts` "contextRows"、"windowShare" | 已覆盖（`/compact` 本身见"`/` 命令"一节） |
 | 套餐用量的解析：ChatGPT 的 `wham/usage` 读套餐名和两个窗口（重置时间秒转毫秒，没有百分比的窗口不要，一个窗口都没有不算）；Claude 的 `api/oauth/usage` 有 `limits[]` 时读 `session`、`weekly_all`、每个模型的 `weekly_scoped`（别的种类、没有百分比、没有模型名的不要，解析不了的重置时间为未知），没有时读旧的四个窗口里不为 `null` 的 | `packages/pi/src/plan/plan.test.ts` "codexUsage"、"claudeUsage" | 已覆盖 |
 | 宿主校验扩展报的用量：服务商只能是这两家，失败是小写短代码，最多 8 个窗口，百分比夹到 0–100，长度、时间不合格的（含超出安全整数的）为未知，模型名、套餐名截断；其余都不要；`atrium-plan` 只认扩展注册的，不进 `/` 菜单 | `plan.test.ts` "readPlanReport"、"isPlanQuery"；`packages/pi/src/catalog/commands.test.ts` | 已覆盖 |
 | 扩展查用量：ChatGPT 发往登录地址根下的 `/wham/usage`，带 pi 的头、`originator: pi`、bearer 和账户 id；Claude 只在订阅登录时发往 `/api/oauth/usage`，带 OAuth beta，API key 的报 `no_login`；没登录、查凭据失败、连不上、HTTP 错误、不是 JSON、不是用量各报原因代码，不带服务器原文；不跟随重定向（算连不上，Fast 查模型列表也是）；Claude 按模型分的窗口多于 8 个时只报前 8 个；不认识的服务商不报；扩展的接口和 pi 的对得上，和 Fast 合成一个入口 | `packages/pi/src/plan/extension.test.ts`、`plan.test.ts` "first eight windows"、`packages/pi/src/fast/extension.test.ts` "no redirect" | 已覆盖 |
 | 经会话的 pi 查：pi 列出扩展的 `atrium-plan` 才发，只要这个服务商的、合格的报告，pi 拒绝时也停止监听；真实 pi 加载合成的扩展，列出两个内部命令，查询不进对话、在应答前报出用量 | `packages/pi/src/plan/query.test.ts`；契约：`packages/pi/src/contract/plan.pi.test.ts`（夹具 `pi-1.1.0/plan.jsonl`） | 已覆盖 |
-| 宿主的用量服务：同一服务商每分钟最多问一次、一次只问一个，各服务商分开；`no_login` 立即丢掉，其余失败满 10 分钟才丢，只记服务商和代码；查不到报告、超时或查询出错同样满 10 分钟才丢，只记 pi 的命令和原因；只在变化时通知，取消订阅后不再通知 | `packages/host/src/sessions/plan-usage.test.ts` | 已覆盖 |
-| 会话跟随自己模型的服务商：pi 启动后和每次运行结束后问，换模型后跟到另一家或不跟，关闭时取消订阅、关闭途中 pi 最后的事件不再订阅，宿主停掉后重新启动时再跟；没有服务时什么都不显示 | `packages/host/src/sessions/session-controller.test.ts` "plan usage" | 已覆盖 |
-| 状态栏"套餐"：只在有用量时出现，显示用得最多的窗口，≥ 80% 变橙；卡片宽 300px，标题"ChatGPT Plus 用量"和查到的时间，每个窗口的名称、重置时间、百分比；没有新用量时查到的时间和重置时间每分钟随时钟走，卡片卸下时停；能在调节面板里关掉；窗口名、重置时间（一天内写几小时几分后，再远写周几几点）、查到的时间的写法 | `packages/ui/src/chat/status-bar.browser.test.tsx` "StatusBar's plan group"；`status-figures.test.ts` "the plan's figures" | 已覆盖 |
-| 端到端：ChatGPT 订阅的会话发完消息后状态栏出现"套餐 82%"，卡片列出两个窗口；用量是 pi 的登录经扩展查的，pi 启动时问了一次、之后一分钟内的运行没再问 | `apps/desktop/e2e/plan.spec.ts` | 已覆盖 |
+| 宿主的用量服务：同一服务商每分钟最多问一次、一次只问一个，各服务商分开；`no_login` 立即丢掉，其余失败满 10 分钟才丢，只记服务商和代码；查不到报告、超时或查询出错同样满 10 分钟才丢，只记 pi 的命令和原因；只在变化时通知，取消订阅后不再通知 | `packages/host/src/sessions/plan-usage.test.ts` | 已覆盖（M1.14 改成全宿主一份，见"套餐总览"一节） |
+| 会话跟随自己模型的服务商：pi 启动后和每次运行结束后问，换模型后跟到另一家或不跟，关闭时取消订阅、关闭途中 pi 最后的事件不再订阅，宿主停掉后重新启动时再跟；没有服务时什么都不显示 | `packages/host/src/sessions/session-controller.test.ts` "plan usage" | M1.14 改，见"套餐总览"一节 |
+| 状态栏"套餐"：只在有用量时出现，显示用得最多的窗口，≥ 80% 变橙；卡片宽 300px，标题"ChatGPT Plus 用量"和查到的时间，每个窗口的名称、重置时间、百分比；没有新用量时查到的时间和重置时间每分钟随时钟走，卡片卸下时停；能在调节面板里关掉；窗口名、重置时间（一天内写几小时几分后，再远写周几几点）、查到的时间的写法 | `packages/ui/src/chat/status-bar.browser.test.tsx` "StatusBar's plan group"；`status-figures.test.ts` "the plan's figures" | 已覆盖（卡片在 M1.14 改成按服务商分段，见"套餐总览"一节） |
+| 端到端：ChatGPT 订阅的会话发完消息后状态栏出现"套餐 82%"，卡片列出两个窗口；用量是 pi 的登录经扩展查的，pi 启动时问了一次、之后一分钟内的运行没再问 | `apps/desktop/e2e/plan.spec.ts` | 已覆盖（M1.14 加了设置里的一组，见"套餐总览"一节） |
+
+## 套餐总览（M1.14，协议 17，2026-10-16）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| Grok 用量的解析：`config.creditUsagePercent` 和 `currentPeriod` 读成一个窗口（长度 = `end − start`，`end` 是重置时间，带微秒和 `+00:00` 的时间也认），`productUsage` 每项一个 `parts`（没有百分比按 0，没有名字的不要，最多 16 个）；有周期没有总百分比时按 0；周期解析不了、结束不晚于开始时长度为未知；两样都没有的不是用量 | `packages/pi/src/plan/plan.test.ts` "grokUsage" | 已覆盖 |
+| 宿主校验扩展报的 `parts`：没报为空，名字截到 64 个字、百分比夹到 0–100，正好 16 个收；不是数组、多于 16 个、有一项没名字或百分比不是数的，整份不要；`xai` 是 Atrium 查的服务商 | `plan.test.ts` "readPlanReport"、"isPlanQuery, isPlanProvider" | 已覆盖 |
+| 扩展查 Grok：只在订阅登录时发往写死的 `cli-chat-proxy.grok.com/v1/billing?format=credits`（ADR-0011 允许的唯一地址），只带 bearer、`x-xai-token-auth: xai-grok-cli` 和 `accept`，不带 pi 给 `api.x.ai` 的头；API key 报 `no_login`；连不上、HTTP 错误、不是用量各报原因代码 | `packages/pi/src/plan/extension.test.ts` "Grok" | 已覆盖 |
+| 真实 pi：API key 登录的 `xai` 查询报 `no_login`、不发请求；ChatGPT 的报告带空的 `parts` | 契约：`packages/pi/src/contract/plan.pi.test.ts`（夹具 `pi-1.1.0/plan-xai-key.jsonl`、`plan.jsonl`） | 已覆盖 |
+| 宿主的用量服务全宿主一份：按 `openai-codex`、`anthropic`、`xai` 的顺序列出，不管谁先查到；监听者每次听到所有服务商的；同一服务商连续同样的失败只记一次日志，换了原因或中间查到过用量再记，各服务商分开；没查到过的服务商报 `no_login` 不算变化 | `packages/host/src/sessions/plan-usage.test.ts` | 已覆盖 |
+| 会话问所有订阅：pi 启动后和每次运行结束后经自己的 pi 问三家，不管当前模型，换模型不问，没有模型也问；宿主停掉后重新启动再问；停 pi 途中 pi 最后的事件不再问；会话指标里没有 `plan` | `packages/host/src/sessions/session-controller.test.ts` "plan usage" | 已覆盖 |
+| 推给所有连接：每个连接握手后紧跟 `welcome` 推一次 `plans_updated`（新宿主是空列表）；之后变了就推 | `packages/host/src/server/ws-server.host.test.ts` "right after its welcome"、`packages/host/src/chat.host.test.ts`（握手等到它） | 已覆盖 |
+| 协议 17：`plans_updated` 的格式（三家、空列表、带产品的窗口）；超过 100%、9 个窗口、不认识的服务商、4 份、窗口缺 `parts`、产品超过 100%、没名字、名字超过 64 个字、17 个产品都拒绝；会话指标再带 `plan` 拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 客户端：推来之前是空列表，之后每次整份换，格式不对的不要；不为它发命令 | `packages/client/src/atrium-client.test.ts` "plans" | 已覆盖 |
+| 状态栏"套餐"：有任何一家就出现；摘要取当前模型那家用得最多的窗口，≥ 80% 变橙；当前模型不是查到的订阅时只写"套餐"、不变色；那家没有窗口时写"套餐 —"；卡片标题"套餐用量"，每家一段（当前那家在前、标"当前"），Grok 的每周下面列各产品（名字拆开、没有自己的进度条）；时间每分钟随时钟走；调节面板的说明 | `packages/ui/src/chat/status-bar.browser.test.tsx` "StatusBar's plan group"；`status-figures.test.ts` "names a subscription"、"lists it first"、"run-together name"、"the status bar's groups" | 已覆盖 |
+| 设置 · 模型与账户的"套餐用量"：在订阅登录和 API Key 之间，每家一段、不标"当前"；还没有时写怎么来的；Atrium 加载不了 pi 的登录时也显示 | `packages/ui/src/settings/accounts-section.browser.test.tsx` "usage" | 已覆盖 |
+| Claude 的用量从回复读（ADR-0012）：扩展的 `after_provider_response` 钩子在模型是 `claude-bridge` 或 `anthropic` 时把 `anthropic-ratelimit-unified-5h/7d-utilization`（0–1）和 `-reset`（秒）报成 `atrium-plan-reply`；名字不分大小写，百分比留两位，没有利用率或不是数的窗口不要，两个都没有不报，别的服务商、没有模型的回复不报；钩子不改回复 | `packages/pi/src/plan/extension.test.ts` "reply hook"；`plan.test.ts` "replyUsage" | 已覆盖 |
+| 宿主收回复带来的用量：只认 `atrium-plan-reply` 里合格的用量（失败、别的状态键、不是 JSON 的不要），这个 pi 和重新启动后的 pi 都听；服务里不受每分钟一次的限制；回复带来的遇到 `no_login` 满 10 分钟才丢，查询查到的仍立即丢 | `plan.test.ts` "planReplyOf"；`packages/host/src/sessions/session-controller.test.ts` "replies bring"；`plan-usage.test.ts` "a reply brought" | 已覆盖 |
+| 三方审查后补（2026-10-17）：Grok 的总百分比或产品百分比在却不是数时整份不是用量（不当 0）；回复报告只收 `anthropic`、没有套餐名、没有产品拆分的；回复只替换长度相同、不分模型的窗口，按模型的窗口留着、没有的加在后面；回复不清上一次的失败，`no_login` 夹着回复也只记一次；查询出错按 pi 的命令和原因和扩展的失败一起去重 | `packages/pi/src/plan/plan.test.ts` "not a number"、"planReplyOf"；`packages/host/src/sessions/plan-usage.test.ts` "merges a reply"、"once in a row though replies"、"a query that failed once in a row" | 已覆盖 |
+| 服务商按订阅归并：`claude-bridge` 算 Claude、`openai` 算 ChatGPT，其余是自己（`constructor` 之类的名字也不误认）；摘要、排序和"当前"都按归并后的 | `packages/ui/src/chat/status-figures.test.ts` "claude-bridge's models"；`status-bar.browser.test.tsx` "through claude-bridge" | 已覆盖 |
+| 端到端：ChatGPT 订阅的会话运行后，状态栏卡片是"套餐用量"加标了"当前"的 ChatGPT 一段；设置 · 模型与账户里同一段、不标"当前"；用量仍只问了一次 | `apps/desktop/e2e/plan.spec.ts` | 已覆盖 |
 
 ## 子对话与子代理（M1.15，2026-10-17）
 

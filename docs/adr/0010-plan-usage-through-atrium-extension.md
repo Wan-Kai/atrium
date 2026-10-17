@@ -1,6 +1,6 @@
 # ADR-0010：套餐用量经 Atrium 自带的 pi 扩展查询
 
-- **状态**：已接受
+- **状态**：已接受（第 1 条"只发往 pi 本来就请求的服务器"、第 3 条"当前模型是这两家之一时才问"被 [ADR-0011](0011-plan-overview-all-subscriptions.md) 取代）
 - **日期**：2026-10-15
 - **相关**：[ADR-0008](0008-atrium-own-pi-extension-for-fast.md)、[SPEC-0001](../specs/0001-mvp1-single-session-chat.md)"状态栏""M1.13 的上下文细分与套餐用量"、[security.md](../architecture/security.md)、[pi-internals](../research/pi-internals.md) §5
 

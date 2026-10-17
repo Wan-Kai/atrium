@@ -1,9 +1,10 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
-import type { ModelRef, SetupProvider } from "@atrium/protocol";
+import type { ModelRef, Plans, SetupProvider } from "@atrium/protocol";
 import { CaretDown, Key, Plus } from "../design/icons";
 import { useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
+import { PlanSections } from "../chat/plan-sections";
 import { groupByProvider, providerOf } from "../chat/model-choice";
 import { KeyForm, type LoginFlow, SignedIn, SubscriptionList, useLoginFlow } from "../setup/login-flow";
 import { isLastCredential, keyCandidates, keyedProviders } from "../setup/providers";
@@ -16,15 +17,16 @@ interface Removing {
 }
 
 /**
- * The settings' models and accounts: subscriptions, API keys and the title model.
+ * The settings' models and accounts: subscriptions, their usage, API keys and the title model.
  *
  * @remarks
  * SPEC-0001 ("设置 · 模型与账户"): the same subscription list and login as first launch, with
- * "退出" on a signed-in row; API keys listed without the key, a stored one removable and one from
- * the environment not; logging out and removing a key ask first only when it is the last
+ * "退出" on a signed-in row; every subscription's usage the host found, as the status bar's plan
+ * card shows it ("M1.14 的套餐总览"); API keys listed without the key, a stored one removable and
+ * one from the environment not; logging out and removing a key ask first only when it is the last
  * credential. Credentials live in pi, so the terminal's pi sees the same.
  *
- * @sideEffects Subscribes to the client's setup and login state; sends login commands and
+ * @sideEffects Subscribes to the client's setup, login state and plans; sends login commands and
  * `logout`; opens addresses; may ask for the chats' models.
  * @param props - The client and how to open an address.
  * @returns The section.
@@ -37,6 +39,7 @@ export function AccountsSection({
   readonly openUrl: (url: string) => void;
 }) {
   const setup = useStore(client.setup);
+  const plans = useStore(client.plans);
   const flow = useLoginFlow(client, openUrl);
   const [removing, setRemoving] = useState<Removing | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -50,12 +53,15 @@ export function AccountsSection({
   }
   if (login.state === "unavailable") {
     return (
-      <Group title="登录">
-        <p className="px-3 text-[length:var(--fs-meta)] text-[var(--text-muted)]">
-          Atrium 加载不了你装的 pi，没法在这里登录。在终端运行 <code className="font-mono">pi</code>，输入{" "}
-          <code className="font-mono">/login</code>。
-        </p>
-      </Group>
+      <>
+        <Group title="登录">
+          <p className="px-3 text-[length:var(--fs-meta)] text-[var(--text-muted)]">
+            Atrium 加载不了你装的 pi，没法在这里登录。在终端运行 <code className="font-mono">pi</code>，输入{" "}
+            <code className="font-mono">/login</code>。
+          </p>
+        </Group>
+        <PlanGroup plans={plans} />
+      </>
     );
   }
   const providers = login.providers;
@@ -151,6 +157,7 @@ export function AccountsSection({
           }
         />
       </Group>
+      <PlanGroup plans={plans} />
       <Group
         title="API Key"
         description="没有订阅也可以用服务商的 API Key。这里只显示保存过 Key 的服务商，不显示 Key 本身。"
@@ -186,6 +193,32 @@ export function AccountsSection({
       </Group>
       <TitleModel client={client} />
     </>
+  );
+}
+
+/**
+ * "套餐用量": every subscription's usage the host found, or how it comes.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.14 的套餐总览"): as the status bar's plan card draws it, with none marked
+ * "当前", for the settings are no session's. Sessions' pi find it, not the login program, so it
+ * shows when Atrium cannot log in through pi too.
+ *
+ * @sideEffects Draws itself again every minute while it lists usage.
+ * @param props - Every subscription's usage found.
+ * @returns The group.
+ */
+function PlanGroup({ plans }: { readonly plans: Plans }) {
+  return (
+    <Group title="套餐用量" description="各订阅还剩多少、什么时候重置，借 pi 的登录查，每分钟最多一次。">
+      <div className="px-3 text-[length:var(--fs-meta)] text-[var(--text-muted)]">
+        {plans.length === 0 ? (
+          <p>打开会话后，Atrium 会借 pi 的登录查各订阅的用量</p>
+        ) : (
+          <PlanSections plans={plans} provider={null} />
+        )}
+      </div>
+    </Group>
   );
 }
 

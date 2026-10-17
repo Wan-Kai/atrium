@@ -38,7 +38,7 @@ function chatgptBackend(response: ServerResponse, request: IncomingMessage): voi
   response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(body));
 }
 
-test("shows the ChatGPT subscription's usage in the status bar, asked through Atrium's extension with pi's login", async () => {
+test("shows the ChatGPT subscription's usage in the status bar and the settings, asked through Atrium's extension with pi's login", async () => {
   const backend = await startModelListServer(chatgptBackend);
   const pi = await fauxPiEnvironment({
     // As ChatGPT's subscription.
@@ -58,11 +58,20 @@ test("shows the ChatGPT subscription's usage in the status bar, asked through At
     const group = window.getByRole("button", { name: "套餐 82%" });
     await expect(group).toBeVisible({ timeout: 30_000 });
     await group.hover();
-    const card = window.getByRole("tooltip").filter({ hasText: "ChatGPT Plus 用量" });
+    const card = window.getByRole("tooltip").filter({ hasText: "套餐用量" });
     await expect(card).toBeVisible();
-    await expect(card).toHaveText(
-      /^ChatGPT Plus 用量刚刚5 小时窗口4 小时 (29|30) 分后重置39%每周周. \d\d:\d\d 重置82%$/,
-    );
+    const chatgpt = /ChatGPT Plus(当前)?刚刚5 小时窗口4 小时 (29|30) 分后重置39%每周周. \d\d:\d\d 重置82%/u;
+    // The session's subscription, marked; Claude and Grok are not signed in, so not listed (ADR-0011).
+    await expect(card).toHaveText(new RegExp(`^套餐用量${chatgpt.source}$`, "u"));
+    await expect(card.getByText("当前", { exact: true })).toBeVisible();
+
+    // The settings list the same usage, the session's not marked: the settings are no session's.
+    await window.keyboard.press("Meta+Comma");
+    const settings = window.getByRole("dialog", { name: "设置" });
+    await settings.getByRole("navigation", { name: "设置分类" }).getByRole("button", { name: "模型与账户" }).click();
+    const listed = settings.getByRole("region", { name: "套餐用量" });
+    await expect(listed.getByRole("region", { name: "ChatGPT Plus" })).toHaveText(chatgpt);
+    await expect(listed.getByText("当前", { exact: true })).toHaveCount(0);
 
     const usage = backend.requests.filter(({ url }) => url.startsWith("/backend-api/wham/usage"));
     // Asked once the session's pi started; the run that followed within a minute did not ask again.
