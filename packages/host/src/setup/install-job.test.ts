@@ -71,6 +71,22 @@ function alive(pid: number): boolean {
   }
 }
 
+/**
+ * Waits until a process is gone.
+ *
+ * @remarks
+ * A process killed after its parent exited stays a zombie until launchd reaps it, and signal 0
+ * still finds it until then; on a loaded machine that can outlast the job's end. Three seconds
+ * are far more than reaping takes and far less than the `sleep 60` a process that was not killed
+ * would still be in, and within the test's own five.
+ *
+ * @sideEffects none
+ * @param pid - The process.
+ */
+async function gone(pid: number): Promise<void> {
+  await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 3000 });
+}
+
 describe("runJob", () => {
   it("runs the command in the folder and environment given, passing on all it writes", async () => {
     const { end, output, dir, open } = await sh('echo "$GREETING"; pwd; echo oops >&2; exit 3', {
@@ -114,7 +130,7 @@ describe("runJob", () => {
     stop.abort();
 
     expect(await end).toStrictEqual({ started: true, exitCode: null });
-    expect(alive(sleeper)).toBe(false);
+    await gone(sleeper);
     expect(open()).toBe(0);
   });
 
@@ -130,7 +146,7 @@ describe("runJob", () => {
     stop.abort();
 
     expect(await end).toStrictEqual({ started: true, exitCode: null });
-    expect(alive(sleeper)).toBe(false);
+    await gone(sleeper);
     expect(open()).toBe(0);
   });
 
@@ -148,7 +164,7 @@ describe("runJob", () => {
     stop.abort();
 
     expect(await end).toStrictEqual({ started: true, exitCode: null });
-    expect(alive(sleeper)).toBe(false);
+    await gone(sleeper);
     expect(open()).toBe(0);
   });
 
@@ -171,7 +187,7 @@ describe("runJob", () => {
     const { end, output } = await sh("(trap '' TERM; exec sleep 60) & echo $!");
 
     expect(await end).toStrictEqual({ started: true, exitCode: 0 });
-    expect(alive(Number(output.join("")))).toBe(false);
+    await gone(Number(output.join("")));
   });
 
   it("stops waiting for its output a while after it exits, when a process of another group holds it", async () => {
