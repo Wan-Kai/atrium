@@ -172,7 +172,8 @@ const KIND_NAMES: Readonly<Record<CommandKind, string>> = {
  * still compressed or uploaded. A file found for an earlier query is not chosen while the new
  * query's answer is on its way. While `held`, the box takes text but sends nothing, until the
  * new-workspace page's first message has gone (SPEC-0001, "M1.11 的新建工作区"). The bottom bar has the "+" menu on the left and the model button and the send button on
- * the right; the button at the top right opens the box tall.
+ * the right; the button at the top right opens the box tall. A press anywhere in the box (typing,
+ * stopping, sending) leaves a panel the capsules above opened open (design-language, "胶囊点开的面板").
  *
  * @sideEffects Calls the handlers as the user acts; reads and writes the draft in storage; asks
  * for commands and files while their lists are open.
@@ -687,7 +688,8 @@ export function Composer({
 
   return (
     <div className="mx-auto w-full max-w-[var(--column)] px-6 pb-1">
-      <div className="relative">
+      {/* A press in here leaves the capsule bar's panel open (`CapsuleUnit`). */}
+      <div className="relative" data-capsule-dock>
         {above}
         {listOpen ? (
           <SuggestionList

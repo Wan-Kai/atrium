@@ -13,7 +13,7 @@ import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer, view
 import { pageNotices, showNotice } from "../state/session-notices";
 import { pageNewChild } from "../children/new-child";
 import { caughtDownloads } from "../test/downloads";
-import { fakeClient, session, workspace } from "../test/fake-client";
+import { READY_SETUP, fakeClient, session, workspace } from "../test/fake-client";
 import { ConversationArea, describeModelError, describeSendError } from "./conversation-area";
 import { Composer } from "./composer";
 import { UserBubble } from "./messages";
@@ -1630,6 +1630,42 @@ describe("ConversationArea's model button", () => {
     await expect.element(chip).toHaveTextContent("Claude Opus 5.5高");
     await expect.element(chip).toHaveAttribute("data-full");
     expect(modelCalls).toStrictEqual(["loadModels wks_000000000000000a"]);
+  });
+
+  it("tags a provider on a plan as the setup's login state says", async () => {
+    const levels: ThinkingLevel[] = ["high"];
+    const gpt = { ...OPUS, providerId: "openai", modelId: "gpt-5.5", name: "GPT-5.5", thinkingLevels: levels };
+    const { client, setup } = fakeClient({}, { models: { ...LIST, models: [gpt] } });
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={CHAT} sessionId="s1" create={noCreate} />),
+    );
+    client.session("s1")?.setState({ model: { providerId: "openai", modelId: "gpt-5.5", thinkingLevel: "high" } });
+    const chip = screen.getByRole("button", { name: /模型与推理强度/ });
+    await expect.element(chip).toHaveTextContent("GPT-5.5高");
+    await expect.element(chip.getByRole("img", { name: "走套餐" })).not.toBeInTheDocument();
+
+    setup.setState({
+      status: "ready",
+      state: {
+        ...READY_SETUP,
+        login: {
+          state: "ready",
+          providers: [
+            {
+              providerId: "openai",
+              name: "OpenAI",
+              oauth: null,
+              apiKey: true,
+              signedIn: { method: "oauth", stored: true },
+            },
+          ],
+        },
+      },
+      error: null,
+    });
+
+    await expect.element(chip).toHaveTextContent("套餐GPT-5.5高");
+    await expect.element(chip.getByRole("img", { name: "走套餐" })).toBeVisible();
   });
 
   it("switches the session's model and thinking level", async () => {

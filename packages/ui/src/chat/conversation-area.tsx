@@ -217,10 +217,11 @@ type Act = (command: () => Promise<unknown>, describe?: (error: unknown) => stri
  * makes pi look again. Before a session exists, the button shows the model a new session
  * will start on, and choosing creates the session first, as sending does. The Fast button shows
  * only while the model shown has Fast, with the session's Fast, or before a session exists the
- * one chosen last; pressing it creates the session first too (SPEC-0001, "Fast").
+ * one chosen last; pressing it creates the session first too (SPEC-0001, "Fast"). The setup's
+ * login state tells the picker which providers are on a plan (SPEC-0001, "输入框").
  *
- * @sideEffects Subscribes to the container's models and to the preferences; asks for the models
- * when the panel opens; sends model and Fast commands through `act`.
+ * @sideEffects Subscribes to the container's models, the preferences and the login state; asks
+ * for the models when the panel opens; sends model and Fast commands through `act`.
  * @param props - The client, the container, the session's model and Fast, whether it is disabled,
  * the session to change, how to run a command, and the latest request to open the panel.
  * @returns The buttons.
@@ -248,6 +249,7 @@ function SessionModelPicker({
   const key = workspaceOf(containerId);
   const list = useStore(client.models(key));
   const preferences = useStore(client.index, (index) => index.preferences);
+  const login = useStore(client.setup, (setup) => setup.state?.login ?? null);
   const shown = shownModel(model, preferences, list);
   return (
     <>
@@ -262,6 +264,7 @@ function SessionModelPicker({
       <ModelPicker
         shown={shown}
         list={list}
+        login={login}
         disabled={disabled}
         onOpen={() => {
           // Fire and forget: see above.

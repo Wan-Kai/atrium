@@ -1,5 +1,5 @@
 import { CommandError, type ModelListView } from "@atrium/client";
-import type { CatalogModel, ModelRef, ThinkingLevel } from "@atrium/protocol";
+import type { CatalogModel, ModelRef, SetupLogin, ThinkingLevel } from "@atrium/protocol";
 import { ArrowClockwise, CaretDown, Check, Lightning } from "../design/icons";
 import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { DotSeedContext, paintDots, reducedMotion, sweepProgress } from "../design/dots";
@@ -12,6 +12,7 @@ import {
   formatTokens,
   groupByProvider,
   levelHint,
+  onPlan,
   providerOf,
 } from "./model-choice";
 
@@ -33,6 +34,8 @@ export interface ModelPickerProps {
   readonly shown: ShownModel | null;
   /** The container's models. */
   readonly list: ModelListView;
+  /** The setup's login state, which tells whether OpenAI and xAI are on a plan; `null` while unknown. */
+  readonly login: SetupLogin | null;
   /** While a stop waits for pi, nothing can change. */
   readonly disabled: boolean;
   /** The panel opened: the list should be asked for. */
@@ -59,16 +62,18 @@ export interface ModelPickerProps {
  * Opening asks for the list, which the host answers from its cache; "刷新" makes pi look again,
  * with the old list shown meanwhile. Escape and a click outside close it. A new `request` opens a
  * part as its shortcut does (SPEC-0001, "M1.11 的 `/` 命令"); the one there as the button appears
- * was meant for an earlier one.
+ * was meant for an earlier one. A provider on a subscription plan carries a "套餐" tag on its icon,
+ * in the panel and on the button, and after its name above its models (SPEC-0001, "输入框").
  *
  * @sideEffects Listens for ⌘⇧I and ⌘⇧E on the window; while open, for clicks and Escape on the
  * document; draws the dots on a canvas; calls the handlers; opens on a new request.
- * @param props - The model, the list, whether it is disabled, and what to do.
+ * @param props - The model, the list, the login state, whether it is disabled, and what to do.
  * @returns The button and, when open, the panel.
  */
 export function ModelPicker({
   shown,
   list,
+  login,
   disabled,
   onOpen,
   onRefresh,
@@ -188,7 +193,12 @@ export function ModelPicker({
           <span className="atrium-model-text pl-1.5">选择模型</span>
         ) : (
           <>
-            <ProviderIcon providerId={shown.providerId} size={20} />
+            <span className="relative inline-flex shrink-0">
+              <ProviderIcon providerId={shown.providerId} size={20} />
+              {onPlan(shown.providerId, login) ? (
+                <PlanTag className="-right-2 -bottom-1 text-[var(--surface-1)] shadow-[0_0_0_1.5px_var(--surface-1)]" />
+              ) : null}
+            </span>
             <span className="atrium-model-text max-w-[180px] truncate font-medium">{shown.name}</span>
             {levelName === null ? null : (
               <span className="atrium-model-text atrium-model-level text-[length:var(--fs-sm)] text-[var(--text-muted)]">
@@ -204,6 +214,7 @@ export function ModelPicker({
           mode={mode}
           shown={shown}
           list={list}
+          login={login}
           onRefresh={onRefresh}
           onChooseModel={(model) => {
             setMode(null);
@@ -223,13 +234,14 @@ export function ModelPicker({
  * See `ModelPicker`.
  *
  * @sideEffects Calls the handlers.
- * @param props - Which parts to show, the model, the list and what to do.
+ * @param props - Which parts to show, the model, the list, the login state and what to do.
  * @returns The panel.
  */
 function ModelPanel({
   mode,
   shown,
   list,
+  login,
   onRefresh,
   onChooseModel,
   onChooseLevel,
@@ -237,6 +249,7 @@ function ModelPanel({
   readonly mode: PanelMode;
   readonly shown: ShownModel | null;
   readonly list: ModelListView;
+  readonly login: SetupLogin | null;
   readonly onRefresh: () => void;
   readonly onChooseModel: (model: ModelRef) => void;
   readonly onChooseLevel: (level: ThinkingLevel) => void;
@@ -249,7 +262,7 @@ function ModelPanel({
       className="absolute right-0 bottom-full z-30 mb-2 w-[372px] rounded-[var(--r-card)] bg-[var(--popover)] p-2 text-[var(--text-2)] shadow-[var(--float-shadow)]"
     >
       {mode === "effort" ? null : (
-        <ModelList shown={shown} list={list} onRefresh={onRefresh} onChoose={onChooseModel} />
+        <ModelList shown={shown} list={list} login={login} onRefresh={onRefresh} onChoose={onChooseModel} />
       )}
       {mode === "all" ? <div className="mx-1.5 mt-2 mb-0.5 h-px bg-[var(--line-soft)]" /> : null}
       {mode === "model" || shown === null || levels.length === 0 ? null : (
@@ -299,17 +312,19 @@ function defaultLevel(levels: readonly ThinkingLevel[]): ThinkingLevel {
  * A model with Fast has a small bolt after its name (SPEC-0001, "Fast").
  *
  * @sideEffects Calls the handlers.
- * @param props - The model, the list and what to do.
+ * @param props - The model, the list, the login state and what to do.
  * @returns The list.
  */
 function ModelList({
   shown,
   list,
+  login,
   onRefresh,
   onChoose,
 }: {
   readonly shown: ShownModel | null;
   readonly list: ModelListView;
+  readonly login: SetupLogin | null;
   readonly onRefresh: () => void;
   readonly onChoose: (model: ModelRef) => void;
 }) {
@@ -317,7 +332,7 @@ function ModelList({
   const detail = list.error instanceof CommandError ? list.error.params?.["detail"] : undefined;
   let body;
   if (list.models.length > 0) {
-    body = <ProviderColumns shown={shown} groups={groupByProvider(list.models)} onChoose={onChoose} />;
+    body = <ProviderColumns shown={shown} groups={groupByProvider(list.models)} login={login} onChoose={onChoose} />;
   } else if (list.status === "failed") {
     body = (
       <div className="px-2.5 py-2 text-[length:var(--fs-meta)]">
@@ -375,19 +390,24 @@ function ModelList({
  * provider, or the first when there is none; a click on another provider's icon shows its models,
  * hovering does not. The models' column keeps its height, so the panel does not jump. A
  * provider's name shows to the left of its icon while it is hovered or focused, as the column has
- * room only for icons. A model with Fast has a small bolt after its name (SPEC-0001, "Fast").
+ * room only for icons. A model with Fast has a small bolt after its name (SPEC-0001, "Fast"). A
+ * provider on a plan has the "套餐" tag at the bottom right of its icon, clear of the current
+ * model's dot at the top right, and "套餐" after its name above its models.
  *
  * @sideEffects Calls `onChoose`.
- * @param props - The model shown, the models by provider, and what choosing one does.
+ * @param props - The model shown, the models by provider, the login state, and what choosing one
+ * does.
  * @returns The columns.
  */
 function ProviderColumns({
   shown,
   groups,
+  login,
   onChoose,
 }: {
   readonly shown: ShownModel | null;
   readonly groups: readonly { readonly providerId: string; readonly models: readonly CatalogModel[] }[];
+  readonly login: SetupLogin | null;
   readonly onChoose: (model: ModelRef) => void;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
@@ -449,6 +469,9 @@ function ProviderColumns({
                   className="absolute top-1.5 right-[7px] size-1.5 rounded-full bg-[var(--tint)] shadow-[0_0_0_1.5px_var(--popover)]"
                 />
               ) : null}
+              {onPlan(providerId, login) ? (
+                <PlanTag className="right-px bottom-[3px] text-[var(--popover)] shadow-[0_0_0_1.5px_var(--popover)]" />
+              ) : null}
             </button>
           );
         })}
@@ -458,6 +481,7 @@ function ProviderColumns({
           <b className="text-[length:var(--fs-sm)] font-medium text-[var(--text-2)]">
             {providerOf(active.providerId).name}
           </b>
+          {onPlan(active.providerId, login) ? <span className="ml-0.5 text-[var(--tint)]">套餐</span> : null}
           {models.length} 个模型
         </div>
         {models.map((model) => {
@@ -542,6 +566,30 @@ function ProviderIcon({ providerId, size }: { readonly providerId: string; reado
       className="inline-flex shrink-0 items-center justify-center rounded-[6px] bg-[var(--surface-3)] text-[10px] font-semibold text-[var(--text-2)]"
     >
       {providerId.slice(0, 1).toUpperCase()}
+    </span>
+  );
+}
+
+/**
+ * The small "套餐" tag on the icon of a provider on a subscription plan.
+ *
+ * @remarks
+ * design-language ("走套餐的签"): blue, its text and the ring that sets it off the icon in the
+ * colour of what it sits on, which the caller gives with where it sits. An image named "走套餐",
+ * as the current model's dot is named "当前模型", so it is announced as a whole.
+ *
+ * @sideEffects none
+ * @param props - Its place, text colour and ring, as classes.
+ * @returns The tag.
+ */
+function PlanTag({ className }: { readonly className: string }) {
+  return (
+    <span
+      role="img"
+      aria-label="走套餐"
+      className={`pointer-events-none absolute h-3 rounded-[4px] bg-[var(--tint)] px-[2.5px] text-[8px] leading-3 font-semibold tracking-[-0.2px] whitespace-nowrap ${className}`}
+    >
+      套餐
     </span>
   );
 }

@@ -1,10 +1,10 @@
 import { CommandError } from "@atrium/client";
-import type { CommandResult } from "@atrium/protocol";
+import type { CatalogModel, CommandResult } from "@atrium/protocol";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
-import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
+import { PROJECT, READY_SETUP, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { Workbench } from "./workbench";
 
 const LOCAL = "wks_000000000000000a";
@@ -711,6 +711,36 @@ describe("The new-workspace page (M1.11)", () => {
     await screen.getByTestId("workspace-row").filter({ hasText: "main" }).click();
 
     await vi.waitFor(() => expect(calls).toContain("clearAttention s1"));
+  });
+
+  it("tags the model button of a provider on a plan as the setup's login state says", async () => {
+    const grok = {
+      providerId: "xai",
+      modelId: "grok-4.7",
+      name: "Grok 4.7",
+      contextWindow: 1_000_000,
+      maxOutput: 128_000,
+      supportsImage: true,
+      thinkingLevels: ["high"],
+      fast: null,
+    } satisfies CatalogModel;
+    const signedIn = { method: "oauth", stored: true } as const;
+    const { screen } = await newWorkspacePage({
+      models: {
+        status: "ready",
+        models: [grok],
+        defaultModel: { providerId: "xai", modelId: "grok-4.7" },
+        error: null,
+      },
+      setup: {
+        ...READY_SETUP,
+        login: { state: "ready", providers: [{ providerId: "xai", name: "xAI", oauth: null, apiKey: true, signedIn }] },
+      },
+    });
+
+    const chip = screen.getByRole("button", { name: /模型与推理强度/ });
+    await expect.element(chip).toHaveTextContent("套餐Grok 4.7");
+    await expect.element(chip.getByRole("img", { name: "走套餐" })).toBeVisible();
   });
 
   it("sets the model chosen on the page on the session, before the message", async () => {

@@ -47,6 +47,7 @@ import { createFileSearch } from "./files/file-search";
 import { createWorkspaceFiles } from "./files/workspace-files";
 import { createLayouts } from "./sessions/layouts";
 import { createModelLister } from "./sessions/model-lister";
+import { withModelRules } from "./sessions/model-rules";
 import { createSessionCatalog } from "./sessions/session-catalog";
 import { createPlanUsage } from "./sessions/plan-usage";
 import { createSessionManager } from "./sessions/session-manager";
@@ -252,19 +253,32 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
   });
+  const logins = createLogins({
+    worker: config.loginWorker,
+    deps: (env) => createPiDeps({ clock, resources, logger, env }),
+    logger,
+  });
   const models = createModelCatalog({
-    query: async (dir, signal) => {
-      const found = await toolbox.current();
-      if (found?.pi.status !== "ready") {
-        throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
-      }
-      return queryModels(
-        { piPath: found.pi.piPath, args: [], cwd: dir },
-        createPiDeps({ clock, resources, logger, env: found.env }),
-        signal,
-        config.fastExtension === undefined ? {} : { fastExtension: config.fastExtension },
-      );
-    },
+    // Without the models paid by use or reaching a subscription twice (SPEC-0001, "输入框 · 模型选择").
+    query: withModelRules(
+      async (dir, signal) => {
+        const found = await toolbox.current();
+        if (found?.pi.status !== "ready") {
+          throw new CommandError("pi_unavailable", { status: found?.pi.status ?? "unknown" });
+        }
+        return queryModels(
+          { piPath: found.pi.piPath, args: [], cwd: dir },
+          createPiDeps({ clock, resources, logger, env: found.env }),
+          signal,
+          config.fastExtension === undefined ? {} : { fastExtension: config.fastExtension },
+        );
+      },
+      async () =>
+        logins.status(await toolbox.current()).catch((error: unknown) => {
+          logger.warn({ err: error }, "login state not read for the model list");
+          throw error;
+        }),
+    ),
     clock,
   });
   // The title model chosen in the settings, when pi lists it; it names new worktrees' branches too.
@@ -454,11 +468,6 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     },
   });
 
-  const logins = createLogins({
-    worker: config.loginWorker,
-    deps: (env) => createPiDeps({ clock, resources, logger, env }),
-    logger,
-  });
   const piLatest = createPiLatest({
     // Through the proxy pi would use, as pi looks.
     lookup: async (signal) =>

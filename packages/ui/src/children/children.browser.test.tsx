@@ -40,6 +40,27 @@ function child(sessionId: string, parent: string, fields: Parameters<typeof sess
   });
 }
 
+/**
+ * Where an element is on the page, in whole pixels.
+ *
+ * @remarks
+ * The edges the tests compare; rounding keeps sub-pixel layout from mattering.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its top, right, bottom, left and width.
+ */
+function edges(element: Element) {
+  const box = element.getBoundingClientRect();
+  return {
+    width: Math.round(box.width),
+    top: Math.round(box.top),
+    right: Math.round(box.right),
+    bottom: Math.round(box.bottom),
+    left: Math.round(box.left),
+  };
+}
+
 /** The parent. */
 const MAIN = session({ sessionId: "main", containerId: W, name: "重构登录" });
 
@@ -115,7 +136,63 @@ describe("ChildCapsule", () => {
     await userEvent.click(screen.getByText("补测试"));
 
     await vi.waitFor(() => expect(calls).toStrictEqual(["detachSession 日志排查", "openSession 补测试"]));
-    expect(screen.container.querySelector('[role="dialog"]')).toBeNull();
+    await expect.poll(() => screen.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("floats its list 8px above the capsule, its left at the capsule's, at least 300px wide", async () => {
+    const { client } = fakeClient({ sessions: [MAIN, child("a", "main")] });
+    const screen = await render(
+      <div className="relative mt-[400px] flex w-[680px]">
+        <span className="w-[120px] flex-none" />
+        <ChildCapsule client={client} sessionId="main" />
+      </div>,
+    );
+    const capsule = screen.getByRole("button", { name: /^子对话 1/ });
+    await userEvent.click(capsule);
+    const list = edges(screen.getByRole("dialog", { name: "子对话" }).element());
+    const cap = edges(capsule.element());
+
+    expect([cap.top - list.bottom, list.left - cap.left, list.width]).toStrictEqual([8, 0, 300]);
+  });
+
+  it("keeps its list within the bar however long a child's name", async () => {
+    const { client } = fakeClient({ sessions: [MAIN, child("名字很长".repeat(30), "main")] });
+    const screen = await render(
+      <div className="relative mt-[400px] flex w-[680px]" data-testid="bar">
+        <span className="w-[240px] flex-none" />
+        <ChildCapsule client={client} sessionId="main" />
+      </div>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^子对话 1/ }));
+
+    expect(edges(screen.getByRole("dialog", { name: "子对话" }).element()).right).toBe(
+      edges(screen.getByTestId("bar").element()).right,
+    );
+  });
+
+  it("closes its list on a press outside it and on Escape", async () => {
+    const { client } = fakeClient(LISTED);
+    const screen = await render(
+      <div>
+        <button type="button">外面</button>
+        <div className="relative mt-[400px] w-[680px]">
+          <ChildCapsule client={client} sessionId="main" />
+        </div>
+      </div>,
+    );
+    const capsule = screen.getByRole("button", { name: /^子对话 3/ });
+    await userEvent.click(capsule);
+    await userEvent.click(screen.getByRole("button", { name: "「日志排查」的操作" }));
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.click(screen.getByRole("button", { name: "外面" }));
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(() => screen.container.querySelector('[role="dialog"]')).toBeNull();
+    await userEvent.click(capsule);
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(() => screen.container.querySelector('[role="dialog"]')).toBeNull();
   });
 });
 

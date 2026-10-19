@@ -1,7 +1,8 @@
 import type { ModelListView } from "@atrium/client";
-import type { CatalogModel, ModelRef, Preferences, SessionModel, ThinkingLevel } from "@atrium/protocol";
+import type { CatalogModel, ModelRef, Preferences, SessionModel, SetupLogin, ThinkingLevel } from "@atrium/protocol";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
+import deepseekLogo from "../design/brand/deepseek.svg";
 import kimiLogo from "../design/brand/kimi.png";
 import openaiLogo from "../design/brand/openai.svg";
 import openrouterLogo from "../design/brand/openrouter.svg";
@@ -153,6 +154,7 @@ function trim(value: number): string {
 /** Providers the panel names and shows the official icon of (brand/SOURCES.md). */
 const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo: string }>> = {
   anthropic: { name: "Anthropic", logo: claudeLogo },
+  "claude-bridge": { name: "Claude 订阅", logo: claudeLogo },
   openai: { name: "OpenAI", logo: openaiLogo },
   "openai-codex": { name: "ChatGPT 订阅", logo: openaiLogo },
   "azure-openai-responses": { name: "Azure OpenAI", logo: openaiLogo },
@@ -162,6 +164,7 @@ const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo:
   moonshotai: { name: "Kimi", logo: kimiLogo },
   "moonshotai-cn": { name: "Kimi", logo: kimiLogo },
   "kimi-coding": { name: "Kimi Coding", logo: kimiLogo },
+  deepseek: { name: "DeepSeek", logo: deepseekLogo },
 };
 
 /**
@@ -177,6 +180,34 @@ const PROVIDERS: Readonly<Record<string, { readonly name: string; readonly logo:
  */
 export function providerOf(providerId: string): { readonly name: string; readonly logo: string | null } {
   return PROVIDERS[providerId] ?? { name: providerId, logo: null };
+}
+
+/** Providers whose use always counts against a subscription plan. */
+const ALWAYS_ON_PLAN: ReadonlySet<string> = new Set(["claude-bridge", "openai-codex", "github-copilot"]);
+
+/** Providers on a plan only while signed in through OAuth, with a subscription. */
+const ON_PLAN_BY_OAUTH: ReadonlySet<string> = new Set(["openai", "xai"]);
+
+/**
+ * Whether a provider's models are on a subscription plan rather than billed by use.
+ *
+ * @remarks
+ * The model panel and button tag these with "套餐" (SPEC-0001, "输入框"; design-language,
+ * "走套餐的签"). `claude-bridge` goes through Claude Code on the Claude plan, `openai-codex` and
+ * `github-copilot` are subscriptions by nature; `openai` and `xai` are only when signed in through
+ * OAuth, which only the setup's login state tells. pi's own `anthropic` login is billed as Extra
+ * Usage, so it never counts, nor does any other provider or an API key. While the login state is
+ * unknown or pi cannot sign in, only the ones that always count do.
+ *
+ * @sideEffects none
+ * @param providerId - pi's id for the provider.
+ * @param login - The setup's login state, or `null` while it is unknown.
+ * @returns Whether it is on a plan.
+ */
+export function onPlan(providerId: string, login: SetupLogin | null): boolean {
+  if (ALWAYS_ON_PLAN.has(providerId)) return true;
+  if (!ON_PLAN_BY_OAUTH.has(providerId) || login?.state !== "ready") return false;
+  return login.providers.some((one) => one.providerId === providerId && one.signedIn?.method === "oauth");
 }
 
 /**

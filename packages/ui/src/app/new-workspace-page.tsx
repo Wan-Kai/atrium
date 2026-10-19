@@ -473,11 +473,12 @@ function Choices({
  * top until the session exists, when the page gives way to it. The box keeps a draft per project,
  * has no `/` or `@` menu, as there is no session to ask, and sends nothing while the first message
  * is on its way, nor, for a new worktree, before the bases come. The model button shows and chooses the page's model, set on the session before
- * the message; its list is the chosen workspace's, or the local one's for a new worktree. A page
- * whose project went away closes.
+ * the message; its list is the chosen workspace's, or the local one's for a new worktree, and the
+ * setup's login state tells it which providers are on a plan. A page whose project went away
+ * closes.
  *
- * @sideEffects Subscribes to the page's store and the client's list; asks for the project's bases
- * and models; sends commands when the user sends.
+ * @sideEffects Subscribes to the page's store, the client's list and the login state; asks for
+ * the project's bases and models; sends commands when the user sends.
  * @param props - The client and the page's store.
  * @returns The page.
  */
@@ -502,6 +503,7 @@ export function NewWorkspacePage({
   const modelsOf = page?.choice.kind === "existing" ? page.choice.workspaceId : local;
   const list = useStore(client.models(modelsOf));
   const preferences = useStore(client.index, (index) => index.preferences);
+  const login = useStore(client.setup, (setup) => setup.state?.login ?? null);
   useEffect(() => {
     // Fire and forget: a failed list shows in the model panel.
     void client.loadModels(modelsOf);
@@ -545,6 +547,7 @@ export function NewWorkspacePage({
           <ModelPicker
             shown={shown}
             list={list}
+            login={login}
             disabled={held}
             onOpen={() => {
               // Fire and forget: see above.

@@ -10,7 +10,8 @@ import {
   WarningCircle,
   X,
 } from "../design/icons";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { reducedMotion } from "../design/dots";
 import { DiffCounts } from "../files/diff-parts";
 import { QUEUE_EVENT_WORDS } from "./agent-words";
 
@@ -34,6 +35,237 @@ const PILL =
 /** A floating capsule above the input box, as the prototype's `.tpill`. */
 const CAPSULE =
   "pointer-events-auto inline-flex h-7 items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] px-[11px] text-[length:var(--fs-sm)] whitespace-nowrap tabular-nums text-[var(--text-2)] shadow-[0_0_0_0.5px_var(--line),0_6px_16px_-8px_rgba(0,0,0,0.22)] dark:bg-[var(--surface-2)]";
+
+/** The curve a panel opens and closes on, as the inbox's (design-language, "动效"). */
+const PANEL_EASING = "cubic-bezier(0.45, 0, 0.15, 1)";
+
+/** How long a panel takes to open and to close, in milliseconds. */
+const PANEL_OPEN_MS = 280;
+const PANEL_CLOSE_MS = 200;
+
+/** The narrowest a panel sized by its content is, unless the bar leaves less room. */
+const PANEL_LEAST_WIDTH = 300;
+
+/**
+ * How far past the panel's sides, top and bottom its clip reaches, beyond the reach of
+ * `--float-shadow` in either theme, so the shadow is not cut while the panel moves.
+ */
+const SHADOW_ROOM = "64px";
+
+/** Where a capsule's panel is: still, or on its way. */
+type PanelPhase = "open" | "opening" | "closing" | "closed";
+
+/**
+ * Plays a capsule's panel opening or closing, with its rows.
+ *
+ * @remarks
+ * Design-language ("胶囊点开的面板"): the panel grows up from its bottom edge, clipped, in 0.28 s;
+ * the rows rise 6 px as they fade in, 0.22 s each, the first 60 ms in and each next one 30 ms later.
+ * Closing is the reverse in 0.2 s, the rows fading together. The clip reaches past the sides and the
+ * bottom by `SHADOW_ROOM` throughout, and past the top once open, so the panel's shadow grows with
+ * it and nothing jumps when the clip goes. A panel turned back halfway goes on from the clip it has
+ * reached.
+ *
+ * @sideEffects Cancels the animations running on the panel and its rows, and starts new ones.
+ * @param panel - The panel.
+ * @param closing - Whether it closes or opens.
+ * @returns The panel's animation, whose end settles the move, and every animation started.
+ */
+function playPanel(panel: HTMLElement, closing: boolean): { readonly main: Animation; readonly all: Animation[] } {
+  const sides = `${SHADOW_ROOM} -${SHADOW_ROOM} -${SHADOW_ROOM}`;
+  const shut = `inset(100% -${sides})`;
+  const shown = `inset(-${SHADOW_ROOM} -${sides})`;
+  const midway = panel.getAnimations().length > 0;
+  const from = midway ? getComputedStyle(panel).clipPath : closing ? shown : shut;
+  for (const animation of panel.getAnimations({ subtree: true })) animation.cancel();
+  const all: Animation[] = [];
+  for (const [index, row] of [...panel.querySelectorAll<HTMLElement>("[data-panel-row]")].entries()) {
+    const away = { opacity: 0, transform: "translateY(6px)" };
+    const here = { opacity: 1, transform: "none" };
+    all.push(
+      row.animate(closing ? [here, away] : [away, here], {
+        duration: closing ? 160 : 220,
+        delay: closing ? 0 : 60 + index * 30,
+        easing: PANEL_EASING,
+        fill: closing ? "forwards" : "backwards",
+      }),
+    );
+  }
+  const main = panel.animate([{ clipPath: from }, { clipPath: closing ? shut : shown }], {
+    duration: closing ? PANEL_CLOSE_MS : PANEL_OPEN_MS,
+    easing: PANEL_EASING,
+    fill: "forwards",
+  });
+  return { main, all: [main, ...all] };
+}
+
+/**
+ * A capsule above the input box and the panel it opens.
+ *
+ * @remarks
+ * Design-language ("胶囊点开的面板"): the panel is a floating card of its own, 8 px above its
+ * capsule, its left edge at the capsule's. `span` says how wide it is: to the bar's right edge (the
+ * queue's), or as wide as its content from 300 px, never past the bar's right edge (the child
+ * list's); the room is measured from the capsule to the bar (the unit's parent), on every render, as
+ * capsules before it come and go, and as the bar resizes. A press on blank space and Escape close
+ * it: outside the unit and, when it floats above the input box, outside the box (marked
+ * `data-capsule-dock`, which holds the bar too), so typing, stopping or sending leaves it open;
+ * another capsule's click opens that capsule's panel instead, so the bar switches. An Escape something inside took (a menu, an edit given up) or one
+ * the input box took to stop a run is not this panel's. The panel stays while it closes, no longer
+ * reachable, and goes once the close has played; nothing plays on the first render or with less
+ * motion asked for, as with the inbox (`Fold`).
+ *
+ * @sideEffects Animates the panel and its rows as `open` changes, and cancels them on unmount;
+ * while shown, measures the bar and observes its size; while open, listens for presses and Escape on
+ * the document; calls `onToggle` when the capsule is clicked and `onClose` to close.
+ * @param props - Whether it is open, how to toggle and close it, the panel's name and width, what
+ * the capsule says, the panel's own classes and its content.
+ * @returns The unit.
+ */
+export function CapsuleUnit({
+  open,
+  onToggle,
+  onClose,
+  label,
+  span,
+  capsule,
+  className = "",
+  children,
+}: {
+  readonly open: boolean;
+  readonly onToggle: () => void;
+  readonly onClose: () => void;
+  /** The panel's accessible name. */
+  readonly label: string;
+  /** Whether the panel reaches the bar's right edge or is as wide as its content. */
+  readonly span: "bar" | "content";
+  /** What the capsule says, before its caret. */
+  readonly capsule: ReactNode;
+  /** The panel's own classes, such as for scrolling. */
+  readonly className?: string;
+  /** The panel's content; rows marked `data-panel-row` fade in one by one. */
+  readonly children: ReactNode;
+}) {
+  const unit = useRef<HTMLSpanElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const playing = useRef<Animation[]>([]);
+  const closer = useRef(onClose);
+  const [room, setRoom] = useState<number | null>(null);
+  const [phase, setPhase] = useState<PanelPhase>(open ? "open" : "closed");
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    const still = reducedMotion();
+    setPhase(open ? (still ? "open" : "opening") : still ? "closed" : "closing");
+  }
+  const present = phase !== "closed";
+  useEffect(() => {
+    closer.current = onClose;
+  });
+  useLayoutEffect(() => {
+    const element = panel.current;
+    if (element === null || (phase !== "opening" && phase !== "closing")) return undefined;
+    const closing = phase === "closing";
+    const { main, all } = playPanel(element, closing);
+    playing.current = all;
+    main.onfinish = () => {
+      // Open, the clip goes: a menu in a row can reach past the panel.
+      if (!closing) for (const animation of all) animation.cancel();
+      setPhase(closing ? "closed" : "open");
+    };
+    return () => {
+      main.onfinish = null;
+    };
+  }, [phase]);
+  useLayoutEffect(
+    () => () => {
+      for (const animation of playing.current) animation.cancel();
+    },
+    [],
+  );
+  useLayoutEffect(() => {
+    const self = unit.current;
+    const bar = self?.parentElement;
+    if (!present || self === null || bar === null || bar === undefined) return undefined;
+    /**
+     * Measures the room from the capsule's left to the bar's right edge.
+     *
+     * @remarks
+     * See `CapsuleUnit`.
+     *
+     * @sideEffects May set the room.
+     */
+    const measure = (): void =>
+      setRoom(Math.floor(bar.getBoundingClientRect().right - self.getBoundingClientRect().left));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  });
+  useEffect(() => {
+    if (!open) return undefined;
+    /**
+     * Closes the panel on a press on blank space: outside the unit and the input box it floats above.
+     *
+     * @remarks
+     * See `CapsuleUnit`.
+     *
+     * @sideEffects May close the panel.
+     * @param event - The pointer event.
+     */
+    const press = (event: Event): void => {
+      const keeper = unit.current?.closest("[data-capsule-dock]") ?? unit.current;
+      if (!(event.target instanceof Node && keeper?.contains(event.target) === true)) closer.current();
+    };
+    /**
+     * Closes the panel on an Escape nothing else took.
+     *
+     * @remarks
+     * See `CapsuleUnit`.
+     *
+     * @sideEffects May close the panel.
+     * @param event - The key event.
+     */
+    const escape = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && !event.defaultPrevented) closer.current();
+    };
+    document.addEventListener("pointerdown", press);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", press);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+  const width =
+    room === null
+      ? undefined
+      : span === "bar"
+        ? { width: room }
+        : { width: "max-content", minWidth: Math.min(PANEL_LEAST_WIDTH, room), maxWidth: room };
+  return (
+    <span ref={unit} className={`relative inline-flex ${present ? "z-10" : ""}`}>
+      {present ? (
+        <div
+          ref={panel}
+          role="dialog"
+          aria-label={label}
+          inert={phase === "closing"}
+          style={width}
+          className={`pointer-events-auto absolute bottom-[calc(100%+8px)] left-0 rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)] ${className}`}
+        >
+          {children}
+        </div>
+      ) : null}
+      <button type="button" aria-expanded={open} className={CAPSULE} onClick={onToggle}>
+        {capsule}
+        <CaretUp
+          size={10}
+          className={`text-[var(--text-dim)] transition-transform ease-[cubic-bezier(0.45,0,0.15,1)] ${open ? "rotate-180 duration-[280ms]" : "duration-[200ms]"}`}
+        />
+      </button>
+    </span>
+  );
+}
 
 /**
  * One queued message in the queue panel: its text, or a field while being edited.
@@ -72,6 +304,7 @@ function QueueRow({
     <div
       className="flex h-[34px] items-center gap-1.5 rounded-[var(--r-md)] pr-1 pl-2.5 text-[length:var(--fs-meta)] hover:bg-[var(--hover)]"
       data-testid="queued"
+      data-panel-row
     >
       {draft === null ? (
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -90,7 +323,11 @@ function QueueRow({
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
             if (event.key === "Enter") save();
-            if (event.key === "Escape") setDraft(null);
+            if (event.key === "Escape") {
+              // Giving up the edit, not closing the panel (`CapsuleUnit`).
+              event.preventDefault();
+              setDraft(null);
+            }
           }}
           className="h-[26px] min-w-0 flex-1 rounded-[var(--r-sm)] bg-[var(--main)] px-2 outline-none shadow-[inset_0_0_0_1px_var(--tint)]"
         />
@@ -147,6 +384,7 @@ function DeliveryRow({
       className="flex min-h-[34px] items-center gap-2 rounded-[var(--r-md)] py-1 pr-1 pl-2.5 text-[length:var(--fs-meta)] hover:bg-[var(--hover)]"
       data-testid="delivery"
       data-state={item.state}
+      data-panel-row
     >
       <span className="flex flex-none items-center text-[var(--tint)]">
         {item.kind === "task" ? <Robot size={14} /> : <ArrowTurnBack size={14} />}
@@ -189,9 +427,12 @@ function DeliveryRow({
  * The queue also holds the deliveries, counted with the messages; one arriving does not open the
  * panel, as the parent's agent takes it without you. Those held since the host restarted say so,
  * with "继续"; those pi did not take say "没送出去", with "重试" (SPEC-0002, "送达"). A stopped queue
- * holding only deliveries has "继续发送" too, and nothing to clear.
+ * holding only deliveries has "继续发送" too, and nothing to clear. The queue's panel floats 8 px
+ * above its capsule and reaches the bar's right edge (`CapsuleUnit`); a press outside or Escape
+ * closes it.
  *
- * @sideEffects Calls the actions as the user acts.
+ * @sideEffects Calls the actions as the user acts; animates the queue's panel and, while it is open,
+ * listens for presses and Escape (`CapsuleUnit`).
  * @param props - The run control, whether a run goes on, the actions, the workspace's changes, and
  * the child conversations' capsule.
  * @returns The bar, or nothing.
@@ -230,12 +471,25 @@ export function ControlTrack({
   const paused = control.paused !== null || control.deliveriesHeld !== null;
   const held = control.deliveries.length > 0 ? control.deliveriesHeld : null;
   return (
-    <>
-      {open && count > 0 ? (
-        <div
-          role="dialog"
-          aria-label="排队"
-          className="absolute right-0 bottom-[calc(100%+44px)] left-0 z-10 max-h-[46vh] overflow-auto rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
+    <div
+      className="pointer-events-none absolute right-1 bottom-[calc(100%+8px)] left-1 flex gap-1.5"
+      data-testid="capsule-bar"
+    >
+      {count > 0 ? (
+        <CapsuleUnit
+          open={open}
+          onToggle={() => setPanel(open ? null : "queue")}
+          onClose={() => setPanel(null)}
+          label="排队"
+          span="bar"
+          className="max-h-[46vh] overflow-auto"
+          capsule={
+            <>
+              <span className={`size-1.5 rounded-full ${paused ? "bg-[var(--attn)]" : "bg-[var(--tint)]"}`} />
+              排队 {count}
+              {paused ? " · 已暂停" : ""}
+            </>
+          }
         >
           {held === null ? null : (
             <div
@@ -274,35 +528,20 @@ export function ControlTrack({
           {control.queue.map((item) => (
             <QueueRow key={item.id} item={item} running={running} actions={actions} />
           ))}
-        </div>
+        </CapsuleUnit>
       ) : null}
-      <div className="pointer-events-none absolute right-1 bottom-[calc(100%+8px)] left-1 flex gap-1.5">
-        {count > 0 ? (
-          <button
-            type="button"
-            aria-expanded={open}
-            className={CAPSULE}
-            onClick={() => setPanel(open ? null : "queue")}
-          >
-            <span className={`size-1.5 rounded-full ${paused ? "bg-[var(--attn)]" : "bg-[var(--tint)]"}`} />
-            排队 {count}
-            {paused ? " · 已暂停" : ""}
-            <CaretUp size={10} className={`text-[var(--text-dim)] ${open ? "rotate-180" : ""}`} />
-          </button>
-        ) : null}
-        {control.steers.length > 0 ? (
-          <span className={`${CAPSULE} text-[var(--tint)]`} data-testid="steers">
-            <ArrowBendDownRight size={12} />
-            {control.steers.length} 条插话将在下一步前送达
-          </span>
-        ) : null}
-        {renderChildCapsule?.({
-          open: panel === "children",
-          onToggle: () => setPanel(panel === "children" ? null : "children"),
-        })}
-        {changes === undefined ? null : <ChangesCapsule {...changes} />}
-      </div>
-    </>
+      {control.steers.length > 0 ? (
+        <span className={`${CAPSULE} text-[var(--tint)]`} data-testid="steers">
+          <ArrowBendDownRight size={12} />
+          {control.steers.length} 条插话将在下一步前送达
+        </span>
+      ) : null}
+      {renderChildCapsule?.({
+        open: panel === "children",
+        onToggle: () => setPanel(panel === "children" ? null : "children"),
+      })}
+      {changes === undefined ? null : <ChangesCapsule {...changes} />}
+    </div>
   );
 }
 
