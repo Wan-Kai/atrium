@@ -127,6 +127,11 @@ export const SessionMetrics = z.strictObject({
       tps: z.number().nonnegative().nullable(),
     })
     .nullable(),
+  /**
+   * What all its child conversations, and theirs, produced since they began, the copied history
+   * left out; `null` without any (SPEC-0002, "用量合计"). Added up from their files by the host.
+   */
+  children: z.strictObject({ tokens: Count, cost: z.number().nonnegative() }).nullable(),
 });
 export type SessionMetrics = z.infer<typeof SessionMetrics>;
 
@@ -140,6 +145,7 @@ export const UNKNOWN_METRICS: SessionMetrics = {
   branchTokens: 0,
   context: null,
   timing: null,
+  children: null,
 };
 
 /** A status bar group's id, as preferences keep it. */

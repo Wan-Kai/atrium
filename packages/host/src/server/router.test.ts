@@ -42,11 +42,12 @@ function fakeCommands() {
     closeTab: record("closeTab", {}),
     selectContainer: record("selectContainer", {}),
     archiveSession: record("archiveSession", {}),
+    detachSession: record("detachSession", {}),
     archiveChat: record("archiveChat", {}),
     restoreChat: record("restoreChat", {}),
     renameSession: record("renameSession", {}),
     clearAttention: record("clearAttention", {}),
-    handOff: record("handOff", { file: "/s.jsonl" }),
+    handOff: record("handOff", { file: "/s.jsonl", args: [] }),
     takeBack: record("takeBack", {}),
     subscribe: record("subscribe", {}),
     prompt: async (command: PromptCommand, images = []) => {
@@ -76,6 +77,8 @@ function fakeCommands() {
     clearQueue: record("clearQueue", {}),
     updateQueued: record("updateQueued", {}),
     removeQueued: record("removeQueued", {}),
+    removeDelivery: record("removeDelivery", {}),
+    resumeDeliveries: record("resumeDeliveries", {}),
     steerQueued: record("steerQueued", { disposition: "handled" }),
     answerInteraction: record("answerInteraction", {}),
     retryRun: record("retryRun", {}),
@@ -303,6 +306,9 @@ describe("createRouter", () => {
     await route(connection, withTrace({ type: "open_session", requestId: "r6", sessionId: "s2" }));
     await route(connection, withTrace({ type: "create_session", requestId: "r7", containerId: WORKSPACE }));
     await route(connection, withTrace({ type: "create_session", requestId: "r7a", containerId: WORKSPACE, go: false }));
+    const child = { parentSessionId: "s1", name: "补测试", place: "same" } as const;
+    await route(connection, withTrace({ type: "create_session", requestId: "r7b", containerId: WORKSPACE, child }));
+    await route(connection, withTrace({ type: "detach_session", requestId: "r7c", sessionId: "s4" }));
     await route(connection, withTrace({ type: "close_tab", requestId: "r8", sessionId: "s2" }));
     await route(connection, withTrace({ type: "select_container", requestId: "r9", containerId: CHAT }));
     await route(connection, withTrace({ type: "archive_session", requestId: "r10", sessionId: "s2" }));
@@ -324,8 +330,10 @@ describe("createRouter", () => {
       ["fetchTranscript", "s1", 2, "t9", 50],
       ["fetchStep", "s1", 2, "t9", "3"],
       ["openSession", "client-1", "s2"],
-      ["createSession", "client-1", WORKSPACE, true],
-      ["createSession", "client-1", WORKSPACE, false],
+      ["createSession", "client-1", WORKSPACE, true, undefined],
+      ["createSession", "client-1", WORKSPACE, false, undefined],
+      ["createSession", "client-1", WORKSPACE, true, { parentSessionId: "s1", name: "补测试", place: "same" }],
+      ["detachSession", "s4"],
       ["closeTab", "client-1", "s2"],
       ["selectContainer", "client-1", CHAT],
       ["archiveSession", "s2"],
@@ -346,15 +354,32 @@ describe("createRouter", () => {
       { type: "response", requestId: "r6", ok: true, result: {} },
       { type: "response", requestId: "r7", ok: true, result: { sessionId: "s3" } },
       { type: "response", requestId: "r7a", ok: true, result: { sessionId: "s3" } },
-      ...["r8", "r9", "r10", "r10a", "r10b", "r11", "r12"].map((requestId) => ({
+      { type: "response", requestId: "r7b", ok: true, result: { sessionId: "s3" } },
+      ...["r7c", "r8", "r9", "r10", "r10a", "r10b", "r11", "r12"].map((requestId) => ({
         type: "response",
         requestId,
         ok: true,
         result: {},
       })),
-      { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl" } },
+      { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl", args: [] } },
       { type: "response", requestId: "r14", ok: true, result: {} },
       { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },
+    ]);
+  });
+
+  it("hands the delivery commands to the session layer and returns their results (SPEC-0002, 送达)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "remove_delivery", requestId: "r1", sessionId: "s1", deliveryId: "d1" }));
+    await route(connection, withTrace({ type: "resume_deliveries", requestId: "r2", sessionId: "s1", tree: true }));
+
+    expect(calls).toStrictEqual([
+      ["removeDelivery", "s1", "d1"],
+      ["resumeDeliveries", "s1", true],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r2", ok: true, result: {} },
     ]);
   });
 

@@ -1,3 +1,5 @@
+import { AGENT_MESSAGE, type AgentNote, agentNote } from "../agent/agent";
+import { MessageDetails } from "../agent/channel";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { type SectionPiece, sectionPieces } from "./prompt-sections";
 import { readSkillBlock } from "./skill-block";
@@ -103,6 +105,10 @@ export type LogEntry = { readonly id: string; readonly parentId: string | null }
       | { readonly kind: "system"; readonly system: SystemParts }
       /** A failed reply taken out of the model's context before a retry. */
       | { readonly kind: "omission"; readonly targetId: string }
+      /** The host's note to the model, an `atrium-agent` custom message (SPEC-0002). */
+      | { readonly kind: "note"; readonly note: AgentNote }
+      /** Notices or a task delivered as an `atrium-agent` custom message (SPEC-0002, "送达"). */
+      | { readonly kind: "agent"; readonly details: MessageDetails }
       /** Anything the transcript does not show: model and thinking changes, labels, `!bash` messages… */
       | { readonly kind: "other" }
     ))
@@ -226,12 +232,35 @@ export function toLogMessage(message: PiMessage, fallbackTime: number): LogMessa
 }
 
 /**
+ * Reads what one of Atrium's custom messages keeps: a note, or notices or a task.
+ *
+ * @remarks
+ * ADR-0013, point 10: anything else, as a later version's message, is shown as nothing.
+ *
+ * @sideEffects none
+ * @param details - The message's `details`.
+ * @returns The note or the delivery, or `null`.
+ */
+export function agentMessage(
+  details: unknown,
+):
+  | { readonly kind: "note"; readonly note: AgentNote }
+  | { readonly kind: "agent"; readonly details: MessageDetails }
+  | null {
+  const note = agentNote(details);
+  if (note !== null) return { kind: "note", note };
+  const delivered = MessageDetails.safeParse(details);
+  return delivered.success ? { kind: "agent", details: delivered.data } : null;
+}
+
+/**
  * Converts one pi session entry to Atrium's shape.
  *
  * @remarks
  * Message entries become messages (`toLogMessage`), and system messages their sizes
  * (`SystemParts`), as does a compaction's stored system prompt. A `context_edit` that removes its
- * target marks a failed reply that pi retried. Everything else keeps only its place in the tree.
+ * target marks a failed reply that pi retried. Atrium's own note, notices and tasks become theirs
+ * (SPEC-0002, "对话记录里的自定义消息"). Everything else keeps only its place in the tree.
  * An entry time that cannot be read becomes 0.
  *
  * @sideEffects none
@@ -248,6 +277,10 @@ export function toLogEntry(entry: SessionEntry): LogEntry {
     return entry.replacement === null
       ? { ...base, kind: "omission", targetId: entry.targetId }
       : { ...base, kind: "other" };
+  }
+  if (entry.type === "custom_message") {
+    const message = entry.customType === AGENT_MESSAGE ? agentMessage(entry.details) : null;
+    return message === null ? { ...base, kind: "other" } : { ...base, ...message };
   }
   if (entry.type !== "message") return { ...base, kind: "other" };
   if (entry.message.role === "system") {

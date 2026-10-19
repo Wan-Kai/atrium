@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Clock } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { IndexFile } from "../store/index-file";
+import { type AgentRecord, type DeliveryRecord, agentFieldsOf } from "../store/agent-records";
 import type { SessionRecord, SessionsDocument } from "../store/index-schema";
 import { promptLine } from "./prompt-line";
 
@@ -20,13 +21,40 @@ export interface CatalogChat extends ContainerDir {
   readonly firstSessionId: string | null;
 }
 
-/** What the catalog knows of one session; the manager adds whether it runs or asks. */
-export type CatalogEntry = Omit<SessionSummary, "running" | "asking"> & {
-  /** The working directory pi starts in. */
+/** What Atrium keeps of a session for child conversations the agent opens (SPEC-0002, "第二步"). */
+export interface AgentFields {
+  /** For a child the agent opened; `null` for any other. */
+  readonly agent: AgentRecord | null;
+  /** The handles its agent used. */
+  readonly usedHandles: readonly string[];
+  /** What waits to go to its pi. */
+  readonly deliveries: readonly DeliveryRecord[];
+}
+
+/** What the catalog knows of one session; the manager adds whether it runs or asks, and its agent's state. */
+export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "agent" | "heldDeliveries"> &
+  AgentFields & {
+    /** The working directory pi starts in. */
+    readonly cwd: string;
+    /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
+    readonly fast: boolean | null;
+    /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
+    readonly usageAfter: string | null;
+  };
+
+/** A new session's record: where it is, and for a child conversation its parent, name and baseline. */
+export interface NewRecord {
+  readonly sessionId: string;
+  readonly containerId: string;
   readonly cwd: string;
-  /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
-  readonly fast: boolean | null;
-};
+  readonly parent?: SessionSummary["parent"];
+  readonly name?: string;
+  readonly usageAfter?: string | null;
+  /** Its file is written already, as a fork's is; a draft otherwise. */
+  readonly persisted?: boolean;
+  /** A child the agent opens (SPEC-0002, "第二步"). */
+  readonly agent?: AgentRecord;
+}
 
 /** Finds the sessions of the registered containers and keeps Atrium's records of them. */
 export interface SessionCatalog {
@@ -35,8 +63,17 @@ export interface SessionCatalog {
   /** Every chat, as the chats root last listed them and as created since. */
   chats(): CatalogChat[];
   find(sessionId: string): CatalogEntry | undefined;
-  /** Records a new draft session. */
-  record(session: { readonly sessionId: string; readonly containerId: string; readonly cwd: string }): Promise<void>;
+  /** Records a new draft session, a child conversation with its parent and name. */
+  record(session: NewRecord): Promise<void>;
+  /** Makes a child conversation an ordinary session (SPEC-0002, "脱离"); nothing for one without a parent. */
+  detach(sessionId: string): Promise<void>;
+  /** Names a recorded session in its record, as a draft child's name waits there (SPEC-0002, "概念 · 名字"). */
+  name(sessionId: string, name: string): Promise<void>;
+  /**
+   * Changes a listed session's agent fields, adding a record for a session from the terminal; a
+   * change that leaves them as they were writes nothing (SPEC-0002, "接口与数据 · 第二步").
+   */
+  changeAgent(sessionId: string, change: (fields: AgentFields) => AgentFields): Promise<void>;
   /** Forgets a draft that was discarded. */
   forget(sessionId: string): Promise<void>;
   /** Hides a session in Atrium; pi's file stays. */
@@ -66,6 +103,39 @@ interface SessionMarks {
   readonly attention?: Attention | null;
   readonly handedOff?: boolean;
   readonly fast?: boolean;
+}
+
+/**
+ * A record's parent, as the summary has it.
+ *
+ * @remarks
+ * Only `sessionId` and `by`; the record keeps unknown fields a later version wrote. An id no
+ * session could have, as a hand-edited index can hold, is no parent: the protocol would refuse
+ * the whole list for it.
+ *
+ * @sideEffects none
+ * @param record - The record, if Atrium has one.
+ * @returns The parent, or `null` for an ordinary session.
+ */
+function parentOf(record: SessionRecord | undefined): SessionSummary["parent"] {
+  const parent = record?.parent;
+  if (parent === undefined || parent.sessionId === "" || parent.sessionId.length > 128) return null;
+  return { sessionId: parent.sessionId, by: parent.by };
+}
+
+/**
+ * A record's name, as the summary can carry it.
+ *
+ * @remarks
+ * As `parentOf`: an empty name, or one longer than the protocol takes, is none.
+ *
+ * @sideEffects none
+ * @param record - The record, if Atrium has one.
+ * @returns The name, or `null`.
+ */
+function nameOf(record: SessionRecord | undefined): string | null {
+  const name = record?.name;
+  return name === undefined || name === "" || name.length > 1024 ? null : name;
 }
 
 /**
@@ -161,7 +231,7 @@ export function createSessionCatalog(options: {
         sessionId: file.sessionId,
         containerId,
         cwd: file.cwd,
-        name: file.name,
+        name: file.name ?? nameOf(record),
         prompt: promptLine(file.firstPrompt),
         file: file.path,
         state: "persisted",
@@ -170,6 +240,9 @@ export function createSessionCatalog(options: {
         attention: record?.attention ?? null,
         handedOff: record?.handedOff ?? false,
         fast: record?.fast ?? null,
+        parent: parentOf(record),
+        usageAfter: record?.usageAfter ?? null,
+        ...agentFieldsOf(record ?? {}),
       });
     }
     for (const record of records.values()) {
@@ -180,7 +253,7 @@ export function createSessionCatalog(options: {
         sessionId: record.sessionId,
         containerId,
         cwd: record.cwd,
-        name: null,
+        name: nameOf(record),
         prompt: null,
         file: null,
         // Before the first scan, a file not found yet may well be there (domain-model §1).
@@ -190,6 +263,9 @@ export function createSessionCatalog(options: {
         attention: record.attention ?? null,
         handedOff: record.handedOff ?? false,
         fast: record.fast ?? null,
+        parent: parentOf(record),
+        usageAfter: record.usageAfter ?? null,
+        ...agentFieldsOf(record),
       });
     }
     return entries;
@@ -287,6 +363,21 @@ export function createSessionCatalog(options: {
       fast: entry.fast,
     };
     if (JSON.stringify({ ...marks, ...change }) === JSON.stringify(marks)) return;
+    await write(entry, { ...change });
+  }
+
+  /**
+   * Sets fields of a listed session's record, adding one for a session from the terminal.
+   *
+   * @remarks
+   * See `update`.
+   *
+   * @sideEffects Writes `sessions.json`; calls the listeners.
+   * @param entry - The session, as listed.
+   * @param change - The fields to set.
+   */
+  async function write(entry: CatalogEntry, change: Readonly<Record<string, unknown>>): Promise<void> {
+    const { sessionId } = entry;
     const sessions = options.file.read().sessions;
     const recorded = sessions.some((record) => record.sessionId === sessionId);
     await save(
@@ -342,13 +433,52 @@ export function createSessionCatalog(options: {
       }
       return save([
         ...options.file.read().sessions,
-        { ...session, draft: true, archived: false, createdAt: options.clock.now() },
+        {
+          sessionId: session.sessionId,
+          containerId: session.containerId,
+          cwd: session.cwd,
+          draft: session.persisted !== true,
+          archived: false,
+          createdAt: options.clock.now(),
+          ...(session.parent ? { parent: session.parent } : {}),
+          ...(session.name === undefined ? {} : { name: session.name }),
+          ...(session.usageAfter === undefined ? {} : { usageAfter: session.usageAfter }),
+          ...(session.agent === undefined ? {} : { agent: session.agent }),
+        },
       ]);
     },
     forget: (sessionId) => save(options.file.read().sessions.filter((record) => record.sessionId !== sessionId)),
+    async detach(sessionId) {
+      const sessions = options.file.read().sessions;
+      if (!sessions.some((record) => record.sessionId === sessionId && record.parent !== undefined)) return;
+      await save(
+        sessions.map((record) => {
+          if (record.sessionId !== sessionId) return record;
+          const { parent: _parent, ...rest } = record;
+          return rest;
+        }),
+      );
+    },
+    async name(sessionId, name) {
+      const sessions = options.file.read().sessions;
+      if (!sessions.some((record) => record.sessionId === sessionId && record.name !== name)) return;
+      await save(sessions.map((record) => (record.sessionId === sessionId ? { ...record, name } : record)));
+    },
     archive: (sessionId) => update(sessionId, { archived: true }),
     unarchive: (sessionId) => update(sessionId, { archived: false }),
     mark: (sessionId, change) => update(sessionId, change),
+    async changeAgent(sessionId, change) {
+      const entry = list().find((candidate) => candidate.sessionId === sessionId);
+      if (entry === undefined) return;
+      const before: AgentFields = { agent: entry.agent, usedHandles: entry.usedHandles, deliveries: entry.deliveries };
+      const after = change(before);
+      if (JSON.stringify(after) === JSON.stringify(before)) return;
+      await write(entry, {
+        ...(after.agent === null ? {} : { agent: after.agent }),
+        ...(after.usedHandles.length === 0 ? {} : { usedHandles: [...after.usedHandles] }),
+        deliveries: [...after.deliveries],
+      });
+    },
     scan() {
       if (scanning !== null) {
         again = true;

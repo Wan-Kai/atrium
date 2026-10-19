@@ -701,7 +701,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 丢弃要先等 pi 启动完再停掉它，这期间（最坏约 30 秒）可能有消息发来、或别处又打开了它（2026-10-12 审查后改，原先记为已知问题）：这期间到的 `prompt`、`steer`、`open_session` 等丢弃做完再接着做；pi 停掉后再看一次，有消息在路上或有客户端开着它的标签，就不丢弃，记录和目录都留着，pi 照常再启动。丢弃了对话唯一的会话、删掉了对话的目录时，各客户端的布局里也去掉这个对话，停在这里的客户端回到没有位置。新建会话或对话时布局没写成，对话的目录有了会话的记录就留着，不删。
 - `select_container(containerId | null)`：切换工作区或对话。
 - `archive_session(sessionId)`：只改索引；停掉它的 pi，从各客户端的布局里去掉。pi 正在启动时等它启动完再停，不让归档后的会话留着一个 pi（2026-10-10 审查后补；移除工作区同样）。停 pi 之前先记下它在归档：从这时起，以及归档之后，会启动 pi 的命令（`prompt`、`steer`、`retry_run`、`open_session`、`rename_session`、`set_model`、`compact_session` 等）应答 `session_not_found`，不再给它起 pi（2026-10-14 审查后补：原先停完 pi、写索引的间隙里发来的消息会再起一个 pi）。工作区、对话的归档同样。
-- `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。
+- `rename_session(sessionId, name)`：用 pi 的 `set_session_name` 写回；pi 没在运行就先启动。草稿不能改名，应答 `session_is_draft`，界面上"重命名"置灰（2026-10-08 定）。子对话例外（SPEC-0002"概念 · 名字"，M1.15）：草稿子对话的名字存在 Atrium 的会话记录里，它的 pi 已经起了的再用 `set_session_name` 告诉 pi。
 - `set_preferences(appearance?)`。
 
 新增错误码：`project_not_found`、`workspace_not_found`、`chat_not_found`（2026-10-12 加）、`project_exists`、`name_taken`、`path_not_found`、`session_is_draft`。
@@ -776,7 +776,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 是什么：OpenAI 的 priority 服务档（对外叫 Fast），请求带 `service_tier: "priority"`，按模型约 1.5～2 倍速度，多数模型额度消耗增加。服务端可能不按 priority 处理，回复里也看不出来（Codex 回复的服务档总是 `default`），所以 Atrium 不声称每一次都提速了。
 - 哪些模型支持：只看 ChatGPT 订阅（`openai-codex`），用 API key 的 `openai` 暂不支持（2026-10-12 定）。以 Codex 的模型列表接口为准（同日修订，ADR-0008 第 6 条）：模型的 `service_tiers` 里有 `priority` 就支持，它的说明里的 `Nx speed` 是速度倍数，有 `increased usage` 就是额度消耗增加；查到了列表，列表里没有的模型就不支持（2026-10-12 审查后明确）。宿主查模型列表（`list_models`）时，短暂的 pi 加载 Atrium 的扩展，宿主确认 `atrium-fast` 命令在、且列表里有 `openai-codex` 的模型后发 `/atrium-fast tiers`，扩展查完经 `setStatus`（键 `atrium-fast`）报回，20 秒为限。查不到（含查到的列表是空的，原因代码 `empty_list`）时退回内置规则：id 匹配 `^gpt-(5\.[56]|6|6\.1)(?:$|-)`，速度不详、额度增加，宿主只记原因代码。`list_models` 的每个模型新增 `fast`：不支持时是 `null`，支持时是 `{speed, moreUsage}`（`speed` 是倍数或 `null`）。刷新模型列表时一起重查。
 - 怎么生效：pi 核心不传服务档（1.0.2、1.1.0），宿主启动会话的 pi 时用 `--extension` 加载 Atrium 自带的扩展。扩展第一次被打开时在后台查一次 Codex 的模型列表，查到之前和查不到时按内置规则。扩展开着、当前模型支持时，在 `before_provider_request` 里给请求加上 `service_tier: "priority"`，其他请求原样放过。宿主用 `prompt` 发内部命令 `/atrium-fast on` 或 `/atrium-fast off` 开关它：pi 立即执行（运行中也可以），应答 `handled`，不进对话记录。从下一次请求开始生效。
-- 不误发：扩展默认关。pi 启动后宿主从 `get_commands` 里确认扩展的 `atrium-fast` 命令在，才会发这条命令；不在（扩展没加载上）时记一条警告，这个 pi 上 Fast 不可用，`set_fast` 应答 `fast_unavailable`，绝不把 `/atrium-fast on` 当普通消息发出去。`list_commands` 不列出这个命令。
+- 不误发：扩展默认关。pi 启动后宿主从 `get_commands` 里确认扩展的 `atrium-fast` 命令在，才会发这条命令；不在（扩展没加载上）时记一条警告，这个 pi 上 Fast 不可用，`set_fast` 应答 `fast_unavailable`，绝不把 `/atrium-fast on` 当普通消息发出去。`list_commands` 不列出这个命令。反过来，你打的以 `/atrium-` 开头的消息（发消息、插话、改排队里的、新建工作区的第一条）宿主应答 `command_reserved`、不发给 pi，界面写"以 /atrium- 开头的消息留给 Atrium 自己用，没有发出"（M1.15，SPEC-0002"送达"）。
 - 每个会话一份：会话快照新增 `fast: boolean`，是你想不想开，和当前模型支不支持无关，变化时推 `fast_updated`。`set_fast(sessionId, enabled)` 转给 pi，处理和 `set_model` 一样：pi 没在运行就先启动它，`stopping` 期间应答 `session_stopping`。当前模型不支持时也接受：记下开关，换到支持的模型后生效。
 - 记住：`set_fast` 把开关写进这个会话在 `sessions.json` 里的记录（`fast`），终端里开的会话也因此有了记录；同时更新偏好 `lastFast`。会话的开关取自它的记录，没有记录时（新会话、终端里开的会话）取 pi 第一次启动时的 `lastFast`，之后由会话自己记着。pi 每次启动（含崩溃重启、从终端接回）后，开关是开的就补发 `/atrium-fast on`。宿主重启后，没有记录的会话重新按 `lastFast` 取。
 - 交给终端后，终端里的 pi 不加载 Atrium 的扩展，Fast 不跟过去。用户自己装的 `pi-codex-fast-mode` 也改 `service_tier`，两个都开时 Atrium 关不住它，暂不检测。
@@ -933,6 +933,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `/thinking [档位]` | 不带参数打开推理强度框（同 ⌘⇧E）；带参数（`off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，当前模型支持的）直接换；不是这几个时说明"没有这个档位"，当前模型不支持时说明"当前模型不支持这个档位"（不知道模型支持哪些时交给 pi 判断） | 能 | 能 |
 | `/copy` | 把最后一条回复的 Markdown 复制到剪贴板，标签栏旁一行"已复制最后一条回复"，3 秒后消失；还没有回复时说明"还没有回复可复制" | 能 | 能 |
 | `/export` | 导出成 pi 的 HTML 页面并下载（`atrium-<会话 id>.html`，同"···"菜单的"导出为 Markdown"的下载方式） | 能 | 不能 |
+| `/child` | 打开开子对话的对话框，开一个空的子对话挂在当前会话下（M1.15，SPEC-0002"第一步 · 入口"；Atrium 自己的，pi 没有这个命令） | 能 | 不能 |
 
 **压缩**
 
@@ -943,7 +944,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 
 **分叉**
 
-- 分叉是界面上的按钮，不是命令：每一轮回复下方那行"复制、用量、时间"里，复制右边一个分叉图标，悬停说明"从这里分叉"。点了新开一个会话：带上到这一轮为止的对话，输入框是空的，在同一个容器里打开成标签并切过去；原会话不变。会话运行中（有运行、在停止、在压缩或在重启 pi）时按钮变淡、点不了，悬停说明"运行中不能分叉"（2026-10-14 审查后补上重启：宿主这时也应答 `session_busy`）。失败在标签栏旁的问题行说明（同"···"菜单的失败）：pi 出错"没能分叉：pi 出错了"，找不到这一轮"没能分叉：找不到这一轮"，运行中"运行中不能分叉"，其他失败（如连不上宿主）"没能分叉"。问题行一直在，直到别的提示替换它；再点分叉先清掉它。
+- 分叉是界面上的按钮，不是命令：每一轮回复下方那行"复制、用量、时间"里，复制右边一个分叉图标，悬停说明"从这里分叉"；它右边是"从这里开子对话"（"↳"，M1.15，见 SPEC-0002"第一步 · 入口"），变淡的规则相同。SPEC-0002 第二步起，下一轮的开头是主对话或子对话发来的通知（不是用户消息）时，pi 的 `fork` 切不到那里，这一轮的两个按钮也变淡。点了新开一个会话：带上到这一轮为止的对话，输入框是空的，在同一个容器里打开成标签并切过去；原会话不变。会话运行中（有运行、在停止、在压缩或在重启 pi）时按钮变淡、点不了，悬停说明"运行中不能分叉"（2026-10-14 审查后补上重启：宿主这时也应答 `session_busy`）。失败在标签栏旁的问题行说明（同"···"菜单的失败）：pi 出错"没能分叉：pi 出错了"，找不到这一轮"没能分叉：找不到这一轮"，运行中"运行中不能分叉"，其他失败（如连不上宿主）"没能分叉"。问题行一直在，直到别的提示替换它；再点分叉先清掉它。
 - pi 的 `fork`、`clone` 会让正在运行的 pi 换到新的会话文件上，和 Atrium"一个会话一个 pi"冲突，所以宿主另起一个临时 pi 来做：`pi --mode rpc --session <原文件>`，调 `clone` 或 `fork(entryId)`，再用 `get_state` 读出新会话的文件和 id，然后停掉临时 pi，重扫这个容器，把新会话打开成标签。原会话的 pi 不受影响。
 - `fork_session(sessionId, turnId, name)`：应答 `{ sessionId }`。最后一轮用 pi 的 `clone`（当前分支的完整副本）：pi 的 `fork` 只能从一条用户消息之前截断，最后一轮后面没有这样的消息（2026-10-13 定，原先还有 `/clone` 命令和 `turnId` 为 `null` 的写法）。其他的轮用 pi 的 `fork`，`entryId` 是下一轮开头的那条用户消息（宿主找条目的办法同 `fetch_image`），pi 返回的那条消息的文字不用。找不到这一轮应答 `turn_not_found`。
 - 新会话的名字由界面给出：原会话的标题（同侧栏，没有名字时是第一条消息的第一行或"图片"）加"（分叉）"，宿主不产出给用户看的文字。临时 pi 停掉之前，宿主用 `set_session_name` 设上，不然两个标签同名分不清。

@@ -14,6 +14,8 @@ export interface MetricsTracker {
   modelChanged(): void;
   /** pi exited or another took over: a request it was answering is no longer timed. */
   piChanged(): void;
+  /** Takes what its child conversations produced, added up by the manager (SPEC-0002, "用量合计"). */
+  childrenChanged(children: SessionMetrics["children"]): void;
   /** The figures now. */
   current(): SessionMetrics;
   /**
@@ -133,6 +135,7 @@ export function createMetricsTracker(options: {
   let modelMs: number | null = null;
   let firstOutputs: number[] = [];
   let tps: number | null = null;
+  let children: SessionMetrics["children"] = null;
   let reading: Promise<void> | null = null;
   // Stryker disable next-line BooleanLiteral: every read clears it before it starts.
   let readAgain = false;
@@ -231,6 +234,7 @@ export function createMetricsTracker(options: {
               ttftMs: firstOutputs.length === 0 ? null : Math.round(sum(firstOutputs) / firstOutputs.length),
               tps,
             },
+      children,
     };
   }
 
@@ -302,6 +306,10 @@ export function createMetricsTracker(options: {
   }
 
   return {
+    childrenChanged(next) {
+      children = next;
+      changed();
+    },
     observe(event) {
       if (event.kind === "request_started") {
         timed = { start: clock.now(), paused: 0, pausedAt: null, firstOutput: null };

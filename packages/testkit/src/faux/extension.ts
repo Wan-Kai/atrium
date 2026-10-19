@@ -1,5 +1,6 @@
 import {
   type AssistantMessage,
+  type FauxResponseFactory,
   fauxAssistantMessage,
   fauxProvider,
   fauxText,
@@ -11,6 +12,7 @@ import { dirname, join } from "node:path";
 import {
   FAUX_API,
   FAUX_BASE_URL_ENV,
+  FAUX_CONTEXTS_FILE,
   FAUX_GATES_ENV,
   FAUX_PAYLOADS_FILE,
   FAUX_PID_FILE,
@@ -95,6 +97,60 @@ async function recordPayload<M extends { readonly id: string }>(
 }
 
 /**
+ * Adds what a request carried to the contexts file: the tools' names and the messages.
+ *
+ * @remarks
+ * SPEC-0002's contract tests check what the model can see: which tools a limited pi declares, and
+ * how custom messages and unanswered tool calls reach it.
+ *
+ * @sideEffects Appends a line to the file.
+ * @param file - The contexts file.
+ * @param context - The request's context, as pi gave it to the provider.
+ */
+function recordContext(
+  file: string,
+  context: { readonly messages: readonly unknown[]; readonly tools?: readonly { readonly name: string }[] },
+): void {
+  const tools = declaredTools(context);
+  appendFileSync(file, `${JSON.stringify({ tools, messages: context.messages })}\n`);
+}
+
+/**
+ * The names of the tools a request declares to the model.
+ *
+ * @remarks
+ * pi 1.1 declares tools in its system messages, `toolsAdded` and `toolsRemoved` replayed in order,
+ * and leaves `tools` empty; older pi listed them in `tools`.
+ *
+ * @sideEffects none
+ * @param context - The request's context.
+ * @returns The names, in the order they were added.
+ */
+function declaredTools(context: {
+  readonly messages: readonly unknown[];
+  readonly tools?: readonly { readonly name: string }[];
+}): string[] {
+  const names: string[] = (context.tools ?? []).map((tool) => tool.name);
+  for (const message of context.messages) {
+    if (typeof message !== "object" || message === null || Reflect.get(message, "role") !== "system") continue;
+    for (const [key, adding] of [
+      ["toolsRemoved", false],
+      ["toolsAdded", true],
+    ] as const) {
+      const listed: unknown = Reflect.get(message, key);
+      for (const tool of Array.isArray(listed) ? listed : []) {
+        const name: unknown = typeof tool === "object" && tool !== null ? Reflect.get(tool, "name") : undefined;
+        if (typeof name !== "string") continue;
+        const at = names.indexOf(name);
+        if (at !== -1) names.splice(at, 1);
+        if (adding) names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
+/**
  * Turns a scripted reply into the assistant message faux streams.
  *
  * @remarks
@@ -142,6 +198,46 @@ function instructionsOf(context: { readonly systemPrompt?: string; readonly mess
 }
 
 /**
+ * How deep a child the agent opened pi was started as, if it was one.
+ *
+ * @remarks
+ * The host tells Atrium's extension so with `--atrium-agent=<base64url JSON>` (ADR-0013, point 3);
+ * anything that does not read as `child: true` is no child.
+ *
+ * @sideEffects none
+ * @param argv - pi's arguments.
+ * @returns Its agent depth, or `null` for no child.
+ */
+function agentChildDepth(argv: readonly string[]): number | null {
+  const flag = argv.find((arg) => arg.startsWith("--atrium-agent="));
+  if (flag === undefined) return null;
+  try {
+    const self: unknown = JSON.parse(Buffer.from(flag.slice("--atrium-agent=".length), "base64url").toString("utf8"));
+    if (typeof self !== "object" || self === null || Reflect.get(self, "child") !== true) return null;
+    const depth: unknown = Reflect.get(self, "depth");
+    return typeof depth === "number" ? depth : 1;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How many replies the model gave in a conversation so far.
+ *
+ * @remarks
+ * A child's pi may be stopped when idle and started again on the same conversation (SPEC-0002,
+ * "进程"), so its replies are picked by the conversation, not by how many requests this process
+ * has served.
+ *
+ * @sideEffects none
+ * @param context - The request.
+ * @returns The count.
+ */
+function repliesIn(context: { readonly messages?: readonly unknown[] }): number {
+  return (context.messages ?? []).filter((message) => Reflect.get(Object(message), "role") === "assistant").length;
+}
+
+/**
  * pi extension that registers pi-ai's faux provider and answers from a script file.
  *
  * @remarks
@@ -157,13 +253,15 @@ function instructionsOf(context: { readonly systemPrompt?: string; readonly mess
  * told to name a git branch, in those words (SPEC-0001, "AI 起分支名"), or an error without one; it adds what the model
  * was told to `prints.jsonl` beside the script, and leaves `pi.pid` to the session's pi (SPEC-0001,
  * "自动生成标题"). Each request's body, as
- * pi's extensions leave it, goes into `payloads.jsonl` beside the gates, and the models can stand in
+ * pi's extensions leave it, goes into `payloads.jsonl` beside the gates, and its tools and messages
+ * into `contexts.jsonl`, and the models can stand in
  * for a real provider (`script.provider`), at a base address of the test's (`FAUX_PI_BASE_URL`), as
  * Fast's test needs (ADR-0008). Two commands cover the
  * `handled` prompt and the extension dialog round trip (testing.md, "pi 夹具"); a third navigates the
  * session tree, the only way to make a branch inside one session file.
  *
  * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid` and adds to `payloads.jsonl`
+ * and `contexts.jsonl`
  * unless printing, and adds to `prints.jsonl` when printing; registers a
  * provider and three commands with pi.
  * @param pi - pi's extension API.
@@ -194,6 +292,34 @@ export default function fauxExtension(pi: ExtensionApi): void {
   const printing = process.argv.includes("-p");
   if (gates !== "" && !printing) writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
   const payloads = gates === "" || printing ? null : join(dirname(gates), FAUX_PAYLOADS_FILE);
+  const contexts = gates === "" || printing ? null : join(dirname(gates), FAUX_CONTEXTS_FILE);
+  const depth = agentChildDepth(process.argv);
+  const childList =
+    depth !== null && depth >= 2
+      ? (script.grandchildReplies ?? script.childReplies ?? script.replies)
+      : (script.childReplies ?? script.replies);
+  /**
+   * The faux model's answer with a scripted reply, recording what it was asked.
+   *
+   * @remarks
+   * A gated reply waits for the test to release it.
+   *
+   * @sideEffects Writes the context and payload records; may wait for a gate.
+   * @param reply - The reply.
+   * @returns The answer.
+   */
+  const answerWith = (reply: FauxReply): FauxResponseFactory => {
+    const message = toAssistantMessage(reply);
+    const gate = reply.waitFor;
+    return async (context, options, _state, model) => {
+      if (contexts !== null) recordContext(contexts, context);
+      if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
+      if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
+      return message;
+    };
+  };
+  const childAnswers = childList.map((reply) => answerWith(reply));
+  const noMoreReplies = answerWith({ blocks: [], error: "faux script has no more child replies" });
   faux.setResponses(
     printing
       ? [
@@ -209,15 +335,13 @@ export default function fauxExtension(pi: ExtensionApi): void {
             );
           },
         ]
-      : script.replies.map((reply) => {
-          const message = toAssistantMessage(reply);
-          const gate = reply.waitFor;
-          return async (_context, options, _state, model) => {
-            if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
-            if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
-            return message;
-          };
-        }),
+      : depth === null
+        ? script.replies.map((reply) => answerWith(reply))
+        : // A child picks by the conversation; as many as it may ask for.
+          childAnswers.map(() => (context, options, state, model) => {
+            const answer = childAnswers[repliesIn(context)] ?? noMoreReplies;
+            return answer(context, options, state, model);
+          }),
   );
   // The faux provider takes no thinking map, so it is added to the models it made; each model
   // carries its own base address, so a test's goes on each.

@@ -1,4 +1,5 @@
 import type {
+  ChildPlacement,
   CommandResult,
   ContainerId,
   FetchImageCommand,
@@ -29,7 +30,14 @@ export interface SessionCommands {
    * Creates a session in a workspace or chat, starts its pi and opens it as the active tab of the
    * container; `go` takes the client there, unless it moved meanwhile.
    */
-  createSession(clientId: string, containerId: ContainerId, go?: boolean): Promise<CommandResult<"create_session">>;
+  createSession(
+    clientId: string,
+    containerId: ContainerId,
+    go?: boolean,
+    child?: ChildPlacement,
+  ): Promise<CommandResult<"create_session">>;
+  /** Makes a child conversation an ordinary session (SPEC-0002, "脱离"). */
+  detachSession(sessionId: string): Promise<CommandResult<"detach_session">>;
   /** Opens a session as the client's active tab, starting its pi unless it runs or is a restored draft. */
   openSession(clientId: string, sessionId: string): Promise<CommandResult<"open_session">>;
   /** Closes the client's tab of a session; a draft without messages is discarded. */
@@ -62,6 +70,10 @@ export interface SessionCommands {
   clearQueue(sessionId: string): Promise<CommandResult<"clear_queue">>;
   updateQueued(sessionId: string, itemId: string, text: string): Promise<CommandResult<"update_queued">>;
   removeQueued(sessionId: string, itemId: string): Promise<CommandResult<"remove_queued">>;
+  /** Takes a delivery out of the queue panel before it went to pi (SPEC-0002, "送达"). */
+  removeDelivery(sessionId: string, deliveryId: string): Promise<CommandResult<"remove_delivery">>;
+  /** Lets go the deliveries held since the host restarted, with `tree` those below the session too. */
+  resumeDeliveries(sessionId: string, tree: boolean): Promise<CommandResult<"resume_deliveries">>;
   steerQueued(sessionId: string, itemId: string): Promise<CommandResult<"steer_queued">>;
   answerInteraction(
     sessionId: string,

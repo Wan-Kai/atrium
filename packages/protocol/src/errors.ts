@@ -119,6 +119,17 @@ export const ErrorCode = z.enum([
   "branch_not_found",
   /** The proxy setting was refused; `params.reason` is `malformed`, `scheme`, `credentials` or `no_proxy`. */
   "proxy_invalid",
+  /**
+   * `create_session`, `fork_session`: a child conversation cannot go there: not the parent's container,
+   * or a new worktree where only the same container will do (SPEC-0002, "概念 · 位置").
+   */
+  "child_place_invalid",
+  /** A message starting with `/atrium-`, which only the host may send pi (SPEC-0002, "送达"). */
+  "command_reserved",
+  /** `remove_delivery`: the session has no such delivery waiting (SPEC-0002, "送达"). */
+  "delivery_not_found",
+  /** `remove_delivery`: the delivery was handed to pi already and can no longer be removed. */
+  "delivery_sending",
   /** The host failed unexpectedly; details are in the host's log under the command's trace. */
   "internal_error",
 ]);

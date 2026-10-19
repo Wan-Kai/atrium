@@ -1,7 +1,18 @@
 import type { Control, DiffStat, Interaction, InteractionAnswer } from "@atrium/protocol";
-import { ArrowBendDownRight, CaretUp, GitDiff, Question, WarningCircle, X } from "../design/icons";
+import {
+  ArrowBendDownRight,
+  ArrowTurnBack,
+  CaretUp,
+  Clock,
+  GitDiff,
+  Question,
+  Robot,
+  WarningCircle,
+  X,
+} from "../design/icons";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { DiffCounts } from "../files/diff-parts";
+import { QUEUE_EVENT_WORDS } from "./agent-words";
 
 /** What the run control UI can ask of the session. */
 export interface RunActions {
@@ -10,6 +21,8 @@ export interface RunActions {
   readonly update: (itemId: string, text: string) => void;
   readonly remove: (itemId: string) => void;
   readonly steerQueued: (itemId: string) => void;
+  readonly removeDelivery: (deliveryId: string) => void;
+  readonly resumeDeliveries: () => void;
   readonly answer: (interactionId: string, answer: InteractionAnswer) => void;
   readonly retry: () => void;
 }
@@ -109,17 +122,78 @@ function QueueRow({
 }
 
 /**
+ * One delivery in the queue panel: a notice from a child, or a task from the parent's agent.
+ *
+ * @remarks
+ * SPEC-0002 ("显示 · 排队面板"): "来自子对话「名字」：完成", or "来自主对话的 agent" in a child.
+ * One still waiting says "待送" and can be removed ("×"; the parent's agent is not told); one
+ * handed to pi says "已交给 pi" and no longer can. Neither is edited or sent as a steer.
+ *
+ * @sideEffects Calls `removeDelivery` when "×" is clicked.
+ * @param props - The delivery and the actions.
+ * @returns The row.
+ */
+function DeliveryRow({
+  item,
+  actions,
+}: {
+  readonly item: Control["deliveries"][number];
+  readonly actions: RunActions;
+}) {
+  const words =
+    item.kind === "task" ? "来自主对话的 agent" : `：${item.event === null ? "" : QUEUE_EVENT_WORDS[item.event]}`;
+  return (
+    <div
+      className="flex min-h-[34px] items-center gap-2 rounded-[var(--r-md)] py-1 pr-1 pl-2.5 text-[length:var(--fs-meta)] hover:bg-[var(--hover)]"
+      data-testid="delivery"
+      data-state={item.state}
+    >
+      <span className="flex flex-none items-center text-[var(--tint)]">
+        {item.kind === "task" ? <Robot size={14} /> : <ArrowTurnBack size={14} />}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-[var(--text-2)]">
+        {item.kind === "task" ? (
+          words
+        ) : (
+          <>
+            来自子对话「{item.fromTitle}」<span className="text-[var(--text-muted)]">{words}</span>
+          </>
+        )}
+      </span>
+      <span className="flex-none text-[length:var(--fs-xs)] whitespace-nowrap text-[var(--text-dim)]">
+        {item.state === "sending" ? "已交给 pi" : "待送"}
+      </span>
+      {item.state === "sending" ? null : (
+        <button
+          type="button"
+          aria-label="删除"
+          className="flex size-6 items-center justify-center rounded-[var(--r-sm)] text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text)]"
+          onClick={() => actions.removeDelivery(item.id)}
+        >
+          <X size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
  * The capsule bar above the input box: the queue and the steers on their way.
  *
  * @remarks
  * SPEC-0001 ("胶囊条"): "● 排队 N" opens the queue panel above it, and opens by itself when a
  * message joins the queue; a paused queue says so, with "继续发送" in the panel.
  * "N 条插话将在下一步前送达" lists the steers pi has not delivered yet. "+A −D" on the right is the
- * workspace's git changes, opening the changes panel ("工作区改动"). Nothing shows when all three
- * are empty.
+ * workspace's git changes, opening the changes panel ("工作区改动"). The child conversations'
+ * capsule comes after the steers (SPEC-0002, "显示 · 子对话条"). Nothing shows when all are empty.
+ * The queue also holds the deliveries, counted with the messages; one arriving does not open the
+ * panel, as the parent's agent takes it without you. Those held since the host restarted say so,
+ * with "继续"; those pi did not take say "没送出去", with "重试" (SPEC-0002, "送达"). A stopped queue
+ * holding only deliveries has "继续发送" too, and nothing to clear.
  *
  * @sideEffects Calls the actions as the user acts.
- * @param props - The run control, whether a run goes on, the actions, and the workspace's changes.
+ * @param props - The run control, whether a run goes on, the actions, the workspace's changes, and
+ * the child conversations' capsule.
  * @returns The bar, or nothing.
  */
 export function ControlTrack({
@@ -127,24 +201,34 @@ export function ControlTrack({
   running,
   actions,
   changes,
+  renderChildCapsule,
 }: {
   readonly control: Control;
   readonly running: boolean;
   readonly actions: RunActions;
   /** The workspace's git changes, when it has some, and the changes panel (SPEC-0001, "工作区改动"). */
   readonly changes?: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void };
+  /**
+   * The child conversations' capsule, which shows nothing without children (SPEC-0002), given
+   * whether its list is open: one panel at a time floats above the box.
+   */
+  readonly renderChildCapsule?: (list: { readonly open: boolean; readonly onToggle: () => void }) => ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  const count = control.queue.length;
-  const before = useRef(count);
+  const [panel, setPanel] = useState<"queue" | "children" | null>(null);
+  const open = panel === "queue";
+  const messages = control.queue.length;
+  const count = messages + control.deliveries.length;
+  const before = useRef(messages);
   useEffect(() => {
     // A message joining the queue shows the panel; an emptied queue has none to show.
     // oxlint-disable-next-line react-hooks-js/set-state-in-effect -- follows the queue the host sends.
-    if (count > before.current) setOpen(true);
-    before.current = count;
-  }, [count]);
-  if (count === 0 && control.steers.length === 0 && changes === undefined) return null;
-  const paused = control.paused !== null;
+    if (messages > before.current) setPanel("queue");
+    before.current = messages;
+  }, [messages]);
+  if (count === 0 && control.steers.length === 0 && changes === undefined && renderChildCapsule === undefined)
+    return null;
+  const paused = control.paused !== null || control.deliveriesHeld !== null;
+  const held = control.deliveries.length > 0 ? control.deliveriesHeld : null;
   return (
     <>
       {open && count > 0 ? (
@@ -153,21 +237,40 @@ export function ControlTrack({
           aria-label="排队"
           className="absolute right-0 bottom-[calc(100%+44px)] left-0 z-10 max-h-[46vh] overflow-auto rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
         >
+          {held === null ? null : (
+            <div
+              className="mb-1 flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--attn-soft)] px-2.5 py-1.5 text-[length:var(--fs-sm)] text-[var(--attn-text)]"
+              data-testid="deliveries-held"
+              data-reason={held}
+            >
+              <Clock size={14} />
+              <span className="min-w-0 flex-1">{held === "restart" ? "宿主重启后暂停" : "没送出去"}</span>
+              <button type="button" className="font-medium" onClick={actions.resumeDeliveries}>
+                {held === "restart" ? "继续" : "重试"}
+              </button>
+            </div>
+          )}
           <div className="flex items-center justify-between px-2 pt-1 pb-1.5 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
             <span>
               排队 {count} · {paused ? "已暂停" : "本次运行结束后依次发送"}
             </span>
             <span className="flex gap-3">
-              {paused ? (
+              {/* Deliveries alone wait for a stopped queue too (SPEC-0002, "显示 · 排队面板"). */}
+              {control.paused === null ? null : (
                 <button type="button" className="text-[var(--tint)]" onClick={actions.resume}>
                   继续发送
                 </button>
-              ) : null}
-              <button type="button" className="hover:text-[var(--text-muted)]" onClick={actions.clear}>
-                清空
-              </button>
+              )}
+              {messages === 0 ? null : (
+                <button type="button" className="hover:text-[var(--text-muted)]" onClick={actions.clear}>
+                  清空
+                </button>
+              )}
             </span>
           </div>
+          {control.deliveries.map((item) => (
+            <DeliveryRow key={item.id} item={item} actions={actions} />
+          ))}
           {control.queue.map((item) => (
             <QueueRow key={item.id} item={item} running={running} actions={actions} />
           ))}
@@ -175,7 +278,12 @@ export function ControlTrack({
       ) : null}
       <div className="pointer-events-none absolute right-1 bottom-[calc(100%+8px)] left-1 flex gap-1.5">
         {count > 0 ? (
-          <button type="button" aria-expanded={open} className={CAPSULE} onClick={() => setOpen(!open)}>
+          <button
+            type="button"
+            aria-expanded={open}
+            className={CAPSULE}
+            onClick={() => setPanel(open ? null : "queue")}
+          >
             <span className={`size-1.5 rounded-full ${paused ? "bg-[var(--attn)]" : "bg-[var(--tint)]"}`} />
             排队 {count}
             {paused ? " · 已暂停" : ""}
@@ -188,6 +296,10 @@ export function ControlTrack({
             {control.steers.length} 条插话将在下一步前送达
           </span>
         ) : null}
+        {renderChildCapsule?.({
+          open: panel === "children",
+          onToggle: () => setPanel(panel === "children" ? null : "children"),
+        })}
         {changes === undefined ? null : <ChangesCapsule {...changes} />}
       </div>
     </>

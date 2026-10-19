@@ -26,7 +26,9 @@ describe("toSlashCommand", () => {
     });
   });
 
-  it("leaves out Atrium's Fast switch and plan query, but not a template of their names", () => {
+  it("leaves out Atrium's Fast switch, plan query and child conversations' command, but not a template of their names", () => {
+    expect(toSlashCommand({ name: "atrium-agent", description: "x", source: "extension", sourceInfo })).toBeNull();
+    expect(toSlashCommand({ name: "atrium-agent", source: "prompt", sourceInfo })?.name).toBe("atrium-agent");
     expect(toSlashCommand({ name: "atrium-fast", description: "x", source: "extension", sourceInfo })).toBeNull();
     expect(toSlashCommand({ name: "atrium-plan", description: "x", source: "extension", sourceInfo })).toBeNull();
     expect(toSlashCommand({ name: "atrium-plan", source: "skill", sourceInfo })?.name).toBe("atrium-plan");

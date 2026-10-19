@@ -46,6 +46,18 @@ export interface FauxScript {
   readonly tokensPerSecond?: number;
   readonly replies: readonly FauxReply[];
   /**
+   * What a pi Atrium started as a child the agent opened says instead, told by the flag the host
+   * gives it (`--atrium-agent=…` with `child: true`; SPEC-0002), so a parent and its children can
+   * answer differently from one script.
+   */
+  readonly childReplies?: readonly FauxReply[];
+  /**
+   * What a child the agent opened at depth 2 or more says instead of `childReplies`, so a child
+   * and its own child can answer differently. A child's replies are picked by how many the model
+   * already gave in its conversation, as its pi may be stopped and started again between them.
+   */
+  readonly grandchildReplies?: readonly FauxReply[];
+  /**
    * What pi answers in print mode (`-p`), as when the host asks for a session's title; without it,
    * an error, so the title stays the fallback.
    */
@@ -76,6 +88,11 @@ export const FAUX_GATES_ENV = "FAUX_PI_GATES";
 export const FAUX_PID_FILE = "pi.pid";
 /** The file beside the gates where the faux extension adds each request body, as pi's extensions left it, one JSON per line. */
 export const FAUX_PAYLOADS_FILE = "payloads.jsonl";
+/**
+ * The file beside the gates where the faux extension adds what each request carried: the names of
+ * the tools declared and the messages, as pi converted them for the model, one JSON per line.
+ */
+export const FAUX_CONTEXTS_FILE = "contexts.jsonl";
 /** The file beside the script where pi in print mode adds the instructions the model was given, one JSON per line. */
 export const FAUX_PRINTS_FILE = "prints.jsonl";
 /**
@@ -86,6 +103,32 @@ export const FAUX_PRINTS_FILE = "prints.jsonl";
 export const FAUX_BASE_URL_ENV = "FAUX_PI_BASE_URL";
 /** Environment variable that tells the extension where the script is; not `ATRIUM_*`, which the host keeps from pi. */
 export const FAUX_SCRIPT_ENV = "FAUX_PI_SCRIPT";
+
+/** What one request to the faux model carried. */
+export interface FauxContext {
+  /** The names of the tools declared to the model, in pi's order. */
+  readonly tools: readonly string[];
+  /** The messages, as pi converted them for the model (custom messages are `user` here). */
+  readonly messages: readonly unknown[];
+}
+
+/**
+ * Reads a JSON-lines file the faux extension writes, or nothing when it has not written one.
+ *
+ * @remarks
+ * The extension creates its files on first use, so a missing file is an empty record.
+ *
+ * @sideEffects Reads the file.
+ * @param path - The file.
+ * @returns Each line, parsed.
+ */
+async function jsonLines(path: string): Promise<unknown[]> {
+  const text = await readFile(path, "utf8").catch(() => "");
+  return text
+    .split("\n")
+    .filter((line) => line !== "")
+    .map((line): unknown => JSON.parse(line));
+}
 
 /** How to start a pi process that answers with the faux model. */
 export interface FauxPiLaunch {
@@ -101,6 +144,8 @@ export interface FauxPiLaunch {
   pid(): Promise<number>;
   /** The bodies of the requests made so far, as pi's `before_provider_request` hooks left them. */
   payloads(): Promise<unknown[]>;
+  /** What each request carried so far: the tools declared and the messages (SPEC-0002 contract tests). */
+  contexts(): Promise<FauxContext[]>;
   /** What the model was told by each pi in print mode so far. */
   prints(): Promise<{ readonly systemPrompt: string }[]>;
 }
@@ -115,7 +160,8 @@ export interface FauxPiLaunch {
  * credentials never reach the test.
  *
  * @sideEffects Creates `dir/pi-agent` and `dir/faux-gates`, and writes `dir/faux-script.json`;
- * `release` writes a file into `dir/faux-gates`; `pid` reads `dir/pi.pid`; `prints` reads
+ * `release` writes a file into `dir/faux-gates`; `pid` reads `dir/pi.pid`; `payloads` and `contexts`
+ * read the files beside it; `prints` reads
  * `dir/prints.jsonl`.
  * @param script - Replies the faux model gives, in order.
  * @param dir - A temporary directory owned by the test.
@@ -131,13 +177,9 @@ export async function fauxPi(script: FauxScript, dir: string): Promise<FauxPiLau
   return {
     release: (name) => writeFile(join(gatesDir, name), ""),
     pid: async () => Number(await readFile(join(dir, FAUX_PID_FILE), "utf8")),
-    payloads: async () => {
-      const text = await readFile(join(dir, FAUX_PAYLOADS_FILE), "utf8").catch(() => "");
-      return text
-        .split("\n")
-        .filter((line) => line !== "")
-        .map((line): unknown => JSON.parse(line));
-    },
+    payloads: () => jsonLines(join(dir, FAUX_PAYLOADS_FILE)),
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the faux extension writes these lines as FauxContext.
+    contexts: async () => (await jsonLines(join(dir, FAUX_CONTEXTS_FILE))) as FauxContext[],
     prints: async () => {
       const text = await readFile(join(dir, FAUX_PRINTS_FILE), "utf8").catch(() => "");
       return text

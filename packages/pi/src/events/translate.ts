@@ -1,5 +1,7 @@
 import type { ThinkingLevel } from "@atrium/protocol";
-import { type AssistantPart, type LogMessage, type PiMessage, toLogMessage } from "../history/log-entry";
+import { AGENT_MESSAGE, type AgentNote } from "../agent/agent";
+import type { MessageDetails } from "../agent/channel";
+import { type AssistantPart, type LogMessage, type PiMessage, agentMessage, toLogMessage } from "../history/log-entry";
 import { contentText } from "../history/tools";
 import type { PiEvent } from "../process/pi-process";
 
@@ -23,6 +25,10 @@ export type TranslatedEvent =
   | { readonly kind: "part_started"; readonly index: number; readonly part: AssistantPart }
   | { readonly kind: "part_delta"; readonly index: number; readonly delta: string }
   | { readonly kind: "message_finished"; readonly message: LogMessage }
+  /** pi wrote the host's note to the model, an `atrium-agent` custom message (SPEC-0002). */
+  | { readonly kind: "note_added"; readonly note: AgentNote; readonly timestamp: number }
+  /** pi took notices or a task delivered as an `atrium-agent` custom message (SPEC-0002, "送达"). */
+  | { readonly kind: "agent_message"; readonly details: MessageDetails; readonly timestamp: number }
   /** A running tool's output so far, all of it, not just what is new. */
   | { readonly kind: "tool_output"; readonly callId: string; readonly text: string }
   /** `maxAttempts` is pi's own limit, from its settings (SPEC-0001, "运行控制"). */
@@ -61,6 +67,24 @@ export type EventTranslator = (event: PiEvent) => TranslatedEvent[];
 
 /** pi's streaming update of an assistant message. */
 type PiUpdate = Extract<PiEvent, { type: "message_update" }>["assistantMessageEvent"];
+
+/**
+ * Reports a custom message pi wrote: Atrium's note or delivery, and nothing for any other.
+ *
+ * @remarks
+ * Mid-run it does not end the message that is streaming (SPEC-0002, "对话记录里的自定义消息").
+ *
+ * @sideEffects none
+ * @param message - pi's custom message.
+ * @returns The events.
+ */
+function custom(message: Extract<PiMessage, { role: "custom" }>): TranslatedEvent[] {
+  const read = message.customType === AGENT_MESSAGE ? agentMessage(message.details) : null;
+  if (read === null) return [];
+  return read.kind === "note"
+    ? [{ kind: "note_added", note: read.note, timestamp: message.timestamp }]
+    : [{ kind: "agent_message", details: read.details, timestamp: message.timestamp }];
+}
 
 /**
  * Creates a translator from pi's events to Atrium's.
@@ -183,6 +207,7 @@ export function createEventTranslator(now: () => number): EventTranslator {
       return [{ kind: "assistant_started" }];
     }
     if (event.type === "message_update") return streamed(event.assistantMessageEvent);
+    if (event.type === "message_end" && event.message.role === "custom") return custom(event.message);
     if (event.type === "message_end") return finished(event.message);
     if (event.type === "tool_execution_update") {
       if (event.parentToolCallId !== undefined) return [];

@@ -32,6 +32,7 @@ describe("BUILTIN_COMMANDS", () => {
       ["builtin", "thinking", "档位", "推理强度", true, true],
       ["builtin", "copy", null, "复制最后一条回复", true, true],
       ["builtin", "export", null, "导出为 HTML", true, false],
+      ["builtin", "child", null, "开子对话", true, false],
     ]);
   });
 });
@@ -138,6 +139,7 @@ function turn(id: string, steps: Step[], outcome: Turn["outcome"] = "done"): Tur
   return {
     kind: "turn",
     id,
+    source: null,
     user: { text: "q", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps,
     outcome,

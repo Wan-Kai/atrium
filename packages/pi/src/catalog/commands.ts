@@ -1,4 +1,5 @@
 import { SLASH_COMMAND_LIMITS, type SlashCommand } from "@atrium/protocol";
+import { AGENT_COMMAND } from "../agent/agent";
 import { FAST_COMMAND } from "../fast/fast";
 import { isPlanQuery } from "../plan/plan";
 import type { PiResponseData } from "../process/pi-process";
@@ -14,7 +15,8 @@ type PiSlashCommand = PiResponseData<"get_commands">["commands"][number];
  * came from on disk is pi's business. An empty description counts as none. A description too long
  * for the protocol is cut, so one extension cannot fail the whole list; a name too long is left
  * out with its command, which could not be run by a cut name. Atrium's own Fast switch and plan
- * query are the host's, not yours, and are left out too (SPEC-0001, "Fast"; ADR-0010).
+ * query and child conversations' command are the host's, not yours, and are left out too
+ * (SPEC-0001, "Fast"; ADR-0010; ADR-0013).
  *
  * @sideEffects none
  * @param command - The command as pi lists it.
@@ -22,7 +24,7 @@ type PiSlashCommand = PiResponseData<"get_commands">["commands"][number];
  */
 export function toSlashCommand(command: PiSlashCommand): SlashCommand | null {
   if (command.name.length > SLASH_COMMAND_LIMITS.name) return null;
-  if (isFastSwitch(command) || isPlanQuery(command)) return null;
+  if (isFastSwitch(command) || isPlanQuery(command) || isAgentCommand(command)) return null;
   const description = (command.description ?? "").slice(0, SLASH_COMMAND_LIMITS.description);
   return { name: command.name, description: description === "" ? null : description, source: command.source };
 }
@@ -40,4 +42,19 @@ export function toSlashCommand(command: PiSlashCommand): SlashCommand | null {
  */
 export function isFastSwitch(command: Pick<PiSlashCommand, "name" | "source">): boolean {
   return command.name === FAST_COMMAND && command.source === "extension";
+}
+
+/**
+ * Whether a command is Atrium's command for child conversations, which only its extension registers.
+ *
+ * @remarks
+ * The host sends `/atrium-agent` only once pi lists it, or pi would pass the words to the model
+ * (ADR-0013, point 2); a prompt template or skill of that name is not it.
+ *
+ * @sideEffects none
+ * @param command - The command as pi lists it.
+ * @returns Whether it is.
+ */
+export function isAgentCommand(command: Pick<PiSlashCommand, "name" | "source">): boolean {
+  return command.name === AGENT_COMMAND && command.source === "extension";
 }

@@ -9,6 +9,7 @@ function turn(id: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
+    source: null,
     user: { text: "hi", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "running",

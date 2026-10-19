@@ -134,6 +134,28 @@ export const RemoveQueuedCommand = z.strictObject({
 });
 export type RemoveQueuedCommand = z.infer<typeof RemoveQueuedCommand>;
 
+/**
+ * Takes a delivery out of the queue panel before it went to pi (SPEC-0002, "送达"); the agent
+ * that sent it is not told.
+ */
+export const RemoveDeliveryCommand = z.strictObject({
+  type: z.literal("remove_delivery"),
+  ...sessionCommandFields,
+  deliveryId: QueueItemId,
+});
+export type RemoveDeliveryCommand = z.infer<typeof RemoveDeliveryCommand>;
+
+/**
+ * Lets go the deliveries held since the host restarted: the session's, or with `tree` those of
+ * every session below it too ("全部继续"; SPEC-0002, "送达").
+ */
+export const ResumeDeliveriesCommand = z.strictObject({
+  type: z.literal("resume_deliveries"),
+  ...sessionCommandFields,
+  tree: z.boolean(),
+});
+export type ResumeDeliveriesCommand = z.infer<typeof ResumeDeliveriesCommand>;
+
 /** Takes a message out of the queue and sends it as a steer. */
 export const SteerQueuedCommand = z.strictObject({
   type: z.literal("steer_queued"),
@@ -290,6 +312,23 @@ export type RestoreChatCommand = z.infer<typeof RestoreChatCommand>;
 export const WindowFocusedCommand = z.strictObject({ type: z.literal("window_focused"), ...commandFields });
 export type WindowFocusedCommand = z.infer<typeof WindowFocusedCommand>;
 
+/**
+ * Where an empty child conversation goes and what it is called (SPEC-0002, "第一步"): the parent's
+ * container, or a new worktree from the parent's workspace's current commit on `branch`.
+ */
+export const ChildPlacement = z.discriminatedUnion("place", [
+  z.strictObject({ parentSessionId: SessionId, name: Name, place: z.literal("same") }),
+  z.strictObject({ parentSessionId: SessionId, name: Name, place: z.literal("worktree"), branch: BranchName }),
+]);
+export type ChildPlacement = z.infer<typeof ChildPlacement>;
+
+/** Where a child conversation forked from a turn goes; its parent is the forked session (SPEC-0002). */
+export const ForkPlacement = z.discriminatedUnion("place", [
+  z.strictObject({ place: z.literal("same") }),
+  z.strictObject({ place: z.literal("worktree"), branch: BranchName }),
+]);
+export type ForkPlacement = z.infer<typeof ForkPlacement>;
+
 /** Creates a session in a workspace or chat, starts its pi and opens it as this client's active tab. */
 export const CreateSessionCommand = z.strictObject({
   type: z.literal("create_session"),
@@ -300,6 +339,11 @@ export const CreateSessionCommand = z.strictObject({
    * has left the page of (SPEC-0001, "M1.11 的新建工作区"); it goes there when left out.
    */
   go: z.boolean().optional(),
+  /**
+   * Makes it an empty child conversation of another session; then `containerId` is the parent's
+   * container, or unused for a new worktree (SPEC-0002, "接口与数据").
+   */
+  child: ChildPlacement.optional(),
 });
 export type CreateSessionCommand = z.infer<typeof CreateSessionCommand>;
 
@@ -314,6 +358,14 @@ export const SelectContainerCommand = z.strictObject({
   containerId: ContainerId.nullable(),
 });
 export type SelectContainerCommand = z.infer<typeof SelectContainerCommand>;
+
+/** Makes a child conversation an ordinary session; only the user does it (SPEC-0002, "归档、脱离、交接"). */
+export const DetachSessionCommand = z.strictObject({
+  type: z.literal("detach_session"),
+  ...commandFields,
+  sessionId: SessionId,
+});
+export type DetachSessionCommand = z.infer<typeof DetachSessionCommand>;
 
 /** Hides a session in Atrium and stops its pi; pi's file stays. */
 export const ArchiveSessionCommand = z.strictObject({
@@ -430,6 +482,8 @@ export const ForkSessionCommand = z.strictObject({
   turnId: z.string().min(1).max(256),
   /** The new session's name, which the UI words. */
   name: Name,
+  /** Makes it a child conversation of this session, carrying the turns up to `turnId` (SPEC-0002). */
+  child: ForkPlacement.optional(),
 });
 export type ForkSessionCommand = z.infer<typeof ForkSessionCommand>;
 
@@ -707,6 +761,7 @@ export const Command = z.discriminatedUnion("type", [
   CloseTabCommand,
   SelectContainerCommand,
   ArchiveSessionCommand,
+  DetachSessionCommand,
   ClearAttentionCommand,
   HandOffCommand,
   TakeBackCommand,
@@ -719,6 +774,8 @@ export const Command = z.discriminatedUnion("type", [
   ClearQueueCommand,
   UpdateQueuedCommand,
   RemoveQueuedCommand,
+  RemoveDeliveryCommand,
+  ResumeDeliveriesCommand,
   SteerQueuedCommand,
   AnswerInteractionCommand,
   RetryRunCommand,
@@ -813,9 +870,14 @@ export const CommandResult = {
   close_tab: z.strictObject({}),
   select_container: z.strictObject({}),
   archive_session: z.strictObject({}),
+  detach_session: z.strictObject({}),
   clear_attention: z.strictObject({}),
   /** The session file, for `pi --session`. */
-  hand_off: z.strictObject({ file: z.string().min(1).max(4096) }),
+  /**
+   * `args`: the tool limits of a child the agent opened, which pi in a terminal takes as flags, as
+   * it has no Atrium extension; only advice there (SPEC-0002, "交接").
+   */
+  hand_off: z.strictObject({ file: z.string().min(1).max(4096), args: z.array(z.string().max(4096)).max(16) }),
   take_back: z.strictObject({}),
   rename_session: z.strictObject({}),
   set_preferences: z.strictObject({}),
@@ -828,6 +890,8 @@ export const CommandResult = {
   clear_queue: z.strictObject({}),
   update_queued: z.strictObject({}),
   remove_queued: z.strictObject({}),
+  remove_delivery: z.strictObject({}),
+  resume_deliveries: z.strictObject({}),
   steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
   answer_interaction: z.strictObject({}),
   retry_run: z.strictObject({}),
@@ -839,7 +903,11 @@ export const CommandResult = {
   compact_session: z.strictObject({}),
   /** The page pi wrote, whole. */
   export_session: z.strictObject({ html: z.string().min(1) }),
-  fork_session: z.strictObject({ sessionId: SessionId }),
+  /**
+   * `noteSent: false` when a child forked into a new worktree could not be told where it works
+   * now (SPEC-0002, "带上下文的子对话怎么做出来"); absent otherwise.
+   */
+  fork_session: z.strictObject({ sessionId: SessionId, noteSent: z.literal(false).optional() }),
   list_commands: z.strictObject({ commands: z.array(SlashCommand) }),
   /** The best matches first, at most 20. */
   search_files: z.strictObject({ files: z.array(FileCandidate) }),

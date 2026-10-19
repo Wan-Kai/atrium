@@ -31,6 +31,9 @@ const session = (sessionId: string, containerId: string) => ({
   attention: null,
   asking: null,
   handedOff: false,
+  parent: null,
+  agent: null,
+  heldDeliveries: 0,
 });
 
 /** A view whose list has sessions s1–s3 in workspace A and c1 in chat C, with `tabs` open in A. */

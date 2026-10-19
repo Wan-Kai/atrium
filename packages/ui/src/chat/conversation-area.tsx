@@ -24,8 +24,11 @@ import {
 import { download } from "./download";
 import { ChangesTrack, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { StatusBar } from "./status-bar";
+import { ChildCapsule } from "../children/child-capsule";
+import { askForChild } from "../children/new-child";
 import { MessageImagesContext, messageImages } from "./message-images";
 import { Transcript } from "./transcript";
+import { type AgentLinks, AgentLinksContext } from "./agent-links";
 import {
   type Launch,
   type NewWorkspaceState,
@@ -44,6 +47,7 @@ import {
   createWorkspaceViews,
   openFile,
   panelTabOf,
+  showViewer,
   viewOf,
 } from "../state/workspace-views";
 import { ActiveViewer } from "../files/active-viewer";
@@ -91,6 +95,7 @@ export function describeSendError(error: unknown): string {
   if (error.code === "nothing_to_compact") return "对话还太短，不用压缩";
   if (error.code === "already_compacted") return "刚压缩过，没有新内容";
   if (error.code === "compact_failed") return "没能压缩：pi 出错了";
+  if (error.code === "command_reserved") return "以 /atrium- 开头的消息留给 Atrium 自己用，没有发出";
   if (error.code === "export_failed") {
     return error.params?.["reason"] === "too_large" ? "会话太大（超过 20 MB），没能导出" : "没能导出：pi 出错了";
   }
@@ -110,6 +115,9 @@ export function describeSendError(error: unknown): string {
 function describeForkError(error: unknown): string {
   if (!(error instanceof CommandError)) return "没能分叉";
   if (error.code === "session_busy") return "运行中不能分叉";
+  // The next turn opened with notices or a task, as the transcript had not shown yet (SPEC-0002).
+  if (error.code === "turn_not_found" && error.params?.["reason"] === "agent_turn")
+    return "下一轮不是你发的消息，不能从这里分叉";
   if (error.code === "turn_not_found") return "没能分叉：找不到这一轮";
   if (error.code === "fork_failed") return "没能分叉：pi 出错了";
   return "没能分叉";
@@ -309,8 +317,8 @@ function EmptyLine() {
  * asked; sends run control commands and status bar choices, reporting their failures through `act`.
  * @param props - The client, the session, its view store, what to do with a message, a steer and a
  * built-in command, how to run a command whose failure should show, a notice to show above the
- * input box, the latest request to open the model panel, and what the new-workspace page set going
- * here.
+ * input box, the latest request to open the model panel, what the new-workspace page set going
+ * here, and the workspace views.
  * @returns The transcript and input box.
  */
 function SessionArea({
@@ -331,6 +339,7 @@ function SessionArea({
   changes,
   launch,
   fileOpener,
+  views,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -355,6 +364,8 @@ function SessionArea({
   readonly launch: Launch | undefined;
   /** How to open a file a tool was given, from its chip; none outside a workspace. */
   readonly fileOpener?: ((path: string) => (() => void) | null) | undefined;
+  /** The workspace views, so a child opened from the capsule shows over a viewer tab. */
+  readonly views: StoreApi<WorkspaceViews>;
 }) {
   const view = useStore(store);
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
@@ -365,6 +376,20 @@ function SessionArea({
   );
   // One per session, so thumbnails do not load again on every render.
   const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
+  const sessions = useStore(client.index, (index) => index.sessions);
+  const links = useMemo<AgentLinks>(
+    () => ({
+      open: (id) => {
+        // Shown over a viewer tab, as a session chosen in the sidebar is (SPEC-0002, "显示").
+        const target = sessions.find((one) => one.sessionId === id);
+        if (target !== undefined) showViewer(views, target.containerId, null);
+        void client.openSession(id).catch(() => showNotice(sessionId, "没能打开子对话", true));
+      },
+      session: (id) => sessions.find((one) => one.sessionId === id),
+      parentId: sessions.find((one) => one.sessionId === sessionId)?.parent?.sessionId ?? null,
+    }),
+    [client, views, sessionId, sessions],
+  );
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -387,6 +412,8 @@ function SessionArea({
     update: (itemId, text) => act(() => client.updateQueued(sessionId, itemId, text)),
     remove: (itemId) => act(() => client.removeQueued(sessionId, itemId)),
     steerQueued: (itemId) => act(() => client.steerQueued(sessionId, itemId)),
+    removeDelivery: (deliveryId) => act(() => client.removeDelivery(sessionId, deliveryId)),
+    resumeDeliveries: () => act(() => client.resumeDeliveries(sessionId, false)),
     answer: (interactionId, answer) => act(() => client.answerInteraction(sessionId, interactionId, answer)),
     retry: () => act(() => client.retryRun(sessionId)),
   };
@@ -402,20 +429,23 @@ function SessionArea({
         <EmptyLine />
       ) : (
         <MessageImagesContext value={images}>
-          <Transcript
-            view={view}
-            onLoadOlder={() => {
-              // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-              client.loadOlder(sessionId).catch(() => undefined);
-            }}
-            onLoadStep={(turnId, stepId) => {
-              // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-              client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-            }}
-            onRetry={actions.retry}
-            onFork={(turnId) => forkFrom(client, sessionId, turnId)}
-            {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
-          />
+          <AgentLinksContext value={links}>
+            <Transcript
+              view={view}
+              onLoadOlder={() => {
+                // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+                client.loadOlder(sessionId).catch(() => undefined);
+              }}
+              onLoadStep={(turnId, stepId) => {
+                // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+                client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+              }}
+              onRetry={actions.retry}
+              onFork={(turnId) => forkFrom(client, sessionId, turnId)}
+              onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+              {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+            />
+          </AgentLinksContext>
         </MessageImagesContext>
       )}
       <ControlCards control={view.control} actions={actions} />
@@ -447,6 +477,9 @@ function SessionArea({
             running={running}
             actions={actions}
             {...(changes === undefined ? {} : { changes })}
+            renderChildCapsule={(list) => (
+              <ChildCapsule client={client} sessionId={sessionId} views={views} {...list} />
+            )}
           />
         }
         picker={
@@ -878,11 +911,12 @@ export function ConversationArea({
    * @remarks
    * SPEC-0001 ("M1.11 的 `/` 命令 · 执行"): `/compact` has the host compact the context, with what
    * followed as what to keep in mind; `/export` downloads pi's page of the session; `/model` and `/thinking` open their part of the model
-   * panel, or set what they name; `/copy` copies the last reply and says so beside the tab bar.
+   * panel, or set what they name; `/copy` copies the last reply and says so beside the tab bar;
+   * `/child` opens the dialog for an empty child conversation (SPEC-0002, "第一步 · 入口").
    * The session's state is read now, not from the last render. A model named before the container's
    * list was read waits for the list.
    *
-   * @sideEffects May compact the session, download its page, open the model panel, set the model or level (creating
+   * @sideEffects May compact the session, download its page, ask for a child, open the model panel, set the model or level (creating
    * the session first, as choosing in the panel does), load the model list, write the clipboard,
    * or show a notice.
    * @param name - The command.
@@ -896,6 +930,11 @@ export function ConversationArea({
     view: SessionView | undefined,
   ): Promise<string | null> {
     const models = client.models(workspaceId);
+    if (name === "child") {
+      // Not a draft, as `inDraft` says, so there is a session.
+      if (sessionId !== null) askForChild({ parentSessionId: sessionId, turnId: null });
+      return null;
+    }
     if (name === "compact") {
       await client.compactSession(await target(), args === "" ? undefined : args);
       return null;
@@ -1087,6 +1126,7 @@ export function ConversationArea({
             onFocusTaken={() => handTo(null)}
             changes={capsule}
             launch={launch}
+            views={views}
             fileOpener={fileOpener}
           />
         )}

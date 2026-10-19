@@ -16,6 +16,7 @@ function turn(steps: Step[], fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id: "t1",
+    source: null,
     user: { text: "改一下侧栏", images: 0, clientMessageId: null, auto: false, command: null, timestamp: at },
     steps,
     outcome: "done",

@@ -61,6 +61,8 @@ atrium/
 │   │   │   ├── auth/               登录：系统 Node 运行的登录程序（加载用户装的 pi 的 ModelRuntime）
 │   │   │   │                       和宿主这边的调用（登录状态、OAuth、API Key、退出）
 │   │   │   ├── fast/               Fast：哪些模型支持的规则，和交给 pi 加载的扩展（ADR-0008）
+│   │   │   ├── agent/              子对话：隐藏命令 `/atrium-agent` 的参数、给模型的说明，扩展的这一部分（SPEC-0002、ADR-0013）
+│   │   │   ├── stats/              会话统计；UsageReader 增量读会话文件里的用量（子对话的"含子对话"，SPEC-0002）
 │   │   │   └── locate/             找到 pi 和它用的 Node、检查版本；找到 `@` 用的 fd
 │   │   ├── fixtures/               第 3 层录制的夹具，`pi-<版本>/<场景>.jsonl`
 │   │   └── test/contract.ts        跑契约场景并录制或检查夹具（场景在 `src/contract/`）
@@ -76,7 +78,8 @@ atrium/
 │   │   │   ├── workspaces/         WorkspaceService（worktree 扫描、后台 fetch）、MergeInspector
 │   │   │   ├── sessions/           SessionManager、SessionCatalog（按记录的容器或 cwd 归类）、布局、
 │   │   │   │                       列表命令、SessionController、SessionRuntime、PromptQueue、
-│   │   │   │                       PendingInteraction、Attention、计时与指标
+│   │   │   │                       PendingInteraction、Attention、计时与指标；子对话的树（child-tree）
+│   │   │   │                       和用量合计（children-usage，SPEC-0002）
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
@@ -100,6 +103,7 @@ atrium/
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
 │   │       ├── tabs/               标签栏、历史和会话菜单
+│   │       ├── children/           子对话：子对话条、面包屑、开子对话的对话框和它们的规则（SPEC-0002）
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框
 │   │       ├── test/               浏览器测试用的假客户端
 │   │       └── 以后：status-bar/、interactions/、onboarding/、settings/

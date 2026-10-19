@@ -47,9 +47,10 @@ const realGit = (): GitRunner =>
  * @sideEffects Creates the index directory and the plain folder.
  * @param repo - The scene.
  * @param git - git, or `null` for none.
+ * @param randomWord - The random word a child's branch falls back on, if a test needs one.
  * @returns The creator, the services, the projects' ids, the queue, the scans asked for and logs.
  */
-async function creator(repo: GitScene, git: GitRunner | null = realGit()) {
+async function creator(repo: GitScene, git: GitRunner | null = realGit(), randomWord?: () => string) {
   const index = await createTempDir("index");
   onTestFinished(index.cleanup);
   const { file } = await loadIndexFile(index.path, PROJECTS_FILE, 0);
@@ -73,6 +74,7 @@ async function creator(repo: GitScene, git: GitRunner | null = realGit()) {
     queue,
     refresh: (workspaceId) => refreshed.push(workspaceId),
     logger,
+    ...(randomWord === undefined ? {} : { randomWord }),
   });
   return { create, projects, projectId, plainId, queue, refreshed, records };
 }
@@ -391,6 +393,160 @@ describe("createWorktreeCreator: bases", () => {
     expect(await failure(create.bases(plainId))).toStrictEqual({
       code: "worktree_create_failed",
       params: { reason: "not_git" },
+    });
+  });
+});
+
+/**
+ * The local workspace of a project.
+ *
+ * @sideEffects none
+ * @param projects - The project service.
+ * @param projectId - The project.
+ * @returns The workspace's id.
+ */
+const localOf = (projects: Awaited<ReturnType<typeof creator>>["projects"], projectId: string) =>
+  present(
+    projects.workspaces().find((record) => record.projectId === projectId && record.kind === "local"),
+    "the local workspace",
+  ).id;
+
+describe("createWorktreeCreator: createFrom", () => {
+  it("adds a child the agent opens on an agent/ branch named after its handle (SPEC-0002, 新建 worktree)", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+
+    const made = await create.createFrom(localOf(projects, projectId), "audit", "agent/");
+
+    const dir = join(repo.root, "repo.worktrees", "audit");
+    expect(made).toStrictEqual({ workspaceId: expect.any(String), dir, branch: "agent/audit" });
+    expect(await repo.git(dir, "branch", "--show-current")).toBe("agent/audit");
+  });
+
+  it("adds a child's worktree from where the workspace is now, on a tidied atrium/ branch, without what it has not committed", async () => {
+    const repo = await scene();
+    await repo.commit(repo.repo, "local.txt", "local\n");
+    const head = await repo.git(repo.repo, "rev-parse", "HEAD");
+    await writeFile(join(repo.repo, "dirty.txt"), "not committed\n");
+    const { create, projects, projectId, refreshed, records } = await creator(repo);
+
+    const made = await create.createFrom(localOf(projects, projectId), "Fix the Login flow!");
+
+    const dir = join(repo.root, "repo.worktrees", "fix-the-login-flow");
+    expect(made).toStrictEqual({ workspaceId: expect.any(String), dir, branch: "atrium/fix-the-login-flow" });
+    expect(projects.workspaces().find((record) => record.id === made.workspaceId)).toMatchObject({
+      kind: "worktree",
+      dir,
+      baseCommit: head,
+    });
+    expect(await repo.git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe("atrium/fix-the-login-flow");
+    expect(await repo.git(dir, "rev-parse", "HEAD")).toBe(head);
+    expect(await repo.git(dir, "status", "--porcelain")).toBe("");
+    expect(refreshed).toStrictEqual([made.workspaceId]);
+    expect(records.filter((record) => record["msg"] === "worktree created")).toMatchObject([
+      { projectId, workspaceId: made.workspaceId },
+    ]);
+  });
+
+  it("starts from a detached HEAD too", async () => {
+    const repo = await scene();
+    const first = await repo.git(repo.repo, "rev-parse", "HEAD");
+    await repo.commit(repo.repo, "later.txt", "later\n");
+    await repo.git(repo.repo, "checkout", "--quiet", "--detach", first);
+    const { create, projects, projectId } = await creator(repo);
+
+    const made = await create.createFrom(localOf(projects, projectId), "tests");
+
+    expect(await repo.git(made.dir, "rev-parse", "HEAD")).toBe(first);
+  });
+
+  it("goes past a branch or folder taken with -2 to -9, and refuses when all are", async () => {
+    const repo = await scene();
+    await repo.git(repo.repo, "branch", "atrium/tests");
+    await mkdir(join(repo.root, "repo.worktrees", "tests-2"), { recursive: true });
+    const { create, projects, projectId } = await creator(repo);
+    const local = localOf(projects, projectId);
+
+    expect((await create.createFrom(local, "tests")).dir).toBe(join(repo.root, "repo.worktrees", "tests-3"));
+    for (let suffix = 4; suffix <= 8; suffix += 1)
+      await repo.git(repo.repo, "branch", `atrium/tests-${String(suffix)}`);
+    expect((await create.createFrom(local, "tests")).dir).toBe(join(repo.root, "repo.worktrees", "tests-9"));
+    expect(await failure(create.createFrom(local, "tests"))).toStrictEqual({
+      code: "worktree_create_failed",
+      params: { reason: "branch_exists", branch: "atrium/tests" },
+    });
+  });
+
+  it("names the branch child- and a random word when the name leaves fewer than 2 characters", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo, realGit(), () => "abc123");
+
+    const made = await create.createFrom(localOf(projects, projectId), "补测试");
+
+    expect(await repo.git(made.dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe("atrium/child-abc123");
+  });
+
+  it("goes past a folder a workspace is registered at though it is not on disk, as an archived one's", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+    await projects.addWorktree(
+      projectId,
+      join(repo.root, "repo.worktrees", "tests"),
+      await repo.git(repo.repo, "rev-parse", "HEAD"),
+    );
+
+    expect((await create.createFrom(localOf(projects, projectId), "tests")).dir).toBe(
+      join(repo.root, "repo.worktrees", "tests-2"),
+    );
+  });
+
+  it("names the branch child- and six random hexadecimal digits by itself", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+
+    const made = await create.createFrom(localOf(projects, projectId), "补测试");
+
+    expect(await repo.git(made.dir, "rev-parse", "--abbrev-ref", "HEAD")).toMatch(/^atrium\/child-[0-9a-f]{6}$/);
+  });
+
+  it("says git failed without git, for a workspace with no commit to start from, and when it cannot add the worktree", async () => {
+    const repo = await scene();
+    const without = await creator(repo, null);
+    expect(
+      await failure(without.create.createFrom(localOf(without.projects, without.projectId), "tests")),
+    ).toStrictEqual({
+      code: "worktree_create_failed",
+      params: undefined,
+    });
+
+    const timing = await creator(repo, timingOutWorktree());
+    expect(await failure(timing.create.createFrom(localOf(timing.projects, timing.projectId), "tests"))).toStrictEqual({
+      code: "worktree_create_failed",
+      params: undefined,
+    });
+    expect(timing.records.filter((record) => record["msg"] === "worktree add failed")).toMatchObject([
+      { projectId: timing.projectId, reason: "timeout" },
+    ]);
+
+    await repo.git(repo.repo, "checkout", "--quiet", "--orphan", "fresh");
+    const { create, projects, projectId } = await creator(repo);
+    expect(await failure(create.createFrom(localOf(projects, projectId), "tests"))).toStrictEqual({
+      code: "worktree_create_failed",
+      params: { reason: "base_missing", base: "HEAD" },
+    });
+  });
+
+  it("refuses a workspace of a plain folder's project and an unknown one as no place for a child", async () => {
+    const repo = await scene();
+    const { create, projects, plainId } = await creator(repo);
+
+    expect(await failure(create.createFrom(localOf(projects, plainId), "tests"))).toStrictEqual({
+      code: "child_place_invalid",
+      params: undefined,
+    });
+    expect(await failure(create.createFrom("wks_unknown", "tests"))).toStrictEqual({
+      code: "child_place_invalid",
+      params: undefined,
     });
   });
 });

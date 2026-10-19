@@ -68,6 +68,26 @@ const recordedSystem = {
   toolsRemoved: [],
 };
 
+/**
+ * A custom message entry with the given type and details.
+ *
+ * @sideEffects none
+ * @param customType - Its type.
+ * @param details - Its details.
+ * @returns The entry.
+ */
+const custom = (customType: string, details: unknown) =>
+  ({
+    type: "custom_message",
+    id: "c1",
+    parentId: null,
+    timestamp: "1970-01-01T00:00:00.003Z",
+    customType,
+    content: "x",
+    display: true,
+    details,
+  }) as SessionEntry;
+
 describe("toLogEntry", () => {
   it("maps a recorded session with tools, a retry, a compaction and a branch", () => {
     expect(recordedEntries().map(toLogEntry)).toStrictEqual([
@@ -424,5 +444,66 @@ describe("toLogEntry", () => {
         message: { role: "bashExecution", command: "ls", output: "", exitCode: 0, timestamp: 7 },
       } as SessionEntry),
     ).toStrictEqual({ id: "b1", parentId: "a1", timestamp: 9, kind: "other" });
+  });
+
+  it("reads Atrium's note from its custom message, keeping its place in the tree", () => {
+    const note = { v: 1, kind: "note", note: "worktree_moved", from: "/repo", to: "/repo.worktrees/x" };
+
+    expect(
+      toLogEntry({
+        type: "custom_message",
+        id: "n1",
+        parentId: "a1",
+        timestamp: "1970-01-01T00:00:00.009Z",
+        customType: "atrium-agent",
+        content: "words for the model",
+        display: true,
+        details: note,
+      }),
+    ).toStrictEqual({
+      id: "n1",
+      parentId: "a1",
+      timestamp: 9,
+      kind: "note",
+      note: { note: "worktree_moved", from: "/repo", to: "/repo.worktrees/x" },
+    });
+  });
+
+  it("treats another extension's custom message, or a note it cannot read, as nothing to show", () => {
+    const note = { v: 1, kind: "note", note: "worktree_moved", from: "/a", to: "/b" };
+    const other = { id: "c1", parentId: null, timestamp: 3, kind: "other" };
+
+    expect(toLogEntry(custom("someone-else", note))).toStrictEqual(other);
+    expect(toLogEntry(custom("atrium-agent", { ...note, v: 2 }))).toStrictEqual(other);
+    expect(toLogEntry(custom("atrium-agent", { ...note, kind: "task" }))).toStrictEqual(other);
+    expect(toLogEntry(custom("atrium-agent", { ...note, note: "elsewhere" }))).toStrictEqual(other);
+    expect(toLogEntry(custom("atrium-agent", { ...note, from: "" }))).toStrictEqual(other);
+    expect(toLogEntry(custom("atrium-agent", { ...note, to: 7 }))).toStrictEqual(other);
+    expect(toLogEntry(custom("atrium-agent", null))).toStrictEqual(other);
+  });
+
+  it("reads notices and a task Atrium delivered from their custom messages, details as written", () => {
+    const report = {
+      v: 1,
+      kind: "report",
+      deliveries: ["d1"],
+      events: [{ name: "audit", title: "审查", sessionId: "s2", taskId: "t-1", event: "finished", elapsedMs: 9 }],
+    };
+    const task = {
+      v: 1,
+      kind: "task",
+      deliveries: ["d2"],
+      from: "main",
+      fromTitle: "修复",
+      taskId: "t-2",
+      text: "look",
+    };
+
+    expect([toLogEntry(custom("atrium-agent", report)), toLogEntry(custom("atrium-agent", task))]).toStrictEqual([
+      { id: "c1", parentId: null, timestamp: 3, kind: "agent", details: report },
+      { id: "c1", parentId: null, timestamp: 3, kind: "agent", details: task },
+    ]);
+    expect(toLogEntry(custom("atrium-agent", { ...task, deliveries: "d2" }))).toMatchObject({ kind: "other" });
+    expect(toLogEntry(custom("someone-else", task))).toMatchObject({ kind: "other" });
   });
 });

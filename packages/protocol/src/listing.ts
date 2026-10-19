@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SessionAgent } from "./agent";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
 import { ModelRef, ThinkingLevel } from "./models";
@@ -115,6 +116,14 @@ export function isAuthFailure(text: string): boolean {
   return AUTH_FAILURE.test(text);
 }
 
+/** The session a child conversation belongs to, and who opened it (SPEC-0002, "概念"). */
+export const ChildParent = z.strictObject({
+  sessionId: SessionId,
+  /** `user` from a reply or a menu; `agent` from the parent's agent (step two). */
+  by: z.enum(["user", "agent"]),
+});
+export type ChildParent = z.infer<typeof ChildParent>;
+
 /** A session as the sidebar, tabs and history list it. */
 export const SessionSummary = z.strictObject({
   sessionId: SessionId,
@@ -137,6 +146,12 @@ export const SessionSummary = z.strictObject({
   asking: Timestamp.nullable(),
   /** Handed to pi in a terminal; Atrium starts no pi for it until taken back. */
   handedOff: z.boolean(),
+  /** The session it is a child conversation of; `null` for an ordinary session (SPEC-0002). */
+  parent: ChildParent.nullable(),
+  /** What a child the agent opened shows in its parent's child list; `null` for any other (SPEC-0002). */
+  agent: SessionAgent.nullable(),
+  /** How many of its deliveries wait since the host restarted, until you let them go (SPEC-0002, "送达"). */
+  heldDeliveries: z.number().int().nonnegative(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

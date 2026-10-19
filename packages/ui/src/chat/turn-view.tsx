@@ -1,12 +1,14 @@
 import { isAuthFailure } from "@atrium/client";
 import type { Notice, Step, Turn } from "@atrium/protocol";
 import {
+  ArrowBendDownRight,
   ArrowClockwise,
   ArrowsInLineVertical,
   CaretDown,
   CaretRight,
   Database,
   FileText,
+  GitBranch,
   GitFork,
   Key,
   PencilSimple,
@@ -21,14 +23,18 @@ import { Fold } from "./fold";
 import { Markdown } from "./markdown";
 import { CopyButton, UserBubble, timeOfDay } from "./messages";
 import { RunStatus } from "./run-status";
+import type { LanePlace } from "./lanes";
+import { SourceLines } from "./source-line";
 import { DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
 import {
+  type LaneLayout,
   type ProcessRow,
   countProcess,
   describeStep,
   formatDuration,
   formatTokens,
   hostNoticeText,
+  laneLayout,
   layoutTurn,
   processParts,
   processSteps,
@@ -136,10 +142,26 @@ function ProcessHeader({
 }
 
 /**
- * A process row's key.
+ * A row's place among its turn's lanes.
  *
  * @remarks
- * A step's id, or the first call's for an explore row.
+ * None in a turn without lanes (SPEC-0002, "显示 · 过程轨道").
+ *
+ * @sideEffects none
+ * @param lanes - The turn's lanes.
+ * @param index - The row's position.
+ * @returns The place, or `undefined`.
+ */
+function lanePlace(lanes: LaneLayout, index: number): LanePlace | undefined {
+  const row = lanes.rows[index];
+  return row === undefined || lanes.width === 0 ? undefined : { row, width: lanes.width };
+}
+
+/**
+ * A row's key among its turn's rows.
+ *
+ * @remarks
+ * Its step's id, or its own for an explore group and an event.
  *
  * @sideEffects none
  * @param row - The row.
@@ -276,8 +298,31 @@ function FileChange({
 export interface ForkFromTurn {
   /** Forks after the turn. */
   readonly fork: (turnId: string) => void;
+  /** Opens a child conversation carrying the turns up to this one (SPEC-0002, "第一步 · 入口"). */
+  readonly child?: (turnId: string) => void;
   /** Whether the session runs, stops or compacts, so no fork can be made now. */
   readonly blocked: boolean;
+  /**
+   * Whether the next turn opened with notices or a task, not your message: pi cuts a fork only at
+   * a user message, so none can be made from this turn (SPEC-0002, "第一步 · 入口").
+   */
+  readonly cut?: boolean;
+}
+
+/**
+ * Why a turn's fork or child cannot be made now, if it cannot.
+ *
+ * @remarks
+ * A turn before one not opened by you never can; any other while the session is busy.
+ *
+ * @sideEffects none
+ * @param fork - How forking behaves.
+ * @param what - What the button makes: "分叉" or "开子对话".
+ * @returns The reason, or `null` when it can.
+ */
+function forkRefusal(fork: ForkFromTurn, what: string): string | null {
+  if (fork.cut === true) return `下一轮不是你发的消息，不能从这里${what}`;
+  return fork.blocked ? `运行中不能${what}` : null;
 }
 
 /**
@@ -293,20 +338,61 @@ export interface ForkFromTurn {
  * @returns The button.
  */
 function ForkButton({ turnId, fork }: { readonly turnId: string; readonly fork: ForkFromTurn }) {
+  const refusal = forkRefusal(fork, "分叉");
   return (
     <button
       type="button"
       aria-label="从这里分叉"
-      title={fork.blocked ? "运行中不能分叉" : "从这里分叉"}
-      aria-disabled={fork.blocked}
+      title={refusal ?? "从这里分叉"}
+      aria-disabled={refusal !== null}
       className={`atrium-press-sm rounded-[var(--r)] p-1 text-[var(--text-dim)] ${
-        fork.blocked ? "cursor-not-allowed opacity-40" : "hover:bg-[var(--hover)] hover:text-[var(--text-muted)]"
+        refusal === null ? "hover:bg-[var(--hover)] hover:text-[var(--text-muted)]" : "cursor-not-allowed opacity-40"
       }`}
       onClick={() => {
-        if (!fork.blocked) fork.fork(turnId);
+        if (refusal === null) fork.fork(turnId);
       }}
     >
       <GitFork size={14} />
+    </button>
+  );
+}
+
+/**
+ * The "从这里开子对话" button right of a reply's fork button.
+ *
+ * @remarks
+ * SPEC-0002 ("第一步 · 入口"; prototype A): drawn as the fork button, a "↳"; refused when forking
+ * is, as it carries the turns the same way, saying "运行中不能开子对话", or that the next turn is
+ * not your message.
+ *
+ * @sideEffects Asks for a child conversation when clicked and not refused.
+ * @param props - The turn, what opening a child does, and how forking behaves.
+ * @returns The button.
+ */
+function ChildButton({
+  turnId,
+  open,
+  fork,
+}: {
+  readonly turnId: string;
+  readonly open: (turnId: string) => void;
+  readonly fork: ForkFromTurn;
+}) {
+  const refusal = forkRefusal(fork, "开子对话");
+  return (
+    <button
+      type="button"
+      aria-label="从这里开子对话"
+      title={refusal ?? "从这里开子对话"}
+      aria-disabled={refusal !== null}
+      className={`atrium-press-sm rounded-[var(--r)] p-1 text-[var(--text-dim)] ${
+        refusal === null ? "hover:bg-[var(--hover)] hover:text-[var(--text-muted)]" : "cursor-not-allowed opacity-40"
+      }`}
+      onClick={() => {
+        if (refusal === null) open(turnId);
+      }}
+    >
+      <ArrowBendDownRight size={14} />
     </button>
   );
 }
@@ -344,6 +430,7 @@ function TurnFooter({
       >
         {reply === null ? null : <CopyButton label="复制回复" text={() => reply} />}
         {fork === undefined ? null : <ForkButton turnId={turn.id} fork={fork} />}
+        {fork?.child === undefined ? null : <ChildButton turnId={turn.id} open={fork.child} fork={fork} />}
         {turn.changes.length === 0 ? null : (
           <button
             type="button"
@@ -482,6 +569,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
+  const lanes = useMemo(() => laneLayout(process), [process]);
   const running = turn.outcome === "running";
   const [shownKeys] = useState(() => new Set(process.map(rowKey)));
   const [wasRunning, setWasRunning] = useState(running);
@@ -521,16 +609,20 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
       data-turn-id={turn.id}
       data-outcome={turn.outcome}
     >
-      <UserBubble
-        text={turn.user.text}
-        images={turn.user.images}
-        timestamp={turn.user.timestamp}
-        auto={turn.user.auto}
-        command={messageTag(turn.user.command)}
-        turnId={turn.id}
-        clientMessageId={turn.user.clientMessageId}
-        settled={turn.outcome !== "running"}
-      />
+      {turn.source === null ? (
+        <UserBubble
+          text={turn.user.text}
+          images={turn.user.images}
+          timestamp={turn.user.timestamp}
+          auto={turn.user.auto}
+          command={messageTag(turn.user.command)}
+          turnId={turn.id}
+          clientMessageId={turn.user.clientMessageId}
+          settled={turn.outcome !== "running"}
+        />
+      ) : (
+        <SourceLines source={turn.source} />
+      )}
       {waiting ? (
         <div className="mt-3" data-testid="run-waiting">
           <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
@@ -579,6 +671,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
                   last: index === process.length - 1,
                   enter: !shownKeys.has(rowKey(row)),
                 }}
+                lanes={lanePlace(lanes, index)}
               />
             ))}
             <div className="h-2" />
@@ -632,7 +725,13 @@ export function NoticeView({ notice }: { readonly notice: Notice }) {
         className="flex w-full items-center gap-2.5 text-[length:var(--fs-sm)] text-[var(--text-dim)] before:h-px before:flex-1 before:bg-[var(--line)] after:h-px after:flex-1 after:bg-[var(--line)]"
       >
         <span className="flex items-center gap-1.5">
-          {notice.notice === "restarted" ? <ArrowClockwise size={13} /> : <Question size={13} />}
+          {notice.notice === "restarted" ? (
+            <ArrowClockwise size={13} />
+          ) : notice.notice === "note" ? (
+            <GitBranch size={13} />
+          ) : (
+            <Question size={13} />
+          )}
           {hostNoticeText(notice)}
         </span>
       </div>

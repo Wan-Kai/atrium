@@ -242,6 +242,7 @@ function turn(id: string, text: string, auto = false): Turn {
   return {
     kind: "turn",
     id,
+    source: null,
     user: { text, images: 0, clientMessageId: null, auto, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",

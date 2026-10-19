@@ -1,10 +1,11 @@
 import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
-import { FakeClock, createTempDir } from "@atrium/testkit";
+import { FakeClock, createTempDir, present } from "@atrium/testkit";
 import { mkdir, readFile, realpath, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { loadIndexFile } from "../store/index-file";
+import type { AgentRecord } from "../store/agent-records";
 import { SESSIONS_FILE } from "../store/index-schema";
 import { type ContainerDir, createSessionCatalog } from "./session-catalog";
 
@@ -107,6 +108,11 @@ describe("SessionCatalog", () => {
         attention: null,
         handedOff: false,
         fast: null,
+        parent: null,
+        usageAfter: null,
+        agent: null,
+        usedHandles: [],
+        deliveries: [],
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
     ]);
@@ -165,6 +171,11 @@ describe("SessionCatalog", () => {
         attention: null,
         handedOff: false,
         fast: null,
+        parent: null,
+        usageAfter: null,
+        agent: null,
+        usedHandles: [],
+        deliveries: [],
       },
     ]);
 
@@ -474,5 +485,169 @@ describe("SessionCatalog before its first scan", () => {
     await sessions.ready();
 
     expect(sessions.find("s1")?.state).toBe("missing");
+  });
+
+  it("records a child conversation's parent, name and baseline, naming it by pi's name once pi has one", async () => {
+    const { sessions, dirs, file, write } = await catalog();
+    await sessions.record({
+      sessionId: "c1",
+      containerId: A,
+      cwd: dirs.a,
+      parent: { sessionId: "s1", by: "user" },
+      name: "补测试",
+      usageAfter: "e7",
+    });
+    await sessions.record({ sessionId: "c2", containerId: A, cwd: dirs.a, parent: null, persisted: true });
+
+    expect(sessions.find("c1")).toMatchObject({
+      name: "补测试",
+      parent: { sessionId: "s1", by: "user" },
+      usageAfter: "e7",
+    });
+    expect(file.read().sessions).toMatchObject([
+      { sessionId: "c1", draft: true, name: "补测试", usageAfter: "e7", parent: { sessionId: "s1", by: "user" } },
+      { sessionId: "c2", draft: false },
+    ]);
+    expect(Object.keys(present(file.read().sessions[1], "the second record"))).not.toContain("parent");
+
+    await write(dirs.a, "c1", [user("hi")]);
+    await sessions.scan();
+    expect(sessions.find("c1")?.name).toBe("补测试");
+    await write(dirs.a, "c1", [user("hi"), { type: "session_info", name: "测试用例" }], 200);
+    await sessions.scan();
+    expect(sessions.find("c1")?.name).toBe("测试用例");
+  });
+
+  it("detaches a child conversation, keeping the rest of its record, and writes nothing for one without a parent", async () => {
+    const { sessions, dirs, file, changes } = await catalog();
+    await sessions.record({
+      sessionId: "c1",
+      containerId: A,
+      cwd: dirs.a,
+      parent: { sessionId: "s1", by: "user" },
+      name: "x",
+    });
+    await sessions.record({ sessionId: "s2", containerId: A, cwd: dirs.a });
+    const before = changes();
+
+    // Those without a parent first, while another session has one.
+    await sessions.detach("s2");
+    await sessions.detach("nobody");
+    await sessions.detach("c1");
+
+    expect(sessions.find("c1")?.parent).toBeNull();
+    expect(file.read().sessions[0]).toMatchObject({ sessionId: "c1", name: "x" });
+    expect(Object.keys(present(file.read().sessions[0], "the first record"))).not.toContain("parent");
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("reads a parent or a name the protocol could not carry, as a hand-edited index can hold, as none", async () => {
+    const { sessions, dirs } = await catalog();
+    for (const [sessionId, parent, name] of [
+      ["c1", "", ""],
+      ["c2", "p".repeat(129), "n".repeat(1025)],
+      ["c3", "p".repeat(128), "n".repeat(1024)],
+    ] as const) {
+      await sessions.record({
+        sessionId,
+        containerId: A,
+        cwd: dirs.a,
+        parent: { sessionId: parent, by: "user" },
+        name,
+      });
+    }
+
+    expect(
+      ["c1", "c2", "c3"].map((id) => [sessions.find(id)?.parent?.sessionId.length, sessions.find(id)?.name?.length]),
+    ).toStrictEqual([
+      [undefined, undefined],
+      [undefined, undefined],
+      [128, 1024],
+    ]);
+  });
+
+  it("names a recorded session in its record, writing nothing for the same name or an unknown session", async () => {
+    const { sessions, dirs, file, changes } = await catalog();
+    await sessions.record({ sessionId: "c1", containerId: A, cwd: dirs.a, parent: { sessionId: "s1", by: "user" } });
+    await sessions.record({ sessionId: "c2", containerId: A, cwd: dirs.a, parent: { sessionId: "s1", by: "user" } });
+    const before = changes();
+
+    await sessions.name("c1", "补测试");
+    await sessions.name("c1", "补测试");
+    await sessions.name("nobody", "x");
+
+    expect(file.read().sessions.map((record) => record.name)).toStrictEqual(["补测试", undefined]);
+    expect(changes()).toBe(before + 1);
+  });
+
+  it("records a child the agent opened, and reads its agent fields leniently: a broken one loses only itself", async () => {
+    const { sessions, dirs, file } = await catalog();
+    const agent: AgentRecord = {
+      handle: "audit",
+      role: "explore",
+      toolGuard: "flags",
+      startOn: { providerId: "faux", modelId: "faux-1", thinkingLevel: null },
+      worktree: false,
+      tasks: [{ taskId: "t-1", state: "open", at: 1 }],
+    };
+    await sessions.record({
+      sessionId: "c1",
+      containerId: A,
+      cwd: dirs.a,
+      parent: { sessionId: "s1", by: "agent" },
+      name: "audit",
+      agent,
+    });
+    const delivery = { id: "d1", kind: "task", from: "s1", taskId: "t-1", text: "look", at: 2, state: "waiting" };
+    await file.save({
+      ...file.read(),
+      sessions: [
+        ...file.read().sessions,
+        {
+          sessionId: "s1",
+          containerId: A,
+          cwd: dirs.a,
+          draft: true,
+          archived: false,
+          createdAt: 1,
+          agent: { handle: "x" },
+          usedHandles: ["audit", 7, "tests"],
+          deliveries: [delivery, { id: "d2" }, null],
+        },
+      ],
+    });
+
+    expect(sessions.find("c1")).toMatchObject({ agent, usedHandles: [], deliveries: [] });
+    expect(sessions.find("s1")).toMatchObject({ agent: null, usedHandles: ["audit", "tests"], deliveries: [delivery] });
+  });
+
+  it("changes a session's agent fields, records a session from the terminal, and writes nothing that is the same", async () => {
+    const { sessions, dirs, file, changes, write } = await catalog();
+    await write(dirs.a, "term");
+    await sessions.scan();
+    const before = changes();
+    const delivery = {
+      id: "d1",
+      kind: "report",
+      from: "c1",
+      taskId: "t-1",
+      event: "finished",
+      at: 2,
+      state: "waiting",
+    } as const;
+
+    await sessions.changeAgent("term", (fields) => ({ ...fields, usedHandles: ["audit"], deliveries: [delivery] }));
+    await sessions.changeAgent("term", (fields) => fields);
+    await sessions.changeAgent("nobody", (fields) => ({ ...fields, usedHandles: ["x"] }));
+
+    expect(sessions.find("term")).toMatchObject({ usedHandles: ["audit"], deliveries: [delivery], agent: null });
+    expect(file.read().sessions).toMatchObject([
+      { sessionId: "term", containerId: A, draft: false, usedHandles: ["audit"], deliveries: [delivery] },
+    ]);
+    expect(Object.keys(present(file.read().sessions[0], "the record"))).not.toContain("agent");
+    expect(changes()).toBe(before + 1);
+
+    await sessions.changeAgent("term", (fields) => ({ ...fields, deliveries: [] }));
+    expect(file.read().sessions[0]).toMatchObject({ usedHandles: ["audit"], deliveries: [] });
   });
 });

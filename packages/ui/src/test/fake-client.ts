@@ -12,10 +12,12 @@ import type {
 } from "@atrium/client";
 import {
   type Chat,
+  type ChildPlacement,
   type CommandResult,
   CommandError,
   type DiffTarget,
   type DiscoveredDirectory,
+  type ForkPlacement,
   IDLE_CONTROL,
   type IndexSnapshotEvent,
   type LoginMethod,
@@ -95,6 +97,9 @@ export function session(
     attention: null,
     asking: null,
     handedOff: false,
+    parent: null,
+    agent: null,
+    heldDeliveries: 0,
     ...fields,
   };
 }
@@ -150,6 +155,8 @@ export const READY_SETUP: SetupState = {
 export interface FakeAnswers {
   readonly createChat?: () => Promise<void>;
   readonly createSession?: () => Promise<void>;
+  /** Answers opening a child conversation, empty or forked; opened at once in the list when left out. */
+  readonly child?: () => Promise<void>;
   /** A project's bases; `origin/main` and a local `main` when left out. */
   readonly bases?: (projectId: string) => Promise<CommandResult<"list_bases">>;
   /** Answers naming a branch with the name; `atrium/fix-login` at once when left out. */
@@ -200,6 +207,8 @@ export interface FakeAnswers {
   readonly exportSession?: () => Promise<string>;
   /** The fork's session id; `fork-1` when left out. */
   readonly forkSession?: () => Promise<string>;
+  /** Whether a fork's child in a new worktree goes untold where it works (SPEC-0002). */
+  readonly unnoted?: true;
   /** A workspace directory's entries; none when left out. */
   readonly listDir?: (workspaceId: string, path: string) => Promise<CommandResult<"list_dir">>;
   /** A workspace file; `path_not_found` when left out. */
@@ -405,6 +414,18 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       const sessionId = addDraft(containerId);
       if (go === false) index.setState({ layout: { ...index.getState().layout, container: layout.container } });
       return { sessionId };
+    },
+    async createChild(containerId: string, child: ChildPlacement) {
+      calls.push(`createChild ${containerId} ${JSON.stringify(child)}`);
+      await answers.child?.();
+      const sessionId = addDraft(containerId);
+      change(sessionId, () => ({ parent: { sessionId: child.parentSessionId, by: "user" }, name: child.name }));
+      return { sessionId };
+    },
+    async detachSession(sessionId: string) {
+      calls.push(`detachSession ${sessionId}`);
+      change(sessionId, () => ({ parent: null }));
+      return {};
     },
     async listBases(projectId: string) {
       calls.push(`listBases ${projectId}`);
@@ -629,6 +650,14 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`steerQueued ${sessionId} ${itemId}`);
       return { disposition: "queued" };
     },
+    async removeDelivery(sessionId: string, deliveryId: string) {
+      calls.push(`removeDelivery ${sessionId} ${deliveryId}`);
+      return {};
+    },
+    async resumeDeliveries(sessionId: string, tree: boolean) {
+      calls.push(`resumeDeliveries ${sessionId} ${String(tree)}`);
+      return {};
+    },
     async answerInteraction(sessionId: string, interactionId: string, answer: unknown) {
       calls.push(`answerInteraction ${sessionId} ${interactionId} ${JSON.stringify(answer)}`);
       return {};
@@ -702,9 +731,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`exportSession ${sessionId}`);
       return { html: (await answers.exportSession?.()) ?? "<html></html>" };
     },
-    async forkSession(sessionId: string, turnId: string, name: string) {
-      calls.push(`forkSession ${sessionId} ${turnId} ${name}`);
-      return { sessionId: (await answers.forkSession?.()) ?? "fork-1" };
+    async forkSession(sessionId: string, turnId: string, name: string, child?: ForkPlacement) {
+      calls.push(`forkSession ${sessionId} ${turnId} ${name}${child === undefined ? "" : ` ${JSON.stringify(child)}`}`);
+      if (child !== undefined) await answers.child?.();
+      const fork = (await answers.forkSession?.()) ?? "fork-1";
+      return answers.unnoted === true ? { sessionId: fork, noteSent: false as const } : { sessionId: fork };
     },
     changes(workspaceId: string) {
       let store = changeStores.get(workspaceId);

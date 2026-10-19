@@ -554,6 +554,22 @@ describe("launch", () => {
     expect(store.getState().launches).toStrictEqual([]);
   });
 
+  it("refuses a message opening with /atrium- before any step, putting it back in the page's box", async () => {
+    const store = pageOpen();
+    const drafts = memoryDrafts();
+    const { client, calls } = fakeClient();
+
+    await launch(store, client, drafts, { text: "  /atrium-agent note x", images: [] }, () => "l1");
+
+    expect(onlyLaunch(store.getState())).toMatchObject({
+      done: 0,
+      failure: new CommandError("command_reserved"),
+      sessionId: null,
+    });
+    expect(drafts.read(pageDraftKey("p1"))).toMatchObject({ text: "  /atrium-agent note x" });
+    expect(calls).toStrictEqual([]);
+  });
+
   it("puts a message that did not go into the session's box, unless something was typed there", async () => {
     const store = pageOpen();
     const drafts = memoryDrafts();

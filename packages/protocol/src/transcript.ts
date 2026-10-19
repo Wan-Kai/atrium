@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentNoticeEvent, AgentRole, AgentSource } from "./agent";
 
 /** Milliseconds since the Unix epoch. */
 const Timestamp = z.number().int().nonnegative();
@@ -31,6 +32,24 @@ export const ToolDetails = z.discriminatedUnion("tool", [
   }),
   /** The written content comes from the call's arguments; pi's result has none. */
   z.strictObject({ tool: z.literal("write"), path: z.string(), content: z.string() }),
+  /**
+   * A main-agent tool's answer (SPEC-0002, "显示 · 过程轨道"): the child it started, which opens a
+   * lane, and the events it brought back, which merge lanes.
+   */
+  z.strictObject({
+    tool: z.literal("agent"),
+    spawned: z
+      .strictObject({
+        sessionId: z.string().min(1).max(128),
+        name: z.string().max(64),
+        taskId: z.string().max(128),
+        role: AgentRole,
+        /** Its new worktree's branch; `null` in the same place. */
+        branch: z.string().max(256).nullable(),
+      })
+      .nullable(),
+    events: z.array(AgentNoticeEvent),
+  }),
 ]);
 export type ToolDetails = z.infer<typeof ToolDetails>;
 
@@ -62,6 +81,8 @@ export const Step = z.discriminatedUnion("kind", [
     partial: z.boolean(),
   }),
   z.strictObject({ kind: z.literal("steer"), ...stepFields, text: z.string() }),
+  /** Notices or a task that came in during the run, drawn as a steer is (SPEC-0002, "显示"). */
+  z.strictObject({ kind: z.literal("agent"), ...stepFields, source: AgentSource }),
   z.strictObject({
     kind: z.literal("retry"),
     ...stepFields,
@@ -92,10 +113,15 @@ export const MessageCommand = z.strictObject({
 });
 export type MessageCommand = z.infer<typeof MessageCommand>;
 
-/** A user message and everything up to the next one (SPEC-0001, "对话记录"). */
+/**
+ * A user message and everything up to the next one (SPEC-0001, "对话记录"), or a run notices or a
+ * task opened, with `source` saying which and `user` empty (SPEC-0002, "对话记录里的自定义消息").
+ */
 export const Turn = z.strictObject({
   kind: z.literal("turn"),
   id: z.string().min(1),
+  /** What opened the turn when it was not you; `null` for your message. */
+  source: AgentSource.nullable(),
   user: z.strictObject({
     text: z.string(),
     images: z.number().int().nonnegative(),
@@ -119,7 +145,10 @@ export const Turn = z.strictObject({
 });
 export type Turn = z.infer<typeof Turn>;
 
-/** A system event between turns: the context was compacted, or the host restarted a crashed pi. */
+/**
+ * A system event between turns: the context was compacted, the host restarted a crashed pi, an
+ * extension asked something, or the host told the model something (SPEC-0002, `note`).
+ */
 export const Notice = z.discriminatedUnion("notice", [
   z.strictObject({
     kind: z.literal("notice"),
@@ -149,6 +178,19 @@ export const Notice = z.discriminatedUnion("notice", [
     value: z.string().nullable(),
     /** The answer to a confirmation. */
     confirmed: z.boolean().nullable(),
+    timestamp: Timestamp,
+  }),
+  /**
+   * The host's note to the model, an `atrium-agent` custom message: a child conversation forked
+   * into a new worktree works in `to`, though its history names `from` (SPEC-0002).
+   */
+  z.strictObject({
+    kind: z.literal("notice"),
+    id: z.string().min(1),
+    notice: z.literal("note"),
+    note: z.literal("worktree_moved"),
+    from: z.string().min(1).max(4096),
+    to: z.string().min(1).max(4096),
     timestamp: Timestamp,
   }),
 ]);

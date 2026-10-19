@@ -6,6 +6,7 @@ export {
   FAUX_MODEL,
   FAUX_PROVIDER,
   type FauxBlock,
+  type FauxContext,
   type FauxPiLaunch,
   type FauxReply,
   type FauxScript,

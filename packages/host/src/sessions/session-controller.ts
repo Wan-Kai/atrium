@@ -5,6 +5,7 @@ import {
   CommandError,
   type CommandResult,
   type Control,
+  type DeliveryItem,
   type FetchStepCommand,
   type FetchTranscriptCommand,
   type Interaction,
@@ -15,6 +16,7 @@ import {
   type PromptCommand,
   type RunSettledEvent,
   type SessionEvent,
+  type SessionMetrics,
   type SessionModel,
   type SessionSnapshotEvent,
   type SlashCommand,
@@ -92,7 +94,65 @@ export interface SessionPi {
   stats(): Promise<PiStats>;
   /** Stops pi; resolves once it has exited. */
   stop(): Promise<unknown>;
+  /** Sends one of Atrium's hidden commands, which pi runs at once (ADR-0013, point 2). */
+  command(message: string): Promise<void>;
 }
+
+/** One delivery as the controller sees it: enough to decide when it goes (SPEC-0002, "送达"). */
+export interface PendingDelivery {
+  readonly id: string;
+  readonly kind: "report" | "task";
+  /** A notice's event; `undefined` for a task. */
+  readonly event?: string;
+  readonly at: number;
+  readonly state: "waiting" | "claimed" | "sending" | "deleted";
+  /** The wait's tool call that took it. */
+  readonly claimedBy?: string;
+}
+
+/** How a run began, for deliveries: notices or a task, the host carrying on after a crash, or you. */
+export type RunOpening = { readonly deliveries: readonly string[] } | "auto" | "user";
+
+/**
+ * The session's deliveries and what is told of its runs (SPEC-0002, "送达"); the agent relay
+ * keeps them in the session's record and words what goes to pi.
+ */
+export interface ControllerDeliveries {
+  /** What waits for the session now. */
+  list(): readonly PendingDelivery[];
+  /** The queue panel's items. */
+  items(): DeliveryItem[];
+  /** Why they wait until you let them go: the host restarted, or pi did not take them; `null` when they go. */
+  held(): "restart" | "stalled" | null;
+  /** Sets the state of deliveries; resolves once written. */
+  mark(ids: readonly string[], state: "waiting" | "sending"): Promise<void>;
+  /** Removes deliveries pi has on file, or whose wait's result is there. */
+  confirm(ids: readonly string[]): Promise<void>;
+  /** The hidden command that hands pi these deliveries; `null` when they can no longer go. */
+  command(ids: readonly string[]): Promise<string | null>;
+  /** Holds the deliveries, as after a restart, when pi did not take one it was handed. */
+  stalled(ids: readonly string[]): void;
+  /** A run began. */
+  runStarted(opening: RunOpening): void;
+  /**
+   * A run ended; `reply` resolves, once pi's entries were read, with the entry of its last reply.
+   *
+   * @param outcome - How it ended.
+   * @param crashed - pi went away mid-run, not asked to: a restart may carry the run on.
+   * @param reply - The entry of the run's last reply, once read.
+   */
+  runSettled(outcome: "completed" | "stopped" | "failed", crashed: boolean, reply: Promise<string | null>): void;
+  /** pi's restarts after a crash were used up: the run carried on will not end otherwise. */
+  gaveUp(): void;
+  /** You sent a message: a wait in progress returns (SPEC-0002, "等待的规则"). */
+  userSpoke(): void;
+}
+
+/** How long pi may take to begin the run a delivery starts before the host holds the deliveries. */
+const DELIVERY_START_MS = 15_000;
+
+/** The events that go at once, into a run in progress (SPEC-0002, "送达"'s table). */
+const URGENT = new Set(["failed", "question", "needs_you", "stopped", "ended"]);
 
 /** A pi just started for the session again, with the entries it has and the model it uses. */
 export interface Respawned {
@@ -116,6 +176,10 @@ export interface SessionController {
   readonly submitting: boolean;
   /** The session's state now, for a client that just subscribed. */
   snapshot(): SessionSnapshotEvent;
+  /** The run control now, without the rest of a snapshot. */
+  control(): Control;
+  /** The model pi uses, as last read; `null` when unknown. */
+  model(): SessionModel | null;
   /** Every item from the session's start, whole, unlike a snapshot's latest ones. */
   items(): TranscriptItem[];
   /** Hands a session whose pi exited a newly started one, which carries on in a new epoch. */
@@ -160,6 +224,10 @@ export interface SessionController {
    * turn, or `null` after the last turn (SPEC-0001, "M1.11 的 `/` 命令 · 分叉").
    */
   forkPoint(turnId: string): string | null;
+  /** Takes what its child conversations produced, for its "含子对话" figures (SPEC-0002, "用量合计"). */
+  childrenChanged(totals: SessionMetrics["children"]): void;
+  /** Its deliveries changed: publishes them and hands pi what can go now (SPEC-0002, "送达"). */
+  deliveriesChanged(): void;
   /**
    * Keeps the session busy while a fork reads its file, until the release given is called:
    * messages queue, and compacting or forking again is refused.
@@ -460,6 +528,8 @@ export function createSessionController(options: {
   readonly fast?: boolean;
   /** Told Fast was switched, to remember for the session and for new sessions. */
   readonly onFastChosen?: (enabled: boolean) => void;
+  /** The session's deliveries (SPEC-0002, "送达"); without them it takes none. */
+  readonly deliveries?: ControllerDeliveries;
 }): SessionController {
   const { sessionId, clock, newId } = options;
   const log = options.log ?? (() => undefined);
@@ -513,6 +583,36 @@ export function createSessionController(options: {
   let compacting = false;
   /** Whether a fork reads the session's file (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"). */
   let forking = false;
+  /** The deliveries handed to an idle pi, whose run has not begun yet. */
+  let deliveryRun: readonly string[] | null = null;
+  /** Calls off the wait for that run to begin. */
+  let deliveryGuard: (() => void) | null = null;
+  /**
+   * The deliveries handed to pi as a steer into a run, until they are seen in it: if the run ended
+   * first, they open the next one (SPEC-0002, "送达"), which is theirs.
+   */
+  let steered: readonly string[] | null = null;
+  /** The deliveries the run in progress opened with, to find its reply after them. */
+  let runDeliveries: readonly string[] | null = null;
+  /** Deliveries an extension's error put back once since a run last began; a second time holds them. */
+  const erred = new Set<string>();
+  /** You sent a message while the queue was paused: the deliveries go with it (SPEC-0002, "送达"). */
+  let released = false;
+
+  /**
+   * Pauses the queue, or lets it go.
+   *
+   * @remarks
+   * A message you send while the queue is paused releases the deliveries for that pause only; a
+   * pause that starts or ends takes the release back (SPEC-0002, "送达" 的时机表).
+   *
+   * @sideEffects Sets the pause; takes back the release.
+   * @param next - Why it pauses, or `null` to let it go.
+   */
+  const pauseQueue = (next: Control["paused"]): void => {
+    paused = next;
+    released = false;
+  };
   /** A model was chosen whose result pi has not reported yet; read after the next entries. */
   let choiceToRead = false;
   /** A message on its way to pi, whose disposition has not come back yet. */
@@ -567,7 +667,43 @@ export function createSessionController(options: {
   function heard(event: PiEvent): void {
     const reply = planReplyOf(event);
     if (reply !== null) options.plan?.service.replied(reply);
+    // The translator drops it; deliveries handed over may be lost with it (SPEC-0002, "送达 · 确认").
+    if (event.type === "extension_error") extensionFailed();
     for (const translated of translate(event)) apply(translated);
+  }
+
+  /**
+   * Looks again at the deliveries handed to pi when an extension reports an error.
+   *
+   * @remarks
+   * SPEC-0002, "送达 · 确认": Atrium's extension may have failed to take what it was handed. The
+   * deliveries that were to start a run and did not are looked for in the file again and put back
+   * as waiting if not there, to go again; the second time in a row they are held as not taken
+   * ("没送出去"), so a failing extension is not handed them over and over. Steered into a run, they
+   * are looked at once the run ends, as always. Errors of other extensions, with nothing handed
+   * over, change nothing.
+   *
+   * @sideEffects May hold the deliveries or read pi's entries, which may put them back and hand
+   * them over again; publishes `control_updated`.
+   */
+  function extensionFailed(): void {
+    const ids = deliveryRun;
+    if (ids === null) return;
+    deliveryRun = null;
+    deliveryGuard?.();
+    deliveryGuard = null;
+    starting = false;
+    const again = ids.every((id) => erred.has(id));
+    for (const id of ids) erred.add(id);
+    log("warn", "delivery met an extension error", { sessionId, count: ids.length });
+    if (again) {
+      options.deliveries?.stalled(ids);
+      controlChanged();
+      return;
+    }
+    controlChanged();
+    // Fire and forget: `refresh` reports its own failures.
+    void refresh();
   }
 
   /**
@@ -612,6 +748,8 @@ export function createSessionController(options: {
   function control(): Control {
     return {
       queue: queue.map(({ id, text, createdAt, images }) => ({ id, text, createdAt, images: images.length })),
+      deliveries: options.deliveries?.items() ?? [],
+      deliveriesHeld: options.deliveries?.held() ?? null,
       paused,
       steers: steers.map(({ id, text }): PendingSteer => ({ id, text })),
       stopping: stopping !== null,
@@ -758,9 +896,10 @@ export function createSessionController(options: {
    *
    * @sideEffects Publishes the turn's last events and `run_settled`.
    * @param crashed - Whether pi exited mid-run.
+   * @returns How the run ended, or `null` when none was in progress.
    */
-  function settle(crashed: boolean): void {
-    if (run === null) return;
+  function settle(crashed: boolean): RunSettledEvent["outcome"] | null {
+    if (run === null) return null;
     const events = transcript.settle(crashed);
     for (const event of events) emit(event);
     const finished = events.find((event) => event.type === "turn_finished");
@@ -768,6 +907,7 @@ export function createSessionController(options: {
     emit({ type: "run_settled", runId: run.runId, outcome, settledAt: clock.now() });
     if (outcome !== "failed") restarts = 0;
     run = null;
+    return outcome;
   }
 
   /**
@@ -807,6 +947,7 @@ export function createSessionController(options: {
         if (result.kind === "changed") newEpoch();
         const { all, branch } = transcript.entries();
         metrics.entriesChanged(all, branch);
+        confirmDeliveries();
         if (choiceToRead) await readChoice();
       } while (refreshAgain);
     } catch (error) {
@@ -860,15 +1001,34 @@ export function createSessionController(options: {
         emit({ type: "run_started", runId: run.runId, startedAt: run.startedAt });
         failure = null;
         lost = null;
+        // A steer the run before ended without took this run up instead (SPEC-0002, "送达").
+        runDeliveries = deliveryRun ?? (run.input === null ? steered : null);
+        steered = null;
+        erred.clear();
+        options.deliveries?.runStarted(
+          runDeliveries === null ? (run.input?.auto === true ? "auto" : "user") : { deliveries: runDeliveries },
+        );
+        deliveryRun = null;
+        deliveryGuard?.();
         controlChanged();
         return;
-      case "agent_settled":
-        settle(false);
-        // Fire and forget: `refresh` reports its own failures.
-        void refresh();
+      case "agent_settled": {
+        const opened = runDeliveries;
+        runDeliveries = null;
+        const outcome = settle(false);
+        const turnId = transcript.items().findLast((item) => item.kind === "turn")?.id ?? null;
+        // `refresh` reports its own failures and never rejects.
+        const read = refresh();
+        if (outcome !== null)
+          options.deliveries?.runSettled(
+            outcome,
+            false,
+            read.then(() => lastReply(opened, turnId)),
+          );
         dispatch();
         askPlan();
         return;
+      }
       case "compaction_started":
         compacting = true;
         controlChanged();
@@ -882,6 +1042,16 @@ export function createSessionController(options: {
         return;
       case "steering_changed":
         delivered(event.steering);
+        return;
+      case "agent_message":
+        // Seen in the run it was steered into: that run is not the next one's.
+        if (steered?.some((id) => event.details.deliveries.includes(id)) === true) steered = null;
+        for (const published of transcript.apply(event, origin)) emit(published);
+        return;
+      case "note_added":
+        // pi wrote the note to its file already; the read places it where a rebuild would (SPEC-0002).
+        // Fire and forget: `refresh` reports its own failures.
+        void refresh();
         return;
       case "thinking_changed":
         if (model !== null) modelIs({ ...model, thinkingLevel: event.level });
@@ -1085,6 +1255,7 @@ export function createSessionController(options: {
    * @sideEffects May call pi; publishes `control_updated`.
    */
   function dispatch(): void {
+    if (pumpDeliveries()) return;
     if (!idle() || paused !== null || stopping !== null) return;
     const item = queue.shift();
     if (item === undefined) return;
@@ -1094,12 +1265,237 @@ export function createSessionController(options: {
       (error: unknown) => {
         queue.unshift(item);
         if (!isBusy(error) && !isGone(error)) {
-          paused = "stopped";
+          pauseQueue("stopped");
           log("warn", "queued message refused", { sessionId, code: error instanceof CommandError ? error.code : null });
         }
         controlChanged();
       },
     );
+  }
+
+  /**
+   * Hands pi what waits for the session, when the session can take it now.
+   *
+   * @remarks
+   * SPEC-0002, "送达"'s table. Nothing goes while the deliveries are held after a restart, pi is
+   * gone, stopping, compacting, forking, restarting or a message is on its way, nor while the queue
+   * is paused unless you sent a message since. In a run, only urgent notices go, at once, as a
+   * steer. Idle, the oldest of the queue and the deliveries goes first: notices waiting all go as
+   * one, a task alone.
+   *
+   * @sideEffects May hand pi deliveries.
+   * @returns Whether deliveries go now, so the queue waits.
+   */
+  function pumpDeliveries(): boolean {
+    const box = options.deliveries;
+    if (box === undefined || box.held() !== null) return false;
+    if (
+      exited ||
+      // Stryker disable next-line ConditionalExpression: a stop pauses the queue and takes back your message's release, which holds them below all the same.
+      stopping !== null ||
+      compacting ||
+      forking ||
+      restarting !== null ||
+      sending ||
+      starting
+    )
+      // Stryker disable next-line BooleanLiteral: then the session is not idle or a stop waits, so `dispatch` sends nothing either way.
+      return false;
+    // Stryker disable next-line BooleanLiteral: a paused queue sends nothing in `dispatch` either way.
+    if (paused !== null && !released) return false;
+    const ready = box.list().filter((delivery) => delivery.state === "waiting");
+    if (run !== null) {
+      const urgent = ready.filter(
+        (delivery) =>
+          // Stryker disable next-line StringLiteral: no urgent event is named so either.
+          URGENT.has(delivery.event ?? "") &&
+          // Stryker disable next-line ConditionalExpression: a task has no event (`PendingDelivery`), so it is never urgent either way.
+          delivery.kind === "report",
+      );
+      // Fire and forget: `deliver` puts back what it could not hand over, and never rejects.
+      if (urgent.length > 0) void deliver(urgent, false);
+      // Stryker disable next-line BooleanLiteral: a run going, `dispatch` sends nothing either way.
+      return false;
+    }
+    const first = ready.toSorted((a, b) => a.at - b.at)[0];
+    if (first === undefined) return false;
+    const next = queue[0];
+    if (next !== undefined && paused === null && next.createdAt <= first.at) return false;
+    // Fire and forget: `deliver` puts back what it could not hand over, and never rejects.
+    void deliver(first.kind === "task" ? [first] : ready.filter((delivery) => delivery.kind === "report"), true);
+    // Stryker disable next-line BooleanLiteral: `deliver` marks a message on its way before it first waits, so `dispatch` sends nothing either way.
+    return true;
+  }
+
+  /**
+   * Hands pi deliveries through Atrium's extension.
+   *
+   * @remarks
+   * They are marked `sending` before the command goes (SPEC-0002, "送达 · 确认"). Whether they go
+   * is judged again as the command is about to go: a stop, a pause, a hold, or pi gone or replaced
+   * meanwhile puts them back as waiting; a run begun meanwhile takes only urgent notices, a run
+   * ended meanwhile is opened by them. Into an idle pi they start a run, which counts as submitting
+   * until it begins; one that does not begin in `DELIVERY_START_MS` holds the deliveries for you.
+   * Steered into a run, they are watched for in it, and open the next run if it ended first. A
+   * failure puts them back as waiting, for the next chance to send: trying again at once would
+   * spin while pi refuses or is gone.
+   *
+   * @sideEffects Writes the deliveries' states; calls pi; publishes `control_updated`.
+   * @param batch - The deliveries.
+   * @param opening - Whether pi was idle when they were picked, so they start a run.
+   */
+  async function deliver(batch: readonly PendingDelivery[], opening: boolean): Promise<void> {
+    const box = options.deliveries;
+    // Stryker disable next-line ConditionalExpression: only `pumpDeliveries` calls it, with a box.
+    if (box === undefined) return;
+    const ids = batch.map((delivery) => delivery.id);
+    const current = pi;
+    let failed = false;
+    sending = true;
+    // Stryker disable next-line CallExpression: only the deliveries' states change before `finally`, which publishes them; this shows the moment before.
+    controlChanged();
+    try {
+      await box.mark(ids, "sending");
+      const command = await box.command(ids);
+      if (command === null) {
+        await box.confirm(ids);
+        return;
+      }
+      const opens = run === null;
+      if (
+        exited ||
+        pi !== current ||
+        stopping !== null ||
+        (paused !== null && !released) ||
+        box.held() !== null ||
+        (opening && !opens)
+      ) {
+        await box.mark(ids, "waiting");
+        return;
+      }
+      const runsBefore = runsStarted;
+      if (opens) deliveryRun = ids;
+      else steered = ids;
+      await current.command(command);
+      // Stryker disable next-line ConditionalExpression: only an opening sets `deliveryRun` to these, and a run's start or pi's exit clears it, so the last check alone decides.
+      if (opens && runsStarted === runsBefore && deliveryRun === ids) awaitRun(ids);
+    } catch (error) {
+      failed = true;
+      if (deliveryRun === ids) deliveryRun = null;
+      if (steered === ids) steered = null;
+      log("warn", "delivery not handed to pi", { sessionId, code: error instanceof CommandError ? error.code : null });
+      await box.mark(ids, "waiting").catch(() => undefined);
+    } finally {
+      sending = false;
+      controlChanged();
+      if (!failed) dispatch();
+    }
+  }
+
+  /**
+   * Waits for the run deliveries handed to pi are to start.
+   *
+   * @remarks
+   * It counts as submitting until it begins; one that does not begin in `DELIVERY_START_MS` holds
+   * the deliveries for you, as not taken (SPEC-0002, "送达").
+   *
+   * @sideEffects Sets a timer; may hold the deliveries and publish `control_updated`.
+   * @param ids - The deliveries.
+   */
+  function awaitRun(ids: readonly string[]): void {
+    deliveryRun = ids;
+    starting = true;
+    deliveryGuard = clock.setTimeout(() => {
+      if (deliveryRun !== ids) return;
+      deliveryRun = null;
+      starting = false;
+      log("warn", "delivery did not start a run", { sessionId, count: ids.length });
+      options.deliveries?.stalled(ids);
+      controlChanged();
+    }, DELIVERY_START_MS);
+  }
+
+  /**
+   * Removes the deliveries pi has on file, and puts back the ones handed to it that it lost.
+   *
+   * @remarks
+   * SPEC-0002, "送达 · 确认": a delivery counts once its message is on file, and a wait's notice
+   * once the wait's result is. pi writes nothing until its first reply, then every entry as it
+   * comes, so an entry counts only once the session has a reply. A delivery pi was handed and
+   * does not have, with no run going nor beginning, goes back to waiting; one steered into a run
+   * that ended without it opens the next run instead, which it waits for.
+   *
+   * @sideEffects Writes the deliveries; may hand pi the next ones.
+   */
+  function confirmDeliveries(): void {
+    const box = options.deliveries;
+    if (box === undefined) return;
+    const { all } = transcript.entries();
+    const onFile = all.some((entry) => entry.kind === "assistant");
+    const onFileIds = new Set<string>();
+    const results = new Set<string>();
+    for (const entry of onFile ? all : []) {
+      if (entry.kind === "agent") for (const id of entry.details.deliveries) onFileIds.add(id);
+      if (entry.kind === "toolResult") results.add(entry.callId);
+    }
+    const pending = box.list();
+    const done = pending.filter(
+      (delivery) => onFileIds.has(delivery.id) || (delivery.claimedBy !== undefined && results.has(delivery.claimedBy)),
+    );
+    let settled = run === null && deliveryRun === null && !sending && !starting;
+    if (settled && steered !== null) {
+      // Steered into a run that ended without them: pi opens the next run with them (SPEC-0002, "送达").
+      const late = steered;
+      steered = null;
+      if (!late.some((id) => onFileIds.has(id))) {
+        awaitRun(late);
+        settled = false;
+      }
+    }
+    const gone = settled
+      ? pending.filter((delivery) => delivery.state === "sending" && !onFileIds.has(delivery.id))
+      : [];
+    if (done.length > 0)
+      // Fire and forget: what is not removed now is found on file again at the next look.
+      void box
+        .confirm(done.map((delivery) => delivery.id))
+        .catch((error: unknown) => log("warn", "deliveries not confirmed", { sessionId, err: error }));
+    if (gone.length > 0) {
+      // Fire and forget: what is not put back now is found missing again at the next look.
+      void box
+        .mark(
+          gone.map((delivery) => delivery.id),
+          "waiting",
+        )
+        .then(dispatch, (error: unknown) => log("warn", "deliveries not put back", { sessionId, err: error }));
+    }
+  }
+
+  /**
+   * The entry of a run's last reply.
+   *
+   * @remarks
+   * Read once the entries after a run are in (SPEC-0002, "送达": a notice keeps where its reply is).
+   * Only a reply after the run's opening counts: the message of the deliveries it opened with, or
+   * the user message of its turn. A run stopped before it replied has none, and a child's first
+   * task does not take the last message of the conversation it was forked with.
+   *
+   * @sideEffects none
+   * @param opened - The deliveries the run opened with, if it did.
+   * @param turnId - The run's turn, for a run opened otherwise.
+   * @returns Its id, or `null` without one.
+   */
+  function lastReply(opened: readonly string[] | null, turnId: string | null): string | null {
+    const { branch } = transcript.entries();
+    const entryId = opened === null && turnId !== null ? transcript.entryOfTurn(turnId) : null;
+    const from =
+      opened === null
+        ? branch.findIndex((entry) => entry.id === entryId)
+        : branch.findLastIndex(
+            (entry) => entry.kind === "agent" && entry.details.deliveries.some((id) => opened.includes(id)),
+          );
+    if (from === -1) return null;
+    return branch.slice(from + 1).findLast((entry) => entry.kind === "assistant")?.id ?? null;
   }
 
   /**
@@ -1205,6 +1601,20 @@ export function createSessionController(options: {
     }
     dispatch();
     return { disposition };
+  }
+
+  /**
+   * Notes that you sent a message.
+   *
+   * @remarks
+   * A wait in the parent's agent returns at once (SPEC-0002, "等待的规则"), and deliveries held by a
+   * paused queue go with your message (SPEC-0002, "送达").
+   *
+   * @sideEffects Tells the deliveries; may release them.
+   */
+  function spoke(): void {
+    options.deliveries?.userSpoke();
+    if (paused !== null) released = true;
   }
 
   /**
@@ -1365,6 +1775,7 @@ export function createSessionController(options: {
     transcript.rebuild(started.entries, true);
     model = started.model ?? null;
     newEpoch();
+    confirmDeliveries();
     // After the snapshot, so what the new pi's entries add follows it in the new epoch.
     const { all, branch } = transcript.entries();
     metrics.entriesChanged(all, branch);
@@ -1423,7 +1834,7 @@ export function createSessionController(options: {
   async function carryOn(interrupted: Waiting | null, force: boolean): Promise<void> {
     // A queued message pi did not take is back in the queue already.
     const message = interrupted?.requeued === true ? null : interrupted;
-    if (paused === "crashed") paused = null;
+    if (paused === "crashed") pauseQueue(null);
     if (paused === "stopped" && !force) {
       if (message !== null && !message.echoed) requeue([message]);
       controlChanged();
@@ -1471,7 +1882,16 @@ export function createSessionController(options: {
     metrics.piChanged();
     const interrupted = run?.input ?? unconfirmed;
     unconfirmed = null;
-    settle(true);
+    const crashed = !end.requested && !shuttingDown;
+    const outcome = settle(true);
+    if (outcome !== null) options.deliveries?.runSettled(outcome, crashed, Promise.resolve(null));
+    // Stryker disable next-line ConditionalExpression: a guard is waiting only while `deliveryRun` is set, so cancelling it without one changes nothing.
+    if (deliveryRun !== null) {
+      deliveryRun = null;
+      deliveryGuard?.();
+    }
+    steered = null;
+    runDeliveries = null;
     waiting.length = 0;
     sending = false;
     starting = false;
@@ -1482,8 +1902,7 @@ export function createSessionController(options: {
       steers = [];
     }
     stopping = null;
-    const crashed = !end.requested && !shuttingDown;
-    if (crashed && queue.length > 0 && paused === null) paused = "crashed";
+    if (crashed && queue.length > 0 && paused === null) pauseQueue("crashed");
     const respawn = options.respawn;
     if (crashed && respawn !== undefined) {
       restarting = (async () => {
@@ -1495,6 +1914,7 @@ export function createSessionController(options: {
         } else if (!shuttingDown) {
           lost = interrupted;
           failure = { reason: "crashed", attempts: restarts };
+          options.deliveries?.gaveUp();
         }
         controlChanged();
       })();
@@ -1509,6 +1929,8 @@ export function createSessionController(options: {
   }
   // Fire and forget: `exited` never rejects.
   void watchExit(pi);
+  // After a restart of the host, what pi already has on file is not handed to it again (SPEC-0002, "送达").
+  confirmDeliveries();
 
   /**
    * Ends a stop: the session takes messages again.
@@ -1612,6 +2034,8 @@ export function createSessionController(options: {
       return forking;
     },
     snapshot,
+    control,
+    model: () => model,
     items: () => transcript.items(),
     attach(started) {
       // Started anew after the host stopped it for good, as when a session is opened again: before
@@ -1624,6 +2048,7 @@ export function createSessionController(options: {
     async prompt(command, images = []) {
       refuseWhenExited();
       refuseWhileStopping();
+      spoke();
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
       const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
       return submit({ text: command.text, images }, command.requestId, traceId);
@@ -1631,6 +2056,7 @@ export function createSessionController(options: {
     async steer(command, images = []) {
       refuseWhenExited();
       refuseWhileStopping();
+      spoke();
       // Stryker disable next-line OptionalChaining: commands are validated, so their traceparent always parses.
       const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
       return steerNow({ text: command.text, images }, command.requestId, traceId);
@@ -1639,19 +2065,21 @@ export function createSessionController(options: {
       if (stopping !== null) return stopping;
       if (restarting !== null) {
         // pi is not back yet: the restart puts the interrupted message in the paused queue.
-        paused = "stopped";
+        pauseQueue("stopped");
         controlChanged();
         return Promise.resolve({ confirmed: true });
       }
       if (run === null && !sending && !starting && !compacting) return Promise.resolve({ confirmed: true });
-      paused = "stopped";
+      pauseQueue("stopped");
+      // pi's queue is cleared: a delivery steered in and not seen yet is gone with it (SPEC-0002, "送达").
+      steered = null;
       stopping = halt();
       controlChanged();
       return stopping;
     },
     resumeQueue() {
       refuseWhileStopping();
-      paused = null;
+      pauseQueue(null);
       controlChanged();
       dispatch();
       return {};
@@ -1819,7 +2247,14 @@ export function createSessionController(options: {
       return { step };
     },
     entryOfTurn: (turnId) => transcript.entryOfTurn(turnId),
+    deliveriesChanged() {
+      controlChanged();
+      dispatch();
+    },
     entriesRead: () => refreshing ?? Promise.resolve(),
+    childrenChanged(totals) {
+      metrics.childrenChanged(totals);
+    },
     forkPoint(turnId) {
       // A run, a stop or a compaction still writes the file the fork reads; a pi that has exited
       // writes nothing, and the fork has a pi of its own.
@@ -1831,6 +2266,8 @@ export function createSessionController(options: {
       if (at === -1) throw new CommandError("turn_not_found");
       const next = turns[at + 1];
       if (next === undefined) return null;
+      // pi forks only at a user message; a turn notices or a task opened has none (SPEC-0002, "入口").
+      if (next.source !== null) throw new CommandError("turn_not_found", { reason: "agent_turn" });
       // Only a turn seen live and never tied to its entry has none, and an idle session has none.
       const entryId = transcript.entryOfTurn(next.id);
       if (entryId === null) throw new CommandError("turn_not_found");

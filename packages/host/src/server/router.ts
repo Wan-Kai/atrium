@@ -91,7 +91,14 @@ export function createRouter(options: RouterOptions): Route {
       case "create_chat":
         return options.sessions.createChat(connection.clientId);
       case "create_session":
-        return options.sessions.createSession(connection.clientId, command.containerId, command.go ?? true);
+        return options.sessions.createSession(
+          connection.clientId,
+          command.containerId,
+          command.go ?? true,
+          command.child,
+        );
+      case "detach_session":
+        return options.sessions.detachSession(command.sessionId);
       case "close_tab":
         return options.sessions.closeTab(connection.clientId, command.sessionId);
       case "select_container":
@@ -181,6 +188,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.updateQueued(command.sessionId, command.itemId, command.text);
       case "remove_queued":
         return options.sessions.removeQueued(command.sessionId, command.itemId);
+      case "remove_delivery":
+        return options.sessions.removeDelivery(command.sessionId, command.deliveryId);
+      case "resume_deliveries":
+        return options.sessions.resumeDeliveries(command.sessionId, command.tree);
       case "steer_queued":
         return options.sessions.steerQueued(command.sessionId, command.itemId);
       case "answer_interaction":

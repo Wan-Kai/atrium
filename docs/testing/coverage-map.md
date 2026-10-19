@@ -488,6 +488,124 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 服务商按订阅归并：`claude-bridge` 算 Claude、`openai` 算 ChatGPT，其余是自己（`constructor` 之类的名字也不误认）；摘要、排序和"当前"都按归并后的 | `packages/ui/src/chat/status-figures.test.ts` "claude-bridge's models"；`status-bar.browser.test.tsx` "through claude-bridge" | 已覆盖 |
 | 端到端：ChatGPT 订阅的会话运行后，状态栏卡片是"套餐用量"加标了"当前"的 ChatGPT 一段；设置 · 模型与账户里同一段、不标"当前"；用量仍只问了一次 | `apps/desktop/e2e/plan.spec.ts` | 已覆盖 |
 
+## 子对话与子代理（M1.15，2026-10-17）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| pi 契约（1.1.0）：扩展在工具里用 `setStatus` 问宿主、挂着等，运行中的隐藏命令回答它，应答 `handled`，不进会话文件、模型看不到、不另开运行（SPEC-0002 通道"乙"） | `packages/pi/src/contract/subagent.pi.test.ts` "agent-channel" | 已覆盖 |
+| pi 契约：空闲时 `triggerTurn` 的自定义消息开一次运行，模型看到 user 消息；会话文件等助手回复才写出 | 同上 "custom-idle" | 已覆盖 |
+| pi 契约：运行中的自定义 steer 不列在 `queue_update` 里，工具这一批跑完后在同一次运行里送到；`clear_queue` 清掉它、不列出它 | 同上 "custom-steer"、"custom-clear" | 已覆盖 |
+| pi 契约：`--tools` 只声明列出的工具（扩展的也要写），`--exclude-tools` 去掉列出的；去掉的调不到、不执行 | 同上 "tools-allow"、"tools-exclude" | 已覆盖 |
+| pi 契约：`tool_call` 钩子拦下的调用不执行，模型得到报错的工具结果，正文是钩子的理由 | 同上 "tool-block" | 已覆盖 |
+| pi 契约：工具里 `createBranchedSession` 切在当前叶子，写进给的目录、条目 id 不变、父会话照跑；另一个目录 `--fork --session-id` 起的 pi 在 `get_state` 前写出文件、`cwd` 是新目录；送自定义消息后没配对的调用补 "No result provided" | 同上 "agent-fork" | 已覆盖 |
+| faux 记下每次请求声明的工具和给模型的消息 | `packages/testkit/src/faux/extension.ts`（经上面的契约测试） | 已覆盖 |
+| 第一步 · 协议 18：`SessionSummary.parent`、`create_session.child`、`fork_session.child`、`detach_session`、`metrics.children`、`note` 提示和两个新错误码的格式，超长或缺字段的拒绝 | `packages/protocol/src/envelope.test.ts` | 已覆盖 |
+| 第一步 · 隐藏命令：参数是一个 base64url 的 JSON 词，读不出的当没有；`/atrium-agent note` 把提示写成 `atrium-agent` 自定义消息、不开运行，别的动作和读不出的提示什么都不做；提示以 Atrium 而不是用户的口吻说新路径和旧路径属于谁；命令列表里不出现 `atrium-agent` | `packages/pi/src/agent/agent.test.ts`；`packages/pi/src/catalog/commands.test.ts` "child conversations' command"；`packages/pi/src/plan/extension.test.ts` "child conversations' command" | 已覆盖 |
+| 第一步 · 真实 pi：空闲时 `/atrium-agent note` 立即写进会话文件，下一次请求带上它 | 契约：`packages/pi/src/contract/agent-note.pi.test.ts`（夹具 `pi-1.1.0/agent-note.jsonl`） | 已覆盖 |
+| 第一步 · 提示进对话记录：pi 写出时报 `note_added`，消息中途也不打断消息；会话文件里读成 `note`，在树里的位置不变；别的扩展的自定义消息、读不出的提示不显示；宿主放在它跟着的那一轮后面成一条提示，读到后重读条目；界面写"在新的 worktree 里继续：新路径（之前的路径属于 旧路径）" | `packages/pi/src/events/translate.test.ts` "Atrium's note"；`packages/pi/src/history/log-entry.test.ts` "Atrium's note"、"another extension's custom message"；`packages/host/src/transcript/projection.test.ts` "Atrium's note"；`session-controller.test.ts` "once pi wrote Atrium's note"；`packages/ui/src/chat/turn-layout.test.ts` "SPEC-0002" | 已覆盖 |
+| 第一步 · 子对话的用量：按 pi 的算法（回复、工具结果、压缩、分支摘要、usage 条目）累加，跳过基线及以前，基线不在文件里时不算；增量读，只算写完的行，文件变短重读；读不了时保持原值；`lastEntryId` 跳过头、坏行和没写完的行 | `packages/pi/src/stats/file-usage.test.ts` | 已覆盖 |
+| 第一步 · 记录与树：索引记下父会话、名字和基线，pi 有名字后用 pi 的；脱离只去掉父会话；子、孙、祖先的列法遇环停下；归档计划：同容器的后代一起归档、别处的分支脱离、已归档的跳过 | `packages/host/src/sessions/session-catalog.test.ts` "child conversation"；`packages/host/src/sessions/child-tree.test.ts` | 已覆盖 |
+| 第一步 · 子对话合计：每个后代（归档的也算，2026-10-17 审查后改）基线之后的用量相加，没有时为 `null`；子对话自己的指标一变就刷新上面每一层，刷新中又来的再跑一次；关闭后指标里还在 | `packages/host/src/sessions/children-usage.test.ts`；`session-metrics.test.ts` "child conversations"；`session-manager.test.ts` "children figures"、"usage its children produced" | 已覆盖 |
+| 第一步 · 新 worktree：从工作区当前的提交（分离 HEAD 也行）开，分支整理成 `atrium/…`，占用时 `-2`…`-9`，都占了拒绝；名字剩不到 2 个字时 `child-` 加随机词；普通文件夹的项目和不认识的工作区拒绝 | `packages/host/src/workspaces/worktree-creator.test.ts` "createFrom" | 已覆盖 |
+| 第一步 · 宿主开子对话：空子对话挂在父会话下、pi 写文件前就有名字、首次启动带 `--name`；不同容器、草稿、已归档或不认识的父会话拒绝；新 worktree 里开空子对话；不能建 worktree 的宿主拒绝；从某轮分叉到同一工作区只算复制之后的；分叉到新 worktree：先用临时 pi 写到带标记的临时目录，子对话的 pi 用 `--fork` 在新目录起，收到提示；停止时残留的、自己标记过的临时目录才清 | `packages/host/src/sessions/session-manager.test.ts` "SessionManager child conversations (SPEC-0002)" | 已覆盖 |
+| 第一步 · 分叉到新 worktree 后子对话的 pi 没起来：会话文件没写出的忘掉、应答 `fork_failed`；已写出的留在父会话下、带名字，`fork_failed` 带它的 `sessionId`，界面说"子对话没有开好"；临时目录都删掉 | `session-manager.test.ts` "whose pi did not start"；`packages/ui/src/children/new-child.test.ts` | 已覆盖 |
+| 第一步 · 脱离与归档连带：脱离保留它自己的子对话；归档会话、对话、工作区时同容器的后代一起归档，别处的脱离 | 同上 "detaches a child"、"archives a session with its children"、"workspace is archived"、"archives a chat" | 已覆盖 |
+| 第一步 · `/atrium-` 开头的消息、插话、排队修改报 `command_reserved`；界面写"以 /atrium- 开头的消息留给 Atrium 自己用，没有发出" | `session-manager.test.ts` "opens with /atrium-"；`packages/ui/src/chat/chat.browser.test.tsx` "refused /atrium- message" | 已覆盖 |
+| 第一步 · 草稿子对话能改名：名字写进记录（同名、不认识的会话不写），它的 pi 起了的再发 `set_session_name`，没起的不起；"重命名"对草稿子对话可用 | `session-catalog.test.ts` "names a recorded session"；`session-manager.test.ts` "names a draft child"；`workbench.browser.test.tsx` "renames a draft child conversation" | 已覆盖 |
+| 第一步 · 新建工作区的第一条消息以 `/atrium-` 开头时，界面在建 worktree 之前就报 `command_reserved`，消息放回输入框，一个命令都不发 | `packages/ui/src/state/new-workspace.test.ts` "refuses a message opening with /atrium-" | 已覆盖 |
+| 第一步 · 路由与客户端：`detach_session`、带 `child` 的 `create_session` 和 `fork_session` | `packages/host/src/server/router.test.ts`；`packages/client/src/atrium-client.test.ts` "child conversations" | 已覆盖 |
+| 第一步 · 界面规则：子对话只列直接的、没归档的、最近更新的在前；行状态取整个子树的最高（含运行中）；标签页状态被后代的待回答、待登录、出错抬高，运行中不抬；面包屑到顶层，遇环、缺父会话停下，超过三层中间折成"…" | `packages/ui/src/children/children.test.ts` | 已覆盖 |
+| 第一步 · 子对话条和弹出框：没有子对话不显示；"子对话 N"加各状态的图标和数；列表和内容一样宽、最近更新的在前，写位置、"已在终端中继续"、"+N"、时间；点行打开，菜单脱离、归档，失败在标签栏旁说 | `packages/ui/src/children/children.browser.test.tsx` "ChildCapsule"；`chat.browser.test.tsx` "children's capsule" | 已覆盖 |
+| 第一步 · 开子对话的对话框：回复下的"↳"带上到这一轮的对话（运行中变淡、不能点）；"+ 新建"菜单开空的（草稿下不能点）；名字默认"子对话 N"；工作区的会话可选新 worktree 和分支，对话的只有"当前对话"；失败留在对话框里说；Esc 关 | `children.browser.test.tsx` "NewChildDialog"；`chat.browser.test.tsx` "asks for a child"；`packages/ui/src/app/workbench.browser.test.tsx` "+ menu"、"under a draft" | 已覆盖 |
+| 第一步 · 标签、面包屑、历史、收件箱：子对话标签有"↳"，父标签被后代抬高；标签栏下的面包屑点名字回去；历史行"↳ 名字"、悬停"属于「父对话」"；收件箱行写"位置 · 父对话 › 子对话" | `workbench.browser.test.tsx` "Workbench child conversations (SPEC-0002)"；`children.browser.test.tsx` "Breadcrumb" | 已覆盖 |
+| 第一步 · 端到端：真实宿主和 pi 下从回复开子对话，带上之前的对话，标签有"↳"、面包屑点回主对话；子对话回复后主对话的子对话条列出它，token 卡片有"含子对话"；开到新 worktree：建出 `atrium/…` 分支和工作区并切过去，提示行写新旧路径，子对话接着能回复；从"+ 新建"开空的子对话；归档主对话时同工作区的子对话一起归档，新 worktree 里的脱离（没有"↳"和面包屑） | `apps/desktop/e2e/children.spec.ts` | 已覆盖 |
+| 第一步 · 泄漏：宿主开、归档子对话 200 次后没有留下 pi、计时器、句柄；界面里开子对话、从子对话条归档 10 次后没有分离的 DOM | `packages/host/src/sessions.leak.test.ts` "child conversation 200 times"；`apps/desktop/e2e/sessions.leak.spec.ts` "@leak opening a child conversation" | 已覆盖 |
+| 第一步 · 状态栏：token 和费用卡片里"含子对话"是自己的加子对话的，自己的不知道时只算子对话的 | `packages/ui/src/chat/status-bar.browser.test.tsx` "child conversations" | 已覆盖 |
+
+## M1.15 第一步三方审查后补（2026-10-17）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 同一个会话文件同时有两个读取（两层祖先一起刷新）时只算一次，之后接着增量读也对 | `packages/pi/src/stats/file-usage.test.ts` "two read it at the same time" | 已覆盖 |
+| 子对话合计：token 取整；关闭时停掉读取、之后不再刷新；脱离时忘掉那个文件；一次刷新刚结束时又要的刷新照样再跑 | `packages/host/src/sessions/children-usage.test.ts` "whole tokens"、"stops its reads once closed"、"just as one ended" | 已覆盖 |
+| 用量文件里的坏数据当作没有：费用或消息不是对象、`message` 为 `null`、`1e999`、不是对象的行、没写完但是合法 JSON 的行 | `file-usage.test.ts` "not numbers"、"lastEntryId" | 已覆盖 |
+| 开子对话途中父会话被归档：同容器分叉出的跟着归档、应答 `session_not_found`；新 worktree 里的脱离；父会话所在工作区正在归档时等它做完再处理；正在归档或已归档的会话不能脱离 | `session-manager.test.ts` "while the fork ran"、"while the worktree was made"、"waits for an archiving"、"refuses to detach" | 已覆盖 |
+| 归档计划穿过已归档的会话，下面还没归档的同容器会话一起归档；脱离的子对话恢复工作区后仍是脱离的；删 worktree 失败时不调 `archiveWorkspace`，也就不脱离 | `child-tree.test.ts` "goes through an archived one"；`session-manager.test.ts` "leaves it detached once restored"；`workspace-archiver.test.ts`（删失败时只有 stop 和 release） | 已覆盖 |
+| 分叉到新 worktree：轮的起点在子对话的 pi 加载之前复制；子对话的 pi 没有 Atrium 扩展时应答带 `noteSent: false`、不发隐藏命令；界面在标签栏旁说"没能告诉模型换了目录" | `session-manager.test.ts` "before its pi loads them"、"no Atrium extension"；`children.browser.test.tsx` "not told where it works" | 已覆盖 |
+| 留下来的子对话（pi 写出文件后失败）：对话框关掉、打开它、标签栏旁说"子对话没有开好"；`keptChild` 只认带字符串 `sessionId` 的 `fork_failed` | `children.browser.test.tsx` "kept though its pi failed"；`packages/ui/src/children/new-child.test.ts` | 已覆盖 |
+| 草稿子对话在 pi 启动途中改名，等启动完再告诉 pi | `session-manager.test.ts` "still starting" | 已覆盖 |
+| 提示的路径最多 4096 字符，超长的当作读不出；索引里超出协议长度的父会话 id 和名字当作没有 | `packages/pi/src/agent/agent.test.ts` "up to 4096"、"too long"；`session-catalog.test.ts` "hand-edited index" | 已覆盖 |
+| 真实 pi：`/atrium-agent note` 之后、下一条消息之前，会话文件里已经有这条自定义消息 | 契约：`agent-note.pi.test.ts`（读磁盘） | 已覆盖 |
+| `createFrom`：没有 git、没有提交可起、git 加不了 worktree 时的失败；分支名用到 `-9`；避开登记了但不在磁盘上的目录；默认随机名是 6 位十六进制；建好时记日志 | `worktree-creator.test.ts` "createFrom" | 已覆盖 |
+| 界面：输入框 `/child` 开空的子对话（运行中也行）；不是 git 仓库的项目没有"新建 worktree"，分离 HEAD 的有；子对话条和面包屑打开的会话盖过那个工作区的查看标签；子对话列表和排队面板一次只开一个；子对话都没了就收起列表；自己指向自己的会话不算自己的子对话 | `chat.browser.test.tsx` "/child"；`children.browser.test.tsx` "no git repository"、"detached HEAD"、"over the file"、"closes its list"；`run-control.browser.test.tsx` "one list at a time"；`children.test.ts` "its own parent"；`builtin-commands.test.ts`；`composer.browser.test.tsx` | 已覆盖 |
+| 没有专门测试的：分叉的空闲检查和"算忙"之间不再有 await（改成先 `holdForFork` 再建临时目录，靠读代码）；基线读不到时记成读不到的基线、什么都不算；临时目录标记写不了就删；删临时目录失败只记日志；启动清理做完才新建临时目录 | — | 未覆盖（时序和文件系统故障难以稳定复现） |
+
+
+## M1.15 第二步：agent 开子对话（2026-10-17）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 通道：扩展写的调用和提示按操作读出参数，每个参数的文字上限；读不出的带 id 回坏请求、没有 id 的不回；状态行超长不读；宿主的答复和取消按版本、错误码读 | `packages/pi/src/agent/channel.test.ts` | 已覆盖 |
+| 给模型的文字：外壳转义、通知的每种事件、截断的回复怎么读全文、问题的 id 和选项、进度只带一次；交代的开场（角色、工具、带上下文时"没配对的调用属于父会话"）；每个错误码；`ask_parent` 的每种结局；每个调用的结果都带后面要用的 id | `packages/pi/src/agent/words.test.ts` | 已覆盖 |
+| 扩展：注册十个工具、命令、身份参数和 `tool_call` 钩子；工具按调用 id 问宿主、只认第一个答复、停下时告诉宿主不再等；文字超限不问宿主；`agent_spawn` 带上下文在当前叶子切分支；`report_progress` 立即返回；`ask_parent` 的回答、超时、取消、重复回答、只留 64 个已关的问题；`deliver` 写成自定义消息（空闲开运行、运行中 steer），回复只在给模型的文字里；钩子按白名单拦只读的分叉子对话、层数 2 拦主 agent 的工具、第一件事里不重做父会话没配对的调用 | `packages/pi/src/agent/extension.test.ts` | 已覆盖 |
+| 真实 pi 1.1.0：工具在状态行上问宿主、运行中的 `reply` 答它、模型读到结果；空闲时 `deliver` 开一次运行、模型读到带外壳的交代；扩展拦下的只读子对话调不了白名单外的工具、模型得到理由 | `packages/pi/src/contract/agent-tools.pi.test.ts` "agent-call"、"agent-task"、"agent-guard" | 已覆盖 |
+| 对话记录：通知、交代的自定义消息读成 `agent` 条目和实时的 `agent_message`；工具结果的 `details` 给出开出的子对话和带回的事件；读不出的不显示；`readEntries` 读整份文件 | `details.test.ts`；`log-entry.test.ts` "notices and a task"；`translate.test.ts` "notices or a task"；`file-usage.test.ts` "readEntries" | 已覆盖 |
+| 宿主投影：由通知或交代开头的轮、运行中进来的成一个步骤；重建和实时一致；看到过的通知才开轮 | `projection.test.ts` "notices or a task"、"follows what the host saw"；`session-transcript.test.ts` "opens a turn with a task" | 已覆盖 |
+| 启动参数：agent 层数、身份参数、只读白名单、层数 2 去掉主 agent 的工具、不是 agent 开的去掉子对话的两个、带上下文的继承父会话的参数 | `packages/host/src/sessions/agent-launch.test.ts` | 已覆盖 |
+| `agent_spawn` 的检查按 SPEC 的顺序回错误码；6 个的名额（含正在建的）；记句柄、第一件事待送、起 pi 交给它；可写的默认进自己的 worktree（`agent/<句柄>`）；带上下文从这个进程拿到的目录切出、用完删掉 | `agent-relay.test.ts` "agent_spawn's checks"、"opening a child"；`worktree-creator.test.ts` "agent/ branch" | 已覆盖 |
+| 任务与通知：第一件事带开场；一轮做完告诉父会话（回复条目、用时）并回收空闲的子对话；你在子对话里开的轮不通知、有标签的不回收；停下、出错、崩溃；回复从文件读、截断 4000、进度只带一次；归档的收件人丢掉、交给终端和暂停的留着、睡着的起 pi 也过名额 | `agent-relay.test.ts` "tasks and notices" | 已覆盖 |
+| 等待：默认 `any`、取走待送的事件；`all` 遇到问题提前返回、`needs_you` 不提前；已有的事件立即算；名单为空立即返回；别人的任务 `agent_not_allowed`；超时、你说话时提前返回；被中止的放回、不答复；`wait: true` 只等自己那件事 | `agent-relay.test.ts` "waiting" | 已覆盖 |
+| 问题：子对话收下才说送到；关了删掉没送到的问题通知；10 秒没确认让子对话关掉；同样的回答再送一次；进程退出、脱离时作废；不是 agent 开的会话不能问 | `agent-relay.test.ts` "questions" | 已覆盖 |
+| 列出、读、停、模型：状态、模型、未完成的任务、要时列出结束的；按页读回复和最近的步骤；停下连带 agent 开的子孙、到你开的为止；碰不到的子对话的每种错误码；能用的模型标出当前的 | `agent-relay.test.ts` "list, read, stop and models" | 已覆盖 |
+| 通道：读不出的回 `agent_bad_request`；同一进程同一请求只答一次、新进程再答；层数 2 没有主 agent 的工具但能问父会话；进程退出时删掉它拿到的分支目录 | `agent-relay.test.ts` "the channel" | 已覆盖 |
+| 排队面板与重启：删掉待送的、`sending` 和不认识的拒绝；宿主重启后都暂停、`claimed` 放回、问题作废，等你放开；不带 `tree` 只放自己的；宿主关闭时把在跑的任务记成 `stopped`；归档、交给终端、脱离时结束它的任务 | `agent-relay.test.ts` "the queue panel, a restart and the host closing"；`router.test.ts` "delivery commands"；`session-catalog.test.ts` "agent fields" | 已覆盖 |
+| 控制器送达：空闲时几条通知合成一次、先记 `sending`、开的运行算它们的；交代单独送、和排队按时间先后；运行中只送急的；重启后、pi 不在、停止中、排队暂停时不送（你发消息时一起走）；有回复后按文件确认、没在文件里的放回；运行没开起来时留给你；运行的开始和结束（含崩溃）告诉 relay；通知或交代开头的轮前不能分叉 | `session-controller.test.ts` "handing pi deliveries" | 已覆盖 |
+| 界面：车道的分出、经过、碰一下、汇回，没结束的虚线，有车道时文字缩进；别的轮的子对话的事件画成来源行；由通知开头的轮是来源行（问题用问题色）、交代的轮有全文和"主对话"；"打开"打开子对话 | `packages/ui/src/chat/lanes.browser.test.tsx`；`turn-layout.test.ts` "layoutTurn with children"、"laneLayout"、"describeStep for children"、"where a turn notices or a task opened came from"；`agent-words.test.ts` | 已覆盖 |
+| 界面：排队面板的待送达（能删和删不掉的、不能编辑插话、计入排队数、进来时不弹开）和"宿主重启后暂停 · 继续"；子对话条的角色标记、"在问主 agent"第二行和进度、问主 agent 算问号但不抬高标签、"全部继续"按子树加总 | `run-control.browser.test.tsx` "deliveries"、"held ones"；`children.browser.test.tsx` "children the agent opened"；`children.test.ts` "asking its parent's agent"、"heldIn" | 已覆盖 |
+| 补的边界：正在建的子对话也占名额（建 worktree 时睡着的子对话不能起）；停下父会话时只停 `wait: true` 在等的子对话，只等一件事的 `agent_wait` 被停下不停子对话；同一调用的第二个答复不再清一次状态；文件末尾没换行的整行 JSON 不读 | `agent-relay.test.ts` "still being created"、"leaves a child running"；`extension.test.ts` "first answer"；`file-usage.test.ts` "without its LF" | 已覆盖 |
+| 变异测试后补（2026-10-18）：控制器在 pi 退出后不送、不报没有的运行；宿主停 pi 时 pi 自己走掉的运行不算崩溃；交给 pi 还没答复就退出的，不再等它开运行；没有待送达时排队照走；你发消息放开的待送达排在暂停排队里更早的消息前面；送不了的之后立刻送下一批；运行中送的急通知不算下一轮的开头；排队因 pi 拒收暂停时待送达留着；起来时先按文件确认；插话也算你说话；运行中进来的待送达照样显示；`model()`。启动参数：从带上下文的子对话再分叉沿用它起步的参数、保留去掉主 agent 工具的那条；层数在会话上方的环处断开。记录：任务、`toolGuard`、送达的每种状态都读得回。投影与实时：通知开头、看到过的轮带 pi 的重试上限；通知开新轮时上一轮照它的结局结束 | `session-controller.test.ts` "handing pi deliveries"、"carries the model"；`agent-launch.test.ts` "forked from a forked child"、"breaks a loop"；`store/agent-records.test.ts`；`projection.test.ts` "limit on retries as measured"；`session-transcript.test.ts` "ends the turn before" | 已覆盖 |
+| 带上下文的子对话不重做父会话的调用：父会话原样的参数里有可选字段的 `null`、写成文字的数字或布尔，pi 校验后子对话同样的调用照样拦下 | `extension.test.ts` "pi's checked input" | 已覆盖 |
+| 排队暂停时你发消息只放行这一次暂停：恢复排队后 pi 拒收又暂停，新来的待送达照样留着 | `session-controller.test.ts` "for that pause only" | 已覆盖 |
+| 变异测试后补的 relay 边界：档位往上、往下换；孙对话的任务记 `originTask`；`agent_send` 写下的任务和送达；句柄只在自己的子对话里找；`agent_read` 一次运行的范围、步骤标题；等待只被自己会话里你说的话、自己进程的退出、点名的取消结束；运行由通知开头时记在原任务或新的后续任务下、`followUpOf` 带给父会话；停和起不交叉；不能再送的交代和通知不送；层数 2 的 `canSpawn: false`；只有 `finished` 带工作区 | `agent-relay.test.ts`（变异测试后补的各条） | 已覆盖 |
+| relay 修的三处：子对话的 pi 正在重启时宿主退出，任务照样记成 `stopped`（`host_exit`）；`agent_stop` 停了你开的那一轮后，之后你停它的任务仍算你停的；子对话被归档、脱离时的 `ended` 交给在等它的等待，等待立即返回 | `agent-relay.test.ts` "what reviews of the relay found" | 已覆盖 |
+| 资源：等待（超时、事件、被停下）和回答（确认、10 秒加 10 秒没回）结束后，relay 不留定时器 | `agent-relay.test.ts` "leaves no timer behind"（假时钟数定时器） | 已覆盖 |
+| 端到端：主 agent 一次开两个子对话（一个只读在同一工作区，一个可写在自己的 worktree、分支 `agent/<句柄>`），子对话做完一轮，主对话收到通知（来源行）并汇总；子对话条列出两个；点"打开"进子对话，看到交代的全文和它的回复。宿主的组装（模型目录、`agent/` 前缀）也由它覆盖 | `apps/desktop/e2e/children.spec.ts` "the agent opens two children" | 已覆盖 |
+| 端到端：主 → 子 → 孙，子对话做完第一轮后 pi 被回收，孙对话的结果送到子对话时它的 pi 再起，接着做完再通知主对话；子对话条里写 "+1"，子对话里有孙对话的来源行 | `children.spec.ts` "a grandchild's result reaches the main conversation"（faux 的 `grandchildReplies`，子对话按会话里已有的回复挑下一条） | 已覆盖 |
+| 端到端：只读子对话调 `write`，pi 不给它这个工具，文件没写出来 | `children.spec.ts` "a read-only child cannot write a file" | 已覆盖 |
+| 交给终端的命令带上工具参数，需要时加引号 | `packages/ui/src/tabs/hand-off.test.ts` "flags the host gave" | 已覆盖 |
+| 下一轮由通知或交代开头时，"从这里分叉"和"从这里开子对话"变淡、说明原因、点了不做事（中间隔着提示行也一样）；宿主应答 `turn_not_found`（`agent_turn`）时标签栏旁这么说 | `chat.browser.test.tsx` "fades forking and a child"、"why it did not fork"；宿主：`session-controller.test.ts` "refuses to fork before a turn notices" | 已覆盖 |
+## M1.15 第二步三方审查后补（2026-10-18）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 带上下文的子对话只拦分叉点那批：父会话那批是第一件事（带开场的那条交代）前面那条助手消息里没有结果的调用，中间隔着的同批结果和别的条目跳过；子对话自己还没有结果的调用不算；孙对话的历史里有父会话自己的第一件事、更早的分叉点也不算；之后的交代（哪怕前面是崩溃留下没结果的调用）什么都不拦 | `packages/pi/src/agent/extension.test.ts` "the tool hook, at the fork"、"parentCalls"、"at what the first task follows"、"reading a task's content" | 已覆盖 |
+| 外壳转义：扩展用的每个外壳标签（`atrium-agent…`、`atrium-subagent`、`event`、`reply`、`question`）的开头和结尾都转义、只认整个标签名、别的文字原样；子对话的回复冒充不了 `agent_wait` 里另一个子对话的事件；可选答案、原因、分支、工作目录（含第一件事里的）、列出的子对话名和进度、步骤标题都转义；只有目录没有分支时也写出目录；宿主换目录的提示里两个路径也转义 | `packages/pi/src/agent/words.test.ts` "for every wrapper the extension writes"、"inside the wrappers"；`packages/pi/src/agent/agent.test.ts` "escapes a wrapper tag in a path" | 已覆盖 |
+| `ask_parent` 被自己的计时或宿主关掉后，问宿主的那次调用一起结束：之后停下这次运行不再发 `cancel` | `packages/pi/src/agent/extension.test.ts` "ask_parent, once closed" | 已覆盖 |
+| `agent_read` 的 `limit`：回复最多 16000、步骤最多 50，超了宿主回 `agent_bad_request`；工具说明写明步骤的上限 | `packages/pi/src/agent/channel.test.ts` "answers a bad request"、"reads each call's own arguments" | 已覆盖 |
+| 对话记录里的事件带 `work` 子对话的分支（截到 256）和改动统计，读不出的统计不显示 | `packages/pi/src/agent/details.test.ts` "keeps a work child's branch and changes" | 已覆盖 |
+| 宿主重启后：先同时把所有有待送达的会话（和被强杀时丢了任务的父会话）暂停，再读文件；等待接住的在父会话文件里找到那次工具结果就删、找不到放回 `waiting`；读回的进度随下一条通知带一次；还标着进行中、又没有待送达的任务按 `stopped`（`host_exit`）记进父会话、一起暂停 | `packages/host/src/sessions/agent-relay.test.ts` "after a restart drops what a wait took"、"holds every session's deliveries at once"、"carries the progress read back"、"after the host was killed"；"holds what waited when the host stopped" | 已覆盖 |
+| 暂停的原因：没送出去记成 `stalled`，不算进 `heldDeliveries`，"全部继续"（`tree`）不放开、只有它自己会话的"重试"放开；暂停的都删光了就不再暂停 | `packages/host/src/sessions/agent-relay.test.ts` "holds what pi stalled on as stalled"、"lets go the hold once nothing held is left"、"holds what pi stalled on, back as waiting" | 已覆盖 |
+| 名额：被回收、等着送达的子对话不占名额，起 pi 那一刻按父会话依次占；7 个同时收到通知或一起"全部继续"时先起 6 个，兄弟一轮做完、被归档/脱离、你开的那一轮结束时叫醒下一个；起不来的不反复重试，你开的子对话（不是 agent 开的）一轮结束也不叫醒它 | `packages/host/src/sessions/agent-relay.test.ts` "starts recycled children notices come to"、"lets go seven children held since a restart"、"wakes a child waiting for a place"、"wakes a child waiting with a place free" | 已覆盖 |
+| 宿主退出时只记下 `stopped`，不起 pi、不交给 pi | `packages/host/src/sessions/agent-relay.test.ts` "only records what it tells as the host closes" | 已覆盖 |
+| 通知先写进父会话再把任务记成做完：写不进去时任务还开着；等待在写的过程中结束也拿得到这条事件（`pending` 不含它），被停下的等待把它放回 `waiting` | `packages/host/src/sessions/agent-relay.test.ts` "leaves a task open when its parent's notice could not be written"、"gives a wait an event that comes while its write"、"puts back as waiting an event a wait took" | 已覆盖 |
+| `wait: true` 的停止在受理期间就来了：等待一开始就结束、不回答，子对话的运行一开始就被停下，父会话收到 `stopped`（`parent_stopped`） | `packages/host/src/sessions/agent-relay.test.ts` "ends at once a wait whose stop came while its child was being made" | 已覆盖 |
+| 同一个问题的几次 `agent_reply` 依次处理：第一个算数，不同的答案应答 `agent_question_closed`，同样的再确认一次；已关的问题每个子对话只留最近 16 个 | `packages/host/src/sessions/agent-relay.test.ts` "counts the first answer to a question when two come at once"、"keeps the latest 16 questions" | 已覆盖 |
+| 同一进程里做完的请求再来一次，回同一个结果（每个进程留最近 64 个回答过的，被停下、没回答的等待不占），不再做一遍 | `packages/host/src/sessions/agent-relay.test.ts` "answers a request repeated after it was answered" | 已覆盖 |
+| `agent_send` 让停下或崩溃用尽的子对话的排队重新走；停下后被回收的子对话状态是 `stopped` | `packages/host/src/sessions/agent-relay.test.ts` "lets the queue of a child stopped or crashed out go again"；`session-manager.test.ts` "calls a child the agent opened stopped once its pi was put away" | 已覆盖 |
+| 脱离时删掉原父会话交代、还没送出的事，原父会话照样收到 `ended`；运行中被脱离的，之后开的孙对话不再记着原来那件事 | `packages/host/src/sessions/agent-relay.test.ts` "drops the tasks a detached child had waiting"、"none once its parent is detached" | 已覆盖 |
+| 归档在跑的子对话：先停 pi 时运行的结束不按出错通知，父会话收到 `ended`（`archived`）；归档、交接没做成时，每一次停 pi 都放开了（同一次放开两遍只算一次）之后的运行照常通知父会话 | `packages/host/src/sessions/agent-relay.test.ts` "tells the parent a running child archived or handed off ended"、"once every stop for an archive or hand-off called off is over"；`session-manager.test.ts` "tells the parent a child the agent opened ended when it is archived mid-task" | 已覆盖 |
+| 删掉一件还没送的交代：这件事悄悄结束（不通知父会话、等它的等待结束），第一件事删了就不再算创建中；起不来的子对话的第一件事不再待送 | `packages/host/src/sessions/agent-relay.test.ts` "ends a task quietly when you remove its delivery"、"drops the first task of a child that could not start" | 已覆盖 |
+| `work` 子对话做完的通知带分支和从起点算起的改动统计（文件数、增删行，已提交和没提交的、未跟踪的都算；二进制文件不算行；未跟踪的文件都算数，行只数前 500 个的） | `packages/host/src/sessions/agent-relay.test.ts` "gives a work child's branch and what its worktree changed"；`packages/host/src/changes/checkout.host.test.ts` "changesSince"（含 "the lines of the first 500 only"） | 已覆盖 |
+| 送达真正发出前再判断一次：停下、暂停、pi 退出或换了就放回 `waiting`、不发（换上的 pi 接着发）；steer 进去的运行先结束了，它开的下一次运行算它的（读文件之前开始的也算），停下清掉了 pi 的队列就放回；回复只算这次运行开头之后的；扩展报 `extension_error` 时没开起运行的送达放回再发一次，第二次就暂停成"没送出去" | `packages/host/src/sessions/session-controller.test.ts` "keeps back deliveries a stop overtook"、"from a pi that exited or was replaced"、"counts the run a steered delivery opens"（两条）、"puts back a steered delivery a stop took"、"tells a run's reply only from after"、"hands deliveries again that an extension's error lost" | 已覆盖 |
+| 排队面板：没送出去时顶上"没送出去"和"重试"，宿主重启后"宿主重启后暂停"和"继续"；只剩待送达、排队因停下而暂停时有"继续发送"、没有"清空" | `packages/ui/src/chat/run-control.browser.test.tsx` "were not sent, with 重试"、"offers 继续发送 for a stopped queue"、"held ones wait until you go on" | 已覆盖 |
+| 过程轨道：车道空出来给下一个子对话时，按每个子对话的那一段画虚实；"开子对话"一行在这件事于本轮结束时写用时；合回那一行和通知行写 `work` 子对话的"+A −D" | `packages/ui/src/chat/turn-layout.test.ts` "laneLayout"；`lanes.browser.test.tsx` "dashes only the part of a lane"、"says on the merge what a work child changed"、"opens a lane beside the main line" | 已覆盖 |
+| agent 反复开子对话、子对话做完被回收，常驻的 pi、句柄、计时器回到基线（每个子对话的控制器照常留到归档） | `packages/host/src/sessions.leak.test.ts` "keeps no more pi running after the agent opens a child" | 已覆盖 |
+| `SessionSummary.agent.taskId`、`taskStartedAt`：协议只收最多 128 字符的 id、不小于 0 的整数时间或 `null`、不能缺；宿主给子对话手上最早那件开着的事和它交代下来的时间，做完换下一件的，都做完是 `null`（任务记录写进索引就推摘要） | `packages/protocol/src/agent.test.ts` "reads when a child's open task was handed down"；`packages/host/src/sessions/agent-relay.test.ts` "gives when the child's open task was handed down" | 已覆盖 |
+| 过程轨道"开子对话"一行：这件事没在本轮结束、还是子对话手上那件（不是之后交代的）、子对话在做或在问时，状态后面写从 `taskStartedAt` 算起的实时用时，每秒走一次；本轮结束的写用时、不走；宿主时钟快一点时写 0 秒；卸下后不再走 | `packages/ui/src/chat/lanes.browser.test.tsx` "counts beside a child still on its task" | 已覆盖 |
+| `Control.deliveriesHeld` 收 `restart`、`stalled`、`null` | `packages/protocol/src/envelope.test.ts` "accepts every error code, turn and run outcome" | 已覆盖 |
+| 变异测试后补（M1.15 第二步之外的新代码）：起分支名给模型的说明原文钉住；没有点的文件名没有扩展名（`xts` 不按 `ts` 认） | `packages/host/src/workspaces/branch-namer.test.ts` "BRANCH_INSTRUCTIONS"；`packages/ui/src/files/file-icons.test.ts` "without a dot or with nothing after it" | 已覆盖 |
+| 宿主的全局兜底：没人处理的 Promise 拒绝记一条 error 日志、宿主不退出；`Error` 记 `err`，别的只记类型；宿主关闭、启动失败（索引太新、端口被占）时卸掉，不留监听 | `packages/host/src/platform/stray-rejections.test.ts`；`packages/host/src/index.host.test.ts` "logs a rejection nobody handled"、"newer Atrium"；`packages/host/src/server/ws-server.host.test.ts` "port is already taken" | 已覆盖 |
+
 ## M1.11、M1.12 三方审查后补（2026-10-14）
 
 | 行为 | 测试 | 状态 |
