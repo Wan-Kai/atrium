@@ -1,10 +1,11 @@
 import type { SessionView } from "@atrium/client";
 import { type Control, IDLE_CONTROL, type Interaction, type Turn, UNKNOWN_METRICS } from "@atrium/protocol";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
-import { ControlCards, ControlTrack, type RunActions } from "./run-control";
+import { Composer } from "./composer";
+import { CapsuleUnit, ControlCards, ControlTrack, type RunActions } from "./run-control";
 import { Transcript } from "./transcript";
 
 /** Actions that record what was asked of them. */
@@ -227,6 +228,304 @@ describe("ControlTrack", () => {
 
     await expect.element(screen.getByTestId("steers")).toHaveTextContent("2 条插话将在下一步前送达");
     expect(calls).toStrictEqual([["resume"]]);
+  });
+});
+
+/** What a capsule's panel was doing when the capsule said it opened or closed. */
+interface Moment {
+  /** Whether the panel was there. */
+  readonly shown: boolean;
+  /** The panel's and each row's first animation: its duration, delay and easing. */
+  readonly motion: readonly (readonly [unknown, unknown, unknown])[];
+  /** The panel's clip at the start and the end of its animation, if it has one. */
+  readonly clip: readonly unknown[];
+}
+
+/**
+ * Notes what a capsule's panel and rows are doing now.
+ *
+ * @remarks
+ * Read from the capsule's parent, the unit that holds the capsule and its panel.
+ *
+ * @sideEffects none
+ * @param capsule - The capsule.
+ * @returns The moment.
+ */
+function momentOf(capsule: Element): Moment {
+  const panel = capsule.parentElement?.querySelector('[role="dialog"]') ?? null;
+  const parts = [panel, ...(panel?.querySelectorAll("[data-panel-row]") ?? [])];
+  const effect = panel?.getAnimations()[0]?.effect;
+  return {
+    shown: panel !== null,
+    clip: effect instanceof KeyframeEffect ? effect.getKeyframes().map((frame) => frame["clipPath"]) : [],
+    motion: parts.map((part) => {
+      const timing = part?.getAnimations()[0]?.effect?.getTiming();
+      return [timing?.duration, timing?.delay, timing?.easing] as const;
+    }),
+  };
+}
+
+/**
+ * Waits for a capsule to say it opened or closed, and notes then what its panel does.
+ *
+ * @remarks
+ * Noted in the same turn as React's commit, so the time the motion takes cannot make it flaky.
+ *
+ * @sideEffects Observes the capsule's attributes until it says so.
+ * @param capsule - The capsule.
+ * @param expanded - Whether to wait for it to open or to close.
+ * @returns The moment it said so.
+ */
+function whenExpanded(capsule: Element, expanded: boolean): Promise<Moment> {
+  return new Promise((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (capsule.getAttribute("aria-expanded") !== String(expanded)) return;
+      observer.disconnect();
+      resolve(momentOf(capsule));
+    });
+    observer.observe(capsule, { attributes: true, attributeFilter: ["aria-expanded"] });
+  });
+}
+
+/**
+ * Where an element is on the page, in whole pixels.
+ *
+ * @remarks
+ * The edges the tests compare; rounding keeps sub-pixel layout from mattering.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its top, right, bottom and left.
+ */
+function edges(element: Element) {
+  const box = element.getBoundingClientRect();
+  return {
+    top: Math.round(box.top),
+    right: Math.round(box.right),
+    bottom: Math.round(box.bottom),
+    left: Math.round(box.left),
+  };
+}
+
+/**
+ * How far a capsule's caret is turned.
+ *
+ * @remarks
+ * The caret is the capsule's only drawing.
+ *
+ * @sideEffects none
+ * @param capsule - The capsule.
+ * @returns The caret's computed `rotate`, or `null` without a caret.
+ */
+function caretTurn(capsule: Element): string | null {
+  const caret = capsule.querySelector("svg");
+  return caret === null ? null : getComputedStyle(caret).rotate;
+}
+
+/**
+ * Makes the page say the user asked for less motion, until the mocks are restored.
+ *
+ * @remarks
+ * Answers with real media query lists, matching everything for less motion and nothing else.
+ *
+ * @sideEffects Replaces `window.matchMedia` with a spy.
+ */
+function askForLessMotion(): void {
+  const real = window.matchMedia.bind(window);
+  vi.spyOn(window, "matchMedia").mockImplementation((query) =>
+    real(query === "(prefers-reduced-motion: reduce)" ? "all" : "not all"),
+  );
+}
+
+/** The motion's curve (design-language, "胶囊点开的面板"). */
+const EASE = "cubic-bezier(0.45, 0, 0.15, 1)";
+
+/** No animation. */
+const STILL = [undefined, undefined, undefined];
+
+/**
+ * The bar with a child capsule of the same kind, and a button outside the bar.
+ *
+ * @remarks
+ * The child capsule is a `CapsuleUnit` of its own, so a press on it is one on another capsule.
+ *
+ * @sideEffects none
+ * @param control - The run control.
+ * @returns The page.
+ */
+function scene(control: Control) {
+  return (
+    <div>
+      <button type="button">外面</button>
+      <div style={{ position: "relative", marginTop: 400, width: 600 }}>
+        <ControlTrack
+          control={control}
+          running
+          actions={recording().actions}
+          renderChildCapsule={({ open, onToggle }) => (
+            <CapsuleUnit
+              open={open}
+              onToggle={onToggle}
+              onClose={onToggle}
+              label="子对话"
+              span="content"
+              capsule="子对话"
+            >
+              <div data-panel-row>一个子对话</div>
+            </CapsuleUnit>
+          )}
+        />
+      </div>
+    </div>
+  );
+}
+
+describe("ControlTrack's panels on their capsules", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("floats the queue 8px above its capsule, from the capsule's left to the bar's right edge, its caret turned", async () => {
+    const screen = await render(scene(queued("one", "two")));
+    const capsule = screen.getByRole("button", { name: "排队 2" });
+    await capsule.click();
+    const panel = edges(screen.getByRole("dialog", { name: "排队" }).element());
+    const bar = edges(screen.getByTestId("capsule-bar").element());
+    const cap = edges(capsule.element());
+
+    expect([cap.top - panel.bottom, panel.left - cap.left, panel.right - bar.right]).toStrictEqual([8, 0, 0]);
+    await expect.poll(() => caretTurn(capsule.element())).toBe("180deg");
+  });
+
+  it("closes the queue on a press outside it, playing the close before the panel goes", async () => {
+    const screen = await render(scene(queued("one", "two")));
+    const capsule = screen.getByRole("button", { name: "排队 2" });
+    await capsule.click();
+    await expect.element(screen.getByRole("dialog", { name: "排队" })).toBeInTheDocument();
+    const closed = whenExpanded(capsule.element(), false);
+
+    await screen.getByRole("button", { name: "外面" }).click();
+
+    expect((await closed).shown).toBe(true);
+    await expect.poll(() => screen.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("keeps the queue open on a press in the input box or on its stop button, and closes it on blank space", async () => {
+    const stops: string[] = [];
+    const screen = await render(
+      <div>
+        <button type="button">外面</button>
+        <div style={{ marginTop: 400, width: 680 }}>
+          <Composer
+            onSend={() => undefined}
+            draftKey="queue-panel"
+            running
+            onStop={() => stops.push("stop")}
+            above={<ControlTrack control={queued("one")} running actions={recording().actions} />}
+          />
+        </div>
+      </div>,
+    );
+    const capsule = screen.getByRole("button", { name: "排队 1" });
+    await capsule.click();
+
+    await screen.getByRole("textbox", { name: "消息" }).click();
+    await screen.getByRole("button", { name: "停止" }).click();
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "true");
+    await screen.getByRole("button", { name: "外面" }).click();
+
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "false");
+    expect(stops).toStrictEqual(["stop"]);
+  });
+
+  it("closes the queue on Escape, but not on the one that gives up an edit", async () => {
+    const screen = await render(scene(queued("one")));
+    const capsule = screen.getByRole("button", { name: "排队 1" });
+    await capsule.click();
+    await screen.getByRole("button", { name: "编辑" }).click();
+
+    await userEvent.type(screen.getByRole("textbox", { name: "编辑排队的消息" }), "{Escape}");
+    await expect.element(screen.getByRole("button", { name: "编辑" })).toBeVisible();
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "true");
+    await userEvent.keyboard("{Escape}");
+
+    await expect.element(capsule).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(() => screen.container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("switches to the other capsule's panel on a press there", async () => {
+    const screen = await render(scene(queued("one")));
+    const queue = screen.getByRole("button", { name: "排队 1" });
+    const children = screen.getByRole("button", { name: "子对话" });
+    await queue.click();
+
+    await children.click();
+
+    await expect.element(children).toHaveAttribute("aria-expanded", "true");
+    await expect.element(queue).toHaveAttribute("aria-expanded", "false");
+    await expect.element(screen.getByRole("dialog", { name: "子对话" })).toBeInTheDocument();
+    await expect.element(screen.getByRole("dialog", { name: "排队" })).not.toBeInTheDocument();
+  });
+
+  it("grows the panel from its bottom edge, the rows one by one after it, and closes all together", async () => {
+    const screen = await render(scene(queued("one", "two")));
+    const capsule = screen.getByRole("button", { name: "排队 2" });
+    const opened = whenExpanded(capsule.element(), true);
+    await capsule.click();
+
+    expect(await opened).toStrictEqual({
+      shown: true,
+      clip: ["inset(100% -64px -64px)", "inset(-64px)"],
+      motion: [
+        [280, 0, EASE],
+        [220, 60, EASE],
+        [220, 90, EASE],
+      ],
+    });
+    await expect.poll(() => screen.getByRole("dialog", { name: "排队" }).element().getAnimations()).toStrictEqual([]);
+    const closed = whenExpanded(capsule.element(), false);
+    await capsule.click();
+    expect(await closed).toStrictEqual({
+      shown: true,
+      clip: ["inset(-64px)", "inset(100% -64px -64px)"],
+      motion: [
+        [200, 0, EASE],
+        [160, 0, EASE],
+        [160, 0, EASE],
+      ],
+    });
+  });
+
+  it("closes a panel turned back halfway from where it got to", async () => {
+    const screen = await render(scene(queued("one")));
+    const capsule = screen.getByRole("button", { name: "排队 1" });
+    await capsule.click();
+    for (const animation of screen.getByRole("dialog", { name: "排队" }).element().getAnimations()) {
+      animation.pause();
+      animation.currentTime = 140;
+    }
+    const closed = whenExpanded(capsule.element(), false);
+
+    await capsule.click();
+
+    expect((await closed).clip).toStrictEqual([
+      expect.stringMatching(/^inset\(calc\([\d.]+% - [\d.]+px\) -64px -64px\)$/),
+      "inset(100% -64px -64px)",
+    ]);
+  });
+
+  it("opens and closes at once when less motion is asked for", async () => {
+    askForLessMotion();
+    const screen = await render(scene(queued("one")));
+    const capsule = screen.getByRole("button", { name: "排队 1" });
+    const opened = whenExpanded(capsule.element(), true);
+    await capsule.click();
+    expect(await opened).toStrictEqual({ shown: true, clip: [], motion: [STILL, STILL] });
+
+    const closed = whenExpanded(capsule.element(), false);
+    await capsule.click();
+
+    expect(await closed).toStrictEqual({ shown: false, clip: [], motion: [STILL] });
   });
 });
 

@@ -5,7 +5,8 @@ import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { RoleTag } from "../chat/lanes";
-import { CaretUp, Clock, DotsThree, GitBranch, TerminalWindow } from "../design/icons";
+import { CapsuleUnit } from "../chat/run-control";
+import { Clock, DotsThree, GitBranch, TerminalWindow } from "../design/icons";
 import { placeOf, sessionTitle, timeAgo } from "../sidebar/names";
 import type { RowStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
@@ -13,10 +14,6 @@ import { useClock } from "../state/clock";
 import { showNotice } from "../state/session-notices";
 import { type WorkspaceViews, showViewer } from "../state/workspace-views";
 import { childrenOf, descendantsOf, heldIn, rowStatus } from "./children";
-
-/** The capsule's look, as the queue's above the input box (run-control's `CAPSULE`). */
-const CAPSULE =
-  "pointer-events-auto inline-flex h-7 items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] px-[11px] text-[length:var(--fs-sm)] whitespace-nowrap tabular-nums text-[var(--text-2)] shadow-[0_0_0_0.5px_var(--line),0_6px_16px_-8px_rgba(0,0,0,0.22)] dark:bg-[var(--surface-2)]";
 
 /** The statuses the capsule counts, in the order it shows them (design-language, "会话状态"). */
 const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running"];
@@ -26,8 +23,9 @@ const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error",
  *
  * @remarks
  * SPEC-0002 ("显示 · 子对话条"; prototype A): absent without children; "子对话 N" with each status
- * its rows show and how many, the same icons as the sidebar's. Opened, a list floats above the input
- * box as the queue's does, as wide as its rows: each direct child with its status (its whole
+ * its rows show and how many, the same icons as the sidebar's. Opened, its list floats 8 px above
+ * the capsule, its left edge at the capsule's, as the queue's does (`CapsuleUnit`), as wide as its
+ * rows from 300 px but never past the bar, and a press outside or Escape closes it: each direct child with its status (its whole
  * subtree's), its name, where it is when not here ("已在终端中继续" once handed off), "+N" for the
  * sessions below it, and when it last changed; clicking a row opens it, its menu opens, detaches
  * or archives it. Failures show beside the tab bar. A child opened shows, though its workspace
@@ -38,7 +36,8 @@ const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error",
  * its latest progress. Deliveries held in the subtree since the host restarted show on top, with
  * "全部继续".
  *
- * @sideEffects Opens, detaches or archives sessions as the user acts; writes the views.
+ * @sideEffects Opens, detaches or archives sessions as the user acts; writes the views; animates
+ * the list and listens for presses and Escape while it is open (`CapsuleUnit`).
  * @param props - The client, the session whose children these are, the workspace views, and
  * whether the list is open and how to open or close it.
  * @returns The capsule and its list, or nothing.
@@ -95,64 +94,63 @@ export function ChildCapsule({
   };
 
   return (
-    <>
-      {open ? (
-        <div
-          role="dialog"
-          aria-label="子对话"
-          className="pointer-events-auto absolute bottom-[calc(100%+8px)] left-0 z-10 w-max max-w-full min-w-[300px] rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
-        >
-          {held === 0 ? null : (
-            <div
-              className="mb-1 flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--attn-soft)] px-2.5 py-1.5 text-[length:var(--fs-sm)] text-[var(--attn-text)]"
-              data-testid="deliveries-held"
-            >
-              <Clock size={14} />
-              <span className="min-w-0 flex-1">宿主重启后暂停了 {held} 条送达</span>
-              <button
-                type="button"
-                className="font-medium"
-                onClick={() => act(() => client.resumeDeliveries(sessionId, true), "没能继续送达")}
-              >
-                全部继续
-              </button>
-            </div>
-          )}
-          <div className="flex items-center justify-between gap-6 px-2 pt-1 pb-1.5 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
-            <span>子对话</span>
-            <span>最近更新的在前</span>
-          </div>
-          {children.map((child, at) => (
-            <ChildRow
-              key={child.sessionId}
-              child={child}
-              status={statuses[at] ?? null}
-              below={descendantsOf(index.sessions, child.sessionId).length}
-              place={child.containerId === parent?.containerId ? null : placeOf(index, child.containerId)}
-              when={timeAgo(child.updatedAt, clock.now())}
-              onOpen={() => {
-                toggle();
-                if (views !== undefined) showViewer(views, child.containerId, null);
-                act(() => client.openSession(child.sessionId), "没能打开子对话");
-              }}
-              onDetach={() => act(() => client.detachSession(child.sessionId), "没能脱离子对话")}
-              onArchive={() => act(() => client.archiveSession(child.sessionId), "没能归档子对话")}
-            />
+    <CapsuleUnit
+      open={open}
+      onToggle={toggle}
+      onClose={toggle}
+      label="子对话"
+      span="content"
+      capsule={
+        <>
+          子对话 {children.length}
+          {counts.map(([status, count]) => (
+            <span key={status} className="flex items-center gap-0.5">
+              <span className="text-[var(--text-dim)]">·</span>
+              <StatusIcon status={status} />
+              {count}
+            </span>
           ))}
+        </>
+      }
+    >
+      {held === 0 ? null : (
+        <div
+          className="mb-1 flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--attn-soft)] px-2.5 py-1.5 text-[length:var(--fs-sm)] text-[var(--attn-text)]"
+          data-testid="deliveries-held"
+        >
+          <Clock size={14} />
+          <span className="min-w-0 flex-1">宿主重启后暂停了 {held} 条送达</span>
+          <button
+            type="button"
+            className="font-medium"
+            onClick={() => act(() => client.resumeDeliveries(sessionId, true), "没能继续送达")}
+          >
+            全部继续
+          </button>
         </div>
-      ) : null}
-      <button type="button" aria-expanded={open} className={CAPSULE} onClick={toggle}>
-        子对话 {children.length}
-        {counts.map(([status, count]) => (
-          <span key={status} className="flex items-center gap-0.5">
-            <span className="text-[var(--text-dim)]">·</span>
-            <StatusIcon status={status} />
-            {count}
-          </span>
-        ))}
-        <CaretUp size={10} className={`text-[var(--text-dim)] ${open ? "rotate-180" : ""}`} />
-      </button>
-    </>
+      )}
+      <div className="flex items-center justify-between gap-6 px-2 pt-1 pb-1.5 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
+        <span>子对话</span>
+        <span>最近更新的在前</span>
+      </div>
+      {children.map((child, at) => (
+        <ChildRow
+          key={child.sessionId}
+          child={child}
+          status={statuses[at] ?? null}
+          below={descendantsOf(index.sessions, child.sessionId).length}
+          place={child.containerId === parent?.containerId ? null : placeOf(index, child.containerId)}
+          when={timeAgo(child.updatedAt, clock.now())}
+          onOpen={() => {
+            toggle();
+            if (views !== undefined) showViewer(views, child.containerId, null);
+            act(() => client.openSession(child.sessionId), "没能打开子对话");
+          }}
+          onDetach={() => act(() => client.detachSession(child.sessionId), "没能脱离子对话")}
+          onArchive={() => act(() => client.archiveSession(child.sessionId), "没能归档子对话")}
+        />
+      ))}
+    </CapsuleUnit>
   );
 }
 
@@ -211,6 +209,7 @@ function ChildRow({
   return (
     <div
       data-testid="child-row"
+      data-panel-row
       className="flex min-h-[34px] items-center gap-2 rounded-[var(--r-md)] py-1 pr-1 pl-2.5 text-[length:var(--fs-meta)] hover:bg-[var(--hover)]"
     >
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left">

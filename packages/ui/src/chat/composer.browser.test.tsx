@@ -673,6 +673,7 @@ function emptyPicker(disabled: boolean) {
     <ModelPicker
       shown={null}
       list={{ status: "ready", models: [], defaultModel: null, error: null }}
+      login={null}
       disabled={disabled}
       onOpen={() => undefined}
       onRefresh={() => undefined}
@@ -1016,6 +1017,7 @@ describe("Composer's keys beside the model panel", () => {
         <ModelPicker
           shown={null}
           list={{ status: "ready", models: [listed], defaultModel: null, error: null }}
+          login={null}
           disabled={false}
           onOpen={() => undefined}
           onRefresh={() => undefined}

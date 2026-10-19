@@ -1,8 +1,10 @@
 import type { ModelListView } from "@atrium/client";
-import { CommandError, type CatalogModel, type ModelRef, type ThinkingLevel } from "@atrium/protocol";
+import { CommandError, type CatalogModel, type ModelRef, type SetupLogin, type ThinkingLevel } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
+import claudeLogo from "../design/brand/claude.svg";
+import deepseekLogo from "../design/brand/deepseek.svg";
 import "../styles.css";
 import type { ShownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
@@ -46,14 +48,19 @@ function shown(listed: CatalogModel, level: ThinkingLevel | null): ShownModel {
  * @sideEffects Renders.
  * @param current - The model shown.
  * @param list - The models.
- * @param options - Whether it is disabled, and the request to open it there as it appears.
+ * @param options - Whether it is disabled, the request to open it there as it appears, and the
+ * setup's login state (unknown unless given).
  * @returns The screen, the calls, the button, and a way to render it again with another request
  * and whether it is disabled.
  */
 async function picker(
   current: ShownModel | null,
   list: ModelListView = READY,
-  options: { readonly disabled?: boolean; readonly request?: PickerRequest | null } = {},
+  options: {
+    readonly disabled?: boolean;
+    readonly request?: PickerRequest | null;
+    readonly login?: SetupLogin | null;
+  } = {},
 ) {
   const calls: unknown[][] = [];
   /**
@@ -69,6 +76,7 @@ async function picker(
       <ModelPicker
         shown={current}
         list={list}
+        login={options.login ?? null}
         disabled={disabled}
         onOpen={() => calls.push(["open"])}
         onRefresh={() => calls.push(["refresh"])}
@@ -92,7 +100,7 @@ describe("ModelPicker's button", () => {
   it("shows the model's provider icon, its name and the level", async () => {
     const { chip } = await picker(shown(SOL, "medium"));
 
-    await expect.element(chip).toHaveTextContent("GPT-6 Sol中");
+    await expect.element(chip).toHaveTextContent("套餐GPT-6 Sol中");
     await expect.element(chip).toHaveAttribute("title", "模型与推理强度：中（⌘⇧I / ⌘⇧E）");
     expect(chip.element().querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg|\.svg/);
     await expect.element(chip).not.toHaveAttribute("data-full");
@@ -102,7 +110,7 @@ describe("ModelPicker's button", () => {
     const { chip } = await picker(shown(SOL, "xhigh"));
 
     await expect.element(chip).toHaveAttribute("data-full");
-    await expect.element(chip).toHaveTextContent("GPT-6 Sol极高");
+    await expect.element(chip).toHaveTextContent("套餐GPT-6 Sol极高");
   });
 
   it("shows a provider it has no icon for by its first letter, and no level when unknown", async () => {
@@ -145,7 +153,7 @@ describe("ModelPicker's panel", () => {
     ]);
     await expect
       .element(screen.getByRole("tabpanel", { name: "ChatGPT 订阅" }))
-      .toMatchTextContent(/^ChatGPT 订阅2 个模型/);
+      .toMatchTextContent(/^ChatGPT 订阅套餐2 个模型/);
     const rows = screen.getByRole("menuitemradio");
     expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
       "GPT-6 Sol上下文 400K · 输出 128K · 支持图片",
@@ -392,5 +400,145 @@ describe("ModelPicker's panel", () => {
     await userEvent.keyboard("{Meta>}{Shift>}i{/Shift}{/Meta}");
 
     await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
+  });
+});
+
+const BRIDGED = model("claude-bridge", "claude-opus-5-5", "Claude Opus 5.5");
+const DEEPSEEK = model("deepseek", "deepseek-v4", "DeepSeek V4");
+const COPILOT = model("github-copilot", "gpt-5.5", "GPT-5.5");
+const GPT = model("openai", "gpt-5.5", "GPT-5.5");
+const GROK = model("xai", "grok-4.7", "Grok 4.7");
+
+/**
+ * Each provider tab's name and whether it carries the plan tag.
+ *
+ * @remarks
+ * The tag is the "走套餐" image inside the tab.
+ *
+ * @sideEffects none
+ * @param screen - The rendered picker, its panel open.
+ * @returns The tabs' names and tags, in order.
+ */
+function tagged(screen: Awaited<ReturnType<typeof picker>>["screen"]): [string | null, boolean][] {
+  return screen
+    .getByRole("tablist", { name: "服务商" })
+    .getByRole("tab")
+    .elements()
+    .map((tab) => [tab.getAttribute("aria-label"), tab.querySelector('[role="img"][aria-label="走套餐"]') !== null]);
+}
+
+describe("ModelPicker's plan tag", () => {
+  it("tags the providers on a plan in the column, after the name above their models, and on the button", async () => {
+    const list: ModelListView = { ...READY, models: [BRIDGED, OPUS, DEEPSEEK, SOL, COPILOT] };
+    const { screen, chip } = await picker(shown(BRIDGED, "high"), list);
+
+    const chipTag = chip.getByRole("img", { name: "走套餐" });
+    await expect.element(chipTag).toHaveTextContent("套餐");
+    const icon = chip.element().querySelector("img")?.getBoundingClientRect();
+    const onChip = chipTag.element().getBoundingClientRect();
+    expect([icon?.right, icon?.bottom, onChip.height]).toStrictEqual([onChip.right - 8, onChip.bottom - 4, 12]);
+    await userEvent.click(chip);
+
+    expect(tagged(screen)).toStrictEqual([
+      ["Claude 订阅", true],
+      ["Anthropic", false],
+      ["DeepSeek", false],
+      ["ChatGPT 订阅", true],
+      ["GitHub Copilot", true],
+    ]);
+    const tab = screen.getByRole("tab", { name: "Claude 订阅" });
+    const tag = tab.getByRole("img", { name: "走套餐" });
+    await expect.element(tag).toHaveTextContent("套餐");
+    const box = tab.element().getBoundingClientRect();
+    const at = tag.element().getBoundingClientRect();
+    const dot = tab.getByRole("img", { name: "当前模型" }).element().getBoundingClientRect();
+    expect([box.right - at.right, box.bottom - at.bottom, at.height, at.top >= dot.bottom]).toStrictEqual([
+      1,
+      3,
+      12,
+      true,
+    ]);
+    const style = getComputedStyle(tag.element());
+    expect([style.backgroundColor, style.color, style.fontSize, style.fontWeight]).toStrictEqual([
+      "rgb(47, 111, 237)",
+      "rgb(255, 255, 255)",
+      "8px",
+      "600",
+    ]);
+    const header = screen.getByRole("tabpanel", { name: "Claude 订阅" });
+    await expect.element(header).toMatchTextContent(/^Claude 订阅套餐1 个模型/);
+    const said = header.getByText("套餐", { exact: true }).element();
+    expect([getComputedStyle(said).color, getComputedStyle(said).fontSize]).toStrictEqual([
+      "rgb(47, 111, 237)",
+      "11px",
+    ]);
+  });
+
+  it("does not tag a provider billed by use, on the button or above its models", async () => {
+    const { screen, chip } = await picker(shown(OPUS, "high"));
+
+    await expect.element(chip.getByRole("img", { name: "走套餐" })).not.toBeInTheDocument();
+    await userEvent.click(chip);
+
+    await expect.element(screen.getByRole("tabpanel", { name: "Anthropic" })).toMatchTextContent(/^Anthropic1 个模型/);
+  });
+
+  it("tags OpenAI and xAI only while signed in to them through OAuth", async () => {
+    const list: ModelListView = { ...READY, models: [GPT, GROK] };
+    const login: SetupLogin = {
+      state: "ready",
+      providers: [
+        {
+          providerId: "openai",
+          name: "OpenAI",
+          oauth: null,
+          apiKey: true,
+          signedIn: { method: "oauth", stored: true },
+        },
+        { providerId: "xai", name: "xAI", oauth: null, apiKey: true, signedIn: { method: "api_key", stored: true } },
+      ],
+    };
+    const { screen, chip } = await picker(shown(GPT, "high"), list, { login });
+
+    await expect.element(chip.getByRole("img", { name: "走套餐" })).toBeVisible();
+    await userEvent.click(chip);
+
+    expect(tagged(screen)).toStrictEqual([
+      ["OpenAI", true],
+      ["xAI", false],
+    ]);
+    await expect.element(screen.getByRole("tabpanel", { name: "OpenAI" })).toMatchTextContent(/^OpenAI套餐1 个模型/);
+  });
+
+  it("does not tag OpenAI or xAI while the login state is unknown", async () => {
+    const { screen, chip } = await picker(shown(GROK, "high"), { ...READY, models: [GPT, GROK] });
+
+    await expect.element(chip.getByRole("img", { name: "走套餐" })).not.toBeInTheDocument();
+    await userEvent.click(chip);
+
+    expect(tagged(screen)).toStrictEqual([
+      ["OpenAI", false],
+      ["xAI", false],
+    ]);
+  });
+
+  it("shows claude-bridge as Claude 订阅 with Claude's icon, and DeepSeek with its own icon, not a letter", async () => {
+    const { screen, chip } = await picker(shown(DEEPSEEK, "high"), { ...READY, models: [BRIDGED, DEEPSEEK] });
+
+    expect(chip.element().querySelector("img")?.getAttribute("src")).toBe(deepseekLogo);
+    await expect.element(chip).toHaveTextContent("DeepSeek V4高");
+    await userEvent.click(chip);
+
+    const tabs = screen.getByRole("tab").elements();
+    expect(
+      tabs.map((tab) => [
+        tab.getAttribute("aria-label"),
+        tab.querySelector("img")?.getAttribute("src"),
+        tab.textContent,
+      ]),
+    ).toStrictEqual([
+      ["Claude 订阅", claudeLogo, "套餐"],
+      ["DeepSeek", deepseekLogo, ""],
+    ]);
   });
 });

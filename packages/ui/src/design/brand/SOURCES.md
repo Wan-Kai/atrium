@@ -8,6 +8,7 @@
 | kimi.png       | 月之暗面官方品牌指南：https://moonshotai.github.io/Branding-Guide/（kimi-icon-rounded-corner.png，缩到 128px） |
 | xai.png        | xAI 官网图标：https://x.ai/icon.png（缩到 128px）                                                              |
 | openrouter.svg | OpenRouter 官网品牌资源：https://openrouter.ai/brand/v2/openrouter-glyph-light.svg                             |
+| deepseek.svg   | DeepSeek 官网图标：https://fe-static.deepseek.com/chat/favicon.svg（chat.deepseek.com 的 favicon）             |
 
 正式使用前按各家品牌规范核对用法（尺寸、留白、配色）。
 

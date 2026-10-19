@@ -39,7 +39,7 @@ export const MUTATION_GROUPS = {
       "packages/host/src/platform/{redact,resources,clock,login-shell,errors,proxy,stray-rejections}.ts",
       "packages/host/src/server/*.ts",
       "packages/host/src/store/*.ts",
-      "packages/host/src/sessions/{session-controller,session-metrics,session-catalog,layouts,prompt-line,index-commands,model-lister,titles,plan-usage,child-tree,children-usage,agent-relay,agent-launch}.ts",
+      "packages/host/src/sessions/{session-controller,session-metrics,session-catalog,layouts,prompt-line,index-commands,model-lister,titles,plan-usage,child-tree,children-usage,agent-relay,agent-launch,model-rules}.ts",
       "packages/host/src/sync/*.ts",
       "packages/host/src/transcript/*.ts",
       "packages/host/src/files/*.ts",

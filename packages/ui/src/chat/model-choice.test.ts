@@ -1,8 +1,9 @@
 import type { ModelListView } from "@atrium/client";
-import type { CatalogModel } from "@atrium/protocol";
+import type { CatalogModel, SetupLogin, SetupProvider } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import claudeLogo from "../design/brand/claude.svg";
 import copilotLogo from "../design/brand/copilot.svg";
+import deepseekLogo from "../design/brand/deepseek.svg";
 import kimiLogo from "../design/brand/kimi.png";
 import openaiLogo from "../design/brand/openai.svg";
 import openrouterLogo from "../design/brand/openrouter.svg";
@@ -13,6 +14,7 @@ import {
   formatTokens,
   groupByProvider,
   levelHint,
+  onPlan,
   providerOf,
   shownModel,
 } from "./model-choice";
@@ -191,6 +193,8 @@ describe("providers", () => {
         "moonshotai",
         "moonshotai-cn",
         "kimi-coding",
+        "claude-bridge",
+        "deepseek",
       ].map(providerOf),
     ).toStrictEqual([
       { name: "Anthropic", logo: claudeLogo },
@@ -203,6 +207,8 @@ describe("providers", () => {
       { name: "Kimi", logo: kimiLogo },
       { name: "Kimi", logo: kimiLogo },
       { name: "Kimi Coding", logo: kimiLogo },
+      { name: "Claude 订阅", logo: claudeLogo },
+      { name: "DeepSeek", logo: deepseekLogo },
     ]);
     expect(providerOf("acme")).toStrictEqual({ name: "acme", logo: null });
   });
@@ -214,5 +220,93 @@ describe("providers", () => {
       { providerId: "openai", models: [models[0], models[2]] },
       { providerId: "anthropic", models: [models[1]] },
     ]);
+  });
+});
+
+/**
+ * A provider as the setup's login state lists it.
+ *
+ * @remarks
+ * Only the id and how it is signed in matter to `onPlan`.
+ *
+ * @sideEffects none
+ * @param providerId - pi's id for it.
+ * @param method - How it is signed in, or `null` for not at all.
+ * @returns The provider.
+ */
+function provider(providerId: string, method: "oauth" | "api_key" | null): SetupProvider {
+  return {
+    providerId,
+    name: providerId,
+    oauth: null,
+    apiKey: true,
+    signedIn: method === null ? null : { method, stored: true },
+  };
+}
+
+/**
+ * A login state that lists these providers.
+ *
+ * @remarks
+ * For `onPlan`.
+ *
+ * @sideEffects none
+ * @param providers - The providers.
+ * @returns The login state.
+ */
+function ready(...providers: SetupProvider[]): SetupLogin {
+  return { state: "ready", providers };
+}
+
+describe("onPlan", () => {
+  const ALWAYS = ["claude-bridge", "openai-codex", "github-copilot"];
+
+  it("counts claude-bridge, openai-codex and github-copilot as on a plan whatever the login state", () => {
+    const logins: (SetupLogin | null)[] = [
+      null,
+      { state: "unavailable" },
+      ready(),
+      ready(...ALWAYS.map((id) => provider(id, "api_key"))),
+    ];
+
+    expect(logins.map((login) => ALWAYS.map((id) => onPlan(id, login)))).toStrictEqual([
+      [true, true, true],
+      [true, true, true],
+      [true, true, true],
+      [true, true, true],
+    ]);
+  });
+
+  it("counts openai and xai only while signed in to that provider through OAuth", () => {
+    const logins: (SetupLogin | null)[] = [
+      ready(provider("openai", "oauth"), provider("xai", "oauth")),
+      ready(provider("openai", "oauth"), provider("xai", "api_key")),
+      ready(provider("openai", null), provider("xai", "oauth")),
+      ready(provider("openai", "api_key"), provider("xai", null)),
+      ready(provider("anthropic", "oauth"), provider("openai-codex", "oauth")),
+      ready(),
+      { state: "unavailable" },
+      null,
+    ];
+
+    expect(logins.map((login) => [onPlan("openai", login), onPlan("xai", login)])).toStrictEqual([
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+      [false, false],
+      [false, false],
+      [false, false],
+      [false, false],
+    ]);
+  });
+
+  it("never counts anthropic, deepseek or any other provider, even signed in through OAuth", () => {
+    const others = ["anthropic", "deepseek", "openrouter", "azure-openai-responses", "kimi-coding", "acme"];
+    const login = ready(...others.map((id) => provider(id, "oauth")));
+
+    expect([...others.map((id) => onPlan(id, login)), ...others.map((id) => onPlan(id, null))]).toStrictEqual(
+      Array.from({ length: others.length * 2 }, () => false),
+    );
   });
 });
