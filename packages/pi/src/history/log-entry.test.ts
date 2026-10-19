@@ -481,4 +481,29 @@ describe("toLogEntry", () => {
     expect(toLogEntry(custom("atrium-agent", { ...note, to: 7 }))).toStrictEqual(other);
     expect(toLogEntry(custom("atrium-agent", null))).toStrictEqual(other);
   });
+
+  it("reads notices and a task Atrium delivered from their custom messages, details as written", () => {
+    const report = {
+      v: 1,
+      kind: "report",
+      deliveries: ["d1"],
+      events: [{ name: "audit", title: "审查", sessionId: "s2", taskId: "t-1", event: "finished", elapsedMs: 9 }],
+    };
+    const task = {
+      v: 1,
+      kind: "task",
+      deliveries: ["d2"],
+      from: "main",
+      fromTitle: "修复",
+      taskId: "t-2",
+      text: "look",
+    };
+
+    expect([toLogEntry(custom("atrium-agent", report)), toLogEntry(custom("atrium-agent", task))]).toStrictEqual([
+      { id: "c1", parentId: null, timestamp: 3, kind: "agent", details: report },
+      { id: "c1", parentId: null, timestamp: 3, kind: "agent", details: task },
+    ]);
+    expect(toLogEntry(custom("atrium-agent", { ...task, deliveries: "d2" }))).toMatchObject({ kind: "other" });
+    expect(toLogEntry(custom("someone-else", task))).toMatchObject({ kind: "other" });
+  });
 });

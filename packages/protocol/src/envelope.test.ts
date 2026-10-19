@@ -119,6 +119,8 @@ const commands: Command[] = [
   { type: "clear_queue", requestId: "r31", traceparent, sessionId: "s1" },
   { type: "update_queued", requestId: "r32", traceparent, sessionId: "s1", itemId: "q1", text: "later" },
   { type: "remove_queued", requestId: "r33", traceparent, sessionId: "s1", itemId: "q1" },
+  { type: "remove_delivery", requestId: "r33b", traceparent, sessionId: "s1", deliveryId: "d1" },
+  { type: "resume_deliveries", requestId: "r33c", traceparent, sessionId: "s1", tree: true },
   { type: "steer_queued", requestId: "r34", traceparent, sessionId: "s1", itemId: "q1" },
   {
     type: "answer_interaction",
@@ -331,6 +333,11 @@ const pick: Interaction = {
 /** Run control with something of everything. */
 const control: Control = {
   queue: [{ id: "q1", text: "later", createdAt: 4, images: 2 }],
+  deliveries: [
+    { id: "d1", kind: "report", fromTitle: "安全审查", event: "finished", state: "waiting" },
+    { id: "d2", kind: "task", fromTitle: "修复", event: null, state: "sending" },
+  ],
+  deliveriesHeld: "restart",
   paused: "stopped",
   steers: [{ id: "r28", text: "also b" }],
   stopping: true,
@@ -402,8 +409,57 @@ const steps: Step[] = [
     details: null,
     partial: true,
   },
+  {
+    kind: "tool",
+    id: "11",
+    callId: "call-6",
+    tool: "agent_spawn",
+    args: { name: "audit", task: "look" },
+    status: "done",
+    output: "Sub-agent",
+    details: {
+      tool: "agent",
+      spawned: { sessionId: "s2", name: "audit", taskId: "t-1", role: "work", branch: "agent/audit" },
+      events: [
+        {
+          sessionId: "s2",
+          name: "audit",
+          title: "安全审查",
+          taskId: "t-1",
+          event: "finished",
+          reason: null,
+          elapsedMs: 192_000,
+          question: null,
+          branch: "agent/audit",
+          changes: { files: 3, added: 20, removed: 4 },
+        },
+      ],
+    },
+    partial: false,
+  },
   { kind: "steer", id: "7", text: "also b" },
   { kind: "retry", id: "8", attempt: 1, maxAttempts: 3, error: "503" },
+  {
+    kind: "agent",
+    id: "10",
+    source: {
+      kind: "report",
+      events: [
+        {
+          sessionId: "s3",
+          name: "tests",
+          title: "补测试",
+          taskId: "t-2",
+          event: "question",
+          reason: null,
+          elapsedMs: null,
+          question: "vitest?",
+          branch: null,
+          changes: null,
+        },
+      ],
+    },
+  },
   { kind: "text", id: "9", text: "done" },
 ];
 
@@ -411,6 +467,7 @@ const steps: Step[] = [
 const turn: Turn = {
   kind: "turn",
   id: "s1:e1",
+  source: { kind: "task", fromTitle: "修复", taskId: "t-1", text: "look at auth" },
   user: { text: "hi", images: 1, clientMessageId: "r4", auto: false, command: null, timestamp: 1 },
   steps,
   outcome: "done",
@@ -645,6 +702,7 @@ describe("parseClientMessage", () => {
       "ping",
       "prompt",
       "read_file",
+      "remove_delivery",
       "remove_project",
       "remove_queued",
       "rename_chat",
@@ -654,6 +712,7 @@ describe("parseClientMessage", () => {
       "report_client_issue",
       "restore_chat",
       "restore_workspace",
+      "resume_deliveries",
       "resume_queue",
       "retry_run",
       "search_files",
@@ -1298,10 +1357,12 @@ describe("CommandResult", () => {
     expect(CommandResult.watch_diff.safeParse({ files: [] }).success).toBe(false);
     expect(CommandResult.set_model.parse({})).toStrictEqual({});
     expect(CommandResult.set_thinking_level.parse({})).toStrictEqual({});
-    expect(CommandResult.hand_off.parse({ file: "/pi/sessions/s1.jsonl" })).toStrictEqual({
-      file: "/pi/sessions/s1.jsonl",
-    });
-    expect(CommandResult.hand_off.safeParse({}).success).toBe(false);
+    expect(CommandResult.hand_off.parse({ file: "/pi/sessions/s1.jsonl", args: ["--tools", "read,ls"] })).toStrictEqual(
+      { file: "/pi/sessions/s1.jsonl", args: ["--tools", "read,ls"] },
+    );
+    expect(CommandResult.hand_off.safeParse({ file: "/pi/sessions/s1.jsonl" }).success).toBe(false);
+    expect(CommandResult.remove_delivery.parse({})).toStrictEqual({});
+    expect(CommandResult.resume_deliveries.parse({})).toStrictEqual({});
     expect(CommandResult.take_back.parse({})).toStrictEqual({});
     expect(CommandResult.clear_attention.parse({})).toStrictEqual({});
     expect(CommandResult.login.parse({ loginId: "l1" })).toStrictEqual({ loginId: "l1" });
@@ -1384,6 +1445,8 @@ const snapshot: IndexSnapshotEvent = {
       asking: null,
       handedOff: false,
       parent: null,
+      agent: null,
+      heldDeliveries: 0,
     },
     {
       sessionId: "s2",
@@ -1398,7 +1461,17 @@ const snapshot: IndexSnapshotEvent = {
       attention: { reason: "error", at: 7, cleared: false },
       asking: 8,
       handedOff: true,
-      parent: { sessionId: "s1", by: "user" },
+      parent: { sessionId: "s1", by: "agent" },
+      agent: {
+        handle: "audit",
+        role: "explore",
+        status: "waiting_for_parent",
+        progress: "half",
+        question: "which?",
+        taskId: "t-1",
+        taskStartedAt: 9,
+      },
+      heldDeliveries: 2,
     },
   ],
   layout: {
@@ -1444,6 +1517,8 @@ const changes: IndexChangesEvent = {
         asking: null,
         handedOff: false,
         parent: { sessionId: "s2", by: "agent" },
+        agent: null,
+        heldDeliveries: 0,
       },
     ],
     remove: ["s3"],
@@ -1456,6 +1531,8 @@ describe("IDLE_CONTROL", () => {
   it("has nothing going on: no queue, steers, stop, restart, compaction, questions or failure", () => {
     expect(IDLE_CONTROL).toStrictEqual({
       queue: [],
+      deliveries: [],
+      deliveriesHeld: null,
       paused: null,
       steers: [],
       stopping: false,
@@ -1623,6 +1700,7 @@ describe("HostMessage", () => {
         ...at,
         control: {
           ...control,
+          deliveriesHeld: "stalled",
           paused: "crashed",
           interactions: (["select", "confirm", "input", "editor"] as const).map((kind) => ({
             ...pick,
@@ -1699,6 +1777,8 @@ describe("HostMessage", () => {
       "proxy_invalid",
       "child_place_invalid",
       "command_reserved",
+      "delivery_not_found",
+      "delivery_sending",
       "internal_error",
     ]);
     expect(ThinkingLevel.options).toStrictEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);

@@ -1,3 +1,5 @@
+import { escapeBody } from "./words";
+
 /** The hidden command the host hands Atrium's extension child conversations' things with (ADR-0013). */
 export const AGENT_COMMAND = "atrium-agent";
 
@@ -90,7 +92,8 @@ export function agentNote(value: unknown): AgentNote | null {
  * What the model is told for a note.
  *
  * @remarks
- * The extension words it, not the host (ADR-0013, point 9). Its absolute paths would otherwise lead
+ * The extension words it, not the host (ADR-0013, point 9), its paths escaped as any body is
+ * (point 10). Its absolute paths would otherwise lead
  * a model that can write back into the parent's directory (SPEC-0002, "带上下文的子对话怎么做出来").
  *
  * @sideEffects none
@@ -101,8 +104,8 @@ export function noteText(note: AgentNote): string {
   return [
     "<atrium-agent-note>",
     "This is a note from Atrium, not from the user.",
-    `This conversation was copied into a new git worktree and now works in ${note.to}.`,
-    `Paths in the history above belong to ${note.from}; read and change files under ${note.to} from now on.`,
+    `This conversation was copied into a new git worktree and now works in ${escapeBody(note.to)}.`,
+    `Paths in the history above belong to ${escapeBody(note.from)}; read and change files under ${escapeBody(note.to)} from now on.`,
     "</atrium-agent-note>",
   ].join("\n");
 }

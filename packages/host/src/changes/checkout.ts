@@ -344,6 +344,75 @@ export async function workspaceChanges(
   return { stat, dirty, ahead, branch, base: facts.base };
 }
 
+/** What a worktree changed since a commit: files, and lines added and removed. */
+export interface ChangesSince {
+  readonly files: number;
+  readonly added: number;
+  readonly removed: number;
+}
+
+/**
+ * A count `git diff --numstat` prints, or 0 for a binary file's `-`.
+ *
+ * @remarks
+ * git counts no lines in a binary file. git prints digits or `-`, nothing else, so whatever is no
+ * whole number counts 0.
+ *
+ * @sideEffects none
+ * @param field - What git printed.
+ * @returns The count.
+ */
+function numstatCount(field: string | undefined): number {
+  const count = Number(field);
+  return Number.isInteger(count) ? count : 0;
+}
+
+/**
+ * What a worktree changed since a commit, committed or not.
+ *
+ * @remarks
+ * SPEC-0002, "交付": a `work` child's delivery says what its worktree changed since the commit it
+ * started from (its workspace's `baseCommit`, "新 worktree 的起点"). The working tree against that
+ * commit, renames found, one file each; untracked files count as files, and the lines of the first
+ * 500 that are text, at most 1 MB, as added, as the changes capsule counts them (`workspaceChanges`).
+ *
+ * @sideEffects Runs git; reads untracked files.
+ * @param git - The runner.
+ * @param dir - The worktree's directory.
+ * @param commit - The commit it started from.
+ * @param signal - Stops git.
+ * @returns The files and lines.
+ * @throws {GitError} When git could not run or read the changes.
+ */
+export async function changesSince(
+  git: GitRunner,
+  dir: string,
+  commit: string,
+  signal: AbortSignal,
+): Promise<ChangesSince> {
+  const top = (await required(git, dir, signal, "rev-parse", "--show-toplevel")).trim();
+  const listed = (await required(git, top, signal, ...DIFF, "--numstat", commit, "--")).split("\n");
+  let files = 0;
+  let added = 0;
+  let removed = 0;
+  for (const line of listed.filter((one) => one !== "")) {
+    const [plus, minus] = line.split("\t");
+    files += 1;
+    added += numstatCount(plus);
+    removed += numstatCount(minus);
+  }
+  const untracked = await untrackedFiles(git, top, signal);
+  files += untracked.length;
+  for (const path of untracked.slice(0, UNTRACKED_COUNTED)) {
+    // Stryker disable next-line CallExpression: an abort between files only saves the reading.
+    signal.throwIfAborted();
+    // Stryker disable next-line BooleanLiteral: only text is counted, which a file too large to read is not.
+    const read = await readUntracked(join(top, path), LIMITS.fileBytes, signal, false);
+    if (read.kind === "text") added += countLines(read.text);
+  }
+  return { files, added, removed };
+}
+
 /**
  * The changes panel's files for a workspace.
  *

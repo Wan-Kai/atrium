@@ -47,7 +47,7 @@ function fakeCommands() {
     restoreChat: record("restoreChat", {}),
     renameSession: record("renameSession", {}),
     clearAttention: record("clearAttention", {}),
-    handOff: record("handOff", { file: "/s.jsonl" }),
+    handOff: record("handOff", { file: "/s.jsonl", args: [] }),
     takeBack: record("takeBack", {}),
     subscribe: record("subscribe", {}),
     prompt: async (command: PromptCommand, images = []) => {
@@ -77,6 +77,8 @@ function fakeCommands() {
     clearQueue: record("clearQueue", {}),
     updateQueued: record("updateQueued", {}),
     removeQueued: record("removeQueued", {}),
+    removeDelivery: record("removeDelivery", {}),
+    resumeDeliveries: record("resumeDeliveries", {}),
     steerQueued: record("steerQueued", { disposition: "handled" }),
     answerInteraction: record("answerInteraction", {}),
     retryRun: record("retryRun", {}),
@@ -359,9 +361,25 @@ describe("createRouter", () => {
         ok: true,
         result: {},
       })),
-      { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl" } },
+      { type: "response", requestId: "r13", ok: true, result: { file: "/s.jsonl", args: [] } },
       { type: "response", requestId: "r14", ok: true, result: {} },
       { type: "response", requestId: "r15", ok: true, result: { mimeType: "image/png", data: "eA==" } },
+    ]);
+  });
+
+  it("hands the delivery commands to the session layer and returns their results (SPEC-0002, 送达)", async () => {
+    const { route, connection, sent, calls } = setUp();
+
+    await route(connection, withTrace({ type: "remove_delivery", requestId: "r1", sessionId: "s1", deliveryId: "d1" }));
+    await route(connection, withTrace({ type: "resume_deliveries", requestId: "r2", sessionId: "s1", tree: true }));
+
+    expect(calls).toStrictEqual([
+      ["removeDelivery", "s1", "d1"],
+      ["resumeDeliveries", "s1", true],
+    ]);
+    expect(sent).toStrictEqual([
+      { type: "response", requestId: "r1", ok: true, result: {} },
+      { type: "response", requestId: "r2", ok: true, result: {} },
     ]);
   });
 

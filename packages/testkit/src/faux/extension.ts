@@ -1,5 +1,6 @@
 import {
   type AssistantMessage,
+  type FauxResponseFactory,
   fauxAssistantMessage,
   fauxProvider,
   fauxText,
@@ -197,6 +198,46 @@ function instructionsOf(context: { readonly systemPrompt?: string; readonly mess
 }
 
 /**
+ * How deep a child the agent opened pi was started as, if it was one.
+ *
+ * @remarks
+ * The host tells Atrium's extension so with `--atrium-agent=<base64url JSON>` (ADR-0013, point 3);
+ * anything that does not read as `child: true` is no child.
+ *
+ * @sideEffects none
+ * @param argv - pi's arguments.
+ * @returns Its agent depth, or `null` for no child.
+ */
+function agentChildDepth(argv: readonly string[]): number | null {
+  const flag = argv.find((arg) => arg.startsWith("--atrium-agent="));
+  if (flag === undefined) return null;
+  try {
+    const self: unknown = JSON.parse(Buffer.from(flag.slice("--atrium-agent=".length), "base64url").toString("utf8"));
+    if (typeof self !== "object" || self === null || Reflect.get(self, "child") !== true) return null;
+    const depth: unknown = Reflect.get(self, "depth");
+    return typeof depth === "number" ? depth : 1;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How many replies the model gave in a conversation so far.
+ *
+ * @remarks
+ * A child's pi may be stopped when idle and started again on the same conversation (SPEC-0002,
+ * "进程"), so its replies are picked by the conversation, not by how many requests this process
+ * has served.
+ *
+ * @sideEffects none
+ * @param context - The request.
+ * @returns The count.
+ */
+function repliesIn(context: { readonly messages?: readonly unknown[] }): number {
+  return (context.messages ?? []).filter((message) => Reflect.get(Object(message), "role") === "assistant").length;
+}
+
+/**
  * pi extension that registers pi-ai's faux provider and answers from a script file.
  *
  * @remarks
@@ -252,6 +293,33 @@ export default function fauxExtension(pi: ExtensionApi): void {
   if (gates !== "" && !printing) writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
   const payloads = gates === "" || printing ? null : join(dirname(gates), FAUX_PAYLOADS_FILE);
   const contexts = gates === "" || printing ? null : join(dirname(gates), FAUX_CONTEXTS_FILE);
+  const depth = agentChildDepth(process.argv);
+  const childList =
+    depth !== null && depth >= 2
+      ? (script.grandchildReplies ?? script.childReplies ?? script.replies)
+      : (script.childReplies ?? script.replies);
+  /**
+   * The faux model's answer with a scripted reply, recording what it was asked.
+   *
+   * @remarks
+   * A gated reply waits for the test to release it.
+   *
+   * @sideEffects Writes the context and payload records; may wait for a gate.
+   * @param reply - The reply.
+   * @returns The answer.
+   */
+  const answerWith = (reply: FauxReply): FauxResponseFactory => {
+    const message = toAssistantMessage(reply);
+    const gate = reply.waitFor;
+    return async (context, options, _state, model) => {
+      if (contexts !== null) recordContext(contexts, context);
+      if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
+      if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
+      return message;
+    };
+  };
+  const childAnswers = childList.map((reply) => answerWith(reply));
+  const noMoreReplies = answerWith({ blocks: [], error: "faux script has no more child replies" });
   faux.setResponses(
     printing
       ? [
@@ -267,16 +335,13 @@ export default function fauxExtension(pi: ExtensionApi): void {
             );
           },
         ]
-      : script.replies.map((reply) => {
-          const message = toAssistantMessage(reply);
-          const gate = reply.waitFor;
-          return async (context, options, _state, model) => {
-            if (contexts !== null) recordContext(contexts, context);
-            if (payloads !== null) await recordPayload(payloads, model, options?.onPayload);
-            if (gate !== undefined) await waitForGate(join(gates, gate), options?.signal);
-            return message;
-          };
-        }),
+      : depth === null
+        ? script.replies.map((reply) => answerWith(reply))
+        : // A child picks by the conversation; as many as it may ask for.
+          childAnswers.map(() => (context, options, state, model) => {
+            const answer = childAnswers[repliesIn(context)] ?? noMoreReplies;
+            return answer(context, options, state, model);
+          }),
   );
   // The faux provider takes no thinking map, so it is added to the models it made; each model
   // carries its own base address, so a test's goes on each.

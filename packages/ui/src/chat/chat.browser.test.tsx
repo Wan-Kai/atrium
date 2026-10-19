@@ -52,6 +52,7 @@ function turn(id: string, text: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
+    source: null,
     user: {
       text: `问 ${id}`,
       images: 0,
@@ -1395,6 +1396,53 @@ describe("ConversationArea's child conversations (SPEC-0002)", () => {
     expect(pageNewChild().getState()).toBeNull();
   });
 
+  it("fades forking and a child before a turn notices opened, which pi cannot cut at, past a note between", async () => {
+    const { client, calls } = fakeClient(forkable("改登录页"));
+    const { screen } = await onOpus(client);
+    const events = [
+      {
+        sessionId: "c1",
+        name: "audit",
+        title: "审查",
+        taskId: "t",
+        event: "finished" as const,
+        reason: null,
+        elapsedMs: null,
+        question: null,
+        branch: null,
+        changes: null,
+      },
+    ];
+    const note = {
+      kind: "notice",
+      id: "n1",
+      notice: "note",
+      note: "worktree_moved",
+      from: "/a",
+      to: "/b",
+      timestamp: 0,
+    } as const;
+    client.session("s1")?.setState({
+      items: [turn("t1", "第一"), note, turn("t2", "汇总", { source: { kind: "report", events } }), turn("t3", "第三")],
+    });
+    const forkButtons = screen.getByRole("button", { name: "从这里分叉" });
+    const childButtons = screen.getByRole("button", { name: "从这里开子对话" });
+
+    await expect.element(forkButtons.nth(0)).toHaveAttribute("title", "下一轮不是你发的消息，不能从这里分叉");
+    await expect.element(childButtons.nth(0)).toHaveAttribute("title", "下一轮不是你发的消息，不能从这里开子对话");
+    expect(
+      [forkButtons.nth(0), childButtons.nth(0)].map((one) => one.element().getAttribute("aria-disabled")),
+    ).toStrictEqual(["true", "true"]);
+    expect(getComputedStyle(forkButtons.nth(0).element()).opacity).toBe("0.4");
+    await userEvent.click(forkButtons.nth(0), { force: true });
+    await userEvent.click(childButtons.nth(0), { force: true });
+    await userEvent.click(forkButtons.nth(1));
+
+    await vi.waitFor(() => expect(forks(calls)).toStrictEqual(["forkSession s1 t2 改登录页（分叉）"]));
+    expect(pageNewChild().getState()).toBeNull();
+    await expect.element(forkButtons.nth(2)).toHaveAttribute("aria-disabled", "false");
+  });
+
   it("asks for an empty child with /child, while the session runs too", async () => {
     const { client, calls } = fakeClient(forkable("改登录页"));
     const { screen } = await onOpus(client);
@@ -1495,6 +1543,7 @@ describe("ConversationArea's fork button", () => {
   it.each([
     [new CommandError("session_busy"), "运行中不能分叉"],
     [new CommandError("turn_not_found"), "没能分叉：找不到这一轮"],
+    [new CommandError("turn_not_found", { reason: "agent_turn" }), "下一轮不是你发的消息，不能从这里分叉"],
     [new CommandError("fork_failed"), "没能分叉：pi 出错了"],
     [new CommandError("session_not_found"), "没能分叉"],
     [new ConnectionLostError("fork_session"), "没能分叉"],
@@ -2026,6 +2075,7 @@ function turnOf(id: string, text: string): Turn {
   return {
     kind: "turn",
     id,
+    source: null,
     user: { text, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",

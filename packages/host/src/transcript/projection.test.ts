@@ -64,6 +64,28 @@ function compaction(id: string): LogEntry {
   return { id, parentId: null, timestamp: 4, kind: "compaction", summary: id, tokensBefore: 9, system: null };
 }
 
+/**
+ * Each item as its id, a turn with what opened it and its text, a notice as its kind.
+ *
+ * @sideEffects none
+ * @param items - The items.
+ * @returns One each.
+ */
+function openings(items: readonly TranscriptItem[]): unknown[] {
+  return items.map((item) => (item.kind === "turn" ? [item.id, item.source?.kind, item.user.text] : item.kind));
+}
+
+/**
+ * Each item as its id, a notice as its kind.
+ *
+ * @sideEffects none
+ * @param items - The items.
+ * @returns One each.
+ */
+function itemIds(items: readonly TranscriptItem[]): string[] {
+  return items.map((item) => (item.kind === "turn" ? item.id : item.kind));
+}
+
 /** The kinds of each item's steps; a notice has none. */
 function stepKinds(items: readonly TranscriptItem[]): string[][] {
   return items.map((item) => (item.kind === "turn" ? item.steps.map((step) => step.kind) : []));
@@ -79,6 +101,7 @@ function turn(entryId: string, userText: string, fields: Partial<Turn>): Turn {
   return {
     kind: "turn",
     id: `s:${entryId}`,
+    source: null,
     user: { text: userText, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
@@ -574,4 +597,173 @@ describe("projectTranscript", () => {
       timestamp: 7,
     });
   });
+
+  it("opens a turn with notices or a task, and makes them a step where a steer would be (SPEC-0002)", () => {
+    const { items, turnEntryIds } = projectTranscript(
+      [
+        task("k1", "look at auth", 3),
+        reply("a1", [bash("c1")], { stopReason: "toolUse", timestamp: 4 }),
+        result("r1", "c1", "out"),
+        report("n1", "question"),
+        reply("a2", [says("done")], { timestamp: 6 }),
+        report("n2", "finished"),
+        reply("a3", [says("summed up")]),
+      ],
+      "s",
+      none,
+    );
+
+    expect(openings(items)).toStrictEqual([
+      ["s:k1", "task", ""],
+      ["s:n2", "report", ""],
+    ]);
+    expect(turnEntryIds).toStrictEqual(["k1", "n2"]);
+    expect(items[0]).toMatchObject({
+      source: { kind: "task", fromTitle: "修复", taskId: "t-1", text: "look at auth" },
+      user: { text: "", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 3 },
+      startedAt: 3,
+      durationMs: 3,
+    });
+    expect(stepKinds(items)).toStrictEqual([["tool", "agent", "text"], ["text"]]);
+    expect((items[0] as Turn).steps[1]).toStrictEqual({
+      kind: "agent",
+      id: "1",
+      source: {
+        kind: "report",
+        events: [
+          {
+            sessionId: "s2",
+            name: "tests",
+            title: "补测试",
+            taskId: "t-2",
+            event: "question",
+            reason: null,
+            elapsedMs: null,
+            question: "vitest?",
+            branch: null,
+            changes: null,
+          },
+        ],
+      },
+    });
+  });
+
+  it("gives a turn notices opened, seen live, pi's limit on retries as measured then", () => {
+    const facts = new Map<string, TurnFacts>([
+      [
+        "n1",
+        { turnId: "live-3", clientMessageId: null, auto: false, durationMs: 5, thinkingMs: new Map(), retryLimit: 3 },
+      ],
+    ]);
+    const { items } = projectTranscript(
+      [
+        report("n1", "finished"),
+        reply("f1", [], { stopReason: "error", error: "503" }),
+        omit("o1", "f1"),
+        reply("a1", [says("ok")]),
+      ],
+      "s",
+      facts,
+    );
+
+    expect((items[0] as Turn).steps).toStrictEqual([
+      { kind: "retry", id: "0", attempt: 1, maxAttempts: 3, error: "503" },
+      { kind: "text", id: "1", text: "ok" },
+    ]);
+  });
+
+  it("follows what the host saw: notices it saw open a turn open one, and notices none can show are skipped", () => {
+    const facts = new Map<string, TurnFacts>([
+      [
+        "n1",
+        {
+          turnId: "live-2",
+          clientMessageId: null,
+          auto: false,
+          durationMs: 5,
+          thinkingMs: new Map(),
+          retryLimit: null,
+        },
+      ],
+    ]);
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [bash("c1")], { stopReason: "toolUse" }),
+        result("r1", "c1", "out"),
+        report("n1", "finished"),
+        reply("a2", [says("ok")]),
+        {
+          id: "n2",
+          parentId: null,
+          timestamp: 0,
+          kind: "agent",
+          details: { v: 1, kind: "report", deliveries: ["d"], events: [] },
+        },
+        reply("a3", [says("still the same turn")]),
+      ],
+      "s",
+      facts,
+    );
+
+    expect(itemIds(items)).toStrictEqual(["s:u1", "live-2"]);
+    expect(stepKinds(items)).toStrictEqual([["tool"], ["text", "text"]]);
+  });
 });
+
+/**
+ * A task's custom message entry, from the main conversation's agent.
+ *
+ * @remarks
+ * As pi keeps what Atrium's extension wrote (ADR-0013, point 10).
+ *
+ * @sideEffects none
+ * @param id - The entry's id.
+ * @param text - The task.
+ * @param timestamp - When it was written.
+ * @returns The entry.
+ */
+function task(id: string, text: string, timestamp = 0): LogEntry {
+  return {
+    id,
+    parentId: null,
+    timestamp,
+    kind: "agent",
+    details: { v: 1, kind: "task", deliveries: ["d1"], from: "main", fromTitle: "修复", taskId: "t-1", text },
+  };
+}
+
+/**
+ * A notice's custom message entry, from the child `tests`.
+ *
+ * @remarks
+ * See `task`.
+ *
+ * @sideEffects none
+ * @param id - The entry's id.
+ * @param event - What happened.
+ * @returns The entry.
+ */
+function report(id: string, event: "finished" | "question"): LogEntry {
+  return {
+    id,
+    parentId: null,
+    timestamp: 0,
+    kind: "agent",
+    details: {
+      v: 1,
+      kind: "report",
+      deliveries: ["d2"],
+      events: [
+        {
+          name: "tests",
+          title: "补测试",
+          sessionId: "s2",
+          taskId: "t-2",
+          event,
+          ...(event === "question" ? { questionId: "q1", question: "vitest?" } : {}),
+        },
+      ],
+    },
+  };
+}

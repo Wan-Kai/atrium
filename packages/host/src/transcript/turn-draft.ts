@@ -1,5 +1,5 @@
 import type { AssistantPart, LogMessage } from "@atrium/pi";
-import type { MessageCommand, Step, Turn } from "@atrium/protocol";
+import type { AgentSource, MessageCommand, Step, Turn } from "@atrium/protocol";
 import {
   type FinishedOutcome,
   type LastStop,
@@ -77,6 +77,28 @@ export interface TurnFacts {
  *
  * @sideEffects none; each instance keeps one turn's state.
  */
+/**
+ * The user message of a turn notices or a task opened: there is none.
+ *
+ * @remarks
+ * Such a turn shows its `source` instead (SPEC-0002, "显示 · 由通知开头的轮").
+ *
+ * @sideEffects none
+ * @param timestamp - When the message that opened it was written.
+ * @returns The empty user message.
+ */
+export function noUser(timestamp: number): Turn["user"] {
+  return { text: "", images: 0, clientMessageId: null, auto: false, command: null, timestamp };
+}
+
+/**
+ * A turn being built from pi's events, until it ends.
+ *
+ * @remarks
+ * Opened by your message, or by notices or a task (SPEC-0002, "对话记录里的自定义消息").
+ *
+ * @sideEffects none
+ */
 export class TurnDraft {
   readonly #steps: Step[] = [];
   #usage: Turn["usage"] = null;
@@ -98,13 +120,15 @@ export class TurnDraft {
    *
    * @sideEffects none
    * @param id - The turn's id.
-   * @param user - The user message.
+   * @param user - The user message; empty for a turn notices or a task opened.
    * @param retryLimit - pi's limit on retries, if known.
+   * @param source - What opened the turn when it was not you (SPEC-0002, "对话记录里的自定义消息").
    */
   constructor(
     readonly id: string,
     readonly user: Turn["user"],
     retryLimit: number | null,
+    readonly source: AgentSource | null = null,
   ) {
     this.#lastTime = user.timestamp;
     this.#retryLimit = retryLimit;
@@ -295,6 +319,21 @@ export class TurnDraft {
   }
 
   /**
+   * Adds notices or a task that came in while the turn ran.
+   *
+   * @remarks
+   * Placed as a steer is, by the same rule (`takesSteer`; SPEC-0002, "对话记录里的自定义消息").
+   *
+   * @sideEffects Updates the draft.
+   * @param source - What came in.
+   * @param timestamp - Its time.
+   * @returns The step.
+   */
+  delivered(source: AgentSource, timestamp: number): Step {
+    return this.#push({ kind: "agent", id: stepId(this.#steps.length), source }, timestamp);
+  }
+
+  /**
    * Adds an automatic retry after a failed reply.
    *
    * @remarks
@@ -329,6 +368,7 @@ export class TurnDraft {
     return {
       kind: "turn",
       id: this.id,
+      source: this.source,
       user: this.user,
       steps: [...this.#steps],
       outcome: "running",

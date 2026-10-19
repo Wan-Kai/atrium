@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DeliveryItem } from "./agent";
 
 /** Milliseconds since the Unix epoch, from the host's clock. */
 const Timestamp = z.number().int().nonnegative();
@@ -52,6 +53,13 @@ export type InteractionAnswer = z.infer<typeof InteractionAnswer>;
 export const Control = z.strictObject({
   /** The host's queue, in the order the messages were sent. */
   queue: z.array(QueuedPrompt),
+  /** Notices and tasks waiting to go to pi, oldest first (SPEC-0002, "送达"). */
+  deliveries: z.array(DeliveryItem),
+  /**
+   * Why the deliveries wait until you let them go: the host restarted, or they did not start a
+   * run (SPEC-0002, "送达"); `null` when they go.
+   */
+  deliveriesHeld: z.enum(["restart", "stalled"]).nullable(),
   /** Why the queue does not move on its own: you stopped the run, or pi crashed and has not recovered. */
   paused: z.enum(["stopped", "crashed"]).nullable(),
   /** Steers pi has taken and not yet delivered. */
@@ -72,6 +80,8 @@ export type Control = z.infer<typeof Control>;
 /** A session's control with nothing going on. */
 export const IDLE_CONTROL: Control = {
   queue: [],
+  deliveries: [],
+  deliveriesHeld: null,
   paused: null,
   steers: [],
   stopping: false,

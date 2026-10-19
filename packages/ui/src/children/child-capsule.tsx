@@ -4,14 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 import type { StoreApi } from "zustand/vanilla";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
-import { CaretUp, DotsThree, GitBranch, TerminalWindow } from "../design/icons";
+import { RoleTag } from "../chat/lanes";
+import { CaretUp, Clock, DotsThree, GitBranch, TerminalWindow } from "../design/icons";
 import { placeOf, sessionTitle, timeAgo } from "../sidebar/names";
 import type { RowStatus } from "../sidebar/status";
 import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
 import { showNotice } from "../state/session-notices";
 import { type WorkspaceViews, showViewer } from "../state/workspace-views";
-import { childrenOf, descendantsOf, rowStatus } from "./children";
+import { childrenOf, descendantsOf, heldIn, rowStatus } from "./children";
 
 /** The capsule's look, as the queue's above the input box (run-control's `CAPSULE`). */
 const CAPSULE =
@@ -32,7 +33,10 @@ const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error",
  * or archives it. Failures show beside the tab bar. A child opened shows, though its workspace
  * showed a viewer tab, as one chosen in the sidebar does. Whether the list is open is the capsule
  * bar's to say, so that one list at a time floats there; left out, the capsule keeps it. The list
- * closes once no child is left, so the next child does not open it by itself.
+ * closes once no child is left, so the next child does not open it by itself. A child the agent
+ * opened has its role beside its name, and a second line: its question to the parent's agent, or
+ * its latest progress. Deliveries held in the subtree since the host restarted show on top, with
+ * "全部继续".
  *
  * @sideEffects Opens, detaches or archives sessions as the user acts; writes the views.
  * @param props - The client, the session whose children these are, the workspace views, and
@@ -70,6 +74,7 @@ export function ChildCapsule({
   if (none) return null;
   const parent = index.sessions.find((session) => session.sessionId === sessionId);
   const statuses = children.map((child) => rowStatus(index.sessions, child));
+  const held = heldIn(index.sessions, sessionId);
   const counts = COUNTED.map((status) => [status, statuses.filter((one) => one === status).length] as const).filter(
     ([, count]) => count > 0,
   );
@@ -97,6 +102,22 @@ export function ChildCapsule({
           aria-label="子对话"
           className="pointer-events-auto absolute bottom-[calc(100%+8px)] left-0 z-10 w-max max-w-full min-w-[300px] rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)]"
         >
+          {held === 0 ? null : (
+            <div
+              className="mb-1 flex items-center gap-2 rounded-[var(--r-md)] bg-[var(--attn-soft)] px-2.5 py-1.5 text-[length:var(--fs-sm)] text-[var(--attn-text)]"
+              data-testid="deliveries-held"
+            >
+              <Clock size={14} />
+              <span className="min-w-0 flex-1">宿主重启后暂停了 {held} 条送达</span>
+              <button
+                type="button"
+                className="font-medium"
+                onClick={() => act(() => client.resumeDeliveries(sessionId, true), "没能继续送达")}
+              >
+                全部继续
+              </button>
+            </div>
+          )}
           <div className="flex items-center justify-between gap-6 px-2 pt-1 pb-1.5 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
             <span>子对话</span>
             <span>最近更新的在前</span>
@@ -136,6 +157,26 @@ export function ChildCapsule({
 }
 
 /**
+ * What a child's row says under its name, if anything.
+ *
+ * @remarks
+ * SPEC-0002 ("显示 · 子对话条"): a child asking the parent's agent, "在问主 agent：" and the
+ * question's first line, in the question's colour; otherwise its latest progress.
+ *
+ * @sideEffects none
+ * @param child - The child.
+ * @returns The line, or `null`.
+ */
+function secondLine(child: SessionSummary): { readonly text: string; readonly asking: boolean } | null {
+  const agent = child.agent;
+  if (agent === null) return null;
+  if (agent.status === "waiting_for_parent" && agent.question !== null) {
+    return { text: `在问主 agent：${agent.question.split("\n")[0] ?? ""}`, asking: true };
+  }
+  return agent.progress === null ? null : { text: agent.progress, asking: false };
+}
+
+/**
  * One child in the capsule's list.
  *
  * @remarks
@@ -166,10 +207,11 @@ function ChildRow({
   readonly onDetach: () => void;
   readonly onArchive: () => void;
 }) {
+  const second = secondLine(child);
   return (
     <div
       data-testid="child-row"
-      className="flex h-[34px] items-center gap-2 rounded-[var(--r-md)] pr-1 pl-2.5 text-[length:var(--fs-meta)] hover:bg-[var(--hover)]"
+      className="flex min-h-[34px] items-center gap-2 rounded-[var(--r-md)] py-1 pr-1 pl-2.5 text-[length:var(--fs-meta)] hover:bg-[var(--hover)]"
     >
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left">
         {status === null ? (
@@ -179,7 +221,27 @@ function ChildRow({
         ) : (
           <StatusIcon status={status} />
         )}
-        <span className="min-w-0 truncate text-[var(--text-2)]">{sessionTitle(child)}</span>
+        {second === null ? (
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[var(--text-2)]">{sessionTitle(child)}</span>
+            {child.agent === null ? null : <RoleTag role={child.agent.role} />}
+          </span>
+        ) : (
+          <span className="flex min-w-0 flex-col">
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="min-w-0 truncate text-[var(--text-2)]">{sessionTitle(child)}</span>
+              {child.agent === null ? null : <RoleTag role={child.agent.role} />}
+            </span>
+            <span
+              className={`max-w-[320px] truncate text-[length:var(--fs-xs)] ${
+                second.asking ? "text-[var(--attn-text)]" : "text-[var(--text-dim)]"
+              }`}
+              data-testid="child-second"
+            >
+              {second.text}
+            </span>
+          </span>
+        )}
         {child.handedOff ? (
           <span className="flex shrink-0 items-center gap-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
             <TerminalWindow size={12} />

@@ -17,7 +17,7 @@ import packageJson from "../package.json" with { type: "json" };
 import { type Clock, systemClock, trackedTimeout } from "./platform/clock";
 import type { AppProcessMetrics } from "./electron-port";
 import { createChangesService } from "./changes/changes-service";
-import { createCheckoutReader } from "./changes/checkout";
+import { changesSince, createCheckoutReader } from "./changes/checkout";
 import { createGitRunner } from "./platform/git";
 import { ensureAtriumHome } from "./platform/home";
 import { readInstallSeed } from "./platform/install-id";
@@ -26,6 +26,7 @@ import { hasProxy, withProxy } from "./platform/proxy";
 import { secretsInEnvironment } from "./platform/redact";
 import { type ToolEnv, readLoginShellEnv } from "./platform/login-shell";
 import { closeLogFile, createLogger, drainLogFile, openLogFile } from "./platform/logger";
+import { catchStrayRejections } from "./platform/stray-rejections";
 import { ResourceTracker } from "./platform/resources";
 import { setupTracing } from "./platform/tracing";
 import { createProjectService } from "./projects/project-service";
@@ -137,7 +138,8 @@ const RESOURCE_REPORT_INTERVAL_MS = 60_000;
  * The host takes `host.lock` before anything else in the home, so a second host on the same home
  * refuses to start rather than writing the index alongside the first (domain-model §1, "索引的存储").
  *
- * @sideEffects Creates `~/.atrium` and its logs folder; takes the host lock; opens the log file; listens on a port;
+ * @sideEffects Creates `~/.atrium` and its logs folder; takes the host lock; opens the log file; logs
+ * rejections nobody handled until closed; listens on a port;
  * schedules a recurring resource report; starts looking for pi in the background; on a failed
  * start, logs the failure and closes the log.
  * @param config - Host configuration.
@@ -164,6 +166,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     secrets: () => [config.token, ...environmentSecrets],
     service: "host",
   });
+  const releaseRejections = catchStrayRejections(process, logger);
   for (const directory of home.looseModes) {
     logger.warn({ directory }, "atrium directory is readable by other users; expected mode 0700");
   }
@@ -178,6 +181,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     readInstallSeed(home.root, randomUUID),
   ]).catch(async (error: unknown) => {
     logger.error({ err: error }, "host failed to start");
+    releaseRejections();
     await tracing.shutdown();
     await closeLogFile(destination);
     await lock.release();
@@ -297,9 +301,24 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       for (const listener of sessionListeners) listener();
     },
     // A child conversation's new worktree, made as a new workspace is (SPEC-0002); the creator comes below.
-    childWorktree: (workspaceId, wanted) => creator.createFrom(workspaceId, wanted),
+    // An agent's child goes on an `agent/` branch.
+    childWorktree: (workspaceId, wanted, prefix) => creator.createFrom(workspaceId, wanted, prefix),
+    // The models an agent may give its children (SPEC-0002, `agent_spawn`, `agent_models`).
+    modelCatalog: models,
     // This host's own, so a start of another (a second ATRIUM_HOME) leaves its forks alone (SPEC-0002).
     tempRoot: join(home.root, "tmp"),
+    // A work child's delivery gives its branch and what its worktree changed since it was made (SPEC-0002, "交付").
+    workChanges: async (workspaceId, signal) => {
+      const record = projects.workspaces().find((one) => one.id === workspaceId);
+      const runner = await git;
+      if (record?.baseCommit == null || runner === null) return { branch: null, changes: null };
+      const branch = workspaces.list().find((one) => one.id === workspaceId)?.branch ?? null;
+      const stat = await changesSince(runner, record.dir, record.baseCommit, signal).catch((error: unknown) => {
+        logger.warn({ workspaceId, err: error }, "work child's changes not read");
+        return null;
+      });
+      return { branch, changes: stat };
+    },
     clock,
     resources,
     tracer: tracing.tracer,
@@ -541,6 +560,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     });
   } catch (error) {
     logger.error({ err: error }, "host failed to start");
+    releaseRejections();
     await tracing.shutdown();
     await closeLogFile(destination);
     await lock.release();
@@ -646,8 +666,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
    *
    * @sideEffects Cancels the report timer; aborts tool detection; closes the server; waits for the
    * archive or restore under way; cancels the login, the install job and the update check under way; stops login checks, scans,
-   * fetches and every session's pi; finishes writing the index; flushes spans and logs; closes
-   * the log file; releases the host lock.
+   * fetches and every session's pi; finishes writing the index; flushes spans; stops logging stray
+   * rejections; flushes logs; closes the log file; releases the host lock.
    */
   async function close(): Promise<void> {
     cancelReport();
@@ -669,6 +689,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     feed.close();
     await index.flush();
     await tracing.shutdown();
+    // Before the log closes, which it writes to.
+    releaseRejections();
     logger.info("host stopped");
     await closeLogFile(destination);
     await lock.release();

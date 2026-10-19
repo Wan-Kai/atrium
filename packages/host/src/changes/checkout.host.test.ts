@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { systemClock } from "../platform/clock";
 import { GitError, createGitRunner } from "../platform/git";
 import { ResourceTracker } from "../platform/resources";
-import { ignoredDirs, watchRoots, workspaceChanges, workspaceDiff } from "./checkout";
+import { changesSince, ignoredDirs, watchRoots, workspaceChanges, workspaceDiff } from "./checkout";
 
 const cleanups: (() => Promise<void>)[] = [];
 
@@ -35,6 +35,60 @@ async function lonely(empty = false): Promise<string> {
   if (!empty) await made.commit(dir.path, "a.txt", "one\n");
   return dir.path;
 }
+
+/**
+ * The commit a directory's HEAD is at.
+ *
+ * @remarks
+ * As a new worktree records its start (SPEC-0002, "新 worktree 的起点").
+ *
+ * @sideEffects Runs git.
+ * @param dir - The directory.
+ * @returns The commit.
+ */
+async function headOf(dir: string): Promise<string> {
+  return (await git.run(["rev-parse", "HEAD"], { cwd: dir, signal })).stdout.trim();
+}
+
+describe("changesSince", () => {
+  it("counts the files and lines a worktree changed since its start, committed or not, untracked too", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+    const start = await headOf(tree);
+    await made.commit(tree, "feature.txt", "x\n".repeat(12));
+    // git counts no lines in a binary file, tracked or not.
+    await made.commit(tree, "image.bin", "\0\u0001");
+    await writeFile(join(tree, "README.md"), "");
+    await writeFile(join(tree, "new.txt"), "a\nb\nc\n");
+    await writeFile(join(tree, "blob.bin"), "\0\u0001");
+
+    expect(await changesSince(git, tree, start, signal)).toStrictEqual({ files: 5, added: 15, removed: 1 });
+  });
+
+  it("counts every untracked file, and the lines of the first 500 only", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+    await mkdir(join(tree, "many"));
+    for (let at = 0; at < 501; at++) await writeFile(join(tree, "many", `f${String(at).padStart(3, "0")}.txt`), "x\n");
+
+    expect(await changesSince(git, tree, await headOf(tree), signal)).toStrictEqual({
+      files: 501,
+      added: 500,
+      removed: 0,
+    });
+  });
+
+  it("counts nothing for a worktree as it started", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+
+    expect(await changesSince(git, tree, await headOf(tree), signal)).toStrictEqual({
+      files: 0,
+      added: 0,
+      removed: 0,
+    });
+  });
+});
 
 describe("workspaceChanges", () => {
   it("counts the working tree against origin on main, untracked lines too, and says it is dirty", async () => {

@@ -70,6 +70,10 @@ export interface SessionCommands {
   clearQueue(sessionId: string): Promise<CommandResult<"clear_queue">>;
   updateQueued(sessionId: string, itemId: string, text: string): Promise<CommandResult<"update_queued">>;
   removeQueued(sessionId: string, itemId: string): Promise<CommandResult<"remove_queued">>;
+  /** Takes a delivery out of the queue panel before it went to pi (SPEC-0002, "送达"). */
+  removeDelivery(sessionId: string, deliveryId: string): Promise<CommandResult<"remove_delivery">>;
+  /** Lets go the deliveries held since the host restarted, with `tree` those below the session too. */
+  resumeDeliveries(sessionId: string, tree: boolean): Promise<CommandResult<"resume_deliveries">>;
   steerQueued(sessionId: string, itemId: string): Promise<CommandResult<"steer_queued">>;
   answerInteraction(
     sessionId: string,

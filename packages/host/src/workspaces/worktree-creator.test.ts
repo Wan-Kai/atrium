@@ -412,6 +412,17 @@ const localOf = (projects: Awaited<ReturnType<typeof creator>>["projects"], proj
   ).id;
 
 describe("createWorktreeCreator: createFrom", () => {
+  it("adds a child the agent opens on an agent/ branch named after its handle (SPEC-0002, 新建 worktree)", async () => {
+    const repo = await scene();
+    const { create, projects, projectId } = await creator(repo);
+
+    const made = await create.createFrom(localOf(projects, projectId), "audit", "agent/");
+
+    const dir = join(repo.root, "repo.worktrees", "audit");
+    expect(made).toStrictEqual({ workspaceId: expect.any(String), dir, branch: "agent/audit" });
+    expect(await repo.git(dir, "branch", "--show-current")).toBe("agent/audit");
+  });
+
   it("adds a child's worktree from where the workspace is now, on a tidied atrium/ branch, without what it has not committed", async () => {
     const repo = await scene();
     await repo.commit(repo.repo, "local.txt", "local\n");
@@ -422,7 +433,7 @@ describe("createWorktreeCreator: createFrom", () => {
     const made = await create.createFrom(localOf(projects, projectId), "Fix the Login flow!");
 
     const dir = join(repo.root, "repo.worktrees", "fix-the-login-flow");
-    expect(made).toStrictEqual({ workspaceId: expect.any(String), dir });
+    expect(made).toStrictEqual({ workspaceId: expect.any(String), dir, branch: "atrium/fix-the-login-flow" });
     expect(projects.workspaces().find((record) => record.id === made.workspaceId)).toMatchObject({
       kind: "worktree",
       dir,

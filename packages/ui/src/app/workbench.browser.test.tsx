@@ -2500,6 +2500,7 @@ describe("Workbench attention and hand-off (M1.9)", () => {
         {
           kind: "turn",
           id: "t1",
+          source: null,
           user: { text: "你好", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
           steps: [],
           outcome: "failed",

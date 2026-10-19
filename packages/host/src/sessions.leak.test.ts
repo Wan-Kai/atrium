@@ -1,9 +1,11 @@
 import type { AtriumClient } from "@atrium/client";
 import { type HostMessage, PROTOCOL_VERSION } from "@atrium/protocol";
-import { createTempDir, present, writeScriptedPi } from "@atrium/testkit";
+import type { TranscriptItem } from "@atrium/protocol";
+import { type FauxReply, createTempDir, fauxPi, present, writeScriptedPi } from "@atrium/testkit";
 import { execFileSync } from "node:child_process";
-import { writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { access, chmod, mkdir, writeFile } from "node:fs/promises";
+import { delimiter, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { WebSocket } from "ws";
 import { type TestHost, startTestHost } from "../test/harness";
@@ -136,22 +138,29 @@ async function sessionOnFile(
  *
  * @remarks
  * Kinds that first appeared after the baseline must be back to zero. Node's handles are read with
- * a timer of our own running, hence at most one more `Timeout` than before.
+ * a timer of our own running, hence at most one more `Timeout` than before. A test that made
+ * sessions that keep a count of their own says by how much (`grown`).
  *
  * @sideEffects Waits.
  * @param host - The host.
  * @param before - Its counts before.
  * @param handles - Node's handles before.
  * @param processes - The child processes before.
+ * @param grown - Counts expected above the baseline.
  */
 async function backToBaseline(
   host: TestHost,
   before: Readonly<Record<string, number>>,
   handles: ReturnType<typeof liveHandles>,
   processes: readonly number[],
+  grown: Readonly<Record<string, number>> = {},
 ): Promise<void> {
   const appeared = Object.keys(host.host.resources.snapshot()).filter((kind) => !(kind in before));
-  const expected = { ...before, ...Object.fromEntries(appeared.map((kind) => [kind, 0])) };
+  const expected = {
+    ...before,
+    ...Object.fromEntries(appeared.map((kind) => [kind, 0])),
+    ...Object.fromEntries(Object.entries(grown).map(([kind, more]) => [kind, (before[kind] ?? 0) + more])),
+  };
   await vi.waitFor(() => expect(host.host.resources.snapshot()).toStrictEqual(expected), { timeout: 10_000 });
   await vi.waitFor(() => expect(children()).toStrictEqual(processes), { timeout: 10_000 });
   await vi.waitFor(
@@ -314,5 +323,165 @@ describe("session resources (M1.9)", () => {
     );
     await client.closeTab(parent.sessionId);
     await backToBaseline(host, before, handles, processes);
+  });
+});
+
+/** Atrium's extension, from its source, as pi loads it (ADR-0008, ADR-0013). */
+const ATRIUM_EXTENSION = fileURLToPath(new URL("../../pi/src/extension/atrium.ts", import.meta.url));
+
+/** Rounds of the agent opening a child, after one to warm up. */
+const AGENT_ROUNDS = 5;
+
+/**
+ * The real pi on this process's PATH.
+ *
+ * @remarks
+ * As the end-to-end tests run it: the pi installed, answering from the faux model.
+ *
+ * @sideEffects Checks files on disk.
+ * @returns Its path.
+ * @throws {Error} When pi is not installed.
+ */
+async function realPi(): Promise<string> {
+  for (const directory of (process.env["PATH"] ?? "").split(delimiter).filter((one) => one !== "")) {
+    const candidate = join(directory, "pi");
+    if (
+      await access(candidate).then(
+        () => true,
+        () => false,
+      )
+    )
+      return candidate;
+  }
+  throw new Error("pi is not on PATH; the agent's children leak test needs it installed");
+}
+
+/**
+ * What the parent's agent says in each round: opens a child, ends its run, and takes the child's notice.
+ *
+ * @remarks
+ * The faux model picks a reply by how many it gave in the conversation, so the rounds follow on.
+ *
+ * @sideEffects none
+ * @param rounds - How many rounds.
+ * @returns The replies.
+ */
+function parentReplies(rounds: number): FauxReply[] {
+  return Array.from({ length: rounds }, (_, round): FauxReply[] => [
+    {
+      blocks: [
+        {
+          type: "toolCall",
+          id: `spawn-${String(round)}`,
+          name: "agent_spawn",
+          arguments: { name: `r${String(round)}`, task: "看一眼" },
+        },
+      ],
+    },
+    { blocks: [{ type: "text", text: `派出去了 ${String(round)}` }] },
+    { blocks: [{ type: "text", text: `收到 ${String(round)}` }] },
+  ]).flat();
+}
+
+/**
+ * A host whose pi is the real one on a faux model, with Atrium's extension, and a client.
+ *
+ * @remarks
+ * A `pi` wrapper first on PATH runs the real pi with the faux extension, as the end-to-end tests
+ * do; the parent's agent opens a child each round and the child answers once (SPEC-0002, "验证 ·
+ * 泄漏测试").
+ *
+ * @sideEffects Creates temporary directories; starts a host.
+ * @param rounds - How many rounds the script has.
+ * @returns The host and the client.
+ */
+async function agentHost(rounds: number): Promise<{ readonly host: TestHost; readonly client: AtriumClient }> {
+  const dir = await createTempDir("leak-agent");
+  onTestFinished(dir.cleanup);
+  const launch = await fauxPi(
+    { replies: parentReplies(rounds), childReplies: [{ blocks: [{ type: "text", text: "看完了" }] }] },
+    dir.path,
+  );
+  const bin = join(dir.path, "bin");
+  await mkdir(bin);
+  const quoted = launch.args.map((arg) => `'${arg.replaceAll("'", String.raw`'\''`)}'`).join(" ");
+  const wrapper = join(bin, "pi");
+  await writeFile(
+    wrapper,
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then exec "$LEAK_REAL_PI" --version; fi\nexec "$LEAK_REAL_PI" "$@" ${quoted}\n`,
+  );
+  await chmod(wrapper, 0o755);
+  testHost = await startTestHost({
+    logLevel: "warn",
+    fastExtension: ATRIUM_EXTENSION,
+    toolEnv: {
+      ...launch.env,
+      PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`,
+      LEAK_REAL_PI: await realPi(),
+    },
+  });
+  await testHost.host.tools;
+  const client = testHost.connect();
+  expect(await client.connect()).toMatchObject({ status: "connected" });
+  return { host: testHost, client };
+}
+
+/**
+ * The texts of a transcript's replies, in order.
+ *
+ * @sideEffects none
+ * @param items - The transcript.
+ * @returns The texts.
+ */
+function replies(items: readonly TranscriptItem[]): string[] {
+  return items.flatMap((item) =>
+    item.kind === "turn" ? item.steps.flatMap((step) => (step.kind === "text" ? [step.text] : [])) : [],
+  );
+}
+
+/**
+ * Runs one round: you speak, the agent opens a child, the child answers, its notice comes back.
+ *
+ * @remarks
+ * The round is over once the parent's agent replied to the notice and the child's pi, idle without
+ * a tab, was stopped (SPEC-0002, "角色与限制 · 进程").
+ *
+ * @sideEffects Sends a message; waits.
+ * @param client - The client.
+ * @param sessionId - The parent.
+ * @param round - The round.
+ */
+async function agentRound(client: AtriumClient, sessionId: string, round: number): Promise<void> {
+  await client.prompt(sessionId, `第 ${String(round)} 轮`);
+  await vi.waitFor(
+    () =>
+      expect(replies(present(client.session(sessionId), "view").getState().items)).toContain(`收到 ${String(round)}`),
+    { timeout: 30_000 },
+  );
+  const child = () => client.index.getState().sessions.find((one) => one.agent?.handle === `r${String(round)}`);
+  await vi.waitFor(() => expect(child()?.agent?.status).toBe("idle"), { timeout: 30_000 });
+}
+
+describe("agent children's resources (SPEC-0002, 第二步)", () => {
+  it("keeps no more pi running after the agent opens a child, it finishes and is put away, again and again", async () => {
+    const { host, client } = await agentHost(AGENT_ROUNDS + 1);
+    const { sessionId } = await client.createChat();
+    await client.watch([sessionId]);
+    await agentRound(client, sessionId, 0);
+    const { before, handles, processes } = await baseline(host);
+
+    for (const round of Array.from({ length: AGENT_ROUNDS }, (_, at) => at + 1)) {
+      await agentRound(client, sessionId, round);
+    }
+
+    expect(
+      client.index
+        .getState()
+        .sessions.filter((one) => one.agent !== null)
+        .map((one) => one.agent?.status),
+    ).toStrictEqual(Array.from({ length: AGENT_ROUNDS + 1 }, () => "idle"));
+    // Each child keeps its controller, as any session whose pi stopped does, until it is archived;
+    // its pi does not stay.
+    await backToBaseline(host, before, handles, processes, { "session.controller": AGENT_ROUNDS });
   });
 });

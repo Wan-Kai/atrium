@@ -1,4 +1,5 @@
 import type { ToolDetails } from "@atrium/protocol";
+import { agentToolDetails } from "../agent/details";
 
 /** A JSON object, as tool call arguments are. */
 export type ToolArgs = Readonly<Record<string, unknown>>;
@@ -87,7 +88,8 @@ function editDiff(details: unknown): string | null {
  * @remarks
  * pi's built-in tools (SPEC-0001, "对话记录"): `bash` shows its command; `read` its path and range;
  * `edit` the display diff pi returns in `details.diff`, with its line counts; `write` the written
- * content, which only the call's arguments hold (pi's result says just "Successfully wrote").
+ * content, which only the call's arguments hold (pi's result says just "Successfully wrote"); the
+ * main agent's tools the children they started and the events they brought back (SPEC-0002).
  * Paths are read under the names pi accepts, `path` and the older `file_path`. Other tools, and
  * arguments without the expected fields, have no details. Used for live events and rebuilt
  * history alike, so both show the same.
@@ -120,7 +122,7 @@ export function toolDetails(tool: string, args: ToolArgs, resultDetails?: unknow
       return path === undefined || content === undefined ? null : { tool: "write", path, content };
     }
     default:
-      return null;
+      return agentToolDetails(tool, resultDetails);
   }
 }
 

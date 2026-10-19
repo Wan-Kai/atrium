@@ -28,6 +28,8 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
     asking: null,
     handedOff: false,
     parent: null,
+    agent: null,
+    heldDeliveries: 0,
     ...fields,
   };
 }

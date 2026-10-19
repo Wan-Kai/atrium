@@ -193,8 +193,8 @@ export function SessionMenu({
                 onClick={() => {
                   close();
                   run(async () => {
-                    const { file } = await client.handOff(session.sessionId);
-                    await navigator.clipboard.writeText(terminalCommand(file)).catch(() => undefined);
+                    const { file, args } = await client.handOff(session.sessionId);
+                    await navigator.clipboard.writeText(terminalCommand(file, args)).catch(() => undefined);
                   }, describeHandOffError);
                 }}
               >

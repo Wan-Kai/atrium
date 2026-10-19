@@ -1,4 +1,5 @@
-import type { Notice, Step, TranscriptItem, Turn } from "@atrium/protocol";
+import type { AgentNoticeEvent, Notice, Step, TranscriptItem, Turn } from "@atrium/protocol";
+import { AGENT_TOOL_VERBS, agentToolObject, eventLine, sourceLine } from "./agent-words";
 import { typedMessage } from "./composer-text";
 
 /** A tool step. */
@@ -7,10 +8,14 @@ export type ToolStep = Extract<Step, { kind: "tool" }>;
 /** A text step. */
 type TextStep = Extract<Step, { kind: "text" }>;
 
-/** One row of a turn's process: a step, or consecutive read-only tool calls shown as one. */
+/**
+ * One row of a turn's process: a step, consecutive read-only tool calls shown as one, or what a
+ * child came to, as a wait brought it back or a notice came in (SPEC-0002, "显示 · 过程轨道").
+ */
 export type ProcessRow =
   | { readonly kind: "step"; readonly step: Step }
-  | { readonly kind: "explore"; readonly id: string; readonly steps: readonly ToolStep[] };
+  | { readonly kind: "explore"; readonly id: string; readonly steps: readonly ToolStep[] }
+  | { readonly kind: "event"; readonly id: string; readonly event: AgentNoticeEvent };
 
 /** How a turn is shown: the process, then the reply below it. */
 export interface TurnLayout {
@@ -64,7 +69,17 @@ export function layoutTurn(turn: Turn): TurnLayout {
       continue;
     }
     flush();
-    process.push({ kind: "step", step });
+    // Notices that came in are their events, each its own row.
+    if (step.kind !== "agent" || step.source.kind !== "report") process.push({ kind: "step", step });
+    // A wait's events, and notices', each merge or touch a lane (SPEC-0002, "显示 · 过程轨道").
+    const events =
+      step.kind === "agent" && step.source.kind === "report"
+        ? step.source.events
+        : // Stryker disable next-line ConditionalExpression: only tool steps have details.
+          step.kind === "tool" && step.details?.tool === "agent"
+          ? step.details.events
+          : [];
+    events.forEach((event, index) => process.push({ kind: "event", id: `${step.id}:${String(index)}`, event }));
   }
   flush();
   return { process, reply };
@@ -81,7 +96,88 @@ export function layoutTurn(turn: Turn): TurnLayout {
  * @returns The steps, in order.
  */
 export function processSteps(process: readonly ProcessRow[]): Step[] {
-  return process.flatMap<Step>((row) => (row.kind === "step" ? [row.step] : row.steps));
+  return process.flatMap<Step>((row) => (row.kind === "step" ? [row.step] : row.kind === "explore" ? row.steps : []));
+}
+
+/** The events after which a child's task has no more to say: its lane merges back. */
+const FINAL_EVENTS: ReadonlySet<string> = new Set(["finished", "failed", "stopped", "ended"]);
+
+/** One row's part of the lanes (SPEC-0002, "显示 · 过程轨道"). */
+export interface LaneRow {
+  /** The lanes running past the row, from above. */
+  readonly through: readonly number[];
+  /** The lane the row opens: a child it started. */
+  readonly opens: number | null;
+  /** The lane that merges back at the row: its child's task ended. */
+  readonly closes: number | null;
+  /** The lane the row touches without ending it: its child asks. */
+  readonly touches: number | null;
+  /** The row's lanes whose task goes on after the turn, drawn dashed. */
+  readonly goesOn: readonly number[];
+  /** For the row that opens a lane, how long its task took, once it ended in the turn. */
+  readonly took: number | null;
+}
+
+/** A turn's lanes: how many, and each row's part. */
+export interface LaneLayout {
+  readonly width: number;
+  readonly rows: readonly LaneRow[];
+}
+
+/**
+ * Lays out the lanes of a turn's children (SPEC-0002, "显示 · 过程轨道"; prototype A).
+ *
+ * @remarks
+ * Each child `agent_spawn` started takes the leftmost free lane, from its row down; an event of
+ * its task merges the lane back when it ends the task, or touches it when the child asks. A lane
+ * freed takes the next child, so what is dashed, a task going on past the turn, is told for each
+ * child's stretch of the lane, not for the lane. Events of tasks started in another turn have no
+ * lane here. The row that opens a lane knows how long its task took once it ended in the turn.
+ *
+ * @sideEffects none
+ * @param process - The turn's process rows.
+ * @returns The lanes.
+ */
+export function laneLayout(process: readonly ProcessRow[]): LaneLayout {
+  /** Each lane's stretch now: its task and the row that opened it; `null` when free. */
+  const lanes: ({ readonly taskId: string; readonly stretch: number } | null)[] = [];
+  /** The stretches that end in the turn, with how long their task took. */
+  const ended = new Map<number, number | null>();
+  let stretches = 0;
+  const laid = process.map((row) => {
+    const held = lanes.flatMap((taken, lane) => (taken === null ? [] : [[lane, taken.stretch] as const]));
+    const through = held.map(([lane]) => lane);
+    const base = { through, held, opens: null, closes: null, touches: null, stretch: null };
+    // Stryker disable next-line ConditionalExpression: other rows have no step, which reads as no child either way.
+    const step = row.kind === "step" ? row.step : null;
+    const spawned = step?.kind === "tool" && step.details?.tool === "agent" ? step.details.spawned : null;
+    if (spawned !== null) {
+      const free = lanes.indexOf(null);
+      const lane = free === -1 ? lanes.length : free;
+      // Stryker disable next-line UpdateOperator: a stretch's number only tells it from the others, and counting down does too.
+      const stretch = stretches++;
+      lanes[lane] = { taskId: spawned.taskId, stretch };
+      return { ...base, held: [...held, [lane, stretch] as const], opens: lane, stretch };
+    }
+    if (row.kind !== "event") return base;
+    const lane = lanes.findIndex((taken) => taken?.taskId === row.event.taskId);
+    const taken = lanes[lane];
+    if (taken == null) return base;
+    if (!FINAL_EVENTS.has(row.event.event)) return { ...base, touches: lane };
+    lanes[lane] = null;
+    ended.set(taken.stretch, row.event.elapsedMs);
+    return { ...base, closes: lane };
+  });
+  const rows = laid.map(({ through, held, opens, closes, touches, stretch }): LaneRow => ({
+    through,
+    opens,
+    closes,
+    touches,
+    goesOn: held.flatMap(([lane, of]) => (ended.has(of) ? [] : [lane])),
+    // Stryker disable next-line ConditionalExpression: only stretches are keys of `ended`, so a row without one finds nothing in it either way.
+    took: stretch === null ? null : (ended.get(stretch) ?? null),
+  }));
+  return { width: lanes.length, rows };
 }
 
 /** What a turn's process did, for its header line. */
@@ -272,6 +368,7 @@ export function describeStep(step: Step, live: boolean): StepLine {
   }
   if (step.kind === "text") return { verb: "说明", object: opening(step.text), end: null };
   if (step.kind === "steer") return { verb: "你插话", object: step.text, end: null };
+  if (step.kind === "agent") return { verb: sourceLine(step.source), object: "", end: null };
   if (step.kind === "retry") {
     const limit = step.maxAttempts === null ? "" : ` / ${step.maxAttempts}`;
     return { verb: `自动重试 · 第 ${step.attempt}${limit} 次`, object: step.error, end: null };
@@ -309,7 +406,14 @@ function describeTool(step: ToolStep): StepLine {
   const details = step.details;
   const done = step.status === "done";
   const end = step.status === "done" || step.status === "running" ? null : TOOL_ENDS[step.status];
-  const verb = details === null ? step.tool : TOOL_VERBS[details.tool][step.status === "running" ? 0 : 1];
+  const agentVerbs = AGENT_TOOL_VERBS[step.tool];
+  if (agentVerbs !== undefined) {
+    return { verb: agentVerbs[step.status === "running" ? 0 : 1], object: agentToolObject(step.tool, step.args), end };
+  }
+  const verb =
+    details === null || details.tool === "agent"
+      ? step.tool
+      : TOOL_VERBS[details.tool][step.status === "running" ? 0 : 1];
   if (details?.tool === "bash") return { verb, object: details.command, end: done ? "通过" : end };
   if (details?.tool === "read") {
     const range = details.offset === null ? "" : ` 第 ${details.offset} 行起`;
@@ -400,14 +504,25 @@ export function transcriptMarkdown(items: readonly TranscriptItem[]): string {
  */
 function turnMarkdown(turn: Turn): string {
   const { process, reply } = layoutTurn(turn);
-  const question = typedMessage(turn.user)
+  // A turn notices or a task opened says where it came from; a task's text follows it (SPEC-0002).
+  const opened =
+    turn.source === null
+      ? typedMessage(turn.user)
+      : [sourceLine(turn.source), ...(turn.source.kind === "task" ? [turn.source.text] : [])].join("\n");
+  const question = opened
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
-  const lines = processSteps(process).map((step) => {
-    const line = describeStep(step, false);
-    return `- ${line.verb} · ${line.object}${line.end === null ? "" : `（${line.end}）`}`;
-  });
+  // What children came to shows where it came in, a line each (SPEC-0002, "显示 · 过程轨道").
+  const lines = process.flatMap((row) =>
+    row.kind === "event"
+      ? [`- ${eventLine(row.event)}`]
+      : (row.kind === "step" ? [row.step] : row.steps).map((step) => {
+          const line = describeStep(step, false);
+          const object = line.object === "" ? "" : ` · ${line.object}`;
+          return `- ${line.verb}${object}${line.end === null ? "" : `（${line.end}）`}`;
+        }),
+  );
   const parts = [question];
   if (lines.length > 0) parts.push(lines.join("\n"));
   if (reply !== null) parts.push(reply.text);

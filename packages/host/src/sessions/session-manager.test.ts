@@ -1,4 +1,4 @@
-import { type SessionsLocation, createSessionFileReader, sessionFolder } from "@atrium/pi";
+import { type SessionsLocation, createSessionFileReader, encodeArgument, sessionFolder } from "@atrium/pi";
 import {
   CommandError,
   type ForkSessionCommand,
@@ -268,6 +268,17 @@ async function terminalSession(at: Awaited<ReturnType<typeof place>>, id: string
   const user = { type: "message", id: "u1", parentId: null, timestamp: "", message: { role: "user", content: "hi" } };
   await writeFile(path, `${JSON.stringify({ type: "session", id, timestamp: "", cwd })}\n${JSON.stringify(user)}\n`);
   return path;
+}
+
+/**
+ * The status the first session shows as a child the agent opened.
+ *
+ * @sideEffects none
+ * @param manager - The manager.
+ * @returns The status, or `null` for none.
+ */
+function agentStatus(manager: Manager): string | null {
+  return manager.summaries()[0]?.agent?.status ?? null;
 }
 
 /**
@@ -1384,6 +1395,8 @@ describe("SessionManager workspaces", () => {
         asking: null,
         handedOff: false,
         parent: null,
+        agent: null,
+        heldDeliveries: 0,
       },
     ]);
   });
@@ -1835,7 +1848,21 @@ describe("SessionManager Fast", () => {
       starts()
         .map(({ argv }) => argv)
         .filter((argv) => argv !== undefined),
-    ).toStrictEqual([["--mode", "rpc", "--session-id", "pi-session-1", "--extension", FAST_EXTENSION]]);
+    ).toStrictEqual([
+      [
+        "--mode",
+        "rpc",
+        "--session-id",
+        "pi-session-1",
+        "--extension",
+        FAST_EXTENSION,
+        // Who the session is for Atrium's extension: no one's child, at depth 0 (ADR-0013, point 3).
+        `--atrium-agent=${encodeArgument({ v: 1, child: false, role: null, depth: 0, guard: "flags" })}`,
+        // A session the agent did not open has no child's tools (SPEC-0002, "角色与限制").
+        "--exclude-tools",
+        "report_progress,ask_parent",
+      ],
+    ]);
     await vi.waitFor(() =>
       expect(withoutIds(piReceived()).slice(0, 5)).toStrictEqual([
         { type: "set_auto_retry", enabled: true },
@@ -2865,7 +2892,7 @@ describe("SessionManager handing off (M1.9)", () => {
   it("records the hand-off, stops pi and answers its file; then opens it without pi and refuses to write it", async () => {
     const { manager, catalog, received, starts, file, at } = await opened([turn]);
 
-    expect(await manager.handOff("pi-session-1")).toStrictEqual({ file });
+    expect(await manager.handOff("pi-session-1")).toStrictEqual({ file, args: [] });
     await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
     await manager.openSession("client-1", "pi-session-1");
 
@@ -2956,6 +2983,98 @@ describe("SessionManager handing off (M1.9)", () => {
     await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "bye" });
 
     expect(await meanwhile).toStrictEqual(new CommandError("session_busy"));
+  });
+
+  it("calls a child the agent opened stopped once its pi was put away after you stopped it", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, records } = await manage(
+      {
+        rules: {
+          ...SESSION_ONE,
+          prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
+          abort: { data: {}, events: [{ type: "agent_settled" }] },
+        },
+      },
+      at,
+    );
+    await catalog.scan();
+    await catalog.record({
+      sessionId: "pi-session-1",
+      containerId: WORKSPACE,
+      cwd: at.workspace,
+      parent: { sessionId: "main", by: "agent" },
+      name: "audit",
+      persisted: true,
+      agent: { handle: "audit", role: "explore", toolGuard: "flags", startOn: null, worktree: false, tasks: [] },
+    });
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "go" });
+    await vi.waitFor(() => expect(present(manager.summaries()[0], "the child").running).toBe(true));
+    await manager.stop("pi-session-1");
+
+    await manager.closeTab("client-1", "pi-session-1");
+
+    await vi.waitFor(() => expect(records.filter((record) => record["msg"] === "pi exited")).toHaveLength(1));
+
+    expect(agentStatus(manager)).toBe("stopped");
+  });
+
+  it("tells the parent a child the agent opened ended when it is archived mid-task, not that it failed", async () => {
+    const at = await place();
+    await terminalSession(at, "main", at.workspace);
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog } = await manage(
+      {
+        rules: {
+          ...SESSION_ONE,
+          prompt: { data: { disposition: "started" }, events: [{ type: "agent_start" }] },
+          abort: { data: {}, events: [{ type: "agent_settled" }] },
+        },
+      },
+      at,
+    );
+    await catalog.scan();
+    await catalog.record({
+      sessionId: "pi-session-1",
+      containerId: WORKSPACE,
+      cwd: at.workspace,
+      parent: { sessionId: "main", by: "agent" },
+      name: "audit",
+      persisted: true,
+      agent: {
+        handle: "audit",
+        role: "explore",
+        toolGuard: "flags",
+        startOn: null,
+        worktree: false,
+        tasks: [],
+      },
+    });
+    // The task and its delivery together, as `agent_send` gives them.
+    await catalog.changeAgent("pi-session-1", (fields) => ({
+      ...fields,
+      agent: {
+        handle: "audit",
+        role: "explore",
+        toolGuard: "flags",
+        startOn: null,
+        worktree: false,
+        tasks: [{ taskId: "t-1", state: "open", at: 0 }],
+      },
+      deliveries: [{ id: "d-1", kind: "task", from: "main", taskId: "t-1", text: "go", at: 0, state: "waiting" }],
+    }));
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.resumeDeliveries("pi-session-1", false);
+    await vi.waitFor(() => expect(present(manager.summaries()[1], "the child").running).toBe(true));
+
+    await manager.archiveSession("pi-session-1");
+
+    await vi.waitFor(() =>
+      expect(
+        present(catalog.find("main"), "the parent").deliveries.map((one) => [one.taskId, one.event, one.reason]),
+      ).toStrictEqual([["t-1", "ended", "archived"]]),
+    );
   });
 
   it("refuses to hand off a draft, which has no file for pi to go on with", async () => {
@@ -3317,7 +3436,7 @@ async function withWorktrees(
         const dir = join(at.root, "app.worktrees", "tests");
         if (!missing) await mkdir(dir, { recursive: true });
         workspaces.push({ id: NEW_WORKSPACE, dir });
-        return { workspaceId: NEW_WORKSPACE, dir };
+        return { workspaceId: NEW_WORKSPACE, dir, branch: `atrium/${wanted}` };
       },
     },
   );

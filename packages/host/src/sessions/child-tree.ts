@@ -115,3 +115,30 @@ export function archivePlan(entries: readonly TreeEntry[], roots: readonly strin
   }
   return { archive, detach };
 }
+
+/**
+ * A session's agent depth: how many agent-opened links lead up from it, unbroken.
+ *
+ * @remarks
+ * SPEC-0002 ("概念 · 层数"): no parent, or opened by you, is 0; opened by an agent, its parent's
+ * plus one. A parent the entries do not list ends the chain as no parent would; a loop is a break
+ * where it closes.
+ *
+ * @sideEffects none
+ * @param entries - Every session.
+ * @param sessionId - The session.
+ * @returns The depth.
+ */
+export function agentDepth(entries: readonly TreeEntry[], sessionId: string): number {
+  const byId = new Map(entries.map((entry) => [entry.sessionId, entry]));
+  const seen = new Set([sessionId]);
+  let depth = 0;
+  for (let entry = byId.get(sessionId); entry?.parent?.by === "agent";) {
+    const parent = byId.get(entry.parent.sessionId);
+    if (parent === undefined || seen.has(parent.sessionId)) break;
+    seen.add(parent.sessionId);
+    depth += 1;
+    entry = parent;
+  }
+  return depth;
+}

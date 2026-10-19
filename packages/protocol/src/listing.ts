@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SessionAgent } from "./agent";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
 import { ModelRef, ThinkingLevel } from "./models";
@@ -147,6 +148,10 @@ export const SessionSummary = z.strictObject({
   handedOff: z.boolean(),
   /** The session it is a child conversation of; `null` for an ordinary session (SPEC-0002). */
   parent: ChildParent.nullable(),
+  /** What a child the agent opened shows in its parent's child list; `null` for any other (SPEC-0002). */
+  agent: SessionAgent.nullable(),
+  /** How many of its deliveries wait since the host restarted, until you let them go (SPEC-0002, "送达"). */
+  heldDeliveries: z.number().int().nonnegative(),
 });
 export type SessionSummary = z.infer<typeof SessionSummary>;
 

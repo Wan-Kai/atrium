@@ -2,7 +2,7 @@ import { createTempDir, type TempDir } from "@atrium/testkit";
 import { appendFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createUsageReader, lastEntryId } from "./file-usage";
+import { createUsageReader, lastEntryId, readEntries } from "./file-usage";
 
 const dirs: TempDir[] = [];
 
@@ -202,5 +202,55 @@ describe("lastEntryId", () => {
     await writeFile(path, lines(header));
 
     expect(await lastEntryId(path)).toBeNull();
+  });
+});
+
+describe("readEntries", () => {
+  it("reads the entries written whole, in Atrium's shape, passing over the header and broken lines", async () => {
+    const path = await sessionPath();
+    const reply = {
+      type: "message",
+      id: "a1",
+      parentId: "u1",
+      timestamp: "1970-01-01T00:00:00.009Z",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        stopReason: "stop",
+        usage: usage(1, 0),
+        timestamp: 9,
+      },
+    };
+    await writeFile(
+      path,
+      `${lines(header, { type: "label", id: "l1", parentId: null, timestamp: "" }, reply, { type: "x" })}not json\nnull\n{"type":"message","id":"half"`,
+    );
+
+    const entries = await readEntries(path);
+
+    expect(entries.map((entry) => [entry.id, entry.kind])).toStrictEqual([
+      ["l1", "other"],
+      ["a1", "assistant"],
+    ]);
+    expect(entries[1]).toMatchObject({ kind: "assistant", parts: [{ type: "text", text: "done" }] });
+  });
+
+  it("leaves out a last line without its LF, though it reads whole, as pi may still be writing it", async () => {
+    const path = await sessionPath();
+    const label = { type: "label", id: "l1", parentId: null, timestamp: "" };
+    await writeFile(path, `${lines(header, label)}${JSON.stringify({ ...label, id: "l2" })}`);
+
+    expect((await readEntries(path)).map((entry) => entry.id)).toStrictEqual(["l1"]);
+  });
+
+  it("passes over an entry it cannot convert", async () => {
+    const path = await sessionPath();
+    await writeFile(path, lines(header, { type: "message", id: "m1", parentId: null, timestamp: "" }));
+
+    expect(await readEntries(path)).toStrictEqual([]);
+  });
+
+  it("fails for a file that is not there", async () => {
+    await expect(readEntries(join(await sessionPath(), "missing"))).rejects.toThrow("ENOENT");
   });
 });

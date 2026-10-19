@@ -167,6 +167,7 @@ function turn(id: string, clientMessageId: string | null = null) {
   return {
     kind: "turn",
     id,
+    source: null,
     user: { text: "hi", images: 0, clientMessageId, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",
@@ -440,7 +441,7 @@ describe("createAtriumClient: commands", () => {
     answerAt(latest(), "create_session", 0, { sessionId: "s9" });
     answerAt(latest(), "create_session", 1, { sessionId: "s8" });
     latest().answer("add_project", { projectId: "prj_0123456789abcdef" });
-    latest().answer("hand_off", { file: "/pi/s1.jsonl" });
+    latest().answer("hand_off", { file: "/pi/s1.jsonl", args: [] });
     latest().answer("list_bases", { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
     latest().answer("create_workspace", { workspaceId: "wks_00000000000000aa" });
     latest().answer("name_branch", { branch: "atrium/fix-it" });
@@ -481,7 +482,7 @@ describe("createAtriumClient: commands", () => {
       {},
       {},
       {},
-      { file: "/pi/s1.jsonl" },
+      { file: "/pi/s1.jsonl", args: [] },
       {},
     ]);
     expect(
@@ -800,6 +801,8 @@ describe("createAtriumClient: sessions", () => {
     });
     await run(() => client.answerInteraction("s1", "d1", { confirmed: true }), "answer_interaction");
     await run(() => client.retryRun("s1"), "retry_run");
+    await run(() => client.removeDelivery("s1", "d2"), "remove_delivery");
+    await run(() => client.resumeDeliveries("s1", true), "resume_deliveries");
 
     expect(
       latest()
@@ -815,6 +818,8 @@ describe("createAtriumClient: sessions", () => {
       { type: "steer_queued", sessionId: "s1", itemId: "i3" },
       { type: "answer_interaction", sessionId: "s1", interactionId: "d1", answer: { confirmed: true } },
       { type: "retry_run", sessionId: "s1" },
+      { type: "remove_delivery", sessionId: "s1", deliveryId: "d2" },
+      { type: "resume_deliveries", sessionId: "s1", tree: true },
     ]);
   });
 
@@ -1053,6 +1058,8 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         asking: null,
         handedOff: false,
         parent: null,
+        agent: null,
+        heldDeliveries: 0,
       },
     ],
     layout: { container: null, tabs: {} },

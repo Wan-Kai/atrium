@@ -51,6 +51,8 @@ export {
   ClearQueueCommand,
   UpdateQueuedCommand,
   RemoveQueuedCommand,
+  RemoveDeliveryCommand,
+  ResumeDeliveriesCommand,
   SteerQueuedCommand,
   AnswerInteractionCommand,
   RetryRunCommand,
@@ -186,3 +188,12 @@ export {
   formatTraceparent,
   parseTraceparent,
 } from "./trace";
+export {
+  AgentEventKind,
+  AgentNoticeEvent,
+  AgentRole,
+  AgentSource,
+  AgentStatus,
+  DeliveryItem,
+  SessionAgent,
+} from "./agent";

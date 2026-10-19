@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@atrium/protocol": "workspace:*"
+    "@atrium/protocol": "workspace:*",
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@atrium/testkit": "workspace:*",

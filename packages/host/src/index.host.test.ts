@@ -162,14 +162,55 @@ describe("the list over the WebSocket", () => {
     onTestFinished(home.cleanup);
     const newer = JSON.stringify({ version: 99, sessions: "new shape" });
     await writeFile(join(home.path, "sessions.json"), newer);
+    const listening = process.listenerCount("unhandledRejection");
 
     await expect(
       startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" }, piLatestUrl: null }),
     ).rejects.toThrow(IndexTooNewError);
 
+    expect(process.listenerCount("unhandledRejection")).toBe(listening);
     expect(await readFile(join(home.path, "sessions.json"), "utf8")).toBe(newer);
     await writeFile(join(home.path, "sessions.json"), JSON.stringify({ version: 1, sessions: [] }));
     const host = await startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" }, piLatestUrl: null });
     await host.close();
   });
+
+  it("logs a rejection nobody handled while it runs and goes on, and stops listening once closed", async () => {
+    const home = await createTempDir("stray-rejection");
+    onTestFinished(home.cleanup);
+    const before = process.listeners("unhandledRejection");
+    const host = await startHost({ home: home.path, token: TOKEN, toolEnv: { PATH: "" }, piLatestUrl: null });
+    const added = process.listeners("unhandledRejection").filter((listener) => !before.includes(listener));
+
+    // The host's own listener, called as Node would: a real stray rejection would fail the test run.
+    for (const listener of added) listener(new RangeError("lost"), Promise.resolve());
+    await host.flushLog();
+    const lines = (await readFile(host.logFile, "utf8"))
+      .split("\n")
+      .filter((line) => line.includes("unhandled rejection"));
+    await host.close();
+
+    expect([
+      added.length,
+      lines.map((line) => strayOf(line)),
+      process.listenerCount("unhandledRejection"),
+    ]).toStrictEqual([1, [{ level: "error", type: "RangeError", message: "lost" }], before.length]);
+  });
 });
+
+/**
+ * A logged stray rejection's level and error.
+ *
+ * @sideEffects none
+ * @param line - The log line.
+ * @returns What the test compares.
+ */
+function strayOf(line: string): unknown {
+  const record: unknown = JSON.parse(line);
+  const err: unknown = Reflect.get(Object(record), "err");
+  return {
+    level: Reflect.get(Object(record), "level"),
+    type: Reflect.get(Object(err), "type"),
+    message: Reflect.get(Object(err), "message"),
+  };
+}

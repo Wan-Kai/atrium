@@ -18,12 +18,12 @@ describe("fileIconName", () => {
     ).toStrictEqual(["typescript", "test-ts", "typescript-def", "react_ts", "image", "tune", "markdown"]);
   });
 
-  it("gives the plain file icon to a name it does not know, or with nothing after its dot, nor by an object's own members", () => {
+  it("gives the plain file icon to a name it does not know, without a dot or with nothing after it, nor by an object's own members", () => {
     expect(
-      ["notes.zzz", "LICENSE-x", "trailing.", "", "src/", "constructor", "a.__proto__", "a.constructor"].map((path) =>
-        fileIconName(path, false),
+      ["notes.zzz", "LICENSE-x", "xts", "trailing.", "", "src/", "constructor", "a.__proto__", "a.constructor"].map(
+        (path) => fileIconName(path, false),
       ),
-    ).toStrictEqual(["file", "file", "file", "file", "file", "file", "file", "file"]);
+    ).toStrictEqual(["file", "file", "file", "file", "file", "file", "file", "file", "file"]);
   });
 
   it("takes the light variant in the light appearance wherever there is one, by name or extension", () => {

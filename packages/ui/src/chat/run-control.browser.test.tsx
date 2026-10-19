@@ -16,6 +16,8 @@ function recording() {
     update: (itemId, text) => calls.push(["update", itemId, text]),
     remove: (itemId) => calls.push(["remove", itemId]),
     steerQueued: (itemId) => calls.push(["steerQueued", itemId]),
+    removeDelivery: (deliveryId) => calls.push(["removeDelivery", deliveryId]),
+    resumeDeliveries: () => calls.push(["resumeDeliveries"]),
     answer: (interactionId, answer) => calls.push(["answer", interactionId, answer]),
     retry: () => calls.push(["retry"]),
   };
@@ -98,6 +100,78 @@ describe("ControlTrack", () => {
 
     await expect.element(screen.getByRole("dialog", { name: "排队" })).toBeVisible();
     await expect.element(children).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("lists the deliveries with the messages: one waiting can be removed, one handed to pi cannot", async () => {
+    const { calls, actions } = recording();
+    const control: Control = {
+      ...queued("再看一下 CSRF"),
+      deliveries: [
+        { id: "d1", kind: "report", fromTitle: "安全审查", event: "finished", state: "sending" },
+        { id: "d2", kind: "report", fromTitle: "补测试", event: "question", state: "waiting" },
+        { id: "d3", kind: "task", fromTitle: "修复", event: null, state: "waiting" },
+      ],
+    };
+    const screen = await render(track(control, true, actions));
+    await screen.getByRole("button", { name: "排队 4" }).click();
+    const rows = screen.getByTestId("delivery");
+
+    expect(rows.elements().map((row) => [row.textContent, row.getAttribute("data-state")])).toStrictEqual([
+      ["来自子对话「安全审查」：完成已交给 pi", "sending"],
+      ["来自子对话「补测试」：在问你的 agent待送", "waiting"],
+      ["来自主对话的 agent待送", "waiting"],
+    ]);
+    await expect.element(rows.nth(0).getByRole("button")).not.toBeInTheDocument();
+    await expect.element(rows.nth(0).getByRole("button", { name: "编辑" })).not.toBeInTheDocument();
+    await rows.nth(1).getByRole("button", { name: "删除" }).click();
+    await rows.nth(2).getByRole("button", { name: "删除" }).click();
+    expect(calls).toStrictEqual([
+      ["removeDelivery", "d2"],
+      ["removeDelivery", "d3"],
+    ]);
+  });
+
+  it("does not open the queue as a delivery arrives, and says the held ones wait until you go on", async () => {
+    const { calls, actions } = recording();
+    const delivery = { id: "d1", kind: "report", fromTitle: "安全审查", event: "finished", state: "waiting" } as const;
+    const screen = await render(track(IDLE_CONTROL, true, actions));
+    await screen.rerender(track({ ...IDLE_CONTROL, deliveries: [delivery] }, true, actions));
+    await expect.element(screen.getByRole("dialog", { name: "排队" })).not.toBeInTheDocument();
+
+    await screen.rerender(track({ ...IDLE_CONTROL, deliveries: [delivery], deliveriesHeld: "restart" }, true, actions));
+    await screen.getByRole("button", { name: "排队 1 · 已暂停" }).click();
+    await expect.element(screen.getByRole("dialog", { name: "排队" }).getByText("排队 1 · 已暂停")).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "清空" })).not.toBeInTheDocument();
+    await screen.getByTestId("deliveries-held").getByRole("button", { name: "继续" }).click();
+
+    expect(calls).toStrictEqual([["resumeDeliveries"]]);
+  });
+
+  it("says deliveries pi did not take were not sent, with 重试 that lets them go again", async () => {
+    const { calls, actions } = recording();
+    const delivery = { id: "d1", kind: "report", fromTitle: "安全审查", event: "finished", state: "waiting" } as const;
+    const screen = await render(
+      track({ ...IDLE_CONTROL, deliveries: [delivery], deliveriesHeld: "stalled" }, false, actions),
+    );
+    await screen.getByRole("button", { name: "排队 1 · 已暂停" }).click();
+    const held = screen.getByTestId("deliveries-held");
+
+    await expect.element(held).toHaveTextContent("没送出去重试");
+    await held.getByRole("button", { name: "重试" }).click();
+
+    expect(calls).toStrictEqual([["resumeDeliveries"]]);
+  });
+
+  it("offers 继续发送 for a stopped queue that holds only deliveries, and nothing to clear", async () => {
+    const { calls, actions } = recording();
+    const delivery = { id: "d1", kind: "task", fromTitle: "修复", event: null, state: "waiting" } as const;
+    const screen = await render(track({ ...IDLE_CONTROL, deliveries: [delivery], paused: "stopped" }, false, actions));
+    await screen.getByRole("button", { name: "排队 1 · 已暂停" }).click();
+
+    await expect.element(screen.getByRole("button", { name: "清空" })).not.toBeInTheDocument();
+    await screen.getByRole("button", { name: "继续发送" }).click();
+
+    expect(calls).toStrictEqual([["resume"]]);
   });
 
   it("says how many images a queued message has, and names one that is only images", async () => {
@@ -234,6 +308,7 @@ function turn(id: string, fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id,
+    source: null,
     user: { text: `问 ${id}`, images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: [],
     outcome: "done",

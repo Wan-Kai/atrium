@@ -46,6 +46,18 @@ export interface FauxScript {
   readonly tokensPerSecond?: number;
   readonly replies: readonly FauxReply[];
   /**
+   * What a pi Atrium started as a child the agent opened says instead, told by the flag the host
+   * gives it (`--atrium-agent=…` with `child: true`; SPEC-0002), so a parent and its children can
+   * answer differently from one script.
+   */
+  readonly childReplies?: readonly FauxReply[];
+  /**
+   * What a child the agent opened at depth 2 or more says instead of `childReplies`, so a child
+   * and its own child can answer differently. A child's replies are picked by how many the model
+   * already gave in its conversation, as its pi may be stopped and started again between them.
+   */
+  readonly grandchildReplies?: readonly FauxReply[];
+  /**
    * What pi answers in print mode (`-p`), as when the host asks for a session's title; without it,
    * an error, so the title stays the fallback.
    */

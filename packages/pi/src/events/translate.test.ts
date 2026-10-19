@@ -566,4 +566,22 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
       { kind: "part_delta", index: 0, delta: " there" },
     ]);
   });
+
+  it("reports notices or a task pi took from Atrium, and nothing for one it cannot read", () => {
+    const task = {
+      v: 1,
+      kind: "task",
+      deliveries: ["d1"],
+      from: "main",
+      fromTitle: "修复",
+      taskId: "t-1",
+      text: "look",
+    };
+    const translate = createEventTranslator(() => 99);
+
+    expect([
+      ...translate(customEnded("atrium-agent", task)),
+      ...translate(customEnded("atrium-agent", { ...task, v: 2 })),
+    ]).toStrictEqual([{ kind: "agent_message", details: task, timestamp: 42 }]);
+  });
 });

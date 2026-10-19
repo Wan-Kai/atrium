@@ -139,6 +139,7 @@ function turn(id: string, steps: Step[], outcome: Turn["outcome"] = "done"): Tur
   return {
     kind: "turn",
     id,
+    source: null,
     user: { text: "q", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps,
     outcome,

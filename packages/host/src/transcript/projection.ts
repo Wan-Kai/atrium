@@ -1,11 +1,11 @@
-import type { LogEntry } from "@atrium/pi";
+import { type LogEntry, agentSource } from "@atrium/pi";
 import type { Notice, TranscriptItem } from "@atrium/protocol";
-import { TurnDraft, type TurnFacts, messageCommand, steerText } from "./turn-draft";
+import { TurnDraft, type TurnFacts, messageCommand, noUser, steerText } from "./turn-draft";
 
 /** A rebuilt transcript, with which entry opened each turn. */
 export interface Projection {
   readonly items: readonly TranscriptItem[];
-  /** The user message entry that opened each turn, in order. */
+  /** The user message, notice or task entry that opened each turn, in order. */
   readonly turnEntryIds: readonly string[];
 }
 
@@ -31,7 +31,8 @@ function historyId(sessionId: string, entryId: string): string {
  * A user message the host saw open a turn opens one (`facts` from this host run, `opened` from
  * earlier ones); pi's file does not say, so any other
  * opens a turn unless it directly follows a tool result, which makes it a steer in the turn
- * running then (SPEC-0001, `steer`). Assistant messages add
+ * running then (SPEC-0001, `steer`). Atrium's notices and tasks go by the same rule: a turn of their
+ * own with them as its source, or a step (SPEC-0002, "对话记录里的自定义消息"). Assistant messages add
  * their blocks as steps; a failed reply that pi took out of the context (an omission) is followed
  * by a retry step, numbered as pi counts: consecutive failures count up, a successful reply
  * resets, and an empty error reads as pi's "Unknown error". An omission followed straight by a
@@ -137,6 +138,29 @@ export function projectTranscript(
         };
         // Before any turn, the next turn's start puts it in place all the same.
         notices.push(notice);
+        break;
+      }
+      case "agent": {
+        // Notices or a task: a step where a steer would be, a turn of their own otherwise (SPEC-0002).
+        const source = agentSource(entry.details);
+        if (source === null) break;
+        if (draft !== null && !facts.has(entry.id) && !opened.has(entry.id) && draft.turn.takesSteer) {
+          draft.turn.delivered(source, entry.timestamp);
+          break;
+        }
+        close();
+        const known = facts.get(entry.id);
+        draft = {
+          turn: new TurnDraft(
+            known?.turnId ?? historyId(sessionId, entry.id),
+            noUser(entry.timestamp),
+            known?.retryLimit ?? null,
+            source,
+          ),
+          entryId: entry.id,
+        };
+        turnEntryIds.push(entry.id);
+        retries = 0;
         break;
       }
       case "note":

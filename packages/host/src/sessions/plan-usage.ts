@@ -148,6 +148,7 @@ export function createPlanUsage(options: { readonly clock: Clock; readonly logge
   const found = (report: Extract<PlanReport, { windows: unknown }>): void => {
     const entry = entryOf(report.provider);
     entry.failure = null;
+    // Stryker disable next-line StringLiteral: the source is only ever compared with "reply", which neither is.
     entry.source = "asked";
     set(entry, { provider: report.provider, plan: report.plan, windows: report.windows, at: options.clock.now() });
   };

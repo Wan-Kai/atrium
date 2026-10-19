@@ -9,6 +9,7 @@ import {
   ArrowRight01Icon,
   ArrowRight02Icon,
   ArrowShrinkIcon,
+  ArrowTurnBackwardIcon,
   ArrowUp01Icon,
   ArrowUp02Icon,
   ArrowUpRight01Icon,
@@ -16,6 +17,7 @@ import {
   BubbleChatAddIcon,
   Cancel01Icon,
   CheckmarkCircle02Icon,
+  Clock01Icon,
   Clock02Icon,
   Coins01Icon,
   CommandLineIcon,
@@ -33,10 +35,10 @@ import {
   Files01Icon,
   FlashIcon,
   FlowchartIcon,
-  FoldVerticalIcon,
   Folder01Icon,
   FolderAddIcon,
   FolderOpenIcon,
+  FoldVerticalIcon,
   GitBranchIcon,
   GitCommitIcon,
   GitCompareIcon,
@@ -55,6 +57,7 @@ import {
   PuzzleIcon,
   RefreshIcon,
   ReloadIcon,
+  Robot01Icon,
   Search01Icon,
   SearchAddIcon,
   SearchMinusIcon,
@@ -154,6 +157,7 @@ export const ArrowClockwise = drawn(ReloadIcon);
 export const ArrowDown = drawn(ArrowDown02Icon);
 export const ArrowRight = drawn(ArrowRight02Icon);
 export const ArrowsClockwise = drawn(RefreshIcon);
+export const ArrowTurnBack = drawn(ArrowTurnBackwardIcon);
 export const ArrowsInLineVertical = drawn(FoldVerticalIcon);
 export const ArrowsOutLineVertical = drawn(UnfoldVerticalIcon);
 export const ArrowsInSimple = drawn(ArrowShrinkIcon);
@@ -168,6 +172,7 @@ export const Check = drawn(Tick02Icon);
 export const CheckCircle = drawn(CheckmarkCircle02Icon);
 export const CircleNotch = drawn(Loading03Icon);
 export const Code = drawn(SourceCodeIcon);
+export const Clock = drawn(Clock01Icon);
 export const ClockCounterClockwise = drawn(Clock02Icon);
 export const Coins = drawn(Coins01Icon);
 export const Copy = drawn(Copy01Icon);
@@ -210,6 +215,7 @@ export const ChatAdd = drawn(BubbleChatAddIcon);
 export const PlusSquare = drawn(AddSquareIcon);
 export const Question = drawn(HelpCircleIcon);
 export const Puzzle = drawn(PuzzleIcon);
+export const Robot = drawn(Robot01Icon);
 export const SidebarLeft = drawn(SidebarLeftIcon);
 export const SidebarRight = drawn(SidebarRightIcon);
 export const Slash = drawn(SlashIcon);

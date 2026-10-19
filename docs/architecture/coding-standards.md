@@ -74,7 +74,7 @@ export function EffortBox(props: EffortBoxProps) { … }
 
 ## 异步与取消
 
-- 不允许悬空的 Promise（oxlint `no-floating-promises`、`no-misused-promises`）。确实要"发出去不等"的，用 `void` 并在上一行写 `// Fire and forget: <为什么>`。
+- 不允许悬空的 Promise（oxlint `no-floating-promises`、`no-misused-promises`）。确实要"发出去不等"的，用 `void` 并在上一行写 `// Fire and forget: <为什么>`，它会失败的话自己接上 `.catch` 记日志。宿主另有全局兜底（`platform/stray-rejections.ts`）：漏掉的拒绝记一条 error 日志（`Error` 记 `{ err }`，别的只记类型，免得带出对话内容）、宿主不退出（Node 22 默认会让整个宿主崩掉、连带所有会话）；它在宿主启动时装、关闭或启动失败时卸，只是兜底，不代替 `.catch`（2026-10-19 加）。
 - 不拿长期不结束的 Promise（例如 pi 进程的 `exited`）做 `Promise.race` 的一方：每次 race 都在它上面挂一个回调，回调带着调用时的异步上下文（连同 trace 的 span）一直留到它结束，反复调用就越积越多。改成对它只挂一次、各次等待自己登记和注销（会话控制器的 `untilExit`，由本来就在等 pi 退出的 `watchExit` 叫醒）；那一次也不要在某条命令里懒创建，否则它带着那条命令的上下文活到 pi 退出。2026-10-10 浸泡测试发现：每次停止都在 pi 的 `exited` 上留一个，会话不归档就不释放。
 - 可能耗时的操作（子进程、git、网络、文件扫描、等待 pi 响应）都接受 `AbortSignal`，取消后释放资源。
 - 定时器、事件监听、订阅、子进程都要有对应的释放路径，并计入资源计数（[testing.md · 性能与资源泄漏](testing.md#性能与资源泄漏)）。

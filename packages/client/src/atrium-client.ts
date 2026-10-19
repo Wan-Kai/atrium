@@ -238,6 +238,10 @@ export interface AtriumClient {
   clearQueue(sessionId: string): Promise<CommandResult<"clear_queue">>;
   updateQueued(sessionId: string, itemId: string, text: string): Promise<CommandResult<"update_queued">>;
   removeQueued(sessionId: string, itemId: string): Promise<CommandResult<"remove_queued">>;
+  /** Takes a delivery out of the queue panel before it went to pi (SPEC-0002, "送达"). */
+  removeDelivery(sessionId: string, deliveryId: string): Promise<CommandResult<"remove_delivery">>;
+  /** Lets go the deliveries held since the host restarted, with `tree` those below the session too. */
+  resumeDeliveries(sessionId: string, tree: boolean): Promise<CommandResult<"resume_deliveries">>;
   steerQueued(sessionId: string, itemId: string): Promise<CommandResult<"steer_queued">>;
   answerInteraction(
     sessionId: string,
@@ -1290,6 +1294,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     clearQueue: (sessionId) => request("clear_queue", { sessionId }),
     updateQueued: (sessionId, itemId, text) => request("update_queued", { sessionId, itemId, text }),
     removeQueued: (sessionId, itemId) => request("remove_queued", { sessionId, itemId }),
+    removeDelivery: (sessionId, deliveryId) => request("remove_delivery", { sessionId, deliveryId }),
+    resumeDeliveries: (sessionId, tree) => request("resume_deliveries", { sessionId, tree }),
     steerQueued: (sessionId, itemId) => request("steer_queued", { sessionId, itemId }),
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),

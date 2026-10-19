@@ -583,10 +583,12 @@ describe("host lifecycle", () => {
     testHost = await startTestHost();
     const home = await createTempDir("failed-home");
     onTestFinished(home.cleanup);
+    const listening = process.listenerCount("unhandledRejection");
 
     const started = startHost({ home: home.path, token: testHost.token, port: testHost.host.port, piLatestUrl: null });
 
     await expect(started).rejects.toThrow(/EADDRINUSE/);
+    expect(process.listenerCount("unhandledRejection")).toBe(listening);
     const log = await readFile(`${home.path}/logs/current.log`, "utf8");
     expect(log).toContain('"msg":"host failed to start"');
     expect(await readdir(home.path)).toStrictEqual(["install-id", "logs"]);

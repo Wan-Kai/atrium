@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Clock } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { IndexFile } from "../store/index-file";
+import { type AgentRecord, type DeliveryRecord, agentFieldsOf } from "../store/agent-records";
 import type { SessionRecord, SessionsDocument } from "../store/index-schema";
 import { promptLine } from "./prompt-line";
 
@@ -20,15 +21,26 @@ export interface CatalogChat extends ContainerDir {
   readonly firstSessionId: string | null;
 }
 
-/** What the catalog knows of one session; the manager adds whether it runs or asks. */
-export type CatalogEntry = Omit<SessionSummary, "running" | "asking"> & {
-  /** The working directory pi starts in. */
-  readonly cwd: string;
-  /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
-  readonly fast: boolean | null;
-  /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
-  readonly usageAfter: string | null;
-};
+/** What Atrium keeps of a session for child conversations the agent opens (SPEC-0002, "第二步"). */
+export interface AgentFields {
+  /** For a child the agent opened; `null` for any other. */
+  readonly agent: AgentRecord | null;
+  /** The handles its agent used. */
+  readonly usedHandles: readonly string[];
+  /** What waits to go to its pi. */
+  readonly deliveries: readonly DeliveryRecord[];
+}
+
+/** What the catalog knows of one session; the manager adds whether it runs or asks, and its agent's state. */
+export type CatalogEntry = Omit<SessionSummary, "running" | "asking" | "agent" | "heldDeliveries"> &
+  AgentFields & {
+    /** The working directory pi starts in. */
+    readonly cwd: string;
+    /** Fast as last switched in it; `null` while it never was (SPEC-0001, "Fast"). */
+    readonly fast: boolean | null;
+    /** A child's usage baseline; `null` to count all of it (SPEC-0002, "用量合计"). */
+    readonly usageAfter: string | null;
+  };
 
 /** A new session's record: where it is, and for a child conversation its parent, name and baseline. */
 export interface NewRecord {
@@ -40,6 +52,8 @@ export interface NewRecord {
   readonly usageAfter?: string | null;
   /** Its file is written already, as a fork's is; a draft otherwise. */
   readonly persisted?: boolean;
+  /** A child the agent opens (SPEC-0002, "第二步"). */
+  readonly agent?: AgentRecord;
 }
 
 /** Finds the sessions of the registered containers and keeps Atrium's records of them. */
@@ -55,6 +69,11 @@ export interface SessionCatalog {
   detach(sessionId: string): Promise<void>;
   /** Names a recorded session in its record, as a draft child's name waits there (SPEC-0002, "概念 · 名字"). */
   name(sessionId: string, name: string): Promise<void>;
+  /**
+   * Changes a listed session's agent fields, adding a record for a session from the terminal; a
+   * change that leaves them as they were writes nothing (SPEC-0002, "接口与数据 · 第二步").
+   */
+  changeAgent(sessionId: string, change: (fields: AgentFields) => AgentFields): Promise<void>;
   /** Forgets a draft that was discarded. */
   forget(sessionId: string): Promise<void>;
   /** Hides a session in Atrium; pi's file stays. */
@@ -223,6 +242,7 @@ export function createSessionCatalog(options: {
         fast: record?.fast ?? null,
         parent: parentOf(record),
         usageAfter: record?.usageAfter ?? null,
+        ...agentFieldsOf(record ?? {}),
       });
     }
     for (const record of records.values()) {
@@ -245,6 +265,7 @@ export function createSessionCatalog(options: {
         fast: record.fast ?? null,
         parent: parentOf(record),
         usageAfter: record.usageAfter ?? null,
+        ...agentFieldsOf(record),
       });
     }
     return entries;
@@ -342,6 +363,21 @@ export function createSessionCatalog(options: {
       fast: entry.fast,
     };
     if (JSON.stringify({ ...marks, ...change }) === JSON.stringify(marks)) return;
+    await write(entry, { ...change });
+  }
+
+  /**
+   * Sets fields of a listed session's record, adding one for a session from the terminal.
+   *
+   * @remarks
+   * See `update`.
+   *
+   * @sideEffects Writes `sessions.json`; calls the listeners.
+   * @param entry - The session, as listed.
+   * @param change - The fields to set.
+   */
+  async function write(entry: CatalogEntry, change: Readonly<Record<string, unknown>>): Promise<void> {
+    const { sessionId } = entry;
     const sessions = options.file.read().sessions;
     const recorded = sessions.some((record) => record.sessionId === sessionId);
     await save(
@@ -407,6 +443,7 @@ export function createSessionCatalog(options: {
           ...(session.parent ? { parent: session.parent } : {}),
           ...(session.name === undefined ? {} : { name: session.name }),
           ...(session.usageAfter === undefined ? {} : { usageAfter: session.usageAfter }),
+          ...(session.agent === undefined ? {} : { agent: session.agent }),
         },
       ]);
     },
@@ -430,6 +467,18 @@ export function createSessionCatalog(options: {
     archive: (sessionId) => update(sessionId, { archived: true }),
     unarchive: (sessionId) => update(sessionId, { archived: false }),
     mark: (sessionId, change) => update(sessionId, change),
+    async changeAgent(sessionId, change) {
+      const entry = list().find((candidate) => candidate.sessionId === sessionId);
+      if (entry === undefined) return;
+      const before: AgentFields = { agent: entry.agent, usedHandles: entry.usedHandles, deliveries: entry.deliveries };
+      const after = change(before);
+      if (JSON.stringify(after) === JSON.stringify(before)) return;
+      await write(entry, {
+        ...(after.agent === null ? {} : { agent: after.agent }),
+        ...(after.usedHandles.length === 0 ? {} : { usedHandles: [...after.usedHandles] }),
+        deliveries: [...after.deliveries],
+      });
+    },
     scan() {
       if (scanning !== null) {
         again = true;

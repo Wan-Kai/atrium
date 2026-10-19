@@ -31,8 +31,28 @@ export {
 } from "./history/log-entry";
 export { contextParts } from "./history/system-prompt";
 export { type PiStats, piStatsOf } from "./stats/session-stats";
-export { type FileUsage, type UsageReader, createUsageReader, lastEntryId } from "./stats/file-usage";
+export { type FileUsage, type UsageReader, createUsageReader, lastEntryId, readEntries } from "./stats/file-usage";
 export { AGENT_COMMAND, type AgentNote, encodeArgument } from "./agent/agent";
+export { agentSource } from "./agent/details";
+export {
+  AGENT_FLAG,
+  AGENT_STATUS,
+  type AgentErrorCode,
+  type AgentEvent,
+  type AgentProgress,
+  type AgentRequest,
+  type AgentSelf,
+  type CallResults,
+  type CancelReason,
+  type Delivery,
+  FINAL_EVENTS,
+  HANDLE,
+  type ListedChild,
+  REPLY_LIMIT,
+  type ReadResult,
+  readRequest,
+} from "./agent/channel";
+export { CHILD_TOOLS, PARENT_TOOLS, READ_ONLY_TOOLS } from "./agent/words";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {
   type SessionDirectory,

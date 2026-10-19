@@ -134,6 +134,28 @@ export const RemoveQueuedCommand = z.strictObject({
 });
 export type RemoveQueuedCommand = z.infer<typeof RemoveQueuedCommand>;
 
+/**
+ * Takes a delivery out of the queue panel before it went to pi (SPEC-0002, "送达"); the agent
+ * that sent it is not told.
+ */
+export const RemoveDeliveryCommand = z.strictObject({
+  type: z.literal("remove_delivery"),
+  ...sessionCommandFields,
+  deliveryId: QueueItemId,
+});
+export type RemoveDeliveryCommand = z.infer<typeof RemoveDeliveryCommand>;
+
+/**
+ * Lets go the deliveries held since the host restarted: the session's, or with `tree` those of
+ * every session below it too ("全部继续"; SPEC-0002, "送达").
+ */
+export const ResumeDeliveriesCommand = z.strictObject({
+  type: z.literal("resume_deliveries"),
+  ...sessionCommandFields,
+  tree: z.boolean(),
+});
+export type ResumeDeliveriesCommand = z.infer<typeof ResumeDeliveriesCommand>;
+
 /** Takes a message out of the queue and sends it as a steer. */
 export const SteerQueuedCommand = z.strictObject({
   type: z.literal("steer_queued"),
@@ -752,6 +774,8 @@ export const Command = z.discriminatedUnion("type", [
   ClearQueueCommand,
   UpdateQueuedCommand,
   RemoveQueuedCommand,
+  RemoveDeliveryCommand,
+  ResumeDeliveriesCommand,
   SteerQueuedCommand,
   AnswerInteractionCommand,
   RetryRunCommand,
@@ -849,7 +873,11 @@ export const CommandResult = {
   detach_session: z.strictObject({}),
   clear_attention: z.strictObject({}),
   /** The session file, for `pi --session`. */
-  hand_off: z.strictObject({ file: z.string().min(1).max(4096) }),
+  /**
+   * `args`: the tool limits of a child the agent opened, which pi in a terminal takes as flags, as
+   * it has no Atrium extension; only advice there (SPEC-0002, "交接").
+   */
+  hand_off: z.strictObject({ file: z.string().min(1).max(4096), args: z.array(z.string().max(4096)).max(16) }),
   take_back: z.strictObject({}),
   rename_session: z.strictObject({}),
   set_preferences: z.strictObject({}),
@@ -862,6 +890,8 @@ export const CommandResult = {
   clear_queue: z.strictObject({}),
   update_queued: z.strictObject({}),
   remove_queued: z.strictObject({}),
+  remove_delivery: z.strictObject({}),
+  resume_deliveries: z.strictObject({}),
   steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
   answer_interaction: z.strictObject({}),
   retry_run: z.strictObject({}),

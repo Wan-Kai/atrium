@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { loadIndexFile } from "../store/index-file";
+import type { AgentRecord } from "../store/agent-records";
 import { SESSIONS_FILE } from "../store/index-schema";
 import { type ContainerDir, createSessionCatalog } from "./session-catalog";
 
@@ -109,6 +110,9 @@ describe("SessionCatalog", () => {
         fast: null,
         parent: null,
         usageAfter: null,
+        agent: null,
+        usedHandles: [],
+        deliveries: [],
       },
       expect.objectContaining({ sessionId: "s2", containerId: B, prompt: "hello", updatedAt: 200_000 }),
     ]);
@@ -169,6 +173,9 @@ describe("SessionCatalog", () => {
         fast: null,
         parent: null,
         usageAfter: null,
+        agent: null,
+        usedHandles: [],
+        deliveries: [],
       },
     ]);
 
@@ -571,5 +578,76 @@ describe("SessionCatalog before its first scan", () => {
 
     expect(file.read().sessions.map((record) => record.name)).toStrictEqual(["补测试", undefined]);
     expect(changes()).toBe(before + 1);
+  });
+
+  it("records a child the agent opened, and reads its agent fields leniently: a broken one loses only itself", async () => {
+    const { sessions, dirs, file } = await catalog();
+    const agent: AgentRecord = {
+      handle: "audit",
+      role: "explore",
+      toolGuard: "flags",
+      startOn: { providerId: "faux", modelId: "faux-1", thinkingLevel: null },
+      worktree: false,
+      tasks: [{ taskId: "t-1", state: "open", at: 1 }],
+    };
+    await sessions.record({
+      sessionId: "c1",
+      containerId: A,
+      cwd: dirs.a,
+      parent: { sessionId: "s1", by: "agent" },
+      name: "audit",
+      agent,
+    });
+    const delivery = { id: "d1", kind: "task", from: "s1", taskId: "t-1", text: "look", at: 2, state: "waiting" };
+    await file.save({
+      ...file.read(),
+      sessions: [
+        ...file.read().sessions,
+        {
+          sessionId: "s1",
+          containerId: A,
+          cwd: dirs.a,
+          draft: true,
+          archived: false,
+          createdAt: 1,
+          agent: { handle: "x" },
+          usedHandles: ["audit", 7, "tests"],
+          deliveries: [delivery, { id: "d2" }, null],
+        },
+      ],
+    });
+
+    expect(sessions.find("c1")).toMatchObject({ agent, usedHandles: [], deliveries: [] });
+    expect(sessions.find("s1")).toMatchObject({ agent: null, usedHandles: ["audit", "tests"], deliveries: [delivery] });
+  });
+
+  it("changes a session's agent fields, records a session from the terminal, and writes nothing that is the same", async () => {
+    const { sessions, dirs, file, changes, write } = await catalog();
+    await write(dirs.a, "term");
+    await sessions.scan();
+    const before = changes();
+    const delivery = {
+      id: "d1",
+      kind: "report",
+      from: "c1",
+      taskId: "t-1",
+      event: "finished",
+      at: 2,
+      state: "waiting",
+    } as const;
+
+    await sessions.changeAgent("term", (fields) => ({ ...fields, usedHandles: ["audit"], deliveries: [delivery] }));
+    await sessions.changeAgent("term", (fields) => fields);
+    await sessions.changeAgent("nobody", (fields) => ({ ...fields, usedHandles: ["x"] }));
+
+    expect(sessions.find("term")).toMatchObject({ usedHandles: ["audit"], deliveries: [delivery], agent: null });
+    expect(file.read().sessions).toMatchObject([
+      { sessionId: "term", containerId: A, draft: false, usedHandles: ["audit"], deliveries: [delivery] },
+    ]);
+    expect(Object.keys(present(file.read().sessions[0], "the record"))).not.toContain("agent");
+    expect(changes()).toBe(before + 1);
+
+    await sessions.changeAgent("term", (fields) => ({ ...fields, deliveries: [] }));
+    expect(file.read().sessions[0]).toMatchObject({ usedHandles: ["audit"], deliveries: [] });
   });
 });

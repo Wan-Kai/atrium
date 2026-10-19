@@ -1,4 +1,4 @@
-import type { LogEntry, TranslatedEvent } from "@atrium/pi";
+import { type LogEntry, type TranslatedEvent, agentSource } from "@atrium/pi";
 import {
   type Notice,
   type NoticeAddedEvent,
@@ -14,7 +14,7 @@ import {
 import { projectTranscript } from "./projection";
 import { forTransport, itemForTransport } from "./rules";
 import { type SessionLog, createSessionLog } from "./session-log";
-import { TurnDraft, type TurnFacts, messageCommand, steerText } from "./turn-draft";
+import { TurnDraft, type TurnFacts, messageCommand, noUser, steerText } from "./turn-draft";
 
 /** Fields the controller adds to every event it publishes. */
 type Envelope = "sessionId" | "epoch" | "seq" | "traceId";
@@ -330,6 +330,34 @@ export function createSessionTranscript(options: {
   }
 
   /**
+   * Applies notices or a task pi took: a step where a steer would be, a new turn otherwise.
+   *
+   * @remarks
+   * As a rebuild places them (`projectTranscript`; SPEC-0002, "对话记录里的自定义消息"). A turn they
+   * open answers no message of yours, so `origin` is not asked.
+   *
+   * @sideEffects Updates the live turn and the record of messages seen.
+   * @param event - The message, as pi took it.
+   * @returns The events to publish.
+   */
+  function arrived(event: Extract<TranslatedEvent, { kind: "agent_message" }>): TranscriptEvent[] {
+    const source = agentSource(event.details);
+    if (source === null) return [];
+    if (live?.draft.takesSteer === true) {
+      seen.push(null);
+      return [{ type: "step_added", turnId: live.draft.id, step: live.draft.delivered(source, event.timestamp) }];
+    }
+    const events = finishLive(false);
+    const draft = new TurnDraft(newId(), noUser(event.timestamp), null, source);
+    // Stryker disable next-line ObjectLiteral: the turn's end sets its facts before any rebuild reads them.
+    const record: SeenTurn = { facts: null };
+    seen.push(record);
+    live = { draft, record, startedAt: now(), thinkingMs: new Map(), thinking: null };
+    events.push({ type: "turn_started", turn: draft.running() });
+    return events;
+  }
+
+  /**
    * Ties the user messages seen live to the new user message entries of a read.
    *
    * @remarks
@@ -340,7 +368,14 @@ export function createSessionTranscript(options: {
    * @param fresh - Ids of the entries this read added.
    */
   function bindSeen(fresh: ReadonlySet<string>): void {
-    const users = log.branch().filter((entry) => entry.kind === "user" && fresh.has(entry.id));
+    // Notices and tasks were seen as user messages are, in the same order (`arrived`).
+    const users = log
+      .branch()
+      .filter(
+        (entry) =>
+          fresh.has(entry.id) &&
+          (entry.kind === "user" || (entry.kind === "agent" && agentSource(entry.details) !== null)),
+      );
     const count = Math.min(users.length, seen.length);
     const entries = users.slice(users.length - count);
     const records = seen.slice(seen.length - count);
@@ -371,6 +406,7 @@ export function createSessionTranscript(options: {
     entries: () => ({ all: log.all(), branch: log.branch() }),
     apply(event, origin) {
       if (event.kind === "message_finished") return finished(event.message, origin);
+      if (event.kind === "agent_message") return arrived(event);
       if (live === null) return [];
       const turnId = live.draft.id;
       if (event.kind === "assistant_started") {

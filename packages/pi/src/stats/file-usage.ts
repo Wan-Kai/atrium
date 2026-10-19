@@ -1,4 +1,6 @@
 import { open, readFile, stat } from "node:fs/promises";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { type LogEntry, toLogEntry } from "../history/log-entry";
 import { createLineSplitter, type LineSplitter } from "../process/jsonl";
 
 /** What a session produced: tokens of all four kinds and the cost at API prices, in US dollars. */
@@ -264,4 +266,35 @@ export async function lastEntryId(path: string): Promise<string | null> {
     if (Reflect.get(entry, "type") !== "session" && typeof id === "string") return id;
   }
   return null;
+}
+
+/**
+ * The entries of a session file, in Atrium's shape.
+ *
+ * @remarks
+ * For what the host reads of a child without its pi running: its replies and steps (SPEC-0002,
+ * `agent_read`) and where a notice's reply is. As `lastEntryId`, the header, a line pi is still
+ * writing and one that is not an entry are passed over.
+ *
+ * @sideEffects Reads the file.
+ * @param path - The session file.
+ * @returns The entries, in file order.
+ * @throws The file system's errors.
+ */
+export async function readEntries(path: string): Promise<LogEntry[]> {
+  const lines = (await readFile(path, "utf8")).split("\n");
+  // The text after the last LF is a line pi has not finished writing.
+  lines.pop();
+  return lines.flatMap((line) => {
+    const entry = objectOf(line);
+    if (entry === null || Reflect.get(entry, "type") === "session" || typeof Reflect.get(entry, "id") !== "string") {
+      return [];
+    }
+    try {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- pi wrote it as one of its entries; `toLogEntry` reads only what it knows and passes the rest over.
+      return [toLogEntry(entry as SessionEntry)];
+    } catch {
+      return [];
+    }
+  });
 }

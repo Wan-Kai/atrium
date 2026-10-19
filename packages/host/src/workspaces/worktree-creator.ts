@@ -18,9 +18,14 @@ export interface WorktreeCreator {
   create(projectId: string, branch: string, base: string): Promise<string>;
   /**
    * Creates a worktree for a child conversation, from where a workspace is now (SPEC-0002, "概念 ·
-   * 新 worktree 的起点"), on a branch named after `wanted`; returns the workspace and its directory.
+   * 新 worktree 的起点"), on a branch named after `wanted` under `prefix` (`atrium/` by default,
+   * `agent/` for a child the agent opens); returns the workspace, its directory and the branch.
    */
-  createFrom(workspaceId: string, wanted: string): Promise<{ readonly workspaceId: string; readonly dir: string }>;
+  createFrom(
+    workspaceId: string,
+    wanted: string,
+    prefix?: string,
+  ): Promise<{ readonly workspaceId: string; readonly dir: string; readonly branch: string }>;
 }
 
 /** The prefix of the branches of child conversations the user opens (SPEC-0002, "概念"). */
@@ -257,7 +262,7 @@ export function createWorktreeCreator(options: {
         options.refresh(workspaceId);
         return workspaceId;
       }),
-    createFrom: (workspaceId, wanted) =>
+    createFrom: (workspaceId, wanted, prefix = CHILD_PREFIX) =>
       options.queue.run(async () => {
         const workspace = options.projects.workspaces().find((candidate) => candidate.id === workspaceId);
         const project = options.projects.projects().find((candidate) => candidate.id === workspace?.projectId);
@@ -271,7 +276,7 @@ export function createWorktreeCreator(options: {
           throw error;
         });
         const projectId = project.id;
-        const { dir, start } = await (async () => {
+        const { dir, start, branch } = await (async () => {
           // Where the parent's workspace is now, detached or not; what it has not committed stays there.
           const head = await options.git.then((git) =>
             // Stryker disable next-line OptionalChaining: without git, `repositoryOf` above failed already.
@@ -282,17 +287,18 @@ export function createWorktreeCreator(options: {
             throw new CommandError("worktree_create_failed", { reason: "base_missing", base: "HEAD" });
           const name = cleanBranchName(wanted) ?? `child-${(options.randomWord ?? randomWord)()}`;
           for (let suffix = 1; suffix <= LAST_SUFFIX; suffix += 1) {
-            const branch = `${CHILD_PREFIX}${name}${suffix === 1 ? "" : `-${String(suffix)}`}`;
+            const candidate = `${prefix}${name}${suffix === 1 ? "" : `-${String(suffix)}`}`;
             // Stryker disable next-line StringLiteral: without `--verify` the full ref still matches only itself.
-            const free = (await run(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`])).code !== 0;
+            const free = (await run(["show-ref", "--verify", "--quiet", `refs/heads/${candidate}`])).code !== 0;
             const dirFree =
-              !options.projects.workspaces().some((other) => other.dir === worktreeDir(project.path, branch)) &&
-              (await stat(worktreeDir(project.path, branch)).catch(() => null)) === null;
-            if (free && dirFree) return addAt(project, run, branch, head.stdout.trim());
+              !options.projects.workspaces().some((other) => other.dir === worktreeDir(project.path, candidate)) &&
+              (await stat(worktreeDir(project.path, candidate)).catch(() => null)) === null;
+            if (free && dirFree)
+              return { ...(await addAt(project, run, candidate, head.stdout.trim())), branch: candidate };
           }
           throw new CommandError("worktree_create_failed", {
             reason: "branch_exists",
-            branch: `${CHILD_PREFIX}${name}`,
+            branch: `${prefix}${name}`,
           });
         })().catch((error: unknown) => {
           if (!(error instanceof GitError)) throw error;
@@ -302,7 +308,7 @@ export function createWorktreeCreator(options: {
         const created = await options.projects.addWorktree(projectId, dir, start);
         options.logger.info({ projectId, workspaceId: created }, "worktree created");
         options.refresh(created);
-        return { workspaceId: created, dir };
+        return { workspaceId: created, dir, branch };
       }),
   };
 }

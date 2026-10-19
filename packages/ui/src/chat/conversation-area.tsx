@@ -28,6 +28,7 @@ import { ChildCapsule } from "../children/child-capsule";
 import { askForChild } from "../children/new-child";
 import { MessageImagesContext, messageImages } from "./message-images";
 import { Transcript } from "./transcript";
+import { type AgentLinks, AgentLinksContext } from "./agent-links";
 import {
   type Launch,
   type NewWorkspaceState,
@@ -46,6 +47,7 @@ import {
   createWorkspaceViews,
   openFile,
   panelTabOf,
+  showViewer,
   viewOf,
 } from "../state/workspace-views";
 import { ActiveViewer } from "../files/active-viewer";
@@ -113,6 +115,9 @@ export function describeSendError(error: unknown): string {
 function describeForkError(error: unknown): string {
   if (!(error instanceof CommandError)) return "没能分叉";
   if (error.code === "session_busy") return "运行中不能分叉";
+  // The next turn opened with notices or a task, as the transcript had not shown yet (SPEC-0002).
+  if (error.code === "turn_not_found" && error.params?.["reason"] === "agent_turn")
+    return "下一轮不是你发的消息，不能从这里分叉";
   if (error.code === "turn_not_found") return "没能分叉：找不到这一轮";
   if (error.code === "fork_failed") return "没能分叉：pi 出错了";
   return "没能分叉";
@@ -371,6 +376,20 @@ function SessionArea({
   );
   // One per session, so thumbnails do not load again on every render.
   const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
+  const sessions = useStore(client.index, (index) => index.sessions);
+  const links = useMemo<AgentLinks>(
+    () => ({
+      open: (id) => {
+        // Shown over a viewer tab, as a session chosen in the sidebar is (SPEC-0002, "显示").
+        const target = sessions.find((one) => one.sessionId === id);
+        if (target !== undefined) showViewer(views, target.containerId, null);
+        void client.openSession(id).catch(() => showNotice(sessionId, "没能打开子对话", true));
+      },
+      session: (id) => sessions.find((one) => one.sessionId === id),
+      parentId: sessions.find((one) => one.sessionId === sessionId)?.parent?.sessionId ?? null,
+    }),
+    [client, views, sessionId, sessions],
+  );
   useEffect(() => {
     // The box's own effect has focused it by now, as children's effects run first.
     if (takesFocus) onFocusTaken();
@@ -393,6 +412,8 @@ function SessionArea({
     update: (itemId, text) => act(() => client.updateQueued(sessionId, itemId, text)),
     remove: (itemId) => act(() => client.removeQueued(sessionId, itemId)),
     steerQueued: (itemId) => act(() => client.steerQueued(sessionId, itemId)),
+    removeDelivery: (deliveryId) => act(() => client.removeDelivery(sessionId, deliveryId)),
+    resumeDeliveries: () => act(() => client.resumeDeliveries(sessionId, false)),
     answer: (interactionId, answer) => act(() => client.answerInteraction(sessionId, interactionId, answer)),
     retry: () => act(() => client.retryRun(sessionId)),
   };
@@ -408,21 +429,23 @@ function SessionArea({
         <EmptyLine />
       ) : (
         <MessageImagesContext value={images}>
-          <Transcript
-            view={view}
-            onLoadOlder={() => {
-              // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-              client.loadOlder(sessionId).catch(() => undefined);
-            }}
-            onLoadStep={(turnId, stepId) => {
-              // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-              client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-            }}
-            onRetry={actions.retry}
-            onFork={(turnId) => forkFrom(client, sessionId, turnId)}
-            onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
-            {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
-          />
+          <AgentLinksContext value={links}>
+            <Transcript
+              view={view}
+              onLoadOlder={() => {
+                // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+                client.loadOlder(sessionId).catch(() => undefined);
+              }}
+              onLoadStep={(turnId, stepId) => {
+                // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+                client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+              }}
+              onRetry={actions.retry}
+              onFork={(turnId) => forkFrom(client, sessionId, turnId)}
+              onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+              {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+            />
+          </AgentLinksContext>
         </MessageImagesContext>
       )}
       <ControlCards control={view.control} actions={actions} />

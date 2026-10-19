@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { type TreeSession, chainOf, childrenOf, crumbsOf, descendantsOf, rowStatus, tabStatus } from "./children";
+import {
+  type TreeSession,
+  chainOf,
+  childrenOf,
+  crumbsOf,
+  descendantsOf,
+  heldIn,
+  rowStatus,
+  tabStatus,
+} from "./children";
 
 /**
  * A session with its parent, if it has one, and what it is doing.
@@ -7,7 +16,8 @@ import { type TreeSession, chainOf, childrenOf, crumbsOf, descendantsOf, rowStat
  * @sideEffects none
  * @param sessionId - Its id.
  * @param parent - Its parent's id; `null` for none.
- * @param fields - Its other fields: updated when, archived, running, asking, attention.
+ * @param fields - Its other fields: updated when, archived, running, asking, attention, what the
+ * agent says of it, deliveries held.
  * @returns The session.
  */
 function at(sessionId: string, parent: string | null, fields: Partial<TreeSession> = {}): TreeSession {
@@ -19,6 +29,8 @@ function at(sessionId: string, parent: string | null, fields: Partial<TreeSessio
     asking: null,
     attention: null,
     running: false,
+    agent: null,
+    heldDeliveries: 0,
     ...fields,
   };
 }
@@ -77,6 +89,50 @@ describe("rowStatus and tabStatus", () => {
         at("main", null, { running: true }),
       ),
     ).toBe("auth");
+  });
+});
+
+describe("a child asking its parent's agent", () => {
+  /** A child the agent opened, in a run, waiting for its parent's agent to answer. */
+  const waiting = at("w", "main", {
+    running: true,
+    agent: {
+      handle: "w",
+      role: "work",
+      status: "waiting_for_parent",
+      progress: null,
+      question: "vitest?",
+      taskId: null,
+      taskStartedAt: null,
+    },
+  });
+
+  it("shows in its row as a question, below an error, and does not raise the tab", () => {
+    const failed = at("w", "main", { ...waiting, attention: { reason: "error", at: 1, cleared: false } });
+
+    expect([
+      rowStatus([at("main", null), waiting], waiting),
+      rowStatus(
+        [at("main", null), at("a", "main"), { ...waiting, parent: { sessionId: "a", by: "agent" } }],
+        at("a", "main"),
+      ),
+      rowStatus([at("main", null), failed], failed),
+      rowStatus([at("main", null), { ...waiting, running: false }], { ...waiting, running: false }),
+      tabStatus([at("main", null), waiting], at("main", null)),
+    ]).toStrictEqual(["asking", "asking", "error", "asking", null]);
+  });
+});
+
+describe("heldIn", () => {
+  it("adds the deliveries held in a session and all below it, and none elsewhere", () => {
+    const sessions = [
+      at("main", null, { heldDeliveries: 1 }),
+      at("a", "main", { heldDeliveries: 2 }),
+      at("b", "a", { heldDeliveries: 4 }),
+      at("other", null, { heldDeliveries: 8 }),
+    ];
+
+    expect([heldIn(sessions, "main"), heldIn(sessions, "a"), heldIn(sessions, "gone")]).toStrictEqual([7, 6, 0]);
   });
 });
 

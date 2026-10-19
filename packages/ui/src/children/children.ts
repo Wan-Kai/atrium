@@ -4,7 +4,7 @@ import { type RowStatus, sessionStatus, topStatus } from "../sidebar/status";
 /** What the child rules read of a session. */
 export type TreeSession = Pick<
   SessionSummary,
-  "sessionId" | "parent" | "archived" | "updatedAt" | "asking" | "attention" | "running"
+  "sessionId" | "parent" | "archived" | "updatedAt" | "asking" | "attention" | "running" | "agent" | "heldDeliveries"
 >;
 
 /**
@@ -57,6 +57,25 @@ export function descendantsOf<S extends TreeSession>(sessions: readonly S[], ses
 }
 
 /**
+ * A session's status in the child list: a child asking its parent's agent shows as a question.
+ *
+ * @remarks
+ * SPEC-0002 ("显示 · 子对话条"): `waiting_for_parent` has the question's icon and colour, as
+ * "待回答" has, and is counted with it. It is the parent's agent that answers, so it raises
+ * neither the tab nor the inbox (`tabStatus`, `inboxOf` read `sessionStatus`).
+ *
+ * @sideEffects none
+ * @param session - The session.
+ * @returns Its status.
+ */
+function listStatus(session: TreeSession): RowStatus {
+  const own = sessionStatus(session);
+  // A child asking its parent's agent is in a run, so the question outranks only that.
+  if (own !== null && own !== "running") return own;
+  return session.agent?.status === "waiting_for_parent" ? "asking" : own;
+}
+
+/**
  * A child row's status: the highest of its own and its whole subtree's, running included.
  *
  * @remarks
@@ -68,7 +87,24 @@ export function descendantsOf<S extends TreeSession>(sessions: readonly S[], ses
  * @returns The status.
  */
 export function rowStatus(sessions: readonly TreeSession[], session: TreeSession): RowStatus {
-  return topStatus([session, ...descendantsOf(sessions, session.sessionId)].map(sessionStatus));
+  return topStatus([session, ...descendantsOf(sessions, session.sessionId)].map(listStatus));
+}
+
+/**
+ * How many deliveries a session and its descendants hold since the host restarted.
+ *
+ * @remarks
+ * SPEC-0002 ("显示 · 子对话条"): the list says so on top, with "全部继续" letting the whole subtree's
+ * go at once, as the levels between seldom have a tab open.
+ *
+ * @sideEffects none
+ * @param sessions - Every session.
+ * @param sessionId - The top of the subtree.
+ * @returns The count.
+ */
+export function heldIn(sessions: readonly TreeSession[], sessionId: string): number {
+  const own = sessions.find((session) => session.sessionId === sessionId)?.heldDeliveries ?? 0;
+  return descendantsOf(sessions, sessionId).reduce((sum, session) => sum + session.heldDeliveries, own);
 }
 
 /**

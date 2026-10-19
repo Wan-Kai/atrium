@@ -18,7 +18,7 @@
 
 - 对话内容只在 pi 里有一份（[ADR-0006](../adr/0006-organize-sessions-by-workspace.md)）。能从 pi 或 git 推出来的，Atrium 只缓存，不写进索引。
 - 每个字段只有一个可写来源。外观、状态栏分组是全局偏好；标签页、当前容器是某个客户端的布局；两者不混放。
-- 只在宿主内存里的东西（排队、待交互请求、当场计时）宿主重启后丢失，界面显示"未知"或"—"，不假装恢复。
+- 只在宿主内存里的东西（排队、待交互请求、当场计时）宿主重启后丢失，界面显示"未知"或"—"，不假装恢复。例外是子对话之间的待送达（SPEC-0002 第二步）：它们要撑过宿主重启，记在收件会话的索引记录里，重启后暂停，等你继续。
 
 ## 1. 项目、工作区、会话
 
@@ -73,6 +73,9 @@ classDiagram
       archived: bool
       parent?  [索引] 父会话 id + 谁开的，SPEC-0002
       usageAfter?  [索引] 用量的基线条目 id，SPEC-0002
+      agent?  [索引] agent 开的子对话：句柄、角色、工具限制、起点模型、任务，SPEC-0002
+      usedHandles?  [索引] 用过的句柄，只增不减，SPEC-0002
+      deliveries?  [索引] 待送达的通知和交代，SPEC-0002
       title()  piName、记录的名字或兜底标题
     }
     class MergeState {
@@ -118,6 +121,7 @@ classDiagram
   - pi 恢复会话时用的是文件头里的 `cwd`；工作区目录被移走或删除时，恢复报"目录不存在"，不悄悄换目录。
   - 扫描到两个文件带同一个 id 时报告冲突，不自动合并。
   - **子对话**（SPEC-0002，M1.15）：父子关系只记在索引里（`parent: { sessionId, by }`），不读 pi 会话头的 `parentSession`（新 worktree 的子对话指向已删掉的中间文件）。子对话可以和父会话在同一个容器，也可以在另一个工作区（新建的 worktree）；层数不限，遇到环时在闭合处断开。记录里的名字（`name`）给 pi 写出文件前的草稿子对话用，pi 有了名字以 pi 的为准。`usageAfter` 是分叉出的文件里最后一条条目的 id，状态栏的"含子对话"只算它之后的；空的子对话没有基线，从头算。脱离只去掉 `parent`，它下面的关系不变。
+  - **agent 开的子对话**（SPEC-0002 第二步）：记录多一个 `agent`：不变的句柄 `handle`（寻址和分支名 `agent/<handle>` 用它；显示名就是会话名，可改）、角色、工具限制的做法 `toolGuard`（启动参数，或带上下文时由扩展的 `tool_call` 钩子拦）、第一次起 pi 用的模型和档位、是否在自己的 worktree、任务记录 `tasks: [{ taskId, originTask?, followUpOf?, state }]`。父会话的记录存 `usedHandles`，同一父会话下句柄永不重复。收件会话的记录存 `deliveries`：往上送的通知只存引用（哪个子对话、哪件任务、哪种事件），交代存全文，发出后在文件里见到才删。它们在索引里存成宽松的 JSON，由宿主读时校验，读不出的当作没有。
 - **MergeState** 由 MergeInspector 计算。`unknown` 带原因：git 低于 2.38、主干引用缺失、查询失败、外部 worktree 起点无法判断。合并判定按"分支提交 + 主干提交"缓存；`dirty` 和目录是否存在每次单独刷新。界面映射：`dirty` 优先显示"未提交"，否则 `verdict` 为 `pending` 且 `ahead > 0` 显示 `↑N`（squash 合并后分支仍比主干多提交，但已判定为已合并，不显示 `↑N`），再看 `verdict`。
 
 ### 索引的存储（2026-10-08 定）
@@ -375,7 +379,7 @@ classDiagram
 - **Controller 跨过 pi 的重启**（2026-10-09 定，M1.6）：一个会话从第一次启动 pi 起只有一个 Controller；pi 退出后再启动（崩溃自动重启、重新打开、"重试"）时，Controller 换上新进程（`processEpoch + 1`，推新的快照），排队、重启计数、连续失败留在 Runtime 里，不随进程丢失。M1.5 及以前是每个进程一个 Controller。
 - **SessionManager** 负责 Controller 的创建、查找，以及几种"离开"动作。
 - **生命周期**沿用 Paseo 的划分：`initializing`（进程启动中）、`idle`、`running`（从提交到 `agent_settled`，含自动重试和压缩）、`error`（进程异常退出或运行失败）、`closed`（有记录、没有进程，比如宿主重启后还没打开过）。
-- **MVP 1 不回收空闲进程**（与 Paseo 一致）：会话一旦打开，pi 进程就常驻，直到归档、交给终端、宿主退出或进程崩溃。以后会话多了再加回收。
+- **MVP 1 不回收空闲进程**（与 Paseo 一致）：会话一旦打开，pi 进程就常驻，直到归档、交给终端、宿主退出或进程崩溃。以后会话多了再加回收。例外是 agent 开的子对话（SPEC-0002 第二步，M1.15）：一轮做完、没有标签开着、排队和待送达都空、没有挂着的对话框时停掉它的 pi（`requested`，不当成出错），下次交代、送通知或你打开它时再起；停和起按会话依次做，不交叉。
 
 **几种"离开"分开命名**
 
@@ -650,6 +654,7 @@ classDiagram
 - **FileSearch** 在会话的工作目录里调 `fd`，参数和排序照 pi 的终端界面，git 仓库和普通目录一样（2026-10-10 定，原先打算 git 仓库用 `git ls-files`、其他目录自己遍历）。
 - **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个）。主干按"已决定 15"：项目设置（ProjectService）或 `origin/HEAD`；和 WorkspaceService 不同的是，`origin` 上没有主干时退到本地主干（照 Paseo）。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。
 - 指标的计时和汇总是 SessionController 内部的事，不单独成服务。子对话的用量合计（SPEC-0002，M1.15）是例外，要跨会话：SessionManager 持有一个 ChildrenUsage，用 pi 包的 UsageReader 增量读每个子孙的会话文件（只算基线之后的；归档的子孙也算，脱离的不算；同一个文件一次只读一个，几层祖先同时刷新也不重复算），在索引变化、子对话自己的指标变化时刷新它上面的每一层，交给各自的 SessionController 放进指标的 `children`。
+- **AgentRelay**（`sessions/agent-relay.ts`，SPEC-0002 第二步，M1.15）是 agent 开子对话的另一处跨会话逻辑，由 SessionManager 持有：读每个 pi 进程状态行上扩展的调用（按会话和进程代次去重），核对调用方和当前的父子关系，答复或经隐藏命令 `/atrium-agent` 回给扩展（ADR-0013）；记任务、等待（内存里，取走待送达的事件）、子对话问主 agent 的问题（内存里）和最近一条进度；把事件写进待送达，交给收件会话的 SessionController 在合适的时机发给 pi（`ControllerDeliveries`）；查名额（每个父会话 6 个）、回收空闲的子对话。它不知道 WebSocket 和界面，开子对话、起停 pi、读会话文件都经 SessionManager 注入的 `AgentHost`。
 
 ## 7. 客户端与一致性
 
@@ -731,6 +736,7 @@ classDiagram
 | `rename_chat` | ChatRecords（`chats.json`） |
 | `archive_chat` / `restore_chat` | SessionManager（停 pi、归档或放回会话）→ ChatRecords（记录）（M1.11） |
 | `list_sessions` / `list_chats` / `create_session` / `create_chat` / `open_session` / `close_tab` / `archive_session` / `rename_session` / `hand_off` / `take_back` / `clear_attention` / `detach_session` | SessionManager；`create_session` 带 `child` 时开子对话，新 worktree 的经 WorktreeCreator 从父工作区当前的提交建（M1.15） |
+| `remove_delivery` / `resume_deliveries` | SessionManager → AgentRelay：删掉一条待送的，或放开宿主重启后暂停的（`tree` 时连同子树），再交给收件会话的 SessionController（M1.15） |
 | `subscribe_index(cursor?)` | IndexFeed |
 | `subscribe_sessions(ids)` / `fetch_transcript(sessionId, direction, cursor, limit)` | SessionManager → SessionController |
 | `prompt` / `steer` / `stop` / `resume_queue` / `clear_queue` / `update_queued` / `remove_queued` / `steer_queued` / `answer_interaction` / `set_model` / `set_thinking_level` | SessionController |
@@ -758,7 +764,7 @@ classDiagram
 
 1. **对话不算工作区，但和工作区一样是容器**：每个对话一个目录、可以有多个会话，通过 SessionContainer 与工作区统一选择、列表和新建入口；没有 git（2026-10-12 改，[ADR-0007](../adr/0007-each-chat-is-its-own-container.md)；原先所有对话在一个全局的 ChatSpace 里）。
 2. **会话主键用 pi 的会话 id**，文件路径是可更新的定位；草稿会话也有 id；同 id 多文件报冲突。
-3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档、交给终端或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。
+3. **MVP 1 不回收空闲进程**：打开过的会话进程常驻到归档、交给终端或宿主退出；排队、关注状态、当场计时随 Runtime 一直在。宿主重启后会话是 `closed`，打开时重建，当场计时显示"—"。agent 开的子对话例外，空闲且没人看时回收（SPEC-0002，M1.15，见 §3）。
 4. **标签页不跨客户端同步**：布局按 `clientId + containerId` 存在索引里。
 5. **会话归属**：Atrium 建的会话创建时记下所属容器；Atrium 没见过的会话按文件头的 `cwd` 归类。
 6. **失败重试 3 次再告诉用户**：模型调用的可重试错误交给 pi 自带的重试（宿主确保开启，次数沿用 pi 的设置，默认 3）；进程崩溃由 SessionController 自动重启，最多连续 3 次，崩溃前那条输入没写进会话就重新提交，已写进就补发一条"继续"；认证失败、目录不存在不重试。3 次都失败才设关注状态、显示错误卡片，卡片上的"重试"按同样规则再来一轮。Runtime 里加 `restartAttempts` 计数，一轮结束且没有失败（完成或被停止）后清零（2026-10-09 改）。模型重试的次数沿用 pi 的设置（默认 3），宿主只确保开启（2026-10-09 定，RPC 改不了次数）。

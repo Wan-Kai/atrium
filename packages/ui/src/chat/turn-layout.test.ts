@@ -1,4 +1,4 @@
-import type { Step, Turn } from "@atrium/protocol";
+import type { AgentEventKind, AgentNoticeEvent, Step, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import {
   type ToolStep,
@@ -9,7 +9,9 @@ import {
   formatDuration,
   formatTokens,
   hostNoticeText,
+  laneLayout,
   layoutTurn,
+  processSteps,
   opening,
   parseDisplayDiff,
   processParts,
@@ -36,6 +38,7 @@ function turn(steps: Step[], fields: Partial<Turn> = {}): Turn {
   return {
     kind: "turn",
     id: "t1",
+    source: null,
     user: { text: "do it", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps,
     outcome: "done",
@@ -46,6 +49,74 @@ function turn(steps: Step[], fields: Partial<Turn> = {}): Turn {
     changes: [],
     ...fields,
   };
+}
+
+/**
+ * An event of a child's task, as a notice or a wait brings it.
+ *
+ * @sideEffects none
+ * @param taskId - The task; the child is named after it.
+ * @param event - What happened.
+ * @param fields - Its other fields.
+ * @returns The event.
+ */
+function event(taskId: string, kind: AgentEventKind, fields: Partial<AgentNoticeEvent> = {}): AgentNoticeEvent {
+  return {
+    sessionId: `s-${taskId}`,
+    name: taskId,
+    title: taskId,
+    taskId,
+    event: kind,
+    reason: null,
+    elapsedMs: null,
+    question: null,
+    branch: null,
+    changes: null,
+    ...fields,
+  };
+}
+
+/**
+ * An `agent_spawn` call that started a child on a task.
+ *
+ * @sideEffects none
+ * @param id - The step's id.
+ * @param taskId - The task; the child is named after it.
+ * @returns The step.
+ */
+function spawn(id: string, taskId: string): ToolStep {
+  return {
+    ...tool(id, "agent_spawn", "done", {
+      tool: "agent",
+      spawned: { sessionId: `s-${taskId}`, name: taskId, taskId, role: "explore", branch: null },
+      events: [],
+    }),
+    args: { name: taskId },
+  };
+}
+
+/**
+ * An `agent_wait` call that brought these events back.
+ *
+ * @sideEffects none
+ * @param id - The step's id.
+ * @param events - The events.
+ * @returns The step.
+ */
+function waited(id: string, events: AgentNoticeEvent[]): ToolStep {
+  return tool(id, "agent_wait", "done", { tool: "agent", spawned: null, events });
+}
+
+/**
+ * Notices that came in during the run.
+ *
+ * @sideEffects none
+ * @param id - The step's id.
+ * @param events - The events.
+ * @returns The step.
+ */
+function noticed(id: string, events: [AgentNoticeEvent, ...AgentNoticeEvent[]]): Step {
+  return { kind: "agent", id, source: { kind: "report", events } };
 }
 
 describe("layoutTurn", () => {
@@ -79,6 +150,73 @@ describe("layoutTurn", () => {
       { kind: "explore", id: "4", steps: [alone, steps[5], steps[6]] },
     ]);
     expect(layoutTurn(turn([alone, text("1", "ok")])).process).toStrictEqual([{ kind: "step", step: alone }]);
+  });
+});
+
+describe("layoutTurn with children", () => {
+  it("makes a row of each event a wait or a notice brought, after the wait and in place of the notice", () => {
+    const wait = waited("1", [event("a", "finished"), event("b", "question")]);
+    const steps = [spawn("0", "a"), wait, noticed("2", [event("c", "failed")]), text("3", "done")];
+
+    expect(layoutTurn(turn(steps)).process).toStrictEqual([
+      { kind: "step", step: steps[0] },
+      { kind: "step", step: wait },
+      { kind: "event", id: "1:0", event: event("a", "finished") },
+      { kind: "event", id: "1:1", event: event("b", "question") },
+      { kind: "event", id: "2:0", event: event("c", "failed") },
+    ]);
+  });
+
+  it("keeps a task that came in as a step", () => {
+    const task: Step = { kind: "agent", id: "0", source: { kind: "task", fromTitle: "修复", taskId: "t", text: "go" } };
+
+    expect(layoutTurn(turn([task])).process).toStrictEqual([{ kind: "step", step: task }]);
+  });
+});
+
+describe("laneLayout", () => {
+  it("opens a lane for each child, runs it past the rows, touches it where the child asks, and merges it where its task ends", () => {
+    const steps = [
+      spawn("0", "a"),
+      spawn("1", "b"),
+      tool("2", "bash"),
+      waited("3", [event("b", "question"), event("a", "finished", { elapsedMs: 4000 })]),
+      noticed("4", [event("b", "stopped")]),
+    ];
+
+    expect(laneLayout(layoutTurn(turn(steps)).process)).toStrictEqual({
+      width: 2,
+      rows: [
+        { through: [], opens: 0, closes: null, touches: null, goesOn: [], took: 4000 },
+        { through: [0], opens: 1, closes: null, touches: null, goesOn: [], took: null },
+        { through: [0, 1], opens: null, closes: null, touches: null, goesOn: [], took: null },
+        { through: [0, 1], opens: null, closes: null, touches: null, goesOn: [], took: null },
+        { through: [0, 1], opens: null, closes: null, touches: 1, goesOn: [], took: null },
+        { through: [0, 1], opens: null, closes: 0, touches: null, goesOn: [], took: null },
+        { through: [1], opens: null, closes: 1, touches: null, goesOn: [], took: null },
+      ],
+    });
+  });
+
+  it("gives a freed lane to the next child, leaves a task going on past the turn not ended, and no lane to another turn's", () => {
+    const steps = [
+      spawn("0", "a"),
+      noticed("1", [event("a", "ended"), event("old", "finished")]),
+      spawn("2", "b"),
+      noticed("3", [event("b", "needs_you")]),
+    ];
+
+    expect(laneLayout(layoutTurn(turn(steps)).process)).toStrictEqual({
+      width: 1,
+      rows: [
+        { through: [], opens: 0, closes: null, touches: null, goesOn: [], took: null },
+        { through: [0], opens: null, closes: 0, touches: null, goesOn: [], took: null },
+        { through: [], opens: null, closes: null, touches: null, goesOn: [], took: null },
+        { through: [], opens: 0, closes: null, touches: null, goesOn: [0], took: null },
+        { through: [0], opens: null, closes: null, touches: 0, goesOn: [0], took: null },
+      ],
+    });
+    expect(laneLayout([])).toStrictEqual({ width: 0, rows: [] });
   });
 });
 
@@ -284,6 +422,57 @@ describe("describeStep", () => {
   });
 });
 
+describe("processSteps and children", () => {
+  it("gives the steps of a turn's rows, explored ones one by one, and no events", () => {
+    const reads = [tool("1", "read"), tool("2", "grep")];
+    const rows = layoutTurn(turn([spawn("0", "a"), ...reads, waited("3", [event("a", "finished")])])).process;
+
+    expect(processSteps(rows).map((step) => step.id)).toStrictEqual(["0", "1", "2", "3"]);
+  });
+
+  it("merges a lane where its task failed", () => {
+    const rows = layoutTurn(turn([spawn("0", "a"), noticed("1", [event("a", "failed")])])).process;
+
+    expect(laneLayout(rows).rows.map((row) => row.closes)).toStrictEqual([null, 0]);
+  });
+
+  it("names a tool it does not know by its name, though its details are an agent tool's", () => {
+    const odd = tool("0", "custom_agent", "done", { tool: "agent", spawned: null, events: [] });
+
+    expect(describeStep(odd, false).verb).toBe("custom_agent");
+  });
+});
+
+describe("describeStep for children", () => {
+  it("names what the agent's tools worked on, running and done", () => {
+    const running = { ...spawn("0", "tests"), status: "running" as const };
+    const send = { ...tool("1", "agent_send"), args: { to: "tests", message: "再补一个" } };
+    const wait = { ...tool("2", "agent_wait"), args: { tasks: ["t1", "t2"] } };
+    const ask = { ...tool("3", "ask_parent", "failed"), args: { question: "vitest?\nor jest" } };
+
+    expect(
+      [running, spawn("0", "tests"), send, wait, tool("4", "agent_wait"), ask].map((step) => describeStep(step, false)),
+    ).toStrictEqual([
+      { verb: "正在开子对话", object: "tests", end: null },
+      { verb: "开子对话", object: "tests", end: null },
+      { verb: "交代了子对话", object: "tests", end: null },
+      { verb: "等了子对话", object: "2 件事", end: null },
+      { verb: "等了子对话", object: "所有子对话", end: null },
+      { verb: "问了主 agent", object: "vitest?", end: "失败" },
+    ]);
+  });
+
+  it("says where a step that came in came from", () => {
+    const step = noticed("0", [event("审查", "finished", { elapsedMs: 192_000 })]);
+
+    expect(describeStep(step, false)).toStrictEqual({
+      verb: "来自子对话「审查」· 完成 · 用时 3 分 12 秒",
+      object: "",
+      end: null,
+    });
+  });
+});
+
 describe("describeExplore", () => {
   it("says what looking around came to, and that it is going on while live", () => {
     const read = { tool: "read", path: "a.ts", offset: null, limit: null } as const;
@@ -345,6 +534,21 @@ describe("transcriptMarkdown", () => {
       ]),
     ).toBe(
       "> list\n> files\n\n- 运行了 · ls（通过）\n\n**Done.**\n\n---\n\n> 上下文已压缩 · 压缩前 152K tokens\n\n---\n\n> do it\n\n> 出错：429\n",
+    );
+  });
+
+  it("writes where a turn notices or a task opened came from, and each event a child came to where it came in", () => {
+    const report = turn([waited("0", [event("审查", "question", { question: "哪个？\n两种" })]), text("1", "ok")], {
+      source: { kind: "report", events: [event("测试", "finished", { elapsedMs: 5_000 })] },
+    });
+    const task = turn([], { source: { kind: "task", fromTitle: "修复", taskId: "t", text: "补测试\n再跑一遍" } });
+    const steered = turn([
+      { kind: "agent", id: "0", source: { kind: "task", fromTitle: "修复", taskId: "t2", text: "再补一个" } },
+    ]);
+
+    expect(transcriptMarkdown([steered])).toBe("> do it\n\n- 来自主对话的 agent · 交代的事\n");
+    expect(transcriptMarkdown([report, task])).toBe(
+      "> 来自子对话「测试」· 完成 · 用时 5 秒\n\n- 等了子对话 · 所有子对话\n- 来自子对话「审查」· 在问 · 哪个？\n\nok\n\n---\n\n> 来自主对话的 agent · 交代的事\n> 补测试\n> 再跑一遍\n",
     );
   });
 

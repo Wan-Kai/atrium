@@ -49,6 +49,7 @@ function drivenPi() {
       context: { tokens: 2, window: 100 },
     }),
     stop: async () => exit.resolve({ code: 0, signal: null, requested: true }),
+    command: async () => undefined,
   };
   return {
     pi,

@@ -95,6 +95,7 @@ function answered(text: string, outcome: Turn["outcome"]): Turn {
   return {
     kind: "turn",
     id: "t1",
+    source: null,
     user: { text: "展示一下", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
     steps: text === "" ? [] : [{ kind: "text", id: "0", text }],
     outcome,

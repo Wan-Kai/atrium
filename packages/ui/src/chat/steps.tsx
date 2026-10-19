@@ -2,6 +2,7 @@ import type { Step } from "@atrium/protocol";
 import { Check, MagnifyingGlass, X } from "../design/icons";
 import { type ReactNode, createContext, useContext, useEffect, useId, useState } from "react";
 import { FileIcon } from "../files/file-icon";
+import { EventWords, type LanePlace, LaneMarks, SpawnWords, laneIndent } from "./lanes";
 import { Markdown } from "./markdown";
 import {
   type ProcessRow,
@@ -17,10 +18,12 @@ import { useRevealedText } from "./use-revealed-text";
  * What stands on the rail for a row (design-language, "消息流 · 过程"); `wait` and `fail` are the
  * new-workspace timeline's steps not started and failed (design-language, "新建工作区页").
  */
-export type RailNode = "dot" | "search" | "live" | "dead" | "steer" | "wait" | "fail";
+export type RailNode = "dot" | "search" | "live" | "dead" | "steer" | "wait" | "fail" | "pass";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
+  // A row whose node is on a lane: the main line runs past unbroken (SPEC-0002, "显示 · 过程轨道").
+  pass: 0,
   dot: 7,
   live: 7,
   dead: 7,
@@ -43,6 +46,7 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
  * @returns The glyph.
  */
 function NodeGlyph({ node }: { readonly node: RailNode }) {
+  if (node === "pass") return null;
   if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
   if (node === "dead") return <X size={10} weight="bold" className="text-[var(--text-dim)]" />;
   if (node === "fail") return <X size={10} weight="bold" className="text-[var(--danger)]" />;
@@ -473,6 +477,25 @@ interface RailPlace {
 const ALONE: RailPlace = { first: true, last: true, enter: false };
 
 /**
+ * A row's padding past the rail, and its lanes' marks.
+ *
+ * @remarks
+ * The words start past the turn's lanes, if it has any (SPEC-0002, "显示 · 过程轨道").
+ *
+ * @sideEffects none
+ * @param lanes - The row's place among the lanes, if the turn has lanes.
+ * @param asks - Whether the row's event is a question, drawn in the question's colour.
+ * @returns The style and the marks.
+ */
+function laned(
+  lanes: LanePlace | undefined,
+  asks = false,
+): { style: { paddingLeft: number } | undefined; marks: ReactNode } {
+  if (lanes === undefined || lanes.width === 0) return { style: undefined, marks: null };
+  return { style: { paddingLeft: laneIndent(lanes.width) }, marks: <LaneMarks place={lanes} asks={asks} /> };
+}
+
+/**
  * The words of a step's row: the verb, then what it worked on.
  *
  * @remarks
@@ -572,7 +595,7 @@ function StepEnd({ step }: { readonly step: Step }) {
  */
 function stepNode(step: Step, live: boolean): RailNode {
   if (step.kind === "tool" && step.status === "failed") return "dead";
-  if (step.kind === "steer") return "steer";
+  if (step.kind === "steer" || step.kind === "agent") return "steer";
   return live ? "live" : "dot";
 }
 
@@ -599,11 +622,13 @@ function StepRow({
   step,
   live,
   place,
+  lanes,
 }: {
   readonly turnId: string;
   readonly step: Step;
   readonly live: boolean;
   readonly place: RailPlace;
+  readonly lanes?: LanePlace | undefined;
 }) {
   const [opened, setOpened] = useState(false);
   const opens = hasDetail(step);
@@ -632,16 +657,22 @@ function StepRow({
       details?.tool === "read" || details?.tool === "edit" || details?.tool === "write" ? details.path : null,
     ) !== null;
   const wordsId = useId();
+  const { style, marks } = laned(lanes);
+  const spawned = step.kind === "tool" && step.details?.tool === "agent" && step.details.spawned !== null;
   return (
     <div
       className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
+      style={style}
       data-testid="step"
       data-kind={step.kind}
       data-open={open}
       data-fold-row
     >
       <RailMarks node={stepNode(step, live)} first={place.first} last={place.last} />
-      {opens && opensFile ? (
+      {marks}
+      {spawned ? (
+        <SpawnWords step={step} took={lanes?.row.took ?? null} />
+      ) : opens && opensFile ? (
         // The row's button lies under its words, so the file's chip in them is a button of its own.
         <div className={`atrium-press-row relative ${LINE_CLASS} has-[>button:hover]:bg-[var(--hover)]`}>
           <button
@@ -691,24 +722,29 @@ function ExploreRow({
   steps,
   live,
   place,
+  lanes,
 }: {
   readonly turnId: string;
   readonly steps: readonly ToolStep[];
   readonly live: boolean;
   readonly place: RailPlace;
+  readonly lanes?: LanePlace | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const line = describeExplore(steps, live);
   const files = exploredFiles(steps);
+  const { style, marks } = laned(lanes);
   return (
     <div
       className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
+      style={style}
       data-testid="step"
       data-kind="explore"
       data-open={open}
       data-fold-row
     >
       <RailMarks node={live ? "live" : "search"} first={place.first} last={place.last} />
+      {marks}
       <button
         type="button"
         aria-expanded={open}
@@ -757,14 +793,36 @@ export function ProcessRowView({
   row,
   isLive,
   place = ALONE,
+  lanes,
 }: {
   readonly turnId: string;
   readonly row: ProcessRow;
   readonly isLive: (step: Step) => boolean;
   readonly place?: RailPlace;
+  /** The row's place among the turn's lanes (SPEC-0002, "显示 · 过程轨道"). */
+  readonly lanes?: LanePlace | undefined;
 }) {
   if (row.kind === "explore") {
-    return <ExploreRow turnId={turnId} steps={row.steps} live={row.steps.some(isLive)} place={place} />;
+    return <ExploreRow turnId={turnId} steps={row.steps} live={row.steps.some(isLive)} place={place} lanes={lanes} />;
   }
-  return <StepRow turnId={turnId} step={row.step} live={isLive(row.step)} place={place} />;
+  if (row.kind === "event") {
+    const onLane = lanes !== undefined && (lanes.row.closes !== null || lanes.row.touches !== null);
+    const asks = row.event.event === "question" || row.event.event === "needs_you";
+    const { style, marks } = laned(lanes, asks);
+    return (
+      <div
+        className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
+        style={style}
+        data-testid="step"
+        data-kind="event"
+        data-event={row.event.event}
+        data-fold-row
+      >
+        <RailMarks node={onLane ? "pass" : "steer"} first={place.first} last={place.last} />
+        {marks}
+        <EventWords event={row.event} laned={onLane} />
+      </div>
+    );
+  }
+  return <StepRow turnId={turnId} step={row.step} live={isLive(row.step)} place={place} lanes={lanes} />;
 }

@@ -119,6 +119,68 @@ describe("ChildCapsule", () => {
   });
 });
 
+describe("ChildCapsule with children the agent opened", () => {
+  /** 修复 with two children its agent opened, one asking it and one with progress, and deliveries held. */
+  const AGENT_FAMILY = [
+    session({ sessionId: "main", containerId: W, name: "修复", heldDeliveries: 1 }),
+    child("补测试", "main", {
+      running: true,
+      updatedAt: Date.now() - 1000,
+      parent: { sessionId: "main", by: "agent" },
+      heldDeliveries: 2,
+      agent: {
+        handle: "tests",
+        role: "work",
+        status: "waiting_for_parent",
+        progress: "补了 3 个",
+        question: "用 vitest 还是 jest？\n仓库两种都有",
+        taskId: null,
+        taskStartedAt: null,
+      },
+    }),
+    child("安全审查", "main", {
+      running: true,
+      updatedAt: Date.now() - 60_000,
+      parent: { sessionId: "main", by: "agent" },
+      agent: {
+        handle: "audit",
+        role: "explore",
+        status: "running",
+        progress: "读完了 auth/",
+        question: null,
+        taskId: null,
+        taskStartedAt: null,
+      },
+    }),
+  ];
+
+  it("gives each its role, its question or progress, counts the asking one as a question, and lets the held go on", async () => {
+    const { client, calls } = fakeClient({ sessions: AGENT_FAMILY });
+    const screen = await render(
+      <div className="relative mt-[400px] w-[680px]">
+        <ChildCapsule client={client} sessionId="main" />
+      </div>,
+    );
+    const capsule = screen.getByRole("button", { name: /^子对话 2/ });
+    await expect.element(capsule).toHaveTextContent("子对话 2·1·1");
+    await expect.element(capsule.getByRole("img", { name: "待回答" })).toBeInTheDocument();
+    await userEvent.click(capsule);
+
+    const rows = screen.getByTestId("child-row");
+    await vi.waitFor(() =>
+      expect(rows.elements().map((row) => row.textContent)).toStrictEqual([
+        "补测试可写在问主 agent：用 vitest 还是 jest？刚刚",
+        "安全审查只读读完了 auth/1 分钟前",
+      ]),
+    );
+    await expect.element(rows.nth(0).getByRole("img", { name: "待回答" })).toBeInTheDocument();
+    await expect.element(screen.getByTestId("deliveries-held")).toHaveTextContent("宿主重启后暂停了 3 条送达全部继续");
+    await userEvent.click(screen.getByRole("button", { name: "全部继续" }));
+
+    await vi.waitFor(() => expect(calls).toStrictEqual(["resumeDeliveries main true"]));
+  });
+});
+
 describe("ChildCapsule with the workbench", () => {
   it("shows a child opened over the file its workspace showed", async () => {
     const { client, calls } = fakeClient(LISTED);

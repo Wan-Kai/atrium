@@ -51,6 +51,9 @@ function toolResult(callId: string, text: string) {
 
 const noClient = () => ({ clientMessageId: null, auto: false });
 
+/** What one of Atrium's notices or tasks keeps in pi's file. */
+type Delivered = Extract<LogEntry, { kind: "agent" }>["details"];
+
 /** A message sent from the page as `client-1`. */
 const fromPage = () => ({ clientMessageId: "client-1", auto: false });
 
@@ -200,6 +203,7 @@ describe("createSessionTranscript following a recorded session", () => {
       turn: {
         kind: "turn",
         id: "live-1",
+        source: null,
         user: { text: "one", images: 0, clientMessageId: "client-1", auto: false, command: null, timestamp: 0 },
         steps: [],
         outcome: "running",
@@ -470,6 +474,81 @@ describe("createSessionTranscript keeping live and rebuilt alike", () => {
     expect(session.items().map((item) => [item.id, (item as Turn).steps.map((step) => step.kind)])).toStrictEqual([
       ["live-1", ["tool", "steer"]],
       ["live-2", []],
+    ]);
+  });
+
+  it("opens a turn with a task and adds notices mid-run as a step, as a rebuild does, not asking whose message (SPEC-0002)", () => {
+    const { transcript: session } = transcript();
+    let asked = 0;
+    const client = () => {
+      asked += 1;
+      return { clientMessageId: "client-1", auto: false };
+    };
+    const task: Delivered = {
+      v: 1,
+      kind: "task",
+      deliveries: ["d1"],
+      from: "main",
+      fromTitle: "修复",
+      taskId: "t-1",
+      text: "go",
+    };
+    const notice: Delivered = {
+      v: 1,
+      kind: "report",
+      deliveries: ["d2"],
+      events: [{ name: "x", title: "X", sessionId: "s2", taskId: "t-9", event: "failed" }],
+    };
+
+    const opened = session.apply({ kind: "agent_message", details: task, timestamp: 0 }, client);
+    session.apply({ kind: "assistant_started" }, client);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "bash", args: { command: "ls" } }], "toolUse"),
+      client,
+    );
+    session.apply(toolResult("c1", "x"), client);
+    const step = session.apply({ kind: "agent_message", details: notice, timestamp: 0 }, client);
+    const nothing = session.apply({ kind: "agent_message", details: { ...notice, events: [] }, timestamp: 0 }, client);
+    session.settle();
+
+    expect(opened).toMatchObject([
+      { type: "turn_started", turn: { id: "live-1", source: { kind: "task", text: "go" }, user: { text: "" } } },
+    ]);
+    expect(step).toMatchObject([{ type: "step_added", turnId: "live-1", step: { kind: "agent", id: "1" } }]);
+    expect(nothing).toStrictEqual([]);
+    expect(asked).toBe(0);
+    expect(
+      session.rebuild(
+        {
+          entries: [
+            { id: "k1", parentId: null, kind: "agent", details: task, timestamp: 0 },
+            callEntry("a1", "k1", "c1"),
+            resultEntry("r1", "a1", "c1"),
+            { id: "n1", parentId: "r1", kind: "agent", details: notice, timestamp: 0 },
+            { id: "n2", parentId: "n1", kind: "agent", details: { ...notice, events: [] }, timestamp: 0 },
+          ],
+          leafId: "n2",
+        },
+        false,
+      ),
+    ).toStrictEqual({ kind: "same" });
+    expect(session.entryOfTurn("live-1")).toBe("k1");
+  });
+
+  it("ends the turn before as it ended when notices open a turn of their own, not as one pi went away in", () => {
+    const { transcript: session } = transcript();
+    const notice: Delivered = {
+      v: 1,
+      kind: "report",
+      deliveries: ["d1"],
+      events: [{ name: "x", title: "X", sessionId: "s2", taskId: "t-9", event: "finished" }],
+    };
+    session.apply(userMessage("go"), noClient);
+    session.apply(assistantMessage([{ type: "text", text: "done" }]), noClient);
+
+    expect(session.apply({ kind: "agent_message", details: notice, timestamp: 0 }, noClient)).toMatchObject([
+      { type: "turn_finished", turnId: "live-1", outcome: "done", error: null },
+      { type: "turn_started", turn: { id: "live-2", source: { kind: "report" } } },
     ]);
   });
 

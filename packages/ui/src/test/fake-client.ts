@@ -98,6 +98,8 @@ export function session(
     asking: null,
     handedOff: false,
     parent: null,
+    agent: null,
+    heldDeliveries: 0,
     ...fields,
   };
 }
@@ -647,6 +649,14 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async steerQueued(sessionId: string, itemId: string) {
       calls.push(`steerQueued ${sessionId} ${itemId}`);
       return { disposition: "queued" };
+    },
+    async removeDelivery(sessionId: string, deliveryId: string) {
+      calls.push(`removeDelivery ${sessionId} ${deliveryId}`);
+      return {};
+    },
+    async resumeDeliveries(sessionId: string, tree: boolean) {
+      calls.push(`resumeDeliveries ${sessionId} ${String(tree)}`);
+      return {};
     },
     async answerInteraction(sessionId: string, interactionId: string, answer: unknown) {
       calls.push(`answerInteraction ${sessionId} ${interactionId} ${JSON.stringify(answer)}`);

@@ -117,6 +117,15 @@ const SessionRecord = z.looseObject({
   usageAfter: z.string().nullable().optional(),
   /** The name a child conversation was given, until pi has written it (SPEC-0002, "概念 · 名字"); added in M1.15. */
   name: z.string().optional(),
+  /**
+   * A child the agent opened: its handle, role, tool guard, model and tasks (SPEC-0002, "第二步");
+   * added in M1.15. Read by `agentFieldsOf`, so a broken one loses only itself.
+   */
+  agent: z.unknown().optional(),
+  /** The handles this session's agent used, never given again (SPEC-0002, "句柄与显示名"); added in M1.15. */
+  usedHandles: z.unknown().optional(),
+  /** What waits to go to this session's pi (SPEC-0002, "送达"); added in M1.15. */
+  deliveries: z.unknown().optional(),
 });
 export type SessionRecord = z.infer<typeof SessionRecord>;
 

@@ -208,6 +208,23 @@ export interface TranscriptProps {
 }
 
 /**
+ * Whether the turn after an item opened with notices or a task, so no fork is cut at it.
+ *
+ * @remarks
+ * Forking after a turn cuts at the next turn's user message, which such a turn has not
+ * (SPEC-0002, "第一步 · 入口"); notices between the turns are passed over.
+ *
+ * @sideEffects none
+ * @param items - The conversation.
+ * @param index - The item's position.
+ * @returns Whether.
+ */
+function cutBefore(items: readonly TranscriptItem[], index: number): boolean {
+  const next = items.slice(index + 1).find((item) => item.kind === "turn");
+  return next?.kind === "turn" && next.source !== null;
+}
+
+/**
  * A session's conversation: its turns and notices, pending sends, and the run in progress.
  *
  * @remarks
@@ -254,13 +271,15 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onC
                   <p className="text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">正在加载更早的记录…</p>
                 ) : null}
               </div>
-              {view.items.map((item) =>
+              {view.items.map((item, index) =>
                 item.kind === "turn" ? (
                   <TurnView
                     key={item.id}
                     turn={item}
                     runStartedAt={view.run?.startedAt ?? null}
-                    {...(fork === undefined ? {} : { fork })}
+                    {...(fork === undefined
+                      ? {}
+                      : { fork: cutBefore(view.items, index) ? { ...fork, cut: true } : fork })}
                     {...(item === last && view.run === null && !view.control.restarting && onRetry !== undefined
                       ? { onRetry }
                       : {})}

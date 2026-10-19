@@ -108,6 +108,8 @@ function session(id: string, running = false): SessionSummary {
     asking: null,
     handedOff: false,
     parent: null,
+    agent: null,
+    heldDeliveries: 0,
   };
 }
 
