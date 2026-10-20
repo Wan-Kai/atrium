@@ -137,7 +137,7 @@ pi-ai 自带 `fauxProvider()`：内存里的假模型，按脚本返回文本、
    - **登录程序不做变异测试**（2026-10-10 定）：`packages/pi/src/auth/login-worker.ts` 由系统 Node 在另一个进程里运行，Stryker 的激活开关传不过去，所有变异都会显示存活。它保持很薄（只把 pi 的调用翻译成按行的 JSON），宿主这边的 `login.ts` 照常做变异测试；登录程序靠手工破坏验证：写完测试后逐个改坏它的每条分支（重复撤回提问、不给设备 ID、`stored` 写死、不分订阅、标准输入关闭不中止），确认都有测试失败，改动它时同样再做一遍。
    - 时有时无的测试会让变异分数虚高：偶发失败被算成"杀死了变异"。M1.1 时日志流有竞态，分数显示 93%，修掉竞态后真实分数是 78%，补测试后才到 100%。
    - 超时也算"检测到"。启动真实子进程的测试在高并发下会变慢，Stryker 把变慢判成超时，分数同样虚高（M1.2 时一个只改日志文字的变异被记为超时）。所以并发固定为 4，每次测试最多 3 个线程（`vitest.mutation.config.ts` 的 `maxWorkers`，四份合起来不超过机器的核数），并给每个变异在 Stryker 估算的时间上再多留 30 秒（`timeoutMS`）：M1.6 的全量运行在默认的 5 秒下记了 533 个超时，抽查 5 个，4 个其实全部测试都通过，是存活的变异。看结果时留意超时数，超时的变异要能说清楚为什么会让测试卡住；超时偏多时，从增量报告里删掉超时的结果，单独重测这些变异。
-2. **每个测试先见过失败**：一个测试、一段实现交替推进；修 bug 先写能复现它的测试。
+2. **每个测试先见过失败**：一个测试、一段实现交替推进；修 bug 先写能复现它的测试。写完用 `pnpm break-check` 把代码按 case 改坏，确认测试会红（development.md"标准开发流程"第 4 步；2026-10-20 起脚本进了仓库，原先是会话里临时写的）。
 3. **用代码检查约束测试写法**（oxlint vitest 规则）：`expect-expect`（必须有断言）、`no-conditional-expect`、`no-conditional-in-test`、`no-disabled-tests`、`no-focused-tests`、`no-restricted-matchers`（禁 `toBeTruthy`、`toBeDefined` 这类弱断言）、`no-large-snapshots`、`prefer-strict-equal`（整体比对）。
 4. **结果必须确定**：停止的 2 秒锁定、重试退避、平滑揭示、`git fetch` 间隔都用假时钟，不用 `sleep` 等待；随机数注入种子，fast-check 失败会给出种子用于复现；时有时无的测试按 bug 处理，找到根因修掉，不删测试。
 5. **默认禁止 `vi.mock`**（`no-restricted-vi-methods`）。确需使用时写注释说明理由再豁免。要隔离依赖就设计成可替换的适配器（如 `PiProcess`、`Clock`），不 mock 模块。
@@ -259,7 +259,8 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 | `pnpm test:e2e` | 第 6 层 |
 | `pnpm test:package` | 打包后启动 Atrium.app 的冒烟测试（第 6 层里标 `@package` 的，`test:e2e` 不跑）；改了打包、主进程找文件的路径或应用目录的内容时跑 |
 | `pnpm test:real` | 第 7 层 |
-| `pnpm test:mutation` | 变异测试（默认增量、重测上次存活的，`--force` 全量；可只跑某几组），报告在 `reports/mutation/<组>.html` |
+| `pnpm test:mutation` | 变异测试（默认增量、重测上次存活的，`--force` 全量；可只跑某几组，`--mutate=<文件>` 只变异某个文件），报告在 `reports/mutation/<组>.html` |
+| `pnpm break-check <cases.json>` | 破坏检查，见 development.md"命令" |
 | `pnpm test:leak` | 泄漏测试（宿主、client、界面） |
 | `pnpm test:perf` | 性能预算 |
 | `pnpm bench` | 热路径基准，和本机基线比较（`BENCH_UPDATE=1` 重新记录基线） |
