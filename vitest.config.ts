@@ -16,7 +16,7 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: [`${packages}/*.test.ts`, "scripts/**/*.test.ts"],
+          include: [`${packages}/*.test.ts`, "scripts/**/*.test.ts", "apps/desktop/src/**/*.test.ts"],
           exclude: [`${packages}/*.{pi,host,leak,soak,browser}.test.ts`],
           benchmark: { include: [`${packages}/*.bench.ts`] },
         },
