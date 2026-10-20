@@ -455,6 +455,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 运行中的点阵涡旋（侧栏、标签栏 14px，子对话行 12px）：5×5 裁成圆的 21 个点、跟文字色；每个点按三档亮度跳变、1.65 秒一圈，按位置错开成螺旋臂；不同时刻出现的图标同一相位；减弱动态时停在一帧；其他状态不用它 | `packages/ui/src/design/running-dots.browser.test.tsx`；`sidebar/status-icon.browser.test.tsx`；`chat/lanes.browser.test.tsx` "counts beside a child still on its task" | 已覆盖 |
 | 用户气泡里没有空格可断的长串（URL、token）在气泡宽度处断开，不伸出气泡 | `packages/ui/src/chat/chat.browser.test.tsx` "breaks a long URL at the bubble's width" | 已覆盖 |
 | 输入框文字离卡片左边 20px、上边 16px，展开按钮离上边 16px、右边 20px，和第一行对齐（2026-10-20 由 20px 收到 16px） | `composer.browser.test.tsx` "starts the text 20px from the card's left and 16px from its top"、"keeps the expand button in the card's top right corner"；`chat.browser.test.tsx` "sits just under the input box" | 已覆盖 |
+| 窗口的权限：只有应用自己的页面（按协议和主机名）能写剪贴板（`clipboard-sanitized-write`，复制按钮要用），读剪贴板、通知、媒体等一律拒绝，别的来源、不是地址的都拒绝 | `apps/desktop/src/main/permissions.test.ts`；打包后实测过一次真写剪贴板（e2e 不碰真剪贴板） | 已覆盖 |
 | 破坏检查脚本：按 case 改坏代码、跑指定的测试和项目（默认 unit）、报 CAUGHT / MISSED、有漏掉的退出码 1、每次都改回原样；case 的文字在文件里不是恰好一次时什么都不改、退出码 2 | `scripts/break-check.test.ts` | 已覆盖 |
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
