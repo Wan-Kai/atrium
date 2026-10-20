@@ -462,6 +462,8 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 做完后步骤原地收成一行灰色摘要"在 <分支> 建好工作区 · 基于 <起点> · 用时 N 秒"（30px、前面 `›`），点开再展开四步；agent 的步骤接在摘要下面；减少动态效果时直接换；选的是已有工作区时"在 <工作区> 里开好会话" | new-workspace.browser.test.tsx "folds the steps into a summary of where and how long once sent…"、"folds the steps into the summary at once when less motion is asked for"、"says it opened a session in a workspace already there" | 已覆盖（收起的高度动画只看了结束状态） |
 | 失败：那一步 × 加原因，行尾"重试"；标题"没建好工作区"、前面 ⌄；气泡保持 60%，下面"没发出，已放回输入框"；"重试"从失败的那一步接着走，不再起名，输入框里还是放回的那条时清空，打了别的就不动；已经有会话时不再建会话；失败停住的时间不算进用时 | new-workspace.browser.test.tsx "stops at a worktree that could not be created…"、"goes on from a failed step on 重试…"；`packages/ui/src/state/new-workspace.test.ts` "retryLaunch" | 已覆盖 |
 | 启动的状态：发出后启动留在列表里（`sentAt`、`done` 为全部步数），给这一轮的摘要用，不再挡发送；记下开始、失败、发出的时间（页面的时钟） | new-workspace.test.ts "creates the worktree, the session, waits for pi and sends, step by step, then stays for its turn"、"pageLaunch"、"retryLaunch" | 已覆盖 |
+| 窗口的权限：只有应用自己的页面（按协议和主机名）能写剪贴板（`clipboard-sanitized-write`，复制按钮要用），读剪贴板、通知、媒体等一律拒绝，别的来源、不是地址的都拒绝 | `apps/desktop/src/main/permissions.test.ts`；打包后实测过一次真写剪贴板（e2e 不碰真剪贴板） | 已覆盖 |
+| 破坏检查脚本：按 case 改坏代码、跑指定的测试和项目（默认 unit）、报 CAUGHT / MISSED、有漏掉的退出码 1、每次都改回原样；case 的文字在文件里不是恰好一次时什么都不改、退出码 2 | `scripts/break-check.test.ts` | 已覆盖 |
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 

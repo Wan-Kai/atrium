@@ -15,6 +15,7 @@ import { randomBytes } from "node:crypto";
 import { lstat, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { allowsPermission, isPageUrl } from "./permissions";
 
 /** Where the host's bundle and the built UI live, and how often the app's processes are sampled. */
 interface Paths {
@@ -242,29 +243,6 @@ async function isBrowsable(path: string): Promise<boolean> {
 }
 
 /**
- * Whether a URL belongs to the app's page.
- *
- * @remarks
- * Compares scheme and host (with port), not `URL.origin`: Node gives every URL of a scheme it does
- * not know, `atrium:` included, the origin `"null"`, so all opaque origins would compare equal
- * (security.md, "Electron").
- *
- * @sideEffects none
- * @param url - The URL to check.
- * @param pageUrl - The page's URL.
- * @returns Whether it is the page's.
- */
-function isPageUrl(url: string, pageUrl: string): boolean {
-  try {
-    const candidate = new URL(url);
-    const page = new URL(pageUrl);
-    return candidate.protocol === page.protocol && candidate.host === page.host;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Applies the window-level security rules to a window's web contents.
  *
  * @remarks
@@ -295,7 +273,7 @@ function restrictNavigation(window: BrowserWindow, pageUrl: string): void {
  * @remarks
  * Renderer settings follow security.md ("Electron"): context isolation, sandbox, no Node. The
  * preload asks for the token over IPC, and the handler answers only frames from the expected
- * origin. Permission requests are refused until a feature needs one. Quitting is held until the
+ * origin. Permission requests are refused but the page's own clipboard writes. Quitting is held until the
  * host has shut down cleanly. In development the Vite page gets its own CSP header. Opening the
  * app again focuses this window.
  *
@@ -307,7 +285,6 @@ async function main(): Promise<void> {
   await app.whenReady();
   nativeTheme.themeSource = "system";
   Menu.setApplicationMenu(appMenu());
-  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 
   const paths = resolvePaths();
   const devUrl = process.env["ATRIUM_DEV_URL"];
@@ -330,6 +307,10 @@ async function main(): Promise<void> {
 
   const hostUrl = `http://127.0.0.1:${host.port}`;
   const pageUrl = devUrl ?? `${APP_ORIGIN}/`;
+  // Only the page's own clipboard writes, for the copy buttons (security.md, "Electron").
+  session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) =>
+    callback(allowsPermission(permission, details.requestingUrl, pageUrl)),
+  );
   const pageOrigin = new URL(pageUrl).origin;
   if (devUrl !== undefined) {
     session.defaultSession.webRequest.onHeadersReceived({ urls: [`${pageOrigin}/*`] }, (details, callback) => {
