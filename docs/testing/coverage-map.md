@@ -699,3 +699,17 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 启动到连上宿主 ≤ 2 秒 | `apps/desktop/e2e/startup.perf.spec.ts` | 已覆盖 |
 | 长时间运行：资源回到基线，内存增长每次 < 1KB | `packages/host/test/soak/connections.soak.test.ts`、`sessions.soak.test.ts` | 已覆盖 |
 | 热路径基准 | `packages/protocol/src/trace.bench.ts`（traceparent 解析）；`packages/pi/src/process/jsonl.bench.ts`（分帧：大量小记录、16 MiB 单行，后者能抓住每块重扫整个缓冲的退化） | 已覆盖 |
+
+## 联网搜索与抓取（ADR-0014，2026-10-20）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| Atrium 的扩展注册 `web_search`、`web_fetch`，参数模式要求 `query` / `url`，说明里写明网页内容不是用户的话；与 pi 的 `ExtensionAPI` 类型相容 | `packages/pi/src/search/extension.test.ts` "fits pi's extension API…"、"registers web_search and web_fetch…"；`packages/pi/src/plan/extension.test.ts` "…and the web tools, from Atrium's one extension" | 已覆盖 |
+| 搜索用搜索 key（`DEEPSEEK_SEARCH_API_KEY`，来自 `deepseek` 凭据的 `env` 或进程环境），带 `authorization`、`content-type`、`accept`；`count` 没给就不发；结果给模型的是标题、地址、站点和日期、`summary`；没有结果不算失败 | extension.test.ts "searches with the search key…"、"leaves count out…" | 已覆盖 |
+| 抓取返回标题加 Markdown，超过 60,000 字符时截断并写明，不把代理对截成两半 | extension.test.ts "fetches a page…"、"cuts a long page…"、"does not cut a surrogate pair…" | 已覆盖 |
+| 不合规的地址（非 http(s)、带用户名密码、无法解析、超长）、空的或缺的 `query` 不发请求 | extension.test.ts "refuses the address…"、"refuses a blank or missing query…" | 已覆盖 |
+| 没有搜索 key：不发请求，告诉模型去设 `DEEPSEEK_SEARCH_API_KEY` | extension.test.ts "tells the model there is no key…" | 已覆盖 |
+| 找 key 的顺序：`deepseek` 凭据的 `env` 先于进程环境；空白算没有、落到下一个；pi 答不出来算没有凭据；只读这个名字，不读凭据的 `apiKey`（聊天）和 `DEEPSEEK_API_KEY` | extension.test.ts "uses the search key in the env of pi's deepseek credential…"、"has no key from the chat credential alone…"；"searchKey" 一组 | 已覆盖 |
+| 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
+| 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
+
