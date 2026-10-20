@@ -330,24 +330,25 @@ export function parseDisplayDiff(diff: string): DiffLine[] {
 }
 
 /**
- * The first sentence of a text, short enough for one row.
+ * The first line of a text, at most as long as a wide row shows.
  *
  * @remarks
- * A folded thinking or text step shows how it began (SPEC-0001, "过程的呈现").
+ * A folded thinking or text step shows how it began (SPEC-0001, "过程的呈现"). The whole first
+ * line, not the first sentence: a row fits far more than a sentence, and a full stop cannot be
+ * told from a decimal point ("Grok 4.7"). The row cuts what does not fit.
  *
  * @sideEffects none
  * @param text - The text.
  * @param max - The most characters to keep.
- * @returns The opening, with "…" when cut.
+ * @returns The opening, with "…" when cut or when more lines follow.
  */
-export function opening(text: string, max = 48): string {
+export function opening(text: string, max = 160): string {
   const trimmedText = text.trim();
-  const end = trimmedText.search(/[。．.!！?？\n]/);
-  const sentence = end === -1 ? trimmedText : trimmedText.slice(0, end);
-  if (sentence.length > max) return `${sentence.slice(0, max)}…`;
-  // The text is trimmed, so anything after the sentence's end is more text.
-  const more = end !== -1 && trimmedText.slice(end + 1) !== "";
-  return more ? `${sentence}…` : sentence;
+  const end = trimmedText.indexOf("\n");
+  const line = (end === -1 ? trimmedText : trimmedText.slice(0, end)).replace(/\s+/g, " ").trim();
+  if (line.length > max) return `${line.slice(0, max)}…`;
+  // The text is trimmed, so a line break means more text follows.
+  return end === -1 ? line : `${line}…`;
 }
 
 /** A step as one line of words: what was done, to what, and how it ended. */

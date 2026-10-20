@@ -158,6 +158,24 @@ describe("messages", () => {
     expect(short.parentElement?.querySelectorAll("button")).toHaveLength(0);
   });
 
+  it("breaks a long URL at the bubble's width instead of running out of it", async () => {
+    const url = `https://www.xiaohongshu.com/explore/6ad59006?xsec_token=${"ABQla8CmAqsqDnHl5hZJOGZSfeOl".repeat(3)}=&xsec_source=pc_feed`;
+    const screen = await render(
+      <div style={{ width: 480 }}>
+        <UserBubble text={`${url}\n\n用网络检索试一下`} />
+      </div>,
+    );
+    const body = screen.getByTestId("user-text").element() as HTMLElement;
+    const bubble = body.parentElement as HTMLElement;
+    const inner = bubble.getBoundingClientRect();
+
+    expect([
+      Math.round(bubble.getBoundingClientRect().width),
+      body.getBoundingClientRect().right <= inner.right - 16,
+      body.scrollWidth <= body.clientWidth,
+    ]).toStrictEqual([384, true, true]);
+  });
+
   it("counts the run's time by the injected clock", async () => {
     let now = 100_000;
     const ticks: (() => void)[] = [];
@@ -2770,7 +2788,7 @@ describe("ConversationArea's status bar", () => {
     const barBox = bar.element().getBoundingClientRect();
 
     expect(textbox.left - box.left).toBe(20);
-    expect(textbox.top - box.top).toBe(20);
+    expect(textbox.top - box.top).toBe(16);
     expect(barBox.top - box.bottom).toBe(4);
     expect(barBox.height).toBe(28);
     expect(area.bottom).toBe(barBox.bottom + 8);

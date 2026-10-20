@@ -347,6 +347,42 @@ body {
   }
 }
 
+/* The running mark's dots (design-language, "会话状态"): three levels a turn, stepping where the
+   cosine of the turn crosses 0.6 and 0 (running-dots.tsx); each dot is delayed by its place on the
+   arm. Held at the inline opacity when motion is reduced, which would otherwise flicker it. */
+@keyframes atrium-running-dot {
+  0%,
+  14.75% {
+    opacity: 1;
+  }
+  14.76%,
+  24.99% {
+    opacity: 0.55;
+  }
+  25%,
+  74.99% {
+    opacity: 0.2;
+  }
+  75%,
+  85.24% {
+    opacity: 0.55;
+  }
+  85.25%,
+  100% {
+    opacity: 1;
+  }
+}
+
+.atrium-running-dot {
+  animation: atrium-running-dot 1.65s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atrium-running-dot {
+    animation: none;
+  }
+}
+
 /* The empty state's caret (design-language, "空状态"): on and off as a text caret, never fading;
    steady when motion is reduced, which would otherwise make it flicker every millisecond. */
 @keyframes atrium-caret-blink {

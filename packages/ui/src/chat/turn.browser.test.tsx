@@ -1077,11 +1077,27 @@ describe("TurnView, what the agent said in the process", () => {
       "7px",
       colorOf("var(--tint)"),
       true,
-      "先写纯逻辑，再写扩展",
+      "先写纯逻辑，再写扩展。",
       colorOf("var(--text)"),
       "500",
       null,
     ]);
+  });
+
+  it("shows as much of a long first line as the row holds, on one line, the row cutting it", async () => {
+    const long = `我会让 Grok 4.7 审查这次改动。${"然后对照规格逐条核对实现与测试，".repeat(6)}`;
+    const said: Step = { kind: "text", id: "1", text: `${long}\n第二段` };
+    const { screen } = await show(turn([thinking, said, command, answer]));
+    await screen.getByTestId("process-header").click();
+    const words = present(screen.container.querySelector<HTMLElement>('[data-testid="said-words"]'));
+
+    expect([
+      words.textContent,
+      words.getClientRects().length,
+      words.scrollWidth > words.clientWidth,
+      getComputedStyle(words).textOverflow,
+      getComputedStyle(words).whiteSpace,
+    ]).toStrictEqual([`${long}…`, 1, true, "ellipsis", "nowrap"]);
   });
 });
 

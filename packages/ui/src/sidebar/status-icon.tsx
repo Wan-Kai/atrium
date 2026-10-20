@@ -1,4 +1,5 @@
-import { CircleNotch, Key, Question, WarningCircle } from "../design/icons";
+import { Key, Question, WarningCircle } from "../design/icons";
+import { RunningDots } from "../design/running-dots";
 import type { RowStatus } from "./status";
 
 /** Each status's label, icon and color (design-language, "会话状态"). */
@@ -9,7 +10,7 @@ const LOOKS = {
   running: {
     label: "运行中",
     color: "text-[var(--tint)]",
-    icon: <CircleNotch size={14} className="animate-spin [animation-duration:900ms] motion-reduce:animate-none" />,
+    icon: <RunningDots size={14} />,
   },
 } as const;
 
@@ -18,7 +19,7 @@ const LOOKS = {
  *
  * @remarks
  * A question circle or a key in the attention color, an exclamation circle in the danger color,
- * a turning arc in the tint color (design-language, "会话状态"). A plain line icon, colored, with
+ * the dot matrix with its turning arm in the tint color (design-language, "会话状态"). Colored, with
  * no background; the label says the state for screen readers and on hover.
  *
  * @sideEffects none

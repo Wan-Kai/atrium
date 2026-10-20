@@ -122,7 +122,7 @@ export function UserBubble({
         <div
           ref={body}
           data-testid="user-text"
-          className={`break-words whitespace-pre-wrap text-[var(--text)] ${expanded ? "" : "line-clamp-12"}`}
+          className={`whitespace-pre-wrap wrap-anywhere text-[var(--text)] ${expanded ? "" : "line-clamp-12"}`}
         >
           {command === null ? null : <CommandTag command={command} />}
           {text}

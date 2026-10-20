@@ -695,7 +695,16 @@ describe("Composer's other controls", () => {
     expect(box.element().getBoundingClientRect().height).toBe(short);
   });
 
-  it("keeps the expand button in the card's top right corner, 20px in, with capsules above the text or not", async () => {
+  it("starts the text 20px from the card's left and 16px from its top, the expand button level with it", async () => {
+    const { screen, box } = await composer();
+    const card = screen.getByTestId("composer-card").element().getBoundingClientRect();
+    const text = box.element().getBoundingClientRect();
+    const button = screen.getByRole("button", { name: "展开输入框" }).element().getBoundingClientRect();
+
+    expect([text.left - card.left, text.top - card.top, button.top - card.top]).toStrictEqual([20, 16, 16]);
+  });
+
+  it("keeps the expand button in the card's top right corner, 16px down and 20px in, with capsules above the text or not", async () => {
     const { screen, box } = await composer();
     const card = screen.getByTestId("composer-card").element();
     const button = screen.getByRole("button", { name: "展开输入框" }).element();
@@ -710,8 +719,8 @@ describe("Composer's other controls", () => {
     await expect.element(screen.getByRole("button", { name: "移除 粘贴内容 · 12 行" })).toBeVisible();
 
     expect({ bare, capsules: corner() }).toStrictEqual({
-      bare: { top: 20, right: 20 },
-      capsules: { top: 20, right: 20 },
+      bare: { top: 16, right: 20 },
+      capsules: { top: 16, right: 20 },
     });
   });
 

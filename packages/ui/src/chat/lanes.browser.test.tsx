@@ -419,6 +419,9 @@ describe("the time of a child's task going on", () => {
       ["运行中· 用时 1 分 12 秒", "在等你· 用时 1 分 0 秒", "运行中· 用时 4 秒", "完成", "运行中· 用时 0 秒", "运行中"],
       ["运行中· 用时 1 分 13 秒", "在等你· 用时 1 分 1 秒", "运行中· 用时 4 秒", "完成", "运行中· 用时 0 秒", "运行中"],
     ]);
+    expect(
+      statuses.elements().map((status) => status.querySelector('[data-testid="running-dots"]')?.getAttribute("width")),
+    ).toStrictEqual(["12", undefined, "12", undefined, "12", "12"]);
     await screen.unmount();
     expect(time.ticking()).toBe(0);
   });
