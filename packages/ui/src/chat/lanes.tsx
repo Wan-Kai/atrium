@@ -1,6 +1,7 @@
 import type { AgentNoticeEvent, AgentRole, AgentStatus, SessionSummary, Step } from "@atrium/protocol";
 import { useEffect, useState } from "react";
-import { Check, CircleNotch, Question, X } from "../design/icons";
+import { Check, Question, X } from "../design/icons";
+import { RunningDots } from "../design/running-dots";
 import { useClock } from "../state/clock";
 import { useAgentLinks } from "./agent-links";
 import { EVENT_WORDS, ROLE_WORDS, tookWords } from "./agent-words";
@@ -207,7 +208,7 @@ function TaskElapsed({ since }: { readonly since: number }) {
  * A child's status now, at the end of the row that started it, and how long its task took.
  *
  * @remarks
- * As its row in the child list shows it (SPEC-0002, "显示"): turning while it works, a question
+ * As its row in the child list shows it (SPEC-0002, "显示"): the running dots while it works, a question
  * mark while it asks, a tick once done; then "用时 3 分 12 秒" once the task ended in the turn.
  * While the task goes on, working or asking, the time counts live from `since`; the summary does
  * not say which task the child has open, so one started on another task later counts too.
@@ -237,7 +238,7 @@ function ChildStatus({
       data-testid="child-status"
     >
       {working ? (
-        <CircleNotch size={12} className="animate-spin" />
+        <RunningDots size={12} />
       ) : asking ? (
         <Question size={12} />
       ) : status === "idle" ? (
