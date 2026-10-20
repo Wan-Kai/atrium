@@ -453,6 +453,8 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 过程里 AI 说的话（一轮里的文字步骤）：节点是 7px 实心蓝点、外圈 2px 底色，文字正文色、500 字重；思考不加标识 | `packages/ui/src/chat/turn.browser.test.tsx` "what the agent said" | 已覆盖 |
 | 推理和文字步骤在行里显示第一行（空白合并、最多 160 字，后面还有内容加"…"），不按句号截（"Grok 4.7"不被截断）；一行放不下由行尾截断、不折行 | `packages/ui/src/chat/turn-layout.test.ts` "opening"；`turn.browser.test.tsx` "shows as much of a long first line as the row holds" | 已覆盖 |
 | 运行中的点阵涡旋（侧栏、标签栏 14px，子对话行 12px）：5×5 裁成圆的 21 个点、跟文字色；每个点按三档亮度跳变、1.65 秒一圈，按位置错开成螺旋臂；不同时刻出现的图标同一相位；减弱动态时停在一帧；其他状态不用它 | `packages/ui/src/design/running-dots.browser.test.tsx`；`sidebar/status-icon.browser.test.tsx`；`chat/lanes.browser.test.tsx` "counts beside a child still on its task" | 已覆盖 |
+| 用户气泡里没有空格可断的长串（URL、token）在气泡宽度处断开，不伸出气泡 | `packages/ui/src/chat/chat.browser.test.tsx` "breaks a long URL at the bubble's width" | 已覆盖 |
+| 输入框文字离卡片左边 20px、上边 16px，展开按钮离上边 16px、右边 20px，和第一行对齐（2026-10-20 由 20px 收到 16px） | `composer.browser.test.tsx` "starts the text 20px from the card's left and 16px from its top"、"keeps the expand button in the card's top right corner"；`chat.browser.test.tsx` "sits just under the input box" | 已覆盖 |
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 

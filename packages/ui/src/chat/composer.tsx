@@ -804,9 +804,9 @@ export function Composer({
               ))}
             </div>
           ) : null}
-          <div className="relative px-1.5 pt-1.5">
+          <div className="relative px-1.5 pt-0.5">
             {command === null ? null : (
-              <span ref={tagSlot} className="pointer-events-none absolute top-1.5 left-1.5 flex h-[1lh] items-center">
+              <span ref={tagSlot} className="pointer-events-none absolute top-0.5 left-1.5 flex h-[1lh] items-center">
                 <CommandTag command={command} />
               </span>
             )}
@@ -848,7 +848,7 @@ export function Composer({
             aria-label={expanded ? "收起输入框" : "展开输入框"}
             title={expanded ? "收起输入框" : "展开输入框"}
             onClick={() => setExpanded(!expanded)}
-            className="absolute top-5 right-5 z-[1] cursor-pointer rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
+            className="absolute top-4 right-5 z-[1] cursor-pointer rounded-[var(--r-sm)] p-1 text-[var(--text-dim)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
           >
             {expanded ? <ArrowsInSimple size={14} /> : <ArrowsOutSimple size={14} />}
           </button>
