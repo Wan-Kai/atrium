@@ -3402,6 +3402,30 @@ function deliveredEntry(id: string, deliveries: string[], parentId: string | nul
 }
 
 /**
+ * pi's `message_end` for a delivery it took into a run.
+ *
+ * @remarks
+ * As Atrium's extension sends it (ADR-0013, point 10).
+ *
+ * @sideEffects none
+ * @param deliveries - The deliveries it carries.
+ * @returns The event.
+ */
+function agentEnd(deliveries: string[]): PiEvent {
+  return {
+    type: "message_end",
+    message: {
+      role: "custom",
+      customType: "atrium-agent",
+      content: "x",
+      display: true,
+      details: { v: 1, kind: "task", deliveries, from: "main", fromTitle: "修复", taskId: "t-1", text: "go" },
+      timestamp: 1,
+    },
+  };
+}
+
+/**
  * An assistant reply entry.
  *
  * @remarks
@@ -3476,7 +3500,7 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     ]);
   });
 
-  it("in a run, hands pi only the urgent notices, at once, starting no run of their own", async () => {
+  it("in a run, hands pi every notice at once as one, starting no run of their own, and a task waits", async () => {
     const { pi, emit, sent } = manualPi();
     const box = deliveriesOf();
     const { controller } = control(pi, empty, { deliveries: box.deliveries });
@@ -3487,8 +3511,36 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     controller.deliveriesChanged();
     await settle();
 
-    expect(sent).toStrictEqual(["prompt one", "command /atrium-agent deliver n2,n3"]);
+    expect(sent).toStrictEqual(["prompt one", "command /atrium-agent deliver n1,n2,n3"]);
     expect(controller.submitting).toBe(false);
+  });
+
+  it("in a run, holds notices that come before the last ones steered are in, and hands them as one once they are", async () => {
+    const { pi, emit, sent } = manualPi();
+    const box = deliveriesOf();
+    const { controller } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    box.add(waiting("n1", 1, "finished"));
+    controller.deliveriesChanged();
+    await settle();
+
+    box.add(waiting("n2", 2, "finished"));
+    controller.deliveriesChanged();
+    await settle();
+    box.add(waiting("n3", 3, "failed"));
+    controller.deliveriesChanged();
+    await settle();
+    const held = [...sent];
+    emit(agentEnd(["n1"]));
+    await settle();
+
+    expect(held).toStrictEqual(["prompt one", "command /atrium-agent deliver n1"]);
+    expect(sent).toStrictEqual([
+      "prompt one",
+      "command /atrium-agent deliver n1",
+      "command /atrium-agent deliver n2,n3",
+    ]);
   });
 
   it("holds the deliveries after a restart, and while pi is gone, stopping or paused until you send a message", async () => {
