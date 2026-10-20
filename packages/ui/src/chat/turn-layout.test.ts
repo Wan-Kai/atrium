@@ -335,15 +335,24 @@ describe("parseDisplayDiff", () => {
 });
 
 describe("opening", () => {
-  it("keeps the first sentence, marking that more follows", () => {
-    expect(opening("先看现有实现。然后再改。")).toBe("先看现有实现…");
-    expect(opening("  Look first. Then edit.")).toBe("Look first…");
+  it("keeps the whole first line, marking that more follows", () => {
+    expect(opening("先看现有实现。然后再改。")).toBe("先看现有实现。然后再改。");
+    expect(opening("我会让 Grok 4.7 审查这次改动。")).toBe("我会让 Grok 4.7 审查这次改动。");
+    expect(opening("  Look first. Then edit.")).toBe("Look first. Then edit.");
     expect(opening("one line\nanother")).toBe("one line…");
+    expect(opening("one line \r\nanother")).toBe("one line…");
+    expect(opening("\n\n  first  real\tline \n")).toBe("first real line");
     expect(opening("just this")).toBe("just this");
     expect(opening("")).toBe("");
   });
 
-  it("cuts a long sentence, and keeps one exactly as long as allowed", () => {
+  it("keeps more than a row shows, leaving the row to cut it", () => {
+    const long = "字".repeat(120);
+    expect(opening(long)).toBe(long);
+    expect(opening("字".repeat(200))).toBe(`${"字".repeat(160)}…`);
+  });
+
+  it("cuts a long line, and keeps one exactly as long as allowed", () => {
     expect(opening("x".repeat(60), 10)).toBe(`${"x".repeat(10)}…`);
     expect(opening("x".repeat(10), 10)).toBe("x".repeat(10));
   });
@@ -351,9 +360,9 @@ describe("opening", () => {
 
 describe("describeStep", () => {
   it("says how long thinking took only when it was timed, and that it is going on while live", () => {
-    const step: Step = { kind: "thinking", id: "0", text: "Plan. More.", durationMs: 6_400 };
+    const step: Step = { kind: "thinking", id: "0", text: "Plan. More.\nLater.", durationMs: 6_400 };
 
-    expect(describeStep(step, false)).toStrictEqual({ verb: "思考了 6 秒", object: "Plan…", end: null });
+    expect(describeStep(step, false)).toStrictEqual({ verb: "思考了 6 秒", object: "Plan. More.…", end: null });
     expect(describeStep({ ...step, durationMs: 200 }, false).verb).toBe("思考了 1 秒");
     expect(describeStep({ ...step, durationMs: null }, false).verb).toBe("思考过程");
     expect(describeStep(step, true).verb).toBe("思考中");
@@ -362,7 +371,7 @@ describe("describeStep", () => {
   it("describes text, steers and retries", () => {
     expect(describeStep(text("0", "I'll look first."), false)).toStrictEqual({
       verb: "说明",
-      object: "I'll look first",
+      object: "I'll look first.",
       end: null,
     });
     expect(describeStep({ kind: "steer", id: "1", text: "also b" }, false)).toStrictEqual({
@@ -570,7 +579,7 @@ describe("transcriptMarkdown", () => {
     ];
 
     expect(transcriptMarkdown([turn(steps)])).toBe(
-      "> do it\n\n- 思考了 2 秒 · Plan\n- 读了 · a.ts\n- grep · {}\n\ndone\n",
+      "> do it\n\n- 思考了 2 秒 · Plan.\n- 读了 · a.ts\n- grep · {}\n\ndone\n",
     );
   });
 
