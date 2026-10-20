@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreBinaries": ["pi", "mkfifo"],
+  "ignoreBinaries": ["pi", "mkfifo", "screencapture", "sips"],
   "workspaces": {
     ".": {
       "entry": ["scripts/*.mjs", "scripts/lint/*.mjs", "vitest.mutation.config.ts"],
@@ -13,7 +13,7 @@
       "entry": ["src/main/main.ts", "src/preload/preload.ts", "e2e/**/*.ts", "e2e/*.cjs"]
     },
     "packages/testkit": {
-      "entry": ["src/faux/extension.ts"]
+      "entry": ["src/faux/extension.ts", "src/faux/readme-extension.ts"]
     },
     "packages/pi": {
       "entry": ["test/**/*.ts", "src/auth/login-worker.ts"]

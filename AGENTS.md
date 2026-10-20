@@ -7,7 +7,7 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 1. 先读 [docs/roadmap.md](docs/roadmap.md) 的"当前状态"和"开工前必读"，找到当前里程碑，读它"参考"一栏列出的文档章节。
 2. 上下文丢失（新会话、对话被压缩）后，同样从路线图开始找回，不凭记忆。
 3. 动手前确认本次改动属于哪个里程碑、对应 SPEC 的哪条需求或流程。
-4. 按 [development.md · 标准开发流程](docs/development.md#标准开发流程) 走：开 worktree、先改文档、看得见的改动先做原型请用户选、测试先行加破坏检查、检查与变异测试、审查、装上试用、合并。
+4. 按 [development.md · 标准开发流程](docs/development.md#标准开发流程) 走：开 worktree、先改文档、看得见的改动先做原型请用户选、测试先行加破坏检查、检查与变异测试、审查、装上试用、合并。改了什么要跑哪些测试、交给用户之前查什么、怎么验收，见 [acceptance.md](docs/acceptance.md)。
 
 ## 以文档为准
 
@@ -41,6 +41,7 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 - [ ] 改动涉及核心模块时，变异测试增量通过（≥ 80%）；全量每晚定时跑，早上处理前一晚的结果
 - [ ] 涉及资源（进程、监听、定时器、订阅）时，泄漏测试通过
 - [ ] 文档同步：设计变化改 `docs/architecture/`，里程碑完成时更新路线图"当前状态"
+- [ ] 按 [acceptance.md · 交给用户之前](docs/acceptance.md#交给用户之前) 自查过，测试结果照实汇报（失败的、没跑的、已知不稳的都写明）
 
 ## 提交与分支
 
@@ -48,4 +49,4 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 
 ## 常用命令
 
-`pnpm dev`、`pnpm check`、`pnpm test`（及 `test:pi`、`test:host`、`test:ui`、`test:e2e`、`test:leak`、`test:perf`、`test:mutation`、`test:stress`、`test:soak`）、`pnpm bench`、`pnpm trace <trace id>`、`pnpm pi:try "<提示词>"`、`pnpm fixtures:record`。M1.1 搭好后以 `package.json` 为准。
+`pnpm dev`、`pnpm check`、`pnpm test`（及 `test:pi`、`test:host`、`test:ui`、`test:e2e`、`test:leak`、`test:perf`、`test:package`、`test:stress`、`test:soak`）、`pnpm test:mutation [组…] [--mutate=<文件>]`、`pnpm break-check <cases.json>`、`pnpm package`、`pnpm usage`、`pnpm bench`、`pnpm trace <trace id>`、`pnpm pi:try "<提示词>"`、`pnpm fixtures:record`、`pnpm readme:shots`。完整说明见 [development.md · 命令](docs/development.md#命令)，以 `package.json` 为准。

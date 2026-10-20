@@ -28,7 +28,7 @@ export interface FauxPiEnvironment {
  * @returns The path of `pi`.
  * @throws {Error} When pi is not installed.
  */
-async function realPi(): Promise<string> {
+export async function realPi(): Promise<string> {
   for (const directory of (process.env["PATH"] ?? "").split(delimiter)) {
     const candidate = join(directory, "pi");
     if (

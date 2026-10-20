@@ -92,7 +92,9 @@ MVP 1 里还没设计、做到时先补设计的：
 | 怎么写代码（JSDoc、错误、异步、多语言、无障碍） | [coding-standards.md](architecture/coding-standards.md) |
 | 安全底线 | [security.md](architecture/security.md) |
 | 日志和链路追踪 | [observability.md](architecture/observability.md) |
-| 版本要求、分支、提交 | [development.md](development.md) |
+| 版本要求、分支、提交、一件事从开工到合并怎么走 | [development.md](development.md)（"标准开发流程"） |
+| 改了什么跑哪些测试、交付前查什么、怎么验收 | [acceptance.md](acceptance.md) |
+| 子对话与子代理做什么、怎么做 | [SPEC-0002](specs/0002-child-conversations.md) |
 | 命令和事件 | [SPEC-0001 · 接口与数据](specs/0001-mvp1-single-session-chat.md#接口与数据)，准绳是 `packages/protocol` 的 zod 定义 |
 | pi 的会话格式、RPC、事件、队列、重试、认证 | [pi-internals.md](research/pi-internals.md) |
 | 同类宿主怎么做、哪些坑已经被踩过 | [paseo-architecture.md](research/paseo-architecture.md) |
