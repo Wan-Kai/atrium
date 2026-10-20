@@ -161,6 +161,35 @@ describe("layoutTurn", () => {
     expect(layoutTurn(turn([])).reply).toBeNull();
   });
 
+  it.each([1, 2])("keeps the reply outside the process after %i trailing compactions", (count) => {
+    const earlier = text("0", "looking");
+    const call = tool("1", "bash");
+    const reply = text("2", "## Result\n\nThe complete answer.");
+    const compactions = Array.from({ length: count }, (_, index) => compaction(`compact-${String(index)}`));
+
+    expect(layoutTurn(turn([earlier, call, reply, ...compactions]))).toStrictEqual({
+      process: [earlier, call, ...compactions].map((step) => ({ kind: "step", step })),
+      reply,
+    });
+  });
+
+  it("has no reply for only compactions or a tool followed by compaction", () => {
+    const compact = compaction("2");
+    const steps = [text("0", "still working"), tool("1", "bash", "unfinished"), compact];
+
+    expect(layoutTurn(turn(steps))).toStrictEqual({
+      process: steps.map((step) => ({ kind: "step", step })),
+      reply: null,
+    });
+    expect(layoutTurn(turn([compact]))).toStrictEqual({ process: [{ kind: "step", step: compact }], reply: null });
+  });
+
+  it("exports the complete reply after trailing compaction without turning it into a process summary", () => {
+    expect(transcriptMarkdown([turn([text("0", "## Result\n\nFull answer."), compaction("1")])])).toBe(
+      "> do it\n\n> 压缩了上下文 · 152K → 41K\n\n## Result\n\nFull answer.\n",
+    );
+  });
+
   it("shows two or more read-only calls in a row as one row, and a single one as itself", () => {
     const reads = [tool("0", "read"), tool("1", "grep"), tool("2", "ls")];
     const alone = tool("4", "find");
