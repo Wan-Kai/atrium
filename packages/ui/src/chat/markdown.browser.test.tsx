@@ -344,6 +344,14 @@ describe("Markdown", () => {
     });
   });
 
+  it("lets a long table grow to 640px before it scrolls inside", async () => {
+    const rows = Array.from({ length: 40 }, (_, index) => `| ${index} | v |`).join("\n");
+    const root = await rendered(`| n | v |\n|---|---|\n${rows}`);
+    const scroller = part(root, "table-wrapper").lastElementChild as HTMLElement;
+
+    expect([styleOf(scroller).maxHeight, scroller.getBoundingClientRect().height]).toStrictEqual(["640px", 640]);
+  });
+
   it("keeps 12px under a code block, a table and a diagram, as under any block", async () => {
     const root = await rendered(
       "```ts\nconst a = 1;\n```\n\n后\n\n| a |\n|---|\n| 1 |\n\n后\n\n```mermaid\ngraph TD\n  A --> B\n```\n\n后",

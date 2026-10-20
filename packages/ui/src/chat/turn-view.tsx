@@ -17,6 +17,8 @@ import {
   Warning,
 } from "../design/icons";
 import { type ReactNode, createContext, use, useEffect, useMemo, useState } from "react";
+import { type LaunchInTurn, LaunchSteps } from "./launch-timeline";
+import { type MessageImages, MessageImagesContext } from "./message-images";
 import { useClock } from "../state/clock";
 import { messageTag } from "./composer-text";
 import { Fold } from "./fold";
@@ -63,7 +65,8 @@ const OUTCOME_TEXT: Readonly<Record<Turn["outcome"], string>> = {
  */
 function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
   const steps = processSteps(process);
-  if (steps.every((step) => step.kind === "thinking")) {
+  // A new workspace's first turn has a process for its steps alone, though the agent took none.
+  if (steps.length > 0 && steps.every((step) => step.kind === "thinking")) {
     const durations = steps.map((step) => (step.kind === "thinking" ? step.durationMs : null));
     const known = durations.every((duration) => duration !== null);
     const total = durations.reduce<number>((sum, duration) => sum + (duration ?? 0), 0);
@@ -72,6 +75,9 @@ function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
   const duration = turn.durationMs === null ? "" : `，用时 ${formatDuration(turn.durationMs)}`;
   return `${OUTCOME_TEXT[turn.outcome]}${duration}`;
 }
+
+/** Where a new workspace's first message stands while its steps go on, or after one failed. */
+type LaunchStatus = "preparing" | "failed";
 
 /**
  * A run's process header: "进行中 · 12s" while it runs, then "› 已完成，用时 N · 读了 …".
@@ -82,48 +88,55 @@ function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
  * reply's left edge rather than on the rail, so the header lines up with the reply below
  * (design-language, "消息流 · 过程"); the chevron's box is pulled left by its inner margin. The
  * summary is said only while folded: open, the rail says it (`processParts`). Once the process has
- * folded or unfolded in view, the summary comes in after the fold is well under way.
+ * folded or unfolded in view, the summary comes in after the fold is well under way. Before a new
+ * workspace's first message has gone, the same line says "准备工作区", and "没建好工作区" once a
+ * step failed (design-language, "新建工作区页").
  *
  * @sideEffects Calls `onToggle` when clicked.
- * @param props - The turn, its process, whether that is open, the run's start, whether the
- *   process has folded or unfolded since it was shown, and what a click does.
+ * @param props - The turn, its process, whether that is open, when its run started, whether the
+ *   process has folded or unfolded since it was shown, what a click does, and where a new
+ *   workspace's steps stand.
  * @returns The header.
  */
 function ProcessHeader({
   turn,
   process,
   open,
-  runStartedAt,
+  startedAt,
   moved,
   onToggle,
+  launch,
 }: {
   readonly turn: Turn;
   readonly process: readonly ProcessRow[];
   readonly open: boolean;
-  readonly runStartedAt: number | null;
+  readonly startedAt: number | null;
   readonly moved: boolean;
   readonly onToggle: () => void;
+  readonly launch: LaunchStatus | null;
 }) {
-  const running = turn.outcome === "running";
-  const parts = processParts(countProcess(turn.steps), turn.changes.length);
+  const running = turn.outcome === "running" && launch !== "failed";
+  const parts = launch === null ? processParts(countProcess(turn.steps), turn.changes.length) : [];
   return (
     <button
       type="button"
       aria-expanded={open}
-      disabled={running}
+      disabled={running || launch !== null}
       onClick={onToggle}
       data-testid="process-header"
       className="atrium-press-row group relative mt-3 flex min-h-[30px] w-full min-w-0 items-center text-left text-[length:var(--fs-meta)] text-[var(--text-muted)]"
     >
       {running ? (
-        <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
+        <RunStatus startedAt={startedAt} label={launch === "preparing" ? "准备工作区" : "进行中"} />
       ) : (
         <span className="flex min-w-0 items-center gap-1.5">
           <CaretDown
             size={13}
             className={`atrium-fold-chevron -ml-[4.5px] flex-none group-hover:text-[var(--text-2)] ${open ? "" : "-rotate-90"}`}
           />
-          <span className="flex-none font-medium text-[var(--text)]">{headerTitle(turn, process)}</span>
+          <span className="flex-none font-medium text-[var(--text)]">
+            {launch === "failed" ? "没建好工作区" : headerTitle(turn, process)}
+          </span>
           {open || parts.length === 0 ? null : " "}
           {open || parts.length === 0 ? null : (
             <span
@@ -545,6 +558,48 @@ export interface TurnViewProps {
   readonly fork?: ForkFromTurn;
   /** pi compacts the context now, while this turn runs; only for the running turn (design-language, "运行中压缩"). */
   readonly compacting?: boolean;
+  /**
+   * The launch that sent this turn's message from the new-workspace page; the turn is a stand-in
+   * with the launch's id until the host's arrives (SPEC-0001, "M1.11 的新建工作区").
+   */
+  readonly launch?: LaunchInTurn | undefined;
+}
+
+/**
+ * Where a turn's launch stands, as its header and message show it.
+ *
+ * @remarks
+ * Going on until the message has gone; failed once a step failed (SPEC-0001, "M1.11 的新建工作区").
+ *
+ * @sideEffects none
+ * @param launch - The turn's launch, if any.
+ * @returns Where it stands, or `null` once the message has gone or without one.
+ */
+function launchStatus(launch: LaunchInTurn | undefined): LaunchStatus | null {
+  if (launch === undefined) return null;
+  if (launch.launch.failure !== undefined) return "failed";
+  return launch.launch.sentAt === null ? "preparing" : null;
+}
+
+/**
+ * The images of a launch's message, as the page kept them, until its turn arrives.
+ *
+ * @remarks
+ * Before the host has the message, its thumbnails are the previews the page kept; the host's turn
+ * then finds them by its own message id (`MessageImages.sent`).
+ *
+ * @sideEffects none
+ * @param outer - The images of the conversation.
+ * @param launch - The launch, while its turn is a stand-in.
+ * @returns The images.
+ */
+function useLaunchImages(outer: MessageImages, launch: LaunchInTurn | undefined): MessageImages {
+  const previews = launch?.launch.images;
+  return useMemo(() => {
+    if (previews === undefined) return outer;
+    const shown = previews.map(({ image }) => image.preview);
+    return { sent: () => shown, load: (turnId, index, settled) => outer.load(turnId, index, settled) };
+  }, [outer, previews]);
 }
 
 /**
@@ -561,14 +616,16 @@ export interface TurnViewProps {
  * failed turn shows pi's error, and ends there when it has no reply and changed no files: its info
  * row would hold nothing worth reading (SPEC-0001, "消息下方的信息"). While pi compacts during the
  * run, the rail ends in "正在压缩上下文…" where the turn has got to, the step before it no longer
- * going on (design-language, "运行中压缩").
+ * going on (design-language, "运行中压缩"). A new workspace's first turn shows its steps first on
+ * the rail, then their summary, the agent's steps after it, under one header from the start
+ * (design-language, "新建工作区页"); its message shows faded until it has gone.
  *
  * @sideEffects Holds a finished turn open for a second on the clock.
- * @param props - The turn, the run's start, "重试" and forking where offered, and whether pi
- *   compacts now.
+ * @param props - The turn, the run's start, "重试" and forking where offered, whether pi
+ *   compacts now, and the launch that sent its message.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false }: TurnViewProps) {
+export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false, launch }: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -603,26 +660,36 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false
     setMoved(true);
   }
   const lead = process.filter((row) => row.kind === "step" && row.step.kind === "steer");
-  const waiting = running && !compacting && process.length === 0 && (reply === null || reply.text === "");
+  const status = launchStatus(launch);
+  // A stand-in has the launch's id; its run's start is the host's once there is a run.
+  const standIn = launch !== undefined && turn.id === launch.launch.id;
+  const images = useLaunchImages(use(MessageImagesContext), standIn ? launch : undefined);
+  const waiting =
+    launch === undefined && running && !compacting && process.length === 0 && (reply === null || reply.text === "");
   return (
     <div
       className="flex flex-col"
       data-testid="turn"
-      data-item-id={turn.id}
+      // A stand-in is no item yet: the host's turn coming in is not older items put in front.
+      data-item-id={standIn ? undefined : turn.id}
       data-turn-id={turn.id}
       data-outcome={turn.outcome}
     >
       {turn.source === null ? (
-        <UserBubble
-          text={turn.user.text}
-          images={turn.user.images}
-          timestamp={turn.user.timestamp}
-          auto={turn.user.auto}
-          command={messageTag(turn.user.command)}
-          turnId={turn.id}
-          clientMessageId={turn.user.clientMessageId}
-          settled={turn.outcome !== "running"}
-        />
+        <MessageImagesContext value={images}>
+          <UserBubble
+            text={turn.user.text}
+            images={turn.user.images}
+            {...(status === null ? { timestamp: turn.user.timestamp } : {})}
+            auto={turn.user.auto}
+            command={messageTag(turn.user.command)}
+            {...(standIn ? {} : { turnId: turn.id })}
+            clientMessageId={turn.user.clientMessageId}
+            settled={turn.outcome !== "running"}
+            dim={status !== null}
+            note={status === "failed" ? "没发出，已放回输入框" : null}
+          />
+        </MessageImagesContext>
       ) : (
         <SourceLines source={turn.source} />
       )}
@@ -631,14 +698,15 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false
           <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
         </div>
       ) : null}
-      {process.length === 0 && !compacting ? null : (
+      {process.length === 0 && !compacting && launch === undefined ? null : (
         <>
           <ProcessHeader
             turn={turn}
             process={process}
             open={open}
-            runStartedAt={runStartedAt}
+            startedAt={standIn ? runStartedAt : (runStartedAt ?? turn.startedAt)}
             moved={moved}
+            launch={status}
             onToggle={() => {
               setLingering(false);
               setExpanded(!open);
@@ -663,6 +731,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false
               )
             }
           >
+            {launch === undefined ? null : <LaunchSteps shown={launch} continues={process.length > 0 || compacting} />}
             {process.map((row, index) => (
               <ProcessRowView
                 key={rowKey(row)}
@@ -670,14 +739,16 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false
                 row={row}
                 isLive={isLive}
                 place={{
-                  first: index === 0,
+                  first: index === 0 && launch === undefined,
                   last: index === process.length - 1 && !compacting,
                   enter: !shownKeys.has(rowKey(row)),
                 }}
                 lanes={lanePlace(lanes, index)}
               />
             ))}
-            {compacting ? <CompactingRow place={{ first: process.length === 0, last: true, enter: true }} /> : null}
+            {compacting ? (
+              <CompactingRow place={{ first: process.length === 0 && launch === undefined, last: true, enter: true }} />
+            ) : null}
             <div className="h-2" />
           </Fold>
         </>

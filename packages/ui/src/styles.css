@@ -501,6 +501,18 @@ body {
   animation: atrium-summary-in 0.26s cubic-bezier(0.32, 0.72, 0, 1) 0.16s both;
 }
 
+/* A new workspace's first message's time, coming in once it has gone (design-language, "新建工作区页"). */
+@keyframes atrium-meta-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.atrium-meta-in {
+  animation: atrium-meta-in 0.26s cubic-bezier(0.32, 0.72, 0, 1) 0.08s both;
+}
+
 /* The model button and the thinking level box (design-language, "点阵", "推理强度框"). Text on the
    dots gets a shadow of the background so it stays clear. */
 .atrium-effort-box:hover {

@@ -67,6 +67,9 @@ const ICONS: Partial<IconMap> = {
   ZoomOutIcon: MagnifyingGlassMinus,
 };
 
+/** How tall a table grows before it scrolls inside, in pixels. */
+const TABLE_MAX_HEIGHT = 640;
+
 /** Streamdown's words, in Chinese. */
 const TRANSLATIONS: Partial<StreamdownTranslations> = {
   close: "关闭",
@@ -367,6 +370,8 @@ export function Markdown({ text, streaming }: MarkdownProps) {
       icons={ICONS}
       translations={TRANSLATIONS}
       lineNumbers={false}
+      // Streamdown's 300px scrolled a table after ten rows (design-language, "代码块、表格、Mermaid 图").
+      tableMaxHeight={TABLE_MAX_HEIGHT}
       isAnimating={streaming}
       // space-y-3 replaces Streamdown's own space-y-4: blocks 12px apart (design-language, "字体").
       className="atrium-markdown space-y-3"

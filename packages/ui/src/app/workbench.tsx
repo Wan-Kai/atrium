@@ -13,7 +13,13 @@ import { FirstLaunch, type FirstLaunchStart, firstLaunchStart } from "../setup/f
 import { useInstallSeed } from "../state/install-seed";
 import { type Panes, createPanes } from "../state/panes";
 import { Sidebar } from "../sidebar/sidebar";
-import { type NewWorkspaceState, closePage, createNewWorkspaceStore, openPage } from "../state/new-workspace";
+import {
+  type NewWorkspaceState,
+  closePage,
+  createNewWorkspaceStore,
+  openPage,
+  pageLaunch,
+} from "../state/new-workspace";
 import { TabBar } from "../tabs/tab-bar";
 import { Breadcrumb } from "../children/breadcrumb";
 import { NewChildDialog } from "../children/new-child-dialog";
@@ -26,7 +32,7 @@ import {
   tabOrder,
   viewOf,
 } from "../state/workspace-views";
-import { NewWorkspacePage } from "./new-workspace-page";
+import { NewWorkspaceBottom, NewWorkspacePage } from "./new-workspace-page";
 import type { StoreApi } from "zustand";
 
 /** What the user calls each index file in the reset notice. */
@@ -531,6 +537,8 @@ function MainWindow({
   const [views] = useState(() => createWorkspaceViews(localStorage));
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const pageProject = useStore(pages, (state) => state.page?.projectId ?? null);
+  // Sent from the page, its launch shows in the conversation area, the page's box under it.
+  const pageLaunching = useStore(pages, (state) => pageLaunch(state) !== undefined);
   const viewer = useStore(views, (state) => (container === null ? null : viewOf(state, container).active));
   useDraftCleanup(index);
 
@@ -605,17 +613,18 @@ function MainWindow({
               </button>
             </div>
           ) : null}
-          {pageProject === null ? (
+          {pageProject === null || pageLaunching ? (
             <OpenLogin value={openLogin}>
               <ConversationArea
                 client={client}
-                containerId={container}
-                sessionId={sessionId}
+                containerId={pageProject === null ? container : null}
+                sessionId={pageProject === null ? sessionId : null}
                 create={() => createHere(client)}
                 launches={pages}
                 panes={panes}
                 views={views}
                 openInBrowser={openInBrowser}
+                {...(pageProject === null ? {} : { page: <NewWorkspaceBottom client={client} store={pages} /> })}
               />
             </OpenLogin>
           ) : (

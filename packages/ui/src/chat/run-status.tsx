@@ -64,13 +64,20 @@ function RunCat() {
  * Shown from sending until the run's turn has something to show, and then as the process
  * header while the run lasts (SPEC-0001, "过程的呈现"; design-language, "动效"). The timer
  * counts from the run's start on the host's clock and ticks once a second, with tabular digits so
- * it does not jump; before the host has started the run there is no timer.
+ * it does not jump; before the host has started the run there is no timer. Before a new
+ * workspace's first turn, the same line says "准备工作区" (design-language, "新建工作区页").
  *
  * @sideEffects Ticks the clock once a second while mounted.
- * @param props - When the run started, or `null` before it has.
+ * @param props - When the run started, or `null` before it has, and what the line says.
  * @returns The status line.
  */
-export function RunStatus({ startedAt }: { readonly startedAt: number | null }) {
+export function RunStatus({
+  startedAt,
+  label = "进行中",
+}: {
+  readonly startedAt: number | null;
+  readonly label?: string;
+}) {
   const clock = useClock();
   const [now, setNow] = useState(() => clock.now());
   useEffect(() => clock.every(1000, () => setNow(clock.now())), [clock]);
@@ -81,7 +88,7 @@ export function RunStatus({ startedAt }: { readonly startedAt: number | null }) 
     >
       <RunCat />
       <span>
-        <span className="atrium-shimmer">进行中</span>
+        <span className="atrium-shimmer">{label}</span>
         {startedAt === null ? null : (
           <span className="text-[var(--text-dim)]"> · {formatElapsed(now - startedAt)}</span>
         )}

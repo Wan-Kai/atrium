@@ -1,8 +1,9 @@
 import { CommandError } from "@atrium/client";
-import type { CatalogModel, CommandResult } from "@atrium/protocol";
+import type { CatalogModel, CommandResult, Turn } from "@atrium/protocol";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
+import { ClockContext, type UiClock } from "../state/clock";
 import "../styles.css";
 import { PROJECT, READY_SETUP, chat, fakeClient, session, workspace } from "../test/fake-client";
 import { Workbench } from "./workbench";
@@ -53,9 +54,10 @@ function list() {
  *
  * @sideEffects Renders; makes `Math.random` answer 0 until the test ends; hovers and clicks.
  * @param answers - How some commands answer.
+ * @param clock - The page's clock, if not the real one.
  * @returns The screen and the fake.
  */
-async function newWorkspacePage(answers: Parameters<typeof fakeClient>[1] = {}) {
+async function newWorkspacePage(answers: Parameters<typeof fakeClient>[1] = {}, clock?: UiClock) {
   await page.viewport(1280, 820);
   const random = vi.spyOn(Math, "random").mockReturnValue(0);
   onTestFinished(() => {
@@ -63,7 +65,7 @@ async function newWorkspacePage(answers: Parameters<typeof fakeClient>[1] = {}) 
     localStorage.clear();
   });
   const fake = fakeClient(list(), answers);
-  const screen = await render(
+  const workbench = (
     <Workbench
       client={fake.client}
       status={<span>已连接宿主</span>}
@@ -72,8 +74,9 @@ async function newWorkspacePage(answers: Parameters<typeof fakeClient>[1] = {}) 
       openUrl={() => undefined}
       reveal={undefined}
       pathForFile={undefined}
-    />,
+    />
   );
+  const screen = await render(clock === undefined ? workbench : <ClockContext value={clock}>{workbench}</ClockContext>);
   await openFrom(screen);
   return { screen, ...fake };
 }
@@ -116,6 +119,62 @@ function steps(screen: Screen): unknown[][] {
     .getByTestId("launch-step")
     .elements()
     .map((step) => [step.getAttribute("data-state"), step.textContent]);
+}
+
+/** A clock that stands still at `time.now` until a test moves it, and never ticks nor fires. */
+function stillClock() {
+  const time = { now: 1_000_000 };
+  const clock: UiClock = { now: () => time.now, every: () => () => undefined, after: () => () => undefined };
+  return { time, clock };
+}
+
+/**
+ * Where an element is on the screen.
+ *
+ * @sideEffects none
+ * @param element - The element.
+ * @returns Its top and left.
+ */
+function placeOf(element: Element): number[] {
+  const rect = element.getBoundingClientRect();
+  return [rect.top, rect.left];
+}
+
+/**
+ * The host's turn for the first message, running, with a thought going on.
+ *
+ * @remarks
+ * As the host sends it once pi started the run: it replaces the pending copy of the message.
+ *
+ * @sideEffects Updates the session's view.
+ * @param views - The fake's views.
+ * @param sessionId - The session.
+ * @param text - The message.
+ */
+function hostTurn(views: ReturnType<typeof fakeClient>["views"], sessionId: string, text: string): void {
+  const view = views.get(sessionId);
+  const pending = view?.getState().pending[0];
+  const turn: Turn = {
+    kind: "turn",
+    id: "t1",
+    source: null,
+    user: {
+      text,
+      images: 0,
+      clientMessageId: pending?.clientMessageId ?? null,
+      auto: false,
+      command: null,
+      timestamp: 0,
+    },
+    steps: [{ kind: "thinking", id: "k1", text: "先看登录", durationMs: null }],
+    outcome: "running",
+    error: null,
+    startedAt: 0,
+    durationMs: null,
+    usage: null,
+    changes: [],
+  };
+  view?.setState({ items: [turn], pending: [], run: { runId: "r1", startedAt: 0 } });
 }
 
 /**
@@ -208,6 +267,37 @@ function busyOnce() {
     tries += 1;
     if (tries === 1) throw new CommandError("session_busy");
     return { disposition: "started" as const };
+  };
+}
+
+/**
+ * Has the page ask for less motion until the test ends.
+ *
+ * @remarks
+ * The media query answers as one that always matches; the others as they are.
+ *
+ * @sideEffects Replaces `window.matchMedia` until the test ends.
+ */
+function lessMotion(): void {
+  const real = window.matchMedia.bind(window);
+  const media = vi
+    .spyOn(window, "matchMedia")
+    .mockImplementation((query) => real(query === "(prefers-reduced-motion: reduce)" ? "(min-width: 0px)" : query));
+  onTestFinished(() => media.mockRestore());
+}
+
+/**
+ * Fails the first time with an error, and answers after.
+ *
+ * @sideEffects none
+ * @param error - The error.
+ * @returns The answer.
+ */
+function failsOnce(error: Error) {
+  let tries = 0;
+  return async () => {
+    tries += 1;
+    if (tries === 1) throw error;
   };
 }
 
@@ -444,11 +534,7 @@ describe("The new-workspace page (M1.11)", () => {
     await send(screen, "修复登录");
 
     await vi.waitFor(() =>
-      expect(steps(screen)).toStrictEqual([
-        ["live", "创建 worktreefix/login · 基于 origin/main"],
-        ["wait", "启动会话"],
-        ["wait", "发出消息"],
-      ]),
+      expect(steps(screen)).toStrictEqual([["live", "创建 worktreefix/login · 基于 origin/main"]]),
     );
     expect(calls.filter((call) => call.startsWith("nameBranch"))).toStrictEqual([]);
     made.resolve();
@@ -488,25 +574,17 @@ describe("The new-workspace page (M1.11)", () => {
 
     await send(screen, "修复登录");
 
-    await vi.waitFor(() =>
-      expect(steps(screen)).toStrictEqual([
-        ["live", "起名按第一条消息"],
-        ["wait", "创建 worktree"],
-        ["wait", "启动会话"],
-        ["wait", "发出消息"],
-      ]),
-    );
+    await vi.waitFor(() => expect(steps(screen)).toStrictEqual([["live", "起名按第一条消息"]]));
     expect(calls).toContain(`nameBranch ${PROJECT.id} 修复登录 null`);
     named.resolve("atrium/fix-login");
     await vi.waitFor(() =>
       expect(steps(screen)).toStrictEqual([
         ["dot", "起名atrium/fix-login"],
         ["live", "创建 worktree基于 origin/main"],
-        ["wait", "启动会话"],
-        ["wait", "发出消息"],
       ]),
     );
-    await expect.element(screen.getByTestId("launch-message").getByTestId("user-text")).toHaveTextContent("修复登录");
+    await expect.element(screen.getByTestId("turn").getByTestId("user-text")).toHaveTextContent("修复登录");
+    await expect.element(screen.getByTestId("run-status")).toHaveTextContent("准备工作区");
     await expect.element(screen.getByText("新建工作区", { exact: true })).not.toBeInTheDocument();
     await userEvent.type(screen.getByRole("textbox", { name: "消息" }), "下一条{Enter}");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
@@ -524,8 +602,19 @@ describe("The new-workspace page (M1.11)", () => {
         ["live", "发出消息"],
       ]),
     );
-    await expect.element(screen.getByTestId("launch-message")).not.toBeInTheDocument();
-    await expect.element(screen.getByTestId("user-message")).toHaveTextContent("修复登录");
+    // The session's pending copy stands for the message in its turn, not as a second bubble.
+    expect(
+      screen
+        .getByTestId("user-message")
+        .elements()
+        .map((one) => one.textContent),
+    ).toStrictEqual(["修复登录"]);
+    expect(
+      screen
+        .getByTestId("run-status")
+        .elements()
+        .map((one) => one.textContent),
+    ).toStrictEqual(["准备工作区"]);
     await expect
       .element(screen.getByTestId("workspace-row").filter({ hasText: "atrium/fix-login" }))
       .toHaveAttribute("aria-current", "true");
@@ -534,7 +623,9 @@ describe("The new-workspace page (M1.11)", () => {
 
     sent.resolve();
 
+    await expect.element(screen.getByTestId("launch-summary")).toBeVisible();
     await expect.element(screen.getByTestId("launch-step").first()).not.toBeInTheDocument();
+    await expect.element(screen.getByTestId("run-status")).toHaveTextContent("进行中");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
     expect(
       calls.filter((call) => /^(nameBranch|createWorkspace|createSession|listCommands|prompt) /.test(call)),
@@ -558,13 +649,12 @@ describe("The new-workspace page (M1.11)", () => {
     await expect.element(screen.getByRole("alert")).toHaveTextContent("这个分支名已经有了，换一个");
     expect(steps(screen)).toStrictEqual([
       ["dot", "起名atrium/fix-login"],
-      ["fail", "创建 worktree基于 origin/main这个分支名已经有了，换一个"],
-      ["wait", "启动会话"],
-      ["wait", "发出消息"],
+      ["fail", "创建 worktree基于 origin/main这个分支名已经有了，换一个重试"],
     ]);
     await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("修复登录");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
-    await expect.element(screen.getByTestId("launch-message")).not.toBeInTheDocument();
+    await expect.element(screen.getByTestId("process-header")).toHaveTextContent("没建好工作区");
+    await expect.element(screen.getByTestId("user-note")).toHaveTextContent("没发出，已放回输入框");
     await expect.element(choice(screen, "分支名")).toBeEnabled();
     await expect.element(choice(screen, "分支名")).toHaveTextContent("atrium/fix-login");
     expect(calls.filter((call) => call.startsWith("createSession"))).toStrictEqual([]);
@@ -772,5 +862,222 @@ describe("The new-workspace page (M1.11)", () => {
     expect(modelCalls).toContain("setModel new2 anthropic/claude-opus-5-5");
     expect(calls).toContain(`nameBranch ${PROJECT.id} 修复登录 anthropic/claude-opus-5-5`);
     expect(calls.filter((call) => call.startsWith("listCommands"))).toStrictEqual([]);
+  });
+});
+
+describe("The new-workspace page's launch, in its turn (2026-10-20)", () => {
+  it("keeps the message and the steps where the turn is, the same nodes, from sending till the turn runs", async () => {
+    const named = Promise.withResolvers<string>();
+    const made = Promise.withResolvers<void>();
+    const sent = Promise.withResolvers<void>();
+    const { screen, views } = await newWorkspacePage({
+      nameBranch: () => named.promise,
+      createWorkspace: () => made.promise,
+      prompt: async () => {
+        await sent.promise;
+        return { disposition: "started" };
+      },
+    });
+
+    await send(screen, "修复登录");
+    await vi.waitFor(() => expect(steps(screen)).toStrictEqual([["live", "起名按第一条消息"]]));
+    const bubble = screen.getByTestId("user-bubble").element();
+    const header = screen.getByTestId("process-header").element();
+    const status = screen.getByTestId("run-status").element();
+    const first = screen.getByTestId("launch-step").element();
+    const places = [placeOf(bubble), placeOf(header)];
+    const entered = [first.classList.contains("atrium-step-enter")];
+
+    named.resolve("atrium/fix-login");
+    await vi.waitFor(() => expect(steps(screen)).toHaveLength(2));
+    places.push(placeOf(bubble), placeOf(header));
+    made.resolve();
+    await expect.element(screen.getByRole("tablist")).toBeVisible();
+    await vi.waitFor(() => expect(steps(screen).at(-1)).toStrictEqual(["live", "发出消息"]));
+    places.push(placeOf(bubble), placeOf(header));
+    entered.push(screen.getByTestId("launch-step").last().element().classList.contains("atrium-step-enter"));
+    const same = [
+      screen.getByTestId("user-bubble").element() === bubble,
+      screen.getByTestId("launch-step").first().element() === first,
+    ];
+    sent.resolve();
+    await expect.element(screen.getByTestId("launch-summary")).toBeVisible();
+    places.push(placeOf(bubble), placeOf(header));
+    hostTurn(views, "new2", "修复登录");
+    await expect.element(screen.getByTestId("run-status").getByText("进行中", { exact: true })).toBeVisible();
+    places.push(placeOf(bubble), placeOf(header));
+    same.push(
+      screen.getByTestId("user-bubble").element() === bubble,
+      screen.getByTestId("process-header").element() === header,
+      screen.getByTestId("run-status").element() === status,
+    );
+
+    expect(places).toStrictEqual(Array.from({ length: 5 }, () => places.slice(0, 2)).flat());
+    expect([same, entered]).toStrictEqual([
+      [true, true, true, true, true],
+      [true, true],
+    ]);
+    await expect.element(screen.getByTestId("step")).toBeVisible();
+  });
+
+  it("lays the launch out as the transcript does: the message at the top of the column, the steps under it", async () => {
+    const made = Promise.withResolvers<void>();
+    const { screen } = await newWorkspacePage({ createWorkspace: () => made.promise });
+
+    await send(screen, "修复登录");
+    await expect.element(screen.getByTestId("launch-step").first()).toBeVisible();
+
+    const scroller = screen.getByTestId("transcript").element().getBoundingClientRect();
+    const column = lastChild(screen.getByTestId("transcript").element()).getBoundingClientRect();
+    const bubble = screen.getByTestId("user-bubble").element().getBoundingClientRect();
+    const message = screen.getByTestId("user-message").element().getBoundingClientRect();
+    const header = screen.getByTestId("process-header").element().getBoundingClientRect();
+    // py-8, then the empty sentinel and the column's 24px gap; the bubble at the column's right,
+    // inside its px-6; the process 12px under the message's row.
+    expect([bubble.top - scroller.top, column.right - 24 - bubble.right, header.top - message.bottom]).toStrictEqual([
+      56, 0, 12,
+    ]);
+    made.resolve();
+  });
+
+  it("shows the message at 60% until it has gone, then fully, with its time coming in", async () => {
+    const sent = Promise.withResolvers<void>();
+    const { screen } = await newWorkspacePage({
+      prompt: async () => {
+        await sent.promise;
+        return { disposition: "started" };
+      },
+    });
+
+    await send(screen, "修复登录");
+    await vi.waitFor(() => expect(steps(screen).at(-1)).toStrictEqual(["live", "发出消息"]));
+    const bubble = screen.getByTestId("user-bubble");
+    const before = [getComputedStyle(bubble.element()).opacity, screen.getByTestId("user-time").elements().length];
+    const row = bubble.element().nextElementSibling?.getBoundingClientRect().height;
+
+    sent.resolve();
+
+    await vi.waitFor(() => expect(getComputedStyle(bubble.element()).opacity).toBe("1"));
+    await expect.element(screen.getByTestId("user-time")).toBeVisible();
+    expect([
+      before,
+      getComputedStyle(bubble.element()).transitionDuration,
+      screen.getByTestId("user-time").element().classList.contains("atrium-meta-in"),
+      bubble.element().nextElementSibling?.getBoundingClientRect().height,
+    ]).toStrictEqual([["0.6", 0], "0.2s", true, row]);
+  });
+
+  it("folds the steps into a summary of where and how long once sent, which opens them again, the agent's steps after it", async () => {
+    const { time, clock } = stillClock();
+    const sent = Promise.withResolvers<void>();
+    const { screen, views } = await newWorkspacePage(
+      {
+        prompt: async () => {
+          await sent.promise;
+          return { disposition: "started" };
+        },
+      },
+      clock,
+    );
+
+    await send(screen, "修复登录");
+    await vi.waitFor(() => expect(steps(screen).at(-1)).toStrictEqual(["live", "发出消息"]));
+    time.now += 3200;
+    sent.resolve();
+
+    const summary = screen.getByTestId("launch-summary");
+    await expect.element(summary).toHaveTextContent("在 atrium/fix-login 建好工作区 · 基于 origin/main · 用时 3 秒");
+    await expect.element(screen.getByTestId("launch-step").first()).not.toBeInTheDocument();
+    await expect.element(summary).toHaveAttribute("aria-expanded", "false");
+    expect(summary.element().getBoundingClientRect().height).toBe(30);
+    await summary.click();
+    await vi.waitFor(() => expect(steps(screen).map(([node]) => node)).toStrictEqual(["dot", "dot", "dot", "dot"]));
+    await expect.element(summary).toHaveAttribute("aria-expanded", "true");
+    hostTurn(views, "new2", "修复登录");
+    await expect.element(screen.getByTestId("step")).toBeVisible();
+
+    expect(
+      summary.element().compareDocumentPosition(screen.getByTestId("step").element()) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("says it opened a session in a workspace already there", async () => {
+    const { screen } = await newWorkspacePage();
+    await choice(screen, "工作区").click();
+    await screen.getByRole("menuitemradio", { name: /^feat\/sidebar/ }).click();
+
+    await send(screen, "修复登录");
+
+    await expect.element(screen.getByTestId("launch-summary")).toHaveTextContent("在 feat/sidebar 里开好会话");
+  });
+
+  it("folds the steps into the summary at once when less motion is asked for", async () => {
+    lessMotion();
+    const sent = Promise.withResolvers<void>();
+    const { screen } = await newWorkspacePage({
+      prompt: async () => {
+        await sent.promise;
+        return { disposition: "started" };
+      },
+    });
+    await send(screen, "修复登录");
+    await vi.waitFor(() => expect(steps(screen).at(-1)).toStrictEqual(["live", "发出消息"]));
+
+    sent.resolve();
+    await expect.element(screen.getByTestId("launch-summary")).toBeVisible();
+
+    expect(screen.container.querySelectorAll("[data-testid='launch-step']")).toHaveLength(0);
+  });
+
+  it("goes on from a failed step on 重试, the message out of the box again, naming no more", async () => {
+    const { screen, calls } = await newWorkspacePage({
+      createWorkspace: failsOnce(new CommandError("worktree_create_failed", { reason: "dir_taken", dir: "/w/x" })),
+    });
+    await send(screen, "修复登录");
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("目录 /w/x 已经存在，换个分支名");
+    const bubble = screen.getByTestId("user-bubble");
+    const failed = [getComputedStyle(bubble.element()).opacity, placeOf(bubble.element())];
+
+    await screen.getByRole("button", { name: "重试", exact: true }).click();
+
+    await expect.element(screen.getByTestId("launch-summary")).toBeVisible();
+    expect([failed, placeOf(bubble.element())]).toStrictEqual([["0.6", failed[1]], failed[1]]);
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toHaveValue("");
+    await expect.element(screen.getByTestId("user-note")).not.toBeInTheDocument();
+    expect(calls.filter((call) => /^(nameBranch|createWorkspace|prompt) /.test(call))).toStrictEqual([
+      `nameBranch ${PROJECT.id} 修复登录 null`,
+      `createWorkspace ${PROJECT.id} atrium/fix-login refs/remotes/origin/main`,
+      `createWorkspace ${PROJECT.id} atrium/fix-login refs/remotes/origin/main`,
+      "prompt new2 修复登录",
+    ]);
+  });
+
+  it("shows the steps of a launch shown again without their entrance, as only a step just started enters", async () => {
+    const made = Promise.withResolvers<void>();
+    const sent = Promise.withResolvers<void>();
+    const { screen, calls } = await newWorkspacePage({
+      createWorkspace: () => made.promise,
+      prompt: async () => {
+        await sent.promise;
+        return { disposition: "started" };
+      },
+    });
+    await send(screen, "修复登录");
+    await expect.element(screen.getByTestId("launch-step").first()).toBeVisible();
+    await screen.getByTestId("workspace-row").filter({ hasText: "feat/sidebar" }).click();
+    made.resolve();
+    await vi.waitFor(() => expect(calls).toContain("prompt new2 修复登录"));
+
+    await screen.getByTestId("workspace-row").filter({ hasText: "atrium/fix-login" }).click();
+    await vi.waitFor(() => expect(steps(screen).at(-1)).toStrictEqual(["live", "发出消息"]));
+
+    expect(
+      screen
+        .getByTestId("launch-step")
+        .elements()
+        .map((step) => step.classList.contains("atrium-step-enter")),
+    ).toStrictEqual([false, false, false, false]);
+    sent.resolve();
   });
 });

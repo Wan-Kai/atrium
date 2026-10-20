@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { type DraftStorage, createDrafts } from "./drafts";
 import {
   type LaunchClient,
+  type LaunchContext,
   type NewWorkspaceState,
   choose,
   closePage,
@@ -17,7 +18,9 @@ import {
   launchOver,
   openPage,
   pageDraftKey,
+  pageLaunch,
   pageModel,
+  retryLaunch,
   suggestBranch,
 } from "./new-workspace";
 
@@ -86,6 +89,31 @@ function fakeClient(held: readonly Method[] = [], failing: Partial<Record<Method
   };
 }
 
+/** The page's clock in these tests: a launch starts at 1000 and each reading is a second later. */
+function stepClock(): () => number {
+  let now = 0;
+  return () => (now += 1000);
+}
+
+/**
+ * What a launch's steps use: the client, the drafts, a clock a second a reading, and random words.
+ *
+ * @sideEffects none
+ * @param client - The client.
+ * @param drafts - The drafts.
+ * @param random - Picks a random branch name's words; the first of each by default.
+ * @param now - The clock.
+ * @returns The context.
+ */
+function context(
+  client: LaunchClient,
+  drafts: LaunchContext["drafts"],
+  random: () => number = () => 0,
+  now: () => number = stepClock(),
+): LaunchContext {
+  return { client, drafts, now, random };
+}
+
 /**
  * Lets the launch go on until it waits for the client again.
  *
@@ -137,6 +165,7 @@ describe("suggestBranch, defaultBase, baseRef, baseName, pageDraftKey", () => {
       baseName("refs/remotes/origin/main"),
       baseName("HEAD"),
       baseName("refs/tags/v1"),
+      baseName("refs/tags/refs/heads/x"),
     ]).toStrictEqual([
       "refs/heads/feat/x",
       "refs/remotes/origin/main",
@@ -144,6 +173,7 @@ describe("suggestBranch, defaultBase, baseRef, baseName, pageDraftKey", () => {
       "origin/main",
       "HEAD",
       "refs/tags/v1",
+      "refs/tags/refs/heads/x",
     ]);
   });
 
@@ -245,12 +275,12 @@ describe("the page", () => {
 });
 
 describe("launch", () => {
-  it("creates the worktree, the session, waits for pi and sends, step by step, then goes away", async () => {
+  it("creates the worktree, the session, waits for pi and sends, step by step, then stays for its turn", async () => {
     const store = pageOpen();
     const drafts = memoryDrafts();
     const { client, calls, release } = fakeClient(["createWorkspace", "createSession", "listCommands", "prompt"]);
 
-    const going = launch(store, client, drafts, { text: "fix it", images: [IMAGE] }, () => "l1");
+    const going = launch(store, context(client, drafts), { text: "fix it", images: [IMAGE] }, () => "l1");
     await settle();
     expect(store.getState()).toStrictEqual({
       page: {
@@ -262,6 +292,8 @@ describe("launch", () => {
       launches: [
         {
           id: "l1",
+          projectId: "p1",
+          model: { ref: null, level: null },
           worktree: { branch: "atrium/brave-badger", base: "origin/main" },
           named: null,
           steps: ["worktree", "session", "message"],
@@ -271,9 +303,13 @@ describe("launch", () => {
           images: [IMAGE],
           workspaceId: null,
           sessionId: null,
+          startedAt: 1000,
+          failedAt: null,
+          sentAt: null,
         },
       ],
     });
+    expect(pageLaunch(store.getState())?.id).toBe("l1");
     // Typed after sending, while held back.
     drafts.update(pageDraftKey("p1"), (draft) => ({ ...draft, text: "next" }));
 
@@ -293,11 +329,14 @@ describe("launch", () => {
 
     release("listCommands");
     await settle();
-    expect(onlyLaunch(store.getState())).toMatchObject({ done: 2 });
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 2, sentAt: null });
+    expect(holdsBack(launchOver(store.getState(), "s1"))).toBe(true);
 
     release("prompt");
     await going;
-    expect(store.getState().launches).toStrictEqual([]);
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 3, failure: undefined, startedAt: 1000, sentAt: 2000 });
+    expect(holdsBack(launchOver(store.getState(), "s1"))).toBe(false);
+    expect(pageLaunch(store.getState())).toBeUndefined();
     expect(calls).toStrictEqual([
       ["createWorkspace", "p1", "atrium/brave-badger", "origin/main"],
       ["createSession", "wks_new", true],
@@ -312,7 +351,7 @@ describe("launch", () => {
     choose(store, { choice: { kind: "new", branch: null, base: "origin/main" }, model: { ref: chosen, level: null } });
     const { client, calls, release } = fakeClient(["nameBranch", "createWorkspace", "createSession"]);
 
-    const going = launch(store, client, memoryDrafts(), { text: "fix the login", images: [] }, () => "l1");
+    const going = launch(store, context(client, memoryDrafts()), { text: "fix the login", images: [] }, () => "l1");
     await settle();
     expect(onlyLaunch(store.getState())).toMatchObject({
       worktree: { branch: null, base: "origin/main" },
@@ -354,11 +393,9 @@ describe("launch", () => {
 
     const going = launch(
       store,
-      client,
-      memoryDrafts(),
+      context(client, memoryDrafts(), () => 0.5),
       MESSAGE,
       () => "l1",
-      () => 0.5,
     );
     await settle();
     expect(onlyLaunch(store.getState())).toMatchObject({
@@ -374,7 +411,7 @@ describe("launch", () => {
       ["nameBranch", "p1", "hi", null],
       ["createWorkspace", "p1", "atrium/merry-otter", "origin/main"],
     ]);
-    expect(store.getState().launches).toStrictEqual([]);
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 4, failure: undefined });
   });
 
   it("names a branch randomly, without the step, for a message with no text", async () => {
@@ -384,11 +421,9 @@ describe("launch", () => {
 
     void launch(
       store,
-      client,
-      memoryDrafts(),
+      context(client, memoryDrafts(), () => 0),
       { text: " ", images: [IMAGE] },
       () => "l1",
-      () => 0,
     );
     await settle();
 
@@ -405,16 +440,16 @@ describe("launch", () => {
     choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
     const refused = new CommandError("worktree_create_failed");
     const failing = fakeClient([], { createWorkspace: refused });
-    await launch(store, failing.client, memoryDrafts(), MESSAGE, () => "l1");
+    await launch(store, context(failing.client, memoryDrafts()), MESSAGE, () => "l1");
     expect(onlyLaunch(store.getState())).toMatchObject({ done: 1, failure: refused, named: "model" });
 
     const again = fakeClient();
-    await launch(store, again.client, memoryDrafts(), MESSAGE, () => "l2");
+    await launch(store, context(again.client, memoryDrafts()), MESSAGE, () => "l2");
     expect(again.calls[0]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main"]);
 
     openPage(store, "p1");
     const held = fakeClient(["nameBranch"]);
-    const going = launch(store, held.client, memoryDrafts(), MESSAGE, () => "l3");
+    const going = launch(store, context(held.client, memoryDrafts()), MESSAGE, () => "l3");
     await settle();
     closePage(store);
     openPage(store, "p2");
@@ -428,14 +463,14 @@ describe("launch", () => {
     choose(store, { choice: { kind: "new", branch: null, base: "origin/main" } });
     const { client, calls, release } = fakeClient(["nameBranch"]);
 
-    const going = launch(store, client, memoryDrafts(), MESSAGE, () => "l1");
+    const going = launch(store, context(client, memoryDrafts()), MESSAGE, () => "l1");
     await settle();
     closePage(store);
     release("nameBranch");
     await going;
 
     expect(calls[1]).toStrictEqual(["createWorkspace", "p1", "atrium/fix-login", "origin/main"]);
-    expect(store.getState()).toStrictEqual({ page: null, launches: [] });
+    expect(store.getState().page).toBeNull();
   });
 
   it("goes into a workspace already there, setting the model and level chosen instead of listing commands", async () => {
@@ -446,7 +481,7 @@ describe("launch", () => {
     });
     const { client, calls, release } = fakeClient(["prompt"]);
 
-    const going = launch(store, client, memoryDrafts(), { text: "hi", images: [] }, () => "l1");
+    const going = launch(store, context(client, memoryDrafts()), { text: "hi", images: [] }, () => "l1");
     await settle();
     expect(onlyLaunch(store.getState())).toMatchObject({
       worktree: null,
@@ -473,7 +508,7 @@ describe("launch", () => {
     });
     const { client, calls } = fakeClient();
 
-    await launch(store, client, memoryDrafts(), MESSAGE, () => "l1");
+    await launch(store, context(client, memoryDrafts()), MESSAGE, () => "l1");
 
     expect(calls).toStrictEqual([
       ["createSession", "w2", true],
@@ -490,7 +525,7 @@ describe("launch", () => {
     });
     const { client, calls } = fakeClient();
 
-    await launch(store, client, memoryDrafts(), { text: "hi", images: [] }, () => "l1");
+    await launch(store, context(client, memoryDrafts()), { text: "hi", images: [] }, () => "l1");
 
     expect(calls).toStrictEqual([
       ["createWorkspace", "p1", "a", "HEAD"],
@@ -504,7 +539,7 @@ describe("launch", () => {
     const store = pageOpen();
     const { client, calls, release } = fakeClient(["createWorkspace"]);
 
-    const going = launch(store, client, memoryDrafts(), { text: "hi", images: [] }, () => "l1");
+    const going = launch(store, context(client, memoryDrafts()), { text: "hi", images: [] }, () => "l1");
     await settle();
     closePage(store);
     openPage(store, "p2");
@@ -520,7 +555,7 @@ describe("launch", () => {
     const drafts = memoryDrafts();
     const { client, calls, release } = fakeClient(["createWorkspace"]);
 
-    const going = launch(store, client, drafts, MESSAGE, () => "l1");
+    const going = launch(store, context(client, drafts), MESSAGE, () => "l1");
     await settle();
     drafts.update(pageDraftKey("p1"), (draft) => ({ ...draft, text: "next" }));
     closePage(store);
@@ -533,7 +568,7 @@ describe("launch", () => {
       ["listCommands", "s1"],
       ["prompt", "s1", "hi", [], []],
     ]);
-    expect(store.getState()).toStrictEqual({ page: null, launches: [] });
+    expect(store.getState().page).toBeNull();
   });
 
   it("stops at a failed worktree, puts the message back in the page's box, and lets it send again", async () => {
@@ -542,7 +577,7 @@ describe("launch", () => {
     const refused = new CommandError("worktree_create_failed", { reason: "branch_exists", branch: "a" });
     const { client, calls } = fakeClient([], { createWorkspace: refused });
 
-    await launch(store, client, drafts, { text: "fix it", images: [IMAGE] }, () => "l1");
+    await launch(store, context(client, drafts), { text: "fix it", images: [IMAGE] }, () => "l1");
 
     expect(onlyLaunch(store.getState())).toMatchObject({ done: 0, failure: refused, sessionId: null });
     expect(store.getState().page).toMatchObject({ choice: { kind: "new" }, launchId: "l1" });
@@ -550,8 +585,8 @@ describe("launch", () => {
     expect(calls).toHaveLength(1);
 
     const again = fakeClient();
-    await launch(store, again.client, drafts, { text: "fix it", images: [] }, () => "l2");
-    expect(store.getState().launches).toStrictEqual([]);
+    await launch(store, context(again.client, drafts), { text: "fix it", images: [] }, () => "l2");
+    expect(store.getState().launches.map((one) => [one.id, one.sentAt])).toStrictEqual([["l2", 2000]]);
   });
 
   it("refuses a message opening with /atrium- before any step, putting it back in the page's box", async () => {
@@ -559,7 +594,7 @@ describe("launch", () => {
     const drafts = memoryDrafts();
     const { client, calls } = fakeClient();
 
-    await launch(store, client, drafts, { text: "  /atrium-agent note x", images: [] }, () => "l1");
+    await launch(store, context(client, drafts), { text: "  /atrium-agent note x", images: [] }, () => "l1");
 
     expect(onlyLaunch(store.getState())).toMatchObject({
       done: 0,
@@ -576,7 +611,7 @@ describe("launch", () => {
     const busy = new CommandError("session_busy");
     const { client } = fakeClient([], { prompt: busy });
 
-    await launch(store, client, drafts, { text: "fix it", images: [] }, () => "l1");
+    await launch(store, context(client, drafts), { text: "fix it", images: [] }, () => "l1");
 
     const failed = launchOver(store.getState(), "s1");
     expect(failed).toMatchObject({ done: 2, failure: busy });
@@ -586,7 +621,7 @@ describe("launch", () => {
     const other = pageOpen();
     const typed = memoryDrafts();
     const second = fakeClient(["prompt"], { prompt: busy });
-    const going = launch(other, second.client, typed, { text: "fix it", images: [] }, () => "l1");
+    const going = launch(other, context(second.client, typed), { text: "fix it", images: [] }, () => "l1");
     await settle();
     typed.update("s1", (draft) => ({ ...draft, text: "meanwhile" }));
     second.release("prompt");
@@ -597,16 +632,21 @@ describe("launch", () => {
   it("forgets a launch that failed before its session existed once the page opens again, and keeps the rest", async () => {
     const store = pageOpen();
     const busy = new CommandError("session_busy");
-    await launch(store, fakeClient([], { prompt: busy }).client, memoryDrafts(), MESSAGE, () => "l2");
+    await launch(store, context(fakeClient([], { prompt: busy }).client, memoryDrafts()), MESSAGE, () => "l2");
     const going = fakeClient(["createWorkspace"]);
     openPage(store, "p1");
     choose(store, { choice: { kind: "new", branch: "b", base: "origin/main" } });
-    void launch(store, going.client, memoryDrafts(), MESSAGE, () => "l3");
+    void launch(store, context(going.client, memoryDrafts()), MESSAGE, () => "l3");
     await settle();
     openPage(store, "p1");
     choose(store, { choice: { kind: "new", branch: "c", base: "origin/main" } });
     const refused = new CommandError("worktree_create_failed", { reason: "branch_exists", branch: "c" });
-    await launch(store, fakeClient([], { createWorkspace: refused }).client, memoryDrafts(), MESSAGE, () => "l1");
+    await launch(
+      store,
+      context(fakeClient([], { createWorkspace: refused }).client, memoryDrafts()),
+      MESSAGE,
+      () => "l1",
+    );
 
     openPage(store, "p2");
 
@@ -617,12 +657,12 @@ describe("launch", () => {
   it("does nothing without the page, and a dismissed launch stays gone", async () => {
     const store = createNewWorkspaceStore();
     const { client, calls } = fakeClient();
-    await launch(store, client, memoryDrafts(), { text: "hi", images: [] }, () => "l1");
+    await launch(store, context(client, memoryDrafts()), { text: "hi", images: [] }, () => "l1");
     expect(calls).toStrictEqual([]);
 
     const open = pageOpen();
     const held = fakeClient(["prompt"], { prompt: new CommandError("session_busy") });
-    const going = launch(open, held.client, memoryDrafts(), { text: "hi", images: [] }, () => "l1");
+    const going = launch(open, context(held.client, memoryDrafts()), { text: "hi", images: [] }, () => "l1");
     await settle();
     dismiss(open, "l1");
     held.release("prompt");
@@ -635,10 +675,10 @@ describe("launch", () => {
   it("shows a launch over its own session only, and dismisses only the one asked", async () => {
     const store = pageOpen();
     const busy = new CommandError("session_busy");
-    await launch(store, fakeClient([], { prompt: busy }).client, memoryDrafts(), MESSAGE, () => "l1");
+    await launch(store, context(fakeClient([], { prompt: busy }).client, memoryDrafts()), MESSAGE, () => "l1");
     openPage(store, "p1");
     const going = fakeClient(["createWorkspace"]);
-    void launch(store, going.client, memoryDrafts(), MESSAGE, () => "l2");
+    void launch(store, context(going.client, memoryDrafts()), MESSAGE, () => "l2");
     await settle();
 
     expect(launchOver(store.getState(), null)).toBeUndefined();
@@ -647,6 +687,139 @@ describe("launch", () => {
     dismiss(store, "l1");
     expect(store.getState().launches.map((one) => one.id)).toStrictEqual(["l2"]);
     going.release("createWorkspace");
+  });
+});
+
+describe("pageLaunch", () => {
+  it("is the launch the open page sent last, among others, and none for a page without one or no page", async () => {
+    const store = pageOpen();
+    await launch(
+      store,
+      context(fakeClient([], { prompt: new CommandError("session_busy") }).client, memoryDrafts()),
+      MESSAGE,
+      () => "l1",
+    );
+    const held = fakeClient(["createWorkspace"]);
+    openPage(store, "p1");
+    const without = pageLaunch(store.getState());
+    choose(store, { choice: { kind: "new", branch: "b", base: "origin/main" } });
+    const going = launch(store, context(held.client, memoryDrafts()), MESSAGE, () => "l2");
+    const shown = pageLaunch(store.getState())?.id;
+    closePage(store);
+
+    expect([without, shown, pageLaunch(store.getState())]).toStrictEqual([undefined, "l2", undefined]);
+    held.release("createWorkspace");
+    await going;
+  });
+});
+
+describe("retryLaunch", () => {
+  it("goes on from the failed step, taking the message back out of the box, not counting the time it stood failed", async () => {
+    const store = pageOpen();
+    const drafts = memoryDrafts();
+    const clock = stepClock();
+    const refused = new CommandError("worktree_create_failed");
+    await launch(
+      store,
+      context(fakeClient([], { createWorkspace: refused }).client, drafts, () => 0, clock),
+      { text: "fix it", images: [IMAGE] },
+      () => "l1",
+    );
+    expect(onlyLaunch(store.getState())).toMatchObject({ failure: refused, startedAt: 1000, failedAt: 2000 });
+    expect(drafts.read(pageDraftKey("p1"))).toMatchObject({ text: "fix it", images: [IMAGE] });
+
+    const again = fakeClient(["createWorkspace"]);
+    const going = retryLaunch(
+      store,
+      context(again.client, drafts, () => 0, clock),
+      "l1",
+    );
+    expect(onlyLaunch(store.getState())).toMatchObject({ failure: undefined, failedAt: null, startedAt: 2000 });
+    expect(holdsBack(pageLaunch(store.getState()))).toBe(true);
+    expect(drafts.read(pageDraftKey("p1"))).toStrictEqual({
+      text: "",
+      pastes: [],
+      files: [],
+      command: null,
+      images: [],
+    });
+    again.release("createWorkspace");
+    await going;
+
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 3, sessionId: "s1", startedAt: 2000, sentAt: 4000 });
+    expect(again.calls).toStrictEqual([
+      ["createWorkspace", "p1", "atrium/brave-badger", "origin/main"],
+      ["createSession", "wks_new", true],
+      ["listCommands", "s1"],
+      ["prompt", "s1", "fix it", ["a1"], ["data:p"]],
+    ]);
+  });
+
+  it("makes no second session once there is one, and leaves a box typed into since alone", async () => {
+    const store = pageOpen();
+    const drafts = memoryDrafts();
+    await launch(
+      store,
+      context(fakeClient([], { listCommands: new CommandError("session_busy") }).client, drafts),
+      MESSAGE,
+      () => "l1",
+    );
+    expect(onlyLaunch(store.getState())).toMatchObject({ done: 1, sessionId: "s1" });
+    drafts.update("s1", (draft) => ({ ...draft, text: "other" }));
+
+    const again = fakeClient();
+    await retryLaunch(store, context(again.client, drafts), "l1");
+
+    expect(again.calls).toStrictEqual([
+      ["listCommands", "s1"],
+      ["prompt", "s1", "hi", [], []],
+    ]);
+    expect(drafts.read("s1").text).toBe("other");
+  });
+
+  it("refuses a message opening with /atrium- again", async () => {
+    const store = pageOpen();
+    const drafts = memoryDrafts();
+    await launch(store, context(fakeClient().client, drafts), { text: "/atrium-x", images: [] }, () => "l1");
+    const again = fakeClient();
+
+    await retryLaunch(store, context(again.client, drafts), "l1");
+
+    expect(onlyLaunch(store.getState())).toMatchObject({ failure: new CommandError("command_reserved") });
+    expect(again.calls).toStrictEqual([]);
+  });
+
+  it("leaves a launch not failed, or gone, alone, though another failed", async () => {
+    const store = pageOpen();
+    const drafts = memoryDrafts();
+    const busy = new CommandError("session_busy");
+    await launch(store, context(fakeClient([], { prompt: busy }).client, drafts), MESSAGE, () => "l1");
+    openPage(store, "p1");
+    await launch(store, context(fakeClient().client, drafts), MESSAGE, () => "l2");
+    const again = fakeClient();
+
+    await retryLaunch(store, context(again.client, drafts), "l2");
+    await retryLaunch(store, context(again.client, drafts), "l3");
+
+    expect(again.calls).toStrictEqual([]);
+  });
+
+  it("leaves the box alone when its images were changed since, though its text was not", async () => {
+    const store = pageOpen();
+    const drafts = memoryDrafts();
+    const refused = new CommandError("worktree_create_failed");
+    await launch(
+      store,
+      context(fakeClient([], { createWorkspace: refused }).client, drafts),
+      { text: "fix it", images: [IMAGE] },
+      () => "l1",
+    );
+    drafts.update(pageDraftKey("p1"), (draft) => ({ ...draft, images: [] }));
+
+    await retryLaunch(store, context(fakeClient().client, drafts), "l1");
+
+    // Handed to the session once there was one, as what was typed meanwhile is.
+    expect(drafts.read("s1")).toMatchObject({ text: "fix it", images: [] });
   });
 });
 

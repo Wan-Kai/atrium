@@ -3,8 +3,6 @@ import type { CommandResult } from "@atrium/protocol";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type StoreApi, useStore } from "zustand";
 import { Composer } from "../chat/composer";
-import { describeLaunchError } from "../chat/conversation-area";
-import { LaunchView } from "../chat/launch-timeline";
 import { MenuButton } from "../chat/menu-button";
 import { ModelPicker } from "../chat/model-picker";
 import {
@@ -31,8 +29,10 @@ import {
   holdsBack,
   launch,
   pageDraftKey,
+  pageLaunch,
   pageModel,
 } from "../state/new-workspace";
+import { useClock } from "../state/clock";
 import { pageDrafts } from "../state/use-draft";
 import { sortWorkspaces, workspaceName } from "../sidebar/names";
 import { RenameField } from "../sidebar/rename-field";
@@ -468,17 +468,11 @@ function Choices({
  * The "新建工作区" page: choose where to work, and the first message creates it.
  *
  * @remarks
- * SPEC-0001 ("M1.11 的新建工作区"), laid out as the empty state (design-language, "新建工作区页").
- * Typing creates nothing; sending sets the launch going (`launch`), whose timeline shows at the
- * top until the session exists, when the page gives way to it. The box keeps a draft per project,
- * has no `/` or `@` menu, as there is no session to ask, and sends nothing while the first message
- * is on its way, nor, for a new worktree, before the bases come. The model button shows and chooses the page's model, set on the session before
- * the message; its list is the chosen workspace's, or the local one's for a new worktree, and the
- * setup's login state tells it which providers are on a plan. A page whose project went away
- * closes.
+ * SPEC-0001 ("M1.11 的新建工作区"), laid out as the empty state (design-language, "新建工作区页"):
+ * the title and what sending does, over the choices and the box (`NewWorkspaceBottom`). Once sent,
+ * the conversation area shows the launch, the choices and the box under it.
  *
- * @sideEffects Subscribes to the page's store, the client's list and the login state; asks for
- * the project's bases and models; sends commands when the user sends.
+ * @sideEffects Subscribes to the page's store; see `NewWorkspaceBottom`.
  * @param props - The client and the page's store.
  * @returns The page.
  */
@@ -489,8 +483,48 @@ export function NewWorkspacePage({
   readonly client: AtriumClient;
   readonly store: StoreApi<NewWorkspaceState>;
 }) {
+  const kind = useStore(store, (state) => state.page?.choice.kind ?? null);
+  if (kind === null) return null;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
+        <p className="text-[20px] font-medium text-[var(--text)]">新建工作区</p>
+        <p className="text-[length:var(--fs-meta)]">
+          {kind === "new" ? "发出第一条消息时，才建 worktree" : "发出第一条消息时，在这个工作区里新建会话"}
+        </p>
+      </div>
+      <NewWorkspaceBottom client={client} store={store} />
+    </div>
+  );
+}
+
+/**
+ * The new-workspace page's choices and box, and the room for a status bar under them.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的新建工作区"). Typing creates nothing; sending sets the launch going
+ * (`launch`). The box keeps a draft per project, has no `/` or `@` menu, as there is no session to
+ * ask, and sends nothing while the first message is on its way, nor, for a new worktree, before the
+ * bases come. The model button shows and chooses the page's model, set on the session before the
+ * message; its list is the chosen workspace's, or the local one's for a new worktree, and the
+ * setup's login state tells it which providers are on a plan. A page whose project went away
+ * closes. Under the page's title, and under its launch once sent.
+ *
+ * @sideEffects Subscribes to the page's store, the client's list and the login state; asks for
+ * the project's bases and models; sends commands when the user sends.
+ * @param props - The client and the page's store.
+ * @returns The choices and the box.
+ */
+export function NewWorkspaceBottom({
+  client,
+  store,
+}: {
+  readonly client: AtriumClient;
+  readonly store: StoreApi<NewWorkspaceState>;
+}) {
   const page = useStore(store, (state) => state.page);
-  const going = useStore(store, (state) => state.launches.find((one) => one.id === state.page?.launchId));
+  const going = useStore(store, pageLaunch);
+  const clock = useClock();
   const projectId = page?.projectId ?? "";
   const bases = useBases(client, store, projectId);
   const gone = useStore(client.index, (index) => index.ready && !index.projects.some((one) => one.id === projectId));
@@ -515,21 +549,7 @@ export function NewWorkspacePage({
   const shown = pageModel(page.model, preferences, list);
   const held = holdsBack(going);
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {going === undefined ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
-          <p className="text-[20px] font-medium text-[var(--text)]">新建工作区</p>
-          <p className="text-[length:var(--fs-meta)]">
-            {page.choice.kind === "new"
-              ? "发出第一条消息时，才建 worktree"
-              : "发出第一条消息时，在这个工作区里新建会话"}
-          </p>
-        </div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <LaunchView launch={going} reason={going.failure === undefined ? null : describeLaunchError(going.failure)} />
-        </div>
-      )}
+    <>
       <Choices client={client} store={store} page={page} bases={bases} held={held} />
       <Composer
         key={projectId}
@@ -538,8 +558,9 @@ export function NewWorkspacePage({
         // Until the bases come, a new worktree would start from HEAD rather than the default one.
         held={held || (page.choice.kind === "new" && bases === null)}
         onSend={(text, images) => {
+          const steps = { client, drafts: pageDrafts(), now: () => clock.now(), random: Math.random };
           // Fire and forget: the launch shows its own failures.
-          void launch(store, client, pageDrafts(), { text, images }, () => crypto.randomUUID());
+          void launch(store, steps, { text, images }, () => crypto.randomUUID());
         }}
         onUpload={async (image) => (await client.uploadAttachment(image.mimeType, image.data)).attachmentId}
         imagesAllowed={shown?.supportsImage !== false}
@@ -564,6 +585,6 @@ export function NewWorkspacePage({
       />
       {/* Where a session's status bar goes, as in the empty state. */}
       <div aria-hidden="true" className="h-9 shrink-0" />
-    </div>
+    </>
   );
 }

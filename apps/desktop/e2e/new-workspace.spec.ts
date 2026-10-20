@@ -30,8 +30,12 @@ test("creates a worktree from a project's new-workspace page with the first mess
     await window.getByRole("textbox", { name: "消息" }).press("Enter");
 
     await expect(window.getByTestId("reply")).toHaveText("好的", { timeout: 60_000 });
-    await expect(window.getByTestId("user-message")).toContainText("修一下");
+    await expect(window.getByTestId("user-message")).toHaveText(/^修一下/);
+    // The steps folded into their summary, in the turn the message opened.
     await expect(window.getByTestId("launch-step")).toHaveCount(0);
+    await expect(window.getByTestId("turn").getByTestId("launch-summary")).toHaveText(
+      /^在 atrium\/e2e-otter 建好工作区 · 基于 origin\/main · 用时 \d+ 秒$/,
+    );
     await expect(window.getByTestId("workspace-row")).toHaveText(["main", "atrium/e2e-otter"]);
     await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute("aria-current", "true");
     const dir = join(dirname(repo), "repo.worktrees", "e2e-otter");
