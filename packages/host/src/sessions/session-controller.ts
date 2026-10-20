@@ -28,6 +28,7 @@ import {
 import type { Clock } from "../platform/clock";
 import type { PlanUsageService } from "./plan-usage";
 import { createMetricsTracker } from "./session-metrics";
+import type { SeenCompaction } from "../transcript/projection";
 import {
   type EntriesPage,
   type TranscriptEvent,
@@ -497,11 +498,19 @@ export function createSessionController(options: {
   readonly log?: (level: "info" | "warn" | "error", message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The epoch to start in; after the session's previous controller, one past its last. */
   readonly epoch?: number;
-  /** Entries earlier host runs saw open a turn, and where newly seen ones go. */
+  /**
+   * Entries earlier host runs saw open a turn, and compactions they saw during runs, and where
+   * newly seen ones go.
+   */
   readonly turnStarts?: {
     readonly opened: ReadonlySet<string>;
     readonly auto?: ReadonlySet<string>;
-    readonly record: (entryIds: readonly string[], autoIds: readonly string[]) => void;
+    readonly compactions?: ReadonlyMap<string, SeenCompaction>;
+    readonly record: (
+      entryIds: readonly string[],
+      autoIds: readonly string[],
+      compactions: ReadonlyMap<string, SeenCompaction>,
+    ) => void;
   };
   /**
    * Starts the session's pi again; without it a crash is final. Resolves with `null` when another
@@ -545,6 +554,7 @@ export function createSessionController(options: {
       : {
           opened: options.turnStarts.opened,
           ...(options.turnStarts.auto === undefined ? {} : { auto: options.turnStarts.auto }),
+          ...(options.turnStarts.compactions === undefined ? {} : { compactions: options.turnStarts.compactions }),
           onTurnsSeen: options.turnStarts.record,
         }),
   });
@@ -1034,6 +1044,8 @@ export function createSessionController(options: {
         controlChanged();
         return;
       case "compaction_finished":
+        // The step first: the line saying pi compacts goes once the step stands in its place.
+        for (const published of transcript.apply(event, origin)) emit(published);
         compacting = false;
         controlChanged();
         // Fire and forget: `refresh` reports its own failures.

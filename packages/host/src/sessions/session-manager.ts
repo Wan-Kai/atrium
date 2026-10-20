@@ -1040,8 +1040,12 @@ export function createSessionManager(options: {
             turnStarts: {
               opened: starts.opened,
               auto: starts.auto,
-              record: (entryIds: readonly string[], autoIds: readonly string[]) =>
-                inBackground("turn starts", () => starts.record(entryIds, autoIds)),
+              compactions: starts.compactions,
+              record: (
+                entryIds: readonly string[],
+                autoIds: readonly string[],
+                compactions: ReadonlyMap<string, "overflow" | "threshold" | null>,
+              ) => inBackground("turn starts", () => starts.record(entryIds, autoIds, compactions)),
             },
           }),
     });
@@ -1299,7 +1303,8 @@ export function createSessionManager(options: {
   }
 
   /**
-   * Gives a forked session the record of which of its user messages opened turns.
+   * Gives a forked session the record of which of its user messages opened turns, and of the
+   * compactions seen during its runs.
    *
    * @remarks
    * pi keeps entry ids when it forks (pi-internals.md §1), so the original's record holds for the
@@ -1315,7 +1320,7 @@ export function createSessionManager(options: {
     if (options.turnStarts === undefined) return;
     try {
       const starts = await options.turnStarts(from);
-      await (await options.turnStarts(to)).record([...starts.opened], [...starts.auto]);
+      await (await options.turnStarts(to)).record([...starts.opened], [...starts.auto], starts.compactions);
     } catch (error) {
       options.logger.warn({ ...failureFields(error), sessionId: to }, "turn starts could not be copied");
     }

@@ -77,6 +77,7 @@ function longSession(turns: number) {
       parentId: `u${index}`,
       kind: "compaction",
       summary: "",
+      firstKeptEntryId: `u${index}`,
       tokensBefore: 0,
       system: null,
       timestamp: 0,
@@ -140,6 +141,90 @@ function playHistory() {
     }
   }
   return { session, results, published };
+}
+
+/**
+ * Plays the recorded scenario of compactions during runs into a transcript, as the controller would.
+ *
+ * @remarks
+ * After each settled run the host reads what pi wrote since its last read; the compactions are
+ * during runs, so their ends read nothing (the controller never rebuilds during a run).
+ *
+ * @sideEffects Updates the transcript.
+ * @param onTurnsSeen - Told what the rebuilds tie to entries.
+ * @returns The events published, the rebuild results, and the transcript.
+ */
+function playCompactions(onTurnsSeen?: (...seen: unknown[]) => void) {
+  let next = 0;
+  const session = createSessionTranscript({
+    sessionId: "s",
+    newId: () => `live-${++next}`,
+    now: () => 0,
+    ...(onTurnsSeen === undefined ? {} : { onTurnsSeen }),
+  });
+  const translate = createEventTranslator(() => 0);
+  const { entries } = fixtureEntries("compaction-run", "1.1.0");
+  const reads = [entries.slice(0, 6), entries.slice(6)];
+  const results: RebuildResult[] = [];
+  const published: TranscriptEvent[] = [];
+  for (const event of fixtureEvents("compaction-run", "1.1.0")) {
+    for (const translated of translate(event)) {
+      if (translated.kind === "agent_settled") {
+        published.push(...session.settle());
+        const read = present(reads[results.length], "a planned read");
+        results.push(session.rebuild({ entries: read, leafId: present(read.at(-1), "the leaf").id }, false));
+      } else published.push(...session.apply(translated, noClient));
+    }
+  }
+  return { session, results, published };
+}
+
+/**
+ * A compaction pi finished, with what it wrote.
+ *
+ * @remarks
+ * As the translator reports pi's `compaction_end`; an overflow is retried.
+ *
+ * @sideEffects none
+ * @param reason - What set it off.
+ * @param result - What it wrote; `null` when it was stopped or failed.
+ * @returns The event.
+ */
+function compactionDone(
+  reason: "manual" | "threshold" | "overflow",
+  result: { summary: string; firstKeptEntryId: string; tokensBefore: number } | null = {
+    summary: "So far.",
+    firstKeptEntryId: "a0",
+    tokensBefore: 152_000,
+  },
+) {
+  return {
+    kind: "compaction_finished",
+    reason,
+    aborted: false,
+    willRetry: reason === "overflow",
+    error: null,
+    result,
+  } as const;
+}
+
+/**
+ * A finished assistant message that read `input` tokens, a third of them from the cache.
+ *
+ * @remarks
+ * The context after a compaction counts cached input too (SPEC-0001, `compaction`).
+ *
+ * @sideEffects none
+ * @param input - The tokens it read, all told.
+ * @returns The event.
+ */
+function replyReading(input: number) {
+  const read = Math.floor(input / 3);
+  const message = assistantMessage([{ type: "text", text: "done" }]).message;
+  return {
+    kind: "message_finished",
+    message: { ...message, usage: { ...message.usage, input: input - read - 1, cacheRead: read, cacheWrite: 1 } },
+  } as const;
 }
 
 /** An event's type, and for a step event the step's id and kind. */
@@ -239,6 +324,246 @@ describe("createSessionTranscript following a recorded session", () => {
       changes: [{ path: "notes.txt", added: null, removed: null }],
     });
   });
+});
+
+describe("createSessionTranscript following recorded compactions during runs", () => {
+  it("adds each compaction live where it happened, and a rebuild that knows the host saw them agrees", () => {
+    const seen: unknown[][] = [];
+    const { session, results, published } = playCompactions((...args) => seen.push(args));
+
+    expect(results).toStrictEqual([{ kind: "same" }, { kind: "same" }]);
+    expect(published.filter((event) => event.type.startsWith("step_")).map(outline)).toStrictEqual([
+      ["step_added", "0:text"],
+      ["step_delta", ""],
+      ["step_added", "1:compaction"],
+      ["step_added", "0:tool"],
+      ["step_updated", "0:tool"],
+      ["step_updated", "0:tool"],
+      ["step_updated", "0:tool"],
+      ["step_added", "1:compaction"],
+      ["step_added", "2:text"],
+      ["step_delta", ""],
+    ]);
+    expect(session.items().map((item) => (item as Turn).steps.map((step) => step.kind))).toStrictEqual([
+      ["text", "compaction"],
+      ["tool", "compaction", "text"],
+    ]);
+    // The fixture's token counts are recorded as 0, which says nothing of the context after.
+    expect((session.items()[0] as Turn).steps[1]).toStrictEqual({
+      kind: "compaction",
+      id: "1",
+      tokensBefore: 0,
+      tokensAfter: null,
+      summary: "No prior history.\n\n---\n\n**Turn Context (split turn):**\n\nSummary one.",
+      reason: "threshold",
+    });
+    expect(seen).toStrictEqual([
+      [["e6"], [], new Map([["e7", "threshold"]])],
+      [["e8"], [], new Map([["e10", "threshold"]])],
+    ]);
+  });
+});
+
+describe("createSessionTranscript compacting live", () => {
+  it("adds a finished compaction as a step, and gives it the next reply's input when that comes", () => {
+    const { transcript: session } = transcript();
+    session.apply(userMessage("go"), noClient);
+
+    expect(session.apply(compactionDone("overflow"), noClient)).toStrictEqual([
+      {
+        type: "step_added",
+        turnId: "live-1",
+        step: {
+          kind: "compaction",
+          id: "0",
+          tokensBefore: 152_000,
+          tokensAfter: null,
+          summary: "So far.",
+          reason: "overflow",
+        },
+      },
+    ]);
+    session.apply({ kind: "assistant_started" }, noClient);
+    expect(session.apply(replyReading(41_000), noClient)).toStrictEqual([
+      { type: "step_added", turnId: "live-1", step: { kind: "text", id: "1", text: "done" } },
+      {
+        type: "step_updated",
+        turnId: "live-1",
+        step: {
+          kind: "compaction",
+          id: "0",
+          tokensBefore: 152_000,
+          tokensAfter: 41_000,
+          summary: "So far.",
+          reason: "overflow",
+        },
+      },
+    ]);
+    // Known once, it stays.
+    session.apply({ kind: "assistant_started" }, noClient);
+    expect(session.apply(replyReading(50_000), noClient)).toStrictEqual([
+      { type: "step_added", turnId: "live-1", step: { kind: "text", id: "2", text: "done" } },
+    ]);
+  });
+
+  it("adds no step for a compaction that was stopped or failed, or with no turn running, and gives /compact no reason", () => {
+    const { transcript: session } = transcript();
+
+    expect(session.apply(compactionDone("threshold"), noClient)).toStrictEqual([]);
+    session.apply(userMessage("go"), noClient);
+    expect(session.apply(compactionDone("threshold", null), noClient)).toStrictEqual([]);
+    expect(session.apply(compactionDone("manual"), noClient)).toStrictEqual([
+      {
+        type: "step_added",
+        turnId: "live-1",
+        step: {
+          kind: "compaction",
+          id: "0",
+          tokensBefore: 152_000,
+          tokensAfter: null,
+          summary: "So far.",
+          reason: null,
+        },
+      },
+    ]);
+  });
+
+  it("still takes a message after a tool result and a compaction for a steer, as a rebuild does", () => {
+    const { transcript: session } = transcript();
+    session.apply(userMessage("go"), noClient);
+    session.apply(
+      assistantMessage([{ type: "toolCall", callId: "c1", tool: "bash", args: { command: "ls" } }], "toolUse"),
+      noClient,
+    );
+    session.apply(toolResult("c1", "x"), noClient);
+    session.apply(compactionDone("threshold"), noClient);
+
+    expect(session.apply(userMessage("also b"), noClient)).toStrictEqual([
+      { type: "step_added", turnId: "live-1", step: { kind: "steer", id: "2", text: "also b" } },
+    ]);
+  });
+
+  it("waits for a reply that says its input, and gives it to a compaction that ended the turn before", () => {
+    const { transcript: session } = transcript();
+    session.apply(userMessage("go"), noClient);
+    session.apply(assistantMessage([{ type: "text", text: "one" }]), noClient);
+    session.apply(compactionDone("threshold"), noClient);
+    session.settle();
+    session.apply(userMessage("next"), noClient);
+    const silent = assistantMessage([]);
+
+    expect(
+      session.apply(
+        {
+          ...silent,
+          message: {
+            ...silent.message,
+            stopReason: "aborted",
+            usage: { ...silent.message.usage, input: 0, output: 0 },
+          },
+        },
+        noClient,
+      ),
+    ).toStrictEqual([]);
+    expect(session.apply(replyReading(900), noClient)).toStrictEqual([
+      { type: "step_added", turnId: "live-2", step: { kind: "text", id: "0", text: "done" } },
+      {
+        type: "step_updated",
+        turnId: "live-1",
+        step: {
+          kind: "compaction",
+          id: "1",
+          tokensBefore: 152_000,
+          tokensAfter: 900,
+          summary: "So far.",
+          reason: "threshold",
+        },
+      },
+    ]);
+    expect(session.items().map((item) => (item as Turn).steps.at(-1))).toMatchObject([
+      { kind: "compaction", tokensAfter: 900 },
+      { kind: "text" },
+    ]);
+  });
+
+  it("keeps a compaction at the end of a run a step through rebuilds, by an earlier host's record too", () => {
+    const entries = [
+      userEntry("u1", null, "go"),
+      { ...callEntry("a1", "u1", "c1"), parts: [{ type: "text", text: "one" }], stopReason: "stop" } as LogEntry,
+      { ...compactionEntry("k1", "a1"), summary: "So far.", tokensBefore: 152_000 },
+    ];
+    const { transcript: live } = transcript();
+    live.apply(userMessage("go"), noClient);
+    live.apply(assistantMessage([{ type: "text", text: "one" }]), noClient);
+    live.apply(compactionDone("threshold"), noClient);
+    live.settle();
+    const later = createSessionTranscript({
+      sessionId: "s",
+      newId: () => "x",
+      now: () => 0,
+      opened: new Set(["u1"]),
+      compactions: new Map([["k1", "threshold"]]),
+    });
+    const { transcript: unrecorded } = transcript();
+
+    expect(live.rebuild({ entries, leafId: "k1" }, false)).toStrictEqual({ kind: "same" });
+    later.rebuild({ entries, leafId: "k1" }, false);
+    unrecorded.rebuild({ entries, leafId: "k1" }, false);
+    expect(later.items().map((item) => item.kind)).toStrictEqual(["turn"]);
+    expect((later.items()[0] as Turn).steps.at(-1)).toStrictEqual({
+      kind: "compaction",
+      id: "1",
+      tokensBefore: 152_000,
+      tokensAfter: null,
+      summary: "So far.",
+      reason: "threshold",
+    });
+    expect(unrecorded.items().map((item) => item.kind)).toStrictEqual(["turn", "notice"]);
+    later.apply(userMessage("next"), noClient);
+    later.apply({ kind: "assistant_started" }, noClient);
+    expect(later.apply(replyReading(900), noClient)).toMatchObject([
+      { type: "step_added", turnId: "x" },
+      { type: "step_updated", turnId: "s:u1", step: { kind: "compaction", tokensAfter: 900 } },
+    ]);
+  });
+
+  it.each([
+    ["summary", { summary: "Other." }],
+    ["first entry kept", { firstKeptEntryId: "a9" }],
+    ["tokens before", { tokensBefore: 1 }],
+  ])(
+    "ties a compaction seen live to its own entry, not one before the turn that differs in its %s",
+    (_field, other) => {
+      const seen: unknown[] = [];
+      const recorded = createSessionTranscript({
+        sessionId: "s",
+        newId: () => "live",
+        now: () => 0,
+        onTurnsSeen: (...args) => seen.push(args[2]),
+      });
+      const kept = { summary: "So far.", firstKeptEntryId: "a0", tokensBefore: 152_000 };
+      recorded.apply(userMessage("next"), noClient);
+      recorded.apply(assistantMessage([{ type: "text", text: "two" }]), noClient);
+      recorded.apply(compactionDone("threshold", kept), noClient);
+      recorded.settle();
+      const entries: LogEntry[] = [
+        userEntry("u1", null, "go"),
+        { ...compactionEntry("k0", "u1"), ...kept, ...other },
+        userEntry("u2", "k0", "next"),
+        { ...callEntry("a2", "u2", "c1"), parts: [{ type: "text", text: "two" }], stopReason: "stop" } as LogEntry,
+        { ...compactionEntry("k1", "a2"), ...kept },
+      ];
+
+      recorded.rebuild({ entries, leafId: "k1" }, false);
+
+      expect(seen).toStrictEqual([new Map([["k1", "threshold"]])]);
+      expect(recorded.items().map((item) => [item.id, item.kind])).toStrictEqual([
+        ["s:u1", "turn"],
+        ["s:k0", "notice"],
+        ["live", "turn"],
+      ]);
+    },
+  );
 });
 
 describe("createSessionTranscript live", () => {
@@ -382,7 +707,6 @@ describe("createSessionTranscript live", () => {
     expect(session.apply({ kind: "part_delta", index: 3, delta: "x" }, noClient)).toStrictEqual([]);
     expect(session.apply({ kind: "tool_output", callId: "nope", text: "x" }, noClient)).toStrictEqual([]);
     expect(session.apply(toolResult("nope", "x"), noClient)).toStrictEqual([]);
-    expect(session.apply({ kind: "compaction_finished" }, noClient)).toStrictEqual([]);
     expect(session.apply({ kind: "agent_started" }, noClient)).toStrictEqual([]);
     expect(session.live).toBe(true);
   });
@@ -432,7 +756,16 @@ function callEntry(id: string, parentId: string, callId: string): LogEntry {
 
 /** A compaction entry. */
 function compactionEntry(id: string, parentId: string): LogEntry {
-  return { id, parentId, kind: "compaction", summary: "", tokensBefore: 0, system: null, timestamp: 0 };
+  return {
+    id,
+    parentId,
+    kind: "compaction",
+    summary: "",
+    firstKeptEntryId: "a0",
+    tokensBefore: 0,
+    system: null,
+    timestamp: 0,
+  };
 }
 
 /** User entries u0, u1, … each under the one before, with these texts. */

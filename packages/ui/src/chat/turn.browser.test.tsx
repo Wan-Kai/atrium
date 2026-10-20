@@ -53,6 +53,14 @@ const edit: Step = {
   partial: false,
 };
 const steer: Step = { kind: "steer", id: "3", text: "顺便加个测试" };
+const compaction: Step = {
+  kind: "compaction",
+  id: "5",
+  tokensBefore: 152_000,
+  tokensAfter: 41_000,
+  summary: "**做到**一半",
+  reason: "threshold",
+};
 const answer: Step = { kind: "text", id: "4", text: "改好了，**一处**改动。" };
 
 /**
@@ -1011,25 +1019,190 @@ describe("TurnView", () => {
   });
 });
 
-describe("NoticeView", () => {
-  it("says the context was compacted and how big it was, opening pi's summary", async () => {
-    const screen = await render(
-      <NoticeView
-        notice={{
-          kind: "notice",
-          id: "n1",
-          notice: "compacted",
-          tokensBefore: 152_000,
-          summary: "**做到**一半",
-          timestamp: 0,
-        }}
-      />,
+/**
+ * The boxes of the marks a row draws on the main line, relative to the row: its line and its node.
+ *
+ * @remarks
+ * For the compaction's ticks, which cross the line without breaking it (design-language, "压缩步骤").
+ *
+ * @sideEffects none
+ * @param row - The row.
+ * @returns The line's pieces and the ticks, as left, top, width and height to the half pixel.
+ */
+function mainLineMarks(row: Element) {
+  const origin = row.getBoundingClientRect();
+  /**
+   * An element's box relative to the row.
+   *
+   * @remarks
+   * See `mainLineMarks`.
+   *
+   * @sideEffects none
+   * @param element - The element.
+   * @returns Its box.
+   */
+  const box = (element: Element): number[] => {
+    const rect = element.getBoundingClientRect();
+    return [rect.left - origin.left, rect.top - origin.top, rect.width, rect.height].map(
+      (value) => Math.round(value * 2) / 2,
     );
-    const line = screen.getByRole("button", { name: "上下文已压缩 · 压缩前 152K tokens" });
+  };
+  return {
+    line: [...row.querySelectorAll(':scope > [class*="--rail"]')].map(box),
+    ticks: [...row.querySelectorAll('[data-testid="rail-node"] > span')].map(box),
+    height: Math.round(origin.height),
+  };
+}
+
+describe("TurnView, what the agent said in the process", () => {
+  it("marks text said mid-turn with a larger blue node and darker, heavier words, and leaves thinking as it was", async () => {
+    const said: Step = { kind: "text", id: "1", text: "先写纯逻辑，再写扩展。" };
+    const { screen } = await show(turn([thinking, said, command, answer]));
+    await screen.getByTestId("process-header").click();
+    const node = present(screen.container.querySelector('[data-node="said"] span'));
+    const words = present(screen.container.querySelector('[data-testid="said-words"]'));
+    const thought = present(screen.container.querySelector('[data-kind="thinking"]'));
+
+    expect([
+      railNodes(screen.container),
+      getComputedStyle(node).width,
+      colorOf(getComputedStyle(node).backgroundColor),
+      getComputedStyle(node).boxShadow.includes("2px"),
+      words.textContent,
+      colorOf(getComputedStyle(words).color),
+      getComputedStyle(words).fontWeight,
+      thought.querySelector('[data-testid="said-words"]'),
+    ]).toStrictEqual([
+      ["dot", "said", "dead"],
+      "7px",
+      colorOf("var(--tint)"),
+      true,
+      "先写纯逻辑，再写扩展",
+      colorOf("var(--text)"),
+      "500",
+      null,
+    ]);
+  });
+});
+
+describe("TurnView compaction", () => {
+  it("draws a compaction as two ticks across the unbroken main line, saying the context before and after", async () => {
+    const { screen } = await show(turn([thinking, compaction, answer]));
+    await screen.getByTestId("process-header").click();
+    const row = present(screen.container.querySelector('[data-kind="compaction"]'));
+
+    expect(railNodes(screen.container)).toStrictEqual(["dot", "compaction"]);
+    expect(mainLineMarks(row)).toStrictEqual({
+      // From the row above down to where the rail ends at the last step, through the node.
+      line: [[10, 0, 1, 15]],
+      ticks: [
+        [4, 13, 13, 1.5],
+        [4, 16, 13, 1.5],
+      ],
+      height: 30,
+    });
+    const words = screen.getByRole("button", { name: "压缩了上下文 · 152K → 41K" });
+    await expect.element(words).toBeVisible();
+    expect(getComputedStyle(present(row.querySelector('[data-testid="compaction-tokens"]'))).fontVariantNumeric).toBe(
+      "tabular-nums",
+    );
+    expect(colorOf(getComputedStyle(present(row.querySelector('[data-testid="compaction-words"]'))).color)).toBe(
+      colorOf("var(--text-muted)"),
+    );
+  });
+
+  it("runs the main line on through a compaction with steps after it", async () => {
+    const { screen } = await show(turn([thinking, compaction, edit, answer]));
+    await screen.getByTestId("process-header").click();
+    const row = present(screen.container.querySelector('[data-kind="compaction"]'));
+
+    expect(mainLineMarks(row).line).toStrictEqual([
+      [10, 0, 1, 15],
+      [10, 15, 1, 15],
+    ]);
+  });
+
+  it("says 压缩前 while the context after is unknown, and what pi does on an overflow", async () => {
+    const { screen } = await opened(
+      turn([
+        { ...compaction, id: "0", tokensAfter: null, reason: null },
+        { ...compaction, id: "1", reason: "overflow" },
+        answer,
+      ]),
+    );
+
+    await expect.element(screen.getByRole("button", { name: "压缩了上下文 · 压缩前 152K" })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "上下文超出窗口，已压缩" })).toBeVisible();
+  });
+
+  it("opens a compaction's detail: the tokens before and after, then pi's summary in Markdown", async () => {
+    const { screen } = await show(turn([compaction, answer]));
+    await screen.getByTestId("process-header").click();
+    const row = screen.getByRole("button", { name: "压缩了上下文 · 152K → 41K" });
+    const caret = present(row.element().querySelector("svg"));
+
+    await row.click();
+
+    await expect.element(row).toHaveAttribute("aria-expanded", "true");
+    const detail = screen.getByTestId("step-detail");
+    await expect.element(detail).toHaveTextContent("压缩前 152K tokens · 压缩后 41K · 保留了最近的原文做到一半");
+    await expect.element(screen.getByText("做到")).toBeVisible();
+    expect(screen.getByText("压缩前 152K tokens · 压缩后 41K · 保留了最近的原文").element().className).toContain(
+      "text-[var(--text-dim)]",
+    );
+    expect(caret.getAttribute("class")).toContain("rotate-90");
+  });
+
+  it("ends the folded header with how many times the context was compacted", async () => {
+    const { screen } = await show(turn([command, compaction, { ...compaction, id: "6" }, answer]));
+
+    await expect
+      .element(screen.getByTestId("process-header"))
+      .toHaveTextContent("已完成，用时 2 分 13 秒 · 跑了 1 条命令 · 1 条命令没走通 · 压缩了 2 次上下文");
+  });
+
+  it("says on the rail where pi compacts now, shimmering, after the last step and before any", async () => {
+    const running = { outcome: "running", durationMs: null, usage: null } as const;
+    const busy = await render(<TurnView turn={turn([command, thinking], running)} runStartedAt={at} compacting />);
+
+    expect(shownSteps(busy.container)).toStrictEqual(["tool", "thinking", "compacting"]);
+    // The thinking before it is no longer going on, and the line runs on below it to the compaction.
+    expect(railNodes(busy.container)).toStrictEqual(["dead", "dot", "compaction"]);
+    expect(mainLineMarks(present(busy.container.querySelector('[data-kind="thinking"]'))).line).toStrictEqual([
+      [10, 0, 1, 8],
+      [10, 22, 1, 8],
+    ]);
+    const line = busy.getByText("正在压缩上下文…");
+    await expect.element(line).toBeVisible();
+    expect(line.element().className).toContain("atrium-shimmer");
+    await busy.unmount();
+
+    const first = await render(<TurnView turn={turn([], running)} runStartedAt={at} compacting />);
+    expect(shownSteps(first.container)).toStrictEqual(["compacting"]);
+    expect(first.container.querySelector('[data-testid="run-waiting"]')).toBeNull();
+    await expect.element(first.getByTestId("process-header")).toMatchTextContent(/^进行中 · /);
+  });
+});
+
+describe("NoticeView", () => {
+  it("says the context was compacted between turns and how big it was before and after, opening pi's summary", async () => {
+    const notice = {
+      kind: "notice",
+      id: "n1",
+      notice: "compacted",
+      tokensBefore: 152_000,
+      tokensAfter: 41_000,
+      summary: "**做到**一半",
+      timestamp: 0,
+    } as const;
+    const screen = await render(<NoticeView notice={notice} />);
+    const line = screen.getByRole("button", { name: "上下文已压缩 · 152K → 41K" });
 
     await line.click();
 
     await expect.element(screen.getByText("做到")).toBeVisible();
     await expect.element(line).toHaveAttribute("aria-expanded", "true");
+    await screen.rerender(<NoticeView notice={{ ...notice, tokensAfter: null }} />);
+    await expect.element(screen.getByRole("button", { name: "上下文已压缩 · 压缩前 152K tokens" })).toBeVisible();
   });
 });

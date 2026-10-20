@@ -25,10 +25,11 @@ import { CopyButton, UserBubble, timeOfDay } from "./messages";
 import { RunStatus } from "./run-status";
 import type { LanePlace } from "./lanes";
 import { SourceLines } from "./source-line";
-import { DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
+import { CompactingRow, DiffBlock, ProcessRowView, StreamedText, useWholeStep } from "./steps";
 import {
   type LaneLayout,
   type ProcessRow,
+  compactedText,
   countProcess,
   describeStep,
   formatDuration,
@@ -80,8 +81,7 @@ function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
  * process is open and right while it is folded (SPEC-0001, "过程的呈现"). Both start at the
  * reply's left edge rather than on the rail, so the header lines up with the reply below
  * (design-language, "消息流 · 过程"); the chevron's box is pulled left by its inner margin. The
- * summary is said only while folded: open, the rail says it. A failed command is mentioned in
- * grey, "N 条命令没走通": the agent often recovers, so red is too loud. Once the process has
+ * summary is said only while folded: open, the rail says it (`processParts`). Once the process has
  * folded or unfolded in view, the summary comes in after the fold is well under way.
  *
  * @sideEffects Calls `onToggle` when clicked.
@@ -105,9 +105,7 @@ function ProcessHeader({
   readonly onToggle: () => void;
 }) {
   const running = turn.outcome === "running";
-  const counts = countProcess(turn.steps);
-  const parts = processParts(counts, turn.changes.length);
-  if (counts.failedCommands > 0) parts.push(`${counts.failedCommands} 条命令没走通`);
+  const parts = processParts(countProcess(turn.steps), turn.changes.length);
   return (
     <button
       type="button"
@@ -545,6 +543,8 @@ export interface TurnViewProps {
   readonly onRetry?: () => void;
   /** "从这里分叉" under the reply, where the session can be forked. */
   readonly fork?: ForkFromTurn;
+  /** pi compacts the context now, while this turn runs; only for the running turn (design-language, "运行中压缩"). */
+  readonly compacting?: boolean;
 }
 
 /**
@@ -559,13 +559,16 @@ export interface TurnViewProps {
  * step or the reply's first text. Steps that arrive while the turn is shown play their entrance;
  * the ones there when it was first shown do not. The reply streams below, revealed smoothly; a
  * failed turn shows pi's error, and ends there when it has no reply and changed no files: its info
- * row would hold nothing worth reading (SPEC-0001, "消息下方的信息").
+ * row would hold nothing worth reading (SPEC-0001, "消息下方的信息"). While pi compacts during the
+ * run, the rail ends in "正在压缩上下文…" where the turn has got to, the step before it no longer
+ * going on (design-language, "运行中压缩").
  *
  * @sideEffects Holds a finished turn open for a second on the clock.
- * @param props - The turn, the run's start, and "重试" and forking where offered.
+ * @param props - The turn, the run's start, "重试" and forking where offered, and whether pi
+ *   compacts now.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
+export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false }: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -591,7 +594,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
    * @returns Whether it is live.
    */
   const isLive = (step: Step): boolean =>
-    running && (step.kind === "tool" ? step.status === "running" : step.id === lastId);
+    running && (step.kind === "tool" ? step.status === "running" : !compacting && step.id === lastId);
   const open = running || lingering || (expanded ?? false);
   const [wasOpen, setWasOpen] = useState(open);
   const [moved, setMoved] = useState(false);
@@ -600,7 +603,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
     setMoved(true);
   }
   const lead = process.filter((row) => row.kind === "step" && row.step.kind === "steer");
-  const waiting = running && process.length === 0 && (reply === null || reply.text === "");
+  const waiting = running && !compacting && process.length === 0 && (reply === null || reply.text === "");
   return (
     <div
       className="flex flex-col"
@@ -628,7 +631,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
           <RunStatus startedAt={runStartedAt ?? turn.startedAt} />
         </div>
       ) : null}
-      {process.length === 0 ? null : (
+      {process.length === 0 && !compacting ? null : (
         <>
           <ProcessHeader
             turn={turn}
@@ -668,12 +671,13 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
                 isLive={isLive}
                 place={{
                   first: index === 0,
-                  last: index === process.length - 1,
+                  last: index === process.length - 1 && !compacting,
                   enter: !shownKeys.has(rowKey(row)),
                 }}
                 lanes={lanePlace(lanes, index)}
               />
             ))}
+            {compacting ? <CompactingRow place={{ first: process.length === 0, last: true, enter: true }} /> : null}
             <div className="h-2" />
           </Fold>
         </>
@@ -704,7 +708,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork }: TurnViewProps) {
 }
 
 /**
- * A notice between turns: "上下文已压缩 · 压缩前 152K tokens", opening its summary, or one of the
+ * A notice between turns: "上下文已压缩 · 152K → 41K", opening its summary, or one of the
  * host's: "进程已自动重启（第 N / 3 次）", or an extension's question and its result.
  *
  * @remarks
@@ -747,7 +751,7 @@ export function NoticeView({ notice }: { readonly notice: Notice }) {
       >
         <span className="flex items-center gap-1.5">
           <ArrowsInLineVertical size={13} />
-          上下文已压缩 · 压缩前 {formatTokens(notice.tokensBefore)} tokens
+          {compactedText(notice)}
         </span>
       </button>
       {open ? (

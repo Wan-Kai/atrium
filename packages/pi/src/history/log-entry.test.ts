@@ -232,6 +232,7 @@ describe("toLogEntry", () => {
         kind: "compaction",
         summary:
           "A short summary.\n\n---\n\n**Turn Context (split turn):**\n\nThe turn so far.\n\n<modified-files>\nnotes.txt\n</modified-files>",
+        firstKeptEntryId: "e2",
         tokensBefore: 0,
         system: recordedSystem,
       },
@@ -383,6 +384,7 @@ describe("toLogEntry", () => {
       timestamp: 0,
       kind: "compaction",
       summary: "so far",
+      firstKeptEntryId: "a1",
       tokensBefore: 900,
       system: null,
     });

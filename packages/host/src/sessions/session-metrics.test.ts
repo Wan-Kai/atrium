@@ -140,6 +140,19 @@ function harness(readReserve?: () => Promise<ContextReserve>, provider?: () => s
   return { tracker, clock, reads, published, failures, answer, fail, feed };
 }
 
+/** pi starting a compaction of its own. */
+const compactionStart = { kind: "compaction_started", reason: "threshold" } as const;
+
+/** pi ending a compaction. */
+const compactionEnd = {
+  kind: "compaction_finished",
+  reason: "threshold",
+  aborted: false,
+  willRetry: false,
+  error: null,
+  result: { summary: "", firstKeptEntryId: "e1", tokensBefore: 0 },
+} as const;
+
 describe("createMetricsTracker: child conversations", () => {
   it("publishes what the children produced when it changes, and keeps it in the figures once closed", () => {
     const { tracker, published } = harness();
@@ -179,7 +192,7 @@ describe("createMetricsTracker: pi's statistics", () => {
     const { tracker, reads, answer, feed } = harness();
 
     feed(reply());
-    feed({ kind: "compaction_finished" }, { kind: "agent_settled" });
+    feed(compactionEnd, { kind: "agent_settled" });
     tracker.refresh();
     expect(reads).toHaveLength(1);
     await answer(stats());
@@ -193,7 +206,7 @@ describe("createMetricsTracker: pi's statistics", () => {
   it("reads after a compaction alone, and after a run alone", async () => {
     const { reads, answer, feed } = harness();
 
-    feed({ kind: "compaction_finished" });
+    feed(compactionEnd);
     expect(reads).toHaveLength(1);
     await answer(stats());
     feed({ kind: "agent_settled" });
@@ -505,7 +518,7 @@ describe("createMetricsTracker: timing", () => {
   it("takes the end of a compaction whose start it did not see as no pause", () => {
     const { tracker, feed } = harness();
 
-    feed(request, 100, { kind: "compaction_finished" }, 100, output, 1000, reply({ output: 10 }));
+    feed(request, 100, compactionEnd, 100, output, 1000, reply({ output: 10 }));
 
     expect(tracker.current().timing).toStrictEqual({ modelMs: 1200, ttftMs: 200, tps: 10 });
   });
@@ -513,7 +526,7 @@ describe("createMetricsTracker: timing", () => {
   it("leaves a compaction within a request out of its time", () => {
     const { tracker, feed } = harness();
 
-    feed(request, 100, { kind: "compaction_started" }, 5000, { kind: "compaction_finished" }, 200, output);
+    feed(request, 100, compactionStart, 5000, compactionEnd, 200, output);
     feed(1000, reply({ output: 30 }));
 
     expect(tracker.current().timing).toStrictEqual({ modelMs: 1300, ttftMs: 300, tps: 30 });
@@ -531,7 +544,7 @@ describe("createMetricsTracker: timing", () => {
   it("knows no first output or speed while no request had output, and times a compaction outside requests not at all", () => {
     const { tracker, feed } = harness();
 
-    feed({ kind: "compaction_started" }, 500, { kind: "compaction_finished" });
+    feed(compactionStart, 500, compactionEnd);
     feed(request, 700, reply({ output: 10 }));
 
     expect(tracker.current().timing).toStrictEqual({ modelMs: 700, ttftMs: null, tps: null });

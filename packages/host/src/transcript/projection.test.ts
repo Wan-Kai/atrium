@@ -1,5 +1,5 @@
 import type { AssistantPart, LogEntry } from "@atrium/pi";
-import type { TranscriptItem, Turn } from "@atrium/protocol";
+import type { Step, TranscriptItem, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import { fixtureEntries } from "../../test/pi-fixtures";
 import { projectTranscript } from "./projection";
@@ -29,9 +29,12 @@ function reply(
     error?: string;
     timestamp?: number;
     usage?: [number, number];
+    /** Tokens read from and written to the cache. */
+    cache?: [number, number];
   } = {},
 ): LogEntry {
   const [input, output] = fields.usage ?? [0, 0];
+  const [cacheRead, cacheWrite] = fields.cache ?? [0, 0];
   return {
     id,
     parentId: null,
@@ -39,7 +42,7 @@ function reply(
     parts,
     stopReason: fields.stopReason ?? "stop",
     errorMessage: fields.error ?? null,
-    usage: { input, output, cacheRead: 0, cacheWrite: 0, reasoning: null },
+    usage: { input, output, cacheRead, cacheWrite, reasoning: null },
     timestamp: fields.timestamp ?? 0,
   };
 }
@@ -60,9 +63,53 @@ function omit(id: string, targetId: string): LogEntry {
 }
 
 /** A compaction entry, summarized as its own id. */
-function compaction(id: string): LogEntry {
-  return { id, parentId: null, timestamp: 4, kind: "compaction", summary: id, tokensBefore: 9, system: null };
+function compaction(id: string, tokensBefore = 9): LogEntry {
+  return {
+    id,
+    parentId: null,
+    timestamp: 4,
+    kind: "compaction",
+    summary: id,
+    firstKeptEntryId: "a0",
+    tokensBefore,
+    system: null,
+  };
 }
+
+/**
+ * A compaction step at `id`, summarized as its entry's id, as `compaction` makes the entry.
+ *
+ * @remarks
+ * Steps compare whole, so a test names only where it is and what it knows.
+ *
+ * @sideEffects none
+ * @param id - The step's id.
+ * @param entryId - The compaction entry it came from.
+ * @param tokensAfter - The context after it, if known.
+ * @param reason - What set it off, as the host saw it.
+ * @returns The step.
+ */
+function compacted(
+  id: string,
+  entryId: string,
+  tokensAfter: number | null,
+  reason: "overflow" | "threshold" | null = null,
+): Step {
+  return { kind: "compaction", id, tokensBefore: 9, tokensAfter, summary: entryId, reason };
+}
+
+/**
+ * Compactions the host saw during a run, none of them with a reason.
+ *
+ * @remarks
+ * For tests where only whether the host saw them matters.
+ *
+ * @sideEffects none
+ * @param ids - The compaction entries.
+ * @returns The record.
+ */
+const seenLive = (...ids: string[]): ReadonlyMap<string, "overflow" | "threshold" | null> =>
+  new Map(ids.map((id) => [id, null]));
 
 /**
  * Each item as its id, a turn with what opened it and its text, a notice as its kind.
@@ -190,6 +237,8 @@ describe("projectTranscript on a recorded session", () => {
           id: "s:e18",
           notice: "compacted",
           tokensBefore: 0,
+          // The next reply's tokens were recorded as 0, which says nothing.
+          tokensAfter: null,
           summary:
             "A short summary.\n\n---\n\n**Turn Context (split turn):**\n\nThe turn so far.\n\n<modified-files>\nnotes.txt\n</modified-files>",
           timestamp: 0,
@@ -384,12 +433,18 @@ describe("projectTranscript", () => {
       none,
     );
 
-    expect((items[0] as Turn).steps.map((step) => step.kind)).toStrictEqual(["tool", "retry", "retry", "text"]);
-    expect((items[0] as Turn).steps.slice(1, 3)).toStrictEqual([
-      { kind: "retry", id: "1", attempt: 1, maxAttempts: null, error: "Unknown error" },
-      { kind: "retry", id: "2", attempt: 2, maxAttempts: null, error: "Unknown error" },
+    expect((items[0] as Turn).steps.map((step) => step.kind)).toStrictEqual([
+      "tool",
+      "compaction",
+      "retry",
+      "retry",
+      "text",
     ]);
-    expect(items.map((item) => item.kind)).toStrictEqual(["turn", "notice"]);
+    expect((items[0] as Turn).steps.slice(2, 4)).toStrictEqual([
+      { kind: "retry", id: "2", attempt: 1, maxAttempts: null, error: "Unknown error" },
+      { kind: "retry", id: "3", attempt: 2, maxAttempts: null, error: "Unknown error" },
+    ]);
+    expect(items.map((item) => item.kind)).toStrictEqual(["turn"]);
   });
 
   it("still counts a retry whose omission is followed by a message before any compaction", () => {
@@ -428,31 +483,185 @@ describe("projectTranscript", () => {
     expect((items[0] as Turn).steps).toStrictEqual([{ kind: "text", id: "0", text: "hi" }]);
   });
 
-  it("puts a compaction during a turn after it, and one before any turn in place", () => {
+  it("puts a compaction before any turn in place, as a notice with the next reply's input after it", () => {
     const { items } = projectTranscript(
-      [
-        compaction("k0"),
-        user("u1", "go"),
-        reply("a1", [bash("c1")], { stopReason: "toolUse" }),
-        compaction("k1"),
-        result("r1", "c1", "x"),
-        reply("a2", [says("done")]),
-        user("u2", "next"),
-      ],
+      [compaction("k0"), user("u1", "go"), reply("a1", [says("done")], { usage: [1200, 30], cache: [40_000, 800] })],
       "s",
       none,
+      new Set(),
+      new Set(),
+      // Even one the host saw: there is no turn for it to be a step of.
+      seenLive("k0"),
     );
 
-    expect(items.map((item) => item.id)).toStrictEqual(["s:k0", "s:u1", "s:k1", "s:u2"]);
+    expect(items.map((item) => item.id)).toStrictEqual(["s:k0", "s:u1"]);
     expect(items[0]).toStrictEqual({
       kind: "notice",
       id: "s:k0",
       notice: "compacted",
       tokensBefore: 9,
+      tokensAfter: 42_000,
       summary: "k0",
       timestamp: 4,
     });
-    expect((items[1] as Turn).steps.map((step) => step.kind)).toStrictEqual(["tool", "text"]);
+  });
+
+  it("makes a compaction a step where it happened when the turn goes on after it (SPEC-0001, `compaction`)", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [bash("c1")], { stopReason: "toolUse" }),
+        result("r1", "c1", "x"),
+        compaction("k1"),
+        reply("a2", [says("done")], { usage: [500, 5], cache: [40_000, 1000] }),
+        user("u2", "next"),
+        reply("a3", [says("ok")]),
+      ],
+      "s",
+      none,
+    );
+
+    expect(items.map((item) => item.id)).toStrictEqual(["s:u1", "s:u2"]);
+    expect((items[0] as Turn).steps.map((step) => step.kind)).toStrictEqual(["tool", "compaction", "text"]);
+    expect((items[0] as Turn).steps[1]).toStrictEqual(compacted("1", "k1", 41_500));
+    expect((items[0] as Turn).steps[2]).toStrictEqual({ kind: "text", id: "2", text: "done" });
+  });
+
+  it("makes a compaction right after the user message the turn's first step", () => {
+    const { items } = projectTranscript(
+      [user("u1", "go"), compaction("k1"), reply("a1", [says("done")], { usage: [700, 1] })],
+      "s",
+      none,
+    );
+
+    expect((items[0] as Turn).steps).toStrictEqual([
+      compacted("0", "k1", 700),
+      { kind: "text", id: "1", text: "done" },
+    ]);
+  });
+
+  it("makes a compaction right before the next user message a notice between the turns, unless the host saw it in the run", () => {
+    const branch = [
+      user("u1", "go"),
+      reply("a1", [says("done")], { usage: [100, 1] }),
+      compaction("k1"),
+      user("u2", "next"),
+      reply("a2", [says("ok")], { usage: [300, 1] }),
+      compaction("k2"),
+    ];
+
+    const unseen = projectTranscript(branch, "s", none).items;
+    const seen = projectTranscript(
+      branch,
+      "s",
+      none,
+      new Set(),
+      new Set(),
+      new Map([
+        ["k1", "threshold"],
+        ["k2", null],
+      ]),
+    ).items;
+
+    expect(unseen.map((item) => item.id)).toStrictEqual(["s:u1", "s:k1", "s:u2", "s:k2"]);
+    expect(unseen[1]).toStrictEqual({
+      kind: "notice",
+      id: "s:k1",
+      notice: "compacted",
+      tokensBefore: 9,
+      tokensAfter: 300,
+      summary: "k1",
+      timestamp: 4,
+    });
+    expect(unseen[3]).toMatchObject({ notice: "compacted", tokensAfter: null });
+    expect(seen.map((item) => item.id)).toStrictEqual(["s:u1", "s:u2"]);
+    expect((seen[0] as Turn).steps).toStrictEqual([
+      { kind: "text", id: "0", text: "done" },
+      compacted("1", "k1", 300, "threshold"),
+    ]);
+    expect((seen[1] as Turn).steps).toStrictEqual([{ kind: "text", id: "0", text: "ok" }, compacted("1", "k2", null)]);
+  });
+
+  it("shows pi recovering from an overflow as the failed reply, the compaction, then the retried reply", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("f1", [says("half")], { stopReason: "error", error: "prompt is too long" }),
+        omit("o1", "f1"),
+        compaction("k1"),
+        reply("a1", [says("done")], { usage: [900, 1] }),
+      ],
+      "s",
+      none,
+      new Set(),
+      new Set(),
+      new Map([["k1", "overflow"]]),
+    );
+
+    expect(items).toStrictEqual([
+      turn("u1", "go", {
+        steps: [
+          { kind: "text", id: "0", text: "half" },
+          compacted("1", "k1", 900, "overflow"),
+          { kind: "text", id: "2", text: "done" },
+        ],
+        usage: { input: 900, output: 1 },
+      }),
+    ]);
+  });
+
+  it("gives each compaction in a turn its own step, its input after it from the first later reply that says one", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [bash("c1")], { stopReason: "toolUse" }),
+        result("r1", "c1", "x"),
+        compaction("k1"),
+        reply("a2", [], { stopReason: "aborted" }),
+        reply("a3", [bash("c2")], { stopReason: "toolUse", usage: [2000, 1] }),
+        result("r2", "c2", "y"),
+        compaction("k2"),
+        reply("a4", [says("done")], { cache: [3000, 0] }),
+      ],
+      "s",
+      none,
+      new Set(),
+      new Set(),
+      seenLive("k1"),
+    );
+
+    expect((items[0] as Turn).steps.map((step) => step.kind)).toStrictEqual([
+      "tool",
+      "compaction",
+      "tool",
+      "compaction",
+      "text",
+    ]);
+    expect((items[0] as Turn).steps.filter((step) => step.kind === "compaction")).toStrictEqual([
+      compacted("1", "k1", 2000),
+      compacted("3", "k2", 3000),
+    ]);
+  });
+
+  it("still takes a message, or notices that came in, after a tool result and a compaction for a step", () => {
+    const { items } = projectTranscript(
+      [
+        user("u1", "go"),
+        reply("a1", [bash("c1")], { stopReason: "toolUse" }),
+        result("r1", "c1", "x"),
+        compaction("k1"),
+        user("u2", "also b"),
+        reply("a2", [bash("c2")], { stopReason: "toolUse" }),
+        result("r2", "c2", "y"),
+        compaction("k2"),
+        task("n1", "look"),
+        reply("a3", [says("done")]),
+      ],
+      "s",
+      none,
+    );
+
+    expect(stepKinds(items)).toStrictEqual([["tool", "compaction", "steer", "tool", "compaction", "agent", "text"]]);
   });
 
   it("skips replies and results before any user message and results of calls it never saw", () => {

@@ -2255,6 +2255,104 @@ function compactingUpdates(events: readonly SessionEvent[]) {
   return events.flatMap((event) => (event.type === "control_updated" ? [event.control] : []));
 }
 
+/**
+ * An event's type, and the step it carries, if any.
+ *
+ * @remarks
+ * To check the order of what is published without the envelope.
+ *
+ * @sideEffects none
+ * @param event - The event.
+ * @returns The type and the step, or `null`.
+ */
+function stepOf(event: SessionEvent): [string, unknown] {
+  return [event.type, "step" in event ? event.step : null];
+}
+
+describe("createSessionController compacting during a run", () => {
+  it("adds the compaction as a step when pi ends it, gives it the next reply's input, and records it with the turn", async () => {
+    const { pi, emit, pages } = manualPi();
+    const recorded: unknown[][] = [];
+    const { controller, events } = control(pi, empty, {
+      turnStarts: { opened: new Set(), record: (...seen) => recorded.push(seen) },
+    });
+    const kept: LogEntry = {
+      id: "k1",
+      parentId: "u1",
+      kind: "compaction",
+      summary: "So far.",
+      firstKeptEntryId: "u1",
+      tokensBefore: 152_000,
+      system: null,
+      timestamp: 0,
+    };
+    pages.push(async () => ({
+      entries: [
+        userEntry("u1", null, "go"),
+        kept,
+        {
+          id: "a1",
+          parentId: "k1",
+          kind: "assistant",
+          parts: [{ type: "text", text: "done" }],
+          stopReason: "stop",
+          errorMessage: null,
+          usage: { input: 1000, output: 5, cacheRead: 40_000, cacheWrite: 0, reasoning: null },
+          timestamp: 0,
+        },
+      ],
+      leafId: "a1",
+    }));
+    await controller.prompt(prompt("q1", "go"));
+    emit({ type: "agent_start" }, userEnd("go"), { type: "compaction_start", reason: "overflow" });
+    const before = events.length;
+    emit({
+      type: "compaction_end",
+      reason: "overflow",
+      result: { summary: "So far.", firstKeptEntryId: "u1", tokensBefore: 152_000, estimatedTokensAfter: 9 },
+      aborted: false,
+      willRetry: true,
+    });
+    const compaction = {
+      kind: "compaction",
+      id: "0",
+      tokensBefore: 152_000,
+      tokensAfter: null,
+      summary: "So far.",
+      reason: "overflow",
+    } as const;
+
+    expect(events.slice(before).map(stepOf)).toStrictEqual([
+      ["step_added", compaction],
+      ["control_updated", null],
+    ]);
+    expect(controller.snapshot().control.compacting).toBe(false);
+    emit(
+      { type: "message_start", message: { role: "assistant", content: [], stopReason: "pending", timestamp: 0 } },
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          stopReason: "stop",
+          usage: { input: 1000, output: 5, cacheRead: 40_000, cacheWrite: 0 },
+          timestamp: 0,
+        },
+      },
+    );
+    expect(events.filter((event) => event.type === "step_updated").at(-1)).toMatchObject({
+      type: "step_updated",
+      step: { ...compaction, tokensAfter: 41_000 },
+    });
+    emit({ type: "agent_settled" });
+    await settle();
+
+    expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "overflow"]])]]);
+    // The rebuild agrees with what was sent live: no new snapshot.
+    expect(events.filter((event) => event.type === "session_snapshot")).toStrictEqual([]);
+  });
+});
+
 describe("createSessionController compacting on request", () => {
   it("compacts an idle session, the queue waiting until pi answers", async () => {
     const { pi, emit, sent, compactAnswers } = manualPi();
@@ -2402,6 +2500,7 @@ describe("createSessionController's fork point", () => {
       parentId: "u1",
       kind: "compaction",
       summary: "s",
+      firstKeptEntryId: "u1",
       tokensBefore: 10,
       system: null,
       timestamp: 0,

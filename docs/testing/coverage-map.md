@@ -412,6 +412,31 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起 0.2 秒、行一起淡出（0.16 秒），收完才拿掉面板；半路折回从已到的位置接着走；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"、"closes a panel turned back halfway"、"playing the close before the panel goes"、"opens and closes at once when less motion is asked for" | 已覆盖 |
 | 模型列表的规则表：去掉按量计费的 Claude、OpenAI（pi 自己的 `anthropic`、`azure-openai-responses`、不是 ChatGPT 登录的 `openai`、登录状态读不出时也去掉、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算）；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
 
+## M1.11 自用中改（2026-10-20）
+
+一轮中间的压缩是过程轨道上的一步（SPEC-0001 `compaction`、design-language"压缩步骤""运行中压缩"，协议 20）。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| pi 包把 `compaction_start` 翻译成带原因的 `compaction_started`，`compaction_end` 翻译成带原因、`aborted`、`willRetry`、报错原文和结果（只有条目里也有的 `summary`、`firstKeptEntryId`、`tokensBefore`）的 `compaction_finished`；中止、失败时结果为空 | `packages/pi/src/events/translate.test.ts` "reports the start of a compaction with what set it off"、"reports a compaction's end with the entry it wrote…"、"reports tool calls once complete…"（录制夹具） | 已覆盖 |
+| 压缩条目带 `firstKeptEntryId` | `packages/pi/src/history/log-entry.test.ts` "maps a recorded session…"、"keeps no system prompt for a compaction that stored none…" | 已覆盖 |
+| 真实 pi（1.1.0、faux）：一次运行最后一条回复之后（`agent_end` 和 `agent_settled` 之间）、工具结果之后下一次请求之前都会自动压缩（`threshold`）；条目的位置，和 `compaction_end` 的结果与条目相同 | 契约 `packages/pi/src/contract/compaction-run.pi.test.ts`，夹具 `pi-1.1.0/compaction-run.jsonl` | 已覆盖（本机 pi 是 1.3.0，没有这一版的夹具，契约测试用 1.1.0 跑） |
+| 协议：`compaction` 步骤（`tokensBefore`、可空的 `tokensAfter`、`summary`、`overflow` / `threshold` / 空的 `reason`），`compacted` 提示条加 `tokensAfter`；协议版本 20 | `packages/protocol/src/envelope.test.ts` "Step: says a compaction's tokens as whole counts…"、"HostMessage accepts…every session event" | 已覆盖 |
+| 重建：压缩条目后面（下一条开启新一轮的消息之前）还有这一轮的回复、工具结果、插话或送达，就是这一轮在那个位置的一步；紧跟用户消息的是第一步；紧挨下一条消息的是两轮之间的提示条，宿主当场看到的除外（这一轮最后一步）；一轮几次压缩就几步；溢出恢复是"失败的回复、压缩、重试的回复"，没有重试步骤；任何一轮之前的是提示条 | `packages/host/src/transcript/projection.test.ts` "makes a compaction a step where it happened…"、"…right after the user message the turn's first step"、"…right before the next user message a notice between the turns, unless the host saw it in the run"、"shows pi recovering from an overflow…"、"gives each compaction in a turn its own step…"、"takes a reply pi omitted to recover from a context overflow for no retry…"、"puts a compaction before any turn in place…" | 已覆盖 |
+| 工具结果之后、压缩之后的用户消息照样算插话 | projection.test.ts "still takes a message after a tool result and a compaction for a steer" | 已覆盖 |
+| 压缩后的 token 数：之后第一条三项不全为 0 的回复的 `input + cacheRead + cacheWrite`，步骤和提示条一样；没有这样的回复时为空 | projection.test.ts "gives each compaction in a turn its own step, its input after it…"、"puts a compaction before any turn in place, as a notice with the next reply's input…"、"…unless the host saw it in the run" | 已覆盖 |
+| 实时：运行中压缩成功完成时 `step_added`（在当前位置），下一条有用量的回复来了 `step_updated` 补上 token 数，上一轮最后一步的压缩由下一轮的回复补；中止、失败、没有运行中的轮时不加；`/compact` 没有原因 | `packages/host/src/transcript/session-transcript.test.ts` "adds a finished compaction as a step…"、"adds no step for a compaction that was stopped or failed…"、"waits for a reply that says its input…" | 已覆盖 |
+| 实时和重建一致：录制的两次运行（最后一步的压缩、工具结果后的压缩）逐条发出的步骤，运行结束后重读都是 `same`；看到的压缩按条目记下原因交给 `onTurnsSeen` | session-transcript.test.ts "adds each compaction live where it happened, and a rebuild that knows the host saw them agrees" | 已覆盖 |
+| 先前的宿主记下的压缩照样让一轮最后的压缩算这一轮的步骤；没有记录时是提示条 | session-transcript.test.ts "keeps a compaction at the end of a run a step through rebuilds, by an earlier host's record too" | 已覆盖 |
+| 控制器：压缩结束先发 `step_added`、再发 `control_updated`（不再压缩）；之后的回复补 token 数；运行结束重读时记下压缩和原因，不重发快照 | `packages/host/src/sessions/session-controller.test.ts` "adds the compaction as a step when pi ends it…" | 已覆盖 |
+| 压缩记录存进 `turns/<会话 id>.json` 的 `compactions`（有了才写，每条只记一次，原因按第一次），下一个宿主读回；会话 id 不能做文件名的只在内存；分叉、子对话复制父会话的记录 | `packages/host/src/store/turn-starts.test.ts` "records the compactions the host saw during runs…"、"writes nothing when every entry recorded is known already"；`session-manager.test.ts` "hands the session the compactions an earlier host saw during runs…"、"copies the parent's turn starts to a child forked into a new worktree…" | 已覆盖 |
+| 界面：压缩步骤的节点是两道横贯主线的刻痕（13×1.5px，中心相距 3px，`--text-dim`），主线不断；文字"压缩了上下文 · 152K → 41K"（`--text-muted`，数字等宽）、不知道压缩后时"· 压缩前 152K"、溢出时"上下文超出窗口，已压缩"，后面 `›`；点开是"压缩前 152K tokens · 压缩后 41K · 保留了最近的原文"（`--fs-sm`、`--text-dim`）和 Markdown 摘要，`›` 转向下 | `packages/ui/src/chat/turn.browser.test.tsx` "TurnView compaction"；`turn-layout.test.ts` "describes a compaction by the context before and after…" | 已覆盖（深色外观未单独测） |
+| 折叠后的标题行末尾"压缩了 N 次上下文"，在"N 条命令没走通"之后 | turn.browser.test.tsx "ends the folded header with how many times the context was compacted"；`turn-layout.test.ts` "counts files read, searches and commands…" | 已覆盖 |
+| 运行中压缩：运行中的轮的轨道末尾一行"正在压缩上下文…"（闪光，刻痕节点），前一步不再算进行中；第一步之前压缩时也有轨道、没有等待行；轮与轮之间的压缩仍在底部 | turn.browser.test.tsx "says on the rail where pi compacts now…"；`chat.browser.test.tsx` "says pi compacts on the running turn's rail…"、"says at the bottom of the conversation while pi compacts" | 已覆盖 |
+| 轮与轮之间的提示条"上下文已压缩 · 152K → 41K"，不知道压缩后时"上下文已压缩 · 压缩前 152K tokens" | turn.browser.test.tsx "NoticeView"；`turn-layout.test.ts` "writes a compaction in the process as a quoted line…" | 已覆盖 |
+| 复制成 Markdown：压缩步骤写成一行引用，提示条带压缩前后 | turn-layout.test.ts "writes a compaction in the process as a quoted line, and one between turns with the context after it" | 已覆盖 |
+| 过程里 AI 说的话（一轮里的文字步骤）：节点是 7px 实心蓝点、外圈 2px 底色，文字正文色、500 字重；思考不加标识 | `packages/ui/src/chat/turn.browser.test.tsx` "what the agent said" | 已覆盖 |
+
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
 SPEC-0001"M1.11 的 `/` 命令"。

@@ -53,6 +53,9 @@ export const ToolDetails = z.discriminatedUnion("tool", [
 ]);
 export type ToolDetails = z.infer<typeof ToolDetails>;
 
+/** A count of tokens. */
+const TokenCount = z.number().int().nonnegative();
+
 /** Where a step sits in its turn; the same position live and after a rebuild. */
 const stepFields = { id: z.string().min(1) };
 
@@ -90,6 +93,20 @@ export const Step = z.discriminatedUnion("kind", [
     /** pi's limit, seen live; null when rebuilt from its file, which does not keep it. */
     maxAttempts: z.number().int().positive().nullable(),
     error: z.string(),
+  }),
+  /**
+   * pi compacted the context while the turn ran, at this point (SPEC-0001, `compaction`): what
+   * came before reaches the model only as the summary.
+   */
+  z.strictObject({
+    kind: z.literal("compaction"),
+    ...stepFields,
+    tokensBefore: TokenCount,
+    /** The next reply's input after it; null until that reply comes. */
+    tokensAfter: TokenCount.nullable(),
+    summary: z.string(),
+    /** What set it off, as the host saw it live; null when it did not. */
+    reason: z.enum(["overflow", "threshold"]).nullable(),
   }),
 ]);
 export type Step = z.infer<typeof Step>;
@@ -146,7 +163,7 @@ export const Turn = z.strictObject({
 export type Turn = z.infer<typeof Turn>;
 
 /**
- * A system event between turns: the context was compacted, the host restarted a crashed pi, an
+ * A system event between turns: the context was compacted between turns, the host restarted a crashed pi, an
  * extension asked something, or the host told the model something (SPEC-0002, `note`).
  */
 export const Notice = z.discriminatedUnion("notice", [
@@ -154,7 +171,9 @@ export const Notice = z.discriminatedUnion("notice", [
     kind: z.literal("notice"),
     id: z.string().min(1),
     notice: z.literal("compacted"),
-    tokensBefore: z.number().int().nonnegative(),
+    tokensBefore: TokenCount,
+    /** The next reply's input after it; null until that reply comes (SPEC-0001, `compaction`). */
+    tokensAfter: TokenCount.nullable(),
     summary: z.string(),
     timestamp: Timestamp,
   }),

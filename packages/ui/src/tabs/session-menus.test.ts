@@ -6,7 +6,7 @@ import { wholeTranscript } from "./session-menus";
 
 /** A notice with the given id. */
 function notice(id: string): TranscriptItem {
-  return { kind: "notice", id, notice: "compacted", tokensBefore: 0, summary: "", timestamp: 0 };
+  return { kind: "notice", id, notice: "compacted", tokensBefore: 0, tokensAfter: null, summary: "", timestamp: 0 };
 }
 
 /**
