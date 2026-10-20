@@ -50,7 +50,11 @@
   },
   "overrides": [
     {
-      "files": ["packages/pi/**", "packages/testkit/src/faux/extension.ts"],
+      "files": [
+        "packages/pi/**",
+        "packages/testkit/src/faux/extension.ts",
+        "packages/testkit/src/faux/readme-extension.ts"
+      ],
       "rules": {
         "no-restricted-imports": "off"
       }

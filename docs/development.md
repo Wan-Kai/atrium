@@ -62,6 +62,7 @@ pnpm exec playwright install chromium chromium-headless-shell # 浏览器组件�
 | `pnpm usage [日志目录]` | 按宿主的每次运行汇总日志里每分钟的资源计数和内存（宿主和 Electron 各进程），列出每小时的数值，第一个小时和最后一个小时的最低值对比，持续上涨的标 `↑`（[testing.md · 运行时监控](architecture/testing.md#运行时监控)）；默认读 `~/.atrium/logs` |
 | `pnpm trace <trace id> [日志目录]` | 按 trace id 打印一条链路的 span 树和日志；默认读 `~/.atrium/logs` |
 | `pnpm fixtures:record` | 用本机 pi 重录全部 pi 夹具，删掉其他版本的夹具目录；提交前审查 diff（testing.md"pi 夹具"） |
+| `pnpm readme:shots` | 构建后重拍 README 的六张截图，覆盖 `docs/images/*.png`（1920×1145）。只用演示数据：临时目录里现造的 `weather-app` 仓库（本地 bare origin 和两个 worktree）、临时的 Atrium 主目录、pi 配置目录和 HOME，`PI_OFFLINE=1`；模型是以真实服务商名字注册的 faux（`packages/testkit/src/faux/readme-extension.ts` 按 `apps/desktop/e2e/readme/story.ts` 的脚本回复），ChatGPT 的模型列表和用量由本机的替身服务给出，不发真实请求，不碰 `~/.atrium`。用 `screencapture` 截应用窗口，窗口会被提到最前，跑的约 3 分钟里别动它；终端要有"屏幕录制"权限。六张图在同一段故事里依次拍出，不能只拍其中一张；跑完看一眼 `git diff docs/images`，不满意就 `git checkout -- docs/images` |
 | `pnpm pi:try "<提示词>"` | 用宿主的组件直接驱动真实 pi：读登录 shell 环境、找 pi、发一条提示词，在终端里流式打出回复，结束时给出 trace id（日志在 `~/.atrium/dev-logs`）。`--cwd <目录>` 指定工作目录，`--keep-session` 保留会话文件，`--inherit-env` 跳过登录 shell，`--` 之后的参数原样交给 pi。会真的调用模型 |
 | `pnpm check` | 格式、代码检查（含 JSDoc）、类型检查、knip |
 | `pnpm break-check <cases.json>` | 破坏检查：按每个 case（`{ file, from, to, test, name, project? }`，`from` 在文件里恰好出现一次）把代码改坏，跑那个测试（`vitest run --project <project，默认 unit> <test> -t <name>`），打印 `CAUGHT` 或 `MISSED`，再改回去；有漏掉的退出码为 1。被中断时也会改回去（见上文"标准开发流程"第 4 步） |

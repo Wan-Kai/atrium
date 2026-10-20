@@ -30,7 +30,8 @@
     "usage": "node scripts/usage.mjs",
     "postinstall": "pnpm --filter @atrium/desktop exec install-electron",
     "pi:try": "pnpm --silent --filter @atrium/host build && node packages/host/dist/try-pi.cjs",
-    "fixtures:record": "node scripts/record-fixtures.mjs"
+    "fixtures:record": "node scripts/record-fixtures.mjs",
+    "readme:shots": "pnpm build && pnpm --filter @atrium/desktop readme:shots"
   },
   "devDependencies": {
     "@stryker-mutator/core": "10.0.0",

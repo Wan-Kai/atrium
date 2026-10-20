@@ -9,7 +9,8 @@
 | [`adr/`](adr/) | 架构决策记录（ADR）：一个重要决策及其理由 | 只追加不修改，被推翻时写新 ADR 取代旧的 |
 | [`research/`](research/) | 调研与学习笔记：外部项目分析、学习资料 | 参考性质，不约束实现 |
 | [`roadmap.md`](roadmap.md) | 路线图 | 阶段计划与原则；实现阶段的入口 |
-| [`development.md`](development.md) | 开发环境与流程 | 版本要求、分支、提交 |
+| [`development.md`](development.md) | 开发环境与流程 | 版本要求、分支、提交、标准开发流程、命令 |
+| [`acceptance.md`](acceptance.md) | 验收指南 | 改了什么跑什么、交给用户之前查什么、用户和里程碑怎么验收、三方审查的提问模板 |
 
 仓库根目录的 [`AGENTS.md`](../AGENTS.md)（`CLAUDE.md` 引用它）是每次工作都要遵守的守则。
 

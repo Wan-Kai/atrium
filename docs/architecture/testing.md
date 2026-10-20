@@ -243,6 +243,21 @@ macOS 在一个新建的可执行文件第一次运行前会先检查它，这�
 
 每份只用一个 worker，是为了让各份测试互相竞争、暴露竞态和时序假设，而不是把 CPU 饿死。教训（M1.4）：13 份 Vitest 各用默认的"每核一个 worker"同时跑，14 核上有约 170 个测试进程，会启动子进程的测试（读登录 shell、跑 pi）被拖慢 30～60 倍，超过 5 秒的默认期限而失败；把期限放宽到 60 秒后全部通过，耗时连续分布在 4～6 秒、没有卡在某个固定值上，说明不是死锁或竞态。改成每份一个 worker 后，26 次全部通过，最慢的测试约 1.3 秒。
 
+### 已知不稳的测试
+
+时有时无的失败按 bug 修，不删测试、不放宽断言了事（"让每个测试都有效"第 3 条）。修好之前记在这里：现象、怎么复现、状态；修好一个删一行。汇报测试结果时遇到它们，单独重跑确认是这个原因再写明（[acceptance.md](../acceptance.md#改了什么跑什么)）。2026-10-20 整理，之前散在各次对话里：
+
+| 测试 | 现象 | 怎么复现 | 状态 |
+|---|---|---|---|
+| `packages/ui/src/chat/changes-pane.browser.test.tsx` "opens from nothing in 0.24 s, the panel at its width from the start, and closes back to nothing before it goes" | 整套 ui 并行跑时偶尔失败，单独跑通过；量的是动效时长，机器忙时帧落后 | `pnpm test:stress --project ui packages/ui/src/chat/changes-pane.browser.test.tsx` | 待修（多半要改成按动画对象的时间线断言，不按墙钟） |
+| `packages/ui/src/chat/markdown.browser.test.tsx` "shows a block's buttons in place of its language while hovered or focused inside" | 同上，整套并行时偶尔失败 | 同上，换成这个文件 | 待修 |
+| `packages/ui/src/files/diff-viewer.browser.test.tsx`、`packages/ui/src/chat/streaming.browser.test.tsx` | 整套并行时偶尔有一个用例失败，单独跑通过；具体用例下次复现时记下 | 同上 | 待查 |
+| `packages/host/src/files/workspace-files.test.ts` "lists a directory of exactly 5000 entries whole" | 机器忙时超过期限 | `pnpm test:stress packages/host/src/files/workspace-files.test.ts` | 待修 |
+| `packages/host/src/setup/install-job.test.ts` "ends what the command left running in its group once it exits"（`install-service.test.ts` 有同类用例） | 整套并行时偶尔失败，单独跑通过（M1.14 时记下） | `pnpm test:stress packages/host/src/setup/` | 待修 |
+| `apps/desktop/e2e/app.spec.ts` "keeps the sidebar's material as it is when another window takes the focus" | 本机跑时窗口有时拿不到系统焦点 | 单独跑这个 spec，跑的同时不要操作别的窗口 | 待查（可能要换成不依赖系统焦点的做法） |
+
+另外，`pnpm test:pi` 现在跑不过：本机 pi 升到了 1.3.0，仓库里只有 1.0.2 和 1.1.0 的夹具（"pi 夹具"一节：没有本机版本的夹具就失败）。待办：为 1.3.0 录一套夹具、审查和 1.1.0 的差异（2026-10-20 记）。
+
 ### 运行时监控
 
 测试覆盖不到真实使用。宿主每分钟把资源计数、堆、RSS 写进日志；Electron 主进程每分钟把 `app.getAppMetrics()` 里各进程的内存和 CPU 交给宿主写进同一份日志（[observability.md](observability.md#和测试的关系)）。M1.11 自用期间每天用 `pnpm usage` 看一眼趋势：它按宿主的每次运行列出每小时的数值，并比较第一个小时和最后一个小时里的最低值。泄漏会抬高最低值，所以资源计数的最低值变高、或内存的最低值涨到 1.5 倍以上时标出 `↑`；运行不到两小时不比较（2026-10-11 定）。发现持续上涨就补一个能复现的泄漏测试再修。

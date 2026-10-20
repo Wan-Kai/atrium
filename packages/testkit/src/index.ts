@@ -12,6 +12,15 @@ export {
   type FauxScript,
   fauxPi,
 } from "./faux/script";
+export {
+  README_FAUX_EXTENSION,
+  README_FAUX_GATES_ENV,
+  README_FAUX_LOG_ENV,
+  README_FAUX_SCRIPT_ENV,
+  type ReadmeFauxProvider,
+  type ReadmeFauxReply,
+  type ReadmeFauxScript,
+} from "./faux/readme-script";
 export { CODEX_MODEL_LIST, type ListRequest, type ModelListServer, startModelListServer } from "./model-list-server";
 export { GIT_SCENE_ENV, type GitScene, createGitScene, gitSceneEnv } from "./git";
 export { present } from "./present";

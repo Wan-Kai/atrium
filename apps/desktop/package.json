@@ -9,7 +9,8 @@
     "start": "electron .",
     "package": "node package.mjs",
     "typecheck": "tsc -p tsconfig.json",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "readme:shots": "playwright test --config e2e/readme/playwright.config.ts"
   },
   "devDependencies": {
     "@atrium/testkit": "workspace:*",

@@ -138,7 +138,7 @@ protocol  ←──  pi  ←──  host
 | 包 | 可以依赖 | 不允许 | 怎么强制 |
 |---|---|---|---|
 | protocol | zod | 任何内部包 | package.json 没声明，pnpm 就不让 import |
-| pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止（唯一例外见下文 testkit 的 faux extension） |
+| pi | protocol（只用对话记录相关的实体，不碰命令和同步信封） | DOM、其他内部包 | 唯一能 import `@earendil-works/*` 的包，其他包由 oxlint `no-restricted-imports` 禁止（例外见下文 testkit 的两个 faux extension） |
 | host | protocol、pi | DOM、client（生产代码）、ui、Electron | tsconfig 的 `lib` 不含 DOM；oxlint 禁止 `packages/host/src` import `@atrium/client`（client 只作第 4 层测试的开发依赖） |
 | client | protocol、zustand | DOM、React | tsconfig 不含 DOM，oxlint 禁止 import react |
 | ui | client、protocol（只用类型） | host、pi | 没有声明依赖；oxlint 只许生产代码 `import type` protocol，要用的值（`CommandError`、`isChatId` 等）由 client 转出（测试不限） |
@@ -146,6 +146,7 @@ protocol  ←──  pi  ←──  host
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
+- 同理，`packages/testkit/src/faux/readme-extension.ts`（README 截图用，`pnpm readme:shots`，见 development.md"命令"）在一个 pi 里用真实的服务商名注册几个 faux 服务商，同样只作为文件路径交给 pi、由 pi 自己加载，oxlint 对它也放开（2026-10-20 截图脚本收进仓库时加）。
 
 - **登录程序的例外**（2026-10-10 定）：`packages/pi/src/auth/` 里的登录程序由宿主交给系统 Node 运行，不被我们的进程加载。它按绝对路径 `import` 用户装的 pi 包（`dist/index.js`），用的是 pi 自带的依赖；只从 `@earendil-works/pi-coding-agent` 取类型（pi 包的开发依赖）。它只用 Node 能直接运行的写法（能被去掉的类型注解，不用 enum 等），因为系统 Node 直接运行源文件。
 
