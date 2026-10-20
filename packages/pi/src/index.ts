@@ -18,7 +18,14 @@ export {
   type PiTap,
   startPiProcess,
 } from "./process/pi-process";
-export { type Dialog, type EventTranslator, type TranslatedEvent, createEventTranslator } from "./events/translate";
+export {
+  type CompactionReason,
+  type CompactionResult,
+  type Dialog,
+  type EventTranslator,
+  type TranslatedEvent,
+  createEventTranslator,
+} from "./events/translate";
 export { compactRejection, isBusyRejection } from "./process/rejections";
 export {
   type AssistantPart,

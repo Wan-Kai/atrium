@@ -321,3 +321,23 @@ export function addUsage(
 ): NonNullable<Turn["usage"]> {
   return { input: (usage?.input ?? 0) + message.input, output: (usage?.output ?? 0) + message.output };
 }
+
+/**
+ * The input of a reply, as the context after a compaction before it: what it read, cached or not.
+ *
+ * @remarks
+ * `input + cacheRead + cacheWrite` (SPEC-0001, `compaction`). A reply that says nothing, all
+ * zeros as a stopped or failed one may, tells nothing about it.
+ *
+ * @sideEffects none
+ * @param usage - The reply's tokens.
+ * @returns The tokens, or `null` when it says none.
+ */
+export function inputTokens(usage: {
+  readonly input: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+}): number | null {
+  const tokens = usage.input + usage.cacheRead + usage.cacheWrite;
+  return tokens > 0 ? tokens : null;
+}

@@ -29,7 +29,7 @@ function confirming(id: string, clientMessageId: string): Turn {
 
 /** A compaction notice. */
 function notice(id: string): Notice {
-  return { kind: "notice", id, notice: "compacted", tokensBefore: 1, summary: "", timestamp: 0 };
+  return { kind: "notice", id, notice: "compacted", tokensBefore: 1, tokensAfter: null, summary: "", timestamp: 0 };
 }
 
 /** A text step. */

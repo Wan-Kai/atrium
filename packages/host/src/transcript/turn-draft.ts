@@ -23,6 +23,9 @@ type AssistantMessage = Extract<LogMessage, { kind: "assistant" }>;
 /** A user message, as both live events and session entries carry it. */
 type UserMessage = Extract<LogMessage, { kind: "user" }>;
 
+/** A compaction step. */
+export type CompactionStep = Extract<Step, { kind: "compaction" }>;
+
 /**
  * The skill a user message started with, as the transcript names it.
  *
@@ -352,6 +355,46 @@ export class TurnDraft {
       { kind: "retry", id: stepId(this.#steps.length), attempt, maxAttempts: limit, error },
       this.#lastTime,
     );
+  }
+
+  /**
+   * Adds a compaction pi made while the turn ran, where it made it.
+   *
+   * @remarks
+   * A compaction is no reply of the model's, so a user message after a tool result and a
+   * compaction is still a steer (SPEC-0001, `steer`, `compaction`).
+   *
+   * @sideEffects Updates the draft.
+   * @param compaction - The step's fields but its id.
+   * @param timestamp - When pi wrote it.
+   * @returns The step.
+   */
+  compaction(compaction: Omit<CompactionStep, "kind" | "id">, timestamp: number): Step {
+    const step: Step = { kind: "compaction", id: stepId(this.#steps.length), ...compaction };
+    this.#steps.push(step);
+    this.#lastTime = timestamp;
+    return step;
+  }
+
+  /**
+   * Gives the compactions that do not know it yet the input of the reply after them.
+   *
+   * @remarks
+   * Known live once the next reply with usage finishes (SPEC-0001, `compaction`).
+   *
+   * @sideEffects Updates the draft.
+   * @param tokensAfter - The reply's input.
+   * @returns The steps it changed.
+   */
+  compacted(tokensAfter: number): Step[] {
+    const changed: Step[] = [];
+    this.#steps.forEach((step, position) => {
+      if (step.kind !== "compaction" || step.tokensAfter !== null) return;
+      const updated = { ...step, tokensAfter };
+      this.#steps[position] = updated;
+      changed.push(updated);
+    });
+    return changed;
   }
 
   /**

@@ -2,6 +2,8 @@ import type { AgentEventKind, AgentNoticeEvent, Step, Turn } from "@atrium/proto
 import { describe, expect, it } from "vitest";
 import {
   type ToolStep,
+  compactedText,
+  compactionDetail,
   countProcess,
   describeExplore,
   describeStep,
@@ -31,6 +33,26 @@ function tool(
 /** A text step. */
 function text(id: string, value: string): Step {
   return { kind: "text", id, text: value };
+}
+
+/**
+ * A compaction step from 152K tokens, to `tokensAfter`.
+ *
+ * @remarks
+ * The numbers the design shows (design-language, "压缩步骤").
+ *
+ * @sideEffects none
+ * @param id - The step's id.
+ * @param tokensAfter - The context after it, if known.
+ * @param reason - What set it off.
+ * @returns The step.
+ */
+function compaction(
+  id: string,
+  tokensAfter: number | null = 41_000,
+  reason: "overflow" | "threshold" | null = "threshold",
+): Extract<Step, { kind: "compaction" }> {
+  return { kind: "compaction", id, tokensBefore: 152_000, tokensAfter, summary: "So far.", reason };
 }
 
 /** A finished turn with these steps. */
@@ -233,10 +255,19 @@ describe("countProcess and processParts", () => {
       tool("6", "bash", "failed"),
       tool("7", "edit"),
       text("8", "x"),
+      compaction("9"),
+      compaction("10", null, null),
     ]);
 
-    expect(counts).toStrictEqual({ reads: 2, searches: 3, commands: 3, failedCommands: 1 });
-    expect(processParts(counts, 3)).toStrictEqual(["读了 2 个文件", "搜索了 3 次", "跑了 3 条命令", "改了 3 个文件"]);
+    expect(counts).toStrictEqual({ reads: 2, searches: 3, commands: 3, failedCommands: 1, compactions: 2 });
+    expect(processParts(counts, 3)).toStrictEqual([
+      "读了 2 个文件",
+      "搜索了 3 次",
+      "跑了 3 条命令",
+      "改了 3 个文件",
+      "1 条命令没走通",
+      "压缩了 2 次上下文",
+    ]);
   });
 
   it("names nothing that did not happen", () => {
@@ -349,6 +380,28 @@ describe("describeStep", () => {
       object: "503",
       end: null,
     });
+  });
+
+  it("describes a compaction by the context before and after, an overflow by what pi does about it", () => {
+    expect(describeStep(compaction("0"), false)).toStrictEqual({
+      verb: "压缩了上下文",
+      object: "152K → 41K",
+      end: null,
+    });
+    expect(describeStep(compaction("0", null, null), true)).toStrictEqual({
+      verb: "压缩了上下文",
+      object: "压缩前 152K",
+      end: null,
+    });
+    expect(describeStep(compaction("0", 41_000, "overflow"), false)).toStrictEqual({
+      verb: "上下文超出窗口，已压缩",
+      object: "",
+      end: null,
+    });
+    expect([compactionDetail(compaction("0")), compactionDetail(compaction("0", null))]).toStrictEqual([
+      "压缩前 152K tokens · 压缩后 41K · 保留了最近的原文",
+      "压缩前 152K tokens · 保留了最近的原文",
+    ]);
   });
 
   it("describes each built-in tool by what it did, or is doing, and how it ended", () => {
@@ -529,7 +582,15 @@ describe("transcriptMarkdown", () => {
         turn(steps, {
           user: { text: "list\nfiles", images: 0, clientMessageId: null, auto: false, command: null, timestamp: 0 },
         }),
-        { kind: "notice", id: "n", notice: "compacted", tokensBefore: 152_000, summary: "", timestamp: 0 },
+        {
+          kind: "notice",
+          id: "n",
+          notice: "compacted",
+          tokensBefore: 152_000,
+          tokensAfter: null,
+          summary: "",
+          timestamp: 0,
+        },
         turn([], { outcome: "failed", error: "429" }),
       ]),
     ).toBe(
@@ -549,6 +610,24 @@ describe("transcriptMarkdown", () => {
     expect(transcriptMarkdown([steered])).toBe("> do it\n\n- 来自主对话的 agent · 交代的事\n");
     expect(transcriptMarkdown([report, task])).toBe(
       "> 来自子对话「测试」· 完成 · 用时 5 秒\n\n- 等了子对话 · 所有子对话\n- 来自子对话「审查」· 在问 · 哪个？\n\nok\n\n---\n\n> 来自主对话的 agent · 交代的事\n> 补测试\n> 再跑一遍\n",
+    );
+  });
+
+  it("writes a compaction in the process as a quoted line, and one between turns with the context after it", () => {
+    const steps = [tool("0", "bash", "done", { tool: "bash", command: "ls" }), compaction("1"), text("2", "Done.")];
+    const between = { kind: "notice", id: "n", notice: "compacted", summary: "", timestamp: 0 } as const;
+
+    expect(
+      transcriptMarkdown([
+        turn(steps),
+        { ...between, tokensBefore: 152_000, tokensAfter: 41_000 },
+        turn([compaction("0", null, "overflow")]),
+      ]),
+    ).toBe(
+      "> do it\n\n- 运行了 · ls（通过）\n> 压缩了上下文 · 152K → 41K\n\nDone.\n\n---\n\n> 上下文已压缩 · 152K → 41K\n\n---\n\n> do it\n\n> 上下文超出窗口，已压缩\n",
+    );
+    expect(compactedText({ ...between, tokensBefore: 9_000, tokensAfter: null })).toBe(
+      "上下文已压缩 · 压缩前 9K tokens",
     );
   });
 

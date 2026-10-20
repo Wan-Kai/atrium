@@ -371,7 +371,15 @@ describe("Transcript", () => {
       at(
         [
           turn("t1", "答"),
-          { kind: "notice", id: "n1", notice: "compacted", tokensBefore: 1, summary: "", timestamp: 0 },
+          {
+            kind: "notice",
+            id: "n1",
+            notice: "compacted",
+            tokensBefore: 1,
+            tokensAfter: null,
+            summary: "",
+            timestamp: 0,
+          },
         ],
         { pending: [{ clientMessageId: "q2", text: "再问" }], run: { runId: "r1", startedAt: Date.now() - 12_000 } },
       ),
@@ -384,6 +392,26 @@ describe("Transcript", () => {
 
     expect(shown).toStrictEqual(["turn", "user-message", "notice", "user-message", "run-status"]);
     expect(screen.container.querySelector('[data-testid="run-status"]')?.textContent).toMatch(/^进行中 · 1[23]s$/);
+  });
+
+  it("says pi compacts on the running turn's rail, where it is, rather than at the bottom", async () => {
+    const running = turn("t2", "", {
+      steps: [passedCommand("0")],
+      outcome: "running",
+      durationMs: null,
+    });
+    const screen = await render(
+      at([turn("t1", "答"), running], {
+        run: { runId: "r1", startedAt: Date.now() },
+        control: { ...IDLE_CONTROL, compacting: true },
+      }),
+    );
+    const turns = screen.container.querySelectorAll('[data-testid="turn"]');
+
+    expect([...screen.container.querySelectorAll("p[role=status], [data-kind=compacting]")].length).toBe(1);
+    expect(turns[1]?.querySelector('[data-kind="compacting"]')?.textContent).toBe("正在压缩上下文…");
+    // The finished turn before it has nothing of it: no process to fold it into either.
+    expect(turns[0]?.querySelector('[data-testid="process-header"]')).toBeNull();
   });
 
   it("shows the run line, without a timer, under a message sent while idle until the run starts", async () => {

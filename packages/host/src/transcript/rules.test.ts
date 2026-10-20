@@ -199,6 +199,7 @@ describe("forTransport", () => {
       id: "n",
       notice: "compacted",
       tokensBefore: 0,
+      tokensAfter: null,
       summary: long,
       timestamp: 0,
     };

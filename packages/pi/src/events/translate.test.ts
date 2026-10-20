@@ -268,8 +268,20 @@ describe("createEventTranslator against recorded pi output", () => {
       delta(0, "nswer"),
       reply([{ type: "text", text: "second answer" }]),
       settled,
-      { kind: "compaction_started" },
-      { kind: "compaction_finished" },
+      { kind: "compaction_started", reason: "manual" },
+      {
+        kind: "compaction_finished",
+        reason: "manual",
+        aborted: false,
+        willRetry: false,
+        error: null,
+        result: {
+          summary:
+            "A short summary.\n\n---\n\n**Turn Context (split turn):**\n\nThe turn so far.\n\n<modified-files>\nnotes.txt\n</modified-files>",
+          firstKeptEntryId: "e2",
+          tokensBefore: 0,
+        },
+      },
       run,
       request,
       user("three"),
@@ -490,9 +502,65 @@ describe("createEventTranslator on cases the fixtures do not show", () => {
     ).toStrictEqual([]);
   });
 
-  it("reports the start of a compaction", () => {
-    expect(translateAll([{ type: "compaction_start", reason: "threshold" } as never])).toStrictEqual([
-      { kind: "compaction_started" },
+  it("reports the start of a compaction with what set it off", () => {
+    expect(
+      translateAll([
+        { type: "compaction_start", reason: "threshold" },
+        { type: "compaction_start", reason: "overflow" },
+      ]),
+    ).toStrictEqual([
+      { kind: "compaction_started", reason: "threshold" },
+      { kind: "compaction_started", reason: "overflow" },
+    ]);
+  });
+
+  it("reports a compaction's end with the entry it wrote, and none when it was stopped or failed", () => {
+    const written = {
+      summary: "So far.",
+      firstKeptEntryId: "e7",
+      tokensBefore: 152_000,
+      estimatedTokensAfter: 40_000,
+      usage: {
+        input: 1,
+        output: 2,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 3,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      details: { readFiles: [], modifiedFiles: [] },
+    };
+    expect(
+      translateAll([
+        { type: "compaction_end", reason: "overflow", result: written, aborted: false, willRetry: true },
+        { type: "compaction_end", reason: "threshold", result: undefined, aborted: true, willRetry: false },
+        {
+          type: "compaction_end",
+          reason: "threshold",
+          result: undefined,
+          aborted: false,
+          willRetry: false,
+          errorMessage: "Auto-compaction failed: 529",
+        },
+      ]),
+    ).toStrictEqual([
+      {
+        kind: "compaction_finished",
+        reason: "overflow",
+        aborted: false,
+        willRetry: true,
+        error: null,
+        result: { summary: "So far.", firstKeptEntryId: "e7", tokensBefore: 152_000 },
+      },
+      { kind: "compaction_finished", reason: "threshold", aborted: true, willRetry: false, error: null, result: null },
+      {
+        kind: "compaction_finished",
+        reason: "threshold",
+        aborted: false,
+        willRetry: false,
+        error: "Auto-compaction failed: 529",
+        result: null,
+      },
     ]);
   });
 

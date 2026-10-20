@@ -1,6 +1,13 @@
 import { type LogEntry, agentSource } from "@atrium/pi";
 import type { Notice, TranscriptItem } from "@atrium/protocol";
-import { TurnDraft, type TurnFacts, messageCommand, noUser, steerText } from "./turn-draft";
+import { inputTokens } from "./rules";
+import { type CompactionStep, TurnDraft, type TurnFacts, messageCommand, noUser, steerText } from "./turn-draft";
+
+/** A compaction entry. */
+type CompactionEntry = Extract<LogEntry, { kind: "compaction" }>;
+
+/** What set off a compaction the host saw during a run; `null` when it was not told. */
+export type SeenCompaction = CompactionStep["reason"];
 
 /** A rebuilt transcript, with which entry opened each turn. */
 export interface Projection {
@@ -37,7 +44,11 @@ function historyId(sessionId: string, entryId: string): string {
  * by a retry step, numbered as pi counts: consecutive failures count up, a successful reply
  * resets, and an empty error reads as pi's "Unknown error". An omission followed straight by a
  * compaction is pi recovering from a context overflow, which is no retry (pi-internals.md §3).
- * Tool results pair with their calls by call id. A compaction becomes a notice after the turn it happened in, or in place between turns.
+ * Tool results pair with their calls by call id. A compaction is a step where it happened when
+ * the turn goes on after it, its first step if it came right after the user message; one right
+ * before the next turn is a notice between the two, unless the host saw it during this turn's run
+ * (`compactions`), which makes it the turn's last step; one before any turn is a notice in place
+ * (SPEC-0001, `compaction`). Either way it has the input of the first later reply that says one.
  * Model changes, labels, system messages and other entries are skipped. Assistant messages before
  * any user message belong to no turn and are skipped too. A turn the host saw live gets the id,
  * `clientMessageId`, timings and whether the host sent it on its own that it had then, from
@@ -50,6 +61,7 @@ function historyId(sessionId: string, entryId: string): string {
  * @param opened - Entries an earlier host run saw open a turn; nothing was measured of them then
  * that survived.
  * @param auto - Entries of messages an earlier host run sent on its own (SPEC-0001, "运行控制").
+ * @param compactions - Compaction entries the host saw during a run, with what set each off.
  * @returns The items and the entries that opened turns.
  */
 export function projectTranscript(
@@ -58,27 +70,74 @@ export function projectTranscript(
   facts: ReadonlyMap<string, TurnFacts>,
   opened: ReadonlySet<string> = new Set(),
   auto: ReadonlySet<string> = new Set(),
+  compactions: ReadonlyMap<string, SeenCompaction> = new Map(),
 ): Projection {
   // Stryker disable next-line ConditionalExpression,ArrayDeclaration: only looked up by entry id, which is never undefined or made up.
   const omitted = new Set(branch.flatMap((entry) => (entry.kind === "omission" ? [entry.targetId] : [])));
   const recovered = overflowRecoveries(branch);
+  const after = inputsAfter(branch);
   const items: TranscriptItem[] = [];
   const turnEntryIds: string[] = [];
   let draft: { readonly turn: TurnDraft; readonly entryId: string } | null = null;
-  let notices: Notice[] = [];
+  /** What follows the turn so far: notices, and compactions nothing of the turn came after yet. */
+  let notices: (Notice | CompactionEntry)[] = [];
   let retries = 0;
+
+  /**
+   * Makes a compaction a step of the turn being built.
+   *
+   * @remarks
+   * See `projectTranscript`.
+   *
+   * @sideEffects Updates the turn.
+   * @param turn - The turn.
+   * @param entry - The compaction.
+   */
+  const step = (turn: TurnDraft, entry: CompactionEntry): void => {
+    turn.compaction(
+      {
+        tokensBefore: entry.tokensBefore,
+        tokensAfter: after.get(entry.id) ?? null,
+        summary: entry.summary,
+        reason: compactions.get(entry.id) ?? null,
+      },
+      entry.timestamp,
+    );
+  };
+
+  /**
+   * Makes the compactions waiting after the turn its steps, since the turn goes on after them.
+   *
+   * @remarks
+   * See `projectTranscript`.
+   *
+   * @sideEffects Updates the turn and what follows it.
+   * @param turn - The turn.
+   */
+  const goOn = (turn: TurnDraft): void => {
+    for (const waiting of notices) if (waiting.kind === "compaction") step(turn, waiting);
+    notices = notices.filter((waiting) => waiting.kind !== "compaction");
+  };
 
   /**
    * Ends the turn being built, followed by the notices that happened in it.
    *
    * @remarks
-   * A notice never splits a turn (SPEC-0001, "提示条").
+   * A notice never splits a turn (SPEC-0001, "提示条"). A compaction still waiting is the turn's
+   * last step if the host saw it in the run, and a notice between the turns otherwise.
    *
    * @sideEffects Updates the items.
    */
   const close = (): void => {
+    const turn = draft?.turn;
+    const following: Notice[] = [];
+    for (const waiting of notices) {
+      if (waiting.kind === "notice") following.push(waiting);
+      else if (turn !== undefined && compactions.has(waiting.id)) step(turn, waiting);
+      else following.push(compactedNotice(waiting, sessionId, after.get(waiting.id) ?? null));
+    }
     if (draft !== null) items.push(draft.turn.finish(facts.get(draft.entryId)).turn);
-    items.push(...notices);
+    items.push(...following);
     draft = null;
     notices = [];
   };
@@ -87,6 +146,7 @@ export function projectTranscript(
     switch (entry.kind) {
       case "user": {
         if (draft !== null && !facts.has(entry.id) && !opened.has(entry.id) && draft.turn.takesSteer) {
+          goOn(draft.turn);
           draft.turn.steer(steerText(entry), entry.timestamp);
           break;
         }
@@ -113,6 +173,7 @@ export function projectTranscript(
       }
       case "assistant":
         if (draft === null) break;
+        goOn(draft.turn);
         draft.turn.startAssistant();
         draft.turn.finishAssistant(entry);
         if (entry.stopReason !== "error") retries = 0;
@@ -125,26 +186,20 @@ export function projectTranscript(
         }
         break;
       case "toolResult":
+        // pi compacts between requests, never between a call and its result.
         draft?.turn.toolResult(entry.callId, entry, entry.timestamp);
         break;
-      case "compaction": {
-        const notice: Notice = {
-          kind: "notice",
-          id: historyId(sessionId, entry.id),
-          notice: "compacted",
-          tokensBefore: entry.tokensBefore,
-          summary: entry.summary,
-          timestamp: entry.timestamp,
-        };
-        // Before any turn, the next turn's start puts it in place all the same.
-        notices.push(notice);
+      case "compaction":
+        // Where it goes is known once what follows it is; before any turn, the next turn's start
+        // puts it in place as a notice.
+        notices.push(entry);
         break;
-      }
       case "agent": {
         // Notices or a task: a step where a steer would be, a turn of their own otherwise (SPEC-0002).
         const source = agentSource(entry.details);
         if (source === null) break;
         if (draft !== null && !facts.has(entry.id) && !opened.has(entry.id) && draft.turn.takesSteer) {
+          goOn(draft.turn);
           draft.turn.delivered(source, entry.timestamp);
           break;
         }
@@ -184,6 +239,51 @@ export function projectTranscript(
   }
   close();
   return { items, turnEntryIds };
+}
+
+/**
+ * A compaction between turns, as a notice.
+ *
+ * @remarks
+ * See `projectTranscript`.
+ *
+ * @sideEffects none
+ * @param entry - The compaction.
+ * @param sessionId - The session's id, for its id.
+ * @param tokensAfter - The input of the first later reply that says one.
+ * @returns The notice.
+ */
+function compactedNotice(entry: CompactionEntry, sessionId: string, tokensAfter: number | null): Notice {
+  return {
+    kind: "notice",
+    id: historyId(sessionId, entry.id),
+    notice: "compacted",
+    tokensBefore: entry.tokensBefore,
+    tokensAfter,
+    summary: entry.summary,
+    timestamp: entry.timestamp,
+  };
+}
+
+/**
+ * The context after each compaction: the input of the first later reply that says one.
+ *
+ * @remarks
+ * SPEC-0001, `compaction`: the same rule live, where the step is updated once that reply comes.
+ *
+ * @sideEffects none
+ * @param branch - The branch's entries, root first.
+ * @returns The tokens by compaction entry id; none for a compaction no reply followed yet.
+ */
+function inputsAfter(branch: readonly LogEntry[]): Map<string, number> {
+  const after = new Map<string, number>();
+  let next: number | null = null;
+  for (const entry of branch.toReversed()) {
+    if (entry.kind === "assistant") next = inputTokens(entry.usage) ?? next;
+    // Stryker disable next-line ConditionalExpression,LogicalOperator: only compactions are looked up, and one with no tokens after reads as null either way.
+    else if (entry.kind === "compaction" && next !== null) after.set(entry.id, next);
+  }
+  return after;
 }
 
 /**

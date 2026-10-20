@@ -652,7 +652,7 @@ describe("SessionManager running sessions", () => {
     await asked.promise;
 
     const closing = manager.close();
-    read.resolve({ opened: new Set(), auto: new Set(), record: () => Promise.resolve() });
+    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: () => Promise.resolve() });
     await closing;
 
     // None was ever kept.
@@ -1060,7 +1060,7 @@ describe("SessionManager archiving and renaming", () => {
     await reading.promise;
 
     const archiving = manager.archiveSession("pi-session-1");
-    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
     await archiving;
     await opening;
 
@@ -1424,7 +1424,12 @@ describe("SessionManager turn starts", () => {
       undefined,
       async (sessionId) => {
         asked.push(sessionId);
-        return { opened: new Set(), auto: new Set(), record: async (entryIds) => void recorded.push([...entryIds]) };
+        return {
+          opened: new Set(),
+          auto: new Set(),
+          compactions: new Map(),
+          record: async (entryIds) => void recorded.push([...entryIds]),
+        };
       },
     );
     const { sessionId } = await manager.createChat("client-1");
@@ -1433,6 +1438,77 @@ describe("SessionManager turn starts", () => {
 
     await vi.waitFor(() => expect(recorded).toStrictEqual([["u1"]]));
     expect(asked).toStrictEqual(["pi-session-1"]);
+  });
+
+  it("hands the session the compactions an earlier host saw during runs, and records the ones it sees", async () => {
+    const recorded: unknown[] = [];
+    const kept = {
+      type: "compaction",
+      id: "k1",
+      parentId: "a1",
+      timestamp: "2026-10-08T00:00:00.003Z",
+      summary: "So far.",
+      firstKeptEntryId: "a1",
+      tokensBefore: 152_000,
+    };
+    const [, answered] = (getEntries as { sequence: { data: { entries: object[] } }[] }).sequence;
+    const entries = [...present(answered, "the entries after the turn").data.entries, kept];
+    const compacting = [
+      { type: "compaction_start", reason: "threshold" },
+      {
+        type: "compaction_end",
+        reason: "threshold",
+        result: { summary: "So far.", firstKeptEntryId: "a1", tokensBefore: 152_000 },
+        aborted: false,
+        willRetry: false,
+      },
+    ];
+    const { manager } = await manage(
+      {
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1" } },
+          get_entries: {
+            sequence: [{ data: { entries: [], leafId: null } }, { data: { entries, leafId: "k1" } }],
+          },
+          prompt: {
+            data: { disposition: "started" },
+            events: [...turn.slice(0, -1), ...compacting, ...turn.slice(-1)],
+          },
+        },
+      },
+      undefined,
+      async () => ({
+        opened: new Set(),
+        auto: new Set(),
+        compactions: new Map(),
+        record: async (...seen) => void recorded.push(seen),
+      }),
+    );
+    const { sessionId } = await manager.createChat("client-1");
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId, text: "ping" });
+    await vi.waitFor(() => expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "threshold"]])]]));
+
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const later = await manage(
+      {
+        rules: { get_state: { data: { sessionId: "pi-session-1" } }, get_entries: { data: { entries, leafId: "k1" } } },
+      },
+      at,
+      async () => ({
+        opened: new Set(["u1"]),
+        auto: new Set(),
+        compactions: new Map([["k1", "threshold" as const]]),
+        record: async () => undefined,
+      }),
+    );
+    await later.catalog.scan();
+    await later.manager.openSession("client-1", "pi-session-1");
+    await later.manager.subscribe("c1", ["pi-session-1"]);
+
+    expect(later.received.findLast((event) => event.type === "session_snapshot")).toMatchObject({
+      items: [{ steps: [{ kind: "text" }, { kind: "compaction", reason: "threshold" }] }],
+    });
   });
 
   it("goes on without turn starts it cannot read, logging it", async () => {
@@ -1452,7 +1528,12 @@ describe("SessionManager turn starts", () => {
     const { manager, records } = await manage(
       { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, events: turn } } },
       undefined,
-      async () => ({ opened: new Set(), auto: new Set(), record: () => Promise.reject(new Error("disk full")) }),
+      async () => ({
+        opened: new Set(),
+        auto: new Set(),
+        compactions: new Map(),
+        record: () => Promise.reject(new Error("disk full")),
+      }),
     );
     const { sessionId } = await manager.createChat("client-1");
 
@@ -3336,7 +3417,7 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     await reading.promise;
 
     const stopping = manager.stopIdle();
-    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
     await stopping;
     await opening;
 
@@ -3356,7 +3437,7 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     await reading.promise;
 
     const stopping = manager.stopIdle();
-    read.resolve({ opened: new Set(), auto: new Set(), record: async () => undefined });
+    read.resolve({ opened: new Set(), auto: new Set(), compactions: new Map(), record: async () => undefined });
     await stopping;
 
     expect(await creating).toStrictEqual({ sessionId: "pi-session-1" });
@@ -3448,24 +3529,29 @@ async function withWorktrees(
 /**
  * Turn starts kept in memory, each read noted.
  *
- * @sideEffects Notes the read; recording updates `kept`.
+ * @sideEffects Notes the read; recording updates `kept` and `compactions`.
  * @param kept - The entries that opened turns, by session.
- * @param loaded - Each read, with what it found.
+ * @param loaded - Each read, with what it found: the entries, and the compactions seen in runs.
  * @param sessionId - The session read.
+ * @param compactions - The compactions seen during runs, by session.
  * @returns Its turn starts.
  */
 function keptTurnStarts(
   kept: Map<string, readonly string[]>,
-  loaded: [string, string[]][],
+  loaded: [string, string[], [string, "overflow" | "threshold" | null][]][],
   sessionId: string,
+  compactions = new Map<string, ReadonlyMap<string, "overflow" | "threshold" | null>>(),
 ): Promise<TurnStarts> {
   const found = [...(kept.get(sessionId) ?? [])];
-  loaded.push([sessionId, found]);
+  const seen = new Map(compactions.get(sessionId));
+  loaded.push([sessionId, found, [...seen]]);
   return Promise.resolve({
     opened: new Set(found),
     auto: new Set(),
-    record: (entryIds) => {
+    compactions: seen,
+    record: (entryIds, _autoIds, added = new Map()) => {
       kept.set(sessionId, [...found, ...entryIds]);
+      compactions.set(sessionId, new Map([...seen, ...added]));
       return Promise.resolve();
     },
   });
@@ -3491,7 +3577,7 @@ function heldTurnStarts() {
         reached.resolve();
         await gate.promise;
       }
-      return { opened: new Set(), auto: new Set(), record: () => Promise.resolve() };
+      return { opened: new Set(), auto: new Set(), compactions: new Map(), record: () => Promise.resolve() };
     },
     hold: () => {
       holding = true;
@@ -3839,7 +3925,8 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
 
   it("copies the parent's turn starts to a child forked into a new worktree before its pi loads them", async () => {
     const kept = new Map<string, readonly string[]>([["pi-session-1", ["u2"]]]);
-    const loaded: [string, string[]][] = [];
+    const compactions = new Map([["pi-session-1", new Map([["k1", "overflow" as const]])]]);
+    const loaded: [string, string[], [string, "overflow" | "threshold" | null][]][] = [];
     const { manager } = await withWorktrees(
       {
         fork: {
@@ -3851,7 +3938,7 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
           data: { text: "two", cancelled: false },
         },
       },
-      { turnStarts: (sessionId) => keptTurnStarts(kept, loaded, sessionId) },
+      { turnStarts: (sessionId) => keptTurnStarts(kept, loaded, sessionId, compactions) },
     );
 
     const { sessionId } = await manager.forkSession("client-1", {
@@ -3860,7 +3947,7 @@ describe("SessionManager child conversations (SPEC-0002)", () => {
       child: { place: "worktree", branch: "atrium/logs" },
     });
 
-    expect(loaded.filter(([id]) => id === sessionId).at(-1)).toStrictEqual([sessionId, ["u2"]]);
+    expect(loaded.filter(([id]) => id === sessionId).at(-1)).toStrictEqual([sessionId, ["u2"], [["k1", "overflow"]]]);
   });
 
   it("names a draft child's pi that is still starting once it has started", async () => {

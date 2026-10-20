@@ -237,7 +237,8 @@ function cutBefore(items: readonly TranscriptItem[], index: number): boolean {
  * before the host starts the run (SPEC-0001, "过程的呈现"); one sent while a turn runs goes into the
  * queue and adds no line. A failed last turn offers "重试" while no
  * run goes on and pi is not being restarted (SPEC-0001, "运行控制"). While pi compacts the
- * context, a line at the bottom says so (SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
+ * context, a line says so: on the running turn's rail, where it has got to, or at the bottom
+ * between turns (design-language, "运行中压缩"; SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
  * turn offers "从这里分叉", greyed while a run goes on, stops, pi compacts or is restarted
  * (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"), and "从这里开子对话" beside it, greyed alike (SPEC-0002).
  *
@@ -283,6 +284,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onC
                     {...(item === last && view.run === null && !view.control.restarting && onRetry !== undefined
                       ? { onRetry }
                       : {})}
+                    {...(item === last && turnRunning && view.control.compacting ? { compacting: true } : {})}
                   />
                 ) : (
                   <NoticeView key={item.id} notice={item} />
@@ -300,7 +302,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onC
               {turnRunning || (view.run === null && view.pending.length === 0) ? null : (
                 <RunStatus startedAt={view.run?.startedAt ?? null} />
               )}
-              {view.control.compacting ? (
+              {view.control.compacting && !turnRunning ? (
                 <p role="status" className="flex min-h-[30px] items-center text-[length:var(--fs-meta)]">
                   <span className="atrium-shimmer">正在压缩上下文…</span>
                 </p>
