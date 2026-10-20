@@ -22,11 +22,13 @@
 
 ## 3. 结果怎么回到父会话
 
-- **Paseo**：子代理完成、出错、被关闭或要审批时，用 `<paseo-system>` 外壳的用户消息送进父会话；父会话正忙用 steer（pi 是原生 `steer`），不支持时打断再发。带最后一段回复（4000 字符截断）和审批请求的 JSON，**父 agent 可以替用户批准**。界面按外壳把这条消息藏起来。登记只在内存，宿主重启就丢。
-- **Codex** v1：子线程结束时往父线程追加一条 `<subagent_notification>`，**不叫醒父线程**；v2 也不叫醒，要父线程自己 `wait_agent`。
-- **Claude Code**：`<task-notification>`，默认等父会话这一轮结束才送（中途只送用户消息）；回报会扫描冒充系统消息的标签，并标明"来自子代理，不代表用户授权"。
+- **Paseo**：子代理完成、出错、被关闭或要审批时，用 `<paseo-system>` 外壳的用户消息送进父会话；父会话正忙用 steer（pi 是原生 `steer`），不支持时打断再发。带最后一段回复（4000 字符截断）和审批请求的 JSON，**父 agent 可以替用户批准**。界面按外壳把这条消息藏起来。登记只在内存，宿主重启就丢。每条通知单独 steer 一次，不合并、不等空闲（`agent-prompt.ts` `setupFinishNotification`、`agent-manager.ts` `steerOrReplaceActiveTurn`）；不给模型等待工具。
+- **Codex** v1：子线程第一次到终态时往父线程追加一条 user 角色的 `<subagent_notification>`（带最终回复）。父线程在跑时进 `pending_input`，**每次调模型前取出**，本来要结束的这一轮因此多跑一次（`session/turn.rs` 的 `needs_follow_up`）；空闲时只写进历史，**不叫醒**。`wait_agent` 必须给目标，目标已到终态就马上返回。v2：每次子线程的一轮结束都往父线程的信箱投一封（`trigger_turn=false`，不叫醒空闲的父线程）；父线程在跑时每次调模型前取信箱，**写出最终回答之后到的留给下一轮**（`state/turn.rs` 的 `NextTurn`）；`wait_agent` 遇到没取的信马上返回、但不带内容。
+- **Claude Code**（2.1.284 本地二进制和 changelog，2026-10-20 更正）：`<task-notification>` 和你中途打的字走同一个队列（优先级 `next`），**在这一轮中途、随下一条工具结果一起送到**，不等这一轮结束；前台长命令在有消息要送时自动转到后台，免得挡住消息。每个任务一个 XML 块。`TaskOutput` 已删（2.1.277），没有等待工具，提示词只说会通知、别轮询、别编造。回报会扫描冒充系统消息的标签，并标明"来自子代理，不代表用户授权"。（此前这里写的"默认等父会话这一轮结束才送"是错的。）
 
-三家都告诉模型：**不要轮询**，等通知；不要编造还没回来的结果；子代理的回报用户看不到，要自己转述。
+三家都告诉模型：**不要轮询**，等通知；不要编造还没回来的结果；子代理的回报用户看不到，要自己转述。父会话在跑时，三家都不等它整个跑完：Claude Code 和 Codex 在调模型之前塞进去，Paseo 马上 steer。
+
+> 2026-10-20 补：本节"父会话在跑时什么时候送"按 Claude Code 2.1.284、Codex `0ffcefa`、Paseo `42806cd` 的源码重新核对；pi 社区扩展的做法见第 7 节末尾。
 
 ## 4. 不相干的两个会话
 
@@ -62,6 +64,12 @@
 | `@tintinweb/pi-subagents`（[仓库](https://github.com/tintinweb/pi-subagents) `ca93a52`） | 周 1.1 万、1.3k★ | 照搬 Claude Code：`Agent { prompt, description, subagent_type, name?, model?, thinking?, max_turns?, run_in_background?(默认 true), resume?, inherit_context?, isolation? }`、`get_subagent_result { agent_id, wait?, verbose? }`、`steer_subagent { agent_id, message }`、`SubagentWorkflow` | 同进程 `createAgentSession`；完成通知用 `<task-notification>` XML，在父会话这批工具调用之后送；同一轮派出的可合成一条 | 只有最终回复；取走结果即算已读，不再重复通知；功能关掉时字段连说明一起从 schema 删掉 |
 | `pi-interactive-subagents`（HazAT，[仓库](https://github.com/HazAT/pi-interactive-subagents) `c100577`） | 717★，git 安装，已停更约 5 个月 | `subagent { name, task, agent?, model?, tools?, cwd?, fork? }`（永远后台）、`subagent_interrupt`、`subagent_resume { sessionPath, message? }` | 在终端复用器的新窗格里起交互式 pi，人可以直接接管 | 子代理专用 `subagent_done`（最后一条回复就是交回的摘要）、`caller_ping { message }`：提问并退出，父会话用 `subagent_resume` 带答复把它拉起 |
 | `pi-subagent-manager`（championswimmer，[仓库](https://github.com/championswimmer/pi-subagent-manager) `25783af`） | 周 3.7k、110★ | 一个动词一个工具，按路径（`/root/xxx`）寻址：`agent_spawn { path, type, task, wait?, timeoutMs? }`、`agent_wait { path, timeoutMs? }`、`agent_steer { path, message?, timeoutMs? }`、`agent_status`、`agent_stop`、`agent_output { path, offset?, limit? }`（按字符分页）、`agent_types` | 同进程 SDK 会话，带 `parentSession`；默认前台；超时只报告、不杀子代理；事件先进父会话的信箱，空闲时才送，同时只有一个自动轮次 | 子代理专用 `agent_update { message }`（汇报进度，不打断、不唤醒）、`agent_pause { reason }`（这一轮停下、不交答案，等 `agent_steer` 接着在同一会话里干）；正常回复就是交付；调用方身份闭包绑定，不来自模型输入 |
+
+父会话在跑时（2026-10-20 读源码核对，tintinweb `ca93a52`、nicobailon `1895290`、championswimmer `b53549c`）：
+
+- tintinweb：攒到 `turn_end`（这批工具调用跑完、下次调模型之前）才 `sendMessage(…, { deliverAs: "steer", triggerTurn: true })`，攒下的合成一条（`completion-outbox.ts`）。注释写明原因：pi 的 steer 默认一个边界只取一条，分开发要多占几次模型调用。这一轮被中止或出错就不发，等 `agent_end` 再发。`get_subagent_result` 读过的撤掉通知。
+- nicobailon：马上 `sendMessage(…, { triggerTurn })`，不传 `deliverAs`，pi 在跑时默认当 steer；150 毫秒到 1 秒内到的合成一条。`bg_wait` 不给 `id` 时只等还在跑的。
+- championswimmer：父会话在跑时不送，只记进信箱（"Never submit to Pi's streaming queue"），空闲了才一次取出；`agent_wait` 对已经结束的马上返回。
 
 几家共同的做法：完成后用 `sendMessage` 带 `triggerTurn` 唤醒父会话，工具说明里明令不要轮询、不要编造结果；完整输出留在文件或 `details` 里，给模型的只是截断版加读取的办法；每个子代理有稳定的句柄（id、name 或路径），之后的查询、追加、续接都用它。
 
