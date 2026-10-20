@@ -97,6 +97,8 @@ export type LogEntry = { readonly id: string; readonly parentId: string | null }
       | {
           readonly kind: "compaction";
           readonly summary: string;
+          /** The first entry it kept as written; a live compaction is told by it too. */
+          readonly firstKeptEntryId: string;
           readonly tokensBefore: number;
           /** The whole system prompt at the compaction, from which later system messages go on. */
           readonly system: SystemParts | null;
@@ -271,7 +273,14 @@ export function toLogEntry(entry: SessionEntry): LogEntry {
   const base = { id: entry.id, parentId: entry.parentId, timestamp: Date.parse(entry.timestamp) || 0 };
   if (entry.type === "compaction") {
     const system = entry.systemMessage === undefined ? null : systemParts(entry.systemMessage);
-    return { ...base, kind: "compaction", summary: entry.summary, tokensBefore: entry.tokensBefore, system };
+    return {
+      ...base,
+      kind: "compaction",
+      summary: entry.summary,
+      firstKeptEntryId: entry.firstKeptEntryId,
+      tokensBefore: entry.tokensBefore,
+      system,
+    };
   }
   if (entry.type === "context_edit") {
     return entry.replacement === null

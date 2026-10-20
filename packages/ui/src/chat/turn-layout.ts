@@ -8,6 +8,9 @@ export type ToolStep = Extract<Step, { kind: "tool" }>;
 /** A text step. */
 type TextStep = Extract<Step, { kind: "text" }>;
 
+/** A compaction step. */
+type CompactionStep = Extract<Step, { kind: "compaction" }>;
+
 /**
  * One row of a turn's process: a step, consecutive read-only tool calls shown as one, or what a
  * child came to, as a wait brought it back or a notice came in (SPEC-0002, "显示 · 过程轨道").
@@ -186,14 +189,15 @@ export interface ProcessCounts {
   readonly searches: number;
   readonly commands: number;
   readonly failedCommands: number;
+  readonly compactions: number;
 }
 
 /**
  * Counts what a turn's process did.
  *
  * @remarks
- * Feeds "读了 8 个文件 · 跑了 2 条命令"; failed commands are counted apart for the red mark
- * (SPEC-0001, "显示模式"). Files changed come from the turn's own `changes`.
+ * Feeds "读了 8 个文件 · 跑了 2 条命令"; failed commands are counted apart (SPEC-0001, "显示模式"),
+ * and so are compactions (SPEC-0001, "系统事件"). Files changed come from the turn's own `changes`.
  *
  * @sideEffects none
  * @param steps - The turn's steps.
@@ -204,7 +208,9 @@ export function countProcess(steps: readonly Step[]): ProcessCounts {
   let searches = 0;
   let commands = 0;
   let failedCommands = 0;
+  let compactions = 0;
   for (const step of steps) {
+    if (step.kind === "compaction") compactions += 1;
     // Stryker disable next-line ConditionalExpression: a step that is not a tool has no `tool`, so no count below takes it.
     if (step.kind !== "tool") continue;
     if (step.tool === "read") reads += 1;
@@ -214,14 +220,16 @@ export function countProcess(steps: readonly Step[]): ProcessCounts {
       if (step.status === "failed") failedCommands += 1;
     }
   }
-  return { reads, searches, commands, failedCommands };
+  return { reads, searches, commands, failedCommands, compactions };
 }
 
 /**
  * The parts of a process header after the duration.
  *
  * @remarks
- * Only what happened is named, in a fixed order.
+ * Only what happened is named, in a fixed order. A failed command is mentioned in grey,
+ * "N 条命令没走通": the agent often recovers, so red is too loud (SPEC-0001, "过程的呈现");
+ * compactions come last, "压缩了 N 次上下文" (design-language, "压缩步骤", 甲).
  *
  * @sideEffects none
  * @param counts - What the process did.
@@ -234,6 +242,8 @@ export function processParts(counts: ProcessCounts, filesChanged: number): strin
   if (counts.searches > 0) parts.push(`搜索了 ${counts.searches} 次`);
   if (counts.commands > 0) parts.push(`跑了 ${counts.commands} 条命令`);
   if (filesChanged > 0) parts.push(`改了 ${filesChanged} 个文件`);
+  if (counts.failedCommands > 0) parts.push(`${counts.failedCommands} 条命令没走通`);
+  if (counts.compactions > 0) parts.push(`压缩了 ${counts.compactions} 次上下文`);
   return parts;
 }
 
@@ -373,7 +383,59 @@ export function describeStep(step: Step, live: boolean): StepLine {
     const limit = step.maxAttempts === null ? "" : ` / ${step.maxAttempts}`;
     return { verb: `自动重试 · 第 ${step.attempt}${limit} 次`, object: step.error, end: null };
   }
+  if (step.kind === "compaction") return describeCompaction(step);
   return describeTool(step);
+}
+
+/**
+ * Describes a compaction in one line: "压缩了上下文 · 152K → 41K".
+ *
+ * @remarks
+ * Before the next reply says the context after it, only the one before: "· 压缩前 152K". One an
+ * overflow set off says what pi does about it, "上下文超出窗口，已压缩", its numbers in the
+ * detail (SPEC-0001, "系统事件").
+ *
+ * @sideEffects none
+ * @param step - The compaction.
+ * @returns The line.
+ */
+function describeCompaction(step: CompactionStep): StepLine {
+  if (step.reason === "overflow") return { verb: "上下文超出窗口，已压缩", object: "", end: null };
+  const before = formatTokens(step.tokensBefore);
+  const object = step.tokensAfter === null ? `压缩前 ${before}` : `${before} → ${formatTokens(step.tokensAfter)}`;
+  return { verb: "压缩了上下文", object, end: null };
+}
+
+/**
+ * The line atop a compaction's detail: "压缩前 152K tokens · 压缩后 41K · 保留了最近的原文".
+ *
+ * @remarks
+ * design-language, "压缩步骤"; the context after is left out until the next reply says it.
+ *
+ * @sideEffects none
+ * @param step - The compaction.
+ * @returns The line.
+ */
+export function compactionDetail(step: CompactionStep): string {
+  const after = step.tokensAfter === null ? "" : ` · 压缩后 ${formatTokens(step.tokensAfter)}`;
+  return `压缩前 ${formatTokens(step.tokensBefore)} tokens${after} · 保留了最近的原文`;
+}
+
+/**
+ * A compaction between turns, in words: "上下文已压缩 · 152K → 41K".
+ *
+ * @remarks
+ * "上下文已压缩 · 压缩前 152K tokens" while the context after is not known (SPEC-0001, "提示条").
+ *
+ * @sideEffects none
+ * @param notice - The notice.
+ * @returns The line.
+ */
+export function compactedText(notice: Extract<Notice, { notice: "compacted" }>): string {
+  const before = formatTokens(notice.tokensBefore);
+  return notice.tokensAfter === null
+    ? `上下文已压缩 · 压缩前 ${before} tokens`
+    : `上下文已压缩 · ${before} → ${formatTokens(notice.tokensAfter)}`;
 }
 
 /** How a tool step ended, in words. */
@@ -481,8 +543,9 @@ function compactJson(args: Readonly<Record<string, unknown>>): string {
  * Renders a transcript as Markdown, for "导出为 Markdown".
  *
  * @remarks
- * Each turn: the question as a quote, its process as one line per step, then the reply as it
- * was written; notices as a quoted line. Steps use the same words as on screen.
+ * Each turn: the question as a quote, its process as one line per step, a compaction a quoted line
+ * (design-language, "压缩步骤"), then the reply as it was written; notices as a quoted line. Steps
+ * use the same words as on screen.
  *
  * @sideEffects none
  * @param items - The whole transcript.
@@ -520,6 +583,7 @@ function turnMarkdown(turn: Turn): string {
       : (row.kind === "step" ? [row.step] : row.steps).map((step) => {
           const line = describeStep(step, false);
           const object = line.object === "" ? "" : ` · ${line.object}`;
+          if (step.kind === "compaction") return `> ${line.verb}${object}`;
           return `- ${line.verb}${object}${line.end === null ? "" : `（${line.end}）`}`;
         }),
   );
@@ -541,7 +605,7 @@ function turnMarkdown(turn: Turn): string {
  * @returns The Markdown.
  */
 function noticeMarkdown(notice: Notice): string {
-  if (notice.notice === "compacted") return `> 上下文已压缩 · 压缩前 ${formatTokens(notice.tokensBefore)} tokens`;
+  if (notice.notice === "compacted") return `> ${compactedText(notice)}`;
   return `> ${hostNoticeText(notice)}`;
 }
 

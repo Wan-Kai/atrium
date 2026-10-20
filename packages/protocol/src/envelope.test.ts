@@ -6,7 +6,7 @@ import { ClientMessage, HostMessage, parseClientMessage } from "./envelope";
 import type { SessionEvent } from "./events";
 import type { IndexChangesEvent, IndexSnapshotEvent } from "./listing";
 import { type CatalogModel, ThinkingLevel } from "./models";
-import { type Step, Turn } from "./transcript";
+import { Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
 import { PROTOCOL_VERSION } from "./version";
 
@@ -439,6 +439,9 @@ const steps: Step[] = [
   },
   { kind: "steer", id: "7", text: "also b" },
   { kind: "retry", id: "8", attempt: 1, maxAttempts: 3, error: "503" },
+  { kind: "compaction", id: "12", tokensBefore: 152_000, tokensAfter: 41_000, summary: "so far", reason: "threshold" },
+  { kind: "compaction", id: "13", tokensBefore: 0, tokensAfter: null, summary: "", reason: "overflow" },
+  { kind: "compaction", id: "14", tokensBefore: 9, tokensAfter: 0, summary: "x", reason: null },
   {
     kind: "agent",
     id: "10",
@@ -588,7 +591,15 @@ const events: SessionEvent[] = [
     traceId: null,
     items: [
       turn,
-      { kind: "notice", id: "s1:e9", notice: "compacted", tokensBefore: 152_000, summary: "so far", timestamp: 3 },
+      {
+        kind: "notice",
+        id: "s1:e9",
+        notice: "compacted",
+        tokensBefore: 152_000,
+        tokensAfter: 41_000,
+        summary: "so far",
+        timestamp: 3,
+      },
       { ...turn, id: "live-2", steps: [], outcome: "running", durationMs: null, usage: null, changes: [] },
     ],
     hasOlder: true,
@@ -617,7 +628,15 @@ const events: SessionEvent[] = [
   {
     type: "notice_added",
     ...at,
-    notice: { kind: "notice", id: "s1:e9", notice: "compacted", tokensBefore: 0, summary: "", timestamp: 3 },
+    notice: {
+      kind: "notice",
+      id: "s1:e9",
+      notice: "compacted",
+      tokensBefore: 0,
+      tokensAfter: null,
+      summary: "",
+      timestamp: 3,
+    },
     before: "s1:e1",
   },
   { type: "run_settled", ...at, runId: "run-1", outcome: "failed", settledAt: 5 },
@@ -1982,6 +2001,26 @@ describe("Turn", () => {
       Turn.safeParse({ ...turn, user: { ...turn.user, command: { kind: "prompt", name: "commit" } } }).success,
     ).toBe(false);
     expect(Turn.safeParse({ ...turn, user: { ...turn.user, command: undefined } }).success).toBe(false);
+  });
+});
+
+describe("Step", () => {
+  it("says a compaction's tokens as whole counts, and its reason only as overflow, threshold or none", () => {
+    const compaction = {
+      kind: "compaction",
+      id: "3",
+      tokensBefore: 152_000,
+      tokensAfter: null,
+      summary: "so far",
+      reason: "overflow",
+    } as const;
+
+    expect(Step.parse(compaction)).toStrictEqual(compaction);
+    expect(Step.safeParse({ ...compaction, reason: "manual" }).success).toBe(false);
+    expect(Step.safeParse({ ...compaction, tokensBefore: -1 }).success).toBe(false);
+    expect(Step.safeParse({ ...compaction, tokensAfter: 1.5 }).success).toBe(false);
+    expect(Step.safeParse({ ...compaction, tokensAfter: undefined }).success).toBe(false);
+    expect(Step.safeParse({ ...compaction, estimatedTokensAfter: 40_000 }).success).toBe(false);
   });
 });
 

@@ -2255,6 +2255,104 @@ function compactingUpdates(events: readonly SessionEvent[]) {
   return events.flatMap((event) => (event.type === "control_updated" ? [event.control] : []));
 }
 
+/**
+ * An event's type, and the step it carries, if any.
+ *
+ * @remarks
+ * To check the order of what is published without the envelope.
+ *
+ * @sideEffects none
+ * @param event - The event.
+ * @returns The type and the step, or `null`.
+ */
+function stepOf(event: SessionEvent): [string, unknown] {
+  return [event.type, "step" in event ? event.step : null];
+}
+
+describe("createSessionController compacting during a run", () => {
+  it("adds the compaction as a step when pi ends it, gives it the next reply's input, and records it with the turn", async () => {
+    const { pi, emit, pages } = manualPi();
+    const recorded: unknown[][] = [];
+    const { controller, events } = control(pi, empty, {
+      turnStarts: { opened: new Set(), record: (...seen) => recorded.push(seen) },
+    });
+    const kept: LogEntry = {
+      id: "k1",
+      parentId: "u1",
+      kind: "compaction",
+      summary: "So far.",
+      firstKeptEntryId: "u1",
+      tokensBefore: 152_000,
+      system: null,
+      timestamp: 0,
+    };
+    pages.push(async () => ({
+      entries: [
+        userEntry("u1", null, "go"),
+        kept,
+        {
+          id: "a1",
+          parentId: "k1",
+          kind: "assistant",
+          parts: [{ type: "text", text: "done" }],
+          stopReason: "stop",
+          errorMessage: null,
+          usage: { input: 1000, output: 5, cacheRead: 40_000, cacheWrite: 0, reasoning: null },
+          timestamp: 0,
+        },
+      ],
+      leafId: "a1",
+    }));
+    await controller.prompt(prompt("q1", "go"));
+    emit({ type: "agent_start" }, userEnd("go"), { type: "compaction_start", reason: "overflow" });
+    const before = events.length;
+    emit({
+      type: "compaction_end",
+      reason: "overflow",
+      result: { summary: "So far.", firstKeptEntryId: "u1", tokensBefore: 152_000, estimatedTokensAfter: 9 },
+      aborted: false,
+      willRetry: true,
+    });
+    const compaction = {
+      kind: "compaction",
+      id: "0",
+      tokensBefore: 152_000,
+      tokensAfter: null,
+      summary: "So far.",
+      reason: "overflow",
+    } as const;
+
+    expect(events.slice(before).map(stepOf)).toStrictEqual([
+      ["step_added", compaction],
+      ["control_updated", null],
+    ]);
+    expect(controller.snapshot().control.compacting).toBe(false);
+    emit(
+      { type: "message_start", message: { role: "assistant", content: [], stopReason: "pending", timestamp: 0 } },
+      {
+        type: "message_end",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+          stopReason: "stop",
+          usage: { input: 1000, output: 5, cacheRead: 40_000, cacheWrite: 0 },
+          timestamp: 0,
+        },
+      },
+    );
+    expect(events.filter((event) => event.type === "step_updated").at(-1)).toMatchObject({
+      type: "step_updated",
+      step: { ...compaction, tokensAfter: 41_000 },
+    });
+    emit({ type: "agent_settled" });
+    await settle();
+
+    expect(recorded).toStrictEqual([[["u1"], [], new Map([["k1", "overflow"]])]]);
+    // The rebuild agrees with what was sent live: no new snapshot.
+    expect(events.filter((event) => event.type === "session_snapshot")).toStrictEqual([]);
+  });
+});
+
 describe("createSessionController compacting on request", () => {
   it("compacts an idle session, the queue waiting until pi answers", async () => {
     const { pi, emit, sent, compactAnswers } = manualPi();
@@ -2402,6 +2500,7 @@ describe("createSessionController's fork point", () => {
       parentId: "u1",
       kind: "compaction",
       summary: "s",
+      firstKeptEntryId: "u1",
       tokensBefore: 10,
       system: null,
       timestamp: 0,
@@ -3402,6 +3501,30 @@ function deliveredEntry(id: string, deliveries: string[], parentId: string | nul
 }
 
 /**
+ * pi's `message_end` for a delivery it took into a run.
+ *
+ * @remarks
+ * As Atrium's extension sends it (ADR-0013, point 10).
+ *
+ * @sideEffects none
+ * @param deliveries - The deliveries it carries.
+ * @returns The event.
+ */
+function agentEnd(deliveries: string[]): PiEvent {
+  return {
+    type: "message_end",
+    message: {
+      role: "custom",
+      customType: "atrium-agent",
+      content: "x",
+      display: true,
+      details: { v: 1, kind: "task", deliveries, from: "main", fromTitle: "修复", taskId: "t-1", text: "go" },
+      timestamp: 1,
+    },
+  };
+}
+
+/**
  * An assistant reply entry.
  *
  * @remarks
@@ -3476,7 +3599,7 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     ]);
   });
 
-  it("in a run, hands pi only the urgent notices, at once, starting no run of their own", async () => {
+  it("in a run, hands pi every notice at once as one, starting no run of their own, and a task waits", async () => {
     const { pi, emit, sent } = manualPi();
     const box = deliveriesOf();
     const { controller } = control(pi, empty, { deliveries: box.deliveries });
@@ -3487,8 +3610,36 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     controller.deliveriesChanged();
     await settle();
 
-    expect(sent).toStrictEqual(["prompt one", "command /atrium-agent deliver n2,n3"]);
+    expect(sent).toStrictEqual(["prompt one", "command /atrium-agent deliver n1,n2,n3"]);
     expect(controller.submitting).toBe(false);
+  });
+
+  it("in a run, holds notices that come before the last ones steered are in, and hands them as one once they are", async () => {
+    const { pi, emit, sent } = manualPi();
+    const box = deliveriesOf();
+    const { controller } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    box.add(waiting("n1", 1, "finished"));
+    controller.deliveriesChanged();
+    await settle();
+
+    box.add(waiting("n2", 2, "finished"));
+    controller.deliveriesChanged();
+    await settle();
+    box.add(waiting("n3", 3, "failed"));
+    controller.deliveriesChanged();
+    await settle();
+    const held = [...sent];
+    emit(agentEnd(["n1"]));
+    await settle();
+
+    expect(held).toStrictEqual(["prompt one", "command /atrium-agent deliver n1"]);
+    expect(sent).toStrictEqual([
+      "prompt one",
+      "command /atrium-agent deliver n1",
+      "command /atrium-agent deliver n2,n3",
+    ]);
   });
 
   it("holds the deliveries after a restart, and while pi is gone, stopping or paused until you send a message", async () => {

@@ -56,7 +56,9 @@
 
 审查后新增回归（2026-10-20 已验证）：`packages/host/src/setup/pi-config.test.ts` 覆盖已删除工作区不重建、全局目录链接与末级凭据链接的区别、UTF-8 错误与成功替换后的清理；`packages/pi/src/config/` 覆盖 pi 兼容语法、共享 settings 锁及锁释放；UI 的配置与工作台测试覆盖统一确认、背景不可交互、过期成功/失败响应、BOM/CRLF；`apps/desktop/e2e/pi-config.spec.ts` 从设置保存带 BOM、CRLF、注释及尾逗号的 models，再经真实 pi 刷新模型目录验证加载（桌面端到端已通过）。settings-lock 的目录和心跳泄漏测试通过。锁文件变化后补齐 Shiki 四个子路径预构建，并以清空本工作树 UI 的 Vitest 缓存后全套 786 项通过证明不会再中途重载。
 
-配置编辑的聚焦变异验证（2026-10-20）：协议与客户端新增路径 100%，宿主配置与路由 93.42%。宿主剩余 16 个存活已逐项审查：14 个等价或不可达在 `pi-config.ts` 注明；另 2 个删除队列 Map 清理的变异只影响内存保留，现有公开行为测试尚不能证明该资源回收，不做豁免。现有客户端与宿主连接泄漏测试通过；尚未加入配置队列自身的 GC 泄漏测试。
+审查修复并集成 main 后的验证（2026-10-20）：`pnpm check`、构建、单元/宿主 3053 项、UI 794 项、相关桌面端到端 4 项通过。`models.spec.ts` 曾在 ⌘N 后因模型胶囊的文字与旧对话相同而提前输入，现等待新对话登记且旧消息离场，不增加睡眠或重试。
+
+聚焦变异验证：协议与客户端新增路径 100%（31/31），宿主配置/路由与 pi 配置适配器 87.97%（350 检出、1 个读循环体被删的真实死循环超时、48 个存活，共 399 个；门槛 ≥80%）。pi 文件锁自身 100%，语法校验 95.92%，宿主服务 86.14%。逐项审阅存活边界，不声称全部等价、不做笼统豁免：原有 OS Error 类型、UTF-8 默认值与重复元数据检查等价在源码注明；其他存活仍包括工作区登记并发撤销/根目录替换的部分元数据分支、锁前后重复版本检查、锁损坏错误映射、清理异常、仅改变字符串内容但不改变根对象有效性的语法变异，以及删除队列 Map 清理的内存覆盖缺口。实现保留全部保护，但现有测试不能证明这些每一条分支；后续增量或每夜变异继续跟踪。现有客户端、宿主连接和新增 settings-lock 心跳/目录泄漏测试三项通过；尚未加入配置队列自身的 GC 泄漏测试。
 
 ## pi 链路（M1.2）
 
@@ -425,6 +427,31 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起 0.2 秒、行一起淡出（0.16 秒），收完才拿掉面板；半路折回从已到的位置接着走；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"、"closes a panel turned back halfway"、"playing the close before the panel goes"、"opens and closes at once when less motion is asked for" | 已覆盖 |
 | 模型列表的规则表：去掉按量计费的 Claude、OpenAI（pi 自己的 `anthropic`、`azure-openai-responses`、不是 ChatGPT 登录的 `openai`、登录状态读不出时也去掉、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算）；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
 
+## M1.11 自用中改（2026-10-20）
+
+一轮中间的压缩是过程轨道上的一步（SPEC-0001 `compaction`、design-language"压缩步骤""运行中压缩"，协议 20）。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| pi 包把 `compaction_start` 翻译成带原因的 `compaction_started`，`compaction_end` 翻译成带原因、`aborted`、`willRetry`、报错原文和结果（只有条目里也有的 `summary`、`firstKeptEntryId`、`tokensBefore`）的 `compaction_finished`；中止、失败时结果为空 | `packages/pi/src/events/translate.test.ts` "reports the start of a compaction with what set it off"、"reports a compaction's end with the entry it wrote…"、"reports tool calls once complete…"（录制夹具） | 已覆盖 |
+| 压缩条目带 `firstKeptEntryId` | `packages/pi/src/history/log-entry.test.ts` "maps a recorded session…"、"keeps no system prompt for a compaction that stored none…" | 已覆盖 |
+| 真实 pi（1.1.0、faux）：一次运行最后一条回复之后（`agent_end` 和 `agent_settled` 之间）、工具结果之后下一次请求之前都会自动压缩（`threshold`）；条目的位置，和 `compaction_end` 的结果与条目相同 | 契约 `packages/pi/src/contract/compaction-run.pi.test.ts`，夹具 `pi-1.1.0/compaction-run.jsonl` | 已覆盖（本机 pi 是 1.3.0，没有这一版的夹具，契约测试用 1.1.0 跑） |
+| 协议：`compaction` 步骤（`tokensBefore`、可空的 `tokensAfter`、`summary`、`overflow` / `threshold` / 空的 `reason`），`compacted` 提示条加 `tokensAfter`；协议版本 20 | `packages/protocol/src/envelope.test.ts` "Step: says a compaction's tokens as whole counts…"、"HostMessage accepts…every session event" | 已覆盖 |
+| 重建：压缩条目后面（下一条开启新一轮的消息之前）还有这一轮的回复、工具结果、插话或送达，就是这一轮在那个位置的一步；紧跟用户消息的是第一步；紧挨下一条消息的是两轮之间的提示条，宿主当场看到的除外（这一轮最后一步）；一轮几次压缩就几步；溢出恢复是"失败的回复、压缩、重试的回复"，没有重试步骤；任何一轮之前的是提示条 | `packages/host/src/transcript/projection.test.ts` "makes a compaction a step where it happened…"、"…right after the user message the turn's first step"、"…right before the next user message a notice between the turns, unless the host saw it in the run"、"shows pi recovering from an overflow…"、"gives each compaction in a turn its own step…"、"takes a reply pi omitted to recover from a context overflow for no retry…"、"puts a compaction before any turn in place…" | 已覆盖 |
+| 工具结果之后、压缩之后的用户消息照样算插话 | projection.test.ts "still takes a message after a tool result and a compaction for a steer" | 已覆盖 |
+| 压缩后的 token 数：之后第一条三项不全为 0 的回复的 `input + cacheRead + cacheWrite`，步骤和提示条一样；没有这样的回复时为空 | projection.test.ts "gives each compaction in a turn its own step, its input after it…"、"puts a compaction before any turn in place, as a notice with the next reply's input…"、"…unless the host saw it in the run" | 已覆盖 |
+| 实时：运行中压缩成功完成时 `step_added`（在当前位置），下一条有用量的回复来了 `step_updated` 补上 token 数，上一轮最后一步的压缩由下一轮的回复补；中止、失败、没有运行中的轮时不加；`/compact` 没有原因 | `packages/host/src/transcript/session-transcript.test.ts` "adds a finished compaction as a step…"、"adds no step for a compaction that was stopped or failed…"、"waits for a reply that says its input…" | 已覆盖 |
+| 实时和重建一致：录制的两次运行（最后一步的压缩、工具结果后的压缩）逐条发出的步骤，运行结束后重读都是 `same`；看到的压缩按条目记下原因交给 `onTurnsSeen` | session-transcript.test.ts "adds each compaction live where it happened, and a rebuild that knows the host saw them agrees" | 已覆盖 |
+| 先前的宿主记下的压缩照样让一轮最后的压缩算这一轮的步骤；没有记录时是提示条 | session-transcript.test.ts "keeps a compaction at the end of a run a step through rebuilds, by an earlier host's record too" | 已覆盖 |
+| 控制器：压缩结束先发 `step_added`、再发 `control_updated`（不再压缩）；之后的回复补 token 数；运行结束重读时记下压缩和原因，不重发快照 | `packages/host/src/sessions/session-controller.test.ts` "adds the compaction as a step when pi ends it…" | 已覆盖 |
+| 压缩记录存进 `turns/<会话 id>.json` 的 `compactions`（有了才写，每条只记一次，原因按第一次），下一个宿主读回；会话 id 不能做文件名的只在内存；分叉、子对话复制父会话的记录 | `packages/host/src/store/turn-starts.test.ts` "records the compactions the host saw during runs…"、"writes nothing when every entry recorded is known already"；`session-manager.test.ts` "hands the session the compactions an earlier host saw during runs…"、"copies the parent's turn starts to a child forked into a new worktree…" | 已覆盖 |
+| 界面：压缩步骤的节点是两道横贯主线的刻痕（13×1.5px，中心相距 3px，`--text-dim`），主线不断；文字"压缩了上下文 · 152K → 41K"（`--text-muted`，数字等宽）、不知道压缩后时"· 压缩前 152K"、溢出时"上下文超出窗口，已压缩"，后面 `›`；点开是"压缩前 152K tokens · 压缩后 41K · 保留了最近的原文"（`--fs-sm`、`--text-dim`）和 Markdown 摘要，`›` 转向下 | `packages/ui/src/chat/turn.browser.test.tsx` "TurnView compaction"；`turn-layout.test.ts` "describes a compaction by the context before and after…" | 已覆盖（深色外观未单独测） |
+| 折叠后的标题行末尾"压缩了 N 次上下文"，在"N 条命令没走通"之后 | turn.browser.test.tsx "ends the folded header with how many times the context was compacted"；`turn-layout.test.ts` "counts files read, searches and commands…" | 已覆盖 |
+| 运行中压缩：运行中的轮的轨道末尾一行"正在压缩上下文…"（闪光，刻痕节点），前一步不再算进行中；第一步之前压缩时也有轨道、没有等待行；轮与轮之间的压缩仍在底部 | turn.browser.test.tsx "says on the rail where pi compacts now…"；`chat.browser.test.tsx` "says pi compacts on the running turn's rail…"、"says at the bottom of the conversation while pi compacts" | 已覆盖 |
+| 轮与轮之间的提示条"上下文已压缩 · 152K → 41K"，不知道压缩后时"上下文已压缩 · 压缩前 152K tokens" | turn.browser.test.tsx "NoticeView"；`turn-layout.test.ts` "writes a compaction in the process as a quoted line…" | 已覆盖 |
+| 复制成 Markdown：压缩步骤写成一行引用，提示条带压缩前后 | turn-layout.test.ts "writes a compaction in the process as a quoted line, and one between turns with the context after it" | 已覆盖 |
+| 过程里 AI 说的话（一轮里的文字步骤）：节点是 7px 实心蓝点、外圈 2px 底色，文字正文色、500 字重；思考不加标识 | `packages/ui/src/chat/turn.browser.test.tsx` "what the agent said" | 已覆盖 |
+
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
 SPEC-0001"M1.11 的 `/` 命令"。
@@ -584,12 +611,13 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 列出、读、停、模型：状态、模型、未完成的任务、要时列出结束的；按页读回复和最近的步骤；停下连带 agent 开的子孙、到你开的为止；碰不到的子对话的每种错误码；能用的模型标出当前的 | `agent-relay.test.ts` "list, read, stop and models" | 已覆盖 |
 | 通道：读不出的回 `agent_bad_request`；同一进程同一请求只答一次、新进程再答；层数 2 没有主 agent 的工具但能问父会话；进程退出时删掉它拿到的分支目录 | `agent-relay.test.ts` "the channel" | 已覆盖 |
 | 排队面板与重启：删掉待送的、`sending` 和不认识的拒绝；宿主重启后都暂停、`claimed` 放回、问题作废，等你放开；不带 `tree` 只放自己的；宿主关闭时把在跑的任务记成 `stopped`；归档、交给终端、脱离时结束它的任务 | `agent-relay.test.ts` "the queue panel, a restart and the host closing"；`router.test.ts` "delivery commands"；`session-catalog.test.ts` "agent fields" | 已覆盖 |
-| 控制器送达：空闲时几条通知合成一次、先记 `sending`、开的运行算它们的；交代单独送、和排队按时间先后；运行中只送急的；重启后、pi 不在、停止中、排队暂停时不送（你发消息时一起走）；有回复后按文件确认、没在文件里的放回；运行没开起来时留给你；运行的开始和结束（含崩溃）告诉 relay；通知或交代开头的轮前不能分叉 | `session-controller.test.ts` "handing pi deliveries" | 已覆盖 |
+| 控制器送达：空闲时几条通知合成一次、先记 `sending`、开的运行算它们的；交代单独送、和排队按时间先后；运行中所有通知马上合成一条 steer 进去、交代等运行结束（2026-10-20）；重启后、pi 不在、停止中、排队暂停时不送（你发消息时一起走）；有回复后按文件确认、没在文件里的放回；运行没开起来时留给你；运行的开始和结束（含崩溃）告诉 relay；通知或交代开头的轮前不能分叉 | `session-controller.test.ts` "handing pi deliveries" | 已覆盖 |
 | 界面：车道的分出、经过、碰一下、汇回，没结束的虚线，有车道时文字缩进；别的轮的子对话的事件画成来源行；由通知开头的轮是来源行（问题用问题色）、交代的轮有全文和"主对话"；"打开"打开子对话 | `packages/ui/src/chat/lanes.browser.test.tsx`；`turn-layout.test.ts` "layoutTurn with children"、"laneLayout"、"describeStep for children"、"where a turn notices or a task opened came from"；`agent-words.test.ts` | 已覆盖 |
 | 界面：排队面板的待送达（能删和删不掉的、不能编辑插话、计入排队数、进来时不弹开）和"宿主重启后暂停 · 继续"；子对话条的角色标记、"在问主 agent"第二行和进度、问主 agent 算问号但不抬高标签、"全部继续"按子树加总 | `run-control.browser.test.tsx` "deliveries"、"held ones"；`children.browser.test.tsx` "children the agent opened"；`children.test.ts` "asking its parent's agent"、"heldIn" | 已覆盖 |
 | 补的边界：正在建的子对话也占名额（建 worktree 时睡着的子对话不能起）；停下父会话时只停 `wait: true` 在等的子对话，只等一件事的 `agent_wait` 被停下不停子对话；同一调用的第二个答复不再清一次状态；文件末尾没换行的整行 JSON 不读 | `agent-relay.test.ts` "still being created"、"leaves a child running"；`extension.test.ts` "first answer"；`file-usage.test.ts` "without its LF" | 已覆盖 |
 | 变异测试后补（2026-10-18）：控制器在 pi 退出后不送、不报没有的运行；宿主停 pi 时 pi 自己走掉的运行不算崩溃；交给 pi 还没答复就退出的，不再等它开运行；没有待送达时排队照走；你发消息放开的待送达排在暂停排队里更早的消息前面；送不了的之后立刻送下一批；运行中送的急通知不算下一轮的开头；排队因 pi 拒收暂停时待送达留着；起来时先按文件确认；插话也算你说话；运行中进来的待送达照样显示；`model()`。启动参数：从带上下文的子对话再分叉沿用它起步的参数、保留去掉主 agent 工具的那条；层数在会话上方的环处断开。记录：任务、`toolGuard`、送达的每种状态都读得回。投影与实时：通知开头、看到过的轮带 pi 的重试上限；通知开新轮时上一轮照它的结局结束 | `session-controller.test.ts` "handing pi deliveries"、"carries the model"；`agent-launch.test.ts` "forked from a forked child"、"breaks a loop"；`store/agent-records.test.ts`；`projection.test.ts` "limit on retries as measured"；`session-transcript.test.ts` "ends the turn before" | 已覆盖 |
 | 带上下文的子对话不重做父会话的调用：父会话原样的参数里有可选字段的 `null`、写成文字的数字或布尔，pi 校验后子对话同样的调用照样拦下 | `extension.test.ts` "pi's checked input" | 已覆盖 |
+| 运行中的通知（2026-10-20）：上一批 steer 进去的还没送到时新来的先留着，送到后合成一条再发；`agent_wait` 不填 `tasks` 时也取已经结束、结果还在待送达里的任务，马上返回、记成 `claimed`，已交给 pi 的不取 | `session-controller.test.ts` "every notice at once"、"before the last ones steered are in"；`agent-relay.test.ts` "takes by default, at once" | 已覆盖 |
 | 排队暂停时你发消息只放行这一次暂停：恢复排队后 pi 拒收又暂停，新来的待送达照样留着 | `session-controller.test.ts` "for that pause only" | 已覆盖 |
 | 变异测试后补的 relay 边界：档位往上、往下换；孙对话的任务记 `originTask`；`agent_send` 写下的任务和送达；句柄只在自己的子对话里找；`agent_read` 一次运行的范围、步骤标题；等待只被自己会话里你说的话、自己进程的退出、点名的取消结束；运行由通知开头时记在原任务或新的后续任务下、`followUpOf` 带给父会话；停和起不交叉；不能再送的交代和通知不送；层数 2 的 `canSpawn: false`；只有 `finished` 带工作区 | `agent-relay.test.ts`（变异测试后补的各条） | 已覆盖 |
 | relay 修的三处：子对话的 pi 正在重启时宿主退出，任务照样记成 `stopped`（`host_exit`）；`agent_stop` 停了你开的那一轮后，之后你停它的任务仍算你停的；子对话被归档、脱离时的 `ended` 交给在等它的等待，等待立即返回 | `agent-relay.test.ts` "what reviews of the relay found" | 已覆盖 |

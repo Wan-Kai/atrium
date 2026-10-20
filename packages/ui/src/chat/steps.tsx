@@ -1,5 +1,5 @@
 import type { Step } from "@atrium/protocol";
-import { Check, MagnifyingGlass, X } from "../design/icons";
+import { CaretRight, Check, MagnifyingGlass, X } from "../design/icons";
 import { type ReactNode, createContext, useContext, useEffect, useId, useState } from "react";
 import { FileIcon } from "../files/file-icon";
 import { EventWords, type LanePlace, LaneMarks, SpawnWords, laneIndent } from "./lanes";
@@ -7,6 +7,7 @@ import { Markdown } from "./markdown";
 import {
   type ProcessRow,
   type ToolStep,
+  compactionDetail,
   describeExplore,
   describeStep,
   exploredFiles,
@@ -16,15 +17,20 @@ import { useRevealedText } from "./use-revealed-text";
 
 /**
  * What stands on the rail for a row (design-language, "消息流 · 过程"); `wait` and `fail` are the
- * new-workspace timeline's steps not started and failed (design-language, "新建工作区页").
+ * new-workspace timeline's steps not started and failed (design-language, "新建工作区页");
+ * `compaction` is two ticks across the line (design-language, "压缩步骤"); `said` is text the agent
+ * said mid-turn, a larger blue dot (design-language, "过程里 AI 说的话").
  */
-export type RailNode = "dot" | "search" | "live" | "dead" | "steer" | "wait" | "fail" | "pass";
+export type RailNode = "dot" | "said" | "search" | "live" | "dead" | "steer" | "wait" | "fail" | "pass" | "compaction";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
   // A row whose node is on a lane: the main line runs past unbroken (SPEC-0002, "显示 · 过程轨道").
   pass: 0,
+  // The ticks cross the main line, which runs on through them.
+  compaction: 0,
   dot: 7,
+  said: 7,
   live: 7,
   dead: 7,
   steer: 7,
@@ -39,7 +45,9 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
  * @remarks
  * Each state has its own shape, not only its own colour (design-language, "原则" 3): a grey dot
  * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer;
- * on the new-workspace timeline, a hollow grey ring not started and a red × failed.
+ * on the new-workspace timeline, a hollow grey ring not started and a red × failed. A compaction is
+ * two short ticks across the line, 13 by 1.5px, 3px apart, like a border: the model sees what is
+ * above it only as a summary (design-language, "压缩步骤").
  *
  * @sideEffects none
  * @param props - The node.
@@ -47,6 +55,17 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
  */
 function NodeGlyph({ node }: { readonly node: RailNode }) {
   if (node === "pass") return null;
+  if (node === "compaction") {
+    return (
+      <>
+        <span className="h-[1.5px] w-[13px] rounded-full bg-[var(--text-dim)]" />
+        <span className="h-[1.5px] w-[13px] rounded-full bg-[var(--text-dim)]" />
+      </>
+    );
+  }
+  if (node === "said") {
+    return <span className="size-[7px] rounded-full bg-[var(--tint)] shadow-[0_0_0_2px_var(--main)]" />;
+  }
   if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
   if (node === "dead") return <X size={10} weight="bold" className="text-[var(--text-dim)]" />;
   if (node === "fail") return <X size={10} weight="bold" className="text-[var(--danger)]" />;
@@ -172,7 +191,9 @@ export function RailMarks({
         aria-hidden
         data-testid="rail-node"
         data-node={node}
-        className="atrium-node absolute top-[15px] grid -translate-x-1/2 -translate-y-1/2 place-items-center"
+        className={`atrium-node absolute top-[15px] grid -translate-x-1/2 -translate-y-1/2 place-items-center ${
+          node === "compaction" ? "gap-[1.5px]" : ""
+        }`}
         style={{ left: branch ? 19.5 : 10.5 }}
       >
         <NodeGlyph node={node} />
@@ -511,7 +532,11 @@ function StepWords({ step, live }: { readonly step: Step; readonly live: boolean
   const line = describeStep(step, live);
   const shimmer = live ? "atrium-shimmer" : "";
   if (step.kind === "text") {
-    return <span className={`min-w-0 truncate text-[var(--text-3)] ${shimmer}`}>{line.object}</span>;
+    return (
+      <span className={`min-w-0 truncate font-medium text-[var(--text)] ${shimmer}`} data-testid="said-words">
+        {line.object}
+      </span>
+    );
   }
   const failed = step.kind === "tool" && step.status === "failed";
   const tone =
@@ -561,6 +586,74 @@ function StepWords({ step, live }: { readonly step: Step; readonly live: boolean
 }
 
 /**
+ * The words of a compaction's row: "压缩了上下文 · 152K → 41K ›".
+ *
+ * @remarks
+ * Grey, the numbers in even widths, and a chevron that turns down while the detail is open
+ * (design-language, "压缩步骤").
+ *
+ * @sideEffects none
+ * @param props - The compaction and whether its detail is open.
+ * @returns The words.
+ */
+function CompactionWords({
+  step,
+  open,
+}: {
+  readonly step: Extract<Step, { kind: "compaction" }>;
+  readonly open: boolean;
+}) {
+  const line = describeStep(step, false);
+  return (
+    <>
+      <span className="flex-none text-[var(--text-muted)]" data-testid="compaction-words">
+        {line.verb}
+      </span>
+      {line.object === "" ? null : (
+        <>
+          {" "}
+          <span className="text-[var(--text-dim)]">·</span>{" "}
+          <span className="min-w-0 truncate text-[var(--text-muted)] tabular-nums" data-testid="compaction-tokens">
+            {line.object}
+          </span>
+        </>
+      )}
+      <CaretRight
+        size={12}
+        className={`atrium-fold-chevron flex-none text-[var(--text-dim)] ${open ? "rotate-90" : ""}`}
+      />
+    </>
+  );
+}
+
+/**
+ * The line on the rail while pi compacts during the turn: "正在压缩上下文…", shimmering.
+ *
+ * @remarks
+ * Where the turn has got to, standing in for the compaction step until it comes (design-language,
+ * "运行中压缩"); only the page draws it, from the session's state, it is no step.
+ *
+ * @sideEffects none
+ * @param props - Its place on the rail, and whether it plays its entrance.
+ * @returns The row.
+ */
+export function CompactingRow({ place }: { readonly place: RailPlace }) {
+  return (
+    <div
+      className={`relative min-w-0 pl-[30px] ${place.enter ? "atrium-step-enter" : ""}`}
+      data-testid="step"
+      data-kind="compacting"
+      data-fold-row
+    >
+      <RailMarks node="compaction" first={place.first} last={place.last} />
+      <div className={`${LINE_CLASS} text-[var(--text-muted)]`} role="status">
+        <span className="atrium-shimmer">正在压缩上下文…</span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * How a tool step ended, at the row's right: "✓ 通过", "失败".
  *
  * @remarks
@@ -586,7 +679,8 @@ function StepEnd({ step }: { readonly step: Step }) {
  * The rail's node for a step.
  *
  * @remarks
- * See `RailMarks`: going on, a failed call (a dead end), a steer, or done.
+ * See `RailMarks`: going on, a failed call (a dead end), a steer, a compaction, text the agent said
+ * (design-language, "过程里 AI 说的话"), or done.
  *
  * @sideEffects none
  * @param step - The step.
@@ -596,7 +690,9 @@ function StepEnd({ step }: { readonly step: Step }) {
 function stepNode(step: Step, live: boolean): RailNode {
   if (step.kind === "tool" && step.status === "failed") return "dead";
   if (step.kind === "steer" || step.kind === "agent") return "steer";
-  return live ? "live" : "dot";
+  if (step.kind === "compaction") return "compaction";
+  if (live) return "live";
+  return step.kind === "text" ? "said" : "dot";
 }
 
 /** The row's line of words, the width of the content column; a button, with a hover, when it opens a detail. */
@@ -645,12 +741,24 @@ function StepRow({
     );
   } else if (open && step.kind === "tool") {
     detail = <ToolDetail step={step} />;
+  } else if (open && step.kind === "compaction") {
+    detail = (
+      <Detail>
+        <p className="mb-1.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">{compactionDetail(step)}</p>
+        <div className="text-[length:var(--fs-meta)] text-[var(--text-muted)]">
+          <Markdown text={step.summary} streaming={false} />
+        </div>
+      </Detail>
+    );
   }
-  const words = (
-    <>
-      <StepWords step={step} live={live} /> <StepEnd step={step} />
-    </>
-  );
+  const words =
+    step.kind === "compaction" ? (
+      <CompactionWords step={step} open={open} />
+    ) : (
+      <>
+        <StepWords step={step} live={live} /> <StepEnd step={step} />
+      </>
+    );
   const details = step.kind === "tool" ? step.details : null;
   const opensFile =
     useFileOpener(

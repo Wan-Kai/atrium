@@ -368,7 +368,7 @@ const DECLARED: Record<string, unknown> = {
             type: "string",
           },
           description:
-            "Task ids to wait for; default all of yours that have not ended. Pass the ids agent_spawn returned.",
+            "Task ids to wait for; default all of yours that have not ended, and those whose result has not reached you yet. Pass the ids agent_spawn returned.",
         },
         until: {
           type: "string",

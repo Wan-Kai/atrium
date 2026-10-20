@@ -40,6 +40,54 @@ describe("loadTurnStarts", () => {
     expect([...(await loadTurnStarts(dir, "s1", 0)).starts.auto]).toStrictEqual(["u3"]);
   });
 
+  it("records the compactions the host saw during runs with their reasons, only once there is one", async () => {
+    const dir = await home();
+    const { starts } = await loadTurnStarts(dir, "s1", 0);
+    expect([...starts.compactions]).toStrictEqual([]);
+
+    await starts.record(["u1"], [], new Map());
+    const plain: unknown = JSON.parse(await readFile(join(dir, "turns", "s1.json"), "utf8"));
+    await starts.record([], [], new Map([["k1", "overflow"]]));
+    await starts.record(
+      ["u2"],
+      [],
+      new Map([
+        ["k2", null],
+        ["k1", "overflow"],
+        ["k3", "threshold"],
+      ]),
+    );
+
+    expect(plain).toStrictEqual({ version: 1, entries: ["u1"] });
+    expect(JSON.parse(await readFile(join(dir, "turns", "s1.json"), "utf8"))).toStrictEqual({
+      version: 1,
+      entries: ["u1", "u2"],
+      compactions: { k1: "overflow", k2: null, k3: "threshold" },
+    });
+    expect([...(await loadTurnStarts(dir, "s1", 0)).starts.compactions]).toStrictEqual([
+      ["k1", "overflow"],
+      ["k2", null],
+      ["k3", "threshold"],
+    ]);
+    const { starts: unsafe } = await loadTurnStarts(dir, "../escape", 0);
+    await unsafe.record([], [], new Map([["k1", "threshold"]]));
+    expect([...unsafe.compactions]).toStrictEqual([["k1", "threshold"]]);
+  });
+
+  it("writes a message the host sent on its own though its entry is known already", async () => {
+    const dir = await home();
+    const { starts } = await loadTurnStarts(dir, "s1", 0);
+
+    await starts.record(["u1"]);
+    await starts.record(["u1"], ["u1"]);
+
+    expect(JSON.parse(await readFile(join(dir, "turns", "s1.json"), "utf8"))).toStrictEqual({
+      version: 1,
+      entries: ["u1"],
+      auto: ["u1"],
+    });
+  });
+
   it("starts empty, records new entries once each, and keeps them for the next host", async () => {
     const dir = await home();
     const { starts, setAside } = await loadTurnStarts(dir, "019a-session.1", 0);
@@ -89,14 +137,21 @@ describe("loadTurnStarts", () => {
   it("writes nothing when every entry recorded is known already", async () => {
     const dir = await home();
     const { starts } = await loadTurnStarts(dir, "s1", 0);
-    await starts.record(["u1"], ["u1"]);
+    await starts.record(["u1"], ["u1"], new Map([["k1", "threshold"]]));
     const path = join(dir, "turns", "s1.json");
     // Changed behind the host's back, so any write would show.
-    const untouched = JSON.stringify({ version: 1, entries: ["u1"], auto: ["u1"], note: "by hand" });
+    const untouched = JSON.stringify({
+      version: 1,
+      entries: ["u1"],
+      auto: ["u1"],
+      compactions: { k1: "threshold" },
+      note: "by hand",
+    });
     await writeFile(path, untouched);
 
     await starts.record(["u1"]);
     await starts.record(["u1"], ["u1"]);
+    await starts.record([], [], new Map([["k1", "threshold"]]));
 
     expect(await readFile(path, "utf8")).toBe(untouched);
   });
@@ -104,6 +159,7 @@ describe("loadTurnStarts", () => {
   it.each([
     ["no entries", { version: 1 }],
     ["entries that are not a list", { version: 1, entries: "u1" }],
+    ["compactions with a reason it does not know", { version: 1, entries: [], compactions: { k1: "manual" } }],
   ])("starts a file with %s over, keeping it aside", async (_case, document) => {
     const dir = await home();
     await mkdir(join(dir, "turns"));

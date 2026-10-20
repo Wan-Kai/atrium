@@ -1,13 +1,22 @@
 import { type IndexFile, loadIndexFile } from "./index-file";
 import { type TurnStartsDocument, turnStartsFile } from "./index-schema";
 
-/** The user message entries a session's host saw open a turn. */
+/** What set off a compaction the host saw during a run; `null` when it was not told. */
+type CompactionReason = "overflow" | "threshold" | null;
+
+/** The user message entries a session's host saw open a turn, and the compactions it saw in runs. */
 export interface TurnStarts {
   readonly opened: ReadonlySet<string>;
   /** Of those, the messages the host sent on its own to have the agent go on (SPEC-0001, "运行控制"). */
   readonly auto: ReadonlySet<string>;
-  /** Adds entries, and which of them the host sent, and writes them. */
-  record(entryIds: readonly string[], autoIds?: readonly string[]): Promise<void>;
+  /** Compaction entries the host saw during a run, with what set each off (SPEC-0001, `compaction`). */
+  readonly compactions: ReadonlyMap<string, CompactionReason>;
+  /** Adds entries, which of them the host sent, and compactions seen during runs, and writes them. */
+  record(
+    entryIds: readonly string[],
+    autoIds?: readonly string[],
+    compactions?: ReadonlyMap<string, CompactionReason>,
+  ): Promise<void>;
 }
 
 /** pi's rule for session ids (pi-internals.md §1), which also keeps them safe as file names. */
@@ -50,12 +59,15 @@ export async function loadTurnStarts(
  */
 function inMemory(opened: Set<string>): TurnStarts {
   const auto = new Set<string>();
+  const compactions = new Map<string, CompactionReason>();
   return {
     opened,
     auto,
-    async record(entryIds, autoIds = []) {
+    compactions,
+    async record(entryIds, autoIds = [], seen = new Map()) {
       for (const id of entryIds) opened.add(id);
       for (const id of autoIds) auto.add(id);
+      for (const [id, reason] of seen) if (!compactions.has(id)) compactions.set(id, reason);
     },
   };
 }
@@ -64,8 +76,9 @@ function inMemory(opened: Set<string>): TurnStarts {
  * Turn starts backed by their file.
  *
  * @remarks
- * Each new entry is added once; nothing is written when nothing is new. The host's own messages
- * are listed only once there is one, so most files keep their old shape.
+ * Each new entry is added once, a compaction with the reason first seen; nothing is written when
+ * nothing is new. The host's own messages and the compactions are listed only once there is one,
+ * so most files keep their old shape.
  *
  * @sideEffects none until `record`; then writes the file.
  * @param file - The loaded file.
@@ -74,16 +87,25 @@ function inMemory(opened: Set<string>): TurnStarts {
 function onFile(file: IndexFile<TurnStartsDocument>): TurnStarts {
   const opened = new Set(file.read().entries);
   const auto = new Set(file.read().auto);
+  const compactions = new Map(Object.entries(file.read().compactions ?? {}));
   return {
     opened,
     auto,
-    async record(entryIds, autoIds = []) {
+    compactions,
+    async record(entryIds, autoIds = [], seen = new Map()) {
       const added = entryIds.filter((id) => !opened.has(id));
       const addedAuto = autoIds.filter((id) => !auto.has(id));
-      if (added.length === 0 && addedAuto.length === 0) return;
+      const addedCompactions = [...seen].filter(([id]) => !compactions.has(id));
+      if (added.length === 0 && addedAuto.length === 0 && addedCompactions.length === 0) return;
       for (const id of added) opened.add(id);
       for (const id of addedAuto) auto.add(id);
-      await file.save({ ...file.read(), entries: [...opened], ...(auto.size === 0 ? {} : { auto: [...auto] }) });
+      for (const [id, reason] of addedCompactions) compactions.set(id, reason);
+      await file.save({
+        ...file.read(),
+        entries: [...opened],
+        ...(auto.size === 0 ? {} : { auto: [...auto] }),
+        ...(compactions.size === 0 ? {} : { compactions: Object.fromEntries(compactions) }),
+      });
     },
   };
 }

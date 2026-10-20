@@ -2,7 +2,7 @@
 
 - **状态**：草稿（三方审查三轮后修订）
 - **创建**：2026-10-16
-- **更新**：2026-10-18（第二步实现：协议 19 的接口按实现改写——`control.deliveries`、`SessionSummary.agent`、`remove_delivery` / `resume_deliveries`、`hand_off` 的 `args`；排队面板和分叉变淡的细节）；2026-10-17（第二步原型选定：车道、来源行）；2026-10-16（定了 6 个的口径、手动开的不限层数、用量合计、做完停 pi、只读白名单、worktree 起点；按 Astra、Grok、Claude 三轮审查重写送达、只读、分叉进新 worktree、归档、用量、对话记录）
+- **更新**：2026-10-20（父 agent 在跑时 `finished` 也在轮次边界 steer 进去，上一批送到前新来的留着合成一条；`agent_wait` 默认也等已经结束、结果还没交给主 agent 的任务；见"送达"时机表和"备选方案"）；2026-10-18（第二步实现：协议 19 的接口按实现改写——`control.deliveries`、`SessionSummary.agent`、`remove_delivery` / `resume_deliveries`、`hand_off` 的 `args`；排队面板和分叉变淡的细节）；2026-10-17（第二步原型选定：车道、来源行）；2026-10-16（定了 6 个的口径、手动开的不限层数、用量合计、做完停 pi、只读白名单、worktree 起点；按 Astra、Grok、Claude 三轮审查重写送达、只读、分叉进新 worktree、归档、用量、对话记录）
 - **相关**：[路线图](../roadmap.md) M1.15、[SPEC-0001](0001-mvp1-single-session-chat.md)、[ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)（一个会话一个 pi）、[ADR-0008](../adr/0008-atrium-own-pi-extension-for-fast.md)（Atrium 自带的 pi 扩展）、[ADR-0010](../adr/0010-plan-usage-through-atrium-extension.md)（自带扩展合成一个入口、状态加隐藏命令）、[领域模型](../architecture/domain-model.md)、调研 [multi-agent.md](../research/multi-agent.md)、[pi-internals.md](../research/pi-internals.md)
 
 ## 背景与目标
@@ -159,7 +159,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
-| `tasks` | string[] | 否 | 自己所有还没出终态结果的任务 | 任务 id；同一批里刚开的子对话，最好把 `agent_spawn` 返回的任务 id 传进来 |
+| `tasks` | string[] | 否 | 自己所有还没结束的任务，加上已经结束、结果还在待送达里没交给主 agent 的（2026-10-20 补：原先只取没结束的，结果搁在待送达里的拿不到） | 任务 id；同一批里刚开的子对话，最好把 `agent_spawn` 返回的任务 id 传进来 |
 | `until` | `"any"` \| `"all"` | 否 | `"any"` | `all` 等每个任务都到终态（`finished`、`failed`、`stopped`、`ended`） |
 | `waitSeconds` | integer，30–3600 | 否 | 600 | |
 
@@ -307,7 +307,7 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 | 收件会话 | `finished`、`task` | `failed`、`question`、`needs_you`、`stopped`、`ended` |
 |---|---|---|
 | 空闲，排队没暂停 | 发，开新的一轮 | 发，开新的一轮 |
-| 在跑 | 等这次运行 `agent_settled` 之后，按排队的顺序 | 马上发，下一个轮次边界送到（steer） |
+| 在跑 | `task`：等这次运行 `agent_settled` 之后，按排队的顺序；`finished`：同右（2026-10-20 改，原先也等运行结束，父 agent 一直在跑就一直看不到） | 马上发，下一个轮次边界送到（steer）；上一批 steer 进去的还没送到时先留着，它送到后把这期间来的合成一条再发（pi 一个边界只取一条 steer，分开发要多占几次模型调用） |
 | 提交中、在压缩、在分叉、在停止、pi 在重启 | 等这件事做完再按上面判断 | 同左 |
 | 被停下或崩溃用尽（排队暂停） | 留着，你恢复排队或发消息时一起走（发消息只放行这一次暂停，之后再暂停照样留着，2026-10-18 实现时定）；主 agent 的 `agent_send` 恢复排队（见 `agent_send`） | 同左 |
 | agent 开的、pi 被回收了 | 过名额（满了就留着，等有空位）、起 pi，再按上面判断。等空位的不占名额，起 pi 那一刻才按父会话依次占；空出名额时（兄弟子对话一轮做完、被停下、归档、脱离、交给终端，或你开的那一轮结束）叫醒等着的（2026-10-18 三方审查后定：原先等空位的也算"排队里有待处理的"，几个同时等就互相占满、谁也起不来） | 同左 |
@@ -376,7 +376,8 @@ Atrium 里一个会话一个 pi 进程，多开几个会话并行做事已经可
 - **子对话放在会话内部，不是独立会话**（Claude Code 的 sidechain 对话记录）：打不开、接不上、不能交给终端，不采用。
 - **MCP 注入**（Paseo）：宿主起一个本机 HTTP MCP 服务写进 pi 的配置。要把 token 交给 pi，身份靠 URL 参数（Paseo 的越权就出在这），而 pi 的 MCP 本身也是扩展，不采用。
 - **命令行**（`atrium agent spawn …`，模型用 bash 调）：要把连宿主的凭据放进环境变量，违反 security.md，不采用。
-- **送达一律用 steer**（Paseo）：结果打断父 agent 正在做的事；完成的等这次运行结束再送，只有出错、等你、停下、结束才马上送。
+- **送达一律用 steer，每条单独发、不支持 steer 时打断重发**（Paseo）：多条同时到时一条占一次模型调用，打断会丢掉父 agent 正在做的事；改为往上送的通知都在轮次边界 steer、合成一条，往下送的交代仍排队。
+- **父 agent 在跑时 `finished` 等运行结束再送**（2026-10-16 定，2026-10-20 改掉）：父 agent 一边自己干活一边派活时，子对话做完的结果一直进不去，它不知道，接着派活、自己重做验证，运行越拖越长，待送达越积越多（实际出现过 16 分钟里攒了 6 条）。Claude Code、Codex、`@tintinweb/pi-subagents` 都在轮次边界送进去，只有 `pi-subagent-manager` 等空闲（见 [multi-agent.md](../research/multi-agent.md) 第 3 节）。pi 的 steer 只在一批工具调用跑完、下次调模型之前进去，不打断正在跑的工具。
 - **对方在跑时打断再发**（Paseo 的 `send_agent_prompt`）：会丢掉对方正在做的事，改为排队。
 - **父 agent 代答审批**（Paseo 的 `respond_to_permission`）：其他 agent 的话不是用户授权，不采用。
 - **送达用普通 `prompt`**：简单，但通知会显示成"你说的话"，模型也当成用户的话，开头是 `/` 的文字还会被当成命令；改用自定义消息。

@@ -28,6 +28,7 @@ import {
 import type { Clock } from "../platform/clock";
 import type { PlanUsageService } from "./plan-usage";
 import { createMetricsTracker } from "./session-metrics";
+import type { SeenCompaction } from "../transcript/projection";
 import {
   type EntriesPage,
   type TranscriptEvent,
@@ -150,9 +151,6 @@ export interface ControllerDeliveries {
 
 /** How long pi may take to begin the run a delivery starts before the host holds the deliveries. */
 const DELIVERY_START_MS = 15_000;
-
-/** The events that go at once, into a run in progress (SPEC-0002, "送达"'s table). */
-const URGENT = new Set(["failed", "question", "needs_you", "stopped", "ended"]);
 
 /** A pi just started for the session again, with the entries it has and the model it uses. */
 export interface Respawned {
@@ -497,11 +495,19 @@ export function createSessionController(options: {
   readonly log?: (level: "info" | "warn" | "error", message: string, fields: Readonly<Record<string, unknown>>) => void;
   /** The epoch to start in; after the session's previous controller, one past its last. */
   readonly epoch?: number;
-  /** Entries earlier host runs saw open a turn, and where newly seen ones go. */
+  /**
+   * Entries earlier host runs saw open a turn, and compactions they saw during runs, and where
+   * newly seen ones go.
+   */
   readonly turnStarts?: {
     readonly opened: ReadonlySet<string>;
     readonly auto?: ReadonlySet<string>;
-    readonly record: (entryIds: readonly string[], autoIds: readonly string[]) => void;
+    readonly compactions?: ReadonlyMap<string, SeenCompaction>;
+    readonly record: (
+      entryIds: readonly string[],
+      autoIds: readonly string[],
+      compactions: ReadonlyMap<string, SeenCompaction>,
+    ) => void;
   };
   /**
    * Starts the session's pi again; without it a crash is final. Resolves with `null` when another
@@ -545,6 +551,7 @@ export function createSessionController(options: {
       : {
           opened: options.turnStarts.opened,
           ...(options.turnStarts.auto === undefined ? {} : { auto: options.turnStarts.auto }),
+          ...(options.turnStarts.compactions === undefined ? {} : { compactions: options.turnStarts.compactions }),
           onTurnsSeen: options.turnStarts.record,
         }),
   });
@@ -1034,6 +1041,8 @@ export function createSessionController(options: {
         controlChanged();
         return;
       case "compaction_finished":
+        // The step first: the line saying pi compacts goes once the step stands in its place.
+        for (const published of transcript.apply(event, origin)) emit(published);
         compacting = false;
         controlChanged();
         // Fire and forget: `refresh` reports its own failures.
@@ -1043,11 +1052,14 @@ export function createSessionController(options: {
       case "steering_changed":
         delivered(event.steering);
         return;
-      case "agent_message":
-        // Seen in the run it was steered into: that run is not the next one's.
-        if (steered?.some((id) => event.details.deliveries.includes(id)) === true) steered = null;
+      case "agent_message": {
+        // Seen in the run it was steered into: that run is not the next one's, and the notices held behind it may go.
+        const seen = steered?.some((id) => event.details.deliveries.includes(id)) === true;
+        if (seen) steered = null;
         for (const published of transcript.apply(event, origin)) emit(published);
+        if (seen) dispatch();
         return;
+      }
       case "note_added":
         // pi wrote the note to its file already; the read places it where a rebuild would (SPEC-0002).
         // Fire and forget: `refresh` reports its own failures.
@@ -1279,8 +1291,10 @@ export function createSessionController(options: {
    * @remarks
    * SPEC-0002, "送达"'s table. Nothing goes while the deliveries are held after a restart, pi is
    * gone, stopping, compacting, forking, restarting or a message is on its way, nor while the queue
-   * is paused unless you sent a message since. In a run, only urgent notices go, at once, as a
-   * steer. Idle, the oldest of the queue and the deliveries goes first: notices waiting all go as
+   * is paused unless you sent a message since. In a run, notices go at once, as one steer, unless
+   * the last ones steered are not in the run yet: pi takes one steer a turn boundary, so the ones
+   * that come meanwhile wait to go as one once they are (2026-10-20); tasks wait for the run's
+   * end. Idle, the oldest of the queue and the deliveries goes first: notices waiting all go as
    * one, a task alone.
    *
    * @sideEffects May hand pi deliveries.
@@ -1305,15 +1319,9 @@ export function createSessionController(options: {
     if (paused !== null && !released) return false;
     const ready = box.list().filter((delivery) => delivery.state === "waiting");
     if (run !== null) {
-      const urgent = ready.filter(
-        (delivery) =>
-          // Stryker disable next-line StringLiteral: no urgent event is named so either.
-          URGENT.has(delivery.event ?? "") &&
-          // Stryker disable next-line ConditionalExpression: a task has no event (`PendingDelivery`), so it is never urgent either way.
-          delivery.kind === "report",
-      );
+      const notices = steered === null ? ready.filter((delivery) => delivery.kind === "report") : [];
       // Fire and forget: `deliver` puts back what it could not hand over, and never rejects.
-      if (urgent.length > 0) void deliver(urgent, false);
+      if (notices.length > 0) void deliver(notices, false);
       // Stryker disable next-line BooleanLiteral: a run going, `dispatch` sends nothing either way.
       return false;
     }
@@ -1333,7 +1341,7 @@ export function createSessionController(options: {
    * @remarks
    * They are marked `sending` before the command goes (SPEC-0002, "送达 · 确认"). Whether they go
    * is judged again as the command is about to go: a stop, a pause, a hold, or pi gone or replaced
-   * meanwhile puts them back as waiting; a run begun meanwhile takes only urgent notices, a run
+   * meanwhile puts them back as waiting; a run begun meanwhile takes notices as a steer, a run
    * ended meanwhile is opened by them. Into an idle pi they start a run, which counts as submitting
    * until it begins; one that does not begin in `DELIVERY_START_MS` holds the deliveries for you.
    * Steered into a run, they are watched for in it, and open the next run if it ended first. A

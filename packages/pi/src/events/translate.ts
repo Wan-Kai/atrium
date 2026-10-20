@@ -33,8 +33,20 @@ export type TranslatedEvent =
   | { readonly kind: "tool_output"; readonly callId: string; readonly text: string }
   /** `maxAttempts` is pi's own limit, from its settings (SPEC-0001, "运行控制"). */
   | { readonly kind: "retry_started"; readonly attempt: number; readonly maxAttempts: number; readonly error: string }
-  | { readonly kind: "compaction_started" }
-  | { readonly kind: "compaction_finished" }
+  | { readonly kind: "compaction_started"; readonly reason: CompactionReason }
+  /**
+   * `result` is the entry pi wrote, the same as in its file; null when the compaction was stopped
+   * or failed, as `error` then says (pi-internals.md §3, "压缩").
+   */
+  | {
+      readonly kind: "compaction_finished";
+      readonly reason: CompactionReason;
+      readonly aborted: boolean;
+      /** pi retries the reply that overflowed now. */
+      readonly willRetry: boolean;
+      readonly error: string | null;
+      readonly result: CompactionResult | null;
+    }
   /** The steers pi holds that have not reached the model yet, all of them. */
   | { readonly kind: "steering_changed"; readonly steering: readonly string[] }
   /** pi's thinking level changed, as after switching to a model that supports fewer levels. */
@@ -42,6 +54,16 @@ export type TranslatedEvent =
   | { readonly kind: "dialog_requested"; readonly dialog: Dialog }
   /** A one-way message from an extension, which Atrium only logs. */
   | { readonly kind: "notified"; readonly level: "info" | "warning" | "error"; readonly text: string };
+
+/** What set a compaction off: `/compact`, the context nearing its window, or overflowing it. */
+export type CompactionReason = "manual" | "threshold" | "overflow";
+
+/** What a compaction wrote, as its session entry has it too. */
+export interface CompactionResult {
+  readonly summary: string;
+  readonly firstKeptEntryId: string;
+  readonly tokensBefore: number;
+}
 
 /** An extension's question, from pi's `extension_ui_request` (pi-internals.md §5). */
 export interface Dialog {
@@ -96,7 +118,8 @@ function custom(message: Extract<PiMessage, { role: "custom" }>): TranslatedEven
  * block whose start was missed reports the start first rather than being dropped. Finished user,
  * assistant and tool result messages are converted by `toLogMessage`, the same conversion session
  * entries get, so live and rebuilt transcripts agree; other messages are dropped. A tool's live
- * output, automatic retries and the start and end of a compaction pass through, nested tool
+ * output, automatic retries and the start and end of a compaction, with what set it off and what it
+ * wrote, pass through, nested tool
  * calls' output does not. pi's queue reports its steers whole each time; its follow-ups are not
  * used, since the host keeps its own queue (SPEC-0001, "运行中输入"). Of extension UI requests,
  * the four dialogs pass through and notifications are passed on to be logged; the rest only
@@ -219,8 +242,8 @@ export function createEventTranslator(now: () => number): EventTranslator {
         { kind: "retry_started", attempt: event.attempt, maxAttempts: event.maxAttempts, error: event.errorMessage },
       ];
     }
-    if (event.type === "compaction_start") return [{ kind: "compaction_started" }];
-    if (event.type === "compaction_end") return [{ kind: "compaction_finished" }];
+    if (event.type === "compaction_start") return [{ kind: "compaction_started", reason: event.reason }];
+    if (event.type === "compaction_end") return [compactionFinished(event)];
     if (event.type === "queue_update") return [{ kind: "steering_changed", steering: [...event.steering] }];
     if (event.type === "thinking_level_changed") return [{ kind: "thinking_changed", level: event.level }];
     if (event.type === "extension_ui_request") return uiRequest(event);
@@ -228,6 +251,33 @@ export function createEventTranslator(now: () => number): EventTranslator {
     if (event.type === "turn_start") return [{ kind: "request_started" }];
     if (event.type === "agent_settled") return [{ kind: "agent_settled" }];
     return [];
+  };
+}
+
+/**
+ * Translates the end of a compaction.
+ *
+ * @remarks
+ * Of the result only what the session entry keeps too passes, so a step shown live and one
+ * rebuilt from the file agree; pi's `estimatedTokensAfter` is not written to the file (SPEC-0001,
+ * `compaction`).
+ *
+ * @sideEffects none
+ * @param event - pi's event.
+ * @returns The event.
+ */
+function compactionFinished(event: Extract<PiEvent, { type: "compaction_end" }>): TranslatedEvent {
+  const { result } = event;
+  return {
+    kind: "compaction_finished",
+    reason: event.reason,
+    aborted: event.aborted,
+    willRetry: event.willRetry,
+    error: event.errorMessage ?? null,
+    result:
+      result === undefined
+        ? null
+        : { summary: result.summary, firstKeptEntryId: result.firstKeptEntryId, tokensBefore: result.tokensBefore },
   };
 }
 

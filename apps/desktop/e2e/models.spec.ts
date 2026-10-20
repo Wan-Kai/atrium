@@ -36,6 +36,9 @@ test("switches the model and thinking level beside the input box, and a new chat
 
     // A new chat starts on the model and level chosen last.
     await window.keyboard.press("Meta+N");
+    // The model chip also matches the previous chat; wait for the new conversation before typing.
+    await expect(window.getByRole("region", { name: "对话" }).getByTestId("chat-row")).toHaveCount(2);
+    await expect(window.getByTestId("user-message")).toHaveCount(0);
     await expect(chip).toHaveText("FFaux Deep最高", { timeout: 30_000 });
     await box.fill("二");
     await box.press("Enter");

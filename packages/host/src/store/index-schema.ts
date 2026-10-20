@@ -289,15 +289,22 @@ const TurnStartsDocument = z.looseObject({
   entries: z.array(z.string()),
   /** The messages the host sent on its own; absent until there is one. */
   auto: z.array(z.string()).optional(),
+  /**
+   * Compaction entries the host saw during a run, with what set each off (`null`: not told);
+   * absent until there is one (SPEC-0001, `compaction`).
+   */
+  compactions: z.record(z.string(), z.enum(["overflow", "threshold"]).nullable()).optional(),
 });
 export type TurnStartsDocument = z.infer<typeof TurnStartsDocument>;
 
 /**
- * `turns/<session id>.json`: the user message entries the host saw open a turn.
+ * `turns/<session id>.json`: the user message entries the host saw open a turn, and the
+ * compactions it saw during runs.
  *
  * @remarks
- * pi's file does not tell a new turn from a steer (SPEC-0001, `steer`); the host records what it
- * saw so a rebuild after a restart still agrees (domain-model §1, "索引的存储").
+ * pi's file does not tell a new turn from a steer (SPEC-0001, `steer`), nor a compaction at the
+ * end of a run from one before the next message (SPEC-0001, `compaction`); the host records what
+ * it saw so a rebuild after a restart still agrees (domain-model §1, "索引的存储").
  *
  * @sideEffects none
  * @param sessionId - The session; only ids safe as a file name.

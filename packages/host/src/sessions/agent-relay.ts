@@ -1575,7 +1575,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * Answers `agent_wait`.
    *
    * @remarks
-   * SPEC-0002, `agent_wait`: by default every open task of the caller's children; a task not
+   * SPEC-0002, `agent_wait`: by default every open task of the caller's children, and every one
+   * whose event still waits to go to the caller, which the wait then takes at once; a task not
    * theirs is `agent_not_allowed`; none to wait for answers at once.
    *
    * @sideEffects See `waitFor`.
@@ -1595,7 +1596,15 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     const theirs = agentChildren(callerId).flatMap((child) => child.agent.tasks);
     const known = new Set(theirs.map((task) => task.taskId));
     if (args.tasks?.some((taskId) => !known.has(taskId)) === true) throw new AgentFailure("agent_not_allowed");
-    const tasks = new Set(args.tasks ?? theirs.filter((task) => task.state === "open").map((task) => task.taskId));
+    const unseen = new Set(
+      find(callerId)
+        ?.deliveries.filter((delivery) => delivery.kind === "report" && delivery.state === "waiting")
+        .map((delivery) => delivery.taskId),
+    );
+    const tasks = new Set(
+      args.tasks ??
+        theirs.filter((task) => task.state === "open" || unseen.has(task.taskId)).map((task) => task.taskId),
+    );
     return waitFor(callerId, epoch, callId, tasks, args.until ?? "any", args.waitSeconds ?? WAIT_DEFAULT_S, false);
   };
 

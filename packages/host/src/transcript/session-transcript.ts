@@ -1,4 +1,4 @@
-import { type LogEntry, type TranslatedEvent, agentSource } from "@atrium/pi";
+import { type CompactionResult, type LogEntry, type TranslatedEvent, agentSource } from "@atrium/pi";
 import {
   type Notice,
   type NoticeAddedEvent,
@@ -11,8 +11,8 @@ import {
   type TurnFinishedEvent,
   type TurnStartedEvent,
 } from "@atrium/protocol";
-import { projectTranscript } from "./projection";
-import { forTransport, itemForTransport } from "./rules";
+import { type SeenCompaction, projectTranscript } from "./projection";
+import { forTransport, inputTokens, itemForTransport } from "./rules";
 import { type SessionLog, createSessionLog } from "./session-log";
 import { TurnDraft, type TurnFacts, messageCommand, noUser, steerText } from "./turn-draft";
 
@@ -169,11 +169,17 @@ export function createSessionTranscript(options: {
   readonly opened?: ReadonlySet<string>;
   /** Entries of messages earlier host runs sent on their own. */
   readonly auto?: ReadonlySet<string>;
+  /** Compaction entries earlier host runs saw during a run, with what set each off. */
+  readonly compactions?: ReadonlyMap<string, SeenCompaction>;
   /**
-   * Told the entries a rebuild found turns seen live to have opened, and which of them the host
-   * sent on its own, to remember them.
+   * Told the entries a rebuild found turns seen live to have opened, which of them the host sent
+   * on its own, and the compactions it saw during runs, to remember them.
    */
-  readonly onTurnsSeen?: (entryIds: readonly string[], autoIds: readonly string[]) => void;
+  readonly onTurnsSeen?: (
+    entryIds: readonly string[],
+    autoIds: readonly string[],
+    compactions: ReadonlyMap<string, SeenCompaction>,
+  ) => void;
 }): SessionTranscript {
   const { sessionId, newId, now } = options;
   const log: SessionLog = createSessionLog();
@@ -181,6 +187,12 @@ export function createSessionTranscript(options: {
   let items: TranscriptItem[] = [];
   /** Facts of turns seen live, by the entry that opened them. */
   const factsByEntry = new Map<string, TurnFacts>();
+  /** Compaction entries seen during runs, from earlier host runs and this one's rebuilds. */
+  const compactionsByEntry = new Map<string, SeenCompaction>(options.compactions);
+  /** Compactions seen during runs since the last rebuild, not yet tied to entries. */
+  let seenCompactions: { readonly result: CompactionResult; readonly reason: SeenCompaction }[] = [];
+  /** Finished turns with a compaction step still waiting for the input after it. */
+  let awaiting = new Set<string>();
   /** User messages seen live since the last rebuild, oldest first, not yet tied to entries. */
   // Stryker disable next-line ArrayDeclaration: a made-up record has no facts and only shifts nothing at the start.
   let seen: (SeenTurn | null)[] = [];
@@ -271,6 +283,8 @@ export function createSessionTranscript(options: {
       changes: turn.changes,
     });
     live.record.facts = facts;
+    // Stryker disable next-line ConditionalExpression: only spares looking at the turn again; a turn with no step that waits changes nothing.
+    if (turn.steps.some(waitsForTokens)) awaiting.add(turn.id);
     items.push(turn, ...afterLive);
     afterLive = [];
     live = null;
@@ -323,10 +337,77 @@ export function createSessionTranscript(options: {
     if (live === null) return [];
     const turnId = live.draft.id;
     if (message.kind === "assistant") {
-      return [...endThinking(live), ...live.draft.finishAssistant(message).map((change) => stepEvent(turnId, change))];
+      return [
+        ...endThinking(live),
+        ...live.draft.finishAssistant(message).map((change) => stepEvent(turnId, change)),
+        ...compactedBefore(live.draft, inputTokens(message.usage)),
+      ];
     }
     const step = live.draft.toolResult(message.callId, message, message.timestamp);
     return step === null ? [] : [{ type: "step_updated", turnId, step: forTransport(step) }];
+  }
+
+  /**
+   * Adds a compaction pi finished during the turn running now, where it happened.
+   *
+   * @remarks
+   * SPEC-0001, `compaction`: only one that wrote its entry is a step; `/compact` has no reason to
+   * show. It is kept to be tied to its entry at the next rebuild, by what it wrote, so the rebuild
+   * knows the host saw it during the run.
+   *
+   * @sideEffects Updates the live turn and the compactions seen.
+   * @param current - The live turn.
+   * @param event - pi's report.
+   * @returns The events to publish.
+   */
+  function compacted(
+    current: NonNullable<typeof live>,
+    event: Extract<TranslatedEvent, { kind: "compaction_finished" }>,
+  ): TranscriptEvent[] {
+    const { result } = event;
+    if (result === null) return [];
+    const reason = event.reason === "manual" ? null : event.reason;
+    seenCompactions.push({ result, reason });
+    const step = current.draft.compaction(
+      { tokensBefore: result.tokensBefore, tokensAfter: null, summary: result.summary, reason },
+      now(),
+    );
+    return [{ type: "step_added", turnId: current.draft.id, step }];
+  }
+
+  /**
+   * Gives the compactions before a reply the reply's input, the live turn's and the turns' before.
+   *
+   * @remarks
+   * A compaction that ended a run learns it from the next run's first reply (SPEC-0001,
+   * `compaction`). A compaction between turns is a notice, which no event changes; the next
+   * rebuild gives it the tokens.
+   *
+   * @sideEffects Updates the live turn and finished turns.
+   * @param draft - The live turn.
+   * @param tokens - The reply's input, or `null` when it says none.
+   * @returns The events to publish.
+   */
+  function compactedBefore(draft: TurnDraft, tokens: number | null): TranscriptEvent[] {
+    if (tokens === null) return [];
+    const events: TranscriptEvent[] = [];
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: only spares copying the items; a turn not awaiting has no step that waits.
+    if (awaiting.size > 0) {
+      items = items.map((item) => {
+        // Stryker disable next-line ConditionalExpression,LogicalOperator: see above.
+        if (item.kind !== "turn" || !awaiting.has(item.id)) return item;
+        const steps = item.steps.map((step) => {
+          if (!waitsForTokens(step)) return step;
+          const updated = { ...step, tokensAfter: tokens };
+          events.push({ type: "step_updated", turnId: item.id, step: updated });
+          return updated;
+        });
+        return { ...item, steps };
+      });
+    }
+    awaiting = new Set();
+    for (const step of draft.compacted(tokens)) events.push({ type: "step_updated", turnId: draft.id, step });
+    return events;
   }
 
   /**
@@ -392,7 +473,39 @@ export function createSessionTranscript(options: {
     });
     // Stryker disable next-line ArrayDeclaration: see `seen`.
     seen = [];
-    if (opened.length > 0) options.onTurnsSeen?.(opened, auto);
+    const compactions = bindCompactions(fresh);
+    if (opened.length > 0 || compactions.size > 0) options.onTurnsSeen?.(opened, auto, compactions);
+  }
+
+  /**
+   * Ties the compactions seen during runs to the new compaction entries of a read.
+   *
+   * @remarks
+   * A compaction's end reports what its entry holds, so each is found by its summary, the entry
+   * it kept first and its tokens. Ones that find no entry are dropped, as user messages are.
+   *
+   * @sideEffects Records compactions by entry; clears the ones seen.
+   * @param fresh - Ids of the entries this read added.
+   * @returns The compactions tied, by entry.
+   */
+  function bindCompactions(fresh: ReadonlySet<string>): Map<string, SeenCompaction> {
+    const bound = new Map<string, SeenCompaction>();
+    for (const entry of log.branch()) {
+      if (entry.kind !== "compaction" || !fresh.has(entry.id)) continue;
+      const index = seenCompactions.findIndex(
+        ({ result }) =>
+          result.summary === entry.summary &&
+          result.firstKeptEntryId === entry.firstKeptEntryId &&
+          result.tokensBefore === entry.tokensBefore,
+      );
+      const found = seenCompactions[index];
+      if (found === undefined) continue;
+      seenCompactions.splice(index, 1);
+      bound.set(entry.id, found.reason);
+      compactionsByEntry.set(entry.id, found.reason);
+    }
+    seenCompactions = [];
+    return bound;
   }
 
   return {
@@ -432,7 +545,8 @@ export function createSessionTranscript(options: {
       if (event.kind === "retry_started") {
         return [{ type: "step_added", turnId, step: live.draft.retry(event.attempt, event.error, event.maxAttempts) }];
       }
-      // Runs and compactions are the controller's business.
+      if (event.kind === "compaction_finished") return compacted(live, event);
+      // Runs are the controller's business.
       return [];
     },
     settle: (crashed = false) => finishLive(crashed),
@@ -446,8 +560,18 @@ export function createSessionTranscript(options: {
       if (reset) log.clear();
       bindSeen(log.append(page.entries, page.leafId));
       const before = items;
-      const projected = projectTranscript(log.branch(), sessionId, factsByEntry, options.opened, options.auto).items;
+      const projected = projectTranscript(
+        log.branch(),
+        sessionId,
+        factsByEntry,
+        options.opened,
+        options.auto,
+        compactionsByEntry,
+      ).items;
       items = withHostNotices(projected, hostNotices);
+      awaiting = new Set(
+        items.flatMap((item) => (item.kind === "turn" && item.steps.some(waitsForTokens) ? [item.id] : [])),
+      );
       return compare(before, items);
     },
     latest() {
@@ -599,6 +723,20 @@ function stepEvent(turnId: string, change: { readonly step: Step; readonly added
  */
 function sameItem(item: TranscriptItem, sent: TranscriptItem | undefined): boolean {
   return JSON.stringify(item) === JSON.stringify(sent);
+}
+
+/**
+ * Whether a step is a compaction that does not know the input after it yet.
+ *
+ * @remarks
+ * See `compactedBefore`.
+ *
+ * @sideEffects none
+ * @param step - The step.
+ * @returns Whether it waits.
+ */
+function waitsForTokens(step: Step): boolean {
+  return step.kind === "compaction" && step.tokensAfter === null;
 }
 
 /**

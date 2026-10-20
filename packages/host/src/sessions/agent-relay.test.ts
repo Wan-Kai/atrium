@@ -1343,6 +1343,26 @@ describe("agent relay: waiting", () => {
     ]);
   });
 
+  it("takes by default, at once, the events still waiting of tasks that ended, as well as the open tasks", async () => {
+    const h = harness(
+      session("main", {
+        deliveries: [notice("n1", "t-1", "finished"), notice("n0", "t-0", "finished", { state: "sending" })],
+      }),
+      child("c1", "main", "audit", { tasks: [task("t-0", { state: "done" }), task("t-1", { state: "done" })] }),
+      child("c2", "main", "tests", { tasks: [task("t-2")] }),
+    );
+
+    const { answer } = await h.call("main", "wait", {}, "wait-1");
+
+    expect(answer).toMatchObject({
+      result: { events: [{ taskId: "t-1", event: "finished" }], pending: ["t-2"], timedOut: false },
+    });
+    expect(h.entry("main").deliveries.map((one) => [one.id, one.state])).toStrictEqual([
+      ["n1", "claimed"],
+      ["n0", "sending"],
+    ]);
+  });
+
   it("answers a task not the caller's agent_not_allowed", async () => {
     const h = harness(session("main"), session("other"), child("c1", "other", "audit", { tasks: [task("t-1")] }));
 
