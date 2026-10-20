@@ -16,12 +16,12 @@ import {
 import { useRevealedText } from "./use-revealed-text";
 
 /**
- * What stands on the rail for a row (design-language, "消息流 · 过程"); `wait` and `fail` are the
- * new-workspace timeline's steps not started and failed (design-language, "新建工作区页");
+ * What stands on the rail for a row (design-language, "消息流 · 过程"); `fail` is a new workspace's
+ * step that failed, and `more` the summary its steps fold into (design-language, "新建工作区页");
  * `compaction` is two ticks across the line (design-language, "压缩步骤"); `said` is text the agent
  * said mid-turn, a larger blue dot (design-language, "过程里 AI 说的话").
  */
-export type RailNode = "dot" | "said" | "search" | "live" | "dead" | "steer" | "wait" | "fail" | "pass" | "compaction";
+export type RailNode = "dot" | "said" | "search" | "live" | "dead" | "steer" | "more" | "fail" | "pass" | "compaction";
 
 /** How far the rail stops short of each node's centre: the node's radius and a 4px gap. */
 const NODE_GAP: Readonly<Record<RailNode, number>> = {
@@ -34,7 +34,7 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
   live: 7,
   dead: 7,
   steer: 7,
-  wait: 7,
+  more: 9,
   fail: 7,
   search: 11,
 };
@@ -45,7 +45,8 @@ const NODE_GAP: Readonly<Record<RailNode, number>> = {
  * @remarks
  * Each state has its own shape, not only its own colour (design-language, "原则" 3): a grey dot
  * done, a blue dot with a turning arc going on, × for a dead end, a hollow blue ring for a steer;
- * on the new-workspace timeline, a hollow grey ring not started and a red × failed. A compaction is
+ * for a new workspace's steps, a red × failed and a grey › for their summary, turning down while
+ * they are open. A compaction is
  * two short ticks across the line, 13 by 1.5px, 3px apart, like a border: the model sees what is
  * above it only as a summary (design-language, "压缩步骤").
  *
@@ -69,7 +70,8 @@ function NodeGlyph({ node }: { readonly node: RailNode }) {
   if (node === "search") return <MagnifyingGlass size={14} className="text-[var(--text-muted)]" />;
   if (node === "dead") return <X size={10} weight="bold" className="text-[var(--text-dim)]" />;
   if (node === "fail") return <X size={10} weight="bold" className="text-[var(--danger)]" />;
-  if (node === "wait") return <span className="size-1.5 rounded-full shadow-[inset_0_0_0_1px_var(--rail)]" />;
+  if (node === "more")
+    return <CaretRight size={10} weight="bold" className="atrium-fold-chevron text-[var(--text-dim)]" />;
   if (node === "steer") {
     return <span className="size-2 rounded-full bg-[var(--main)] shadow-[inset_0_0_0_1.5px_var(--tint)]" />;
   }

@@ -1,8 +1,10 @@
 import type { SessionView } from "@atrium/client";
-import type { TranscriptItem } from "@atrium/protocol";
+import type { TranscriptItem, Turn } from "@atrium/protocol";
 import { ArrowDown } from "../design/icons";
 import { type RefObject, useEffect, useEffectEvent, useRef, useState } from "react";
 import { commandArguments, typedMessage } from "./composer-text";
+import type { LaunchInTurn } from "./launch-timeline";
+import type { Launch } from "../state/new-workspace";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
 import { LoadStepContext, OpenFileContext } from "./steps";
@@ -205,6 +207,42 @@ export interface TranscriptProps {
   readonly onChild?: (turnId: string) => void;
   /** How to open a file a tool was given, from its chip; none where files cannot be opened. */
   readonly openFile?: (path: string) => (() => void) | null;
+  /** The launch that made the session, shown in its first turn (SPEC-0001, "M1.11 的新建工作区"). */
+  readonly launch?: LaunchInTurn | undefined;
+}
+
+/**
+ * The turn a launch's message will open, standing in for it until the host's arrives.
+ *
+ * @remarks
+ * It carries the launch's id, as its turn shows under it from the start (SPEC-0001, "M1.11 的新建
+ * 工作区"): running, with the message and nothing else yet.
+ *
+ * @sideEffects none
+ * @param launch - The launch.
+ * @returns The turn.
+ */
+function standInTurn(launch: Launch): Turn {
+  return {
+    kind: "turn",
+    id: launch.id,
+    source: null,
+    user: {
+      text: launch.text,
+      images: launch.images.length,
+      clientMessageId: launch.id,
+      auto: false,
+      command: null,
+      timestamp: launch.sentAt ?? launch.startedAt,
+    },
+    steps: [],
+    outcome: "running",
+    error: null,
+    startedAt: launch.startedAt,
+    durationMs: null,
+    usage: null,
+    changes: [],
+  };
 }
 
 /**
@@ -241,13 +279,27 @@ function cutBefore(items: readonly TranscriptItem[], index: number): boolean {
  * between turns (design-language, "运行中压缩"; SPEC-0001, "M1.11 的 `/` 命令 · 压缩"). Every finished
  * turn offers "从这里分叉", greyed while a run goes on, stops, pi compacts or is restarted
  * (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"), and "从这里开子对话" beside it, greyed alike (SPEC-0002).
+ * The launch that made the session from the new-workspace page shows in its first turn, from the
+ * moment it is sent, a stand-in until the host's turn arrives under the same key, so nothing is
+ * mounted again; the session's pending copy of its message and the run's own line give way to
+ * it (SPEC-0001, "M1.11 的新建工作区").
  *
  * @sideEffects Observes the content's size and scrolling while mounted; asks for older items.
  * @param props - The session's view, how to load older items, how to fetch a step whole, how to
- * retry, how to fork, how to open a child conversation and how to open a file from its chip.
+ * retry, how to fork, how to open a child conversation, how to open a file from its chip, and the
+ * launch that made the session.
  * @returns The scrollable conversation.
  */
-export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onChild, openFile }: TranscriptProps) {
+export function Transcript({
+  view,
+  onLoadOlder,
+  onLoadStep,
+  onRetry,
+  onFork,
+  onChild,
+  openFile,
+  launch,
+}: TranscriptProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const top = useRef<HTMLDivElement>(null);
@@ -259,6 +311,15 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onC
   const blocked = view.run !== null || view.control.stopping || view.control.compacting || view.control.restarting;
   const fork: ForkFromTurn | undefined =
     onFork === undefined ? undefined : { fork: onFork, blocked, ...(onChild === undefined ? {} : { child: onChild }) };
+  // The launch's turn is the session's first; with older items still to load, it is not here.
+  const shownLaunch = view.hasOlder ? undefined : launch;
+  const first = view.items[0];
+  const launchTurn = shownLaunch !== undefined && first?.kind === "turn" ? first : undefined;
+  const standIn = shownLaunch !== undefined && launchTurn === undefined ? standInTurn(shownLaunch.launch) : undefined;
+  const items = standIn === undefined ? view.items : [standIn, ...view.items];
+  const pending = standIn === undefined ? view.pending : view.pending.slice(1);
+  // One key for the stand-in and the host's turn after it, so the turn is not mounted again.
+  const launchKey = `launch:${shownLaunch?.launch.id ?? ""}`;
   return (
     <LoadStepContext value={onLoadStep}>
       <OpenFileContext value={openFile ?? null}>
@@ -272,15 +333,16 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onC
                   <p className="text-center text-[length:var(--fs-sm)] text-[var(--text-dim)]">正在加载更早的记录…</p>
                 ) : null}
               </div>
-              {view.items.map((item, index) =>
+              {items.map((item, index) =>
                 item.kind === "turn" ? (
                   <TurnView
-                    key={item.id}
+                    key={item === standIn || item === launchTurn ? launchKey : item.id}
                     turn={item}
+                    launch={item === standIn || item === launchTurn ? shownLaunch : undefined}
                     runStartedAt={view.run?.startedAt ?? null}
-                    {...(fork === undefined
+                    {...(fork === undefined || item === standIn
                       ? {}
-                      : { fork: cutBefore(view.items, index) ? { ...fork, cut: true } : fork })}
+                      : { fork: cutBefore(items, index) ? { ...fork, cut: true } : fork })}
                     {...(item === last && view.run === null && !view.control.restarting && onRetry !== undefined
                       ? { onRetry }
                       : {})}
@@ -290,7 +352,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onC
                   <NoticeView key={item.id} notice={item} />
                 ),
               )}
-              {view.pending.map((message) => (
+              {pending.map((message) => (
                 <UserBubble
                   key={message.clientMessageId}
                   text={message.command === undefined ? message.text : commandArguments(message.command, message.text)}
@@ -299,7 +361,7 @@ export function Transcript({ view, onLoadOlder, onLoadStep, onRetry, onFork, onC
                   clientMessageId={message.clientMessageId}
                 />
               ))}
-              {turnRunning || (view.run === null && view.pending.length === 0) ? null : (
+              {turnRunning || standIn !== undefined || (view.run === null && view.pending.length === 0) ? null : (
                 <RunStatus startedAt={view.run?.startedAt ?? null} />
               )}
               {view.control.compacting && !turnRunning ? (

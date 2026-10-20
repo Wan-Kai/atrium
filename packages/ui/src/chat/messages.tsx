@@ -75,6 +75,10 @@ export interface UserBubbleProps {
   readonly auto?: boolean;
   /** The command it started with, shown as a tag before the text. */
   readonly command?: ChosenCommand | null;
+  /** Whether it has not gone yet, as a new workspace's first message while its steps go on. */
+  readonly dim?: boolean;
+  /** Words in its time's place, as why a new workspace's first message did not go. */
+  readonly note?: string | null;
 }
 
 /**
@@ -86,10 +90,13 @@ export interface UserBubbleProps {
  * longer than about 12 lines is folded, with "展开" at its end (SPEC-0001, "消息下方的信息");
  * its images show as thumbnails above it. One the host sent on its own after an interrupted run
  * says so under it, "系统自动发出". One that started with a command starts with its tag, and is
- * copied as typed, `/名字 参数` (SPEC-0001, "M1.11 的 `/` 命令").
+ * copied as typed, `/名字 参数` (SPEC-0001, "M1.11 的 `/` 命令"). A new workspace's first message
+ * shows at 60% until it has gone, then comes up in 0.2 s; its time comes in once it has, and a
+ * note can stand in the time's place, the row's height the same (design-language, "新建工作区页").
  *
  * @sideEffects Observes the bubble's size while folded to know whether it overflows.
- * @param props - The text, images and, once confirmed, its time and turn.
+ * @param props - The text, images and, once confirmed, its time and turn; whether it has not gone
+ * yet, and a note.
  * @returns The bubble.
  */
 export function UserBubble({
@@ -101,8 +108,12 @@ export function UserBubble({
   clientMessageId = null,
   settled = false,
   command = null,
+  dim = false,
+  note = null,
 }: UserBubbleProps) {
   const body = useRef<HTMLDivElement>(null);
+  // A time that comes in while shown fades in; one there from the start just shows.
+  const [timed] = useState(timestamp !== undefined);
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   useEffect(() => {
@@ -116,9 +127,21 @@ export function UserBubble({
   return (
     <div className="flex flex-col items-end gap-1" data-testid="user-message" data-pending={timestamp === undefined}>
       {images === 0 ? null : (
-        <MessageThumbnails count={images} turnId={turnId ?? null} clientMessageId={clientMessageId} settled={settled} />
+        <div className={`transition-opacity duration-200 ${dim ? "opacity-60" : ""}`} data-testid="user-images">
+          <MessageThumbnails
+            count={images}
+            turnId={turnId ?? null}
+            clientMessageId={clientMessageId}
+            settled={settled}
+          />
+        </div>
       )}
-      <div className="flex max-w-[80%] flex-col items-start rounded-[var(--r-bubble)] bg-[var(--surface-2)] px-4 py-2.5">
+      <div
+        className={`flex max-w-[80%] flex-col items-start rounded-[var(--r-bubble)] bg-[var(--surface-2)] px-4 py-2.5 transition-opacity duration-200 ${
+          dim ? "opacity-60" : ""
+        }`}
+        data-testid="user-bubble"
+      >
         <div
           ref={body}
           data-testid="user-text"
@@ -139,7 +162,12 @@ export function UserBubble({
       </div>
       <div className="flex items-center gap-1 text-[length:var(--fs-sm)] text-[var(--text-dim)] tabular-nums">
         {auto ? <span>系统自动发出 ·</span> : null}
-        {timestamp === undefined ? null : <span>{timeOfDay(timestamp)}</span>}
+        {note === null ? null : <span data-testid="user-note">{note}</span>}
+        {timestamp === undefined || note !== null ? null : (
+          <span className={timed ? "" : "atrium-meta-in"} data-testid="user-time">
+            {timeOfDay(timestamp)}
+          </span>
+        )}
         <CopyButton text={() => writtenCommand(command, text)} />
       </div>
     </div>

@@ -1,8 +1,16 @@
-import { type AtriumClient, CommandError, ConnectionLostError, type SessionView, isChatId } from "@atrium/client";
+import {
+  type AtriumClient,
+  CommandError,
+  ConnectionLostError,
+  type SessionView,
+  isChatId,
+  loadingView,
+} from "@atrium/client";
 import type { DiffStat, SessionModel } from "@atrium/protocol";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HandedOff } from "./handed-off";
 import { type StoreApi, useStore } from "zustand";
+import { createStore } from "zustand/vanilla";
 import { desktopBridge } from "../app/bootstrap";
 import { Composer, type ComposerProps, type SentImage } from "./composer";
 import { pageDrafts } from "../state/use-draft";
@@ -12,7 +20,8 @@ import { FastToggle } from "./fast-toggle";
 import { shownModel } from "./model-choice";
 import { ModelPicker, type PickerRequest } from "./model-picker";
 import { clearNotice, showNotice } from "../state/session-notices";
-import { sessionTitle } from "../sidebar/names";
+import { sessionTitle, workspaceName } from "../sidebar/names";
+import { useClock } from "../state/clock";
 import {
   type BuiltinCall,
   COMPACT_COMMAND,
@@ -37,8 +46,10 @@ import {
   dismiss,
   holdsBack,
   launchOver,
+  pageLaunch,
+  retryLaunch,
 } from "../state/new-workspace";
-import { LaunchView } from "./launch-timeline";
+import type { LaunchInTurn } from "./launch-timeline";
 import { type Panes, createPanes, memoryStorage } from "../state/panes";
 import {
   NO_VIEW,
@@ -164,7 +175,7 @@ function forkFrom(client: AtriumClient, sessionId: string, turnId: string): void
  * @param error - What the step rejected with.
  * @returns The sentence to show.
  */
-export function describeLaunchError(error: unknown): string {
+function describeLaunchError(error: unknown): string {
   return describeWorktreeError(error) ?? describeSendError(error);
 }
 
@@ -312,16 +323,18 @@ function EmptyLine() {
  * the steers on their way, and questions from extensions and a failed session wait above the
  * input box (SPEC-0001, "运行控制"). The status bar under it shows the session's figures, with
  * the groups chosen in the global preferences (SPEC-0001, "状态栏"). A session made from the
- * new-workspace page shows the steps of its making above the transcript, and its box sends
- * nothing until the first message has gone (SPEC-0001, "M1.11 的新建工作区"). With nothing in it
- * yet, it says the empty state's line in place of the transcript (design-language, "空状态").
+ * new-workspace page shows the steps of its making in its first turn, and its box sends nothing
+ * until the first message has gone (SPEC-0001, "M1.11 的新建工作区"); before the session exists,
+ * the page's choices and box stand under the transcript in place of the session's, so the
+ * transcript is the same one before and after. With nothing in it yet, it says the empty state's
+ * line in place of the transcript (design-language, "空状态").
  *
  * @sideEffects Subscribes to the session's store and the preferences; loads older items when
  * asked; sends run control commands and status bar choices, reporting their failures through `act`.
  * @param props - The client, the session, its view store, what to do with a message, a steer and a
  * built-in command, how to run a command whose failure should show, a notice to show above the
  * input box, the latest request to open the model panel, what the new-workspace page set going
- * here, and the workspace views.
+ * here and its "重试", the workspace views, and the page's choices and box.
  * @returns The transcript and input box.
  */
 function SessionArea({
@@ -341,8 +354,10 @@ function SessionArea({
   onFocusTaken,
   changes,
   launch,
+  onRetryLaunch,
   fileOpener,
   views,
+  bottom,
 }: {
   readonly client: AtriumClient;
   readonly containerId: string | null;
@@ -363,14 +378,34 @@ function SessionArea({
   readonly onFocusTaken: () => void;
   /** The workspace's git changes for the capsule, when it has some, and the changes panel. */
   readonly changes: { readonly stat: DiffStat; readonly open: boolean; readonly onToggle: () => void } | undefined;
-  /** What sending from the new-workspace page set going here, until its first message has gone. */
+  /** What sending from the new-workspace page set going here. */
   readonly launch: Launch | undefined;
+  /** The launch's "重试", from its failed step. */
+  readonly onRetryLaunch: (launchId: string) => void;
+  /** The new-workspace page's choices and box, in place of the session's while it has none. */
+  readonly bottom?: ReactNode;
   /** How to open a file a tool was given, from its chip; none outside a workspace. */
   readonly fileOpener?: ((path: string) => (() => void) | null) | undefined;
   /** The workspace views, so a child opened from the capsule shows over a viewer tab. */
   readonly views: StoreApi<WorkspaceViews>;
 }) {
   const view = useStore(store);
+  const place = useStore(client.index, (index) => {
+    const into = index.workspaces.find((one) => one.id === launch?.workspaceId);
+    return into === undefined ? null : workspaceName(into);
+  });
+  const shown = useMemo<LaunchInTurn | undefined>(
+    () =>
+      launch === undefined
+        ? undefined
+        : {
+            launch,
+            reason: launch.failure === undefined ? null : describeLaunchError(launch.failure),
+            place,
+            onRetry: () => onRetryLaunch(launch.id),
+          },
+    [launch, place, onRetryLaunch],
+  );
   const statusBar = useStore(client.index, (index) => index.preferences.statusBar);
   const plans = useStore(client.plans);
   const draft = useStore(
@@ -422,12 +457,6 @@ function SessionArea({
   };
   return (
     <>
-      {launch === undefined ? null : (
-        <LaunchView
-          launch={launch}
-          reason={launch.failure === undefined ? null : describeLaunchError(launch.failure)}
-        />
-      )}
       {blank ? (
         <EmptyLine />
       ) : (
@@ -447,71 +476,78 @@ function SessionArea({
               onFork={(turnId) => forkFrom(client, sessionId, turnId)}
               onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
               {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+              launch={shown}
             />
           </AgentLinksContext>
         </MessageImagesContext>
       )}
-      <ControlCards control={view.control} actions={actions} />
-      {notice}
-      <Composer
-        {...attaching(view.model)}
-        key={sessionId}
-        draftKey={sessionId}
-        autoFocus={takesFocus}
-        history={historyOf(view.items)}
-        onOlderHistory={() => {
-          // Fire and forget: a failed page leaves ↑ where it is.
-          if (view.hasOlder) client.loadOlder(sessionId).catch(() => undefined);
-        }}
-        onListCommands={async () => (await client.listCommands(await session())).commands}
-        onSearchFiles={async (query) => (await client.searchFiles(await session(), query)).files}
-        onSend={onSend}
-        onSteer={onSteer}
-        onBuiltin={onBuiltin}
-        draft={draft}
-        onStop={() => act(() => client.stop(sessionId))}
-        running={running}
-        stopping={view.control.stopping}
-        compacting={view.control.compacting}
-        held={holdsBack(launch)}
-        above={
-          <ControlTrack
-            control={view.control}
+      {bottom === undefined ? (
+        <>
+          <ControlCards control={view.control} actions={actions} />
+          {notice}
+          <Composer
+            {...attaching(view.model)}
+            key={sessionId}
+            draftKey={sessionId}
+            autoFocus={takesFocus}
+            history={historyOf(view.items)}
+            onOlderHistory={() => {
+              // Fire and forget: a failed page leaves ↑ where it is.
+              if (view.hasOlder) client.loadOlder(sessionId).catch(() => undefined);
+            }}
+            onListCommands={async () => (await client.listCommands(await session())).commands}
+            onSearchFiles={async (query) => (await client.searchFiles(await session(), query)).files}
+            onSend={onSend}
+            onSteer={onSteer}
+            onBuiltin={onBuiltin}
+            draft={draft}
+            onStop={() => act(() => client.stop(sessionId))}
             running={running}
-            actions={actions}
-            {...(changes === undefined ? {} : { changes })}
-            renderChildCapsule={(list) => (
-              <ChildCapsule client={client} sessionId={sessionId} views={views} {...list} />
-            )}
+            stopping={view.control.stopping}
+            compacting={view.control.compacting}
+            held={holdsBack(launch)}
+            above={
+              <ControlTrack
+                control={view.control}
+                running={running}
+                actions={actions}
+                {...(changes === undefined ? {} : { changes })}
+                renderChildCapsule={(list) => (
+                  <ChildCapsule client={client} sessionId={sessionId} views={views} {...list} />
+                )}
+              />
+            }
+            picker={
+              <SessionModelPicker
+                client={client}
+                containerId={containerId}
+                model={view.model}
+                fast={view.fast}
+                disabled={view.control.stopping}
+                session={session}
+                act={act}
+                request={pickerRequest}
+              />
+            }
           />
-        }
-        picker={
-          <SessionModelPicker
-            client={client}
-            containerId={containerId}
-            model={view.model}
-            fast={view.fast}
-            disabled={view.control.stopping}
-            session={session}
-            act={act}
-            request={pickerRequest}
+          <StatusBar
+            metrics={view.metrics}
+            plans={plans}
+            provider={view.model?.providerId ?? null}
+            choices={statusBar}
+            onChoose={(choices) => act(() => client.setPreferences({ statusBar: choices }))}
+            onCompact={() => {
+              // Fire and forget: it says why above the input box when it cannot.
+              void onBuiltin({ command: COMPACT_COMMAND, args: "" });
+            }}
+            compactable={
+              !running && !view.control.stopping && !view.control.compacting && view.metrics.context?.tokens != null
+            }
           />
-        }
-      />
-      <StatusBar
-        metrics={view.metrics}
-        plans={plans}
-        provider={view.model?.providerId ?? null}
-        choices={statusBar}
-        onChoose={(choices) => act(() => client.setPreferences({ statusBar: choices }))}
-        onCompact={() => {
-          // Fire and forget: it says why above the input box when it cannot.
-          void onBuiltin({ command: COMPACT_COMMAND, args: "" });
-        }}
-        compactable={
-          !running && !view.control.stopping && !view.control.compacting && view.metrics.context?.tokens != null
-        }
-      />
+        </>
+      ) : (
+        bottom
+      )}
     </>
   );
 }
@@ -528,8 +564,10 @@ function SessionArea({
  * restart) and explains here why it cannot. A session whose pi has exited, or that the host lost
  * in a restart, is opened again before the message goes. A failed send is explained above the input box, and the
  * message goes back into its box when the box is still empty. A session the new-workspace page
- * made shows the steps of its making until its first message has gone; one failed stays until the
- * next send. The empty state says one line, the same everywhere, a blinking caret after it
+ * made shows the steps of its making in its first turn; one failed stays until the next send. The
+ * page's own launch shows here too, from the moment it is sent, with the page's choices and box
+ * under it, so the session takes over the same transcript once it shows (SPEC-0001, "M1.11 的新建
+ * 工作区"); a failed step's "重试" goes on from it. The empty state says one line, the same everywhere, a blinking caret after it
  * (design-language, "空状态"). The right panel is open or not, and as wide, in every workspace alike; a viewer tab shown takes the
  * whole area but the panel; the workspace's diff is watched while either needs it (SPEC-0001,
  * "M1.12 的文件与更改").
@@ -537,8 +575,8 @@ function SessionArea({
  * @sideEffects Watches the active session; creates and opens sessions and sends messages
  * through the client.
  * @param props - The client, the container, its active session, how to create a session, what
- * the new-workspace page set going, the panes, the workspace views, and how to open a file in the
- * browser.
+ * the new-workspace page set going, the panes, the workspace views, how to open a file in the
+ * browser, and the new-workspace page's choices and box while its launch shows.
  * @returns The area.
  */
 export function ConversationArea({
@@ -547,6 +585,7 @@ export function ConversationArea({
   sessionId,
   create,
   launches = NO_LAUNCHES,
+  page,
   panes: given,
   views: givenViews,
   openInBrowser,
@@ -564,6 +603,11 @@ export function ConversationArea({
   readonly views?: StoreApi<WorkspaceViews>;
   /** Opens an absolute path to an HTML file in the default browser; left out where nothing can. */
   readonly openInBrowser?: ((path: string) => void) | undefined;
+  /**
+   * The new-workspace page's choices and box, given while the page shows its launch here: the
+   * container and session are then `null`.
+   */
+  readonly page?: ReactNode;
 }) {
   const [own] = useState(() => createPanes(memoryStorage()));
   const panes = given ?? own;
@@ -575,7 +619,20 @@ export function ConversationArea({
   useEffect(() => {
     shownNow.current = sessionId;
   });
-  const launch = useStore(launches, (state) => launchOver(state, sessionId));
+  const onPage = page !== undefined;
+  const launch = useStore(launches, (state) => (onPage ? pageLaunch(state) : launchOver(state, sessionId)));
+  const clock = useClock();
+  const onRetryLaunch = useCallback(
+    (launchId: string) => {
+      // Fire and forget: the launch shows its own failures.
+      void retryLaunch(
+        launches,
+        { client, drafts: pageDrafts(), now: () => clock.now(), random: Math.random },
+        launchId,
+      );
+    },
+    [launches, client, clock],
+  );
   const [store, setStore] = useState<StoreApi<SessionView> | undefined>(undefined);
   // The session being created in each container, shared by every send there until it exists;
   // only read in event handlers.
@@ -784,7 +841,7 @@ export function ConversationArea({
   ): Promise<void> {
     setFailure(null);
     const failed = launchOver(launches.getState(), sessionId);
-    if (failed !== undefined) dismiss(launches, failed.id);
+    if (failed?.failure !== undefined) dismiss(launches, failed.id);
     let id: string | null = null;
     let latest = images;
     try {
@@ -1075,6 +1132,30 @@ export function ConversationArea({
                 : (path) => openInBrowser(`${workspaceDir.replace(/\/+$/u, "")}/${path}`)
             }
           />
+        ) : launch !== undefined ? (
+          // The page's launch, and its session once it shows: the same area, so its turn stays.
+          <SessionArea
+            client={client}
+            containerId={containerId}
+            sessionId={sessionId ?? ""}
+            store={store !== undefined && store.getState().sessionId === sessionId ? store : LAUNCH_VIEW}
+            onSend={onSend}
+            onSteer={onSteer}
+            onBuiltin={runBuiltin}
+            act={act}
+            session={target}
+            notice={notice}
+            pickerRequest={pickerRequest}
+            attaching={attaching}
+            takesFocus={handing?.sessionId === sessionId}
+            onFocusTaken={() => handTo(null)}
+            changes={capsule}
+            launch={launch}
+            onRetryLaunch={onRetryLaunch}
+            views={views}
+            fileOpener={fileOpener}
+            {...(page === undefined ? {} : { bottom: page })}
+          />
         ) : store === undefined || sessionId === null ? (
           <>
             <EmptyLine />
@@ -1129,6 +1210,7 @@ export function ConversationArea({
             onFocusTaken={() => handTo(null)}
             changes={capsule}
             launch={launch}
+            onRetryLaunch={onRetryLaunch}
             views={views}
             fileOpener={fileOpener}
           />
@@ -1141,3 +1223,9 @@ export function ConversationArea({
 
 /** No launches, where the new-workspace page is not given. */
 const NO_LAUNCHES = createNewWorkspaceStore();
+
+/**
+ * The view a launch's transcript stands on before its session's: nothing in it yet
+ * (SPEC-0001, "M1.11 的新建工作区").
+ */
+const LAUNCH_VIEW = createStore<SessionView>(() => loadingView(""));

@@ -42,9 +42,13 @@ export interface LaunchImage {
 /** One step of a launch, as its timeline names it. */
 export type LaunchStep = "name" | "worktree" | "session" | "message";
 
-/** What sending from the page set going, until its message has gone. */
+/** What sending from the page set going, and once its message has gone, what its turn says it did. */
 export interface Launch {
   readonly id: string;
+  /** The project it was sent in, whose page's box the message goes back to before there is a session. */
+  readonly projectId: string;
+  /** The model and level chosen on the page, set on the session before the message. */
+  readonly model: PageModel;
   /**
    * The new worktree's branch and base, for the steps' words; `null` into a workspace already
    * there. The branch is `null` until named.
@@ -61,6 +65,12 @@ export interface Launch {
   readonly images: readonly LaunchImage[];
   readonly workspaceId: string | null;
   readonly sessionId: string | null;
+  /** When the steps started, by the page's clock; moved on by a retry, so the time stopped is not counted. */
+  readonly startedAt: number;
+  /** When the last step failed; `null` while none has. */
+  readonly failedAt: number | null;
+  /** When the message went; `null` until then. */
+  readonly sentAt: number | null;
 }
 
 /** The page and the launches going on. */
@@ -136,6 +146,7 @@ export function suggestBranch(random: () => number): string {
  * @returns The base.
  */
 export function defaultBase(bases: Pick<CommandResult<"list_bases">, "main" | "current">): string {
+  // Stryker disable next-line StringLiteral: `baseRef` tells only "local" apart, so any other word is "remote".
   if (bases.main !== null) return baseRef("remote", bases.main);
   return bases.current === null ? "HEAD" : baseRef("local", bases.current);
 }
@@ -282,10 +293,11 @@ export function choose(
 }
 
 /**
- * The launch whose timeline shows over a session, while its message has not gone.
+ * The launch that made a session, shown in its first turn.
  *
  * @remarks
- * A failed one stays until the next send there dismisses it.
+ * Kept once its message has gone, for its turn's summary (SPEC-0001, "M1.11 的新建工作区"); a
+ * failed one stays until the next send there dismisses it.
  *
  * @sideEffects none
  * @param state - The store's state.
@@ -294,6 +306,20 @@ export function choose(
  */
 export function launchOver(state: NewWorkspaceState, sessionId: string | null): Launch | undefined {
   return sessionId === null ? undefined : state.launches.find((one) => one.sessionId === sessionId);
+}
+
+/**
+ * The launch the page sent last, shown on it until its session shows.
+ *
+ * @remarks
+ * See `launchOver`; none while the page is closed.
+ *
+ * @sideEffects none
+ * @param state - The store's state.
+ * @returns The launch, if any.
+ */
+export function pageLaunch(state: NewWorkspaceState): Launch | undefined {
+  return state.launches.find((one) => one.id === state.page?.launchId);
 }
 
 /**
@@ -307,7 +333,7 @@ export function launchOver(state: NewWorkspaceState, sessionId: string | null): 
  * @returns Whether to hold.
  */
 export function holdsBack(shown: Launch | undefined): boolean {
-  return shown !== undefined && shown.failure === undefined;
+  return shown !== undefined && shown.failure === undefined && shown.sentAt === null;
 }
 
 /**
@@ -330,38 +356,34 @@ export type LaunchClient = Pick<
   "nameBranch" | "createWorkspace" | "createSession" | "listCommands" | "setModel" | "setThinkingLevel" | "prompt"
 >;
 
+/** What a launch's steps use besides the client: the drafts, the clock and random names. */
+export interface LaunchContext {
+  readonly client: LaunchClient;
+  readonly drafts: Pick<Drafts, "handOver" | "restore" | "read" | "update">;
+  /** Milliseconds since the epoch, by the page's clock. */
+  readonly now: () => number;
+  /** A number in [0, 1), for a random branch name's words. */
+  readonly random: () => number;
+}
+
 /**
  * Sends the page's first message: names the branch, creates the worktree, then the session, then
  * sends.
  *
  * @remarks
- * SPEC-0001 ("M1.11 的新建工作区"). The steps show on a timeline. A branch left to the model is
- * named by the message's text on the page's model (SPEC-0001, "AI 起分支名"); when that fails, for
- * whatever reason, or the message has no text, the name is random, and the launch goes on. While
- * the user is on the page, its button then shows the name, so sending again names no more. Once the worktree is there,
- * the page goes into it, so sending again does not make a second one. Once the session is there,
- * what was typed since moves into its box, and the page closes, as the host shows the session;
- * a user who left the page stays where they went (`go: false`). pi's start is waited for by
- * setting the model chosen, or else by listing its commands, as opening the session would take
- * the window there. A failure stops the steps and puts the message back into the box it came
- * from, or the session's once there is one, when that box is empty. A message opening with
- * `/atrium-` fails before any step, as the host would refuse it only once the worktree was made.
+ * SPEC-0001 ("M1.11 的新建工作区"): the steps show in the message's turn (`proceed`).
  *
  * @sideEffects Sends commands; updates the store and the drafts.
  * @param store - The store.
- * @param client - The client.
- * @param drafts - The page's drafts.
+ * @param context - The client, the drafts, the clock and random names.
  * @param message - The message and its uploaded images.
  * @param newId - Makes the launch's id.
- * @param random - Picks a random branch name's words.
  */
 export async function launch(
   store: StoreApi<NewWorkspaceState>,
-  client: LaunchClient,
-  drafts: Pick<Drafts, "handOver" | "restore">,
+  context: LaunchContext,
   message: { readonly text: string; readonly images: readonly LaunchImage[] },
   newId: () => string,
-  random: () => number = Math.random,
 ): Promise<void> {
   const page = store.getState().page;
   if (page === null) return;
@@ -371,12 +393,14 @@ export async function launch(
   const naming = choice.kind === "new" && choice.branch === null && message.text.trim() !== "";
   const worktree =
     choice.kind === "new"
-      ? { branch: naming ? null : (choice.branch ?? suggestBranch(random)), base: choice.base ?? "HEAD" }
+      ? { branch: naming ? null : (choice.branch ?? suggestBranch(context.random)), base: choice.base ?? "HEAD" }
       : null;
   let steps: LaunchStep[] = ["session", "message"];
   if (worktree !== null) steps = naming ? ["name", "worktree", ...steps] : ["worktree", ...steps];
   const started: Launch = {
     id,
+    projectId,
+    model,
     worktree,
     named: null,
     steps,
@@ -385,24 +409,128 @@ export async function launch(
     ...message,
     workspaceId: choice.kind === "existing" ? choice.workspaceId : null,
     sessionId: null,
+    startedAt: context.now(),
+    failedAt: null,
+    sentAt: null,
   };
   store.setState(({ launches }) => ({
     page: { ...page, launchId: id },
     launches: [...launches.filter((one) => one.id !== page.launchId), started],
   }));
+  await proceed(store, context, started);
+}
+
+/**
+ * Goes on with a failed launch from the step that failed, taking its message back out of the box
+ * it went back to, unless something else was typed there since.
+ *
+ * @remarks
+ * The failed step's "重试" (SPEC-0001, "M1.11 的新建工作区"). The time it stood failed is not
+ * counted in the summary's. A launch not failed, or gone, is left alone.
+ *
+ * @sideEffects Sends commands; updates the store and the drafts.
+ * @param store - The store.
+ * @param context - The client, the drafts, the clock and random names.
+ * @param launchId - The launch.
+ */
+export async function retryLaunch(
+  store: StoreApi<NewWorkspaceState>,
+  context: LaunchContext,
+  launchId: string,
+): Promise<void> {
+  const failed = store.getState().launches.find((one) => one.id === launchId);
+  if (failed === undefined || failed.failedAt === null) return;
+  const box = failed.sessionId ?? pageDraftKey(failed.projectId);
+  const kept = context.drafts.read(box);
+  if (kept.text === failed.text && kept.images.length === failed.images.length) {
+    context.drafts.update(box, () => ({ text: "", pastes: [], files: [], command: null, images: [] }));
+  }
+  const going = { failure: undefined, failedAt: null, startedAt: context.now() - (failed.failedAt - failed.startedAt) };
+  changeLaunch(store, launchId, going);
+  await proceed(store, context, { ...failed, ...going });
+}
+
+/**
+ * Changes a launch.
+ *
+ * @remarks
+ * The launch may have been dismissed meanwhile; then nothing changes.
+ *
+ * @sideEffects Updates the store.
+ * @param store - The store.
+ * @param id - The launch.
+ * @param fields - The fields to change.
+ */
+function changeLaunch(store: StoreApi<NewWorkspaceState>, id: string, fields: Partial<Launch>): void {
+  store.setState(({ launches }) => ({
+    launches: launches.map((one) => (one.id === id ? { ...one, ...fields } : one)),
+  }));
+}
+
+/**
+ * Stops a launch at a failed step, putting its message back into the box it came from, or the
+ * session's once there is one, when that box is empty.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的新建工作区"); the images get new ids, as the box's own.
+ *
+ * @sideEffects Updates the store and the drafts.
+ * @param store - The store.
+ * @param context - The drafts and the clock.
+ * @param failed - The launch, as it was when it failed.
+ * @param failure - Why.
+ */
+function fail(
+  store: StoreApi<NewWorkspaceState>,
+  context: Pick<LaunchContext, "drafts" | "now">,
+  failed: Launch,
+  failure: unknown,
+): void {
+  changeLaunch(store, failed.id, { failure, failedAt: context.now() });
+  const kept = failed.images.map((image) => ({ ...image, id: crypto.randomUUID() }));
+  context.drafts.restore(failed.sessionId ?? pageDraftKey(failed.projectId), failed.text, kept);
+}
+
+/**
+ * Takes a launch through the steps it has not done: names the branch, creates the worktree, then
+ * the session, then sends.
+ *
+ * @remarks
+ * SPEC-0001 ("M1.11 的新建工作区"). A branch left to the model is named by the message's text on
+ * the page's model (SPEC-0001, "AI 起分支名"); when that fails, for whatever reason, the name is
+ * random, and the launch goes on. While the user is on the page, its button then shows the name,
+ * so sending again names no more. Once the worktree is there, the page goes into it, so sending
+ * again does not make a second one. Once the session is there, what was typed since moves into its
+ * box, and the page closes, as the host shows the session; a user who left the page stays where
+ * they went (`go: false`). pi's start is waited for by setting the model chosen, or else by
+ * listing its commands, as opening the session would take the window there. Once the message has
+ * gone, the launch stays, for its turn's summary. A failure stops the steps (`fail`). A message
+ * opening with `/atrium-` fails before any step, as the host would refuse it only once the
+ * worktree was made.
+ *
+ * @sideEffects Sends commands; updates the store and the drafts.
+ * @param store - The store.
+ * @param context - The client, the drafts, the clock and random names.
+ * @param first - The launch as it is in the store now.
+ */
+async function proceed(store: StoreApi<NewWorkspaceState>, context: LaunchContext, first: Launch): Promise<void> {
+  const { client, drafts, now, random } = context;
+  const { id } = first;
+  // What the launch is now, kept for after it was dismissed.
+  let last = first;
   /**
    * Changes the launch.
    *
    * @remarks
-   * The launch may have been dismissed meanwhile; then nothing changes.
+   * See `changeLaunch`; `last` follows, so a dismissed launch still knows its session.
    *
    * @sideEffects Updates the store.
-   * @param change - The fields to change.
+   * @param fields - The fields to change.
    */
-  const update = (change: Partial<Launch>): void =>
-    store.setState(({ launches }) => ({
-      launches: launches.map((one) => (one.id === id ? { ...one, ...change } : one)),
-    }));
+  const update = (fields: Partial<Launch>): void => {
+    last = { ...last, ...fields };
+    changeLaunch(store, id, fields);
+  };
   /**
    * Whether the user is still on the page this launch was sent from.
    *
@@ -413,58 +541,58 @@ export async function launch(
    * @returns Whether.
    */
   const onPage = (): boolean => store.getState().page?.launchId === id;
-  let sessionId: string | null = null;
+  const { projectId, model, worktree, steps, text, images } = first;
   try {
     // The host refuses it at the send (SPEC-0002, "送达"); refused here, it makes no worktree first.
-    if (message.text.trimStart().startsWith("/atrium-")) throw new CommandError("command_reserved");
-    let workspaceId = started.workspaceId;
-    if (worktree !== null) {
+    if (text.trimStart().startsWith("/atrium-")) throw new CommandError("command_reserved");
+    let { workspaceId, sessionId } = first;
+    // Stryker disable next-line ConditionalExpression: a launch into a workspace already there has its id from the start.
+    if (workspaceId === null && worktree !== null) {
       let { branch } = worktree;
       if (branch === null) {
-        const named = await client.nameBranch(projectId, message.text, model.ref).then(
+        const named = await client.nameBranch(projectId, text, model.ref).then(
           (answer) => ({ branch: answer.branch, named: "model" as const }),
           () => ({ branch: suggestBranch(random), named: "random" as const }),
         );
         ({ branch } = named);
-        const now = store.getState().page;
+        const page = store.getState().page;
         // Stryker disable next-line ConditionalExpression: the choices are held while naming, so it is still a new worktree.
-        if (now?.launchId === id && now.choice.kind === "new") {
-          store.setState({ page: { ...now, choice: { ...now.choice, branch } } });
+        if (page?.launchId === id && page.choice.kind === "new") {
+          store.setState({ page: { ...page, choice: { ...page.choice, branch } } });
         }
         update({ worktree: { ...worktree, branch }, named: named.named, done: 1 });
       }
       workspaceId = (await client.createWorkspace(projectId, branch, worktree.base)).workspaceId;
-      const now = store.getState().page;
-      if (now?.launchId === id) store.setState({ page: { ...now, choice: { kind: "existing", workspaceId } } });
+      const page = store.getState().page;
+      if (page?.launchId === id) store.setState({ page: { ...page, choice: { kind: "existing", workspaceId } } });
       update({ workspaceId, done: steps.indexOf("worktree") + 1 });
     }
-    // Set by now: given, or just created.
-    // Stryker disable next-line StringLiteral: never used, as the line above says.
-    const into = workspaceId ?? "";
-    sessionId = (await client.createSession(into, onPage())).sessionId;
-    update({ sessionId });
-    // What was typed meanwhile goes with the session, unless the page was left: then it is the
-    // next new workspace's.
-    if (onPage()) {
-      drafts.handOver(pageDraftKey(projectId), sessionId);
-      store.setState({ page: null });
+    if (sessionId === null) {
+      // Set by now: given, or just created.
+      // Stryker disable next-line StringLiteral: never used, as the line above says.
+      const into = workspaceId ?? "";
+      sessionId = (await client.createSession(into, onPage())).sessionId;
+      update({ sessionId });
+      // What was typed meanwhile goes with the session, unless the page was left: then it is the
+      // next new workspace's.
+      if (onPage()) {
+        drafts.handOver(pageDraftKey(projectId), sessionId);
+        store.setState({ page: null });
+      }
     }
     if (model.ref !== null) await client.setModel(sessionId, model.ref);
     if (model.level !== null) await client.setThinkingLevel(sessionId, model.level);
     if (model.ref === null && model.level === null) await client.listCommands(sessionId);
-    update({ done: started.steps.length - 1 });
-    const { images } = message;
+    update({ done: steps.length - 1 });
     await client.prompt(
       sessionId,
-      message.text,
+      text,
       images.map((image) => image.attachmentId),
       images.map((image) => image.image.preview),
     );
-    dismiss(store, id);
+    update({ done: steps.length, sentAt: now() });
   } catch (failure) {
-    update({ failure });
-    const kept = message.images.map((image) => ({ ...image, id: crypto.randomUUID() }));
-    drafts.restore(sessionId ?? pageDraftKey(projectId), message.text, kept);
+    fail(store, context, last, failure);
   }
 }
 

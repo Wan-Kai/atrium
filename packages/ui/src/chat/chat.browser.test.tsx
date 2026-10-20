@@ -892,6 +892,8 @@ describe("ConversationArea", () => {
       launches: [
         {
           id: "l1",
+          projectId: "prj_000000000000000a",
+          model: { ref: null, level: null },
           worktree: null,
           named: null,
           steps: ["session", "message"],
@@ -901,6 +903,9 @@ describe("ConversationArea", () => {
           images: [],
           workspaceId: "wks_000000000000000a",
           sessionId: "s1",
+          startedAt: 0,
+          failedAt: null,
+          sentAt: null,
         },
       ],
     });
