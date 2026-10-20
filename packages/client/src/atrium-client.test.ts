@@ -1657,6 +1657,36 @@ describe("createAtriumClient: a workspace's files", () => {
   });
 });
 
+describe("createAtriumClient: pi configuration", () => {
+  it("reads global config and saves exact project text with its original revision", async () => {
+    const { client, latest } = await connected();
+    const global = { path: "/home/.pi/agent/settings.json", text: "{}\n", revision: null };
+    const revision = "a".repeat(64);
+    const saved = { path: "/project/.pi/mcp.json", text: '{\n  "mcpServers": {}\n}\n', revision };
+    const reading = client.readPiConfig(null, "settings.json");
+    latest().answer("read_pi_config", global);
+    expect(await reading).toStrictEqual(global);
+    const saving = client.savePiConfig("wks_0000000000000001", "mcp.json", saved.text, null);
+    latest().answer("save_pi_config", saved);
+    expect(await saving).toStrictEqual(saved);
+    expect(
+      latest()
+        .commands()
+        .filter((command) => ["read_pi_config", "save_pi_config"].includes(String(command["type"])))
+        .map(({ requestId: _id, ...command }) => command),
+    ).toStrictEqual([
+      { type: "read_pi_config", workspaceId: null, name: "settings.json" },
+      {
+        type: "save_pi_config",
+        workspaceId: "wks_0000000000000001",
+        name: "mcp.json",
+        text: saved.text,
+        revision: null,
+      },
+    ]);
+  });
+});
+
 describe("createAtriumClient: compacting", () => {
   it("asks the host to compact a session, with what to keep in mind when given", async () => {
     const { client, latest } = await connected();

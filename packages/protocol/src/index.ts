@@ -70,6 +70,8 @@ export {
   WatchDiffCommand,
   ListDirCommand,
   ReadFileCommand,
+  ReadPiConfigCommand,
+  SavePiConfigCommand,
   CheckSetupCommand,
   LoginCommand,
   AnswerLoginCommand,
@@ -96,6 +98,7 @@ export {
 } from "./changes";
 export { FileCandidate, SLASH_COMMAND_LIMITS, SlashCommand } from "./composer";
 export { DirEntry, FILE_LIMITS, FileContent, ShownImageType, WorkspacePath } from "./files";
+export { PI_CONFIG_MAX_BYTES, PI_PROJECT_CONFIG_NAMES, PiConfigFile, PiConfigName } from "./pi-config";
 export { CatalogModel, MODEL_LIMITS, ModelRef, SessionModel, ThinkingLevel } from "./models";
 export {
   CredentialsChangedEvent,

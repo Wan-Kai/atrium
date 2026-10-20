@@ -18,6 +18,7 @@ import type { InstallService } from "../setup/install-service";
 import type { LoginService } from "../setup/login-service";
 import type { PiLatestService } from "../setup/pi-latest";
 import type { SetupService } from "../setup/setup-service";
+import type { PiConfig } from "../setup/pi-config";
 import type { Connection } from "./connection";
 
 /** What the router needs from the rest of the host. */
@@ -32,6 +33,8 @@ export interface RouterOptions {
   readonly index: IndexCommands;
   /** First launch and the settings. */
   readonly setup: Pick<SetupService, "check">;
+  /** Ordinary pi JSON files, excluding credentials. */
+  readonly piConfig: PiConfig;
   /** Signing in and out through pi. */
   readonly logins: Pick<LoginService, "login" | "answer" | "cancel" | "logout">;
   /** Installing and updating pi and Node. */
@@ -221,6 +224,10 @@ export function createRouter(options: RouterOptions): Route {
         return { attachmentId: options.attachments.put(connection.id, command.mimeType, command.data) };
       case "list_models":
         return options.index.listModels(command.workspaceId, command.refresh ?? false);
+      case "read_pi_config":
+        return options.piConfig.read(command.workspaceId, command.name);
+      case "save_pi_config":
+        return options.piConfig.save(command.workspaceId, command.name, command.text, command.revision);
       case "check_setup":
         return options.setup.check(command.refresh ?? false);
       case "login":

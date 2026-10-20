@@ -16,6 +16,7 @@ export const MUTATION_GROUPS = {
   pi: {
     mutate: [
       "packages/pi/src/env/*.ts",
+      "packages/pi/src/config/*.ts",
       "packages/pi/src/events/*.ts",
       "packages/pi/src/history/*.ts",
       "packages/pi/src/sessions/*.ts",

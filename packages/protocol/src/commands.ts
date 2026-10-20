@@ -9,6 +9,7 @@ import { Appearance, BranchName, ProxySetting, StatusBarChoices } from "./listin
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
+import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
 export const RequestId = z.string().min(1).max(128);
@@ -554,6 +555,26 @@ export const ReadFileCommand = z.strictObject({
 });
 export type ReadFileCommand = z.infer<typeof ReadFileCommand>;
 
+/** Reads a fixed ordinary pi configuration; `null` selects the global agent directory. */
+export const ReadPiConfigCommand = z.strictObject({
+  type: z.literal("read_pi_config"),
+  ...commandFields,
+  workspaceId: WorkspaceId.nullable(),
+  name: PiConfigName,
+});
+export type ReadPiConfigCommand = z.infer<typeof ReadPiConfigCommand>;
+
+/** Saves unchanged JSON text only if the file still has the version that was read. */
+export const SavePiConfigCommand = z.strictObject({
+  type: z.literal("save_pi_config"),
+  ...commandFields,
+  workspaceId: WorkspaceId.nullable(),
+  name: PiConfigName,
+  text: z.string().max(PI_CONFIG_MAX_BYTES),
+  revision: PiConfigRevision,
+});
+export type SavePiConfigCommand = z.infer<typeof SavePiConfigCommand>;
+
 /** The most items one `fetch_transcript` returns. */
 export const FETCH_TRANSCRIPT_LIMIT = 100;
 
@@ -793,6 +814,8 @@ export const Command = z.discriminatedUnion("type", [
   WatchDiffCommand,
   ListDirCommand,
   ReadFileCommand,
+  ReadPiConfigCommand,
+  SavePiConfigCommand,
   CheckSetupCommand,
   LoginCommand,
   AnswerLoginCommand,
@@ -918,6 +941,8 @@ export const CommandResult = {
   list_dir: z.strictObject({ entries: z.array(DirEntry).max(FILE_LIMITS.entries), truncated: z.boolean() }),
   /** `size` in bytes; 0 for a link. */
   read_file: z.strictObject({ size: z.number().int().nonnegative(), content: FileContent }),
+  read_pi_config: PiConfigFile,
+  save_pi_config: PiConfigFile,
   check_setup: SetupState,
   login: z.strictObject({ loginId: z.string().min(1).max(64) }),
   answer_login: z.strictObject({}),

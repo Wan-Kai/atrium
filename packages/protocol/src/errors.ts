@@ -38,12 +38,22 @@ export const ErrorCode = z.enum([
    */
   "path_not_found",
   /**
-   * `list_dir` or `read_file` named a path that is not a plain one inside the workspace: absolute,
-   * with an empty, `.` or `..` part, through a link, or not a directory or file as the command needs.
+   * A workspace file command named an unsafe path, or a configuration command selected a forbidden
+   * name, scope, final link, hardlink or nonregular file. Global agent directories may resolve links.
    */
   "path_invalid",
-  /** `read_file` failed partway, as on a disk error. */
+  /** A workspace file read or ordinary pi configuration read/write failed, as on a disk error. */
   "read_failed",
+  /** Ordinary pi configuration does not parse to an object using that file's supported syntax. */
+  "config_invalid",
+  /** The configuration changed since the client read it; the draft must not overwrite it. */
+  "config_conflict",
+  /** The tool environment is unavailable, so the global pi directory cannot be located. */
+  "config_unavailable",
+  /** The configuration exceeds 256 KiB of UTF-8 bytes. */
+  "config_too_large",
+  /** The configuration's bytes are not valid UTF-8; an external editor must convert them first. */
+  "config_encoding",
   /** The session has had no message yet, so pi has no file to keep its name in. */
   "session_is_draft",
   /** A stop is waiting for pi to confirm; the session takes no new message until then. */

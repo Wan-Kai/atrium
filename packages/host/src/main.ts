@@ -38,6 +38,7 @@ import { createInstallService } from "./setup/install-service";
 import { createLogins } from "./setup/logins";
 import { LATEST_VERSION_URL, createPiLatest, fetchLatestPi } from "./setup/pi-latest";
 import { createSetupService } from "./setup/setup-service";
+import { createPiConfig } from "./setup/pi-config";
 import { type HostTools, createToolbox, withProxySetting } from "./setup/toolbox";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
@@ -552,6 +553,20 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       sessions,
       index: indexCommands,
       setup,
+      piConfig: createPiConfig({
+        environment: async () => {
+          const tools = await toolbox.current();
+          if (tools === null) throw new CommandError("config_unavailable");
+          return tools.env;
+        },
+        dirOf: (workspaceId) =>
+          workspaces
+            .list()
+            .find(
+              (workspace) =>
+                workspace.id === workspaceId && workspace.archivedAt === null && workspace.merge?.verdict !== "removed",
+            )?.dir,
+      }),
       logins: loginService,
       installs,
       catchUp: () => [

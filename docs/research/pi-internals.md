@@ -153,7 +153,8 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 **并发与锁**
 
 - **会话文件没有锁**：两个进程打开同一文件会各自在自己的叶子后追加，文件里交错成多条分支，互相看不到。只有首次创建用 `wx` 互斥。**宿主必须保证一个会话文件只有一个 pi 进程。**
-- `proper-lockfile` 只用于 `auth.json`、模型存储、包管理和实验性服务端。
+- `proper-lockfile` 不仅用于 `auth.json`、模型存储、包管理和实验性服务端：2026-10-20 对照已装 pi 的 `dist/core/settings-manager.js`，`FileSettingsStorage.withLock` 对全局和项目 `settings.json` 也用 `lockSync(path, { realpath: false })`，锁目录为 `<文件>.lock`（默认 stale 10 秒、更新 5 秒）；存在的文件先持锁再读、合并修改、同步写文件，最后释放。文件不存在时，pi 先以 `undefined` 调用转换函数计算新内容，再在写入前取锁，不会在锁内重新读取；因此与 pi 同时首次创建时，pi 自身这段锁前计算仍可能覆盖其他写入者。Atrium 的普通配置编辑也必须在同一把锁内重新检查版本并替换 settings，不能只检查锁目录是否存在；这能协调已有文件的 pi 写入，不能修正上述 pi 的首次创建行为。
+- 普通配置语法（2026-10-20 对照已装 pi 的 `dist/core/model-config.js`、`dist/utils/json.js` 与 `settings-manager.js`）：models 在 `JSON.parse` 前剥离开头 BOM、`//` 行注释和尾逗号（字符串内容不剥离，不额外支持块注释）；settings 剥离 BOM 后严格 JSON，只有原始内容为零字节时按空对象处理（不是任意空白）。Atrium 保存时只用解析结果验证对象形状，仍写原文，不运行其中的命令。
 
 **退出**（2026-10-04 在 pi 1.0.2 上实测）：bash 工具的子进程用 `detached: true` 启动，各有自己的进程组，pi 记录它们的 pid。关闭 stdin（退出码 0）或 SIGTERM（143）时，pi 会先杀掉这些子进程再退出，约 0.3 秒。SIGKILL 时 pi 来不及清理，子进程被过继给 1 号进程继续运行，杀 pi 的进程组也够不到它们。所以强杀前要趁 pi 还活着按父进程关系找出后代，连同它们的进程组一起杀。
 

@@ -23,6 +23,8 @@ import {
   type LoginMethod,
   type LoginUpdatedEvent,
   type Plans,
+  type PiConfigName,
+  type PiConfigFile,
   type ModelRef,
   type Preferences,
   type Project,
@@ -213,6 +215,15 @@ export interface FakeAnswers {
   readonly listDir?: (workspaceId: string, path: string) => Promise<CommandResult<"list_dir">>;
   /** A workspace file; `path_not_found` when left out. */
   readonly readFile?: (workspaceId: string, path: string) => Promise<CommandResult<"read_file">>;
+  /** Reads ordinary pi configuration without recording its contents. */
+  readonly readPiConfig?: (workspaceId: string | null, name: PiConfigName) => Promise<PiConfigFile>;
+  /** Saves ordinary pi configuration without recording its contents. */
+  readonly savePiConfig?: (
+    workspaceId: string | null,
+    name: PiConfigName,
+    text: string,
+    revision: string | null,
+  ) => Promise<PiConfigFile>;
   /** A turn's image, or none; the host has none when left out. */
   readonly image?: (
     turnId: string,
@@ -240,6 +251,8 @@ export interface FakeAnswers {
  */
 export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = {}, answers: FakeAnswers = {}) {
   const calls: string[] = [];
+  /** Config commands, recorded separately because pi settings loads the editor on entry. */
+  const configCalls: string[] = [];
   /** Previews of the messages sent with images, by message; see `sentPreviews`. */
   const sent = new Map<string, readonly string[]>();
   const modelCalls: string[] = [];
@@ -706,6 +719,26 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       calls.push(`listDir ${workspaceId} ${path}`);
       return (await answers.listDir?.(workspaceId, path)) ?? { entries: [], truncated: false };
     },
+    async readPiConfig(workspaceId: string | null, name: PiConfigName) {
+      configCalls.push(`readPiConfig ${workspaceId} ${name}`);
+      return (
+        answers.readPiConfig?.(workspaceId, name) ?? {
+          path: `/Users/test/.pi/agent/${name}`,
+          text: "{}\n",
+          revision: null,
+        }
+      );
+    },
+    async savePiConfig(workspaceId: string | null, name: PiConfigName, text: string, revision: string | null) {
+      configCalls.push(`savePiConfig ${workspaceId} ${name}`);
+      return (
+        answers.savePiConfig?.(workspaceId, name, text, revision) ?? {
+          path: `/Users/test/.pi/agent/${name}`,
+          text,
+          revision: "saved",
+        }
+      );
+    },
     async readFile(workspaceId: string, path: string) {
       calls.push(`readFile ${workspaceId} ${path}`);
       const read = await answers.readFile?.(workspaceId, path);
@@ -824,7 +857,20 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
-  return { client, calls, modelCalls, changeCalls, views, index, connection, setup, loginState, installJob, plans };
+  return {
+    client,
+    calls,
+    configCalls,
+    modelCalls,
+    changeCalls,
+    views,
+    index,
+    connection,
+    setup,
+    loginState,
+    installJob,
+    plans,
+  };
 }
 
 /** Project `prj_a` named "atrium". */

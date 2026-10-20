@@ -13,5 +13,13 @@ export { type IndexView } from "./index-view";
 export { type ModelListView } from "./model-list";
 export { type MessageTag, type PendingMessage, type SessionView } from "./session-view";
 export { type SetupView } from "./setup-view";
-// The UI checks failures against these, and may use the protocol only for types (overview.md, "包之间的依赖").
-export { CommandError, ThinkingLevel, isAuthFailure, isChatId } from "@atrium/protocol";
+// Runtime protocol values reach the UI through this facade; protocol imports are type-only there (overview.md).
+export {
+  CommandError,
+  PI_CONFIG_MAX_BYTES,
+  PI_PROJECT_CONFIG_NAMES,
+  PiConfigName,
+  ThinkingLevel,
+  isAuthFailure,
+  isChatId,
+} from "@atrium/protocol";

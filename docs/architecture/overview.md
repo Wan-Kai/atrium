@@ -50,6 +50,7 @@ atrium/
 │   │       └── version.ts          协议版本，握手时用
 │   ├── pi/                         pi 集成：pi 的格式和协议只出现在这里
 │   │   ├── src/
+│   │   │   ├── config/             普通配置的 pi 语法校验，以及与 pi 共用的 settings 文件锁（proper-lockfile）
 │   │   │   ├── process/            PiProcess：启动、LF 分帧、请求对应、超时、stderr、进程组
 │   │   │   ├── rpc/                命令封装：prompt、steer、abort、get_entries……
 │   │   │   ├── translate/          EventTranslator：pi 实时事件 → Atrium 事件（纯函数）
@@ -83,7 +84,7 @@ atrium/
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
-│   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务
+│   │   │   ├── setup/              Toolbox（找到的工具，可重新检测）、SetupService、安装和登录任务；PiConfig（固定白名单的普通配置读取、版本检查与原子保存）
 │   │   │   ├── titles/             TitleGenerator：标题的提示词、截断和写回规则
 │   │   │   ├── files/              FileSearch（`@` 引用的候选文件：调 fd，按 pi 终端界面的规则打分）；WorkspaceFiles（M1.12：右栏文件树的目录内容、查看标签的文件内容，只读工作区里的、不跟随链接）
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）

@@ -2518,6 +2518,23 @@ describe("Workbench attention and hand-off (M1.9)", () => {
     const dialog = screen.getByRole("dialog", { name: "设置" });
     await expect.element(dialog.getByRole("heading", { level: 2 })).toHaveTextContent("模型与账户");
     expect(localStorage.getItem("atrium.settings.section")).toBe("accounts");
+    await dialog.getByRole("button", { name: "pi", exact: true }).click();
+    const draft = dialog.getByRole("textbox", { name: "配置内容" });
+    await draft.fill('{"draft":true}');
+    // Keep the actual background button: inert elements are absent from accessible queries.
+    const auth = Array.from(screen.container.querySelectorAll<HTMLButtonElement>("main button")).find(
+      (button) => button.textContent === "去登录",
+    );
+    expect(auth?.textContent).toBe("去登录");
+    auth?.focus();
+    await expect.element(draft).toHaveFocus();
+    await userEvent.keyboard("{Tab}{Enter}");
+    await expect.element(dialog.getByRole("heading", { level: 2 })).toHaveTextContent("pi");
+    // Even a synthetic call bypassing inert must not replace the editing section.
+    auth?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await draft.click();
+    await expect.element(draft).toHaveValue('{"draft":true}');
+    expect(localStorage.getItem("atrium.settings.section")).toBe("pi");
   });
 
   it("says why a hand-off was refused", async () => {

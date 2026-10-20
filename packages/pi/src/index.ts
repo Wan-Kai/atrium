@@ -1,5 +1,8 @@
 export type { PiDeps } from "./deps";
 export { absolutePathEntries, piEnvironment } from "./env/pi-env";
+export { agentDirectory } from "./env/agent-dir";
+export { isPiConfigValid } from "./config/validate-config";
+export { acquirePiSettingsLock, type PiSettingsLock } from "./config/settings-lock";
 export { PI_VERSION_TIMEOUT_MS, type PiInspection, inspectPi } from "./locate/inspect";
 export { findExecutable, findPi, readVersion } from "./locate/locate";
 export { MIN_NODE_VERSION, type NodeInspection, inspectNode } from "./locate/node";

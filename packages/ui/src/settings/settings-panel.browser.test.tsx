@@ -85,6 +85,20 @@ describe("Settings panel", () => {
     expect(localStorage.getItem(SECTION_KEY)).toBe("about");
   });
 
+  it("does not let the workbench shortcut discard a config draft", async () => {
+    const { screen } = await workbench({ stored: "pi" });
+    await userEvent.keyboard("{Meta>},{/Meta}");
+    const dialog = screen.getByRole("dialog", { name: "设置" });
+    await dialog.getByRole("textbox", { name: "配置内容" }).fill('{"draft":true}');
+    await userEvent.keyboard("{Meta>},{/Meta}");
+    await expect.element(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "继续编辑" }).click();
+    await expect.element(dialog.getByRole("textbox", { name: "配置内容" })).toHaveValue('{"draft":true}');
+    await userEvent.keyboard("{Meta>},{/Meta}");
+    await dialog.getByRole("button", { name: "放弃修改" }).click();
+    await expect.element(dialog).not.toBeInTheDocument();
+  });
+
   it("opens on the part remembered from before, or the first when it names none", async () => {
     const first = await workbench({ stored: "projects" });
     await first.screen.getByRole("button", { name: "设置" }).click();

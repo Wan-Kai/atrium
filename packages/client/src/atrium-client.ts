@@ -18,6 +18,7 @@ import {
   type ModelRef,
   PROTOCOL_VERSION,
   type PiLatest,
+  type PiConfigName,
   type Plans,
   type Preferences,
   type SessionEvent,
@@ -282,6 +283,15 @@ export interface AtriumClient {
   listDir(workspaceId: string, path: string): Promise<CommandResult<"list_dir">>;
   /** One file of a workspace, for a viewer tab (SPEC-0001, "M1.12 的文件与更改"). */
   readFile(workspaceId: string, path: string): Promise<CommandResult<"read_file">>;
+  /** An ordinary pi config's path, exact text and version; `null` selects the global directory. */
+  readPiConfig(workspaceId: string | null, name: PiConfigName): Promise<CommandResult<"read_pi_config">>;
+  /** Saves JSON only when the original version still matches; never reloads or interrupts pi. */
+  savePiConfig(
+    workspaceId: string | null,
+    name: PiConfigName,
+    text: string,
+    revision: string | null,
+  ): Promise<CommandResult<"save_pi_config">>;
   /** One image of a turn's user message, for its thumbnail (SPEC-0001, "M1.11 的消息图片"). */
   fetchImage(sessionId: string, turnId: string, index: number): Promise<CommandResult<"fetch_image">>;
   /**
@@ -1312,6 +1322,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     searchFiles: (sessionId, query) => request("search_files", { sessionId, query }),
     listDir: (workspaceId, path) => request("list_dir", { workspaceId, path }),
     readFile: (workspaceId, path) => request("read_file", { workspaceId, path }),
+    readPiConfig: (workspaceId, name) => request("read_pi_config", { workspaceId, name }),
+    savePiConfig: (workspaceId, name, text, revision) =>
+      request("save_pi_config", { workspaceId, name, text, revision }),
     fetchImage: (sessionId, turnId, place) => request("fetch_image", { sessionId, turnId, index: place }),
     setup,
     loadSetup: (refresh = false) => loadSetup(refresh),

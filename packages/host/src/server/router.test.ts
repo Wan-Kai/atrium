@@ -184,6 +184,16 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
   const route = createRouter({
     sessions,
     index,
+    piConfig: {
+      read: async (workspaceId, name) => {
+        calls.push(["readPiConfig", workspaceId, name]);
+        return { path: "/config/settings.json", text: "{}\n", revision: null };
+      },
+      save: async (workspaceId, name, text, revision) => {
+        calls.push(["savePiConfig", workspaceId, name, text, revision]);
+        return { path: "/config/settings.json", text, revision: "a".repeat(64) };
+      },
+    },
     setup: {
       check: async (refresh) => {
         calls.push(["checkSetup", refresh]);
@@ -655,6 +665,38 @@ describe("createRouter", () => {
       },
       { type: "response", requestId: "r2", ok: true, result: { size: 1, content: { kind: "text", text: "a" } } },
       { type: "response", requestId: "r3", ok: false, error: { code: "path_not_found" } },
+    ]);
+  });
+
+  it("routes ordinary config commands and rejects credential names before calling the service", async () => {
+    const { route, connection, sent, calls } = setUp();
+    await route(
+      connection,
+      withTrace({ type: "read_pi_config", requestId: "r1", workspaceId: null, name: "settings.json" }),
+    );
+    await route(
+      connection,
+      withTrace({
+        type: "save_pi_config",
+        requestId: "r2",
+        workspaceId: WORKSPACE,
+        name: "settings.json",
+        text: "{}",
+        revision: null,
+      }),
+    );
+    await route(
+      connection,
+      withTrace({ type: "read_pi_config", requestId: "r3", workspaceId: null, name: "auth.json" }),
+    );
+    expect(calls).toStrictEqual([
+      ["readPiConfig", null, "settings.json"],
+      ["savePiConfig", WORKSPACE, "settings.json", "{}", null],
+    ]);
+    expect(sent).toMatchObject([
+      { type: "response", requestId: "r1", ok: true, result: { text: "{}\n", revision: null } },
+      { type: "response", requestId: "r2", ok: true, result: { text: "{}", revision: "a".repeat(64) } },
+      { type: "response", requestId: "r3", ok: false },
     ]);
   });
 

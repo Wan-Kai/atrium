@@ -69,6 +69,7 @@ export interface WsServerOptions {
   readonly index: IndexCommands;
   /** First launch and the settings. */
   readonly setup: RouterOptions["setup"];
+  readonly piConfig: RouterOptions["piConfig"];
   /** Signing in and out through pi. */
   readonly logins: RouterOptions["logins"];
   /** Installing and updating pi and Node. */
@@ -143,6 +144,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     sessions: options.sessions,
     index: options.index,
     setup: options.setup,
+    piConfig: options.piConfig,
     logins: options.logins,
     installs: options.installs,
     piLatest: options.piLatest,

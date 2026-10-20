@@ -529,6 +529,7 @@ Electron 主进程
   - 更新过程：有会话在运行时显示"等待 N 个会话运行结束"（可取消）；更新中显示终端输出和进度，可取消；失败显示完整输出和"重试"；完成后显示"已更新到 x.y.z"，可查看日志。更新期间新开的会话等更新完成再启动 pi。
   - "手动更新"折叠项：可复制的 `pi update` 和"我更新好了，重新检测"。
   - 网络代理（2026-10-11 定，参考 Paseo 给服务商设环境变量的做法）：代理地址（如 `http://127.0.0.1:7897`）和"不走代理的地址"（逗号或换行分隔，如 `.anthropic.com`），"保存"和"不用代理"。设了之后，宿主交给 pi（会话、列模型、版本检查）、登录、安装和更新的环境里，`HTTPS_PROXY`、`HTTP_PROXY`（及小写）都是这个地址，`NO_PROXY`（及小写）是 `localhost,127.0.0.1,::1` 加上填的列表，取代登录 shell 里的同名变量；宿主自己查最新版本、下载安装脚本也走它。已经在跑的 pi 不受影响，下次启动时生效，组下面说明这一点。没设时沿用登录 shell 的代理变量。只接受 `http://`、`https://` 的地址，只有主机和端口，不能带用户名和密码（会进 pi 的环境，日志的脱敏也认不出来）；不接受时在输入框下说明原因。
+  - 配置文件（M1.11 自用，2026-10-20）：在设置内直接编辑普通配置，不扩展工作区的只读文件标签。全局列 `settings.json`、`models.json`、`mcp.json`、`keybindings.json`；当前工作区（项目作用域）仅列 `.pi/settings.json`、`.pi/mcp.json`。展示宿主实际使用的绝对路径，全局目录按 pi 环境的 `PI_CODING_AGENT_DIR` / `HOME` 解析；宿主读写接口不要求安装 pi，只要环境可得；界面仍受现有首次启动引导控制，不承诺未安装时能直接打开设置。不存在的文件先显示 `{}`，只有保存才创建。项目配置仅允许在仍存在的工作区根目录下创建 `.pi`，绝不重建已被删除的工作区；界面不提供已移除或已归档工作区的项目作用域。编辑器保留原文、不自动格式化，编辑时保留 BOM 和原文件的 CRLF 换行（混合换行在编辑后按 LF 统一）；提供保存和重新读取，显示读取中、保存中、成功和可重试的失败。保存前校验 pi 接受的语法和顶层对象（不替 pi 校验字段语义）：`models.json` 支持 `//` 注释与尾逗号，由宿主按 pi 的语法校验；其余文件严格 JSON，校验忽略开头的 BOM；零字节的 `settings.json` 视为 `{}`（不是任意空白），原文仍保留，单文件上限 256 KiB UTF-8；已存在但无效的 JSON 仍可打开修复。切换文件、作用域、分类或关闭设置前，有未保存修改时先确认，所有入口共用设置面板的一份确认（背景“去登录”等也不能绕过）；有确认时不能保存，保存期间不允许切换或关闭，设置打开时背景工作台不可交互。保存携带读取时的版本，外部修改或另一个窗口先保存时拒绝覆盖，保留草稿并提示重新读取；settings 的保存还与 pi 共用 `proper-lockfile` 的 `<文件>.lock` 锁，从读版本到原子替换一直持有，锁忙立即报冲突、不等待、不打断 pi。保存不自动重启或打断会话，说明“保存到 pi 的配置文件；已运行的会话不自动重载，新启动的 pi 按自身规则读取。项目配置需获得 pi 信任后生效”。`auth.json`、`mcp-auth.json` 不进入内置编辑器，凭据仍在“模型与账户”管理。普通配置也可能手填密钥，提示优先引用环境变量，不把配置内容放进对话、索引、日志或链路。
 - **关于**：Atrium 版本、与宿主的连接（"已连接"，或正在重连等）、pi 版本、日志文件夹（"在访达中显示"）。
 
 **接口**（2026-10-10 定，M1.10）：
@@ -540,6 +541,7 @@ Electron 主进程
 - `list_branches(projectId)`：应答 `{ branches, head }`：`branches` 是 `origin` 上的分支名（不带 `origin/`，去掉 `HEAD`，按名字排列），供主干下拉用；`head` 是 `origin/HEAD` 指向的分支，"自动"旁边显示它，没有时为 `null`。不是 git 仓库或没有 git 时两者都为空（2026-10-11 定）。
 - 列表里的项目多了 `mainBranch`：用户选的主干，`null` 为自动（2026-10-11 定）。
 - `check_setup` 的 `pi` 多了 `latest`（npm 上的最新版本）和 `checkedAt`（查到它的时间，毫秒）：从没查到时都为 `null`，之后某次没查到保留上次的结果。宿主启动后和之后每天查一次；`check_pi_update()` 立刻查（同时只查一次），应答 `{ latest, checkedAt }`。每次查到用事件 `pi_latest { latest, checkedAt }` 推给所有客户端。宿主在 `check_setup` 查完登录状态后才取 `latest`；界面以 `checkedAt` 较新的为准，`check_setup` 还没答复时收到的 `pi_latest` 也留着（2026-10-11 定）。查的是 pi 自己检查新版本用的 `https://pi.dev/api/latest-version`（返回 npm 上的版本和包名，10 秒为限），和终端里的 pi 看到的一致；pi 的环境里设了 `PI_OFFLINE` 时不查（2026-10-11 定）。日志只记查到的版本或没查到的原因。
+- `read_pi_config(workspaceId | null, name)` / `save_pi_config(workspaceId | null, name, text, revision)`：配置文件的读取和保存，均应答 `{ path, text, revision }`；`null` 为全局，工作区 id 由宿主解析到登记的工作目录。`name` 仅允许上述四个固定文件名，项目仅允许 settings / mcp。`revision` 是原始字节的 SHA-256，不存在为 `null`；保存时比较磁盘版本，同宿主对写入串行受理。错误码 `config_invalid`（语法或顶层不是对象）、`config_conflict`（版本变化）、`config_too_large`（超过字节上限）、`config_unavailable`（环境不可得），路径不安全用 `path_invalid`，工作区根目录已不存在用 `workspace_not_found`，无效 UTF-8 用 `config_encoding`（提示用外部编辑器转换编码，不建议反复重试），读写失败用 `read_failed`。不接受客户端的任意绝对路径；全局配置目录按用户给 pi 的目录解析真实路径，允许目录自身及其祖先的符号链接并展示规范路径；项目 `.pi` 路径仍拒绝符号链接，最终文件一律不跟随符号链接、不读写有多个硬链接的文件；保存用同目录临时文件原子替换，新文件权限 `0600`；替换成功后不再清理已经被移动的临时路径，避免清理失败被误报成保存失败。
 - 握手的 `welcome` 多了 `logDir`。"在访达中显示"走桌面壳的 `reveal(path)`，只接受存在的绝对路径。
 
 ### 关键流程
@@ -1275,6 +1277,7 @@ pi 终端界面的内置命令在 RPC 里不能直接输入，但多数背后的
 | `search_files(sessionId, query)` | `@` 引用的候选文件和目录（在会话的工作目录里用 `fd`，与 pi 的终端界面一致） |
 | `check_setup(refresh?)` / `install_pi()` / `update_pi()` / `install_node()` / `cancel_install(jobId)` / `login(providerId, method, key?)` / `answer_login(loginId, promptId, value)` / `cancel_login(loginId)` / `logout(providerId)` / `check_pi_update()` / `discover_projects()` | 首次启动与设置：检查、一键安装和更新、登录与退出、从 pi 历史发现目录（M1.10，见上文"首次启动 · 接口"） |
 | `set_main_branch(projectId, branch)` / `list_branches(projectId)` | 项目的主干分支（M1.10，见上文"设置 · 接口"） |
+| `read_pi_config(workspaceId \| null, name)` / `save_pi_config(workspaceId \| null, name, text, revision)` | 设置内的普通 pi 配置编辑（M1.11 自用，见上文“设置 · pi”与“设置 · 接口”） |
 
 **事件（宿主 → UI）**
 

@@ -521,9 +521,11 @@ function MainWindow({
   const settings = useSettings();
   const { choose: chooseSection, show: showSettings } = settings;
   const openLogin = useCallback(() => {
+    // Background requests must not replace an editor inside the already-open modal.
+    if (settings.open) return;
     chooseSection("accounts");
     showSettings();
-  }, [chooseSection, showSettings]);
+  }, [chooseSection, showSettings, settings.open]);
   const [pages] = useState(createNewWorkspaceStore);
   const [panes] = useState(() => createPanes(localStorage));
   const [views] = useState(() => createWorkspaceViews(localStorage));
@@ -558,7 +560,7 @@ function MainWindow({
   const resets = index.resets.length > 0 && dismissed !== index.generation ? index.resets : [];
   return (
     <>
-      <div className="relative flex h-full">
+      <div className="relative flex h-full" inert={settings.open}>
         <Sidebar
           client={client}
           onNewChat={() => {

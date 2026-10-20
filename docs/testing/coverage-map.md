@@ -45,6 +45,19 @@
 | 图标：统一从 `design/icons.tsx` 取 Hugeicons，线宽 1.75，加粗的按各自的宽度（勾 2.25，更多、上箭头 2.5），实心的填色并保留轮廓，不给尺寸时跟随文字；Meta 标借 Tabler 的形状；侧栏领先数和已合并用图标不用字符（2026-10-12） | `packages/ui/src/design/icons.browser.test.tsx`、`app/workbench.browser.test.tsx` "lists a project's workspaces" | 已覆盖 |
 | 连接状态的全部文案，包括启动中、桥接失败；连上后只留给读屏、不占位置，没连上时主窗口底部一行（2026-10-12） | `packages/ui/src/app/connection-status.browser.test.tsx`、`workbench.browser.test.tsx` "connection line" | 已覆盖 |
 
+## pi 普通配置编辑（M1.11 自用）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 只接受四个普通配置名，拒绝凭据名与任意路径；携带原文和 SHA-256 版本，限制传输大小 | `packages/protocol/src/pi-config.test.ts`；`envelope.test.ts` 的命令与错误码全集 | 已覆盖 |
+| 客户端读全局配置、保存项目配置时携带原始版本和原文，不经会话发送 | `packages/client/src/atrium-client.test.ts` “pi configuration” | 已覆盖 |
+| 配置路径来自 pi 环境或登记的工作区；缺失只在保存时创建；JSON 对象校验、UTF-8 大小上限、并发版本冲突、原子保存、符号链接和硬链接保护、错误不泄露原文 | `packages/host/src/setup/pi-config.test.ts`；`setup/pi-config.host.test.ts` 的真实宿主与客户端及日志检查；`server/router.test.ts` 的配置路由 | 已覆盖 |
+| 设置内选择全局或当前工作区的配置，编辑、保存、重读；无效 JSON、失败与冲突保留草稿，未保存退出确认和保存期间保护 | `packages/ui/src/settings/pi-config-group.browser.test.tsx`（含保存时的丢弃确认保护）；`settings-panel.browser.test.tsx` “does not let the workbench shortcut discard a config draft” | 已覆盖 |
+
+审查后新增回归（2026-10-20 已验证）：`packages/host/src/setup/pi-config.test.ts` 覆盖已删除工作区不重建、全局目录链接与末级凭据链接的区别、UTF-8 错误与成功替换后的清理；`packages/pi/src/config/` 覆盖 pi 兼容语法、共享 settings 锁及锁释放；UI 的配置与工作台测试覆盖统一确认、背景不可交互、过期成功/失败响应、BOM/CRLF；`apps/desktop/e2e/pi-config.spec.ts` 从设置保存带 BOM、CRLF、注释及尾逗号的 models，再经真实 pi 刷新模型目录验证加载（桌面端到端已通过）。settings-lock 的目录和心跳泄漏测试通过。锁文件变化后补齐 Shiki 四个子路径预构建，并以清空本工作树 UI 的 Vitest 缓存后全套 786 项通过证明不会再中途重载。
+
+配置编辑的聚焦变异验证（2026-10-20）：协议与客户端新增路径 100%，宿主配置与路由 93.42%。宿主剩余 16 个存活已逐项审查：14 个等价或不可达在 `pi-config.ts` 注明；另 2 个删除队列 Map 清理的变异只影响内存保留，现有公开行为测试尚不能证明该资源回收，不做豁免。现有客户端与宿主连接泄漏测试通过；尚未加入配置队列自身的 GC 泄漏测试。
+
 ## pi 链路（M1.2）
 
 | 行为 | 测试 | 状态 |

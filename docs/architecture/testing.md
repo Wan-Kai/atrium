@@ -10,7 +10,7 @@
 
 | 方面 | 工具 | 说明 |
 |---|---|---|
-| 测试框架 | Vitest 5 | 单元、集成；浏览器模式（`@vitest/browser-playwright`，真实 Chromium）跑组件测试，组件渲染用 `vitest-browser-react`。组件测试直接用 UI 包的 `vite.config.ts`（`extends`），和页面一样带 React 与 Tailwind 插件；依赖在配置里预构建（`optimizeDeps.include`），否则测试中途发现新依赖时 Vite 会重载页面，加载出两份 React，渲染全部失败 |
+| 测试框架 | Vitest 5 | 单元、集成；浏览器模式（`@vitest/browser-playwright`，真实 Chromium）跑组件测试，组件渲染用 `vitest-browser-react`。组件测试直接用 UI 包的 `vite.config.ts`（`extends`），和页面一样带 React 与 Tailwind 插件；依赖在配置里预构建（`optimizeDeps.include`），否则测试中途发现新依赖时 Vite 会重载页面，加载出两份 React，渲染全部失败；Shiki 的 `core`、`engine/javascript`、`langs`、`themes` 子路径也要显式预构建，锁文件变化后用冷缓存跑浏览器测试检查漏项 |
 | 端到端 | Playwright（`@playwright/test`） | 用 `_electron.launch` 驱动真实的 Electron 应用 |
 | 属性测试 | fast-check 4 | 随机生成输入找边界情况；也用它的 `commands` 做基于模型的测试 |
 | 变异测试 | Stryker 10，命令运行器 | 往代码里注入 bug，检验测试能不能抓住。Stryker 的 Vitest 插件靠 Vitest 的 provide/inject 激活变异，这在 Vitest 5 上失效（所有变异都会"存活"），所以改用命令运行器：每个变异跑一遍 Node 测试层（`vitest.mutation.config.ts`），没有逐测试覆盖分析。按模块分成几组，每组只跑自己相关的测试（2026-10-10 定，见下文"每个变异只跑本组的测试"） |
