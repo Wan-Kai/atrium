@@ -34,3 +34,4 @@
 | [0011](0011-plan-overview-all-subscriptions.md) | 套餐总览：经任一会话的 pi 查所有订阅，Grok 的用量接口是唯一的例外地址 | 已接受 | 2026-10-16 |
 | [0012](0012-claude-usage-from-replies-and-openai-mapping.md) | Claude 的用量也从回复的响应头读，经 claude-bridge 和 pi 新的 ChatGPT 登录的会话算到对应的订阅 | 已接受 | 2026-10-17 |
 | [0013](0013-agent-channel-status-and-hidden-command.md) | 扩展与宿主有来有回的通道用"状态加隐藏命令" | 已接受 | 2026-10-17 |
+| [0014](0014-web-search-and-fetch-through-deepseek.md) | 联网搜索和网页抓取经 Atrium 自带的 pi 扩展，用 DeepSeek 的 Search / Fetch API | 已接受 | 2026-10-20 |

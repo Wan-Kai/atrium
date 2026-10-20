@@ -14,6 +14,8 @@ export interface Registry {
         readonly apiKey?: string;
         readonly headers?: Readonly<Record<string, string | null>>;
         readonly baseUrl?: string;
+        /** The credential's own `env` object in `auth.json`, as pi resolves it (providers.md, "Provider Specific Config"). */
+        readonly env?: Readonly<Record<string, string>>;
       }
     | { readonly ok: false }
   >;
