@@ -7,7 +7,7 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 1. 先读 [docs/roadmap.md](docs/roadmap.md) 的"当前状态"和"开工前必读"，找到当前里程碑，读它"参考"一栏列出的文档章节。
 2. 上下文丢失（新会话、对话被压缩）后，同样从路线图开始找回，不凭记忆。
 3. 动手前确认本次改动属于哪个里程碑、对应 SPEC 的哪条需求或流程。
-4. 按 [development.md · 标准开发流程](docs/development.md#标准开发流程) 走：开 worktree、先改文档、看得见的改动先做原型请用户选、测试先行加破坏检查、检查与变异测试、审查、装上试用、合并。改了什么要跑哪些测试、交给用户之前查什么、怎么验收，见 [acceptance.md](docs/acceptance.md)。
+4. 按 [development.md · 标准开发流程](docs/development.md#标准开发流程) 走：开 worktree、先改文档、看得见的改动先做原型请用户选、测试先行加破坏检查、检查与变异测试、审查、请用户验收，确认通过后再合并和清理。改了什么要跑哪些测试、交给用户之前查什么、怎么验收，见 [acceptance.md](docs/acceptance.md)。
 
 ## 以文档为准
 
@@ -45,7 +45,7 @@ Atrium 是以 pi 为唯一内核的 macOS 桌面 coding agent。本文件给在�
 
 ## 提交与分支
 
-见 [docs/development.md](docs/development.md)：每个里程碑一个分支，完成后本地合并回 `main`；提交信息英文祈使句；**只在明确要求时推送**。
+**先验收，后收尾**：实现、自查和审查完成后，主动请用户验收；用户明确确认通过前保留分支和 worktree，不合并回 `main`、不删除 worktree。验收通过后按 [docs/development.md · 标准开发流程](docs/development.md#标准开发流程) 合并与安全清理；提交信息英文祈使句；**只在明确要求时推送**。
 
 ## 常用命令
 
