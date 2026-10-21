@@ -21,7 +21,7 @@ import { type ChatRecords, createChatRecords } from "../store/chat-records";
 import { CHATS_FILE, layoutsFile, SESSIONS_FILE } from "../store/index-schema";
 import { SubscriptionRegistry } from "../sync/subscriptions";
 import { createLayouts } from "./layouts";
-import { createSessionCatalog } from "./session-catalog";
+import { type SessionCatalog, createSessionCatalog } from "./session-catalog";
 import { type TurnStarts, loadTurnStarts } from "../store/turn-starts";
 import { type SessionTools, createSessionManager } from "./session-manager";
 
@@ -128,6 +128,8 @@ async function manage(
     readonly workspaces?: { id: string; dir: string }[];
     /** How many session ids are taken already, so new ones do not meet a session on file. */
     readonly sessionsTaken?: number;
+    /** A real catalog with controlled stages for manager concurrency tests. */
+    readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
   } = {},
 ) {
   const at = where ?? (await place());
@@ -166,7 +168,7 @@ async function manage(
     chatsRoot: join(at.home, "chats"),
     tools: detected,
     subscriptions,
-    catalog,
+    catalog: more.catalog?.(catalog) ?? catalog,
     layouts,
     chats: chats === undefined ? chatRecords : chats(chatRecords),
     workspaces: {
@@ -291,6 +293,484 @@ function agentStatus(manager: Manager): string | null {
 function caught(error: unknown): unknown {
   return error;
 }
+/**
+ * Opens a real stopped session whose scripted rewind is deliberately unconfirmed.
+ * @remarks The real controller rejects the edit without stopping pi, exposing reservation and
+ * hand-off ordering independently of model execution or successful branch persistence.
+ * @sideEffects Creates temporary files, starts scripted pi and subscribes to its session.
+ * @param catalog - An optional stage controller around the real catalog.
+ * @returns The manager, its stopped edit command and session file.
+ */
+async function editableSession(catalog?: (catalog: SessionCatalog) => SessionCatalog) {
+  const at = await place();
+  const file = await terminalSession(at, "pi-session-1", at.workspace);
+  const user = {
+    type: "message",
+    id: "u1",
+    parentId: null,
+    timestamp: "1970-01-01T00:00:00.000Z",
+    message: { role: "user", content: "hi", timestamp: 0 },
+  };
+  const managed = await manage(
+    {
+      rules: {
+        get_state: { data: { sessionId: "pi-session-1", sessionFile: file } },
+        get_entries: { data: { entries: [user], leafId: "u1" } },
+        get_commands: { data: { commands: [{ name: "atrium-edit", source: "extension", sourceInfo: {} }] } },
+        prompt: { data: { disposition: "handled" } },
+      },
+    },
+    at,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    catalog === undefined ? {} : { catalog },
+  );
+  await managed.catalog.scan();
+  await managed.manager.openSession("client-1", "pi-session-1");
+  await managed.manager.subscribe("c1", ["pi-session-1"]);
+  const snapshot = present(
+    managed.received.findLast((event) => event.type === "session_snapshot"),
+    "snapshot",
+  );
+  const stopped = present(
+    snapshot.items.find((item) => item.kind === "turn"),
+    "stopped turn",
+  );
+  return {
+    ...managed,
+    file,
+    edit: {
+      type: "edit_stopped_message" as const,
+      requestId: "edit-serialization",
+      traceparent,
+      sessionId: "pi-session-1",
+      epoch: snapshot.epoch,
+      turnId: stopped.id,
+      text: "correct",
+    },
+  };
+}
+
+describe("SessionManager editing persistence", () => {
+  it("stops pi when an edit anchor exists only in memory after a failed file append", async () => {
+    const at = await place();
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const user = {
+      type: "message",
+      id: "u1",
+      parentId: null,
+      timestamp: "1970-01-01T00:00:00.000Z",
+      message: { role: "user", content: "hi", timestamp: 0 },
+    };
+    const ghost = {
+      type: "custom",
+      id: "ghost",
+      parentId: "u1",
+      timestamp: "1970-01-01T00:00:00.001Z",
+      customType: "atrium-edit-anchor",
+      data: {},
+    };
+    const entries = { data: { entries: [user], leafId: "u1" } };
+    const { manager, catalog, received, resources } = await manage(
+      {
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1", sessionFile: file } },
+          get_entries: { sequence: [entries, entries, { data: { entries: [user, ghost], leafId: "ghost" } }] },
+          get_commands: { data: { commands: [{ name: "atrium-edit", source: "extension", sourceInfo: {} }] } },
+          prompt: { data: { disposition: "handled" } },
+        },
+      },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    const snapshot = present(
+      received.findLast((event) => event.type === "session_snapshot"),
+      "snapshot",
+    );
+    const stopped = present(
+      snapshot.items.find((item) => item.kind === "turn"),
+      "stopped turn",
+    );
+    await expect(
+      manager.editStoppedMessage({
+        type: "edit_stopped_message",
+        requestId: "edit-ghost",
+        traceparent,
+        sessionId: "pi-session-1",
+        epoch: snapshot.epoch,
+        turnId: stopped.id,
+        text: "correct",
+      }),
+    ).rejects.toStrictEqual(new CommandError("edit_failed", { status: "exited" }));
+    await vi.waitFor(() => expect(resources.snapshot()["pi-process"]).toBe(0));
+    expect((await readFile(file, "utf8")).includes("ghost")).toBe(false);
+  });
+});
+
+describe("SessionManager editing serialization", () => {
+  it("reserves an edit before catalog readiness so an early hand-off cannot pass", async () => {
+    const ready = Promise.withResolvers<void>();
+    const waits: Promise<void>[] = [];
+    const managed = await editableSession((catalog) => ({
+      ...catalog,
+      async ready() {
+        await Promise.all(waits.splice(0, 1));
+        await catalog.ready();
+      },
+    }));
+    waits.push(ready.promise);
+    const editing = managed.manager.editStoppedMessage(managed.edit).catch(caught);
+
+    const handing = await managed.manager.handOff("pi-session-1").catch(caught);
+    ready.resolve();
+    expect(await editing).toStrictEqual(
+      new CommandError("edit_failed", { turnId: managed.edit.turnId, epoch: managed.edit.epoch + 1 }),
+    );
+    expect(handing).toStrictEqual(new CommandError("session_busy"));
+    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
+    expect(managed.resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps the edit reservation until controller rejection and releases it afterwards", async () => {
+    const managed = await editableSession();
+    const editing = managed.manager
+      .editStoppedMessage({ ...managed.edit, epoch: managed.edit.epoch + 1 })
+      .catch(caught);
+    const handing = managed.manager.handOff("pi-session-1").catch(caught);
+
+    expect(await editing).toStrictEqual(new CommandError("transcript_changed"));
+    expect(await handing).toStrictEqual(new CommandError("session_busy"));
+    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
+    expect(await managed.manager.handOff("pi-session-1")).toStrictEqual({ file: managed.file, args: [] });
+  });
+
+  it("keeps the remaining edit reservation after one overlapping edit rejects and releases both afterwards", async () => {
+    const firstReady = Promise.withResolvers<void>();
+    const secondReady = Promise.withResolvers<void>();
+    const waits: Promise<void>[] = [];
+    const managed = await editableSession((catalog) => ({
+      ...catalog,
+      async ready() {
+        // Capture this call's stage before yielding, so a later ready call cannot take its gate.
+        const stage = waits.splice(0, 1);
+        await Promise.all(stage);
+        await catalog.ready();
+      },
+    }));
+    waits.push(firstReady.promise, secondReady.promise);
+    const stale = { ...managed.edit, epoch: managed.edit.epoch + 1 };
+    const firstEdit = managed.manager.editStoppedMessage(stale).catch(caught);
+    const secondEdit = managed.manager.editStoppedMessage({ ...stale, requestId: "overlapping-edit" }).catch(caught);
+
+    firstReady.resolve();
+    const firstResult = await firstEdit;
+    const handing = await managed.manager.handOff("pi-session-1").catch(caught);
+    secondReady.resolve();
+    const secondResult = await secondEdit;
+
+    expect(firstResult).toStrictEqual(new CommandError("transcript_changed"));
+    expect(handing).toStrictEqual(new CommandError("session_busy"));
+    expect(secondResult).toStrictEqual(new CommandError("transcript_changed"));
+    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
+    expect(await managed.manager.handOff("pi-session-1")).toStrictEqual({ file: managed.file, args: [] });
+  });
+
+  it("rechecks a hand-off queued before an edit entered its rewind stage", async () => {
+    const managed = await editableSession();
+    const handing = managed.manager.handOff("pi-session-1").catch(caught);
+    // The hand-off's ready continuation runs first; its inHandOrder callback is queued next.
+    // This continuation starts the editor before that callback can mark or stop pi.
+    await Promise.resolve();
+    const editing = managed.manager.editStoppedMessage(managed.edit).catch(caught);
+
+    expect(await handing).toStrictEqual(new CommandError("session_busy"));
+    expect(await editing).toStrictEqual(
+      new CommandError("edit_failed", { turnId: managed.edit.turnId, epoch: managed.edit.epoch + 1 }),
+    );
+    expect(managed.catalog.find("pi-session-1")?.handedOff).toBe(false);
+    expect(managed.resources.snapshot()["pi-process"]).toBe(1);
+    expect(await managed.manager.handOff("pi-session-1")).toStrictEqual({ file: managed.file, args: [] });
+  });
+
+  it("restarts an idle pi and rejects the old edit epoch instead of dereferencing no controller", async () => {
+    const at = await place();
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const user = {
+      type: "message",
+      id: "u1",
+      parentId: null,
+      timestamp: "1970-01-01T00:00:00.000Z",
+      message: { role: "user", content: "hi", timestamp: 0 },
+    };
+    const managed = await manage(
+      {
+        argvToStderr: true,
+        receivedToStderr: true,
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1", sessionFile: file } },
+          get_entries: { data: { entries: [user], leafId: "u1" } },
+        },
+      },
+      at,
+    );
+    await managed.catalog.scan();
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.subscribe("c1", ["pi-session-1"]);
+    const snapshot = present(
+      managed.received.findLast((event) => event.type === "session_snapshot"),
+      "snapshot",
+    );
+    const stopped = present(
+      snapshot.items.find((item) => item.kind === "turn"),
+      "stopped turn",
+    );
+    await managed.manager.stopIdle();
+    await expect(
+      managed.manager.editStoppedMessage({
+        type: "edit_stopped_message",
+        requestId: "edit-restart",
+        traceparent,
+        sessionId: "pi-session-1",
+        epoch: snapshot.epoch,
+        turnId: stopped.id,
+        text: "correct",
+      }),
+    ).rejects.toStrictEqual(new CommandError("transcript_changed"));
+    expect(managed.starts().filter((start) => Array.isArray(start.argv))).toHaveLength(2);
+    expect(managed.piReceived().filter((command) => command["type"] === "prompt")).toStrictEqual([]);
+  });
+
+  it("rejects a draft-child rename resumed after its first stopped message entered rewind", async () => {
+    const at = await place();
+    const file = join(at.piSessions, "pi-session-1.jsonl");
+    await terminalSession(at, "main", at.workspace);
+    const user = {
+      type: "message",
+      id: "u1",
+      parentId: null,
+      timestamp: "1970-01-01T00:00:00.000Z",
+      message: { role: "user", content: "hi", timestamp: 0 },
+    };
+    const anchor = {
+      type: "custom",
+      id: "anchor",
+      parentId: "u1",
+      timestamp: "1970-01-01T00:00:00.001Z",
+      customType: "atrium-edit-anchor",
+      data: {},
+    };
+    const header = { type: "session", id: "pi-session-1", timestamp: "", cwd: at.workspace };
+    const text = `${JSON.stringify(header)}\n${JSON.stringify(user)}\n`;
+    const page = { data: { entries: [user], leafId: "u1" } };
+    const naming = Promise.withResolvers<void>();
+    const named = Promise.withResolvers<void>();
+    cleanups.push(async () => naming.resolve());
+    const managed = await manage(
+      {
+        receivedToStderr: true,
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1", sessionFile: file } },
+          get_entries: {
+            sequence: [{ data: { entries: [], leafId: null } }, page, page, { silent: true }],
+          },
+          get_commands: { data: { commands: [{ name: "atrium-edit", source: "extension", sourceInfo: {} }] } },
+          prompt: {
+            sequence: [
+              {
+                switchesTo: { sessionId: "pi-session-1", file, text },
+                data: { disposition: "started" },
+                events: [{ type: "agent_start" }, userEnd("hi", 0), { type: "agent_settled" }],
+              },
+              {
+                switchesTo: { sessionId: "pi-session-1", file, text: `${text}${JSON.stringify(anchor)}\n` },
+                data: { disposition: "handled" },
+              },
+              { data: { disposition: "handled" } },
+            ],
+          },
+          set_session_name: { data: {} },
+        },
+      },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        catalog: (catalog) => ({
+          ...catalog,
+          async name(sessionId, name) {
+            await catalog.name(sessionId, name);
+            named.resolve();
+            await naming.promise;
+          },
+        }),
+      },
+    );
+    await managed.catalog.ready();
+    await managed.catalog.record({
+      sessionId: "pi-session-1",
+      containerId: WORKSPACE,
+      cwd: at.workspace,
+      parent: { sessionId: "main", by: "user" },
+      name: "Child",
+    });
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.subscribe("c1", ["pi-session-1"]);
+    expect(managed.catalog.find("pi-session-1")?.state).toBe("draft");
+    const renaming = managed.manager.renameSession("pi-session-1", "New title").catch(caught);
+    await named.promise;
+    await managed.manager.prompt({
+      type: "prompt",
+      requestId: "first",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "hi",
+    });
+    await vi.waitFor(() => expect(managed.received.map((event) => event.type)).toContain("run_settled"));
+    managed.subscriptions.connect("c2", (event) => managed.received.push(event as SessionEvent), "client-1");
+    await managed.manager.subscribe("c2", ["pi-session-1"]);
+    await managed.catalog.scan();
+    expect(managed.catalog.find("pi-session-1")?.state).toBe("persisted");
+    const snapshot = present(
+      managed.received.findLast((event) => event.type === "session_snapshot"),
+      "snapshot",
+    );
+    const stopped = present(
+      snapshot.items.find((item) => item.kind === "turn"),
+      "stopped turn",
+    );
+    const editing = managed.manager
+      .editStoppedMessage({
+        type: "edit_stopped_message",
+        requestId: "edit-child",
+        traceparent,
+        sessionId: "pi-session-1",
+        epoch: snapshot.epoch,
+        turnId: stopped.id,
+        text: "correct",
+      })
+      .catch(caught);
+    // The fourth read follows the completed rewind but precedes the new user submission.
+    await vi.waitFor(() =>
+      expect(managed.piReceived().filter((command) => command["type"] === "get_entries")).toHaveLength(4),
+    );
+    expect(managed.piReceived().filter((command) => command["type"] === "prompt")).toHaveLength(2);
+    naming.resolve();
+    const renamed = await renaming;
+    const writesDuringRewind = managed.sent().filter((command) => command === "set_session_name");
+    await managed.manager.close();
+    await editing;
+
+    expect(renamed).toStrictEqual(new CommandError("session_busy"));
+    expect(writesDuringRewind).toStrictEqual([]);
+  });
+
+  it("rejects renaming while an editor owns the pi", async () => {
+    const at = await place();
+    const file = await terminalSession(at, "pi-session-1", at.workspace);
+    const user = {
+      type: "message",
+      id: "u1",
+      parentId: null,
+      timestamp: "1970-01-01T00:00:00.000Z",
+      message: { role: "user", content: "hi", timestamp: 0 },
+    };
+    const managed = await manage(
+      {
+        receivedToStderr: true,
+        rules: {
+          get_state: { data: { sessionId: "pi-session-1", sessionFile: file } },
+          get_entries: { data: { entries: [user], leafId: "u1" } },
+          get_commands: {
+            after: "export_html",
+            data: { commands: [{ name: "atrium-edit", source: "extension", sourceInfo: {} }] },
+          },
+          prompt: { data: { disposition: "handled" } },
+          export_html: { writes: "<html></html>" },
+        },
+      },
+      at,
+    );
+    await managed.catalog.scan();
+    await managed.manager.openSession("client-1", "pi-session-1");
+    await managed.manager.subscribe("c1", ["pi-session-1"]);
+    const snapshot = present(
+      managed.received.findLast((event) => event.type === "session_snapshot"),
+      "snapshot",
+    );
+    const stopped = present(
+      snapshot.items.find((item) => item.kind === "turn"),
+      "stopped turn",
+    );
+    const editing = managed.manager
+      .editStoppedMessage({
+        type: "edit_stopped_message",
+        requestId: "edit-name",
+        traceparent,
+        sessionId: "pi-session-1",
+        epoch: snapshot.epoch,
+        turnId: stopped.id,
+        text: "correct",
+      })
+      .catch(caught);
+    await vi.waitFor(() =>
+      expect(managed.piReceived()).toContainEqual(expect.objectContaining({ type: "get_commands" })),
+    );
+    await expect(managed.manager.renameSession("pi-session-1", "New title")).rejects.toStrictEqual(
+      new CommandError("session_busy"),
+    );
+    expect(managed.piReceived().filter((command) => command["type"] === "set_session_name")).toStrictEqual([]);
+    await managed.manager.exportSession("pi-session-1");
+    expect(await editing).toStrictEqual(
+      new CommandError("edit_failed", { turnId: stopped.id, epoch: snapshot.epoch + 1 }),
+    );
+  });
+
+  it("discards a title made while a branch operation owns the pi", async () => {
+    const managed = await titled("Ping", {
+      ...NAMEABLE,
+      clone: { silent: true },
+    });
+    await managed.run();
+    await managed.seen();
+    const startedTurn = present(
+      managed.received.find((event) => event.type === "turn_started"),
+      "turn",
+    );
+    const pendingFork = managed.manager
+      .forkSession("client-1", {
+        type: "fork_session",
+        requestId: "held-fork",
+        traceparent,
+        sessionId: "pi-session-1",
+        turnId: startedTurn.turn.id,
+        name: "Fork",
+      })
+      .catch(caught);
+    await vi.waitFor(() => expect(managed.piReceived()).toContainEqual(expect.objectContaining({ type: "clone" })));
+    await managed.release();
+    await vi.waitFor(() =>
+      expect(managed.records.filter((record) => record["msg"] === "session title not made")).toMatchObject([
+        { sessionId: "pi-session-1", reason: "discarded" },
+      ]),
+    );
+    expect(managed.names()).toStrictEqual([]);
+    await managed.manager.close();
+    expect(await pendingFork).toStrictEqual(new CommandError("fork_failed"));
+  });
+});
+
 describe("SessionManager creating sessions", () => {
   it("opens a new session's tab where it belongs but leaves the client where it went while pi started", async () => {
     const { manager, layouts } = await manage({ rules: SESSION_ONE });

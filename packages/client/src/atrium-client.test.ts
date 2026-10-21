@@ -1687,6 +1687,88 @@ describe("createAtriumClient: pi configuration", () => {
   });
 });
 
+describe("createAtriumClient: editing a stopped message", () => {
+  it("sends the guarded edit without adding a pending message and follows the replacement snapshot", async () => {
+    const { client, latest } = await connected();
+    const watching = client.watch(["s1"]);
+    latest().answer("subscribe_sessions");
+    await watching;
+    const original = { ...turn("s1:e1"), outcome: "stopped" };
+    latest().receive(snapshot(1, [original]));
+    const view = present(client.session("s1"), "the session view");
+    const before = view.getState();
+
+    const editing = client.editStoppedMessage("s1", 1, "s1:e1", "corrected", ["a1"]);
+
+    expect(latest().sent.at(-1)).toStrictEqual({
+      type: "edit_stopped_message",
+      requestId: "client-1-4",
+      traceparent,
+      sessionId: "s1",
+      epoch: 1,
+      turnId: "s1:e1",
+      text: "corrected",
+      attachmentIds: ["a1"],
+    });
+    expect(view.getState()).toStrictEqual(before);
+    latest().receive(
+      event(0, {
+        type: "session_snapshot",
+        epoch: 2,
+        items: [],
+        hasOlder: false,
+        run: null,
+        exited: false,
+        control: IDLE_CONTROL,
+        model: null,
+        fast: false,
+        metrics: UNKNOWN_METRICS,
+      }),
+    );
+    latest().answer("edit_stopped_message", { disposition: "started" });
+    expect(await editing).toStrictEqual({ disposition: "started" });
+    expect(view.getState().items).toStrictEqual([]);
+    expect(view.getState().pending).toStrictEqual([]);
+    const replacement = {
+      ...turn("s1:e2"),
+      user: { ...turn("s1:e2").user, text: "corrected", images: 1 },
+      outcome: "running",
+      durationMs: null,
+    };
+    latest().receive(event(1, { type: "turn_started", epoch: 2, turn: replacement }));
+    expect(view.getState().items).toStrictEqual([replacement]);
+    expect(view.getState().pending).toStrictEqual([]);
+  });
+
+  it.each(["turn_not_editable", "edit_failed", "transcript_changed"] as const)(
+    "omits attachments when absent and preserves the stopped turn on %s",
+    async (code) => {
+      const { client, latest } = await connected();
+      const watching = client.watch(["s1"]);
+      latest().answer("subscribe_sessions");
+      await watching;
+      latest().receive(snapshot(1, [{ ...turn("s1:e1"), outcome: "stopped" }]));
+      const view = present(client.session("s1"), "the session view");
+      const before = view.getState();
+      const editing = client.editStoppedMessage("s1", 1, "s1:e1", "corrected");
+
+      expect(latest().sent.at(-1)).toStrictEqual({
+        type: "edit_stopped_message",
+        requestId: "client-1-4",
+        traceparent,
+        sessionId: "s1",
+        epoch: 1,
+        turnId: "s1:e1",
+        text: "corrected",
+      });
+      latest().fail("edit_stopped_message", code);
+
+      await expect(editing).rejects.toStrictEqual(new CommandError(code));
+      expect(view.getState()).toStrictEqual(before);
+    },
+  );
+});
+
 describe("createAtriumClient: compacting", () => {
   it("asks the host to compact a session, with what to keep in mind when given", async () => {
     const { client, latest } = await connected();

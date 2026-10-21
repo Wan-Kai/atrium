@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toSlashCommand } from "./commands";
+import { isEditCommand, toSlashCommand } from "./commands";
 
 /** Where a command came from, as pi reports it; Atrium does not show it. */
 const sourceInfo = { path: "/x", source: "local", scope: "user", origin: "top-level" } as const;
@@ -34,6 +34,18 @@ describe("toSlashCommand", () => {
     expect(toSlashCommand({ name: "atrium-plan", source: "skill", sourceInfo })?.name).toBe("atrium-plan");
     expect(toSlashCommand({ name: "atrium-fast", source: "prompt", sourceInfo })?.name).toBe("atrium-fast");
     expect(toSlashCommand({ name: "atrium-faster", source: "extension", sourceInfo })?.name).toBe("atrium-faster");
+  });
+
+  it("recognizes and hides only the editing extension command", () => {
+    expect(toSlashCommand({ name: "atrium-edit", source: "extension", sourceInfo })).toBeNull();
+    expect(isEditCommand({ name: "atrium-edit", source: "extension" })).toBe(true);
+    expect(isEditCommand({ name: "atrium-edit", source: "prompt" })).toBe(false);
+    expect(isEditCommand({ name: "atrium-edit-extra", source: "extension" })).toBe(false);
+    expect(toSlashCommand({ name: "atrium-edit", source: "prompt", sourceInfo })).toStrictEqual({
+      name: "atrium-edit",
+      description: null,
+      source: "prompt",
+    });
   });
 
   it("cuts a description too long to send, and leaves out a command whose name is", () => {

@@ -556,6 +556,8 @@ export interface TurnViewProps {
   readonly onRetry?: () => void;
   /** "从这里分叉" under the reply, where the session can be forked. */
   readonly fork?: ForkFromTurn;
+  /** Opens the last stopped ordinary message in a separate bottom draft. */
+  readonly edit?: { readonly blocked: boolean; readonly open: () => void } | undefined;
   /** pi compacts the context now, while this turn runs; only for the running turn (design-language, "运行中压缩"). */
   readonly compacting?: boolean;
   /**
@@ -626,7 +628,7 @@ function useLaunchImages(outer: MessageImages, launch: LaunchInTurn | undefined)
  *   compacts now, and the launch that sent its message.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false, launch }: TurnViewProps) {
+export function TurnView({ turn, runStartedAt, onRetry, fork, edit, compacting = false, launch }: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -680,6 +682,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false
         <MessageImagesContext value={images}>
           <UserBubble
             text={turn.user.text}
+            edit={edit}
             images={turn.user.images}
             {...(status === null ? { timestamp: turn.user.timestamp } : {})}
             auto={turn.user.auto}

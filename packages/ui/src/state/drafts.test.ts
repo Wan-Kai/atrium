@@ -45,6 +45,23 @@ const DRAFT = { ...TEXT, images: [] };
 const EMPTY = { text: "", pastes: [], files: [], command: null, images: [] };
 
 describe("createDrafts", () => {
+  it("keeps private stopped-edit drafts only for this page without leaving orphaned storage keys", () => {
+    const { storage, store } = memory();
+    const drafts = createDrafts(storage);
+    drafts.update("s1", () => DRAFT);
+    drafts.update("edit:s1:operation", () => ({ ...DRAFT, text: "private revision", images: [kept("original")] }));
+    expect(drafts.read("edit:s1:operation")).toStrictEqual({
+      ...DRAFT,
+      text: "private revision",
+      images: [kept("original")],
+    });
+    expect(store).toStrictEqual(new Map([["atrium-draft:s1", JSON.stringify(TEXT)]]));
+    expect(createDrafts(storage).read("edit:s1:operation")).toStrictEqual(EMPTY);
+    expect(createDrafts(storage).read("s1")).toStrictEqual(DRAFT);
+    drafts.drop(["edit:s1:operation"]);
+    expect(drafts.read("edit:s1:operation")).toStrictEqual(EMPTY);
+  });
+
   it("keeps a session's draft under its own key, in memory and in storage, telling those listening", () => {
     const { storage, store } = memory();
     const drafts = createDrafts(storage);

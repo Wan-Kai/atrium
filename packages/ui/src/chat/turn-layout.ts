@@ -23,7 +23,7 @@ export type ProcessRow =
 /** How a turn is shown: the process, then the reply below it. */
 export interface TurnLayout {
   readonly process: readonly ProcessRow[];
-  /** The turn's last visible step when it is text: what the turn answered. */
+  /** The last visible non-compaction step when it is text: what the turn answered. */
   readonly reply: TextStep | null;
 }
 
@@ -35,10 +35,11 @@ const EXPLORE_TOOLS: ReadonlySet<string> = new Set(["read", "grep", "find", "ls"
  *
  * @remarks
  * Only a turn's last visible text is its reply, shown under the process; earlier texts are steps of
- * the process (SPEC-0001, "一轮里的文字"). The reply must be the last visible step: text followed by a tool
- * call is still part of the work. Blank thinking and text have no display content and are omitted
- * here, not from the protocol where block positions identify streamed steps. Two or more visible
- * read-only tool calls in a row collapse into one row; a single one keeps its own.
+ * the process (SPEC-0001, "一轮里的文字"). Trailing compactions do not disqualify a reply, but text
+ * followed by a tool call or any other visible non-compaction step is still part of the work.
+ * Compactions stay in the process. Blank thinking and text are omitted here, not from the protocol
+ * where block positions identify streamed steps. Two or more visible read-only tool calls in a
+ * row collapse into one row; a single one keeps its own.
  *
  * @sideEffects none
  * @param turn - The turn.
@@ -48,9 +49,9 @@ export function layoutTurn(turn: Turn): TurnLayout {
   const visible = turn.steps.filter(
     (step) => (step.kind !== "thinking" && step.kind !== "text") || step.text.trim() !== "",
   );
-  const last = visible.at(-1);
+  const last = visible.findLast((step) => step.kind !== "compaction");
   const reply = last?.kind === "text" ? last : null;
-  const steps = reply === null ? visible : visible.slice(0, -1);
+  const steps = visible.filter((step) => step !== reply);
   const process: ProcessRow[] = [];
   let group: ToolStep[] = [];
   /**

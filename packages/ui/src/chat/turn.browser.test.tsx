@@ -1190,6 +1190,21 @@ describe("TurnView, what the agent said in the process", () => {
 });
 
 describe("TurnView compaction", () => {
+  it("keeps the answer visible when a trailing compaction is added, including after the process folds", async () => {
+    const { screen } = await show(turn([thinking, answer]));
+    await screen.rerender(<TurnView turn={turn([thinking, answer, compaction])} runStartedAt={null} />);
+
+    await expect.element(screen.getByTestId("process-header")).toHaveAttribute("aria-expanded", "false");
+    await expect.element(screen.getByTestId("reply")).toHaveTextContent("改好了，一处改动。");
+    await expect.element(screen.getByTestId("reply")).toBeVisible();
+    await expect
+      .element(screen.getByTestId("process-header"))
+      .toHaveTextContent("已完成，用时 2 分 13 秒 · 压缩了 1 次上下文");
+    await screen.getByTestId("process-header").click();
+    expect(shownSteps(screen.container)).toStrictEqual(["thinking", "compaction"]);
+    await expect.element(screen.getByTestId("reply")).toBeVisible();
+  });
+
   it("draws a compaction as two ticks across the unbroken main line, saying the context before and after", async () => {
     const { screen } = await show(turn([thinking, compaction, answer]));
     await screen.getByTestId("process-header").click();

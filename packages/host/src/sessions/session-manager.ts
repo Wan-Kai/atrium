@@ -1,5 +1,7 @@
 import {
   FAST_COMMAND,
+  EDIT_COMMAND,
+  isEditCommand,
   AGENT_COMMAND,
   AGENT_STATUS,
   type ModelCatalog,
@@ -680,6 +682,7 @@ export function createSessionManager(options: {
       input: titleInput(exchange.user, exchange.reply),
       async write(title) {
         const now = options.catalog.find(sessionId);
+        if (found.controller.forking) return false;
         if (now?.name !== null || now.handedOff || renamed.has(sessionId) || live(sessionId)?.pi !== pi) return false;
         await pi.request({ type: "set_session_name", name: title });
         await options.catalog.scan();
@@ -868,6 +871,7 @@ export function createSessionManager(options: {
       return { entries: data.entries.map(toLogEntry), leafId: data.leafId };
     };
     let model: SessionModel | null;
+    let sessionFile: string | null = null;
     let entries: EntriesPage;
     let fastSwitch = false;
     try {
@@ -880,7 +884,9 @@ export function createSessionManager(options: {
         if (fastSwitch && launch.fast) await switchFast(traced, true);
       }
       if (launch.startOn !== null) await startOnModel(traced, launch.startOn);
-      model = sessionModelOf(await traced.request({ type: "get_state" }));
+      const state = await traced.request({ type: "get_state" });
+      model = sessionModelOf(state);
+      sessionFile = state.sessionFile ?? null;
       entries = await getEntries(undefined);
     } catch (error) {
       await pi.stop();
@@ -904,6 +910,12 @@ export function createSessionManager(options: {
       },
       respond: (response) => pi.respond({ type: "extension_ui_response", ...response }),
       getEntries,
+      readPersistedEntries: async () => {
+        const file = sessionFile ?? entryOf(sessionId).file;
+        if (file === null) throw new CommandError("edit_failed");
+        const persisted = await readEntries(file);
+        return { entries: persisted, leafId: persisted.at(-1)?.id ?? null };
+      },
       model: async () => sessionModelOf(await traced.request({ type: "get_state" })),
       setModel: async ({ providerId, modelId }) => {
         await traced.request({ type: "set_model", provider: providerId, modelId });
@@ -931,6 +943,10 @@ export function createSessionManager(options: {
       stats: async () => piStatsOf(await traced.request({ type: "get_session_stats" })),
       stop: () => pi.stop(),
       command: async (message) => {
+        if (message.startsWith(`/${EDIT_COMMAND} `)) {
+          const { commands } = await traced.request({ type: "get_commands" });
+          if (!commands.some(isEditCommand)) throw new CommandError("edit_failed");
+        }
         await traced.request({ type: "prompt", message });
       },
     };
@@ -1559,11 +1575,14 @@ export function createSessionManager(options: {
         await options.catalog.name(sessionId, name);
         // A pi started, or starting, was given the old name, which its file would carry.
         await starting.get(sessionId)?.catch(() => undefined);
-        await live(sessionId)?.pi.request({ type: "set_session_name", name });
+        const session = live(sessionId);
+        if (session?.controller.forking) throw new CommandError("session_busy");
+        await session?.pi.request({ type: "set_session_name", name });
         return {};
       }
       notHandedOff(sessionId);
-      const { pi } = await ensureRunning(sessionId);
+      const { pi, controller } = await ensureRunning(sessionId);
+      if (controller.forking) throw new CommandError("session_busy");
       renamed.add(sessionId);
       await pi.request({ type: "set_session_name", name });
       inBackground("session scan", () => options.catalog.scan());
@@ -1602,6 +1621,22 @@ export function createSessionManager(options: {
         // A session whose pi is not running, a restored draft among them, starts on its message.
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
         return await session.controller.prompt(command, images);
+      } finally {
+        const left = (prompting.get(sessionId) ?? 1) - 1;
+        if (left === 0) prompting.delete(sessionId);
+        else prompting.set(sessionId, left);
+      }
+    },
+    async editStoppedMessage(command, images) {
+      const { sessionId } = command;
+      prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
+      try {
+        notReserved(command.text);
+        await options.catalog.ready();
+        notArchived(sessionId);
+        notHandedOff(sessionId);
+        const session = live(sessionId) ?? (await ensureRunning(sessionId));
+        return await session.controller.editStoppedMessage(command, images);
       } finally {
         const left = (prompting.get(sessionId) ?? 1) - 1;
         if (left === 0) prompting.delete(sessionId);
@@ -1804,6 +1839,7 @@ export function createSessionManager(options: {
       if (occupied(sessionId)) throw new CommandError("session_busy");
       const { file } = entry;
       return inHandOrder(sessionId, async () => {
+        if (occupied(sessionId)) throw new CommandError("session_busy");
         // Marked first, so nothing starts the session's pi again while it stops.
         await options.catalog.mark(sessionId, { handedOff: true });
         await stopEnding(sessionId);

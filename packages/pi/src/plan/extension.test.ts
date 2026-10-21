@@ -369,13 +369,14 @@ describe("atriumPlan", () => {
         return () => undefined;
       },
       sendMessage: () => undefined,
+      appendEntry: () => undefined,
       registerTool: (tool) => tools.push(tool.name),
       registerFlag: (name) => flags.push(name),
       getFlag: () => undefined,
     });
 
     expect([commands, hooks, tools.length, tools.slice(-2), flags]).toStrictEqual([
-      ["atrium-fast", "atrium-plan", "atrium-agent"],
+      ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-edit"],
       ["before_provider_request", "after_provider_response", "tool_call"],
       12,
       ["web_search", "web_fetch"],
