@@ -142,6 +142,50 @@ function noticed(id: string, events: [AgentNoticeEvent, ...AgentNoticeEvent[]]):
 }
 
 describe("layoutTurn", () => {
+  it("omits blank thinking and text without interrupting tools or replacing a nonblank reply", () => {
+    const read = tool("read", "read");
+    const search = tool("search", "grep");
+    const answer = text("answer", "done");
+    const steps: Step[] = [
+      { kind: "thinking", id: "hidden", text: "", durationMs: 2000 },
+      text("empty", " \n\t"),
+      read,
+      { kind: "thinking", id: "blank", text: " \n", durationMs: null },
+      search,
+      answer,
+      text("trailing", ""),
+    ];
+
+    expect(layoutTurn(turn(steps))).toStrictEqual({
+      process: [{ kind: "explore", id: "read", steps: [read, search] }],
+      reply: answer,
+    });
+  });
+
+  it("keeps a reply visible across trailing blanks and compactions after integration", () => {
+    const answer = text("answer", "done");
+    const compacted = compaction("compaction");
+    const value = turn([
+      answer,
+      { kind: "thinking", id: "blank-thinking", text: " \n", durationMs: null },
+      compacted,
+      text("blank-text", ""),
+    ]);
+
+    expect(layoutTurn(value)).toStrictEqual({
+      process: [{ kind: "step", step: compacted }],
+      reply: answer,
+    });
+    expect(transcriptMarkdown([value])).toContain("\n\ndone\n");
+  });
+
+  it("has no display content or exported thinking for blank-only responses", () => {
+    const value = turn([{ kind: "thinking", id: "0", text: " \n", durationMs: 6000 }, text("1", "")]);
+
+    expect(layoutTurn(value)).toStrictEqual({ process: [], reply: null });
+    expect(transcriptMarkdown([value])).toBe("> do it\n");
+  });
+
   it("takes the last step as the reply when it is text, and leaves earlier text in the process", () => {
     const steps = [text("0", "looking"), tool("1", "bash"), text("2", "done")];
 

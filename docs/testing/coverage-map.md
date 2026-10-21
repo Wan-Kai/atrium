@@ -478,6 +478,17 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 
 ## M1.11 自用中改（2026-10-20）
 
+空思考／空回复展示（SPEC-0001“空思考与空回复”，不改变协议、原始步骤或重试策略）：
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 空／纯空白 thinking、text 不生成过程或回复，不打断只读工具合并，不覆盖非空回复；Markdown 导出同样不列空思考 | `packages/ui/src/chat/turn-layout.test.ts` "omits blank thinking and text…"、"has no display content or exported thinking…" | 已覆盖；合并 main 后 `turn-layout.ts` 增量变异 100%（642 个检出、其中 631 个复用，无存活／超时），展示层三项破坏检查均 CAUGHT |
+| 集成 main 的末尾压缩回复规则：正文后空思考、压缩、空文字不遮住正文，压缩仍留在过程、导出保留正文 | `packages/ui/src/chat/turn-layout.test.ts` "keeps a reply visible across trailing blanks and compactions after integration" | 已覆盖；分别去掉空块过滤、尾部压缩跳过，两项破坏检查均 CAUGHT |
+| 运行中空块沿用等待行，文字到达后正常显示；工具正常执行并可看详情，不显示空思考或空回复 | `packages/ui/src/chat/turn.browser.test.tsx` "waits without blank thinking…"、"omits blank thinking while keeping tools…"、"keeps a tool-only run visible…" | 已覆盖 |
+| 正常空结束不留回复、过程、footer 或错误；连接失败仍有错误和手动重试，取消仍为已停止；非空思考后的失败／取消标题优先显示结束状态 | turn.browser.test.tsx "leaves a normal empty end…"、"keeps connection errors and cancellation distinct…"、"keeps %s ahead of a thinking-only header" | 已覆盖 |
+| 用户输入、report 通知开头的正常空 stop 都正常完成；推进假时钟 60 秒不额外 prompt、不重启、不产生 retry 步骤；来源及送达确认保留 | `packages/host/src/sessions/session-controller.test.ts` "leaves a normal empty reply completed…"、"leaves a report's normal empty reply completed…" | 已覆盖；两项破坏检查均 CAUGHT |
+| 真实 pi + faux 经工具执行到正常空结束，桌面不显示空思考／回复；再发一条无工具空结束，不留 footer；非空摘要／正文原有旅程正常 | `apps/desktop/e2e/chat.spec.ts` "shows tools without blank thinking…"、"sends a message and streams the reply…" | 已覆盖；回退过滤后桌面回归测试失败，恢复后通过；浅／深色截图已检查 |
+
 一轮中间的压缩是过程轨道上的一步（SPEC-0001 `compaction`、design-language"压缩步骤""运行中压缩"，协议 20）。
 
 | 行为 | 测试 | 状态 |
