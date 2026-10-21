@@ -125,12 +125,25 @@ export function StoppedMessageEditor({
           error: "图片上传已过期，正在重新上传；完成后请重试",
         });
       } else {
+        // Only this operation's confirmed restoration may refresh the captured CAS identity.
+        const recoveredEpoch =
+          failure instanceof CommandError &&
+          failure.code === "edit_failed" &&
+          failure.params?.["turnId"] === target.turnId &&
+          typeof failure.params["epoch"] === "number"
+            ? failure.params["epoch"]
+            : null;
         store.setState({
+          target: recoveredEpoch === null ? target : { ...target, epoch: recoveredEpoch },
           submitting: false,
           error:
             failure instanceof CommandError && failure.code === "transcript_changed"
-              ? "对话记录已变化，请取消编辑并重新确认消息；编辑内容已保留"
-              : "没能重新发送，编辑内容已保留，请重试",
+              ? "对话记录已变化，请先复制编辑正文，再取消编辑并重新确认消息"
+              : failure instanceof CommandError &&
+                  failure.code === "edit_failed" &&
+                  failure.params?.["status"] === "exited"
+                ? "会话进程已停止，请先复制编辑正文，再取消编辑并重新打开会话"
+                : "没能重新发送，编辑内容已保留，请重试",
         });
       }
     }

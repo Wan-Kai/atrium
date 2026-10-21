@@ -1,5 +1,6 @@
 import { editCommand, type LogEntry } from "@atrium/pi";
 import { CommandError } from "@atrium/protocol";
+import { present } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import type { EntriesPage } from "../transcript/session-transcript";
 import { editStoppedBranch } from "./stopped-edit";
@@ -176,7 +177,72 @@ describe("editing a stopped branch", () => {
       new CommandError("edit_failed"),
     );
     expect(test.stopped()).toBe(true);
-    expect(test.shown).toStrictEqual([rewound]);
+    expect(test.shown).toStrictEqual([rewound, { ...rewound, leafId: "a1" }]);
+  });
+
+  it("publishes the durable original branch when pi exits after the rewind snapshot", async () => {
+    const test = transaction();
+    await expect(
+      editStoppedBranch({
+        ...test.options,
+        send: async () => {
+          throw new Error("pi exited before committing the revision");
+        },
+      }),
+    ).rejects.toStrictEqual(new CommandError("edit_failed"));
+    expect(test.commands).toHaveLength(1);
+    expect(test.stopped()).toBe(true);
+    expect(test.shown).toStrictEqual([rewound, { ...rewound, leafId: "a1" }]);
+  });
+
+  it("does not publish a disk branch when every independent file read fails", async () => {
+    const test = transaction();
+    await expect(
+      editStoppedBranch({
+        ...test.options,
+        pi: {
+          ...test.options.pi,
+          readPersistedEntries: async () => {
+            throw new Error("file unreadable");
+          },
+        },
+      }),
+    ).rejects.toStrictEqual(new CommandError("edit_failed"));
+    expect(test.stopped()).toBe(true);
+    expect(test.shown).toStrictEqual([]);
+    expect(test.commands).toStrictEqual([]);
+    expect(test.submits()).toBe(0);
+  });
+
+  it("publishes the last confirmed disk page when recovery can no longer read the file", async () => {
+    const test = transaction();
+    const durable = { ...rewound, leafId: "a1" };
+    let reads = 0;
+    const replies = [
+      async () => before,
+      async () => durable,
+      async () => {
+        throw new Error("file became unreadable");
+      },
+    ];
+    await expect(
+      editStoppedBranch({
+        ...test.options,
+        pi: {
+          ...test.options.pi,
+          readPersistedEntries: async () => {
+            reads++;
+            return present(replies.shift(), "next disk read")();
+          },
+        },
+        send: async () => {
+          throw new Error("not committed");
+        },
+      }),
+    ).rejects.toStrictEqual(new CommandError("edit_failed"));
+    expect(reads).toBe(3);
+    expect(test.stopped()).toBe(true);
+    expect(test.shown).toStrictEqual([rewound, durable]);
   });
 
   it("stops pi when its rewind outcome cannot be read", async () => {
@@ -243,7 +309,7 @@ describe("editing a stopped branch", () => {
       }),
     ).rejects.toStrictEqual(new CommandError("edit_failed"));
     expect(test.stopped()).toBe(true);
-    expect(test.shown).toStrictEqual([rewound]);
+    expect(test.shown).toStrictEqual([rewound, onDisk]);
   });
 
   it("rejects a target followed by a newer user message, even if the host had stale history", async () => {
@@ -434,7 +500,7 @@ describe("editing a stopped branch", () => {
       editCommand({ action: "rewind", token: "operation-1", entryId: "u1", leafId: "u1" }),
       editCommand({ action: "restore", token: "operation-1" }),
     ]);
-    expect(test.shown).toStrictEqual([moved]);
+    expect(test.shown).toStrictEqual([moved, failed]);
     expect(test.stopped()).toBe(true);
   });
 

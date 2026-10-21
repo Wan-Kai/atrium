@@ -1575,7 +1575,9 @@ export function createSessionManager(options: {
         await options.catalog.name(sessionId, name);
         // A pi started, or starting, was given the old name, which its file would carry.
         await starting.get(sessionId)?.catch(() => undefined);
-        await live(sessionId)?.pi.request({ type: "set_session_name", name });
+        const session = live(sessionId);
+        if (session?.controller.forking) throw new CommandError("session_busy");
+        await session?.pi.request({ type: "set_session_name", name });
         return {};
       }
       notHandedOff(sessionId);
@@ -1627,12 +1629,19 @@ export function createSessionManager(options: {
     },
     async editStoppedMessage(command, images) {
       const { sessionId } = command;
-      notReserved(command.text);
-      await options.catalog.ready();
-      notArchived(sessionId);
-      notHandedOff(sessionId);
-      const session = live(sessionId) ?? (await ensureRunning(sessionId));
-      return session.controller.editStoppedMessage(command, images);
+      prompting.set(sessionId, (prompting.get(sessionId) ?? 0) + 1);
+      try {
+        notReserved(command.text);
+        await options.catalog.ready();
+        notArchived(sessionId);
+        notHandedOff(sessionId);
+        const session = live(sessionId) ?? (await ensureRunning(sessionId));
+        return await session.controller.editStoppedMessage(command, images);
+      } finally {
+        const left = (prompting.get(sessionId) ?? 1) - 1;
+        if (left === 0) prompting.delete(sessionId);
+        else prompting.set(sessionId, left);
+      }
     },
     async steer(command, images) {
       const { sessionId } = command;
@@ -1830,6 +1839,7 @@ export function createSessionManager(options: {
       if (occupied(sessionId)) throw new CommandError("session_busy");
       const { file } = entry;
       return inHandOrder(sessionId, async () => {
+        if (occupied(sessionId)) throw new CommandError("session_busy");
         // Marked first, so nothing starts the session's pi again while it stops.
         await options.catalog.mark(sessionId, { handedOff: true });
         await stopEnding(sessionId);

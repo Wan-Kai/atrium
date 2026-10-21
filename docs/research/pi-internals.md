@@ -60,6 +60,8 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 - 仅导航只改内存，重开文件仍选文件末条目；新 user 或恢复 marker 的追加才固定重启后的分支。导航取消 / 命令 handler 抛错仍可能收到 `handled`，须核对实际 leaf，不把命令应答当成功。
 - **写盘失败的区别**：1.3.0 `SessionManager._appendEntry` 先改 fileEntries、byId 和 leaf，再同步 appendFileSync。ENOSPC / EIO 可留下“内存里有、文件里没有”的条目；`message_end` 回显和 `get_entries` 也不是独立的持久化证明。Atrium 编辑事务从 pi 实际 sessionFile 读文件，确认所有内存 id 都已在文件中；不一致立即停 pi，避免后继引用不存在的父条目。`prompt` 的 started 是 preflight 成功，不等同 user 已落盘；编辑成功还要确认磁盘新路径有 fresh user 且排除原 user。这里保证普通进程重启语义，不声称 pi 具备 fsync / 掉电事务。
 - 契约 `packages/pi/src/contract/edit.pi.test.ts` 的 `edit-aborted`、`edit-root-restore`、`edit-image-only`、`edit-cancel`、`edit-navigation-error` 在真实 pi + faux 验证：aborted 尾、user 即 leaf、null parent、纯图片、旧分支从新模型上下文排除、原图保留、取消与异常、恢复与新提交分支的重启落点。五份夹具仅录到 `pi-1.3.0/`，其余旧场景尚缺 1.3.0 夹具，不将全量 `test:pi` 记为通过。宿主的仅内存条目故障用独立磁盘边界回归覆盖，没有声称真实打满磁盘做过 ENOSPC 实验。
+- **审查后的恢复确认**（2026-10-21）：回退 / 恢复都会让宿主换 epoch，所以失败后不能原样重试旧目标。只在同一最后 stopped 目标已恢复且 pi 仍活着时，用该次错误应答给出新的精确 epoch；pi 已停止则重新 attach 又会换 epoch，只提示复制后重开，不把旧确认当作可直接重试。恢复中 get_entries / 再次文件读取失败也应停止并发布最近成功读过的磁盘页，没有证明时不发布虚构页。
+- **后改思考档位的分支边界，待用户取舍**（2026-10-21，仅源码核对，未新增专项真实重开契约）：1.3.0 `AgentSession.setThinkingLevel` 只在运行时档位变化时追加 `thinking_level_change`；`navigateTree` 只刷新消息投影与工具，当前运行时档位不随之变回旧值。`_recordSelection` 补写的是模型选择，不是思考档位。因此停止后改的档位若位于旧 user 后面，编辑重分支可能留下更早的 thinking 记录；新一轮仍用当前运行时档位，但 `createAgentSession`（`dist/core/sdk.js`）重开时优先取新分支 thinking 记录，没有记录才用默认值。是否补适配保留后改的档位已交用户决定，不把原生行为默默改成另一种设置策略。
 
 ## 2. 运行时（`src/core/agent-session.ts`，`packages/agent/src/agent.ts`）
 

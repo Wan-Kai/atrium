@@ -2096,8 +2096,6 @@ export function createSessionController(options: {
         throw new CommandError("turn_not_editable");
       }
       editing = true;
-      pauseQueue("stopped");
-      controlChanged();
       try {
         await refreshing;
         if (
@@ -2108,6 +2106,8 @@ export function createSessionController(options: {
         }
         const entryId = transcript.entryOfTurn(command.turnId);
         if (entryId === null) throw new CommandError("transcript_changed");
+        pauseQueue("stopped");
+        controlChanged();
         const result = await editStoppedBranch({
           pi,
           entryId,
@@ -2131,6 +2131,17 @@ export function createSessionController(options: {
         });
         spoke();
         return result;
+      } catch (error) {
+        if (error instanceof CommandError && error.code === "edit_failed") {
+          // Attaching another pi changes the epoch again, so its next edit needs explicit reconfirmation.
+          if (exited) throw new CommandError("edit_failed", { status: "exited" });
+          const restored = transcript.items().findLast((item) => item.kind === "turn");
+          if (restored?.id === command.turnId && restored.outcome === "stopped") {
+            // Bind retry only to this operation's restored view, never to arbitrary newer history.
+            throw new CommandError("edit_failed", { epoch, turnId: restored.id });
+          }
+        }
+        throw error;
       } finally {
         editing = false;
         controlChanged();

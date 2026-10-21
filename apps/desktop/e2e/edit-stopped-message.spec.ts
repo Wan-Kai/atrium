@@ -1,6 +1,6 @@
 import { present } from "@atrium/testkit";
 import { expect, test } from "@playwright/test";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fauxPiEnvironment } from "./faux-pi";
 import { launchApp } from "./launch";
@@ -53,6 +53,8 @@ test("edits the last stopped message in place, preserves the next draft and old 
     ],
     title: "导出格式的选择",
   });
+  const refuseInput = join(dirname(present(pi.env["FAUX_PI_SCRIPT"], "the faux script path")), "refuse-revision-once");
+  pi.env["FAUX_PI_REFUSE_INPUT_ONCE_FILE"] = refuseInput;
   let launched = await launchApp(pi.env);
   const home = launched.home;
   try {
@@ -105,7 +107,26 @@ test("edits the last stopped message in place, preserves the next draft and old 
     await expect(window.getByTestId("user-text")).toHaveText([ORIGINAL]);
     expect(await readFile(sessionFile, "utf8")).toBe(originalFile);
     expect(await pi.payloads()).toHaveLength(1);
+    // Unlike /help, this refusal happens inside pi's input hook after the host has rewound.
+    await writeFile(refuseInput, REVISED);
     await box.fill(REVISED);
+    await window.getByRole("button", { name: "重新发送", exact: true }).click();
+    await expect(window.getByRole("alert")).toHaveText("没能重新发送，编辑内容已保留，请重试");
+    expect(await readFile(`${refuseInput}.handled`, "utf8")).toBe(REVISED);
+    await expect(box).toHaveValue(REVISED);
+    await expect(window.getByTestId("user-text")).toHaveText([ORIGINAL]);
+    await expect(window.getByTestId("turn")).toContainText("已停止");
+    await expect(window.getByRole("tab")).toHaveText(tabsBefore);
+    expect(await sessionFiles(pi.agentDir)).toStrictEqual(filesBefore);
+    expect(await pi.payloads()).toHaveLength(1);
+    const restoredRecords = await recordsIn(sessionFile);
+    expect((await readFile(sessionFile, "utf8")).startsWith(originalFile)).toBe(true);
+    expect(restoredRecords).toContainEqual(oldUser);
+    expect(restoredRecords.at(-1)?.["customType"]).toBe("atrium-edit-restored");
+    expect(
+      restoredRecords.filter((record) => JSON.stringify(record["message"])?.includes(JSON.stringify(REVISED))),
+    ).toStrictEqual([]);
+    // Retrying in the same private edit requires the fresh epoch confirmed by this recovery.
     await window.getByRole("button", { name: "重新发送", exact: true }).click();
     await expect(window.locator('[data-testid="reply"][data-streaming="false"]')).toHaveText([NEW_REPLY], {
       timeout: 30_000,

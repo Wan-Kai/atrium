@@ -40,6 +40,18 @@ export async function editStoppedBranch(options: {
   let before: EntriesPage | null = null;
   let attempted = false;
   let unsafe = false;
+  let lastDisk: EntriesPage | null = null;
+  /**
+   * Keeps the last successful disk read for failure recovery.
+   * @remarks A subsequent read or dead pi must not leave viewers on the temporary memory leaf.
+   * @sideEffects Reads the file and retains its page until this operation ends.
+   * @returns The actual persisted entries and leaf.
+   */
+  async function readDisk(): Promise<EntriesPage> {
+    const page = await options.pi.readPersistedEntries();
+    lastDisk = page;
+    return page;
+  }
   /**
    * Checks that every in-memory entry has actually reached the file.
    * @remarks A moved leaf need not be persisted, but a missing ancestor must never receive children.
@@ -49,7 +61,7 @@ export async function editStoppedBranch(options: {
    */
   async function confirmed(): Promise<EntriesPage> {
     const live = await options.pi.getEntries(undefined);
-    const disk = await options.pi.readPersistedEntries();
+    const disk = await readDisk();
     const ids = new Set(disk.entries.map((entry) => entry.id));
     if (live.entries.some((entry) => !ids.has(entry.id))) {
       unsafe = true;
@@ -89,11 +101,11 @@ export async function editStoppedBranch(options: {
     if ((await options.send()) !== "started") throw new CommandError("edit_failed");
     // Preflight answers before the user is appended; the next RPC read sees that synchronous append.
     await confirmed();
-    if (!replaced(await options.pi.readPersistedEntries())) throw new CommandError("edit_failed");
+    if (!replaced(await readDisk())) throw new CommandError("edit_failed");
     return { disposition: "started" };
   } catch {
     try {
-      const disk = await options.pi.readPersistedEntries();
+      const disk = await readDisk();
       if (unsafe) {
         await options.pi.stop();
         options.onBranch(disk);
@@ -121,8 +133,9 @@ export async function editStoppedBranch(options: {
         options.onBranch(current);
       }
     } catch {
-      // Reopening takes the last on-disk entry; no further write may use an uncertain leaf.
+      // No further write may use an uncertain leaf; show the last disk proof even when pi is gone.
       await options.pi.stop();
+      if (lastDisk !== null) options.onBranch(lastDisk);
     }
     throw new CommandError("edit_failed");
   }

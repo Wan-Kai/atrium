@@ -387,18 +387,176 @@ describe("editing the last stopped user message", () => {
     await controller.shutdown();
   });
 
-  it("revalidates the captured epoch after an in-flight history read finishes", async () => {
+  it.each([
+    [
+      "stopped",
+      {
+        entries: [
+          present(
+            editableEntries.entries.find((entry) => entry.kind === "user"),
+            "user",
+          ),
+          {
+            ...present(
+              editableEntries.entries.find((entry) => entry.kind === "assistant"),
+              "aborted reply",
+            ),
+            id: "refreshed-abort",
+            parts: [{ type: "text" as const, text: "new stopped partial" }],
+          },
+        ],
+        leafId: "refreshed-abort",
+      },
+    ],
+    ["completed", { entries: changedEditableEntries({ stopReason: "stop" }), leafId: "edit-abort" }],
+  ] as const)(
+    "revalidates the captured epoch after an in-flight history read finishes (%s)",
+    async (_outcome, page) => {
+      const manual = manualPi();
+      const { controller } = control(manual.pi, editableEntries);
+      const request = editRequest(controller);
+      const refreshed = Promise.withResolvers<EntriesPage>();
+      manual.pages.push(() => refreshed.promise);
+      await controller.setModel({ providerId: "faux", modelId: "another" });
+      const editing = controller.editStoppedMessage(request);
+      refreshed.resolve(page);
+      await expect(editing).rejects.toStrictEqual(new CommandError("transcript_changed"));
+      expect(manual.sent.filter((line) => /^(?:command|prompt)/.test(line))).toStrictEqual([]);
+      expect(controller.submitting).toBe(false);
+      expect(controller.control()).toStrictEqual(IDLE_CONTROL);
+      await controller.shutdown();
+    },
+  );
+
+  it("binds a restored failure to its own new epoch so the unchanged stopped message can be retried", async () => {
+    const manual = manualPi();
+    let attempts = 0;
+    const replies: SessionPi["prompt"][] = [
+      async () => {
+        throw new ReplayRequestError("prompt", "rejected", "preflight refused");
+      },
+      (...args) => manual.pi.prompt(...args),
+    ];
+    const pi = {
+      ...manual.pi,
+      prompt: async (...args: Parameters<SessionPi["prompt"]>) => {
+        attempts++;
+        return present(replies.shift(), "next preflight")(...args);
+      },
+    };
+    const { controller } = control(pi, editableEntries);
+    const request = editRequest(controller);
+    const anchor: LogEntry = { id: "edit-anchor", parentId: "edit-abort", kind: "other", timestamp: 3 };
+    const moved: EntriesPage = { entries: [...editableEntries.entries, anchor], leafId: null };
+    const restored: EntriesPage = {
+      entries: [...moved.entries, { id: "edit-restored", parentId: anchor.id, kind: "other", timestamp: 4 }],
+      leafId: "edit-restored",
+    };
+    manual.pages.push(
+      async () => editableEntries,
+      async () => moved,
+      async () => moved,
+      async () => restored,
+    );
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(
+      new CommandError("edit_failed", { epoch: request.epoch + 2, turnId: request.turnId }),
+    );
+    expect(controller.snapshot().epoch).toBe(request.epoch + 2);
+    expect(controller.items()).toMatchObject([{ id: request.turnId, outcome: "stopped", user: { text: "wrong" } }]);
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(new CommandError("transcript_changed"));
+    manual.pages.push(
+      async () => restored,
+      async () => ({ ...restored, leafId: null }),
+    );
+    expect(await controller.editStoppedMessage({ ...request, epoch: request.epoch + 2 })).toStrictEqual({
+      disposition: "started",
+    });
+    expect(attempts).toBe(2);
+    await controller.shutdown();
+  });
+
+  it("does not advertise a retry epoch that restarting an exited pi will invalidate", async () => {
+    const manual = manualPi();
+    const reads: SessionPi["getEntries"][] = [
+      (...args) => manual.pi.getEntries(...args),
+      (...args) => manual.pi.getEntries(...args),
+      async () => {
+        throw new ReplayRequestError("get_entries", "exited", "");
+      },
+    ];
+    const pi = {
+      ...manual.pi,
+      getEntries: (...args: Parameters<SessionPi["getEntries"]>) => present(reads.shift(), "next live read")(...args),
+      prompt: async () => {
+        manual.crash();
+        throw new ReplayRequestError("prompt", "exited", "");
+      },
+    };
+    const { controller } = control(pi, editableEntries);
+    const request = editRequest(controller);
+    manual.pages.push(
+      async () => editableEntries,
+      async () => ({ ...editableEntries, leafId: null }),
+    );
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(
+      new CommandError("edit_failed", { status: "exited" }),
+    );
+    expect(controller.exited).toBe(true);
+    expect(controller.items()).toMatchObject([{ id: request.turnId, outcome: "stopped", user: { text: "wrong" } }]);
+    await controller.shutdown();
+  });
+
+  it("does not bind a failed edit to a different stopped message found on disk", async () => {
+    const manual = manualPi();
+    const user = present(
+      editableEntries.entries.find((entry) => entry.kind === "user"),
+      "user",
+    );
+    const assistant = present(
+      editableEntries.entries.find((entry) => entry.kind === "assistant"),
+      "aborted reply",
+    );
+    const all: EntriesPage = {
+      entries: [
+        ...editableEntries.entries,
+        { ...user, id: "another-user", parentId: "edit-abort" },
+        { ...assistant, id: "another-abort", parentId: "another-user" },
+      ],
+      leafId: "edit-abort",
+    };
+    const moved: EntriesPage = {
+      entries: [...all.entries, { id: "edit-anchor", parentId: "edit-abort", kind: "other", timestamp: 3 }],
+      leafId: null,
+    };
+    const pi = { ...manual.pi, prompt: async () => ({ disposition: "handled" as const }) };
+    const { controller } = control(pi, all);
+    const request = editRequest(controller);
+    manual.pages.push(
+      async () => all,
+      async () => moved,
+      async () => ({ ...moved, leafId: "another-abort" }),
+    );
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(new CommandError("edit_failed"));
+    expect(controller.items().at(-1)).toMatchObject({ id: "s1:another-user", outcome: "stopped" });
+    expect(controller.exited).toBe(false);
+    expect(manual.withImages).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("does not confirm a retry when the recovered target is no longer stopped", async () => {
     const manual = manualPi();
     const { controller } = control(manual.pi, editableEntries);
-    const request = editRequest(controller);
-    const refreshed = Promise.withResolvers<EntriesPage>();
-    manual.pages.push(() => refreshed.promise);
-    await controller.setModel({ providerId: "faux", modelId: "another" });
-    const editing = controller.editStoppedMessage(request);
-    refreshed.resolve({ entries: changedEditableEntries({ stopReason: "stop" }), leafId: "edit-abort" });
-    await expect(editing).rejects.toStrictEqual(new CommandError("transcript_changed"));
-    expect(manual.sent.filter((line) => /^(?:command|prompt)/.test(line))).toStrictEqual([]);
-    expect(controller.submitting).toBe(false);
+    const completed: EntriesPage = { entries: changedEditableEntries({ stopReason: "stop" }), leafId: "edit-abort" };
+    manual.pages.push(
+      async () => completed,
+      async () => completed,
+      async () => completed,
+    );
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("edit_failed"),
+    );
+    expect(controller.items().at(-1)).toMatchObject({ outcome: "done" });
+    expect(manual.withImages).toStrictEqual([]);
     await controller.shutdown();
   });
 
@@ -483,7 +641,7 @@ describe("editing the last stopped user message", () => {
     manual.crash();
     await vi.waitFor(() => expect(controller.exited).toBe(true));
     gate.resolve();
-    await expect(editing).rejects.toStrictEqual(new CommandError("edit_failed"));
+    await expect(editing).rejects.toStrictEqual(new CommandError("edit_failed", { status: "exited" }));
     expect(restarts).toBe(0);
     expect(manual.withImages).toStrictEqual([]);
     await controller.shutdown();

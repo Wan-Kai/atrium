@@ -14,6 +14,7 @@ import { page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import "../styles.css";
 import { pageDrafts } from "../state/use-draft";
+import { finishStoppedEdit, stoppedEditStore } from "../state/stopped-edits";
 import { createNewWorkspaceStore } from "../state/new-workspace";
 import { createPanes, memoryStorage } from "../state/panes";
 import { closeViewer, createWorkspaceViews, openDiff, openFile, showViewer, viewOf } from "../state/workspace-views";
@@ -1683,7 +1684,7 @@ describe("ConversationArea's stopped message editor", () => {
 
   it.each([
     ["edit_failed", "没能重新发送，编辑内容已保留，请重试"],
-    ["transcript_changed", "对话记录已变化，请取消编辑并重新确认消息；编辑内容已保留"],
+    ["transcript_changed", "对话记录已变化，请先复制编辑正文，再取消编辑并重新确认消息"],
   ] as const)("keeps failed edits and next drafts for %s", async (code, expected) => {
     const replies = [
       () => Promise.reject(new CommandError(code)),
@@ -1705,6 +1706,122 @@ describe("ConversationArea's stopped message editor", () => {
     await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
     await expect.element(box).toHaveValue("下一条");
     expect(calls.filter((call) => call.startsWith("editStoppedMessage"))).toHaveLength(2);
+  });
+
+  it("retries with only the host-confirmed recovery epoch while keeping edited text, images and next draft", async () => {
+    const png = btoa(String.fromCharCode(...new Uint8Array(await (await shot()).arrayBuffer())));
+    const gate = Promise.withResolvers<{ disposition: "started" }>();
+    const replies = [() => gate.promise, () => Promise.resolve({ disposition: "started" as const })];
+    const { client, calls } = fakeClient(forkable("修订"), {
+      image: () => Promise.resolve({ mimeType: "image/png", data: png }),
+      editStoppedMessage: () => replies.shift()!(),
+    });
+    const { screen } = await onOpus(client);
+    const stopped = turn("t1", "", { outcome: "stopped" });
+    client.session("s1")?.setState({ epoch: 42, items: [{ ...stopped, user: { ...stopped.user, images: 1 } }] });
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.fill(box, "下一条独立草稿");
+    await userEvent.click(screen.getByRole("button", { name: "编辑已停止消息" }));
+    await userEvent.fill(box, "失败后保留的修订");
+    await expect.element(screen.getByRole("button", { name: "重新发送" })).toBeEnabled();
+    await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
+    client.session("s1")?.setState({ epoch: 44 });
+    gate.reject(new CommandError("edit_failed", { turnId: "t1", epoch: 44 }));
+    await expect.element(screen.getByRole("alert")).toHaveTextContent("没能重新发送，编辑内容已保留，请重试");
+    await expect.element(box).toHaveValue("失败后保留的修订");
+    await expect.element(screen.getByRole("button", { name: "重新发送" })).toBeEnabled();
+    // A later unrelated page update cannot replace the operation's own recovery confirmation.
+    client.session("s1")?.setState({ epoch: 99 });
+    await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
+    await expect.element(box).toHaveValue("下一条独立草稿");
+    expect(calls.filter((call) => call.startsWith("editStoppedMessage"))).toStrictEqual([
+      "editStoppedMessage s1 42 t1 失败后保留的修订 +u1",
+      "editStoppedMessage s1 44 t1 失败后保留的修订 +u1",
+    ]);
+    expect(calls.filter((call) => call.startsWith("uploadAttachment"))).toStrictEqual(["uploadAttachment image/webp"]);
+  });
+
+  it("keeps the captured edit and explains copying before reopening when recovery stopped pi", async () => {
+    const gate = Promise.withResolvers<{ disposition: "started" }>();
+    const { client, calls } = fakeClient(forkable("修订"), { editStoppedMessage: () => gate.promise });
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ epoch: 42, items: [turn("t1", "", { outcome: "stopped" })] });
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.fill(box, "下一条独立草稿");
+    await userEvent.click(screen.getByRole("button", { name: "编辑已停止消息" }));
+    await userEvent.fill(box, "先复制的修订正文");
+    const store = stoppedEditStore(client, "s1");
+    const captured = store.getState().target;
+    const beforeSubmit = [...calls];
+    await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
+    client.session("s1")?.setState({ epoch: 44 });
+    gate.reject(new CommandError("edit_failed", { status: "exited" }));
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("会话进程已停止，请先复制编辑正文，再取消编辑并重新打开会话");
+    await expect.element(box).toHaveValue("先复制的修订正文");
+    await expect.element(box).toBeEnabled();
+    await expect.element(screen.getByText("编辑已停止的消息", { exact: true })).toBeVisible();
+    expect(store.getState().target).toBe(captured);
+    expect(store.getState().target?.epoch).toBe(42);
+    expect(pageDrafts().read("s1").text).toBe("下一条独立草稿");
+    expect(calls.slice(beforeSubmit.length)).toStrictEqual(["editStoppedMessage s1 42 t1 先复制的修订正文"]);
+  });
+
+  it("ignores an old recovery completion after its edit target has been replaced", async () => {
+    const gate = Promise.withResolvers<{ disposition: "started" }>();
+    const replies = [() => gate.promise, () => Promise.resolve({ disposition: "started" as const })];
+    const { client, calls } = fakeClient(forkable("修订"), { editStoppedMessage: () => replies.shift()!() });
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ epoch: 42, items: [turn("t1", "", { outcome: "stopped" })] });
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.click(screen.getByRole("button", { name: "编辑已停止消息" }));
+    await userEvent.fill(box, "旧修订");
+    await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
+    const store = stoppedEditStore(client, "s1");
+    // The draft owner may invalidate a target when its tab is discarded, despite an in-flight command.
+    finishStoppedEdit(store, store.getState().target!);
+    client.session("s1")?.setState({ epoch: 73, items: [turn("t2", "", { outcome: "stopped" })] });
+    await userEvent.click(screen.getByRole("button", { name: "编辑已停止消息" }));
+    await userEvent.fill(box, "新修订");
+    const newerTarget = store.getState().target;
+    gate.reject(new CommandError("edit_failed", { turnId: "t1", epoch: 44 }));
+    await gate.promise.catch(() => undefined);
+    expect(store.getState()).toStrictEqual({ target: newerTarget, submitting: false, error: null });
+    await expect.element(box).toHaveValue("新修订");
+    await expect.element(screen.getByRole("alert")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
+    expect(calls.filter((call) => call.startsWith("editStoppedMessage"))).toStrictEqual([
+      "editStoppedMessage s1 42 t1 旧修订",
+      "editStoppedMessage s1 73 t2 新修订",
+    ]);
+  });
+
+  it.each([
+    new CommandError("edit_failed"),
+    new CommandError("edit_failed", { turnId: "another-turn", epoch: 44 }),
+    new CommandError("edit_failed", { turnId: "t1" }),
+    new CommandError("edit_failed", { turnId: "t1", epoch: "44" }),
+    new CommandError("transcript_changed", { turnId: "t1", epoch: 44 }),
+  ])("does not adopt a newer page epoch without matching recovery confirmation: %j", async (failure) => {
+    const gate = Promise.withResolvers<{ disposition: "started" }>();
+    const replies = [() => gate.promise, () => Promise.resolve({ disposition: "started" as const })];
+    const { client, calls } = fakeClient(forkable("修订"), { editStoppedMessage: () => replies.shift()!() });
+    const { screen } = await onOpus(client);
+    client.session("s1")?.setState({ epoch: 42, items: [turn("t1", "", { outcome: "stopped" })] });
+    const box = screen.getByRole("textbox", { name: "消息" });
+    await userEvent.click(screen.getByRole("button", { name: "编辑已停止消息" }));
+    await userEvent.fill(box, "仍需原门禁");
+    await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
+    client.session("s1")?.setState({ epoch: 44 });
+    gate.reject(failure);
+    await expect.element(box).toBeEnabled();
+    await expect.element(box).toHaveValue("仍需原门禁");
+    await userEvent.click(screen.getByRole("button", { name: "重新发送" }));
+    expect(calls.filter((call) => call.startsWith("editStoppedMessage"))).toStrictEqual([
+      "editStoppedMessage s1 42 t1 仍需原门禁",
+      "editStoppedMessage s1 42 t1 仍需原门禁",
+    ]);
   });
 
   it.each<Step>([

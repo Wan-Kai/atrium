@@ -155,7 +155,7 @@ describe("editing a stopped message through the real host", () => {
 
     await expect(
       client.editStoppedMessage(sessionId, original.epoch, original.turn.id, "correct"),
-    ).rejects.toStrictEqual(new CommandError("edit_failed"));
+    ).rejects.toStrictEqual(new CommandError("edit_failed", { epoch: original.epoch + 1, turnId: original.turn.id }));
 
     expect(await launch.contexts()).toStrictEqual(contexts);
     expect(contexts).toHaveLength(1);
