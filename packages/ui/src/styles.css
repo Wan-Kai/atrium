@@ -55,6 +55,38 @@ body {
 
 /* Replies and reasoning, set close (design-language, "字体"); blocks are 12px apart, from the
    class Markdown passes. */
+.atrium-file-reference {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: color-mix(in srgb, var(--tint) 85%, var(--text));
+  cursor: pointer;
+  text-align: inherit;
+  vertical-align: baseline;
+}
+
+.atrium-file-reference > img {
+  align-self: center;
+}
+
+.atrium-file-reference:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.atrium-file-reference:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--tint) 22%, transparent);
+  outline-offset: 2px;
+}
+
+.atrium-file-reference-code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: var(--code);
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono);
+}
+
 .atrium-markdown {
   font-size: var(--fs-reply);
   line-height: var(--lh-reply);
@@ -239,6 +271,132 @@ body {
   border: 0;
   border-radius: 0;
   background: none;
+}
+
+/* The chosen B toolbar reserves its own row; native Streamdown still owns diagram geometry. */
+.atrium-mermaid-controls {
+  border-radius: var(--r-md);
+  background: var(--code);
+}
+
+.atrium-mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 12px;
+  flex-wrap: wrap;
+  min-height: 40px;
+  padding: 7px 40px 7px 14px;
+}
+
+.atrium-mermaid-language {
+  color: var(--text-muted);
+  font: 11px / 18px var(--font-mono);
+}
+
+.atrium-mermaid-tools,
+.atrium-mermaid-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.atrium-mermaid-tools {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.atrium-mermaid-toolbar button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.atrium-mermaid-toolbar button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.atrium-mermaid-toolbar button:focus-visible,
+.atrium-mermaid-controls [data-streamdown="mermaid-block-actions"] button:focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: -2px;
+}
+
+.atrium-mermaid-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.atrium-mermaid-zoom output {
+  min-width: 44px;
+  color: var(--text-muted);
+  text-align: center;
+  font: 11px / 18px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.atrium-mermaid-toolbar .atrium-mermaid-fit {
+  width: auto;
+  padding-inline: 6px;
+  font-size: 12px;
+}
+
+.atrium-mermaid-controls [data-streamdown="mermaid-block"] {
+  position: static;
+  background: none;
+}
+
+.atrium-mermaid-controls [data-streamdown="mermaid-block"] > div:first-child,
+.atrium-mermaid-controls [data-streamdown="code-block-header"],
+.atrium-mermaid-controls [data-streamdown="mermaid"] > div > div:has(+ [role="application"]) {
+  display: none;
+}
+
+.atrium-mermaid-controls [data-streamdown="mermaid-block-actions"] {
+  opacity: 1;
+}
+
+.atrium-mermaid-controls [data-streamdown="mermaid-block-actions"] button {
+  color: var(--text-muted);
+}
+
+/* A wide SVG must not make the grid track wider than the reply before native fit is measured. */
+.atrium-mermaid-controls [data-streamdown="mermaid-block"] > div:last-child {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.atrium-mermaid-controls [data-streamdown="mermaid"] {
+  min-width: 0;
+}
+
+/* PlantUML shares Mermaid's quiet surface, but owns all three actions and a Blob image. */
+.atrium-plantuml {
+  padding: 28px 14px 20px;
+  border-radius: var(--r-md);
+  background: var(--code);
+}
+.atrium-plantuml > .atrium-block-actions {
+  right: 6px;
+}
+.atrium-plantuml-label {
+  position: absolute;
+  right: 12px;
+  top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+}
+.atrium-plantuml:is(:hover, :focus-within) > .atrium-plantuml-label {
+  opacity: 0;
 }
 
 /* A table has no frame: a muted header over a strong line, soft lines between rows. */

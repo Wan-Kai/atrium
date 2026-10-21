@@ -733,6 +733,65 @@ function columnOf(element: Element): { maxWidth: string; left: number; width: nu
 }
 
 describe("ConversationArea", () => {
+  it("keeps local reply images loaded across workspace metadata updates but refreshes a changed directory", async () => {
+    const id = "wks_0000000000000001";
+    const original = workspace({ id, dir: "/work/example" });
+    const { client, calls, index } = fakeClient(
+      { workspaces: [original] },
+      {
+        readFile: async () => ({
+          size: 68,
+          content: {
+            kind: "image",
+            mimeType: "image/png",
+            data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+          },
+        }),
+      },
+    );
+    /** Keeps the same conversation mounted while index metadata changes.
+     * @remarks Reads must depend on workspace identity, not its record object.
+     * @sideEffects none
+     */
+    const sameArea = () => <ConversationArea client={client} containerId={id} sessionId="s1" create={noCreate} />;
+    const screen = await render(sameArea());
+    client.session("s1")?.setState({ items: [turn("picture", "![图](images/a.png)", { outcome: "stopped" })] });
+    await expect.element(screen.getByRole("button", { name: "放大图片：图" })).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "编辑已停止消息" }));
+    await expect.element(screen.getByRole("button", { name: "取消编辑" })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: "放大图片：图" })).toBeVisible();
+    const updated = { ...original, branch: "topic", head: "1".repeat(40) };
+    index.setState({ workspaces: [updated] });
+    await screen.rerender(sameArea());
+    expect(calls.filter((call) => call.startsWith("readFile"))).toStrictEqual([`readFile ${id} images/a.png`]);
+    index.setState({ workspaces: [{ ...updated, dir: "/work/moved" }] });
+    await screen.rerender(sameArea());
+    expect(calls.filter((call) => call.startsWith("readFile"))).toStrictEqual([
+      `readFile ${id} images/a.png`,
+      `readFile ${id} images/a.png`,
+    ]);
+  });
+  it("never reads an old transcript's image from the newly selected workspace", async () => {
+    const first = "wks_0000000000000001";
+    const second = "wks_0000000000000002";
+    const { client, calls } = fakeClient(
+      { workspaces: [workspace({ id: first }), workspace({ id: second })] },
+      {
+        readFile: async () => ({ size: 0, content: { kind: "binary" } }),
+      },
+    );
+    const screen = await render(
+      <ConversationArea client={client} containerId={first} sessionId="s1" create={noCreate} />,
+    );
+    client.session("s1")?.setState({ items: [turn("picture", "![图](images/a.png)")] });
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.startsWith("readFile"))).toStrictEqual([`readFile ${first} images/a.png`]),
+    );
+    await screen.rerender(<ConversationArea client={client} containerId={second} sessionId="s2" create={noCreate} />);
+    await expect.element(screen.getByRole("textbox", { name: "消息" })).toBeInTheDocument();
+    expect(calls.filter((call) => call.startsWith("readFile"))).toStrictEqual([`readFile ${first} images/a.png`]);
+  });
+
   it("lines the messages and the input box up in one column at most 800 px wide, centred", async () => {
     const { client } = fakeClient();
     const screen = await render(
@@ -3246,6 +3305,51 @@ describe("ConversationArea's file chips", () => {
     await expect.element(chips.nth(2)).toBeVisible();
 
     expect(chips.elements().map((chip) => chip.tagName)).toStrictEqual(["SPAN", "SPAN", "SPAN"]);
+  });
+});
+
+describe("ConversationArea's reply file references", () => {
+  it("uses the real workspace opener, defers reads until activation, and carries line ranges into a fixed file tab", async () => {
+    const W = "wks_0000000000000001";
+    const reads: string[] = [];
+    const { client } = fakeClient(
+      { workspaces: [workspace({ id: W, dir: "/work/example" })] },
+      {
+        readFile: async (_workspace, path) => {
+          reads.push(path);
+          return { size: 17, content: { kind: "text", text: "first\nsecond\nthird" } };
+        },
+      },
+    );
+    const views = createWorkspaceViews(memoryStorage());
+    const screen = await render(
+      tall(<ConversationArea client={client} containerId={W} sessionId="s1" create={noCreate} views={views} />),
+    );
+    client.session("s1")?.setState({
+      items: [
+        turn(
+          "t1",
+          "位置 `src/a.ts:2-3`，[本地](file:///work/example/src/a.ts#L1)，[外部路径](/work/other/secret.ts#L1)。",
+        ),
+      ],
+    });
+    const reply = screen.getByTestId("reply");
+    const inline = reply.getByRole("button", { name: "src/a.ts:2-3" });
+    await expect.element(inline).toBeVisible();
+    expect(reads).toStrictEqual([]);
+    await expect.element(reply.getByRole("button", { name: "外部路径" })).not.toBeInTheDocument();
+    await inline.click();
+    await expect
+      .element(screen.getByRole("region", { name: "src/a.ts" }).getByRole("status"))
+      .toHaveTextContent("第 2–3 行");
+    expect(reads).toStrictEqual(["src/a.ts"]);
+    expect(viewOf(views.getState(), W).tabs).toStrictEqual([{ kind: "file", path: "src/a.ts", preview: false }]);
+    showViewer(views, W, null);
+    await reply.getByRole("button", { name: "本地" }).click();
+    await expect
+      .element(screen.getByRole("region", { name: "src/a.ts" }).getByRole("status"))
+      .toHaveTextContent("第 1 行");
+    expect(viewOf(views.getState(), W).tabs).toHaveLength(1);
   });
 });
 

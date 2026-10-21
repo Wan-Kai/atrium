@@ -7,7 +7,8 @@ import type { LaunchInTurn } from "./launch-timeline";
 import type { Launch } from "../state/new-workspace";
 import { useFollowBottom } from "./follow-bottom";
 import { UserBubble } from "./messages";
-import { LoadStepContext, OpenFileContext } from "./steps";
+import { LoadStepContext } from "./steps";
+import { OpenFileContext, type FileOpener } from "./file-opener";
 import { RunStatus } from "./run-status";
 import { type ForkFromTurn, NoticeView, TurnView } from "./turn-view";
 
@@ -210,7 +211,7 @@ export interface TranscriptProps {
   /** An existing editor blocks reopening its message. */
   readonly editingStopped?: boolean;
   /** How to open a file a tool was given, from its chip; none where files cannot be opened. */
-  readonly openFile?: (path: string) => (() => void) | null;
+  readonly openFile?: FileOpener;
   /** The launch that made the session, shown in its first turn (SPEC-0001, "M1.11 的新建工作区"). */
   readonly launch?: LaunchInTurn | undefined;
 }

@@ -85,6 +85,19 @@ function colours(line: Element): string[][] {
   ]);
 }
 
+/** Checks a target row against the actual file viewport after layout settles.
+ * @remarks Wrapped rows and skipped groups make estimated pixel offsets unreliable.
+ * @sideEffects none
+ * @param row - The target row.
+ * @param viewport - Its scrolling viewport.
+ * @returns Whether the entire row is visible.
+ */
+function rowInsideViewer(row: Element, viewport: Element): boolean {
+  const target = row.getBoundingClientRect();
+  const bounds = viewport.getBoundingClientRect();
+  return target.top >= bounds.top && target.bottom <= bounds.bottom;
+}
+
 /**
  * A file tab on `path` of workspace W, reading as a page, with how it opens in the browser.
  *
@@ -140,6 +153,147 @@ describe("FileViewer", () => {
     onTestFinished(() => document.documentElement.classList.remove("dark"));
 
     expect(colours(lines.element()).at(0)).toStrictEqual(["const", "rgb(249, 117, 131)"]);
+  });
+
+  it("navigates to actual rows past skipped groups, repeats the same target, and highlights its range", async () => {
+    const { screen, views } = await viewer(
+      text(Array.from({ length: 260 }, (_item, index) => `const line${index + 1} = ${index + 1};`).join("\n")),
+    );
+    await expect.element(screen.getByTestId("code-lines")).toBeVisible();
+    const body = screen.getByTestId("viewer-body").element();
+    openFile(views, W, "src/a.ts", true, { start: 195, end: 198 });
+    await expect.poll(() => viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+    const target = screen.container.querySelector('[data-line-number="195"]')!;
+    expect(
+      [...screen.container.querySelectorAll('[data-line-target="true"]')].map((row) =>
+        row.getAttribute("data-line-number"),
+      ),
+    ).toStrictEqual(["195", "196", "197", "198"]);
+    expect(getComputedStyle(target).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+    expect(target.getBoundingClientRect().top).toBeGreaterThanOrEqual(body.getBoundingClientRect().top);
+    expect(target.getBoundingClientRect().bottom).toBeLessThanOrEqual(body.getBoundingClientRect().bottom);
+    body.scrollTop = 0;
+    openFile(views, W, "src/a.ts", true, { start: 195, end: 198 });
+    await expect.poll(() => viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+    expect(target.getBoundingClientRect().top).toBeGreaterThanOrEqual(body.getBoundingClientRect().top);
+    expect(target.getBoundingClientRect().bottom).toBeLessThanOrEqual(body.getBoundingClientRect().bottom);
+  });
+
+  it("uses the newest pending range after reading and targets wrapped rows across chunks", async () => {
+    const pending = Promise.withResolvers<CommandResult<"read_file">>();
+    const { screen, views } = await viewer(() => pending.promise);
+    await screen.getByRole("button", { name: "换行" }).click();
+    openFile(views, W, "src/a.ts", true, { start: 70, end: 72 });
+    openFile(views, W, "src/a.ts", true, { start: 200, end: 201 });
+    const value = [
+      ...Array.from({ length: 195 }, () => "a long wrapped source comment ".repeat(20)),
+      ...Array.from({ length: 65 }, (_item, index) => `line ${index + 196}`),
+    ].join("\n");
+    pending.resolve({ size: value.length, content: { kind: "text", text: value } });
+    await expect.poll(() => viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+    const body = screen.getByTestId("viewer-body").element();
+    const target = screen.container.querySelector('[data-line-number="200"]')!;
+    await expect.poll(() => rowInsideViewer(target, body)).toBe(true);
+    expect(
+      [...screen.container.querySelectorAll('[data-line-target="true"]')].map((row) =>
+        row.getAttribute("data-line-number"),
+      ),
+    ).toStrictEqual(["200", "201"]);
+  });
+
+  it.each([
+    ["gone", "path_not_found", "文件已经不在了"],
+    ["failed", "read_failed", "读不了这个文件"],
+  ] as const)(
+    "keeps a pending line request after a %s reading and reveals it once the file recovers",
+    async (_kind, code, said) => {
+      const initial = Promise.withResolvers<CommandResult<"read_file">>();
+      let reading = initial.promise;
+      const { screen, views, redraw } = await viewer(() => reading);
+      openFile(views, W, "src/a.ts", true, { start: 195, end: 198 });
+      initial.reject(new CommandError(code));
+      await expect.element(screen.getByText(said)).toBeVisible();
+      // Let any navigation frame run before the successful reread, not just the error render.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const consumedOnError = viewOf(views.getState(), W).fileReveal?.done;
+      const body = screen.getByTestId("viewer-body").element();
+      expect(body.scrollTop).toBe(0);
+      expect(screen.container.querySelector('[data-line-number="195"]')).toBeNull();
+
+      reading = text(Array.from({ length: 260 }, (_item, index) => `line ${index + 1}`).join("\n"))();
+      await redraw(DIFF);
+      await expect.element(screen.getByText("line 195", { exact: true })).toBeInTheDocument();
+      const target = screen.container.querySelector('[data-line-number="195"]')!;
+      await expect.poll(() => rowInsideViewer(target, body)).toBe(true);
+      expect(body.scrollTop).toBeGreaterThan(0);
+      expect(consumedOnError).toBe(false);
+      await expect.poll(() => viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+      expect(
+        [...screen.container.querySelectorAll('[data-line-target="true"]')].map((row) =>
+          row.getAttribute("data-line-number"),
+        ),
+      ).toStrictEqual(["195", "196", "197", "198"]);
+
+      body.scrollTop = 0;
+      reading = text(Array.from({ length: 260 }, (_item, index) => `updated line ${index + 1}`).join("\n"))();
+      await redraw({ ...DIFF, added: 3 });
+      await expect.element(screen.getByText("updated line 195", { exact: true })).toBeInTheDocument();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      expect(body.scrollTop).toBe(0);
+      expect(rowInsideViewer(target, body)).toBe(false);
+      expect(viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+    },
+  );
+
+  it.each([
+    ["empty text", { size: 0, content: { kind: "text", text: "" } }],
+    ["an image", { size: 72, content: { kind: "image", mimeType: "image/png", data: PNG } }],
+    ["a binary file", { size: 1536, content: { kind: "binary" } }],
+    ["a large file", { size: 2 * 1024 * 1024, content: { kind: "too_large" } }],
+    ["a link", { size: 0, content: { kind: "link" } }],
+  ] as const)("finishes a successful line request for %s with no target row", async (_kind, result) => {
+    const pending = Promise.withResolvers<CommandResult<"read_file">>();
+    const { screen, views } = await viewer(() => pending.promise);
+    openFile(views, W, "src/a.ts", true, { start: 195, end: 198 });
+    pending.resolve(result);
+
+    await expect.element(screen.getByRole("status")).toHaveTextContent("文件没有可定位的文本行");
+    await expect.poll(() => viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    expect(screen.container.querySelector("[data-line-number]")).toBeNull();
+    expect(screen.getByTestId("viewer-body").element().scrollTop).toBe(0);
+    expect(viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+  });
+
+  it("cancels an unmounted navigation frame before it can scroll or consume the request", async () => {
+    const { screen, views } = await viewer(text("one\ntwo\nthree"));
+    await expect.element(screen.getByTestId("code-lines")).toBeVisible();
+    const native = window.requestAnimationFrame.bind(window);
+    const scheduled = Promise.withResolvers<number>();
+    const callbacks = { ran: false };
+    const frames = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      const id = native((time) => {
+        callbacks.ran = true;
+        callback(time);
+      });
+      scheduled.resolve(id);
+      return id;
+    });
+    onTestFinished(() => frames.mockRestore());
+    openFile(views, W, "src/a.ts", true, { start: 2, end: 2 });
+    await scheduled.promise;
+    await screen.unmount();
+    await new Promise<void>((resolve) => native(() => resolve()));
+    expect(callbacks.ran).toBe(false);
+    expect(viewOf(views.getState(), W).fileReveal?.done).toBe(false);
+  });
+
+  it("clamps a line past the end and explains it rather than silently ignoring the request", async () => {
+    const { screen, views } = await viewer(text("one\ntwo\nthree"));
+    openFile(views, W, "src/a.ts", true, { start: 500, end: 501 });
+    await expect.element(screen.getByRole("status")).toHaveTextContent("第 3 行（请求超出文件范围）");
+    await expect.poll(() => viewOf(views.getState(), W).fileReveal?.done).toBe(true);
+    expect(screen.container.querySelector('[data-line-target="true"]')?.getAttribute("data-line-number")).toBe("3");
   });
 
   it("draws the lines in groups of 64, laid out only near the view, 20px a line until drawn", async () => {

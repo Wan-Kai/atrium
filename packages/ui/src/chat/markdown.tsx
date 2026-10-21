@@ -2,7 +2,7 @@ import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import type { MathPlugin } from "@streamdown/math";
 import type { DiagramPlugin } from "@streamdown/mermaid";
-import { type ComponentProps, useEffect, useMemo, useReducer, useState } from "react";
+import { type ComponentProps, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   CodeBlock,
   CodeBlockCopyButton,
@@ -15,6 +15,9 @@ import {
   Streamdown,
   type StreamdownTranslations,
   defaultRemarkPlugins,
+  defaultComponents,
+  type ExtraProps,
+  parseMarkdownIntoBlocks,
 } from "streamdown";
 import {
   ArrowClockwise,
@@ -31,10 +34,30 @@ import {
   X,
 } from "../design/icons";
 import { useDarkMode } from "../design/use-dark-mode";
-import { normalizeMathDelimiters, remarkHtmlAsText } from "./markdown-transforms";
+import {
+  normalizeMathDelimiters,
+  remarkHtmlAsText,
+  remarkReplyImages,
+  remarkReplyFiles,
+  remarkReplyData,
+} from "./markdown-transforms";
+import { ReplyImage, replyImageLabel } from "./reply-images";
+import { CopyButton } from "./messages";
+import { MERMAID_ZOOM_LABELS, MermaidZoom } from "./mermaid-zoom";
+import { PlantumlBlock } from "./plantuml-block";
+import { ReplyFile } from "./reply-file";
+import { ReplyDataBlock } from "./reply-data-block";
 
 /** Streamdown's default Markdown plugins, plus showing raw HTML as text. */
-const REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), remarkHtmlAsText];
+const REMARK_PLUGINS = [
+  ...Object.values(defaultRemarkPlugins),
+  remarkHtmlAsText,
+  remarkReplyImages,
+  remarkReplyFiles,
+  remarkReplyData,
+];
+/** Only Markdown images may become this inert custom element; raw HTML remains text. */
+const ALLOWED_TAGS = { "atrium-image": ["source", "alt", "title"], "atrium-file": ["source", "inline"] };
 
 /** Math needs loading once a reply contains `$$` or `\(`. */
 const NEEDS_MATH = /\$\$|\\\(/;
@@ -43,13 +66,13 @@ const NEEDS_MERMAID = /^ {0,3}(?:`{3,}|~{3,})\s*mermaid/m;
 
 /**
  * The buttons a block offers: copying code; copying a table and seeing it larger; for Mermaid, only
- * seeing it larger, as `MermaidBlock` adds the rest. Nothing downloads, and diagrams pan and zoom only
- * when larger (design-language, "消息流").
+ * seeing it larger, as `MermaidBlock` adds the rest. Nothing downloads. The B toolbar exposes the
+ * renderer's existing native pan/zoom without replacing its drawing or geometry.
  */
 const CONTROLS: ControlsConfig = {
   code: { copy: true, download: false },
   table: { copy: true, download: false, fullscreen: true },
-  mermaid: { copy: false, download: false, fullscreen: true, panZoom: false },
+  mermaid: { copy: false, download: false, fullscreen: true, panZoom: true },
   image: false,
 };
 
@@ -84,10 +107,10 @@ const TRANSLATIONS: Partial<StreamdownTranslations> = {
   imageNotAvailable: "图片无法显示",
   openExternalLink: "打开链接",
   openLink: "打开链接",
-  resetView: "复原",
+  resetView: MERMAID_ZOOM_LABELS.fit,
   viewFullscreen: "放大",
-  zoomIn: "拉近",
-  zoomOut: "拉远",
+  zoomIn: MERMAID_ZOOM_LABELS.in,
+  zoomOut: MERMAID_ZOOM_LABELS.out,
 };
 
 /** Plugins loaded so far, shared by every reply. */
@@ -175,7 +198,10 @@ function usePlugins(text: string): PluginConfig {
       code,
       cjk,
       ...(loaded.math === undefined ? {} : { math: loaded.math }),
-      ...(loaded.mermaid === undefined ? {} : { renderers: [{ language: "mermaid", component: MermaidBlock }] }),
+      renderers: [
+        { language: ["plantuml", "puml"], component: PlantumlBlock },
+        ...(loaded.mermaid === undefined ? [] : [{ language: "mermaid", component: MermaidBlock }]),
+      ],
     }),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- `version` stands for the module-level `loaded`.
     [version],
@@ -261,6 +287,7 @@ function mermaidFence(source: string): string {
  */
 function MermaidBlock({ code: source, isIncomplete }: CustomRendererProps) {
   const [showingSource, showSource] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
   const dark = useDarkMode();
   const options = useMemo(() => mermaidOptions(dark), [dark]);
   if (isIncomplete) {
@@ -272,17 +299,23 @@ function MermaidBlock({ code: source, isIncomplete }: CustomRendererProps) {
   }
   const label = showingSource ? "看图" : "看源码";
   return (
-    <div className="atrium-mermaid">
-      <div className="atrium-block-actions">
-        <button type="button" aria-label={label} title={label} onClick={() => showSource(!showingSource)}>
-          {showingSource ? <Flowchart size={14} aria-hidden /> : <Code size={14} aria-hidden />}
-        </button>
-        <CodeBlockCopyButton code={source} />
-      </div>
+    <div className="atrium-mermaid atrium-mermaid-controls" ref={root}>
+      <header className="atrium-mermaid-toolbar">
+        <span className="atrium-mermaid-language">mermaid</span>
+        <div className="atrium-mermaid-tools">
+          <button type="button" aria-label={label} title={label} onClick={() => showSource(!showingSource)}>
+            {showingSource ? <Flowchart size={14} aria-hidden /> : <Code size={14} aria-hidden />}
+          </button>
+          <CopyButton text={() => source} />
+          {!showingSource && <MermaidZoom root={root} />}
+        </div>
+      </header>
       {showingSource ? (
         <CodeBlock code={source} language="mermaid" lineNumbers={false} />
       ) : (
         <Streamdown
+          // Streamdown's memo comparison ignores Mermaid options; a new appearance must redraw.
+          key={dark ? "dark" : "light"}
           plugins={drawing}
           mermaid={options}
           controls={CONTROLS}
@@ -308,31 +341,82 @@ function MermaidBlock({ code: source, isIncomplete }: CustomRendererProps) {
  * @param props - The anchor's props from the renderer.
  * @returns The link.
  */
-function ExternalLink({ node: _node, ...props }: ComponentProps<"a"> & { node?: unknown }) {
-  return (
-    <a {...props} target="_blank" rel="noopener noreferrer" className="text-tint underline-offset-2 hover:underline" />
+function ExternalLink({ node, children, ...props }: ComponentProps<"a"> & ExtraProps) {
+  const imageLabel = replyImageLabel(node);
+  const link = (
+    <a {...props} target="_blank" rel="noopener noreferrer" className="text-tint underline-offset-2 hover:underline">
+      {imageLabel ?? children}
+    </a>
+  );
+  return imageLabel === null ? (
+    link
+  ) : (
+    <span>
+      {children}
+      {link}
+    </span>
   );
 }
 
-/**
- * An image in a reply.
- *
- * @remarks
- * Local and `https` images show directly; an `http` image is not loaded and shows as a link to
- * it (SPEC-0001, "回复渲染"; security.md, "渲染内容"), which the page's CSP enforces anyway.
- *
- * @sideEffects none
- * @param props - The image's props from the renderer.
- * @returns The image, or a link for an `http` address.
+/** Hands an inert Markdown image address to the workspace-aware component.
+ * @remarks The sanitizer only preserves the three declared string attributes; none is a live URL.
+ * @sideEffects May load an approved image through ReplyImage.
+ * @param props - The custom tag's untrusted attributes.
+ * @returns The guarded image.
  */
-function ReplyImage({ node: _node, src, alt, ...props }: ComponentProps<"img"> & { node?: unknown }) {
-  if (typeof src === "string" && /^http:/i.test(src)) {
-    return <ExternalLink href={src}>{alt === undefined || alt === "" ? src : alt}</ExternalLink>;
-  }
-  return <img {...props} src={src} alt={alt} loading="lazy" className="max-w-full rounded-[var(--r-md)]" />;
+function MarkdownImage({ source, alt, title }: Record<string, unknown>) {
+  return (
+    <ReplyImage
+      src={typeof source === "string" ? source : undefined}
+      alt={typeof alt === "string" ? alt : ""}
+      {...(typeof title === "string" ? { title } : {})}
+    />
+  );
 }
 
-const COMPONENTS: Components = { a: ExternalLink, img: ReplyImage };
+/** Streamdown's normal code renderer, including every non-data language and inline code. */
+const NormalCode = defaultComponents.code;
+
+/** Supplies data viewers with parser-confirmed fence completion rather than animation state.
+ * @remarks Metadata is created by remarkReplyData after raw HTML was made text; raw code remains
+ * unchanged. Other languages keep the exact existing renderer and its controls.
+ * @sideEffects May render an explicit local data view through ReplyDataBlock.
+ * @param props - Markdown's code element with controlled data attributes.
+ * @returns The bounded data viewer or the normal Streamdown code element.
+ */
+function ReplyCode(props: ComponentProps<"code"> & ExtraProps) {
+  const language = /(?:^|\s)language-(json|csv)(?:\s|$)/u.exec(props.className ?? "")?.[1];
+  // mdast-to-hast appends one LF; remove that sentinel, never trim original whitespace.
+  if (language === "json" || language === "csv")
+    return (
+      <ReplyDataBlock
+        language={language}
+        code={typeof props.children === "string" ? props.children.replace(/\n$/u, "") : ""}
+        isIncomplete={props.node?.properties.metastring !== "atrium-data-closed"}
+      />
+    );
+  return <NormalCode {...props} />;
+}
+
+const COMPONENTS: Components = {
+  a: ExternalLink,
+  img: ReplyImage,
+  "atrium-image": MarkdownImage,
+  "atrium-file": ReplyFile,
+  code: ReplyCode,
+};
+
+/** Keeps reference definitions with the images that use them.
+ * @remarks Streamdown handles footnotes as one block but splits ordinary reference definitions
+ * away from their images. Only replies containing definitions take this whole-document path;
+ * other replies keep the existing incremental block cache.
+ * @sideEffects none
+ * @param text - The Markdown as received so far.
+ * @returns Renderable blocks.
+ */
+function replyBlocks(text: string): string[] {
+  return /^ {0,3}\[[^\]]+\]:/mu.test(text) ? [text] : parseMarkdownIntoBlocks(text);
+}
 
 /** Props of {@link Markdown}. */
 export interface MarkdownProps {
@@ -366,6 +450,8 @@ export function Markdown({ text, streaming }: MarkdownProps) {
       plugins={plugins}
       remarkPlugins={REMARK_PLUGINS}
       components={COMPONENTS}
+      allowedTags={ALLOWED_TAGS}
+      parseMarkdownIntoBlocksFn={replyBlocks}
       controls={CONTROLS}
       icons={ICONS}
       translations={TRANSLATIONS}

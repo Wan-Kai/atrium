@@ -371,6 +371,9 @@ importers:
       '@hugeicons/react':
         specifier: 1.1.10
         version: 1.1.10(react@19.3.0)
+      '@plantuml/core':
+        specifier: 1.2026.9
+        version: 1.2026.9
       '@streamdown/cjk':
         specifier: 1.0.4
         version: 1.0.4(@types/mdast@4.0.4)(micromark-util-types@2.0.3)(micromark@4.0.3(supports-color@7.2.0))(react@19.3.0)(supports-color@7.2.0)(unified@11.0.5)
@@ -383,6 +386,12 @@ importers:
       '@streamdown/mermaid':
         specifier: 1.0.3
         version: 1.0.3(react@19.3.0)
+      '@xmldom/xmldom':
+        specifier: 0.9.12
+        version: 0.9.12
+      jsonc-parser:
+        specifier: 3.3.1
+        version: 3.3.1
       katex:
         specifier: 0.19.0
         version: 0.19.0
@@ -1704,6 +1713,9 @@ packages:
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha512-k2ENnmBugE/rzQfEcdWHcCY+/FM3VLzH9cYEsbdsoqrvzAKRhUZeRNhAZvB8OitQJ1TBed3yqWtdjzS6wJKBwg==}
+
+  '@plantuml/core@1.2026.9':
+    resolution: {integrity: sha512-Qy46og9hEb+wOFtjUfniWkl/BDwHpDuebQX5rF+35s9PS2G4cKZf1iWw4E/ELLQ0pTkESPDoQTbKWcc3ZyVcVA==}
 
   '@playwright/test@1.63.0':
     resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
@@ -3160,6 +3172,9 @@ packages:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  jsonc-parser@3.3.1:
+    resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
 
   junk@4.0.1:
     resolution: {integrity: sha512-Qush0uP+G8ZScpGMZvHUiRfI0YBWuB3gVBYlI0v0vvOJt5FLicco+IkP0a50LqTTQhmts/m6tP5SWE+USyIvcQ==}
@@ -5665,6 +5680,8 @@ snapshots:
 
   '@pinojs/redact@0.4.0': {}
 
+  '@plantuml/core@1.2026.9': {}
+
   '@playwright/test@1.63.0':
     dependencies:
       playwright: 1.63.0
@@ -7157,6 +7174,8 @@ snapshots:
   json-schema-traverse@1.0.0: {}
 
   json5@2.2.3: {}
+
+  jsonc-parser@3.3.1: {}
 
   junk@4.0.1: {}
 

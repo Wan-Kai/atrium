@@ -36,6 +36,8 @@ import { StatusBar } from "./status-bar";
 import { ChildCapsule } from "../children/child-capsule";
 import { askForChild } from "../children/new-child";
 import { MessageImagesContext, messageImages } from "./message-images";
+import { ReplyImagesContext, replyImageFiles } from "./reply-images";
+import type { FileOpener } from "./file-opener";
 import { Transcript } from "./transcript";
 import { StoppedMessageEditor } from "./stopped-message-editor";
 import { stoppedEditStore } from "../state/stopped-edits";
@@ -56,6 +58,7 @@ import { type Panes, createPanes, memoryStorage } from "../state/panes";
 import {
   NO_VIEW,
   type WorkspaceViews,
+  type FileLineRange,
   choosePanelTab,
   createWorkspaceViews,
   openFile,
@@ -387,11 +390,14 @@ function SessionArea({
   /** The new-workspace page's choices and box, in place of the session's while it has none. */
   readonly bottom?: ReactNode;
   /** How to open a file a tool was given, from its chip; none outside a workspace. */
-  readonly fileOpener?: ((path: string) => (() => void) | null) | undefined;
+  readonly fileOpener?: FileOpener | undefined;
   /** The workspace views, so a child opened from the capsule shows over a viewer tab. */
   readonly views: StoreApi<WorkspaceViews>;
 }) {
-  const view = useStore(store);
+  const subscribed = useStore(store);
+  // The parent's subscription switches in an effect; never pair its old transcript with this
+  // render's new workspace reader (SPEC-0001, "回复渲染").
+  const view = subscribed.sessionId === sessionId ? subscribed : loadingView(sessionId);
   const editStore = useMemo(() => stoppedEditStore(client, sessionId), [client, sessionId]);
   const editing = useStore(editStore, (state) => state.target);
   const place = useStore(client.index, (index) => {
@@ -418,6 +424,18 @@ function SessionArea({
   );
   // One per session, so thumbnails do not load again on every render.
   const images = useMemo(() => messageImages(client, sessionId), [client, sessionId]);
+  const imageWorkspace = useStore(client.index, (index) =>
+    index.workspaces.find((one) => one.id === workspaceOf(containerId)),
+  );
+  const imageWorkspaceId = imageWorkspace?.id;
+  const imageWorkspaceDir = imageWorkspace?.dir;
+  const replyImages = useMemo(
+    () =>
+      imageWorkspaceId === undefined || imageWorkspaceDir === undefined
+        ? null
+        : replyImageFiles(client, imageWorkspaceId, imageWorkspaceDir),
+    [client, imageWorkspaceId, imageWorkspaceDir],
+  );
   const sessions = useStore(client.index, (index) => index.sessions);
   const links = useMemo<AgentLinks>(
     () => ({
@@ -464,55 +482,57 @@ function SessionArea({
       {blank ? (
         <EmptyLine />
       ) : (
-        <MessageImagesContext value={images}>
-          <AgentLinksContext value={links}>
-            <Transcript
-              view={view}
-              editingStopped={editing !== null}
-              onEditStopped={(turn) => {
-                const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
-                const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
-                const next = pageDrafts().read(sessionId);
-                pageDrafts().update(draftKey, () => ({
-                  text: turn.user.text,
-                  pastes: [],
-                  files: [],
-                  command: null,
-                  images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
-                }));
-                editStore.setState({
-                  target: {
-                    epoch: view.epoch,
-                    turnId: turn.id,
-                    draftKey,
-                    images: imageIds,
-                    savedDraft:
-                      next.text !== "" ||
-                      next.images.length > 0 ||
-                      next.pastes.length > 0 ||
-                      next.files.length > 0 ||
-                      next.command !== null,
-                  },
-                  submitting: false,
-                  error: null,
-                });
-              }}
-              onLoadOlder={() => {
-                // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
-                client.loadOlder(sessionId).catch(() => undefined);
-              }}
-              onLoadStep={(turnId, stepId) => {
-                // Fire and forget: a failed fetch leaves the preview, still marked as loading.
-                client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
-              }}
-              onRetry={actions.retry}
-              onFork={(turnId) => forkFrom(client, sessionId, turnId)}
-              onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
-              {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
-              launch={shown}
-            />
-          </AgentLinksContext>
-        </MessageImagesContext>
+        <ReplyImagesContext value={replyImages}>
+          <MessageImagesContext value={images}>
+            <AgentLinksContext value={links}>
+              <Transcript
+                view={view}
+                editingStopped={editing !== null}
+                onEditStopped={(turn) => {
+                  const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
+                  const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
+                  const next = pageDrafts().read(sessionId);
+                  pageDrafts().update(draftKey, () => ({
+                    text: turn.user.text,
+                    pastes: [],
+                    files: [],
+                    command: null,
+                    images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
+                  }));
+                  editStore.setState({
+                    target: {
+                      epoch: view.epoch,
+                      turnId: turn.id,
+                      draftKey,
+                      images: imageIds,
+                      savedDraft:
+                        next.text !== "" ||
+                        next.images.length > 0 ||
+                        next.pastes.length > 0 ||
+                        next.files.length > 0 ||
+                        next.command !== null,
+                    },
+                    submitting: false,
+                    error: null,
+                  });
+                }}
+                onLoadOlder={() => {
+                  // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
+                  client.loadOlder(sessionId).catch(() => undefined);
+                }}
+                onLoadStep={(turnId, stepId) => {
+                  // Fire and forget: a failed fetch leaves the preview, still marked as loading.
+                  client.loadStep(sessionId, turnId, stepId).catch(() => undefined);
+                }}
+                onRetry={actions.retry}
+                onFork={(turnId) => forkFrom(client, sessionId, turnId)}
+                onChild={(turnId) => askForChild({ parentSessionId: sessionId, turnId })}
+                {...(fileOpener === undefined ? {} : { openFile: fileOpener })}
+                launch={shown}
+              />
+            </AgentLinksContext>
+          </MessageImagesContext>
+        </ReplyImagesContext>
       )}
       {bottom === undefined ? (
         <>
@@ -742,9 +762,9 @@ export function ConversationArea({
   // A chip's file opens in a pinned tab of the workspace (SPEC-0001, "查看标签 · 从对话里打开").
   const fileOpener = useMemo(() => {
     if (workspaceId === null || workspaceDir === null) return undefined;
-    return (path: string) => {
+    return (path: string, range?: FileLineRange) => {
       const relative = workspacePath(path, workspaceDir);
-      return relative === null ? null : () => openFile(views, workspaceId, relative, true);
+      return relative === null ? null : () => openFile(views, workspaceId, relative, true, range);
     };
   }, [views, workspaceId, workspaceDir]);
   useEffect(() => {

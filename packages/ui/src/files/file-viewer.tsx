@@ -1,7 +1,7 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
 import type { DiffFile, FileContent } from "@atrium/protocol";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import type { StoreApi } from "zustand";
+import { type StoreApi, useStore } from "zustand";
 import { splitPath } from "../chat/changes";
 import { ArrowUpRight, TextWrap } from "../design/icons";
 import { CodeLines } from "./code-lines";
@@ -9,7 +9,7 @@ import { CenterNote, DiffCounts } from "./diff-parts";
 import { formatSize, highlightable, linesOf } from "./file-facts";
 import { FileIcon } from "./file-icon";
 import { type TokenLines, highlight } from "./highlight";
-import type { WorkspaceViews } from "../state/workspace-views";
+import { type WorkspaceViews, fileRevealed, viewOf } from "../state/workspace-views";
 import { useRunEnds } from "./use-diff";
 import { useViewerPlace } from "./viewer-place";
 
@@ -192,13 +192,39 @@ export function FileViewer({
   const size = reading?.kind === "read" ? reading.size : 0;
   const tokens = useTokens(path, text, lines.lines, size);
   const { name, dir } = splitPath(path);
+  const request = useStore(views, (state) => viewOf(state, workspaceId).fileReveal);
+  const range = request?.path === path ? request.range : null;
+  const lineCount = lines.lines.length;
+  const highlighted =
+    range === null || lineCount === 0
+      ? undefined
+      : { start: Math.min(range.start, lineCount), end: Math.min(range.end, lineCount) };
+  const firstLine = highlighted?.start;
+  useEffect(() => {
+    if (request === null || request.path !== path || request.done || reading?.kind !== "read") return undefined;
+    const frame = requestAnimationFrame(() => {
+      if (viewOf(views.getState(), workspaceId).fileReveal !== request) return;
+      const row = scrolled.current?.querySelector(`[data-line-number="${firstLine}"]`);
+      row?.scrollIntoView({ block: "center", inline: "nearest" });
+      fileRevealed(views, workspaceId, request);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [request, path, reading, firstLine, views, workspaceId, scrolled]);
 
   let body: ReactNode = null;
   if (reading?.kind === "gone") body = <CenterNote>文件已经不在了</CenterNote>;
   else if (reading?.kind === "failed") body = <CenterNote>读不了这个文件</CenterNote>;
   else if (reading?.kind === "read") {
     const { content } = reading;
-    if (content.kind === "text") body = <CodeLines lines={lines.lines} tokens={tokens} wrap={wrap} />;
+    if (content.kind === "text")
+      body = (
+        <CodeLines
+          lines={lines.lines}
+          tokens={tokens}
+          wrap={wrap}
+          {...(highlighted === undefined ? {} : { highlight: highlighted })}
+        />
+      );
     else if (content.kind === "image") {
       body = (
         <div className="flex justify-center p-6">
@@ -259,6 +285,13 @@ export function FileViewer({
           <TextWrap size={14} />
         </button>
       </header>
+      {range !== null && reading !== null ? (
+        <div role="status" className="flex-none px-3.5 py-1 text-[length:var(--fs-sm)] text-[var(--text-muted)]">
+          {highlighted === undefined
+            ? "文件没有可定位的文本行"
+            : `${highlighted.start === highlighted.end ? `第 ${highlighted.start} 行` : `第 ${highlighted.start}–${highlighted.end} 行`}${range.end > lineCount ? "（请求超出文件范围）" : ""}`}
+        </div>
+      ) : null}
       <div ref={scrolled} data-testid="viewer-body" className="min-h-0 flex-1 overflow-auto [contain:strict]">
         {body}
       </div>
