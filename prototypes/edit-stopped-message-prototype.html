@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原型 · 已停止消息的编辑重发</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --main: #fff;
+        --surface: #f2f2f4;
+        --sidebar: #f6f7fa;
+        --page: #eef1f6;
+        --text: #1d1d1f;
+        --secondary: #48484e;
+        --muted: #6e6e74;
+        --line: rgba(0, 0, 0, 0.09);
+        --hover: rgba(0, 0, 0, 0.04);
+        --selected: rgba(0, 0, 0, 0.065);
+        --tint: #2f6fed;
+        --tint-soft: rgba(47, 111, 237, 0.065);
+        --danger: #bd3037;
+        --danger-soft: rgba(189, 48, 55, 0.07);
+        --bar: #252529;
+        --bar-text: #f9fafb;
+        --shadow: 0 12px 36px rgba(41, 55, 80, 0.09);
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --main: #151517;
+        --surface: #2c2c2e;
+        --sidebar: #1e1e20;
+        --page: #0c0c0e;
+        --text: #f9fafb;
+        --secondary: #cfd3d6;
+        --muted: #adb2b8;
+        --line: rgba(255, 255, 255, 0.11);
+        --hover: rgba(255, 255, 255, 0.055);
+        --selected: rgba(255, 255, 255, 0.09);
+        --tint: #7aaaff;
+        --tint-soft: rgba(122, 170, 255, 0.08);
+        --danger: #ff8c8c;
+        --danger-soft: rgba(255, 140, 140, 0.08);
+        --bar: #eeeeef;
+        --bar-text: #242428;
+        --shadow: 0 12px 36px rgba(0, 0, 0, 0.24);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 24px 32px 104px;
+        font:
+          14px/1.55 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        background: var(--page);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button {
+        color: inherit;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.5;
+      }
+      button:focus-visible,
+      select:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--tint);
+        outline-offset: 3px;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        padding: 5px 9px;
+      }
+      button:hover:not(:disabled) {
+        background: var(--hover);
+      }
+      svg.icon {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        vertical-align: middle;
+        flex: none;
+      }
+      .page-head,
+      .stage,
+      .inspector {
+        max-width: 1100px;
+        margin: auto;
+      }
+      .page-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 24px;
+        margin-bottom: 16px;
+      }
+      h1 {
+        font-size: 20px;
+        line-height: 1.4;
+        margin: 0 0 5px;
+        font-weight: 650;
+      }
+      .page-head p {
+        font-size: 13px;
+        color: var(--muted);
+        margin: 0;
+      }
+      .page-head .theme {
+        margin-left: auto;
+        white-space: nowrap;
+        border: 1px solid var(--line);
+        background: var(--main);
+      }
+      .casebar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0 0 12px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .casebar select {
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--main);
+        padding: 5px 24px 5px 9px;
+      }
+      .casebar .reset {
+        margin-left: 4px;
+      }
+      .casebar .tip {
+        margin-left: auto;
+      }
+      .window {
+        display: flex;
+        height: 650px;
+        max-height: calc(100vh - 252px);
+        min-height: 460px;
+        border-radius: 16px;
+        background: var(--main);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+      .sidebar {
+        width: 190px;
+        flex: none;
+        background: var(--sidebar);
+        padding: 16px 12px;
+        border-right: 1px solid var(--line);
+        color: var(--secondary);
+      }
+      .brand {
+        font-weight: 600;
+        font-size: 15px;
+        margin: 0 8px 28px;
+        display: flex;
+        gap: 9px;
+        align-items: center;
+      }
+      .dots {
+        width: 16px;
+        height: 16px;
+        display: grid;
+        grid-template-columns: repeat(3, 3px);
+        gap: 3px;
+      }
+      .dots i {
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .sb-label {
+        font-size: 12px;
+        color: var(--muted);
+        padding: 0 8px;
+        margin-bottom: 8px;
+      }
+      .project {
+        padding: 6px 8px;
+        font-size: 13px;
+      }
+      .workspace {
+        font-size: 12px;
+        margin: 4px 0;
+        padding: 6px 8px 6px 20px;
+        color: var(--muted);
+      }
+      .session {
+        background: var(--selected);
+        border-radius: 8px;
+        padding: 7px 8px;
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--text);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 44px;
+        flex: none;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        gap: 12px;
+      }
+      .tab {
+        font-size: 13px;
+        border-radius: 8px;
+        background: var(--selected);
+        padding: 4px 12px;
+      }
+      .tabs .context {
+        color: var(--muted);
+        font-size: 12px;
+        margin-left: auto;
+      }
+      .thread {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        scroll-behavior: auto;
+      }
+      .col {
+        max-width: 740px;
+        margin: auto;
+        padding: 24px 30px 18px;
+        display: flex;
+        flex-direction: column;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 85%;
+        border-radius: 22px;
+        padding: 10px 17px;
+        background: var(--surface);
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .umeta {
+        align-self: flex-end;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+        margin: 4px 0 16px;
+      }
+      .reply {
+        color: var(--secondary);
+        margin: 0 0 9px;
+      }
+      .reply p {
+        margin: 0 0 10px;
+      }
+      .reply-foot {
+        display: flex;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 22px;
+      }
+      .target {
+        display: flex;
+        flex-direction: column;
+      }
+      .target .umeta {
+        margin-bottom: 6px;
+      }
+      .edit-action {
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 6px;
+        font-size: 12px;
+      }
+      .stopline {
+        color: var(--muted);
+        font-size: 13px;
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        min-height: 30px;
+        margin: 5px 0;
+      }
+      .stop-square {
+        width: 8px;
+        height: 8px;
+        border: 1px solid var(--muted);
+        border-radius: 2px;
+      }
+      .history-note {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 6px 0 14px;
+      }
+      .history-note summary {
+        cursor: pointer;
+        width: fit-content;
+      }
+      .history-note pre {
+        font: inherit;
+        white-space: pre-wrap;
+        padding: 9px 12px;
+        background: var(--surface);
+        border-radius: 8px;
+      }
+      .editor {
+        background: var(--surface);
+        border-radius: 20px;
+        padding: 12px 16px;
+      }
+      .editor.inplace {
+        align-self: flex-end;
+        width: min(100%, 560px);
+        background: var(--surface);
+        outline: 1px solid var(--tint);
+      }
+      .editor.expanded {
+        margin: 6px 0 8px;
+        padding: 12px 0;
+        background: transparent;
+        border-radius: 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+      .editor.expanded textarea {
+        background: var(--surface);
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin: 6px 0;
+      }
+      .edit-heading {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--tint);
+        margin: 0 0 7px;
+      }
+      .edit-heading .badge {
+        margin-left: auto;
+        font-weight: 400;
+        color: var(--muted);
+      }
+      textarea {
+        display: block;
+        resize: vertical;
+        border: 0;
+        background: transparent;
+        color: var(--text);
+        outline: none;
+        width: 100%;
+        min-height: 66px;
+        max-height: 190px;
+        line-height: 1.6;
+        padding: 0;
+      }
+      textarea:focus-visible {
+        outline: 1px solid var(--tint);
+        outline-offset: 5px;
+        border-radius: 4px;
+      }
+      textarea::placeholder {
+        color: var(--muted);
+        opacity: 1;
+      }
+      .editor textarea {
+        min-height: 76px;
+      }
+      .edit-help {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 8px 0 0;
+      }
+      .edit-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        margin-top: 10px;
+      }
+      .edit-actions .shortcut {
+        margin-right: auto;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      button.primary {
+        background: var(--text);
+        color: var(--main);
+        border-radius: 999px;
+        padding: 6px 13px;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      button.primary:hover:not(:disabled) {
+        background: var(--secondary);
+      }
+      .cancel {
+        font-size: 12px;
+        color: var(--secondary);
+      }
+      .failure {
+        margin-top: 9px;
+        padding: 8px 10px;
+        color: var(--danger);
+        background: var(--danger-soft);
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      .composer-wrap {
+        flex: none;
+        max-width: 740px;
+        width: 100%;
+        margin: auto;
+        padding: 10px 22px 12px;
+      }
+      .composer {
+        background: var(--surface);
+        border-radius: 22px;
+        padding: 13px 17px 10px;
+      }
+      .composer .normal-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 6px;
+      }
+      .normal-actions .fake-send {
+        margin-left: auto;
+        background: var(--text);
+        color: var(--main);
+        padding: 4px;
+        border-radius: 50%;
+        opacity: 0.4;
+      }
+      .composer.parked {
+        background: transparent;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+        padding: 9px 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .parked p {
+        margin: 2px 0 0;
+        white-space: pre-wrap;
+        max-height: 45px;
+        overflow: auto;
+      }
+      .parked strong {
+        font-weight: 500;
+        color: var(--secondary);
+      }
+      .statusbar {
+        padding: 5px 14px;
+        display: flex;
+        justify-content: space-between;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .attachment {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 0 0 8px;
+      }
+      .attachment svg.preview {
+        width: 100px;
+        height: 64px;
+        display: block;
+        border-radius: 8px;
+      }
+      .attachment .attachment-name {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .attachment .remove {
+        padding: 3px 5px;
+        font-size: 11px;
+        color: var(--secondary);
+      }
+      .desc {
+        display: flex;
+        align-items: baseline;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 12px 0 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .desc strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+      .inspector {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .inspector summary {
+        cursor: pointer;
+      }
+      .inspector pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font:
+          11px/1.6 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+      }
+      .live-status {
+        min-height: 20px;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 6px;
+      }
+      .switcher {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 5px;
+        align-items: center;
+        border-radius: 14px;
+        padding: 7px;
+        background: var(--bar);
+        color: var(--bar-text);
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.18);
+        white-space: nowrap;
+      }
+      .switcher button {
+        padding: 6px 11px;
+        font-size: 12px;
+      }
+      .switcher button:hover {
+        background: rgba(128, 128, 128, 0.2);
+      }
+      .switcher button[aria-pressed="true"] {
+        background: var(--bar-text);
+        color: var(--bar);
+      }
+      .switcher .arrow {
+        padding: 6px;
+      }
+      .switcher .bar-note {
+        font-size: 11px;
+        opacity: 0.8;
+        padding: 0 8px;
+      }
+      @media (max-width: 800px) {
+        body {
+          padding: 18px 14px 112px;
+        }
+        .sidebar {
+          display: none;
+        }
+        .window {
+          max-height: none;
+          height: 660px;
+        }
+        .casebar .tip {
+          width: 100%;
+          margin-left: 0;
+        }
+        .col {
+          padding: 20px;
+        }
+        .composer-wrap {
+          padding: 10px 14px;
+        }
+        .switcher .bar-note {
+          display: none;
+        }
+        .switcher {
+          width: max-content;
+          max-width: calc(100vw - 18px);
+          gap: 0;
+        }
+        .switcher button {
+          padding: 7px 8px;
+        }
+        .tabs .context {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .thread {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+  PROTOTYPE — 用完即弃，不接生产代码、不持久化、不调用模型。
+  问题：最后一条已停止消息的编辑放哪里？三种结构：A 底部输入框（推荐）；B 气泡原地；C 气泡下方轻量展开区。
+  沿用 Atrium compaction-step / turn-error 原型视觉。双击运行，?variant=A|B|C；状态只在内存。
+  首屏保持真实消息位置；点编辑后才进入编辑态，发送成功后才显示本地修订版。原始消息单独保留用于对照。
+-->
+    <header class="page-head">
+      <div>
+        <h1>已停止消息 · 编辑后重新发送</h1>
+        <p>交互原型，供选择方案。只在本地演示，不调用模型，不写对话记录或文件。</p>
+      </div>
+      <button class="theme" id="theme" type="button">切换深色</button>
+    </header>
+    <main class="stage">
+      <div class="casebar">
+        <label for="case">演示情况</label>
+        <select id="case">
+          <option value="normal">普通</option>
+          <option value="draft">已有草稿</option>
+          <option value="image">图片</option>
+          <option value="failure">提交失败</option>
+          <option value="long">长消息</option>
+        </select>
+        <button class="reset" id="reset" type="button">重置演示</button>
+        <span class="tip">点最后一条消息旁的「编辑」开始；切换情况会重置本地演示。</span>
+      </div>
+      <section class="window" aria-label="Atrium 对话模拟窗口">
+        <aside class="sidebar" aria-label="示意侧栏">
+          <div class="brand">
+            <span class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span
+            >Atrium
+          </div>
+          <div class="sb-label">项目</div>
+          <div class="project">export-demo</div>
+          <div class="workspace">main</div>
+          <div class="session">导出格式的选择</div>
+        </aside>
+        <div class="main">
+          <div class="tabs"><span class="tab">导出格式的选择</span><span class="context">export-demo / main</span></div>
+          <div class="thread" id="thread"><div class="col" id="conversation"></div></div>
+          <div class="composer-wrap" id="composer"></div>
+          <div class="statusbar"><span>GPT-5.6 Sol · 标准</span><span>本地演示 · 无网络请求</span></div>
+        </div>
+      </section>
+      <p class="desc" id="description"></p>
+      <p class="live-status" id="live-status" role="status" aria-live="polite"></p>
+    </main>
+    <details class="inspector" open>
+      <summary>原型状态 JSON（同步模拟提交，无等待中的请求）</summary>
+      <pre id="state" data-testid="prototype-state"></pre>
+    </details>
+    <nav class="switcher" aria-label="原型方案切换">
+      <button class="arrow" id="previous" type="button" aria-label="上一个方案"></button>
+      <button data-variant="A" type="button">A 底部编辑 · 推荐</button>
+      <button data-variant="B" type="button">B 原地编辑</button>
+      <button data-variant="C" type="button">C 下方展开</button>
+      <button class="arrow" id="next" type="button" aria-label="下一个方案"></button>
+      <span class="bar-note">← → 切换</span>
+    </nav>
+    <script>
+      const variants = {
+        A: ["底部输入框编辑 · 推荐", "沿用熟悉的输入位置；上方原消息保持原样，取消后恢复原先的下一条草稿。"],
+        B: ["气泡原地编辑", "编辑器替换气泡的展示位置；原消息保留在内存，取消即还原，底部草稿暂存。"],
+        C: ["气泡下方轻量展开", "原气泡始终可见，在它下方展开独立编辑区；不新建会话，不弹出对话框。"],
+      };
+      const originalShort = "JSON 选 A\nCSV 选";
+      const originalLong =
+        originalShort +
+        "\n\n补充约束：\n" +
+        Array.from(
+          { length: 12 },
+          (_, index) => `${index + 1}. 保留现有导出入口、列顺序与中文表头；空值输出为空字符串，日期统一为 ISO 8601。`,
+        ).join("\n") +
+        "\n\nCSV 这一项还没写完，先停下再补充。";
+      const query = new URLSearchParams(location.search);
+      const state = {
+        variant: variants[query.get("variant")] ? query.get("variant") : "A",
+        scenario: "normal",
+        theme: query.get("theme") === "dark" ? "dark" : "light",
+        original: originalShort,
+        originalImage: false,
+        nextDraft: "",
+        savedDraft: "",
+        editing: false,
+        editDraft: "",
+        editImage: false,
+        error: false,
+        attempts: 0,
+        sent: false,
+        revision: "",
+        revisionImage: false,
+        notice: "",
+      };
+
+      /** Draw a small consistent stroke icon.
+       * @remarks Inline SVG keeps the prototype independent of fonts and CDNs.
+       * @sideEffects none
+       */
+      function icon(name) {
+        const paths = {
+          edit: '<path d="m14 4 6 6M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z"/>',
+          left: '<path d="m14 6-6 6 6 6"/>',
+          right: '<path d="m10 6 6 6-6 6"/>',
+          up: '<path d="M12 19V5m-6 6 6-6 6 6"/>',
+          plus: '<path d="M12 5v14M5 12h14"/>',
+        };
+        return `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24">${paths[name] || ""}</svg>`;
+      }
+
+      /** Escape user-entered text before displaying it in HTML.
+       * @remarks Edited drafts may contain arbitrary markup, which must remain text.
+       * @sideEffects none
+       */
+      function escapeText(value) {
+        return String(value).replace(
+          /[&<>"']/g,
+          (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character],
+        );
+      }
+
+      /** Render an embedded mock screenshot attachment.
+       * @remarks The geometric image is illustrative, never loaded from the network.
+       * @sideEffects none
+       */
+      function attachment(editable) {
+        return `<div class="attachment"><svg class="preview" viewBox="0 0 200 128" role="img" aria-label="导出设置截图示意"><rect width="200" height="128" fill="#e9ecf3"/><rect x="13" y="12" width="174" height="104" rx="8" fill="#fff"/><rect x="24" y="24" width="64" height="7" rx="3" fill="#515c70"/><rect x="24" y="44" width="150" height="24" rx="5" fill="#edf2ff"/><circle cx="36" cy="56" r="4" fill="#2f6fed"/><rect x="49" y="53" width="73" height="5" rx="2" fill="#8d9abd"/><rect x="24" y="77" width="150" height="24" rx="5" fill="#f3f3f5"/><circle cx="36" cy="89" r="4" fill="#b4bac7"/><rect x="49" y="86" width="57" height="5" rx="2" fill="#aab1c1"/></svg><div class="attachment-name">导出设置.png<br>内嵌示意图${editable ? '<br><button class="remove" type="button" data-action="remove-image">移除图片</button>' : ""}</div></div>`;
+      }
+
+      /** Render the edit controls at the chosen structural location.
+       * @remarks All variants share draft semantics, but not editor placement.
+       * @sideEffects none
+       */
+      function editor(location) {
+        return `<section class="editor ${location}" aria-label="编辑已停止消息">
+    <div class="edit-heading">${icon("edit")}编辑已停止的消息<span class="badge">仅修改本地草稿</span></div>
+    ${state.editImage ? attachment(true) : ""}
+    <textarea id="edit-draft" aria-label="编辑消息内容" placeholder="补充或修改这条消息" rows="${state.scenario === "long" ? "6" : "3"}">${escapeText(state.editDraft)}</textarea>
+    <p class="edit-help">不会撤销已执行的文件改动。</p>
+    ${state.error ? '<div class="failure" role="alert">模拟提交失败，尚未发出。编辑内容已保留，可再次重新发送。</div>' : ""}
+    <div class="edit-actions"><span class="shortcut">⌘ / Ctrl + Enter 重新发送</span><button class="cancel" type="button" data-action="cancel">取消编辑</button><button class="primary" type="button" data-action="resend" ${!state.editDraft.trim() && !state.editImage ? "disabled" : ""}>${state.error ? "重试重新发送" : "重新发送"}</button></div>
+  </section>`;
+      }
+
+      /** Render the ordinary composer or its parked-draft state.
+       * @remarks Editing must never overwrite a partially written next message.
+       * @sideEffects none
+       */
+      function composer() {
+        if (state.editing && state.variant === "A") {
+          return (
+            editor("bottom") +
+            (state.savedDraft ? '<p class="edit-help">下一条消息的草稿已暂存，取消或发送后恢复。</p>' : "")
+          );
+        }
+        if (state.editing) {
+          return `<div class="composer parked"><strong>${state.savedDraft ? "下一条消息草稿已暂存" : "正在编辑上方消息"}</strong><p>${state.savedDraft ? escapeText(state.savedDraft) : "完成或取消编辑后，继续在这里写下一条消息。"}</p></div>`;
+        }
+        return `<div class="composer"><textarea id="next-draft" rows="2" aria-label="下一条消息草稿" placeholder="发消息或描述任务，@ 引用文件，/ 使用命令">${escapeText(state.nextDraft)}</textarea><div class="normal-actions">${icon("plus")}<span>GPT-5.6 Sol</span><span>标准</span><span class="fake-send" aria-hidden="true">${icon("up")}</span></div></div>`;
+      }
+
+      /** Render the last eligible message and its local result.
+       * @remarks Original data remains separately inspectable even after a simulated resend.
+       * @sideEffects none
+       */
+      function targetMessage() {
+        let html = '<section class="target" aria-label="最后一条用户消息">';
+        if (state.editing && state.variant === "B") {
+          html += editor("inplace");
+        } else {
+          const text = state.sent ? state.revision : state.original;
+          const image = state.sent ? state.revisionImage : state.originalImage;
+          html += `<div class="bubble">${image ? attachment(false) : ""}${escapeText(text)}</div>`;
+        }
+        html += `<div class="umeta"><span>${state.sent ? "14:35 · 本地修订版" : "14:32"}</span>`;
+        if (!state.editing && !state.sent)
+          html += `<button class="edit-action" type="button" data-action="edit">${icon("edit")}编辑</button>`;
+        if (state.editing && state.variant !== "B") html += "<span>原消息未更改</span>";
+        html += "</div>";
+        if (state.editing && state.variant === "C") html += editor("expanded");
+        html += "</section>";
+        if (state.sent) {
+          html += `<details class="history-note"><summary>查看重发前的原消息（本地对照）</summary><pre>${escapeText(state.original)}</pre>${state.originalImage ? attachment(false) : ""}</details><div class="reply"><p>收到，已按修订后的选择继续。这是模拟回复，不会执行命令或修改文件。</p><p>你可以点击「重置演示」，再体验编辑或取消。</p></div><div class="reply-foot">模拟回复 · 14:35</div>`;
+        } else {
+          html += '<div class="stopline"><span class="stop-square" aria-hidden="true"></span>已停止 · 用时 2 秒</div>';
+        }
+        return html;
+      }
+
+      /** Expose relevant in-memory state for inspection.
+       * @remarks Reviewers can verify unchanged history and restored drafts without a debugger.
+       * @sideEffects Updates the state inspector text.
+       */
+      function showState() {
+        document.getElementById("state").textContent = JSON.stringify(
+          {
+            variant: state.variant,
+            case: state.scenario,
+            theme: state.theme,
+            editing: state.editing,
+            submitting: false,
+            error: state.error,
+            sent: state.sent,
+            original: state.original,
+            nextDraft: state.nextDraft,
+            currentText: state.editing ? state.editDraft : state.sent ? state.revision : state.original,
+            originalHistory: { text: state.original, image: state.originalImage },
+            nextMessageDraft: state.nextDraft,
+            parkedNextMessageDraft: state.editing ? state.savedDraft : null,
+            editDraft: state.editing ? state.editDraft : null,
+            editImage: state.editing ? state.editImage : null,
+            submitAttempts: state.attempts,
+            submitFailed: state.error,
+            localRevision: state.sent ? { text: state.revision, image: state.revisionImage } : null,
+            persistentWrites: 0,
+            modelCalls: 0,
+          },
+          null,
+          2,
+        );
+      }
+
+      /** Redraw the prototype from the current state.
+       * @remarks Render only after structural changes, so normal typing keeps its caret.
+       * @sideEffects Updates DOM, theme, variant URL and event bindings.
+       */
+      function render() {
+        document.documentElement.dataset.theme = state.theme;
+        document.getElementById("theme").textContent = state.theme === "dark" ? "切换浅色" : "切换深色";
+        document.getElementById("conversation").innerHTML =
+          `<div class="bubble">导出格式怎么选？</div><div class="umeta">14:30</div><div class="reply"><p>可以分别确定 JSON 和 CSV 的导出方式：</p><p>JSON：A 保留嵌套结构，B 展平成一层。<br>CSV：A 单表导出，B 按数据类型拆表。</p></div><div class="reply-foot">已完成 · 14:31</div>` +
+          targetMessage();
+        document.getElementById("composer").innerHTML = composer();
+        document.getElementById("description").innerHTML =
+          `<strong>${state.variant} · ${variants[state.variant][0]}</strong><span>${variants[state.variant][1]}</span>`;
+        document.getElementById("live-status").textContent = state.notice;
+        document.getElementById("case").value = state.scenario;
+        document
+          .querySelectorAll("[data-variant]")
+          .forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.variant === state.variant)));
+        document
+          .querySelectorAll("[data-action]")
+          .forEach((button) => button.addEventListener("click", () => act(button.dataset.action)));
+        const editField = document.getElementById("edit-draft");
+        if (editField)
+          editField.addEventListener("input", () => {
+            state.editDraft = editField.value;
+            document.querySelector('[data-action="resend"]').disabled = !state.editDraft.trim() && !state.editImage;
+            showState();
+          });
+        const nextField = document.getElementById("next-draft");
+        if (nextField)
+          nextField.addEventListener("input", () => {
+            state.nextDraft = nextField.value;
+            showState();
+          });
+        const url = new URL(location.href);
+        url.searchParams.set("variant", state.variant);
+        url.searchParams.set("theme", state.theme);
+        try {
+          history.replaceState(null, "", url);
+        } catch (_) {
+          /* Some file:// contexts block URL rewriting; the controls still work. */
+        }
+        showState();
+      }
+
+      /** Focus the editor and make its active placement visible.
+       * @remarks Local editing should not require searching through a long message.
+       * @sideEffects Changes focus, caret position and scroll offset.
+       */
+      function focusEditor() {
+        const field = document.getElementById("edit-draft");
+        if (!field) return;
+        field.focus({ preventScroll: true });
+        field.setSelectionRange(field.value.length, field.value.length);
+        if (state.variant !== "A") field.closest(".editor").scrollIntoView({ block: "nearest" });
+        else document.getElementById("thread").scrollTop = document.getElementById("thread").scrollHeight;
+      }
+
+      /** Handle an edit, cancellation, attachment removal or simulated submission.
+       * @remarks Only successful submission publishes a local revision; failure retains the draft.
+       * @sideEffects Changes in-memory state, redraws the view and moves focus.
+       */
+      function act(action) {
+        if (action === "edit" && !state.editing && !state.sent) {
+          state.savedDraft = state.nextDraft;
+          state.editDraft = state.original;
+          state.editImage = state.originalImage;
+          state.editing = true;
+          state.error = false;
+          state.notice = "正在编辑本地草稿，原历史尚未更改。";
+        } else if (action === "cancel" && state.editing) {
+          state.nextDraft = state.savedDraft;
+          state.editing = false;
+          state.error = false;
+          state.editDraft = "";
+          state.notice = state.savedDraft ? "已取消编辑，下一条消息的草稿已恢复。" : "已取消编辑，原消息保持不变。";
+        } else if (action === "remove-image" && state.editing) {
+          state.editImage = false;
+          state.notice = "图片仅从编辑草稿中移除，原消息的图片保持不变。";
+        } else if (action === "resend" && state.editing && (state.editDraft.trim() || state.editImage)) {
+          state.attempts += 1;
+          if (state.scenario === "failure" && state.attempts === 1) {
+            state.error = true;
+            state.notice = "模拟提交失败。编辑内容和暂存的下一条草稿都还在。";
+          } else {
+            state.revision = state.editDraft;
+            state.revisionImage = state.editImage;
+            state.sent = true;
+            state.editing = false;
+            state.error = false;
+            state.nextDraft = state.savedDraft;
+            state.notice = "已在本地显示修订版和模拟回复；没有调用模型或写入记录。";
+          }
+        } else return;
+        render();
+        if (state.editing) focusEditor();
+        else {
+          document.getElementById("next-draft").focus({ preventScroll: true });
+          document.getElementById("thread").scrollTop = document.getElementById("thread").scrollHeight;
+        }
+      }
+
+      /** Reset the current scenario with deterministic sample content.
+       * @remarks Cases are independent so a failed submission never leaks into another demo.
+       * @sideEffects Resets in-memory drafts and history samples, then redraws the view.
+       */
+      function resetScenario(scenario) {
+        state.scenario = scenario;
+        state.original = scenario === "long" ? originalLong : originalShort;
+        state.originalImage = scenario === "image";
+        state.nextDraft = scenario === "draft" ? "下一步请帮我补上导出测试，先不要改入口。" : "";
+        state.savedDraft = "";
+        state.editing = false;
+        state.editDraft = "";
+        state.editImage = false;
+        state.error = false;
+        state.attempts = 0;
+        state.sent = false;
+        state.revision = "";
+        state.revisionImage = false;
+        state.notice =
+          scenario === "failure"
+            ? "提交失败案例：第一次重新发送会失败，保留文字，第二次可重试成功。"
+            : scenario === "draft"
+              ? "底部已有下一条消息草稿。进入编辑后取消，检查它是否恢复。"
+              : "仅最后一条已停止的用户消息提供编辑入口。";
+        render();
+        document.getElementById("thread").scrollTop = document.getElementById("thread").scrollHeight;
+      }
+
+      /** Switch the editor placement without losing either draft.
+       * @remarks Variant comparison should remain possible during an edit or a failure.
+       * @sideEffects Changes the variant URL and redraws the layout.
+       */
+      function switchVariant(variant) {
+        state.variant = variant;
+        render();
+        if (state.editing) focusEditor();
+      }
+
+      /** Cycle through the three structural alternatives.
+       * @remarks Shared by arrows and keyboard navigation for consistent wrapping.
+       * @sideEffects Changes selected variant and redraws the layout.
+       */
+      function cycleVariant(direction) {
+        const keys = Object.keys(variants);
+        switchVariant(keys[(keys.indexOf(state.variant) + direction + keys.length) % keys.length]);
+      }
+
+      document.getElementById("previous").innerHTML = icon("left");
+      document.getElementById("next").innerHTML = icon("right");
+      document.getElementById("previous").addEventListener("click", () => cycleVariant(-1));
+      document.getElementById("next").addEventListener("click", () => cycleVariant(1));
+      document
+        .querySelectorAll("[data-variant]")
+        .forEach((button) => button.addEventListener("click", () => switchVariant(button.dataset.variant)));
+      document.getElementById("case").addEventListener("change", (event) => resetScenario(event.target.value));
+      document.getElementById("reset").addEventListener("click", () => resetScenario(state.scenario));
+      document.getElementById("theme").addEventListener("click", () => {
+        state.theme = state.theme === "dark" ? "light" : "dark";
+        render();
+      });
+      addEventListener("keydown", (event) => {
+        if (event.isComposing) return;
+        const target = event.target;
+        const typing =
+          target instanceof Element &&
+          (target.closest("input,textarea,select") ||
+            target.isContentEditable ||
+            target.closest('[contenteditable]:not([contenteditable="false"])'));
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && target.id === "edit-draft") {
+          event.preventDefault();
+          act("resend");
+          return;
+        }
+        if (typing || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+          event.preventDefault();
+          cycleVariant(event.key === "ArrowLeft" ? -1 : 1);
+        }
+      });
+      resetScenario("normal");
+    </script>
+  </body>
+</html>

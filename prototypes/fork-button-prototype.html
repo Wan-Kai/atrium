@@ -1,0 +1,361 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 分叉做成界面上的按钮，不做 /fork 命令。
+  问题：分叉按钮放在哪、点了之后是什么样子。每一轮回复下方那行"复制 · 用量 · 时间"里，复制右边加一个分叉图标；
+  点了新开一个会话（标签栏多一个标签并切过去），带上到这一轮为止的对话，输入框是空的。原会话不变。
+  颜色、字号取自 packages/ui/src/design/tokens.css，图标是 Hugeicons 免费版的 git-fork。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 分叉按钮</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --sidebar-bg: rgba(246, 247, 250, 0.9);
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --ok-text: #1e8e3e;
+        --danger: #e5484d;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r: 8px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #eef1f6;
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p,
+      p.note {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+        max-width: 920px;
+      }
+      section.block {
+        padding: 18px 40px 8px;
+      }
+      section.block > h2 {
+        font-size: 15px;
+        margin: 0 0 4px;
+      }
+      .row {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        margin-top: 12px;
+      }
+      .win {
+        width: 820px;
+        height: 620px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .sb {
+        width: 170px;
+        background: var(--sidebar-bg);
+        border-right: 0.5px solid var(--line);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 44px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 12px;
+        border-bottom: 0.5px solid var(--line);
+      }
+      .tab {
+        height: 28px;
+        max-width: 180px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: default;
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tab.new {
+        animation: pop 0.35s ease-out;
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+      }
+      .tabs .plus {
+        color: var(--text-muted);
+        padding: 4px;
+        display: grid;
+        place-items: center;
+      }
+      .thread {
+        flex: 1;
+        overflow-y: auto;
+        padding: 20px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 8px 14px;
+        font-size: var(--fs-meta);
+      }
+      .reply {
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .foot {
+        margin-left: -4px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+        margin-bottom: 8px;
+      }
+      .ib {
+        all: unset;
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        padding: 4px;
+        border-radius: var(--r);
+        color: var(--text-dim);
+        cursor: pointer;
+      }
+      .ib:hover {
+        background: var(--hover);
+        color: var(--text-muted);
+      }
+      .ib[aria-disabled="true"] {
+        cursor: not-allowed;
+        opacity: 0.4;
+      }
+      .ib[aria-disabled="true"]:hover {
+        background: transparent;
+        color: var(--text-dim);
+      }
+      .ib .tip {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 6px);
+        transform: translateX(-50%);
+        font-size: var(--fs-xs);
+        background: rgba(29, 29, 31, 0.92);
+        color: #fff;
+        padding: 3px 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+        display: none;
+        pointer-events: none;
+      }
+      .ib:hover .tip {
+        display: block;
+      }
+      .foot .use {
+        margin-left: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .foot .time {
+        margin-left: 12px;
+      }
+      .running {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .composer {
+        margin: 0 20px 16px;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 14px 20px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        height: 76px;
+      }
+      .toggle {
+        margin-top: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        display: flex;
+        gap: 14px;
+        align-items: center;
+      }
+      .toggle button {
+        all: unset;
+        cursor: pointer;
+        padding: 4px 10px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>分叉按钮（原型，审完即弃）</h1>
+      <p>
+        分叉不做成
+        <b>/fork</b>
+        命令，而是每一轮回复下方的一个按钮：在"复制"右边，悬停说明"从这里分叉"。点了以后新开一个会话：标签栏多一个标签并切过去，里面是到这一轮为止的对话，输入框是空的，接着聊别的方向。原会话不变。
+      </p>
+      <p>
+        会话运行中时按钮变淡、点不了，悬停说明"运行中不能分叉"（分叉要读会话文件，运行中文件还在写）。最后一轮的分叉就是复制整个会话（同
+        <b>/clone</b>）。
+      </p>
+    </header>
+    <section class="block" style="padding-bottom: 60px">
+      <h2>试一试</h2>
+      <p class="note">点任意一轮下面的分叉图标。下面的按钮可以切换"会话运行中"，看按钮变淡的样子；"回到原会话"重置。</p>
+      <div class="row">
+        <div class="win">
+          <div class="sb"></div>
+          <div class="main">
+            <div class="tabs" id="tabs"></div>
+            <div class="thread" id="thread"></div>
+            <div class="composer" id="composer">发消息或描述任务，@ 引用文件，/ 使用命令</div>
+          </div>
+        </div>
+      </div>
+      <div class="toggle">
+        <button id="run">切换：会话运行中</button><button id="reset">回到原会话</button><span id="state"></span>
+      </div>
+    </section>
+    <script>
+      const SVG = {
+        GitForkIcon:
+          '<path d="M6 8C7.10457 8 8 7.10457 8 6C8 4.89543 7.10457 4 6 4C4.89543 4 4 4.89543 4 6C4 7.10457 4.89543 8 6 8Z" stroke="currentColor" stroke-width="1.75"/><path d="M12 20C13.1046 20 14 19.1046 14 18C14 16.8954 13.1046 16 12 16C10.8954 16 10 16.8954 10 18C10 19.1046 10.8954 20 12 20Z" stroke="currentColor" stroke-width="1.75"/><path d="M18 8C19.1046 8 20 7.10457 20 6C20 4.89543 19.1046 4 18 4C16.8954 4 16 4.89543 16 6C16 7.10457 16.8954 8 18 8Z" stroke="currentColor" stroke-width="1.75"/><path d="M6.01734 8.74067C6.01734 10.4142 5.77537 12.1995 9.22051 11.9855H12.0053M17.9929 8.57617C18.1259 11.9855 16.9199 11.7648 15.7861 11.9855H12.0053M12.0053 15.7001V11.9855" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        Copy01Icon:
+          '<path d="M7.5 14.5C7.5 11.2002 7.5 9.55025 8.52513 8.52513C9.55025 7.5 11.2002 7.5 14.5 7.5C17.7998 7.5 19.4497 7.5 20.4749 8.52513C21.5 9.55025 21.5 11.2002 21.5 14.5C21.5 17.7998 21.5 19.4497 20.4749 20.4749C19.4497 21.5 17.7998 21.5 14.5 21.5C11.2002 21.5 9.55025 21.5 8.52513 20.4749C7.5 19.4497 7.5 17.7998 7.5 14.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M7.5 16.5C6.10355 16.5 5.40533 16.5 4.84402 16.3036C3.83866 15.9518 3.0482 15.1613 2.69641 14.156C2.5 13.5947 2.5 12.8964 2.5 11.5V9.5C2.5 6.20017 2.5 4.55025 3.52513 3.52513C4.55025 2.5 6.20017 2.5 9.5 2.5H11.5C12.8964 2.5 13.5947 2.5 14.156 2.69641C15.1613 3.0482 15.9518 3.83866 16.3036 4.84402C16.5 5.40533 16.5 6.10355 16.5 7.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        DatabaseIcon:
+          '<ellipse cx="12" cy="5" rx="8" ry="3" stroke="currentColor" stroke-width="1.75"/><path d="M7 10.842C7.60158 11.0229 8.27434 11.1718 9 11.282" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M20 12C20 13.6569 16.4183 15 12 15C7.58172 15 4 13.6569 4 12" stroke="currentColor" stroke-width="1.75"/><path d="M7 17.842C7.60158 18.0229 8.27434 18.1718 9 18.282" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M20 5V19C20 20.6569 16.4183 22 12 22C7.58172 22 4 20.6569 4 19V5" stroke="currentColor" stroke-width="1.75"/>',
+        PencilEdit01Icon:
+          '<path d="M15.2141 5.98239L16.6158 4.58063C17.39 3.80646 18.6452 3.80646 19.4194 4.58063C20.1935 5.3548 20.1935 6.60998 19.4194 7.38415L18.0176 8.78591M15.2141 5.98239L6.98023 14.2163C5.93493 15.2616 5.41226 15.7842 5.05637 16.4211C4.70047 17.058 4.3424 18.5619 4 20C5.43809 19.6576 6.94199 19.2995 7.57889 18.9436C8.21579 18.5877 8.73844 18.0651 9.78375 17.0198L18.0176 8.78591M15.2141 5.98239L18.0176 8.78591" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M11 20H17" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        Cancel01Icon:
+          '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        Add01Icon:
+          '<path d="M12.001 5.00003V19.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M19.002 12.002L4.99998 12.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+      };
+      const svg = (k, s) => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none">${SVG[k]}</svg>`;
+      const TURNS = [
+        [
+          '给侧栏加一个"等你处理"的汇总',
+          "好的。我在 sidebar.tsx 里加了一张卡片，汇总待审批、待回答、待授权和出错的会话。",
+          "12.4K",
+          "10:02",
+        ],
+        ["卡片放到设置上面，默认收起", "已经挪到设置上方，默认收起，收起时只显示状态图标。", "8.1K", "10:09"],
+        ["把归档放到悬停里", '归档改成悬停时行尾的图标，"···"里只剩重命名。', "9.7K", "10:21"],
+      ];
+      let running = false,
+        forked = null;
+      function paint() {
+        const tabs = [["设计侧栏交互", forked === null]];
+        if (forked !== null) tabs.push([`设计侧栏交互（分叉）`, true, true]);
+        document.getElementById("tabs").innerHTML =
+          tabs.map(([t, on, n]) => `<span class="tab${on ? " on" : ""}${n ? " new" : ""}">${t}</span>`).join("") +
+          `<span class="plus">${svg("Add01Icon", 14)}</span>`;
+        const shown = forked === null ? TURNS : TURNS.slice(0, forked + 1);
+        const off = running && forked === null;
+        document.getElementById("thread").innerHTML =
+          shown
+            .map(
+              ([q, a, use, time], i) => `
+    <div class="bubble">${q}</div>
+    <div class="reply">${a}</div>
+    <div class="foot">
+      <button class="ib" aria-label="复制回复">${svg("Copy01Icon", 14)}<span class="tip">复制</span></button>
+      <button class="ib" data-fork="${i}" aria-label="从这里分叉" aria-disabled="${off}">${svg("GitForkIcon", 14)}<span class="tip">${off ? "运行中不能分叉" : "从这里分叉"}</span></button>
+      <span class="use">${svg("DatabaseIcon", 13)}用量 ${use} tok</span>
+      <span class="time">${time}</span>
+    </div>`,
+            )
+            .join("") +
+          (off ? `<div class="bubble">再看一下收起时的样子</div><div class="running">正在运行…</div>` : "");
+        document.querySelectorAll("[data-fork]").forEach((b) =>
+          b.addEventListener("click", () => {
+            if (b.getAttribute("aria-disabled") === "true") return;
+            forked = +b.dataset.fork;
+            paint();
+          }),
+        );
+        document.getElementById("state").textContent =
+          forked === null
+            ? running
+              ? "原会话 · 运行中"
+              : "原会话"
+            : `新会话：带上第 1–${forked + 1} 轮，输入框是空的`;
+      }
+      document.getElementById("run").onclick = () => {
+        running = !running;
+        paint();
+      };
+      document.getElementById("reset").onclick = () => {
+        forked = null;
+        paint();
+      };
+      paint();
+    </script>
+  </body>
+</html>

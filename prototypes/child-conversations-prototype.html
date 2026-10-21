@@ -1,0 +1,1642 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. SPEC-0002 第一步：用户开子对话（2026-10-17）。
+  结论（2026-10-17）：选 A，弹出列表宽度按内容；"带回"按钮多余，已从三种里去掉。
+  问题：开子对话的入口、子对话条、面包屑、带回主对话放在哪、长什么样。
+  三种结构不同的做法：A 胶囊加弹出列表（同排队胶囊）、B 贴在输入框顶上的常驻条、C 右侧的子对话面板（整棵树）。
+  每个窗口都能点：开子对话（带上下文 / 空的、当前工作区 / 新建 worktree）、切换、带回、脱离、归档。
+  数据是假的；颜色、字号、圆角取自 packages/ui/src/design/tokens.css，图标是 Hugeicons 免费版（同 packages/ui 用的那套），描边 1.75。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 子对话（SPEC-0002 第一步）</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --sidebar-bg: rgba(246, 247, 250, 0.9);
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --tint-soft: rgba(47, 111, 237, 0.1);
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --danger: #e5484d;
+        --ok-text: #1e8e3e;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --capsule-shadow: 0 0 0 0.5px var(--line), 0 6px 16px -8px rgba(0, 0, 0, 0.22);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+        --page: #eef1f6;
+      }
+      body.dark {
+        --main: #17181c;
+        --surface-1: #1f2025;
+        --surface-2: #26272d;
+        --sidebar-bg: rgba(28, 29, 34, 0.9);
+        --text: #f2f2f4;
+        --text-2: #e4e4e7;
+        --text-3: #c9c9ce;
+        --text-muted: #9a9aa2;
+        --text-dim: #6e6e76;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --tint-soft: rgba(122, 170, 255, 0.14);
+        --attn: #f0a050;
+        --attn-text: #f0a050;
+        --ok-text: #4cc27a;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(0, 0, 0, 0.3);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --capsule-shadow: 0 0 0 0.5px var(--line), 0 6px 16px -8px rgba(0, 0, 0, 0.6);
+        --page: #0f1013;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+        max-width: 1100px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p,
+      p.note {
+        margin: 0 0 6px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+        line-height: 1.65;
+      }
+      header.page b,
+      p.note b {
+        color: var(--text-2);
+      }
+      .toggles {
+        display: flex;
+        gap: 16px;
+        padding: 6px 40px 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      section.block {
+        padding: 22px 40px 10px;
+      }
+      section.block > h2 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      section.block > ul {
+        margin: 4px 0 0;
+        padding-left: 18px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.7;
+        max-width: 1060px;
+      }
+      section.block > ul b {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+      .ctl {
+        display: flex;
+        gap: 10px;
+        margin: 10px 0 0;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        align-items: center;
+      }
+      .ctl button {
+        all: unset;
+        cursor: pointer;
+        padding: 4px 10px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        color: var(--text-2);
+      }
+
+      /* 窗口 */
+      .win {
+        position: relative;
+        margin-top: 12px;
+        width: 1060px;
+        height: 660px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .sb {
+        width: 190px;
+        flex: none;
+        background: var(--sidebar-bg);
+        box-shadow: inset -0.5px 0 0 var(--line);
+        padding: 46px 8px 0;
+        font-size: var(--fs-meta);
+      }
+      .sb .head {
+        padding: 4px 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .sb .row {
+        height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        color: var(--text-2);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .sb .row.sel {
+        background: var(--selected);
+      }
+      .sb .row .name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sb .row .meta {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 12px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+      }
+      .tab {
+        height: 30px;
+        max-width: 200px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .tab:hover {
+        background: var(--hover);
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tab .t {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tab .mark {
+        color: var(--text-dim);
+        display: inline-grid;
+      }
+      .tab .badge {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 0 6px;
+        line-height: 16px;
+      }
+      .tabs .grow {
+        flex: 1;
+      }
+      .ib {
+        all: unset;
+        position: relative;
+        display: inline-grid;
+        place-items: center;
+        padding: 4px;
+        border-radius: var(--r);
+        color: var(--text-dim);
+        cursor: pointer;
+      }
+      .ib:hover {
+        background: var(--hover);
+        color: var(--text-muted);
+      }
+      .ib.big {
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        color: var(--text-muted);
+      }
+      .ib[aria-disabled="true"] {
+        cursor: not-allowed;
+        opacity: 0.4;
+      }
+      .ib[aria-disabled="true"]:hover {
+        background: transparent;
+        color: var(--text-dim);
+      }
+      .ib.on {
+        background: var(--selected);
+        color: var(--text-2);
+      }
+      .tip {
+        position: absolute;
+        left: 50%;
+        bottom: calc(100% + 6px);
+        transform: translateX(-50%);
+        font-size: var(--fs-xs);
+        line-height: 1.4;
+        background: rgba(29, 29, 31, 0.92);
+        color: #fff;
+        padding: 3px 8px;
+        border-radius: 6px;
+        white-space: nowrap;
+        display: none;
+        pointer-events: none;
+        z-index: 30;
+      }
+      .tabs .tip {
+        bottom: auto;
+        top: calc(100% + 6px);
+      }
+      .ib:hover .tip,
+      .has-tip:hover > .tip {
+        display: block;
+      }
+      .has-tip {
+        position: relative;
+      }
+
+      .body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+      .col {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .thread {
+        flex: 1;
+        overflow-y: auto;
+        padding: 18px 0 12px;
+      }
+      .thread .inner {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 0 20px 36px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 8px 14px;
+        font-size: var(--fs-meta);
+        white-space: pre-wrap;
+      }
+      .reply {
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: pre-wrap;
+        line-height: 1.6;
+      }
+      .copied {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        text-align: center;
+        padding: 4px 0 2px;
+      }
+      .empty {
+        margin: 120px auto 0;
+        text-align: center;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+      }
+      .running {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .foot {
+        margin-left: -4px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+        margin-bottom: 8px;
+        position: relative;
+      }
+      .foot .use {
+        margin-left: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .foot .time {
+        margin-left: 12px;
+      }
+      .foot .txt {
+        all: unset;
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 6px;
+        border-radius: var(--r);
+        color: var(--text-dim);
+        cursor: pointer;
+      }
+      .foot .txt:hover {
+        background: var(--hover);
+        color: var(--text-muted);
+      }
+      .foot .txt[aria-disabled="true"] {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .foot .txt[aria-disabled="true"]:hover {
+        background: transparent;
+      }
+      .spin {
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .st {
+        display: inline-grid;
+        place-items: center;
+        width: 16px;
+        height: 16px;
+        flex: none;
+      }
+
+      /* 面包屑 */
+      .crumb {
+        height: 34px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 16px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        box-shadow: inset 0 -0.5px 0 var(--line-soft);
+        position: relative;
+      }
+      .crumb .seg {
+        all: unset;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: var(--r-sm);
+        white-space: nowrap;
+      }
+      .crumb .seg:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .crumb .seg.cur {
+        color: var(--text);
+        cursor: default;
+        font-weight: 500;
+      }
+      .crumb .seg.cur:hover {
+        background: none;
+      }
+      .crumb .sep {
+        color: var(--text-dim);
+        display: inline-grid;
+      }
+      .crumb .grow {
+        flex: 1;
+      }
+      .pill {
+        all: unset;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 24px;
+        padding: 0 11px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+      }
+      .pill:hover {
+        background: var(--hover);
+      }
+      .pill.tint {
+        color: var(--tint);
+      }
+      .crumb-float {
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 5;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        height: 32px;
+        padding: 0 4px 0 6px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--capsule-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      body.dark .crumb-float {
+        background: var(--surface-2);
+      }
+      .crumb-float .seg {
+        all: unset;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: var(--r-sm);
+        white-space: nowrap;
+      }
+      .crumb-float .seg:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .crumb-float .seg.cur {
+        color: var(--text);
+        font-weight: 500;
+        cursor: default;
+      }
+      .crumb-float .seg.cur:hover {
+        background: none;
+      }
+      .crumb-float .sep {
+        color: var(--text-dim);
+        display: inline-grid;
+      }
+      .crumb-float .pill {
+        margin-left: 6px;
+        height: 24px;
+      }
+
+      /* 输入框与上方的胶囊 */
+      .dock {
+        flex: none;
+        position: relative;
+        max-width: 680px;
+        width: calc(100% - 40px);
+        margin: 0 auto 14px;
+      }
+      .caps {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        bottom: calc(100% + 8px);
+        display: flex;
+        gap: 6px;
+        pointer-events: none;
+      }
+      .capsule {
+        all: unset;
+        pointer-events: auto;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 11px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--capsule-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      body.dark .capsule {
+        background: var(--surface-2);
+      }
+      .capsule .dim {
+        color: var(--text-dim);
+      }
+      .cnt {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .composer {
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 12px 16px 10px;
+        font-size: var(--fs-meta);
+        min-height: 84px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        position: relative;
+      }
+      .composer .ph {
+        color: var(--text-dim);
+      }
+      .composer .txt {
+        color: var(--text);
+        white-space: pre-wrap;
+        max-height: 120px;
+        overflow: auto;
+      }
+      .composer .chip {
+        align-self: flex-start;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 10px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+      }
+      body.dark .composer .chip {
+        background: var(--main);
+      }
+      .composer .row2 {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        gap: 8px;
+        margin-top: auto;
+      }
+      .composer .send {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--text);
+        color: var(--main);
+        opacity: 0.25;
+      }
+      .composer .send.ready {
+        opacity: 1;
+      }
+      .problem {
+        font-size: var(--fs-sm);
+        color: var(--danger);
+        padding: 0 6px 6px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      /* 子对话列表的行（A 的弹出列表、B 的条、C 的面板共用） */
+      .list {
+        display: flex;
+        flex-direction: column;
+      }
+      .crow {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 4px 0 10px;
+        border-radius: var(--r-md);
+        font-size: var(--fs-meta);
+        cursor: pointer;
+        position: relative;
+      }
+      .crow:hover {
+        background: var(--hover);
+      }
+      .crow.cur {
+        background: var(--selected);
+      }
+      .crow .name {
+        min-width: 0;
+        flex: 0 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-2);
+      }
+      .crow .place {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .crow .more-n {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .crow .grow {
+        flex: 1;
+        min-width: 16px;
+      }
+      .crow .time {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .crow .acts {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+      }
+      .crow .idle {
+        width: 16px;
+        height: 16px;
+        display: grid;
+        place-items: center;
+        color: var(--text-dim);
+      }
+      .crow .idle i {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: currentColor;
+        opacity: 0.5;
+      }
+      .crow .done-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--tint);
+      }
+      .menu {
+        position: absolute;
+        z-index: 40;
+        min-width: 150px;
+        background: var(--surface-1);
+        border-radius: var(--r-md);
+        box-shadow: var(--float-shadow);
+        padding: 4px;
+        font-size: var(--fs-meta);
+      }
+      body.dark .menu {
+        background: var(--surface-2);
+      }
+      .menu .mi {
+        all: unset;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        box-sizing: border-box;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: var(--r-sm);
+        color: var(--text-2);
+        cursor: pointer;
+      }
+      .menu .mi:hover {
+        background: var(--hover);
+      }
+      .menu .mi.danger {
+        color: var(--danger);
+      }
+      .menu .mi[aria-disabled="true"] {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .menu .mi .sub {
+        margin-left: auto;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .menu hr {
+        border: 0;
+        height: 0.5px;
+        background: var(--line);
+        margin: 4px 6px;
+      }
+
+      /* A：弹出列表 */
+      .pop {
+        position: absolute;
+        left: 0;
+        width: max-content;
+        min-width: 300px;
+        max-width: 100%;
+        bottom: calc(100% + 44px);
+        z-index: 20;
+        background: var(--surface-1);
+        border-radius: var(--r-card);
+        box-shadow: var(--float-shadow);
+        padding: 6px;
+        max-height: 300px;
+        overflow: auto;
+      }
+      body.dark .pop {
+        background: var(--surface-2);
+      }
+      .pop .ph2 {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 8px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+
+      /* B：贴在输入框顶上的条 */
+      .strip {
+        background: var(--surface-2);
+        border-radius: var(--r-bubble) var(--r-bubble) 0 0;
+        margin-bottom: -14px;
+        padding: 4px 6px 18px;
+        box-shadow: inset 0 -0.5px 0 var(--line-soft);
+      }
+      .strip .sum {
+        all: unset;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        padding: 0 8px;
+        border-radius: var(--r-md);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        width: 100%;
+        box-sizing: border-box;
+      }
+      .strip .sum:hover {
+        color: var(--text-2);
+      }
+      .strip .sum .grow {
+        flex: 1;
+      }
+      .strip .list {
+        padding: 2px 0 2px;
+      }
+      .strip .crow:hover {
+        background: var(--hover);
+      }
+
+      /* C：右侧面板 */
+      .panel {
+        width: 290px;
+        flex: none;
+        box-shadow: inset 0.5px 0 0 var(--line);
+        display: flex;
+        flex-direction: column;
+        background: var(--main);
+      }
+      .panel .ph3 {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px 0 14px;
+        font-size: var(--fs-meta);
+        font-weight: 500;
+        color: var(--text);
+      }
+      .panel .ph3 .grow {
+        flex: 1;
+      }
+      .panel .tree {
+        padding: 2px 6px;
+        overflow: auto;
+        flex: 1;
+      }
+      .panel .crow {
+        padding-left: 6px;
+      }
+      .panel .crow .indent {
+        display: inline-block;
+        flex: none;
+      }
+      .panel .crow .acts {
+        display: none;
+      }
+      .panel .crow:hover .acts {
+        display: flex;
+      }
+      .panel .crow:hover .time {
+        display: none;
+      }
+      .panel .crow .name {
+        flex: 0 1 auto;
+      }
+      .panel .crow .place .ptxt {
+        display: none;
+      }
+      .panel .foot2 {
+        padding: 10px 14px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        box-shadow: inset 0 0.5px 0 var(--line-soft);
+        line-height: 1.6;
+      }
+
+      /* 开子对话的表单 */
+      .scrim {
+        position: absolute;
+        inset: 0;
+        z-index: 50;
+        background: rgba(0, 0, 0, 0.12);
+        display: grid;
+        place-items: center;
+      }
+      body.dark .scrim {
+        background: rgba(0, 0, 0, 0.4);
+      }
+      .form {
+        width: 380px;
+        background: var(--surface-1);
+        border-radius: var(--r-card);
+        box-shadow: var(--float-shadow);
+        padding: 16px 18px 14px;
+        font-size: var(--fs-meta);
+      }
+      body.dark .form {
+        background: var(--surface-2);
+      }
+      .form h4 {
+        margin: 0 0 2px;
+        font-size: 14px;
+      }
+      .form .sub {
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        margin-bottom: 12px;
+      }
+      .form label {
+        display: block;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        margin: 10px 0 4px;
+      }
+      .form input[type="text"] {
+        width: 100%;
+        height: 30px;
+        border: 0;
+        outline: none;
+        border-radius: var(--r);
+        padding: 0 10px;
+        background: var(--surface-2);
+        color: var(--text);
+        font: inherit;
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      body.dark .form input[type="text"] {
+        background: var(--main);
+      }
+      .form input[type="text"]:focus {
+        box-shadow: inset 0 0 0 1px var(--tint);
+      }
+      .seg2 {
+        display: inline-flex;
+        background: var(--surface-2);
+        border-radius: var(--r);
+        padding: 2px;
+        gap: 2px;
+      }
+      body.dark .seg2 {
+        background: var(--main);
+      }
+      .seg2 button {
+        all: unset;
+        cursor: pointer;
+        padding: 3px 12px;
+        border-radius: var(--r-sm);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .seg2 button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow:
+          0 0 0 0.5px var(--line),
+          0 1px 2px rgba(0, 0, 0, 0.08);
+      }
+      body.dark .seg2 button.on {
+        background: var(--surface-2);
+      }
+      .seg2 button[aria-disabled="true"] {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      .form .hint {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-top: 4px;
+      }
+      .form .btns {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 16px;
+      }
+      .btn {
+        all: unset;
+        cursor: pointer;
+        height: 28px;
+        padding: 0 14px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        display: inline-flex;
+        align-items: center;
+      }
+      .btn.primary {
+        background: var(--text);
+        color: var(--main);
+        box-shadow: none;
+      }
+      .state {
+        margin-top: 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        max-width: 1060px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>子对话：入口、子对话条、面包屑、带回（原型，审完即弃）</h1>
+      <p>
+        SPEC-0002
+        第一步：你从回复下方或标签栏"+"旁的菜单开子对话。子对话是一个普通会话，挂在当前会话下，可以<b>带上到这一轮为止的对话</b>，也可以是空的；放在<b>当前工作区</b>或<b
+          >新建 worktree</b
+        >。子对话的状态汇总到主对话，结论能<b>带回</b>主对话的输入框。
+      </p>
+      <p>
+        下面三种结构不同的做法用同一份假数据：主对话"重构登录流程"有 4 个子对话：安全审查（运行中）、补测试用例（新
+        worktree，下面还有两层，孙对话在问你）、方案对比（做完了，结论很长）、日志排查（已交给终端）。<b>每个窗口都能点</b>：切换会话、开子对话、带回、行菜单里的脱离和归档。
+      </p>
+    </header>
+    <div class="toggles">
+      <label><input type="checkbox" id="dark" /> 深色</label>
+    </div>
+
+    <section class="block">
+      <h2>A：胶囊加弹出列表</h2>
+      <ul>
+        <li>
+          子对话条是输入框上方的一个<b>胶囊</b>，和"排队"胶囊同一套样子："子对话 4 ·
+          状态图标和数"；点开是浮在输入框上方的列表，同排队面板。
+        </li>
+        <li>入口：回复下方那行，分叉右边多一个"↳"图标"从这里开子对话"。标签栏"+"旁的 ▾ 菜单里"子对话"开空的。</li>
+        <li>面包屑是标签栏下面细细的一行，右边"带回主对话"。</li>
+      </ul>
+      <div id="winA"></div>
+    </section>
+
+    <section class="block">
+      <h2>B：贴在输入框顶上的常驻条</h2>
+      <ul>
+        <li>
+          子对话条<b>贴在输入框的上沿</b>，像输入框长出来的一截，有子对话就一直在；收起时一行汇总，点开就在原地往上展开列表，不浮起来。
+        </li>
+        <li>
+          入口：分叉按钮带一个小菜单，"从这里分叉"和"从这里开子对话"放在一起（两者都是"带上到这一轮为止的对话"）。
+        </li>
+        <li>面包屑是对话区顶上浮着的一颗胶囊，"带回主对话"在胶囊里；标签上只有"↳"。</li>
+      </ul>
+      <div id="winB"></div>
+    </section>
+
+    <section class="block">
+      <h2>C：右侧的子对话面板</h2>
+      <ul>
+        <li>
+          子对话放进<b>右侧面板</b>（和文件、更改同一种面板），列出<b>整棵树</b>，不只直接的子对话；当前在看的那一行高亮，就是面包屑。标签栏右边的面板按钮、输入框上方的胶囊都能开关它。
+        </li>
+        <li>入口：回复下方那行最后一个带字的"子对话"；面板顶上"+"开空的。</li>
+        <li>对话区顶上是完整路径（超过三层收成"…"），"带回主对话"在路径右边。</li>
+      </ul>
+      <div id="winC"></div>
+    </section>
+
+    <script>
+      const SVG = {
+        GitForkIcon:
+          '<path d="M6 8C7.10457 8 8 7.10457 8 6C8 4.89543 7.10457 4 6 4C4.89543 4 4 4.89543 4 6C4 7.10457 4.89543 8 6 8Z" stroke="currentColor" stroke-width="1.75"/><path d="M12 20C13.1046 20 14 19.1046 14 18C14 16.8954 13.1046 16 12 16C10.8954 16 10 16.8954 10 18C10 19.1046 10.8954 20 12 20Z" stroke="currentColor" stroke-width="1.75"/><path d="M18 8C19.1046 8 20 7.10457 20 6C20 4.89543 19.1046 4 18 4C16.8954 4 16 4.89543 16 6C16 7.10457 16.8954 8 18 8Z" stroke="currentColor" stroke-width="1.75"/><path d="M6.01734 8.74067C6.01734 10.4142 5.77537 12.1995 9.22051 11.9855H12.0053M17.9929 8.57617C18.1259 11.9855 16.9199 11.7648 15.7861 11.9855H12.0053M12.0053 15.7001V11.9855" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        Copy01Icon:
+          '<path d="M7.5 14.5C7.5 11.2002 7.5 9.55025 8.52513 8.52513C9.55025 7.5 11.2002 7.5 14.5 7.5C17.7998 7.5 19.4497 7.5 20.4749 8.52513C21.5 9.55025 21.5 11.2002 21.5 14.5C21.5 17.7998 21.5 19.4497 20.4749 20.4749C19.4497 21.5 17.7998 21.5 14.5 21.5C11.2002 21.5 9.55025 21.5 8.52513 20.4749C7.5 19.4497 7.5 17.7998 7.5 14.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M7.5 16.5C6.10355 16.5 5.40533 16.5 4.84402 16.3036C3.83866 15.9518 3.0482 15.1613 2.69641 14.156C2.5 13.5947 2.5 12.8964 2.5 11.5V9.5C2.5 6.20017 2.5 4.55025 3.52513 3.52513C4.55025 2.5 6.20017 2.5 9.5 2.5H11.5C12.8964 2.5 13.5947 2.5 14.156 2.69641C15.1613 3.0482 15.9518 3.83866 16.3036 4.84402C16.5 5.40533 16.5 6.10355 16.5 7.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        DatabaseIcon:
+          '<ellipse cx="12" cy="5" rx="8" ry="3" stroke="currentColor" stroke-width="1.75"/><path d="M7 10.842C7.60158 11.0229 8.27434 11.1718 9 11.282" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M20 12C20 13.6569 16.4183 15 12 15C7.58172 15 4 13.6569 4 12" stroke="currentColor" stroke-width="1.75"/><path d="M7 17.842C7.60158 18.0229 8.27434 18.1718 9 18.282" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M20 5V19C20 20.6569 16.4183 22 12 22C7.58172 22 4 20.6569 4 19V5" stroke="currentColor" stroke-width="1.75"/>',
+        Add01Icon:
+          '<path d="M12.001 5.00003V19.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M19.002 12.002L4.99998 12.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        ArrowUp01Icon:
+          '<path d="M17.9998 15C17.9998 15 13.5809 9.00001 11.9998 9C10.4187 8.99999 5.99985 15 5.99985 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        ArrowRight01Icon:
+          '<path d="M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        CornerDownRightIcon:
+          '<path d="M19 15H12C8.22876 15 6.34315 15 5.17157 13.8284C4 12.6569 4 10.7712 4 7V4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M15 20C15 20 20 16.3176 20 15C20 13.6824 15 10 15 10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        MoreHorizontalIcon:
+          '<path d="M6.00449 12.5V12M18.0045 12.5V12M12.0045 12.5V12M7.00449 12.5C7.00449 11.9477 6.55677 11.5 6.00449 11.5C5.4522 11.5 5.00449 11.9477 5.00449 12.5C5.00449 13.0523 5.4522 13.5 6.00449 13.5C6.55677 13.5 7.00449 13.0523 7.00449 12.5ZM19.0045 12.5C19.0045 11.9477 18.5568 11.5 18.0045 11.5C17.4522 11.5 17.0045 11.9477 17.0045 12.5C17.0045 13.0523 17.4522 13.5 18.0045 13.5C18.5568 13.5 19.0045 13.0523 19.0045 12.5ZM13.0045 12.5C13.0045 11.9477 12.5568 11.5 12.0045 11.5C11.4522 11.5 11.0045 11.9477 11.0045 12.5C11.0045 13.0523 11.4522 13.5 12.0045 13.5C12.5568 13.5 13.0045 13.0523 13.0045 12.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        HelpCircleIcon:
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M9.5 9.5C9.5 8.11929 10.6193 7 12 7C13.3807 7 14.5 8.11929 14.5 9.5C14.5 10.3569 14.0689 11.1131 13.4117 11.5636C12.7283 12.0319 12 12.6716 12 13.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M12.125 16.75H12M12.25 16.75C12.25 16.8881 12.1381 17 12 17C11.8619 17 11.75 16.8881 11.75 16.75C11.75 16.6119 11.8619 16.5 12 16.5C12.1381 16.5 12.25 16.6119 12.25 16.75Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        Key01Icon:
+          '<path d="M15.5 14.5C18.8137 14.5 21.5 11.8137 21.5 8.5C21.5 5.18629 18.8137 2.5 15.5 2.5C12.1863 2.5 9.5 5.18629 9.5 8.5C9.5 9.38041 9.68962 10.2165 10.0303 10.9697L2.5 18.5V21.5H5.5V19.5H7.5V17.5H9.5L13.0303 13.9697C13.7835 14.3104 14.6196 14.5 15.5 14.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M17.5 6.5L16.5 7.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        AlertCircleIcon:
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M12 8V12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M12.125 15.75H12M12.25 15.75C12.25 15.8881 12.1381 16 12 16C11.8619 16 11.75 15.8881 11.75 15.75C11.75 15.6119 11.8619 15.5 12 15.5C12.1381 15.5 12.25 15.6119 12.25 15.75Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        Loading03Icon:
+          '<path d="M12 3V6" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M12 18V21" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M21 12L18 12" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M6 12L3 12" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M18.3635 5.63672L16.2422 7.75804" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M7.75804 16.2422L5.63672 18.3635" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M18.3635 18.3635L16.2422 16.2422" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/><path d="M7.75804 7.75804L5.63672 5.63672" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/>',
+        GitBranchIcon:
+          '<path d="M7 19H13C15.8284 19 17.2426 19 18.1213 18.1213C19 17.2426 19 15.8284 19 13V10M19 10C19.7002 10 21.0085 11.9943 21.5 12.5M19 10C18.2998 10 16.9915 11.9943 16.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M5 7L5 17" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><circle cx="5" cy="5" r="2" stroke="currentColor" stroke-width="1.75"/><circle cx="19" cy="5" r="2" stroke="currentColor" stroke-width="1.75"/><circle cx="5" cy="19" r="2" stroke="currentColor" stroke-width="1.75"/>',
+        Cancel01Icon:
+          '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        CheckmarkCircle02Icon:
+          '<path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z" stroke="currentColor" stroke-width="1.75"/><path d="M8 12.5L10.5 15L16 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        Folder01Icon:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7" stroke="currentColor" stroke-linecap="round" stroke-width="1.75"/>',
+        ComputerTerminal01Icon:
+          '<path d="M7.5 7.5L8.72654 8.55719C9.24218 9.00163 9.5 9.22386 9.5 9.5C9.5 9.77614 9.24218 9.99836 8.72654 10.4428L7.5 11.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M11.5 12.5H15.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M12 21C15.7497 21 17.6246 21 18.9389 20.0451C19.3634 19.7367 19.7367 19.3634 20.0451 18.9389C21 17.6246 21 15.7497 21 12C21 8.25027 21 6.3754 20.0451 5.06107C19.7367 4.6366 19.3634 4.26331 18.9389 3.95491C17.6246 3 15.7497 3 12 3C8.25027 3 6.3754 3 5.06107 3.95491C4.6366 4.26331 4.26331 4.6366 3.95491 5.06107C3 6.3754 3 8.25027 3 12C3 15.7497 3 17.6246 3.95491 18.9389C4.26331 19.3634 4.6366 19.7367 5.06107 20.0451C6.3754 21 8.25027 21 12 21Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        BubbleChatAddIcon:
+          '<path d="M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M15.5 12H8.5M12 8.5V15.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        ArrowUp02Icon:
+          '<path d="M12 5.5V19" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M18 11C18 11 13.5811 5.00001 12 5C10.4188 4.99999 6 11 6 11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        TextAlignLeftIcon:
+          '<path d="M3 3H21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M3 9H11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M3 15H21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M3 21H11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        SidebarRightIcon:
+          '<path d="M2 12C2 8.3109 2 6.46633 2.81382 5.1588C3.1149 4.67505 3.48891 4.2543 3.91891 3.91557C5.08116 3.00003 6.72077 3.00003 10 3.00003H14C17.2792 3.00003 18.9188 3.00003 20.0811 3.91557C20.5111 4.2543 20.8851 4.67505 21.1862 5.1588C22 6.46633 22 8.3109 22 12C22 15.6892 22 17.5337 21.1862 18.8413C20.8851 19.325 20.5111 19.7458 20.0811 20.0845C18.9188 21 17.2792 21 14 21H10C6.72077 21 5.08116 21 3.91891 20.0845C3.48891 19.7458 3.1149 19.325 2.81382 18.8413C2 17.5337 2 15.6892 2 12Z" stroke="currentColor" stroke-width="1.75"/><path d="M14.5 3.00003L14.5 21" stroke="currentColor" stroke-linejoin="round" stroke-width="1.75"/><path d="M18 7.00006H19M18 10.0001H19" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+      };
+      const ic = (k, s = 14, cls = "") =>
+        `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none">${SVG[k]}</svg>`;
+      const STATUS = {
+        auth: { k: "Key01Icon", c: "var(--attn)", l: "待授权", rank: 4 },
+        asking: { k: "HelpCircleIcon", c: "var(--attn)", l: "待回答", rank: 3 },
+        error: { k: "AlertCircleIcon", c: "var(--danger)", l: "出错", rank: 2 },
+        running: { k: "Loading03Icon", c: "var(--tint)", l: "运行中", rank: 1, spin: true },
+      };
+      const statusIcon = (s) =>
+        s
+          ? `<span class="st" title="${STATUS[s].l}" style="color:${STATUS[s].c}">${ic(STATUS[s].k, 14, STATUS[s].spin ? "spin" : "")}</span>`
+          : "";
+      const esc = (t) =>
+        String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+      const MAIN_TURNS = [
+        {
+          q: "看一下登录流程现在怎么走的",
+          a: "登录走 auth/session.ts：先校验表单，再调 /api/login，拿到 token 后写进 cookie 并跳转。token 刷新在 refresh.ts，过期判断用的是客户端时间。",
+          use: "18.2K",
+          time: "10:02",
+        },
+        {
+          q: "把 token 刷新改成服务端判断过期",
+          a: "改好了：refresh.ts 不再比较本地时间，改成看 /api/refresh 的 401；session.ts 里去掉了 expiresAt 的计算。",
+          use: "24.6K",
+          time: "10:15",
+        },
+        {
+          q: "再整理一下 session.ts 的结构",
+          a: "session.ts 拆成三段：表单校验、请求、写 cookie。对外的 login() 签名没变，调用方不用改。",
+          use: "15.1K",
+          time: "10:31",
+        },
+      ];
+      const LONG = [
+        "比较了三种做法：",
+        "1. 继续用 cookie 存 token：改动最小，但要处理 SameSite 和跨域。",
+        "2. 改成 httpOnly cookie + CSRF token：安全性最好，前端要加一个请求头。",
+        "3. 放到内存里，刷新页面时走一次 /api/refresh：不怕 XSS 读 token，但首屏多一次请求。",
+        "",
+        "建议选 2：",
+        "- 只有登录和刷新两个接口要改；",
+        "- CSRF token 可以在登录响应里一起下发；",
+        "- 现有的测试大部分还能用。",
+        "",
+        "风险：老版本的移动端还在读 document.cookie，要先确认没人用了。",
+        "改动清单见 docs/auth-plan.md。",
+      ].join("\n");
+
+      function seed() {
+        return {
+          sessions: {
+            main: { title: "重构登录流程", parent: null, status: null, turns: MAIN_TURNS, reply: MAIN_TURNS[2].a },
+            c1: {
+              title: "安全审查",
+              parent: "main",
+              status: "running",
+              updated: "刚刚",
+              turns: [{ q: "审查登录流程的安全问题，只看不改", a: null }],
+              reply: null,
+              ctx: 2,
+            },
+            c2: {
+              title: "补测试用例",
+              parent: "main",
+              status: null,
+              place: "atrium/login-tests",
+              updated: "3 分钟前",
+              turns: [
+                {
+                  q: "给 session.ts 拆出的三段补单元测试",
+                  a: "补了 12 个用例，表单校验 5 个、请求 4 个、写 cookie 3 个；边界情况另开了子对话。",
+                  use: "9.8K",
+                  time: "10:40",
+                },
+              ],
+              reply: "补了 12 个用例，表单校验 5 个、请求 4 个、写 cookie 3 个；边界情况另开了子对话。",
+            },
+            g1: {
+              title: "边界用例",
+              parent: "c2",
+              status: "asking",
+              updated: "1 分钟前",
+              turns: [
+                {
+                  q: "列出 token 刷新的边界情况",
+                  a: "列了 6 种。时区那一种要你确认：服务端时间和客户端差 8 小时时，算不算过期？",
+                  use: "4.2K",
+                  time: "10:44",
+                },
+              ],
+              reply: "列了 6 种……",
+            },
+            g2: { title: "时区", parent: "g1", status: null, updated: "刚刚", turns: [], reply: null },
+            c3: {
+              title: "方案对比",
+              parent: "main",
+              status: null,
+              updated: "12 分钟前",
+              done: true,
+              turns: [{ q: "对比三种存 token 的做法", a: LONG, use: "21.0K", time: "10:22" }],
+              reply: LONG,
+            },
+            c4: {
+              title: "日志排查",
+              parent: "main",
+              status: null,
+              updated: "1 小时前",
+              handedOff: true,
+              turns: [
+                {
+                  q: "看看昨天登录失败的日志",
+                  a: "失败集中在 02:00–02:10，是刷新接口超时。",
+                  use: "6.3K",
+                  time: "09:12",
+                },
+              ],
+              reply: "失败集中在 02:00–02:10，是刷新接口超时。",
+            },
+          },
+          current: "main",
+          tabs: ["main", "c2"],
+          drafts: {},
+          problem: null,
+          open: false,
+          panel: true,
+          form: null,
+          menu: null,
+          busy: false,
+          seq: 0,
+        };
+      }
+      const kids = (st, id) => Object.keys(st.sessions).filter((k) => st.sessions[k].parent === id);
+      const descendants = (st, id) => kids(st, id).flatMap((k) => [k, ...descendants(st, k)]);
+      const chain = (st, id) => {
+        const out = [];
+        const seen = new Set();
+        for (let c = id; c && !seen.has(c); c = st.sessions[c].parent) {
+          seen.add(c);
+          out.unshift(c);
+        }
+        return out;
+      };
+      const best = (list) => list.filter(Boolean).sort((a, b) => STATUS[b].rank - STATUS[a].rank)[0] ?? null;
+      /* 行的状态：汇总整棵子树（含运行中）；主对话标签：自己的，和子孙里待回答、待授权、出错的最高者（运行中不抬高）。 */
+      const rowStatus = (st, id) =>
+        best([st.sessions[id].status, ...descendants(st, id).map((k) => st.sessions[k].status)]);
+      const tabStatus = (st, id) =>
+        best([
+          st.sessions[id].status,
+          ...descendants(st, id)
+            .map((k) => st.sessions[k].status)
+            .filter((s) => s !== "running"),
+        ]);
+      const summary = (st, id) => {
+        const counts = {};
+        for (const k of kids(st, id)) {
+          const s = rowStatus(st, k);
+          if (s) counts[s] = (counts[s] ?? 0) + 1;
+        }
+        return Object.keys(STATUS)
+          .filter((s) => counts[s])
+          .map(
+            (s) =>
+              `<span class="cnt" style="color:${STATUS[s].c}">${ic(STATUS[s].k, 13, STATUS[s].spin ? "spin" : "")}<span style="color:var(--text-2)">${counts[s]}</span></span>`,
+          )
+          .join("");
+      };
+      const lines = (t) => t.split("\n").length;
+
+      function makeWindow(rootId, variant) {
+        const st = seed();
+        const root = document.getElementById(rootId);
+        const go = (id) => {
+          if (!st.tabs.includes(id)) st.tabs.push(id);
+          st.current = id;
+          st.open = false;
+          st.menu = null;
+          st.problem = null;
+          paint();
+        };
+        const bringBack = (id) => {
+          const s = st.sessions[id];
+          if (!s.reply) {
+            st.problem = `子对话「${s.title}」还没有结论`;
+            st.menu = null;
+            paint();
+            return;
+          }
+          const text = `子对话「${s.title}」的结论：\n${s.reply}`;
+          st.drafts[s.parent] = lines(text) > 8 || text.length > 800 ? { paste: text } : { text };
+          go(s.parent);
+        };
+        const detach = (id) => {
+          st.sessions[id].parent = null;
+          st.menu = null;
+          paint();
+        };
+        const archive = (id) => {
+          for (const k of [id, ...descendants(st, id)]) {
+            delete st.sessions[k];
+            st.tabs = st.tabs.filter((t) => t !== k);
+          }
+          if (!st.sessions[st.current]) st.current = "main";
+          st.menu = null;
+          paint();
+        };
+        const openForm = (withContext, turn) => {
+          const parent = st.sessions[st.current];
+          st.form = {
+            withContext,
+            turn,
+            name: `子对话 ${kids(st, st.current).length + 1}`,
+            place: "same",
+            branch: "login-child",
+          };
+          st.menu = null;
+          paint();
+          root.querySelector(".form input")?.select();
+        };
+        const create = () => {
+          const f = st.form;
+          const id = `n${++st.seq}`;
+          const parent = st.sessions[st.current];
+          st.sessions[id] = {
+            title: f.name.trim() || "子对话",
+            parent: st.current,
+            status: null,
+            updated: "刚刚",
+            place: f.place === "worktree" ? `atrium/${f.branch}` : undefined,
+            turns: f.withContext ? parent.turns.slice(0, f.turn + 1) : [],
+            copied: f.withContext ? f.turn + 1 : 0,
+            reply: null,
+          };
+          st.form = null;
+          go(id);
+        };
+
+        /* —— 各部分 —— */
+        const tabsHtml = () =>
+          st.tabs
+            .map((id) => {
+              const s = st.sessions[id];
+              const isChild = s.parent !== null && s.parent !== undefined;
+              const n = kids(st, id).length;
+              const badge = variant === "C" && n > 0 ? `<span class="badge">${n}</span>` : "";
+              return `<span class="tab${id === st.current ? " on" : ""}" data-tab="${id}">${isChild ? `<span class="mark">${ic("CornerDownRightIcon", 13)}</span>` : ""}<span class="t">${esc(s.title)}</span>${statusIcon(tabStatus(st, id))}${badge}</span>`;
+            })
+            .join("") +
+          `<span class="has-tip" style="display:inline-flex"><button class="ib big" data-act="new">${ic("Add01Icon", 15)}</button><button class="ib" data-act="plusmenu" style="padding:2px;margin-left:-6px">${ic("ArrowDown01Icon", 10)}</button></span>` +
+          `<span class="grow"></span>` +
+          (variant === "C"
+            ? `<button class="ib big${st.panel ? " on" : ""}" data-act="panel">${ic("SidebarRightIcon", 16)}<span class="tip">子对话面板</span></button>`
+            : "");
+
+        const crumbSegs = (cls) => {
+          const c = chain(st, st.current);
+          let items = c.map((id) => ({ id }));
+          if (c.length > 3) items = [{ id: c[0] }, { more: c.slice(1, -2) }, { id: c.at(-2) }, { id: c.at(-1) }];
+          return items
+            .map(
+              (it, i) =>
+                (i ? `<span class="sep">${ic("ArrowRight01Icon", 11)}</span>` : "") +
+                (it.more
+                  ? `<button class="seg" data-act="crumbmore" title="${esc(it.more.map((k) => st.sessions[k].title).join(" › "))}">…</button>`
+                  : `<button class="seg${it.id === st.current ? " cur" : ""}" data-go="${it.id}">${esc(st.sessions[it.id].title)}</button>`),
+            )
+            .join("");
+        };
+        const crumbHtml = () => {
+          const s = st.sessions[st.current];
+          if (!s.parent) return "";
+          const back = "";
+          if (variant === "B") return `<div class="crumb-float">${crumbSegs()}${back}</div>`;
+          return `<div class="crumb">${crumbSegs()}<span class="grow"></span>${back}</div>`;
+        };
+
+        const entryHtml = (i) => {
+          const off = st.busy;
+          const tip = off ? "运行中不能开带上下文的子对话" : "从这里开子对话";
+          if (variant === "A")
+            return `<button class="ib" data-child="${i}" aria-disabled="${off}">${ic("CornerDownRightIcon", 14)}<span class="tip">${tip}</span></button>`;
+          if (variant === "C")
+            return `<button class="txt" data-child="${i}" aria-disabled="${off}">${ic("CornerDownRightIcon", 13)}子对话<span class="tip">${tip}</span></button>`;
+          return "";
+        };
+        const forkHtml = (i) => {
+          const off = st.busy;
+          if (variant === "B")
+            return `<button class="ib" data-act="forkmenu" data-i="${i}" aria-disabled="${off}" style="display:inline-flex;align-items:center">${ic("GitForkIcon", 14)}<span style="display:inline-grid;margin-left:1px">${ic("ArrowDown01Icon", 9)}</span><span class="tip">${off ? "运行中不能分叉或开子对话" : "分叉或开子对话"}</span></button>`;
+          return `<button class="ib" aria-disabled="${off}">${ic("GitForkIcon", 14)}<span class="tip">${off ? "运行中不能分叉" : "从这里分叉"}</span></button>`;
+        };
+        const threadHtml = () => {
+          const s = st.sessions[st.current];
+          if (s.turns.length === 0)
+            return `<div class="empty">空的子对话，挂在「${esc(st.sessions[s.parent]?.title ?? "")}」下面<br>发第一条消息开始</div>`;
+          const copied = s.copied
+            ? `<div class="copied">— 以上 ${s.copied} 轮来自「${esc(st.sessions[s.parent]?.title ?? "")}」—</div>`
+            : "";
+          return (
+            s.turns
+              .map(
+                (t, i) =>
+                  `
+      <div class="bubble">${esc(t.q)}</div>
+      ${
+        t.a === null
+          ? `<div class="running">${ic("Loading03Icon", 13, "spin")}正在运行…</div>`
+          : `<div class="reply">${esc(t.a)}</div>
+      <div class="foot">
+        <button class="ib">${ic("Copy01Icon", 14)}<span class="tip">复制</span></button>
+        ${forkHtml(i)}${entryHtml(i)}
+        <span class="use">${ic("DatabaseIcon", 13)}用量 ${t.use} tok</span><span class="time">${t.time}</span>
+      </div>`
+      }` + (s.copied && i === s.copied - 1 ? copied : ""),
+              )
+              .join("") +
+            (st.busy && st.current === "main"
+              ? `<div class="bubble">顺便看下注册流程</div><div class="running">${ic("Loading03Icon", 13, "spin")}正在运行…</div>`
+              : "")
+          );
+        };
+
+        const rowHtml = (id, opts = {}) => {
+          const s = st.sessions[id];
+          const n = descendants(st, id).length;
+          const status = rowStatus(st, id);
+          const place = s.handedOff
+            ? `<span class="place" title="已在终端中继续">${ic("ComputerTerminal01Icon", 12)}<span class="ptxt">已在终端中继续</span></span>`
+            : s.place
+              ? `<span class="place" title="${esc(s.place)}">${ic("GitBranchIcon", 12)}<span class="ptxt">${esc(s.place)}</span></span>`
+              : "";
+          const lead = status
+            ? statusIcon(status)
+            : s.done
+              ? `<span class="idle"><span class="done-dot" title="做完了，还没看"></span></span>`
+              : `<span class="idle"><i></i></span>`;
+          const indent = opts.depth ? `<span class="indent" style="width:${opts.depth * 16}px"></span>` : "";
+          return `<div class="crow${id === st.current ? " cur" : ""}" data-go="${id}">${indent}${lead}<span class="name">${esc(s.title)}</span>${place}${!opts.tree && n ? `<span class="more-n">+${n}</span>` : ""}<span class="grow"></span><span class="time">${s.updated ?? ""}</span><span class="acts"><button class="ib" data-rowmenu="${id}">${ic("MoreHorizontalIcon", 14)}</button></span></div>`;
+        };
+        const listHtml = () =>
+          kids(st, st.current)
+            .map((k) => rowHtml(k))
+            .join("");
+        const treeHtml = (id, depth) =>
+          kids(st, id).flatMap((k) => [rowHtml(k, { depth, tree: true }), ...treeHtml(k, depth + 1)]);
+        const capsuleHtml = () => {
+          const n = kids(st, st.current).length;
+          if (!n) return "";
+          return `<button class="capsule" data-act="${variant === "C" ? "panel" : "toggle"}">子对话 ${n}${summary(st, st.current) ? `<span class="dim">·</span>${summary(st, st.current)}` : ""}<span class="dim">${ic(st.open && variant === "A" ? "ArrowDown01Icon" : "ArrowUp01Icon", 10)}</span></button>`;
+        };
+        const composerHtml = () => {
+          const d = st.drafts[st.current] ?? {};
+          const body = d.paste
+            ? `<span class="chip">${ic("TextAlignLeftIcon", 13)}粘贴内容 · ${lines(d.paste)} 行${ic("Cancel01Icon", 11)}</span><span class="ph">补一句再发，或直接发</span>`
+            : d.text
+              ? `<span class="txt">${esc(d.text)}</span>`
+              : `<span class="ph">发消息或描述任务，@ 引用文件，/ 使用命令</span>`;
+          return `<div class="composer">${body}<div class="row2">GPT-6 Sol · 高<span class="send${d.paste || d.text ? " ready" : ""}">${ic("ArrowUp02Icon", 14)}</span></div></div>`;
+        };
+        const dockHtml = () => {
+          const n = kids(st, st.current).length;
+          const problem = st.problem ? `<div class="problem">${ic("AlertCircleIcon", 13)}${esc(st.problem)}</div>` : "";
+          if (variant === "B") {
+            const strip = n
+              ? `<div class="strip"><button class="sum" data-act="toggle">${ic("CornerDownRightIcon", 13)}子对话 ${n}${summary(st, st.current) ? `<span style="color:var(--text-dim)">·</span>${summary(st, st.current)}` : ""}<span class="grow"></span>${ic(st.open ? "ArrowDown01Icon" : "ArrowUp01Icon", 11)}</button>${st.open ? `<div class="list">${listHtml()}</div>` : ""}</div>`
+              : "";
+            return `<div class="dock">${problem}${strip}${composerHtml()}</div>`;
+          }
+          const pop =
+            variant === "A" && st.open && n
+              ? `<div class="pop"><div class="ph2"><span>子对话</span><span>按创建时间</span></div><div class="list">${listHtml()}</div></div>`
+              : "";
+          const caps = variant === "C" && st.panel ? "" : capsuleHtml();
+          return `<div class="dock">${pop}<div class="caps">${caps}</div>${problem}${composerHtml()}</div>`;
+        };
+        const panelHtml = () =>
+          variant === "C" && st.panel
+            ? `<div class="panel"><div class="ph3">子对话<span class="grow"></span><button class="ib" data-act="newchild">${ic("Add01Icon", 14)}<span class="tip">开空的子对话</span></button><button class="ib" data-act="panel">${ic("Cancel01Icon", 13)}</button></div><div class="tree">${rowHtml("main", { depth: 0, tree: true }).replace('<span class="acts">', '<span class="acts" style="display:none">')}${treeHtml("main", 1).join("")}</div><div class="foot2">整棵树都在这；行的图标汇总它下面的。点行打开，悬停出"带回"和菜单。</div></div>`
+            : "";
+        const sidebarHtml = () =>
+          `<div class="sb"><div class="head">atrium</div><div class="row sel"><span class="name">重构登录流程</span>${statusIcon(tabStatus(st, "main"))}</div><div class="row"><span class="name">注册页改版</span><span class="meta">昨天</span></div><div class="row"><span class="name">升级依赖</span><span class="meta">10月14日</span></div></div>`;
+
+        const menuHtml = () => {
+          const m = st.menu;
+          if (!m) return "";
+          if (m.kind === "row")
+            return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button class="mi" data-go="${m.id}">打开</button><hr><button class="mi" data-detach="${m.id}">脱离<span class="sub">变成普通会话</span></button><button class="mi danger" data-archive="${m.id}">归档${descendants(st, m.id).length ? `<span class="sub">连同下面 ${descendants(st, m.id).length} 个</span>` : ""}</button></div>`;
+          if (m.kind === "fork")
+            return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button class="mi">${ic("GitForkIcon", 14)}从这里分叉<span class="sub">平级的新会话</span></button><button class="mi" data-child="${m.i}">${ic("CornerDownRightIcon", 14)}从这里开子对话<span class="sub">挂在这里</span></button></div>`;
+          if (m.kind === "plus")
+            return `<div class="menu" style="left:${m.x}px;top:${m.y}px"><button class="mi">${ic("Add01Icon", 14)}新会话<span class="sub">⌘T</span></button><button class="mi" data-act="newchild">${ic("CornerDownRightIcon", 14)}子对话<span class="sub">挂在「${esc(st.sessions[st.current].title)}」下</span></button></div>`;
+          if (m.kind === "crumb")
+            return `<div class="menu" style="left:${m.x}px;top:${m.y}px">${m.ids.map((k) => `<button class="mi" data-go="${k}">${esc(st.sessions[k].title)}</button>`).join("")}</div>`;
+          return "";
+        };
+        const formHtml = () => {
+          const f = st.form;
+          if (!f) return "";
+          const parent = st.sessions[st.current];
+          return `<div class="scrim"><div class="form"><h4>开子对话</h4><div class="sub">${f.withContext ? `带上「${esc(parent.title)}」到第 ${f.turn + 1} 轮为止的对话` : `空的子对话，挂在「${esc(parent.title)}」下`}</div>
+      <label>名字</label><input type="text" data-f="name" value="${esc(f.name)}">
+      <label>放在</label><div class="seg2"><button class="${f.place === "same" ? "on" : ""}" data-place="same">当前工作区</button><button class="${f.place === "worktree" ? "on" : ""}" data-place="worktree">新建 worktree</button></div>
+      ${f.place === "worktree" ? `<label>分支</label><input type="text" data-f="branch" value="${esc(f.branch)}"><div class="hint">从当前工作区的这次提交开始：a1b2c3d；没提交的改动不带过去</div>` : `<div class="hint">和「${esc(parent.title)}」在同一个目录里改文件</div>`}
+      <div class="btns"><button class="btn" data-act="cancel">取消</button><button class="btn primary" data-act="create">开子对话</button></div></div></div>`;
+        };
+
+        function paint() {
+          root.innerHTML = `<div class="win">${sidebarHtml()}<div class="main"><div class="tabs">${tabsHtml()}</div><div class="body"><div class="col">${variant === "B" ? "" : crumbHtml()}<div class="thread"><div class="inner" style="${variant === "B" && st.sessions[st.current].parent ? "padding-top:40px" : ""}">${threadHtml()}</div></div>${variant === "B" ? crumbHtml() : ""}${dockHtml()}</div>${panelHtml()}</div></div>${menuHtml()}${formHtml()}</div>
+      <div class="ctl"><button data-act="busy">${st.busy ? "主对话：停下" : "主对话：运行中"}</button><button data-act="reset">重来</button><span>${st.busy ? "运行中：带上下文的入口变淡，空的子对话照样能开" : ""}</span></div>`;
+          const at = (el) => {
+            const w = root.querySelector(".win").getBoundingClientRect();
+            const r = el.getBoundingClientRect();
+            return { x: Math.min(r.left - w.left, w.width - 230), y: r.bottom - w.top + 4 };
+          };
+          root.querySelectorAll("[data-tab]").forEach((el) => (el.onclick = () => go(el.dataset.tab)));
+          root.querySelectorAll("[data-go]").forEach(
+            (el) =>
+              (el.onclick = (e) => {
+                if (e.target.closest("[data-back],[data-rowmenu]")) return;
+                if (el.classList.contains("cur") && !el.classList.contains("crow")) return;
+                go(el.dataset.go);
+              }),
+          );
+          root.querySelectorAll("[data-back]").forEach(
+            (el) =>
+              (el.onclick = (e) => {
+                e.stopPropagation();
+                bringBack(el.dataset.back);
+              }),
+          );
+          root.querySelectorAll("[data-rowmenu]").forEach(
+            (el) =>
+              (el.onclick = (e) => {
+                e.stopPropagation();
+                st.menu = { kind: "row", id: el.dataset.rowmenu, ...at(el) };
+                paint();
+              }),
+          );
+          root.querySelectorAll("[data-detach]").forEach((el) => (el.onclick = () => detach(el.dataset.detach)));
+          root.querySelectorAll("[data-archive]").forEach((el) => (el.onclick = () => archive(el.dataset.archive)));
+          root.querySelectorAll("[data-child]").forEach(
+            (el) =>
+              (el.onclick = (e) => {
+                e.stopPropagation();
+                if (el.getAttribute("aria-disabled") === "true") return;
+                openForm(true, +el.dataset.child);
+              }),
+          );
+          root.querySelectorAll("[data-place]").forEach(
+            (el) =>
+              (el.onclick = () => {
+                st.form.place = el.dataset.place;
+                paint();
+              }),
+          );
+          root.querySelectorAll("[data-f]").forEach(
+            (el) =>
+              (el.oninput = () => {
+                st.form[el.dataset.f] = el.value;
+              }),
+          );
+          root.querySelectorAll("[data-act]").forEach(
+            (el) =>
+              (el.onclick = (e) => {
+                e.stopPropagation();
+                const a = el.dataset.act;
+                if (a === "toggle") {
+                  st.open = !st.open;
+                  st.problem = null;
+                }
+                if (a === "panel") st.panel = !st.panel;
+                if (a === "newchild") {
+                  openForm(false, 0);
+                  return;
+                }
+                if (a === "plusmenu") st.menu = { kind: "plus", ...at(el) };
+                if (a === "forkmenu") {
+                  if (el.getAttribute("aria-disabled") === "true") return;
+                  st.menu = { kind: "fork", i: +el.dataset.i, ...at(el) };
+                }
+                if (a === "crumbmore") {
+                  const c = chain(st, st.current);
+                  st.menu = { kind: "crumb", ids: c.slice(1, -2), ...at(el) };
+                }
+                if (a === "cancel") st.form = null;
+                if (a === "create") {
+                  create();
+                  return;
+                }
+                if (a === "busy") {
+                  st.busy = !st.busy;
+                  st.sessions.main.status = st.busy ? "running" : null;
+                }
+                if (a === "reset") {
+                  Object.assign(st, seed());
+                }
+                if (a === "new") {
+                  st.menu = null;
+                }
+                paint();
+              }),
+          );
+          root.querySelector(".win").addEventListener("click", (e) => {
+            if (st.menu && !e.target.closest(".menu")) {
+              st.menu = null;
+              paint();
+            }
+          });
+        }
+        paint();
+      }
+      makeWindow("winA", "A");
+      makeWindow("winB", "B");
+      makeWindow("winC", "C");
+      document.getElementById("dark").onchange = (e) => document.body.classList.toggle("dark", e.target.checked);
+    </script>
+  </body>
+</html>

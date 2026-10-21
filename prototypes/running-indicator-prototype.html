@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型：会话"运行中"的图标</title>
+    <!--
+  原型（PROTOTYPE，用完即弃）：侧栏、标签栏里会话"运行中"的图标现在是 Hugeicons loading-03（一圈放射短线在转），
+  太常规。比较五种有 Atrium 自己味道的写法。打开：双击；右上角切深色、相位、减弱动态。
+  调研（2026-10-20）：Claude Code 是"开花"的星号帧 · ✢ ✳ ✶ ✻ ✽ 配扫光动词；Codex 桌面端是小转圈，
+  issue #34870 说它在余光里看不出来；thinking-orbs 为 20px 单独调了一套点阵（点更少、更大、更慢）。
+-->
+    <style>
+      :root {
+        --main: #fff;
+        --surface-2: #f2f2f4;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --attn: #dd8629;
+        --danger: #e5484d;
+        --page: #eef1f6;
+        --sidebar: linear-gradient(180deg, #d5dbe9 0%, #e1e4ea 25%, #e3e7e9 65%, #d8dbe3 100%);
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-2: #2c2c2e;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --attn: #dd8629;
+        --danger: #f25a5a;
+        --page: #0c0c0e;
+        --sidebar: rgba(95, 102, 114, 0.42);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 24px 40px 60px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      p.lead {
+        margin: 0 0 18px;
+        color: var(--text-muted);
+        font-size: 13px;
+        max-width: 1100px;
+      }
+      .tools {
+        position: fixed;
+        top: 14px;
+        right: 18px;
+        display: flex;
+        gap: 6px;
+        z-index: 2;
+      }
+      .tools button {
+        font: inherit;
+        font-size: 12px;
+        border: 0.5px solid var(--line);
+        background: var(--main);
+        color: var(--text-2);
+        border-radius: 8px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(520px, 1fr));
+        gap: 18px;
+      }
+      .card {
+        background: var(--main);
+        border-radius: 16px;
+        padding: 18px 20px 16px;
+        box-shadow: 0 0 0 0.5px var(--line);
+      }
+      .card.base {
+        opacity: 0.8;
+      }
+      .card h2 {
+        font-size: 14px;
+        margin: 0 0 2px;
+      }
+      .card .why {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin: 0 0 14px;
+        min-height: 36px;
+      }
+      .stage {
+        display: grid;
+        grid-template-columns: 112px 1fr;
+        gap: 16px;
+        align-items: start;
+      }
+      .big {
+        width: 112px;
+        height: 112px;
+        border-radius: 14px;
+        background: var(--surface-2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--tint);
+      }
+      .big svg {
+        width: 72px;
+        height: 72px;
+      }
+      .sizes {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        margin-top: 8px;
+        color: var(--tint);
+        font-size: 11px;
+      }
+      .sizes > span:first-child {
+        color: var(--text-dim);
+      }
+      /* 侧栏 */
+      .side {
+        background: var(--sidebar);
+        border-radius: 12px;
+        padding: 6px;
+      }
+      .srow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 30px;
+        padding: 0 8px;
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--text-2);
+      }
+      .srow.sel {
+        background: var(--selected);
+      }
+      .srow .name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .srow .ago {
+        font-size: 12px;
+        color: var(--text-dim);
+      }
+      .st {
+        width: 16px;
+        height: 16px;
+        flex: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .st svg {
+        width: 14px;
+        height: 14px;
+      }
+      .run {
+        color: var(--tint);
+      }
+      .ask {
+        color: var(--attn);
+      }
+      .err {
+        color: var(--danger);
+      }
+      /* 标签栏 */
+      .tabs {
+        display: flex;
+        gap: 2px;
+        margin-top: 10px;
+        padding: 4px;
+        border-radius: 10px;
+        background: var(--surface-2);
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 30px;
+        max-width: 170px;
+        padding: 0 10px 0 8px;
+        border-radius: 8px;
+        font-size: 13px;
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .tab.sel {
+        background: var(--main);
+        color: var(--text);
+      }
+      .tab span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      /* 共用 */
+      svg .o {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+      svg .c {
+        transform-box: view-box;
+        transform-origin: 8px 8px;
+      }
+
+      /* 现状：loading-03，0.9 秒一圈 */
+      .vBase .spin {
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* A 猫脸：眼睛看左、看右、眨一下，3.2 秒一轮 */
+      .vA .eyes {
+        animation: glance 3.2s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+      }
+      @keyframes glance {
+        0%,
+        22% {
+          transform: translateX(0) scaleY(1);
+        }
+        30%,
+        42% {
+          transform: translateX(-1.1px) scaleY(1);
+        }
+        50%,
+        62% {
+          transform: translateX(1.1px) scaleY(1);
+        }
+        70%,
+        84% {
+          transform: translateX(0) scaleY(1);
+        }
+        88% {
+          transform: translateX(0) scaleY(0.12);
+        }
+        92%,
+        100% {
+          transform: translateX(0) scaleY(1);
+        }
+      }
+
+      /* B 轨道：中心蓝点 + 一颗带尾巴的小星绕着转，1.4 秒一圈；呼应过程轨道上"蓝点 + 转动的弧" */
+      .vB .sat {
+        animation: spin 1.4s linear infinite;
+      }
+      .vB .core {
+        animation: core 1.4s ease-in-out infinite;
+      }
+      @keyframes core {
+        50% {
+          transform: scale(0.82);
+        }
+      }
+
+      /* C 点阵：3×3 点，一道亮光沿对角线扫过，1.5 秒；呼应推理强度框的点阵 */
+      .vC .d {
+        animation: wave 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+        opacity: 0.22;
+      }
+      @keyframes wave {
+        0%,
+        60%,
+        100% {
+          opacity: 0.22;
+          transform: scale(0.85);
+        }
+        25% {
+          opacity: 1;
+          transform: scale(1.12);
+        }
+      }
+
+      /* D 声纳：实心点，两圈波纹轮流向外扩散、淡出，1.8 秒 */
+      .vD .ring {
+        animation: sonar 1.8s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+      }
+      .vD .ring.r2 {
+        animation-delay: -0.9s;
+      }
+      @keyframes sonar {
+        0% {
+          transform: scale(0.45);
+          opacity: 0.85;
+        }
+        100% {
+          transform: scale(1.35);
+          opacity: 0;
+        }
+      }
+
+      /* E 接力：三个点依次跳起，1.2 秒；聊天里"对方正在输入"的说法 */
+      .vE .d {
+        animation: hop 1.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+        opacity: 0.35;
+      }
+      @keyframes hop {
+        0%,
+        55%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.35;
+        }
+        22% {
+          transform: translateY(-2.4px);
+          opacity: 1;
+        }
+      }
+
+      /* 减弱动态：全部停在一帧 */
+      .still * {
+        animation: none !important;
+      }
+      .still .vBase .spin {
+        transform: none;
+      }
+      .still .vC .d {
+        opacity: var(--rest, 0.5);
+        transform: none;
+      }
+      .still .vD .ring.r1 {
+        transform: scale(0.9);
+        opacity: 0.35;
+      }
+      .still .vD .ring.r2 {
+        opacity: 0;
+      }
+      .still .vE .d {
+        opacity: var(--rest, 1);
+      }
+      .still .vB .sat {
+        transform: rotate(40deg);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tools">
+      <button id="phase">相位：同步</button>
+      <button id="motion">减弱动态：关</button>
+      <button id="theme">深色</button>
+    </div>
+    <h1>会话"运行中"的图标</h1>
+    <p class="lead">
+      侧栏、标签栏、子对话列表里，会话运行中是一个 14px 的
+      <code>--tint</code> 图标，现在是一圈放射短线在转（左上"现状"）。下面五种都在 16×16
+      里画，同样大小、同样颜色，只换形状和动法。每张卡片左边是放大的样子，右边是实际大小下的侧栏和标签栏（和待回答
+      ?、出错 !
+      放在一起看能不能一眼分清）。几个会话同时运行时，图标按同一个时钟走，节奏一致不乱闪（右上角"相位"可以对比各走各的）；减弱动态时停在一帧，形状本身仍能说明在运行。
+    </p>
+    <div class="grid" id="grid"></div>
+    <script>
+      const SVG = (inner) => `<svg viewBox="0 0 16 16" fill="none" aria-hidden="true">${inner}</svg>`;
+      const ICONS = {
+        Base: SVG(
+          `<g class="c spin" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">${Array.from(
+            { length: 8 },
+            (_, i) => {
+              const a = (i * Math.PI) / 4,
+                o = 1 - i * 0.11;
+              const p = (r) => [8 + r * Math.sin(a), 8 - r * Math.cos(a)].map((n) => n.toFixed(2));
+              const [x1, y1] = p(3.2),
+                [x2, y2] = p(6.6);
+              return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" opacity="${o.toFixed(2)}"/>`;
+            },
+          ).join("")}</g>`,
+        ),
+        A: SVG(`<path d="M3 13.8C2.6 11 2.7 8.2 3.2 5.8L3.9 1.6 7 4.3Q8 4.05 9 4.3L12.1 1.6 12.8 5.8C13.3 8.2 13.4 11 13 13.8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+    <g class="o eyes" fill="currentColor"><ellipse cx="6.25" cy="9.3" rx=".95" ry="1.35"/><ellipse cx="9.75" cy="9.3" rx=".95" ry="1.35"/></g>`),
+        B: SVG(`<circle cx="8" cy="8" r="5.6" stroke="currentColor" stroke-width="1" opacity=".18"/>
+    <circle class="o core" cx="8" cy="8" r="2.3" fill="currentColor"/>
+    <g class="c sat"><path d="M8 2.4A5.6 5.6 0 0 0 3.15 5.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".4"/><circle cx="8" cy="2.4" r="1.6" fill="currentColor"/></g>`),
+        C: SVG(
+          [0, 1, 2]
+            .flatMap((r) =>
+              [0, 1, 2].map((c) => {
+                const k = r + c;
+                return `<circle class="o d" style="animation-delay:${(k * 0.13).toFixed(2)}s;--rest:${(1 - k * 0.18).toFixed(2)}" cx="${3.5 + c * 4.5}" cy="${3.5 + r * 4.5}" r="1.45" fill="currentColor"/>`;
+              }),
+            )
+            .join(""),
+        ),
+        D: SVG(
+          `<circle class="o ring r1" cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/><circle class="o ring r2" cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="2.6" fill="currentColor"/>`,
+        ),
+        E: SVG(
+          [0, 1, 2]
+            .map(
+              (i) =>
+                `<circle class="o d" style="animation-delay:${(i * 0.16).toFixed(2)}s;--rest:${(1 - i * 0.3).toFixed(2)}" cx="${3.2 + i * 4.8}" cy="9" r="1.7" fill="currentColor"/>`,
+            )
+            .join(""),
+        ),
+      };
+      const ASK = SVG(
+        `<circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.3"/><path d="M6.3 6.3a1.8 1.8 0 1 1 2.4 1.7c-.5.2-.7.6-.7 1.1v.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11.3" r=".8" fill="currentColor"/>`,
+      );
+      const ERR = SVG(
+        `<circle cx="8" cy="8" r="6.2" stroke="currentColor" stroke-width="1.3"/><path d="M8 4.8v3.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.1" r=".85" fill="currentColor"/>`,
+      );
+      const VARIANTS = [
+        [
+          "Base",
+          "现状 · loading-03 转圈",
+          "一圈放射短线，0.9 秒一圈。任何应用都长这样；几个一起转时闪得厉害，转得快在余光里像在报错。",
+        ],
+        [
+          "A",
+          "A 猫脸 · 东张西望",
+          'Atrium 的猫（描边的头和耳朵），眼睛看左、看右、眨一下，3.2 秒一轮。和对话里"进行中"那只眨眼的猫是同一个角色；动得慢、幅度小，几个一起也不吵。减弱动态时是一张安静的猫脸。',
+        ],
+        [
+          "B",
+          "B 轨道 · 小星绕行",
+          '中心蓝点，一颗带尾巴的小星绕着它转，1.4 秒一圈，中心随之轻轻收放。和过程轨道上"蓝点外一圈转动的弧"是一家，从侧栏到对话是一套语言。',
+        ],
+        [
+          "C",
+          "C 点阵 · 对角扫光",
+          '3×3 的点，一道亮光沿对角线扫过，1.5 秒。呼应推理强度框的点阵、像在"算"；形状方，和圆形的 ?、! 区别最大。',
+        ],
+        [
+          "D",
+          "D 声纳 · 向外扩散",
+          '实心点，两圈波纹轮流向外扩散、淡出，1.8 秒。像"直播中"，在余光里最显眼，但最像别家的在线状态。',
+        ],
+        [
+          "E",
+          "E 接力 · 三点跳动",
+          '三个点依次跳起，1.2 秒，是聊天里"对方正在输入"的说法，一看就懂；但不只是说话，读文件、跑命令也用它，意思偏窄。',
+        ],
+      ];
+      const SIDE = [
+        ["run", "修复登录超时", "", true],
+        ["run", "重构文件树的懒加载", "", false],
+        ["ask", "迁移到新协议", "", false],
+        ["", "整理 README", "3 小时", false],
+        ["run", "补变异测试", "", false],
+        ["err", "升级 pi 到 1.4", "", false],
+      ];
+      function render() {
+        const sync = document.getElementById("phase").dataset.sync !== "off";
+        document.getElementById("grid").innerHTML = VARIANTS.map(([v, title, why]) => {
+          const icon = ICONS[v];
+          const st = (kind) =>
+            kind === "run"
+              ? `<span class="st run">${icon}</span>`
+              : kind === "ask"
+                ? `<span class="st ask">${ASK}</span>`
+                : kind === "err"
+                  ? `<span class="st err">${ERR}</span>`
+                  : "";
+          return `<div class="card v${v} ${v === "Base" ? "base" : ""}"><h2>${title}</h2><p class="why">${why}</p>
+      <div class="stage"><div><div class="big">${icon}</div>
+        <div class="sizes"><span>实际</span><span class="st run">${icon}</span><span class="run" style="width:20px;height:20px;display:inline-flex">${icon}</span></div></div>
+        <div><div class="side">${SIDE.map(([k, name, ago, sel]) => `<div class="srow ${sel ? "sel" : ""}"><span class="name">${name}</span>${ago ? `<span class="ago">${ago}</span>` : ""}${st(k)}</div>`).join("")}</div>
+        <div class="tabs"><div class="tab sel">${st("run")}<span>修复登录超时</span></div><div class="tab">${st("run")}<span>补变异测试</span></div><div class="tab">${st("ask")}<span>迁移到新协议</span></div></div></div></div></div>`;
+        }).join("");
+        if (!sync) {
+          // 各走各的：模拟图标在不同时刻挂上去（真实界面里会话不是同时开始运行的）。
+          document.querySelectorAll(".srow .st.run, .tab .st.run").forEach((el) => {
+            const shift = -Math.random() * 3;
+            el.querySelectorAll("*").forEach((n) => {
+              const own = parseFloat(getComputedStyle(n).animationDelay) || 0;
+              if (getComputedStyle(n).animationName !== "none") n.style.animationDelay = `${own + shift}s`;
+            });
+          });
+        }
+      }
+      render();
+      document.getElementById("phase").onclick = (e) => {
+        const off = e.target.dataset.sync !== "off";
+        e.target.dataset.sync = off ? "off" : "on";
+        e.target.textContent = off ? "相位：各走各的" : "相位：同步";
+        render();
+      };
+      document.getElementById("motion").onclick = (e) => {
+        const on = document.body.classList.toggle("still");
+        e.target.textContent = on ? "减弱动态：开" : "减弱动态：关";
+      };
+      document.getElementById("theme").onclick = (e) => {
+        const d = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = d ? "" : "dark";
+        e.target.textContent = d ? "深色" : "浅色";
+      };
+    </script>
+  </body>
+</html>

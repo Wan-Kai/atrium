@@ -1,0 +1,831 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 输入框里的模型面板：从"所有服务商的模型平铺成一长列"改成两列，
+  左边一列很窄、只列服务商，右边列这个服务商的全部模型。
+  现状：340px 宽的面板，服务商小标题 + 模型一行行往下排，服务商多、模型多时要滚很久才找到。
+  三版只在左列的样子上不同，右列和下面的推理强度相同：
+  A 图标栏：左列 44px，只有服务商的官方图标，悬停说名字。最窄。
+  B 名字栏：左列 120px，图标 + 名字。一眼能读，最宽。
+  C 竖排：左列 60px，图标下面一行小字名字，像程序坞。折中。
+  共同规则：打开时左列选中当前模型的服务商；当前模型所在的服务商图标右上有一个 --tint 小点；
+  右列顶上写服务商名和模型数，高度固定，换服务商时面板不跳；点模型即选中、面板关闭。
+  顶部浮条切版本（也可 ?variant=A|B|C、键盘 ← →）、浅色 / 深色、左列点选还是悬停就切。
+  颜色、字号取自 packages/ui/src/design/tokens.css；服务商图标是 design/brand 里的官方图标，
+  其他图标是 Hugeicons 免费版，从 @hugeicons/core-free-icons 直接生成。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 模型面板两列</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --linked: rgba(47, 111, 237, 0.1);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --page: #eef1f6;
+        --bar: rgba(255, 255, 255, 0.92);
+        --popover: var(--surface-1);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --linked: rgba(122, 170, 255, 0.14);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+        --page: #0c0c0e;
+        --bar: rgba(40, 40, 42, 0.92);
+        --popover: var(--surface-1);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 40px;
+      }
+      header.page {
+        padding: 24px 40px 4px;
+        max-width: 1100px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .stage {
+        padding: 14px 40px;
+      }
+      .win {
+        width: 1100px;
+        height: 720px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .sb {
+        width: 200px;
+        background: var(--surface-2);
+        opacity: 0.6;
+        border-right: 0.5px solid var(--line);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 44px;
+        border-bottom: 0.5px solid var(--line);
+        flex: none;
+      }
+      .talk {
+        flex: 1;
+        padding: 28px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        width: 100%;
+        max-width: 720px;
+        margin: 0 auto;
+        padding-left: 24px;
+        padding-right: 24px;
+        opacity: 0.35;
+      }
+      .talk .u {
+        align-self: flex-end;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 8px 14px;
+        font-size: var(--fs);
+      }
+      .talk .a {
+        height: 12px;
+        border-radius: 6px;
+        background: var(--surface-3);
+      }
+      .composer {
+        position: relative;
+        margin: 0 auto 52px;
+        width: calc(100% - 48px);
+        max-width: 672px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        border-radius: var(--r-bubble);
+        padding: 20px 14px 14px 20px;
+        flex: none;
+      }
+      .composer .ph {
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        height: 44px;
+      }
+      .composer .foot {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .chipbtn {
+        all: unset;
+        cursor: pointer;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px 0 6px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+      .chipbtn:hover,
+      .chipbtn.open {
+        background: var(--hover);
+      }
+      .chipbtn b {
+        font-weight: 500;
+      }
+      .chipbtn small {
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+      }
+      .send {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--text);
+        opacity: 0.2;
+      }
+      svg {
+        display: block;
+        flex: none;
+      }
+      .logo {
+        border-radius: 6px;
+        box-shadow: 0 0 0 0.5px var(--line);
+        flex: none;
+        display: block;
+      }
+      .letter {
+        border-radius: 6px;
+        background: var(--surface-3);
+        color: var(--text-2);
+        font-size: 10px;
+        font-weight: 600;
+        display: grid;
+        place-items: center;
+        flex: none;
+      }
+
+      /* 面板 */
+      .panel {
+        position: absolute;
+        right: 52px;
+        bottom: calc(100% - 46px + 8px);
+        z-index: 5;
+        background: var(--popover);
+        border-radius: var(--r-card);
+        box-shadow: var(--float-shadow);
+        padding: 8px;
+        color: var(--text-2);
+        animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+        transform-origin: bottom right;
+      }
+      @keyframes pop {
+        from {
+          opacity: 0;
+          transform: scale(0.97) translateY(4px);
+        }
+      }
+      .ph-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 8px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .ph-row .r {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .iconbtn {
+        all: unset;
+        cursor: pointer;
+        width: 20px;
+        height: 20px;
+        border-radius: var(--r-sm);
+        display: grid;
+        place-items: center;
+      }
+      .iconbtn:hover {
+        background: var(--hover);
+        color: var(--text);
+      }
+      .cols {
+        display: flex;
+        height: 320px;
+      }
+      .prov {
+        flex: none;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding-right: 6px;
+        margin-right: 6px;
+        box-shadow: inset -0.5px 0 0 var(--line);
+      }
+      .pv {
+        all: unset;
+        box-sizing: border-box;
+        cursor: pointer;
+        position: relative;
+        display: flex;
+        align-items: center;
+        border-radius: var(--r-md);
+        color: var(--text-muted);
+      }
+      .pv:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .pv.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .pv .cur {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--tint);
+        box-shadow: 0 0 0 1.5px var(--popover);
+      }
+      .models {
+        flex: 1;
+        min-width: 0;
+        overflow-y: auto;
+      }
+      .mh {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        padding: 2px 10px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        position: sticky;
+        top: 0;
+        background: var(--popover);
+        z-index: 1;
+      }
+      .mh b {
+        font-size: var(--fs-sm);
+        font-weight: 500;
+        color: var(--text-2);
+      }
+      .md {
+        all: unset;
+        box-sizing: border-box;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: var(--r-md);
+      }
+      .md:hover {
+        background: var(--hover);
+      }
+      .md.on {
+        background: var(--selected);
+      }
+      .md .tx {
+        flex: 1;
+        min-width: 0;
+      }
+      .md b {
+        display: block;
+        font-size: var(--fs-meta);
+        font-weight: 500;
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .md b .bolt {
+        display: inline-block;
+        vertical-align: -1px;
+        margin-left: 4px;
+        color: var(--tint);
+      }
+      .md small {
+        display: block;
+        margin-top: 1px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .md .ck {
+        width: 16px;
+        color: var(--tint);
+      }
+      .hr {
+        height: 1px;
+        background: var(--line-soft);
+        margin: 8px 6px 2px;
+      }
+      .effort {
+        display: flex;
+        gap: 4px;
+        padding: 2px 8px 6px;
+      }
+      .effort span {
+        flex: 1;
+        height: 28px;
+        border-radius: 8px;
+        background: var(--surface-2);
+        display: grid;
+        place-items: center;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .effort span.on {
+        background: var(--linked);
+        color: var(--tint);
+        font-weight: 500;
+      }
+
+      /* A 图标栏 */
+      .vA .panel {
+        width: 372px;
+      }
+      .vA .prov {
+        width: 50px;
+      }
+      .vA .pv {
+        width: 44px;
+        height: 40px;
+        justify-content: center;
+      }
+      .vA .pv .cur {
+        top: 6px;
+        right: 7px;
+      }
+      .vA .pv .nm {
+        display: none;
+      }
+      /* B 名字栏 */
+      .vB .panel {
+        width: 480px;
+      }
+      .vB .prov {
+        width: 156px;
+      }
+      .vB .pv {
+        height: 34px;
+        gap: 8px;
+        padding: 0 8px;
+        font-size: var(--fs-meta);
+      }
+      .vB .pv .nm {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+        flex: 1;
+      }
+      .vB .pv .cur {
+        position: static;
+        flex: none;
+        box-shadow: none;
+      }
+      /* C 竖排 */
+      .vC .panel {
+        width: 392px;
+      }
+      .vC .prov {
+        width: 66px;
+      }
+      .vC .pv {
+        width: 60px;
+        height: 52px;
+        flex-direction: column;
+        justify-content: center;
+        gap: 4px;
+      }
+      .vC .pv .nm {
+        font-size: 10px;
+        line-height: 12px;
+        max-width: 54px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .vC .pv .cur {
+        top: 6px;
+        right: 12px;
+      }
+
+      .tip {
+        position: fixed;
+        z-index: 30;
+        pointer-events: none;
+        background: var(--popover);
+        box-shadow: var(--float-shadow);
+        border-radius: var(--r-sm);
+        padding: 3px 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+
+      /* 浮条 */
+      .bar {
+        position: sticky;
+        top: 12px;
+        margin: 10px 40px 0;
+        width: max-content;
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        background: var(--bar);
+        backdrop-filter: blur(20px);
+        padding: 8px 12px;
+        border-radius: var(--r-pill);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        z-index: 20;
+      }
+      .seg {
+        display: flex;
+        gap: 2px;
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 2px;
+      }
+      .seg button {
+        all: unset;
+        cursor: pointer;
+        white-space: nowrap;
+        padding: 3px 12px;
+        border-radius: var(--r-pill);
+        color: var(--text-muted);
+      }
+      .seg button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow);
+      }
+      .state {
+        font-family: var(--font-mono);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        padding: 0 40px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>输入框 · 模型面板两列</h1>
+      <p id="desc"></p>
+      <p>
+        点输入框右下的模型按钮开关面板。示例登录了 7 个服务商（OpenRouter 有 14 个模型，最后一个服务商 Atrium
+        不认识、用首字母）。用上面的浮条切版本、浅色 / 深色、左列怎么切换。
+      </p>
+    </header>
+    <div class="bar">
+      <div class="seg" id="variants"></div>
+      <div class="seg" id="themes"></div>
+      <div class="seg" id="switch"></div>
+    </div>
+    <div class="stage">
+      <div class="win">
+        <div class="sb"></div>
+        <div class="main">
+          <div class="tabs"></div>
+          <div class="talk">
+            <div class="u">帮我看一下这个函数为什么慢</div>
+            <div class="a" style="width: 90%"></div>
+            <div class="a" style="width: 70%"></div>
+            <div class="a" style="width: 80%"></div>
+          </div>
+          <div class="composer" id="composer">
+            <div class="ph">发消息或描述任务，@ 引用文件，/ 使用命令</div>
+            <div class="foot"><button class="chipbtn" id="chip"></button><span class="send"></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="state" id="state"></p>
+    <script>
+      const I = {
+        Tick02Icon:
+          '<path d="M5 14L8.5 17.5L19 6.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ReloadIcon:
+          '<path d="M16.5 7.99976H18C19.4142 7.99976 20.1213 7.99976 20.5607 7.56042C21 7.12108 21 6.41397 21 4.99976V3.49976" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M3 11.9998C3 7.02919 7.0293 2.99976 12 2.99976C15.571 2.99976 18.0948 4.73029 20 7.08347M21 11.9998C21 16.9703 16.9707 20.9998 12 20.9998C8.42904 20.9998 5.90524 19.2692 4 16.916" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M7.5 15.9998H6C4.58579 15.9998 3.87868 15.9998 3.43934 16.4391C3 16.8784 3 17.5855 3 18.9998V20.4998" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        FlashIcon:
+          '<path d="M5.22576 11.3294L12.224 2.34651C12.7713 1.64397 13.7972 2.08124 13.7972 3.01707V9.96994C13.7972 10.5305 14.1995 10.985 14.6958 10.985H18.0996C18.8729 10.985 19.2851 12.0149 18.7742 12.6706L11.776 21.6535C11.2287 22.356 10.2028 21.9188 10.2028 20.9829V14.0301C10.2028 13.4695 9.80048 13.015 9.3042 13.015H5.90035C5.12711 13.015 4.71494 11.9851 5.22576 11.3294Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Search01Icon:
+          '<path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+      };
+      const ic = (n, s = 14, extra = "") =>
+        `<svg ${extra} width="${s}" height="${s}" viewBox="0 0 24 24" fill="none">${I[n]}</svg>`;
+      const P = [
+        {
+          id: "anthropic",
+          name: "Anthropic",
+          logo: "brand/claude.svg",
+          models: [
+            ["Claude Opus 5.5", "1M", "128K", true, true],
+            ["Claude Sonnet 5.5", "1M", "64K", true, true],
+            ["Claude Haiku 4.5", "200K", "64K", true, false],
+          ],
+        },
+        {
+          id: "openai-codex",
+          name: "ChatGPT 订阅",
+          logo: "brand/openai.svg",
+          models: [
+            ["gpt-6-astra", "400K", "128K", true, true],
+            ["gpt-5.6-sol", "400K", "128K", true, false],
+            ["gpt-5.6-luna", "400K", "128K", true, false],
+            ["gpt-5.6-terra", "272K", "128K", true, false],
+            ["gpt-5.5", "272K", "128K", true, false],
+          ],
+        },
+        {
+          id: "github-copilot",
+          name: "GitHub Copilot",
+          logo: "brand/copilot.svg",
+          models: [
+            ["GPT-5.5", "128K", "64K", true, false],
+            ["Claude Sonnet 5.5", "128K", "32K", true, false],
+            ["Claude Haiku 4.5", "128K", "32K", true, false],
+            ["Gemini 3 Pro", "128K", "64K", true, false],
+            ["Grok Code Fast 2", "128K", "16K", false, false],
+            ["o4-mini", "128K", "64K", true, false],
+          ],
+        },
+        {
+          id: "openrouter",
+          name: "OpenRouter",
+          logo: "brand/openrouter.svg",
+          models: [
+            ["Claude Opus 5.5", "1M", "128K", true, false],
+            ["GPT-6 Astra", "400K", "128K", true, false],
+            ["Gemini 3 Pro", "1M", "64K", true, false],
+            ["Gemini 3 Flash", "1M", "64K", true, false],
+            ["DeepSeek V4", "128K", "32K", false, false],
+            ["DeepSeek R2", "128K", "64K", false, false],
+            ["Qwen3.5 Coder", "256K", "64K", false, false],
+            ["Qwen3.5 Max", "256K", "32K", true, false],
+            ["Kimi K3", "256K", "64K", false, false],
+            ["GLM-5.2", "200K", "128K", false, false],
+            ["Grok 4.7", "256K", "64K", true, false],
+            ["Llama 5 Maverick", "1M", "32K", true, false],
+            ["Mistral Large 3", "128K", "32K", true, false],
+            ["MiniMax M3", "1M", "64K", false, false],
+          ],
+        },
+        {
+          id: "xai",
+          name: "xAI",
+          logo: "brand/xai.png",
+          models: [
+            ["Grok 4.7", "256K", "64K", true, true],
+            ["Grok 4.7 Fast", "2M", "30K", true, false],
+            ["Grok Code Fast 2", "256K", "16K", false, false],
+          ],
+        },
+        {
+          id: "moonshotai-cn",
+          name: "Kimi",
+          logo: "brand/kimi.png",
+          models: [
+            ["Kimi K3", "256K", "64K", false, false],
+            ["Kimi K2.5 Thinking", "256K", "64K", false, false],
+          ],
+        },
+        {
+          id: "zai",
+          name: "zai",
+          logo: null,
+          models: [
+            ["GLM-5.2", "200K", "128K", false, false],
+            ["GLM-5.2 Air", "128K", "96K", false, false],
+          ],
+        },
+      ];
+      const state = {
+        variant: new URLSearchParams(location.search).get("variant") || "A",
+        theme: "light",
+        sw: "click",
+        open: true,
+        cur: ["anthropic", "Claude Opus 5.5"],
+        prov: null,
+        level: 2,
+      };
+      const DESC = {
+        A: "A 图标栏：左列 44px，只放服务商的官方图标，悬停说名字；面板 372px，只比现在宽 32px。最窄，但要认图标（同一图标的 OpenAI 和 ChatGPT 订阅、Kimi 和 Kimi Coding 只能靠悬停分）。",
+        B: "B 名字栏：左列 150px，图标 + 名字（“GitHub Copilot”“ChatGPT 订阅”都放得下），一眼能读；面板 480px。最清楚，最宽。",
+        C: "C 竖排：左列 60px，图标下面一行 10px 小字名字，像程序坞；面板 392px。折中，长名字会被截断（GitHub Copilot → GitHub Co…）。",
+      };
+      const logo = (p, s) =>
+        p.logo
+          ? `<img class="logo" src="${p.logo}" width="${s}" height="${s}" alt="">`
+          : `<span class="letter" style="width:${s}px;height:${s}px">${p.id[0].toUpperCase()}</span>`;
+      const LEVELS = ["低", "中", "高", "最高"];
+      function render() {
+        document.documentElement.dataset.theme = state.theme;
+        document.body.className = "v" + state.variant;
+        document.getElementById("desc").textContent = DESC[state.variant];
+        const curP = P.find((p) => p.id === state.cur[0]);
+        const chip = document.getElementById("chip");
+        chip.className = "chipbtn" + (state.open ? " open" : "");
+        chip.innerHTML = `${logo(curP, 20)}<b>${state.cur[1]}</b><small>${LEVELS[state.level]}</small>${ic("ArrowDown01Icon", 10, 'style="color:var(--text-dim)"')}`;
+        document.querySelector(".panel")?.remove();
+        if (state.open) {
+          const shownId = state.prov ?? state.cur[0];
+          const shown = P.find((p) => p.id === shownId);
+          const big = state.variant === "C" ? 22 : state.variant === "A" ? 22 : 18;
+          const prov = P.map(
+            (p) =>
+              `<button class="pv${p.id === shownId ? " on" : ""}" data-p="${p.id}" data-name="${p.name}" aria-label="${p.name}">${logo(p, big)}<span class="nm">${p.name}</span>${p.id === state.cur[0] ? '<span class="cur" title="当前模型在这里"></span>' : ""}</button>`,
+          ).join("");
+          const models = shown.models
+            .map(([name, ctx, out, img, fast]) => {
+              const on = state.cur[0] === shown.id && state.cur[1] === name;
+              return `<button class="md${on ? " on" : ""}" data-m="${name}"><span class="tx"><b>${name}${fast ? ic("FlashIcon", 11, 'class="bolt" fill="currentColor"') : ""}</b><small>上下文 ${ctx} · 输出 ${out}${img ? " · 支持图片" : ""}</small></span><span class="ck">${on ? ic("Tick02Icon", 13) : ""}</span></button>`;
+            })
+            .join("");
+          const el = document.createElement("div");
+          el.className = "panel";
+          el.innerHTML = `
+      <div class="ph-row"><span>模型</span><span class="r">⌘⇧I<button class="iconbtn" title="让 pi 重新读取模型列表">${ic("ReloadIcon", 12)}</button></span></div>
+      <div class="cols"><div class="prov">${prov}</div><div class="models"><div class="mh"><b>${shown.name}</b>${shown.models.length} 个模型</div>${models}</div></div>
+      <div class="hr"></div>
+      <div class="ph-row"><span>推理强度 · 按住左右拖动</span><span>⌘⇧E · ←→</span></div>
+      <div class="effort">${LEVELS.map((l, i) => `<span class="${i === state.level ? "on" : ""}" data-l="${i}">${l}</span>`).join("")}</div>`;
+          document.getElementById("composer").appendChild(el);
+        }
+        document.getElementById("state").textContent = JSON.stringify({
+          variant: state.variant,
+          theme: state.theme,
+          左列切换: state.sw === "click" ? "点选" : "悬停",
+          面板: state.open ? "开" : "关",
+          左列选中: state.prov ?? state.cur[0],
+          当前模型: state.cur.join("/"),
+          推理强度: LEVELS[state.level],
+        });
+        seg(
+          "variants",
+          [
+            ["A", "A 图标栏"],
+            ["B", "B 名字栏"],
+            ["C", "C 竖排"],
+          ],
+          state.variant,
+          "variant",
+        );
+        seg(
+          "themes",
+          [
+            ["light", "浅色"],
+            ["dark", "深色"],
+          ],
+          state.theme,
+          "theme",
+        );
+        seg(
+          "switch",
+          [
+            ["click", "点选切换"],
+            ["hover", "悬停切换"],
+          ],
+          state.sw,
+          "sw",
+        );
+      }
+      function seg(id, items, on, key) {
+        document.getElementById(id).innerHTML = items
+          .map(([v, l]) => `<button class="${v === on ? "on" : ""}" data-${key}="${v}">${l}</button>`)
+          .join("");
+      }
+      let tip = null;
+      function hideTip() {
+        tip?.remove();
+        tip = null;
+      }
+      document.addEventListener("click", (e) => {
+        const t = e.target.closest("button, [data-l]");
+        if (!t) return;
+        const d = t.dataset;
+        if (t.id === "chip") {
+          state.open = !state.open;
+          state.prov = null;
+        } else if (d.p) state.prov = d.p;
+        else if (d.m) {
+          state.cur = [state.prov ?? state.cur[0], d.m];
+          state.open = false;
+          state.prov = null;
+          hideTip();
+        } else if (d.l) state.level = +d.l;
+        else if (d.variant) state.variant = d.variant;
+        else if (d.theme) state.theme = d.theme;
+        else if (d.sw) state.sw = d.sw;
+        else return;
+        render();
+      });
+      document.addEventListener("mouseover", (e) => {
+        const pv = e.target.closest(".pv");
+        hideTip();
+        if (!pv) return;
+        if (state.sw === "hover" && state.prov !== pv.dataset.p && (state.prov ?? state.cur[0]) !== pv.dataset.p) {
+          state.prov = pv.dataset.p;
+          render();
+        }
+        if (state.variant === "A") {
+          const box = document.querySelector(`.pv[data-p="${pv.dataset.p}"]`).getBoundingClientRect();
+          tip = document.createElement("div");
+          tip.className = "tip";
+          tip.textContent = pv.dataset.name;
+          tip.style.left = box.left - 8 + "px";
+          tip.style.top = box.top + box.height / 2 - 11 + "px";
+          tip.style.transform = "translateX(-100%)";
+          document.body.appendChild(tip);
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        const order = ["A", "B", "C"];
+        const i = order.indexOf(state.variant);
+        if (e.key === "ArrowRight") {
+          state.variant = order[(i + 1) % 3];
+          render();
+        }
+        if (e.key === "ArrowLeft") {
+          state.variant = order[(i + 2) % 3];
+          render();
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>

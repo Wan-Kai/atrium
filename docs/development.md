@@ -21,7 +21,6 @@
 - 每个里程碑开一个分支，如 `m1.1-skeleton`；完成并通过该里程碑的完成标准后，先请用户验收，用户明确确认通过后再在本地合并回 `main`。自用中的零散改动每件开一个 `self-use-<主题>` 分支，调研开 `research-<主题>`（见下文"标准开发流程"）。
 - 合并前可以用 `/code-review` 审查整个分支。
 - 只在明确要求时推送。
-- 原型在 `prototype/ui` 分支，不合并进 `main`。
 
 ## 提交
 
@@ -31,11 +30,11 @@
 
 ## 标准开发流程
 
-2026-10-20 定，把 M1.11 到 M1.15 实际走顺的做法写下来；2026-10-21 按用户要求将收尾改为先验收、确认通过后再合并和删除原 worktree。每件事都按这个顺序走；新会话从 `AGENTS.md` 和路线图读到这里。
+2026-10-20 定，把 M1.11 到 M1.15 实际走顺的做法写下来；2026-10-21 按用户要求将收尾改为先验收、确认通过后再合并和删除原 worktree，并将原型改为随任务存放，避免多个 agent 共用工作区、混杂未提交设计稿。每件事都按这个顺序走；新会话从 `AGENTS.md` 和路线图读到这里。
 
 1. **开 worktree**：在 `../atrium.worktrees/<主题>` 新建分支（`git worktree add ../atrium.worktrees/<主题> -b <分支> main`），进去后 `pnpm install --offline`。主工作区（`atrium/`）常有别的会话在改，不在那里干活，也不动它里面不属于自己的改动。
 2. **先改文档**：SPEC、design-language、domain-model、security 等按改动对应的改；自用中改的写明"某月某日自用时改，原先怎样、为什么改"。文档没覆盖到的设计问题先问用户，不自己定。
-3. **看得见的改动先做原型**：原型放在 `prototype/ui` 分支的 worktree（本机是 `~/.cache/atrium-proto-wt`）的 `prototypes/<名字>-prototype.html`，一个文件、双击就能打开，比较 3～4 种明显不同的做法，浅色、深色都看。请用户选，选中的写进 design-language，注明"原型某某的 X"。用户都不满意就再出一批。
+3. **看得见的改动先做原型**：在本任务自己的分支和 worktree 内创建 `prototypes/<名字>-prototype.html`，不另开共享原型分支或切到其他任务的 worktree。每份原型一个 HTML 文件、双击就能打开，比较 3～4 种明显不同的做法，浅色、深色都看。请用户选，选中的写进 design-language，注明"原型某某的 X"。用户都不满意就再出一批。保留的设计稿及其引用的资源随任务提交，验收后一起合并进 `main`；仅作设计参考，不接入生产构建。
 4. **测试先行**：一个测试、一段实现交替推进，每个测试先见过失败；修 bug 先写能复现它的测试。写完用 `pnpm break-check <cases.json>` 把代码按每个 case 改坏，确认测试会红（`MISSED` 的要补测试，确实等价的说明原因）。新行为登记进 `docs/testing/coverage-map.md`，自用中的改动记在"M1.11 自用中改（日期）"一节。
 5. **检查与变异测试**：格式化改过的文件（`(git diff --name-only; git ls-files --others --exclude-standard) | grep -E '\.(ts|tsx|md|css|mjs)$' | xargs npx oxfmt`），`pnpm check` 通过，跑相关的测试层。改到核心模块时只对改动的文件跑变异测试（`pnpm test:mutation <组> --mutate=<文件>`），存活的补测试或注明等价（`// Stryker disable next-line <变异> : 原因`）。跑完按进程号清掉 Stryker 留下的孤儿进程（父进程是 1、命令行在本 worktree 的 `.stryker-tmp/` 里的），删掉 `.stryker-tmp`（里面有测试故意留的只读目录，先 `chmod -R u+rwx`）；worktree 根目录不留 `.tmp/`。
 6. **审查**：里程碑或大的改动合并前做三方审查：两个外部模型加一个 Claude 子代理，各自只读审查，按"和 SPEC/ADR 不一致、竞态、安全、资源泄漏、界面是否按设计、测试缺口"逐条报，带严重程度、文件行号、触发场景。外部模型用哪两个由用户定，不自己换；合并去重后把需要拍板的设计问题交给用户，其余按测试先行修掉。

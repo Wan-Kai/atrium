@@ -76,7 +76,7 @@
 | MVP 1 需求与方案 | [SPEC-0001](specs/0001-mvp1-single-session-chat.md)：侧栏、对话区、首次启动三块已定稿 |
 | 领域模型 | [domain-model.md](architecture/domain-model.md) 第 3 版：经 Grok 4.7、GPT-6-Astra 两轮评审，并对照 Paseo 与 pi 源码 |
 | 视觉规范 | [design-language.md](architecture/design-language.md) |
-| 界面原型 | `prototype/ui` 分支（见下文"原型"） |
+| 界面原型 | `prototypes/` 目录，随任务分支维护并归档进 `main`（见下文"原型"） |
 | M1.1 骨架 | monorepo 七个包、Electron 启动宿主、token 与 Origin 鉴权、日志与链路追踪、空白界面跟随系统外观；七层测试各有示例并验证过会失败；变异分数 100%（等价变异在代码里注明理由）。实现中改动的决定已写回 testing.md、coding-standards.md、observability.md、development.md：界面泄漏改用自写的脱离 DOM 分析、Stryker 改用命令运行器、Vitest 5 的基准 API、开发端口 5791 |
 | M1.2 最窄链路 | `packages/pi`：PiProcess（LF 分帧、按 id 对应响应、按命令设期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）、找 pi 与版本检查、交给 pi 的环境去掉相对 `PATH` 和 Atrium/Electron 变量；宿主读取登录 shell 的完整环境、`pi.process`/`pi.rpc` span、环境里的凭据不进日志；`pnpm pi:try`；faux 模型、12 个 pi 契约场景与夹具（录制时归一化，回放替身与 PiProcess 语义一致）。决定写回 testing.md、security.md、overview.md、domain-model.md（决定 9） |
 | M1.3 协议、客户端与流式显示 | `protocol`：信封、每条命令一条应答与错误码、握手与心跳、会话事件（`epoch + seq`、运行的 trace）与快照；宿主：命令分发与 `command <type>` span、心跳、背压、订阅表、pi 事件翻译、SessionController（运行、乐观消息对应、pi 拒绝的错误码）、新建对话；客户端：`createAtriumClient`（重连、心跳、宿主重启、每个会话的 SessionView）；界面：Streamdown 渲染、平滑揭示、滚动跟随、用户气泡与"进行中"、输入框、界面问题上报。决定写回 SPEC-0001"协议细节"、security.md（https 图片）、testing.md、observability.md、pi-internals.md |
@@ -160,7 +160,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 ### 原型
 
-- 位置：`prototype/ui` 分支的 `prototypes/` 目录（用完即弃，不进 `main`）。
+- 位置：仓库的 `prototypes/` 目录。2026-10-21 按用户要求将原 `prototype/ui` 的全部设计稿及资源归档进 `main`；后续原型在各自任务的 worktree 内制作，存放与归档规则见 [development.md · 标准开发流程](development.md#标准开发流程)。原型仅作设计参考，实现仍以 SPEC 和 design-language 为准。
 - 定稿稿：
   - `app-prototype.html`：完整主界面（侧栏、标签栏、消息流、过程、输入框、模型与推理强度、状态栏）。
   - `onboarding-prototype.html`：首次启动（欢迎页、安装 pi、登录、添加项目）。
@@ -169,8 +169,8 @@ MVP 1 里还没设计、做到时先补设计的：
 - 过程稿（只作参考）：`sidebar-prototype.html`、`conversation-prototype.html`、`icons-prototype.html`、`tags-prototype.html`、`fonts-prototype.html`、`cta-prototype.html`、`effort-prototype.html`、`effort-chip-prototype.html`。
 - 本地预览：
   ```sh
-  git worktree add ~/.cache/atrium-proto-wt prototype/ui   # 已存在则跳过
-  cd ~/.cache/atrium-proto-wt/prototypes && python3 -m http.server 8765 --bind 127.0.0.1
+  # 在包含目标设计稿的本任务 worktree 或主仓库中运行
+  cd prototypes && python3 -m http.server 8765 --bind 127.0.0.1
   # 打开 http://127.0.0.1:8765/app-prototype.html
   ```
 - 原型里的数值（颜色、尺寸、弹簧参数、点阵算法）可以直接搬到实现里；点阵和推理强度框的实现在 `app-prototype.html` 的 `dotField`、`effortBox`、`chipDots`，"开始设置"按钮的扫光在 `onboarding-prototype.html` 的 `dotCta`。

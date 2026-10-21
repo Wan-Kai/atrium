@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>PROTOTYPE · 开始设置按钮</title>
+    <!-- 原型：一次性代码，只用来挑欢迎页主按钮的样式。四个方案都放在和欢迎页一样的背景上，可切换浅色 / 深色。 -->
+    <link rel="stylesheet" href="fonts/onboarding-title.css" />
+    <style>
+      :root,
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #121214;
+        --text: #f9fafb;
+        --muted: #a3a8af;
+        --dim: #74787f;
+        --card: rgba(255, 255, 255, 0.04);
+        --edge: rgba(255, 255, 255, 0.08);
+        --glow-a: rgba(94, 132, 255, 0.22);
+        --glow-b: rgba(255, 168, 108, 0.1);
+        --glow-c: rgba(120, 220, 200, 0.1);
+      }
+      [data-theme="light"] {
+        color-scheme: light;
+        --bg: #f7f7f9;
+        --text: #1d1d1f;
+        --muted: #6e6e74;
+        --dim: #a1a1a7;
+        --card: rgba(255, 255, 255, 0.6);
+        --edge: rgba(0, 0, 0, 0.06);
+        --glow-a: rgba(94, 132, 255, 0.18);
+        --glow-b: rgba(255, 168, 108, 0.16);
+        --glow-c: rgba(80, 200, 180, 0.12);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(40% 50% at 18% 20%, var(--glow-a), transparent 70%),
+          radial-gradient(35% 45% at 82% 12%, var(--glow-c), transparent 70%),
+          radial-gradient(35% 45% at 70% 90%, var(--glow-b), transparent 70%);
+      }
+      button {
+        font: inherit;
+        border: 0;
+        background: none;
+        color: inherit;
+        cursor: default;
+        padding: 0;
+      }
+      header {
+        position: relative;
+        text-align: center;
+        padding: 34px 0 6px;
+      }
+      header h1 {
+        margin: 0;
+        font:
+          700 34px/1.15 "Syne",
+          "Atrium Title CN",
+          sans-serif;
+      }
+      header p {
+        margin: 8px 0 0;
+        color: var(--muted);
+      }
+      .tog {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        border-radius: 10px;
+        background: rgba(28, 28, 30, 0.86);
+        z-index: 5;
+      }
+      .tog button {
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 8px;
+        color: rgba(255, 255, 255, 0.66);
+        font-size: 12px;
+      }
+      .tog button.on {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+      }
+      .grid {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+        max-width: 1100px;
+        margin: 26px auto 60px;
+        padding: 0 28px;
+      }
+      .cell {
+        border-radius: 22px;
+        background: var(--card);
+        box-shadow: inset 0 0 0 0.5px var(--edge);
+        padding: 34px 24px 22px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+      .cell .k {
+        align-self: flex-start;
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+      }
+      .cell .k b {
+        width: 24px;
+        height: 24px;
+        border-radius: 8px;
+        display: inline-grid;
+        place-items: center;
+        background: var(--text);
+        color: var(--bg);
+        font-size: 12px;
+      }
+      .cell .k span {
+        font-weight: 600;
+      }
+      .cell .d {
+        align-self: flex-start;
+        margin: -8px 0 10px 34px;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .stage {
+        height: 120px;
+        display: grid;
+        place-items: center;
+      }
+      .glassbed {
+        position: relative;
+      }
+      .glassbed::before {
+        content: "";
+        position: absolute;
+        width: 260px;
+        height: 90px;
+        border-radius: 50%;
+        filter: blur(26px);
+        background:
+          radial-gradient(closest-side at 35% 50%, rgba(94, 132, 255, 0.55), transparent),
+          radial-gradient(closest-side at 70% 50%, rgba(255, 170, 120, 0.45), transparent);
+      }
+      .hint {
+        color: var(--dim);
+        font-size: 12.5px;
+      }
+      .hint kbd {
+        font:
+          600 11px -apple-system,
+          sans-serif;
+        padding: 1px 6px;
+        border-radius: 5px;
+        box-shadow: inset 0 0 0 1px var(--edge);
+      }
+      .arr {
+        display: inline-block;
+        transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+      }
+
+      /* A 实色胶囊（Apple）：纯色、克制，悬停时箭头滑入 */
+      .cta-a {
+        position: relative;
+        height: 50px;
+        padding: 0 30px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 16px;
+        line-height: 1;
+        letter-spacing: 0.01em;
+        background: var(--a-bg);
+        color: var(--a-fg);
+        box-shadow:
+          inset 0 1px 0 var(--a-hi),
+          0 1px 2px rgba(0, 0, 0, 0.12),
+          0 8px 24px -10px rgba(0, 0, 0, 0.35);
+        display: inline-flex;
+        align-items: center;
+        gap: 0;
+        transition:
+          background 0.25s,
+          padding 0.35s cubic-bezier(0.2, 0.9, 0.25, 1),
+          transform 0.2s;
+      }
+      :root,
+      [data-theme="dark"] {
+        --a-bg: #f5f5f7;
+        --a-fg: #1d1d1f;
+        --a-hi: rgba(255, 255, 255, 0.9);
+        --a-bg-h: #fff;
+      }
+      [data-theme="light"] {
+        --a-bg: #1d1d1f;
+        --a-fg: #fff;
+        --a-hi: rgba(255, 255, 255, 0.14);
+        --a-bg-h: #000;
+      }
+      .cta-a .arr {
+        width: 0;
+        opacity: 0;
+        overflow: hidden;
+        transform: translateX(-6px);
+        transition:
+          width 0.35s cubic-bezier(0.2, 0.9, 0.25, 1),
+          opacity 0.25s,
+          transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1);
+      }
+      .cta-a:hover {
+        background: var(--a-bg-h);
+        padding: 0 24px 0 30px;
+      }
+      .cta-a:hover .arr {
+        width: 22px;
+        opacity: 1;
+        transform: none;
+        margin-left: 8px;
+      }
+      .cta-a:active {
+        transform: scale(0.97);
+      }
+
+      /* B 液态玻璃：半透明玻璃 + 高光描边 + 内阴影，像一块会透光的玻璃 */
+      .cta-b {
+        position: relative;
+        isolation: isolate;
+        height: 54px;
+        padding: 0 32px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 16px;
+        line-height: 1;
+        color: var(--text);
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--b-fill);
+        backdrop-filter: blur(24px) saturate(1.8);
+        -webkit-backdrop-filter: blur(24px) saturate(1.8);
+        box-shadow:
+          inset 0 1px 1px var(--b-hi),
+          inset 0 -1px 1px var(--b-lo),
+          0 10px 30px -12px var(--b-sh),
+          0 1px 2px rgba(0, 0, 0, 0.06);
+        transition:
+          transform 0.25s cubic-bezier(0.2, 0.9, 0.25, 1.3),
+          box-shadow 0.3s;
+      }
+      .cta-b::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        padding: 1px;
+        z-index: -1;
+        background: linear-gradient(160deg, var(--b-rim1), transparent 40%, transparent 60%, var(--b-rim2));
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+      }
+      .cta-b::after {
+        content: "";
+        position: absolute;
+        left: 14%;
+        right: 14%;
+        top: 2px;
+        height: 45%;
+        border-radius: 999px;
+        z-index: -1;
+        background: linear-gradient(180deg, var(--b-spec), transparent);
+      }
+      :root,
+      [data-theme="dark"] {
+        --b-fill: rgba(255, 255, 255, 0.08);
+        --b-hi: rgba(255, 255, 255, 0.35);
+        --b-lo: rgba(255, 255, 255, 0.06);
+        --b-sh: rgba(0, 0, 0, 0.7);
+        --b-rim1: rgba(255, 255, 255, 0.55);
+        --b-rim2: rgba(255, 255, 255, 0.25);
+        --b-spec: rgba(255, 255, 255, 0.14);
+      }
+      [data-theme="light"] {
+        --b-fill: rgba(255, 255, 255, 0.45);
+        --b-hi: rgba(255, 255, 255, 1);
+        --b-lo: rgba(0, 0, 0, 0.04);
+        --b-sh: rgba(60, 80, 160, 0.35);
+        --b-rim1: rgba(255, 255, 255, 1);
+        --b-rim2: rgba(255, 255, 255, 0.7);
+        --b-spec: rgba(255, 255, 255, 0.75);
+      }
+      .cta-b:hover {
+        transform: translateY(-1px) scale(1.015);
+      }
+      .cta-b:hover .arr {
+        transform: translateX(3px);
+      }
+      .cta-b:active {
+        transform: scale(0.98);
+      }
+
+      /* C 聚光（Linear）：深色胶囊，鼠标在按钮里移动时有一束柔光跟随；外圈一道极细的光边 */
+      .cta-c {
+        --x: 50%;
+        --y: 50%;
+        position: relative;
+        isolation: isolate;
+        overflow: hidden;
+        height: 50px;
+        padding: 0 28px;
+        border-radius: 14px;
+        font-weight: 600;
+        font-size: 15.5px;
+        line-height: 1;
+        color: #f5f6f8;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: linear-gradient(180deg, #2a2b31, #17181c);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.12),
+          0 0 0 1px rgba(255, 255, 255, 0.06),
+          0 0 0 1px var(--c-ring),
+          0 12px 30px -12px rgba(0, 0, 0, 0.6);
+        transition: transform 0.2s;
+      }
+      :root,
+      [data-theme="dark"] {
+        --c-ring: rgba(255, 255, 255, 0.1);
+      }
+      [data-theme="light"] {
+        --c-ring: rgba(0, 0, 0, 0.65);
+      }
+      .cta-c::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        z-index: -1;
+        opacity: 0;
+        transition: opacity 0.3s;
+        background: radial-gradient(120px circle at var(--x) var(--y), rgba(140, 170, 255, 0.35), transparent 70%);
+      }
+      .cta-c::after {
+        content: "";
+        position: absolute;
+        left: 10%;
+        right: 10%;
+        top: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+      }
+      .cta-c:hover::before {
+        opacity: 1;
+      }
+      .cta-c:hover .arr {
+        transform: translateX(3px);
+      }
+      .cta-c:active {
+        transform: scale(0.98);
+      }
+
+      /* D 内光（Stripe / Arc）：黑色胶囊里藏着一团极淡、缓慢流动的光，和背景的光同色 */
+      .cta-d {
+        position: relative;
+        isolation: isolate;
+        overflow: hidden;
+        height: 52px;
+        padding: 0 30px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 16px;
+        line-height: 1;
+        color: #fff;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: #0f1014;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.14),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+          0 14px 34px -14px rgba(60, 90, 200, 0.6);
+        transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+      }
+      .cta-d::before {
+        content: "";
+        position: absolute;
+        inset: -60% -20%;
+        z-index: -1;
+        filter: blur(18px);
+        opacity: 0.55;
+        background:
+          radial-gradient(30% 60% at 25% 70%, #5e84ff, transparent 70%),
+          radial-gradient(28% 60% at 60% 30%, #78d6d6, transparent 70%),
+          radial-gradient(26% 55% at 85% 75%, #ffaa78, transparent 70%);
+        animation: d-flow 9s ease-in-out infinite alternate;
+        transition: opacity 0.4s;
+      }
+      .cta-d:hover::before {
+        opacity: 0.8;
+      }
+      .cta-d:hover .arr {
+        transform: translateX(3px);
+      }
+      .cta-d:active {
+        transform: scale(0.98);
+      }
+      @keyframes d-flow {
+        to {
+          transform: translateX(14%) rotate(8deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .d::before {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tog"><button data-t="light">浅色</button><button data-t="dark">深色</button></div>
+    <header>
+      <h1>开始设置按钮 · 四个方向</h1>
+      <p>把鼠标移上去看动效。按钮里不再放 ⏎，键盘提示放到下方小字。</p>
+    </header>
+    <div class="grid">
+      <div class="cell">
+        <div class="k"><b>A</b><span>实色胶囊 · Apple</span></div>
+        <div class="d">纯色、克制，没有装饰；悬停时箭头从右侧滑入</div>
+        <div class="stage">
+          <button class="cta-a">开始设置<span class="arr">→</span></button>
+        </div>
+        <div class="hint">按 <kbd>⏎</kbd> 开始 · 大约 1 分钟</div>
+      </div>
+      <div class="cell">
+        <div class="k"><b>B</b><span>液态玻璃 · iOS 26</span></div>
+        <div class="d">透光的玻璃，高光描边和内阴影，和"透亮"的整体最搭</div>
+        <div class="stage glassbed">
+          <button class="cta-b">开始设置<span class="arr">→</span></button>
+        </div>
+        <div class="hint">按 <kbd>⏎</kbd> 开始 · 大约 1 分钟</div>
+      </div>
+      <div class="cell">
+        <div class="k"><b>C</b><span>聚光 · Linear</span></div>
+        <div class="d">深色按钮，顶部一道细光；鼠标在按钮里移动时，柔光跟着走</div>
+        <div class="stage">
+          <button class="cta-c">开始设置<span class="arr">→</span></button>
+        </div>
+        <div class="hint">按 <kbd>⏎</kbd> 开始 · 大约 1 分钟</div>
+      </div>
+      <div class="cell">
+        <div class="k"><b>D</b><span>内光 · Stripe / Arc</span></div>
+        <div class="d">黑色胶囊里藏着一团缓慢流动的淡光，颜色取自背景</div>
+        <div class="stage">
+          <button class="cta-d">开始设置<span class="arr">→</span></button>
+        </div>
+        <div class="hint">按 <kbd>⏎</kbd> 开始 · 大约 1 分钟</div>
+      </div>
+    </div>
+    <script>
+      function setTheme(t) {
+        document.documentElement.dataset.theme = t;
+        document.querySelectorAll("[data-t]").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+      }
+      setTheme(matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-t]");
+        if (b) setTheme(b.dataset.t);
+      });
+      document.querySelectorAll(".cta-c").forEach((c) =>
+        c.addEventListener("pointermove", (e) => {
+          const r = c.getBoundingClientRect();
+          c.style.setProperty("--x", `${e.clientX - r.left}px`);
+          c.style.setProperty("--y", `${e.clientY - r.top}px`);
+        }),
+      );
+    </script>
+  </body>
+</html>

@@ -1,0 +1,1109 @@
+<!doctype html>
+<!--
+  PROTOTYPE · 用完即弃，不要当成正式代码。
+  问题：一轮的"过程"能不能从"折叠条 + 单行列表"改成一条有节点的轨道，让人一眼看出 agent 走过的路？
+  参考：Phil Pitus "Thinking process"（https://x.com/pitus_/status/2109282877506777206）：
+    竖线串起每一步；进行中的一步节点带转圈、文字扫光；走不通的一步从主线岔出去、虚线、×；
+    支线汇回主线；结束时一个蓝色实心勾"完成"。
+  映射到 pi 的真实数据（不需要改协议）：
+    连续的只读调用 → 一行"探索了代码库" + 文件胶囊；失败后 agent 继续往下做的命令 → 岔出去的死路；
+    插话（steer）→ 从旁边汇入主线；最后一行"完成"带本轮汇总。
+  用 ?state=live|open|closed|detail 定格，?theme=dark 深色，右上角也能切换和回放。
+  颜色、字号、图标（Hugeicons stroke-rounded）、小猫都取自 packages/ui 的现行实现。数据是假的。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Atrium · 过程轨道原型</title>
+    <style>
+      :root {
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --linked: rgba(47, 111, 237, 0.1);
+        --tint: #2f6fed;
+        --danger: #e5484d;
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --diff-add-bg: rgba(22, 163, 74, 0.09);
+        --diff-del-bg: rgba(229, 72, 77, 0.08);
+        --rail: rgba(0, 0, 0, 0.15);
+        --branch: rgba(0, 0, 0, 0.26);
+        --node: #c4c4c9;
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-reply: 14.5px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r: 8px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+        --smooth: cubic-bezier(0.32, 0.72, 0, 1);
+        --snappy: linear(0, 0.1 6%, 0.45 18%, 0.82 32%, 1.02 48%, 1.04 58%, 1.01 76%, 1);
+        --bouncy: linear(0, 0.12 6%, 0.5 18%, 0.93 32%, 1.1 45%, 1.08 55%, 0.99 72%, 1);
+      }
+      .dark {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --linked: rgba(122, 170, 255, 0.14);
+        --tint: #7aaaff;
+        --danger: #f25a5a;
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --diff-add-bg: rgba(34, 197, 94, 0.12);
+        --diff-del-bg: rgba(242, 90, 90, 0.12);
+        --rail: rgba(255, 255, 255, 0.15);
+        --branch: rgba(255, 255, 255, 0.28);
+        --node: #5d6067;
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        background: var(--main);
+        color: var(--text);
+        font: var(--fs)/1.5 var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+      }
+      svg.i {
+        width: 1em;
+        height: 1em;
+        flex: none;
+        display: block;
+      }
+      .col {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 40px 32px 120px;
+      }
+
+      /* ── 用户消息与回复（沿用现行样式）── */
+      .user {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        margin-bottom: 22px;
+      }
+      .bubble {
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 10px 16px;
+        max-width: 78%;
+        color: var(--text);
+      }
+      .meta {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 6px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .meta svg {
+        font-size: 14px;
+        color: var(--text-muted);
+      }
+      .reply {
+        font-size: var(--fs-reply);
+        line-height: 1.68;
+        color: var(--text);
+        margin-top: 14px;
+      }
+      .reply p {
+        margin: 0 0 10px;
+      }
+      .reply code {
+        font: var(--fs-mono) var(--font-mono);
+        background: var(--surface-2);
+        padding: 1px 5px;
+        border-radius: 6px;
+      }
+      .reply ol {
+        margin: 0 0 10px;
+        padding-left: 20px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 24px;
+        padding: 0 9px;
+        border-radius: var(--r-pill);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-muted);
+      }
+      .add {
+        color: var(--ok-text);
+      }
+      .del {
+        color: var(--danger);
+      }
+      .fade-in {
+        animation: fade-in 0.42s var(--smooth) both;
+      }
+      @keyframes fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+      }
+
+      /* ── 过程轨道 ── */
+      .proc {
+        position: relative;
+        font-size: var(--fs-meta);
+        margin-bottom: 4px;
+      }
+      .row {
+        position: relative;
+        padding-left: 36px;
+        min-height: 30px;
+      }
+      .row-line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 30px;
+        min-width: 0;
+      }
+      .row.click .row-line {
+        cursor: pointer;
+        border-radius: var(--r);
+        margin-left: -6px;
+        padding-left: 6px;
+        margin-right: -6px;
+        padding-right: 6px;
+      }
+      .row.click .row-line:hover {
+        background: var(--hover);
+      }
+
+      /* 主线：每行在节点上下各画一段，节点周围留 4px 缝（参考的做法）。 */
+      .seg {
+        position: absolute;
+        left: 10px;
+        width: 1px;
+        background: var(--rail);
+        transform-origin: top;
+      }
+      .seg.up {
+        top: 0;
+        height: calc(15px - var(--gap, 7px));
+      }
+      .seg.down {
+        top: calc(15px + var(--gap, 7px));
+        bottom: 0;
+      }
+      .seg.through {
+        top: 0;
+        bottom: 0;
+      }
+      .node {
+        position: absolute;
+        left: 10.5px;
+        top: 15px;
+        transform: translate(-50%, -50%);
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+      .node.icon {
+        font-size: 14px;
+      }
+      .node.live .dot {
+        background: var(--tint);
+      }
+      .ring {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        left: 50%;
+        top: 50%;
+        margin: -8px 0 0 -8px;
+        animation: spin 0.9s linear infinite;
+        color: var(--tint);
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .node.done-check {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--tint);
+        color: #fff;
+        font-size: 11px;
+      }
+      .dark .node.done-check {
+        color: #151517;
+      }
+      .node.hollow .dot {
+        background: var(--main);
+        box-shadow: inset 0 0 0 1.5px var(--tint);
+        width: 8px;
+        height: 8px;
+      }
+
+      /* 支线：节点挪到右边一格，文字仍对齐主列。 */
+      .row.branch .node {
+        left: 24.5px;
+      }
+      .branch-svg {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 36px;
+        height: 30px;
+        overflow: visible;
+        pointer-events: none;
+      }
+      .branch-svg path {
+        fill: none;
+        stroke: var(--branch);
+        stroke-width: 1;
+        stroke-linecap: round;
+      }
+      .branch-svg path.dash {
+        stroke-dasharray: 2 3;
+      }
+      .row.dead .node {
+        color: var(--text-dim);
+        font-size: 10px;
+      }
+      .row.dead .row-line {
+        color: var(--text-dim);
+      }
+      .row.dead .verb {
+        color: var(--text-dim);
+      }
+      .row.steer .verb {
+        color: var(--tint);
+      }
+
+      /* 行内文字 */
+      .verb {
+        color: var(--text-2);
+        flex: none;
+      }
+      .obj {
+        color: var(--text-muted);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .obj.mono,
+      .verb .mono {
+        font: var(--fs-sm) var(--font-mono);
+      }
+      .sep {
+        color: var(--text-dim);
+        flex: none;
+      }
+      .end {
+        margin-left: auto;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+        padding-left: 12px;
+      }
+      .end svg {
+        font-size: 12px;
+      }
+      .thought {
+        color: var(--text-muted);
+      }
+      .said {
+        color: var(--text-3);
+      }
+      .shimmer {
+        background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200%
+          100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: shimmer 2.2s linear infinite;
+      }
+      @keyframes shimmer {
+        from {
+          background-position: 100% 0;
+        }
+        to {
+          background-position: -100% 0;
+        }
+      }
+
+      /* 文件胶囊 */
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 2px 0 8px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 22px;
+        padding: 0 9px 0 7px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+        animation: chip-in 0.36s var(--snappy) both;
+      }
+      .row-line .chip {
+        animation: none;
+      }
+      .chip:hover {
+        background: var(--surface-2);
+      }
+      .chip .ft {
+        font: 700 8.5px/1 var(--font-mono);
+        letter-spacing: -0.02em;
+      }
+      .chip .n {
+        font-size: var(--fs-xs);
+        font-variant-numeric: tabular-nums;
+      }
+      .ft.ts {
+        color: #3178c6;
+      }
+      .ft.tsx {
+        color: #1c9bbd;
+      }
+      .ft.md {
+        color: var(--text-muted);
+      }
+      .ft.json {
+        color: #c9871b;
+      }
+      .dark .ft.ts {
+        color: #6aa7f0;
+      }
+      .dark .ft.tsx {
+        color: #5fd0ee;
+      }
+      .more {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        align-self: center;
+        padding-left: 2px;
+      }
+      @keyframes chip-in {
+        from {
+          opacity: 0;
+          transform: translateY(4px) scale(0.96);
+        }
+      }
+
+      /* 详情块（沿用现行的） */
+      .detail {
+        margin: 2px 0 10px;
+        border-radius: var(--r);
+        background: var(--code);
+        padding: 9px 12px 10px;
+        overflow: hidden;
+        animation: fade-in 0.32s var(--smooth) both;
+      }
+      .detail .hd {
+        display: flex;
+        justify-content: space-between;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-bottom: 6px;
+      }
+      .detail .hd span:last-child {
+        font-family: var(--font-mono);
+      }
+      .diff {
+        margin: 0 -12px -10px;
+        font: var(--fs-sm)/1.7 var(--font-mono);
+      }
+      .diff div {
+        display: flex;
+        white-space: pre;
+      }
+      .diff .ln {
+        width: 34px;
+        flex: none;
+        text-align: right;
+        padding-right: 10px;
+        color: var(--text-dim);
+      }
+      .diff .tx {
+        padding-left: 8px;
+        color: var(--text-3);
+      }
+      .diff .a {
+        background: var(--diff-add-bg);
+        box-shadow: inset 2px 0 0 var(--ok);
+      }
+      .diff .a .tx {
+        color: var(--text);
+      }
+      .diff .d {
+        background: var(--diff-del-bg);
+        box-shadow: inset 2px 0 0 var(--danger);
+      }
+      pre.out {
+        margin: 0;
+        font: var(--fs-sm)/1.6 var(--font-mono);
+        color: var(--text-3);
+        white-space: pre-wrap;
+      }
+
+      /* 标题行 */
+      .head {
+        position: relative;
+        padding-left: 36px;
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        border-radius: var(--r);
+      }
+      .head .node {
+        color: var(--text-muted);
+        font-size: 14px;
+        transition: transform 0.3s var(--snappy);
+      }
+      .head.collapsed .node {
+        transform: translate(-50%, -50%) rotate(-90deg);
+      }
+      .head .title {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .head .sub {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .head .sub b {
+        font-weight: 400;
+        color: var(--text-muted);
+      }
+      .head:hover .title {
+        color: var(--text);
+      }
+      .cat {
+        width: 16px;
+        height: 16px;
+        border-radius: 5px;
+        display: block;
+      }
+      .cat-eyes {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: blink 2.6s infinite;
+      }
+      @keyframes blink {
+        0%,
+        92%,
+        100% {
+          transform: scaleY(1);
+        }
+        95% {
+          transform: scaleY(0.1);
+        }
+      }
+
+      /* 收起与展开：高度按弹簧收拢，动画由 fold() 用 WAAPI 播，这里只管静止状态。 */
+      .body {
+        overflow: hidden;
+      }
+      .proc.closed .body {
+        height: 0;
+      }
+
+      /* 新出现的一步：节点弹出、线向下长、文字从下方淡入 */
+      .row.enter .node {
+        animation: node-in 0.4s var(--bouncy) both;
+      }
+      .row.enter .seg.up,
+      .row.enter .branch-svg {
+        animation: grow 0.24s var(--smooth) both;
+      }
+      .row.enter .row-line {
+        animation: fade-in 0.38s var(--smooth) 0.06s both;
+      }
+      @keyframes node-in {
+        from {
+          transform: translate(-50%, -50%) scale(0.3);
+          opacity: 0;
+        }
+      }
+      @keyframes grow {
+        from {
+          transform: scaleY(0);
+        }
+      }
+      .node.done-check.pop {
+        animation: pop 0.5s var(--bouncy) both;
+      }
+      @keyframes pop {
+        from {
+          transform: translate(-50%, -50%) scale(0.2);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 1ms !important;
+          transition-duration: 1ms !important;
+        }
+      }
+
+      /* 原型控制条（不属于设计） */
+      .ctl {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        border-radius: 12px;
+        background: rgba(127, 127, 127, 0.12);
+        backdrop-filter: blur(20px);
+        font: 12px var(--font-sans);
+        z-index: 9;
+      }
+      .ctl button {
+        padding: 4px 10px;
+        border-radius: 8px;
+        color: var(--text-muted);
+      }
+      .ctl button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ctl" id="ctl">
+      <button data-act="play">▶ 回放</button>
+      <button data-state="live">运行中</button>
+      <button data-state="open">完成·展开</button>
+      <button data-state="closed">完成·收起</button>
+      <button data-state="detail">展开一步</button>
+      <button data-act="theme">深 / 浅</button>
+    </div>
+    <div class="col">
+      <div class="user">
+        <div class="bubble">登录后一刷新页面就被踢回登录页，帮我查一下 session 为什么丢了</div>
+        <div class="meta">22:29 <svg class="i" viewBox="0 0 24 24" fill="none" data-icon="Copy01Icon"></svg></div>
+      </div>
+      <div id="turn"></div>
+    </div>
+
+    <script>
+      const ICONS = {
+        down: '<path d="M18 9C18 9 13.58 15 12 15C10.42 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        search:
+          '<path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M19 11C19 6.58 15.42 3 11 3C6.58 3 3 6.58 3 11C3 15.42 6.58 19 11 19C15.42 19 19 15.42 19 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+        tick: '<path d="M5 14L8.5 17.5L19 6.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/>',
+        x: '<path d="M18 6L6 18M18 18L6 6" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"/>',
+        copy: '<path d="M7.5 14.5C7.5 11.2 7.5 9.55 8.53 8.53C9.55 7.5 11.2 7.5 14.5 7.5C17.8 7.5 19.45 7.5 20.47 8.53C21.5 9.55 21.5 11.2 21.5 14.5C21.5 17.8 21.5 19.45 20.47 20.47C19.45 21.5 17.8 21.5 14.5 21.5C11.2 21.5 9.55 21.5 8.53 20.47C7.5 19.45 7.5 17.8 7.5 14.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/><path d="M7.5 16.5C6.1 16.5 5.41 16.5 4.84 16.3C3.84 15.95 3.05 15.16 2.7 14.16C2.5 13.59 2.5 12.9 2.5 11.5V9.5C2.5 6.2 2.5 4.55 3.53 3.53C4.55 2.5 6.2 2.5 9.5 2.5H11.5C12.9 2.5 13.59 2.5 14.16 2.7C15.16 3.05 15.95 3.84 16.3 4.84C16.5 5.41 16.5 6.1 16.5 7.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>',
+      };
+      const icon = (name) => `<svg class="i" viewBox="0 0 24 24" fill="none">${ICONS[name]}</svg>`;
+      document.querySelectorAll('[data-icon="Copy01Icon"]').forEach((el) => (el.innerHTML = ICONS.copy));
+
+      const CAT = `<svg class="cat" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="230" fill="#6c86cc"/><g transform="translate(-50 20)"><path d="M190 1120 Q170 820 200 560 L262 250 L450 410 Q640 360 830 410 L1018 250 L1080 560 Q1110 820 1090 1120 Z" fill="#f6ede1" stroke="#f6ede1" stroke-width="120" stroke-linejoin="round"/><g class="cat-eyes" fill="#1f2537"><ellipse cx="512" cy="730" rx="40" ry="58"/><ellipse cx="768" cy="730" rx="40" ry="58"/></g></g></svg>`;
+      const RING = `<svg class="ring" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="26 40"/></svg>`;
+
+      const chip = (name, extra = "") => {
+        const ext = name.split(".").pop();
+        const label = { ts: "TS", tsx: "TSX", md: "MD", json: "{}" }[ext] ?? "";
+        return `<span class="chip"><span class="ft ${ext}">${label}</span>${name}${extra}</span>`;
+      };
+      const counts = (a, d) => ` <span class="n add">+${a}</span><span class="n del">−${d}</span>`;
+
+      /*
+       * 一轮的步骤。live 是进行中的样子，done 是做完的样子；dur 是回放时进行中停留的毫秒数。
+       * kind: explore（只读调用合成一行，带文件胶囊）/ think / bash / edit / write / said（一轮中间的话）
+       *       / dead（失败后 agent 继续了：从主线岔出去的死路）/ steer（你插的话：从旁边汇入主线）
+       */
+      const STEPS = [
+        {
+          kind: "explore",
+          dur: 2600,
+          live: (t) =>
+            `<span class="verb shimmer">正在探索代码库</span><span class="sep">·</span><span class="obj">读第 ${Math.min(7, 1 + Math.floor(t / 330))} / 7 个文件</span>`,
+          done: `<span class="verb">探索了代码库</span><span class="sep">·</span><span class="obj">读了 7 个文件，搜索了 2 次</span>`,
+          chips: ["router.ts", "auth.ts", "session.ts", "middleware.ts", "LoginPage.tsx"],
+          more: "+2 个",
+        },
+        {
+          kind: "think",
+          dur: 1600,
+          live: () => `<span class="verb shimmer">思考中</span>`,
+          done: `<span class="verb thought">思考了 3s</span><span class="sep">·</span><span class="obj">middleware 跑在 edge 上，可能读不到服务端的 session 存储</span>`,
+          detail: {
+            label: "推理",
+            body: '<pre class="out" style="font-family:var(--font-sans);font-size:13px;color:var(--text-muted)">刷新后 cookie 还在，但 getSession() 返回 null。middleware.ts 在 edge runtime 里，\nsessionStore 用的是内存 Map，edge 和 node 两个进程各一份——先跑一下 middleware 的测试确认。</pre>',
+          },
+        },
+        {
+          kind: "dead",
+          dur: 1500,
+          live: () =>
+            `<span class="verb shimmer">正在运行</span><span class="obj mono">pnpm vitest run middleware</span>`,
+          done: `<span class="verb">运行了</span><span class="obj mono">pnpm vitest run middleware</span><span class="end">${icon("x")}退出码 1</span>`,
+          detail: {
+            label: "出错",
+            tool: "bash",
+            body: '<pre class="out">FAIL  src/middleware.test.ts > keeps session on reload\nError: sessionStore is not available in the edge runtime\n    at getSession (src/session.ts:41:11)</pre>',
+          },
+        },
+        {
+          kind: "steer",
+          done: `<span class="verb">你插话</span><span class="sep">·</span><span class="obj">别动 middleware，改在 session 层</span>`,
+        },
+        {
+          kind: "said",
+          dur: 900,
+          live: () => `<span class="said shimmer">好，那把 session 改成签名 cookie，不依赖进程内存</span>`,
+          done: `<span class="said">好，那把 session 改成签名 cookie，不依赖进程内存</span>`,
+        },
+        {
+          kind: "edit",
+          dur: 1400,
+          live: () => `<span class="verb shimmer">正在编辑</span>${chip("session.ts")}`,
+          done: `<span class="verb">编辑了</span>${chip("session.ts", counts(18, 4))}`,
+          detail: {
+            label: "改动",
+            tool: "edit",
+            body: `<div class="diff">
+<div class="d"><span class="ln"></span><span class="tx">const sessionStore = new Map&lt;string, Session&gt;();</span></div>
+<div class="a"><span class="ln">12</span><span class="tx">const SECRET = process.env.SESSION_SECRET;</span></div>
+<div><span class="ln">13</span><span class="tx"> </span></div>
+<div><span class="ln">14</span><span class="tx">export async function getSession(req: Request) {</span></div>
+<div class="d"><span class="ln"></span><span class="tx">  return sessionStore.get(readCookie(req, "sid")) ?? null;</span></div>
+<div class="a"><span class="ln">15</span><span class="tx">  const raw = readCookie(req, "session");</span></div>
+<div class="a"><span class="ln">16</span><span class="tx">  return raw ? await unseal(raw, SECRET) : null;</span></div>
+<div><span class="ln">17</span><span class="tx">}</span></div></div>`,
+          },
+        },
+        {
+          kind: "edit",
+          dur: 1000,
+          live: () => `<span class="verb shimmer">正在编辑</span>${chip("auth.ts")}`,
+          done: `<span class="verb">编辑了</span>${chip("auth.ts", counts(6, 2))}`,
+        },
+        {
+          kind: "edit",
+          dur: 900,
+          live: () => `<span class="verb shimmer">正在新建</span>${chip("session.test.ts")}`,
+          done: `<span class="verb">新建了</span>${chip("session.test.ts", ' <span class="n" style="color:var(--text-dim)">42 行</span>')}`,
+        },
+        {
+          kind: "bash",
+          dur: 1700,
+          live: (t) =>
+            `<span class="verb shimmer">正在运行</span><span class="obj mono">pnpm vitest run session</span><span class="end">${(t / 1000).toFixed(1)}s</span>`,
+          done: `<span class="verb">运行了</span><span class="obj mono">pnpm vitest run session</span><span class="end">${icon("tick")}通过 · 4.2s</span>`,
+        },
+        {
+          kind: "bash",
+          dur: 1100,
+          live: () => `<span class="verb shimmer">正在运行</span><span class="obj mono">pnpm tsc --noEmit</span>`,
+          done: `<span class="verb">运行了</span><span class="obj mono">pnpm tsc --noEmit</span><span class="end">${icon("tick")}通过 · 2.8s</span>`,
+        },
+      ];
+      const SUMMARY = `<b>改了 3 个文件</b> <span class="add">+36</span> <span class="del">−6</span> · 1 条命令没走通`;
+      const HEAD_DONE = `已完成，用时 1m 48s`;
+      const HEAD_PARTS = ` · 读了 7 个文件 · 改了 3 个文件 · 跑了 3 条命令`;
+
+      /** 一行轨道：主线上下两段、节点、内容；支线行画岔出去或汇进来的曲线。 */
+      function rowHtml(step, i, { live, last, enter, open, t = 0 }) {
+        const content = live ? step.live(t) : step.done;
+        const branch = step.kind === "dead" || step.kind === "steer";
+        let rail = "",
+          node = "";
+        if (branch) {
+          rail = `<span class="seg through"></span>`;
+          rail +=
+            step.kind === "dead"
+              ? `<svg class="branch-svg"><path class="dash" d="M10.5 -2 C10.5 6, 24.5 3, 24.5 10"/></svg>`
+              : `<svg class="branch-svg"><defs><linearGradient id="fadeIn${i}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--tint)" stop-opacity="0"/><stop offset="1" stop-color="var(--tint)" stop-opacity=".55"/></linearGradient></defs><path d="M24.5 -2 L24.5 10" style="stroke:url(#fadeIn${i})"/><path d="M24.5 20 C24.5 27, 10.5 25, 10.5 32"/></svg>`;
+          node =
+            step.kind === "dead"
+              ? live
+                ? `<span class="node live"><span class="dot"></span>${RING}</span>`
+                : `<span class="node">${icon("x")}</span>`
+              : `<span class="node hollow"><span class="dot"></span></span>`;
+        } else {
+          const isIcon = step.kind === "explore" && !live;
+          const gap = isIcon ? "11px" : "7px";
+          rail =
+            `<span class="seg up" style="--gap:${gap};${i === 0 ? "display:none" : ""}"></span>` +
+            `<span class="seg down" style="--gap:${gap};${last ? "display:none" : ""}"></span>`;
+          node = live
+            ? `<span class="node live"><span class="dot"></span>${RING}</span>`
+            : isIcon
+              ? `<span class="node icon">${icon("search")}</span>`
+              : `<span class="node"><span class="dot"></span></span>`;
+        }
+        const chips =
+          step.chips && (!live || t > 300)
+            ? `<div class="chips">${step.chips
+                .slice(0, live ? Math.min(step.chips.length, Math.floor(t / 400)) : 99)
+                .map((c, k) =>
+                  chip(c).replace('class="chip"', `class="chip" style="animation-delay:${live ? 0 : k * 50}ms"`),
+                )
+                .join("")}${live ? "" : `<span class="more">${step.more}</span>`}</div>`
+            : "";
+        const detail =
+          open && step.detail
+            ? `<div class="detail"><div class="hd"><span>${step.detail.label}</span><span>${step.detail.tool ?? ""}</span></div>${step.detail.body}</div>`
+            : "";
+        const cls = ["row", branch ? "branch" : "", step.kind, step.detail ? "click" : "", enter ? "enter" : ""].join(
+          " ",
+        );
+        return `<div class="${cls}" data-i="${i}">${rail}${node}<div class="row-line">${content}</div>${chips}${detail}</div>`;
+      }
+
+      function finishRow(enter) {
+        return `<div class="row finish ${enter ? "enter" : ""}"><span class="seg up" style="--gap:10px"></span><span class="node done-check ${enter ? "pop" : ""}">${icon("tick")}</span><div class="row-line"><span class="verb" style="color:var(--text);font-weight:500">完成</span><span class="obj" style="color:var(--text-dim)">${SUMMARY}</span></div></div>`;
+      }
+
+      const REPLY_BODY = `<p>原因是 <code>sessionStore</code> 是进程内的 <code>Map</code>：登录写在 Node 进程里，刷新时 <code>middleware</code> 在 edge runtime 里读，那边的 <code>Map</code> 是空的，于是被当成未登录。</p>
+<p>改成了签名 cookie，session 跟着请求走，不再依赖哪个进程的内存：</p>
+<ol><li><code>session.ts</code>：<code>getSession</code> / <code>setSession</code> 改为 seal / unseal cookie</li><li><code>auth.ts</code>：登录、退出改用新接口</li><li>新增 <code>session.test.ts</code>，覆盖刷新后仍保持登录</li></ol>
+<p>需要在 <code>.env</code> 里加一个 32 字节以上的 <code>SESSION_SECRET</code>。</p>`;
+      const REPLY_META = `<div class="meta" style="margin-top:2px">${icon("copy")}<span class="pill">改了 3 个文件 <span class="add">+36</span> <span class="del">−6</span></span><span>18.4K tok</span><span>22:31</span></div>`;
+
+      const turn = document.getElementById("turn");
+      let timers = [];
+      const clear = () => {
+        timers.forEach(clearTimeout);
+        timers.forEach(clearInterval);
+        timers = [];
+      };
+      const SMOOTH = "cubic-bezier(.32,.72,0,1)";
+      const FOLD = "cubic-bezier(.45,0,.15,1)"; // 高度：先缓后快、轻柔落定，整段收拢看得见
+      const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const FOLDED_PARTS = HEAD_PARTS + ' · <span style="color:var(--text-dim)">1 条没走通</span>';
+
+      /** 定格到某个状态（截图与切换用）。 */
+      function render(state) {
+        clear();
+        const liveAt = state === "live" ? 8 : -1;
+        const shown = state === "live" ? STEPS.slice(0, 9) : STEPS;
+        const rows = shown
+          .map((s, i) =>
+            rowHtml(s, i, {
+              live: i === liveAt,
+              last: i === liveAt,
+              open: state === "detail" && (i === 5 || i === 2),
+              t: 2300,
+            }),
+          )
+          .join("");
+        const done = state !== "live";
+        turn.innerHTML = `<div class="proc ${state === "closed" ? "closed" : ""}">
+    ${headHtml(done ? "done" : "live", state === "closed", 38)}
+    <div class="body"><div class="rows">${rows}${done ? finishRow(false) : ""}<div style="height:6px"></div></div></div>
+  </div>${done ? `<div class="reply">${REPLY_BODY}</div>${REPLY_META}` : ""}`;
+        wire();
+      }
+
+      function headHtml(phase, collapsed, secs) {
+        if (phase === "live") {
+          return `<div class="head"><span class="node">${CAT}</span><span class="title shimmer" style="font-weight:400">进行中</span><span class="sub">${secs}s</span></div>`;
+        }
+        return `<div class="head ${collapsed ? "collapsed" : ""}"><span class="node">${icon("down")}</span><span class="title">${HEAD_DONE}</span><span class="sub">${collapsed ? FOLDED_PARTS : ""}</span></div>`;
+      }
+
+      /**
+       * 折叠 / 展开过程（设计要点）：
+       *  - 高度从实测值收到 0（0.56 秒，cubic-bezier(.45,0,.15,1)），下方的回复跟着平滑上移，不跳；
+       *  - 各行从下往上依次淡出并上移 6px（每行错开 18ms，总错开不超过 160ms），像被收进标题行；
+       *  - 箭头按 snappy 从 ⌄ 转到 ›；收拢过半时标题行末尾的摘要从左边 4px 处淡入；
+       *  - 展开反过来：高度展开，各行从上往下依次淡入；摘要先淡出。
+       *  - 减弱动态效果时直接切换。
+       */
+      function fold(proc, closing) {
+        const body = proc.querySelector(".body");
+        const head = proc.querySelector(".head");
+        const sub = head.querySelector(".sub");
+        const rows = [...body.querySelectorAll(".rows > .row")];
+        body.getAnimations().forEach((a) => a.cancel());
+        rows.forEach((r) => r.getAnimations().forEach((a) => a.cancel()));
+        head.classList.toggle("collapsed", closing);
+        if (reduced()) {
+          proc.classList.toggle("closed", closing);
+          sub.innerHTML = closing ? FOLDED_PARTS : "";
+          return;
+        }
+        if (closing) {
+          const h = body.offsetHeight;
+          rows
+            .slice()
+            .reverse()
+            .forEach((r, k) =>
+              r.animate(
+                [
+                  { opacity: 1, transform: "none" },
+                  { opacity: 0, transform: "translateY(-6px)" },
+                ],
+                { duration: 280, delay: Math.min(k * 18, 160), easing: SMOOTH, fill: "forwards" },
+              ),
+            );
+          const a = body.animate([{ height: `${h}px` }, { height: "0px" }], {
+            duration: 560,
+            delay: 40,
+            easing: FOLD,
+            fill: "forwards",
+          });
+          timers.push(
+            setTimeout(() => {
+              sub.innerHTML = FOLDED_PARTS;
+              sub.animate(
+                [
+                  { opacity: 0, transform: "translateX(-4px)" },
+                  { opacity: 1, transform: "none" },
+                ],
+                { duration: 320, easing: SMOOTH },
+              );
+            }, 220),
+          );
+          a.onfinish = () => {
+            proc.classList.add("closed");
+            a.cancel();
+            rows.forEach((r) => r.getAnimations().forEach((x) => x.cancel()));
+          };
+        } else {
+          sub.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120 }).onfinish = () => {
+            sub.innerHTML = "";
+          };
+          proc.classList.remove("closed");
+          const h = body.scrollHeight;
+          body.animate([{ height: "0px" }, { height: `${h}px` }], { duration: 560, easing: FOLD });
+          rows.forEach((r, k) =>
+            r.animate(
+              [
+                { opacity: 0, transform: "translateY(-6px)" },
+                { opacity: 1, transform: "none" },
+              ],
+              { duration: 320, delay: 60 + Math.min(k * 16, 160), easing: SMOOTH, fill: "backwards" },
+            ),
+          );
+        }
+      }
+
+      function wire() {
+        const proc = turn.querySelector(".proc");
+        const head = proc.querySelector(".head");
+        head.onclick = () => {
+          if (!head.querySelector(".cat")) fold(proc, !head.classList.contains("collapsed"));
+        };
+        turn.querySelectorAll(".row.click").forEach((row) => {
+          row.querySelector(".row-line").onclick = () => {
+            const i = +row.dataset.i;
+            const d = row.querySelector(".detail");
+            if (d) {
+              d.remove();
+              return;
+            }
+            const tmp = document.createElement("div");
+            tmp.innerHTML = rowHtml(STEPS[i], i, { live: false, open: true });
+            row.appendChild(tmp.querySelector(".detail"));
+          };
+        });
+      }
+
+      /**
+       * 回放，按 pi 的真实顺序：步骤一步步长出来；最后一段话作为回复在过程下方流式出来（标题仍是"进行中"）；
+       * 运行结束：弹出"完成"，标题换成"已完成"，回复下方的信息行出现；停 1 秒后过程折叠（摘要模式）。
+       */
+      function play() {
+        clear();
+        turn.innerHTML = `<div class="proc"><div id="h">${headHtml("live", false, 0)}</div><div class="body"><div class="rows" id="rows"></div></div></div><div class="reply" id="reply"></div><div id="meta"></div>`;
+        const rowsEl = turn.querySelector("#rows");
+        const t0 = performance.now();
+        const clock = setInterval(() => {
+          const h = turn.querySelector("#h .head:not(.collapsed) .sub");
+          if (h && turn.querySelector("#h .cat")) h.textContent = `${Math.floor((performance.now() - t0) / 1000)}s`;
+        }, 250);
+        timers.push(clock);
+        let at = 600;
+        STEPS.forEach((step, i) => {
+          timers.push(
+            setTimeout(() => {
+              const el = document.createElement("div");
+              if (!step.dur) {
+                el.innerHTML = rowHtml(step, i, { live: false, enter: true });
+                rowsEl.appendChild(el.firstChild);
+                return;
+              }
+              el.innerHTML = rowHtml(step, i, { live: true, last: true, enter: true, t: 0 });
+              const row = el.firstChild;
+              rowsEl.appendChild(row);
+              const start = performance.now();
+              const tick = setInterval(() => {
+                const t = performance.now() - start;
+                const tmp = document.createElement("div");
+                tmp.innerHTML = rowHtml(step, i, { live: true, t });
+                const fresh = tmp.firstChild;
+                row.querySelector(".row-line").innerHTML = fresh.querySelector(".row-line").innerHTML;
+                const oldChips = row.querySelector(".chips"),
+                  newChips = fresh.querySelector(".chips");
+                if (newChips && (!oldChips || oldChips.children.length !== newChips.children.length)) {
+                  if (oldChips) oldChips.replaceWith(newChips);
+                  else row.appendChild(newChips);
+                }
+              }, 120);
+              timers.push(tick);
+              timers.push(
+                setTimeout(() => {
+                  clearInterval(tick);
+                  const tmp = document.createElement("div");
+                  tmp.innerHTML = rowHtml(step, i, { live: false, last: i === STEPS.length - 1 });
+                  const fresh = tmp.firstChild;
+                  // 做完：转圈收进圆点，文字从"正在…"换成过去时，胶囊补齐。
+                  row.querySelector(".node").replaceWith(fresh.querySelector(".node"));
+                  row.querySelector(".row-line").innerHTML = fresh.querySelector(".row-line").innerHTML;
+                  const nc = fresh.querySelector(".chips");
+                  if (nc) {
+                    const oc = row.querySelector(".chips");
+                    oc ? oc.replaceWith(nc) : row.appendChild(nc);
+                  }
+                  row
+                    .querySelectorAll(".seg.up, .seg.down")
+                    .forEach((s, k) =>
+                      s.setAttribute("style", fresh.querySelectorAll(".seg.up, .seg.down")[k].getAttribute("style")),
+                    );
+                }, step.dur),
+              );
+            }, at),
+          );
+          at += (step.dur ?? 700) + 180;
+        });
+        // 回复流式出来：一块一块淡入（真实界面是逐字平滑揭示）。
+        const blocks = REPLY_BODY.split("\n");
+        blocks.forEach((b, k) =>
+          timers.push(
+            setTimeout(
+              () => {
+                turn
+                  .querySelector("#reply")
+                  .insertAdjacentHTML("beforeend", b.replace(/^<(p|ol)/, '<$1 class="fade-in"'));
+              },
+              at + k * 450,
+            ),
+          ),
+        );
+        at += blocks.length * 450 + 200;
+        timers.push(
+          setTimeout(() => {
+            clearInterval(clock);
+            const last = rowsEl.lastElementChild.querySelector(".seg.down");
+            if (last) last.style.display = "";
+            rowsEl.insertAdjacentHTML("beforeend", finishRow(true));
+            const h = turn.querySelector("#h");
+            h.innerHTML = headHtml("done", false);
+            h.querySelector(".node").animate(
+              [
+                { opacity: 0, transform: "translate(-50%,-50%) scale(.6)" },
+                { opacity: 1, transform: "translate(-50%,-50%)" },
+              ],
+              { duration: 300, easing: SMOOTH },
+            );
+            h.querySelector(".title").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240 });
+            turn.querySelector("#meta").innerHTML = REPLY_META.replace('class="meta"', 'class="meta fade-in"');
+            wire();
+          }, at),
+        );
+        timers.push(setTimeout(() => fold(turn.querySelector(".proc"), true), at + 1000));
+      }
+
+      const params = new URLSearchParams(location.search);
+      if (params.get("theme") === "dark") document.documentElement.classList.add("dark");
+      const ctl = document.getElementById("ctl");
+      const mark = (s) =>
+        ctl.querySelectorAll("[data-state]").forEach((b) => b.classList.toggle("on", b.dataset.state === s));
+      ctl.onclick = (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        if (b.dataset.act === "theme") {
+          document.documentElement.classList.toggle("dark");
+          return;
+        }
+        if (b.dataset.act === "play") {
+          mark(null);
+          play();
+          return;
+        }
+        mark(b.dataset.state);
+        render(b.dataset.state);
+      };
+      const initial = params.get("state");
+      if (initial) {
+        mark(initial);
+        render(initial);
+      } else play();
+      if (params.has("bare")) ctl.style.display = "none";
+    </script>
+  </body>
+</html>

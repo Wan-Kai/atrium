@@ -1,0 +1,622 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 重命名时输入框的样子。
+  同一个输入框用在：侧栏的项目、工作区、对话行；标签栏的会话改名；新建工作区页的分支名。
+  现状：24px 高、白底、0.5px 淡描边、圆角 6，聚焦没有反馈，字比原来往右挪 6px。
+  A 原地：字不挪位置，框贴着行内（高 26px、圆角 --r-sm），1px --tint 描边加一圈淡蓝光（--focus-ring），文字全选。
+  B 原地 + 提示：同 A，框下方浮一行小提示"⏎ 保存 · esc 取消 · 清空恢复默认"（只有能恢复默认的地方写第三项）。
+  C 卡片：行不变，下方弹出小卡片：标题"重命名…"、输入框、说明、取消 / 保存按钮。
+  会话改名：现状是标签栏右侧多出一个框；A、B 改成在标签上原地改，C 从标签下方弹出卡片。
+  底部浮条切换版本（也可 ?variant=now|A|B|C、键盘 ← →）、浅色 / 深色。
+  颜色、字号取自 packages/ui/src/design/tokens.css；图标是 Hugeicons 免费版，从 @hugeicons/core-free-icons 直接生成。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 重命名输入框</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --sidebar: #e3e7e9;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.16);
+        --linked: rgba(47, 111, 237, 0.1);
+        --ok: #16a34a;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --page: #eef1f6;
+        --bar: rgba(255, 255, 255, 0.92);
+        --float: var(--surface-1);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --sidebar: #26282c;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --focus-ring: 0 0 0 3px rgba(122, 170, 255, 0.22);
+        --linked: rgba(122, 170, 255, 0.14);
+        --ok: #22c55e;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+        --page: #0c0c0e;
+        --bar: rgba(40, 40, 42, 0.92);
+        --float: var(--surface-2);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 110px;
+      }
+      header.page {
+        padding: 24px 40px 4px;
+        max-width: 1040px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .stage {
+        padding: 14px 40px;
+      }
+      .win {
+        width: 1040px;
+        height: 600px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .sb {
+        width: 260px;
+        background: var(--sidebar);
+        padding: 52px 10px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        flex: none;
+      }
+      .sec {
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        padding: 10px 10px 4px;
+      }
+      .r {
+        position: relative;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs);
+        color: var(--text-2);
+      }
+      .r.cur {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .r .ic {
+        color: var(--text-muted);
+      }
+      .r .ic.open {
+        color: var(--tint);
+      }
+      .r.ws {
+        padding-left: 34px;
+      }
+      .r .tm {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .r .nm {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 52px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 12px;
+        border-bottom: 0.5px solid var(--line);
+        flex: none;
+        position: relative;
+      }
+      .tab {
+        position: relative;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tabs .more {
+        margin-left: auto;
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        padding-bottom: 40px;
+        gap: 8px;
+      }
+      .choices {
+        width: 672px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .chip {
+        position: relative;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .chip .ic {
+        color: var(--text-muted);
+      }
+      .composer {
+        width: 672px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        border-radius: var(--r-bubble);
+        padding: 20px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        height: 100px;
+      }
+      svg {
+        display: block;
+        flex: none;
+      }
+      input {
+        font: inherit;
+        color: var(--text);
+        outline: none;
+        border: 0;
+        min-width: 0;
+      }
+      .lbl {
+        position: absolute;
+        font-size: var(--fs-xs);
+        color: var(--tint);
+      }
+
+      /* 现状 */
+      .vnow .f {
+        flex: 1;
+        height: 24px;
+        border-radius: var(--r-sm);
+        background: var(--main);
+        padding: 0 6px;
+        font-size: var(--fs);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+      }
+      .vnow .tabfield {
+        width: 224px;
+      }
+
+      /* A / B：原地，字不挪 */
+      .vA .f,
+      .vB .f {
+        flex: 1;
+        height: 26px;
+        margin: 0 -6px;
+        padding: 0 5px;
+        border-radius: var(--r-sm);
+        background: var(--main);
+        font-size: inherit;
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          var(--focus-ring);
+      }
+      .vA .tab .f,
+      .vB .tab .f {
+        flex: none;
+        width: 160px;
+        height: 24px;
+        margin: 0 -5px;
+      }
+      .vA .chip .f,
+      .vB .chip .f {
+        flex: none;
+        width: 200px;
+      }
+      .hint {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 4px);
+        z-index: 4;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        white-space: nowrap;
+        padding: 3px 8px;
+        border-radius: var(--r-sm);
+        background: var(--float);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+      }
+      .chip .hint {
+        top: auto;
+        bottom: calc(100% + 4px);
+      }
+      .kbd {
+        font: 11px/15px var(--font-sans);
+        padding: 0 4px;
+        border-radius: 4px;
+        background: var(--surface-2);
+        color: var(--text-muted);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        margin-right: 3px;
+      }
+      :root[data-theme="dark"] .kbd {
+        background: var(--surface-3);
+      }
+
+      /* C：卡片 */
+      .card {
+        position: absolute;
+        left: 0;
+        top: calc(100% + 6px);
+        z-index: 4;
+        width: 280px;
+        padding: 14px;
+        border-radius: var(--r-btn);
+        background: var(--float);
+        box-shadow: var(--float-shadow);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        cursor: default;
+      }
+      .chip .card {
+        top: auto;
+        bottom: calc(100% + 6px);
+      }
+      .card h4 {
+        margin: 0;
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        color: var(--text);
+      }
+      .card .cf {
+        height: 32px;
+        border-radius: var(--r);
+        background: var(--main);
+        padding: 0 10px;
+        font-size: var(--fs);
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          var(--focus-ring);
+      }
+      .card .help {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .card .btns {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .card .btns span {
+        height: 28px;
+        padding: 0 12px;
+        border-radius: var(--r);
+        display: inline-flex;
+        align-items: center;
+        font-size: var(--fs-meta);
+      }
+      .card .cancel {
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+      }
+      .card .save {
+        color: #fff;
+        background: var(--tint);
+      }
+
+      .bar {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        background: var(--bar);
+        backdrop-filter: blur(20px);
+        padding: 8px 12px;
+        border-radius: var(--r-pill);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        z-index: 20;
+      }
+      .seg {
+        display: flex;
+        gap: 2px;
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 2px;
+      }
+      .seg button {
+        all: unset;
+        cursor: pointer;
+        white-space: nowrap;
+        padding: 3px 12px;
+        border-radius: var(--r-pill);
+        color: var(--text-muted);
+      }
+      .seg button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: var(--chip-shadow);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>重命名输入框</h1>
+      <p id="desc"></p>
+      <p>
+        为了一眼比较，侧栏的项目、工作区、对话，标签栏的会话，新建工作区页的分支名，五处同时处在改名状态（实际一次只有一处）。底部浮条切版本、浅色
+        / 深色。
+      </p>
+    </header>
+    <div class="stage">
+      <div class="win">
+        <div class="sb" id="sb"></div>
+        <div class="main">
+          <div class="tabs" id="tabs"></div>
+          <div class="body">
+            <div class="choices" id="choices"></div>
+            <div class="composer">发消息或描述任务，@ 引用文件，/ 使用命令</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="bar">
+      <div class="seg" id="variants"></div>
+      <div class="seg" id="themes"></div>
+    </div>
+    <script>
+      const I = {
+        Folder01Icon:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        FolderOpenIcon:
+          '<path d="M2.5 20V8.87695C2.5 7.58945 2.5 6.9457 2.78533 6.47048C2.9541 6.18939 3.18939 5.9541 3.47048 5.78533C3.9457 5.5 4.59449 5.5 5.89206 5.5C6.52339 5.5 6.83906 5.5 7.12612 5.58819C7.31759 5.64702 7.49914 5.73428 7.66469 5.84705C7.91289 6.01611 8.10859 6.26074 8.5 6.75C8.89141 7.23926 9.08711 7.48389 9.33531 7.65295C9.50086 7.76572 9.68241 7.85298 9.87388 7.91181C10.1609 8 10.4742 8 11.1008 8H15C16.4045 8 17.1067 8 17.6111 8.33706C17.8295 8.48298 18.017 8.67048 18.1629 8.88886C18.5 9.39331 18.5 10.0955 18.5 11.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M4.42028 14.0144L3.63368 16.0144C2.65618 18.4998 2.16743 19.7425 2.7524 20.6213C3.33737 21.5 4.65337 21.5 7.28537 21.5H15.1903C16.4249 21.5 17.0422 21.5 17.5295 21.1795C18.0169 20.859 18.2702 20.2865 18.7769 19.1415L19.6618 17.1415C20.7866 14.5992 21.349 13.3281 20.7679 12.4141C20.1868 11.5 18.8163 11.5 16.0752 11.5H8.07196C6.78232 11.5 6.1375 11.5 5.63811 11.8439C5.13872 12.1877 4.89924 12.7966 4.42028 14.0144Z" stroke="currentColor" stroke-width="1.5"/><path d="M11.5 4.51456C12.4151 3.28409 13.6662 2.55594 15.5125 2.50161C16.1155 2.48386 16.7152 2.61395 17.2682 2.85544C18.5748 3.42601 19.4185 4.15644 20 5.5L21.5 3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        GitBranchIcon:
+          '<path d="M7 19H13C15.8284 19 17.2426 19 18.1213 18.1213C19 17.2426 19 15.8284 19 13V10M19 10C19.7002 10 21.0085 11.9943 21.5 12.5M19 10C18.2998 10 16.9915 11.9943 16.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M5 7L5 17" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="5" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="19" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="19" r="2" stroke="currentColor" stroke-width="1.5"/>',
+        GitCommitIcon:
+          '<path d="M12 3L12 8.5M12 21L12 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>',
+        ComputerIcon:
+          '<path d="M14 21H16M14 21C13.1716 21 12.5 20.3284 12.5 19.5V17L12 17M14 21H10M10 21H8M10 21C10.8284 21 11.5 20.3284 11.5 19.5V17L12 17M12 17V21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M16 3H8C5.17157 3 3.75736 3 2.87868 3.87868C2 4.75736 2 6.17157 2 9V11C2 13.8284 2 15.2426 2.87868 16.1213C3.75736 17 5.17157 17 8 17H16C18.8284 17 20.2426 17 21.1213 16.1213C22 15.2426 22 13.8284 22 11V9C22 6.17157 22 4.75736 21.1213 3.87868C20.2426 3 18.8284 3 16 3Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Add01Icon:
+          '<path d="M12.001 5.00003V19.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19.002 12.002L4.99998 12.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Tick02Icon:
+          '<path d="M5 14L8.5 17.5L19 6.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Search01Icon:
+          '<path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        PencilEdit01Icon:
+          '<path d="M15.2141 5.98239L16.6158 4.58063C17.39 3.80646 18.6452 3.80646 19.4194 4.58063C20.1935 5.3548 20.1935 6.60998 19.4194 7.38415L18.0176 8.78591M15.2141 5.98239L6.98023 14.2163C5.93493 15.2616 5.41226 15.7842 5.05637 16.4211C4.70047 17.058 4.3424 18.5619 4 20C5.43809 19.6576 6.94199 19.2995 7.57889 18.9436C8.21579 18.5877 8.73844 18.0651 9.78375 17.0198L18.0176 8.78591M15.2141 5.98239L18.0176 8.78591" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M11 20H17" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        CloudIcon:
+          '<path d="M17.4776 10.0001C17.485 10 17.4925 10 17.5 10C19.9853 10 22 12.0147 22 14.5C22 16.9853 19.9853 19 17.5 19H7C4.23858 19 2 16.7614 2 14C2 11.4003 3.98398 9.26407 6.52042 9.0227M17.4776 10.0001C17.4924 9.83536 17.5 9.66856 17.5 9.5C17.5 6.46243 15.0376 4 12 4C9.12324 4 6.76233 6.20862 6.52042 9.0227M17.4776 10.0001C17.3753 11.1345 16.9286 12.1696 16.2428 13M6.52042 9.0227C6.67826 9.00768 6.83823 9 7 9C8.12582 9 9.16474 9.37209 10.0005 10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Home01Icon:
+          '<path d="M3 11.9896V14.5C3 17.7998 3 19.4497 4.02513 20.4749C5.05025 21.5 6.70017 21.5 10 21.5H14C17.2998 21.5 18.9497 21.5 19.9749 20.4749C21 19.4497 21 17.7998 21 14.5V11.9896C21 10.3083 21 9.46773 20.6441 8.74005C20.2882 8.01237 19.6247 7.49628 18.2976 6.46411L16.2976 4.90855C14.2331 3.30285 13.2009 2.5 12 2.5C10.7991 2.5 9.76689 3.30285 7.70242 4.90855L5.70241 6.46411C4.37533 7.49628 3.71179 8.01237 3.3559 8.74005C3 9.46773 3 10.3083 3 11.9896Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        StarIcon:
+          '<path d="M13.7276 3.44418L15.4874 6.99288C15.7274 7.48687 16.3673 7.9607 16.9073 8.05143L20.0969 8.58575C22.1367 8.92853 22.6167 10.4206 21.1468 11.8925L18.6671 14.3927C18.2471 14.8161 18.0172 15.6327 18.1471 16.2175L18.8571 19.3125C19.417 21.7623 18.1271 22.71 15.9774 21.4296L12.9877 19.6452C12.4478 19.3226 11.5579 19.3226 11.0079 19.6452L8.01827 21.4296C5.8785 22.71 4.57865 21.7522 5.13859 19.3125L5.84851 16.2175C5.97849 15.6327 5.74852 14.8161 5.32856 14.3927L2.84884 11.8925C1.389 10.4206 1.85895 8.92853 3.89872 8.58575L7.08837 8.05143C7.61831 7.9607 8.25824 7.48687 8.49821 6.99288L10.258 3.44418C11.2179 1.51861 12.7777 1.51861 13.7276 3.44418Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        FolderLibraryIcon:
+          '<path d="M16.2627 10.5H7.73725C5.15571 10.5 3.86494 10.5 3.27143 11.3526C2.67793 12.2052 3.11904 13.4258 4.00126 15.867L5.08545 18.867C5.54545 20.1398 5.77545 20.7763 6.2889 21.1381C6.80235 21.5 7.47538 21.5 8.82143 21.5H15.1786C16.5246 21.5 17.1976 21.5 17.7111 21.1381C18.2245 20.7763 18.4545 20.1398 18.9146 18.867L19.9987 15.867C20.881 13.4258 21.3221 12.2052 20.7286 11.3526C20.1351 10.5 18.8443 10.5 16.2627 10.5Z" stroke="currentColor" stroke-linecap="square" stroke-width="1.5"/><path d="M19 8C19 7.53406 19 7.30109 18.9239 7.11732C18.8224 6.87229 18.6277 6.67761 18.3827 6.57612C18.1989 6.5 17.9659 6.5 17.5 6.5H6.5C6.03406 6.5 5.80109 6.5 5.61732 6.57612C5.37229 6.67761 5.17761 6.87229 5.07612 7.11732C5 7.30109 5 7.53406 5 8" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M16.5 4C16.5 3.53406 16.5 3.30109 16.4239 3.11732C16.3224 2.87229 16.1277 2.67761 15.8827 2.57612C15.6989 2.5 15.4659 2.5 15 2.5H9C8.53406 2.5 8.30109 2.5 8.11732 2.57612C7.87229 2.67761 7.67761 2.87229 7.57612 3.11732C7.5 3.30109 7.5 3.53406 7.5 4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        GitPullRequestIcon:
+          '<path d="M6 8L6 16" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M18 16V12C18 9.17156 18 7.75735 17.1213 6.87867C16.2426 5.99999 14.8284 5.99999 12 5.99999L11 5.99999M11 5.99999C11 5.29976 12.9943 3.99152 13.5 3.49999M11 5.99999C11 6.70022 12.9943 8.00846 13.5 8.49999" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="6" cy="18" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="6" cy="6" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="18" r="2" stroke="currentColor" stroke-width="1.5"/>',
+        BubbleChatIcon:
+          '<path d="M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M12.1257 12H12.0007M8.125 12H8M16.125 12H16M12.2507 12C12.2507 12.1381 12.1388 12.25 12.0007 12.25C11.8627 12.25 11.7507 12.1381 11.7507 12C11.7507 11.8619 11.8627 11.75 12.0007 11.75C12.1388 11.75 12.2507 11.8619 12.2507 12ZM8.25 12C8.25 12.1381 8.13807 12.25 8 12.25C7.86193 12.25 7.75 12.1381 7.75 12C7.75 11.8619 7.86193 11.75 8 11.75C8.13807 11.75 8.25 11.8619 8.25 12ZM16.25 12C16.25 12.1381 16.1381 12.25 16 12.25C15.8619 12.25 15.75 12.1381 15.75 12C15.75 11.8619 15.8619 11.75 16 11.75C16.1381 11.75 16.25 11.8619 16.25 12Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Clock02Icon:
+          '<path d="M5.04798 8.60657L2.53784 8.45376C4.33712 3.70477 9.503 0.999914 14.5396 2.34474C19.904 3.77711 23.0904 9.26107 21.6565 14.5935C20.2227 19.926 14.7116 23.0876 9.3472 21.6553C5.36419 20.5917 2.58192 17.2946 2 13.4844" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M12 8V12L14 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        CircleIcon: '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/>',
+        MoreHorizontalIcon:
+          '<path d="M6.00449 12.5V12M18.0045 12.5V12M12.0045 12.5V12M7.00449 12.5C7.00449 11.9477 6.55677 11.5 6.00449 11.5C5.4522 11.5 5.00449 11.9477 5.00449 12.5C5.00449 13.0523 5.4522 13.5 6.00449 13.5C6.55677 13.5 7.00449 13.0523 7.00449 12.5ZM19.0045 12.5C19.0045 11.9477 18.5568 11.5 18.0045 11.5C17.4522 11.5 17.0045 11.9477 17.0045 12.5C17.0045 13.0523 17.4522 13.5 18.0045 13.5C18.5568 13.5 19.0045 13.0523 19.0045 12.5ZM13.0045 12.5C13.0045 11.9477 12.5568 11.5 12.0045 11.5C11.4522 11.5 11.0045 11.9477 11.0045 12.5C11.0045 13.0523 11.4522 13.5 12.0045 13.5C12.5568 13.5 13.0045 13.0523 13.0045 12.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+      };
+      const ic = (n, s = 15, cls = "ic") =>
+        `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke-width="1.75">${I[n]}</svg>`;
+      const state = { variant: new URLSearchParams(location.search).get("variant") || "A", theme: "light" };
+      const DESC = {
+        now: "现状：24px 高、白底、0.5px 淡描边，聚焦没有反馈；字比原来往右挪 6px；会话改名在标签栏右边另起一个框。",
+        A: "A 原地：框贴着原来的字，字不挪位置；1px 蓝色描边加一圈淡蓝光，表示正在编辑；会话就在标签上改。最轻。",
+        B: 'B 原地 + 提示：同 A，框下方浮一行小提示（⏎ 保存 · esc 取消 · 能恢复默认名的地方写"清空恢复默认"），不用记规则。',
+        C: "C 卡片：行不动，下方弹出小卡片，有标题、输入框、说明和取消 / 保存按钮。最明确，但最重、要多点一下。",
+      };
+      const DEFAULTS = {
+        project: null,
+        ws: "清空恢复为分支名",
+        chat: "清空恢复为第一个会话的标题",
+        session: null,
+        branch: null,
+      };
+      function field(kind, value, title) {
+        const v = state.variant;
+        if (v === "now") return `<input class="f ${kind === "session" ? "tabfield" : ""}" value="${value}">`;
+        if (v === "A") return `<input class="f" value="${value}">`;
+        if (v === "B")
+          return `<input class="f" value="${value}"><span class="hint"><span><span class="kbd">⏎</span>保存</span><span><span class="kbd">esc</span>取消</span>${DEFAULTS[kind] ? `<span>${DEFAULTS[kind]}</span>` : ""}</span>`;
+        return null;
+      }
+      function card(kind, value, title) {
+        return `<div class="card"><h4>${title}</h4><input class="cf" value="${value}"><span class="help">${DEFAULTS[kind] || (kind === "session" ? "名字写进 pi 的会话，终端里的 pi 也看得到" : kind === "branch" ? "建 worktree 时用这个名字新建分支" : "只改在 Atrium 里显示的名字")}</span><div class="btns"><span class="cancel">取消</span><span class="save">保存</span></div></div>`;
+      }
+      function row(kind, icon, value, title, extra = "", cls = "") {
+        const v = state.variant;
+        const body =
+          v === "C"
+            ? `<span class="nm">${value}</span>${extra}${card(kind, value, title)}`
+            : `${field(kind, value, title)}`;
+        return `<div class="r ${cls}">${icon}${body}</div>`;
+      }
+      function render() {
+        document.documentElement.dataset.theme = state.theme;
+        document.body.className = "v" + state.variant;
+        document.getElementById("desc").textContent = DESC[state.variant];
+        const v = state.variant;
+        document.getElementById("sb").innerHTML =
+          `<div class="sec">项目</div>` +
+          row("project", ic("FolderOpenIcon", 15, "ic open"), "atrium", "重命名项目") +
+          `<div class="r ws cur"><span class="nm">本地</span><span class="tm">5 分钟前</span></div>` +
+          (v === "C"
+            ? `<div class="r ws"><span class="nm">brave-otter</span><span class="tm">昨天</span></div>`
+            : row("ws", "", "brave-otter", "重命名工作区", "", "ws")) +
+          `<div class="r ws"><span class="nm">files-panel</span><span class="tm">10月9日</span></div>` +
+          `<div class="sec" style="margin-top:56px">对话</div>` +
+          `<div class="r"><span class="nm">周报整理</span><span class="tm">昨天</span></div>` +
+          row("chat", "", "看看 pi 的扩展机制", "重命名对话", `<span class="tm">10月9日</span>`) +
+          `<div class="r"><span class="nm">翻译 README</span><span class="tm">10月2日</span></div>`;
+        const session =
+          v === "now"
+            ? `<span class="tab on">${ic("BubbleChatIcon", 14)}<span>重构登录流程</span></span>`
+            : v === "C"
+              ? `<span class="tab on">${ic("BubbleChatIcon", 14)}<span>重构登录流程</span>${card("session", "重构登录流程", "重命名会话")}</span>`
+              : `<span class="tab on" style="position:relative">${ic("BubbleChatIcon", 14)}${field("session", "重构登录流程", "")}</span>`;
+        document.getElementById("tabs").innerHTML =
+          session +
+          `<span class="tab">${ic("BubbleChatIcon", 14)}<span>写测试</span></span>` +
+          `<span class="more">${v === "now" ? `<input class="f tabfield" value="重构登录流程">` : ""}${ic("MoreHorizontalIcon", 16)}</span>`;
+        const branch =
+          v === "C"
+            ? `<span class="chip">${ic("PencilEdit01Icon", 14)}<span>atrium/brave-otter</span>${card("branch", "atrium/brave-otter", "分支名")}</span>`
+            : `<span class="chip" style="${v === "now" ? "width:240px;padding:0" : ""}">${v === "now" ? "" : ic("PencilEdit01Icon", 14)}${field("branch", "atrium/brave-otter", "")}</span>`;
+        document.getElementById("choices").innerHTML =
+          `<span class="chip">${ic("Folder01Icon", 14)}<span>atrium</span></span><span class="chip">${ic("GitBranchIcon", 14)}<span>新建 worktree</span></span><span class="chip">${ic("GitCommitIcon", 14)}<span>基于 origin/main</span></span>` +
+          branch;
+        const seg = (id, items, cur, key) =>
+          (document.getElementById(id).innerHTML = items
+            .map(([val, l]) => `<button class="${cur === val ? "on" : ""}" data-${key}="${val}">${l}</button>`)
+            .join(""));
+        seg(
+          "variants",
+          [
+            ["now", "现状"],
+            ["A", "A 原地"],
+            ["B", "B 原地 + 提示"],
+            ["C", "C 卡片"],
+          ],
+          state.variant,
+          "variant",
+        );
+        seg(
+          "themes",
+          [
+            ["light", "浅色"],
+            ["dark", "深色"],
+          ],
+          state.theme,
+          "theme",
+        );
+      }
+      document.addEventListener("click", (e) => {
+        const t = e.target.closest("button");
+        if (!t) return;
+        if (t.dataset.variant) state.variant = t.dataset.variant;
+        if (t.dataset.theme) state.theme = t.dataset.theme;
+        render();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.target.tagName === "INPUT") return;
+        const order = ["now", "A", "B", "C"];
+        const i = order.indexOf(state.variant);
+        if (e.key === "ArrowRight") {
+          state.variant = order[(i + 1) % 4];
+          render();
+        }
+        if (e.key === "ArrowLeft") {
+          state.variant = order[(i + 3) % 4];
+          render();
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>

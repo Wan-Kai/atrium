@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型：胶囊和它的列表连成一体</title>
+    <!--
+  原型（PROTOTYPE，用完即弃）：输入框上方"子对话""排队"胶囊点开的列表。
+  问题：列表离胶囊远（对齐的是整条胶囊条，不是胶囊），点空白处不关。
+  做法：打开时胶囊变成列表的"标签"——顶上两角变直、两侧用内凹的圆角接进列表底边，
+  阴影用 drop-shadow 画在两者合起来的轮廓上；列表从胶囊处往上长（clip-path，0.28 秒
+  cubic-bezier(.45,0,.15,1)，同收件箱展开），各行依次淡入；点外面或 Esc 收回（0.2 秒）。
+  双击打开；右上角切浅色 / 深色、慢放。
+-->
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --hover: rgba(0, 0, 0, 0.035);
+        --tint: #2f6fed;
+        --attn: #e8890c;
+        --attn-text: #b45f00;
+        --r-md: 10px;
+        --r-card: 16px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --page: #f6f7f9;
+        --panel: var(--surface-1);
+        --shadow: drop-shadow(0 0 0.5px rgba(0, 0, 0, 0.28)) drop-shadow(0 10px 22px rgba(0, 0, 0, 0.13));
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --text-2: #e7e9ec;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --hover: rgba(255, 255, 255, 0.05);
+        --tint: #7aaaff;
+        --attn: #f0a030;
+        --attn-text: #f4b860;
+        --page: #151517;
+        --panel: var(--surface-2);
+        --shadow: drop-shadow(0 0 0.5px rgba(255, 255, 255, 0.35)) drop-shadow(0 12px 26px rgba(0, 0, 0, 0.5));
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(0, 0, 0, 0.3);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        color: var(--text-2);
+        -webkit-font-smoothing: antialiased;
+        height: 100vh;
+      }
+      .tools {
+        position: fixed;
+        top: 12px;
+        right: 16px;
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .tools button {
+        font: inherit;
+        border: 0.5px solid var(--line);
+        background: var(--surface-1);
+        color: var(--text-2);
+        border-radius: 8px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .wrap {
+        position: absolute;
+        left: 50%;
+        bottom: 60px;
+        transform: translateX(-50%);
+        width: 680px;
+      }
+      .talk {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 220px;
+        color: var(--text-dim);
+        font-size: 13px;
+      }
+      .composer {
+        position: relative;
+        background: var(--surface-1);
+        border-radius: 22px;
+        box-shadow: var(--card-shadow);
+        height: 104px;
+        padding: 20px;
+        color: var(--text-dim);
+        font-size: 13px;
+      }
+      .bar {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        bottom: calc(100% + 8px);
+        display: flex;
+        gap: 6px;
+        align-items: flex-end;
+      }
+      /* 胶囊和它的列表：一个整体，阴影画在合起来的轮廓上 */
+      .unit {
+        position: relative;
+        display: inline-flex;
+        filter: var(--shadow);
+      }
+      .cap {
+        all: unset;
+        position: relative;
+        z-index: 1;
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 11px;
+        border-radius: 14px;
+        background: var(--panel);
+        font-size: var(--fs-sm);
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+        cursor: pointer;
+        transition: border-radius 0.28s cubic-bezier(0.45, 0, 0.15, 1);
+      }
+      .cap .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--tint);
+      }
+      .cap .caret {
+        width: 10px;
+        height: 10px;
+        color: var(--text-dim);
+        transition: transform 0.28s cubic-bezier(0.45, 0, 0.15, 1);
+      }
+      .unit.open .cap {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+      }
+      .unit.open .cap .caret {
+        transform: rotate(180deg);
+      }
+      /* 内凹的圆角：胶囊两侧接进列表底边 */
+      .fillet {
+        position: absolute;
+        bottom: 28px;
+        width: 10px;
+        height: 10px;
+        opacity: 0;
+        transition: opacity 0.12s;
+        pointer-events: none;
+      }
+      .fillet.l {
+        right: 100%;
+        background: radial-gradient(circle at 0 0, transparent 9.5px, var(--panel) 10px);
+      }
+      .fillet.r {
+        left: 100%;
+        background: radial-gradient(circle at 100% 0, transparent 9.5px, var(--panel) 10px);
+      }
+      .unit.open .fillet {
+        opacity: 1;
+        transition-delay: 0.06s;
+      }
+      .unit.open .fillet.l.edge {
+        opacity: 0;
+      }
+      /* 列表：贴在胶囊上方，从胶囊处往上长 */
+      .panel {
+        position: absolute;
+        bottom: 28px;
+        left: 0;
+        min-width: 300px;
+        width: max-content;
+        max-width: 640px;
+        background: var(--panel);
+        border-radius: var(--r-card);
+        padding: 6px;
+        z-index: 0;
+        clip-path: inset(100% 0 0 0 round var(--r-card));
+        visibility: hidden;
+        transition:
+          clip-path 0.2s cubic-bezier(0.45, 0, 0.15, 1),
+          visibility 0s 0.2s;
+      }
+      .unit.open .panel {
+        clip-path: inset(0 0 -2px 0 round var(--r-card) var(--r-card) 0 0);
+        visibility: visible;
+        transition:
+          clip-path 0.28s cubic-bezier(0.45, 0, 0.15, 1),
+          visibility 0s;
+      }
+      .unit.open .panel.atleft {
+        border-bottom-left-radius: 0;
+      }
+      .panel .head {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 4px 8px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        border-radius: var(--r-md);
+        padding: 4px 4px 4px 10px;
+        font-size: var(--fs-meta);
+        opacity: 0;
+        transform: translateY(6px);
+        transition:
+          opacity 0.16s,
+          transform 0.16s;
+      }
+      .unit.open .row {
+        opacity: 1;
+        transform: none;
+        transition:
+          opacity 0.22s cubic-bezier(0.45, 0, 0.15, 1),
+          transform 0.22s cubic-bezier(0.45, 0, 0.15, 1);
+      }
+      .row:hover {
+        background: var(--hover);
+      }
+      .row .st {
+        width: 16px;
+        display: flex;
+        justify-content: center;
+        color: var(--tint);
+      }
+      .row .name {
+        flex: 1;
+      }
+      .row .when {
+        color: var(--text-dim);
+        font-size: var(--fs-xs);
+        padding-left: 16px;
+      }
+      .row .tag {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .slow * {
+        transition-duration: 1.2s !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tools"><button id="theme">深色</button><button id="slow">慢放</button></div>
+    <div class="wrap">
+      <div class="talk">…对话…（点这里或按 Esc 收起）</div>
+      <div class="composer">
+        发消息或描述任务，@ 引用文件，/ 使用命令
+        <div class="bar" id="bar"></div>
+      </div>
+    </div>
+    <script>
+      const CARET =
+        '<svg class="caret" viewBox="0 0 24 24" fill="none"><path d="M18 15s-4.42-6-6-6-6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const UNITS = [
+        {
+          id: "queue",
+          cap: '<span class="dot"></span>排队 2',
+          head: ["排队 2 · 本次运行结束后依次发送", "清空"],
+          rows: [
+            ["↩", "来自子对话「审查」：完成", "待送"],
+            ["", "再跑一遍测试", ""],
+          ],
+        },
+        {
+          id: "children",
+          cap: '子对话 3 <span style="color:var(--text-dim)">·</span> <span style="color:var(--attn-text)">?</span> 1 <span style="color:var(--text-dim)">·</span> <span style="color:var(--tint)">◌</span> 1',
+          head: ["子对话", "最近更新的在前"],
+          rows: [
+            ["?", "补测试 <span class=tag>可写</span>", "刚刚"],
+            ["◌", "安全审查 <span class=tag>只读</span>", "2 分钟前"],
+            ["✓", "查文档", "1 小时前"],
+          ],
+        },
+      ];
+      let open = null;
+      function render() {
+        const bar = document.getElementById("bar");
+        bar.innerHTML =
+          UNITS.map(
+            (u) => `<span class="unit${open === u.id ? " open" : ""}" data-id="${u.id}">
+    <div class="panel atleft" role="dialog"><div class="head"><span>${u.head[0]}</span><span>${u.head[1]}</span></div>
+      ${u.rows.map((r, k) => `<div class="row" style="transition-delay:${open === u.id ? 60 + k * 30 : 0}ms"><span class="st">${r[0]}</span><span class="name">${r[1]}</span><span class="when">${r[2]}</span></div>`).join("")}</div>
+    <span class="fillet r"></span>
+    <button class="cap" aria-expanded="${open === u.id}">${u.cap}${CARET}</button></span>`,
+          ).join("") +
+          '<span class="unit" style="filter:none"><span class="cap" style="cursor:default;box-shadow:0 0 0 .5px var(--line),0 6px 16px -8px rgba(0,0,0,.22)">改了 3 个文件 <span style="color:#1a7f37">+42</span> <span style="color:#d1242f">−7</span></span></span>';
+        bar.querySelectorAll(".unit[data-id] .cap").forEach(
+          (b) =>
+            (b.onclick = (e) => {
+              const id = b.parentElement.dataset.id;
+              open = open === id ? null : id;
+              update();
+              e.stopPropagation();
+            }),
+        );
+      }
+      function update() {
+        document.querySelectorAll(".unit[data-id]").forEach((u) => {
+          const on = open === u.dataset.id;
+          u.classList.toggle("open", on);
+          u.querySelector(".cap").setAttribute("aria-expanded", on);
+          u.querySelectorAll(".row").forEach((r, k) => (r.style.transitionDelay = on ? `${60 + k * 30}ms` : "0ms"));
+        });
+      }
+      document.addEventListener("pointerdown", (e) => {
+        if (open && !e.target.closest(".unit.open") && !e.target.closest(".tools")) {
+          open = null;
+          update();
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          open = null;
+          update();
+        }
+      });
+      document.getElementById("theme").onclick = (e) => {
+        const d = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = d ? "" : "dark";
+        e.target.textContent = d ? "深色" : "浅色";
+      };
+      document.getElementById("slow").onclick = () => document.body.classList.toggle("slow");
+      render();
+      const pre = new URLSearchParams(location.search).get("open");
+      if (pre) {
+        open = pre;
+        update();
+      }
+      if (new URLSearchParams(location.search).get("theme") === "dark") document.documentElement.dataset.theme = "dark";
+    </script>
+  </body>
+</html>
