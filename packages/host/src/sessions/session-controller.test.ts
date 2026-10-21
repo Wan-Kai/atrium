@@ -590,6 +590,30 @@ describe("createSessionController on cases the fixtures do not show", () => {
     expect(events.at(-1)).toMatchObject({ type: "run_settled", outcome, traceId: traceIds[0] });
   });
 
+  it("leaves a normal empty reply completed without prompting or restarting again", async () => {
+    const { pi, emit, sent } = manualPi();
+    const restarts: string[] = [];
+    const { controller, events, clock } = control(pi, empty, {
+      respawn: async () => {
+        restarts.push("restart");
+        return { pi, entries: empty };
+      },
+    });
+    await controller.prompt(prompt("q1", "x"));
+    emit({ type: "agent_start" }, userEnd("x"), replyEnd("stop"), { type: "agent_settled" });
+    await settle();
+    clock.advance(60_000);
+    await settle();
+
+    expect(sent).toStrictEqual(["prompt x"]);
+    expect(restarts).toStrictEqual([]);
+    expect(controller.submitting).toBe(false);
+    expect(controller.restarting).toBe(false);
+    expect(events.filter((event) => event.type === "run_settled")).toMatchObject([{ outcome: "completed" }]);
+    expect(events.filter((event) => event.type === "turn_finished")).toMatchObject([{ outcome: "done", error: null }]);
+    expect(events.filter((event) => event.type === "step_added")).toStrictEqual([]);
+  });
+
   it("ends a run without a turn as completed, and starts a run pi begins on its own without a trace", () => {
     const { pi, emit } = manualPi();
     const { events } = control(pi);
@@ -3549,6 +3573,67 @@ function replyEntry(id: string, parentId: string | null = null): LogEntry {
 }
 
 describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", () => {
+  it("leaves a report's normal empty reply completed without prompting or restarting again", async () => {
+    const { pi, emit, sent, pages } = manualPi();
+    const box = deliveriesOf([waiting("d1", 1, "finished")]);
+    const restarts: string[] = [];
+    const { controller, events, clock } = control(pi, empty, {
+      deliveries: box.deliveries,
+      respawn: async () => {
+        restarts.push("restart");
+        return { pi, entries: empty };
+      },
+    });
+    const notice: Extract<LogEntry, { kind: "agent" }> = {
+      id: "n1",
+      parentId: null,
+      kind: "agent",
+      timestamp: 1,
+      details: {
+        v: 1,
+        kind: "report",
+        deliveries: ["d1"],
+        events: [{ name: "audit", title: "Audit", sessionId: "s2", taskId: "t-1", event: "finished" }],
+      },
+    };
+    pages.push(async () => ({
+      entries: [notice, { ...replyEntry("a1", "n1"), parts: [] }],
+      leafId: "a1",
+    }));
+    controller.deliveriesChanged();
+    await settle();
+    emit(
+      { type: "agent_start" },
+      {
+        type: "message_end",
+        message: {
+          role: "custom",
+          customType: "atrium-agent",
+          content: "Audit finished",
+          display: true,
+          details: notice.details,
+          timestamp: 1,
+        },
+      },
+      replyEnd("stop"),
+      { type: "agent_settled" },
+    );
+    await settle();
+    clock.advance(60_000);
+    await settle();
+
+    expect(sent).toStrictEqual(["command /atrium-agent deliver d1"]);
+    expect(restarts).toStrictEqual([]);
+    expect(controller.submitting).toBe(false);
+    expect(controller.restarting).toBe(false);
+    expect(events.filter((event) => event.type === "run_settled")).toMatchObject([{ outcome: "completed" }]);
+    expect(events.filter((event) => event.type === "turn_finished")).toMatchObject([{ outcome: "done", error: null }]);
+    expect(events.filter((event) => event.type === "step_added")).toStrictEqual([]);
+    expect(controller.items()).toMatchObject([{ source: { kind: "report" }, outcome: "done", steps: [] }]);
+    expect(box.done).toContainEqual(["runSettled", "completed", false]);
+    expect(box.done).toContainEqual(["confirm", ["d1"]]);
+  });
+
   it("hands an idle pi the notices waiting as one, marked sending first, and the run they start is theirs", async () => {
     const { pi, emit, sent } = manualPi();
     const box = deliveriesOf([waiting("d1", 1, "finished"), waiting("d2", 2, "failed")]);
