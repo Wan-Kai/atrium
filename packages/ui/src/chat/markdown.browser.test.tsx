@@ -389,12 +389,14 @@ describe("Markdown", () => {
   it("draws Mermaid flat in neutral colours, and switches to its source and back", async () => {
     const root = await rendered("```mermaid\ngraph TD\n  A --> B\n```");
     const node = await mermaidNode(root);
-    const block = part(root, "mermaid-block");
+    const block = part(root, "mermaid-block").closest<HTMLElement>(".atrium-mermaid-controls")!;
     const drawn = [
       getComputedStyle(node).fill,
       getComputedStyle(block).backgroundColor,
       getComputedStyle(block).borderTopWidth,
-      buttonNames(root),
+      [...root.querySelectorAll<HTMLButtonElement>("button")]
+        .filter((button) => button.checkVisibility())
+        .map((button) => button.ariaLabel),
     ];
 
     await userEvent.click(root.querySelector('button[aria-label="看源码"]') as Element);
@@ -402,8 +404,23 @@ describe("Markdown", () => {
     await userEvent.click(root.querySelector('button[aria-label="看图"]') as Element);
 
     await mermaidNode(root);
-    expect(drawn).toStrictEqual(["rgb(255, 255, 255)", "rgb(246, 246, 248)", "0px", ["看源码", "复制", "放大"]]);
+    expect(drawn).toStrictEqual([
+      "rgb(255, 255, 255)",
+      "rgb(246, 246, 248)",
+      "0px",
+      ["看源码", "复制", "拉远", "拉近", "适应窗口", "放大"],
+    ]);
     expect(source).toStrictEqual([null, expect.stringContaining("A --> B")]);
+  });
+
+  it("redraws the same Mermaid diagram when the appearance switches", async () => {
+    const root = await rendered("```mermaid\ngraph TD\n  A --> B\n```");
+    const node = await mermaidNode(root);
+    expect(getComputedStyle(node).fill).toBe("rgb(255, 255, 255)");
+    darkUntilDone();
+    await vi.waitFor(() =>
+      expect(getComputedStyle(root.querySelector("svg .node rect") as Element).fill).toBe("rgb(21, 21, 23)"),
+    );
   });
 
   it("draws Mermaid in dark colours in dark mode", async () => {

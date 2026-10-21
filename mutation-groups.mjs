@@ -75,6 +75,13 @@ export const MUTATION_GROUPS = {
   ui: {
     mutate: [
       "packages/ui/src/chat/turn-layout.ts",
+      "packages/ui/src/chat/plantuml.ts",
+      "packages/ui/src/chat/plantuml-theme.ts",
+      "packages/ui/src/chat/reply-image-source.ts",
+      "packages/ui/src/chat/reply-file-target.ts",
+      "packages/ui/src/chat/reply-data.ts",
+      "packages/ui/src/chat/markdown-transforms.ts",
+      "packages/ui/src/chat/image-preview-layout.ts",
       "packages/ui/src/chat/model-choice.ts",
       "packages/ui/src/chat/composer-text.ts",
       "packages/ui/src/chat/builtin-commands.ts",

@@ -105,7 +105,7 @@ atrium/
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
 │   │       ├── tabs/               标签栏、历史和会话菜单
 │   │       ├── children/           子对话：子对话条、面包屑、开子对话的对话框和它们的规则（SPEC-0002）
-│   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框
+│   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框；PlantUML 的有界本地 worker、工作区回复图片和全屏预览；受控文件引用与有界 JSON/CSV 查看（2026-10-20）
 │   │       ├── test/               浏览器测试用的假客户端
 │   │       └── 以后：status-bar/、interactions/、onboarding/、settings/
 │   └── testkit/                    测试工具：不依赖任何内部包（最多依赖 protocol），只出现在 devDependencies
@@ -114,7 +114,7 @@ atrium/
 │           ├── pi-fixtures/        夹具的格式、规范化、录制、比较，以及回放夹具的 PiProcess 替身（按结构类型匹配 pi 包的接口，不 import 它）
 │           ├── shared-executable.ts 测试用可执行文件按内容只写一份并预热（见 testing.md"测试里的可执行文件"）
 │           ├── scripted-pi.ts      按脚本行为的 pi 可执行替身（乱序回应、崩溃、不理 SIGTERM、留下孙进程），pi 包和宿主的测试共用
-│           ├── clock.ts            假时钟
+│           ├── clock.ts            假时钟；浏览器测试经 `@atrium/testkit/clock` 取用，不加载含 Node 依赖的总入口（2026-10-20）
 │           ├── present.ts          测试里取必然存在的值，避免测试体里出现 `??`
 │           ├── bench.ts            基准与本机基线比较
 │           ├── temp-dir.ts         临时目录（以后扩展成临时 HOME、~/.atrium、pi 会话目录）
@@ -126,6 +126,8 @@ atrium/
 ```
 
 MVP 2 的内置 pi extension 以后放在根目录的 `extensions/`，现在不建。M1.11 的 Fast 扩展不是插件（没有视图、不按 pi package 发布），它的规则宿主也要用，所以放在 `packages/pi/src/fast/`（ADR-0008）。
+
+2026-10-21 回复图表 B 细化：`chat/plantuml-theme.ts` 只给 worker 生成本地默认皮肤行，原始代码仍由展示/复制组件保管，输出继续经过原尺寸/UTF-8 字节校验并只作 Blob 图片。`chat/mermaid-zoom.tsx` 是锁定 Streamdown 版本的窄 DOM 适配：库只公开 `panZoom` 开关、没有控制器/比例回调，所以由 B 工具条激活当前内联图的原生按钮，并用一个可回收 MutationObserver 读取其真实 transform/disabled；不另写缩放算法、不移动第三方 React 的节点或改 SVG。选择器仅限当前图，排除 body 全屏 portal；真实渲染、Tab 顺序、滚轮、边界、换源/主题、缩放尺寸与回收测试守住此版本契约。
 
 ### 包之间的依赖
 
@@ -145,6 +147,7 @@ protocol  ←──  pi  ←──  host
 | desktop | 不 import host 和 ui 的代码 | — | 只知道构建好的宿主入口路径，窗口经 `atrium://app/` 加载宿主提供的页面 |
 | testkit | protocol | 其他内部包；被生产代码依赖 | 避免和被测包形成循环依赖；knip、oxlint 检查 |
 
+- **回复增强的 UI 内部边界（2026-10-20）**：`chat/file-opener.ts` 只声明当前工作区的惰性打开能力，供工具胶囊与 Markdown 引用共同使用；不从 Markdown 反向 import 步骤组件。文件路径的工作区校验与打开仍由 ConversationArea 组装；`state/workspace-views.ts` 保存窗口内的一次性行范围导航，FileViewer 在读取和恢复滚动后按实际行元素消费，不增加宿主命令或持久索引字段。JSON 使用精确锁定的 `jsonc-parser@3.3.1` 的 scanner/AST（严格 JSON，不接受注释），通过源码位置展示数值和属性，CSV 用受限状态机；两者都不引入脚本执行或网络能力。
 - **faux extension 的例外**：`packages/testkit/src/faux/extension.ts` 可以 import `@earendil-works/pi-ai`。我们的代码从不加载它，它只作为文件路径交给 pi 进程（`--extension`），由 pi 自己加载执行，import 也由 pi 解析到它自带的 pi-ai；testkit 声明的同版本 pi-ai 开发依赖只用于类型检查。oxlint 只对这一个文件放开限制。放在 testkit 而不是 pi 包，是因为 pi 契约测试、宿主集成测试和端到端测试都要用它。
 - 同理，`packages/testkit/src/faux/readme-extension.ts`（README 截图用，`pnpm readme:shots`，见 development.md"命令"）在一个 pi 里用真实的服务商名注册几个 faux 服务商，同样只作为文件路径交给 pi、由 pi 自己加载，oxlint 对它也放开（2026-10-20 截图脚本收进仓库时加）。
 

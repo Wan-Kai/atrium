@@ -31,6 +31,12 @@ export interface ViewerPlace {
 /** A viewer tab not left anywhere yet. */
 const NO_PLACE: ViewerPlace = { scrollTop: 0, wrap: false };
 
+/** A one-based, inclusive range in a text file. */
+export interface FileLineRange {
+  readonly start: number;
+  readonly end: number;
+}
+
 /** A container's viewer tabs and what goes with them. */
 export interface ContainerView {
   /** In the order opened; they come after the session tabs. */
@@ -44,6 +50,13 @@ export interface ContainerView {
    * whether it went: once done, showing the tab again does not.
    */
   readonly reveal: { readonly path: string; readonly count: number; readonly done: boolean } | null;
+  /** The latest explicit file-line navigation; a consumed request still identifies its highlight. */
+  readonly fileReveal: {
+    readonly path: string;
+    readonly range: FileLineRange;
+    readonly count: number;
+    readonly done: boolean;
+  } | null;
   /** Where each open viewer tab was left, by `viewerKey`; forgotten as it closes. */
   readonly places: Readonly<Record<string, ViewerPlace>>;
 }
@@ -65,7 +78,14 @@ export type TabRef =
   | { readonly kind: "viewer"; readonly key: string };
 
 /** A container with nothing open beside its sessions. */
-export const NO_VIEW: ContainerView = { tabs: [], active: null, choice: null, reveal: null, places: {} };
+export const NO_VIEW: ContainerView = {
+  tabs: [],
+  active: null,
+  choice: null,
+  reveal: null,
+  fileReveal: null,
+  places: {},
+};
 
 /**
  * The key a viewer tab goes by.
@@ -143,8 +163,15 @@ function update(
  * @param containerId - The container.
  * @param path - The file, relative to the workspace.
  * @param pinned - Whether it opens pinned (a double click) rather than as a preview.
+ * @param range - An explicit one-shot navigation, separate from remembered scrolling.
  */
-export function openFile(views: StoreApi<WorkspaceViews>, containerId: string, path: string, pinned: boolean): void {
+export function openFile(
+  views: StoreApi<WorkspaceViews>,
+  containerId: string,
+  path: string,
+  pinned: boolean,
+  range?: FileLineRange,
+): void {
   const key = `file:${path}`;
   update(views, containerId, (view) => {
     const tab: ViewerTab = { kind: "file", path, preview: !pinned };
@@ -155,8 +182,32 @@ export function openFile(views: StoreApi<WorkspaceViews>, containerId: string, p
     if (open !== undefined) tabs = view.tabs.map((each) => (each === open && pinned ? tab : each));
     else if (!pinned && preview !== -1) tabs = view.tabs.with(preview, tab);
     else tabs = [...view.tabs, tab];
-    return { ...view, tabs, active: key, places: placesOf(tabs, view.places) };
+    return {
+      ...view,
+      tabs,
+      active: key,
+      places: placesOf(tabs, view.places),
+      fileReveal: range === undefined ? null : { path, range, count: (view.fileReveal?.count ?? 0) + 1, done: false },
+    };
   });
+}
+
+/** Marks a matching file-line navigation consumed without changing the highlight.
+ * @remarks A stale reading must not consume a newer navigation to the same file.
+ * @sideEffects Updates the window-local views.
+ * @param views - The views.
+ * @param containerId - The workspace.
+ * @param request - The exact request that was placed, including across close/reopen cycles.
+ */
+export function fileRevealed(
+  views: StoreApi<WorkspaceViews>,
+  containerId: string,
+  request: NonNullable<ContainerView["fileReveal"]>,
+): void {
+  update(views, containerId, (view) => ({
+    ...view,
+    fileReveal: view.fileReveal === request ? { ...request, done: true } : view.fileReveal,
+  }));
 }
 
 /**
@@ -300,6 +351,7 @@ export function closeViewer(
       tabs,
       active: next === undefined ? (now.active === key ? null : now.active) : next.kind === "viewer" ? next.key : null,
       places: placesOf(tabs, now.places),
+      fileReveal: key === `file:${now.fileReveal?.path}` ? null : now.fileReveal,
     };
   });
   return next?.kind === "session" ? next.id : null;

@@ -1,0 +1,179 @@
+/* The approved B canvas stays dark in both application appearances. Native top-layer modal
+   isolation avoids changing any conversation scroll or background inert attributes. */
+.atrium-image-preview {
+  position: fixed;
+  inset: 0;
+  width: 100dvw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: hidden;
+  background: #111114;
+  color: #f9fafb;
+  color-scheme: dark;
+  font-family: var(--font-sans, -apple-system, sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: start;
+  box-sizing: border-box;
+  -webkit-app-region: no-drag;
+}
+
+.atrium-image-preview[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.atrium-image-preview::backdrop {
+  background: #111114;
+}
+
+.atrium-image-preview-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 0 0 48px;
+  min-width: 0;
+  /* Match the window tab bar's native traffic-light clearance, including narrow previews. */
+  padding: 0 12px 0 120px;
+  background: #19191b;
+}
+
+.atrium-image-preview-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atrium-image-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.atrium-image-preview button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #f9fafb;
+  font: inherit;
+  cursor: pointer;
+}
+
+.atrium-image-preview button:hover:not(:disabled) {
+  background: #303034;
+}
+
+.atrium-image-preview button:active:not(:disabled) {
+  background: #3b3b40;
+}
+
+.atrium-image-preview button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.atrium-image-preview :is(button, [tabindex]):focus-visible {
+  outline: 2px solid #7aaaff;
+  outline-offset: -2px;
+}
+
+.atrium-image-preview output {
+  min-width: 44px;
+  color: #adb2b8;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.atrium-image-preview-canvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #111114;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.atrium-image-preview-canvas:active {
+  cursor: grabbing;
+}
+
+.atrium-image-preview .atrium-image-preview-canvas img {
+  display: block;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.atrium-image-preview-status {
+  position: absolute;
+  inset-inline: 24px;
+  color: #adb2b8;
+  text-align: center;
+  cursor: default;
+}
+
+.atrium-image-preview-status p {
+  margin: 0 0 12px;
+}
+
+.atrium-image-preview-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 34px;
+  padding: 0 18px;
+  background: #19191b;
+  color: #adb2b8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .atrium-image-preview-toolbar {
+    gap: 6px;
+    padding-inline: 120px 8px;
+  }
+
+  .atrium-image-preview-controls {
+    gap: 2px;
+  }
+
+  .atrium-image-preview-fit span {
+    display: none;
+  }
+
+  .atrium-image-preview-footer {
+    padding-inline: 8px;
+    gap: 6px;
+    font-size: 11px;
+  }
+}

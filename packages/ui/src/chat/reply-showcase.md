@@ -1,6 +1,6 @@
 # 回复渲染样例
 
-这一份覆盖 SPEC-0001"回复渲染"的全部范围，用来检查流式输出和一次性渲染的结果一致。
+这一份覆盖 SPEC-0001"回复渲染"的主要范围，用来检查流式输出和一次性渲染的结果一致。图片使用本地数据，不受外网加载或失败时机影响；HTTPS / HTTP 图片策略由 `markdown.browser.test.tsx` 单独覆盖。
 
 ## 表格
 
@@ -54,11 +54,20 @@ graph LR
   B --> C[pi]
 ```
 
+```plantuml
+@startuml
+participant 界面
+participant 宿主
+界面 -> 宿主: 发送消息
+宿主 --> 界面: 回复
+@enduml
+```
+
 ## 链接与图片
 
 参见 [Streamdown 文档](https://streamdown.ai/docs)。
 
-![远程图片](https://example.com/diagram.png)
+![示例图片](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=)
 
 ## 原始 HTML
 

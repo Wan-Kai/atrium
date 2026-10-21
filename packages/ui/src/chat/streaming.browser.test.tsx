@@ -36,6 +36,8 @@ async function settled(root: HTMLElement): Promise<void> {
       expect(root.querySelectorAll(".katex")).toHaveLength(2);
       expect(root.querySelectorAll("pre span[style]").length).toBeGreaterThan(0);
       expect(root.querySelector("svg[id^='mermaid']")).not.toBeNull();
+      expect(root.querySelector('output[aria-label="图表缩放比例"]')?.textContent).toMatch(/^[1-9][0-9]*%$/u);
+      expect(root.querySelector<HTMLImageElement>('img[alt="PlantUML 图表"]')?.naturalWidth).toBeGreaterThan(0);
     },
     { timeout: 20_000 },
   );
@@ -49,7 +51,10 @@ async function settled(root: HTMLElement): Promise<void> {
  * empty `style=""`, which changes nothing on screen.
  */
 function normalized(root: HTMLElement): string {
-  return root.innerHTML.replaceAll(/mermaid-[0-9a-z-]+/g, "mermaid-id").replaceAll(' style=""', "");
+  return root.innerHTML
+    .replaceAll(/mermaid-[0-9]+-[0-9]+-[0-9a-z]+/gu, "mermaid-id")
+    .replaceAll(/blob:[^"\s]+/gu, "blob:diagram")
+    .replaceAll(' style=""', "");
 }
 
 /** The transcript of session s1 at one moment, in a 600 px box. */

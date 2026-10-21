@@ -7,6 +7,7 @@ import {
   closeViewer,
   createWorkspaceViews,
   currentTab,
+  fileRevealed,
   keepPaths,
   keptPaths,
   keptPathsKey,
@@ -143,6 +144,64 @@ describe("viewer tabs", () => {
     openFile(store, W, "a.ts", false);
 
     expect(viewOf(store.getState(), "wks_0000000000000002")).toBe(NO_VIEW);
+  });
+});
+
+describe("file line navigation", () => {
+  it("opens a fixed file with a one-shot line range, separately from its scroll position", () => {
+    const { store, view } = views();
+    openFile(store, W, "src/a.ts", true, { start: 70, end: 72 });
+    expect(view()).toStrictEqual({
+      ...NO_VIEW,
+      tabs: [{ kind: "file", path: "src/a.ts", preview: false }],
+      active: "file:src/a.ts",
+      fileReveal: { path: "src/a.ts", range: { start: 70, end: 72 }, count: 1, done: false },
+    });
+  });
+
+  it("repeats navigation without duplicating tabs and only consumes the matching request", () => {
+    const { store, view } = views();
+    openFile(store, W, "a.ts", true, { start: 7, end: 9 });
+    const first = view().fileReveal!;
+    fileRevealed(store, W, first);
+    expect(view().fileReveal?.done).toBe(true);
+    openFile(store, W, "a.ts", true, { start: 7, end: 9 });
+    fileRevealed(store, W, first);
+    expect([view().tabs.length, view().fileReveal]).toStrictEqual([
+      1,
+      { path: "a.ts", range: { start: 7, end: 9 }, count: 2, done: false },
+    ]);
+    fileRevealed(store, W, view().fileReveal!);
+    expect(view().fileReveal?.done).toBe(true);
+  });
+
+  it("retains another file's pending navigation when an unrelated tab closes", () => {
+    const { store, view } = views();
+    openFile(store, W, "other.ts", true);
+    openFile(store, W, "a.ts", true, { start: 7, end: 9 });
+    const request = view().fileReveal;
+    closeViewer(store, W, "file:other.ts", []);
+    expect(view().fileReveal).toBe(request);
+  });
+
+  it("does not acknowledge an obsolete target after close and reopen resets the counter", () => {
+    const { store, view } = views();
+    openFile(store, W, "a.ts", true, { start: 7, end: 9 });
+    const old = view().fileReveal!;
+    closeViewer(store, W, "file:a.ts", []);
+    openFile(store, W, "a.ts", true, { start: 30, end: 30 });
+    fileRevealed(store, W, old);
+    expect(view().fileReveal).toStrictEqual({ path: "a.ts", range: { start: 30, end: 30 }, count: 1, done: false });
+  });
+
+  it("forgets a closed file's target and cancels it when a file is opened without a target", () => {
+    const { store, view } = views();
+    openFile(store, W, "a.ts", true, { start: 7, end: 9 });
+    closeViewer(store, W, "file:a.ts", []);
+    expect(view().fileReveal).toBeNull();
+    openFile(store, W, "a.ts", true, { start: 7, end: 9 });
+    openFile(store, W, "b.ts", true);
+    expect(view().fileReveal).toBeNull();
   });
 });
 

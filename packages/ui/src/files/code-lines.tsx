@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { type Token, tokenStyle } from "./highlight";
+import type { FileLineRange } from "../state/workspace-views";
 
 /**
  * A line's text, in its tokens' colours when it has them.
@@ -43,9 +44,11 @@ const LINE_PX = 20;
 export function LineChunks({
   count,
   renderLine,
+  revealLine,
 }: {
   readonly count: number;
   readonly renderLine: (index: number) => ReactNode;
+  readonly revealLine?: number;
 }) {
   return Array.from({ length: Math.ceil(count / CHUNK_LINES) }, (_, chunk) => {
     const start = chunk * CHUNK_LINES;
@@ -54,7 +57,12 @@ export function LineChunks({
       <div
         key={start}
         className="[content-visibility:auto]"
-        style={{ containIntrinsicHeight: `auto ${size * LINE_PX}px` }}
+        style={{
+          containIntrinsicHeight: `auto ${size * LINE_PX}px`,
+          ...(revealLine !== undefined && revealLine > start && revealLine <= start + size
+            ? { contentVisibility: "visible" }
+            : {}),
+        }}
       >
         {Array.from({ length: size }, (_line, offset) => renderLine(start + offset))}
       </div>
@@ -78,10 +86,12 @@ export function CodeLines({
   lines,
   tokens,
   wrap,
+  highlight,
 }: {
   readonly lines: readonly string[];
   readonly tokens: readonly (readonly Token[])[] | null;
   readonly wrap: boolean;
+  readonly highlight?: FileLineRange;
 }): ReactNode {
   return (
     <div
@@ -90,15 +100,32 @@ export function CodeLines({
     >
       <LineChunks
         count={lines.length}
-        renderLine={(index) => (
-          // Lines never move within a reading.
-          <div key={index} className="flex">
-            <span className="w-12 flex-none pr-3 text-right text-[var(--text-dim)] select-none">{index + 1}</span>
-            <span className={`flex-1 ${wrap ? "break-all whitespace-pre-wrap" : "whitespace-pre"}`}>
-              <LineText text={lines[index] ?? ""} tokens={tokens?.[index]} />
-            </span>
-          </div>
-        )}
+        {...(highlight === undefined ? {} : { revealLine: highlight.start })}
+        renderLine={(index) => {
+          const target = highlight !== undefined && index + 1 >= highlight.start && index + 1 <= highlight.end;
+          return (
+            // Lines never move within a reading.
+            <div
+              key={index}
+              data-line-number={index + 1}
+              data-line-target={target ? "true" : undefined}
+              className="flex"
+              style={
+                target
+                  ? {
+                      backgroundColor: "color-mix(in srgb, var(--tint) 12%, transparent)",
+                      boxShadow: "inset 2px 0 var(--tint)",
+                    }
+                  : undefined
+              }
+            >
+              <span className="w-12 flex-none pr-3 text-right text-[var(--text-dim)] select-none">{index + 1}</span>
+              <span className={`flex-1 ${wrap ? "break-all whitespace-pre-wrap" : "whitespace-pre"}`}>
+                <LineText text={lines[index] ?? ""} tokens={tokens?.[index]} />
+              </span>
+            </div>
+          );
+        }}
       />
     </div>
   );

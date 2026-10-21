@@ -1,0 +1,135 @@
+.atrium-reply-data {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--code);
+}
+
+.atrium-markdown > .atrium-reply-data:not(:last-child) {
+  margin-bottom: 0.75rem;
+}
+
+.atrium-markdown .atrium-reply-data [data-streamdown="code-block-header"] {
+  display: none;
+}
+
+.atrium-reply-data-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.atrium-reply-data-head > span {
+  margin-right: auto;
+  font-family: var(--font-mono);
+}
+
+.atrium-reply-data-switch {
+  padding: 3px 6px;
+  border-radius: var(--r);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.atrium-reply-data-switch:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.atrium-reply-data-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.atrium-reply-data-tree,
+.atrium-reply-data-table {
+  max-height: 640px;
+  overflow: auto;
+  padding: 8px 14px 14px;
+  font: var(--fs-mono) / 1.7 var(--font-mono);
+}
+
+.atrium-reply-data-tree summary {
+  width: fit-content;
+  min-height: 26px;
+  white-space: pre;
+  cursor: pointer;
+}
+
+.atrium-reply-data-tree summary::marker {
+  color: var(--text-muted);
+}
+
+.atrium-reply-data-children {
+  margin-left: 20px;
+}
+
+.atrium-reply-data-leaf {
+  min-height: 26px;
+  white-space: pre;
+}
+
+.atrium-reply-data-bracket {
+  margin-inline: 6px;
+  color: var(--text-muted);
+}
+
+.atrium-reply-data-type {
+  color: var(--text-muted);
+  font: var(--fs-xs) / 1.4 var(--font-sans);
+}
+
+.atrium-reply-data-string {
+  color: color-mix(in srgb, var(--ok-text) 75%, var(--text));
+}
+
+.atrium-reply-data-number,
+.atrium-reply-data-boolean {
+  color: color-mix(in srgb, var(--tint) 85%, var(--text));
+}
+
+.atrium-reply-data-null {
+  color: var(--text-muted);
+}
+
+.atrium-reply-data-note {
+  margin: 0;
+  padding: 4px 14px 10px;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.atrium-reply-data-table table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.atrium-reply-data-table th,
+.atrium-reply-data-table td {
+  min-width: 100px;
+  padding: 8px 20px 8px 0;
+  box-shadow: inset 0 -0.5px var(--line-soft);
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.atrium-reply-data-table th {
+  box-shadow: inset 0 -0.5px var(--line-strong);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.atrium-reply-data-table tbody tr:last-child td {
+  box-shadow: none;
+}
+
+.atrium-reply-data :is(button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--tint);
+  outline-offset: 2px;
+}

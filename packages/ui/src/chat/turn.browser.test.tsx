@@ -6,7 +6,8 @@ import { render } from "vitest-browser-react";
 import { ClockContext, type UiClock } from "../state/clock";
 import { Key, Sparkle, Warning } from "../design/icons";
 import "../styles.css";
-import { LoadStepContext, OpenFileContext } from "./steps";
+import { LoadStepContext } from "./steps";
+import { OpenFileContext } from "./file-opener";
 import { NoticeView, OpenLogin, TurnView } from "./turn-view";
 
 const at = Date.UTC(2026, 9, 7, 14, 31);

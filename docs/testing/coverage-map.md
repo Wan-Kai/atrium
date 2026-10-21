@@ -465,6 +465,79 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 窗口的权限：只有应用自己的页面（按协议和主机名）能写剪贴板（`clipboard-sanitized-write`，复制按钮要用），读剪贴板、通知、媒体等一律拒绝，别的来源、不是地址的都拒绝 | `apps/desktop/src/main/permissions.test.ts`；打包后实测过一次真写剪贴板（e2e 不碰真剪贴板） | 已覆盖 |
 | 破坏检查脚本：按 case 改坏代码、跑指定的测试和项目（默认 unit）、报 CAUGHT / MISSED、有漏掉的退出码 1、每次都改回原样；case 的文字在文件里不是恰好一次时什么都不改、退出码 2 | `scripts/break-check.test.ts` | 已覆盖 |
 
+### 对话图表与图片（2026-10-20）
+
+SPEC-0001“回复渲染”；原型 `chat-rendering-support-prototype.html` 的 B“全屏画布”。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| PlantUML / puml 完整代码块用官方本地 JS 引擎，在独立 worker 里渲染时序、类、活动、组件图及中文；暗色主题；SVG 只作为 Blob 图片；未闭合代码块不开始工作；源码切换、全屏放大、语法失败保留原文并重试 | `packages/ui/src/chat/plantuml.browser.test.ts`、`diagram-block.browser.test.tsx` | 已覆盖 |
+| 输入 32 KiB、输出 2 MiB UTF-8、缩放后单边 8192px；并发 2、等待 16、10 秒期限；排队/运行取消、异常和期限清理 worker、监听和定时器；本地 include、URL include、宏展开后的 URL 和额外库被拒；真实 module worker 的 URL / 类型 | `plantuml.test.ts`、`plantuml.browser.test.ts`（含 `scale 4` 的回归） | 已覆盖 |
+| 保留行内及引用式 Markdown 图片的原始 URL；本地路径只经当前工作区的 read_file，支持相对、工作区内绝对和 file URL；拒绝越界、协议相对、控制字符、未知协议、凭据 URL、不可显示格式；HTTPS / HTTP 策略不变；原始自定义 HTML 不能冒充图片组件 | `reply-image-source.test.ts`、`reply-images.browser.test.tsx`、`markdown-transforms.test.ts`、`markdown.browser.test.tsx`；宿主原有文件边界见 `workspace-files.test.ts` | 已覆盖 |
+| 图片读取失败可重试，文本或 SVG 内容不泄露为图片；没有工作区不发本地读请求；切换工作区时旧记录不能向新工作区读图片；增加图片上下文不破坏新建工作区消息/过程节点的原位交接 | `reply-images.browser.test.tsx`、`chat.browser.test.tsx` “never reads an old transcript's image…”；`app/new-workspace.browser.test.tsx` “same nodes” | 已覆盖 |
+| 图片全屏 B：应用窗口内深色画布、首次适应且小图不放大、手动 25%–400%、fit 可低于 25%、拖动与键盘平移、缩放边界、视口跟随、失败重试、pointer cancel、强模态/Tab/Esc/焦点恢复及卸载清理 | `image-preview.browser.test.tsx`、`image-preview-layout.test.ts` | 已覆盖；13 个破坏检查全部检出 |
+| Mermaid 已显示的同一张图随外观重画，不再被 Streamdown 忽略 mermaid 配置的缓存挡住；完整样例含 Mermaid、PlantUML 和数据图片，流式最终结果与一次性结果一致 | `markdown.browser.test.tsx` “redraws the same Mermaid…”；`streaming.browser.test.tsx` | 已覆盖 |
+| 真实桌面端 CSP 下两种图表和工作区图片显示、越界拒绝、全屏缩放与 Esc 焦点恢复、明暗色；不发外部渲染请求，不把源码或图片路径写日志 | `apps/desktop/e2e/rendering.spec.ts` | 已覆盖；禁用 PlantUML 注册后测试先失败 |
+| 在两个含图表和图片的会话间来回切换 20 次并打开/关闭全屏，不留 worker、额外 Blob URL 或脱离 DOM | `apps/desktop/e2e/rendering.leak.spec.ts` | 已覆盖；移除 Blob 回收后实际从 1 增到 3，测试失败，恢复后通过 |
+
+最终验证：`pnpm check`、构建、全量单元 2980、UI 845、相关桌面端到端 6 项（`chat`、`new-workspace`、`rendering`、`rendering.leak`）通过。首次 UI 中的自身节点重建回归已修；既有 changes-pane“0.24 s”动画偶发失败单跑和全套重跑通过，未修改该测试或实现。父代理 13 个、图片预览子代理 13 个破坏检查全部检出；桌面端禁用 PlantUML 注册、禁用 Blob 回收也都实际见红。聚焦变异 `plantuml.ts`、`reply-image-source.ts`、`markdown-transforms.ts`、`image-preview-layout.ts` 为 98%（391 检出、1 个删循环体造成的真实死循环、8 个存活，共 400）；分项 100%、99.25%、93%、100%。8 个存活仅包括 remark 合法 AST 的 7 个形状/标识守卫放宽，以及非法 HTTP(S) 地址的 catch 返回删除后仍被本地协议守卫拒绝，逐项在源码解释，没有笼统屏蔽。尚未跑整套端到端、pi 契约、性能/压力/浸泡或打包安装。
+
+### 回复文件定位与 JSON/CSV（2026-10-20，本轮补充）
+
+用户选择 `reply-data-navigation-prototype.html`：JSON B“源码优先”、CSV A“就地看结果”；保留文件引用，暂不加 Diff 增强，图表/SVG/PDF 不进入本批。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 行内完整文件行引用、显式及引用式本地链接保留原地址；不把命令或行列形式误识别成文件；工作区边界、未知协议、控制字符、遍历拒绝；http(s)、mailto、标题锚点不变；没有工作区退回文字，点击前不读取 | `reply-file-target.test.ts`、`markdown-transforms.test.ts`、`reply-files.browser.test.tsx`；`chat.browser.test.tsx` “uses the real workspace opener…” | 已覆盖 |
+| 同文件只开一个固定标签；行范围是一次性窗口状态，重复定位生效，旧请求不能确认新请求（含关闭/重开计数重置）；关闭清理；不影响其它文件的请求 | `state/workspace-views.test.ts` “file line navigation” | 已覆盖 |
+| 读取和记忆滚动恢复后，跨 64 行组、换行长行仍按实际 DOM 定位；持续范围高亮；超出末行有说明；卸载取消原生 rAF，不留下滚动或确认动作 | `files/file-viewer.browser.test.tsx`；原生帧包装观察保留真实调度，卸载后再过一帧验证回调未运行 | 已覆盖 |
+| JSON 先源码、点击才解析；只展开根层；顶层标量、大整数、负零、重复属性和顺序不丢；严格拒绝注释、尾逗号、非法词法及过深内容；限额失败完整回原文；不投影 `__proto__` 到普通对象 | `reply-data.test.ts`、`reply-data-block.browser.test.tsx` | 已覆盖 |
+| CSV 完整后默认表格，首行作表头；BOM、CRLF/CR、逗号/换行/转义引号、空字段及原始次序；错误列数、引号、最后一行/单元格与恰好限额；公式/HTML 只作文本；64 KiB、200 行、50 列、5000 格有界 | 同上 | 已覆盖 |
+| 未闭合根围栏、停止后的围栏、引用/列表围栏、短于开围栏的结束符、CR-only 整文解析中的字面反引号、伪造元数据不能提前解析；闭合后正常显示；其它代码仍用默认组件 | `markdown-transforms.test.ts` “data fence completion/source provenance”、`reply-files.browser.test.tsx`；真实 Markdown 接入，不只手工传 `isIncomplete` | 已覆盖；审查复现后修正 |
+| 两种视图都复制完整原文，复制反馈通过 UiClock 且卸载取消；对比度测试显式设浅色初态再切深色，避免继承环境主题而漏检；主题变化不丢阅读选择，内容/语言变化重置；语义表格、键盘折叠和源码切换；字符串、数字、布尔值及行内文件引用的明暗 WCAG AA 对比度 ≥4.5 | `reply-data-block.browser.test.tsx`（复制模拟系统边界，不写用户剪贴板）；对比度用真实计算样式和独立 WCAG 公式，原字符串 3.89597、蓝色值 4.21358 实际见红后局部修复，不改全局 token | 已覆盖 |
+| 实际桌面 CSP 下 JSON 默认源码、CSV 默认表格、精确大数/重复 key、原生文件标签 195–198 行定位及重复点击不重复开标签；明暗截图 | `apps/desktop/e2e/reply-data.spec.ts`；同时回归 `chat`、`new-workspace`、`rendering`、`rendering.leak` | 相关桌面 7 项通过；对比度修复后新桌面项重建重跑通过 |
+
+本轮验证：`pnpm check`、构建通过；全量 UI 曾 877 项全过。最后扩充对比度覆盖后全量为 876 过、1 个既有 changes-pane 动画用例失败，该项随后单跑通过；本批相关 5 文件 77 项专项全部通过，不把最终全量描述为全绿；新增数据解析 51 个单元、组件 18 个浏览器用例，28 个数据模块、10 个文件定位/接入及 4 个原生帧回收/对比度破坏检查全部检出；另按存活变异逐个在隔离副本重放了 23 个数据解析缺口。串行全量单元 `pnpm test --no-file-parallelism` 3092 项通过。**默认并行单元两次均在未修改的宿主 `pi-config.test.ts`“queues several same-path saves…” 报 `config_conflict`；该文件 44 项单独通过，不能把默认并行全量宣称通过**。既有 changes-pane“0.24 s”动画在一次并行负载下失败，单独/完整 UI 重跑通过；不修改无关宿主或动画代码，也不删断言、加重试。工具端口占用导致的未启动运行不计测试通过；共享 63315 端口再次被占用后，另用 `/tmp/atrium-file-nav-vitest.mjs` 复用同一 UI Vite 配置、同一 46 个文件/877 用例及原 globalSetup，仅隔离 API 端口到 63316 和临时缓存，全套曾通过；最后一次全套的既有动画失败仍照实保留。没有为通过而跳用例或改断言。
+
+变异结果按本批四文件单独计数，不把报告中其它缓存文件的 100% 计入本批：最终完整聚焦运行检出 903、真实忙循环超时 3、存活 41，共 944 个有效变异，95.66%（AST 89.85%、数据解析 97.03%、地址 98.39%、查看状态 98.80%）。数据解析 3 个超时均用独立 Node 忙循环实测确认。剩余存活逐项审阅：AST 的合法形状/范围与冗余结束检查、数据解析的 9 个等价/不可达保护和地址的冗余守卫均在源码解释，没有新增笼统变异屏蔽；查看状态仍有 3 个原有 `pinViewer` 的覆盖缺口，本批未修改该行为，不冒称已证明。尚未跑整套桌面、pi 契约、性能/压力/浸泡或打包安装；未提交。
+
+### Opus 5.5 / Grok 4.7 双路审查修复（2026-10-20）
+
+双路报告合并后修复 7 项，额外核实并修复生产路径复制多一个结尾换行；不把既有栅格 `data:` 支持当作新漏洞。均先通过真实入口见红，再最小修复。
+
+| 行为 | 回归 | 状态 |
+|---|---|---|
+| gone/failed 不消费行请求；恢复长文本后实际 DOM 行可见并仅消费一次，后续重读不重滚；成功的空文本/非文本正常完成 | `files/file-viewer.browser.test.tsx` “keeps a pending line request…” 等新增 7 项 | 红 2 → 文件 32 项通过 |
+| 链接图片的放大按钮与原目标链接/文件按钮并列；预览 portal 到 body，画布点击不激活原链接，关闭恢复焦点，目标仍可单独激活 | `reply-images.browser.test.tsx` “isolates a linked…”；`image-preview.browser.test.tsx` “keeps the modal outside…”；真实桌面 `rendering.spec.ts` 带链接图片样例和截图 | 浏览器红 2 → 通过；真实桌面通过 |
+| 适应比例低于 25% 时键盘 `-` 不反向放大；按钮/键盘边界一致 | `image-preview.browser.test.tsx` “keeps very large…” | 实际几何见红后通过 |
+| 行内 `IP/域名:端口` 不猜文件；冒号形式需带目录，裸文件使用 `#L` 或显式链接；行范围后再接列号拒绝，编码冒号文件名仍保留 | `reply-file-target.test.ts` 新增 8 项 | 红 2+5 → 文件 42 项通过 |
+| 工作区分支/HEAD 对象更新不重读本地图，目录真正变化仍重新读取 | `chat.browser.test.tsx` “keeps local reply images loaded…” | 实际 readFile 调用数见红后通过 |
+| 停止/引用/列表中的未闭合围栏统一说明“未闭合”，不误称仍在输出 | `reply-files.browser.test.tsx`、`reply-data-block.browser.test.tsx` | 生产 Markdown 先见红，再通过 |
+| CSV/JSON 生产接入的源码/结构化视图复制一致：仅移除 mdast-to-hast 补的一个 LF，源码原有末尾空白不被 trim；CSV 默认表格不因补出的空行误报 | `reply-files.browser.test.tsx` “copies … source identically through production Markdown…” | 两种格式实际 clipboard 边界红 2 → 通过，不写用户剪贴板 |
+
+验证：`pnpm check`、构建通过；串行全量单元 170 文件/3100 项通过；最终全量 UI 46 文件/890 项通过（隔离 API 端口 63316，同一 Vite 配置与 globalSetup，无跳过/改断言）。首轮 888 过/1 个既有右栏 0.24 s 动画失败，单独确认通过，仍如实保留记录。本轮未重新宣称默认并行单元稳定。相关桌面 7 项通过；随后把渲染场景换成真实带链接图片再通过。新样例暴露 Mermaid 离屏惰性绘制的测试前提：先滚入对应 Mermaid 块，再等待 SVG/主题色；没有延长超时、加重试或降低断言。11 项破坏检查全检出；其中端口误识别负对照精确恢复旧点/斜杠启发式，确实由 `127.0.0.1:8080` 新例检出，不借旧 `count:42` 用例充数。
+
+仅改动的核心 `reply-file-target.ts` 聚焦变异：129 killed、3 survived、0 timeout，97.73%。3 个存活为范围存在的冗余守卫、file URL 冗余结尾锚点及前置短路已证明 suffix 存在后的防御式 optional access，源码逐处说明，没有新增笼统屏蔽；不把其它缓存文件合计 99.75% 算作本轮聚焦分数。
+
+原生红绿灯遮挡仍待核实：临时真实桌面脚本尝试 `screencapture -l`，系统返回 `could not create image from window`，不能用不含原生按钮的 `window.screenshot` 冒充验证，暂未猜测性改标题栏。正式页面明暗、链接图片及全屏截图已查阅。未跑整套桌面、pi 契约、性能/压力/浸泡、打包安装；未提交、未合并。
+
+### 试用后图表与预览细化 · 全选 B（2026-10-21）
+
+原型 `prototype/ui` 的 `prototypes/diagram-controls-refinement-prototype.html` 用锁定版真实本地引擎生成样张；用户三项都选 B。PlantUML 默认中性轻框、无阴影/透明底、13px PingFang SC 和明暗调色，时序不再重复底部参与者；worker 追加默认皮肤但原文不变、显式参数优先，其它 start tag 不猜。Mermaid 工具行常显，B 顺序与 Tab 一致；使用锁定版 DOM 适配激活原生缩放动作、读取实际比例，不改 SVG 或重写几何。预览名称固定避让左侧 120px（包括窄窗口），用户截图已确认原先确实与原生红绿灯重叠。
+
+| 行为 | 回归 | 状态 |
+|---|---|---|
+| 四种真实 PlantUML 图可画；B 明暗节点/字/细边、统一字体字号、无阴影、无底部重复参与者；用户显式颜色在两种外观都能覆盖；原来的预算/资源拒绝不变 | `plantuml.browser.test.ts` 13 项；`diagram-block.browser.test.tsx` 保留原源码切换与 Blob 图片路径 | 实际 worker 红 3 → 通过 |
+| 皮肤位于 UML opener 后、原文前；BOM、CRLF/CR、大小写/缩进保留；不把注释或其它 start tag 猜成 UML；明暗完整默认参数与用户后续指令都保持 | `plantuml-theme.test.ts` 5 项 | 已覆盖，聚焦变异 51 killed / 0 survived / 0 timeout，100% |
+| 固定工具行内真实比例、实际 SVG 几何变化、缩小/放大/适应；原文复制与源码切换；滚轮/边界 disabled、resize 后适应、主题重挂载与观察器释放；240px 嵌套列按钮保持至少 26px，不出界 | `mermaid-controls.browser.test.tsx` 6 项；`markdown.browser.test.tsx` 更新为检查新外层面与仅可见按钮 | 红 2 → 通过；原生 DOM 适配有真实渲染/行为约束 |
+| 桌面与 360px 长名窗口都从 x≥120 开始，不与原生按钮区域重叠，仍保留缩放控件、焦点和 Esc | `image-preview.browser.test.tsx` 原 11 项增加真实 rect 断言 | 红 2 → 文件通过 |
+| 一次性/逐字流式最终 DOM 仍完全一致，等待新增比例输出就绪，不删去控件差异；归一化只替换真正随机 Mermaid ID，不误替换新控件类名 | `streaming.browser.test.tsx` 2 项 | 新控件异步显示曾真实触发失败，完善就绪信号后通过 |
+| 真实桌面 CSP 下 B 时序图、内联 Mermaid 缩放/适应改变实际图形、明暗重画、图片预览避让；切换会话/放大关闭仍回收资源 | `apps/desktop/e2e/rendering.spec.ts`、`rendering.leak.spec.ts` | 2 项通过，明暗与全屏截图已查阅；原生控件本身仍不能用页面截图代替 |
+
+破坏检查在单独源码副本运行，避免故意改坏代码触发用户正在使用的 Vite HMR；依赖复用、API 63318、独立缓存，断言和源码与当前树相同。13 项有效负对照全部检出：主题接入/footbox/覆盖顺序，宽窄标题避让，原生开关/动作/比例/观察与释放、隐藏原生重复入口，以及成对撤回宽图 minmax/min-width 与窄工具行两处 wrap 兜底。最初单独撤回布局兜底之一是等价保护，改为精确恢复原缺陷；另证实引擎 dark 标记不会二次反转显式皮肤颜色，删除了不必要的额外标记处理而不是增加豁免。隔离副本 Stryker 首次因软链接根 node_modules 无法构建沙箱而未启动测试；回原树的 Stryker 自有沙箱完成，原始源文件 SHA 校验未变，仅新主题模块实际运行的 51 个变异均检出，不把旧缓存合计分数冒充本轮结果。
+
+本分支集成 main 之前：`pnpm check`、构建通过；171 文件/3105 项串行单元通过，47 文件/900 项串行 UI 全过，未跳用例或弱化断言。并发单元负载下仍遇未修改的宿主 pi-config 队列例 `config_conflict`，单文件 44 项通过，安静串行全量通过。并行 UI 还出现过旧右栏 0.24 s 时序失败及不同文件的导入期 SyntaxError；冷缓存对照三文件 69 项通过，但全套并行仍有导入失败，未宣称已修复工具链并发。两个真实功能回归（外层面/新按钮清单、比例就绪）已按用户选的 B 完整更新原测试，不把它们当作已知不稳。机械设计扫描只报原有渐变文字/弹性状态提示，不改与这次图表无关的视觉。此节记录本分支验证；集成 main 后的结果另在路线图登记。
+
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
 SPEC-0001"M1.11 的 `/` 命令"。

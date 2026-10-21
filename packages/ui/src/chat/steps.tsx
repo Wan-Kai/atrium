@@ -4,6 +4,7 @@ import { type ReactNode, createContext, useContext, useEffect, useId, useState }
 import { FileIcon } from "../files/file-icon";
 import { EventWords, type LanePlace, LaneMarks, SpawnWords, laneIndent } from "./lanes";
 import { Markdown } from "./markdown";
+import { OpenFileContext } from "./file-opener";
 import {
   type ProcessRow,
   type ToolStep,
@@ -203,12 +204,6 @@ export function RailMarks({
     </>
   );
 }
-
-/**
- * How to open a file a tool was given, by the path it was given: an opener, or `null` for one that
- * cannot be opened; the app provides it where the session is in a workspace.
- */
-export const OpenFileContext = createContext<((path: string) => (() => void) | null) | null>(null);
 
 /**
  * The opener of a file a tool was given, if it can be opened here.
