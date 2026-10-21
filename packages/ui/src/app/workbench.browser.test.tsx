@@ -372,7 +372,7 @@ describe("Workbench sidebar", () => {
     await expect.element(rows.nth(0)).toHaveAttribute("title", "本地工作区（项目目录）");
   });
 
-  it("lists five of a project's workspaces and the current one, the rest behind 显示全部 N 个, opened and closed in place", async () => {
+  it("lists five of a project's workspaces and the current one, the rest behind 显示剩余 N 个, opened and closed in place", async () => {
     const initial = list();
     const tries = [6, 4, 3, 2, 1].map((at) =>
       workspace({ id: `wks_00000000000000t${String(at)}`, branch: `try/${String(at)}`, createdAt: at }),
@@ -389,10 +389,10 @@ describe("Workbench sidebar", () => {
         .getByTestId("workspace-row")
         .elements()
         .map((row) => row.querySelector("span")?.textContent);
-    const more = screen.getByRole("group", { name: "atrium" }).getByRole("button", { name: /^显示全部|^收起$/ });
+    const more = screen.getByRole("group", { name: "atrium" }).getByRole("button", { name: /^显示剩余|^收起$/ });
 
     await vi.waitFor(() => expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3", "try/1"]));
-    await expect.element(more).toHaveTextContent("显示全部 8 个");
+    await expect.element(more).toHaveTextContent("显示剩余 2 个");
     // The whole row is the button, not just its words.
     expect(sizeOf(more.element())).toStrictEqual([sizeOf(screen.getByTestId("workspace-row").nth(0).element())[0], 30]);
     await more.click();
@@ -400,12 +400,14 @@ describe("Workbench sidebar", () => {
     await expect.element(more).toHaveTextContent("收起");
     await more.click();
     expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3", "try/1"]);
+    await expect.element(more).toHaveTextContent("显示剩余 2 个");
 
     index.setState({ layout: { container: LOCAL, tabs: {} } });
     await vi.waitFor(() => expect(names()).toStrictEqual(["main", "try/6", "feat/sidebar", "try/4", "try/3"]));
+    await expect.element(more).toHaveTextContent("显示剩余 3 个");
   });
 
-  it("folds a project's workspaces back behind 显示全部 once another project's is the current one", async () => {
+  it("folds a project's workspaces back behind 显示剩余 once another project's is the current one", async () => {
     const initial = list();
     const other = { id: "prj_000000000000000b", path: "/work/other", name: "other", mainBranch: null };
     const tries = [6, 4, 3, 2].map((at) =>
@@ -421,17 +423,42 @@ describe("Workbench sidebar", () => {
       },
     });
     const group = screen.getByRole("group", { name: "atrium" });
-    const more = group.getByRole("button", { name: /^显示全部|^收起$/ });
+    const more = group.getByRole("button", { name: /^显示剩余|^收起$/ });
     await more.click();
     await expect.element(more).toHaveTextContent("收起");
 
     index.setState({ layout: { container: elsewhere.id, tabs: {} } });
-    await expect.element(more).toHaveTextContent("显示全部 7 个");
+    await expect.element(more).toHaveTextContent("显示剩余 2 个");
     await more.click();
     index.setState({ layout: { container: LOCAL, tabs: {} } });
 
-    await expect.element(more).toHaveTextContent("显示全部 7 个");
+    await expect.element(more).toHaveTextContent("显示剩余 2 个");
     expect(group.getByTestId("workspace-row").elements()).toHaveLength(5);
+  });
+
+  it("hides the remaining-workspaces row when the extra current workspace leaves none hidden", async () => {
+    const initial = list();
+    const tries = [6, 4, 3].map((at) =>
+      workspace({ id: `wks_00000000000000t${String(at)}`, branch: `try/${String(at)}`, createdAt: at }),
+    );
+    const { screen, index } = await workbench({
+      initial: {
+        ...initial,
+        workspaces: [...initial.workspaces, ...tries],
+        layout: { container: MERGED, tabs: {} },
+      },
+    });
+    const group = screen.getByRole("group", { name: "atrium" });
+    const more = group.getByRole("button", { name: /^显示剩余|^收起$/ });
+
+    await expect.element(group.getByTestId("workspace-row").nth(5)).toHaveTextContent("fix/typo已合并");
+    await expect.element(more).not.toBeInTheDocument();
+    index.setState({ layout: { container: LOCAL, tabs: {} } });
+    await expect.element(more).toHaveTextContent("显示剩余 1 个");
+    expect(group.getByTestId("workspace-row").elements()).toHaveLength(5);
+    await more.click();
+    await expect.element(more).toHaveTextContent("收起");
+    expect(group.getByTestId("workspace-row").elements()).toHaveLength(6);
   });
 
   it("leaves out a workspace whose directory is gone, from the project and the search, unless it is the current one", async () => {
@@ -459,7 +486,7 @@ describe("Workbench sidebar", () => {
     await expect.element(screen.getByTestId("workspace-row").nth(3)).toHaveAttribute("aria-current", "true");
   });
 
-  it("lists every workspace of a project with five, without 显示全部", async () => {
+  it("lists every workspace of a project with five, without 显示剩余", async () => {
     const initial = list();
     const tries = [6, 4].map((at) =>
       workspace({ id: `wks_00000000000000t${String(at)}`, branch: `try/${String(at)}`, createdAt: at }),
@@ -468,7 +495,7 @@ describe("Workbench sidebar", () => {
 
     await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(5));
     await expect
-      .element(screen.getByRole("group", { name: "atrium" }).getByRole("button", { name: /^显示全部/ }))
+      .element(screen.getByRole("group", { name: "atrium" }).getByRole("button", { name: /^显示剩余/ }))
       .not.toBeInTheDocument();
   });
 
