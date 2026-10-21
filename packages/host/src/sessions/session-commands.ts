@@ -2,6 +2,7 @@ import type {
   ChildPlacement,
   CommandResult,
   ContainerId,
+  EditStoppedMessageCommand,
   FetchImageCommand,
   FetchStepCommand,
   FetchTranscriptCommand,
@@ -62,6 +63,11 @@ export interface SessionCommands {
   subscribe(connectionId: string, sessionIds: readonly string[]): Promise<CommandResult<"subscribe_sessions">>;
   /** Sends a message with its images to a session, starting a restored draft's pi first. */
   prompt(command: PromptCommand, images?: readonly PromptImage[]): Promise<CommandResult<"prompt">>;
+  /** Replaces the final stopped user message, preserving the old branch. */
+  editStoppedMessage(
+    command: EditStoppedMessageCommand,
+    images?: readonly PromptImage[],
+  ): Promise<CommandResult<"edit_stopped_message">>;
   /** Sends a steer, or a message when the session is idle, starting a restored draft's pi first. */
   steer(command: SteerCommand, images?: readonly PromptImage[]): Promise<CommandResult<"steer">>;
   /** Stops a session's run (SPEC-0001, "运行控制"). */

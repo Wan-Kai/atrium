@@ -7,7 +7,7 @@ import {
   fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   FAUX_API,
@@ -26,6 +26,10 @@ import {
 
 /** The part of pi's extension API this extension uses. */
 interface ExtensionApi {
+  on(
+    event: "input",
+    handler: (event: { readonly text: string; readonly source: string }) => { readonly action: "continue" | "handled" },
+  ): void;
   registerProvider(
     name: string,
     config: {
@@ -263,7 +267,8 @@ function repliesIn(context: { readonly messages?: readonly unknown[] }): number 
  * @sideEffects Reads the script file named by `FAUX_PI_SCRIPT`; writes `pi.pid` and adds to `payloads.jsonl`
  * and `contexts.jsonl`
  * unless printing, and adds to `prints.jsonl` when printing; registers a
- * provider and three commands with pi.
+ * provider and three commands with pi; optionally consumes one exact RPC input named by
+ * `FAUX_PI_REFUSE_INPUT_ONCE_FILE`, renaming that isolated gate to `.handled`.
  * @param pi - pi's extension API.
  * @throws {Error} When the environment variable is missing.
  */
@@ -290,6 +295,16 @@ export default function fauxExtension(pi: ExtensionApi): void {
   const gates = process.env[FAUX_GATES_ENV] ?? "";
   // A one-shot pi in print mode asks for a title; it must not pass for the session's pi.
   const printing = process.argv.includes("-p");
+  const refuseInput = process.env["FAUX_PI_REFUSE_INPUT_ONCE_FILE"];
+  if (!printing && refuseInput !== undefined) {
+    // The isolated gate names the exact body to consume before pi appends a user entry.
+    pi.on("input", (event) => {
+      if (event.source !== "rpc" || !existsSync(refuseInput) || readFileSync(refuseInput, "utf8") !== event.text)
+        return { action: "continue" };
+      renameSync(refuseInput, `${refuseInput}.handled`);
+      return { action: "handled" };
+    });
+  }
   if (gates !== "" && !printing) writeFileSync(join(dirname(gates), FAUX_PID_FILE), String(process.pid));
   const payloads = gates === "" || printing ? null : join(dirname(gates), FAUX_PAYLOADS_FILE);
   const contexts = gates === "" || printing ? null : join(dirname(gates), FAUX_CONTEXTS_FILE);

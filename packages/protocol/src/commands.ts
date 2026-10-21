@@ -93,6 +93,20 @@ export const PromptCommand = z
   .refine(hasContent);
 export type PromptCommand = z.infer<typeof PromptCommand>;
 
+/** Replaces the last stopped user message after checking the client's transcript position. */
+export const EditStoppedMessageCommand = z
+  .strictObject({
+    type: z.literal("edit_stopped_message"),
+    ...sessionCommandFields,
+    epoch: z.number().int().nonnegative(),
+    turnId: z.string().min(1).max(256),
+    text: PromptText,
+    attachmentIds: AttachmentIds,
+  })
+  // No message of its own: a failure only ever becomes `invalid_message`.
+  .refine(hasContent);
+export type EditStoppedMessageCommand = z.infer<typeof EditStoppedMessageCommand>;
+
 /**
  * Sends a steer: delivered before the agent's next step while it runs, sent as a message when it
  * is idle (SPEC-0001, "运行控制").
@@ -760,6 +774,7 @@ export const Command = z.discriminatedUnion("type", [
   CreateChatCommand,
   SubscribeSessionsCommand,
   PromptCommand,
+  EditStoppedMessageCommand,
   FetchTranscriptCommand,
   FetchStepCommand,
   FetchImageCommand,
@@ -857,6 +872,8 @@ export const CommandResult = {
     z.strictObject({ disposition: z.enum(["started", "handled"]) }),
     z.strictObject({ disposition: z.literal("queued"), itemId: QueueItemId }),
   ]),
+  /** The replacement message opened a new run; handled and queued are not successful edits. */
+  edit_stopped_message: z.strictObject({ disposition: z.literal("started") }),
   fetch_transcript: z.strictObject({
     /** The items just before `before`, oldest first. */
     items: z.array(TranscriptItem),

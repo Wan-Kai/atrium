@@ -1,4 +1,4 @@
-import { Check, Copy } from "../design/icons";
+import { Check, Copy, PencilSimple } from "../design/icons";
 import { useClock } from "../state/clock";
 import { CommandTag } from "./command-tag";
 import { type ChosenCommand, writtenCommand } from "./composer-text";
@@ -79,6 +79,8 @@ export interface UserBubbleProps {
   readonly dim?: boolean;
   /** Words in its time's place, as why a new workspace's first message did not go. */
   readonly note?: string | null;
+  /** The last stopped ordinary message's editor, unavailable while the session is busy. */
+  readonly edit?: { readonly blocked: boolean; readonly open: () => void } | undefined;
 }
 
 /**
@@ -110,6 +112,7 @@ export function UserBubble({
   command = null,
   dim = false,
   note = null,
+  edit,
 }: UserBubbleProps) {
   const body = useRef<HTMLDivElement>(null);
   // A time that comes in while shown fades in; one there from the start just shows.
@@ -169,6 +172,18 @@ export function UserBubble({
           </span>
         )}
         <CopyButton text={() => writtenCommand(command, text)} />
+        {edit === undefined ? null : (
+          <button
+            type="button"
+            aria-label="编辑已停止消息"
+            title={edit.blocked ? "先等当前操作结束" : "编辑"}
+            disabled={edit.blocked}
+            onClick={edit.open}
+            className="atrium-press-sm rounded-[var(--r)] p-1 text-[var(--text-dim)] enabled:hover:bg-[var(--hover)] enabled:hover:text-[var(--text-muted)] disabled:opacity-40"
+          >
+            <PencilSimple size={14} />
+          </button>
+        )}
       </div>
     </div>
   );

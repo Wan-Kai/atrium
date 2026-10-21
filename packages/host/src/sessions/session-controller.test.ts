@@ -47,6 +47,607 @@ function fetch(epoch: number, before: string, limit = 10) {
 
 const empty: EntriesPage = { entries: [], leafId: null };
 
+/** A first user message stopped before the model produced any content. */
+const editableEntries: EntriesPage = {
+  entries: [
+    { id: "edit-user", parentId: null, kind: "user", text: "wrong", images: 0, skill: null, timestamp: 1 },
+    {
+      id: "edit-abort",
+      parentId: "edit-user",
+      kind: "assistant",
+      parts: [],
+      stopReason: "aborted",
+      errorMessage: null,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: null },
+      timestamp: 2,
+    },
+  ],
+  leafId: "edit-abort",
+};
+
+/**
+ * The edit request for a controller's currently displayed final turn.
+ * @remarks Keeps test inputs on the same public snapshot seam as a client.
+ * @sideEffects none
+ */
+function editRequest(controller: ReturnType<typeof control>["controller"], text = "correct") {
+  const snapshot = controller.snapshot();
+  const last = present(
+    snapshot.items.findLast((item) => item.kind === "turn"),
+    "last turn",
+  );
+  return {
+    ...prompt("edit-request", text),
+    type: "edit_stopped_message" as const,
+    epoch: snapshot.epoch,
+    turnId: last.id,
+  };
+}
+
+/**
+ * Changes a stopped fixture's outcome or skill without hiding branches in a test body.
+ * @remarks The public entry page is the controller's recovery input.
+ * @sideEffects none
+ * @param changes - The message properties the case changes.
+ * @returns The altered entries.
+ */
+function changedEditableEntries(changes: {
+  readonly stopReason?: "stop" | "error";
+  readonly skill?: string;
+}): LogEntry[] {
+  return editableEntries.entries.map((entry) => {
+    if (entry.kind === "assistant") return { ...entry, stopReason: changes.stopReason ?? entry.stopReason };
+    if (entry.kind === "user") return { ...entry, skill: changes.skill ?? entry.skill };
+    return entry;
+  });
+}
+
+describe("editing the last stopped user message", () => {
+  it("rewinds before sending the replacement in the same session and replaces the snapshot", async () => {
+    const manual = manualPi();
+    const { controller, events } = control(manual.pi, editableEntries);
+    const original = present(
+      controller.items().find((item) => item.kind === "turn"),
+      "stopped turn",
+    );
+    expect(original.outcome).toBe("stopped");
+    manual.pages.push(
+      async () => editableEntries,
+      async () => ({ ...editableEntries, leafId: null }),
+    );
+    const result = await controller.editStoppedMessage({
+      ...prompt("edit-request", "correct"),
+      type: "edit_stopped_message",
+      epoch: controller.snapshot().epoch,
+      turnId: original.id,
+    });
+    expect(result).toStrictEqual({ disposition: "started" });
+    expect(manual.sent.at(-1)).toBe("prompt correct");
+    expect(manual.withImages).toStrictEqual([["correct", []]]);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "control_updated", control: expect.objectContaining({ paused: "stopped" }) }),
+    );
+    expect(controller.items()).toStrictEqual([]);
+    expect(events.filter((event) => event.type === "session_snapshot").at(-1)).toMatchObject({
+      sessionId: "s1",
+      items: [],
+    });
+    expect(controller.control().paused).toBe("stopped");
+    await controller.shutdown();
+  });
+
+  it.each(["epoch", "turnId"] as const)("rejects a stale %s before touching pi", async (field) => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi, editableEntries);
+    const command = editRequest(controller);
+    const changes = { epoch: { epoch: command.epoch + 1 }, turnId: { turnId: "another" } };
+    const stale = { ...command, ...changes[field] };
+    await expect(controller.editStoppedMessage(stale)).rejects.toStrictEqual(new CommandError("transcript_changed"));
+    expect(manual.sent).toStrictEqual([]);
+    expect(controller.control()).toStrictEqual(IDLE_CONTROL);
+    await controller.shutdown();
+  });
+
+  it.each(["stop", "error"] as const)("does not edit a turn ended with %s", async (stopReason) => {
+    const manual = manualPi();
+    const entries = changedEditableEntries({ stopReason });
+    const { controller } = control(manual.pi, { entries, leafId: "edit-abort" });
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("turn_not_editable"),
+    );
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("does not turn a replacement into a slash command", async () => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi, editableEntries);
+    await expect(controller.editStoppedMessage(editRequest(controller, "  /compact"))).rejects.toStrictEqual(
+      new CommandError("turn_not_editable"),
+    );
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("does not edit an expanded skill message", async () => {
+    const manual = manualPi();
+    const entries = changedEditableEntries({ skill: "review" });
+    const { controller } = control(manual.pi, { entries, leafId: "edit-abort" });
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("turn_not_editable"),
+    );
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("rejects edits of an empty history without changing control state", async () => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi);
+    await expect(
+      controller.editStoppedMessage({
+        ...prompt("edit-request", "correct"),
+        type: "edit_stopped_message",
+        epoch: controller.snapshot().epoch,
+        turnId: "missing",
+      }),
+    ).rejects.toStrictEqual(new CommandError("transcript_changed"));
+    expect(controller.control()).toStrictEqual(IDLE_CONTROL);
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it.each(["/unknown", " \n /unknown"])("does not edit original command text %s", async (text) => {
+    const manual = manualPi();
+    const assistant = present(
+      editableEntries.entries.find((entry) => entry.kind === "assistant"),
+      "aborted reply",
+    );
+    const { controller } = control(manual.pi, {
+      entries: [userEntry("edit-user", null, text), assistant],
+      leafId: assistant.id,
+    });
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("turn_not_editable"),
+    );
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("does not edit an automatically sent continuation", async () => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi, editableEntries, {
+      turnStarts: { opened: new Set(["edit-user"]), auto: new Set(["edit-user"]), record: () => undefined },
+    });
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("turn_not_editable"),
+    );
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("does not edit a stopped turn opened by an agent task", async () => {
+    const manual = manualPi();
+    const assistant = present(
+      editableEntries.entries.find((entry) => entry.kind === "assistant"),
+      "aborted reply",
+    );
+    const { controller } = control(manual.pi, {
+      entries: [deliveredEntry("task", ["delivery"]), { ...assistant, parentId: "task" }],
+      leafId: assistant.id,
+    });
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("turn_not_editable"),
+    );
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it.each(["steer", "agent"] as const)("does not discard a later %s input inside the stopped turn", async (kind) => {
+    const manual = manualPi();
+    const assistant = present(
+      editableEntries.entries.find((entry) => entry.kind === "assistant"),
+      "aborted reply",
+    );
+    const inputs = {
+      steer: userEntry("later", "result", "later input"),
+      agent: deliveredEntry("later", ["delivery"], "result"),
+    };
+    const entries: LogEntry[] = [
+      userEntry("edit-user", null, "wrong"),
+      {
+        ...assistant,
+        id: "call",
+        parentId: "edit-user",
+        stopReason: "toolUse",
+        parts: [{ type: "toolCall", callId: "tool", tool: "bash", args: { command: "pwd" } }],
+      },
+      {
+        id: "result",
+        parentId: "call",
+        kind: "toolResult",
+        callId: "tool",
+        tool: "bash",
+        text: "ok",
+        isError: false,
+        details: null,
+        timestamp: 1,
+      },
+      inputs[kind],
+      { ...assistant, parentId: "later" },
+    ];
+    const { controller } = control(manual.pi, { entries, leafId: assistant.id });
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("turn_not_editable"),
+    );
+    expect(manual.sent).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("keeps the replacement a user message in the original trace and releases parent waits", async () => {
+    const manual = manualPi();
+    const box = deliveriesOf([]);
+    const { controller, events } = control(manual.pi, editableEntries, { deliveries: box.deliveries });
+    manual.pages.push(
+      async () => editableEntries,
+      async () => ({ ...editableEntries, leafId: null }),
+    );
+    manual.answers.push(async () => {
+      manual.emit({ type: "agent_start" }, userEnd("correct"));
+      return { disposition: "started" };
+    });
+    expect(await controller.editStoppedMessage(editRequest(controller))).toStrictEqual({ disposition: "started" });
+    const started = present(
+      events.find((event) => event.type === "turn_started"),
+      "new user turn",
+    );
+    expect(started.traceId).toBe(traceIds[0]);
+    expect(started.turn.user).toMatchObject({ text: "correct", auto: false, clientMessageId: "edit-request" });
+    expect(box.done).toContainEqual(["userSpoke"]);
+    await controller.shutdown();
+  });
+
+  it.each(["text", "thinking", "tool"] as const)(
+    "edits a stopped message even after partial %s output",
+    async (kind) => {
+      const manual = manualPi();
+      const assistant = present(
+        editableEntries.entries.find((entry) => entry.kind === "assistant"),
+        "aborted reply",
+      );
+      const content = {
+        text: [{ type: "text", text: "partial answer" }],
+        thinking: [{ type: "thinking", text: "partial thought" }],
+        tool: [{ type: "toolCall", callId: "partial", tool: "bash", args: { command: "pwd" } }],
+      } as const;
+      const entries = {
+        entries: [userEntry("edit-user", null, "wrong"), { ...assistant, parts: content[kind] }],
+        leafId: assistant.id,
+      };
+      const { controller } = control(manual.pi, entries);
+      manual.pages.push(
+        async () => entries,
+        async () => ({ ...entries, leafId: null }),
+      );
+      expect(await controller.editStoppedMessage(editRequest(controller))).toStrictEqual({ disposition: "started" });
+      expect(manual.withImages).toStrictEqual([["correct", []]]);
+      await controller.shutdown();
+    },
+  );
+
+  it("selects the last user turn rather than a trailing compaction notice", async () => {
+    const manual = manualPi();
+    const entries: EntriesPage = {
+      entries: [
+        ...editableEntries.entries,
+        {
+          id: "compact",
+          parentId: "edit-abort",
+          kind: "compaction",
+          summary: "summary",
+          firstKeptEntryId: "edit-user",
+          tokensBefore: 10,
+          system: null,
+          timestamp: 3,
+        },
+      ],
+      leafId: "compact",
+    };
+    const { controller } = control(manual.pi, entries);
+    expect(controller.items().at(-1)?.kind).toBe("notice");
+    manual.pages.push(
+      async () => entries,
+      async () => ({ ...entries, leafId: null }),
+    );
+    expect(await controller.editStoppedMessage(editRequest(controller))).toStrictEqual({ disposition: "started" });
+    await controller.shutdown();
+  });
+
+  it("reports an exited pi instead of treating it as a busy editor", async () => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi, editableEntries);
+    const request = editRequest(controller);
+    await controller.shutdown();
+    await vi.waitFor(() => expect(controller.exited).toBe(true));
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(
+      new CommandError("pi_unavailable", { status: "exited" }),
+    );
+    expect(manual.sent).toStrictEqual([]);
+  });
+
+  it("waits for stop confirmation before it can edit", async () => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi, editableEntries);
+    const request = editRequest(controller);
+    const confirm = manual.holdAbort();
+    await controller.prompt(prompt("sending", "pending"));
+    const stopping = controller.stop();
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(new CommandError("session_stopping"));
+    confirm();
+    expect(await stopping).toStrictEqual({ confirmed: true });
+    await controller.shutdown();
+  });
+
+  it.each([
+    [
+      "stopped",
+      {
+        entries: [
+          present(
+            editableEntries.entries.find((entry) => entry.kind === "user"),
+            "user",
+          ),
+          {
+            ...present(
+              editableEntries.entries.find((entry) => entry.kind === "assistant"),
+              "aborted reply",
+            ),
+            id: "refreshed-abort",
+            parts: [{ type: "text" as const, text: "new stopped partial" }],
+          },
+        ],
+        leafId: "refreshed-abort",
+      },
+    ],
+    ["completed", { entries: changedEditableEntries({ stopReason: "stop" }), leafId: "edit-abort" }],
+  ] as const)(
+    "revalidates the captured epoch after an in-flight history read finishes (%s)",
+    async (_outcome, page) => {
+      const manual = manualPi();
+      const { controller } = control(manual.pi, editableEntries);
+      const request = editRequest(controller);
+      const refreshed = Promise.withResolvers<EntriesPage>();
+      manual.pages.push(() => refreshed.promise);
+      await controller.setModel({ providerId: "faux", modelId: "another" });
+      const editing = controller.editStoppedMessage(request);
+      refreshed.resolve(page);
+      await expect(editing).rejects.toStrictEqual(new CommandError("transcript_changed"));
+      expect(manual.sent.filter((line) => /^(?:command|prompt)/.test(line))).toStrictEqual([]);
+      expect(controller.submitting).toBe(false);
+      expect(controller.control()).toStrictEqual(IDLE_CONTROL);
+      await controller.shutdown();
+    },
+  );
+
+  it("binds a restored failure to its own new epoch so the unchanged stopped message can be retried", async () => {
+    const manual = manualPi();
+    let attempts = 0;
+    const replies: SessionPi["prompt"][] = [
+      async () => {
+        throw new ReplayRequestError("prompt", "rejected", "preflight refused");
+      },
+      (...args) => manual.pi.prompt(...args),
+    ];
+    const pi = {
+      ...manual.pi,
+      prompt: async (...args: Parameters<SessionPi["prompt"]>) => {
+        attempts++;
+        return present(replies.shift(), "next preflight")(...args);
+      },
+    };
+    const { controller } = control(pi, editableEntries);
+    const request = editRequest(controller);
+    const anchor: LogEntry = { id: "edit-anchor", parentId: "edit-abort", kind: "other", timestamp: 3 };
+    const moved: EntriesPage = { entries: [...editableEntries.entries, anchor], leafId: null };
+    const restored: EntriesPage = {
+      entries: [...moved.entries, { id: "edit-restored", parentId: anchor.id, kind: "other", timestamp: 4 }],
+      leafId: "edit-restored",
+    };
+    manual.pages.push(
+      async () => editableEntries,
+      async () => moved,
+      async () => moved,
+      async () => restored,
+    );
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(
+      new CommandError("edit_failed", { epoch: request.epoch + 2, turnId: request.turnId }),
+    );
+    expect(controller.snapshot().epoch).toBe(request.epoch + 2);
+    expect(controller.items()).toMatchObject([{ id: request.turnId, outcome: "stopped", user: { text: "wrong" } }]);
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(new CommandError("transcript_changed"));
+    manual.pages.push(
+      async () => restored,
+      async () => ({ ...restored, leafId: null }),
+    );
+    expect(await controller.editStoppedMessage({ ...request, epoch: request.epoch + 2 })).toStrictEqual({
+      disposition: "started",
+    });
+    expect(attempts).toBe(2);
+    await controller.shutdown();
+  });
+
+  it("does not advertise a retry epoch that restarting an exited pi will invalidate", async () => {
+    const manual = manualPi();
+    const reads: SessionPi["getEntries"][] = [
+      (...args) => manual.pi.getEntries(...args),
+      (...args) => manual.pi.getEntries(...args),
+      async () => {
+        throw new ReplayRequestError("get_entries", "exited", "");
+      },
+    ];
+    const pi = {
+      ...manual.pi,
+      getEntries: (...args: Parameters<SessionPi["getEntries"]>) => present(reads.shift(), "next live read")(...args),
+      prompt: async () => {
+        manual.crash();
+        throw new ReplayRequestError("prompt", "exited", "");
+      },
+    };
+    const { controller } = control(pi, editableEntries);
+    const request = editRequest(controller);
+    manual.pages.push(
+      async () => editableEntries,
+      async () => ({ ...editableEntries, leafId: null }),
+    );
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(
+      new CommandError("edit_failed", { status: "exited" }),
+    );
+    expect(controller.exited).toBe(true);
+    expect(controller.items()).toMatchObject([{ id: request.turnId, outcome: "stopped", user: { text: "wrong" } }]);
+    await controller.shutdown();
+  });
+
+  it("does not bind a failed edit to a different stopped message found on disk", async () => {
+    const manual = manualPi();
+    const user = present(
+      editableEntries.entries.find((entry) => entry.kind === "user"),
+      "user",
+    );
+    const assistant = present(
+      editableEntries.entries.find((entry) => entry.kind === "assistant"),
+      "aborted reply",
+    );
+    const all: EntriesPage = {
+      entries: [
+        ...editableEntries.entries,
+        { ...user, id: "another-user", parentId: "edit-abort" },
+        { ...assistant, id: "another-abort", parentId: "another-user" },
+      ],
+      leafId: "edit-abort",
+    };
+    const moved: EntriesPage = {
+      entries: [...all.entries, { id: "edit-anchor", parentId: "edit-abort", kind: "other", timestamp: 3 }],
+      leafId: null,
+    };
+    const pi = { ...manual.pi, prompt: async () => ({ disposition: "handled" as const }) };
+    const { controller } = control(pi, all);
+    const request = editRequest(controller);
+    manual.pages.push(
+      async () => all,
+      async () => moved,
+      async () => ({ ...moved, leafId: "another-abort" }),
+    );
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(new CommandError("edit_failed"));
+    expect(controller.items().at(-1)).toMatchObject({ id: "s1:another-user", outcome: "stopped" });
+    expect(controller.exited).toBe(false);
+    expect(manual.withImages).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("does not confirm a retry when the recovered target is no longer stopped", async () => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi, editableEntries);
+    const completed: EntriesPage = { entries: changedEditableEntries({ stopReason: "stop" }), leafId: "edit-abort" };
+    manual.pages.push(
+      async () => completed,
+      async () => completed,
+      async () => completed,
+    );
+    await expect(controller.editStoppedMessage(editRequest(controller))).rejects.toStrictEqual(
+      new CommandError("edit_failed"),
+    );
+    expect(controller.items().at(-1)).toMatchObject({ outcome: "done" });
+    expect(manual.withImages).toStrictEqual([]);
+    await controller.shutdown();
+  });
+
+  it("protects rewind and submit from concurrent writes and a second editor", async () => {
+    const manual = manualPi();
+    const gate = Promise.withResolvers<void>();
+    const pi = {
+      ...manual.pi,
+      command: async (message: string) => {
+        await manual.pi.command(message);
+        await gate.promise;
+      },
+    };
+    const { controller } = control(pi, editableEntries);
+    manual.pages.push(
+      async () => editableEntries,
+      async () => ({ ...editableEntries, leafId: null }),
+    );
+    const request = editRequest(controller);
+    const editing = controller.editStoppedMessage(request);
+    await vi.waitFor(() => expect(manual.sent).toHaveLength(1));
+    expect(controller.submitting).toBe(true);
+    expect(controller.forking).toBe(true);
+    await expect(controller.editStoppedMessage(request)).rejects.toStrictEqual(new CommandError("session_busy"));
+    await expect(controller.prompt(prompt("other", "later"))).rejects.toStrictEqual(new CommandError("session_busy"));
+    await expect(controller.steer(steer("other-steer", "later"))).rejects.toStrictEqual(
+      new CommandError("session_busy"),
+    );
+    await expect(controller.setModel({ providerId: "faux", modelId: "one" })).rejects.toStrictEqual(
+      new CommandError("session_busy"),
+    );
+    await expect(controller.setFast(true)).rejects.toStrictEqual(new CommandError("session_busy"));
+    await expect(controller.compact(undefined)).rejects.toStrictEqual(new CommandError("session_busy"));
+    expect(() => controller.resumeQueue()).toThrow(new CommandError("session_busy"));
+    expect(() => controller.stop()).toThrow(new CommandError("session_busy"));
+    expect(() => controller.forkPoint(request.turnId)).toThrow(new CommandError("session_busy"));
+    gate.resolve();
+    expect(await editing).toStrictEqual({ disposition: "started" });
+    expect(controller.forking).toBe(false);
+    await controller.shutdown();
+  });
+
+  it("forwards all replacement images and allows an image-only revision", async () => {
+    const manual = manualPi();
+    const { controller } = control(manual.pi, editableEntries);
+    manual.pages.push(
+      async () => editableEntries,
+      async () => ({ ...editableEntries, leafId: null }),
+    );
+    const images = [
+      { mimeType: "image/png", data: "first" },
+      { mimeType: "image/webp", data: "second" },
+    ];
+    expect(await controller.editStoppedMessage(editRequest(controller, ""), images)).toStrictEqual({
+      disposition: "started",
+    });
+    expect(manual.withImages).toStrictEqual([["", ["first", "second"]]]);
+    await controller.shutdown();
+  });
+
+  it("does not automatically resume the erroneous branch when pi exits during rewind", async () => {
+    const manual = manualPi();
+    const gate = Promise.withResolvers<void>();
+    const pi = {
+      ...manual.pi,
+      command: async (message: string) => {
+        await manual.pi.command(message);
+        await gate.promise;
+        throw new Error("gone");
+      },
+    };
+    let restarts = 0;
+    const { controller } = control(pi, editableEntries, {
+      respawn: async () => {
+        restarts++;
+        return null;
+      },
+    });
+    manual.pages.push(async () => editableEntries);
+    const editing = controller.editStoppedMessage(editRequest(controller));
+    await vi.waitFor(() => expect(manual.sent).toHaveLength(1));
+    manual.crash();
+    await vi.waitFor(() => expect(controller.exited).toBe(true));
+    gate.resolve();
+    await expect(editing).rejects.toStrictEqual(new CommandError("edit_failed", { status: "exited" }));
+    expect(restarts).toBe(0);
+    expect(manual.withImages).toStrictEqual([]);
+    await controller.shutdown();
+  });
+});
+
 /**
  * A controller over `pi` whose events and refresh failures are recorded, with ids id1, id2, … and
  * a clock at 1000.
@@ -128,6 +729,7 @@ function replayedHistory() {
       since.push(cursor);
       return page(since.length);
     },
+    readPersistedEntries: async () => empty,
     model: async () => null,
     setModel: async () => undefined,
     setThinkingLevel: async () => undefined,
@@ -183,6 +785,8 @@ function manualPi() {
     throw new ReplayRequestError("get_session_stats", "exited", "");
   };
   let statsReads = 0;
+  let diskPage = empty;
+  let lastPage = empty;
   const abortGate = Promise.withResolvers<void>();
   let abortWaits = false;
   /**
@@ -203,6 +807,20 @@ function manualPi() {
     prompt: (message, images) => {
       sent.push(`prompt ${message}`);
       withImages.push([message, images.map((one) => one.data)]);
+      if (lastPage.leafId === null && lastPage.entries.some((entry) => entry.kind === "user")) {
+        const user: LogEntry = {
+          id: "edited-user",
+          parentId: null,
+          kind: "user",
+          text: message,
+          images: images.length,
+          skill: null,
+          timestamp: 3,
+        };
+        diskPage = { entries: [...lastPage.entries, user], leafId: user.id };
+        const committed = diskPage;
+        pages.unshift(async () => committed);
+      }
       return (answers.shift() ?? (async () => ({ disposition: "started" as const })))();
     },
     steer: (message, images) => {
@@ -223,10 +841,13 @@ function manualPi() {
       if (abortWaits) await abortGate.promise;
     },
     respond: (response) => responses.push(response),
-    getEntries: (cursor) => {
+    getEntries: async (cursor) => {
       since.push(cursor);
-      return (pages.shift() ?? (async () => empty))();
+      lastPage = await (pages.shift() ?? (async () => empty))();
+      diskPage = { entries: lastPage.entries, leafId: lastPage.entries.at(-1)?.id ?? null };
+      return lastPage;
     },
+    readPersistedEntries: async () => diskPage,
     model: async () => {
       sent.push("get_state");
       if (stateFailures.length > 0) throw stateFailures.shift();

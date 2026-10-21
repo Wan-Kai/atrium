@@ -3,6 +3,7 @@ import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { SidebarLeft, X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageDrafts } from "../state/use-draft";
+import { dropStoppedEdits } from "../state/stopped-edits";
 import { useStore } from "zustand";
 import { ConversationArea } from "../chat/conversation-area";
 import { OpenLogin } from "../chat/turn-view";
@@ -344,8 +345,9 @@ function useSettings(): {
  *
  * @sideEffects Removes drafts from the page's storage.
  * @param index - The list.
+ * @param client - The client whose page-local stopped-message editors follow the same cleanup.
  */
-function useDraftCleanup(index: IndexView): void {
+function useDraftCleanup(index: IndexView, client: AtriumClient): void {
   const seen = useRef<{ readonly generation: string; readonly sessions: ReadonlySet<string> } | null>(null);
   useEffect(() => {
     if (!index.ready) return;
@@ -354,8 +356,9 @@ function useDraftCleanup(index: IndexView): void {
     const gone = [...before].filter((id) => !live.has(id));
     const archived = index.sessions.filter((one) => one.archived).map((one) => one.sessionId);
     pageDrafts().drop([...gone, ...archived]);
+    dropStoppedEdits(client, [...gone, ...archived]);
     seen.current = { generation: index.generation, sessions: live };
-  }, [index.ready, index.generation, index.sessions]);
+  }, [index.ready, index.generation, index.sessions, client]);
 }
 
 /**
@@ -540,7 +543,7 @@ function MainWindow({
   // Sent from the page, its launch shows in the conversation area, the page's box under it.
   const pageLaunching = useStore(pages, (state) => pageLaunch(state) !== undefined);
   const viewer = useStore(views, (state) => (container === null ? null : viewOf(state, container).active));
-  useDraftCleanup(index);
+  useDraftCleanup(index, client);
 
   useEffect(() => {
     /**

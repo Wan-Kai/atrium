@@ -205,6 +205,8 @@ export interface FakeAnswers {
   readonly setModel?: () => Promise<void>;
   /** Answers a compaction; succeeds at once when left out. */
   readonly compactSession?: () => Promise<void>;
+  /** Answers a stopped-message revision without creating a normal optimistic pending message. */
+  readonly editStoppedMessage?: () => Promise<{ disposition: "started" }>;
   /** The page an export hands over; a small page when left out. */
   readonly exportSession?: () => Promise<string>;
   /** The fork's session id; `fork-1` when left out. */
@@ -627,6 +629,18 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
         sent.delete(clientMessageId);
         throw error;
       });
+    },
+    editStoppedMessage(
+      sessionId: string,
+      epoch: number,
+      turnId: string,
+      text: string,
+      attachmentIds: readonly string[] = [],
+    ) {
+      calls.push(
+        `editStoppedMessage ${sessionId} ${epoch} ${turnId} ${text}${attachmentIds.map((id) => ` +${id}`).join("")}`,
+      );
+      return answers.editStoppedMessage?.() ?? Promise.resolve({ disposition: "started" as const });
     },
     sentPreviews: (clientMessageId: string) => sent.get(clientMessageId) ?? null,
     async fetchImage(sessionId: string, turnId: string, place: number) {
