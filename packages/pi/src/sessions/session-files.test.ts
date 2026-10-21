@@ -132,6 +132,41 @@ function info(name: unknown) {
 }
 
 /**
+ * A `model_change` entry.
+ *
+ * @remarks
+ * How pi records the model a session switched to.
+ *
+ * @sideEffects none
+ * @param provider - The provider's id.
+ * @param modelId - The model's id there.
+ * @returns The entry.
+ */
+function modelChange(provider: unknown, modelId: unknown) {
+  return { type: "model_change", id: "m1", parentId: null, timestamp: "2026-10-08T00:00:00.000Z", provider, modelId };
+}
+
+/**
+ * A `thinking_level_change` entry.
+ *
+ * @remarks
+ * How pi records the level a session thinks at.
+ *
+ * @sideEffects none
+ * @param thinkingLevel - The level.
+ * @returns The entry.
+ */
+function levelChange(thinkingLevel: unknown) {
+  return {
+    type: "thinking_level_change",
+    id: "l1",
+    parentId: null,
+    timestamp: "2026-10-08T00:00:00.000Z",
+    thinkingLevel,
+  };
+}
+
+/**
  * Scans a folder once with a new reader.
  *
  * @remarks
@@ -159,12 +194,21 @@ function openFiles(): number {
 }
 
 describe("SessionFileReader.scanFolder", () => {
-  it("reads the session id, working directory, name and first question of a file pi wrote", async () => {
+  it("reads the session id, working directory, name, first question and model of a file pi wrote", async () => {
     const folder = await tempDir("sessions");
     const path = await sessionFile(folder, "2026-10-08_x.jsonl", recordedSessionLines(), 1_000);
 
     expect(await scanOnce(folder)).toStrictEqual([
-      { path, sessionId: "<uuid-1>", cwd: "<cwd>", name: null, firstPrompt: "one", modifiedAt: 1_000_000 },
+      {
+        path,
+        sessionId: "<uuid-1>",
+        cwd: "<cwd>",
+        name: null,
+        firstPrompt: "one",
+        model: { providerId: "faux", modelId: "faux-1" },
+        thinkingLevel: "medium",
+        modifiedAt: 1_000_000,
+      },
     ]);
   });
 
@@ -189,6 +233,39 @@ describe("SessionFileReader.scanFolder", () => {
       ["c", null, null],
       ["d", null, 'mentions "session_info"'],
       ["e", "kept", null],
+    ]);
+  });
+
+  it("reads the model and thinking level from the latest model_change and thinking_level_change", async () => {
+    const folder = await tempDir("sessions");
+    await sessionFile(folder, "a.jsonl", [
+      header("a"),
+      modelChange("openai-codex", "gpt-6.1-sol"),
+      levelChange("off"),
+      user("hi"),
+      modelChange("anthropic", "claude-opus-5-5"),
+      levelChange("high"),
+    ]);
+    await sessionFile(folder, "b.jsonl", [header("b"), user("no entries")]);
+    await sessionFile(folder, "c.jsonl", [
+      header("c"),
+      modelChange("faux", "faux-1"),
+      modelChange(7, "x"),
+      levelChange(3),
+    ]);
+    await sessionFile(folder, "d.jsonl", [
+      header("d"),
+      modelChange("faux", "faux-1"),
+      { type: "custom", customType: "audit", data: { seen: "model_change thinking_level_change" } },
+    ]);
+
+    const found = await scanOnce(folder);
+
+    expect(found.map((file) => [file.sessionId, file.model, file.thinkingLevel])).toStrictEqual([
+      ["a", { providerId: "anthropic", modelId: "claude-opus-5-5" }, "high"],
+      ["b", null, null],
+      ["c", { providerId: "faux", modelId: "faux-1" }, null],
+      ["d", { providerId: "faux", modelId: "faux-1" }, null],
     ]);
   });
 

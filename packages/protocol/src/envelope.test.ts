@@ -1475,6 +1475,7 @@ const snapshot: IndexSnapshotEvent = {
       attention: null,
       asking: null,
       handedOff: false,
+      model: null,
       parent: null,
       agent: null,
       heldDeliveries: 0,
@@ -1492,6 +1493,7 @@ const snapshot: IndexSnapshotEvent = {
       attention: { reason: "error", at: 7, cleared: false },
       asking: 8,
       handedOff: true,
+      model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "high" },
       parent: { sessionId: "s1", by: "agent" },
       agent: {
         handle: "audit",
@@ -1547,6 +1549,7 @@ const changes: IndexChangesEvent = {
         attention: null,
         asking: null,
         handedOff: false,
+        model: null,
         parent: { sessionId: "s2", by: "agent" },
         agent: null,
         heldDeliveries: 0,

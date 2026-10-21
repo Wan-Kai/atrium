@@ -13,7 +13,7 @@ import { StatusIcon } from "../sidebar/status-icon";
 import { useClock } from "../state/clock";
 import { showNotice } from "../state/session-notices";
 import { type WorkspaceViews, showViewer } from "../state/workspace-views";
-import { childrenOf, descendantsOf, heldIn, rowStatus } from "./children";
+import { childrenOf, descendantsOf, heldIn, modelLine, rowStatus } from "./children";
 
 /** The statuses the capsule counts, in the order it shows them (design-language, "会话状态"). */
 const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running"];
@@ -26,7 +26,7 @@ const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error",
  * its rows show and how many, the same icons as the sidebar's. Opened, its list floats 8 px above
  * the capsule, its left edge at the capsule's, as the queue's does (`CapsuleUnit`), as wide as its
  * rows from 300 px but never past the bar, and a press outside or Escape closes it: each direct child with its status (its whole
- * subtree's), its name, where it is when not here ("已在终端中继续" once handed off), "+N" for the
+ * subtree's), its name, the model and thinking level its file records (SPEC-0002), where it is when not here ("已在终端中继续" once handed off), "+N" for the
  * sessions below it, and when it last changed; clicking a row opens it, its menu opens, detaches
  * or archives it. Failures show beside the tab bar. A child opened shows, though its workspace
  * showed a viewer tab, as one chosen in the sidebar does. Whether the list is open is the capsule
@@ -56,6 +56,9 @@ export function ChildCapsule({
   readonly onToggle?: () => void;
 }) {
   const index = useStore(client.index);
+  const parent = index.sessions.find((session) => session.sessionId === sessionId);
+  // The models the input box has asked for; a model it does not list goes by its id.
+  const catalog = useStore(client.models(parent?.containerId ?? null)).models;
   const [kept, setKept] = useState(false);
   const open = given ?? kept;
   const toggle = onToggle ?? (() => setKept(!kept));
@@ -71,7 +74,6 @@ export function ChildCapsule({
     if (none && open) toggled.current();
   }, [none, open]);
   if (none) return null;
-  const parent = index.sessions.find((session) => session.sessionId === sessionId);
   const statuses = children.map((child) => rowStatus(index.sessions, child));
   const held = heldIn(index.sessions, sessionId);
   const counts = COUNTED.map((status) => [status, statuses.filter((one) => one === status).length] as const).filter(
@@ -139,6 +141,7 @@ export function ChildCapsule({
           child={child}
           status={statuses[at] ?? null}
           below={descendantsOf(index.sessions, child.sessionId).length}
+          model={modelLine(child.model, catalog)}
           place={child.containerId === parent?.containerId ? null : placeOf(index, child.containerId)}
           when={timeAgo(child.updatedAt, clock.now())}
           onOpen={() => {
@@ -182,14 +185,15 @@ function secondLine(child: SessionSummary): { readonly text: string; readonly as
  * names line up.
  *
  * @sideEffects Calls the actions as the user acts.
- * @param props - The child, its status, how many sessions are below it, where it is, when it last
- * changed, and what opening, detaching and archiving it do.
+ * @param props - The child, its status, how many sessions are below it, its model and level, where
+ * it is, when it last changed, and what opening, detaching and archiving it do.
  * @returns The row.
  */
 function ChildRow({
   child,
   status,
   below,
+  model,
   place,
   when,
   onOpen,
@@ -199,6 +203,7 @@ function ChildRow({
   readonly child: SessionSummary;
   readonly status: RowStatus;
   readonly below: number;
+  readonly model: string | null;
   readonly place: string | null;
   readonly when: string;
   readonly onOpen: () => void;
@@ -210,7 +215,7 @@ function ChildRow({
     <div
       data-testid="child-row"
       data-panel-row
-      className="flex min-h-[34px] items-center gap-2 rounded-[var(--r-md)] py-1 pr-1 pl-2.5 text-[length:var(--fs-meta)] hover:bg-[var(--hover)]"
+      className="mt-0.5 flex min-h-[40px] items-center gap-2 rounded-[var(--r-md)] py-1.5 pr-1 pl-2.5 text-[length:var(--fs-meta)] first:mt-0 hover:bg-[var(--hover)]"
     >
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2 text-left">
         {status === null ? (
@@ -239,6 +244,11 @@ function ChildRow({
             >
               {second.text}
             </span>
+          </span>
+        )}
+        {model === null ? null : (
+          <span className="shrink-0 text-[length:var(--fs-xs)] text-[var(--text-dim)]" data-testid="child-model">
+            {model}
           </span>
         )}
         {child.handedOff ? (

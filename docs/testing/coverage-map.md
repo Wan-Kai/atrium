@@ -473,7 +473,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 走套餐的签：模型面板左列走套餐的服务商图标右下角有"套餐"签（离按钮右边 1px、下边 3px，高 12px，`--tint` 底、字 8px 600、面板底色），在"当前模型"小点下面不重叠；右栏顶上服务商名后面写"套餐"（`--tint`、11px）；输入框模型按钮的图标带同样的签（比图标右边多出 8px、下边 4px）；签是名为"走套餐"的图；按量计费的服务商、登录状态没说用 OAuth 的 OpenAI 和 xAI 都没有签；对话区和新建工作区页把设置的登录状态交给模型按钮，登录状态到了签跟着出现 | `model-picker.browser.test.tsx` "ModelPicker's plan tag"、"opens above the button"；`packages/ui/src/chat/chat.browser.test.tsx` "tags a provider on a plan as the setup's login state says"；`packages/ui/src/app/new-workspace.browser.test.tsx` "tags the model button of a provider on a plan" | 已覆盖（深色外观下的颜色未单独测） |
 | 胶囊点开的面板（design-language"胶囊点开的面板"）：排队面板和子对话列表各自浮在自己的胶囊正上方 8px、左边和胶囊左边齐；排队面板右边到胶囊条右边；子对话列表宽度按内容、最窄 300px、右边不超出胶囊条（胶囊前面的东西多了也一样）；箭头转半圈 | `packages/ui/src/chat/run-control.browser.test.tsx` "floats the queue 8px above its capsule"；`packages/ui/src/children/children.browser.test.tsx` "floats its list 8px above the capsule"、"keeps its list within the bar" | 已覆盖 |
 | 点空白处（面板、胶囊和输入框以外的地方）、按 Esc 收起面板（排队面板和子对话列表都是）；点面板里的东西（如行的"···"菜单）、点输入框和它里面的按钮（打字、停止）不收起；收起编辑的 Esc、输入框拿去停止运行的 Esc 不收起面板；点另一个胶囊换成那个的面板；收起后不再监听 | `run-control.browser.test.tsx` "closes the queue on a press outside it"、"keeps the queue open on a press in the input box or on its stop button"、"closes the queue on Escape, but not on the one that gives up an edit"、"switches to the other capsule's panel"；`children.browser.test.tsx` "closes its list on a press outside it and on Escape" | 已覆盖（输入框停止运行的 Esc 未单独测；监听的释放未单独测） |
-| 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起 0.2 秒、行一起淡出（0.16 秒），收完才拿掉面板；半路折回从已到的位置接着走；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"、"closes a panel turned back halfway"、"playing the close before the panel goes"、"opens and closes at once when less motion is asked for" | 已覆盖 |
+| 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起不做动画、面板直接消失（2026-10-21 自用时改）；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"（含收起时面板立刻没有）、"closes the queue on a press outside it, the panel going at once"、"opens and closes at once when less motion is asked for" | 已覆盖 |
 | 模型列表的规则表：去掉按量计费的 Claude、OpenAI（pi 自己的 `anthropic`、`azure-openai-responses`、不是 ChatGPT 登录的 `openai`、登录状态读不出时也去掉、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算）；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
 
 ## M1.11 自用中改（2026-10-20）
@@ -903,3 +903,14 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
 | 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
 
+
+## 子对话列表标模型、插话重叠、弹窗直接消失（2026-10-21）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 会话扫描读文件里最新的 `model_change` 与 `thinking_level_change`：取最后一条、类型不符或字段不是字符串的不算、没有为 `null`、藏在别的条目里的同名字样不算 | `packages/pi/src/sessions/session-files.test.ts` "reads the model and thinking level from the latest model_change and thinking_level_change"；真实 pi 录制文件 "reads the session id, working directory, name, first question and model of a file pi wrote" | 已覆盖 |
+| 目录把文件里的模型放进 `SessionSummary.model`；级别协议不认得、provider / model id 超上限的为 `null` 而不是让整份列表被拒；草稿为 `null` | `packages/host/src/sessions/session-catalog.test.ts` "lists the model and thinking level a session's file records…" | 已覆盖 |
+| 协议 23：`SessionSummary.model` 过协议校验（有值与 `null`） | `packages/protocol/src/envelope.test.ts`（会话摘要的两个样例） | 已覆盖 |
+| 子对话行写"模型名 · 档位"：名字取目录、目录没有则写 id；只有 `off` 的模型不写档位；没有记录不写；行高 40px、行间 2px | `packages/ui/src/children/children.test.ts` `modelLine` 三项；`children.browser.test.tsx` "tells each child's model and thinking level in its row, and keeps the rows apart" | 已覆盖（宿主换模型到列表更新的延迟未测） |
+| 折叠过的过程只留下插话行时，折叠一结束就清掉折叠动画，插话行不再盖到回复上（原先复用同一个 DOM 节点，`fill: forwards` 的高度 0 留在上面） | `packages/ui/src/chat/turn.browser.test.tsx` "keeps the steers a folded turn leaves in view clear of the reply once the fold has played" | 已覆盖 |
+| 排队面板、子对话列表收起时直接消失，不播收起动画；展开动画不变 | `packages/ui/src/chat/run-control.browser.test.tsx` "grows the panel from its bottom edge…"、"closes the queue on a press outside it, the panel going at once" | 已覆盖 |
