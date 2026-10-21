@@ -1,0 +1,851 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 状态栏：上下文细分 + 套餐余量（2026-10-15 自用时提）。
+  问题 1：上下文卡片能拆多细（参考 Claude Code 的 /context 面板）。
+  问题 2：coding plan 的余量和重置时间放哪里。
+  数据是假的；颜色、字号、圆角取自 packages/ui/src/design/tokens.css。打开即看，无需构建。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 上下文细分与套餐余量</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --danger: #e5484d;
+        --ok-text: #1e8e3e;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-pill: 999px;
+        /* 上下文分段：现有三色 + 新增 */
+        --c-msgs: #2f6fed;
+        --c-sys: #a1a1a7;
+        --c-mem: #1f9d6b;
+        --c-skill: #d9822b;
+        --c-tool: #8b5cf6;
+        --c-mcp: #d6409f;
+        --c-ext: #0e9fb5;
+        --c-reserve: #c9c9ce;
+      }
+      body.dark {
+        --main: #17181c;
+        --surface-1: #1f2025;
+        --surface-2: #26272d;
+        --text: #f2f2f4;
+        --text-2: #e4e4e7;
+        --text-3: #c9c9ce;
+        --text-muted: #9a9aa2;
+        --text-dim: #6e6e76;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --attn-text: #f0a050;
+        --ok-text: #4cc27a;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --c-msgs: #7aaaff;
+        --c-sys: #9ca3af;
+        --c-mem: #43c08c;
+        --c-skill: #f0a050;
+        --c-tool: #a78bfa;
+        --c-mcp: #ee6bbd;
+        --c-ext: #3cc4d8;
+        --c-reserve: #4a4a52;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #eceef2;
+        font: var(--fs)/1.4 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      body.dark {
+        background: #0f1013;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+        max-width: 1240px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 6px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+        line-height: 1.65;
+      }
+      header.page b {
+        color: var(--text-2);
+      }
+      .toggles {
+        display: flex;
+        gap: 14px;
+        padding: 4px 40px 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      h2.part {
+        margin: 28px 40px 0;
+        font-size: 16px;
+      }
+      .part-note {
+        margin: 6px 40px 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        max-width: 1180px;
+        line-height: 1.65;
+      }
+      .board {
+        display: flex;
+        gap: 36px;
+        padding: 20px 40px 8px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+      }
+      .frame {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .frame > h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+      .frame > ul {
+        margin: 0;
+        padding-left: 18px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.6;
+        width: 340px;
+      }
+      .frame > ul b {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+
+      /* 详情卡片，同 status-bar.tsx（宽 300 → 这里 340） */
+      .card {
+        width: 340px;
+        background: var(--surface-1);
+        border-radius: 14px;
+        box-shadow: var(--float-shadow);
+        padding: 14px 16px 12px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      body.dark .card {
+        background: var(--surface-2);
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-weight: 500;
+        color: var(--text);
+      }
+      .head .total {
+        margin-left: auto;
+        font-variant-numeric: tabular-nums;
+      }
+      .bar {
+        display: flex;
+        height: 6px;
+        gap: 2px;
+        overflow: hidden;
+        border-radius: var(--r-pill);
+        background: var(--line);
+        margin: 4px 0 12px;
+      }
+      .bar i {
+        height: 100%;
+        display: block;
+      }
+      .bar i.reserve {
+        background: repeating-linear-gradient(135deg, var(--c-reserve) 0 2px, transparent 2px 4px) !important;
+      }
+      .line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 26px;
+      }
+      .line .sw {
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        flex: none;
+      }
+      .line .sw.hatch {
+        background: repeating-linear-gradient(135deg, var(--c-reserve) 0 2px, transparent 2px 4px);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+      }
+      .line .sw.free {
+        background: var(--line);
+      }
+      .line .nm {
+        flex: 1;
+        min-width: 0;
+        color: var(--text-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .line .ct {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        margin-left: 4px;
+      }
+      .line .v {
+        font-variant-numeric: tabular-nums;
+        color: var(--text-muted);
+        width: 48px;
+        text-align: right;
+      }
+      .line .p {
+        font-variant-numeric: tabular-nums;
+        color: var(--text-dim);
+        width: 40px;
+        text-align: right;
+        font-size: var(--fs-sm);
+      }
+      .line.toggle {
+        cursor: pointer;
+        border-radius: 6px;
+        margin: 0 -6px;
+        padding: 0 6px;
+      }
+      .line.toggle:hover {
+        background: var(--hover);
+      }
+      .line .chev {
+        width: 10px;
+        color: var(--text-dim);
+        transition: transform 0.2s;
+        flex: none;
+      }
+      .line.open .chev {
+        transform: rotate(90deg);
+      }
+      .subs {
+        display: none;
+        margin: 0 0 4px 18px;
+      }
+      .subs.open {
+        display: block;
+      }
+      .sub {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 22px;
+        font-size: var(--fs-sm);
+      }
+      .sub .nm {
+        flex: 1;
+        min-width: 0;
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-family: "SF Mono", ui-monospace, Menlo, monospace;
+        font-size: 11.5px;
+      }
+      .sub .nm.plain {
+        font-family: var(--font-sans);
+        font-size: var(--fs-sm);
+      }
+      .sub .v {
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .sep {
+        height: 0.5px;
+        background: var(--line);
+        margin: 8px 0;
+      }
+      .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        min-height: 26px;
+      }
+      .foot .grow {
+        flex: 1;
+      }
+      .pill {
+        height: 24px;
+        padding: 0 10px;
+        border-radius: var(--r-pill);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-2);
+        font-size: var(--fs-sm);
+        display: inline-flex;
+        align-items: center;
+        background: var(--surface-1);
+      }
+      body.dark .pill {
+        background: var(--surface-2);
+      }
+      .est {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-top: 2px;
+        line-height: 1.5;
+      }
+
+      /* 套餐 */
+      .quota-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        margin-bottom: 6px;
+      }
+      .quota-title .grow {
+        flex: 1;
+      }
+      .qrow {
+        margin: 6px 0 10px;
+      }
+      .qrow .t {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .qrow .t .nm {
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+      }
+      .qrow .t .grow {
+        flex: 1;
+      }
+      .qrow .t .rs {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+      }
+      .qrow .t .pc {
+        color: var(--text-2);
+        font-size: var(--fs-sm);
+        font-variant-numeric: tabular-nums;
+        width: 34px;
+        text-align: right;
+      }
+      .qbar {
+        height: 5px;
+        border-radius: var(--r-pill);
+        background: var(--line);
+        margin-top: 6px;
+        overflow: hidden;
+      }
+      .qbar i {
+        display: block;
+        height: 100%;
+        background: var(--tint);
+        border-radius: var(--r-pill);
+      }
+      .qbar i.warn {
+        background: var(--attn);
+      }
+
+      /* 状态栏 */
+      .statusbar {
+        width: 640px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        position: relative;
+      }
+      .sgroup {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: var(--r-pill);
+      }
+      .sgroup.hl {
+        background: var(--hover);
+        box-shadow: 0 0 0 2px rgba(47, 111, 237, 0.3);
+      }
+      .sgroup .dot {
+        color: var(--text-dim);
+      }
+      .ring {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        background: conic-gradient(var(--text-muted) 0 11%, var(--line-strong) 11% 100%);
+        -webkit-mask: radial-gradient(circle, transparent 4px, #000 4.5px);
+      }
+      .ring.q {
+        background: conic-gradient(var(--tint) 0 39%, var(--line-strong) 39% 100%);
+      }
+      .stage {
+        width: 680px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: 0 0 0 0.5px var(--line);
+        padding: 16px 20px 10px;
+        position: relative;
+      }
+      .composer {
+        height: 92px;
+        border-radius: 22px;
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 6px 18px rgba(0, 0, 0, 0.05);
+        margin: 0 auto 4px;
+        width: 600px;
+        background: var(--surface-1);
+        color: var(--text-dim);
+        padding: 14px 18px;
+        font-size: var(--fs-meta);
+      }
+      body.dark .composer {
+        background: var(--surface-2);
+      }
+      .float {
+        position: absolute;
+        bottom: 44px;
+      }
+
+      /* 设置 */
+      .settings {
+        width: 640px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--float-shadow);
+        display: flex;
+        overflow: hidden;
+      }
+      .settings nav {
+        width: 170px;
+        background: rgba(0, 0, 0, 0.022);
+        padding: 16px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      body.dark .settings nav {
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .settings nav a {
+        display: flex;
+        align-items: center;
+        height: 32px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        color: var(--text-2);
+        font-size: var(--fs-meta);
+      }
+      .settings nav a.cur {
+        background: var(--selected);
+      }
+      .settings main {
+        flex: 1;
+        padding: 20px 24px;
+      }
+      .settings h4 {
+        margin: 0 0 14px;
+        font-size: 17px;
+      }
+      .acct {
+        border-radius: var(--r-md);
+        box-shadow: 0 0 0 0.5px var(--line);
+        padding: 12px 14px;
+        margin-bottom: 12px;
+      }
+      .acct .top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .acct .top b {
+        font-weight: 500;
+        font-size: var(--fs-meta);
+        color: var(--text);
+      }
+      .acct .top .tag {
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 1px 7px;
+      }
+      .acct .top .grow {
+        flex: 1;
+      }
+      .acct .top .lnk {
+        font-size: var(--fs-sm);
+        color: var(--tint);
+      }
+      .acct .none {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+
+      .callout {
+        position: absolute;
+        z-index: 3;
+        font-size: var(--fs-xs);
+        line-height: 16px;
+        color: #fff;
+        background: var(--tint);
+        border-radius: var(--r-pill);
+        padding: 0 7px;
+        white-space: nowrap;
+      }
+      .src {
+        font-size: var(--fs-xs);
+        color: var(--tint);
+        margin-left: 4px;
+      }
+      body.no-src .src {
+        display: none;
+      }
+      table.data {
+        margin: 8px 40px 32px;
+        border-collapse: collapse;
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        max-width: 1180px;
+      }
+      table.data th,
+      table.data td {
+        text-align: left;
+        padding: 7px 14px 7px 0;
+        border-bottom: 0.5px solid var(--line);
+        vertical-align: top;
+      }
+      table.data th {
+        color: var(--text-muted);
+        font-weight: 500;
+      }
+      table.data td.ok {
+        color: var(--ok-text);
+      }
+      table.data td.mid {
+        color: var(--attn-text);
+      }
+      table.data td.no {
+        color: var(--text-dim);
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>上下文细分与套餐余量 · 设计稿（原型，审完即弃）</h1>
+      <p>
+        <b>问题 1</b>：状态栏的"上下文已用"卡片现在只分系统提示词、工具定义、对话消息三段，能不能像 Claude Code
+        那样拆到记忆文件、skill、MCP 工具、自动压缩预留。<b>问题 2</b>：coding plan
+        的余量和重置时间放哪里。数据全是假的。
+      </p>
+    </header>
+    <div class="toggles">
+      <label><input type="checkbox" id="dark" /> 深色</label>
+      <label><input type="checkbox" id="src" checked /> 显示数据来源（蓝色小字）</label>
+    </div>
+
+    <h2 class="part">1 · 上下文卡片：细分</h2>
+    <p class="part-note">
+      数据大多来自 Atrium 已经在读的 pi 会话文件：pi
+      记下的系统消息带着分段名（<code>preamble</code>、<code>project_context</code>、<code>skills</code>、<code>mcp_servers</code>……）和每个工具的定义，现在只是把段名丢了、只留了两个总数。自动压缩预留来自
+      pi 的设置（<code>compaction.reserveTokens</code>，默认 16384）。各段都是按字数估的（约 4 个字符 1 个
+      token），只有总数是模型报的实数，所以"对话消息"是总数减去其余各段。
+    </p>
+    <div class="board" id="ctx"></div>
+
+    <h2 class="part">2 · 套餐余量放哪里</h2>
+    <p class="part-note">
+      pi 本身不读也不给套餐用量。要拿，得让 Atrium 自带的 pi 扩展（Fast 用的那个）借 pi
+      存的登录去问提供方的用量接口，宿主照样不碰凭据。只在当前模型是订阅登录、并且这家能查到时才显示。三个位置可以组合，推荐
+      <b>B（状态栏单独一组）+ C（设置里看全部账户）</b>。
+    </p>
+    <div class="board" id="quota"></div>
+
+    <h2 class="part" style="margin-top: 12px">各家能查到什么（调研结果，未实测）</h2>
+    <table class="data">
+      <tr>
+        <th>提供方（pi 里的名字）</th>
+        <th>登录方式</th>
+        <th>能拿到的</th>
+        <th>从哪拿</th>
+        <th>判断</th>
+      </tr>
+      <tr>
+        <td>ChatGPT / Codex（<code>openai-codex</code>）</td>
+        <td>订阅登录</td>
+        <td>5 小时窗口、每周窗口的已用 %、重置时间</td>
+        <td>用量接口 <code>backend-api/wham/usage</code>；SSE 时的响应头</td>
+        <td class="ok">先做</td>
+      </tr>
+      <tr>
+        <td>Claude Pro / Max（<code>anthropic</code>）</td>
+        <td>订阅登录</td>
+        <td>5 小时、7 天（含按模型）的已用 %、重置时间</td>
+        <td>用量接口 <code>api/oauth/usage</code>；每次回复的 <code>anthropic-ratelimit-unified-*</code> 响应头</td>
+        <td class="ok">先做</td>
+      </tr>
+      <tr>
+        <td>GLM Coding Plan（<code>zai</code>、<code>zai-coding-cn</code>）</td>
+        <td>API key</td>
+        <td>5 小时提示次数、每月工具调用等</td>
+        <td>智谱自己的用量接口（未公开文档）</td>
+        <td class="mid">逐家实测后再加</td>
+      </tr>
+      <tr>
+        <td>Kimi Code、MiniMax、Qwen / 小米 Token Plan</td>
+        <td>订阅登录或 API key</td>
+        <td>各家不同</td>
+        <td>各家自己的接口</td>
+        <td class="mid">逐家实测后再加</td>
+      </tr>
+      <tr>
+        <td>GitHub Copilot</td>
+        <td>订阅登录</td>
+        <td>每月额度</td>
+        <td>要 GitHub 的 token，pi 不交给扩展</td>
+        <td class="no">做不了</td>
+      </tr>
+    </table>
+
+    <script>
+      const fmt = (k) => (k >= 100 ? `${Math.round(k)}K` : `${k.toFixed(1).replace(/\.0$/, "")}K`);
+      const WIN = 500,
+        USED = 57.2,
+        RESERVE = 16.4;
+      const parts = [
+        { key: "msgs", name: "对话消息", k: 41.2, c: "var(--c-msgs)", src: "总数减其余各段" },
+        { key: "sys", name: "系统提示词", k: 3.1, c: "var(--c-sys)", src: "preamble、rules、docs、cwd 段" },
+        {
+          key: "mem",
+          name: "记忆文件",
+          k: 4.2,
+          c: "var(--c-mem)",
+          count: 2,
+          src: "project_context 段",
+          subs: [
+            ["~/.pi/agent/AGENTS.md", 1.1],
+            ["atrium/AGENTS.md", 3.1],
+          ],
+        },
+        {
+          key: "skill",
+          name: "Skills",
+          k: 1.6,
+          c: "var(--c-skill)",
+          count: 6,
+          src: "skills 段",
+          subs: [
+            ["prototype", 0.4],
+            ["tdd", 0.3],
+            ["diagnose", 0.3],
+            ["paseo", 0.3],
+            ["commit", 0.2],
+            ["dataviz", 0.1],
+          ],
+          plain: true,
+        },
+        {
+          key: "tool",
+          name: "内置工具",
+          k: 2.0,
+          c: "var(--c-tool)",
+          count: 7,
+          src: "工具定义，按名字分",
+          subs: [
+            ["bash", 0.5],
+            ["edit", 0.4],
+            ["read", 0.3],
+            ["write", 0.3],
+            ["grep", 0.2],
+            ["find", 0.2],
+            ["ls", 0.1],
+          ],
+          plain: true,
+        },
+        {
+          key: "mcp",
+          name: "MCP 工具",
+          k: 3.4,
+          c: "var(--c-mcp)",
+          count: 18,
+          src: "mcp__ 开头的工具 + mcp_servers 段",
+          subs: [
+            ["chrome-devtools · 12 个", 2.3],
+            ["paseo · 6 个", 1.1],
+          ],
+          plain: true,
+        },
+        {
+          key: "ext",
+          name: "扩展",
+          k: 1.7,
+          c: "var(--c-ext)",
+          count: 2,
+          src: "其余工具和段",
+          subs: [
+            ["atrium-fast", 0.6],
+            ["todo", 1.1],
+          ],
+          plain: true,
+        },
+      ];
+      const pct = (k) => `${((k / WIN) * 100).toFixed(1)}%`;
+      const share = (k) => `${(k / WIN) * 100}%`;
+
+      function contextCard({ quota = false, callouts = false } = {}) {
+        const free = WIN - USED - RESERVE;
+        const bar =
+          parts.map((p) => `<i style="width:${share(p.k)};background:${p.c}"></i>`).join("") +
+          `<i class="reserve" style="width:${share(RESERVE)};margin-left:auto"></i>`;
+        const lines = parts
+          .map((p) => {
+            const t = p.subs ? "toggle" : "";
+            return `<div class="line ${t}" data-key="${p.key}">
+        ${p.subs ? '<svg class="chev" viewBox="0 0 10 10" width="10" height="10"><path d="M3.5 2 7 5 3.5 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '<span style="width:10px"></span>'}
+        <span class="sw" style="background:${p.c}"></span>
+        <span class="nm">${p.name}${p.count ? `<span class="ct">${p.count}</span>` : ""}<span class="src">${p.src}</span></span>
+        <span class="v">~${fmt(p.k)}</span><span class="p">${pct(p.k)}</span></div>
+      ${p.subs ? `<div class="subs" data-for="${p.key}">${p.subs.map(([n, k]) => `<div class="sub"><span class="nm ${p.plain ? "plain" : ""}">${n}</span><span class="v">~${fmt(k)}</span></div>`).join("")}</div>` : ""}`;
+          })
+          .join("");
+        return `<div class="card" style="position:relative">
+    ${callouts ? '<span class="callout" style="right:12px;top:-9px">分段更细，可展开</span>' : ""}
+    <div class="head">上下文已用 11%<span class="total">~57K / 500K</span></div>
+    <div class="bar">${bar}</div>
+    ${lines}
+    <div class="line"><span style="width:10px"></span><span class="sw hatch"></span><span class="nm">自动压缩预留<span class="src">pi 设置 reserveTokens</span></span><span class="v">${fmt(RESERVE)}</span><span class="p">${pct(RESERVE)}</span></div>
+    <div class="line"><span style="width:10px"></span><span class="sw free"></span><span class="nm">剩余空间</span><span class="v">~${fmt(free)}</span><span class="p">${pct(free)}</span></div>
+    <div class="sep"></div>
+    <div class="foot"><span class="grow">距自动压缩还剩 ~${fmt(free)}</span><span class="pill">压缩会话</span></div>
+    <div class="est">各段按字数估算；对话消息 = 总数 − 其余各段</div>
+    ${quota ? quotaBlock(true) : ""}
+  </div>`;
+      }
+
+      function quotaBlock(inCard) {
+        return `${inCard ? '<div class="sep"></div>' : ""}
+    <div class="quota-title">${inCard ? "套餐用量 · ChatGPT Plus" : ""}<span class="grow"></span>${inCard ? "" : ""}</div>
+    <div class="qrow"><div class="t"><span class="nm">5 小时窗口</span><span class="grow"></span><span class="rs">4 小时 16 分后重置</span><span class="pc">39%</span></div><div class="qbar"><i style="width:39%"></i></div></div>
+    <div class="qrow"><div class="t"><span class="nm">每周</span><span class="grow"></span><span class="rs">周日 08:00 重置</span><span class="pc">52%</span></div><div class="qbar"><i style="width:52%"></i></div></div>`;
+      }
+
+      const quotaCard = `<div class="card" style="width:300px">
+  <div class="head">ChatGPT Plus 用量<span class="total" style="color:var(--text-dim);font-weight:400;font-size:var(--fs-sm)">1 分钟前</span></div>
+  ${quotaBlock(false)}
+  <div class="sep"></div>
+  <div class="foot">用到 80% 时这一组变橙色</div>
+</div>`;
+
+      function bar(withQuota, hl) {
+        return `<div class="statusbar">
+    <span class="sgroup">◷ 2 轮 3 步 <span class="dot">·</span> 146 tok/s</span>
+    <span class="sgroup">⛁ 41K tok <span class="dot">·</span> 缓存命中 65%</span>
+    <span class="sgroup"><span class="ring"></span>11%</span>
+    ${withQuota ? `<span class="sgroup ${hl ? "hl" : ""}"><span class="ring q"></span>套餐 39%</span>` : ""}
+    <span class="sgroup">⚙</span>
+  </div>`;
+      }
+
+      document.getElementById("ctx").innerHTML = `
+  <section class="frame"><h3>现在</h3>
+    <ul><li>只有三段；记忆文件、skill、工具都混在"系统提示词""工具定义"里</li><li>看不到离自动压缩还有多远</li></ul>
+    <div class="card"><div class="head">上下文已用 11%<span class="total">~57K / 500K</span></div>
+      <div class="bar"><i style="width:${share(10.3)};background:var(--c-sys)"></i><i style="width:${share(5.7)};background:var(--c-tool)"></i><i style="width:${share(41.2)};background:var(--c-msgs)"></i></div>
+      <div class="line"><span class="sw" style="background:var(--c-sys)"></span><span class="nm">系统提示词</span><span class="v">~10K</span></div>
+      <div class="line"><span class="sw" style="background:var(--c-tool)"></span><span class="nm">工具定义</span><span class="v">~6K</span></div>
+      <div class="line"><span class="sw" style="background:var(--c-msgs)"></span><span class="nm">对话消息</span><span class="v">~41K</span></div>
+      <div class="sep"></div><div class="foot">接近上限时 pi 会自动压缩</div></div>
+  </section>
+  <section class="frame"><h3>细分（点带 › 的行展开）</h3>
+    <ul>
+      <li><b>九段</b>：对话消息、系统提示词、记忆文件（AGENTS.md 等）、Skills、内置工具、MCP 工具、扩展、自动压缩预留、剩余空间</li>
+      <li><b>记忆文件、Skills、工具展开</b>到每个文件、每个 skill、每个 MCP 服务器</li>
+      <li><b>距自动压缩还剩</b> + "压缩会话"按钮（同 <code>/compact</code>）；卡片要能点进去，悬停时不收起</li>
+    </ul>
+    ${contextCard({ callouts: true })}
+  </section>`;
+
+      document.getElementById("quota").innerHTML = `
+  <section class="frame"><h3>A · 放在上下文卡片底部</h3>
+    <ul><li>同你给的截图；一张卡片看完</li><li>但上下文是这个会话的，套餐是账户的，混在一起；卡片很长</li></ul>
+    ${contextCard({ quota: true })}
+  </section>
+  <section class="frame"><h3>B · 状态栏单独一组（推荐）</h3>
+    <ul><li>状态栏多一组"套餐 39%"，悬停看两个窗口和重置时间</li><li>只在当前模型是订阅登录、能查到时出现；用到 80% 变橙色</li><li>调节面板里能关掉</li></ul>
+    <div class="stage" style="height:290px">
+      <div class="float" style="left:330px">${quotaCard}</div>
+      <div style="position:absolute;bottom:42px;left:40px;right:40px"></div>
+      <div style="position:absolute;bottom:10px;left:20px">${bar(true, true)}</div>
+    </div>
+  </section>
+  <section class="frame"><h3>C · 设置 · 模型与账户</h3>
+    <ul><li>每个登录了的账户下面列它的窗口，常驻、不看当前模型</li><li>适合同时有好几家订阅时一起看；和 B 搭配</li></ul>
+    <div class="settings">
+      <nav><a>外观</a><a class="cur">模型与账户</a><a>项目</a><a>pi</a><a>关于</a></nav>
+      <main><h4>模型与账户</h4>
+        <div class="acct"><div class="top"><b>ChatGPT</b><span class="tag">Plus · 订阅</span><span class="grow"></span><span class="lnk">刷新</span></div>${quotaBlock(false)}</div>
+        <div class="acct"><div class="top"><b>Claude</b><span class="tag">Max · 订阅</span><span class="grow"></span><span class="lnk">刷新</span></div>
+          <div class="qrow"><div class="t"><span class="nm">5 小时窗口</span><span class="grow"></span><span class="rs">1 小时 02 分后重置</span><span class="pc">84%</span></div><div class="qbar"><i class="warn" style="width:84%"></i></div></div>
+          <div class="qrow"><div class="t"><span class="nm">7 天</span><span class="grow"></span><span class="rs">周四 14:00 重置</span><span class="pc">31%</span></div><div class="qbar"><i style="width:31%"></i></div></div></div>
+        <div class="acct"><div class="top"><b>智谱 GLM</b><span class="tag">API key</span></div><div class="none">这家的用量还查不到</div></div>
+      </main>
+    </div>
+  </section>`;
+
+      document.querySelectorAll(".line.toggle").forEach((line) =>
+        line.addEventListener("click", () => {
+          line.classList.toggle("open");
+          line.parentElement.querySelector(`.subs[data-for="${line.dataset.key}"]`)?.classList.toggle("open");
+        }),
+      );
+      document
+        .getElementById("dark")
+        .addEventListener("change", (e) => document.body.classList.toggle("dark", e.target.checked));
+      document
+        .getElementById("src")
+        .addEventListener("change", (e) => document.body.classList.toggle("no-src", !e.target.checked));
+    </script>
+  </body>
+</html>

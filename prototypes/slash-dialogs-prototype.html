@@ -1,0 +1,462 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. "/" 命令里要新做的三个浮层：/fork 选分叉点、/session 会话信息、/hotkeys 快捷键。
+  问题：三个浮层长什么样、放什么内容。样式取自 packages/ui/src/design/tokens.css 和设置弹窗。
+  第 1 节可以直接玩：点上面的按钮打开浮层，/fork 里 ↑↓ 选、回车确定、Esc 关闭。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · / 命令的三个浮层</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --popover: #fff;
+        --sidebar-bg: rgba(246, 247, 250, 0.9);
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --tint-soft: rgba(47, 111, 237, 0.1);
+        --ok-text: #1e8e3e;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.16);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r: 8px;
+        --r-sm: 6px;
+        --r-md: 10px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #eef1f6;
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p,
+      p.note {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+        max-width: 920px;
+      }
+      section.block {
+        padding: 18px 40px 8px;
+      }
+      section.block > h2 {
+        font-size: 15px;
+        margin: 0 0 4px;
+      }
+      .row {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        margin-top: 12px;
+      }
+      button.try {
+        all: unset;
+        cursor: pointer;
+        font: var(--fs-meta)/1 var(--font-mono);
+        padding: 7px 12px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+      }
+      button.try:hover {
+        background: var(--surface-2);
+      }
+
+      /* 窗口里的对话区 */
+      .win {
+        position: relative;
+        width: 760px;
+        height: 520px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .win .sb {
+        width: 170px;
+        background: var(--sidebar-bg);
+        border-right: 0.5px solid var(--line);
+      }
+      .win .chat {
+        flex: 1;
+        position: relative;
+        padding: 22px 28px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 8px 14px;
+        font-size: var(--fs-meta);
+      }
+      .reply {
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .scrim {
+        position: absolute;
+        inset: 0;
+        background: rgba(15, 18, 24, 0.18);
+        display: grid;
+        place-items: center;
+      }
+      .scrim.hidden {
+        display: none;
+      }
+
+      /* 浮层卡片 */
+      .dlg {
+        width: 480px;
+        max-height: 440px;
+        display: flex;
+        flex-direction: column;
+        background: var(--surface-1);
+        border-radius: var(--r-card);
+        box-shadow: var(--float-shadow);
+        overflow: hidden;
+      }
+      .dlg .hd {
+        padding: 16px 18px 10px;
+      }
+      .dlg .hd h3 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .dlg .hd p {
+        margin: 4px 0 0;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .dlg .bd {
+        padding: 2px 8px 8px;
+        overflow-y: auto;
+      }
+      .dlg .ft {
+        padding: 8px 18px 12px;
+        border-top: 0.5px solid var(--line);
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        display: flex;
+        gap: 14px;
+      }
+      .dlg .ft kbd {
+        font: inherit;
+        color: var(--text-muted);
+      }
+
+      /* /fork */
+      .pt {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding: 7px 10px;
+        border-radius: var(--r-md);
+        cursor: default;
+      }
+      .pt:hover {
+        background: var(--hover);
+      }
+      .pt.on {
+        background: var(--selected);
+      }
+      .pt .n {
+        width: 18px;
+        flex: none;
+        text-align: right;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .pt .t {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .pt.on .t {
+        color: var(--text);
+      }
+
+      /* /session */
+      .kv {
+        display: grid;
+        grid-template-columns: 76px 1fr;
+        gap: 10px 14px;
+        padding: 4px 10px 10px;
+        font-size: var(--fs-meta);
+      }
+      .kv .k {
+        color: var(--text-muted);
+      }
+      .kv .v {
+        min-width: 0;
+        color: var(--text-2);
+      }
+      .kv .mono {
+        font: var(--fs-sm)/1.5 var(--font-mono);
+        word-break: break-all;
+        user-select: text;
+      }
+      .kv .acts {
+        display: flex;
+        gap: 6px;
+        margin-top: 4px;
+      }
+      .kv .acts button {
+        all: unset;
+        cursor: pointer;
+        font-size: var(--fs-xs);
+        color: var(--tint);
+      }
+      .kv .sub {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .kv .sep {
+        grid-column: 1 / -1;
+        height: 0.5px;
+        background: var(--line);
+        margin: 2px 0;
+      }
+
+      /* /hotkeys */
+      .grp {
+        padding: 4px 10px 8px;
+      }
+      .grp h4 {
+        margin: 6px 0 4px;
+        font-size: var(--fs-xs);
+        font-weight: 500;
+        color: var(--text-dim);
+      }
+      .hk {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 4px 0;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .keys {
+        display: inline-flex;
+        gap: 3px;
+      }
+      .keys kbd {
+        font: 500 var(--fs-xs)/1 var(--font-sans);
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        display: inline-grid;
+        place-items: center;
+        background: var(--hover);
+        border-radius: var(--r-sm);
+        color: var(--text-2);
+        box-shadow: inset 0 -0.5px 0 var(--line-strong);
+      }
+      .keys .or {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        align-self: center;
+        padding: 0 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>/ 命令的三个浮层（原型，审完即弃）</h1>
+      <p>
+        都是对话区中间的浮层卡片：白底、圆角 16、和设置弹窗同一种投影，宽 480px，Esc
+        或点外面关闭。打开时对话区盖一层很淡的灰。
+      </p>
+    </header>
+
+    <section class="block">
+      <h2>1. 试一试</h2>
+      <p class="note">点按钮打开。<b>/fork</b>：↑↓ 选，回车确定（原型里只提示，不做事），Esc 关闭。</p>
+      <div class="row">
+        <button class="try" data-open="fork">/fork</button><button class="try" data-open="session">/session</button
+        ><button class="try" data-open="hotkeys">/hotkeys</button>
+      </div>
+      <div class="row">
+        <div class="win" id="win">
+          <div class="sb"></div>
+          <div class="chat">
+            <div class="bubble">给侧栏加一个"等你处理"的汇总</div>
+            <div class="reply">好的，我先看一下 sidebar.tsx 现在的结构……</div>
+            <div class="bubble">卡片放到设置上面，默认收起</div>
+            <div class="reply">已经改好，测试也补上了。</div>
+            <div class="scrim hidden" id="scrim"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" style="padding-bottom: 60px">
+      <h2>2. 三个并排</h2>
+      <p class="note">
+        <b>/fork</b
+        >：列出这个会话当前分支上你发过的消息，按发出顺序，打开时选中最后一条（最常见的是"刚才那条重来"）。说明写清楚分叉的结果。<br />
+        <b>/session</b>：名字作标题；会话
+        id、文件、工作目录用等宽字，可以选中复制，文件可以在访达中显示；用量和费用跟状态栏一样标"本会话累计"。打开时读一次，不实时更新。<br />
+        <b>/hotkeys</b>：按"会话、输入框、窗口"分组，键是浅灰小方块。
+      </p>
+      <div class="row" id="all"></div>
+    </section>
+
+    <script>
+      const POINTS = [
+        '给侧栏加一个"等你处理"的汇总，把待审批、待回答、待授权和出错的会话收在一起',
+        "卡片放到设置上面，默认收起",
+        "收起时只显示状态图标，不要显示数字以外的字",
+        "欢迎页的小预览也改一下",
+        "把归档放到悬停里，不要在更多菜单里了",
+        "running 的步骤不要自己展开，视口一直在晃",
+      ];
+      let hl = POINTS.length - 1;
+
+      function fork(live) {
+        return `<div class="dlg" role="dialog" aria-label="从哪条消息分叉">
+    <div class="hd"><h3>从哪条消息分叉</h3><p>新会话保留这条消息之前的对话，这条消息放进新会话的输入框，改了再发。原会话不变。</p></div>
+    <div class="bd" id="${live ? "pts" : ""}">${POINTS.map((t, i) => `<div class="pt${i === hl ? " on" : ""}" data-i="${i}"><span class="n">${i + 1}</span><span class="t">${t}</span></div>`).join("")}</div>
+    <div class="ft"><span><kbd>↑↓</kbd> 选择</span><span><kbd>回车</kbd> 分叉</span><span><kbd>Esc</kbd> 取消</span></div></div>`;
+      }
+      function session() {
+        return `<div class="dlg" role="dialog" aria-label="会话信息">
+    <div class="hd"><h3>设计侧栏交互</h3><p>本会话累计，含其他分支和压缩消耗</p></div>
+    <div class="bd"><div class="kv">
+      <span class="k">会话 id</span><span class="v mono">019a3f2c-7d41-7b9e-a3c0-5e8d2f61b0aa</span>
+      <span class="k">会话文件</span><span class="v"><span class="mono">~/.pi/agent/sessions/--code-atrium--/2026-10-13T09-12-44_019a3f2c.jsonl</span><span class="acts"><button>复制</button><button>在访达中显示</button></span></span>
+      <span class="k">工作目录</span><span class="v mono">~/code/atrium.worktrees/slash-commands</span>
+      <span class="sep"></span>
+      <span class="k">消息</span><span class="v">你发的 12 · 回复 34 · 工具调用 87</span>
+      <span class="k">Token</span><span class="v">共 2.4M<div class="sub">输入 1.2M · 输出 84K · 缓存读取 980K · 缓存写入 120K · 缓存命中 45%</div></span>
+      <span class="k">费用</span><span class="v">$3.42</span>
+    </div></div>
+    <div class="ft"><span><kbd>Esc</kbd> 关闭</span></div></div>`;
+      }
+      const K = (...ks) =>
+        `<span class="keys">${ks.map((k) => (k === "/" ? '<span class="or">/</span>' : `<kbd>${k}</kbd>`)).join("")}</span>`;
+      function hotkeys() {
+        const g = (title, rows) =>
+          `<div class="grp"><h4>${title}</h4>${rows.map(([d, k]) => `<div class="hk"><span>${d}</span>${k}</div>`).join("")}</div>`;
+        return `<div class="dlg" role="dialog" aria-label="快捷键" style="max-height:480px">
+    <div class="hd"><h3>快捷键</h3></div>
+    <div class="bd">
+      ${g("会话", [
+        ["新建会话", K("⌘", "T")],
+        ["新建对话", K("⌘", "N")],
+        ["关闭标签", K("⌘", "W")],
+        ["切到第几个标签", K("⌘", "1–9")],
+        ["上一个 / 下一个标签", K("⌘", "⇧", "[", "/", "⌘", "⇧", "]")],
+        ["停止运行", K("Esc")],
+      ])}
+      ${g("输入框", [
+        ["发送", K("↩")],
+        ["换行", K("⇧", "↩")],
+        ["插话（运行中）", K("⌘", "↩")],
+        ["之前发过的消息", K("↑", "/", "↓")],
+        ["引用文件", K("@")],
+        ["命令", K("/")],
+        ["模型菜单", K("⌘", "⇧", "I")],
+        ["推理强度", K("⌘", "⇧", "E")],
+      ])}
+      ${g("窗口", [["设置", K("⌘", ",")]])}
+    </div>
+    <div class="ft"><span><kbd>Esc</kbd> 关闭</span></div></div>`;
+      }
+      const MAKERS = { fork, session, hotkeys };
+
+      const scrim = document.getElementById("scrim");
+      let open = null;
+      function show(which) {
+        open = which;
+        if (which === "fork") hl = POINTS.length - 1;
+        scrim.innerHTML = MAKERS[which](true);
+        scrim.classList.remove("hidden");
+        scrim.querySelectorAll(".pt").forEach((el) =>
+          el.addEventListener("click", () => {
+            hl = +el.dataset.i;
+            done();
+          }),
+        );
+        scrim.querySelector(".pt.on")?.scrollIntoView({ block: "nearest" });
+      }
+      function hide() {
+        open = null;
+        scrim.classList.add("hidden");
+        scrim.innerHTML = "";
+      }
+      function done() {
+        hide();
+        const t = document.createElement("div");
+        t.style.cssText =
+          "position:absolute;left:50%;top:14px;transform:translateX(-50%);font-size:12px;background:#fff;box-shadow:var(--float-shadow);border-radius:999px;padding:5px 12px;white-space:nowrap";
+        t.textContent = `新会话开成新标签，输入框里是：${POINTS[hl].slice(0, 18)}…`;
+        document.querySelector(".chat").appendChild(t);
+        setTimeout(() => t.remove(), 2200);
+      }
+      document.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () => show(b.dataset.open)));
+      scrim.addEventListener("mousedown", (e) => {
+        if (e.target === scrim) hide();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (!open) return;
+        if (e.key === "Escape") {
+          hide();
+          e.preventDefault();
+          return;
+        }
+        if (open !== "fork") return;
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          hl = Math.max(0, Math.min(POINTS.length - 1, hl + (e.key === "ArrowDown" ? 1 : -1)));
+          scrim.querySelectorAll(".pt").forEach((el) => el.classList.toggle("on", +el.dataset.i === hl));
+          scrim.querySelector(".pt.on")?.scrollIntoView({ block: "nearest" });
+          e.preventDefault();
+        } else if (e.key === "Enter") {
+          done();
+          e.preventDefault();
+        }
+      });
+      document.getElementById("all").innerHTML = fork(false) + session() + hotkeys();
+    </script>
+  </body>
+</html>

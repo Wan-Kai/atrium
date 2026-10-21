@@ -1,0 +1,974 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 新建 worktree 时让 AI 起分支名（2026-10-14 定"先起名再建"：发出后先起名，再用这个名字建 worktree，
+  分支、目录、侧栏名一致；起名失败或 15 秒没结果用随机名接着走）。这里比较页面上怎么表示"会自动起名"、时间轴上怎么表示起名这一步。
+  A 单独一步：分支名按钮写"✦ 自动起名"；时间轴最前多一步"起名"，做完后面跟名字。
+  B 并入创建：按钮同 A；时间轴还是三步，第一步先写"起名"扫光，起好后换成"创建 worktree atrium/… · 基于 …"。
+  C 占位名：按钮写 atrium/ 加一段淡色的"✦ 自动"；时间轴同 A，名字起好时逐字出现，选择排上的按钮同时换成这个名字。
+  三版共有：点按钮可以自己写名字，写了就不再起名（时间轴没有起名这一步）；清空恢复自动起名。
+  底部浮条：版本（也可 ?variant=A|B|C、← →）、浅色 / 深色、情形（发出前 / 播放成功 / 播放失败兜底 / 自己写了名字）。
+  颜色、字号取自 packages/ui/src/design/tokens.css；图标是 Hugeicons 免费版，从 @hugeicons/core-free-icons 直接生成。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · AI 给新 worktree 起名</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --linked: rgba(47, 111, 237, 0.1);
+        --danger: #d93025;
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #a1a1a7;
+        --bubble: #f2f2f4;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --page: #eef1f6;
+        --bar: rgba(255, 255, 255, 0.92);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --linked: rgba(122, 170, 255, 0.14);
+        --danger: #f2766b;
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #81858c;
+        --bubble: #2c2c2e;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --page: #0c0c0e;
+        --bar: rgba(40, 40, 42, 0.92);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 110px;
+      }
+      header.page {
+        padding: 24px 40px 4px;
+        max-width: 1040px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .stage {
+        padding: 14px 40px;
+      }
+      .win {
+        width: 1040px;
+        height: 600px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .sb {
+        width: 220px;
+        background: var(--surface-2);
+        border-right: 0.5px solid var(--line);
+        padding: 52px 10px 0;
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .sb .proj {
+        height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        background: var(--selected);
+      }
+      .sb .proj svg {
+        color: var(--text-muted);
+      }
+      .sb .ws {
+        height: 30px;
+        display: flex;
+        align-items: center;
+        padding: 0 8px 0 30px;
+        color: var(--text-muted);
+        border-radius: var(--r);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sb .ws.new {
+        color: var(--text);
+        background: var(--selected);
+        animation: fadein 0.3s ease;
+      }
+      @keyframes fadein {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .tabs {
+        height: 44px;
+        border-bottom: 0.5px solid var(--line);
+        flex: none;
+      }
+      .body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .hero {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        color: var(--text-muted);
+      }
+      .hero b {
+        font-size: 20px;
+        font-weight: 500;
+        color: var(--text);
+      }
+      .hero span {
+        font-size: var(--fs-meta);
+      }
+      .timeline {
+        width: 100%;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 16px 24px 0;
+        flex: 1;
+      }
+      .timeline ol {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      .timeline li {
+        position: relative;
+        padding-left: 30px;
+        animation: stepin 0.32s cubic-bezier(0.2, 0.9, 0.3, 1);
+      }
+      @keyframes stepin {
+        from {
+          opacity: 0;
+          transform: translateY(-3px);
+        }
+      }
+      .timeline .ln {
+        min-height: 30px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        min-width: 0;
+      }
+      .timeline .verb {
+        flex: none;
+        color: var(--text-2);
+      }
+      .timeline .wait .verb {
+        color: var(--text-dim);
+      }
+      .timeline .det {
+        color: var(--text-dim);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .timeline .det .mono {
+        font-family: var(--font-mono);
+        font-size: 12px;
+      }
+      .timeline .why {
+        font-size: var(--fs-meta);
+        color: var(--text-dim);
+        padding: 0 0 6px;
+        margin-top: -4px;
+      }
+      .rail-up,
+      .rail-down {
+        position: absolute;
+        left: 10px;
+        width: 1px;
+        background: var(--rail);
+      }
+      .rail-up {
+        top: 0;
+        height: 8px;
+      }
+      .rail-down {
+        top: 22px;
+        bottom: 0;
+      }
+      .node {
+        position: absolute;
+        left: 10.5px;
+        top: 15px;
+        transform: translate(-50%, -50%);
+        display: grid;
+        place-items: center;
+      }
+      .n-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+      .n-wait {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--rail);
+      }
+      .n-live {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--tint);
+      }
+      .n-live + svg {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        margin: -8px 0 0 -8px;
+        width: 16px;
+        height: 16px;
+        color: var(--tint);
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .shimmer {
+        background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200%
+          100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent !important;
+        animation: shim 2.2s linear infinite;
+      }
+      @keyframes shim {
+        from {
+          background-position: 100% 0;
+        }
+        to {
+          background-position: -100% 0;
+        }
+      }
+      .pending {
+        margin-top: 12px;
+        opacity: 0.6;
+        display: flex;
+        justify-content: flex-end;
+      }
+      .bubble {
+        background: var(--bubble);
+        border-radius: var(--r-bubble);
+        padding: 9px 16px;
+        font-size: var(--fs);
+        max-width: 70%;
+      }
+      .typing {
+        border-right: 1.5px solid var(--tint);
+        animation: caret 1s steps(1) infinite;
+      }
+      @keyframes caret {
+        50% {
+          border-color: transparent;
+        }
+      }
+      .row {
+        width: 100%;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px 6px;
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex: none;
+      }
+      .chip {
+        all: unset;
+        cursor: pointer;
+        position: relative;
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        border-radius: var(--r-btn);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: nowrap;
+        max-width: 240px;
+      }
+      .chip:hover {
+        background: var(--hover);
+      }
+      .chip .ic {
+        color: var(--text-muted);
+      }
+      .chip .car {
+        color: var(--text-dim);
+      }
+      .chip.held {
+        color: var(--text-dim);
+        cursor: default;
+      }
+      .chip.held:hover {
+        background: none;
+      }
+      .chip.held .ic,
+      .chip.held .spark {
+        color: var(--text-dim);
+      }
+      .chip .spark {
+        color: var(--tint);
+      }
+      .chip .auto {
+        color: var(--text-dim);
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+      }
+      .chip .nm {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .chip .nm.fresh {
+        animation: flash 1.2s ease;
+        border-radius: 4px;
+      }
+      @keyframes flash {
+        0% {
+          background: var(--linked);
+        }
+        100% {
+          background: transparent;
+        }
+      }
+      .field {
+        position: relative;
+        height: 26px;
+        width: 240px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px;
+        font-size: var(--fs-meta);
+      }
+      .field input {
+        all: unset;
+        height: 26px;
+        flex: 1;
+        min-width: 0;
+        margin: 0 -6px;
+        padding: 0 6px;
+        border-radius: var(--r-sm);
+        background: var(--main);
+        color: var(--text);
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          0 0 0 3px rgba(47, 111, 237, 0.18);
+      }
+      .field input::placeholder {
+        color: var(--text-dim);
+      }
+      .hint {
+        position: absolute;
+        left: 22px;
+        bottom: calc(100% + 4px);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        white-space: nowrap;
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        border-radius: var(--r-sm);
+        padding: 3px 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        z-index: 3;
+      }
+      :root[data-theme="dark"] .hint {
+        background: var(--surface-2);
+      }
+      .hint kbd {
+        border-radius: 4px;
+        background: var(--surface-2);
+        padding: 0 4px;
+        font: 11px var(--font-mono);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        margin-right: 4px;
+      }
+      .tip {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 6px);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        border-radius: var(--r-sm);
+        padding: 4px 8px;
+        font-size: var(--fs-xs);
+        color: var(--text-2);
+        white-space: nowrap;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.12s;
+      }
+      :root[data-theme="dark"] .tip {
+        background: var(--surface-2);
+      }
+      .chip:hover .tip {
+        opacity: 1;
+        transition-delay: 0.4s;
+      }
+      .composer {
+        margin: 0 auto 40px;
+        width: calc(100% - 48px);
+        max-width: 672px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        border-radius: var(--r-bubble);
+        padding: 16px 16px 12px 20px;
+        color: var(--text-dim);
+        font-size: var(--fs);
+        height: 104px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .composer .text {
+        color: var(--text);
+      }
+      .composer .text.empty {
+        color: var(--text-dim);
+      }
+      .composer .foot {
+        display: flex;
+        justify-content: flex-end;
+      }
+      .send {
+        all: unset;
+        cursor: pointer;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        background: var(--text);
+        color: var(--main);
+      }
+      .send[disabled] {
+        opacity: 0.3;
+        cursor: default;
+      }
+      svg {
+        display: block;
+        flex: none;
+      }
+      .bar {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        background: var(--bar);
+        backdrop-filter: blur(20px);
+        padding: 8px 12px;
+        border-radius: var(--r-pill);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        z-index: 20;
+      }
+      .seg {
+        display: flex;
+        gap: 2px;
+        background: var(--surface-2);
+        border-radius: var(--r-pill);
+        padding: 2px;
+      }
+      .seg button {
+        all: unset;
+        cursor: pointer;
+        white-space: nowrap;
+        padding: 3px 12px;
+        border-radius: var(--r-pill);
+        color: var(--text-muted);
+      }
+      .seg button.on {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: 0 0 0 0.5px var(--line);
+      }
+      .note {
+        color: var(--text-muted);
+        font-size: var(--fs-sm);
+        max-width: 1040px;
+        padding: 6px 40px;
+      }
+      .note b {
+        color: var(--text-2);
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>新建 worktree · AI 起分支名</h1>
+      <p id="desc"></p>
+      <p>点"发送"或浮条上的"播放"看发出之后的过程；点分支名按钮可以自己写名字（写了就不起名，清空恢复自动）。</p>
+    </header>
+    <div class="stage">
+      <div class="win">
+        <div class="sb">
+          <div class="proj">
+            <svg
+              class="ic"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path
+                d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-width="1.5"
+              /></svg
+            >atrium
+          </div>
+          <div class="ws">main</div>
+          <div class="ws">atrium/brave-otter</div>
+          <div id="sbnew"></div>
+        </div>
+        <div class="main">
+          <div class="tabs"></div>
+          <div class="body" id="body"></div>
+          <div class="row" id="row"></div>
+          <div class="composer" id="composer"></div>
+        </div>
+      </div>
+    </div>
+    <p class="note" id="note"></p>
+    <div class="bar">
+      <div class="seg" id="variants"></div>
+      <div class="seg" id="themes"></div>
+      <div class="seg" id="cases"></div>
+    </div>
+    <script>
+      const I = {
+        Folder01Icon:
+          '<path d="M8 7H16.75C18.8567 7 19.91 7 20.6667 7.50559C20.9943 7.72447 21.2755 8.00572 21.4944 8.33329C22 9.08996 22 10.1433 22 12.25C22 15.7612 22 17.5167 21.1573 18.7779C20.7926 19.3238 20.3238 19.7926 19.7779 20.1573C18.5167 21 16.7612 21 13.25 21H12C7.28595 21 4.92893 21 3.46447 19.5355C2 18.0711 2 15.714 2 11V7.94427C2 6.1278 2 5.21956 2.38032 4.53806C2.65142 4.05227 3.05227 3.65142 3.53806 3.38032C4.21956 3 5.1278 3 6.94427 3C8.10802 3 8.6899 3 9.19926 3.19101C10.3622 3.62712 10.8418 4.68358 11.3666 5.73313L12 7" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        GitBranchIcon:
+          '<path d="M7 19H13C15.8284 19 17.2426 19 18.1213 18.1213C19 17.2426 19 15.8284 19 13V10M19 10C19.7002 10 21.0085 11.9943 21.5 12.5M19 10C18.2998 10 16.9915 11.9943 16.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M5 7L5 17" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="5" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="19" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="19" r="2" stroke="currentColor" stroke-width="1.5"/>',
+        GitCommitIcon:
+          '<path d="M12 3L12 8.5M12 21L12 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/>',
+        PencilEdit01Icon:
+          '<path d="M15.2141 5.98239L16.6158 4.58063C17.39 3.80646 18.6452 3.80646 19.4194 4.58063C20.1935 5.3548 20.1935 6.60998 19.4194 7.38415L18.0176 8.78591M15.2141 5.98239L6.98023 14.2163C5.93493 15.2616 5.41226 15.7842 5.05637 16.4211C4.70047 17.058 4.3424 18.5619 4 20C5.43809 19.6576 6.94199 19.2995 7.57889 18.9436C8.21579 18.5877 8.73844 18.0651 9.78375 17.0198L18.0176 8.78591M15.2141 5.98239L18.0176 8.78591" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M11 20H17" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        SparklesIcon:
+          '<path d="M15 2L15.5387 4.39157C15.9957 6.42015 17.5798 8.00431 19.6084 8.46127L22 9L19.6084 9.53873C17.5798 9.99569 15.9957 11.5798 15.5387 13.6084L15 16L14.4613 13.6084C14.0043 11.5798 12.4202 9.99569 10.3916 9.53873L8 9L10.3916 8.46127C12.4201 8.00431 14.0043 6.42015 14.4613 4.39158L15 2Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/><path d="M7 12L7.38481 13.7083C7.71121 15.1572 8.84275 16.2888 10.2917 16.6152L12 17L10.2917 17.3848C8.84275 17.7112 7.71121 18.8427 7.38481 20.2917L7 22L6.61519 20.2917C6.28879 18.8427 5.15725 17.7112 3.70827 17.3848L2 17L3.70827 16.6152C5.15725 16.2888 6.28879 15.1573 6.61519 13.7083L7 12Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/>',
+        AiMagicIcon:
+          '<path d="M13.427 8.08396C12.8007 5.84272 12.3226 4 11.0004 4C9.67824 4 9.19964 5.84274 8.5731 8.08399C8.31853 8.99465 8.19125 9.44998 7.82042 9.82077C7.4496 10.1916 6.99434 10.3188 6.08381 10.5732C3.84273 11.1995 2 11.6775 2 13C2 14.3225 3.84273 14.8005 6.08381 15.4268C6.99434 15.6812 7.4496 15.8084 7.82042 16.1792C8.19125 16.55 8.31853 17.0054 8.5731 17.916C9.19964 20.1573 9.67824 22 11.0004 22C12.3226 22 12.8007 20.1573 13.427 17.916C13.6815 17.0054 13.8087 16.5501 14.1795 16.1793C14.5504 15.8085 15.0056 15.6812 15.9162 15.4268C18.1573 14.8005 20 14.3225 20 13C20 11.6775 18.1573 11.1995 15.9162 10.5732C15.0056 10.3188 14.5504 10.1915 14.1795 9.8207C13.8087 9.44986 13.6815 8.99456 13.427 8.08396Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19.5 2.9375V4.5M19.5 4.5V6.0625M19.5 4.5H18.25M19.5 4.5H20.75M22 4.5L21.548 4.34934C20.8497 4.11658 20.5006 4.00019 20.2502 3.74981C19.9998 3.49942 19.8834 3.15027 19.6507 2.45198L19.5 2L19.3493 2.45198C19.1166 3.15027 19.0002 3.49942 18.7498 3.74981C18.4994 4.00019 18.1503 4.11658 17.452 4.34934L17 4.5L17.452 4.65066C18.1503 4.88342 18.4994 4.99981 18.7498 5.25019C19.0002 5.50058 19.1166 5.84973 19.3493 6.54802L19.5 7L19.6507 6.54802C19.8834 5.84973 19.9998 5.50058 20.2502 5.25019C20.5006 4.99981 20.8497 4.88342 21.548 4.65066L22 4.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        MagicWand01Icon:
+          '<path d="M13.9258 12.7775L11.7775 10.6292C11.4847 10.3364 11.3383 10.19 11.1803 10.1117C10.8798 9.96277 10.527 9.96277 10.2264 10.1117C10.0685 10.19 9.92207 10.3364 9.62923 10.6292C9.33638 10.9221 9.18996 11.0685 9.11169 11.2264C8.96277 11.527 8.96277 11.8798 9.11169 12.1803C9.18996 12.3383 9.33638 12.4847 9.62923 12.7775L11.7775 14.9258M13.9258 12.7775L20.3708 19.2225C20.6636 19.5153 20.81 19.6617 20.8883 19.8197C21.0372 20.1202 21.0372 20.473 20.8883 20.7736C20.81 20.9315 20.6636 21.0779 20.3708 21.3708C20.0779 21.6636 19.9315 21.81 19.7736 21.8883C19.473 22.0372 19.1202 22.0372 18.8197 21.8883C18.6617 21.81 18.5153 21.6636 18.2225 21.3708L11.7775 14.9258M13.9258 12.7775L11.7775 14.9258" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M17 2L17.2948 2.7966C17.6813 3.84117 17.8746 4.36345 18.2556 4.74445C18.6366 5.12545 19.1588 5.31871 20.2034 5.70523L21 6L20.2034 6.29477C19.1588 6.68129 18.6366 6.87456 18.2556 7.25555C17.8746 7.63655 17.6813 8.15883 17.2948 9.2034L17 10L16.7052 9.2034C16.3187 8.15884 16.1254 7.63655 15.7444 7.25555C15.3634 6.87455 14.8412 6.68129 13.7966 6.29477L13 6L13.7966 5.70523C14.8412 5.31871 15.3634 5.12545 15.7444 4.74445C16.1254 4.36345 16.3187 3.84117 16.7052 2.7966L17 2Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/><path d="M6 4L6.22108 4.59745C6.51097 5.38087 6.65592 5.77259 6.94167 6.05834C7.22741 6.34408 7.61913 6.48903 8.40255 6.77892L9 7L8.40255 7.22108C7.61913 7.51097 7.22741 7.65592 6.94166 7.94167C6.65592 8.22741 6.51097 8.61913 6.22108 9.40255L6 10L5.77892 9.40255C5.48903 8.61913 5.34408 8.22741 5.05833 7.94167C4.77259 7.65592 4.38087 7.51097 3.59745 7.22108L3 7L3.59745 6.77892C4.38087 6.48903 4.77259 6.34408 5.05833 6.05833C5.34408 5.77259 5.48903 5.38087 5.77892 4.59745L6 4Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowUp02Icon:
+          '<path d="M12 5.5V19" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M18 11C18 11 13.5811 5.00001 12 5C10.4188 4.99999 6 11 6 11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Cancel01Icon:
+          '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ShuffleIcon:
+          '<path d="M19.5576 4L20.4551 4.97574C20.8561 5.41165 21.0566 5.62961 20.9861 5.81481C20.9155 6 20.632 6 20.0649 6C18.7956 6 17.2771 5.79493 16.1111 6.4733C15.3903 6.89272 14.8883 7.62517 14.0392 9M3 18H4.58082C6.50873 18 7.47269 18 8.2862 17.5267C9.00708 17.1073 9.50904 16.3748 10.3582 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19.5576 20L20.4551 19.0243C20.8561 18.5883 21.0566 18.3704 20.9861 18.1852C20.9155 18 20.632 18 20.0649 18C18.7956 18 17.2771 18.2051 16.1111 17.5267C15.2976 17.0534 14.7629 16.1815 13.6935 14.4376L10.7038 9.5624C9.63441 7.81853 9.0997 6.9466 8.2862 6.4733C7.47269 6 6.50873 6 4.58082 6H3" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+      };
+      const icon = (n, s = 14, cls = "ic") =>
+        `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
+      const ARC = `<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="26 40"/></svg>`;
+      const MESSAGE = "登录接口偶尔超时，帮我查一下原因，顺便把重试加上";
+      const AI_NAME = "atrium/fix-login-timeout";
+      const RANDOM = "atrium/brave-badger";
+      const DESC = {
+        A: 'A 单独一步：按钮写"✦ 自动起名"；时间轴最前多一步"起名"，做完后面跟名字。',
+        B: 'B 并入创建：按钮同 A；时间轴还是三步，第一步先写"起名"，起好后换成"创建 worktree …"。',
+        C: 'C 占位名：按钮写 atrium/ 加淡色"✦ 自动"；名字起好时逐字出现，按钮同时换成这个名字。',
+      };
+      const state = {
+        variant: new URLSearchParams(location.search).get("variant") || "A",
+        theme: "light",
+        kase: "idle",
+        custom: null,
+        editing: false,
+        phase: "page", // page | naming | creating | session | sending | done
+        named: null,
+        failed: false,
+        typed: 0,
+        timers: [],
+      };
+      const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      function clearTimers() {
+        state.timers.forEach(clearTimeout);
+        state.timers = [];
+      }
+      function later(ms, f) {
+        state.timers.push(
+          setTimeout(() => {
+            f();
+            render();
+          }, ms),
+        );
+      }
+
+      function play(fail) {
+        clearTimers();
+        state.failed = fail;
+        state.named = null;
+        state.typed = 0;
+        state.editing = false;
+        if (state.custom !== null) {
+          state.phase = "creating";
+          state.named = state.custom;
+        } else {
+          state.phase = "naming";
+        }
+        render();
+        let t = state.custom !== null ? 0 : fail ? 2600 : 1600;
+        if (state.custom === null) {
+          later(t, () => {
+            state.named = fail ? RANDOM : AI_NAME;
+            state.phase = "creating";
+            if (state.variant === "C" && !fail) typeName();
+          });
+        }
+        later(t + 1200, () => {
+          state.phase = "session";
+        });
+        later(t + 2400, () => {
+          state.phase = "sending";
+        });
+        later(t + 3200, () => {
+          state.phase = "done";
+        });
+      }
+      function typeName() {
+        state.typed = 0;
+        const step = () => {
+          state.typed++;
+          render();
+          if (state.typed < state.named.length) state.timers.push(setTimeout(step, 28));
+        };
+        state.timers.push(setTimeout(step, 0));
+      }
+      function reset() {
+        clearTimers();
+        state.phase = "page";
+        state.named = null;
+        state.failed = false;
+        state.editing = false;
+      }
+
+      function shownName() {
+        if (
+          state.variant === "C" &&
+          state.named &&
+          state.typed < state.named.length &&
+          !state.failed &&
+          state.custom === null
+        )
+          return state.named.slice(0, state.typed);
+        return state.named;
+      }
+
+      function branchChip() {
+        const held = state.phase !== "page";
+        if (state.editing) {
+          return `<span class="field">${icon("PencilEdit01Icon")}<input id="branchInput" value="${esc(state.custom ?? "")}" placeholder="输入分支名，留空让 AI 起名">
+      <span class="hint"><span><kbd>⏎</kbd>保存</span><span><kbd>esc</kbd>取消</span><span>清空恢复自动起名</span></span></span>`;
+        }
+        const cls = `chip${held ? " held" : ""}`;
+        if (state.custom !== null)
+          return `<button class="${cls}" data-act="edit">${icon("PencilEdit01Icon")}<span class="nm">${esc(state.custom)}</span></button>`;
+        if (state.named && state.phase !== "naming") {
+          const fresh = state.phase === "creating" ? " fresh" : "";
+          return `<button class="${cls}">${icon("PencilEdit01Icon")}<span class="nm${fresh}">${esc(shownName())}</span></button>`;
+        }
+        const tip = `<span class="tip">发出后，AI 按第一条消息起分支名；点这里自己写</span>`;
+        if (state.variant === "C") {
+          return `<button class="${cls}" data-act="edit">${icon("PencilEdit01Icon")}<span>atrium/</span><span class="auto">${icon("SparklesIcon", 12, "spark")}自动</span>${tip}</button>`;
+        }
+        return `<button class="${cls}" data-act="edit">${icon("SparklesIcon", 14, "spark")}<span>自动起名</span>${tip}</button>`;
+      }
+
+      function rowHtml() {
+        const held = state.phase !== "page" ? " held" : "";
+        return `<button class="chip${held}">${icon("Folder01Icon")}atrium${icon("ArrowDown01Icon", 12, "car")}</button>
+    <button class="chip${held}">${icon("GitBranchIcon")}新建 worktree${icon("ArrowDown01Icon", 12, "car")}</button>
+    <button class="chip${held}">${icon("GitCommitIcon")}基于 origin/main${icon("ArrowDown01Icon", 12, "car")}</button>
+    ${branchChip()}`;
+      }
+
+      const ORDER = ["naming", "creating", "session", "sending", "done"];
+      const at = () => ORDER.indexOf(state.phase);
+      function node(kind) {
+        return {
+          dot: `<span class="n-dot"></span>`,
+          wait: `<span class="n-wait"></span>`,
+          live: `<span class="n-live"></span>${ARC}`,
+        }[kind];
+      }
+      function stepLi(kind, verb, det, first, last, why = "") {
+        return `<li class="${kind}">${first ? "" : `<span class="rail-up"></span>`}${last ? "" : `<span class="rail-down"></span>`}<span class="node">${node(kind)}</span>
+    <div class="ln"><span class="verb${kind === "live" ? " shimmer" : ""}">${verb}</span>${det ? `<span class="det">${det}</span>` : ""}</div>${why ? `<div class="why">${why}</div>` : ""}</li>`;
+      }
+      const k = (i) => (at() > i ? "dot" : at() === i ? "live" : "wait");
+      function timeline() {
+        const custom = state.custom !== null;
+        const nm = shownName();
+        const caret =
+          state.variant === "C" && state.named && state.typed < state.named.length && !state.failed && !custom;
+        const nameDet = state.named ? `<span class="mono${caret ? " typing" : ""}">${esc(nm)}</span>` : "";
+        const fellBack = state.failed && state.named;
+        const steps = [];
+        const createDet = state.named ? `${nameDet} · 基于 origin/main` : "";
+        if (state.variant === "B" && !custom) {
+          if (state.phase === "naming") steps.push(stepLi("live", "起名", "按第一条消息", true, false));
+          else
+            steps.push(
+              stepLi(
+                k(1),
+                "创建 worktree",
+                createDet,
+                true,
+                false,
+                fellBack && at() >= 1 ? "没起成名，用了随机名" : "",
+              ),
+            );
+        } else {
+          if (!custom) {
+            const det =
+              state.phase === "naming"
+                ? "按第一条消息"
+                : fellBack
+                  ? `没起成，用随机名 <span class="mono">${RANDOM}</span>`
+                  : nameDet;
+            steps.push(stepLi(k(0), "起名", det, true, false));
+          }
+          steps.push(
+            stepLi(
+              k(1),
+              "创建 worktree",
+              at() >= 1
+                ? state.variant === "C" || custom || fellBack
+                  ? `<span class="mono">${esc(state.named)}</span> · 基于 origin/main`
+                  : `基于 origin/main`
+                : "",
+              custom,
+              false,
+            ),
+          );
+        }
+        steps.push(stepLi(k(2), "启动会话", "", false, false));
+        steps.push(stepLi(k(3), "发出消息", "", false, true));
+        const pending = at() < 3 ? `<div class="pending"><div class="bubble">${esc(MESSAGE)}</div></div>` : "";
+        return `<div class="timeline"><ol>${steps.join("")}</ol>${pending}</div>`;
+      }
+
+      function render() {
+        document.documentElement.dataset.theme = state.theme;
+        document.getElementById("desc").textContent = DESC[state.variant];
+        const body = document.getElementById("body");
+        if (state.phase === "page")
+          body.innerHTML = `<div class="hero"><b>新建工作区</b><span>发出第一条消息时，才建 worktree</span></div>`;
+        else if (state.phase === "done")
+          body.innerHTML = `<div class="timeline"><div class="pending" style="opacity:1"><div class="bubble">${esc(MESSAGE)}</div></div></div>`;
+        else body.innerHTML = timeline();
+        document.getElementById("row").innerHTML = state.phase === "done" ? "" : rowHtml();
+        document.getElementById("row").style.display = state.phase === "done" ? "none" : "";
+        const empty = state.phase !== "page";
+        document.getElementById("composer").innerHTML =
+          `<div class="text${empty ? " empty" : ""}">${empty ? "接着说点什么…" : esc(MESSAGE)}</div>
+    <div class="foot"><button class="send" data-act="send"${empty && state.phase !== "done" ? " disabled" : ""}>${icon("ArrowUp02Icon", 16, "")}</button></div>`;
+        const showWs = at() >= 2;
+        document.getElementById("sbnew").innerHTML = showWs ? `<div class="ws new">${esc(state.named)}</div>` : "";
+        document.getElementById("note").innerHTML = {
+          page:
+            state.custom !== null
+              ? '<b>自己写了名字</b>：按钮回到铅笔 + 名字（同现在），发出后不起名，时间轴从"创建 worktree"开始。'
+              : '<b>发出前</b>：悬停按钮 0.4 秒说明它做什么。点开是空的输入框，提示"输入分支名，留空让 AI 起名"。',
+          naming: '<b>起名中</b>：用设置里"生成标题用的模型"，第一条消息从标准输入给；目录、分支都还没建。',
+          creating: state.failed
+            ? "<b>兜底</b>：起名失败、给的名字不合规或 15 秒没结果，就用随机名接着走，不打断、不报错。"
+            : "<b>建 worktree</b>：目录 atrium.worktrees/fix-login-timeout，分支 atrium/fix-login-timeout；选择排上的按钮同时换成这个名字。",
+          session: "<b>启动会话</b>：侧栏出现新工作区并选中，名字就是 AI 起的分支名。",
+          sending: "<b>发出消息</b>。",
+          done: "发出后时间轴消失，对话区就是这个会话。浮条上可以重放。",
+        }[state.phase];
+        const seg = (id, items, cur, key) =>
+          (document.getElementById(id).innerHTML = items
+            .map(([v, l]) => `<button class="${cur === v ? "on" : ""}" data-${key}="${v}">${l}</button>`)
+            .join(""));
+        seg(
+          "variants",
+          [
+            ["A", "A 单独一步"],
+            ["B", "B 并入创建"],
+            ["C", "C 占位名"],
+          ],
+          state.variant,
+          "variant",
+        );
+        seg(
+          "themes",
+          [
+            ["light", "浅色"],
+            ["dark", "深色"],
+          ],
+          state.theme,
+          "theme",
+        );
+        seg(
+          "cases",
+          [
+            ["idle", "发出前"],
+            ["ok", "播放成功"],
+            ["fail", "播放失败兜底"],
+            ["custom", "自己写了名字"],
+          ],
+          state.kase,
+          "kase",
+        );
+        const input = document.getElementById("branchInput");
+        if (input) {
+          input.focus();
+          input.select();
+          input.onkeydown = (e) => {
+            if (e.key === "Enter") {
+              const v = input.value.trim();
+              state.custom = v === "" ? null : v;
+              state.editing = false;
+              render();
+            }
+            if (e.key === "Escape") {
+              state.editing = false;
+              render();
+            }
+          };
+          input.onblur = () => {
+            if (!state.editing) return;
+            const v = input.value.trim();
+            state.custom = v === "" ? null : v;
+            state.editing = false;
+            render();
+          };
+        }
+      }
+
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        const d = b.dataset;
+        if (d.variant) {
+          state.variant = d.variant;
+          if (state.phase !== "page") play(state.failed);
+        } else if (d.theme) state.theme = d.theme;
+        else if (d.kase) {
+          state.kase = d.kase;
+          reset();
+          if (d.kase === "custom") state.custom = "fix/login-retry";
+          else state.custom = null;
+          if (d.kase === "ok") return play(false);
+          if (d.kase === "fail") return play(true);
+        } else if (d.act === "edit" && state.phase === "page") state.editing = true;
+        else if (d.act === "send") {
+          if (state.phase === "page") return play(false);
+          if (state.phase === "done") {
+            reset();
+          }
+        }
+        render();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.target.tagName === "INPUT") return;
+        const order = ["A", "B", "C"];
+        const i = order.indexOf(state.variant);
+        if (e.key === "ArrowRight") {
+          state.variant = order[(i + 1) % 3];
+          render();
+        }
+        if (e.key === "ArrowLeft") {
+          state.variant = order[(i + 2) % 3];
+          render();
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>

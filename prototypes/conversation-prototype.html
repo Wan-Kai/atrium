@@ -1,0 +1,1617 @@
+<!doctype html>
+<!--
+  PROTOTYPE · 用完即弃，不要当成正式代码。
+  问题：Atrium 的对话区（一次运行的过程怎么呈现、排队与插话、状态栏）应该长什么样？
+  三个消息流结构不同的方案，用 ?variant=A|B|C 或左下角切换条（键盘 ← →，输入框聚焦时除外）切换：
+    A：过程折叠条（spec 方案）：跑完后过程折叠成一行摘要，只突出回复
+    B：时间线：左侧竖线串起每一步，跑完后收拢
+    C：轮次卡片：每轮一张卡片，"回复 / 过程"标签页切换
+  标题栏、排队、输入框、状态栏三个方案共用。侧栏和文件区留白。
+  依据：docs/specs/0001-mvp1-single-session-chat.md 的"对话区"一节。数据全是假的，状态只存在内存里。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Atrium 对话区原型</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font:
+          13.5px/1.55 -apple-system,
+          BlinkMacSystemFont,
+          "PingFang SC",
+          sans-serif;
+        color: #1f1f1f;
+        display: flex;
+        height: 100vh;
+        overflow: hidden;
+      }
+      button,
+      textarea,
+      select {
+        font: inherit;
+      }
+      code,
+      pre,
+      .mono {
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 12px;
+      }
+
+      /* 侧栏留白 + 原型控制 */
+      .side {
+        width: 260px;
+        flex: none;
+        background: #f4f4f3;
+        border-right: 1px solid #e2e2e0;
+        display: flex;
+        flex-direction: column;
+      }
+      .side .blank {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #b5b5b2;
+      }
+      .ctl {
+        margin: 10px;
+        border: 1px dashed #c9c9c5;
+        border-radius: 8px;
+        padding: 8px 10px 10px;
+        font-size: 12px;
+        color: #555;
+        background: #fafaf9;
+        margin-bottom: 64px;
+      }
+      .ctl b {
+        display: block;
+        font-size: 11px;
+        color: #999;
+        margin-bottom: 6px;
+        letter-spacing: 0.03em;
+      }
+      .ctl button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin: 3px 0;
+        border: 1px solid #ddd;
+        background: #fff;
+        border-radius: 5px;
+        padding: 3px 8px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .ctl button:hover {
+        background: #f0f0ee;
+      }
+      .ctl pre {
+        margin: 8px 0 0;
+        white-space: pre-wrap;
+        color: #6b7280;
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      /* 对话区骨架 */
+      .main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        background: #fff;
+      }
+      .header {
+        height: 44px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 18px;
+        border-bottom: 1px solid #eee;
+      }
+      .header .t {
+        font-weight: 600;
+      }
+      .header .loc {
+        color: #888;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .header .sp {
+        flex: 1;
+      }
+      .header select {
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        padding: 2px 6px;
+        background: #fff;
+        font-size: 12px;
+      }
+      .hint {
+        color: #aaa;
+        font-size: 11px;
+      }
+      .stream {
+        flex: 1;
+        overflow-y: auto;
+        padding: 18px 0 24px;
+      }
+      .col {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+
+      /* 消息 */
+      .user {
+        display: flex;
+        justify-content: flex-end;
+        margin: 18px 0 10px;
+        position: relative;
+      }
+      .bubble {
+        background: #f1f1ef;
+        border-radius: 14px;
+        padding: 8px 14px;
+        max-width: 80%;
+        white-space: pre-wrap;
+      }
+      .img-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        background: #e4e4e1;
+        border-radius: 6px;
+        padding: 1px 6px;
+        font-size: 11.5px;
+        color: #555;
+        margin-left: 6px;
+      }
+      .reply {
+        margin: 8px 0;
+        position: relative;
+      }
+      .reply p {
+        margin: 6px 0;
+      }
+      .reply ul {
+        margin: 6px 0;
+        padding-left: 20px;
+      }
+      .reply code {
+        background: #f3f3f1;
+        border-radius: 4px;
+        padding: 0 4px;
+      }
+      .reply pre {
+        background: #f6f6f4;
+        border-radius: 8px;
+        padding: 10px 12px;
+        overflow-x: auto;
+      }
+      .reply pre code {
+        background: none;
+        padding: 0;
+      }
+      .cursor::after {
+        content: "▍";
+        color: #9ca3af;
+        animation: blink 1s steps(1) infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+      .hover-acts {
+        position: absolute;
+        right: 0;
+        bottom: -18px;
+        display: none;
+        gap: 4px;
+        z-index: 2;
+      }
+      .user:hover .hover-acts,
+      .reply:hover .hover-acts,
+      .turn:hover > .turn-acts {
+        display: flex;
+      }
+      .mini {
+        border: 1px solid #e2e2e0;
+        background: #fff;
+        border-radius: 5px;
+        font-size: 11px;
+        color: #666;
+        padding: 0 6px;
+        line-height: 18px;
+        cursor: pointer;
+      }
+      .mini:hover {
+        background: #f3f3f1;
+      }
+      .turn {
+        position: relative;
+      }
+      .turn-acts {
+        position: absolute;
+        right: -4px;
+        top: -2px;
+        display: none;
+      }
+
+      /* 过程元素 */
+      .sumline {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: #777;
+        font-size: 12.5px;
+        cursor: pointer;
+        padding: 3px 8px;
+        margin-left: -8px;
+        border-radius: 6px;
+      }
+      .sumline:hover {
+        background: #f3f3f1;
+        color: #333;
+      }
+      .step {
+        margin: 4px 0;
+        font-size: 12.5px;
+        color: #555;
+      }
+      .line {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        border-radius: 6px;
+        padding: 2px 8px;
+        margin-left: -8px;
+      }
+      .line:hover {
+        background: #f5f5f3;
+      }
+      .chev {
+        color: #aaa;
+        font-size: 9px;
+        width: 10px;
+        display: inline-block;
+        transition: transform 0.1s;
+      }
+      .chev.open {
+        transform: rotate(90deg);
+      }
+      .thinking-text {
+        color: #8a8a88;
+        font-style: italic;
+        border-left: 2px solid #e5e5e2;
+        padding: 2px 0 2px 10px;
+        margin: 4px 0 4px 6px;
+        white-space: pre-wrap;
+      }
+      .explore-list {
+        margin: 2px 0 4px 22px;
+        color: #777;
+      }
+      .card {
+        border: 1px solid #e8e8e5;
+        border-radius: 8px;
+        overflow: hidden;
+        margin: 6px 0;
+        background: #fff;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 10px;
+        background: #fafaf9;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .card-head .mono {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .card pre {
+        margin: 0;
+        padding: 6px 10px;
+        background: #fcfcfb;
+        color: #444;
+        max-height: 220px;
+        overflow: auto;
+        border-top: 1px solid #f0f0ee;
+      }
+      .ok {
+        color: #15803d;
+      }
+      .bad {
+        color: #dc2626;
+      }
+      .badge {
+        font-size: 11px;
+        border-radius: 4px;
+        padding: 0 5px;
+      }
+      .b-bad {
+        color: #b91c1c;
+        background: #fee2e2;
+      }
+      .b-ok {
+        color: #15803d;
+        background: #dcfce7;
+      }
+      .b-run {
+        color: #6b7280;
+        background: #eee;
+      }
+      .diff div {
+        white-space: pre;
+      }
+      .diff .add {
+        background: #ecfdf5;
+        color: #166534;
+      }
+      .diff .del {
+        background: #fef2f2;
+        color: #991b1b;
+      }
+      .steer {
+        color: #1d4ed8;
+        font-size: 12.5px;
+        margin: 4px 0;
+      }
+      .notice {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #999;
+        font-size: 12px;
+        margin: 14px 0;
+      }
+      .notice::before,
+      .notice::after {
+        content: "";
+        flex: 1;
+        border-top: 1px dashed #e0e0dd;
+      }
+      .stopped {
+        color: #b45309;
+        font-size: 12px;
+        margin: 4px 0;
+      }
+      .dialog {
+        border: 1px solid #fcd34d;
+        background: #fffbeb;
+        border-radius: 10px;
+        padding: 10px 12px;
+        margin: 10px 0;
+      }
+      .dialog .q {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .dialog button {
+        border: 1px solid #e5d29a;
+        background: #fff;
+        border-radius: 6px;
+        padding: 2px 10px;
+        margin-right: 6px;
+        cursor: pointer;
+      }
+      .dialog button:hover {
+        background: #fef3c7;
+      }
+      .answered {
+        color: #777;
+        font-size: 12.5px;
+        margin: 4px 0;
+      }
+      .spin {
+        width: 10px;
+        height: 10px;
+        border: 2px solid #9ca3af;
+        border-top-color: transparent;
+        border-radius: 50%;
+        display: inline-block;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* B：时间线 */
+      .tl {
+        position: relative;
+        margin: 6px 0 6px 6px;
+        padding-left: 18px;
+      }
+      .tl::before {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 6px;
+        bottom: 6px;
+        border-left: 2px solid #ececea;
+      }
+      .tl .node {
+        position: relative;
+      }
+      .tl .node::before {
+        content: "";
+        position: absolute;
+        left: -18px;
+        top: 9px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--dot, #d4d4d1);
+        border: 2px solid #fff;
+      }
+      .tl .node.reply-node::before {
+        --dot: #1f1f1f;
+      }
+
+      /* C：轮次卡片 */
+      .tcard {
+        border: 1px solid #e8e8e5;
+        border-radius: 12px;
+        margin: 16px 0;
+        overflow: hidden;
+        position: relative;
+      }
+      .tcard-head {
+        padding: 10px 14px;
+        background: #fafaf9;
+        border-bottom: 1px solid #eee;
+      }
+      .tcard-head .p {
+        white-space: pre-wrap;
+      }
+      .tcard-head .meta {
+        color: #999;
+        font-size: 11.5px;
+        margin-top: 2px;
+      }
+      .tabs {
+        display: flex;
+        gap: 2px;
+        padding: 0 10px;
+        border-bottom: 1px solid #eee;
+      }
+      .tabs button {
+        border: 0;
+        background: none;
+        padding: 6px 10px;
+        font-size: 12.5px;
+        color: #777;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+      }
+      .tabs button.on {
+        color: #1f1f1f;
+        border-bottom-color: #1f1f1f;
+      }
+      .tcard-body {
+        padding: 4px 14px 10px;
+      }
+
+      /* 底部：排队 + 输入框 + 状态栏 */
+      .bottom {
+        flex: none;
+      }
+      .composer-wrap {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px 10px;
+      }
+      .queue {
+        border: 1px solid #e8e8e5;
+        border-bottom: 0;
+        border-radius: 10px 10px 0 0;
+        background: #fafaf9;
+        padding: 4px 6px;
+        font-size: 12.5px;
+      }
+      .queue .qh {
+        color: #999;
+        font-size: 11px;
+        padding: 2px 6px;
+        display: flex;
+        justify-content: space-between;
+      }
+      .qitem {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 6px;
+        border-radius: 6px;
+      }
+      .qitem:hover {
+        background: #f0f0ee;
+      }
+      .qitem .txt {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .qitem input {
+        flex: 1;
+        border: 1px solid #9bb8f5;
+        border-radius: 4px;
+        padding: 1px 6px;
+        outline: none;
+      }
+      .qitem .st {
+        font-size: 11px;
+        color: #1d4ed8;
+      }
+      .composer {
+        border: 1px solid #ddd;
+        border-radius: 12px;
+        padding: 8px 10px 6px;
+        background: #fff;
+      }
+      .queue + .composer {
+        border-top-left-radius: 0;
+        border-top-right-radius: 0;
+      }
+      .composer textarea {
+        width: 100%;
+        border: 0;
+        outline: none;
+        resize: none;
+        min-height: 44px;
+        max-height: 160px;
+      }
+      .composer .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .composer select {
+        border: 0;
+        background: #f3f3f1;
+        border-radius: 6px;
+        padding: 2px 6px;
+        font-size: 12px;
+      }
+      .composer .sp {
+        flex: 1;
+      }
+      .send {
+        border: 0;
+        border-radius: 8px;
+        padding: 4px 14px;
+        background: #1f1f1f;
+        color: #fff;
+        cursor: pointer;
+      }
+      .send.stop {
+        background: #dc2626;
+      }
+      .attach {
+        border: 0;
+        background: none;
+        cursor: pointer;
+        color: #777;
+        font-size: 15px;
+      }
+      .comp-hint {
+        color: #aaa;
+        font-size: 11px;
+      }
+      .statusbar {
+        height: 26px;
+        border-top: 1px solid #eee;
+        background: #fafaf9;
+        display: flex;
+        align-items: center;
+        gap: 0;
+        padding: 0 12px;
+        font-size: 11.5px;
+        color: #666;
+      }
+      .statusbar .m {
+        padding: 0 10px;
+        border-right: 1px solid #e5e5e2;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: default;
+        white-space: nowrap;
+      }
+      .statusbar .m:last-of-type {
+        border-right: 0;
+      }
+      .statusbar .sp {
+        flex: 1;
+      }
+      .statusbar .gear {
+        border: 0;
+        background: none;
+        cursor: pointer;
+        color: #888;
+      }
+      .bar {
+        width: 52px;
+        height: 6px;
+        border-radius: 3px;
+        background: #e5e5e2;
+        overflow: hidden;
+      }
+      .bar i {
+        display: block;
+        height: 100%;
+        background: #6b7280;
+      }
+      .warn .bar i {
+        background: #f59e0b;
+      }
+      .danger .bar i {
+        background: #dc2626;
+      }
+      .warn {
+        color: #b45309;
+      }
+      .danger {
+        color: #dc2626;
+      }
+      .pop {
+        position: fixed;
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+        padding: 8px 10px;
+        z-index: 20;
+        font-size: 12.5px;
+      }
+      .pop label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 2px 0;
+        cursor: pointer;
+      }
+      .pop .note {
+        color: #999;
+        font-size: 11px;
+        margin-left: 20px;
+      }
+
+      .toast {
+        position: fixed;
+        bottom: 80px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #333;
+        color: #fff;
+        padding: 6px 14px;
+        border-radius: 6px;
+        font-size: 12px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        z-index: 40;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+
+      /* 原型切换条（不属于被评估的设计；放在左下角，避免挡住输入框和状态栏） */
+      .switcher {
+        position: fixed;
+        bottom: 14px;
+        left: 14px;
+        background: #111;
+        color: #fff;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 4px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        z-index: 30;
+        font-size: 12px;
+      }
+      .switcher button {
+        background: none;
+        border: 0;
+        color: #fff;
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        cursor: pointer;
+      }
+      .switcher button:hover {
+        background: #333;
+      }
+      .switcher span {
+        padding: 0 6px;
+        text-align: center;
+        min-width: 150px;
+      }
+      .switcher .tag {
+        background: #f59e0b;
+        color: #111;
+        border-radius: 999px;
+        padding: 1px 6px;
+        font-size: 10px;
+        font-weight: 700;
+        margin-right: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <aside class="side">
+      <div class="blank">侧栏（留白）</div>
+      <div class="ctl" id="ctl">
+        <b>原型控制（不属于设计）</b>
+        <button data-c="dialog">模拟 extension 对话框（待回答）</button>
+        <button data-c="compact">模拟上下文压缩</button>
+        <button data-c="reset">重置对话</button>
+        <pre id="state"></pre>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="header">
+        <span class="t">设计侧栏交互</span>
+        <span class="loc"
+          ><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#8b5cf6" stroke-width="1.5">
+            <circle cx="4" cy="3.5" r="1.8" />
+            <circle cx="4" cy="12.5" r="1.8" />
+            <circle cx="12" cy="5.5" r="1.8" />
+            <path d="M4 5.3v5.4M12 7.3c0 3-8 1.5-8 3.4" /></svg
+          >atrium · feat/sidebar</span
+        >
+        <span class="sp"></span>
+        <span class="hint">Ctrl+O 切换</span>
+        <select id="mode" title="显示模式">
+          <option value="summary">摘要</option>
+          <option value="thinking">思考</option>
+          <option value="detailed">详细</option>
+        </select>
+      </div>
+      <div class="stream" id="stream"><div class="col" id="col"></div></div>
+      <div class="bottom">
+        <div class="composer-wrap">
+          <div id="queue"></div>
+          <div class="composer">
+            <div id="attachments"></div>
+            <textarea
+              id="input"
+              placeholder="给 agent 发消息… 回车发送（运行中排队），⌘+回车插话，Shift+回车换行"
+            ></textarea>
+            <div class="row">
+              <button class="attach" id="attach" title="添加图片（也可以粘贴、拖入）">＋</button>
+              <select title="模型">
+                <option>openai-codex / gpt-6-sol</option>
+                <option>openai-codex / gpt-6-astra</option>
+              </select>
+              <select title="推理强度">
+                <option>low</option>
+                <option selected>medium</option>
+                <option>high</option>
+                <option>xhigh</option>
+              </select>
+              <span class="sp"></span>
+              <span class="comp-hint" id="comphint"></span>
+              <button class="send" id="send">发送</button>
+            </div>
+          </div>
+        </div>
+        <div class="statusbar" id="statusbar"></div>
+      </div>
+    </main>
+    <div class="switcher">
+      <button id="prev" title="上一个方案（←）">‹</button><span id="vlabel"></span
+      ><button id="next" title="下一个方案（→）">›</button>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      // ─── 工具 ──────────────────────────────────────────────────────────────────
+      const esc = (s) =>
+        String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const fmtK = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n));
+      const fmtDur = (s) => (s >= 60 ? `${Math.floor(s / 60)} 分 ${s % 60} 秒` : `${s} 秒`);
+      function md(t) {
+        // 极简 Markdown：代码块、行内代码、粗体、列表、段落
+        const parts = t.split(/```/);
+        return parts
+          .map((p, i) => {
+            if (i % 2) return `<pre><code>${esc(p.replace(/^\w*\n/, ""))}</code></pre>`;
+            return p
+              .trim()
+              .split(/\n{2,}/)
+              .map((block) => {
+                const inline = (s) =>
+                  esc(s)
+                    .replace(/`([^`]+)`/g, "<code>$1</code>")
+                    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+                const lines = block.split("\n");
+                if (lines.every((l) => l.startsWith("- ")))
+                  return "<ul>" + lines.map((l) => `<li>${inline(l.slice(2))}</li>`).join("") + "</ul>";
+                return block ? `<p>${inline(block).replace(/\n/g, "<br>")}</p>` : "";
+              })
+              .join("");
+          })
+          .join("");
+      }
+      function toast(msg) {
+        const t = document.getElementById("toast");
+        t.textContent = msg;
+        t.classList.add("show");
+        clearTimeout(toast.t);
+        toast.t = setTimeout(() => t.classList.remove("show"), 1500);
+      }
+
+      // ─── 状态 ──────────────────────────────────────────────────────────────────
+      // stream：{ type: 'turn', ... } | { type: 'notice', text }
+      // turn.steps：thinking / explore / bash / edit / steer / dialog
+      let S;
+      function initialState() {
+        return {
+          stream: [
+            {
+              type: "turn",
+              id: "t0",
+              status: "done",
+              dur: 133,
+              expanded: false,
+              tab: "reply",
+              user: {
+                text: "帮我把侧栏改成收件箱的结构：顶部汇总等我处理的会话，下面是项目列表。",
+                image: "侧栏草图.png",
+              },
+              steps: [
+                {
+                  kind: "thinking",
+                  secs: 6,
+                  text: "先看现有侧栏组件的结构，再决定收件箱的数据从哪来。会话状态已经在 store 里，收件箱只是一个派生视图。",
+                },
+                {
+                  kind: "explore",
+                  items: [
+                    ["read", "src/sidebar/Sidebar.tsx"],
+                    ["read", "src/sidebar/ProjectList.tsx"],
+                    ["grep", '"status" in src/store'],
+                    ["read", "src/store/sessions.ts"],
+                  ],
+                },
+                {
+                  kind: "edit",
+                  path: "src/sidebar/Inbox.tsx",
+                  diff: [
+                    "+export function Inbox({ sessions }: Props) {",
+                    "+  const waiting = sessions.filter(isWaiting)",
+                    "+  if (!waiting.length) return null",
+                    '+  return <Section title="等你处理">{waiting.map(row)}</Section>',
+                    "+}",
+                  ],
+                },
+                {
+                  kind: "edit",
+                  path: "src/sidebar/Sidebar.tsx",
+                  diff: [
+                    " <aside>",
+                    "-  <ProjectList />",
+                    "+  <Inbox sessions={sessions} />",
+                    "+  <ProjectList />",
+                    " </aside>",
+                  ],
+                },
+                {
+                  kind: "bash",
+                  cmd: "pnpm test --filter sidebar",
+                  exit: 1,
+                  out: [
+                    "FAIL src/sidebar/Inbox.test.tsx",
+                    "  ✕ hides when nothing is waiting (12 ms)",
+                    "  Expected: null  Received: <Section />",
+                  ],
+                },
+                {
+                  kind: "edit",
+                  path: "src/sidebar/Inbox.tsx",
+                  diff: [
+                    "-  const waiting = sessions.filter(isWaiting)",
+                    '+  const waiting = sessions.filter(s => isWaiting(s) || s.status === "error")',
+                  ],
+                },
+                {
+                  kind: "bash",
+                  cmd: "pnpm test --filter sidebar",
+                  exit: 0,
+                  out: ["PASS src/sidebar/Inbox.test.tsx", "Tests: 6 passed"],
+                },
+              ],
+              reply:
+                "改好了。收件箱是会话列表的一个**派生视图**，不新增状态：\n\n- `Inbox.tsx`：筛出等你处理和出错的会话，为空时不渲染\n- `Sidebar.tsx`：在项目列表上方挂上收件箱\n\n测试一开始有一条失败（出错的会话没算进去），已经修好，现在 6 条全部通过。",
+            },
+            { type: "notice", text: "上下文已自动压缩（压缩前 152K tokens）" },
+          ],
+          queue: [],
+          queuePaused: false,
+          running: null,
+          pendingSteers: [],
+          attachments: [],
+          mode: "summary",
+          m: {
+            ctxUsed: 84000,
+            ctxMax: 200000,
+            input: 310000,
+            cacheRead: 905000,
+            cacheWrite: 21000,
+            output: 56000,
+            reasoning: 18000,
+            lastSpeed: 48,
+            lastHit: 0.91,
+            cost: 0.45,
+          },
+          visible: ["ctx", "cache", "tokens", "speed"],
+        };
+      }
+      S = initialState();
+
+      // ─── 状态栏指标注册表 ──────────────────────────────────────────────────────
+      const METRICS = [
+        {
+          id: "ctx",
+          name: "上下文用量",
+          def: true,
+          render: (m) => {
+            if (m.ctxUsed == null) return "上下文 —";
+            const p = Math.round((m.ctxUsed / m.ctxMax) * 100);
+            return {
+              cls: p > 85 ? "danger" : p > 70 ? "warn" : "",
+              html: `上下文 <span class="bar"><i style="width:${p}%"></i></span> ${p}% ${fmtK(m.ctxUsed)}/${fmtK(m.ctxMax)}`,
+            };
+          },
+          tip: (m) =>
+            m.ctxUsed == null ? "刚压缩过，下一次回复后更新" : "当前上下文窗口的估算占用；接近上限时 pi 会自动压缩",
+        },
+        {
+          id: "cache",
+          name: "缓存命中率",
+          def: true,
+          render: (m) => `缓存 ${Math.round((m.cacheRead / (m.input + m.cacheRead + m.cacheWrite)) * 100)}%`,
+          tip: (m) =>
+            `会话累计：缓存读取 ÷（输入 + 缓存读取 + 缓存写入）\n最近一次请求：${Math.round(m.lastHit * 100)}%`,
+        },
+        {
+          id: "tokens",
+          name: "输入 / 输出 token",
+          def: true,
+          render: (m) => `↑${fmtK(m.input + m.cacheRead + m.cacheWrite)} ↓${fmtK(m.output)}`,
+          tip: (m) =>
+            `输入 ${fmtK(m.input + m.cacheRead + m.cacheWrite)}（其中缓存读取 ${fmtK(m.cacheRead)}）\n输出 ${fmtK(m.output)}（其中推理 ${fmtK(m.reasoning)}）`,
+        },
+        {
+          id: "speed",
+          name: "输出速度",
+          def: true,
+          render: (m) => `${m.lastSpeed ?? "—"} tok/s`,
+          tip: () => "最近一次回复：输出 token ÷ 流式输出时长",
+        },
+        {
+          id: "cost",
+          name: "费用",
+          def: false,
+          render: (m) => `≈$${m.cost.toFixed(2)}`,
+          tip: () => "按 API 价格折算；订阅用户不实际付费",
+        },
+      ];
+      function renderStatus() {
+        const bar = document.getElementById("statusbar");
+        bar.innerHTML =
+          METRICS.filter((x) => S.visible.includes(x.id))
+            .map((x) => {
+              const r = x.render(S.m);
+              const o = typeof r === "string" ? { html: esc(r), cls: "" } : r;
+              return `<span class="m ${o.cls}" title="${esc(x.tip(S.m))}">${o.html}</span>`;
+            })
+            .join("") +
+          '<span class="sp"></span><button class="gear" id="gear" title="选择显示哪些指标（也可以右键状态栏）">⚙</button>';
+      }
+      function openMetricsPop(x, y) {
+        closePop();
+        const p = document.createElement("div");
+        p.className = "pop";
+        p.id = "pop";
+        p.innerHTML =
+          '<div style="color:#999;font-size:11px;margin-bottom:4px">状态栏显示</div>' +
+          METRICS.map(
+            (x) =>
+              `<label><input type="checkbox" data-mid="${x.id}" ${S.visible.includes(x.id) ? "checked" : ""}>${x.name}${x.def ? "" : '<span style="color:#aaa">（默认不显示）</span>'}</label>`,
+          ).join("") +
+          '<div class="note" style="margin:6px 0 0">以后新增指标只需注册一项</div>';
+        document.body.appendChild(p);
+        const r = p.getBoundingClientRect();
+        p.style.left = Math.min(x, innerWidth - r.width - 8) + "px";
+        p.style.top = y - r.height - 6 + "px";
+        p.onchange = (e) => {
+          const id = e.target.dataset.mid;
+          S.visible = METRICS.map((x) => x.id).filter((k) => (k === id ? e.target.checked : S.visible.includes(k)));
+          renderStatus();
+          renderState();
+        };
+      }
+      function closePop() {
+        document.getElementById("pop")?.remove();
+      }
+
+      // ─── 过程步骤的通用渲染（三个方案共用的积木）──────────────────────────────
+      function stepStats(t) {
+        let reads = 0,
+          greps = 0,
+          cmds = 0;
+        const files = new Set();
+        for (const s of t.steps) {
+          if (s.kind === "explore") for (const [op] of s.items) op === "read" ? reads++ : greps++;
+          if (s.kind === "bash") cmds++;
+          if (s.kind === "edit") files.add(s.path);
+        }
+        const parts = [];
+        if (reads) parts.push(`读了 ${reads} 个文件`);
+        if (greps) parts.push(`搜索了 ${greps} 次`);
+        if (cmds) parts.push(`跑了 ${cmds} 条命令`);
+        if (files.size) parts.push(`改了 ${files.size} 个文件`);
+        return parts.join(" · ");
+      }
+      // open：这一步是否展开细节；live：是否正在进行
+      function renderStep(t, s, i, open, live) {
+        const key = `${t.id}:${i}`;
+        if (s.kind === "thinking") {
+          if (live)
+            return `<div class="step"><div class="line"><span class="spin"></span> 思考中…</div><div class="thinking-text cursor">${esc(s.text)}</div></div>`;
+          return `<div class="step"><div class="line" data-tog="${key}"><span class="chev${open ? " open" : ""}">▶</span>思考了 ${s.secs} 秒</div>${open ? `<div class="thinking-text">${esc(s.text)}</div>` : ""}</div>`;
+        }
+        if (s.kind === "explore") {
+          const reads = s.items.filter((x) => x[0] === "read").length,
+            greps = s.items.length - reads;
+          const label = `探索：${reads ? `读了 ${reads} 个文件` : ""}${reads && greps ? "，" : ""}${greps ? `搜索了 ${greps} 次` : ""}`;
+          return `<div class="step"><div class="line" data-tog="${key}">${live ? '<span class="spin"></span>' : `<span class="chev${open ? " open" : ""}">▶</span>`}${label}</div>
+      ${open || live ? `<div class="explore-list mono">${s.items.map(([op, a]) => `<div>${op === "read" ? "读取" : "搜索"} ${esc(a)}</div>`).join("")}</div>` : ""}</div>`;
+        }
+        if (s.kind === "bash") {
+          const status =
+            s.exit == null
+              ? '<span class="badge b-run"><span class="spin"></span> 运行中</span>'
+              : s.exit === 0
+                ? '<span class="badge b-ok">✓</span>'
+                : `<span class="badge b-bad">✗ 退出码 ${s.exit}</span>`;
+          const lines = open ? s.out : s.out.slice(-4);
+          return `<div class="card"><div class="card-head" data-tog="${key}"><span class="mono">$ ${esc(s.cmd)}</span>${status}</div>${(open || live || s.exit) && s.out.length ? `<pre>${esc(lines.join("\n"))}</pre>` : ""}</div>`;
+        }
+        if (s.kind === "edit") {
+          return `<div class="card"><div class="card-head" data-tog="${key}"><span class="chev${open ? " open" : ""}">▶</span><span class="mono">${esc(s.path)}</span><span style="color:#999;font-size:11px">修改</span></div>
+      ${open || live ? `<pre class="diff">${s.diff.map((l) => `<div class="${l[0] === "+" ? "add" : l[0] === "-" ? "del" : ""}">${esc(l)}</div>`).join("")}</pre>` : ""}</div>`;
+        }
+        if (s.kind === "steer") return `<div class="steer">↪ 插话已送达：${esc(s.text)}</div>`;
+        if (s.kind === "dialog") {
+          if (s.answer != null) return `<div class="answered">? ${esc(s.title)} → <b>${esc(s.answer)}</b></div>`;
+          return `<div class="dialog"><div class="q">? ${esc(s.title)} <span style="font-weight:400;color:#999;font-size:11.5px">来自 extension · ${s.left} 秒后超时</span></div>
+      ${s.options.map((o) => `<button data-answer="${t.id}:${i}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}</div>`;
+        }
+        return "";
+      }
+      const isFailed = (s) => s.kind === "bash" && s.exit;
+      const userHtml = (
+        t,
+      ) => `<div class="user"><div class="bubble">${esc(t.user.text)}${t.user.image ? `<span class="img-chip">🖼 ${esc(t.user.image)}</span>` : ""}</div>
+  <div class="hover-acts"><button class="mini" data-copy="user:${t.id}">复制</button></div></div>`;
+      const replyHtml = (t) =>
+        t.reply != null
+          ? `<div class="reply">${md(t.reply)}${t.replying ? '<span class="cursor"></span>' : ""}
+  ${t.replying ? "" : `<div class="hover-acts"><button class="mini" data-copy="reply:${t.id}">复制</button><button class="mini" data-copy="turn:${t.id}">复制整轮</button></div>`}</div>`
+          : "";
+      const opened = new Set(); // 用户手动展开 / 收起的步骤：`${turnId}:${i}`
+      function stepOpen(t, s, i) {
+        const key = `${t.id}:${i}`;
+        if (opened.has(key)) return true;
+        if (opened.has("!" + key)) return false;
+        if (S.mode === "detailed") return true;
+        if (S.mode === "thinking" && s.kind === "thinking") return true;
+        return false;
+      }
+      const pendingDialog = (t) => t.steps.find((s) => s.kind === "dialog" && s.answer == null);
+
+      // ─── 方案 A：过程折叠条 ────────────────────────────────────────────────────
+      function renderTurnA(t) {
+        let h = userHtml(t);
+        const live = t.status === "running";
+        const showAll = live || t.expanded || S.mode === "detailed";
+        if (!live) {
+          // 失败的命令不单独展开，只在摘要行末尾加红色标记（已定）
+          const fails = t.steps.filter(isFailed).length;
+          h += `<div class="sumline" data-expand="${t.id}"><span class="chev${showAll ? " open" : ""}">▶</span>过程 · ${fmtDur(t.dur)}${stepStats(t) ? " · " + stepStats(t) : ""}${fails ? ` · <span class="bad">${fails} 条命令失败</span>` : ""}</div>`;
+        }
+        t.steps.forEach((s, i) => {
+          const isLast = live && i === t.steps.length - 1 && !t.replying;
+          const visible =
+            showAll || s.kind === "steer" || s.kind === "dialog" || (S.mode === "thinking" && s.kind === "thinking");
+          if (visible)
+            h += renderStep(
+              t,
+              s,
+              i,
+              stepOpen(t, s, i),
+              isLast && (s.kind === "thinking" || s.kind === "explore" || (s.kind === "bash" && s.exit == null)),
+            );
+        });
+        if (t.status === "stopped") h += '<div class="stopped">■ 已停止</div>';
+        return `<div class="turn">${h}${replyHtml(t)}</div>`;
+      }
+
+      // ─── 方案 B：时间线 ────────────────────────────────────────────────────────
+      const DOT = {
+        thinking: "#c4b5fd",
+        explore: "#93c5fd",
+        bash: "#a3a3a3",
+        edit: "#86efac",
+        steer: "#60a5fa",
+        dialog: "#fcd34d",
+      };
+      function renderTurnB(t) {
+        let h = userHtml(t);
+        const live = t.status === "running";
+        const showAll = live || t.expanded || S.mode === "detailed";
+        let nodes = "";
+        if (!live && !showAll)
+          nodes += `<div class="node" style="--dot:#e5e5e2"><div class="sumline" data-expand="${t.id}"><span class="chev">▶</span>${t.steps.length} 步 · ${fmtDur(t.dur)}</div></div>`;
+        t.steps.forEach((s, i) => {
+          const isLast = live && i === t.steps.length - 1 && !t.replying;
+          const visible =
+            showAll ||
+            isFailed(s) ||
+            s.kind === "steer" ||
+            s.kind === "dialog" ||
+            (S.mode === "thinking" && s.kind === "thinking");
+          if (visible)
+            nodes += `<div class="node" style="--dot:${isFailed(s) ? "#f87171" : DOT[s.kind]}">${renderStep(t, s, i, stepOpen(t, s, i), isLast && (s.kind === "thinking" || s.kind === "explore" || (s.kind === "bash" && s.exit == null)))}</div>`;
+        });
+        if (showAll && !live)
+          nodes =
+            `<div class="node" style="--dot:#e5e5e2"><div class="sumline" data-expand="${t.id}"><span class="chev open">▶</span>${t.steps.length} 步 · ${fmtDur(t.dur)}</div></div>` +
+            nodes;
+        if (t.reply != null) nodes += `<div class="node reply-node">${replyHtml(t)}</div>`;
+        if (t.status === "stopped")
+          nodes += '<div class="node" style="--dot:#f59e0b"><div class="stopped">已停止</div></div>';
+        return `<div class="turn">${h}<div class="tl">${nodes}</div></div>`;
+      }
+
+      // ─── 方案 C：轮次卡片 ──────────────────────────────────────────────────────
+      function renderTurnC(t) {
+        const live = t.status === "running";
+        // 跑完后默认停在"回复"；运行中、还没开始回复时停在"过程"；详细模式默认"过程"
+        const tab = t.tabSet ? t.tab : (live && t.reply == null) || S.mode === "detailed" ? "proc" : "reply";
+        const fails = t.steps.filter(isFailed).length;
+        let body = "";
+        if (tab === "proc") {
+          t.steps.forEach((s, i) => {
+            const isLast = live && i === t.steps.length - 1 && !t.replying;
+            body += renderStep(
+              t,
+              s,
+              i,
+              stepOpen(t, s, i),
+              isLast && (s.kind === "thinking" || s.kind === "explore" || (s.kind === "bash" && s.exit == null)),
+            );
+          });
+        } else {
+          t.steps.forEach((s, i) => {
+            if (
+              isFailed(s) ||
+              s.kind === "steer" ||
+              s.kind === "dialog" ||
+              (S.mode === "thinking" && s.kind === "thinking")
+            )
+              body += renderStep(t, s, i, stepOpen(t, s, i), false);
+          });
+          body += t.reply != null ? replyHtml(t) : '<div style="color:#aaa;padding:8px 0">还没有回复</div>';
+        }
+        if (t.status === "stopped") body += '<div class="stopped">■ 已停止</div>';
+        return `<div class="tcard turn">
+    <div class="tcard-head"><div class="p">${esc(t.user.text)}${t.user.image ? `<span class="img-chip">🖼 ${esc(t.user.image)}</span>` : ""}</div>
+      <div class="meta">${live ? '<span class="spin"></span> 运行中' : fmtDur(t.dur)}${stepStats(t) ? " · " + stepStats(t) : ""}</div></div>
+    <div class="tabs"><button class="${tab === "reply" ? "on" : ""}" data-tab="${t.id}:reply">回复</button>
+      <button class="${tab === "proc" ? "on" : ""}" data-tab="${t.id}:proc">过程 (${t.steps.length})${fails ? ` <span class="bad">✗${fails}</span>` : ""}</button></div>
+    <div class="tcard-body">${body}</div>
+    <div class="turn-acts"><button class="mini" data-copy="turn:${t.id}">复制整轮</button></div></div>`;
+      }
+
+      // ─── 渲染 ──────────────────────────────────────────────────────────────────
+      const VARIANTS = { A: "过程折叠条", B: "时间线", C: "轮次卡片" };
+      let variant = new URLSearchParams(location.search).get("variant");
+      if (!VARIANTS[variant]) variant = "A";
+      function render() {
+        const stream = document.getElementById("stream");
+        const atBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 40;
+        const fn = { A: renderTurnA, B: renderTurnB, C: renderTurnC }[variant];
+        document.getElementById("col").innerHTML = S.stream
+          .map((x) => (x.type === "notice" ? `<div class="notice">${esc(x.text)}</div>` : fn(x)))
+          .join("");
+        renderQueue();
+        renderStatus();
+        renderState();
+        const send = document.getElementById("send");
+        send.textContent = S.running ? "停止" : "发送";
+        send.classList.toggle("stop", !!S.running);
+        document.getElementById("comphint").textContent = S.running ? "运行中：回车排队 · ⌘+回车插话" : "";
+        document.getElementById("mode").value = S.mode;
+        document.getElementById("vlabel").innerHTML = `<span class="tag">原型</span>${variant} · ${VARIANTS[variant]}`;
+        document.getElementById("attachments").innerHTML = S.attachments
+          .map(
+            (a, i) =>
+              `<span class="img-chip" style="margin:0 4px 4px 0">🖼 ${esc(a)} <a data-unattach="${i}" style="cursor:pointer">✕</a></span>`,
+          )
+          .join("");
+        // 排队区、附件都渲染完、消息流高度确定之后再滚动，否则新内容会被挤到可见区域外
+        if (atBottom) stream.scrollTop = stream.scrollHeight;
+      }
+      function renderQueue() {
+        const q = document.getElementById("queue");
+        if (!S.queue.length) {
+          q.innerHTML = "";
+          return;
+        }
+        q.innerHTML = `<div class="queue"><div class="qh"><span>排队 (${S.queue.length})${S.queuePaused ? " · 已暂停" : " · 本次运行结束后依次发送"}</span>
+    ${S.queuePaused ? '<a data-q="resume" style="cursor:pointer;color:#1d4ed8">继续发送</a>' : ""}</div>
+    ${S.queue
+      .map(
+        (
+          x,
+        ) => `<div class="qitem">${x.editing ? `<input data-qedit="${x.id}" value="${esc(x.text)}">` : `<span class="txt">${esc(x.text)}</span>`}
+      ${S.running ? `<button class="mini" data-q="steer:${x.id}" title="在 agent 下一步之前送达，不会立刻打断">插话</button>` : ""}
+      <button class="mini" data-q="edit:${x.id}">${x.editing ? "完成" : "编辑"}</button><button class="mini" data-q="del:${x.id}">✕</button></div>`,
+      )
+      .join("")}
+    ${S.pendingSteers.length ? `<div class="qitem"><span class="st">↪ ${S.pendingSteers.length} 条插话将在下一步前送达</span></div>` : ""}</div>`;
+      }
+      function renderState() {
+        const t = S.running;
+        document.getElementById("state").textContent = `方案：${variant} · ${VARIANTS[variant]}
+显示模式：${{ summary: "摘要", thinking: "思考", detailed: "详细" }[S.mode]}
+运行：${t ? "运行中（" + (t.steps.at(-1)?.kind ?? "开始") + "）" : "空闲"}
+排队：${S.queue.length} 条${S.queuePaused ? "（暂停）" : ""}；待送达插话：${S.pendingSteers.length}
+状态栏：${S.visible.map((id) => METRICS.find((x) => x.id === id).name).join("、")}
+
+提示：运行中在输入框回车会排队，
+点排队里的「插话」或按 ⌘+回车插话；
+右键状态栏或点 ⚙ 选择指标；
+悬停回复可复制，点过程行展开。`;
+      }
+
+      // ─── 模拟一次运行 ──────────────────────────────────────────────────────────
+      let seq = 1;
+      async function run(text, image) {
+        const t = {
+          type: "turn",
+          id: "t" + seq++,
+          status: "running",
+          dur: 0,
+          expanded: false,
+          user: { text, image },
+          steps: [],
+          reply: null,
+        };
+        S.stream.push(t);
+        S.running = t;
+        S.queuePaused = false;
+        const started = Date.now();
+        const alive = () => t.status === "running";
+        const deliverSteers = () => {
+          while (S.pendingSteers.length) t.steps.push({ kind: "steer", text: S.pendingSteers.shift() });
+        };
+        const typeInto = async (obj, key, full, ms = 18) => {
+          obj[key] = "";
+          for (const ch of full) {
+            if (!alive()) return;
+            obj[key] += ch;
+            render();
+            await sleep(ms);
+          }
+        };
+        render();
+        const th = { kind: "thinking", secs: 0, text: "" };
+        t.steps.push(th);
+        await typeInto(th, "text", `用户想要：${text.slice(0, 24)}… 先找到相关文件，确认现在的实现。`, 22);
+        th.secs = 3;
+        if (!alive()) return finish(t, started);
+        const ex = { kind: "explore", items: [] };
+        t.steps.push(ex);
+        for (const it of [
+          ["read", "src/sidebar/Inbox.tsx"],
+          ["grep", '"isWaiting" in src'],
+          ["read", "src/store/sessions.ts"],
+        ]) {
+          if (!alive()) break;
+          await sleep(450);
+          ex.items.push(it);
+          render();
+        }
+        if (!alive()) return finish(t, started);
+        deliverSteers();
+        const b = { kind: "bash", cmd: "pnpm test --filter sidebar", exit: null, out: [] };
+        t.steps.push(b);
+        render();
+        for (const l of ["RUN  v3.2.0", " ✓ Inbox.test.tsx (6)", " ✓ ProjectList.test.tsx (9)", "Tests: 15 passed"]) {
+          if (!alive()) break;
+          await sleep(380);
+          b.out.push(l);
+          render();
+        }
+        if (!alive()) return finish(t, started);
+        b.exit = 0;
+        deliverSteers();
+        render();
+        const ed = {
+          kind: "edit",
+          path: "src/sidebar/Inbox.tsx",
+          diff: ["-  if (!waiting.length) return null", "+  if (!waiting.length && !showEmpty) return null"],
+        };
+        await sleep(500);
+        if (!alive()) return finish(t, started);
+        t.steps.push(ed);
+        deliverSteers();
+        render();
+        await sleep(400);
+        if (!alive()) return finish(t, started);
+        t.replying = true;
+        const steered = t.steps.filter((s) => s.kind === "steer").map((s) => s.text);
+        await typeInto(
+          t,
+          "reply",
+          `处理好了。${steered.length ? `也按你插话的要求（${steered.join("；")}）做了调整。` : ""}\n\n- 在 \`Inbox.tsx\` 里加了 \`showEmpty\` 开关\n- 现有 15 条测试全部通过`,
+          16,
+        );
+        t.replying = false;
+        if (alive()) {
+          const outTok = 900 + Math.round(Math.random() * 400);
+          S.m.output += outTok;
+          S.m.reasoning += 200;
+          S.m.input += 4000;
+          S.m.cacheRead += 38000;
+          S.m.cacheWrite += 1500;
+          S.m.lastHit = 0.88 + Math.random() * 0.08;
+          S.m.lastSpeed = 40 + Math.round(Math.random() * 20);
+          S.m.ctxUsed = (S.m.ctxUsed ?? 30000) + 6000;
+          S.m.cost += 0.03;
+        }
+        finish(t, started, true);
+      }
+      function finish(t, started, ok) {
+        if (t.status === "running") t.status = ok ? "done" : "stopped";
+        t.replying = false;
+        t.dur = Math.max(1, Math.round((Date.now() - started) / 1000));
+        S.running = null;
+        S.pendingSteers = [];
+        render();
+        // 运行结束：宿主依次发出排队的下一条；停止后排队暂停
+        if (t.status === "done" && S.queue.length && !S.queuePaused) {
+          const next = S.queue.shift();
+          setTimeout(() => run(next.text), 500);
+        } else if (t.status === "stopped" && S.queue.length) {
+          S.queuePaused = true;
+          render();
+        }
+      }
+
+      // ─── 交互 ──────────────────────────────────────────────────────────────────
+      const input = document.getElementById("input");
+      function submit(steer) {
+        const text = input.value.trim();
+        if (!text && !S.attachments.length) return;
+        const image = S.attachments[0];
+        S.attachments = [];
+        input.value = "";
+        if (!S.running) {
+          run(text || "（图片）", image);
+          return;
+        }
+        if (steer) {
+          S.pendingSteers.push(text);
+          toast("插话：将在 agent 下一步之前送达");
+        } else {
+          S.queue.push({ id: "q" + seq++, text });
+        }
+        render();
+      }
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          submit(e.metaKey || e.ctrlKey);
+        }
+      });
+      document.getElementById("send").onclick = () => {
+        if (S.running) {
+          S.running.status = "stopped";
+          render();
+        } else submit(false);
+      };
+      document.getElementById("attach").onclick = () => {
+        S.attachments.push("截图 " + (S.attachments.length + 1) + ".png");
+        render();
+      };
+      input.addEventListener("paste", (e) => {
+        if ([...e.clipboardData.items].some((i) => i.type.startsWith("image/"))) {
+          e.preventDefault();
+          S.attachments.push("粘贴的图片.png");
+          render();
+        }
+      });
+      document.getElementById("mode").onchange = (e) => {
+        S.mode = e.target.value;
+        opened.clear();
+        render();
+      };
+      document.getElementById("statusbar").addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        openMetricsPop(e.clientX, e.clientY);
+      });
+
+      document.addEventListener("click", (e) => {
+        const el = e.target;
+        if (!el.closest("#pop") && !el.closest("#gear")) closePop();
+        if (el.closest("#gear")) {
+          const r = el.getBoundingClientRect();
+          openMetricsPop(r.left - 160, r.top);
+          return;
+        }
+        const tog = el.closest("[data-tog]");
+        if (tog) {
+          const k = tog.dataset.tog;
+          const [tid, i] = k.split(":");
+          const t = S.stream.find((x) => x.id === tid);
+          const cur = stepOpen(t, t.steps[i], +i);
+          opened.delete(k);
+          opened.delete("!" + k);
+          opened.add(cur ? "!" + k : k);
+          render();
+          return;
+        }
+        const ex = el.closest("[data-expand]");
+        if (ex) {
+          const t = S.stream.find((x) => x.id === ex.dataset.expand);
+          t.expanded = !t.expanded;
+          render();
+          return;
+        }
+        const tab = el.closest("[data-tab]");
+        if (tab) {
+          const [tid, v] = tab.dataset.tab.split(":");
+          const t = S.stream.find((x) => x.id === tid);
+          t.tab = v;
+          t.tabSet = true;
+          render();
+          return;
+        }
+        const ans = el.closest("[data-answer]");
+        if (ans) {
+          const [tid, i] = ans.dataset.answer.split(":");
+          const s = S.stream.find((x) => x.id === tid).steps[i];
+          s.answer = ans.dataset.v;
+          clearInterval(s.timer);
+          render();
+          return;
+        }
+        const cp = el.closest("[data-copy]");
+        if (cp) {
+          toast(
+            { user: "已复制这条消息", reply: "已复制这条回复", turn: "已复制整轮（提问 + 过程摘要 + 回复）" }[
+              cp.dataset.copy.split(":")[0]
+            ],
+          );
+          return;
+        }
+        const un = el.closest("[data-unattach]");
+        if (un) {
+          S.attachments.splice(+un.dataset.unattach, 1);
+          render();
+          return;
+        }
+        const q = el.closest("[data-q]");
+        if (q) {
+          const [a, id] = q.dataset.q.split(":");
+          const idx = S.queue.findIndex((x) => x.id === id);
+          const item = S.queue[idx];
+          if (a === "resume") {
+            S.queuePaused = false;
+            if (!S.running && S.queue.length) {
+              const next = S.queue.shift();
+              run(next.text);
+            } else render();
+          } else if (a === "steer") {
+            S.queue.splice(idx, 1);
+            S.pendingSteers.push(item.text);
+            toast("插话：将在 agent 下一步之前送达");
+            render();
+          } else if (a === "edit") {
+            if (item.editing) item.text = document.querySelector(`[data-qedit="${id}"]`).value.trim() || item.text;
+            item.editing = !item.editing;
+            render();
+            document.querySelector(`[data-qedit="${id}"]`)?.focus();
+          } else if (a === "del") {
+            S.queue.splice(idx, 1);
+            render();
+          }
+          return;
+        }
+        const c = el.closest("[data-c]");
+        if (c) {
+          if (c.dataset.c === "reset") {
+            S = initialState();
+            opened.clear();
+            render();
+          }
+          if (c.dataset.c === "compact") {
+            S.stream.push({ type: "notice", text: `上下文已自动压缩（压缩前 ${fmtK(S.m.ctxUsed ?? 160000)} tokens）` });
+            S.m.ctxUsed = null;
+            render();
+          }
+          if (c.dataset.c === "dialog") {
+            const t = S.running ?? [...S.stream].reverse().find((x) => x.type === "turn");
+            const d = {
+              kind: "dialog",
+              title: "用哪个测试框架？",
+              options: ["vitest", "jest", "跳过"],
+              answer: null,
+              left: 60,
+            };
+            t.steps.push(d);
+            d.timer = setInterval(() => {
+              d.left--;
+              if (d.left <= 0) {
+                d.answer = "（超时，未作答）";
+                clearInterval(d.timer);
+              }
+              render();
+            }, 1000);
+            render();
+          }
+        }
+      });
+      function go(d) {
+        const k = Object.keys(VARIANTS);
+        variant = k[(k.indexOf(variant) + d + k.length) % k.length];
+        history.replaceState(null, "", "?variant=" + variant);
+        render();
+      }
+      document.getElementById("prev").onclick = () => go(-1);
+      document.getElementById("next").onclick = () => go(1);
+      document.addEventListener("keydown", (e) => {
+        if (e.ctrlKey && e.key.toLowerCase() === "o") {
+          e.preventDefault();
+          const ms = ["summary", "thinking", "detailed"];
+          S.mode = ms[(ms.indexOf(S.mode) + 1) % 3];
+          opened.clear();
+          toast("显示模式：" + { summary: "摘要", thinking: "思考", detailed: "详细" }[S.mode]);
+          render();
+          return;
+        }
+        if (e.target.closest("input, textarea, select, [contenteditable]")) return;
+        if (e.key === "ArrowLeft") go(-1);
+        if (e.key === "ArrowRight") go(1);
+      });
+      render();
+    </script>
+  </body>
+</html>

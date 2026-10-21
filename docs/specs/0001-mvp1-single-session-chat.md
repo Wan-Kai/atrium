@@ -87,7 +87,7 @@ Electron 主进程
   - 右栏左边缘可以拖动改宽度，双击回到默认宽度。
   - 左栏折没折、右栏开没开和右栏宽度都记在本机（localStorage），所有工作区共用，重启后照旧，不进宿主的布局。
 - 完整页面原型：`prototypes/app-prototype.html`。设计规范（变量、组件、动效参数）见 [设计语言](../architecture/design-language.md)。
-- 本 spec 引用的原型（`prototypes/` 下的侧栏、对话区、图标对比、完整页面）按"用完即弃"的约定保存在 `prototype/ui` 分支，不进 `main`。
+- 本 spec 引用的原型（`prototypes/` 下的侧栏、对话区、图标对比、完整页面）仅作设计参考，实现以本 spec 和 design-language 为准。2026-10-21 按用户要求将历史原型归档进 `main`，后续原型随任务在各自 worktree 内制作并合并，具体流程见 [development.md](../development.md#标准开发流程)。
 
 ### 侧栏
 

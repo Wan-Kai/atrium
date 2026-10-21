@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型：过程里 AI 说的话加标识</title>
+    <!--
+  原型（PROTOTYPE，用完即弃）：折叠展开后的过程轨道里，"一轮里的文字"（AI 说给你的话）和读写、命令、
+  思考混在一起，看不出哪些是 AI 说了什么。比较四种标识。打开：双击；右上角切深色。
+-->
+    <style>
+      :root {
+        --main: #fff;
+        --surface-2: #f2f2f4;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --tint: #2f6fed;
+        --tint-soft: rgba(47, 111, 237, 0.08);
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #c4c4c9;
+        --page: #eef1f6;
+        --chip-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.05);
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-2: #2c2c2e;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --tint: #7aaaff;
+        --tint-soft: rgba(122, 170, 255, 0.12);
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #5d6067;
+        --page: #0c0c0e;
+        --chip-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 1px 2px rgba(0, 0, 0, 0.3);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        padding: 24px 40px 60px;
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      p.lead {
+        margin: 0 0 18px;
+        color: var(--text-muted);
+        font-size: 13px;
+        max-width: 1000px;
+      }
+      .tools {
+        position: fixed;
+        top: 14px;
+        right: 18px;
+      }
+      .tools button {
+        font: inherit;
+        font-size: 12px;
+        border: 0.5px solid var(--line);
+        background: var(--main);
+        color: var(--text-2);
+        border-radius: 8px;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+      }
+      .card {
+        background: var(--main);
+        border-radius: 16px;
+        padding: 18px 20px 14px;
+        box-shadow: 0 0 0 0.5px var(--line);
+        overflow: hidden;
+      }
+      .card h2 {
+        font-size: 14px;
+        margin: 0 0 2px;
+      }
+      .card .why {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin: 0 0 12px;
+        min-height: 34px;
+      }
+      .row {
+        position: relative;
+        padding-left: 30px;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13.5px;
+        color: var(--text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+      }
+      .row::before {
+        content: "";
+        position: absolute;
+        left: 10px;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: var(--rail);
+      }
+      .row .dot {
+        position: absolute;
+        left: 8px;
+        top: 50%;
+        width: 5px;
+        height: 5px;
+        margin-top: -2.5px;
+        border-radius: 50%;
+        background: var(--node);
+      }
+      .row b {
+        font-weight: 400;
+        color: var(--text-2);
+      }
+      .row code {
+        font:
+          12.5px "SF Mono",
+          Menlo,
+          monospace;
+        color: var(--text-muted);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        height: 24px;
+        padding: 0 9px 0 7px;
+        border-radius: 999px;
+        box-shadow: var(--chip-shadow);
+        font-size: 12.5px;
+        color: var(--text-2);
+        background: var(--main);
+      }
+      .chip .ts {
+        width: 13px;
+        height: 13px;
+        border-radius: 2px;
+        background: #3178c6;
+      }
+      .think {
+        color: var(--text-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .say {
+        color: var(--text);
+        white-space: normal;
+        padding: 5px 0;
+        line-height: 1.55;
+      }
+      /* A：节点换成气泡图标 */
+      .vA .row.t .dot {
+        display: none;
+      }
+      .vA .row.t .ico {
+        position: absolute;
+        left: 4px;
+        top: 50%;
+        margin-top: -6.5px;
+        width: 13px;
+        height: 13px;
+        color: var(--tint);
+        background: var(--main);
+      }
+      /* B：浅色底的小气泡 */
+      .vB .row.t .dot {
+        background: var(--tint);
+      }
+      .vB .row.t .say {
+        background: var(--tint-soft);
+        border-radius: 10px;
+        padding: 5px 10px;
+        margin: 3px 0;
+      }
+      /* C：节点换成实心蓝点、文字加深 */
+      .vC .row.t .dot {
+        width: 7px;
+        height: 7px;
+        left: 7px;
+        margin-top: -3.5px;
+        background: var(--tint);
+        box-shadow: 0 0 0 2px var(--main);
+      }
+      .vC .row.t .say {
+        font-weight: 500;
+      }
+      /* D：引用竖条 */
+      .vD .row.t .dot {
+        background: var(--text-muted);
+      }
+      .vD .row.t .say {
+        border-left: 2px solid var(--tint);
+        padding-left: 10px;
+        margin: 3px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="tools"><button id="theme">深色</button></div>
+    <h1>过程里 AI 说的话：加一个小标识</h1>
+    <p class="lead">
+      展开的过程轨道里，"一轮里的文字"（AI
+      一边干活一边说给你的话）和读写、命令、思考是同一种灰点、同一种排法，扫一眼找不到。四种标识都只改这种行，别的步骤不动；它们也照常收进折叠。思考是
+      AI 想给自己的，仍是淡色，不加标识。
+    </p>
+    <div class="grid" id="grid"></div>
+    <script>
+      const BUBBLE =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z"/><path d="M8 12h.01M12 12h.01M16 12h.01"/></svg>';
+      const ROWS = [
+        ["t", "先写纯逻辑（请求校验、结果整理、失败文字），再写扩展。"],
+        ["s", '<b>写入了</b> <span class="chip"><span class="ts"></span>search.ts</span>'],
+        [
+          "s",
+          '<b>思考了 20 秒</b> <span class="think">· I\'m working through how to safely narrow the unknown…</span>',
+        ],
+        ["s", '<b>写入了</b> <span class="chip"><span class="ts"></span>extension.ts</span>'],
+        ["s", "<b>运行了</b> <code>pnpm test:unit src/search</code>"],
+        [
+          "s",
+          '<b>思考了 43 秒</b> <span class="think">· Since the stand-in server won\'t capture request bodies…</span>',
+        ],
+        ["t", "测试用的假服务器不记请求体，我在测试里自己起一个本地服务器，然后写测试。"],
+        ["s", '<b>写入了</b> <span class="chip"><span class="ts"></span>extension.test.ts</span>'],
+        ["s", "<b>运行了</b> <code>pnpm test:unit src/search</code>"],
+        ["t", "全过了。按规矩要见过失败：临时改坏三处，确认测试会红。"],
+      ];
+      const VARIANTS = [
+        [
+          "A",
+          "A 气泡节点",
+          '这种行的节点换成 13px 的蓝色气泡图标（Hugeicons bubble-chat），文字用正文色；最像"说话"，只占节点的位置。',
+        ],
+        ["B", "B 浅蓝底小气泡", "文字放进一块很浅的蓝底圆角块，节点是蓝点；最显眼，像一条小消息。"],
+        ["C", "C 蓝点加粗", "节点换成稍大的实心蓝点，文字正文色、半粗；最克制，改动最小。"],
+        ["D", "D 引用竖条", "文字左边一道 2px 蓝色竖条，像引用；和轨道的竖线方向一样，可能和主线挤在一起。"],
+      ];
+      document.getElementById("grid").innerHTML = VARIANTS.map(
+        ([v, t, why]) => `<div class="card v${v}"><h2>${t}</h2><p class="why">${why}</p>
+  ${ROWS.map(([k, html]) => (k === "t" ? `<div class="row t"><span class="dot"></span><span class="ico">${BUBBLE}</span><span class="say">${html}</span></div>` : `<div class="row"><span class="dot"></span>${html}</div>`)).join("")}</div>`,
+      ).join("");
+      document.getElementById("theme").onclick = (e) => {
+        const d = document.documentElement.dataset.theme === "dark";
+        document.documentElement.dataset.theme = d ? "" : "dark";
+        e.target.textContent = d ? "深色" : "浅色";
+      };
+    </script>
+  </body>
+</html>
