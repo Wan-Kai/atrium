@@ -1,0 +1,1487 @@
+<!doctype html>
+<!--
+  PROTOTYPE — 设计稿。agent 向你提问（SPEC-0003）定了 A「卡片」（第一轮比较见 agent-question-prototype.html）。
+  这一版细化三处：序号的样式（甲 控件加键位 / 乙 序号即控件 / 丙 轻序号，浮条切换，?mark=甲|乙|丙）、
+  单选和多选的区分（单选圆、多选方，题目后标"单选 / 多选 · 已选 N"）、"其他"的输入框（铺满整行、多行、随内容长高）。
+  颜色、字号取自 packages/ui/src/design/tokens.css，图标是 Hugeicons 免费版 stroke-rounded（线宽 1.75）。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · agent 向你提问 · A 卡片细化</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --sidebar-bg: #e3e7e9;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --focus-ring: 0 0 0 3px rgba(47, 111, 237, 0.16);
+        --linked: rgba(47, 111, 237, 0.1);
+        --rail: rgba(0, 0, 0, 0.15);
+        --node: #c4c4c9;
+        --scrim: rgba(30, 38, 56, 0.3);
+        --tint: #2f6fed;
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --ok-text: #1e8e3e;
+        --on-tint: #fff;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --page: #eef1f6;
+        --bar: rgba(255, 255, 255, 0.92);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-reply: 14.5px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+        --snappy: cubic-bezier(0.2, 0.9, 0.3, 1.05);
+        --panel-ease: cubic-bezier(0.45, 0, 0.15, 1);
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --code: #19191b;
+        --sidebar-bg: #1d1f23;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --focus-ring: 0 0 0 3px rgba(122, 170, 255, 0.22);
+        --linked: rgba(122, 170, 255, 0.14);
+        --rail: rgba(255, 255, 255, 0.15);
+        --node: #5d6067;
+        --scrim: rgba(6, 8, 12, 0.42);
+        --tint: #7aaaff;
+        --attn-text: #f0a24e;
+        --attn-soft: rgba(221, 134, 41, 0.16);
+        --ok-text: #4ade80;
+        --on-tint: #0d1016;
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --page: #0c0c0e;
+        --bar: rgba(40, 40, 42, 0.92);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs) / 1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 110px;
+      }
+      button,
+      input,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+      button {
+        all: unset;
+        cursor: pointer;
+        box-sizing: border-box;
+      }
+      button:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+      svg {
+        flex: none;
+        display: block;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+      header.page {
+        padding: 26px 40px 4px;
+        max-width: 1080px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .stage {
+        padding: 14px 40px 0;
+      }
+      .desc {
+        margin: 12px 0 0;
+        max-width: 1080px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+
+      /* 窗口 */
+      .win {
+        width: 1080px;
+        height: 700px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .sb {
+        width: 220px;
+        flex: none;
+        background: var(--sidebar-bg);
+        padding: 46px 12px 12px;
+        font-size: var(--fs);
+        color: var(--text-2);
+      }
+      .sb .grp {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        padding: 0 8px 6px;
+      }
+      .sb .row {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        margin-bottom: 2px;
+      }
+      .sb .row.on {
+        background: var(--selected);
+      }
+      .sb .row .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .sb .row .pad {
+        width: 14px;
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 12px;
+      }
+      .tab {
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 11px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .tab.on {
+        color: var(--text);
+        background: var(--surface-2);
+      }
+      .thread {
+        flex: 1;
+        overflow-y: auto;
+        padding: 14px 0 56px;
+        scroll-behavior: smooth;
+      }
+      .col {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 0 24px;
+      }
+      .bubble {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 10px 16px;
+      }
+      .umeta {
+        text-align: right;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        margin: 4px 4px 14px;
+      }
+      .reply {
+        font-size: var(--fs-reply);
+        line-height: 1.55;
+        color: var(--text);
+        margin: 10px 0 0;
+      }
+
+      /* 标题行与过程轨道 */
+      .head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 28px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .head .wait {
+        color: var(--attn-text);
+        font-weight: 500;
+      }
+      .shimmer {
+        background: linear-gradient(90deg, var(--text-muted) 40%, var(--text) 50%, var(--text-muted) 60%) 0 0 / 200%
+          100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        animation: shimmer 2.2s linear infinite;
+      }
+      @keyframes shimmer {
+        from {
+          background-position: 100% 0;
+        }
+        to {
+          background-position: -100% 0;
+        }
+      }
+      .cat-eyes {
+        transform-box: fill-box;
+        transform-origin: center;
+        animation: blink 2.6s infinite;
+      }
+      @keyframes blink {
+        0%,
+        92%,
+        100% {
+          transform: scaleY(1);
+        }
+        95% {
+          transform: scaleY(0.1);
+        }
+      }
+      .rail {
+        position: relative;
+        margin: 4px 0 0 8px;
+        padding-left: 22px;
+      }
+      .rail::before {
+        content: "";
+        position: absolute;
+        left: 3.5px;
+        top: 10px;
+        bottom: 12px;
+        width: 1px;
+        background: var(--rail);
+      }
+      .step {
+        position: relative;
+        min-height: 28px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .step .node {
+        position: absolute;
+        left: -22px;
+        top: 10px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--node);
+        box-shadow: 0 0 0 3px var(--main);
+      }
+      .step.say {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .step.say .node {
+        background: var(--tint);
+        width: 7px;
+        height: 7px;
+        left: -21.75px;
+      }
+      .step.ask .node {
+        background: var(--attn);
+      }
+      .step.ask.live .node::after {
+        content: "";
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 1.5px solid var(--attn);
+        opacity: 0.45;
+        animation: pulse 1.6s ease-out infinite;
+      }
+      @keyframes pulse {
+        from {
+          transform: scale(0.6);
+          opacity: 0.6;
+        }
+        to {
+          transform: scale(1.4);
+          opacity: 0;
+        }
+      }
+      .step.ask.live .lbl {
+        color: var(--attn-text);
+        font-weight: 500;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 22px;
+        padding: 0 7px;
+        border-radius: var(--r-sm);
+        background: var(--surface-1);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 1px 2px rgba(0, 0, 0, 0.05);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+      }
+      /* 答完的记录：每题一行"题名 · 你的回答" */
+      .record {
+        margin: 0 0 6px;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        column-gap: 10px;
+        row-gap: 2px;
+        font-size: var(--fs-meta);
+      }
+      .record .k {
+        color: var(--text-dim);
+      }
+      .record .v {
+        color: var(--text-2);
+      }
+      .record .v .other {
+        color: var(--text-muted);
+      }
+
+      /* 题目：共用部件 */
+      .qtabs {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        flex-wrap: wrap;
+      }
+      .qtab {
+        height: 26px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 9px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .qtab:hover {
+        background: var(--hover);
+      }
+      .qtab.on {
+        background: var(--selected);
+        color: var(--text);
+        font-weight: 500;
+      }
+      .qtab .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px var(--text-dim);
+      }
+      .qtab.done .dot {
+        display: none;
+      }
+      .qtab .ok {
+        color: var(--ok-text);
+        display: none;
+      }
+      .qtab.done .ok {
+        display: block;
+      }
+      .qtext {
+        font-size: var(--fs);
+        font-weight: 500;
+        color: var(--text);
+        margin: 10px 2px 8px;
+      }
+      .qbody {
+        display: flex;
+        gap: 12px;
+        align-items: stretch;
+      }
+      .opts {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .opt {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 0 10px;
+        padding: 8px 10px;
+        border-radius: var(--r-md);
+        transition: background 0.12s;
+      }
+      .opt:hover {
+        background: var(--hover);
+      }
+      .opt.cursor {
+        background: var(--hover);
+        box-shadow: inset 0 0 0 1px var(--line-strong);
+      }
+      .opt.sel {
+        background: var(--linked);
+      }
+      .opt .txt {
+        min-width: 0;
+        flex: 1;
+      }
+      .opt .lab {
+        font-size: var(--fs-meta);
+        line-height: 20px;
+        color: var(--text);
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .rec {
+        font-size: var(--fs-xs);
+        font-weight: 500;
+        color: var(--tint);
+        background: var(--linked);
+        border-radius: var(--r-sm);
+        padding: 0 5px;
+        line-height: 17px;
+      }
+      .opt .sub {
+        display: block;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        margin-top: 1px;
+      }
+      .qkind {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 0 6px;
+        border-radius: var(--r-sm);
+        font-size: var(--fs-xs);
+        line-height: 18px;
+        font-weight: 400;
+        color: var(--text-muted);
+        background: var(--surface-2);
+        vertical-align: 1px;
+      }
+      :root[data-theme="dark"] .qkind {
+        background: var(--surface-3);
+      }
+      .qkind.multi {
+        color: var(--tint);
+        background: var(--linked);
+      }
+      @keyframes pop {
+        from {
+          transform: scale(0.4);
+        }
+      }
+      .opt svg {
+        animation: pop 0.3s var(--snappy);
+      }
+
+      /* 甲：标准控件在左，数字在行尾做成键位 */
+      .ctl {
+        width: 16px;
+        height: 16px;
+        margin-top: 2px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        color: var(--on-tint);
+        box-shadow: inset 0 0 0 1.5px var(--line-strong);
+        transition:
+          box-shadow 0.15s,
+          background 0.15s;
+      }
+      .ctl.radio {
+        border-radius: 50%;
+      }
+      .ctl.box {
+        border-radius: 4.5px;
+      }
+      .opt:hover .ctl {
+        box-shadow: inset 0 0 0 1.5px var(--text-dim);
+      }
+      .opt.sel .ctl.radio {
+        background: #fff;
+        box-shadow: inset 0 0 0 5px var(--tint);
+      }
+      .opt.sel .ctl.box {
+        background: var(--tint);
+        box-shadow: none;
+      }
+      .ctl.end {
+        margin: 0;
+        align-self: center;
+      }
+      .kcap {
+        align-self: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 4px;
+        display: grid;
+        place-items: center;
+        border-radius: 5px;
+        font: 500 var(--fs-xs) / 1 var(--font-sans);
+        color: var(--text-dim);
+        box-shadow:
+          inset 0 -1px 0 var(--line-strong),
+          inset 0 0 0 0.5px var(--line);
+      }
+      .opt:hover .kcap,
+      .opt.cursor .kcap {
+        color: var(--text-muted);
+      }
+      .opt.sel .kcap {
+        color: var(--tint);
+      }
+
+      /* 乙：序号即控件，实心浅底，单选圆、多选方 */
+      .disc {
+        width: 22px;
+        height: 22px;
+        margin-top: -1px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--surface-2);
+        font: 600 var(--fs-sm) / 1 var(--font-sans);
+        color: var(--text-muted);
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      :root[data-theme="dark"] .disc {
+        background: var(--surface-3);
+      }
+      .disc.box {
+        border-radius: 7px;
+      }
+      .opt:hover .disc {
+        color: var(--text);
+      }
+      .opt.sel .disc {
+        background: var(--tint);
+        color: var(--on-tint);
+      }
+
+      /* 丙：轻序号，控件在行尾 */
+      .lnum {
+        width: 14px;
+        flex: none;
+        text-align: right;
+        font: 500 var(--fs-meta) / 20px var(--font-sans);
+        color: var(--text-dim);
+      }
+      .opt.sel .lnum {
+        color: var(--tint);
+      }
+      .endtick {
+        align-self: center;
+        color: var(--tint);
+      }
+
+      /* "其他"的输入框：铺满整行，和选项文字左边对齐 */
+      .other-box {
+        flex-basis: 100%;
+        padding-left: var(--lead);
+        margin-top: 8px;
+      }
+      #win[data-mark="甲"] {
+        --lead: 26px;
+      }
+      #win[data-mark="乙"] {
+        --lead: 32px;
+      }
+      #win[data-mark="丙"] {
+        --lead: 24px;
+      }
+      .other-in {
+        display: block;
+        width: 100%;
+        min-height: 62px;
+        max-height: 168px;
+        resize: none;
+        border: 0;
+        outline: none;
+        border-radius: var(--r-md);
+        padding: 9px 12px;
+        background: var(--main);
+        font-size: var(--fs);
+        line-height: 1.5;
+        color: var(--text);
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        overflow-y: auto;
+      }
+      .other-in::placeholder {
+        color: var(--text-dim);
+      }
+      .other-in:focus {
+        box-shadow:
+          inset 0 0 0 1px var(--tint),
+          var(--focus-ring);
+      }
+      .other-hint {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: 5px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .preview {
+        width: 46%;
+        flex: none;
+        background: var(--code);
+        border-radius: var(--r-md);
+        padding: 10px 12px;
+        font: var(--fs-sm) / 1.45 var(--font-mono);
+        color: var(--text-3);
+        white-space: pre;
+        overflow: auto;
+        position: relative;
+      }
+      .preview .ptag {
+        font: var(--fs-xs) / 1 var(--font-sans);
+        color: var(--text-dim);
+        display: block;
+        margin-bottom: 8px;
+        white-space: normal;
+      }
+      .foot {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .foot .sp {
+        flex: 1;
+      }
+      .kbd {
+        font: var(--fs-xs) / 1 var(--font-mono);
+        padding: 2px 4px;
+        border-radius: 4px;
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+        color: var(--text-muted);
+      }
+      .btn {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 0 12px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        transition: transform 0.3s var(--snappy);
+      }
+      .btn:active {
+        transform: scale(0.95);
+        transition-duration: 0.08s;
+      }
+      .btn.ghost:hover {
+        background: var(--hover);
+      }
+      .btn.line {
+        box-shadow: inset 0 0 0 0.5px var(--line-strong);
+      }
+      .btn.line:hover {
+        background: var(--hover);
+      }
+      .btn.primary {
+        background: var(--text);
+        color: var(--main);
+        font-weight: 500;
+      }
+      .btn.primary[disabled] {
+        background: var(--surface-3);
+        color: var(--text-dim);
+        cursor: default;
+        transform: none;
+      }
+      .from {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-sm);
+        color: var(--attn-text);
+        font-weight: 500;
+      }
+      .from .cnt {
+        color: var(--text-dim);
+        font-weight: 400;
+      }
+
+      /* 输入框与它上方 */
+      .dock {
+        flex: none;
+        position: relative;
+        padding: 0 0 10px;
+      }
+      .dock::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: -48px;
+        height: 48px;
+        background: linear-gradient(transparent, var(--main));
+        pointer-events: none;
+      }
+      .above {
+        margin-bottom: 8px;
+        display: flex;
+        gap: 6px;
+      }
+      .composer {
+        border-radius: var(--r-bubble);
+        background: var(--surface-1);
+        padding: 14px;
+        box-shadow:
+          inset 0 0 0 0.5px var(--line),
+          0 9px 27px rgba(41, 70, 122, 0.08);
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      :root[data-theme="dark"] .composer {
+        background: var(--surface-2);
+      }
+      .composer textarea {
+        border: 0;
+        outline: none;
+        resize: none;
+        background: transparent;
+        height: 24px;
+        padding: 2px 6px 0;
+        font-size: var(--fs);
+      }
+      .composer textarea::placeholder {
+        color: var(--text-dim);
+      }
+      .cbar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .cbar .sp {
+        flex: 1;
+      }
+      .round {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+      }
+      .round:hover {
+        background: var(--hover);
+      }
+      .round.send {
+        background: var(--text);
+        color: var(--main);
+      }
+      .round.send.off {
+        background: var(--surface-3);
+        color: var(--text-dim);
+      }
+      .model {
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 12px;
+        border-radius: var(--r-pill);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      .replying {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-sm);
+        color: var(--attn-text);
+        padding: 0 6px;
+      }
+      .replying .sp {
+        flex: 1;
+      }
+      .status {
+        height: 28px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 14px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        margin-top: 4px;
+      }
+
+      /* A：输入框上方的卡片 */
+      .qcard {
+        background: var(--surface-1);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        padding: 12px 14px 12px;
+        margin-bottom: 8px;
+        animation: rise 0.42s var(--snappy);
+      }
+      :root[data-theme="dark"] .qcard {
+        background: var(--surface-2);
+      }
+      .qcard .top {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .qcard .top .sp {
+        flex: 1;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+      }
+
+      /* 浮条 */
+      .bar {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        background: var(--bar);
+        backdrop-filter: blur(12px);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 12px 32px rgba(0, 0, 0, 0.18);
+        border-radius: 14px;
+        padding: 8px 10px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        white-space: nowrap;
+        z-index: 10;
+      }
+      .seg {
+        display: inline-flex;
+        background: var(--hover);
+        border-radius: 9px;
+        padding: 2px;
+      }
+      .seg button {
+        padding: 3px 10px;
+        border-radius: 7px;
+        color: var(--text-muted);
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: 0 0 0 0.5px var(--line-strong);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>agent 向你提问 · A 卡片细化（原型）</h1>
+      <p>位置定了 A：输入框上方的卡片。这一版看三处：序号的样式、单选和多选的区分、选"其他"时的输入框。</p>
+      <p>
+        浮条切换序号样式（键盘 [ ]
+        也行）和题目情况：单选、多选、三题（单选、多选、带预览各一）、带预览。都能点选、按数字键选、空格勾选、⏎
+        确定；"其他"的输入框里 ⏎ 确定、⇧⏎ 换行。
+      </p>
+    </header>
+    <div class="stage">
+      <div class="win" id="win"></div>
+      <p class="desc" id="desc"></p>
+    </div>
+    <div class="bar">
+      <span class="seg" id="marks"></span>
+      <span class="seg" id="scens"></span>
+      <span class="seg" id="themes"></span>
+      <button class="btn ghost" id="reset">重来</button>
+    </div>
+    <script>
+      const P = (d) =>
+        `<path d="${d}" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75"/>`;
+      const ICONS = {
+        help:
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.75"/>' +
+          P(
+            "M9.5 9.5C9.5 8.11929 10.6193 7 12 7C13.3807 7 14.5 8.11929 14.5 9.5C14.5 10.3569 14.0689 11.1131 13.4117 11.5636C12.7283 12.0319 12 12.6716 12 13.5",
+          ) +
+          P(
+            "M12.125 16.75H12M12.25 16.75C12.25 16.8881 12.1381 17 12 17C11.8619 17 11.75 16.8881 11.75 16.75C11.75 16.6119 11.8619 16.5 12 16.5C12.1381 16.5 12.25 16.6119 12.25 16.75Z",
+          ),
+        tick: P("M5 14L8.5 17.5L19 6.5"),
+        right: P("M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18"),
+        left: P("M15 6C15 6 9.00001 10.4189 9 12C8.99999 13.5812 15 18 15 18"),
+        down: P("M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9"),
+        up: P("M12 5.5V19") + P("M18 11C18 11 13.5811 5.00001 12 5C10.4188 4.99999 6 11 6 11"),
+        cancel: P("M18 6L6.00081 17.9992M17.9992 18L6 6.00085"),
+        bubble: P(
+          "M21.5 12C21.5 17.2467 17.2467 21.5 12 21.5C10.3719 21.5 8.8394 21.0904 7.5 20.3687C5.63177 19.362 4.37462 20.2979 3.26592 20.4658C3.09774 20.4913 2.93024 20.4302 2.80997 20.31C2.62741 20.1274 2.59266 19.8451 2.6935 19.6074C3.12865 18.5818 3.5282 16.6382 2.98341 15C2.6698 14.057 2.5 13.0483 2.5 12C2.5 6.75329 6.75329 2.5 12 2.5C17.2467 2.5 21.5 6.75329 21.5 12Z",
+        ),
+        search:
+          P("M17 17L21 21") +
+          P(
+            "M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z",
+          ),
+        add: P("M12.001 5.00003V19.002") + P("M19.002 12.002L4.99998 12.002"),
+        back:
+          P("M11 6H15.5C17.9853 6 20 8.01472 20 10.5C20 12.9853 17.9853 15 15.5 15H4") +
+          P("M6.99998 12C6.99998 12 4.00001 14.2095 4 15C3.99999 15.7906 7 18 7 18"),
+        stop: '<rect x="7" y="7" width="10" height="10" rx="2.5" fill="currentColor"/>',
+      };
+      const icon = (k, s = 16, w) =>
+        `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none"${w ? ` style="stroke-width:${w}"` : ""}>${ICONS[k]}</svg>`;
+      const CAT = `<svg width="18" height="18" viewBox="0 0 18 18"><rect width="18" height="18" rx="5" fill="#6c86cc"/><path d="M3 15V6.5C3 4.5 4 3 5.2 4.6L6.6 6.4H11.4L12.8 4.6C14 3 15 4.5 15 6.5V15Z" fill="#fbf5ec"/><g class="cat-eyes"><ellipse cx="7" cy="10.4" rx="1" ry="1.5" fill="#1f2537"/><ellipse cx="11" cy="10.4" rx="1" ry="1.5" fill="#1f2537"/></g></svg>`;
+      const esc = (t) =>
+        String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+      const LAYOUT_A = `<Sidebar>
+  <Search />
+  <Projects />
+  <Inbox />        ← 在这里
+  <Settings />
+</Sidebar>`;
+      const LAYOUT_B = `<Sidebar>
+  <Search />
+  <Inbox />        ← 在这里
+  <Projects />
+  <Settings />
+</Sidebar>`;
+      const LAYOUT_C = `<Workbench>
+  <Sidebar>
+    <Search />
+    <Projects />
+    <Settings />
+  </Sidebar>
+  <Chat />
+  <InboxPane />    ← 在这里
+</Workbench>`;
+      const QUESTIONS = [
+        {
+          header: "范围",
+          question: "这次重构改到哪为止？",
+          multi: false,
+          options: [
+            { label: "只改收件箱（推荐）", description: "sidebar-inbox.tsx 和它的测试，别处不动" },
+            { label: "收件箱和项目列表", description: "两处共用的折叠逻辑一起抽出来，多改 3 个文件" },
+            { label: "整个侧栏", description: "顺带统一行高和动效，改动大，README 截图要重拍" },
+          ],
+        },
+        {
+          header: "测试",
+          question: "要补哪些测试？",
+          multi: true,
+          options: [
+            { label: "单元测试", description: "折叠状态的纯函数" },
+            { label: "浏览器组件测试", description: "展开收起、计数、键盘操作" },
+            { label: "端到端", description: "在真实 Electron 里点一遍收件箱" },
+          ],
+        },
+        {
+          header: "位置",
+          question: "收件箱放在侧栏的哪里？",
+          multi: false,
+          options: [
+            { label: "底部卡片（推荐）", description: "现在的位置，紧挨设置", preview: LAYOUT_A },
+            { label: "顶部，搜索下面", description: "最先看到，但项目列表往下挤", preview: LAYOUT_B },
+            { label: "右侧单独一栏", description: "不挤侧栏，窄窗口放不下", preview: LAYOUT_C },
+          ],
+        },
+      ];
+      const SCENS = {
+        one: ["单选", [0]],
+        multi: ["多选", [1]],
+        three: ["三题", [0, 1, 2]],
+        preview: ["带预览", [2]],
+      };
+      const MARKS = {
+        甲: [
+          "甲 · 控件加键位",
+          "左边是标准的单选圆 / 多选方框，一眼分出单选多选；数字移到行尾，做成淡淡的键位，只提示按几能选。选中：单选圆变成蓝环白芯，多选方框变蓝底白勾。",
+        ],
+        乙: [
+          "乙 · 序号即控件",
+          "保留序号在左边，去掉细框，换成 22px 的实心浅底：单选是圆、多选是圆角方。选中时整块变蓝、数字换成白勾。最紧凑，序号和控件合一。",
+        ],
+        丙: [
+          "丙 · 轻序号",
+          "序号只是一个淡色数字，像列表的编号，没有底和框；多选在行尾放方框，单选选中时行尾出一个蓝勾。最安静，单选没选时不显示控件。",
+        ],
+      };
+      const OTHER = "其他";
+
+      const q0 = new URLSearchParams(location.search);
+      const s = {
+        mark: MARKS[q0.get("mark")] ? q0.get("mark") : "乙",
+        scen: "three",
+        theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light",
+      };
+      function resetAnswers() {
+        s.cur = 0;
+        s.cursor = 0;
+        s.ans = qs().map(() => ({ sel: new Set(), other: "" }));
+        s.done = null;
+        s.askedAt = Date.now() - 42000;
+      }
+      const qs = () => SCENS[s.scen][1].map((i) => QUESTIONS[i]);
+      const rec = (label) => /（推荐）|\(Recommended\)/.test(label);
+      const bare = (label) => label.replace(/\s*(（推荐）|\(Recommended\))$/, "");
+      const otherIndex = (q) => q.options.length;
+      function answered(qi) {
+        const a = s.ans[qi];
+        if (a.sel.size === 0) return false;
+        return !a.sel.has(otherIndex(qs()[qi])) || a.other.trim() !== "";
+      }
+      const allAnswered = () => qs().every((_, i) => answered(i));
+      const answeredCount = () => qs().filter((_, i) => answered(i)).length;
+      function answerText(qi) {
+        const q = qs()[qi];
+        const a = s.ans[qi];
+        return [...a.sel]
+          .sort()
+          .map((oi) =>
+            oi === otherIndex(q)
+              ? `<span class="other">其他：</span>“${esc(a.other.trim())}”`
+              : esc(bare(q.options[oi].label)),
+          )
+          .join("、");
+      }
+      function clock() {
+        const t = Math.max(0, Math.floor((Date.now() - s.askedAt) / 1000));
+        return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+      }
+      resetAnswers();
+
+      /* ——— 题目部件 ——— */
+      function optRow(qi, oi) {
+        const q = qs()[qi];
+        const a = s.ans[qi];
+        const isOther = oi === otherIndex(q);
+        const sel = a.sel.has(oi);
+        const cursor = qi === s.cur && oi === s.cursor && s.keyboard;
+        const o = q.options[oi];
+        const tick = (size) => icon("tick", size, 2.6);
+        const ctl = (end) =>
+          `<span class="ctl ${q.multi ? "box" : "radio"}${end ? " end" : ""}">${q.multi && sel ? tick(11) : ""}</span>`;
+        let lead = "";
+        let tail = "";
+        if (s.mark === "甲") {
+          lead = ctl(false);
+          tail = `<span class="kcap num">${oi + 1}</span>`;
+        } else if (s.mark === "乙") {
+          lead = `<span class="disc num${q.multi ? " box" : ""}">${sel ? tick(12) : oi + 1}</span>`;
+        } else {
+          lead = `<span class="lnum num">${oi + 1}</span>`;
+          tail = q.multi ? ctl(true) : sel ? `<span class="endtick">${tick(15)}</span>` : "";
+        }
+        const lab = isOther ? OTHER : `${esc(bare(o.label))}${rec(o.label) ? '<span class="rec">推荐</span>' : ""}`;
+        const sub = isOther ? (sel ? "" : "都不合适？写你自己的回答") : esc(o.description);
+        const box =
+          isOther && sel
+            ? `<div class="other-box"><textarea class="other-in" data-other="${qi}" rows="2" placeholder="写下你的回答…">${esc(a.other)}</textarea><div class="other-hint"><span><span class="kbd">⏎</span> 确定</span><span><span class="kbd">⇧⏎</span> 换行</span></div></div>`
+            : "";
+        return `<div class="opt${sel ? " sel" : ""}${cursor ? " cursor" : ""}${isOther ? " other" : ""}" data-opt="${qi}:${oi}" role="${q.multi ? "checkbox" : "radio"}" aria-checked="${sel}">
+          ${lead}<span class="txt"><span class="lab">${lab}</span>${sub ? `<span class="sub">${sub}</span>` : ""}</span>${tail}${box}</div>`;
+      }
+      function previewPane(qi) {
+        const q = qs()[qi];
+        if (!q.options.some((o) => o.preview)) return "";
+        const a = s.ans[qi];
+        let pi = 0;
+        if (qi === s.cur && s.keyboard && q.options[s.cursor]?.preview) pi = s.cursor;
+        else if (s.hover?.[0] === qi && q.options[s.hover[1]]?.preview) pi = s.hover[1];
+        else if (a.sel.size && q.options[[...a.sel][0]]?.preview) pi = [...a.sel][0];
+        return `<div class="preview"><span class="ptag">预览 · ${esc(bare(q.options[pi].label))}</span>${esc(q.options[pi].preview)}</div>`;
+      }
+      function qText(qi) {
+        const q = qs()[qi];
+        const k = s.ans[qi].sel.size;
+        const kind = q.multi
+          ? `<span class="qkind multi">多选${k ? `<span class="num"> · 已选 ${k}</span>` : ""}</span>`
+          : `<span class="qkind">单选</span>`;
+        return `<div class="qtext">${esc(q.question)}${kind}</div>`;
+      }
+      function qBody(qi, stack) {
+        const q = qs()[qi];
+        const rows = [...q.options.keys(), otherIndex(q)].map((oi) => optRow(qi, oi)).join("");
+        const pv = previewPane(qi);
+        if (stack) return `<div class="opts">${rows}</div>${pv}`;
+        return `<div class="qbody"><div class="opts">${rows}</div>${pv}</div>`;
+      }
+      function qTabs() {
+        if (qs().length < 2) return "";
+        return `<div class="qtabs">${qs()
+          .map(
+            (q, i) =>
+              `<button class="qtab${i === s.cur ? " on" : ""}${answered(i) ? " done" : ""}" data-tab="${i}"><span class="dot"></span><span class="ok">${icon("tick", 12, 2.4)}</span>${esc(q.header)}</button>`,
+          )
+          .join("")}</div>`;
+      }
+      const from = () =>
+        `<span class="from">${icon("help", 15)}agent 在问你${qs().length > 1 ? `<span class="cnt num" data-count>· 已答 ${answeredCount()} / ${qs().length}</span>` : ""}</span>`;
+      const n = () => qs()[s.cur].options.length + 1;
+      function actions(extra = "") {
+        const last = s.cur === qs().length - 1 || allAnswered();
+        const nextBtn =
+          qs().length > 1 && !last
+            ? `<button class="btn line" data-act="next">下一题 ${icon("right", 12)}</button>`
+            : "";
+        return `${extra}<button class="btn ghost" data-act="skip">跳过</button>${nextBtn}<button class="btn primary" data-act="submit"${allAnswered() ? "" : " disabled"}>提交回答</button>`;
+      }
+      const hints = () => {
+        const multi = qs()[s.cur].multi;
+        const more = qs().length > 1 ? "下一题" : "确定";
+        return `<span><span class="kbd">1–${n()}</span> ${multi ? "勾选" : "选择"}</span>${
+          multi ? '<span><span class="kbd">空格</span> 勾选当前行</span>' : ""
+        }<span><span class="kbd">⏎</span> ${more}</span>`;
+      };
+
+      /* ——— 卡片 ——— */
+      function cardA() {
+        return `<div class="qcard"><div class="top">${from()}<span class="sp"></span>${qTabs()}</div>
+          ${qText(s.cur)}${qBody(s.cur)}
+          <div class="foot">${hints()}<span class="sp"></span>${actions()}</div></div>`;
+      }
+      /* ——— 对话、侧栏、输入框 ——— */
+      const waiting = () => s.done === null;
+      function head() {
+        if (waiting())
+          return `<div class="head"><span style="color:var(--attn)">${icon("help", 18)}</span><span class="wait">等你回答</span><span class="num" style="color:var(--attn-text)">· <span id="timer">${clock()}</span></span></div>`;
+        return `<div class="head">${CAT}<span class="shimmer">进行中 · <span class="num">1:12</span></span></div>`;
+      }
+      function askStep() {
+        const k = qs().length;
+        if (waiting())
+          return `<div class="step ask live"><span class="node"></span><span class="lbl">正在问你 · ${k} 个问题</span></div>`;
+        if (s.done.kind === "skipped")
+          return `<div class="step ask"><span class="node"></span>你跳过了${k > 1 ? `这 ${k} 个问题` : "这个问题"}</div>`;
+        if (s.done.kind === "reply")
+          return `<div class="step ask"><span class="node"></span>你没选，直接回复了</div><div class="record"><span class="k">回复</span><span class="v">${esc(s.done.text)}</span></div>`;
+        const rows = qs()
+          .map((q, i) => `<span class="k">${esc(q.header)}</span><span class="v">${answerText(i)}</span>`)
+          .join("");
+        return `<div class="step ask"><span class="node"></span>问了你 ${k} 个问题</div><div class="record">${rows}</div>`;
+      }
+      function after() {
+        if (waiting()) return "";
+        const say =
+          s.done.kind === "skipped"
+            ? "那我按推荐的做法来：只改收件箱，补单元测试。"
+            : s.done.kind === "reply"
+              ? "明白，按你说的来。"
+              : "好，按你选的来。";
+        return `<div class="step say"><span class="node"></span>${say}</div>
+          <div class="step"><span class="node"></span><span class="shimmer">正在编辑</span><span class="chip">sidebar-inbox.tsx</span></div>`;
+      }
+      function thread() {
+        const files = ["sidebar-inbox.tsx", "fold.tsx", "sidebar.tsx", "status.ts"]
+          .map((f) => `<span class="chip">${f}</span>`)
+          .join("");
+        return `<div class="col">
+          <div class="bubble">收件箱展开收起偶尔会跳一下，帮我把侧栏的收件箱重构一下</div>
+          <div class="umeta num">14:02</div>
+          ${head()}
+          <div class="rail">
+            <div class="step"><span class="node"></span>探索了代码库 · 读了 4 个文件，搜索了 2 次</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 6px">${files}</div>
+            <div class="step say"><span class="node"></span>跳动是 Fold 在高度还没量出来时就开始播。动手前有几处要你定。</div>
+            ${askStep()}
+            ${after()}
+          </div></div>`;
+      }
+      function sidebar() {
+        const mark = waiting()
+          ? `<span style="color:var(--attn)">${icon("help", 14)}</span>`
+          : `<span style="width:14px;display:grid;place-items:center"><span style="width:6px;height:6px;border-radius:50%;background:var(--tint)"></span></span>`;
+        return `<div class="sb"><div class="grp">weather-app</div>
+          <div class="row on">${mark}<span class="t">重构侧栏收件箱</span></div>
+          <div class="row"><span class="pad"></span><span class="t">修复登录超时</span></div>
+          <div class="row"><span class="pad"></span><span class="t">补 README 截图</span></div></div>`;
+      }
+      function tabs() {
+        const mark = waiting() ? `<span style="color:var(--attn)">${icon("help", 14)}</span>` : "";
+        return `<div class="tabs"><span class="tab on">${mark}重构侧栏收件箱</span><span class="tab">修复登录超时</span></div>`;
+      }
+      function composer() {
+        const ph = waiting()
+          ? "直接回复也行：发出后代替回答，agent 接着做"
+          : "发消息或描述任务，@ 引用文件，/ 使用命令";
+        return `<div class="composer"><textarea data-composer placeholder="${ph}">${esc(s.draft ?? "")}</textarea>
+          <div class="cbar"><span class="round">${icon("add", 18)}</span><span class="sp"></span><span class="model">GPT-6.1 Sol · 高</span><span class="round send">${icon("stop", 16)}</span></div></div>`;
+      }
+      function dock() {
+        const top = waiting() ? cardA() : "";
+        return `<div class="dock"><div class="col">${top}${composer()}<div class="status num"><span>上下文 38%</span><span>套餐 21%</span></div></div></div>`;
+      }
+      function grow(el) {
+        el.style.height = "auto";
+        el.style.height = `${el.scrollHeight}px`;
+      }
+
+      /* ——— 绘制 ——— */
+      function paint(opts = {}) {
+        document.documentElement.dataset.theme = s.theme;
+        const old = document.querySelector(".thread");
+        const top = old ? old.scrollTop : 0;
+        const win = document.getElementById("win");
+        win.dataset.mark = s.mark;
+        win.innerHTML = `${sidebar()}<div class="main">${tabs()}<div class="thread">${thread()}</div>${dock()}</div>`;
+        win.querySelectorAll(".other-in").forEach(grow);
+        const th = win.querySelector(".thread");
+        th.style.scrollBehavior = "auto";
+        th.scrollTop = opts.bottom ? th.scrollHeight : top;
+        th.style.scrollBehavior = "";
+        document.getElementById("desc").textContent = MARKS[s.mark][1];
+        bar();
+      }
+      function seg(id, items, value, set) {
+        const el = document.getElementById(id);
+        el.innerHTML = Object.entries(items)
+          .map(
+            ([k, v]) => `<button aria-pressed="${k === value}" data-k="${k}">${Array.isArray(v) ? v[0] : v}</button>`,
+          )
+          .join("");
+        el.onclick = (e) => {
+          const b = e.target.closest("button");
+          if (b) set(b.dataset.k);
+        };
+      }
+      function bar() {
+        seg("marks", MARKS, s.mark, (k) => {
+          s.mark = k;
+          paint({ bottom: true });
+        });
+        seg("scens", SCENS, s.scen, (k) => {
+          s.scen = k;
+          resetAnswers();
+          paint({ bottom: true });
+        });
+        seg("themes", { light: "浅色", dark: "深色" }, s.theme, (k) => {
+          s.theme = k;
+          paint();
+        });
+      }
+      document.getElementById("reset").onclick = () => {
+        resetAnswers();
+        paint({ bottom: true });
+      };
+
+      /* ——— 操作 ——— */
+      function focusOther(qi) {
+        const box = document.querySelector(`[data-other="${qi}"]`);
+        box?.focus();
+        box?.setSelectionRange(box.value.length, box.value.length);
+      }
+      function advance(from) {
+        const list = qs();
+        for (let step = 1; step <= list.length; step++) {
+          const i = (from + step) % list.length;
+          if (!answered(i)) {
+            s.cur = i;
+            s.cursor = 0;
+            return paint();
+          }
+        }
+        paint();
+        document.querySelector('[data-act="submit"]')?.focus();
+      }
+      function choose(qi, oi) {
+        const q = qs()[qi];
+        const a = s.ans[qi];
+        if (q.multi) a.sel.has(oi) ? a.sel.delete(oi) : a.sel.add(oi);
+        else a.sel = new Set([oi]);
+        s.cur = qi;
+        s.cursor = oi;
+        paint();
+        if (oi === otherIndex(q) && a.sel.has(oi)) return focusOther(qi);
+        if (!q.multi && qs().length > 1) setTimeout(() => advance(qi), 220);
+      }
+      function finish(done) {
+        s.done = done;
+        s.draft = "";
+        paint({ bottom: true });
+      }
+      function refreshCounts() {
+        const ok = allAnswered();
+        document
+          .querySelectorAll('[data-act="submit"]')
+          .forEach((b) => (ok ? b.removeAttribute("disabled") : b.setAttribute("disabled", "")));
+        document.querySelectorAll("[data-count]").forEach((el) => {
+          el.textContent = `${el.closest(".from") ? "· " : ""}已答 ${answeredCount()} / ${qs().length}`;
+        });
+        document.querySelectorAll(".qtab").forEach((t, i) => t.classList.toggle("done", answered(i)));
+      }
+      const win = document.getElementById("win");
+      win.addEventListener("click", (e) => {
+        if (e.target.closest("input, textarea")) return;
+        const opt = e.target.closest("[data-opt]");
+        if (opt) {
+          s.keyboard = false;
+          const [qi, oi] = opt.dataset.opt.split(":").map(Number);
+          return choose(qi, oi);
+        }
+        const tab = e.target.closest("[data-tab]");
+        if (tab) {
+          s.cur = Number(tab.dataset.tab);
+          s.cursor = 0;
+          return paint();
+        }
+        const act = e.target.closest("[data-act]")?.dataset.act;
+        if (act === "submit" && allAnswered()) finish({ kind: "answered" });
+        if (act === "skip") finish({ kind: "skipped" });
+        if (act === "next") advance(s.cur);
+      });
+      win.addEventListener("input", (e) => {
+        if (e.target.dataset.other !== undefined) {
+          s.ans[Number(e.target.dataset.other)].other = e.target.value;
+          grow(e.target);
+          refreshCounts();
+        }
+        if (e.target.dataset.composer !== undefined) s.draft = e.target.value;
+      });
+      win.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+        if (e.target.dataset.other !== undefined) {
+          e.preventDefault();
+          const qi = Number(e.target.dataset.other);
+          if (!answered(qi)) return;
+          if (allAnswered()) return finish({ kind: "answered" });
+          advance(qi);
+        }
+        if (e.target.dataset.composer !== undefined) {
+          e.preventDefault();
+          const text = e.target.value.trim();
+          if (text && waiting()) finish({ kind: "reply", text });
+          else if (text) ((s.draft = ""), paint({ bottom: true }));
+        }
+      });
+      win.addEventListener("mouseover", (e) => {
+        const opt = e.target.closest("[data-opt]");
+        if (!opt) return;
+        const [qi, oi] = opt.dataset.opt.split(":").map(Number);
+        if (!qs()[qi].options[oi]?.preview || (s.hover?.[0] === qi && s.hover?.[1] === oi)) return;
+        s.hover = [qi, oi];
+        const pane = opt.closest(".qbody, .right")?.querySelector(".preview");
+        if (pane) pane.outerHTML = previewPane(qi);
+      });
+      document.addEventListener("keydown", (e) => {
+        const typing = e.target.closest?.("input, textarea");
+        if (!typing && (e.key === "[" || e.key === "]")) {
+          const keys = Object.keys(MARKS);
+          s.mark = keys[(keys.indexOf(s.mark) + (e.key === "]" ? 1 : keys.length - 1)) % keys.length];
+          return paint({ bottom: true });
+        }
+        if (typing || !waiting()) return;
+        const d = Number(e.key);
+        if (d >= 1 && d <= n()) {
+          e.preventDefault();
+          s.keyboard = true;
+          return choose(s.cur, d - 1);
+        }
+        if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+          e.preventDefault();
+          s.keyboard = true;
+          s.cursor = (s.cursor + (e.key === "ArrowDown" ? 1 : n() - 1)) % n();
+          return paint();
+        }
+        if (e.key === " " && !e.target.closest?.("button")) {
+          e.preventDefault();
+          s.keyboard = true;
+          return choose(s.cur, s.cursor);
+        }
+        if (e.key === "Enter" && !e.target.closest?.("button")) {
+          e.preventDefault();
+          if (answered(s.cur)) return allAnswered() ? finish({ kind: "answered" }) : advance(s.cur);
+          s.keyboard = true;
+          return choose(s.cur, s.cursor);
+        }
+        if (e.key === "Tab" && qs().length > 1 && !e.target.closest?.("button")) {
+          e.preventDefault();
+          s.cur = (s.cur + (e.shiftKey ? qs().length - 1 : 1)) % qs().length;
+          s.cursor = 0;
+          return paint();
+        }
+      });
+      setInterval(() => {
+        const t = document.getElementById("timer");
+        if (t) t.textContent = clock();
+      }, 1000);
+      paint({ bottom: true });
+    </script>
+  </body>
+</html>
