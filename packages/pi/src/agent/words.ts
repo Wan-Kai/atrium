@@ -13,8 +13,8 @@ import type {
   WaitedFor,
 } from "./channel";
 
-/** The read-only tools, in the order the preamble names them (SPEC-0002, "只读用白名单"). */
-export const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
+/** The read-only roles' tools; Bash's read-only use is behavioral, not sandboxed (SPEC-0002). */
+export const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"] as const;
 
 /** The main agent's tools (SPEC-0002, "主 agent 用的工具"). */
 export const PARENT_TOOLS = [
@@ -237,7 +237,9 @@ function preambleLines(preamble: TaskPreamble, fromTitle: string): string[] {
       ? [
           `Change files only in your own working directory${preamble.workspace === undefined ? "" : ` (${escapeBody(preamble.workspace)})`}.`,
         ]
-      : []),
+      : [
+          "Use bash only for read-only inspection and queries. Do not modify files or repository state, run builds or tests, or start services. Ask your parent to assign changes to a work sub-agent.",
+        ]),
     ...(preamble.forked
       ? [
           "The history above is your parent's conversation. Tool calls without results in its last assistant message, including the agent_spawn that started you, belong to the parent, which handles them: do not redo them. Do only the task below.",

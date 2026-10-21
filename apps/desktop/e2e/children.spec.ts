@@ -257,7 +257,7 @@ test("a grandchild's result reaches the main conversation through a child whose 
   }
 });
 
-test("a read-only child cannot write a file: pi never offers it the tool", async () => {
+test("a read-only child can query with Bash but cannot call write", async () => {
   const pi = await fauxPiEnvironment({
     replies: [
       {
@@ -267,6 +267,7 @@ test("a read-only child cannot write a file: pi never offers it the tool", async
       { blocks: [{ type: "text", text: "收到" }] },
     ],
     childReplies: [
+      { blocks: [{ type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "printf readonly-bash-ok" } }] },
       { blocks: [{ type: "toolCall", id: "write-1", name: "write", arguments: { path: "x.txt", content: "hi" } }] },
       { blocks: [{ type: "text", text: "写不了" }] },
     ],
@@ -283,6 +284,9 @@ test("a read-only child cannot write a file: pi never offers it the tool", async
     await expect(notice).toHaveCount(1, { timeout: 90_000 });
     await notice.getByRole("button", { name: "打开子对话「reader」" }).click();
     await expect(window.getByTestId("reply").last()).toHaveText("写不了", { timeout: 30_000 });
+    await window.getByTestId("process-header").last().click();
+    await window.getByRole("button", { name: /运行了 printf readonly-bash-ok/u }).click();
+    await expect(window.getByTestId("step-detail")).toContainText("readonly-bash-ok");
 
     expect(await stat(join(repo, "x.txt")).catch(() => null)).toBeNull();
   } finally {
