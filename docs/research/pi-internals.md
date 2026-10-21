@@ -34,7 +34,7 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 ```
 
 - 条目 id 是 8 位十六进制（`randomUUID().slice(0,8)`），**只在单个文件内唯一**；clone 出的新文件沿用原 id。跨会话要用"会话 id + 条目 id"。
-- 类型：`message`（role：system / user / assistant / toolResult / bashExecution / custom）、`thinking_level_change`、`model_change`、`usage`、`compaction`（`summary`、`firstKeptEntryId`、`tokensBefore`、`systemMessage?` 完整检查点）、`branch_summary`、`custom`（extension 状态，不进上下文）、`custom_message`（进上下文）、`context_edit`（`targetId` + 替换或省略）、`label`、`session_info`（`name`，最新的一条生效）。
+- 类型：`message`（role：system / user / assistant / toolResult / bashExecution / custom）、`thinking_level_change`、`model_change`、`usage`、`compaction`（`summary`、`firstKeptEntryId`、`tokensBefore`、`systemMessage?` 完整检查点）、`branch_summary`、`custom`（extension 状态，不进上下文）、`custom_message`（进上下文）、`context_edit`（`targetId` + 替换或省略）、`label`、`session_info`（`name`，最新的一条生效）。Atrium 的会话扫描还读最新的 `model_change`（`provider`、`modelId`）和 `thinking_level_change`（`thinkingLevel`）给子对话列表标模型，按文件顺序取最后一条，不跟分支（2026-10-21）。
 - 系统消息：role 为 system 的 message，带 `sections`（按名字的补丁）、`toolsAdded` / `toolsRemoved`；第一次请求写完整的，之后写增量。上下文分段估算就靠回放这些。
 - assistant 消息带 `provider`、`model`、`usage`、`stopReason`（stop / length / toolUse / error / aborted / deferred）、`thinkingLevel?`。
 

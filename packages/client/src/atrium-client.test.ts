@@ -1057,6 +1057,7 @@ function indexSnapshot(seq: number, generation = "h1", fields: Record<string, un
         attention: null,
         asking: null,
         handedOff: false,
+        model: null,
         parent: null,
         agent: null,
         heldDeliveries: 0,

@@ -36,12 +36,11 @@ const PILL =
 const CAPSULE =
   "pointer-events-auto inline-flex h-7 items-center gap-1.5 rounded-[var(--r-pill)] bg-[var(--surface-1)] px-[11px] text-[length:var(--fs-sm)] whitespace-nowrap tabular-nums text-[var(--text-2)] shadow-[0_0_0_0.5px_var(--line),0_6px_16px_-8px_rgba(0,0,0,0.22)] dark:bg-[var(--surface-2)]";
 
-/** The curve a panel opens and closes on, as the inbox's (design-language, "动效"). */
+/** The curve a panel opens on and its rows rise on, as the inbox's (design-language, "动效"). */
 const PANEL_EASING = "cubic-bezier(0.45, 0, 0.15, 1)";
 
-/** How long a panel takes to open and to close, in milliseconds. */
+/** How long a panel takes to open, in milliseconds. */
 const PANEL_OPEN_MS = 280;
-const PANEL_CLOSE_MS = 200;
 
 /** The narrowest a panel sized by its content is, unless the bar leaves less room. */
 const PANEL_LEAST_WIDTH = 300;
@@ -52,47 +51,41 @@ const PANEL_LEAST_WIDTH = 300;
  */
 const SHADOW_ROOM = "64px";
 
-/** Where a capsule's panel is: still, or on its way. */
-type PanelPhase = "open" | "opening" | "closing" | "closed";
+/** Where a capsule's panel is: still, or on its way up. */
+type PanelPhase = "open" | "opening" | "closed";
 
 /**
- * Plays a capsule's panel opening or closing, with its rows.
+ * Plays a capsule's panel opening, with its rows.
  *
  * @remarks
  * Design-language ("胶囊点开的面板"): the panel grows up from its bottom edge, clipped, in 0.28 s;
  * the rows rise 6 px as they fade in, 0.22 s each, the first 60 ms in and each next one 30 ms later.
- * Closing is the reverse in 0.2 s, the rows fading together. The clip reaches past the sides and the
- * bottom by `SHADOW_ROOM` throughout, and past the top once open, so the panel's shadow grows with
- * it and nothing jumps when the clip goes. A panel turned back halfway goes on from the clip it has
- * reached.
+ * The clip reaches past the sides and the bottom by `SHADOW_ROOM` throughout, and past the top once
+ * open, so the panel's shadow grows with it and nothing jumps when the clip goes. Closing plays
+ * nothing: the panel is gone at once.
  *
- * @sideEffects Cancels the animations running on the panel and its rows, and starts new ones.
+ * @sideEffects Starts animations on the panel and its rows.
  * @param panel - The panel.
- * @param closing - Whether it closes or opens.
  * @returns The panel's animation, whose end settles the move, and every animation started.
  */
-function playPanel(panel: HTMLElement, closing: boolean): { readonly main: Animation; readonly all: Animation[] } {
+function playPanel(panel: HTMLElement): { readonly main: Animation; readonly all: Animation[] } {
   const sides = `${SHADOW_ROOM} -${SHADOW_ROOM} -${SHADOW_ROOM}`;
   const shut = `inset(100% -${sides})`;
   const shown = `inset(-${SHADOW_ROOM} -${sides})`;
-  const midway = panel.getAnimations().length > 0;
-  const from = midway ? getComputedStyle(panel).clipPath : closing ? shown : shut;
-  for (const animation of panel.getAnimations({ subtree: true })) animation.cancel();
   const all: Animation[] = [];
   for (const [index, row] of [...panel.querySelectorAll<HTMLElement>("[data-panel-row]")].entries()) {
-    const away = { opacity: 0, transform: "translateY(6px)" };
-    const here = { opacity: 1, transform: "none" };
     all.push(
-      row.animate(closing ? [here, away] : [away, here], {
-        duration: closing ? 160 : 220,
-        delay: closing ? 0 : 60 + index * 30,
-        easing: PANEL_EASING,
-        fill: closing ? "forwards" : "backwards",
-      }),
+      row.animate(
+        [
+          { opacity: 0, transform: "translateY(6px)" },
+          { opacity: 1, transform: "none" },
+        ],
+        { duration: 220, delay: 60 + index * 30, easing: PANEL_EASING, fill: "backwards" },
+      ),
     );
   }
-  const main = panel.animate([{ clipPath: from }, { clipPath: closing ? shut : shown }], {
-    duration: closing ? PANEL_CLOSE_MS : PANEL_OPEN_MS,
+  const main = panel.animate([{ clipPath: shut }, { clipPath: shown }], {
+    duration: PANEL_OPEN_MS,
     easing: PANEL_EASING,
     fill: "forwards",
   });
@@ -111,11 +104,10 @@ function playPanel(panel: HTMLElement, closing: boolean): { readonly main: Anima
  * it: outside the unit and, when it floats above the input box, outside the box (marked
  * `data-capsule-dock`, which holds the bar too), so typing, stopping or sending leaves it open;
  * another capsule's click opens that capsule's panel instead, so the bar switches. An Escape something inside took (a menu, an edit given up) or one
- * the input box took to stop a run is not this panel's. The panel stays while it closes, no longer
- * reachable, and goes once the close has played; nothing plays on the first render or with less
- * motion asked for, as with the inbox (`Fold`).
+ * the input box took to stop a run is not this panel's. The panel opens with a motion, nothing plays
+ * on the first render or with less motion asked for, and it goes at once when closed.
  *
- * @sideEffects Animates the panel and its rows as `open` changes, and cancels them on unmount;
+ * @sideEffects Animates the panel and its rows as it opens, and cancels them on unmount;
  * while shown, measures the bar and observes its size; while open, listens for presses and Escape on
  * the document; calls `onToggle` when the capsule is clicked and `onClose` to close.
  * @param props - Whether it is open, how to toggle and close it, the panel's name and width, what
@@ -156,7 +148,7 @@ export function CapsuleUnit({
   if (open !== wasOpen) {
     setWasOpen(open);
     const still = reducedMotion();
-    setPhase(open ? (still ? "open" : "opening") : still ? "closed" : "closing");
+    setPhase(open ? (still ? "open" : "opening") : "closed");
   }
   const present = phase !== "closed";
   useEffect(() => {
@@ -164,14 +156,13 @@ export function CapsuleUnit({
   });
   useLayoutEffect(() => {
     const element = panel.current;
-    if (element === null || (phase !== "opening" && phase !== "closing")) return undefined;
-    const closing = phase === "closing";
-    const { main, all } = playPanel(element, closing);
+    if (element === null || phase !== "opening") return undefined;
+    const { main, all } = playPanel(element);
     playing.current = all;
     main.onfinish = () => {
       // Open, the clip goes: a menu in a row can reach past the panel.
-      if (!closing) for (const animation of all) animation.cancel();
-      setPhase(closing ? "closed" : "open");
+      for (const animation of all) animation.cancel();
+      setPhase("open");
     };
     return () => {
       main.onfinish = null;
@@ -249,7 +240,6 @@ export function CapsuleUnit({
           ref={panel}
           role="dialog"
           aria-label={label}
-          inert={phase === "closing"}
           style={width}
           className={`pointer-events-auto absolute bottom-[calc(100%+8px)] left-0 rounded-[var(--r-card)] bg-[var(--surface-1)] p-1.5 shadow-[var(--float-shadow)] dark:bg-[var(--surface-2)] ${className}`}
         >

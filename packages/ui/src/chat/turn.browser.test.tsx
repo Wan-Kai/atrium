@@ -1004,6 +1004,24 @@ describe("TurnView", () => {
     expect([summary.animationDuration, summary.animationDelay]).toStrictEqual(["0.26s", "0.16s"]);
   });
 
+  it("keeps the steers a folded turn leaves in view clear of the reply once the fold has played", async () => {
+    const { screen } = await show(turn([thinking, command, edit, steer, answer]));
+    const header = screen.getByTestId("process-header");
+    await header.click();
+    await expect.element(header).toHaveAttribute("aria-expanded", "true");
+    await vi.waitFor(() => expect(screen.getByTestId("process").element().getAnimations()).toHaveLength(0));
+
+    await header.click();
+
+    await vi.waitFor(() => expect(shownSteps(screen.container)).toStrictEqual(["steer"]), { timeout: 3000 });
+    const process = screen.getByTestId("process").element();
+    expect(process.getAnimations()).toHaveLength(0);
+    expect(process.getBoundingClientRect().height).toBeGreaterThanOrEqual(30);
+    expect(screen.getByTestId("reply").element().getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      process.getBoundingClientRect().bottom,
+    );
+  });
+
   it("forgets the second's hold when the turn goes away, or when its header is clicked first", async () => {
     const timers = new Set<() => void>();
     const clock: UiClock = {

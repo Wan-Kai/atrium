@@ -1,4 +1,5 @@
-import type { SessionSummary } from "@atrium/protocol";
+import type { CatalogModel, SessionModel, SessionSummary } from "@atrium/protocol";
+import { LEVEL_NAMES } from "../chat/model-choice";
 import { type RowStatus, sessionStatus, topStatus } from "../sidebar/status";
 
 /** What the child rules read of a session. */
@@ -6,6 +7,27 @@ export type TreeSession = Pick<
   SessionSummary,
   "sessionId" | "parent" | "archived" | "updatedAt" | "asking" | "attention" | "running" | "agent" | "heldDeliveries"
 >;
+
+/**
+ * What a child's row says of its model: "GPT-6.1 Sol · 高".
+ *
+ * @remarks
+ * SPEC-0002 ("显示 · 子对话条"): the model's name as the catalog has it, else its id, and the
+ * thinking level as the model button names it; a model the catalog lists with no level but `off`
+ * does not think, so the level is left out.
+ *
+ * @sideEffects none
+ * @param model - The model and level its session file records.
+ * @param catalog - The models the catalog lists.
+ * @returns The line, or `null` without a model.
+ */
+export function modelLine(model: SessionModel | null, catalog: readonly CatalogModel[]): string | null {
+  if (model === null) return null;
+  const listed = catalog.find((one) => one.providerId === model.providerId && one.modelId === model.modelId);
+  const name = listed?.name ?? model.modelId;
+  const thinks = listed === undefined || listed.thinkingLevels.some((level) => level !== "off");
+  return thinks ? `${name} · ${LEVEL_NAMES[model.thinkingLevel]}` : name;
+}
 
 /**
  * A session's child conversations not archived, the most recently updated first.

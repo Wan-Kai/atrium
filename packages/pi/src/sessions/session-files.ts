@@ -25,6 +25,10 @@ export interface SessionFileSummary {
   readonly name: string | null;
   /** The text of the first user message that has text, or `null`. */
   readonly firstPrompt: string | null;
+  /** The model of the latest `model_change`, or `null` for none. */
+  readonly model: { readonly providerId: string; readonly modelId: string } | null;
+  /** The level of the latest `thinking_level_change`, as pi wrote it, or `null` for none. */
+  readonly thinkingLevel: string | null;
   /** Milliseconds since the epoch. */
   readonly modifiedAt: number;
 }
@@ -245,6 +249,8 @@ interface FileState {
   header: { readonly sessionId: string; readonly cwd: string } | null | undefined;
   name: string | null;
   firstPrompt: string | null;
+  model: SessionFileSummary["model"];
+  thinkingLevel: string | null;
 }
 
 /**
@@ -254,8 +260,9 @@ interface FileState {
  * Lines are split at LF only, as pi frames its records (pi-internals.md §3): a lone CR inside a
  * line does not end it. The first line is the header (pi-internals.md §1); a file whose first
  * line is not one is not a session file. After it, only lines that may matter are parsed: user
- * messages until the first with text, and `session_info` entries, the latest of which names
- * the session (pi trims it; empty clears it).
+ * messages until the first with text, `session_info` entries, the latest of which names
+ * the session (pi trims it; empty clears it), and the latest `model_change` and
+ * `thinking_level_change`, which say what model the session thinks with.
  *
  * @sideEffects none
  * @returns The state, with nothing read.
@@ -268,6 +275,8 @@ function newFileState(): FileState {
     header: undefined,
     name: null,
     firstPrompt: null,
+    model: null,
+    thinkingLevel: null,
   };
   return state;
 }
@@ -304,6 +313,21 @@ function readLine(state: FileState, line: string): void {
     if (field(entry, "type") === "session_info") {
       state.name = typeof name === "string" && name.trim() !== "" ? name.trim() : null;
     }
+  }
+  // Stryker disable next-line ConditionalExpression,StringLiteral: a fast path; the entry's type is checked below anyway.
+  if (line.includes('"model_change"')) {
+    const entry = parseJson(line);
+    const providerId = field(entry, "provider");
+    const modelId = field(entry, "modelId");
+    if (field(entry, "type") === "model_change" && typeof providerId === "string" && typeof modelId === "string") {
+      state.model = { providerId, modelId };
+    }
+  }
+  // Stryker disable next-line ConditionalExpression,StringLiteral: a fast path; the entry's type is checked below anyway.
+  if (line.includes('"thinking_level_change"')) {
+    const entry = parseJson(line);
+    const level = field(entry, "thinkingLevel");
+    if (field(entry, "type") === "thinking_level_change" && typeof level === "string") state.thinkingLevel = level;
   }
 }
 
@@ -406,6 +430,8 @@ export function createSessionFileReader(): SessionFileReader {
           ...state.header,
           name: state.name,
           firstPrompt: state.firstPrompt,
+          model: state.model,
+          thinkingLevel: state.thinkingLevel,
           modifiedAt: Math.floor(info.mtimeMs),
         });
       }

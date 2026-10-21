@@ -2,7 +2,7 @@ import { z } from "zod";
 import { SessionAgent } from "./agent";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
-import { ModelRef, ThinkingLevel } from "./models";
+import { ModelRef, SessionModel, ThinkingLevel } from "./models";
 
 /** An absolute path on the host's machine. */
 const Path = z.string().min(1).max(4096);
@@ -146,6 +146,11 @@ export const SessionSummary = z.strictObject({
   asking: Timestamp.nullable(),
   /** Handed to pi in a terminal; Atrium starts no pi for it until taken back. */
   handedOff: z.boolean(),
+  /**
+   * The model and thinking level its file last records, as the child list shows them; `null` when
+   * the file records none (a draft) or a level pi does not know (SPEC-0002, "显示 · 子对话条").
+   */
+  model: SessionModel.nullable(),
   /** The session it is a child conversation of; `null` for an ordinary session (SPEC-0002). */
   parent: ChildParent.nullable(),
   /** What a child the agent opened shows in its parent's child list; `null` for any other (SPEC-0002). */
