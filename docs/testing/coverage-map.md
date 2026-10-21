@@ -4,6 +4,14 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 项目工作区展开行显示剩余数量（M1.11 自用，2026-10-21）
+
+用户指定将项目工作区的“显示全部 7 个”改为“显示剩余 2 个”。剩余数按已经过滤、排序后的工作区数减去实际已显示数计算，额外展示的当前工作区也扣除；没有剩余时不出现“显示剩余 0 个”。展开、收起、换项目后收回及行尺寸不变，对话分区不改。用户已指定文案，无新的视觉方案选择；本任务 worktree 的 `prototypes/sidebar-remaining-count-prototype.html` 列出 7/5、8/6、6/6 三个状态。
+
+`packages/ui/src/app/workbench.browser.test.tsx` 覆盖：总 8、已显示 6 → 剩余 2；当前工作区回到前五 → 剩余 3；总 7、已显示 5 → 剩余 2；总 6、已显示 6 → 不显示展开行，回到前五 → 剩余 1；展开全部后“收起”；正好五个无展开行；换项目收回。新增边界测试及修改的文案断言已见红，再实现后该文件 107 项通过。真实组件浅 / 深色截图已看，布局、选中行和按钮样式未改变，临时截图代码已移除。
+
+验证：`pnpm check`、构建、侧栏单元 21 项、串行全量 UI 940 项通过；三项 `pnpm break-check` 均检出（误用总数、只扣前五不扣额外当前项、没有剩余仍显示展开行）。真实组件浅 / 深色截图确认布局和文案，设计扫描无发现；截图首次写 `/tmp` 被浏览器测试的文件安全限制拒绝，改存工作区被忽略的 `.vitest/` 后成功，未放宽安全限制，临时截图代码已移除。用户确认并授权提交、合并后，核对最新 `main` 无新增提交，补跑全量单元 3268 项通过，工作台浏览器测试做 2 副本 × 2 轮压力检查全部通过；单元输出过日志流 `EBADF` 提示，不影响用例通过。仅改侧栏 JSX 展示，不涉及核心变异分组、宿主或协议；未跑桌面端到端、泄漏、性能、浸泡或打包安装。实现来自 `self-use-sidebar-remaining-count`，按用户要求本地提交合并；未安装、未推送。
+
 ## 只读子代理默认提供 Bash（M1.11 自用，2026-10-21）
 
 用户确认只读是行为约束，不是沙箱强制保证。`explore`、`advise` 默认提供 Bash，首件任务明确仅可读取、检查与查询，不得修改文件或仓库状态、构建、测试、启动服务；需要修改时请父 agent 交给 `work` 子代理。原先白名单不含 Bash；`edit`、`write` 等白名单外工具仍受限。不新增命令过滤器，不声称能阻止 Bash 写入。
@@ -472,7 +480,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 空状态（2026-10-14）：工作区、对话、不绑定项目的新对话一样，中间只有一句"每天都做一些改变出来"（20px），句末一个闪烁的光标（2px 宽、1.15em 高、离字 3px、`--tint`、1.06 秒一亮一灭不渐变、读屏不读）；减弱动效时常亮（浏览器测试没法切减弱动效，未测）；打开着的会话还什么都没有时也显示这一句，发出第一条消息就换成对话，内容还在加载、有更早的记录、在运行、在压缩、新建工作区页正在建它时不显示 | `packages/ui/src/chat/chat.browser.test.tsx` "says only one line"、"says the same line"、"does not say the line" | 已覆盖 |
 | 消息列（2026-10-15）：消息和输入框在同一列里，最宽 800px（`--column`，含左右 24px 内边距），在对话区居中；运行控制、新建工作区页的选择行和时间轴用同一个宽度 | `packages/ui/src/chat/chat.browser.test.tsx` "one column at most 800 px wide" | 已覆盖（运行控制、选择行、时间轴只共用同一个值，未单独测） |
 | 侧栏搜索框（2026-10-15）：常驻顶部、在"项目"标题上面，没有搜索按钮；输入时项目和对话换成结果；Esc 清空并离开搜索框，项目列表回来 | `packages/ui/src/app/workbench.browser.test.tsx` "from the box always at the top" | 已覆盖（不随下面滚动只靠它在滚动区外面，未单独测滚动） |
-| 项目里的工作区（2026-10-15）：最多列 5 个，当前所在的排在后面时接着显示；超过 5 个时末尾"显示全部 N 个"，点开全部列出、变成"收起"，再点回到 5 个；当前离开后它不再多列；当前换到别的项目时收回去，回来也是收着的（2026-10-16）；正好 5 个时没有这一行；"显示全部"这类展开行整行可点（和行一样宽、高 30px，对话的也是；已归档的对话、收件箱的"还有 N 条"共用同一个样式，未单独测） | `packages/ui/src/app/workbench.browser.test.tsx` "lists five of a project's workspaces"、"folds a project's workspaces back"、"every workspace of a project with five"、"lists chats like workspaces" | 已覆盖 |
+| 项目里的工作区（2026-10-15；2026-10-21 改为剩余数）：最多列 5 个，当前所在的排在后面时接着显示；有未显示的工作区时末尾"显示剩余 N 个"，N 扣除所有已显示项，点开全部列出、变成"收起"，再点回到 5 个及额外的当前项；当前离开后它不再多列；当前换到别的项目时收回去，回来也是收着的（2026-10-16）；没有剩余时无展开行；这类展开行整行可点（和行一样宽、高 30px，对话的也是；已归档的对话、收件箱的"还有 N 条"共用同一个样式，未单独测） | `packages/ui/src/app/workbench.browser.test.tsx` "lists five of a project's workspaces"、"folds a project's workspaces back"、"every workspace of a project with five"、"lists chats like workspaces" | 已覆盖 |
 | 状态栏详情卡片（2026-10-15）：标题行下面没有分隔线；卡片不伸出窗口，展开的长列表（如 50 个 skill）在卡片里滚动（2026-10-16） | `packages/ui/src/chat/status-bar.browser.test.tsx` "splits the context in its card"、"grows past the window" | 已覆盖（各卡片共用同一个标题行和外框，只在上下文卡片上测） |
 | 已移除的工作区（2026-10-15）：worktree 目录不在了的工作区不在项目里列出，搜索也找不到；它是当前所在的时照样列出、选中 | `packages/ui/src/app/workbench.browser.test.tsx` "whose directory is gone" | 已覆盖 |
 | 侧栏材质不随焦点变（2026-10-15）：窗口 `visualEffectState: "active"`，另一个窗口拿走焦点时，系统画出的侧栏颜色不变（用 `screencapture` 截窗口比较） | `apps/desktop/e2e/app.spec.ts` "material as it is" | 已覆盖 |
