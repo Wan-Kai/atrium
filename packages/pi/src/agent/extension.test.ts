@@ -1284,28 +1284,41 @@ describe("the tool hook", () => {
     const deep = stand({ flag: encodeArgument({ v: 1, child: true, role: "advise", depth: 2, guard: "extension" }) });
 
     expect(
-      ["read", "ls", "ask_parent", "agent_spawn", "bash", "mcp"].map((tool) => explore.hook(tool, {})),
+      ["read", "ls", "ask_parent", "agent_spawn", "bash", "edit", "mcp"].map((tool) => explore.hook(tool, {})),
     ).toStrictEqual([
       undefined,
       undefined,
       undefined,
       undefined,
+      undefined,
       {
         block: true,
         reason:
-          "This sub-agent is read-only (explore): it can use read, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
       },
       {
         block: true,
         reason:
-          "This sub-agent is read-only (explore): it can use read, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
+          "This sub-agent is read-only (explore): it can use read, bash, grep, find, ls, report_progress, ask_parent and the agent_* tools.",
       },
     ]);
-    expect([deep.hook("agent_send", {}), deep.hook("edit", {})]).toStrictEqual([
+    expect([
+      deep.hook("bash", { command: "git diff" }),
+      deep.hook("agent_send", {}),
+      deep.hook("edit", {}),
+      deep.hook("write", {}),
+    ]).toStrictEqual([
+      undefined,
       { block: true, reason: "This sub-agent is too deep to start sub-agents of its own." },
       {
         block: true,
-        reason: "This sub-agent is read-only (advise): it can use read, grep, find, ls, report_progress, ask_parent.",
+        reason:
+          "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
+      },
+      {
+        block: true,
+        reason:
+          "This sub-agent is read-only (advise): it can use read, bash, grep, find, ls, report_progress, ask_parent.",
       },
     ]);
   });

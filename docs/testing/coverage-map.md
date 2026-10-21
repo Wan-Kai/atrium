@@ -4,6 +4,22 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 只读子代理默认提供 Bash（M1.11 自用，2026-10-21）
+
+用户确认只读是行为约束，不是沙箱强制保证。`explore`、`advise` 默认提供 Bash，首件任务明确仅可读取、检查与查询，不得修改文件或仓库状态、构建、测试、启动服务；需要修改时请父 agent 交给 `work` 子代理。原先白名单不含 Bash；`edit`、`write` 等白名单外工具仍受限。不新增命令过滤器，不声称能阻止 Bash 写入。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 普通启动、继承父参数、交给终端的白名单含 Bash，层数限制及其他工具边界不变 | `packages/host/src/sessions/agent-launch.test.ts` | 已见红并通过 |
+| explore 与 advise 的首件任务声明 Bash 及读取用途约束；work 的目录说明、带上下文不重做父调用的说明保持 | `packages/pi/src/agent/words.test.ts` 的 `taskText` | 已见红并通过 |
+| 带上下文子代理的工具钩子允许 Bash，仍拒绝 edit、write、MCP 和越层 agent 调用 | `packages/pi/src/agent/extension.test.ts` 的 `the tool hook` | 已通过，移除 Bash / 放行 write 的破坏检查均检出 |
+| 真实 pi 的 flags / extension 两种方式能执行 Bash 查询，write 调用报错且文件不存在 | `packages/pi/src/contract/agent-tools.pi.test.ts` 的 `agent-readonly-bash-*`、`agent-guard` | pi 1.3.0 五场景已录制并漂移复验通过；移除 Bash 的负对照检出 |
+| 真实桌面开默认只读子代理，查看 Bash 查询结果，write 未创建文件 | `apps/desktop/e2e/children.spec.ts` 的 `a read-only child can query with Bash but cannot call write` | 已通过；构建产物移除 Bash 后在真实结果 `Tool bash not found` 上失败，恢复后完整 children 五项通过 |
+
+验证：`pnpm check`、构建、串行全量单元 / 宿主 3415 项、上述真实 pi 五项、完整 children 桌面五项通过；相关三个单元文件做 2 副本 × 2 轮压力检查全部通过。五项 `pnpm break-check` 均检出（启动参数、扩展放行 Bash、角色说明、禁止 write、真实 pi），另有上述桌面负对照。聚焦本批实际改动的 `words.ts:17-18,236-244` 做 pi 组变异，实跑 13 个全部 killed、100%，无缓存复用、存活或超时；不冒称整文件或整组覆盖。独立只读源码复核无阻断问题。
+
+完整 `pnpm test:pi` 实跑 47 过、33 失败，失败逐条确认均为未修改旧场景缺本机 1.3.0 夹具，不弱化漂移检查、不顺带重录整套；不声称全套 pi 通过。单元层输出过一次日志流 `EBADF` 提示，但 3415 项全部通过。用户确认并要求提交、合并后，核对最新 `main` 无新增提交；补跑全量 UI 首轮 938 过、1 个已记录的 Markdown 悬停按钮用例偶发失败，该文件单跑 23 项及全量重跑 939 项全部通过，未改无关测试或弱化断言。本批未跑全量桌面、泄漏、性能、浸泡、打包安装；不修改 UI、宿主任务送达或资源回收逻辑。实现来自 `self-use-readonly-agent-bash`，用户已授权本地提交合并；未安装、未推送。SPEC-0002 与 security 已同步接受的风险边界。
+
 ## SPEC-0001 需求
 
 | # | 需求 | 测试 | 状态 |
