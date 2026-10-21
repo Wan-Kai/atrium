@@ -66,7 +66,7 @@ const OUTCOME_TEXT: Readonly<Record<Turn["outcome"], string>> = {
 function headerTitle(turn: Turn, process: readonly ProcessRow[]): string {
   const steps = processSteps(process);
   // A new workspace's first turn has a process for its steps alone, though the agent took none.
-  if (steps.length > 0 && steps.every((step) => step.kind === "thinking")) {
+  if (turn.outcome === "done" && steps.length > 0 && steps.every((step) => step.kind === "thinking")) {
     const durations = steps.map((step) => (step.kind === "thinking" ? step.durationMs : null));
     const known = durations.every((duration) => duration !== null);
     const total = durations.reduce<number>((sum, duration) => sum + (duration ?? 0), 0);
@@ -556,6 +556,8 @@ export interface TurnViewProps {
   readonly onRetry?: () => void;
   /** "从这里分叉" under the reply, where the session can be forked. */
   readonly fork?: ForkFromTurn;
+  /** Opens the last stopped ordinary message in a separate bottom draft. */
+  readonly edit?: { readonly blocked: boolean; readonly open: () => void } | undefined;
   /** pi compacts the context now, while this turn runs; only for the running turn (design-language, "运行中压缩"). */
   readonly compacting?: boolean;
   /**
@@ -614,7 +616,8 @@ function useLaunchImages(outer: MessageImages, launch: LaunchInTurn | undefined)
  * step or the reply's first text. Steps that arrive while the turn is shown play their entrance;
  * the ones there when it was first shown do not. The reply streams below, revealed smoothly; a
  * failed turn shows pi's error, and ends there when it has no reply and changed no files: its info
- * row would hold nothing worth reading (SPEC-0001, "消息下方的信息"). While pi compacts during the
+ * row would hold nothing worth reading (SPEC-0001, "消息下方的信息"). Empty ends likewise have no
+ * reply or info row; errors and cancellation still show their own status. While pi compacts during the
  * run, the rail ends in "正在压缩上下文…" where the turn has got to, the step before it no longer
  * going on (design-language, "运行中压缩"). A new workspace's first turn shows its steps first on
  * the rail, then their summary, the agent's steps after it, under one header from the start
@@ -625,7 +628,7 @@ function useLaunchImages(outer: MessageImages, launch: LaunchInTurn | undefined)
  *   compacts now, and the launch that sent its message.
  * @returns The turn.
  */
-export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false, launch }: TurnViewProps) {
+export function TurnView({ turn, runStartedAt, onRetry, fork, edit, compacting = false, launch }: TurnViewProps) {
   const clock = useClock();
   const [expanded, setExpanded] = useState<boolean | null>(null);
   const { process, reply } = useMemo(() => layoutTurn(turn), [turn]);
@@ -679,6 +682,7 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false
         <MessageImagesContext value={images}>
           <UserBubble
             text={turn.user.text}
+            edit={edit}
             images={turn.user.images}
             {...(status === null ? { timestamp: turn.user.timestamp } : {})}
             auto={turn.user.auto}
@@ -771,7 +775,8 @@ export function TurnView({ turn, runStartedAt, onRetry, fork, compacting = false
           <StreamedText text={reply.text} streaming={running} />
         </div>
       )}
-      {running || (turn.outcome === "failed" && reply === null && turn.changes.length === 0) ? null : (
+      {running ||
+      (reply === null && turn.changes.length === 0 && (process.length === 0 || turn.outcome === "failed")) ? null : (
         <TurnFooter turn={turn} reply={reply?.text ?? null} fork={fork} />
       )}
     </div>

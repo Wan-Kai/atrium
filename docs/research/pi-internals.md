@@ -53,6 +53,16 @@ interface SessionEntryBase { type: string; id: string; parentId: string | null; 
 - 所有"换会话"操作（new / switch / fork / import）都会拆掉当前运行时重建，**RPC 不发任何"会话已切换"事件**，要重新 `get_state`。Atrium 因此一个会话固定一个进程，不用 `switch_session`。
 - **新会话的 `cwd`**（2026-10-16 读仓库依赖的 1.0.2，SPEC-0002 用）：RPC `fork` / `clone` 重新读源文件头的 `cwd` 写进新文件头，没有参数能换目录。CLI `pi --fork <文件>`（`SessionManager.forkFrom`）以 pi 进程所在目录为新文件头的 `cwd`，复制源文件的全部条目（含废弃分支），不能选分叉点；不能和 `--session`、`-c`、`-r`、`--no-session` 同用。`--session <文件>` 用文件头的 `cwd`，pi 不 `chdir`；文件头的目录不存在时 RPC 模式退出。`--session` 给 id 而会话在别的项目时会在 stdin 上问要不要分叉过来，会卡住 RPC，所以总给路径。`--fork` 写的新文件头 `parentSession` 是源文件的路径；`--session-dir` 决定 RPC `fork` / `clone` 把新文件写到哪（SPEC-0002 用它把中间文件放进宿主的临时目录）；`--fork` 可以和 `--session-id` 同用，id 由调用方先定。
 
+**同会话导航与停止消息编辑**（2026-10-20，本机 pi 1.3.0）
+
+- RPC 没有 `navigate_tree` 或 `replace_message` 写命令；扩展命令上下文的 `ctx.navigateTree(id, { summarize: false })` 在 RPC 下可用（`dist/modes/rpc/rpc-mode.js:233–248`）。导航 user 会将叶子移到其 parent，旧分支留在原文件；无摘要导航不调用摘要模型，废弃的误发文字也不会通过摘要带进新上下文。
+- `AgentSession.navigateTree` 先检查 target 是否就是当前 leaf，命中时直接 no-op，再处理 user → parent（`dist/core/agent-session.js:3232–3243,3338–3344`）。所以“发出就停止、user 自身还是 leaf”不能直接导航该 user。Atrium 扩展先追加不进模型上下文的 custom anchor，再导航 user；失败恢复导航非 user 的 anchor，并追加 custom restored 条目使恢复分支落盘。根 user 的 parent 可以为 null，契约覆盖。
+- 仅导航只改内存，重开文件仍选文件末条目；新 user 或恢复 marker 的追加才固定重启后的分支。导航取消 / 命令 handler 抛错仍可能收到 `handled`，须核对实际 leaf，不把命令应答当成功。
+- **写盘失败的区别**：1.3.0 `SessionManager._appendEntry` 先改 fileEntries、byId 和 leaf，再同步 appendFileSync。ENOSPC / EIO 可留下“内存里有、文件里没有”的条目；`message_end` 回显和 `get_entries` 也不是独立的持久化证明。Atrium 编辑事务从 pi 实际 sessionFile 读文件，确认所有内存 id 都已在文件中；不一致立即停 pi，避免后继引用不存在的父条目。`prompt` 的 started 是 preflight 成功，不等同 user 已落盘；编辑成功还要确认磁盘新路径有 fresh user 且排除原 user。这里保证普通进程重启语义，不声称 pi 具备 fsync / 掉电事务。
+- 契约 `packages/pi/src/contract/edit.pi.test.ts` 的 `edit-aborted`、`edit-root-restore`、`edit-image-only`、`edit-cancel`、`edit-navigation-error` 在真实 pi + faux 验证：aborted 尾、user 即 leaf、null parent、纯图片、旧分支从新模型上下文排除、原图保留、取消与异常、恢复与新提交分支的重启落点。五份夹具仅录到 `pi-1.3.0/`，其余旧场景尚缺 1.3.0 夹具，不将全量 `test:pi` 记为通过。宿主的仅内存条目故障用独立磁盘边界回归覆盖，没有声称真实打满磁盘做过 ENOSPC 实验。
+- **审查后的恢复确认**（2026-10-21）：回退 / 恢复都会让宿主换 epoch，所以失败后不能原样重试旧目标。只在同一最后 stopped 目标已恢复且 pi 仍活着时，用该次错误应答给出新的精确 epoch；pi 已停止则重新 attach 又会换 epoch，只提示复制后重开，不把旧确认当作可直接重试。恢复中 get_entries / 再次文件读取失败也应停止并发布最近成功读过的磁盘页，没有证明时不发布虚构页。
+- **后改思考档位的分支边界，本版保留原生行为**（2026-10-21，仅源码核对，未新增专项真实重开契约）：1.3.0 `AgentSession.setThinkingLevel` 只在运行时档位变化时追加 `thinking_level_change`；`navigateTree` 只刷新消息投影与工具，当前运行时档位不随之变回旧值。`_recordSelection` 补写的是模型选择，不是思考档位。因此停止后改的档位若位于旧 user 后面，编辑重分支可能留下更早的 thinking 记录；新一轮仍用当前运行时档位，但 `createAgentSession`（`dist/core/sdk.js`）重开时优先取新分支 thinking 记录，没有记录才用默认值。用户已选择 A：本版将此作为已知限制记录后合并，不额外适配保留后改档位，也不把原生行为默默改成另一种设置策略；需要时在重开后重新选择。
+
 ## 2. 运行时（`src/core/agent-session.ts`，`packages/agent/src/agent.ts`）
 
 **turn 与 run**

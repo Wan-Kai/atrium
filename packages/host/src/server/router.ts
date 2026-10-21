@@ -169,6 +169,10 @@ export function createRouter(options: RouterOptions): Route {
         return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
           options.sessions.prompt(command, images),
         );
+      case "edit_stopped_message":
+        return options.attachments.use(connection.id, command.attachmentIds ?? [], (images) =>
+          options.sessions.editStoppedMessage(command, images),
+        );
       case "fetch_transcript":
         return options.sessions.fetchTranscript(command);
       case "fetch_step":

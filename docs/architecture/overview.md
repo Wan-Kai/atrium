@@ -61,6 +61,7 @@ atrium/
 │   │   │   ├── oneshot/            OneShotPi：`pi --mode json -p --no-session` 的调用和输出解析
 │   │   │   ├── auth/               登录：系统 Node 运行的登录程序（加载用户装的 pi 的 ModelRuntime）
 │   │   │   │                       和宿主这边的调用（登录状态、OAuth、API Key、退出）
+│   │   │   ├── edit/               停止消息编辑：受保护的同会话无摘要导航、失败恢复与隐藏命令编码
 │   │   │   ├── fast/               Fast：哪些模型支持的规则，和交给 pi 加载的扩展（ADR-0008）
 │   │   │   ├── agent/              子对话：隐藏命令 `/atrium-agent` 的参数、给模型的说明，扩展的这一部分（SPEC-0002、ADR-0013）
 │   │   │   ├── stats/              会话统计；UsageReader 增量读会话文件里的用量（子对话的"含子对话"，SPEC-0002）
@@ -80,7 +81,7 @@ atrium/
 │   │   │   ├── sessions/           SessionManager、SessionCatalog（按记录的容器或 cwd 归类）、布局、
 │   │   │   │                       列表命令、SessionController、SessionRuntime、PromptQueue、
 │   │   │   │                       PendingInteraction、Attention、计时与指标；子对话的树（child-tree）
-│   │   │   │                       和用量合计（children-usage，SPEC-0002）
+│   │   │   │                       和用量合计（children-usage，SPEC-0002）；stopped-edit 负责停止消息编辑的分支事务和恢复
 │   │   │   ├── transcript/         SessionLog（日志条目树、叶子、当前分支）、TranscriptProjection
 │   │   │   ├── status/             会话状态、工作区和项目的汇总（纯函数）
 │   │   │   ├── sync/               订阅表、列表推送（M1.5 整份快照，M1.9 加 generation+seq 增量）
@@ -153,7 +154,7 @@ protocol  ←──  pi  ←──  host
 
 - **登录程序的例外**（2026-10-10 定）：`packages/pi/src/auth/` 里的登录程序由宿主交给系统 Node 运行，不被我们的进程加载。它按绝对路径 `import` 用户装的 pi 包（`dist/index.js`），用的是 pi 自带的依赖；只从 `@earendil-works/pi-coding-agent` 取类型（pi 包的开发依赖）。它只用 Node 能直接运行的写法（能被去掉的类型注解，不用 enum 等），因为系统 Node 直接运行源文件。
 
-- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具和 `packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
+- **Atrium 自带的 pi 扩展**（2026-10-12 定，ADR-0008；2026-10-15 加套餐用量，ADR-0010）：`packages/pi/src/extension/atrium.ts` 是入口，注册 `packages/pi/src/fast/` 的 Fast、`packages/pi/src/plan/` 的套餐用量、`packages/pi/src/agent/` 的子对话工具、`packages/pi/src/edit/` 的停止消息编辑隐藏命令和 `packages/pi/src/search/` 的联网搜索与抓取（ADR-0014）；由 pi 加载（`--extension`），不被我们的进程加载。构建时连同它用到的规则打成一个文件 `atrium-extension.mjs`（原名 `fast-extension.mjs`），放在宿主旁边（和登录程序一样，所以应用不用 asar）；测试里直接加载源文件。它只从 `@earendil-works/pi-coding-agent` 取类型，运行时不 import pi 的任何东西。
 
 - **pi 包的边界**：怎么调 pi、pi 的事件和条目长什么样、pi 的回放语义，都在 pi 包里；Atrium 的业务规则（会话归哪个容器、标题怎么起、上下文分段怎么展示）在 host。pi 包对外输出两类东西：协议里的对话记录实体，以及它自己定义的 LogEntry（只在宿主内部用，不上线）。
 - **线上实体与宿主内部模型分开**：SessionRuntime 等运行时模型在 host 里，快照和事件由 SessionController 映射成 protocol 的实体。

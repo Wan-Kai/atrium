@@ -206,6 +206,10 @@ export interface TranscriptProps {
   readonly onFork?: (turnId: string) => void;
   /** Opens a child conversation carrying the turns up to one, offered beside forking (SPEC-0002). */
   readonly onChild?: (turnId: string) => void;
+  /** Opens a stopped message in the bottom box without touching the transcript. */
+  readonly onEditStopped?: (turn: Turn) => void;
+  /** An existing editor blocks reopening its message. */
+  readonly editingStopped?: boolean;
   /** How to open a file a tool was given, from its chip; none where files cannot be opened. */
   readonly openFile?: FileOpener;
   /** The launch that made the session, shown in its first turn (SPEC-0001, "M1.11 的新建工作区"). */
@@ -298,6 +302,8 @@ export function Transcript({
   onRetry,
   onFork,
   onChild,
+  onEditStopped,
+  editingStopped = false,
   openFile,
   launch,
 }: TranscriptProps) {
@@ -308,6 +314,14 @@ export function Transcript({
   useLoadOlder(scroller, top, view.hasOlder, onLoadOlder);
   useKeepPlaceOnPrepend(scroller, content);
   const last = view.items.at(-1);
+  const lastTurn = view.items.findLast((item) => item.kind === "turn");
+  const editBlocked =
+    editingStopped ||
+    view.pending.length > 0 ||
+    view.run !== null ||
+    view.control.stopping ||
+    view.control.compacting ||
+    view.control.restarting;
   const turnRunning = last?.kind === "turn" && last.outcome === "running";
   const blocked = view.run !== null || view.control.stopping || view.control.compacting || view.control.restarting;
   const fork: ForkFromTurn | undefined =
@@ -339,6 +353,18 @@ export function Transcript({
                   <TurnView
                     key={item === standIn || item === launchTurn ? launchKey : item.id}
                     turn={item}
+                    edit={
+                      item === lastTurn &&
+                      item.outcome === "stopped" &&
+                      item.source === null &&
+                      !item.user.auto &&
+                      item.user.command === null &&
+                      !item.user.text.trimStart().startsWith("/") &&
+                      !item.steps.some((step) => step.kind === "steer" || step.kind === "agent") &&
+                      onEditStopped !== undefined
+                        ? { blocked: editBlocked, open: () => onEditStopped(item) }
+                        : undefined
+                    }
                     launch={item === standIn || item === launchTurn ? shownLaunch : undefined}
                     runStartedAt={view.run?.startedAt ?? null}
                     {...(fork === undefined || item === standIn

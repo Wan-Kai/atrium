@@ -6,6 +6,7 @@ import {
   type CommandResult,
   type Control,
   type DeliveryItem,
+  type EditStoppedMessageCommand,
   type FetchStepCommand,
   type FetchTranscriptCommand,
   type Interaction,
@@ -29,6 +30,7 @@ import type { Clock } from "../platform/clock";
 import type { PlanUsageService } from "./plan-usage";
 import { createMetricsTracker } from "./session-metrics";
 import type { SeenCompaction } from "../transcript/projection";
+import { editStoppedBranch } from "./stopped-edit";
 import {
   type EntriesPage,
   type TranscriptEvent,
@@ -77,6 +79,8 @@ export interface SessionPi {
   respond(response: DialogResponse): void;
   /** Reads the session's entries after `since`, or all of them, converted. */
   getEntries(since: string | undefined): Promise<EntriesPage>;
+  /** Reads actual on-disk entries, even after pi exited; memory-first appends are not proof of a write. */
+  readPersistedEntries(): Promise<EntriesPage>;
   /** The model pi uses now, from `get_state`; `null` when it has none. */
   model(): Promise<SessionModel | null>;
   /** Sends `set_model`. */
@@ -184,6 +188,11 @@ export interface SessionController {
   attach(started: Respawned): void;
   /** Sends a message with its images, or queues it behind the run in progress. */
   prompt(command: PromptCommand, images?: readonly PromptImage[]): Promise<CommandResult<"prompt">>;
+  /** Replaces the last stopped user message on a new branch of this same session. */
+  editStoppedMessage(
+    command: EditStoppedMessageCommand,
+    images?: readonly PromptImage[],
+  ): Promise<CommandResult<"edit_stopped_message">>;
   /** Sends a steer with its images, or a message when idle. */
   steer(command: SteerCommand, images?: readonly PromptImage[]): Promise<CommandResult<"steer">>;
   /** Stops the run: pauses the queue, clears pi's queue and aborts. */
@@ -590,6 +599,8 @@ export function createSessionController(options: {
   let compacting = false;
   /** Whether a fork reads the session's file (SPEC-0001, "M1.11 的 `/` 命令 · 分叉"). */
   let forking = false;
+  /** A rewind and replacement own the pi until submission or recovery finishes. */
+  let editing = false;
   /** The deliveries handed to an idle pi, whose run has not begun yet. */
   let deliveryRun: readonly string[] | null = null;
   /** Calls off the wait for that run to begin. */
@@ -1188,7 +1199,9 @@ export function createSessionController(options: {
    * @returns Whether the session is idle.
    */
   function idle(): boolean {
-    return run === null && !sending && !starting && !compacting && !forking && restarting === null && !exited;
+    return (
+      run === null && !sending && !starting && !compacting && !forking && !editing && restarting === null && !exited
+    );
   }
 
   /**
@@ -1309,6 +1322,7 @@ export function createSessionController(options: {
       stopping !== null ||
       compacting ||
       forking ||
+      editing ||
       restarting !== null ||
       sending ||
       starting
@@ -1636,6 +1650,7 @@ export function createSessionController(options: {
    */
   function refuseWhileStopping(): void {
     if (stopping !== null) throw new CommandError("session_stopping");
+    if (editing) throw new CommandError("session_busy");
   }
 
   /**
@@ -1912,7 +1927,8 @@ export function createSessionController(options: {
     stopping = null;
     if (crashed && queue.length > 0 && paused === null) pauseQueue("crashed");
     const respawn = options.respawn;
-    if (crashed && respawn !== undefined) {
+    // A replacement interrupted between rewind and submit must not resume the original branch.
+    if (crashed && respawn !== undefined && !editing) {
       restarting = (async () => {
         const back = await restart(respawn);
         restarting = null;
@@ -2036,10 +2052,10 @@ export function createSessionController(options: {
       return restarting !== null;
     },
     get submitting() {
-      return sending || starting;
+      return sending || starting || editing;
     },
     get forking() {
-      return forking;
+      return forking || editing;
     },
     snapshot,
     control,
@@ -2061,6 +2077,77 @@ export function createSessionController(options: {
       const traceId = parseTraceparent(command.traceparent)?.traceId ?? null;
       return submit({ text: command.text, images }, command.requestId, traceId);
     },
+    async editStoppedMessage(command, images = []) {
+      refuseWhenExited();
+      refuseWhileStopping();
+      if (!idle()) throw new CommandError("session_busy");
+      if (command.epoch !== epoch) throw new CommandError("transcript_changed");
+      const last = transcript.items().findLast((item) => item.kind === "turn");
+      if (last?.id !== command.turnId) throw new CommandError("transcript_changed");
+      if (
+        last.outcome !== "stopped" ||
+        last.source !== null ||
+        last.user.auto ||
+        last.user.command !== null ||
+        last.user.text.trimStart().startsWith("/") ||
+        last.steps.some((step) => step.kind === "steer" || step.kind === "agent") ||
+        command.text.trimStart().startsWith("/")
+      ) {
+        throw new CommandError("turn_not_editable");
+      }
+      editing = true;
+      try {
+        await refreshing;
+        if (
+          command.epoch !== epoch ||
+          transcript.items().findLast((item) => item.kind === "turn")?.id !== command.turnId
+        ) {
+          throw new CommandError("transcript_changed");
+        }
+        const entryId = transcript.entryOfTurn(command.turnId);
+        if (entryId === null) throw new CommandError("transcript_changed");
+        pauseQueue("stopped");
+        controlChanged();
+        const result = await editStoppedBranch({
+          pi,
+          entryId,
+          token: newId(),
+          onBranch(page) {
+            if (run !== null) return;
+            transcript.rebuild(page, true);
+            newEpoch();
+            const { all, branch } = transcript.entries();
+            metrics.entriesChanged(all, branch);
+          },
+          send: () =>
+            send(
+              { text: command.text, images },
+              {
+                requestId: command.requestId,
+                traceId: parseTraceparent(command.traceparent)?.traceId ?? null,
+                auto: false,
+              },
+            ),
+        });
+        spoke();
+        return result;
+      } catch (error) {
+        if (error instanceof CommandError && error.code === "edit_failed") {
+          // Attaching another pi changes the epoch again, so its next edit needs explicit reconfirmation.
+          if (exited) throw new CommandError("edit_failed", { status: "exited" });
+          const restored = transcript.items().findLast((item) => item.kind === "turn");
+          if (restored?.id === command.turnId && restored.outcome === "stopped") {
+            // Bind retry only to this operation's restored view, never to arbitrary newer history.
+            throw new CommandError("edit_failed", { epoch, turnId: restored.id });
+          }
+        }
+        throw error;
+      } finally {
+        editing = false;
+        controlChanged();
+        dispatch();
+      }
+    },
     async steer(command, images = []) {
       refuseWhenExited();
       refuseWhileStopping();
@@ -2070,6 +2157,7 @@ export function createSessionController(options: {
       return steerNow({ text: command.text, images }, command.requestId, traceId);
     },
     stop() {
+      if (editing) throw new CommandError("session_busy");
       if (stopping !== null) return stopping;
       if (restarting !== null) {
         // pi is not back yet: the restart puts the interrupted message in the paused queue.
@@ -2266,7 +2354,16 @@ export function createSessionController(options: {
     forkPoint(turnId) {
       // A run, a stop or a compaction still writes the file the fork reads; a pi that has exited
       // writes nothing, and the fork has a pi of its own.
-      if (run !== null || sending || starting || compacting || forking || stopping !== null || restarting !== null) {
+      if (
+        run !== null ||
+        sending ||
+        starting ||
+        compacting ||
+        forking ||
+        editing ||
+        stopping !== null ||
+        restarting !== null
+      ) {
         throw new CommandError("session_busy");
       }
       const turns = transcript.items().filter((item) => item.kind === "turn");

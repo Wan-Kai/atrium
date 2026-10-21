@@ -42,6 +42,80 @@ test("sends a message and streams the reply, reasoning first, until the run sett
   }
 });
 
+test("shows tools without blank thinking and leaves a normal empty end without a reply", async () => {
+  const testInfo = test.info();
+  const pi = await fauxPiEnvironment({
+    replies: [
+      {
+        blocks: [
+          { type: "thinking", text: " \n" },
+          { type: "toolCall", id: "empty-thinking-tool", name: "bash", arguments: { command: "printf ok" } },
+        ],
+      },
+      {
+        blocks: [
+          { type: "thinking", text: "" },
+          { type: "text", text: "" },
+        ],
+      },
+      {
+        blocks: [
+          { type: "thinking", text: " \n" },
+          { type: "text", text: " \t" },
+        ],
+      },
+    ],
+  });
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    const input = window.getByRole("textbox", { name: "消息" });
+    await input.fill("运行命令");
+    await input.press("Enter");
+    const first = window.getByTestId("turn").first();
+    await expect(first).toHaveAttribute("data-outcome", "done", { timeout: 30_000 });
+    await expect(first.getByTestId("process-header")).toHaveAttribute("aria-expanded", "false");
+    await first.getByTestId("process-header").click();
+    await expect(first.locator('[data-testid="step"][data-kind="tool"]')).toHaveCount(1);
+    await expect(first.locator('[data-testid="step"][data-kind="thinking"]')).toHaveCount(0);
+    await expect(first.getByTestId("reply")).toHaveCount(0);
+    await first.getByRole("button", { name: /运行了 printf ok/ }).click();
+    await expect(first.getByTestId("step-detail")).toContainText("ok");
+
+    await input.fill("正常空结束");
+    await input.press("Enter");
+    await expect(window.getByTestId("turn")).toHaveCount(2);
+    const second = window.getByTestId("turn").nth(1);
+    await expect(second).toHaveAttribute("data-outcome", "done", { timeout: 30_000 });
+    await expect(second.getByTestId("user-message")).toContainText("正常空结束");
+    await expect(second.getByTestId("process-header")).toHaveCount(0);
+    await expect(second.getByTestId("reply")).toHaveCount(0);
+    await expect(second.getByTestId("turn-footer")).toHaveCount(0);
+    await expect(window.getByTestId("turn-error")).toHaveCount(0);
+    await expect(window.getByTestId("run-status")).toHaveCount(0);
+    for (const theme of ["light", "dark"] as const) {
+      await launched.app.evaluate(({ nativeTheme }, source) => {
+        nativeTheme.themeSource = source;
+      }, theme);
+      await expect
+        .poll(() => window.locator("html").evaluate((root) => root.classList.contains("dark")))
+        .toBe(theme === "dark");
+      await window.evaluate(async () => {
+        await Promise.all(
+          document
+            .getAnimations()
+            .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+            .map((animation) => animation.finished.catch(() => undefined)),
+        );
+      });
+      await window.screenshot({ path: testInfo.outputPath(`empty-response-${theme}.png`) });
+    }
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});
+
 test("names a chat with the model once its first run ends", async () => {
   const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "pong" }] }], title: "乒乓测试" });
   const launched = await launchApp(pi.env);

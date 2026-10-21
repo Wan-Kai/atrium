@@ -142,6 +142,50 @@ function noticed(id: string, events: [AgentNoticeEvent, ...AgentNoticeEvent[]]):
 }
 
 describe("layoutTurn", () => {
+  it("omits blank thinking and text without interrupting tools or replacing a nonblank reply", () => {
+    const read = tool("read", "read");
+    const search = tool("search", "grep");
+    const answer = text("answer", "done");
+    const steps: Step[] = [
+      { kind: "thinking", id: "hidden", text: "", durationMs: 2000 },
+      text("empty", " \n\t"),
+      read,
+      { kind: "thinking", id: "blank", text: " \n", durationMs: null },
+      search,
+      answer,
+      text("trailing", ""),
+    ];
+
+    expect(layoutTurn(turn(steps))).toStrictEqual({
+      process: [{ kind: "explore", id: "read", steps: [read, search] }],
+      reply: answer,
+    });
+  });
+
+  it("keeps a reply visible across trailing blanks and compactions after integration", () => {
+    const answer = text("answer", "done");
+    const compacted = compaction("compaction");
+    const value = turn([
+      answer,
+      { kind: "thinking", id: "blank-thinking", text: " \n", durationMs: null },
+      compacted,
+      text("blank-text", ""),
+    ]);
+
+    expect(layoutTurn(value)).toStrictEqual({
+      process: [{ kind: "step", step: compacted }],
+      reply: answer,
+    });
+    expect(transcriptMarkdown([value])).toContain("\n\ndone\n");
+  });
+
+  it("has no display content or exported thinking for blank-only responses", () => {
+    const value = turn([{ kind: "thinking", id: "0", text: " \n", durationMs: 6000 }, text("1", "")]);
+
+    expect(layoutTurn(value)).toStrictEqual({ process: [], reply: null });
+    expect(transcriptMarkdown([value])).toBe("> do it\n");
+  });
+
   it("takes the last step as the reply when it is text, and leaves earlier text in the process", () => {
     const steps = [text("0", "looking"), tool("1", "bash"), text("2", "done")];
 
@@ -159,6 +203,35 @@ describe("layoutTurn", () => {
 
     expect(layoutTurn(turn(steps)).reply).toBeNull();
     expect(layoutTurn(turn([])).reply).toBeNull();
+  });
+
+  it.each([1, 2])("keeps the reply outside the process after %i trailing compactions", (count) => {
+    const earlier = text("0", "looking");
+    const call = tool("1", "bash");
+    const reply = text("2", "## Result\n\nThe complete answer.");
+    const compactions = Array.from({ length: count }, (_, index) => compaction(`compact-${String(index)}`));
+
+    expect(layoutTurn(turn([earlier, call, reply, ...compactions]))).toStrictEqual({
+      process: [earlier, call, ...compactions].map((step) => ({ kind: "step", step })),
+      reply,
+    });
+  });
+
+  it("has no reply for only compactions or a tool followed by compaction", () => {
+    const compact = compaction("2");
+    const steps = [text("0", "still working"), tool("1", "bash", "unfinished"), compact];
+
+    expect(layoutTurn(turn(steps))).toStrictEqual({
+      process: steps.map((step) => ({ kind: "step", step })),
+      reply: null,
+    });
+    expect(layoutTurn(turn([compact]))).toStrictEqual({ process: [{ kind: "step", step: compact }], reply: null });
+  });
+
+  it("exports the complete reply after trailing compaction without turning it into a process summary", () => {
+    expect(transcriptMarkdown([turn([text("0", "## Result\n\nFull answer."), compaction("1")])])).toBe(
+      "> do it\n\n> 压缩了上下文 · 152K → 41K\n\n## Result\n\nFull answer.\n",
+    );
   });
 
   it("shows two or more read-only calls in a row as one row, and a single one as itself", () => {

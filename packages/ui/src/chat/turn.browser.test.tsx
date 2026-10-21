@@ -434,26 +434,114 @@ describe("TurnView", () => {
     );
   });
 
-  it("keeps thinking with nothing to show from opening, even with every other step opened", async () => {
+  it("omits blank thinking while keeping tools and their details", async () => {
     const hidden: Step = { ...thinking, text: " \n" };
     const { screen } = await opened(turn([hidden, command, answer]));
 
-    expect(shownSteps(screen.container)).toStrictEqual(["thinking", "tool"]);
-    expect(screen.getByTestId("step").first().element().textContent?.trim()).toBe("思考了 6 秒");
+    expect(shownSteps(screen.container)).toStrictEqual(["tool"]);
     expect(screen.getByRole("button", { name: /思考了/ }).elements()).toHaveLength(0);
     expect(screen.container.querySelectorAll('[data-testid="step-detail"]')).toHaveLength(1);
   });
 
-  it("shows no empty block under thinking going on that has nothing to show yet", async () => {
+  it("waits without blank thinking or reply placeholders, then reveals nonblank content", async () => {
+    const hidden = { ...thinking, text: "", durationMs: null };
+    const screen = await render(runningView([hidden, { ...answer, text: " \n" }]));
+
+    await expect.element(screen.getByTestId("run-waiting")).toMatchTextContent(/进行中/);
+    expect(shownSteps(screen.container)).toStrictEqual([]);
+    expect(screen.container.querySelector('[data-testid="process-header"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="reply"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="step-detail"]')).toBeNull();
+
+    await screen.rerender(runningView([thinking]));
+    expect(shownSteps(screen.container)).toStrictEqual(["thinking"]);
+    expect(screen.container.querySelector('[data-testid="run-waiting"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="reply"]')).toBeNull();
+    await screen.getByRole("button", { name: /思考中/ }).click();
+    await expect.element(screen.getByTestId("step-detail")).toHaveTextContent("先看侧栏。再决定。");
+
+    await screen.rerender(runningView([thinking, answer]));
+    await expect.element(screen.getByTestId("reply")).toHaveTextContent("改好了，一处改动。");
+  });
+
+  it.each([
+    { steps: [] },
+    {
+      steps: [
+        { ...thinking, text: " \n" },
+        { ...answer, text: "" },
+      ],
+    },
+  ])("leaves a normal empty end without a reply or footer: $steps", async ({ steps }) => {
+    const { screen } = await show(turn(steps));
+
+    expect(screen.container.textContent).toContain("改一下侧栏");
+    expect(shownSteps(screen.container)).toStrictEqual([]);
+    expect(screen.container.querySelector('[data-testid="reply"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="process-header"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="turn-footer"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="turn-error"]')).toBeNull();
+    expect(screen.getByRole("button", { name: "重试", exact: true }).elements()).toHaveLength(0);
+  });
+
+  it("keeps a tool-only run visible without an empty reply or error", async () => {
     const { screen } = await show(
-      turn([{ ...thinking, text: "", durationMs: null }], { outcome: "running" }),
-      Date.now(),
+      turn(
+        [
+          { ...thinking, text: "" },
+          { ...command, status: "running" },
+          { ...answer, text: "" },
+        ],
+        {
+          outcome: "running",
+        },
+      ),
     );
 
-    await expect.element(screen.getByTestId("step")).toBeVisible();
-    expect(screen.getByTestId("step").element().textContent?.trim()).toBe("思考中");
-    expect(screen.getByRole("button", { name: /思考中/ }).elements()).toHaveLength(0);
-    expect(screen.container.querySelector('[data-testid="step-detail"]')).toBeNull();
+    expect(shownSteps(screen.container)).toStrictEqual(["tool"]);
+    await expect.element(screen.getByRole("button", { name: /正在运行 pnpm test/ })).toBeVisible();
+    expect(screen.container.querySelector('[data-testid="reply"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="turn-error"]')).toBeNull();
+  });
+
+  it("keeps connection errors and cancellation distinct from blank thinking", async () => {
+    const blank: Step[] = [
+      { ...thinking, text: "" },
+      { ...answer, text: " \n" },
+    ];
+    const retried: string[] = [];
+    const screen = await render(
+      <TurnView
+        turn={turn(blank, { outcome: "failed", error: "Connection disconnected" })}
+        runStartedAt={null}
+        onRetry={() => retried.push("retry")}
+      />,
+    );
+
+    await expect.element(screen.getByTestId("turn-error")).toMatchTextContent(/回复出错/);
+    expect(shownSteps(screen.container)).toStrictEqual([]);
+    expect(screen.container.querySelector('[data-testid="reply"]')).toBeNull();
+    await screen.getByRole("button", { name: "详情", exact: true }).click();
+    expect(screen.container.textContent).toContain("Connection disconnected");
+    expect(retried).toStrictEqual([]);
+    await screen.getByRole("button", { name: "重试", exact: true }).click();
+    expect(retried).toStrictEqual(["retry"]);
+
+    await screen.rerender(<TurnView turn={turn(blank, { outcome: "stopped" })} runStartedAt={null} />);
+    expect(screen.container.textContent).toContain("已停止");
+    expect(shownSteps(screen.container)).toStrictEqual([]);
+    expect(screen.container.querySelector('[data-testid="turn-error"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="reply"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="turn-footer"]')).toBeNull();
+  });
+
+  it.each([
+    ["stopped", "已停止"],
+    ["failed", "出错了"],
+  ] as const)("keeps %s ahead of a thinking-only header", async (outcome, label) => {
+    const { screen } = await show(turn([thinking], { outcome }));
+
+    await expect.element(screen.getByTestId("process-header")).toHaveTextContent(`${label}，用时 2 分 13 秒`);
   });
 
   it("fetches a step that arrived as a preview once it is opened, and only then", async () => {
@@ -1103,6 +1191,21 @@ describe("TurnView, what the agent said in the process", () => {
 });
 
 describe("TurnView compaction", () => {
+  it("keeps the answer visible when a trailing compaction is added, including after the process folds", async () => {
+    const { screen } = await show(turn([thinking, answer]));
+    await screen.rerender(<TurnView turn={turn([thinking, answer, compaction])} runStartedAt={null} />);
+
+    await expect.element(screen.getByTestId("process-header")).toHaveAttribute("aria-expanded", "false");
+    await expect.element(screen.getByTestId("reply")).toHaveTextContent("改好了，一处改动。");
+    await expect.element(screen.getByTestId("reply")).toBeVisible();
+    await expect
+      .element(screen.getByTestId("process-header"))
+      .toHaveTextContent("已完成，用时 2 分 13 秒 · 压缩了 1 次上下文");
+    await screen.getByTestId("process-header").click();
+    expect(shownSteps(screen.container)).toStrictEqual(["thinking", "compaction"]);
+    await expect.element(screen.getByTestId("reply")).toBeVisible();
+  });
+
   it("draws a compaction as two ticks across the unbroken main line, saying the context before and after", async () => {
     const { screen } = await show(turn([thinking, compaction, answer]));
     await screen.getByTestId("process-header").click();

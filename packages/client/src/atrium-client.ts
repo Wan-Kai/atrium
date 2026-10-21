@@ -215,6 +215,14 @@ export interface AtriumClient {
     previews?: readonly string[],
     command?: MessageTag,
   ): Promise<CommandResult<"prompt">>;
+  /** Replaces the last stopped user message; the host's snapshot and events supply the new turn. */
+  editStoppedMessage(
+    sessionId: string,
+    epoch: number,
+    turnId: string,
+    text: string,
+    attachmentIds?: readonly string[],
+  ): Promise<CommandResult<"edit_stopped_message">>;
   /** Sends a steer, delivered before the agent's next step; while idle it is sent as a message, pending meanwhile. */
   steer(
     sessionId: string,
@@ -1295,6 +1303,14 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     },
     prompt: (sessionId, text, attachmentIds = [], previews = [], command) =>
       sendShown("prompt", sessionId, text, attachmentIds, previews, command),
+    editStoppedMessage: (sessionId, epoch, turnId, text, attachmentIds) =>
+      request("edit_stopped_message", {
+        sessionId,
+        epoch,
+        turnId,
+        text,
+        ...(attachmentIds === undefined ? {} : { attachmentIds: [...attachmentIds] }),
+      }),
     steer: (sessionId, text, attachmentIds = [], previews = [], command) =>
       sendShown("steer", sessionId, text, attachmentIds, previews, command),
     sentPreviews: (clientMessageId) => sentImages.get(clientMessageId) ?? null,

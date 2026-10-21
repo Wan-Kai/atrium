@@ -45,6 +45,55 @@
 | 图标：统一从 `design/icons.tsx` 取 Hugeicons，线宽 1.75，加粗的按各自的宽度（勾 2.25，更多、上箭头 2.5），实心的填色并保留轮廓，不给尺寸时跟随文字；Meta 标借 Tabler 的形状；侧栏领先数和已合并用图标不用字符（2026-10-12） | `packages/ui/src/design/icons.browser.test.tsx`、`app/workbench.browser.test.tsx` "lists a project's workspaces" | 已覆盖 |
 | 连接状态的全部文案，包括启动中、桥接失败；连上后只留给读屏、不占位置，没连上时主窗口底部一行（2026-10-12） | `packages/ui/src/app/connection-status.browser.test.tsx`、`workbench.browser.test.tsx` "connection line" | 已覆盖 |
 
+## 已停止消息的编辑重发（M1.11 自用，2026-10-20）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议 22 的 epoch / turn 身份、正文和附件限额、纯图片、started-only 结果与错误码；客户端不乐观追加旧分支 | `packages/protocol/src/edit-stopped-message.test.ts`、`envelope.test.ts`；`packages/client/src/atrium-client.test.ts` 的 stopped edit 用例 | 已覆盖 |
+| 同会话无摘要导航，user 即 leaf 和 null parent、aborted 助手尾条目、旧上下文排除、保留图片与纯图片、恢复及重启持久化 | `packages/pi/src/contract/edit.pi.test.ts` 的 `edit-aborted`、`edit-root-restore`、`edit-image-only`；五份本次 pi 1.3.0 夹具 | 已覆盖 |
+| 导航取消 / 异常仍可能 handled，必须查 leaf；只允许最新操作恢复且不能覆盖新消息，元数据与模型消息路径分开；隐藏命令 id-only 编码与目录隐藏 | `packages/pi/src/edit/{edit,extension}.test.ts`、`catalog/commands.test.ts`；契约 `edit-cancel`、`edit-navigation-error` | 已覆盖 |
+| 最后一轮及 stopped / 本人普通消息门禁、epoch 冲突、并发编辑和其他写入互斥、图片穿透、停止队列保留、操作中退出不自动续做 | `packages/host/src/sessions/session-controller.test.ts` 的 “editing the last stopped user message”；`packages/host/src/edit-stopped.host.test.ts` 的真实宿主与客户端场景 | 已覆盖 |
+| 已读真实 leaf 才提交；提交拒绝 / handled 恢复旧分支；响应丢失不重复已落盘新 user；磁盘与内存条目不一致则停 pi，不能追加到仅内存的父条目 | `packages/host/src/sessions/stopped-edit.test.ts`；`session-manager.test.ts` “stops pi when an edit anchor exists only in memory…” | 已覆盖 |
+| 缺 Atrium 扩展不把隐藏命令发给模型；上传附件随编辑路由、reserved / slash 拒绝，旧请求与已完成轮拒绝且模型请求数不增加 | `server/router.test.ts` 的 stopped edit；`edit-stopped.host.test.ts` 三个真实宿主场景（含未传 fastExtension） | 已覆盖 |
+| A 底部独立编辑草稿、原气泡不动、取消和成功恢复下一条草稿、提交锁定、失败 / 冲突保留文字、图片完整恢复与失败重试、纯图片、StrictMode 与过期结果保护 | `packages/ui/src/chat/chat.browser.test.tsx` 的 stopped message editor；输入框、消息和轮相关 browser 测试 | 已覆盖 |
+| client/session 独立编辑状态，切换及在途请求结果保留，旧回调不删新草稿，归档 / 移除回收 store；私有 edit 草稿仅页面内保留、不留下孤立 localStorage 正文，普通草稿仍可重启恢复 | `packages/ui/src/state/stopped-edits.test.ts` 7 项；`drafts.test.ts` 的 private stopped-edit 用例；`chat.browser.test.tsx` 的切换、附件过期重传及 StrictMode 回归 | 已覆盖 |
+| 编辑、取消、失败重试、同一会话 / 标签 / 文件，磁盘旧分支保留、模型上下文不含误发消息、应用重启后恢复新分支 | `apps/desktop/e2e/edit-stopped-message.spec.ts`，真实 Electron + faux，已连续三次通过 | 已覆盖 |
+| 原控制器的定时器 / 监听 / 异步上下文不因新操作回归 | `packages/host/src/sessions/session-controller.leak.test.ts`，200 次操作与异步上下文回收两项通过 | 已覆盖（既有泄漏场景；不声称新增编辑分支的专项 GC 浸泡） |
+
+破坏检查：协议 / 客户端 7/7、宿主 9/9、pi 11/11 均实际 `CAUGHT`。宿主首轮 epoch guard 的负对照曾 `MISSED`：后置重复校验仍拒绝请求，但已错误暂停队列；补断言控制状态不改变后检出，未把重复校验当成“无意义防御”。UI 的初始 5 项、切换保留 4 项、附件过期重传 4 项、私有草稿不留孤立存储 1 项破坏检查已检出。宿主事务补测的 21 个定向破坏检查、标题 / 改名互斥与闲置 pi 重启的 3 个检查也均检出。
+
+最终验证：`pnpm check` 与构建通过；单元和宿主 183 文件 / 3199 项通过（`--maxWorkers=2`）；UI 40 文件 / 835 项串行通过；新增真实 pi 契约 5 项不带录制开关复跑通过；控制器泄漏 2 项通过；编辑重发、运行控制与历史的 Electron e2e 共 6 项通过。检查过真实 Electron 的浅 / 暗编辑与失败截图。首轮高并发单元有 4 个既有文件系统 / git 超时，相关 45 项单独复跑通过；一次全量出现未改动的 pi-config 排队保存用例 `config_conflict`，单文件 44 项通过，最终限并发全套通过，根因未在本任务中定位。UI 并行时也复现了既有 changes-pane 动画用例不稳，单文件 13 项通过，最终串行全套通过。没有删测试、放宽超时或断言；不把这些首次失败算成绿灯。
+
+聚焦变异：协议 / 客户端新增路径 100%（14/14）；宿主本次改动行与新事务 91.93%（319 检出、28 存活，无超时；控制器 93.60%、会话管理器 80.56%、事务 92.54%、路由 100%）；pi edit 两文件 96.65%（169 检出、4 个循环保护被删后的真实死循环超时、6 等价存活）；UI 草稿与编辑状态两文件 97.98%（243 检出、5 存活）。宿主使用保留源代码别名的 Node mutation 配置，聚焦运行控制器、事务、管理器、路由与真实宿主编辑场景，不声称跑过全库全量变异。宿主首轮 71.43% 未过，补多节点恢复、输入种类、过期读、互斥、落盘失败和重启边界后才达到上述结果。
+
+存活项不作笼统等价豁免：pi 六项为有效树上已有的可选链 / 重复路径保护，原因在源码注明；UI 一个是 `target` 非空已蕴含 store 存在（源码有说明），另四个在本次未修改的旧命令草稿分支。宿主事务的内部阶段错误文字被最终 `edit_failed` 归一化、目标校验的可选链和 attempted/before 重复条件等不改变外部结果；仍保留并登记的覆盖缺口包括状态栏指标在编辑路径上的独立敏感性、首次扫描尚未登记时 sessionFile 与 catalog 读取来源的隔离验证，以及提交完成后立即释放代理送达的专门破坏检查。保留实现中的保护，不声称每个存活均已证明等价。
+
+全量 `test:pi` 不是通过：本机为 1.3.0，36 个旧场景仍缺该版本夹具（本次实跑 41 通过 / 36 失败，后续只定向复跑新增五项）。本次仅新增五份编辑夹具，没有顺带升级旧夹具；待独立处理版本迁移。
+
+### 三方审查后补（2026-10-21）
+
+审查基线 `c90ab93`，功能 `6d10106`，合入 main 的集成点 `c037533`。外部模型由用户指定 Opus 5.5、Grok 4.7，另有独立 Claude Sonnet 5.5；均只读。Opus 首轮源码检索耗时后中止，续接同一会话提交有限范围报告；没有把未读的 UI / 协议 / 全局 1.3.0 说成已审查。后续用固定生产差异做有界补充审查，Opus 补读编辑器；Grok、Claude 针对原发现复审。没有更换用户选定模型，也未把任何一位的“没有发现”当作全库无缺陷保证。
+
+#### Standards
+
+Opus 未确认硬性规范、安全或正确性违规；提示事务恢复分支可读性和 `prompting` 计数重复是启发式气味，不作为借机重构的理由。保护条件、宿主稳定错误码和既有包边界保留；新磁盘读取 helper 有 JSDoc，错误参数仅含 id / epoch / 状态，不含正文。追加的 draft-child 改名门禁不把既有命名流程扩成回滚事务：已在编辑前保存的 catalog 名字仍保留，只阻止稍后向正被编辑的 pi 追加名字。普通改名路径检查后无 await 间隙，未改。
+
+#### Spec
+
+| 去重发现 | 修复与回归 |
+|---|---|
+| 中高：回退 / 恢复提高 epoch，原框失败重试永久携带旧 epoch；取消提示又让用户误以为正文不会被删除 | 活 pi 且恢复同一最后 stopped 目标时，宿主仅在本次 `edit_failed.params` 回 `turnId / epoch`；界面只消费该确认，不采用任意最新页面 epoch。不同目标、非 stopped、其他错误、缺失 / 非数字确认、旧请求完成均不能重绑。冲突提示先复制再取消。Controller、browser 与真实 Electron 的回退后拒绝—原框重试回归；关闭 UI epoch 刷新的 Electron 负对照失败。 |
+| 中：回退后 pi 退出 / 确认读取失败，仅 stop 不重建视图，原消息暂时消失 | 保留每次成功的实际磁盘页，恢复失败停止 pi 后也发布最近的磁盘证明；一次磁盘证明都没有时不发布虚构页。helper 覆盖退出、末次读取失败、零成功读取；原来仅断言 stop 的用例补完整分支断言。 |
+| 中：会话管理器首次 await 前没有编辑预约，已排队交接不复查；draft-child 改名跨 await 可能在回退中补写 pi | 编辑从入口占 `prompting`，完整 await Controller 后才 finally 释放；交接串行回调重新查 occupied；草稿子会话在补写名字前重新查 forking。四个真实边界回归；另补两个并发预约依次释放的回归，防首个失败清掉另一请求的预约或计数泄漏。 |
+| 低：等待刷新后拒绝过期请求，已经提前暂停队列 | 通过二次 epoch / 目标检查才暂停；同一 stopped 用户的新部分回复和 done 两种刷新变化均拒绝且保持完整 `IDLE_CONTROL`。 |
+| 低中：恢复已停止 pi 却仍确认 retry epoch，下一次 attach 又使其过期 | 已退出时只回 `status: exited`，不回 retry 标识；正文继续留在原编辑器，提示复制后取消、重新打开会话。Controller 的受控退出事件时序与 browser 覆盖，不将需要重开说成可直接重试。 |
+
+修复完成后的验证：`pnpm check`、构建通过；单元 / 宿主 183 文件 **3216** 项、UI 40 文件 **844** 项、相关 Electron **6** 项、新增真实 pi 契约 **5** 项、Controller 泄漏 **2** 项通过。只用隔离 HOME / faux，没有请求真实聊天模型或替换当前应用。新增测试的条件式脚本曾被 lint 拒绝，已改成声明式应答队列 / 参数表，无规则豁免；首次宿主变异 dry-run 发现旧 no-extension 用例未同步新增恢复参数，已改为精确断言 epoch / turnId，而非放宽为只检查错误码。
+
+新增定向破坏检查 **23/23 检出**：宿主恢复 / CAS / 已退出门禁 9 项、会话管理器入口与并发预约计数 8 项、UI 恢复确认与已退出文案 6 项；另有真实 Electron 的 epoch 刷新负对照。宿主变异的完整本次范围报告为 **91.07%**（367 检出 / 36 存活 / 403，无超时），其中 Controller 93.56%、路由 100%、事务 92.09%，但会话管理器 78.95% 未够单文件 80%。补并发预约及零磁盘证明回归后，发现 command runner 的增量报告会直接复用 403/403，不能当作新测试的验证；因此对相同管理器改动范围与事务空证明门禁使用 **`--force`**，实际重跑 61 个变异：**86.89%**（53 检出 / 8 存活，无超时），管理器 **85.96%**（49/57），事务新增门禁 **100%**（4/4）。保留两份不同范围报告，不拼成一次未实际执行的全量成绩。剩余管理器存活有既有 sessionFile 首次扫描来源隔离、错误归一化 / 可选链、重复归档门禁，以及删除零计数 Map 清理的资源覆盖缺口；实现保留，不笼统豁免。
+
+用户已选择 A、作为已知限制交付的边界：原消息停止后再改思考档位，原生 pi 的新分支可能未带上这个旧分支的配置条目，当前生成使用新档位、重开可能按新分支恢复旧档位；尚未新增专项真实重开契约。本版不额外适配或改写该类元数据，需要时在重开后重新选择档位；用户已确认按此限制合并。提交独占期不允许 Stop / Cancel 与回退穿插属于既有范围；初次独立磁盘读取失败也停止 pi 是保守故障处理，不声称已实现 fsync / 掉电事务或任意同权限外部写入的协作事务。
+
 ## pi 普通配置编辑（M1.11 自用）
 
 | 行为 | 测试 | 状态 |
@@ -429,6 +478,17 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 
 ## M1.11 自用中改（2026-10-20）
 
+空思考／空回复展示（SPEC-0001“空思考与空回复”，不改变协议、原始步骤或重试策略）：
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 空／纯空白 thinking、text 不生成过程或回复，不打断只读工具合并，不覆盖非空回复；Markdown 导出同样不列空思考 | `packages/ui/src/chat/turn-layout.test.ts` "omits blank thinking and text…"、"has no display content or exported thinking…" | 已覆盖；合并 main 后 `turn-layout.ts` 增量变异 100%（642 个检出、其中 631 个复用，无存活／超时），展示层三项破坏检查均 CAUGHT |
+| 集成 main 的末尾压缩回复规则：正文后空思考、压缩、空文字不遮住正文，压缩仍留在过程、导出保留正文 | `packages/ui/src/chat/turn-layout.test.ts` "keeps a reply visible across trailing blanks and compactions after integration" | 已覆盖；分别去掉空块过滤、尾部压缩跳过，两项破坏检查均 CAUGHT |
+| 运行中空块沿用等待行，文字到达后正常显示；工具正常执行并可看详情，不显示空思考或空回复 | `packages/ui/src/chat/turn.browser.test.tsx` "waits without blank thinking…"、"omits blank thinking while keeping tools…"、"keeps a tool-only run visible…" | 已覆盖 |
+| 正常空结束不留回复、过程、footer 或错误；连接失败仍有错误和手动重试，取消仍为已停止；非空思考后的失败／取消标题优先显示结束状态 | turn.browser.test.tsx "leaves a normal empty end…"、"keeps connection errors and cancellation distinct…"、"keeps %s ahead of a thinking-only header" | 已覆盖 |
+| 用户输入、report 通知开头的正常空 stop 都正常完成；推进假时钟 60 秒不额外 prompt、不重启、不产生 retry 步骤；来源及送达确认保留 | `packages/host/src/sessions/session-controller.test.ts` "leaves a normal empty reply completed…"、"leaves a report's normal empty reply completed…" | 已覆盖；两项破坏检查均 CAUGHT |
+| 真实 pi + faux 经工具执行到正常空结束，桌面不显示空思考／回复；再发一条无工具空结束，不留 footer；非空摘要／正文原有旅程正常 | `apps/desktop/e2e/chat.spec.ts` "shows tools without blank thinking…"、"sends a message and streams the reply…" | 已覆盖；回退过滤后桌面回归测试失败，恢复后通过；浅／深色截图已检查 |
+
 一轮中间的压缩是过程轨道上的一步（SPEC-0001 `compaction`、design-language"压缩步骤""运行中压缩"，协议 20）。
 
 | 行为 | 测试 | 状态 |
@@ -449,6 +509,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 折叠后的标题行末尾"压缩了 N 次上下文"，在"N 条命令没走通"之后 | turn.browser.test.tsx "ends the folded header with how many times the context was compacted"；`turn-layout.test.ts` "counts files read, searches and commands…" | 已覆盖 |
 | 运行中压缩：运行中的轮的轨道末尾一行"正在压缩上下文…"（闪光，刻痕节点），前一步不再算进行中；第一步之前压缩时也有轨道、没有等待行；轮与轮之间的压缩仍在底部 | turn.browser.test.tsx "says on the rail where pi compacts now…"；`chat.browser.test.tsx` "says pi compacts on the running turn's rail…"、"says at the bottom of the conversation while pi compacts" | 已覆盖 |
 | 轮与轮之间的提示条"上下文已压缩 · 152K → 41K"，不知道压缩后时"上下文已压缩 · 压缩前 152K tokens" | turn.browser.test.tsx "NoticeView"；`turn-layout.test.ts` "writes a compaction in the process as a quoted line…" | 已覆盖 |
+| 正文后自动压缩不把正文收进折叠过程：跳过末尾连续压缩后取最后一步文字为回复；压缩保留在过程，工具后跟压缩、只有压缩或空轮不产生回复；Markdown 导出保留完整正文；实时追加压缩后正文仍可见，折叠与展开均不重复正文（2026-10-20 自用修复） | `packages/ui/src/chat/turn-layout.test.ts` "keeps the reply outside the process…"、"has no reply for only compactions…"、"exports the complete reply…"；`turn.browser.test.tsx` "keeps the answer visible when a trailing compaction…" | 已覆盖 |
 | 复制成 Markdown：压缩步骤写成一行引用，提示条带压缩前后 | turn-layout.test.ts "writes a compaction in the process as a quoted line, and one between turns with the context after it" | 已覆盖 |
 | 过程里 AI 说的话（一轮里的文字步骤）：节点是 7px 实心蓝点、外圈 2px 底色，文字正文色、500 字重；思考不加标识 | `packages/ui/src/chat/turn.browser.test.tsx` "what the agent said" | 已覆盖 |
 | 推理和文字步骤在行里显示第一行（空白合并、最多 160 字，后面还有内容加"…"），不按句号截（"Grok 4.7"不被截断）；一行放不下由行尾截断、不折行 | `packages/ui/src/chat/turn-layout.test.ts` "opening"；`turn.browser.test.tsx` "shows as much of a long first line as the row holds" | 已覆盖 |
@@ -536,7 +597,9 @@ SPEC-0001“回复渲染”；原型 `chat-rendering-support-prototype.html` 的
 
 破坏检查在单独源码副本运行，避免故意改坏代码触发用户正在使用的 Vite HMR；依赖复用、API 63318、独立缓存，断言和源码与当前树相同。13 项有效负对照全部检出：主题接入/footbox/覆盖顺序，宽窄标题避让，原生开关/动作/比例/观察与释放、隐藏原生重复入口，以及成对撤回宽图 minmax/min-width 与窄工具行两处 wrap 兜底。最初单独撤回布局兜底之一是等价保护，改为精确恢复原缺陷；另证实引擎 dark 标记不会二次反转显式皮肤颜色，删除了不必要的额外标记处理而不是增加豁免。隔离副本 Stryker 首次因软链接根 node_modules 无法构建沙箱而未启动测试；回原树的 Stryker 自有沙箱完成，原始源文件 SHA 校验未变，仅新主题模块实际运行的 51 个变异均检出，不把旧缓存合计分数冒充本轮结果。
 
-本分支集成 main 之前：`pnpm check`、构建通过；171 文件/3105 项串行单元通过，47 文件/900 项串行 UI 全过，未跳用例或弱化断言。并发单元负载下仍遇未修改的宿主 pi-config 队列例 `config_conflict`，单文件 44 项通过，安静串行全量通过。并行 UI 还出现过旧右栏 0.24 s 时序失败及不同文件的导入期 SyntaxError；冷缓存对照三文件 69 项通过，但全套并行仍有导入失败，未宣称已修复工具链并发。两个真实功能回归（外层面/新按钮清单、比例就绪）已按用户选的 B 完整更新原测试，不把它们当作已知不稳。机械设计扫描只报原有渐变文字/弹性状态提示，不改与这次图表无关的视觉。此节记录本分支验证；集成 main 后的结果另在路线图登记。
+本分支集成 main 之前：`pnpm check`、构建通过；171 文件/3105 项串行单元通过，47 文件/900 项串行 UI 全过，未跳用例或弱化断言。并发单元负载下仍遇未修改的宿主 pi-config 队列例 `config_conflict`，单文件 44 项通过，安静串行全量通过。并行 UI 还出现过旧右栏 0.24 s 时序失败及不同文件的导入期 SyntaxError；冷缓存对照三文件 69 项通过，但全套并行仍有导入失败，未宣称已修复工具链并发。两个真实功能回归（外层面/新按钮清单、比例就绪）已按用户选的 B 完整更新原测试，不把它们当作已知不稳。机械设计扫描只报原有渐变文字/弹性状态提示，不改与这次图表无关的视觉。此段记录集成前本分支验证。
+
+2026-10-21 后续集成 main `dbea812`（已停止消息编辑、空思考/空回复布局）：手工合并 `conversation-area.tsx` 时同时保留 session 身份门槛、无 session key 的图片上下文及 main 的编辑 store/回调/草稿与图片占位恢复；`turn-view.tsx` 与 main 无差异。新增组合断言：已停止且含本地图的回复进入编辑后图仍在，工作区 metadata 更新不重读、目录变化才重读。初版 fixture 误用 done，按规格没有编辑入口；修正为 stopped 后，正向两项通过，初次负对照结果作废，最终重新验证的三个接缝负对照（空编辑回调、去身份门槛、丢图片能力）均在隔离副本被对应断言检出。独立只读复核按 main 完整 diff 确认两边行为保留，无阻断。集成后 189 文件/3405 单元与宿主、47 文件/938 串行 UI、9 相关桌面全部通过，`pnpm check`/构建通过；桌面覆盖流式、空结束、编辑后重启恢复、新建工作区交接、图表/图片 CSP 与回收、JSON/CSV 及真实文件行定位。未跑整套桌面、全部 pi 契约、性能/压力/浸泡或打包安装，也未关闭用户正在用的开发进程。
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
