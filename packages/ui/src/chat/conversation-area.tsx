@@ -37,6 +37,8 @@ import { ChildCapsule } from "../children/child-capsule";
 import { askForChild } from "../children/new-child";
 import { MessageImagesContext, messageImages } from "./message-images";
 import { Transcript } from "./transcript";
+import { StoppedMessageEditor } from "./stopped-message-editor";
+import { stoppedEditStore } from "../state/stopped-edits";
 import { type AgentLinks, AgentLinksContext } from "./agent-links";
 import {
   type Launch,
@@ -390,6 +392,8 @@ function SessionArea({
   readonly views: StoreApi<WorkspaceViews>;
 }) {
   const view = useStore(store);
+  const editStore = useMemo(() => stoppedEditStore(client, sessionId), [client, sessionId]);
+  const editing = useStore(editStore, (state) => state.target);
   const place = useStore(client.index, (index) => {
     const into = index.workspaces.find((one) => one.id === launch?.workspaceId);
     return into === undefined ? null : workspaceName(into);
@@ -464,6 +468,35 @@ function SessionArea({
           <AgentLinksContext value={links}>
             <Transcript
               view={view}
+              editingStopped={editing !== null}
+              onEditStopped={(turn) => {
+                const draftKey = `edit:${sessionId}:${crypto.randomUUID()}`;
+                const imageIds = Array.from({ length: turn.user.images }, () => crypto.randomUUID());
+                const next = pageDrafts().read(sessionId);
+                pageDrafts().update(draftKey, () => ({
+                  text: turn.user.text,
+                  pastes: [],
+                  files: [],
+                  command: null,
+                  images: imageIds.map((id) => ({ id, image: null, attachmentId: null })),
+                }));
+                editStore.setState({
+                  target: {
+                    epoch: view.epoch,
+                    turnId: turn.id,
+                    draftKey,
+                    images: imageIds,
+                    savedDraft:
+                      next.text !== "" ||
+                      next.images.length > 0 ||
+                      next.pastes.length > 0 ||
+                      next.files.length > 0 ||
+                      next.command !== null,
+                  },
+                  submitting: false,
+                  error: null,
+                });
+              }}
               onLoadOlder={() => {
                 // Fire and forget: a failed page leaves "正在加载" until the next scroll asks again.
                 client.loadOlder(sessionId).catch(() => undefined);
@@ -485,51 +518,81 @@ function SessionArea({
         <>
           <ControlCards control={view.control} actions={actions} />
           {notice}
-          <Composer
-            {...attaching(view.model)}
-            key={sessionId}
-            draftKey={sessionId}
-            autoFocus={takesFocus}
-            history={historyOf(view.items)}
-            onOlderHistory={() => {
-              // Fire and forget: a failed page leaves ↑ where it is.
-              if (view.hasOlder) client.loadOlder(sessionId).catch(() => undefined);
-            }}
-            onListCommands={async () => (await client.listCommands(await session())).commands}
-            onSearchFiles={async (query) => (await client.searchFiles(await session(), query)).files}
-            onSend={onSend}
-            onSteer={onSteer}
-            onBuiltin={onBuiltin}
-            draft={draft}
-            onStop={() => act(() => client.stop(sessionId))}
-            running={running}
-            stopping={view.control.stopping}
-            compacting={view.control.compacting}
-            held={holdsBack(launch)}
-            above={
-              <ControlTrack
-                control={view.control}
-                running={running}
-                actions={actions}
-                {...(changes === undefined ? {} : { changes })}
-                renderChildCapsule={(list) => (
-                  <ChildCapsule client={client} sessionId={sessionId} views={views} {...list} />
-                )}
-              />
-            }
-            picker={
-              <SessionModelPicker
-                client={client}
-                containerId={containerId}
-                model={view.model}
-                fast={view.fast}
-                disabled={view.control.stopping}
-                session={session}
-                act={act}
-                request={pickerRequest}
-              />
-            }
-          />
+          {editing === null ? (
+            <Composer
+              {...attaching(view.model)}
+              key={sessionId}
+              draftKey={sessionId}
+              autoFocus={takesFocus}
+              history={historyOf(view.items)}
+              onOlderHistory={() => {
+                // Fire and forget: a failed page leaves ↑ where it is.
+                if (view.hasOlder) client.loadOlder(sessionId).catch(() => undefined);
+              }}
+              onListCommands={async () => (await client.listCommands(await session())).commands}
+              onSearchFiles={async (query) => (await client.searchFiles(await session(), query)).files}
+              onSend={onSend}
+              onSteer={onSteer}
+              onBuiltin={onBuiltin}
+              draft={draft}
+              onStop={() => act(() => client.stop(sessionId))}
+              running={running}
+              stopping={view.control.stopping}
+              compacting={view.control.compacting}
+              held={holdsBack(launch)}
+              above={
+                <ControlTrack
+                  control={view.control}
+                  running={running}
+                  actions={actions}
+                  {...(changes === undefined ? {} : { changes })}
+                  renderChildCapsule={(list) => (
+                    <ChildCapsule client={client} sessionId={sessionId} views={views} {...list} />
+                  )}
+                />
+              }
+              picker={
+                <SessionModelPicker
+                  client={client}
+                  containerId={containerId}
+                  model={view.model}
+                  fast={view.fast}
+                  disabled={view.control.stopping}
+                  session={session}
+                  act={act}
+                  request={pickerRequest}
+                />
+              }
+            />
+          ) : (
+            <StoppedMessageEditor
+              key={editing.draftKey}
+              client={client}
+              sessionId={sessionId}
+              target={editing}
+              blocked={
+                running ||
+                view.pending.length > 0 ||
+                view.control.stopping ||
+                view.control.compacting ||
+                view.control.restarting
+              }
+              attaching={attaching(view.model)}
+              store={editStore}
+              picker={
+                <SessionModelPicker
+                  client={client}
+                  containerId={containerId}
+                  model={view.model}
+                  fast={view.fast}
+                  disabled={view.control.stopping}
+                  session={session}
+                  act={act}
+                  request={pickerRequest}
+                />
+              }
+            />
+          )}
           <StatusBar
             metrics={view.metrics}
             plans={plans}

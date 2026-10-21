@@ -56,6 +56,10 @@ function fakeCommands() {
       if (command.text === "crash") throw new Error("secret detail");
       return { disposition: "started" };
     },
+    editStoppedMessage: async (command, images = []) => {
+      calls.push(["editStoppedMessage", command.sessionId, command.epoch, command.turnId, command.text, images]);
+      return { disposition: "started" };
+    },
     fetchStep: async (command) => {
       calls.push(["fetchStep", command.sessionId, command.epoch, command.turnId, command.stepId]);
       return { step: { kind: "text", id: command.stepId, text: "whole" } };
@@ -263,6 +267,15 @@ function withTrace(fields: Record<string, unknown>): Command {
 }
 
 describe("createRouter", () => {
+  it("routes a stopped edit with its revision without using ordinary prompt", async () => {
+    const { route, connection, calls, sent } = setUp();
+    await route(
+      connection,
+      withTrace({ type: "edit_stopped_message", sessionId: "s1", epoch: 3, turnId: "t1", text: "correct" }),
+    );
+    expect(calls).toContainEqual(["editStoppedMessage", "s1", 3, "t1", "correct", []]);
+    expect(sent).toStrictEqual([{ type: "response", requestId: "r1", ok: true, result: { disposition: "started" } }]);
+  });
   it("answers ping in a command span under the command's trace, linked to the connection's", async () => {
     const { route, connection, sent, records, handshake } = setUp();
 

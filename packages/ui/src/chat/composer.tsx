@@ -9,6 +9,7 @@ import {
   Folder,
   ImageIcon,
   Plus,
+  PencilSimple,
   Square,
   Terminal,
   TextAlignLeft,
@@ -115,6 +116,14 @@ export interface ComposerProps {
   readonly onBuiltin?: (call: BuiltinCall) => Promise<boolean>;
   /** Whether the session has no file yet, before its first message: some built-ins wait for one. */
   readonly draft?: boolean;
+  /** A separate stopped-message draft; it stays intact until its owner confirms submission. */
+  readonly editing?: {
+    readonly busy: boolean;
+    readonly blocked: boolean;
+    readonly savedDraft: boolean;
+    readonly onSubmit: (text: string, images: readonly SentImage[]) => Promise<void>;
+    readonly onCancel: () => void;
+  };
 }
 
 /**
@@ -206,6 +215,7 @@ export function Composer({
   held = false,
   onBuiltin,
   draft: noFileYet = false,
+  editing,
 }: ComposerProps) {
   const drafts = pageDrafts();
   const { text, pastes, files, command, images } = useDraft(draftKey);
@@ -283,7 +293,8 @@ export function Composer({
   }, [tagged]);
 
   // After a tag the text is its arguments, which start no other command.
-  const commandQuery = onListCommands === undefined || command !== null ? null : slashQuery(text, caret);
+  const commandQuery =
+    editing !== undefined || onListCommands === undefined || command !== null ? null : slashQuery(text, caret);
   const mention = commandQuery === null && onSearchFiles !== undefined ? mentionAt(text, caret) : null;
   const listOpen = dismissed !== text && (commandQuery !== null || mention !== null);
   const message = composeMessage({ text, pastes, files, command });
@@ -320,7 +331,7 @@ export function Composer({
    * @param added - The image files.
    */
   const addImages = (added: readonly Blob[]): void => {
-    if (added.length === 0 || onUpload === undefined) return;
+    if (editing?.busy || added.length === 0 || onUpload === undefined) return;
     if (!imagesAllowed) {
       setNote("当前模型不支持图片");
       return;
@@ -372,8 +383,9 @@ export function Composer({
    * @sideEffects Adds images and capsules.
    * @param event - The drop.
    */
-  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+  const onDrop = (event: DragEvent<HTMLElement>): void => {
     event.preventDefault();
+    if (editing?.busy) return;
     setDragging(false);
     const dropped = [...event.dataTransfer.files];
     // Only the drop's entries tell a directory from a file; its file entries line up with its files.
@@ -536,7 +548,8 @@ export function Composer({
    * @param steer - Whether to send it as a steer.
    */
   const send = (steer: boolean): void => {
-    const typed = onBuiltin === undefined || held ? null : builtinCall(text, command);
+    if (editing?.busy || editing?.blocked) return;
+    const typed = editing !== undefined || onBuiltin === undefined || held ? null : builtinCall(text, command);
     const call =
       typed === null ? null : { ...typed, args: composeMessage({ text: typed.args, pastes, files, command: null }) };
     if (call !== null) {
@@ -553,6 +566,11 @@ export function Composer({
     const sent = images.flatMap((one) =>
       one.attachmentId === null || one.image === null ? [] : [{ attachmentId: one.attachmentId, image: one.image }],
     );
+    if (editing !== undefined) {
+      // Fire and forget: the editor owns error reporting and keeps this draft until success.
+      void editing.onSubmit(message, sent);
+      return;
+    }
     (steer ? (onSteer ?? onSend) : onSend)(message, sent, command);
     drafts.update(draftKey, () => EMPTY_DRAFT);
     setNote(null);
@@ -591,7 +609,7 @@ export function Composer({
    * @param event - The key event.
    */
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.nativeEvent.isComposing) return;
+    if (event.nativeEvent.isComposing || editing?.busy) return;
     // The caret at the start with nothing selected: a selection always ends after where it starts.
     if (event.key === "Backspace" && command !== null && event.currentTarget.selectionEnd === 0) {
       event.preventDefault();
@@ -628,12 +646,12 @@ export function Composer({
       onStop?.();
       return;
     }
-    if (event.key === "ArrowUp" && (empty || browsing !== null)) {
+    if (editing === undefined && event.key === "ArrowUp" && (empty || browsing !== null)) {
       event.preventDefault();
       browse((browsing ?? -1) + 1);
       return;
     }
-    if (event.key === "ArrowDown" && browsing !== null) {
+    if (editing === undefined && event.key === "ArrowDown" && browsing !== null) {
       event.preventDefault();
       browse(browsing - 1);
       return;
@@ -686,6 +704,7 @@ export function Composer({
     place(before + word + text.slice(caret), caret + word.length);
   };
 
+  const Card = editing === undefined ? "div" : "fieldset";
   return (
     <div className="mx-auto w-full max-w-[var(--column)] px-6 pb-1">
       {/* A press in here leaves the capsule bar's panel open (`CapsuleUnit`). */}
@@ -721,7 +740,8 @@ export function Composer({
             }}
           />
         ) : null}
-        <div
+        <Card
+          {...(editing === undefined ? {} : { disabled: editing.busy })}
           data-testid="composer-card"
           data-dragging={dragging ? "" : undefined}
           onDragOver={(event) => {
@@ -736,6 +756,20 @@ export function Composer({
           onDrop={onDrop}
           className="relative flex flex-col gap-[10px] rounded-[var(--r-bubble)] bg-[var(--surface-1)] p-[14px] shadow-[inset_0_0_0_0.5px_var(--line),0_9px_27px_rgba(41,70,122,0.08)] data-dragging:shadow-[inset_0_0_0_1.5px_var(--accent),0_9px_27px_rgba(41,70,122,0.08)]"
         >
+          {editing === undefined ? null : (
+            <>
+              <p className="flex items-center gap-1.5 pr-7 text-[length:var(--fs-sm)] text-[var(--tint)]">
+                <PencilSimple size={14} />
+                编辑已停止的消息
+              </p>
+              <p className="text-[length:var(--fs-sm)] text-[var(--text-muted)]">不会撤销已执行的文件改动</p>
+              {editing.savedDraft ? (
+                <p className="text-[length:var(--fs-sm)] text-[var(--text-muted)]">
+                  下一条消息的草稿已暂存，取消或发送后恢复
+                </p>
+              ) : null}
+            </>
+          )}
           {dragging ? (
             <p className="pointer-events-none absolute inset-x-0 -top-7 text-center text-[length:var(--fs-sm)] text-[var(--accent)]">
               松开以添加图片或引用文件
@@ -819,13 +853,15 @@ export function Composer({
               value={text}
               style={command === null ? undefined : { textIndent: indent }}
               placeholder={
-                command !== null
-                  ? tagPlaceholder(command)
-                  : running
-                    ? stopping
-                      ? "正在停止…"
-                      : "回车排队 · ⌘回车插话 · Esc 停止"
-                    : "发消息或描述任务，@ 引用文件，/ 使用命令"
+                editing !== undefined
+                  ? "修改消息后重新发送"
+                  : command !== null
+                    ? tagPlaceholder(command)
+                    : running
+                      ? stopping
+                        ? "正在停止…"
+                        : "回车排队 · ⌘回车插话 · Esc 停止"
+                      : "发消息或描述任务，@ 引用文件，/ 使用命令"
               }
               onChange={(event) => {
                 setText(event.target.value);
@@ -900,16 +936,27 @@ export function Composer({
                     <At size={14} />
                     引用文件或目录
                   </button>
-                  <button type="button" role="menuitem" onClick={() => insert("/")} className={MENU_ITEM}>
-                    <Terminal size={14} />
-                    命令
-                  </button>
+                  {editing === undefined ? (
+                    <button type="button" role="menuitem" onClick={() => insert("/")} className={MENU_ITEM}>
+                      <Terminal size={14} />
+                      命令
+                    </button>
+                  ) : null}
                 </div>
               ) : null}
             </div>
             <div className="flex items-center gap-2">
               {picker}
-              {running ? (
+              {editing === undefined ? null : (
+                <button
+                  type="button"
+                  onClick={editing.onCancel}
+                  className="text-[length:var(--fs-sm)] text-[var(--text-2)]"
+                >
+                  取消编辑
+                </button>
+              )}
+              {running && editing === undefined ? (
                 <button
                   type="button"
                   aria-label={stopping ? "停止中" : "停止"}
@@ -922,17 +969,21 @@ export function Composer({
               ) : (
                 <button
                   type="button"
-                  aria-label="发送"
-                  disabled={empty || stopping || uploading || held}
+                  aria-label={editing === undefined ? "发送" : "重新发送"}
+                  disabled={empty || stopping || uploading || held || editing?.blocked || editing?.busy}
                   onClick={() => send(false)}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] enabled:cursor-pointer disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]"
+                  className={`flex h-8 ${editing === undefined ? "w-8" : "px-2"} shrink-0 items-center justify-center rounded-full bg-[var(--text)] text-[var(--main)] enabled:cursor-pointer disabled:bg-[var(--surface-3)] disabled:text-[var(--text-dim)]`}
                 >
-                  <ArrowUp size={16} weight="bold" />
+                  {editing === undefined ? (
+                    <ArrowUp size={16} weight="bold" />
+                  ) : (
+                    <span className="whitespace-nowrap px-2 text-[length:var(--fs-sm)]">重新发送</span>
+                  )}
                 </button>
               )}
             </div>
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

@@ -34,6 +34,7 @@ function drivenPi() {
     },
     respond: () => undefined,
     getEntries: async () => empty,
+    readPersistedEntries: async () => empty,
     model: async () => null,
     setModel: async () => undefined,
     setThinkingLevel: async () => undefined,

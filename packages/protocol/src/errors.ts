@@ -18,8 +18,12 @@ export const ErrorCode = z.enum([
   "pi_unavailable",
   /** pi is running or compacting and takes no new message now. */
   "session_busy",
-  /** `fetch_transcript` or `fetch_step` named an epoch that has passed; the client subscribes again for a snapshot. */
+  /** The transcript epoch or the last turn changed; the client needs the current snapshot. */
   "transcript_changed",
+  /** The last turn is not a stopped ordinary user message that can be edited. */
+  "turn_not_editable",
+  /** The stopped-message rollback or replacement failed, or no new run started. */
+  "edit_failed",
   /** The session to open recorded a working directory that no longer exists; `params.cwd` names it. */
   "session_cwd_missing",
   /** The `projectId` names no registered project. */

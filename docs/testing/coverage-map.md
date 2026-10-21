@@ -45,6 +45,31 @@
 | 图标：统一从 `design/icons.tsx` 取 Hugeicons，线宽 1.75，加粗的按各自的宽度（勾 2.25，更多、上箭头 2.5），实心的填色并保留轮廓，不给尺寸时跟随文字；Meta 标借 Tabler 的形状；侧栏领先数和已合并用图标不用字符（2026-10-12） | `packages/ui/src/design/icons.browser.test.tsx`、`app/workbench.browser.test.tsx` "lists a project's workspaces" | 已覆盖 |
 | 连接状态的全部文案，包括启动中、桥接失败；连上后只留给读屏、不占位置，没连上时主窗口底部一行（2026-10-12） | `packages/ui/src/app/connection-status.browser.test.tsx`、`workbench.browser.test.tsx` "connection line" | 已覆盖 |
 
+## 已停止消息的编辑重发（M1.11 自用，2026-10-20）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 协议 22 的 epoch / turn 身份、正文和附件限额、纯图片、started-only 结果与错误码；客户端不乐观追加旧分支 | `packages/protocol/src/edit-stopped-message.test.ts`、`envelope.test.ts`；`packages/client/src/atrium-client.test.ts` 的 stopped edit 用例 | 已覆盖 |
+| 同会话无摘要导航，user 即 leaf 和 null parent、aborted 助手尾条目、旧上下文排除、保留图片与纯图片、恢复及重启持久化 | `packages/pi/src/contract/edit.pi.test.ts` 的 `edit-aborted`、`edit-root-restore`、`edit-image-only`；五份本次 pi 1.3.0 夹具 | 已覆盖 |
+| 导航取消 / 异常仍可能 handled，必须查 leaf；只允许最新操作恢复且不能覆盖新消息，元数据与模型消息路径分开；隐藏命令 id-only 编码与目录隐藏 | `packages/pi/src/edit/{edit,extension}.test.ts`、`catalog/commands.test.ts`；契约 `edit-cancel`、`edit-navigation-error` | 已覆盖 |
+| 最后一轮及 stopped / 本人普通消息门禁、epoch 冲突、并发编辑和其他写入互斥、图片穿透、停止队列保留、操作中退出不自动续做 | `packages/host/src/sessions/session-controller.test.ts` 的 “editing the last stopped user message”；`packages/host/src/edit-stopped.host.test.ts` 的真实宿主与客户端场景 | 已覆盖 |
+| 已读真实 leaf 才提交；提交拒绝 / handled 恢复旧分支；响应丢失不重复已落盘新 user；磁盘与内存条目不一致则停 pi，不能追加到仅内存的父条目 | `packages/host/src/sessions/stopped-edit.test.ts`；`session-manager.test.ts` “stops pi when an edit anchor exists only in memory…” | 已覆盖 |
+| 缺 Atrium 扩展不把隐藏命令发给模型；上传附件随编辑路由、reserved / slash 拒绝，旧请求与已完成轮拒绝且模型请求数不增加 | `server/router.test.ts` 的 stopped edit；`edit-stopped.host.test.ts` 三个真实宿主场景（含未传 fastExtension） | 已覆盖 |
+| A 底部独立编辑草稿、原气泡不动、取消和成功恢复下一条草稿、提交锁定、失败 / 冲突保留文字、图片完整恢复与失败重试、纯图片、StrictMode 与过期结果保护 | `packages/ui/src/chat/chat.browser.test.tsx` 的 stopped message editor；输入框、消息和轮相关 browser 测试 | 已覆盖 |
+| client/session 独立编辑状态，切换及在途请求结果保留，旧回调不删新草稿，归档 / 移除回收 store；私有 edit 草稿仅页面内保留、不留下孤立 localStorage 正文，普通草稿仍可重启恢复 | `packages/ui/src/state/stopped-edits.test.ts` 7 项；`drafts.test.ts` 的 private stopped-edit 用例；`chat.browser.test.tsx` 的切换、附件过期重传及 StrictMode 回归 | 已覆盖 |
+| 编辑、取消、失败重试、同一会话 / 标签 / 文件，磁盘旧分支保留、模型上下文不含误发消息、应用重启后恢复新分支 | `apps/desktop/e2e/edit-stopped-message.spec.ts`，真实 Electron + faux，已连续三次通过 | 已覆盖 |
+| 原控制器的定时器 / 监听 / 异步上下文不因新操作回归 | `packages/host/src/sessions/session-controller.leak.test.ts`，200 次操作与异步上下文回收两项通过 | 已覆盖（既有泄漏场景；不声称新增编辑分支的专项 GC 浸泡） |
+
+破坏检查：协议 / 客户端 7/7、宿主 9/9、pi 11/11 均实际 `CAUGHT`。宿主首轮 epoch guard 的负对照曾 `MISSED`：后置重复校验仍拒绝请求，但已错误暂停队列；补断言控制状态不改变后检出，未把重复校验当成“无意义防御”。UI 的初始 5 项、切换保留 4 项、附件过期重传 4 项、私有草稿不留孤立存储 1 项破坏检查已检出。宿主事务补测的 21 个定向破坏检查、标题 / 改名互斥与闲置 pi 重启的 3 个检查也均检出。
+
+最终验证：`pnpm check` 与构建通过；单元和宿主 183 文件 / 3199 项通过（`--maxWorkers=2`）；UI 40 文件 / 835 项串行通过；新增真实 pi 契约 5 项不带录制开关复跑通过；控制器泄漏 2 项通过；编辑重发、运行控制与历史的 Electron e2e 共 6 项通过。检查过真实 Electron 的浅 / 暗编辑与失败截图。首轮高并发单元有 4 个既有文件系统 / git 超时，相关 45 项单独复跑通过；一次全量出现未改动的 pi-config 排队保存用例 `config_conflict`，单文件 44 项通过，最终限并发全套通过，根因未在本任务中定位。UI 并行时也复现了既有 changes-pane 动画用例不稳，单文件 13 项通过，最终串行全套通过。没有删测试、放宽超时或断言；不把这些首次失败算成绿灯。
+
+聚焦变异：协议 / 客户端新增路径 100%（14/14）；宿主本次改动行与新事务 91.93%（319 检出、28 存活，无超时；控制器 93.60%、会话管理器 80.56%、事务 92.54%、路由 100%）；pi edit 两文件 96.65%（169 检出、4 个循环保护被删后的真实死循环超时、6 等价存活）；UI 草稿与编辑状态两文件 97.98%（243 检出、5 存活）。宿主使用保留源代码别名的 Node mutation 配置，聚焦运行控制器、事务、管理器、路由与真实宿主编辑场景，不声称跑过全库全量变异。宿主首轮 71.43% 未过，补多节点恢复、输入种类、过期读、互斥、落盘失败和重启边界后才达到上述结果。
+
+存活项不作笼统等价豁免：pi 六项为有效树上已有的可选链 / 重复路径保护，原因在源码注明；UI 一个是 `target` 非空已蕴含 store 存在（源码有说明），另四个在本次未修改的旧命令草稿分支。宿主事务的内部阶段错误文字被最终 `edit_failed` 归一化、目标校验的可选链和 attempted/before 重复条件等不改变外部结果；仍保留并登记的覆盖缺口包括状态栏指标在编辑路径上的独立敏感性、首次扫描尚未登记时 sessionFile 与 catalog 读取来源的隔离验证，以及提交完成后立即释放代理送达的专门破坏检查。保留实现中的保护，不声称每个存活均已证明等价。
+
+全量 `test:pi` 不是通过：本机为 1.3.0，36 个旧场景仍缺该版本夹具（本次实跑 41 通过 / 36 失败，后续只定向复跑新增五项）。本次仅新增五份编辑夹具，没有顺带升级旧夹具；待独立处理版本迁移。
+
 ## pi 普通配置编辑（M1.11 自用）
 
 | 行为 | 测试 | 状态 |

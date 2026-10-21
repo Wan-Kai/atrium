@@ -11,6 +11,8 @@ import { pageNotices, showNotice } from "../state/session-notices";
 import { pageNewChild } from "../children/new-child";
 import { caughtDownloads } from "../test/downloads";
 import { PROJECT, chat, fakeClient, session, workspace } from "../test/fake-client";
+import { stoppedEditStore } from "../state/stopped-edits";
+import { pageDrafts } from "../state/use-draft";
 import { ConnectionStatus } from "./connection-status";
 import { Workbench } from "./workbench";
 
@@ -2376,6 +2378,29 @@ function kept(): string[] {
 }
 
 describe("Workbench drafts", () => {
+  it("cleans stopped-message edit contexts alongside removed and archived session drafts", async () => {
+    localStorage.clear();
+    onTestFinished(() => localStorage.clear());
+    const { client, index } = await workbench();
+    for (const id of ["s1", "s2"]) {
+      pageDrafts().update(`edit:${id}`, () => ({ text: "修订草稿", images: [], pastes: [], files: [], command: null }));
+      stoppedEditStore(client, id).setState({
+        target: { epoch: 1, turnId: "turn", draftKey: `edit:${id}`, images: [], savedDraft: false },
+      });
+    }
+    index.setState({
+      seq: 2,
+      sessions: index
+        .getState()
+        .sessions.filter((one) => one.sessionId !== "s1")
+        .map((one) => ({ ...one, archived: one.sessionId === "s2" })),
+    });
+    await vi.waitFor(() => expect(stoppedEditStore(client, "s1").getState().target).toBeNull());
+    expect(stoppedEditStore(client, "s2").getState().target).toBeNull();
+    expect(pageDrafts().read("edit:s1").text).toBe("");
+    expect(pageDrafts().read("edit:s2").text).toBe("");
+  });
+
   it("drops the drafts of archived sessions, and of sessions gone from the list while it runs", async () => {
     localStorage.clear();
     onTestFinished(() => localStorage.clear());

@@ -1,6 +1,7 @@
 import { SLASH_COMMAND_LIMITS, type SlashCommand } from "@atrium/protocol";
 import { AGENT_COMMAND } from "../agent/agent";
 import { FAST_COMMAND } from "../fast/fast";
+import { EDIT_COMMAND } from "../edit/edit";
 import { isPlanQuery } from "../plan/plan";
 import type { PiResponseData } from "../process/pi-process";
 
@@ -24,7 +25,7 @@ type PiSlashCommand = PiResponseData<"get_commands">["commands"][number];
  */
 export function toSlashCommand(command: PiSlashCommand): SlashCommand | null {
   if (command.name.length > SLASH_COMMAND_LIMITS.name) return null;
-  if (isFastSwitch(command) || isPlanQuery(command) || isAgentCommand(command)) return null;
+  if (isFastSwitch(command) || isPlanQuery(command) || isAgentCommand(command) || isEditCommand(command)) return null;
   const description = (command.description ?? "").slice(0, SLASH_COMMAND_LIMITS.description);
   return { name: command.name, description: description === "" ? null : description, source: command.source };
 }
@@ -57,4 +58,15 @@ export function isFastSwitch(command: Pick<PiSlashCommand, "name" | "source">): 
  */
 export function isAgentCommand(command: Pick<PiSlashCommand, "name" | "source">): boolean {
   return command.name === AGENT_COMMAND && command.source === "extension";
+}
+
+/**
+ * Identifies the host's stopped-message editing command registered by its extension.
+ * @remarks A template of this name cannot safely navigate the session tree.
+ * @sideEffects none
+ * @param command - A command from pi's catalog.
+ * @returns Whether it is the editing extension command.
+ */
+export function isEditCommand(command: Pick<PiSlashCommand, "name" | "source">): boolean {
+  return command.name === EDIT_COMMAND && command.source === "extension";
 }

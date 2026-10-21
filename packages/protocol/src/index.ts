@@ -15,6 +15,7 @@ export {
   OpenSessionCommand,
   PingCommand,
   PromptCommand,
+  EditStoppedMessageCommand,
   ReportClientIssueCommand,
   RequestId,
   SubscribeSessionsCommand,

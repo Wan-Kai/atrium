@@ -229,14 +229,19 @@ export function createDrafts(storage: DraftStorage): Drafts {
    * Keeps a draft in memory and in storage.
    *
    * @remarks
-   * An empty text, no capsules and no tag leave nothing stored.
+   * An empty text, no capsules and no tag leave nothing stored. Private `edit:` drafts stay
+   * in this page only: their transcript target is page-local too, so persisting them would leave
+   * orphaned plaintext keys after a restart.
    *
    * @sideEffects Writes storage; updates memory.
    * @param key - The draft's key.
    * @param draft - The draft.
    */
   const keep = (key: string, draft: Draft): void => {
-    if (draft.text === "" && draft.pastes.length === 0 && draft.files.length === 0 && draft.command === null) {
+    if (
+      key.startsWith("edit:") ||
+      (draft.text === "" && draft.pastes.length === 0 && draft.files.length === 0 && draft.command === null)
+    ) {
       unstore(key);
       entries.set(key, { draft, stored: null, unsaved: false });
       return;

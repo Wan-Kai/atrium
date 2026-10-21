@@ -17,6 +17,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, vi } from "vitest";
 import type { PiDeps } from "../src/deps";
+import { editNormalizer } from "./edit-normalizer";
 import { findPi, readVersion } from "../src/locate/locate";
 import { type PiEvent, type PiProcess, startPiProcess } from "../src/process/pi-process";
 
@@ -143,21 +144,23 @@ export async function runScenario(
     const piPath = present(await findPi(path), "pi on PATH");
     const version = present(await readVersion(piPath, { env: process.env }), "pi version").join(".");
     const sessionsDir = join(cwd, "sessions");
-    await mkdir(sessionsDir);
+    await mkdir(sessionsDir, { recursive: true });
     const sessionArgs = options.session === true ? ["--session-dir", sessionsDir] : ["--no-session"];
     const extension = present(launch.args[1], "faux extension path");
-    const normalize = createNormalizer({
-      [sessionsDir]: "<sessions>",
-      [join(cwd, "pi-agent")]: "<agent>",
-      [cwd]: "<cwd>",
-      [dir.path]: "<cwd>",
-      [dirname(extension)]: "<faux>",
-      ...Object.fromEntries((options.extensions ?? []).map((atrium) => [dirname(atrium), "<atrium>"])),
-      // Values given for this run, such as a local server's address, go by their variable's name.
-      ...Object.fromEntries(Object.entries(options.env ?? {}).map(([name, value]) => [value, `<${name}>`])),
-      // The system prompt names pi's own install paths, which sit under the real home directory.
-      [homedir()]: "<home>",
-    });
+    const normalize = editNormalizer(
+      createNormalizer({
+        [sessionsDir]: "<sessions>",
+        [join(cwd, "pi-agent")]: "<agent>",
+        [cwd]: "<cwd>",
+        [dir.path]: "<cwd>",
+        [dirname(extension)]: "<faux>",
+        ...Object.fromEntries((options.extensions ?? []).map((atrium) => [dirname(atrium), "<atrium>"])),
+        // Values given for this run, such as a local server's address, go by their variable's name.
+        ...Object.fromEntries(Object.entries(options.env ?? {}).map(([name, value]) => [value, `<${name}>`])),
+        // The system prompt names pi's own install paths, which sit under the real home directory.
+        [homedir()]: "<home>",
+      }),
+    );
     const recorder = createRecorder(
       {
         scenario: options.scenario,
