@@ -9,7 +9,7 @@ import {
   type CallOp,
   type CallResults,
   Delivery,
-  type MessageDetails,
+  MessageDetails,
   type NoteOp,
   READ_LIMITS,
   TEXT_LIMITS,
@@ -81,7 +81,7 @@ export interface AgentApi {
     name: string,
     options: {
       readonly description: string;
-      readonly handler: (args: string, ctx: { readonly ui: StatusLine }) => Promise<void>;
+      readonly handler: (args: string, ctx: { readonly ui: StatusLine; isIdle(): boolean }) => Promise<void>;
     },
   ): void;
   sendMessage(
@@ -103,7 +103,16 @@ export interface AgentApi {
       ctx: AgentContext,
     ) => { block: true; reason: string } | undefined,
   ): unknown;
+  on(
+    event: "turn_end",
+    handler: (event: { readonly message: unknown }, ctx: { readonly signal: AbortSignal | undefined }) => void,
+  ): unknown;
+  on(event: "agent_end", handler: (event: { readonly messages: readonly unknown[] }) => void): unknown;
+  on(event: "message_start", handler: (event: { readonly message: unknown }) => void): unknown;
 }
+
+/** How many delivery ids the extension remembers handing pi, so one sent again goes once. */
+const HANDED_KEPT = 256;
 
 /** What the extension needs besides pi: timers, and how to cut a branch, which tests replace. */
 export interface AgentDeps {
@@ -174,17 +183,6 @@ function textParam(description: string, limit: number): Record<string, unknown> 
 /** The `to` parameter. */
 const TO = { type: "string", minLength: 1, description: 'The sub-agent: its name (handle), or "id:<session id>".' };
 
-/** The `wait` and `waitSeconds` parameters. */
-const WAIT = {
-  wait: { type: "boolean", description: "Wait for this task's result before returning. Default false." },
-  waitSeconds: {
-    type: "integer",
-    minimum: 30,
-    maximum: 3600,
-    description: "With wait, how long to wait at most; the sub-agent goes on after. Default 600.",
-  },
-};
-
 /**
  * A JSON Schema object of the given properties.
  *
@@ -202,13 +200,13 @@ function object(properties: Record<string, unknown>, required: readonly string[]
 
 /** What all main-agent tools' descriptions end with (SPEC-0002, "工具说明写明"). */
 const PARENT_RULES =
-  "Sub-agents' replies are not shown to the user: tell them what matters. Do not poll, and do not make up results that have not come back. Let only one sub-agent write in a directory at a time.";
+  "Sub-agents' replies are not shown to the user: tell them what matters. Do not poll: with nothing else to do, end your turn, and a notice will wake you. Do not make up results that have not come back. Let only one sub-agent write in a directory at a time.";
 
 /** The main agent's tools: description and parameters (SPEC-0002, "主 agent 用的工具"). */
 const PARENT_TOOL_SPECS: Readonly<Record<(typeof PARENT_TOOLS)[number], Omit<AgentTool, "execute" | "name">>> = {
   agent_spawn: {
     label: "Start sub-agent",
-    description: `Start a sub-agent: a child conversation that works on a task in parallel and reports back. Good for independent research that can run in parallel, a review by another model, or changes whose files do not overlap; do simple lookups yourself. By default it runs in the background and you get a notice when it finishes. ${PARENT_RULES}`,
+    description: `Start a sub-agent: a child conversation that works on a task in parallel and reports back. Good for independent research that can run in parallel, a review by another model, or changes whose files do not overlap; do simple lookups yourself. It runs in the background, and you get a notice when it finishes. ${PARENT_RULES}`,
     promptSnippet: "Start a sub-agent on a task in the background",
     parameters: object(
       {
@@ -241,34 +239,14 @@ const PARENT_TOOL_SPECS: Readonly<Record<(typeof PARENT_TOOLS)[number], Omit<Age
           enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
           description: "Thinking level; default yours, adjusted to what the model supports.",
         },
-        ...WAIT,
       },
       ["name", "task"],
     ),
   },
   agent_send: {
     label: "Message sub-agent",
-    description: `Give one of your sub-agents its next task. It goes on with its whole conversation; if it is running, the task waits for its current run to end. ${PARENT_RULES}`,
-    parameters: object({ to: TO, message: textParam("The task.", TEXT_LIMITS.message), ...WAIT }, ["to", "message"]),
-  },
-  agent_wait: {
-    label: "Wait for sub-agents",
-    description:
-      "Wait for your sub-agents' tasks. Use it only when you started several and need all their results to go on; otherwise end your turn and wait for notices. Returns early when the user sends a message or a sub-agent asks you a question.",
-    parameters: object({
-      tasks: {
-        type: "array",
-        items: { type: "string" },
-        description:
-          "Task ids to wait for; default all of yours that have not ended, and those whose result has not reached you yet. Pass the ids agent_spawn returned.",
-      },
-      until: {
-        type: "string",
-        enum: ["any", "all"],
-        description: "any (default): the first event; all: every task ended.",
-      },
-      waitSeconds: WAIT.waitSeconds,
-    }),
+    description: `Message one of your sub-agents. While it works on a task you gave it, the message goes into that task once its current tool calls finish; otherwise it starts its next task, with its whole conversation. While it waits for your answer to a question, answer with agent_reply instead. ${PARENT_RULES}`,
+    parameters: object({ to: TO, message: textParam("The task.", TEXT_LIMITS.message) }, ["to", "message"]),
   },
   agent_reply: {
     label: "Answer sub-agent",
@@ -325,7 +303,6 @@ const PARENT_TOOL_SPECS: Readonly<Record<(typeof PARENT_TOOLS)[number], Omit<Age
 const PARENT_OPS: Readonly<Record<(typeof PARENT_TOOLS)[number], CallOp>> = {
   agent_spawn: "spawn",
   agent_send: "send",
-  agent_wait: "wait",
   agent_reply: "reply",
   agent_list: "list",
   agent_read: "read",
@@ -601,8 +578,8 @@ interface Question {
  * flag says, and keeps a forked child from redoing its parent's unanswered calls. Anything the
  * extension cannot read does nothing.
  *
- * @sideEffects Registers ten tools, a command, a flag and a hook with pi; the tools ask the host
- * and the command writes custom messages into the session.
+ * @sideEffects Registers nine tools, a command, a flag and four hooks with pi; the tools ask the
+ * host and the command writes custom messages into the session.
  * @param pi - pi's extension API.
  * @param deps - Timers and branching; tests alone pass other ones.
  */
@@ -927,7 +904,7 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
     name: "ask_parent",
     label: "Ask parent agent",
     description:
-      "Ask the agent that started you a question and wait for its answer, instead of guessing. If it does not answer in time, go on with your own judgment and say what you assumed in your final reply.",
+      "Ask the agent that started you a question and wait for its answer, instead of guessing. If no answer comes, do not guess: stop the work that needs it and end the task saying what you need decided.",
     parameters: object(
       {
         question: textParam("The question.", TEXT_LIMITS.question),
@@ -1025,6 +1002,15 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
     note(asked.answer === null ? "closed" : "answered", { id: cancel.id });
   };
 
+  /** What the host delivered while pi ran, held for the turn's end (SPEC-0002, "送达"). */
+  // Stryker disable next-line ArrayDeclaration: something held that is no delivery is never written, nor taken for a delivery's id.
+  let held: Delivery[] = [];
+  /** The delivery ids handed to pi lately, oldest first: in pi's queue, or gone into the context. */
+  // Stryker disable next-line ArrayDeclaration: an id the host never gives matches no delivery.
+  let handed: string[] = [];
+  /** Of those, the ones whose message went into the context. */
+  const inContext = new Set<string>();
+
   /**
    * Writes notices or a task into the session, starting a run or steering the one in progress.
    *
@@ -1033,12 +1019,9 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
    * delivery ids the host confirms by, and what the transcript shows.
    *
    * @sideEffects Writes a custom message.
-   * @param value - The command's argument.
+   * @param delivery - The delivery.
    */
-  const deliver = (value: unknown): void => {
-    const parsed = Delivery.safeParse(value);
-    if (!parsed.success) return;
-    const delivery = parsed.data;
+  const write = (delivery: Delivery): void => {
     const details: MessageDetails =
       delivery.kind === "report"
         ? {
@@ -1055,6 +1038,7 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
             fromTitle: delivery.fromTitle,
             taskId: delivery.taskId,
             text: delivery.text,
+            ...(delivery.steer === true ? { steer: true as const } : {}),
           };
     pi.sendMessage(
       {
@@ -1067,6 +1051,111 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
     );
   };
 
+  /**
+   * Hands pi what is held: the notices as one message, then the words for each task in hand as one,
+   * then each new task.
+   *
+   * @remarks
+   * SPEC-0002, "送达": pi takes one steer a turn boundary, so what came meanwhile goes together;
+   * the notices first. A new task is never folded into words for another. Into an idle pi the
+   * first starts a run.
+   *
+   * @sideEffects Writes custom messages; empties what is held.
+   */
+  const flush = (): void => {
+    const reports = held.filter((one) => one.kind === "report");
+    const groups = new Map<string, Extract<Delivery, { kind: "task" }>[]>();
+    for (const one of held) {
+      if (one.kind !== "task") continue;
+      // Stryker disable next-line ConditionalExpression,StringLiteral: a new task's id is new, so no words share it, and the host hands pi no two new tasks at once.
+      const key = one.steer === true ? `words ${one.taskId}` : `task ${one.deliveries.join(" ")}`;
+      groups.set(key, [...(groups.get(key) ?? []), one]);
+    }
+    // Stryker disable next-line ArrayDeclaration: something held that is no delivery is never written, nor taken for a delivery's id.
+    held = [];
+    const [report] = reports;
+    if (report !== undefined)
+      write({
+        ...report,
+        deliveries: reports.flatMap((one) => one.deliveries),
+        events: reports.flatMap((one) => one.events),
+        progress: reports.flatMap((one) => one.progress),
+      });
+    for (const [task, ...more] of groups.values()) {
+      // Stryker disable next-line ConditionalExpression: a group has at least the task that opened it.
+      if (task === undefined) continue;
+      write({
+        ...task,
+        deliveries: [task, ...more].flatMap((one) => one.deliveries),
+        text: [task, ...more].map((one) => one.text).join("\n\n"),
+      });
+    }
+    handed.push(
+      ...reports.flatMap((one) => one.deliveries),
+      ...[...groups.values()].flat().flatMap((one) => one.deliveries),
+    );
+    // Stryker disable next-line CallExpression: only keeps the set small; an id gone from `handed` is never looked up in it.
+    for (const id of handed.splice(0, Math.max(0, handed.length - HANDED_KEPT))) inContext.delete(id);
+  };
+
+  /**
+   * Forgets what a stopped run had: what is held, and what pi's queue had that the stop cleared.
+   *
+   * @remarks
+   * SPEC-0002, "送达": the host clears pi's queue as it stops a session and still has those
+   * deliveries waiting, so they are taken again when it sends them again.
+   *
+   * @sideEffects Empties what is held; forgets what did not go into the context.
+   */
+  const forgetStopped = (): void => {
+    // Stryker disable next-line ArrayDeclaration: see `held`.
+    held = [];
+    handed = handed.filter((id) => inContext.has(id));
+  };
+
+  /**
+   * Takes a delivery from the host: written at once into an idle pi, held while it runs.
+   *
+   * @remarks
+   * SPEC-0002, "送达": what is held goes at the turn's end, and all of it once pi is idle. One the
+   * host sends again whole after pi had it goes no second time; one it sends again takes the place
+   * of what is held of it, so no event goes twice.
+   *
+   * @sideEffects May write custom messages; holds the delivery.
+   * @param value - The command's argument.
+   * @param idle - Whether pi has no run going.
+   */
+  const deliver = (value: unknown, idle: boolean): void => {
+    const parsed = Delivery.safeParse(value);
+    if (!parsed.success) return;
+    const delivery = parsed.data;
+    if (!delivery.deliveries.every((id) => handed.includes(id))) {
+      held = [...held.filter((one) => !one.deliveries.some((id) => delivery.deliveries.includes(id))), delivery];
+    }
+    if (idle) flush();
+  };
+
+  pi.on("turn_end", (event, ctx) => {
+    // A stopped run takes nothing more, even when its tools' batch ended well (SPEC-0002, "送达").
+    if (ctx.signal?.aborted === true || Reflect.get(Object(event.message), "stopReason") === "aborted") forgetStopped();
+    else flush();
+  });
+
+  pi.on("agent_end", (event) => {
+    // What came after the last turn's end goes now: pi starts the run again for it (pi-internals.md §2).
+    if (event.messages.some((message) => Reflect.get(Object(message), "stopReason") === "aborted")) forgetStopped();
+    // With nothing held, `flush` writes nothing.
+    else flush();
+  });
+
+  pi.on("message_start", (event) => {
+    const message: unknown = event.message;
+    if (Reflect.get(Object(message), "customType") !== AGENT_MESSAGE) return;
+    const read = MessageDetails.safeParse(Reflect.get(Object(message), "details"));
+    // Stryker disable next-line ConditionalExpression: only the extension writes these messages, with details it made.
+    if (read.success) for (const id of read.data.deliveries) inContext.add(id);
+  });
+
   pi.registerCommand(AGENT_COMMAND, {
     description: "Atrium's child conversations, sent by Atrium's host",
     handler: (args, ctx) => {
@@ -1077,7 +1166,7 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
       if (action === "note") noted(value);
       else if (action === "reply") replied(value);
       else if (action === "cancel") cancelled(value);
-      else if (action === "deliver") deliver(value);
+      else if (action === "deliver") deliver(value, ctx.isIdle());
       return Promise.resolve();
     },
   });

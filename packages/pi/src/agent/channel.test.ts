@@ -6,6 +6,7 @@ import {
   ENVELOPE_LIMIT,
   FINAL_EVENTS,
   HANDLE,
+  MessageDetails,
   ReportDetail,
   TEXT_LIMITS,
   readCancel,
@@ -31,6 +32,7 @@ const CODES = [
   "agent_thinking_invalid",
   "agent_context_unavailable",
   "agent_question_closed",
+  "agent_question_open",
   "agent_text_too_long",
   "agent_bad_request",
   "agent_failed",
@@ -77,13 +79,10 @@ describe("readRequest", () => {
       place: "worktree",
       model: "openai/gpt-6",
       thinking: "xhigh",
-      wait: true,
-      waitSeconds: 3600,
       branch: "/tmp/b.jsonl",
     };
     for (const [op, args] of [
       ["spawn", spawn],
-      ["wait", { tasks: ["t-1"], until: "all", waitSeconds: 30 }],
       ["reply", { to: "id:s-1", questionId: "q", answer: "a".repeat(TEXT_LIMITS.answer) }],
       ["list", { includeEnded: true }],
       ["read", { to: "audit", taskId: "t-1", what: "reply", offset: 0, limit: 16_000 }],
@@ -119,11 +118,13 @@ describe("readRequest", () => {
       { ...call, args: { to: "" } },
       { ...call, args: { to: "a", extra: 1 } },
       { ...call, op: "spawn", args: { name: "a", task: "a".repeat(TEXT_LIMITS.task + 1) } },
-      { ...call, op: "spawn", args: { name: "a", task: "t", waitSeconds: 29 } },
+      { ...call, op: "spawn", args: { name: "a", task: "t", wait: true } },
+      { ...call, op: "send", args: { to: "a", message: "m", waitSeconds: 30 } },
       { ...call, op: "ask", args: { question: "q", options: ["1", "2", "3", "4", "5", "6", "7"] } },
       { ...call, op: "read", args: { to: "a", what: "steps", limit: 51 } },
       { ...call, op: "read", args: { to: "a", what: "reply", limit: 16_001 } },
       { ...call, op: "progress" },
+      { ...call, op: "wait", args: { tasks: ["t-1"], until: "all" } },
     ]) {
       expect(readRequest(JSON.stringify(bad))).toStrictEqual({ bad: "c", kind: "call" });
     }
@@ -226,13 +227,16 @@ describe("handles and events", () => {
       text: "go",
     };
 
+    const { v: _v, deliveries: _deliveries, ...rest } = task;
     expect([
       Delivery.safeParse(report).success,
       Delivery.safeParse({ ...report, deliveries: [] }).success,
       Delivery.safeParse(task).success,
+      Delivery.safeParse({ ...task, steer: true }).success,
+      MessageDetails.safeParse({ v: 1, deliveries: ["d1"], ...rest, steer: true }).success,
       AgentSelf.safeParse({ ...self, guard: "flags" }).success,
       AgentSelf.safeParse({ ...self, guard: "extension" }).success,
-    ]).toStrictEqual([true, false, true, true, true]);
+    ]).toStrictEqual([true, false, true, true, true, true, true]);
   });
 });
 

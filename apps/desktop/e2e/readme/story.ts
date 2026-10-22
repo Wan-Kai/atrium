@@ -161,9 +161,10 @@ it("marks the rain chance from 30%", () => {
 `;
 
 /**
- * The main agent's replies: it opens three children, waits, answers the audit's question, edits the
- * cache and sums up. The third waits for the `answer` gate, so the children list is captured while
- * the question is open.
+ * The main agent's replies: it opens three children in the background and reads on while they work;
+ * their notices come into its turn between its steps (SPEC-0002, "送达"). The gated replies keep the
+ * turn going until each notice is on its way: `main-look` until the audit asked, `answer` until the
+ * children list is captured while the question is open, `main-rest` until the hourly forecast is done.
  */
 export const MAIN: readonly ReadmeFauxReply[] = [
   {
@@ -181,7 +182,13 @@ export const MAIN: readonly ReadmeFauxReply[] = [
       }),
     ],
   },
-  { blocks: [think("三个都派出去了，等它们都有结果再一起看。"), call("wait-1", "agent_wait", { until: "all" })] },
+  {
+    blocks: [
+      think("三个都在后台跑，做完会通知我。等的时候先看看首页怎么用缓存。"),
+      call("read-home", "read", { path: "src/pages/home.tsx" }),
+    ],
+  },
+  { waitFor: "main-look", blocks: [call("read-cache", "read", { path: "src/cache.ts" })] },
   {
     waitFor: "answer",
     blocks: [
@@ -192,9 +199,15 @@ export const MAIN: readonly ReadmeFauxReply[] = [
       }),
     ],
   },
-  { blocks: [call("wait-2", "agent_wait", { until: "all" })] },
   {
-    blocks: [call("edit-cache", "edit", { path: "src/cache.ts", edits: [{ oldText: CACHE_OLD, newText: CACHE_NEW }] })],
+    waitFor: "main-rest",
+    blocks: [think("答复了缓存的有效期，再看看 api.ts 怎么调接口。"), call("read-api", "read", { path: "src/api.ts" })],
+  },
+  {
+    blocks: [
+      think("缓存的结论回来了：按 30 分钟的有效期改。"),
+      call("edit-cache", "edit", { path: "src/cache.ts", edits: [{ oldText: CACHE_OLD, newText: CACHE_NEW }] }),
+    ],
   },
   {
     blocks: [

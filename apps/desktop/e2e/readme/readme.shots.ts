@@ -145,12 +145,13 @@ test("readme screenshots", async () => {
     await box.fill(ASK);
     await box.press("Enter");
 
-    // The children list while one child asks and the others work.
+    // The children list while one child asks and the others work. The question goes first, so it
+    // is the notice the main agent's turn takes in once `main-look` lets it on.
     const sent = Date.now();
     await waitUntil(window, sent, 34);
-    release("review-done");
-    await waitUntil(window, sent, 41);
     release("audit-ask");
+    await waitUntil(window, sent, 41);
+    release("review-done");
     const capsule = window.getByRole("button", { name: /^子对话 3/ });
     await expect(capsule).toBeVisible({ timeout: 30_000 });
     await window.waitForTimeout(4000);
@@ -160,6 +161,7 @@ test("readme screenshots", async () => {
     await window.keyboard.press("Escape");
     await blur(window);
 
+    release("main-look");
     release("answer");
     await waitUntil(window, sent, 56);
     release("audit-done");
@@ -167,6 +169,9 @@ test("readme screenshots", async () => {
     release("hourly-go");
     await waitUntil(window, sent, 129);
     release("hourly-done");
+    // Both notices on their way before the main agent's turn goes on.
+    await waitUntil(window, sent, 137);
+    release("main-rest");
 
     // The finished turn with the right panel on the main workspace's changes, light and dark.
     await expect(window.getByTestId("reply").last()).toContainText("要不要我接着补上", {

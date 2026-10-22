@@ -2,7 +2,7 @@ import { createGitScene } from "@atrium/testkit";
 import { type Page, expect, test } from "@playwright/test";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fauxPiEnvironment } from "./faux-pi";
+import { type FauxPiEnvironment, fauxPiEnvironment } from "./faux-pi";
 import { launchApp } from "./launch";
 import { send } from "./messages";
 import { addProject } from "./projects";
@@ -174,6 +174,94 @@ test("the agent opens two children, one writing in a worktree of its own; both f
     await scene.cleanup();
   }
 });
+
+test("the agent's words for a child at work go into the task in hand at its next tool batch's end, not a task after it", async () => {
+  const pi = await fauxPiEnvironment({
+    replies: [
+      {
+        blocks: [
+          { type: "toolCall", id: "spawn-1", name: "agent_spawn", arguments: { name: "audit", task: "查一遍登录" } },
+        ],
+      },
+      {
+        waitFor: "send",
+        blocks: [
+          { type: "toolCall", id: "send-1", name: "agent_send", arguments: { to: "audit", message: "也看看 logout" } },
+        ],
+      },
+      { blocks: [{ type: "text", text: "补充过了" }] },
+      { blocks: [{ type: "text", text: "都做完了" }] },
+    ],
+    childReplies: [
+      {
+        waitFor: "child-go",
+        blocks: [{ type: "toolCall", id: "bash-1", name: "bash", arguments: { command: "true" } }],
+      },
+      { blocks: [{ type: "text", text: "查完了，也看了 logout" }] },
+    ],
+  });
+  const scene = await createGitScene("e2e-agent-words");
+  const repo = await realpath(scene.repo);
+  const launched = await launchApp(pi.env);
+  try {
+    const { window, app } = launched;
+    await addProject(app, window, repo);
+    await startSession(window, "查一下登录");
+    // The child is at work, its first reply held, when the agent's words go.
+    await expect.poll(() => childAsked(pi), { timeout: 30_000 }).toBe(true);
+    await pi.release("send");
+    await expect(window.getByTestId("reply").last()).toHaveText("补充过了", { timeout: 60_000 });
+    // The child's pi has the words, which its extension holds for the tool batch's end, before that batch runs.
+    await expect.poll(() => steeredIn(launched.readHostLog), { timeout: 30_000 }).toBe(true);
+    await pi.release("child-go");
+
+    await expect(window.getByTestId("reply").last()).toHaveText("都做完了", { timeout: 90_000 });
+    await expect(window.getByTestId("source-line").filter({ hasText: "来自子对话「audit」· 完成" })).toHaveCount(1);
+    const childRequests = (await pi.contexts())
+      .map((context) => JSON.stringify(context.messages))
+      .filter((messages) => messages.includes("<atrium-agent-task"));
+    expect(childRequests.map((body) => body.includes("也看看 logout"))).toStrictEqual([false, true]);
+    await window
+      .getByTestId("source-line")
+      .filter({ hasText: "「audit」" })
+      .getByRole("button", { name: "打开子对话「audit」" })
+      .click();
+    await expect(window.getByRole("tab")).toHaveText(["查一下登录", "audit"], { timeout: 30_000 });
+    await expect(window.getByTestId("reply")).toHaveText(["查完了，也看了 logout"], { timeout: 30_000 });
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+    await scene.cleanup();
+  }
+});
+
+/**
+ * Whether a child asked the model yet: one of the requests carries its task.
+ *
+ * @remarks
+ * Its first reply is held, so it is at work from then on.
+ *
+ * @sideEffects Reads the faux model's records.
+ * @param pi - The faux pi.
+ * @returns Whether it did.
+ */
+async function childAsked(pi: FauxPiEnvironment): Promise<boolean> {
+  return (await pi.contexts()).some((context) => JSON.stringify(context.messages).includes("<atrium-agent-task"));
+}
+
+/**
+ * Whether the host handed a pi deliveries into a run going, by its log.
+ *
+ * @remarks
+ * Once the command is answered, the extension holds them (SPEC-0002, "送达").
+ *
+ * @sideEffects Reads the host's log.
+ * @param readHostLog - Reads the host's log lines.
+ * @returns Whether it did.
+ */
+async function steeredIn(readHostLog: () => Promise<Record<string, unknown>[]>): Promise<boolean> {
+  return (await readHostLog()).some((line) => line["msg"] === "deliveries handed to pi" && line["opening"] === false);
+}
 
 /**
  * Opens the project's local workspace and sends a session its first message.

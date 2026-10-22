@@ -90,6 +90,12 @@ interface Stand {
   /** The session the tools and hook see. */
   readonly session: { file: string | undefined; leaf: string | null; branch: SessionEntryView[] };
   readonly run: (args: string) => Promise<void>;
+  /** Whether pi has a run going, as the command's `ctx.isIdle()` tells. */
+  readonly pi: { busy: boolean };
+  /** Calls the extension's handler of a pi event, with the run's signal. */
+  readonly emit: (event: "turn_end" | "agent_end", payload: unknown, signal?: AbortSignal) => void;
+  /** Tells the extension a message with these deliveries went into the context, as pi's `message_start`. */
+  readonly see: (deliveries: string[], customType?: string) => void;
   readonly hook: (toolName: string, input: unknown) => Verdict;
   readonly call: (tool: string, id: string, params: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
 }
@@ -122,9 +128,10 @@ function stand(options: { flag?: string; branch?: (dir: string) => string | unde
   let handler:
     | ((
         args: string,
-        ctx: { readonly ui: { setStatus(key: string, text: string | undefined): void } },
+        ctx: { readonly ui: { setStatus(key: string, text: string | undefined): void }; isIdle(): boolean },
       ) => Promise<void>)
     | null = null;
+  const pi = { busy: false };
   const hookOf = new Map<string, unknown>();
   const ui = { setStatus: (key: string, text: string | undefined) => statuses.push([key, text]) };
   const view: SessionView = {
@@ -173,7 +180,19 @@ function stand(options: { flag?: string; branch?: (dir: string) => string | unde
     timers,
     branches,
     session,
-    run: (args) => present(handler)(args, { ui }),
+    run: (args) => present(handler)(args, { ui, isIdle: () => !pi.busy }),
+    pi,
+    emit: (event, payload, signal) => {
+      (hookOf.get(event) as (payload: unknown, ctx: unknown) => void)(payload, { signal });
+    },
+    see: (deliveries, customType = "atrium-agent") => {
+      const custom = {
+        role: "custom",
+        customType,
+        details: { v: 1, kind: "report", deliveries, events: [] },
+      };
+      (hookOf.get("message_start") as (payload: unknown) => void)({ type: "message_start", message: custom });
+    },
     hook: (toolName, input) =>
       callHook(hookOf.get("tool_call"), [
         { toolName, toolCallId: "c", input },
@@ -267,7 +286,7 @@ const DECLARED: Record<string, unknown> = {
   agent_spawn: {
     label: "Start sub-agent",
     description:
-      "Start a sub-agent: a child conversation that works on a task in parallel and reports back. Good for independent research that can run in parallel, a review by another model, or changes whose files do not overlap; do simple lookups yourself. By default it runs in the background and you get a notice when it finishes. Sub-agents' replies are not shown to the user: tell them what matters. Do not poll, and do not make up results that have not come back. Let only one sub-agent write in a directory at a time.",
+      "Start a sub-agent: a child conversation that works on a task in parallel and reports back. Good for independent research that can run in parallel, a review by another model, or changes whose files do not overlap; do simple lookups yourself. It runs in the background, and you get a notice when it finishes. Sub-agents' replies are not shown to the user: tell them what matters. Do not poll: with nothing else to do, end your turn, and a notice will wake you. Do not make up results that have not come back. Let only one sub-agent write in a directory at a time.",
     promptSnippet: "Start a sub-agent on a task in the background",
     parameters: {
       type: "object",
@@ -308,16 +327,6 @@ const DECLARED: Record<string, unknown> = {
           enum: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
           description: "Thinking level; default yours, adjusted to what the model supports.",
         },
-        wait: {
-          type: "boolean",
-          description: "Wait for this task's result before returning. Default false.",
-        },
-        waitSeconds: {
-          type: "integer",
-          minimum: 30,
-          maximum: 3600,
-          description: "With wait, how long to wait at most; the sub-agent goes on after. Default 600.",
-        },
       },
       required: ["name", "task"],
       additionalProperties: false,
@@ -326,7 +335,7 @@ const DECLARED: Record<string, unknown> = {
   agent_send: {
     label: "Message sub-agent",
     description:
-      "Give one of your sub-agents its next task. It goes on with its whole conversation; if it is running, the task waits for its current run to end. Sub-agents' replies are not shown to the user: tell them what matters. Do not poll, and do not make up results that have not come back. Let only one sub-agent write in a directory at a time.",
+      "Message one of your sub-agents. While it works on a task you gave it, the message goes into that task once its current tool calls finish; otherwise it starts its next task, with its whole conversation. While it waits for your answer to a question, answer with agent_reply instead. Sub-agents' replies are not shown to the user: tell them what matters. Do not poll: with nothing else to do, end your turn, and a notice will wake you. Do not make up results that have not come back. Let only one sub-agent write in a directory at a time.",
     parameters: {
       type: "object",
       properties: {
@@ -340,49 +349,8 @@ const DECLARED: Record<string, unknown> = {
           minLength: 1,
           description: "The task. At most 32000 characters.",
         },
-        wait: {
-          type: "boolean",
-          description: "Wait for this task's result before returning. Default false.",
-        },
-        waitSeconds: {
-          type: "integer",
-          minimum: 30,
-          maximum: 3600,
-          description: "With wait, how long to wait at most; the sub-agent goes on after. Default 600.",
-        },
       },
       required: ["to", "message"],
-      additionalProperties: false,
-    },
-  },
-  agent_wait: {
-    label: "Wait for sub-agents",
-    description:
-      "Wait for your sub-agents' tasks. Use it only when you started several and need all their results to go on; otherwise end your turn and wait for notices. Returns early when the user sends a message or a sub-agent asks you a question.",
-    parameters: {
-      type: "object",
-      properties: {
-        tasks: {
-          type: "array",
-          items: {
-            type: "string",
-          },
-          description:
-            "Task ids to wait for; default all of yours that have not ended, and those whose result has not reached you yet. Pass the ids agent_spawn returned.",
-        },
-        until: {
-          type: "string",
-          enum: ["any", "all"],
-          description: "any (default): the first event; all: every task ended.",
-        },
-        waitSeconds: {
-          type: "integer",
-          minimum: 30,
-          maximum: 3600,
-          description: "With wait, how long to wait at most; the sub-agent goes on after. Default 600.",
-        },
-      },
-      required: [],
       additionalProperties: false,
     },
   },
@@ -509,7 +477,7 @@ const DECLARED: Record<string, unknown> = {
   ask_parent: {
     label: "Ask parent agent",
     description:
-      "Ask the agent that started you a question and wait for its answer, instead of guessing. If it does not answer in time, go on with your own judgment and say what you assumed in your final reply.",
+      "Ask the agent that started you a question and wait for its answer, instead of guessing. If no answer comes, do not guess: stop the work that needs it and end the task saying what you need decided.",
     parameters: {
       type: "object",
       properties: {
@@ -569,14 +537,13 @@ function sessionOf(manager: unknown): SessionView {
 }
 
 describe("Atrium's extension: child conversations", () => {
-  it("registers the ten tools, the command, the flag and the tool hook, and fits pi's extension API", () => {
+  it("registers the nine tools, the command, the flag and the tool hook, and fits pi's extension API", () => {
     const { tools, flags, hooks, commands } = stand();
 
     expectTypeOf<ExtensionAPI>().toExtend<AgentApi>();
     expect([...tools.keys()]).toStrictEqual([
       "agent_spawn",
       "agent_send",
-      "agent_wait",
       "agent_reply",
       "agent_list",
       "agent_read",
@@ -587,7 +554,7 @@ describe("Atrium's extension: child conversations", () => {
     ]);
     expect([flags, hooks, commands]).toStrictEqual([
       ["atrium-agent (string): Who this session is, set by Atrium's host"],
-      ["tool_call"],
+      ["tool_call", "turn_end", "agent_end", "message_start"],
       ["atrium-agent: Atrium's child conversations, sent by Atrium's host"],
     ]);
     expect(tools.get("agent_spawn")?.parameters).toMatchObject({
@@ -641,7 +608,7 @@ describe("Atrium's extension: child conversations", () => {
 describe("the main agent's tools", () => {
   it("ask the host with the tool call's id, and word its answer, with the answer as details", async () => {
     const { call, run, statuses } = stand();
-    const result = { to: "audit", sessionId: "s-1", taskId: "t-2", queued: false };
+    const result = { to: "audit", sessionId: "s-1", taskId: "t-2", queued: false, steered: false };
 
     const pending = call("agent_send", "call-1", { to: "audit", message: "go on" });
     await settled();
@@ -661,7 +628,6 @@ describe("the main agent's tools", () => {
     const { call, statuses } = stand();
     const ops = [
       ["agent_spawn", { name: "a", task: "t" }],
-      ["agent_wait", {}],
       ["agent_reply", { to: "a", questionId: "q", answer: "x" }],
       ["agent_list", {}],
       ["agent_read", { to: "a" }],
@@ -674,7 +640,6 @@ describe("the main agent's tools", () => {
 
     expect(requests(statuses).map((request) => request.op)).toStrictEqual([
       "spawn",
-      "wait",
       "reply",
       "list",
       "read",
@@ -745,11 +710,11 @@ describe("the main agent's tools", () => {
     const { call, run, statuses } = stand();
     const stop = new AbortController();
 
-    const pending = call("agent_wait", "call-1", {}, stop.signal);
+    const pending = call("agent_send", "call-1", { to: "audit", message: "go on" }, stop.signal);
     await settled();
     stop.abort();
     const result = await pending;
-    await run(answer("call-1", { events: [], timedOut: false, pending: [], progress: [] }));
+    await run(answer("call-1", { to: "audit", sessionId: "s-1", taskId: "t-2", queued: false, steered: false }));
 
     expect(result).toStrictEqual({
       content: [{ type: "text", text: "Stopped." }],
@@ -757,7 +722,7 @@ describe("the main agent's tools", () => {
       isError: true,
     });
     expect(requests(statuses)).toStrictEqual([
-      { kind: "call", id: "call-1", op: "wait", args: {} },
+      { kind: "call", id: "call-1", op: "send", args: { to: "audit", message: "go on" } },
       { kind: "note", id: "n1", op: "cancel", args: { id: "call-1" } },
     ]);
     expect(cleared(statuses)).toStrictEqual(["atrium-agent:call-1", "atrium-agent:n1"]);
@@ -769,7 +734,7 @@ describe("the main agent's tools", () => {
 
     const pending = call("agent_send", "call-1", { to: "audit", message: "go on" }, stop.signal);
     await settled();
-    await run(answer("call-1", { to: "audit", sessionId: "s-1", taskId: "t-2", queued: false }));
+    await run(answer("call-1", { to: "audit", sessionId: "s-1", taskId: "t-2", queued: false, steered: false }));
     await pending;
     const before = statuses.length;
     stop.abort();
@@ -1266,6 +1231,305 @@ describe("deliver", () => {
   });
 });
 
+/**
+ * A notice of one task, as the host delivers it.
+ *
+ * @remarks
+ * From `audit`; `progress` rides along.
+ *
+ * @sideEffects none
+ * @param id - The delivery's id.
+ * @param taskId - The task.
+ * @param progress - Progress to carry.
+ * @returns The delivery.
+ */
+function noticeOf(id: string, taskId: string, progress: string[] = []): Extract<Delivery, { kind: "report" }> {
+  return {
+    v: 1,
+    kind: "report",
+    deliveries: [id],
+    events: [{ name: "audit", title: "审查", sessionId: "s-1", taskId, event: "finished" }],
+    progress: progress.map((line) => ({ name: "audit", title: "审查", message: line })),
+  };
+}
+
+/**
+ * Words for the task in hand, as the host delivers them (SPEC-0002, `agent_send`).
+ *
+ * @remarks
+ * For task `t-1`, from `main`.
+ *
+ * @sideEffects none
+ * @param id - The delivery's id.
+ * @param text - The words.
+ * @returns The delivery.
+ */
+function wordsOf(id: string, text: string): Extract<Delivery, { kind: "task" }> {
+  return { v: 1, kind: "task", deliveries: [id], from: "main", fromTitle: "修复", taskId: "t-1", text, steer: true };
+}
+
+/**
+ * A turn's end as pi gives it.
+ *
+ * @remarks
+ * Only the last reply's stop reason matters to the extension.
+ *
+ * @sideEffects none
+ * @param stopReason - How the last reply stopped.
+ * @returns The event.
+ */
+function turnEnd(stopReason: string): unknown {
+  return { type: "turn_end", message: { role: "assistant", stopReason } };
+}
+
+describe("deliver, while pi runs", () => {
+  it("holds what comes, and hands pi the notices as one steer, then the words, at the turn's end", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-2", "also check login"))}`);
+    await run(`deliver ${encodeArgument(noticeOf("d-3", "t-2", ["half"]))}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-4", "and logout"))}`);
+    const held = [...sent];
+    emit("turn_end", turnEnd("toolUse"));
+    emit("turn_end", turnEnd("stop"));
+
+    const merged = {
+      ...noticeOf("d-1", "t-1"),
+      deliveries: ["d-1", "d-3"],
+      events: [...noticeOf("d-1", "t-1").events, ...noticeOf("d-3", "t-2").events],
+      progress: noticeOf("d-3", "t-2", ["half"]).progress,
+    };
+    const words = { ...wordsOf("d-2", "also check login\n\nand logout"), deliveries: ["d-2", "d-4"] };
+    expect(held).toStrictEqual([]);
+    expect(sent).toStrictEqual([
+      [
+        {
+          customType: "atrium-agent",
+          content: reportText(merged),
+          display: true,
+          details: { v: 1, kind: "report", deliveries: ["d-1", "d-3"], events: merged.events },
+        },
+        { triggerTurn: true, deliverAs: "steer" },
+      ],
+      [
+        {
+          customType: "atrium-agent",
+          content: taskText(words),
+          display: true,
+          details: {
+            v: 1,
+            kind: "task",
+            deliveries: ["d-2", "d-4"],
+            from: "main",
+            fromTitle: "修复",
+            taskId: "t-1",
+            text: "also check login\n\nand logout",
+            steer: true,
+          },
+        },
+        { triggerTurn: true, deliverAs: "steer" },
+      ],
+    ]);
+  });
+
+  it("hands pi what it holds with what comes once pi is idle, and each delivery once", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    pi.busy = false;
+
+    await run(`deliver ${encodeArgument(noticeOf("d-2", "t-2"))}`);
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-2", "t-2"))}`);
+    emit("turn_end", turnEnd("stop"));
+
+    expect(sent.map((one) => (one as [{ details: { deliveries: string[] } }])[0].details.deliveries)).toStrictEqual([
+      ["d-1", "d-2"],
+    ]);
+  });
+
+  it("hands pi each delivery once, held twice or handed before, and a batch with one not handed yet", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-2", "also login"))}`);
+    emit("turn_end", turnEnd("toolUse"));
+
+    await run(`deliver ${encodeArgument(wordsOf("d-2", "also login"))}`);
+    await run(`deliver ${encodeArgument({ ...noticeOf("d-1", "t-1"), deliveries: ["d-1", "d-3"] })}`);
+    emit("turn_end", turnEnd("stop"));
+
+    expect(sent.map((one) => (one as [{ details: { deliveries: string[] } }])[0].details.deliveries)).toStrictEqual([
+      ["d-1"],
+      ["d-2"],
+      ["d-1", "d-3"],
+    ]);
+  });
+
+  it("remembers the latest 256 deliveries handed, so an older one sent again goes again", async () => {
+    const { run, sent } = stand();
+    for (const n of Array.from({ length: 257 }, (_, at) => at)) {
+      await run(`deliver ${encodeArgument(noticeOf(`d-${String(n)}`, "t-1"))}`);
+    }
+
+    await run(`deliver ${encodeArgument(noticeOf("d-256", "t-1"))}`);
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    await run(`deliver ${encodeArgument(noticeOf("d-0", "t-1"))}`);
+
+    expect(
+      sent.slice(257).map((one) => (one as [{ details: { deliveries: string[] } }])[0].details.deliveries),
+    ).toStrictEqual([["d-0"]]);
+  });
+
+  it("hands pi what it holds as a run ends that was not stopped, for pi to go on with, and drops it at one that was", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    emit("agent_end", { type: "agent_end", messages: [{ role: "assistant", stopReason: "stop" }] });
+    await run(`deliver ${encodeArgument(noticeOf("d-2", "t-2"))}`);
+    emit("agent_end", {
+      type: "agent_end",
+      messages: [
+        { role: "assistant", stopReason: "toolUse" },
+        { role: "assistant", stopReason: "aborted" },
+      ],
+    });
+    emit("turn_end", turnEnd("stop"));
+
+    expect(handedIds(sent)).toStrictEqual([["d-1"]]);
+  });
+
+  it("hands pi, once idle, what it holds when the host sends the same deliveries again", async () => {
+    const { run, sent, pi } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    pi.busy = false;
+
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+
+    expect(handedIds(sent)).toStrictEqual([["d-1"]]);
+  });
+
+  it("takes a delivery sent again whole in place of what it holds of it, so no event goes twice", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    const both = {
+      ...noticeOf("d-1", "t-1"),
+      deliveries: ["d-1", "d-2"],
+      events: [...noticeOf("d-1", "t-1").events, ...noticeOf("d-2", "t-2").events],
+    };
+    await run(`deliver ${encodeArgument(both)}`);
+
+    emit("turn_end", turnEnd("toolUse"));
+
+    expect(sent).toStrictEqual([
+      [
+        {
+          customType: "atrium-agent",
+          content: reportText(both),
+          display: true,
+          details: { v: 1, kind: "report", deliveries: ["d-1", "d-2"], events: both.events },
+        },
+        { triggerTurn: true, deliverAs: "steer" },
+      ],
+    ]);
+  });
+
+  it("takes again what it handed pi that a stop cleared from pi's queue, and nothing that went in or is still queued", async () => {
+    const { run, sent, pi, emit, see } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-2", "also login"))}`);
+    emit("turn_end", turnEnd("toolUse"));
+    // pi takes one steer a boundary: the notices go in, the words wait in its queue.
+    see(["d-1"]);
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-2", "also login"))}`);
+    emit("turn_end", turnEnd("toolUse"));
+    const before = handedIds(sent);
+    // The host stops the run: clear_queue takes the words out of pi's queue, then the run ends aborted.
+    emit("turn_end", turnEnd("aborted"));
+    pi.busy = false;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-2", "also login"))}`);
+
+    expect(before).toStrictEqual([["d-1"], ["d-2"]]);
+    expect(handedIds(sent)).toStrictEqual([["d-1"], ["d-2"], ["d-2"]]);
+  });
+
+  it("takes again after a stop what only another extension's message named, as that did not go in", async () => {
+    const { run, sent, pi, emit, see } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    emit("turn_end", turnEnd("toolUse"));
+    see(["d-1"], "someone-else");
+    emit("turn_end", turnEnd("aborted"));
+    pi.busy = false;
+
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+
+    expect(handedIds(sent)).toStrictEqual([["d-1"], ["d-1"]]);
+  });
+
+  it("drops a held batch the host sends again in part, keeping no event of it twice", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+    const both = {
+      ...noticeOf("d-1", "t-1"),
+      deliveries: ["d-1", "d-2"],
+      events: [...noticeOf("d-1", "t-1").events, ...noticeOf("d-2", "t-2").events],
+    };
+    await run(`deliver ${encodeArgument(both)}`);
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+
+    emit("turn_end", turnEnd("toolUse"));
+
+    expect(handedIds(sent)).toStrictEqual([["d-1"]]);
+  });
+
+  it("hands pi a new task apart from words for the task in hand, and words for two tasks apart", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument({ ...wordsOf("d-1", "a"), steer: undefined, taskId: "t-2" })}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-2", "b"))}`);
+    await run(`deliver ${encodeArgument({ ...wordsOf("d-3", "c"), taskId: "t-3" })}`);
+    await run(`deliver ${encodeArgument(wordsOf("d-4", "d"))}`);
+
+    emit("turn_end", turnEnd("toolUse"));
+
+    expect(handedIds(sent)).toStrictEqual([["d-1"], ["d-2", "d-4"], ["d-3"]]);
+  });
+
+  it("drops what it holds when the run is stopped, so it goes only when the host sends it again", async () => {
+    const { run, sent, pi, emit } = stand();
+    pi.busy = true;
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+
+    emit("turn_end", turnEnd("aborted"));
+    emit("agent_end", { type: "agent_end", messages: [] });
+    await run(`deliver ${encodeArgument(noticeOf("d-3", "t-3"))}`);
+    // Stopped as its tools ran: the batch's turn ends well, but the run's signal is aborted.
+    emit("turn_end", turnEnd("toolUse"), AbortSignal.abort());
+    emit("turn_end", turnEnd("stop"));
+    const afterStop = [...sent];
+    await run(`deliver ${encodeArgument(noticeOf("d-2", "t-2"))}`);
+    emit("agent_end", { type: "agent_end", messages: [{ role: "assistant", stopReason: "aborted" }] });
+    emit("turn_end", turnEnd("stop"));
+    await run(`deliver ${encodeArgument(noticeOf("d-1", "t-1"))}`);
+    emit("turn_end", turnEnd("stop"));
+
+    expect(afterStop).toStrictEqual([]);
+    expect(sent.map((one) => (one as [{ details: { deliveries: string[] } }])[0].details.deliveries)).toStrictEqual([
+      ["d-1"],
+    ]);
+  });
+});
+
 describe("the tool hook", () => {
   it("lets a session without the flag use everything but a child's tools", () => {
     const { hook } = stand();
@@ -1422,7 +1686,7 @@ describe("refusal", () => {
     expect([
       refusal({ v: 1, child: true, role: "work", depth: 1, guard: "extension" }, "bash"),
       refusal({ v: 1, child: true, role: "explore", depth: 1, guard: "flags" }, "bash"),
-      refusal({ v: 1, child: true, role: "work", depth: 2, guard: "flags" }, "agent_wait"),
+      refusal({ v: 1, child: true, role: "work", depth: 2, guard: "flags" }, "agent_send"),
       refusal({ v: 1, child: false, role: null, depth: 0, guard: "extension" }, "ask_parent"),
       refusal({ v: 1, child: false, role: null, depth: 0, guard: "extension" }, "bash"),
     ]).toStrictEqual([
@@ -1637,7 +1901,7 @@ describe("the extension's own timers", () => {
     const statuses: [string, string | undefined][] = [];
     const handlers: ((
       args: string,
-      ctx: { readonly ui: { setStatus(key: string, text: string | undefined): void } },
+      ctx: { readonly ui: { setStatus(key: string, text: string | undefined): void }; isIdle(): boolean },
     ) => Promise<void>)[] = [];
     atriumAgent({
       registerCommand: (_name, command) => handlers.push(command.handler),
@@ -1655,7 +1919,7 @@ describe("the extension's own timers", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     const answered = ask.execute("q-2", { question: "b?", timeoutSeconds: 60 }, undefined, undefined, ctx);
     await vi.advanceTimersByTimeAsync(0);
-    await present(handlers[0])(answer("q-2", { answered: true, answer: "yes" }), { ui });
+    await present(handlers[0])(answer("q-2", { answered: true, answer: "yes" }), { ui, isIdle: () => false });
 
     expect([await timedOut, await answered]).toMatchObject([
       { details: { answered: false, reason: "timeout" } },
@@ -1664,3 +1928,17 @@ describe("the extension's own timers", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+/**
+ * The delivery ids of each message the extension handed pi, in order.
+ *
+ * @remarks
+ * From the messages' details.
+ *
+ * @sideEffects none
+ * @param sent - What the stand-in recorded.
+ * @returns The ids.
+ */
+function handedIds(sent: readonly unknown[]): string[][] {
+  return sent.map((one) => (one as [{ details: { deliveries: string[] } }])[0].details.deliveries);
+}

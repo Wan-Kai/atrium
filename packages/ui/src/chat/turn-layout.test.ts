@@ -267,6 +267,16 @@ describe("layoutTurn with children", () => {
 
     expect(layoutTurn(turn([task])).process).toStrictEqual([{ kind: "step", step: task }]);
   });
+
+  it("words a task's words that came into its run as the main agent speaking in, with the words", () => {
+    const words: Step = {
+      kind: "agent",
+      id: "0",
+      source: { kind: "task", fromTitle: "修复", taskId: "t", text: "also check login\nand logout" },
+    };
+
+    expect(describeStep(words, false)).toStrictEqual({ verb: "主 agent 插话", object: "also check login…", end: null });
+  });
 });
 
 describe("laneLayout", () => {
@@ -689,7 +699,7 @@ describe("transcriptMarkdown", () => {
       { kind: "agent", id: "0", source: { kind: "task", fromTitle: "修复", taskId: "t2", text: "再补一个" } },
     ]);
 
-    expect(transcriptMarkdown([steered])).toBe("> do it\n\n- 来自主对话的 agent · 交代的事\n");
+    expect(transcriptMarkdown([steered])).toBe("> do it\n\n- 主 agent 插话 · 再补一个\n");
     expect(transcriptMarkdown([report, task])).toBe(
       "> 来自子对话「测试」· 完成 · 用时 5 秒\n\n- 等了子对话 · 所有子对话\n- 来自子对话「审查」· 在问 · 哪个？\n\nok\n\n---\n\n> 来自主对话的 agent · 交代的事\n> 补测试\n> 再跑一遍\n",
     );

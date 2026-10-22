@@ -6,7 +6,7 @@ import { agentLaunchFlags, agentSelf, toolFlags } from "./agent-launch";
 import { agentDepth } from "./child-tree";
 
 /** The main agent's tools, as pi's flags list them. */
-const PARENT = "agent_spawn,agent_send,agent_wait,agent_reply,agent_list,agent_read,agent_stop,agent_models";
+const PARENT = "agent_spawn,agent_send,agent_reply,agent_list,agent_read,agent_stop,agent_models";
 
 /** What the launch rules read of a session. */
 interface Entry {

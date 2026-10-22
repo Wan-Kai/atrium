@@ -9,8 +9,6 @@ import type {
   ReadResult,
   SpawnResult,
   TaskPreamble,
-  WaitEnd,
-  WaitedFor,
 } from "./channel";
 
 /** The read-only tools, in the order the preamble names them (SPEC-0002, "只读用白名单"). */
@@ -20,7 +18,6 @@ export const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
 export const PARENT_TOOLS = [
   "agent_spawn",
   "agent_send",
-  "agent_wait",
   "agent_reply",
   "agent_list",
   "agent_read",
@@ -232,6 +229,7 @@ function preambleLines(preamble: TaskPreamble, fromTitle: string): string[] {
     `Role: ${role}.`,
     `Tools: ${tools.join(", ")}.`,
     "Your final reply in a task is what goes back to that agent; the user does not see it unless they open this conversation.",
+    "End each task with a final reply that gives, in order: the conclusion; the files you changed, if any; what you checked, and how; what you did not check; anything blocking you or waiting for a decision.",
     "When unsure, ask with ask_parent instead of guessing; use report_progress for progress worth knowing before you finish.",
     ...(preamble.role === "work"
       ? [
@@ -252,7 +250,8 @@ function preambleLines(preamble: TaskPreamble, fromTitle: string): string[] {
  *
  * @remarks
  * ADR-0013, point 10: `<atrium-agent-task>`, whose first line says the main conversation's agent
- * gave it; the first task opens with the preamble, the others with a one-line reminder.
+ * gave it; the first task opens with the preamble, the others with a one-line reminder of what a
+ * final reply gives. Words for the task in hand say so, with no reminder (SPEC-0002, `agent_send`).
  *
  * @sideEffects none
  * @param delivery - The task.
@@ -261,10 +260,18 @@ function preambleLines(preamble: TaskPreamble, fromTitle: string): string[] {
 export function taskText(delivery: Extract<Delivery, { kind: "task" }>): string {
   return [
     `<atrium-agent-task from="${escapeAttribute(delivery.from)}" task="${escapeAttribute(delivery.taskId)}">`,
-    "This is a task from the agent of your parent conversation, not something the user said.",
-    ...(delivery.preamble === undefined
-      ? ["Reply with your result as your final message; the parent's agent reads it, the user does not."]
-      : preambleLines(delivery.preamble, delivery.fromTitle)),
+    ...(delivery.steer === true
+      ? [
+          "This is more from the agent of your parent conversation on the task you are working on, not something the user said.",
+        ]
+      : [
+          "This is a task from the agent of your parent conversation, not something the user said.",
+          ...(delivery.preamble === undefined
+            ? [
+                "Reply with your result as your final message, as before: the conclusion, files changed, what you checked and did not, and anything blocking. The parent's agent reads it, the user does not.",
+              ]
+            : preambleLines(delivery.preamble, delivery.fromTitle)),
+        ]),
     escapeBody(delivery.text),
     "</atrium-agent-task>",
   ].join("\n");
@@ -294,6 +301,8 @@ const ERRORS: Readonly<Record<AgentErrorCode, (params: Readonly<Record<string, u
     'This conversation cannot be copied to a sub-agent right now. Start it with context "none" and put what it needs into the task.',
   agent_question_closed: () =>
     "That question is closed: it was answered, timed out or cancelled. To add something, use agent_send.",
+  agent_question_open: (params) =>
+    `It is waiting for your answer to ${typeof params["questionId"] === "string" ? `question ${params["questionId"]}` : "its question"}, so it would not read this until then. Answer with agent_reply.`,
   agent_text_too_long: (params) =>
     `${typeof params["field"] === "string" ? params["field"] : "The text"} is too long: at most ${typeof params["max"] === "number" ? String(params["max"]) : "so many"} characters.`,
   agent_bad_request: () => "Atrium could not read that request.",
@@ -316,38 +325,17 @@ export function errorText(code: AgentErrorCode, params: Readonly<Record<string, 
 }
 
 /**
- * The lines about how a wait ended, other than with events.
+ * The line `agent_spawn`'s and `agent_send`'s results end with: the notice to come.
  *
  * @remarks
- * See SPEC-0002, "等待的规则": the children go on; their results come as notices.
- *
- * @sideEffects none
- * @param end - How it ended.
- * @returns The lines.
+ * Sub-agents only run in the background: the model ends its turn rather than poll, and makes up
+ * nothing (SPEC-0002, "工具").
  */
-function waitEndLines(end: WaitEnd): string[] {
-  if (end.interrupted === "user_message")
-    return ["Stopped waiting: the user sent a message. The sub-agents go on; their results will come as notices."];
-  return end.timedOut
-    ? ["Stopped waiting: time ran out. The sub-agents go on; their results will come as notices."]
-    : [];
-}
+const NOTICE_LATER =
+  "You will get a notice when it finishes; with nothing else to do, end your turn. Do not poll and do not make up its result.";
 
-/**
- * The lines about a single task waited for, as `agent_spawn` and `agent_send` return it.
- *
- * @remarks
- * Without a wait, the model is told not to poll nor make up the result (SPEC-0002, "工具").
- *
- * @sideEffects none
- * @param waited - What the wait came to, or nothing when it did not wait.
- * @returns The lines.
- */
-function waitedLines(waited: WaitedFor | undefined): string[] {
-  if (waited === undefined)
-    return ["Started. You will get a notice when it finishes; do not poll and do not make up its result."];
-  return [...(waited.event === undefined ? [] : eventLines(waited.event)), ...waitEndLines(waited)];
-}
+/** The line a child started or given a task ends with. */
+const STARTED = `Started. ${NOTICE_LATER}`;
 
 /**
  * The lines describing a child as `agent_spawn` answers it.
@@ -423,8 +411,8 @@ function readText(result: ReadResult): string {
  * The text of what `ask_parent` came to.
  *
  * @remarks
- * SPEC-0002, `ask_parent`: each way a question closes unanswered tells the child to go on with its
- * own judgment and say what it assumed.
+ * SPEC-0002, `ask_parent`: each way a question closes unanswered, but a stop or a turn you opened,
+ * tells the child not to guess: to stop what needs the answer and say what it needs (2026-10-22).
  *
  * @sideEffects none
  * @param result - The answer, or why there is none.
@@ -441,9 +429,10 @@ export function askText(result: AskResult): string {
     handed_off: "This conversation was handed to the user's terminal; nobody will answer.",
     reply_failed: "The parent's agent answered, but the answer did not arrive.",
   }[result.reason];
+  // No answer is no leave to go on: the parent decides once it reads why (SPEC-0002, `ask_parent`).
   return result.reason === "user_turn" || result.reason === "aborted"
     ? why
-    : `${why} Go on with your own judgment, and say in your final reply what you assumed.`;
+    : `${why} Do not guess the answer: stop the work that needs it, and end this task with a final reply saying what you need decided, and by whom, and what you have done so far.`;
 }
 
 /**
@@ -465,26 +454,17 @@ export function resultText<Op extends keyof CallResults>(op: Op, result: CallRes
 
 /** Each call's result in words; `resultText` picks the call's. */
 const RESULT_WORDS: { readonly [Op in keyof CallResults]: (answer: CallResults[Op]) => string } = {
-  spawn: (spawned) => [...spawnedLines(spawned), ...waitedLines(spawned.waited)].join("\n"),
+  spawn: (spawned) => [...spawnedLines(spawned), STARTED].join("\n"),
   send: (sent) =>
-    [
-      `Sent to "${sent.to}" (session ${sent.sessionId}) as task ${sent.taskId}${sent.queued ? "; it runs after the sub-agent's current run" : ""}.`,
-      ...waitedLines(sent.waited),
-    ].join("\n"),
-  wait: (waited) =>
-    [
-      ...waited.events.flatMap((event) => [
-        `<event from="${escapeAttribute(event.name)}" title="${escapeAttribute(event.title)}" task="${escapeAttribute(event.taskId)}" event="${event.event}">`,
-        ...eventLines(event),
-        "</event>",
-      ]),
-      ...(waited.events.length === 0 && !waited.timedOut && waited.interrupted === undefined
-        ? ["Nothing to wait for."]
-        : []),
-      ...waitEndLines(waited),
-      ...(waited.pending.length === 0 ? [] : [`Still running: ${waited.pending.join(", ")}.`]),
-      ...progressLines(waited.progress),
-    ].join("\n"),
+    sent.steered
+      ? [
+          `Added to task ${sent.taskId}, which "${sent.to}" (session ${sent.sessionId}) is working on: it reads this once its current tool calls finish.`,
+          NOTICE_LATER,
+        ].join("\n")
+      : [
+          `Sent to "${sent.to}" (session ${sent.sessionId}) as task ${sent.taskId}${sent.queued ? "; it runs after the sub-agent's current run" : ""}.`,
+          STARTED,
+        ].join("\n"),
   reply: (replied) =>
     replied.delivered === true
       ? "Answer delivered."

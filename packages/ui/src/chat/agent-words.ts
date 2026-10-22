@@ -77,6 +77,7 @@ export function sourceLine(source: AgentSource): string {
 export const AGENT_TOOL_VERBS: Readonly<Record<string, readonly [string, string]>> = {
   agent_spawn: ["正在开子对话", "开子对话"],
   agent_send: ["正在交代子对话", "交代了子对话"],
+  // Dropped on 2026-10-21; sessions from before still have its calls.
   agent_wait: ["等子对话", "等了子对话"],
   agent_reply: ["正在回答", "回答了"],
   agent_list: ["正在列出子对话", "列出了子对话"],
@@ -117,6 +118,7 @@ export function agentToolObject(tool: string, args: Readonly<Record<string, unkn
   if (tool === "agent_spawn") return text("name");
   if (tool === "agent_send" || tool === "agent_reply" || tool === "agent_read" || tool === "agent_stop")
     return text("to");
+  // Sessions from before `agent_wait` was dropped (2026-10-21).
   if (tool === "agent_wait") {
     const tasks = args["tasks"];
     return Array.isArray(tasks) && tasks.length > 0 ? `${tasks.length} 件事` : "所有子对话";

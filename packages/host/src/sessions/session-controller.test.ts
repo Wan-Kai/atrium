@@ -302,7 +302,6 @@ describe("editing the last stopped user message", () => {
     );
     expect(started.traceId).toBe(traceIds[0]);
     expect(started.turn.user).toMatchObject({ text: "correct", auto: false, clientMessageId: "edit-request" });
-    expect(box.done).toContainEqual(["userSpoke"]);
     await controller.shutdown();
   });
 
@@ -4040,6 +4039,7 @@ function deliveriesOf(initial: PendingDelivery[] = []) {
   const done: unknown[] = [];
   const failures: unknown[] = [];
   let markHeld: Promise<void> | null = null;
+  let confirmLags = false;
   const deliveries: ControllerDeliveries = {
     list: () => list,
     items: () =>
@@ -4066,7 +4066,7 @@ function deliveriesOf(initial: PendingDelivery[] = []) {
     },
     confirm: async (ids) => {
       done.push(["confirm", [...ids]]);
-      list = list.filter((one) => !ids.includes(one.id));
+      if (!confirmLags) list = list.filter((one) => !ids.includes(one.id));
     },
     command: async (ids) => {
       if (failures.length > 0) throw failures.shift();
@@ -4082,7 +4082,6 @@ function deliveriesOf(initial: PendingDelivery[] = []) {
       void reply.then((entry) => done.push(["reply", entry]));
     },
     gaveUp: () => done.push(["gaveUp"]),
-    userSpoke: () => done.push(["userSpoke"]),
   };
   return {
     deliveries,
@@ -4090,6 +4089,10 @@ function deliveriesOf(initial: PendingDelivery[] = []) {
     failures,
     hold: (value: "restart" | "stalled" | null) => {
       held = value;
+    },
+    /** Leaves confirmed deliveries listed, as when the index has not taken the write yet. */
+    holdConfirm: () => {
+      confirmLags = true;
     },
     /** Keeps the next marking until `until` settles, as an index write under way does. */
     holdMark: (until: Promise<void>) => {
@@ -4320,7 +4323,7 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     expect(controller.submitting).toBe(false);
   });
 
-  it("in a run, holds notices that come before the last ones steered are in, and hands them as one once they are", async () => {
+  it("in a run, hands pi notices as they come, though the ones before are not in yet: the extension puts them in together", async () => {
     const { pi, emit, sent } = manualPi();
     const box = deliveriesOf();
     const { controller } = control(pi, empty, { deliveries: box.deliveries });
@@ -4336,16 +4339,71 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     box.add(waiting("n3", 3, "failed"));
     controller.deliveriesChanged();
     await settle();
-    const held = [...sent];
     emit(agentEnd(["n1"]));
     await settle();
 
-    expect(held).toStrictEqual(["prompt one", "command /atrium-agent deliver n1"]);
     expect(sent).toStrictEqual([
       "prompt one",
       "command /atrium-agent deliver n1",
-      "command /atrium-agent deliver n2,n3",
+      "command /atrium-agent deliver n2",
+      "command /atrium-agent deliver n3",
     ]);
+  });
+
+  it("in a run, hands pi the notices and the words for the task in hand as two commands, the notices first", async () => {
+    const { pi, emit, sent } = manualPi();
+    const box = deliveriesOf();
+    const { controller } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+
+    box.add({ ...waiting("s1", 1), steer: true }, waiting("n1", 2, "finished"), { ...waiting("s2", 3), steer: true });
+    controller.deliveriesChanged();
+    await settle();
+
+    expect(sent).toStrictEqual([
+      "prompt one",
+      "command /atrium-agent deliver n1",
+      "command /atrium-agent deliver s1,s2",
+    ]);
+  });
+
+  it("logs each delivery confirmed once, though the file is read again before the confirmation is written", async () => {
+    const { pi, emit, pages } = manualPi();
+    const box = deliveriesOf();
+    const entries = { entries: [deliveredEntry("k1", ["n1"]), replyEntry("a1")], leafId: "a1" };
+    pages.push(
+      async () => entries,
+      async () => entries,
+    );
+    box.holdConfirm();
+    const { controller, logged } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    box.add(waiting("n1", 1000, "finished"));
+    controller.deliveriesChanged();
+    await settle();
+
+    emit(replyEnd("toolUse"), { type: "agent_settled" });
+    await settle();
+    emit({ type: "agent_start" }, { type: "agent_settled" });
+    await settle();
+
+    expect(logged.filter(([, message]) => message === "deliveries confirmed")).toHaveLength(1);
+  });
+
+  it("in a run, hands pi words for the task in hand at once, while a new task waits for the run's end", async () => {
+    const { pi, emit, sent } = manualPi();
+    const box = deliveriesOf();
+    const { controller } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+
+    box.add(waiting("k1", 1), { ...waiting("s1", 2), steer: true });
+    controller.deliveriesChanged();
+    await settle();
+
+    expect(sent).toStrictEqual(["prompt one", "command /atrium-agent deliver s1"]);
   });
 
   it("holds the deliveries after a restart, and while pi is gone, stopping or paused until you send a message", async () => {
@@ -4381,7 +4439,6 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
       "prompt two",
       "command /atrium-agent deliver n1",
     ]);
-    expect(box.done.filter((one) => (one as unknown[])[0] === "userSpoke")).toHaveLength(2);
   });
 
   it("lets a message sent while paused release the deliveries for that pause only, not for a later one", async () => {
@@ -4414,31 +4471,10 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
 
   it("confirms the deliveries pi has on file once it has a reply, and puts back one handed over it does not have", async () => {
     const { pi, emit, pages } = manualPi();
-    const box = deliveriesOf([
-      waiting("d1", 1),
-      { ...waiting("d2", 2, "finished"), state: "sending" },
-      { ...waiting("d3", 3, "finished"), state: "claimed", claimedBy: "call-9" },
-      { ...waiting("d4", 4, "finished"), state: "claimed", claimedBy: "call-8" },
-    ]);
+    const box = deliveriesOf([waiting("d1", 1), { ...waiting("d2", 2, "finished"), state: "sending" }]);
     pages.push(
       async () => ({ entries: [deliveredEntry("k1", ["d1"])], leafId: "k1" }),
-      async () => ({
-        entries: [
-          replyEntry("a1"),
-          {
-            id: "r1",
-            parentId: null,
-            kind: "toolResult",
-            callId: "call-9",
-            tool: "agent_wait",
-            text: "",
-            isError: false,
-            details: undefined,
-            timestamp: 0,
-          },
-        ],
-        leafId: "r1",
-      }),
+      async () => ({ entries: [replyEntry("a1")], leafId: "a1" }),
     );
     const { controller } = control(pi, empty, { deliveries: box.deliveries });
 
@@ -4449,12 +4485,9 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     await settle();
 
     expect(before.filter((one) => (one as unknown[])[0] === "confirm")).toStrictEqual([]);
-    expect(box.done).toContainEqual(["confirm", ["d1", "d3"]]);
+    expect(box.done).toContainEqual(["confirm", ["d1"]]);
     expect(box.done).toContainEqual(["mark", ["d2"], "waiting"]);
-    expect(box.deliveries.list().map((one) => [one.id, one.state])).toStrictEqual([
-      ["d2", "sending"],
-      ["d4", "claimed"],
-    ]);
+    expect(box.deliveries.list().map((one) => [one.id, one.state])).toStrictEqual([["d2", "sending"]]);
     expect(controller.exited).toBe(false);
   });
 
@@ -4507,7 +4540,6 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     await settle();
 
     expect(box.done).toStrictEqual([
-      ["userSpoke"],
       ["runStarted", "user"],
       ["runSettled", "completed", false],
       ["reply", "a1"],
@@ -4528,7 +4560,6 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
 
     expect(second.sent).toStrictEqual([`prompt ${CONTINUE_TEXT}`]);
     expect(box.done).toStrictEqual([
-      ["userSpoke"],
       ["runStarted", "user"],
       ["runSettled", "failed", true],
       ["reply", null],
@@ -4567,7 +4598,6 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     await settle();
 
     expect(box.done).toStrictEqual([
-      ["userSpoke"],
       ["runStarted", "user"],
       ["runSettled", "failed", false],
       ["reply", null],
@@ -4705,16 +4735,6 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     expect(box.done).toStrictEqual([["confirm", ["d1"]]]);
   });
 
-  it("tells the deliveries you spoke when you steer, as when you send a message", async () => {
-    const { pi } = manualPi();
-    const box = deliveriesOf();
-    const { controller } = control(pi, empty, { deliveries: box.deliveries });
-
-    await controller.steer(steer("s1", "go"));
-
-    expect(box.done).toStrictEqual([["userSpoke"]]);
-  });
-
   it("shows deliveries that came in during a run, though they wait for its end", async () => {
     const { pi, emit } = manualPi();
     const box = deliveriesOf();
@@ -4805,7 +4825,7 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     ]);
   });
 
-  it("counts the run a steered delivery opens, once the run it was steered into ended without it, as the delivery's", async () => {
+  it("hands again a steered delivery the run ended without, to open the next run, which is the delivery's", async () => {
     const { pi, emit, sent } = manualPi();
     const box = deliveriesOf();
     const { controller } = control(pi, empty, { deliveries: box.deliveries });
@@ -4820,7 +4840,10 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     const submitting = controller.submitting;
     emit({ type: "agent_start" });
 
-    expect(sent.filter((line) => line.startsWith("command"))).toStrictEqual(["command /atrium-agent deliver n1"]);
+    expect(sent.filter((line) => line.startsWith("command"))).toStrictEqual([
+      "command /atrium-agent deliver n1",
+      "command /atrium-agent deliver n1",
+    ]);
     expect(submitting).toBe(true);
     expect(box.done.filter((one) => (one as unknown[])[0] === "runStarted")).toStrictEqual([
       ["runStarted", "user"],
@@ -4897,6 +4920,99 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     expect(controller.submitting).toBe(false);
   });
 
+  it("logs deliveries once pi has them, and once on file how long they waited, with no content", async () => {
+    const { pi, emit, pages } = manualPi();
+    const box = deliveriesOf();
+    pages.push(async () => ({ entries: [deliveredEntry("k1", ["n1", "n2"]), replyEntry("a1")], leafId: "a1" }));
+    const { controller, logged, clock } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    box.add(waiting("n1", 1000, "finished"), waiting("n2", 3000, "failed"));
+    controller.deliveriesChanged();
+    await settle();
+    clock.advance(4000);
+
+    emit(replyEnd("stop"), { type: "agent_settled" });
+    await settle();
+
+    expect(logged.filter(([level]) => level === "info")).toStrictEqual([
+      ["info", "deliveries handed to pi", { sessionId: "s1", count: 2, opening: false }],
+      ["info", "deliveries confirmed", { sessionId: "s1", count: 2, waitedMs: clock.now() - 1000 }],
+    ]);
+  });
+
+  it("counts as a run's own only the steered deliveries not seen in the run before, and none once all were", async () => {
+    expect([await runAfterSeen(["n1"]), await runAfterSeen(["n1", "n2"])]).toStrictEqual([
+      ["runStarted", { deliveries: ["n2"] }],
+      ["runStarted", "user"],
+    ]);
+  });
+
+  it("forgets as steered only the deliveries pi could not be handed, keeping the ones before", async () => {
+    const manual = manualPi();
+    const pi = secondCommandFails(manual);
+    const box = deliveriesOf();
+    const { controller } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    manual.emit({ type: "agent_start" }, userEnd("one"));
+    box.add(waiting("n1", 2, "failed"));
+    controller.deliveriesChanged();
+    await settle();
+    box.add(waiting("n2", 3, "finished"));
+    controller.deliveriesChanged();
+    await settle();
+
+    manual.emit(replyEnd("stop"), { type: "agent_settled" }, { type: "agent_start" });
+
+    expect(box.done.filter((one) => (one as unknown[])[0] === "runStarted")[1]).toStrictEqual([
+      "runStarted",
+      { deliveries: ["n1"] },
+    ]);
+  });
+
+  it("waits for no run deliveries handed to an idle pi open when pi opened it before it answered", async () => {
+    const manual = manualPi();
+    const pi = {
+      ...manual.pi,
+      command: async (message: string) => {
+        await manual.pi.command(message);
+        manual.emit({ type: "agent_start" });
+      },
+    };
+    const box = deliveriesOf();
+    const { controller, clock } = control(pi, empty, { deliveries: box.deliveries });
+    box.add(waiting("n1", 2, "failed"));
+
+    controller.deliveriesChanged();
+    await settle();
+    clock.advance(20_000);
+    await settle();
+
+    expect(box.done.filter((one) => (one as unknown[])[0] === "stalled")).toStrictEqual([]);
+    expect(controller.submitting).toBe(false);
+  });
+
+  it("counts the run pi opens with notices handed over in a run as all of theirs, however many times they went", async () => {
+    const { pi, emit } = manualPi();
+    const box = deliveriesOf();
+    const { controller } = control(pi, empty, { deliveries: box.deliveries });
+    await controller.prompt(prompt("q1", "one"));
+    emit({ type: "agent_start" }, userEnd("one"));
+    box.add(waiting("n1", 2, "failed"));
+    controller.deliveriesChanged();
+    await settle();
+    box.add(waiting("n2", 3, "finished"));
+    controller.deliveriesChanged();
+    await settle();
+
+    emit(replyEnd("stop"), { type: "agent_settled" }, { type: "agent_start" });
+
+    expect(box.done.filter((one) => (one as unknown[])[0] === "runStarted")).toStrictEqual([
+      ["runStarted", "user"],
+      ["runStarted", { deliveries: ["n1", "n2"] }],
+    ]);
+  });
+
   it("counts the run a steered delivery opens as the delivery's, though it begins before the run before is read", async () => {
     const { pi, emit } = manualPi();
     const box = deliveriesOf();
@@ -4915,3 +5031,50 @@ describe("createSessionController handing pi deliveries (SPEC-0002, 送达)", ()
     ]);
   });
 });
+
+/**
+ * The second run's opening, after two notices were steered into the first, those `seen` in it.
+ *
+ * @remarks
+ * pi opens the second run itself, before the host reads the first.
+ *
+ * @sideEffects none outside the controller it makes.
+ * @param seen - The notices the first run took in.
+ * @returns The second `runStarted`.
+ */
+async function runAfterSeen(seen: string[]): Promise<unknown> {
+  const { pi, emit } = manualPi();
+  const box = deliveriesOf();
+  const { controller } = control(pi, empty, { deliveries: box.deliveries });
+  await controller.prompt(prompt("q1", "one"));
+  emit({ type: "agent_start" }, userEnd("one"));
+  for (const delivery of [waiting("n1", 2, "failed"), waiting("n2", 3, "finished")]) {
+    box.add(delivery);
+    controller.deliveriesChanged();
+    await settle();
+  }
+  emit(agentEnd(seen), replyEnd("stop"), { type: "agent_settled" }, { type: "agent_start" });
+  return box.done.filter((one) => (one as unknown[])[0] === "runStarted")[1];
+}
+
+/**
+ * A pi whose second command fails after it was sent, as when pi went away meanwhile.
+ *
+ * @remarks
+ * The others go to `manual` as they would.
+ *
+ * @sideEffects none
+ * @param manual - The pi stand-in.
+ * @returns The pi.
+ */
+function secondCommandFails(manual: ReturnType<typeof manualPi>): ReturnType<typeof manualPi>["pi"] {
+  let sent = 0;
+  return {
+    ...manual.pi,
+    command: async (message: string) => {
+      await manual.pi.command(message);
+      sent += 1;
+      if (sent === 2) throw new Error("gone");
+    },
+  };
+}

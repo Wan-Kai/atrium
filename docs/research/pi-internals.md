@@ -84,6 +84,8 @@ RPC 在预检完成时就返回结果，不等运行结束；预检可能包括�
 **队列**
 
 - steer：当前这批工具调用执行完、下次请求模型之前送达；followUp：agent 本要停下时才送达。模式 `all | one-at-a-time`，默认后者。
+- 边界的先后（2026-10-22 读本机 1.3.0 源码；契约测试 `agent-boundary` 实测）：一批工具跑完后，`pi-agent-core` `agent-loop.js` 先 `await config.finishTurn`（`agent-session.js` `_dispatchTurnEndBoundary`，扩展的 `turn_end` 处理函数在这里跑完），再发 `turn_end` 事件，最后才 `getSteeringMessages`；所以扩展在 `turn_end` 里 `sendMessage(…, {deliverAs: "steer"})` 的消息在这个边界进去。最后一次回复（没有工具调用）之后也有 `turn_end`，这时交的 steer 让循环再请求一次模型。循环结束后 `_handlePostAgentRun` 还会看队列，`agent_end` 处理函数里交的要再开一次（注释："Messages queued by agent_end handlers require a fresh run before pre-settlement handlers fire"）；这一轮被中止时不再开。再开一次走的是 `agent.continue()`，又发一次 `agent_start`，中间没有 `agent_settled`，宿主把它算在同一次运行里（运行中又来的 `agent_start` 不开新运行）。回复以 `stopReason: "error"` 结束时，循环照样先 `finishTurn`（扩展的 `turn_end`）、再 `turn_end`、`agent_end` 后返回，不再取 steer 队列；之后 `_handlePostAgentRun` 能重试的就重试，不能重试的看队列里有没有东西决定是否再开一次，所以这时交的 steer 也会进去（2026-10-22 读 1.3.0 源码）。
+- `set_steering_mode`（RPC）调 `AgentSession.setSteeringMode`，后者 `settingsManager.setSteeringMode` 写进**全局** `settings.json` 并存盘（`settings-manager.js` `setSteeringMode`），没有只在内存里生效的入口，也没有启动参数。
 - 写进会话文件的插话、追加消息和普通提问一样，都是 `{role: "user", content, timestamp}`，没有标记（1.0.2 `agent-session.js` `_queueSteer`），文件里分不出来。
 - 一次运行可能停在工具结果上：一批工具调用都返回 `terminate` 时，agent 循环不再请求模型（`agent-loop.js` `shouldTerminateToolBatch`）。
 - 上下文溢出：pi 用 `context_edit`（`replacement` 为空）屏蔽失败的回复和它的工具结果，紧接着写压缩条目，再重试；不发 `auto_retry_start`（`agent-session.js` `_omitRecoveryAttempt`）。可重试错误的 `auto_retry_start.errorMessage` 是 `errorMessage || "Unknown error"`。
