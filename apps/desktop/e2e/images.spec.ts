@@ -1,5 +1,9 @@
 import { type Page, expect, test } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fauxPiEnvironment } from "./faux-pi";
+import { findDetachedDomLeaks, takeHeapSnapshot } from "./heap";
 import { launchApp } from "./launch";
 
 /**
@@ -24,7 +28,28 @@ async function pasteScreenshot(window: Page): Promise<void> {
   });
 }
 
-test("shows a sent message's image as a thumbnail, and again from pi's session file after a restart", async () => {
+/**
+ * Opens the sent screenshot, checks its full pixels and zoom, then returns focus to its thumbnail.
+ *
+ * @remarks The same path exercises retained previews and images reloaded from pi after restart.
+ * @sideEffects Opens and closes the real image modal.
+ * @param window - The app's page.
+ */
+async function previewScreenshot(window: Page): Promise<void> {
+  await window.getByTestId("message-images").getByRole("img", { name: "图片 1" }).click();
+  const preview = window.getByRole("dialog", { name: "图片预览" });
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText("40 × 30");
+  await expect(preview.getByRole("img", { name: "图片 1" })).toHaveJSProperty("naturalWidth", 40);
+  await expect(preview.getByLabel("缩放比例")).toHaveText("100%");
+  await preview.getByRole("button", { name: "放大", exact: true }).click();
+  await expect(preview.getByLabel("缩放比例")).toHaveText("125%");
+  await window.keyboard.press("Escape");
+  await expect(preview).toHaveCount(0);
+  await expect(window.getByRole("button", { name: "放大图片：图片 1" })).toBeFocused();
+}
+
+test("opens a sent message's image preview, and again from pi's session file after a restart", async () => {
   const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "一张蓝色的图" }] }] });
   let launched = await launchApp(pi.env);
   const home = launched.home;
@@ -38,6 +63,7 @@ test("shows a sent message's image as a thumbnail, and again from pi's session f
     await expect(reply).toHaveText("一张蓝色的图", { timeout: 30_000 });
     const thumbnail = window.getByTestId("message-images").getByRole("img", { name: "图片 1" });
     await expect(thumbnail).toHaveAttribute("src", /^data:image\/(png|jpeg|webp);base64,/);
+    await previewScreenshot(window);
     await launched.quit();
 
     // A new page has no previews, so the thumbnail is the host's, read from pi's session file.
@@ -50,8 +76,35 @@ test("shows a sent message's image as a thumbnail, and again from pi's session f
       { timeout: 30_000 },
     );
     await expect(window.getByRole("img", { name: "图片不可用" })).toHaveCount(0);
+    await previewScreenshot(window);
   } finally {
     await launched.close();
     await pi.cleanup();
+  }
+});
+
+test("@leak repeatedly opening sent image previews releases modal DOM", async () => {
+  const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "收到图片" }] }] });
+  const launched = await launchApp(pi.env);
+  const dir = await mkdtemp(join(tmpdir(), "atrium-sent-image-heap-"));
+  try {
+    const { window } = launched;
+    await pasteScreenshot(window);
+    await window.getByRole("textbox", { name: "消息" }).fill("预览图片");
+    await window.getByRole("button", { name: "发送" }).click({ timeout: 30_000 });
+    await expect(window.locator('[data-testid="reply"][data-streaming="false"]')).toHaveText("收到图片", {
+      timeout: 30_000,
+    });
+    await previewScreenshot(window);
+    await takeHeapSnapshot(window, join(dir, "baseline.heapsnapshot"));
+    for (let round = 0; round < 20; round += 1) await previewScreenshot(window);
+    await takeHeapSnapshot(window, join(dir, "final.heapsnapshot"));
+    expect(
+      await findDetachedDomLeaks(join(dir, "baseline.heapsnapshot"), join(dir, "final.heapsnapshot")),
+    ).toStrictEqual([]);
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+    await rm(dir, { recursive: true, force: true });
   }
 });

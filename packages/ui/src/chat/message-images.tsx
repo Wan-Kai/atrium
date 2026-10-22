@@ -1,6 +1,7 @@
 import type { AtriumClient } from "@atrium/client";
 import { ImageIcon } from "../design/icons";
 import { createContext, useContext, useEffect, useState } from "react";
+import { ImagePreview } from "./image-preview";
 
 /** Where the images of sent messages come from (SPEC-0001, "消息下方的信息"). */
 export interface MessageImages {
@@ -79,9 +80,10 @@ export interface MessageThumbnailsProps {
  * @remarks
  * 64 px squares with rounded corners, cropped to fill, wrapping when there are many
  * (SPEC-0001, "消息下方的信息"). A message sent from this page shows the previews kept for it;
- * any other is fetched image by image (see {@link messageImages}).
+ * any other is fetched image by image (see {@link messageImages}). Available thumbnails open the
+ * same modal preview as reply images, without fetching another copy.
  *
- * @sideEffects Loads images through {@link MessageImagesContext}.
+ * @sideEffects Loads images through {@link MessageImagesContext}; may open an image preview.
  * @param props - The message's images.
  * @returns The thumbnails.
  */
@@ -91,7 +93,7 @@ export function MessageThumbnails({ count, turnId, clientMessageId, settled }: M
   return (
     <div className="flex max-w-[80%] flex-wrap justify-end gap-1.5" data-testid="message-images">
       {previews?.length === count
-        ? previews.map((src, index) => <Shown key={index} src={src} index={index} />)
+        ? previews.map((src, index) => <Shown key={`${index}:${src}`} src={src} index={index} />)
         : Array.from({ length: count }, (_, index) => (
             // A new key once the turn ends starts the thumbnail over, which asks again.
             <Fetched key={`${String(settled)}:${index}`} turnId={turnId} index={index} settled={settled} />
@@ -107,14 +109,30 @@ const FRAME = "block size-16 shrink-0 rounded-[var(--r-md)] shadow-[0_0_0_0.5px_
  * One thumbnail whose image is at hand.
  *
  * @remarks
- * Named by its place, as the message has no names for its images.
+ * Named by its place, as the message has no names for its images. The existing image preview
+ * supplies zoom, keyboard controls, modal isolation and focus restoration. Callers key by source
+ * so replacing the image tears down its preview instead of keeping a modal open for new pixels.
  *
- * @sideEffects none
+ * @sideEffects Opens and closes a modal preview when used.
  * @param props - Its address and place.
- * @returns The thumbnail.
+ * @returns The thumbnail button and, while open, its preview.
  */
 function Shown({ src, index }: { readonly src: string; readonly index: number }) {
-  return <img src={src} alt={`图片 ${index + 1}`} className={`${FRAME} object-cover`} />;
+  const [preview, showPreview] = useState(false);
+  const alt = `图片 ${index + 1}`;
+  return (
+    <>
+      <button
+        type="button"
+        aria-label={`放大图片：${alt}`}
+        className="block cursor-zoom-in rounded-[var(--r-md)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--tint)]"
+        onClick={() => showPreview(true)}
+      >
+        <img src={src} alt={alt} className={`${FRAME} object-cover`} />
+      </button>
+      {preview ? <ImagePreview src={src} alt={alt} onClose={() => showPreview(false)} /> : null}
+    </>
+  );
 }
 
 /**
@@ -168,7 +186,7 @@ function Fetched({
       current = false;
     };
   }, [images, turnId, index, settled]);
-  if (state.src !== null) return <Shown src={state.src} index={index} />;
+  if (state.src !== null) return <Shown key={state.src} src={state.src} index={index} />;
   return state.failed ? (
     <span
       role="img"
