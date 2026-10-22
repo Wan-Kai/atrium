@@ -173,6 +173,66 @@ describe("ChildCapsule", () => {
     ]);
   });
 
+  it("lines the models up in one column on the right, whatever else a row says", async () => {
+    const model = { providerId: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "high" } as const;
+    const { client } = fakeClient({
+      projects: [PROJECT],
+      workspaces: [workspace({ id: W, branch: "main" }), workspace({ id: OTHER, branch: "atrium/tests" })],
+      sessions: [
+        MAIN,
+        child("短名字", "main", { model, updatedAt: Date.now() - 1000 }),
+        child("一个很长很长的名字".repeat(4), "main", { model, updatedAt: Date.now() - 180_000 }),
+        child("带进度", "main", {
+          model,
+          updatedAt: Date.now() - 59 * 60_000,
+          parent: { sessionId: "main", by: "agent" },
+          agent: {
+            handle: "gone",
+            role: "explore",
+            status: "running",
+            progress: "读完了 auth/ 和 store/ 下的全部文件，正在核对状态图标和模型那一列的宽度",
+            question: null,
+            taskId: null,
+            taskStartedAt: null,
+          },
+        }),
+        child("在别的工作区", "main", { model, containerId: OTHER, updatedAt: Date.now() - 3_600_000 }),
+        child("带孙对话", "main", { model, updatedAt: Date.now() - 86_400_000 * 3 }),
+        child("孙", "带孙对话", { containerId: W }),
+      ],
+    });
+    client.models(W).setState({
+      status: "ready",
+      models: [
+        {
+          providerId: "openai-codex",
+          modelId: "gpt-6.1-sol",
+          name: "GPT-6.1 Sol",
+          contextWindow: 0,
+          maxOutput: 0,
+          supportsImage: false,
+          thinkingLevels: ["off", "low", "high"],
+          fast: null,
+        },
+      ],
+      defaultModel: null,
+      error: null,
+    });
+    const screen = await render(
+      <div className="relative mt-[400px] w-[680px]">
+        <ChildCapsule client={client} sessionId="main" />
+      </div>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^子对话 5/ }));
+
+    await vi.waitFor(() => expect(screen.getByTestId("child-model").elements()).toHaveLength(5));
+    const rights = screen
+      .getByTestId("child-model")
+      .elements()
+      .map((one) => edges(one).right);
+    expect(rights.slice(1)).toStrictEqual(rights.slice(1).map(() => rights[0]));
+  });
+
   it("opens a child from its row, and detaches or archives one from its menu, saying when that failed", async () => {
     const { client, calls } = fakeClient(LISTED);
     client.archiveSession = () => Promise.reject(new CommandError("internal_error"));
