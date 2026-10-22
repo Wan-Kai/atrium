@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { recordingTracing } from "../../test/recording-tracing";
 import { PONG_ENTRIES as getEntries, PONG_TURN as turn } from "../../test/scripted-chat";
-import { systemClock } from "../platform/clock";
+import { type Clock, systemClock } from "../platform/clock";
 import { loadIndexFile } from "../store/index-file";
 import { type ChatRecords, createChatRecords } from "../store/chat-records";
 import { CHATS_FILE, layoutsFile, SESSIONS_FILE } from "../store/index-schema";
@@ -130,6 +130,8 @@ async function manage(
     readonly sessionsTaken?: number;
     /** A real catalog with controlled stages for manager concurrency tests. */
     readonly catalog?: (catalog: SessionCatalog) => SessionCatalog;
+    /** The manager's clock, when a test moves time on; the system's otherwise. */
+    readonly clock?: Clock;
   } = {},
 ) {
   const at = where ?? (await place());
@@ -176,7 +178,7 @@ async function manage(
       refresh: (id) => refreshed.push(id),
     },
     onChange: () => (changes += 1),
-    clock: systemClock,
+    clock: more.clock ?? systemClock,
     resources: recording.resources,
     tracer: recording.tracer,
     logger: recording.logger,
@@ -499,7 +501,7 @@ describe("SessionManager editing serialization", () => {
     expect(await managed.manager.handOff("pi-session-1")).toStrictEqual({ file: managed.file, args: [] });
   });
 
-  it("restarts an idle pi and rejects the old edit epoch instead of dereferencing no controller", async () => {
+  it("restarts an idle pi for an edit, taking the stopped pi's epoch and refusing an older one, without dereferencing no controller", async () => {
     const at = await place();
     const file = await terminalSession(at, "pi-session-1", at.workspace);
     const user = {
@@ -531,19 +533,25 @@ describe("SessionManager editing serialization", () => {
       snapshot.items.find((item) => item.kind === "turn"),
       "stopped turn",
     );
+    const edit = {
+      type: "edit_stopped_message" as const,
+      requestId: "edit-restart",
+      traceparent,
+      sessionId: "pi-session-1",
+      turnId: stopped.id,
+      text: "correct",
+    };
     await managed.manager.stopIdle();
-    await expect(
-      managed.manager.editStoppedMessage({
-        type: "edit_stopped_message",
-        requestId: "edit-restart",
-        traceparent,
-        sessionId: "pi-session-1",
-        epoch: snapshot.epoch,
-        turnId: stopped.id,
-        text: "correct",
-      }),
-    ).rejects.toStrictEqual(new CommandError("transcript_changed"));
-    expect(managed.starts().filter((start) => Array.isArray(start.argv))).toHaveLength(2);
+    // A view older than the pi that stopped is refused still.
+    const stale = await managed.manager.editStoppedMessage({ ...edit, epoch: snapshot.epoch - 1 }).catch(caught);
+    await managed.manager.stopIdle();
+
+    // The stopped pi's epoch is taken for the new one's: this pi has no edit command, so it fails there.
+    const current = await managed.manager.editStoppedMessage({ ...edit, epoch: snapshot.epoch + 1 }).catch(caught);
+
+    expect(stale).toStrictEqual(new CommandError("transcript_changed"));
+    expect(current).toMatchObject({ code: "edit_failed" });
+    expect(managed.starts().filter((start) => Array.isArray(start.argv))).toHaveLength(3);
     expect(managed.piReceived().filter((command) => command["type"] === "prompt")).toStrictEqual([]);
   });
 
@@ -3141,6 +3149,7 @@ function failingTurn(error: string): readonly object[] {
  * @param rules - More of pi's answers.
  * @param more - More of pi's behavior.
  * @param titleModel - The title model pi can use in a directory, if a test needs one.
+ * @param clock - The manager's clock, when a test moves time on.
  * @returns The manager and what tests look at.
  */
 async function opened(
@@ -3148,6 +3157,7 @@ async function opened(
   rules: Record<string, object> = {},
   more: Omit<ScriptedPiBehavior, "rules"> = {},
   titleModel?: Parameters<typeof createSessionManager>[0]["titleModel"],
+  clock?: Clock,
 ) {
   const at = await place();
   const file = await terminalSession(at, "pi-session-1", at.workspace);
@@ -3167,6 +3177,9 @@ async function opened(
     undefined,
     undefined,
     titleModel,
+    undefined,
+    undefined,
+    clock === undefined ? {} : { clock },
   );
   await managed.catalog.scan();
   await managed.manager.openSession("client-1", "pi-session-1");
@@ -4004,6 +4017,395 @@ describe("SessionManager after pi is updated (M1.10)", () => {
     expect(received.map((event) => event.type)).not.toContain("session_exited");
     expect(manager.summaries()[0]?.running).toBe(true);
     expect(starts()).toHaveLength(1);
+  });
+});
+
+/** A minute, as the idle reclaim counts (SPEC-0001, "空闲回收"). */
+const MINUTE = 60_000;
+
+/**
+ * A clock on real timers whose time a test moves on.
+ *
+ * @remarks
+ * Only the idle reclaim reads how long a session has been idle; timers stay real, so pi still
+ * starts and stops in its own time.
+ *
+ * @sideEffects none
+ * @returns The clock and how to move it on.
+ */
+function movableClock(): { readonly clock: Clock; pass(ms: number): void } {
+  let ahead = 0;
+  return {
+    clock: { now: () => Date.now() + ahead, setTimeout: (callback, ms) => systemClock.setTimeout(callback, ms) },
+    pass: (ms) => {
+      ahead += ms;
+    },
+  };
+}
+
+/**
+ * Waits until pi has answered all the host asked of it, such as the figures it reads after a run.
+ *
+ * @remarks
+ * Their answers publish events, which count as activity, so idleness is counted from after them.
+ * Each request is a span; with none left, only each pi's own span is open.
+ *
+ * @sideEffects Waits.
+ * @param resources - The manager's resource counts.
+ */
+async function piAnswered(resources: { snapshot(): Record<string, number> }): Promise<void> {
+  await vi.waitFor(() => expect(resources.snapshot()["span"]).toBe(resources.snapshot()["pi-process"]));
+  await quiet();
+}
+
+/**
+ * Stops watching `pi-session-1` and closes its tab, as when you close it.
+ *
+ * @sideEffects Unsubscribes `c1`; closes the tab of `client-1`.
+ * @param manager - The manager.
+ */
+async function leave(manager: Manager): Promise<void> {
+  await manager.subscribe("c1", []);
+  await manager.closeTab("client-1", "pi-session-1");
+}
+
+/**
+ * Waits for what a session publishes after a run, such as its figures read again.
+ *
+ * @remarks
+ * Those count as activity too, so idleness is counted from after them.
+ *
+ * @sideEffects Waits 200 ms.
+ */
+async function quiet(): Promise<void> {
+  await new Promise((resolve) => systemClock.setTimeout(() => resolve(undefined), 200));
+}
+
+/**
+ * How many times pi exited, by the events received.
+ *
+ * @remarks
+ * The idle reclaim's tests look at whether, and how often, a session's pi was stopped.
+ *
+ * @sideEffects none
+ * @param received - The events.
+ * @returns How many `session_exited` there are.
+ */
+function exits(received: readonly SessionEvent[]): number {
+  return received.filter((event) => event.type === "session_exited").length;
+}
+
+describe("SessionManager idle reclaim (M1.11 自用, 2026-10-22)", () => {
+  it("stops the pi of a session idle for 30 minutes since its last event, its tab open, and starts it on the next message", async () => {
+    const time = movableClock();
+    const { manager, received, starts, run, resources } = await opened([turn], {}, {}, undefined, time.clock);
+    await run();
+    await piAnswered(resources);
+    time.pass(29 * MINUTE);
+    manager.reclaimIdle();
+    await run();
+    await piAnswered(resources);
+    time.pass(29 * MINUTE);
+    manager.reclaimIdle();
+    // A stop would have been seen by now.
+    await quiet();
+    expect(exits(received)).toBe(0);
+
+    time.pass(MINUTE);
+    manager.reclaimIdle();
+
+    await vi.waitFor(() => expect(received.at(-1)).toMatchObject({ type: "session_exited", reason: "requested" }));
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+    // Still watched: its controller stays, so its view keeps what it showed.
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    await run();
+    expect(starts()).toHaveLength(2);
+    expect(exits(received)).toBe(1);
+  });
+
+  it("stops the pi of a session opened and never used, counting from its start", async () => {
+    const time = movableClock();
+    const { manager, received, resources } = await opened([turn], {}, {}, undefined, time.clock);
+    await piAnswered(resources);
+    time.pass(30 * MINUTE);
+
+    manager.reclaimIdle();
+
+    await vi.waitFor(() => expect(exits(received)).toBe(1));
+    expect(resources.snapshot()["pi-process"]).toBe(0);
+  });
+
+  it("has a message sent while the idle stop is under way wait for it, then go to a new pi", async () => {
+    const time = movableClock();
+    // pi lingers after its stdin closes, so the stop takes its whole grace period.
+    const { manager, received, starts, run, resources } = await opened(
+      [turn],
+      {},
+      { ignoreStdinEnd: true },
+      undefined,
+      time.clock,
+    );
+    await run();
+    await piAnswered(resources);
+    time.pass(30 * MINUTE);
+
+    manager.reclaimIdle();
+    await new Promise((resolve) => systemClock.setTimeout(() => resolve(undefined), 50));
+    await run();
+
+    expect(starts()).toHaveLength(2);
+    expect(received.filter((event) => event.type === "run_settled")).toHaveLength(2);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("lets go of a stopped session's controller once nobody watches it or has its tab open, and builds it again from the file on open", async () => {
+    const time = movableClock();
+    const { manager, received, run, resources } = await opened([turn], {}, {}, undefined, time.clock);
+    const before = present(
+      received.findLast((event) => event.type === "session_snapshot"),
+      "first snapshot",
+    );
+    await run();
+    await piAnswered(resources);
+    time.pass(30 * MINUTE);
+    manager.reclaimIdle();
+    await vi.waitFor(() => expect(exits(received)).toBe(1));
+    manager.reclaimIdle();
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    await manager.subscribe("c1", []);
+    manager.reclaimIdle();
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+
+    await manager.closeTab("client-1", "pi-session-1");
+    manager.reclaimIdle();
+
+    expect(resources.snapshot()["session.controller"]).toBe(0);
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    const after = present(
+      received.findLast((event) => event.type === "session_snapshot"),
+      "snapshot after opening again",
+    );
+    expect(after).toMatchObject({ exited: false, epoch: 1 });
+    expect(after.items.map((item) => item.kind)).toStrictEqual(before.items.map((item) => item.kind));
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps a stopped session's controller while its tab is open, nobody watching, so going back shows it at once", async () => {
+    const time = movableClock();
+    const { manager, received, run, resources } = await opened([turn], {}, {}, undefined, time.clock);
+    await run();
+    await piAnswered(resources);
+    time.pass(30 * MINUTE);
+    manager.reclaimIdle();
+    await vi.waitFor(() => expect(exits(received)).toBe(1));
+    await manager.subscribe("c1", []);
+
+    manager.reclaimIdle();
+
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    await manager.subscribe("c1", ["pi-session-1"]);
+    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", exited: true });
+  });
+
+  it("counts a start waiting for the idle stop as busy, so the session cannot be handed off meanwhile", async () => {
+    const time = movableClock();
+    // pi lingers after its stdin closes, so the stop takes its whole grace period.
+    const { manager, run, resources, starts } = await opened(
+      [turn],
+      {},
+      { ignoreStdinEnd: true },
+      undefined,
+      time.clock,
+    );
+    await run();
+    await piAnswered(resources);
+    time.pass(30 * MINUTE);
+    manager.reclaimIdle();
+    await quiet();
+
+    const opening = manager.openSession("client-1", "pi-session-1");
+    // The open is waiting for the stop by now, which takes its whole grace period.
+    await quiet();
+    const handing = await manager.handOff("pi-session-1").catch(caught);
+
+    expect(handing).toStrictEqual(new CommandError("session_busy"));
+    await opening;
+    expect(starts()).toHaveLength(2);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps a live session's controller while nobody watches it", async () => {
+    const time = movableClock();
+    const { manager, run, resources } = await opened([turn], {}, {}, undefined, time.clock);
+    await run();
+    await piAnswered(resources);
+    await manager.subscribe("c1", []);
+    time.pass(29 * MINUTE);
+
+    manager.reclaimIdle();
+
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+    expect(resources.snapshot()["pi-process"]).toBe(1);
+  });
+
+  it("keeps the controller of a session whose pi gave up after crashing, which only it remembers", async () => {
+    const time = movableClock();
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, received, resources } = await manage(
+      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
+      at,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { clock: time.clock },
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    await manager.subscribe("c1", ["pi-session-1"]);
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "bye" });
+    await vi.waitFor(() =>
+      expect(received.at(-1)).toMatchObject({ type: "control_updated", control: { failure: { attempts: 3 } } }),
+    );
+    await leave(manager);
+    time.pass(30 * MINUTE);
+
+    manager.reclaimIdle();
+
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+  });
+
+  it("keeps the controller of a session whose pi is being started again after a crash, nobody watching", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, subscriptions, resources } = await manage(
+      { rules: { ...SESSION_ONE, prompt: { data: { disposition: "started" }, exitAfter: 1 } } },
+      at,
+    );
+    await catalog.scan();
+    await manager.openSession("client-1", "pi-session-1");
+    // Nobody watches the session once its restart is under way.
+    const meanwhile = whenRestarting(subscriptions, async () => {
+      subscriptions.subscribe("c2", []);
+      await manager.closeTab("client-1", "pi-session-1");
+      manager.reclaimIdle();
+    });
+    await manager.subscribe("c2", ["pi-session-1"]);
+
+    await manager.prompt({ type: "prompt", requestId: "q", traceparent, sessionId: "pi-session-1", text: "bye" });
+
+    await meanwhile;
+    await vi.waitFor(() => expect(manager.summaries()[0]?.attention).toMatchObject({ reason: "error" }));
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+  });
+
+  it("keeps the controller of a session whose queue was stopped, emptied since, which holds deliveries back", async () => {
+    const time = movableClock();
+    const { manager, received, resources } = await opened(
+      [[{ type: "agent_start" }]],
+      { abort: { data: {}, events: [{ type: "agent_settled" }] } },
+      {},
+      undefined,
+      time.clock,
+    );
+    await manager.prompt({ type: "prompt", requestId: "q1", traceparent, sessionId: "pi-session-1", text: "one" });
+    await vi.waitFor(() => expect(manager.summaries()[0]?.running).toBe(true));
+    await manager.prompt({ type: "prompt", requestId: "q2", traceparent, sessionId: "pi-session-1", text: "two" });
+    await manager.stop("pi-session-1");
+    await vi.waitFor(() => expect(received.map((event) => event.type)).toContain("run_settled"));
+    const queued = present(
+      received.findLast((event) => event.type === "control_updated")?.control.queue[0],
+      "queued message",
+    );
+    await manager.removeQueued("pi-session-1", queued.id);
+    expect(received.findLast((event) => event.type === "control_updated")).toMatchObject({
+      control: { queue: [], paused: "stopped" },
+    });
+    time.pass(30 * MINUTE);
+    manager.reclaimIdle();
+    await vi.waitFor(() => expect(exits(received)).toBe(1));
+    await leave(manager);
+
+    manager.reclaimIdle();
+
+    expect(resources.snapshot()["session.controller"]).toBe(1);
+  });
+
+  it("leaves a session alone while it runs, while messages wait in the host's queue, or while a dialog waits", async () => {
+    const time = movableClock();
+    const running = await opened([[{ type: "agent_start" }]], {}, {}, undefined, time.clock);
+    await running.manager.prompt({
+      type: "prompt",
+      requestId: "q",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "one",
+    });
+    await vi.waitFor(() => expect(running.manager.summaries()[0]?.running).toBe(true));
+    const queued = await opened(
+      [[{ type: "agent_start" }]],
+      { abort: { data: {}, events: [{ type: "agent_settled" }] } },
+      {},
+      undefined,
+      time.clock,
+    );
+    await queued.manager.prompt({
+      type: "prompt",
+      requestId: "q1",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "one",
+    });
+    await vi.waitFor(() => expect(queued.manager.summaries()[0]?.running).toBe(true));
+    await queued.manager.prompt({
+      type: "prompt",
+      requestId: "q2",
+      traceparent,
+      sessionId: "pi-session-1",
+      text: "two",
+    });
+    await queued.manager.stop("pi-session-1");
+    await vi.waitFor(() => expect(queued.received.map((event) => event.type)).toContain("run_settled"));
+    const asking = await opened([[...turn, confirmation("d1")]], {}, {}, undefined, time.clock);
+    await asking.run();
+    await vi.waitFor(() => expect(asking.manager.summaries()[0]?.asking).not.toBeNull());
+    time.pass(31 * MINUTE);
+
+    for (const { manager } of [running, queued, asking]) manager.reclaimIdle();
+    await quiet();
+
+    expect(
+      [running, queued, asking].map(({ received, resources }) => [exits(received), resources.snapshot()["pi-process"]]),
+    ).toStrictEqual([
+      [0, 1],
+      [0, 1],
+      [0, 1],
+    ]);
+  });
+
+  it("returns pi and controller counts to none after rounds of opening, going idle and being let go", async () => {
+    const time = movableClock();
+    const { manager, run, resources } = await opened([turn], {}, {}, undefined, time.clock);
+    for (let round = 0; round < 5; round++) {
+      await manager.openSession("client-1", "pi-session-1");
+      await manager.subscribe("c1", ["pi-session-1"]);
+      await run();
+      await piAnswered(resources);
+      await leave(manager);
+      time.pass(30 * MINUTE);
+      manager.reclaimIdle();
+      await vi.waitFor(() => expect(resources.snapshot()["pi-process"]).toBe(0));
+      manager.reclaimIdle();
+      expect(resources.snapshot()["session.controller"]).toBe(0);
+    }
+
+    expect(resources.snapshot()).toMatchObject({ "pi-process": 0, "session.controller": 0, timer: 0 });
   });
 });
 

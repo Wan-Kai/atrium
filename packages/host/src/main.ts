@@ -658,13 +658,15 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
   }
 
   /**
-   * Schedules the next resource report.
+   * Schedules the next resource report, and the idle sessions' reclaim with it.
    *
    * @remarks
    * A chain of one-shot timers rather than an interval, so a fake clock in tests can drive it and
-   * shutdown cancels exactly one pending timer.
+   * shutdown cancels exactly one pending timer. The reclaim goes by the same minute (SPEC-0001,
+   * "空闲回收"), after the report, so the report shows what it was about to let go of.
    *
-   * @sideEffects Registers a tracked timer that logs resource counts and memory, then reschedules.
+   * @sideEffects Registers a tracked timer that logs resource counts and memory, stops idle
+   * sessions' pi and lets go of controllers nobody needs, then reschedules.
    * @returns The cancel function of the pending timer.
    */
   function scheduleReport(): () => void {
@@ -673,7 +675,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
       resources,
       () => {
         logger.info({ resources: resources.snapshot(), memory: process.memoryUsage() }, "resource usage");
+        // First, so a reclaim that throws stops no later report.
         cancelReport = scheduleReport();
+        sessions.reclaimIdle();
       },
       RESOURCE_REPORT_INTERVAL_MS,
     );

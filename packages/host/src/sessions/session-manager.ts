@@ -125,6 +125,11 @@ export interface SessionManager extends SessionCommands {
   rescan(): void;
   /** Stops the pi of every session with nothing going on; resolves once they have exited. */
   stopIdle(): Promise<void>;
+  /**
+   * Stops the pi of sessions idle for 30 minutes, and lets go of the controllers of sessions whose
+   * pi has stopped that nobody watches (SPEC-0001, "空闲回收"); the host asks once a minute.
+   */
+  reclaimIdle(): void;
   /** Stops every pi; resolves once all have exited and background scans have stopped. */
   close(): Promise<void>;
 }
@@ -189,6 +194,9 @@ const FORK_TEMP_MARKER = ".atrium-fork";
  * id, so the child counts nothing rather than its copied history twice (SPEC-0002, "用量合计").
  */
 const UNREAD_BASELINE = "(unread)";
+
+/** How long a session stays idle before its pi is stopped (SPEC-0001, "空闲回收"). */
+const IDLE_STOP_MS = 30 * 60_000;
 
 /**
  * Switches Fast in a pi that lists Atrium's Fast switch.
@@ -386,6 +394,10 @@ export function createSessionManager(options: {
   const created = new Set<string>();
   /** Sessions being started, so a second start waits for the first. */
   const starting = new Map<string, Promise<Running>>();
+  /** When each held session last published an event or had its pi started, which idleness counts from. */
+  const lastActive = new Map<string, number>();
+  /** Idle sessions whose pi is being stopped, which a start waits for (SPEC-0001, "空闲回收"). */
+  const idleStops = new Map<string, Promise<void>>();
   /**
    * Sessions, and containers whose sessions, are being archived, which nothing may start again
    * (SPEC-0001, "`archive_session`"), with how many archivings under way mark each: a child's
@@ -602,6 +614,8 @@ export function createSessionManager(options: {
    * @returns The running session, or `undefined`.
    */
   function live(sessionId: string): Running | undefined {
+    // A pi stopped for being idle takes no more commands; they wait for it and start another.
+    if (idleStops.has(sessionId)) return undefined;
     const found = sessions.get(sessionId);
     // A session whose pi is being started again counts as running: nothing else may start one.
     return found === undefined || (found.controller.exited && !found.controller.restarting) ? undefined : found;
@@ -727,6 +741,7 @@ export function createSessionManager(options: {
    * @param event - An event it published.
    */
   function observe(sessionId: string, event: SessionEvent): void {
+    lastActive.set(sessionId, options.clock.now());
     if (event.type === "run_started") {
       busy.add(sessionId);
       failures.delete(sessionId);
@@ -1200,6 +1215,8 @@ export function createSessionManager(options: {
      * @returns The running session.
      */
     const start = async (): Promise<Running> => {
+      // Counted as a start meanwhile, so a hand-off or a stop sees it (SPEC-0001, "空闲回收").
+      await idleStops.get(sessionId);
       notArchived(sessionId);
       const tools = await readyTools();
       const started = await connect(sessionId, await spawn(tools, await launchOf(sessionId), sessionId));
@@ -1265,7 +1282,61 @@ export function createSessionManager(options: {
     held.get(sessionId)?.();
     held.set(sessionId, options.resources.acquire("session.controller"));
     sessions.set(sessionId, started);
+    lastActive.set(sessionId, options.clock.now());
     childrenUsage.refresh(sessionId);
+  }
+
+  /**
+   * Lets go of a session's controller and what is kept with it.
+   *
+   * @remarks
+   * Opening the session again builds another from its file, as after the host restarts.
+   *
+   * @sideEffects Updates the sessions held and the resource counts.
+   * @param sessionId - The session.
+   */
+  function dropController(sessionId: string): void {
+    held.get(sessionId)?.();
+    held.delete(sessionId);
+    sessions.delete(sessionId);
+    // Stryker disable next-line all: only frees memory; holding the session again sets it first.
+    lastActive.delete(sessionId);
+  }
+
+  /**
+   * Whether a session whose pi has stopped may lose its controller.
+   *
+   * @remarks
+   * SPEC-0001, "空闲回收": not while a client watches it or has its tab open, which shows it at
+   * once when you go back to it, nor while it holds what only it remembers: a paused queue (any
+   * stop pauses it until "继续发送", and it holds deliveries back) or a failure. Messages left in
+   * the queue of a pi gone pause it: a stop or a crash does, and an idle stop waits for an empty
+   * one. A start under way meanwhile makes a controller of its own.
+   *
+   * @sideEffects none
+   * @param sessionId - The session.
+   * @param controller - Its controller.
+   * @returns Whether it may.
+   */
+  function releasable(sessionId: string, controller: SessionController): boolean {
+    if (options.subscriptions.viewers(sessionId).length > 0 || options.layouts.isOpen(sessionId)) return false;
+    const control = controller.control();
+    return control.paused === null && control.failure === null;
+  }
+
+  /**
+   * Stops an idle session's pi, which a start waits for.
+   *
+   * @remarks
+   * SPEC-0001, "空闲回收": a `requested` stop; the session's next use starts pi again.
+   *
+   * @sideEffects Stops pi in the background.
+   * @param sessionId - The session.
+   */
+  function stopIdleSession(sessionId: string): void {
+    const stop = stopSession(sessionId).finally(() => idleStops.delete(sessionId));
+    idleStops.set(sessionId, stop);
+    inBackground("idle stop", () => stop);
   }
 
   /**
@@ -1280,9 +1351,7 @@ export function createSessionManager(options: {
    * @param sessionId - The session.
    */
   function forget(sessionId: string): void {
-    held.get(sessionId)?.();
-    held.delete(sessionId);
-    sessions.delete(sessionId);
+    dropController(sessionId);
     // Stryker disable next-line all: only frees memory; a session forgotten here runs no more, and its next run would clear them first.
     for (const kept of [failures, marked, renamed, created]) kept.delete(sessionId);
   }
@@ -1641,8 +1710,13 @@ export function createSessionManager(options: {
         await options.catalog.ready();
         notArchived(sessionId);
         notHandedOff(sessionId);
+        // A view of the pi that stopped holds that pi's epoch; the one started here reads the same
+        // file, so only the turn is checked again, by its id from its entry (SPEC-0001, "空闲回收").
+        const stopped = live(sessionId) === undefined ? sessions.get(sessionId)?.controller : undefined;
+        const before = stopped?.exited === true ? stopped.snapshot().epoch : null;
         const session = live(sessionId) ?? (await ensureRunning(sessionId));
-        return await session.controller.editStoppedMessage(command, images);
+        const epoch = command.epoch === before ? session.controller.snapshot().epoch : command.epoch;
+        return await session.controller.editStoppedMessage({ ...command, epoch }, images);
       } finally {
         const left = (prompting.get(sessionId) ?? 1) - 1;
         if (left === 0) prompting.delete(sessionId);
@@ -1897,6 +1971,21 @@ export function createSessionManager(options: {
       await Promise.allSettled(starting.values());
       const idle = [...sessions.keys()].filter((sessionId) => !occupied(sessionId) && askingSince(sessionId) === null);
       await Promise.all(idle.map((sessionId) => stopSession(sessionId)));
+    },
+    reclaimIdle() {
+      const now = options.clock.now();
+      for (const [sessionId, { controller }] of sessions) {
+        if (controller.exited && !controller.restarting) {
+          if (releasable(sessionId, controller)) dropController(sessionId);
+        } else if (
+          now - (lastActive.get(sessionId) ?? now) >= IDLE_STOP_MS &&
+          !idleStops.has(sessionId) &&
+          !occupied(sessionId) &&
+          askingSince(sessionId) === null
+        ) {
+          stopIdleSession(sessionId);
+        }
+      }
     },
     async forgetWorkspaces(workspaceIds) {
       const gone = options.catalog.list().filter((entry) => workspaceIds.includes(entry.containerId));
