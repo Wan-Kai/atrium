@@ -540,7 +540,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 运行中的点阵涡旋（侧栏、标签栏 14px，子对话行 12px）：5×5 裁成圆的 21 个点、跟文字色；每个点按三档亮度跳变、1.65 秒一圈，按位置错开成螺旋臂；不同时刻出现的图标同一相位；减弱动态时停在一帧；其他状态不用它 | `packages/ui/src/design/running-dots.browser.test.tsx`；`sidebar/status-icon.browser.test.tsx`；`chat/lanes.browser.test.tsx` "counts beside a child still on its task" | 已覆盖 |
 | 用户气泡里没有空格可断的长串（URL、token）在气泡宽度处断开，不伸出气泡 | `packages/ui/src/chat/chat.browser.test.tsx` "breaks a long URL at the bubble's width" | 已覆盖 |
 | 输入框文字离卡片左边 20px、上边 16px，展开按钮离上边 16px、右边 20px，和第一行对齐（2026-10-20 由 20px 收到 16px） | `composer.browser.test.tsx` "starts the text 20px from the card's left and 16px from its top"、"keeps the expand button in the card's top right corner"；`chat.browser.test.tsx` "sits just under the input box" | 已覆盖 |
-| 回复里的表格最高 640px，再高在表格里面滚动（原先 Streamdown 默认 300px） | `packages/ui/src/chat/markdown.browser.test.tsx` "lets a long table grow to 640px before it scrolls inside" | 已覆盖 |
+| 回复里的表格最高 640px（原先 Streamdown 默认 300px）；2026-10-22 起再高就收起、不在里面滚动，见下文"M1.11 自用中改（2026-10-22）" | `packages/ui/src/chat/markdown.browser.test.tsx` "folds a table taller than 640px…" | 已覆盖 |
 | 新建工作区的启动过程在这一轮里（原型甲）：发出后对话区就是消息流的版式（同对话记录的内边距和间距，气泡在消息列顶部靠右），气泡下面是这一轮的过程，标题行同运行中（小猫、扫光的"准备工作区"），步骤一步步长出、没开始的不画；从新建工作区页换成会话、"发出消息"做完、宿主的这一轮到了，气泡和标题行的位置都不变，气泡、标题行、"准备工作区"那一行和已经长出的步骤是同一份 DOM（不重新挂载），标题行接着就是"进行中"；会话自己的待发副本和"进行中"那一行不另外画 | `packages/ui/src/app/new-workspace.browser.test.tsx` "keeps the message and the steps where the turn is, the same nodes, from sending till the turn runs"、"lays the launch out as the transcript does…"、"names the branch, creates the worktree and the session, then sends…"、"goes without naming a branch written…"；`chat.browser.test.tsx` "does not say the line in a session the new-workspace page is making" | 已覆盖 |
 | 入场动效只给刚开始的一步：发出时第一步、之后新开始的一步有入场；会话再显示这次启动时已经有的步骤没有 | new-workspace.browser.test.tsx "keeps the message and the steps where the turn is…"、"shows the steps of a launch shown again without their entrance…" | 已覆盖 |
 | 气泡在"发出消息"做完前 60% 不透明，做完后 0.2 秒变实、时间淡入；气泡下面一行高度不变 | new-workspace.browser.test.tsx "shows the message at 60% until it has gone, then fully, with its time coming in" | 已覆盖 |
@@ -624,6 +624,16 @@ SPEC-0001“回复渲染”；原型 `chat-rendering-support-prototype.html` 的
 本分支集成 main 之前：`pnpm check`、构建通过；171 文件/3105 项串行单元通过，47 文件/900 项串行 UI 全过，未跳用例或弱化断言。并发单元负载下仍遇未修改的宿主 pi-config 队列例 `config_conflict`，单文件 44 项通过，安静串行全量通过。并行 UI 还出现过旧右栏 0.24 s 时序失败及不同文件的导入期 SyntaxError；冷缓存对照三文件 69 项通过，但全套并行仍有导入失败，未宣称已修复工具链并发。两个真实功能回归（外层面/新按钮清单、比例就绪）已按用户选的 B 完整更新原测试，不把它们当作已知不稳。机械设计扫描只报原有渐变文字/弹性状态提示，不改与这次图表无关的视觉。此段记录集成前本分支验证。
 
 2026-10-21 后续集成 main `dbea812`（已停止消息编辑、空思考/空回复布局）：手工合并 `conversation-area.tsx` 时同时保留 session 身份门槛、无 session key 的图片上下文及 main 的编辑 store/回调/草稿与图片占位恢复；`turn-view.tsx` 与 main 无差异。新增组合断言：已停止且含本地图的回复进入编辑后图仍在，工作区 metadata 更新不重读、目录变化才重读。初版 fixture 误用 done，按规格没有编辑入口；修正为 stopped 后，正向两项通过，初次负对照结果作废，最终重新验证的三个接缝负对照（空编辑回调、去身份门槛、丢图片能力）均在隔离副本被对应断言检出。独立只读复核按 main 完整 diff 确认两边行为保留，无阻断。集成后 189 文件/3405 单元与宿主、47 文件/938 串行 UI、9 相关桌面全部通过，`pnpm check`/构建通过；桌面覆盖流式、空结束、编辑后重启恢复、新建工作区交接、图表/图片 CSP 与回收、JSON/CSV 及真实文件行定位。未跑整套桌面、全部 pi 契约、性能/压力/浸泡或打包安装，也未关闭用户正在用的开发进程。
+
+## M1.11 自用中改（2026-10-22）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 回复里超过 640px 的表格在 640px 处收起：不在里面上下滚动，最下面 48px 渐隐，下面一行"还有 N 行"（N 是没有完整露出的行数）；这一行 13px `--text-dim`、30px 高，文字和第一列对齐，悬停底色比表格两边各宽 8px | `packages/ui/src/chat/markdown.browser.test.tsx` "folds a table taller than 640px there, fading out, with how many rows are left under it" | 已覆盖 |
+| 点开后整张表铺在回复里、不渐隐，按钮变"收起"（`aria-expanded`）、sticky；再点收回 640px | 同上 "lays the whole table out in the reply once opened, and folds it again on 收起" | 已覆盖 |
+| 展开后在表格中间"收起"贴着滚动区底边；收起后表格顶部在视野外时滚回表格顶部（只动最近的滚动区，滚动区比收起的表格矮时也滚回） | 同上 "keeps 收起 at the bottom of the view inside an opened table, and brings the table back into view on folding" | 已覆盖 |
+| 不超过 640px 的表格不渐隐、没有这一行 | 同上 "leaves a table that fits as it is: no fade, no button" | 已覆盖 |
+| 流式输出中长到 640px 以上同样收起，表头在视野里（不跟着滚到最新一行） | 同上 "folds a table still streaming in at 640px, its header in view" | 已覆盖 |
 
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 

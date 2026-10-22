@@ -47,6 +47,7 @@ import { MERMAID_ZOOM_LABELS, MermaidZoom } from "./mermaid-zoom";
 import { PlantumlBlock } from "./plantuml-block";
 import { ReplyFile } from "./reply-file";
 import { ReplyDataBlock } from "./reply-data-block";
+import { ReplyTable } from "./reply-table";
 
 /** Streamdown's default Markdown plugins, plus showing raw HTML as text. */
 const REMARK_PLUGINS = [
@@ -89,9 +90,6 @@ const ICONS: Partial<IconMap> = {
   ZoomInIcon: MagnifyingGlassPlus,
   ZoomOutIcon: MagnifyingGlassMinus,
 };
-
-/** How tall a table grows before it scrolls inside, in pixels. */
-const TABLE_MAX_HEIGHT = 640;
 
 /** Streamdown's words, in Chinese. */
 const TRANSLATIONS: Partial<StreamdownTranslations> = {
@@ -404,6 +402,7 @@ const COMPONENTS: Components = {
   "atrium-image": MarkdownImage,
   "atrium-file": ReplyFile,
   code: ReplyCode,
+  table: ReplyTable,
 };
 
 /** Keeps reference definitions with the images that use them.
@@ -437,7 +436,8 @@ export interface MarkdownProps {
  * text. Links use `ExternalLink`, so Streamdown's own link confirmation never applies; the
  * desktop shell already sends links to the system browser. Code blocks have no line numbers and no
  * download, buttons are Atrium's icons with Chinese names, and `styles.css` lays the blocks flat
- * (design-language, "消息流"); Mermaid blocks go to `MermaidBlock` once its plugin has loaded.
+ * (design-language, "消息流"); Mermaid blocks go to `MermaidBlock` once its plugin has loaded, and
+ * tables to `ReplyTable`, which folds a tall one.
  *
  * @sideEffects May load the math or Mermaid plugin.
  * @param props - The text and whether it is still streaming.
@@ -456,8 +456,8 @@ export function Markdown({ text, streaming }: MarkdownProps) {
       icons={ICONS}
       translations={TRANSLATIONS}
       lineNumbers={false}
-      // Streamdown's 300px scrolled a table after ten rows (design-language, "代码块、表格、Mermaid 图").
-      tableMaxHeight={TABLE_MAX_HEIGHT}
+      // `ReplyTable` folds a tall table instead of scrolling it inside (design-language, "代码块、表格、Mermaid 图").
+      tableMaxHeight="none"
       isAnimating={streaming}
       // space-y-3 replaces Streamdown's own space-y-4: blocks 12px apart (design-language, "字体").
       className="atrium-markdown space-y-3"
