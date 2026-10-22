@@ -52,6 +52,46 @@ test("switches the model and thinking level beside the input box, and a new chat
   }
 });
 
+test("lists native Claude, keeps its default and selects it without plan tags", async () => {
+  const testInfo = test.info();
+  const pi = await fauxPiEnvironment({
+    provider: "anthropic",
+    replies: [{ blocks: [{ type: "text", text: "好的" }] }],
+    models: [{ id: "native-claude", name: "Native Claude", reasoning: true }],
+  });
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    const chip = window.getByRole("button", { name: /^模型与推理强度/ });
+    await expect(chip).toHaveText("faux-1", { timeout: 30_000 });
+    await expect(chip.getByRole("img", { name: "走套餐" })).toHaveCount(0);
+
+    await chip.click();
+    const tab = window.getByRole("tab", { name: "Anthropic", exact: true });
+    await expect(tab.getByRole("img", { name: "走套餐" })).toHaveCount(0);
+    const panel = window.getByRole("tabpanel", { name: "Anthropic" });
+    await expect(panel.getByText("套餐", { exact: true })).toHaveCount(0);
+    await expect(panel.getByRole("menuitemradio")).toHaveCount(2);
+    for (const colorScheme of ["light", "dark"] as const) {
+      await window.emulateMedia({ colorScheme });
+      await window.screenshot({ path: testInfo.outputPath(`native-claude-${colorScheme}.png`) });
+    }
+    await panel.getByRole("menuitemradio", { name: /Native Claude/ }).click();
+    await expect(chip).toHaveText("Native Claude中");
+    const box = window.getByRole("textbox", { name: "消息" });
+    await box.fill("一");
+    await box.press("Enter");
+    await expect(window.locator('[data-testid="reply"][data-streaming="false"]')).toHaveText(["好的"], {
+      timeout: 30_000,
+    });
+    await expect(chip).toHaveText("Native Claude中");
+    await expect(chip.getByRole("img", { name: "走套餐" })).toHaveCount(0);
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});
+
 test("lists pi's commands as / is typed, and runs the one chosen", async () => {
   const pi = await fauxPiEnvironment({ replies: [] });
   const launched = await launchApp(pi.env);
