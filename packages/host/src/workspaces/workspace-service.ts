@@ -58,7 +58,8 @@ export interface WorkspaceService {
  * - a worktree's creation time is that of its administrative directory under the repository's
  *   `worktrees/`, which outlives the worktree itself;
  * - the main branch is the project's own setting or `origin/HEAD`, nothing else
- *   (domain-model, "已决定 15");
+ *   (domain-model, "已决定 15"); merge states compare with the local branch of that name, or
+ *   with `origin`'s without one (SPEC-0001, "worktree 合并状态");
  * - scans run when the service starts, when the window gains focus, when a run in a workspace
  *   ends, and for a project just added; files are never watched;
  * - every few minutes and on focus (at most once a minute) each project that is the top of its
@@ -229,7 +230,7 @@ export function createWorkspaceService(options: {
       // git prints the common directory with the top level, so it is known whenever worktrees were listed.
       // Stryker disable next-line StringLiteral: never used, as the line above says.
       const created = await creationTimes(common ?? "");
-      const mainRef = await mainBranchRef(project, run);
+      const mainRef = await comparedMainRef(project, run);
       const inspector = await options.inspector;
       await Promise.all(
         records()
@@ -525,6 +526,31 @@ export async function mainBranchRef(
   if (project.mainBranch !== null) return `refs/remotes/origin/${project.mainBranch}`;
   const head = await run("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD");
   return head?.code === 0 ? head.stdout.trim() : null;
+}
+
+/**
+ * The ref a project's worktrees' merge states compare with.
+ *
+ * @remarks
+ * The local branch of the main branch's name, so a branch merged here and not pushed shows
+ * merged; `origin`'s without one (SPEC-0001, "worktree 合并状态", 2026-10-22).
+ *
+ * @sideEffects Runs git.
+ * @param project - The project.
+ * @param run - Runs git in the project.
+ * @returns The ref, or `null` without a main branch.
+ */
+async function comparedMainRef(
+  project: ProjectRecord,
+  run: (...args: string[]) => Promise<{ readonly code: number; readonly stdout: string } | null>,
+): Promise<string | null> {
+  const remote = await mainBranchRef(project, run);
+  if (remote === null) return null;
+  const local = `refs/heads/${remote.slice("refs/remotes/origin/".length)}`;
+  // Stryker disable next-line StringLiteral: a full ref name matches only itself either way.
+  const found = await run("show-ref", "--verify", "--quiet", local);
+  // Stryker disable next-line OptionalChaining: scans reach here only with git, which lists worktrees first; the check is for the type.
+  return found?.code === 0 ? local : remote;
 }
 
 /**

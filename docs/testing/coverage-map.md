@@ -973,6 +973,24 @@ UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方
 
 用户确认合并与删除 worktree 后，同步 `main` 的 `a43ba71`，仅追踪表冲突，保留双方记录；实现差异仍限于本任务。合并前 `pnpm check`、构建、串行单元 3270 项、串行 UI 940 项、模型 Electron 3 项通过，使用仓库原配置，无超时调整或断言弱化。此前单元 / 宿主的失败记录保留，不改写为从未失败：本轮单元全过但仍有日志流 `EBADF` 输出。集成后首轮 UI 有未修改的右栏 0.24 秒动画例失败，单文件 13 项及随后串行全量通过；同时模型 Electron 的旧 `/faux-noop` 命令例失败，整文件独立复跑 3 项通过。本轮不冒称重新跑过宿主全量、变异测试或其它桌面旅程；未安装、未推送，主工作区无关的文档草稿不纳入提交。
 
+## M1.11 自用：合并状态、"+A −D"和新 worktree 起点先用本机主干（2026-10-22）
+
+本机合并、不推送时，侧栏一直显示未合并，新开 worktree 的"+A −D"也把本机 `main` 多出的提交算进去。主干的名字照旧（项目设置或 `origin/HEAD`），比较时先用本机的同名分支，本机没有再用 `origin/<主干>`（SPEC-0001"worktree 合并状态""工作区改动"，domain-model"已决定 15"）。用户随后确认新建 worktree 的默认起点也一样：本机有主干就从本机的开始，否则从 `origin/<主干>`；`list_bases` 的 `main` 改成完整 ref（协议 25）。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 合进本机 `main`、没推送的分支显示已合并 | `workspace-service.test.ts` "tells a branch merged into the local main branch, not pushed, merged"（改前 `pending`） | 已覆盖 |
+| 只在远程合并的分支，本机 `main` 没更新前仍是待合并，更新后显示已合并 | "keeps a branch merged only on origin pending until the local main branch has it"（改前一开始就是 `merged`） | 已覆盖 |
+| 本机没有主干分支时比 `origin/<主干>`，后台 fetch 照常起作用 | "fetches every few minutes … against origin without a local main branch"（原 fetch 测试改成删掉本机 `main`） | 已覆盖 |
+| "+A −D"和改动面板比本机主干，本机合并、没推送的提交不算进新 worktree 的改动 | `checkout.host.test.ts` "compares a branch with the local main branch, leaving out what was merged into it here and not pushed"（改前 +4、`origin/main`） | 已覆盖 |
+| 本机没有主干时比 `origin/<主干>`；同名的本地分支 `origin/main` 抢不走 | "compares a branch with origin's main branch when there is no local one"；"compares with origin's main branch by its full name…"（改成删掉本机 `main`） | 已覆盖 |
+
+| `list_bases` 的 `main`：本机有主干时 `refs/heads/<主干>`，否则 `refs/remotes/origin/<主干>`，都没有为 `null`；项目设置的主干同样本机优先 | `worktree-creator.test.ts` "lists the local main branch…"、"lists origin's main branch when there is no local one"、"follows the project's own main branch, local first…"（改前都是 `origin/…` 短名） | 已覆盖 |
+| 新建工作区页默认起点用 `main` 指的那一个，"主分支"小标签标在它上面（本机的或远程的） | `new-workspace.test.ts` "starts from the main branch…"；`new-workspace.browser.test.tsx` "chooses a new worktree from the main branch…"（本机）、"filters the bases…"（只有远程）；假客户端默认改成没有本机主干的仓库 | 已覆盖 |
+| 真实 Electron：本机 `main` 比 origin 多一个没推送的提交，新 worktree 从本机 `main` 开始，"基于 main" | `apps/desktop/e2e/new-workspace.spec.ts`（原先断言的是从 `origin/main` 开始） | 已覆盖 |
+
+破坏检查：起点部分 7 处全部检出（`/tmp/lm-break3.json`，另加变异测试指出的一处：没有 `origin/HEAD` 时 `origin` 上恰好有叫 `null` 的分支，补进 "has no main branch without origin/HEAD…"）。变异测试：`worktree-creator.ts`、`new-workspace.ts` 改动行补测试后无存活，`workspace-service.ts`、`checkout.ts` 改动行 100%（两处等价在源码注明）。合并状态与"+A −D"部分 5 处全部检出（`/tmp/lm-break.json`；`checkout.host.test.ts` 的两处第一次没写 `project: "host"`，跑到了单元层、报 MISSED，补上后检出）。
+
 ## 子对话列表标模型、插话重叠、弹窗直接消失（2026-10-21）
 
 | 行为 | 测试 | 状态 |

@@ -33,7 +33,7 @@ export function ProjectsSection({ client }: { readonly client: AtriumClient }) {
       description={
         <>
           主干用来判断 worktree 合没合并，也是胶囊条里"+A −D"的比较基准。默认取 <Code>origin/HEAD</Code>{" "}
-          指向的分支，比较时用远程的 <Code>origin/&lt;主干&gt;</Code>。
+          指向的分支，比较时用本机的这个分支，本机没有时用 <Code>origin/&lt;主干&gt;</Code>。
         </>
       }
       footer="改了之后，这个项目下所有 worktree 的合并状态和 +A −D 会重新计算。"

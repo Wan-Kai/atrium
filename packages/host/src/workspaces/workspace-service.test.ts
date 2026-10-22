@@ -340,11 +340,53 @@ describe("WorkspaceService", () => {
     expect(changes()).toBe(before + 1);
   });
 
-  it("fetches every few minutes and works merge states out again without git status", async () => {
+  it("tells a branch merged into the local main branch, not pushed, merged", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    await repo.commit(feature, "a.txt", "a");
+    const { projects, workspaces } = await services();
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    expect(workspaces.list()[1]?.merge).toStrictEqual(clean("pending", 1));
+
+    await repo.git(repo.repo, "merge", "--quiet", "--no-ff", "-m", "merge feature", "feature");
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    expect(workspaces.list()[1]?.merge).toStrictEqual(clean("merged"));
+  });
+
+  it("keeps a branch merged only on origin pending until the local main branch has it", async () => {
     const repo = await scene();
     const feature = await repo.worktree("feature");
     await repo.commit(feature, "a.txt", "a");
     await repo.git(feature, "push", "--quiet", "origin", "feature");
+    const other = join(repo.root, "other");
+    await repo.git(repo.root, "clone", "--quiet", repo.origin, other);
+    await repo.git(other, "merge", "--quiet", "--no-ff", "-m", "merge feature", "origin/feature");
+    await repo.git(other, "push", "--quiet", "origin", "main");
+    await repo.git(repo.repo, "fetch", "--quiet", "origin");
+    const { projects, workspaces } = await services();
+    await projects.add(repo.repo);
+    workspaces.start();
+    await workspaces.idle();
+    expect(workspaces.list()[1]?.merge).toStrictEqual(clean("pending", 1));
+
+    await repo.git(repo.repo, "merge", "--quiet", "--ff-only", "origin/main");
+    workspaces.windowFocused();
+    await workspaces.idle();
+
+    expect(workspaces.list()[1]?.merge).toStrictEqual(clean("merged"));
+  });
+
+  it("fetches every few minutes and works merge states out again without git status, against origin without a local main branch", async () => {
+    const repo = await scene();
+    const feature = await repo.worktree("feature");
+    await repo.commit(feature, "a.txt", "a");
+    await repo.git(feature, "push", "--quiet", "origin", "feature");
+    await repo.git(repo.repo, "checkout", "--quiet", "-b", "work");
+    await repo.git(repo.repo, "branch", "--quiet", "-D", "main");
     const clock = new FakeClock();
     const git = countingGit();
     const { projects, workspaces } = await services({ clock, git });

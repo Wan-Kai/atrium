@@ -337,20 +337,26 @@ describe("The new-workspace page (M1.11)", () => {
 
   it("chooses a new worktree from the main branch on a branch named for it, or another base, or a workspace there", async () => {
     const { screen, calls } = await newWorkspacePage({
-      bases: async () => ({ main: "origin/main", current: "main", local: ["dev", "main"], remote: ["origin/main"] }),
+      bases: async () => ({
+        main: "refs/heads/main",
+        current: "main",
+        local: ["dev", "main"],
+        remote: ["origin/main"],
+      }),
     });
 
     await expect.element(choice(screen, "项目")).toHaveTextContent("atrium");
     await expect.element(choice(screen, "工作区")).toHaveTextContent("新建 worktree");
-    await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/main");
+    await expect.element(choice(screen, "起点")).toHaveTextContent("基于 main");
     await expect.element(choice(screen, "分支名")).toHaveTextContent("自动起名");
     expect(calls).toContain(`listBases ${PROJECT.id}`);
 
     await choice(screen, "起点").click();
-    await expect.element(screen.getByRole("group", { name: "本地分支" })).toHaveTextContent("本地分支devmain当前");
     await expect
-      .element(screen.getByRole("group", { name: "远程分支" }))
-      .toHaveTextContent("远程分支origin/main主分支");
+      .element(screen.getByRole("group", { name: "本地分支" }))
+      .toHaveTextContent("本地分支devmain主分支当前");
+    await expect.element(screen.getByRole("group", { name: "远程分支" })).toHaveTextContent("远程分支origin/main");
+    await expect.element(screen.getByRole("group", { name: "远程分支" })).not.toHaveTextContent("主分支");
     await screen.getByRole("menuitemradio", { name: "dev", exact: true }).click();
     await expect.element(choice(screen, "起点")).toHaveTextContent("基于 dev");
 
@@ -370,7 +376,7 @@ describe("The new-workspace page (M1.11)", () => {
 
     await choice(screen, "工作区").click();
     await screen.getByRole("menuitemradio", { name: "新建 worktree" }).click();
-    await expect.element(choice(screen, "起点")).toHaveTextContent("基于 origin/main");
+    await expect.element(choice(screen, "起点")).toHaveTextContent("基于 main");
     await expect.element(choice(screen, "分支名")).toHaveTextContent("自动起名");
   });
 
@@ -406,10 +412,11 @@ describe("The new-workspace page (M1.11)", () => {
 
   it("filters the bases as typed into the line atop their menu, marking the main and the current branch", async () => {
     const { screen } = await newWorkspacePage({
+      // No local main branch: origin's is the main one.
       bases: async () => ({
-        main: "origin/main",
+        main: "refs/remotes/origin/main",
         current: "dev",
-        local: ["dev", "main"],
+        local: ["dev", "mainline"],
         remote: ["origin/dev", "origin/main"],
       }),
     });
@@ -424,7 +431,7 @@ describe("The new-workspace page (M1.11)", () => {
         .map((item) => [item.textContent, item.getAttribute("aria-checked")]),
     ).toStrictEqual([
       ["dev当前", "false"],
-      ["main", "false"],
+      ["mainline", "false"],
       ["origin/dev", "false"],
       ["origin/main主分支", "true"],
     ]);
@@ -436,7 +443,7 @@ describe("The new-workspace page (M1.11)", () => {
           .getByRole("menuitemradio")
           .elements()
           .map((item) => item.textContent),
-      ).toStrictEqual(["main", "origin/main主分支"]),
+      ).toStrictEqual(["mainline", "origin/main主分支"]),
     );
     await userEvent.type(filter, "zz");
     await expect.element(screen.getByText("没有匹配的分支")).toBeVisible();
@@ -468,14 +475,12 @@ describe("The new-workspace page (M1.11)", () => {
 
     await userEvent.type(box, "修复登录{Enter}");
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeDisabled();
-    bases.resolve({ main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] });
+    bases.resolve({ main: "refs/heads/main", current: "main", local: ["main"], remote: ["origin/main"] });
     await expect.element(screen.getByRole("button", { name: "发送" })).toBeEnabled();
     const before = calls.filter((call) => call.startsWith("createWorkspace"));
     await userEvent.type(box, "{Enter}");
 
-    await vi.waitFor(() =>
-      expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/fix-login refs/remotes/origin/main`),
-    );
+    await vi.waitFor(() => expect(calls).toContain(`createWorkspace ${PROJECT.id} atrium/fix-login refs/heads/main`));
     expect(before).toStrictEqual([]);
   });
 

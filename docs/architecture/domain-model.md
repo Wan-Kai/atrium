@@ -661,7 +661,7 @@ classDiagram
 - **BranchNamer**（`workspaces/`，2026-10-14 加）按新建工作区页的第一条消息给新 worktree 起分支名：选模型同 TitleGenerator（再退到 pi 的默认模型），调 OneShotPi，整理成 `atrium/<名字>`，避开已有的分支和 worktree 目录（SPEC-0001"AI 起分支名"）。它不知道 OneShotPi 和偏好在哪，由 `main.ts` 注入。
 - **WorkspaceService** 负责调度后台 `git fetch` 和窗口聚焦后的重算；**MergeInspector** 只做判定。`git merge-tree --write-tree` 不改工作区和 index，但会创建 git 对象，所以它"不改工作区"，不是"只读"。
 - **FileSearch** 在会话的工作目录里调 `fd`，参数和排序照 pi 的终端界面，git 仓库和普通目录一样（2026-10-10 定，原先打算 git 仓库用 `git ls-files`、其他目录自己遍历）。
-- **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个）。主干按"已决定 15"：项目设置（ProjectService）或 `origin/HEAD`；和 WorkspaceService 不同的是，`origin` 上没有主干时退到本地主干（照 Paseo）。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。
+- **ChangesService**（`changes/`）给有连接在看的工作区算 git 改动：胶囊上的合计和改动面板的逐文件 diff，照抄 Paseo（SPEC-0001"工作区改动"，2026-10-10 定）。它按连接记下谁在看哪些工作区、谁开着哪个面板，只为有人看的工作区监听文件，没人看了就停；git 命令走 WorkspaceService 用的同一个 GitRunner（同时最多 4 个）。主干按"已决定 15"：项目设置（ProjectService）或 `origin/HEAD`，和 WorkspaceService 一样先比本机的主干分支，没有再比 `origin/<主干>`（2026-10-22 自用时改，原先照 Paseo 先比 `origin/<主干>`）。后台 fetch 和运行结束时 WorkspaceService 的变化也让它重算。
 - 指标的计时和汇总是 SessionController 内部的事，不单独成服务。子对话的用量合计（SPEC-0002，M1.15）是例外，要跨会话：SessionManager 持有一个 ChildrenUsage，用 pi 包的 UsageReader 增量读每个子孙的会话文件（只算基线之后的；归档的子孙也算，脱离的不算；同一个文件一次只读一个，几层祖先同时刷新也不重复算），在索引变化、子对话自己的指标变化时刷新它上面的每一层，交给各自的 SessionController 放进指标的 `children`。
 - **AgentRelay**（`sessions/agent-relay.ts`，SPEC-0002 第二步，M1.15）是 agent 开子对话的另一处跨会话逻辑，由 SessionManager 持有：读每个 pi 进程状态行上扩展的调用（按会话和进程代次去重），核对调用方和当前的父子关系，答复或经隐藏命令 `/atrium-agent` 回给扩展（ADR-0013）；记任务、等待（内存里，取走待送达的事件）、子对话问主 agent 的问题（内存里）和最近一条进度；把事件写进待送达，交给收件会话的 SessionController 在合适的时机发给 pi（`ControllerDeliveries`）；查名额（每个父会话 6 个）、回收空闲的子对话。它不知道 WebSocket 和界面，开子对话、起停 pi、读会话文件都经 SessionManager 注入的 `AgentHost`。
 
@@ -786,7 +786,7 @@ classDiagram
 12. **终端里开的会话在窗口聚焦、运行结束时重扫发现**（2026-10-08 定）：不常驻监听 pi 的会话目录，和合并状态"不持续监听文件"一致；扫描按文件大小和修改时间缓存，只重读变化的文件。
 13. **没发过消息就关掉的草稿丢弃**（2026-10-08 定）：停掉 pi、删掉索引记录，"历史"里不堆积空会话。它是对话里唯一的会话时，对话的空目录一并删掉（只删空的），对话随之消失；对话里还有别的会话（含归档的）时目录留着（2026-10-12 补）。
 14. **工作区里新建会话也立刻启动 pi**（2026-10-08 定）：和"已决定 9"的新对话一样。
-15. **主干只认覆盖值或 `origin/HEAD`**（2026-10-08 定）：都没有时合并状态为 `unknown`（主干引用缺失），不猜本地的 main / master。
+15. **主干只认覆盖值或 `origin/HEAD`**（2026-10-08 定）：都没有时合并状态为 `unknown`（主干引用缺失），不猜本地的 main / master。这里定的是主干的名字；比较时先用本机的同名分支，本机没有再用 `origin/<主干>`（2026-10-22 自用时改，原先只用 `origin/<主干>`：本机合并、不推送时侧栏一直显示未合并）。
 16. **交给终端后点了才继续**（2026-10-10 定）：交接记在索引里，宿主重启后仍在；切到标签不自动启动 pi，用户点"在 Atrium 里继续"才重新加载。pi 没有跨进程的写锁，两边同时写会悄悄分叉。
 17. **会话状态、收件箱、工作区汇总在界面派生**（2026-10-10 定）：宿主只在会话摘要里给出运行、关注状态、待回答、已交接，界面按 §4 的优先级算。
 18. **对话记录不按序号补拉**（2026-10-10 定）：缺口或 `epoch` 变了就重拿快照。

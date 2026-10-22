@@ -225,7 +225,7 @@ test("readme screenshots", async () => {
     const project = window.getByTestId("project-row");
     await project.hover();
     await project.getByRole("button", { name: "在 weather-app 新建工作区" }).click();
-    await expect(window.getByRole("button", { name: "起点", exact: true })).toHaveText("基于 origin/main", {
+    await expect(window.getByRole("button", { name: "起点", exact: true })).toHaveText("基于 main", {
       timeout: 30_000,
     });
     await window.getByRole("textbox", { name: "消息" }).fill("城市搜索支持拼音，输入 hz 也能找到杭州");
