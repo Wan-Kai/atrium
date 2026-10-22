@@ -797,6 +797,7 @@ zod 定义在 `packages/protocol`，是唯一的准绳；下面的表格是概�
 - 推理档位按模型的元数据算出，不调 `get_available_thinking_levels`（它只回答当前模型）：不支持推理的只有 `off`；其余从 off / minimal / low / medium / high / xhigh / max 里去掉 `thinkingLevelMap` 标为 `null` 的，`xhigh`、`max` 只在 `thinkingLevelMap` 里明确给出时才有。规则照抄 pi-ai 的 `getSupportedThinkingLevels`，写在 `packages/pi` 里（运行时不依赖 pi 的包），pi 改了规则时契约测试会发现。
 - 没有任何凭据时 pi 照常回答，列表为空；`get_state` 给的是占位模型（`unknown/unknown`），不算默认模型。默认模型必须在列表里。会话的模型是占位模型时也当作没有（`null`）。
 - 查询失败（pi 退出、超时，或者启动不起来）应答 `models_unavailable`，`params.detail` 是 pi 的报错原文（stderr 的最后一段，截断到 4 KB），和 `pi_rejected` 一样只供"展开看原始报错"；宿主不把 `detail` 写进日志。探测用的 pi 的 stderr 和会话的 pi 一样按 observability.md 逐行、脱敏记录（2026-10-10 定）。
+- 目录不在时（工作区的目录在 Atrium 外被删掉或移走，如删了 worktree）不起 pi，也不看缓存，应答 `path_not_found`（`params.path` 是那个目录），和打开会话时先看目录、应答 `session_cwd_missing` 一样。界面照常显示"读不到模型列表"和"重试"，请求的时机不变（2026-10-22 自用时改：原先照样起 pi，pi 起不来，应答 `models_unavailable`，宿主日志里记成 pi 的非请求退出；在已删掉的 worktree 之间切换、重启后回到它、登录或退出登录后重查，每次都起一个，见 [self-use.md · 问题](../research/self-use.md#问题)）。
 
 **会话的模型**
 

@@ -41,8 +41,9 @@ export const ErrorCode = z.enum([
   /** Another project has that name; `params.name` repeats it. */
   "name_taken",
   /**
-   * The path is not a directory, or does not exist; `params.path` repeats it. For `list_dir` and
-   * `read_file`, nothing is at the path, and no `params` (SPEC-0001, "M1.12 的文件与更改").
+   * The path is not a directory, or does not exist; `params.path` repeats it. For `list_models`, the
+   * workspace's directory is gone (SPEC-0001, "模型与输入框"). For `list_dir` and `read_file`,
+   * nothing is at the path, and no `params` (SPEC-0001, "M1.12 的文件与更改").
    */
   "path_not_found",
   /**
