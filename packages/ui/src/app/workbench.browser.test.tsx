@@ -1471,24 +1471,33 @@ describe("Workbench workspace archiving (M1.11)", () => {
     await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
   });
 
-  it("waits while archiving, then says why it failed and lets the user try again", async () => {
+  it("closes the dialog at once, archiving in the background, then says whether it worked", async () => {
     const answer = Promise.withResolvers<void>();
     const { screen, calls } = await workbench({ answers: { archiveWorkspace: () => answer.promise } });
     await archiveWorkspaceRow(screen, 2, "fix/typo");
     const dialog = screen.getByRole("alertdialog");
     await dialog.getByRole("button", { name: "归档" }).click();
 
-    await expect.element(dialog.getByRole("button", { name: "归档中…" })).toBeDisabled();
-    await expect.element(dialog.getByRole("button", { name: "取消" })).toBeDisabled();
-    await userEvent.keyboard("{Escape}");
-    await screen.getByTestId("archive-scrim").click({ position: { x: 5, y: 5 }, force: true });
-    await expect.element(dialog).toBeVisible();
+    await expect.element(dialog).not.toBeInTheDocument();
+    expect(calls.filter((call) => call.startsWith("archiveWorkspace"))).toStrictEqual([`archiveWorkspace ${MERGED}`]);
+    await expect.element(screen.getByRole("status")).not.toBeInTheDocument();
+
+    answer.resolve();
+
+    await expect.element(screen.getByRole("status")).toHaveTextContent("已归档「fix/typo」");
+  });
+
+  it("says why a background archive failed", async () => {
+    const answer = Promise.withResolvers<void>();
+    const { screen } = await workbench({ answers: { archiveWorkspace: () => answer.promise } });
+    await archiveWorkspaceRow(screen, 2, "fix/typo");
+    await screen.getByRole("alertdialog").getByRole("button", { name: "归档" }).click();
 
     answer.reject(new CommandError("workspace_dirty"));
 
-    await expect.element(dialog.getByRole("alert")).toHaveTextContent("有未提交的改动，先提交或丢弃再归档");
-    await expect.element(dialog.getByRole("button", { name: "归档" })).toBeEnabled();
-    expect(calls.filter((call) => call.startsWith("archiveWorkspace"))).toStrictEqual([`archiveWorkspace ${MERGED}`]);
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("没能归档「fix/typo」：有未提交的改动，先提交或丢弃再归档");
     await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
   });
 

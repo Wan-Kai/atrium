@@ -17,7 +17,7 @@ import {
   Sun,
   Trash,
 } from "../design/icons";
-import { type ReactNode, createContext, use, useState } from "react";
+import { type ReactNode, createContext, use, useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { Fold } from "../chat/fold";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
@@ -26,6 +26,7 @@ import { piUpdateAvailable } from "../setup/pi-version";
 import { useClock } from "../state/clock";
 import {
   ArchiveDialog,
+  describeArchiveError,
   ArchivedChats,
   ArchivedWorkspaces,
   ChatArchiveDialog,
@@ -126,6 +127,9 @@ export function describeProjectError(error: unknown, projects: readonly Project[
   return "宿主出错了，没有完成";
 }
 
+/** How long the sidebar's success notice stays. */
+const NOTICE_MS = 3000;
+
 /**
  * Reads which projects are collapsed.
  *
@@ -199,6 +203,12 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const clock = useClock();
+  useEffect(() => {
+    if (notice === null) return undefined;
+    return clock.after(NOTICE_MS, () => setNotice(null));
+  }, [clock, notice]);
 
   /**
    * Collapses or opens a project, remembering it.
@@ -226,14 +236,23 @@ export function Sidebar({
    * @sideEffects Sends the command; may set the problem line.
    * @param command - The command.
    * @param describe - How to explain its failure.
+   * @param succeeded - What to tell once it worked, when it should be told.
    */
   const run = (
     command: () => Promise<unknown>,
     describe = (error: unknown) => describeProjectError(error, client.index.getState().projects),
+    succeeded?: string,
   ): void => {
     setProblem(null);
-    // Fire and forget: the failure is shown.
-    void command().catch((error: unknown) => setProblem(describe(error)));
+    // Fire and forget: the outcome is shown.
+    void (async () => {
+      try {
+        await command();
+        if (succeeded !== undefined) setNotice(succeeded);
+      } catch (error) {
+        setProblem(describe(error));
+      }
+    })();
   };
 
   const appearance = APPEARANCES.find((entry) => entry.appearance === index.preferences.appearance) ?? APPEARANCES[0];
@@ -291,6 +310,11 @@ export function Sidebar({
             {problem === null ? null : (
               <p role="alert" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--danger)]">
                 {problem}
+              </p>
+            )}
+            {notice === null ? null : (
+              <p role="status" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--text-muted)]">
+                {notice}
               </p>
             )}
             {query.trim() !== "" ? (
@@ -673,7 +697,7 @@ function ProjectRows({
   readonly pageHere: boolean;
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
-  readonly run: (command: () => Promise<unknown>) => void;
+  readonly run: (command: () => Promise<unknown>, describe?: (error: unknown) => string, succeeded?: string) => void;
   readonly now: number;
 }) {
   const [archiving, setArchiving] = useState<Workspace | null>(null);
@@ -828,12 +852,18 @@ function ProjectRows({
       </Fold>
       {archiving === null ? null : (
         <ArchiveDialog
-          client={client}
           workspace={archiving}
           running={
             index.sessions.filter(
               (session) => session.containerId === archiving.id && !session.archived && session.running,
             ).length
+          }
+          onArchive={() =>
+            run(
+              () => client.archiveWorkspace(archiving.id),
+              (error) => `没能归档「${workspaceName(archiving)}」：${describeArchiveError(error)}`,
+              `已归档「${workspaceName(archiving)}」`,
+            )
           }
           onClose={() => setArchiving(null)}
         />
