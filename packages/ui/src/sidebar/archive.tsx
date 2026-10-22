@@ -67,25 +67,20 @@ function kept(workspace: Pick<Workspace, "branch" | "head">): string {
  * @remarks
  * Laid out as design-language says ("侧栏"), for workspaces and chats alike. Put on the page's
  * body, as the sidebar's blur would otherwise hold it inside the sidebar. The focus starts on
- * "取消"; Escape and the scrim cancel too, except while archiving, whose answer it waits for.
+ * "取消"; Escape and the scrim cancel too.
  *
- * @sideEffects Focuses "取消" when shown; listens for Escape while not busy.
- * @param props - The title, the body, whether it is archiving, why it failed, and what
- * "归档" and cancelling do.
+ * @sideEffects Focuses "取消" when shown; listens for Escape.
+ * @param props - The title, the body, and what "归档" and cancelling do.
  * @returns The dialog.
  */
 function ArchiveConfirm({
   title,
   children,
-  busy = false,
-  error = null,
   onConfirm,
   onClose,
 }: {
   readonly title: string;
   readonly children: ReactNode;
-  readonly busy?: boolean;
-  readonly error?: string | null;
   readonly onConfirm: () => void;
   readonly onClose: () => void;
 }) {
@@ -94,12 +89,11 @@ function ArchiveConfirm({
     cancel.current?.focus();
   }, []);
   useEffect(() => {
-    if (busy) return undefined;
     /**
      * Cancels on Escape.
      *
      * @remarks
-     * Not while archiving, whose answer the dialog waits for.
+     * Like the scrim and "取消".
      *
      * @sideEffects Calls `onClose`.
      * @param event - The key event.
@@ -109,14 +103,14 @@ function ArchiveConfirm({
     };
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
-  }, [busy, onClose]);
+  }, [onClose]);
 
   return createPortal(
     <div className="fixed inset-0 z-50 grid place-items-center">
       <div
         data-testid="archive-scrim"
         className="absolute inset-0 bg-[var(--scrim)] backdrop-blur-[8px] backdrop-saturate-[1.1]"
-        onClick={busy ? undefined : onClose}
+        onClick={onClose}
       />
       <div
         role="alertdialog"
@@ -131,28 +125,21 @@ function ArchiveConfirm({
         <div id="archive-body" className="mt-2 text-[length:var(--fs-meta)] leading-[1.55] text-[var(--text-2)]">
           {children}
         </div>
-        {error === null ? null : (
-          <p role="alert" className="mt-2 text-[length:var(--fs-meta)] leading-[1.55] text-[var(--danger)]">
-            {error}
-          </p>
-        )}
         <div className="mt-4 flex justify-end gap-2">
           <button
             ref={cancel}
             type="button"
-            disabled={busy}
             onClick={onClose}
-            className="h-[30px] rounded-[var(--r-btn)] px-3 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-50"
+            className="h-[30px] rounded-[var(--r-btn)] px-3 text-[length:var(--fs-meta)] text-[var(--text-2)] shadow-[inset_0_0_0_0.5px_var(--line-strong)] hover:bg-[var(--hover)]"
           >
             取消
           </button>
           <button
             type="button"
-            disabled={busy}
             onClick={onConfirm}
-            className="h-[30px] rounded-[var(--r-btn)] bg-[var(--danger)] px-3 text-[length:var(--fs-meta)] text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-[30px] rounded-[var(--r-btn)] bg-[var(--danger)] px-3 text-[length:var(--fs-meta)] text-white hover:brightness-110"
           >
-            {busy ? "归档中…" : "归档"}
+            归档
           </button>
         </div>
       </div>
@@ -162,56 +149,34 @@ function ArchiveConfirm({
 }
 
 /**
- * Asks before archiving a worktree workspace, and archives it.
+ * Asks before archiving a worktree workspace.
  *
  * @remarks
- * Always asked, as archiving removes the directory (SPEC-0001, "M1.11 的工作区归档"). While
- * archiving it waits for the answer: it closes on success and says why on failure.
+ * Always asked, as archiving removes the directory (SPEC-0001, "M1.11 的工作区归档"). It closes on
+ * "归档" and the sidebar archives in the background, telling in a notice whether it worked.
  *
- * @sideEffects Sends `archive_workspace`.
- * @param props - The client, the workspace, how many of its sessions run, and how to close.
+ * @sideEffects none; calls `onArchive` or `onClose` when answered.
+ * @param props - The workspace, how many of its sessions run, what archiving does, and how to close.
  * @returns The dialog.
  */
 export function ArchiveDialog({
-  client,
   workspace,
   running,
+  onArchive,
   onClose,
 }: {
-  readonly client: AtriumClient;
   readonly workspace: Workspace;
   readonly running: number;
+  readonly onArchive: () => void;
   readonly onClose: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  /**
-   * Archives the workspace, closing on success and saying why on failure.
-   *
-   * @remarks
-   * See `ArchiveDialog`; it never rejects.
-   *
-   * @sideEffects Sends `archive_workspace`; sets component state; may call `onClose`.
-   */
-  const archive = async (): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      await client.archiveWorkspace(workspace.id);
-      onClose();
-    } catch (failure) {
-      setBusy(false);
-      setError(describeArchiveError(failure));
-    }
-  };
-
   return (
     <ArchiveConfirm
       title={`归档工作区「${workspaceName(workspace)}」？`}
-      busy={busy}
-      error={error}
-      onConfirm={() => void archive()}
+      onConfirm={() => {
+        onClose();
+        onArchive();
+      }}
       onClose={onClose}
     >
       <p>会删除 worktree 目录（包括被 git 忽略的文件）{kept(workspace)}；之后可以在项目菜单的“已归档的工作区”里恢复</p>
