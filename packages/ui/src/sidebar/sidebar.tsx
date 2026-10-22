@@ -17,7 +17,7 @@ import {
   Sun,
   Trash,
 } from "../design/icons";
-import { type ReactNode, createContext, use, useEffect, useState } from "react";
+import { type ReactNode, createContext, use, useCallback, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { Fold } from "../chat/fold";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
@@ -44,6 +44,7 @@ import {
   timeAgo,
   workspaceName,
 } from "./names";
+import { type ArchiveToast, ArchiveToasts, pushToast } from "./archive-toasts";
 import { MORE_ROW } from "./more-row";
 import { RenameField } from "./rename-field";
 import { INBOX_SHOWN, type RowStatus, inboxOf, sessionStatus, topStatus } from "./status";
@@ -127,9 +128,6 @@ export function describeProjectError(error: unknown, projects: readonly Project[
   return "宿主出错了，没有完成";
 }
 
-/** How long the sidebar's success notice stays. */
-const NOTICE_MS = 3000;
-
 /**
  * Reads which projects are collapsed.
  *
@@ -164,6 +162,7 @@ function readCollapsed(): ReadonlySet<string> {
  * selected, and going to a workspace, chat or session leaves the page (SPEC-0001, "M1.11 的新建工作区").
  * Folded, its width goes to 0 while what is in it keeps its own, fades and moves 24px left, and
  * none of it can be focused (SPEC-0001, "界面 · 左栏折叠与右栏"; design-language, "动效").
+ * How archiving a worktree went shows in toasts at the window's top right (design-language, "提示").
  *
  * @sideEffects Subscribes to the client's list and setup; sends commands; remembers collapsed
  * projects and the inbox's card in `localStorage`.
@@ -203,12 +202,9 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const clock = useClock();
-  useEffect(() => {
-    if (notice === null) return undefined;
-    return clock.after(NOTICE_MS, () => setNotice(null));
-  }, [clock, notice]);
+  const [toasts, setToasts] = useState<readonly ArchiveToast[]>([]);
+  const toastIds = useRef(0);
+  const dropToast = useCallback((id: number) => setToasts((shown) => shown.filter((toast) => toast.id !== id)), []);
 
   /**
    * Collapses or opens a project, remembering it.
@@ -236,22 +232,39 @@ export function Sidebar({
    * @sideEffects Sends the command; may set the problem line.
    * @param command - The command.
    * @param describe - How to explain its failure.
-   * @param succeeded - What to tell once it worked, when it should be told.
    */
   const run = (
     command: () => Promise<unknown>,
     describe = (error: unknown) => describeProjectError(error, client.index.getState().projects),
-    succeeded?: string,
   ): void => {
     setProblem(null);
+    // Fire and forget: the failure is shown.
+    void command().catch((error: unknown) => setProblem(describe(error)));
+  };
+
+  /**
+   * Archives a worktree workspace in the background, telling how it went in a toast.
+   *
+   * @remarks
+   * SPEC-0001 ("M1.11 的工作区归档"): the dialog has closed; success and failure alike show at the
+   * window's top right (`ArchiveToasts`), not on the problem line.
+   *
+   * @sideEffects Sends `archive_workspace`; adds a toast once it answers.
+   * @param workspace - The workspace.
+   */
+  const archiveWorkspace = (workspace: Workspace): void => {
+    const name = workspaceName(workspace);
     // Fire and forget: the outcome is shown.
     void (async () => {
+      let reason: string | undefined;
       try {
-        await command();
-        if (succeeded !== undefined) setNotice(succeeded);
+        await client.archiveWorkspace(workspace.id);
       } catch (error) {
-        setProblem(describe(error));
+        reason = describeArchiveError(error);
       }
+      toastIds.current += 1;
+      const toast = { id: toastIds.current, name, ...(reason === undefined ? {} : { reason }) };
+      setToasts((shown) => pushToast(shown, toast));
     })();
   };
 
@@ -312,11 +325,6 @@ export function Sidebar({
                 {problem}
               </p>
             )}
-            {notice === null ? null : (
-              <p role="status" className="px-2 pb-1 text-[length:var(--fs-sm)] text-[var(--text-muted)]">
-                {notice}
-              </p>
-            )}
             {query.trim() !== "" ? (
               <SearchResults client={client} index={index} query={query.trim()} now={now} showSession={showSession} />
             ) : (
@@ -334,6 +342,7 @@ export function Sidebar({
                     renaming={renaming}
                     setRenaming={setRenaming}
                     run={run}
+                    archiveWorkspace={archiveWorkspace}
                     now={now}
                   />
                 ))}
@@ -383,6 +392,7 @@ export function Sidebar({
           </div>
         </div>
       </nav>
+      {toasts.length === 0 ? null : <ArchiveToasts toasts={toasts} onGone={dropToast} />}
     </LeavePage>
   );
 }
@@ -669,8 +679,8 @@ function ChatRows({
  *
  * @sideEffects Sends commands when used; animates the rows and the folder when opened or closed.
  * @param props - The client, the list, the project, whether it is open, how to open its
- * new-workspace page and whether it shows, the sidebar's renaming and command helpers, and the
- * time now.
+ * new-workspace page and whether it shows, the sidebar's renaming and command helpers, how to
+ * archive a worktree, and the time now.
  * @returns The rows.
  */
 function ProjectRows({
@@ -684,6 +694,7 @@ function ProjectRows({
   renaming,
   setRenaming,
   run,
+  archiveWorkspace,
   now,
 }: {
   readonly client: AtriumClient;
@@ -697,7 +708,8 @@ function ProjectRows({
   readonly pageHere: boolean;
   readonly renaming: string | null;
   readonly setRenaming: (id: string | null) => void;
-  readonly run: (command: () => Promise<unknown>, describe?: (error: unknown) => string, succeeded?: string) => void;
+  readonly run: (command: () => Promise<unknown>) => void;
+  readonly archiveWorkspace: (workspace: Workspace) => void;
   readonly now: number;
 }) {
   const [archiving, setArchiving] = useState<Workspace | null>(null);
@@ -858,13 +870,7 @@ function ProjectRows({
               (session) => session.containerId === archiving.id && !session.archived && session.running,
             ).length
           }
-          onArchive={() =>
-            run(
-              () => client.archiveWorkspace(archiving.id),
-              (error) => `没能归档「${workspaceName(archiving)}」：${describeArchiveError(error)}`,
-              `已归档「${workspaceName(archiving)}」`,
-            )
-          }
+          onArchive={() => archiveWorkspace(archiving)}
           onClose={() => setArchiving(null)}
         />
       )}

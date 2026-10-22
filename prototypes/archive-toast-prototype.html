@@ -1,0 +1,986 @@
+<!doctype html>
+<!--
+  PROTOTYPE — 设计稿，不接入生产构建。worktree 归档成功后的提示。
+  问题：现在是侧栏项目标题下一行灰字（role=status），挤在列表里、和问题行抢位置，看着像报错的残留。
+  改成窗口右上角浮出、几秒后自己消失的提示。A–D 四种明显不同的做法，顶部切换方案和明暗，
+  点"归档"模拟一次；第 2 节把四种静态并排。数值都取自 design-language 的 token。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 归档成功的提示</title>
+    <style>
+      :root {
+        --window: #e8ecf2;
+        --sidebar-bg: linear-gradient(
+          #d5dbe9,
+          #dae0e9 10%,
+          #e1e4ea 25%,
+          #e3e7e9 35%,
+          #e3e7e9 65%,
+          #e2e4e6 75%,
+          #dee1e7 85%,
+          #d8dbe3
+        );
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --linked: rgba(47, 111, 237, 0.1);
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --danger: #e5484d;
+        --danger-soft: rgba(229, 72, 77, 0.1);
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --ok-soft: rgba(22, 163, 74, 0.1);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --glass: linear-gradient(rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.74));
+        --glass-edge: rgba(255, 255, 255, 0.9);
+        --hud: rgba(30, 31, 36, 0.86);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-pill: 999px;
+        --snappy: cubic-bezier(0.2, 0.9, 0.3, 1.05);
+      }
+      .dark {
+        --window: #0d1016;
+        --sidebar-bg: rgba(95, 102, 114, 0.42);
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --surface-3: #353638;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --linked: rgba(122, 170, 255, 0.14);
+        --attn-text: #f0a24e;
+        --danger: #f25a5a;
+        --danger-soft: rgba(242, 90, 90, 0.14);
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --ok-soft: rgba(34, 197, 94, 0.14);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --glass: linear-gradient(rgba(52, 53, 58, 0.82), rgba(40, 41, 45, 0.74));
+        --glass-edge: rgba(255, 255, 255, 0.12);
+        --hud: rgba(58, 59, 64, 0.82);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #eef1f6;
+        font: var(--fs) / 1.5 var(--font-sans);
+        color: #1d1d1f;
+        -webkit-font-smoothing: antialiased;
+      }
+      body.page-dark {
+        background: #08090c;
+        color: #f9fafb;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p,
+      p.note {
+        margin: 0 0 4px;
+        color: #6e6e74;
+        font-size: 13px;
+        max-width: 960px;
+      }
+      body.page-dark header.page p,
+      body.page-dark p.note {
+        color: #adb2b8;
+      }
+      section.block {
+        padding: 18px 40px 12px;
+      }
+      section.block > h2 {
+        font-size: 15px;
+        margin: 0 0 6px;
+      }
+
+      /* 控制条 */
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin: 12px 0 14px;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 2px;
+        border-radius: 10px;
+        background: rgba(0, 0, 0, 0.06);
+      }
+      body.page-dark .seg {
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .seg button {
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: 13px var(--font-sans);
+        padding: 5px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      .seg button[aria-pressed="true"] {
+        background: #fff;
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.12),
+          0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      body.page-dark .seg button[aria-pressed="true"] {
+        background: #3a3b40;
+      }
+      .act {
+        border: 0;
+        font: 13px var(--font-sans);
+        padding: 6px 12px;
+        border-radius: 10px;
+        cursor: pointer;
+        background: #1d1d1f;
+        color: #fff;
+      }
+      body.page-dark .act {
+        background: #f9fafb;
+        color: #151517;
+      }
+      .act.ghost {
+        background: transparent;
+        color: inherit;
+        box-shadow: inset 0 0 0 0.5px rgba(127, 127, 127, 0.5);
+      }
+      label.chk {
+        font-size: 13px;
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+      }
+
+      /* 模拟的窗口 */
+      .win {
+        position: relative;
+        width: 1000px;
+        height: 520px;
+        display: flex;
+        overflow: hidden;
+        border-radius: 12px;
+        background: var(--window);
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.2),
+          0 24px 60px rgba(0, 0, 0, 0.18);
+        color: var(--text);
+        font-family: var(--font-sans);
+      }
+      .lights {
+        position: absolute;
+        top: 17px;
+        left: 16px;
+        display: flex;
+        gap: 8px;
+        z-index: 3;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff5f57;
+      }
+      .lights i:nth-child(2) {
+        background: #febc2e;
+      }
+      .lights i:nth-child(3) {
+        background: #28c840;
+      }
+      .side {
+        width: 270px;
+        flex: none;
+        background: var(--sidebar-bg);
+        padding: 50px 12px 12px;
+        backdrop-filter: blur(32px) saturate(1.4);
+      }
+      .side .search {
+        height: 32px;
+        border-radius: var(--r-md);
+        background: var(--hover);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        font-size: var(--fs-meta);
+        color: var(--text-dim);
+        display: flex;
+        align-items: center;
+        padding: 0 10px;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+      .side h4 {
+        margin: 6px 8px 4px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        font-weight: 500;
+      }
+      .row {
+        height: 34px;
+        margin: 2px 0;
+        padding: 0 8px;
+        border-radius: var(--r);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: var(--fs);
+        color: var(--text-2);
+        transition:
+          height 0.28s cubic-bezier(0.45, 0, 0.15, 1),
+          opacity 0.2s,
+          margin 0.28s cubic-bezier(0.45, 0, 0.15, 1);
+      }
+      .row.ws {
+        padding-left: 36px;
+      }
+      .row.sel {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .row.gone {
+        height: 0;
+        margin: 0;
+        opacity: 0;
+        overflow: hidden;
+      }
+      .row .nm {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .row .meta {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .row .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--attn);
+      }
+      .row .merged {
+        font-size: var(--fs-sm);
+        color: var(--ok-text);
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--main);
+        position: relative;
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 8px 0 12px;
+      }
+      .tab {
+        height: 30px;
+        border-radius: var(--r);
+        padding: 0 12px;
+        font-size: var(--fs-meta);
+        display: flex;
+        align-items: center;
+        color: var(--text-muted);
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tabs .sp {
+        flex: 1;
+      }
+      .ib {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        color: var(--text-muted);
+        border-radius: var(--r);
+      }
+      .chat {
+        flex: 1;
+        padding: 20px 24px;
+        max-width: 800px;
+        width: 100%;
+        margin: 0 auto;
+        font-size: 14.5px;
+        line-height: 1.55;
+        color: var(--text-2);
+      }
+      .bubble {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: 22px;
+        padding: 9px 14px;
+        margin-bottom: 16px;
+      }
+      .ph {
+        height: 10px;
+        border-radius: 5px;
+        background: var(--surface-2);
+        margin: 10px 0;
+      }
+      .composer {
+        margin: 0 auto 36px;
+        width: calc(100% - 48px);
+        max-width: 752px;
+        height: 92px;
+        border-radius: 22px;
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        padding: 16px 20px;
+        font-size: var(--fs);
+        color: var(--text-dim);
+      }
+
+      /* ───── 提示层：窗口右上角，标签栏下方 ───── */
+      .toasts {
+        position: absolute;
+        top: 56px; /* 标签栏 48 + 8 */
+        right: 12px;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+        pointer-events: none;
+      }
+      .toast {
+        pointer-events: auto;
+        position: relative;
+        display: flex;
+        align-items: center;
+        color: var(--text);
+        font-family: var(--font-sans);
+      }
+      .toast .x {
+        width: 20px;
+        height: 20px;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        color: var(--text-dim);
+        border-radius: var(--r-sm);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.15s;
+      }
+      .toast:hover .x,
+      .toast:focus-within .x {
+        opacity: 1;
+      }
+      .toast .x:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .nm-strong {
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      /* A · 玻璃胶囊 */
+      .t-a {
+        height: 34px;
+        padding: 0 6px 0 10px;
+        gap: 7px;
+        border-radius: var(--r-pill);
+        background: var(--glass);
+        backdrop-filter: blur(28px) saturate(1.7);
+        box-shadow:
+          inset 0 1px 0 var(--glass-edge),
+          var(--float-shadow);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+      }
+      .t-a .ic {
+        color: var(--ok-text);
+        display: grid;
+      }
+      .t-a .x {
+        margin-left: 2px;
+      }
+      .t-a {
+        white-space: nowrap;
+      }
+      .t-a .nm-strong {
+        display: inline-block;
+        max-width: 180px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        vertical-align: bottom;
+      }
+      .t-a.fail .ic {
+        color: var(--danger);
+      }
+      .t-a .why {
+        color: var(--text-muted);
+      }
+
+      /* B · 两行卡片 */
+      .t-b {
+        width: 300px;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 10px 8px 10px 10px;
+        border-radius: var(--r-btn);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+      }
+      .dark .t-b {
+        background: var(--surface-2);
+      }
+      .t-b .badge {
+        width: 28px;
+        height: 28px;
+        flex: none;
+        border-radius: var(--r);
+        background: var(--ok-soft);
+        color: var(--ok-text);
+        display: grid;
+        place-items: center;
+      }
+      .t-b .body {
+        flex: 1;
+        min-width: 0;
+      }
+      .t-b .title {
+        font-size: var(--fs-meta);
+        line-height: 18px;
+        color: var(--text-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .t-b .sub {
+        margin-top: 2px;
+        font-size: var(--fs-sm);
+        line-height: 17px;
+        color: var(--text-muted);
+      }
+      .t-b .sub code {
+        font: 11.5px var(--font-mono);
+        color: var(--text-3);
+      }
+
+      /* C · 带倒计时线 */
+      .t-c {
+        height: 40px;
+        min-width: 260px;
+        padding: 0 6px 0 12px;
+        gap: 8px;
+        border-radius: var(--r-btn);
+        background: var(--surface-1);
+        box-shadow: var(--float-shadow);
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        overflow: hidden;
+      }
+      .dark .t-c {
+        background: var(--surface-2);
+      }
+      .t-c .ic {
+        color: var(--ok-text);
+        display: grid;
+      }
+      .t-c .txt {
+        flex: 1;
+        white-space: nowrap;
+      }
+      .t-c .x {
+        opacity: 1;
+      }
+      .t-c .bar {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2px;
+        background: var(--ok);
+        opacity: 0.55;
+        transform-origin: left;
+        animation: drain var(--life) linear forwards;
+      }
+      .t-c:hover .bar {
+        animation-play-state: paused;
+      }
+      @keyframes drain {
+        to {
+          transform: scaleX(0);
+        }
+      }
+
+      /* D · 系统 HUD：明暗都是深底 */
+      .t-d {
+        height: 36px;
+        padding: 0 14px 0 12px;
+        gap: 8px;
+        border-radius: var(--r-btn);
+        background: var(--hud);
+        backdrop-filter: blur(24px) saturate(1.6);
+        box-shadow:
+          inset 0 0 0 0.5px rgba(255, 255, 255, 0.14),
+          0 10px 30px rgba(0, 0, 0, 0.28);
+        color: #f2f3f5;
+        font-size: var(--fs-meta);
+      }
+      .t-d .ic {
+        color: #4ade80;
+        display: grid;
+      }
+      .t-d .nm-strong {
+        color: #fff;
+      }
+      .t-d .x {
+        display: none;
+      }
+
+      /* 进出场 */
+      .toast.enter-a {
+        animation: in-down 0.3s var(--snappy) both;
+      }
+      .toast.enter-b,
+      .toast.enter-c {
+        animation: in-right 0.34s var(--snappy) both;
+      }
+      .toast.enter-d {
+        animation: in-pop 0.3s var(--snappy) both;
+      }
+      .toast.leave {
+        animation: out 0.2s ease-in forwards;
+      }
+      .toast.leave.enter-b,
+      .toast.leave.enter-c {
+        animation: out-right 0.22s ease-in forwards;
+      }
+      @keyframes in-down {
+        from {
+          opacity: 0;
+          transform: translateY(-8px) scale(0.96);
+        }
+      }
+      @keyframes in-right {
+        from {
+          opacity: 0;
+          transform: translateX(16px);
+        }
+      }
+      @keyframes in-pop {
+        from {
+          opacity: 0;
+          transform: scale(0.9);
+        }
+      }
+      @keyframes out {
+        to {
+          opacity: 0;
+          transform: translateY(-4px) scale(0.98);
+        }
+      }
+      @keyframes out-right {
+        to {
+          opacity: 0;
+          transform: translateX(12px);
+        }
+      }
+      .reduce .toast {
+        animation-name: fade-only !important;
+        animation-duration: 0.15s !important;
+      }
+      .reduce .toast.leave {
+        animation-name: fade-out-only !important;
+      }
+      .reduce .t-c .bar {
+        animation-name: drain !important;
+      }
+      @keyframes fade-only {
+        from {
+          opacity: 0;
+        }
+      }
+      @keyframes fade-out-only {
+        to {
+          opacity: 0;
+        }
+      }
+
+      /* 第 2 节静态并排 */
+      .gallery {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+        max-width: 1000px;
+      }
+      .tile {
+        position: relative;
+        border-radius: 12px;
+        background: var(--main);
+        box-shadow: 0 0 0 0.5px rgba(127, 127, 127, 0.3);
+        padding: 18px;
+        min-height: 150px;
+        color: var(--text);
+      }
+      .tile h3 {
+        margin: 0 0 4px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .tile p {
+        margin: 0;
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+      .tile .stack {
+        position: absolute;
+        right: 12px;
+        bottom: 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 8px;
+      }
+      .tile .x {
+        opacity: 1;
+      }
+      .tile .t-c .bar {
+        animation: none;
+        transform: scaleX(0.6);
+      }
+      ul.spec {
+        margin: 6px 0 0;
+        padding-left: 18px;
+        font-size: 13px;
+        max-width: 960px;
+      }
+      ul.spec li {
+        margin: 3px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>原型 · worktree 归档成功的提示</h1>
+      <p>
+        现在：点“归档”后，成功是侧栏项目标题下一行 12px 灰字，3
+        秒后消失。挤在列表里、会把下面的行顶下去，也不像一个“完成了”的反馈。
+      </p>
+      <p>
+        改成：窗口右上角、标签栏下方 8px
+        处浮出一条提示，几秒后自己退场。下面四种做法位置相同，差别在形态、信息量和动效。点“归档”看一次完整过程；连点两次看叠放。
+      </p>
+    </header>
+
+    <section class="block">
+      <h2>1. 在窗口里试</h2>
+      <div class="controls">
+        <div class="seg" id="variant">
+          <button data-v="a" aria-pressed="true">A 玻璃胶囊</button>
+          <button data-v="b">B 两行卡片</button>
+          <button data-v="c">C 倒计时线</button>
+          <button data-v="d">D 系统 HUD</button>
+        </div>
+        <div class="seg" id="theme">
+          <button data-t="light" aria-pressed="true">浅色</button>
+          <button data-t="dark">深色</button>
+        </div>
+        <button class="act" id="fire">归档「fix-login」</button>
+        <button class="act ghost" id="fire2">连续归档两个</button>
+        <button class="act ghost" id="fail">归档失败（只 A 有）</button>
+        <button class="act ghost" id="reset">恢复侧栏</button>
+        <label class="chk"><input type="checkbox" id="reduce" /> 减弱动态效果</label>
+      </div>
+
+      <div class="win" id="win">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <aside class="side">
+          <div class="search">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            搜索
+          </div>
+          <h4>项目</h4>
+          <div class="row"><span class="nm">atrium</span></div>
+          <div class="row ws sel"><span class="nm">main</span><span class="meta">刚刚</span></div>
+          <div class="row ws" data-name="fix-login">
+            <span class="nm">fix-login</span><span class="merged">已合并</span>
+          </div>
+          <div class="row ws" data-name="tidy-icons">
+            <span class="nm">tidy-icons</span><span class="merged">已合并</span>
+          </div>
+          <div class="row ws">
+            <span class="dot"></span><span class="nm">redesign-archive-toast</span><span class="meta">5 分钟前</span>
+          </div>
+          <div class="row"><span class="nm">pi-playground</span></div>
+          <div class="row ws"><span class="nm">main</span><span class="meta">昨天</span></div>
+        </aside>
+        <div class="main">
+          <div class="tabs">
+            <div class="tab on">修侧栏的通知</div>
+            <div class="tab">看一下胶囊条</div>
+            <span class="sp"></span>
+            <span class="ib">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </span>
+            <span class="ib">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="5" cy="12" r="1.6" />
+                <circle cx="12" cy="12" r="1.6" />
+                <circle cx="19" cy="12" r="1.6" />
+              </svg>
+            </span>
+            <span class="ib">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+              >
+                <rect x="3" y="4" width="18" height="16" rx="4" />
+                <path d="M15 4v16" />
+              </svg>
+            </span>
+          </div>
+          <div class="chat">
+            <div class="bubble">把归档成功的提示做得好看一点</div>
+            <div class="ph" style="width: 92%"></div>
+            <div class="ph" style="width: 78%"></div>
+            <div class="ph" style="width: 85%"></div>
+            <div class="ph" style="width: 40%"></div>
+          </div>
+          <div class="composer">问点什么，或者 / 选命令</div>
+          <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+        </div>
+      </div>
+      <p class="note" style="margin-top: 10px">
+        共同的行为：停留 3 秒（C 是 4 秒，有进度线可看）；鼠标停在上面时暂停计时，移开后从剩余时间接着走；悬停出现 ×（D
+        没有 ×）；同时多条时新的在上、最多 3 条；读屏按
+        <code>role=status</code> 播报，不抢焦点。侧栏里被归档的行同时收起（现有行为）。
+      </p>
+    </section>
+
+    <section class="block">
+      <h2>2. 四种并排（左浅右深）</h2>
+      <div id="gallery" class="gallery"></div>
+    </section>
+
+    <section class="block">
+      <h2>3. 各自的取舍</h2>
+      <ul class="spec">
+        <li>
+          <b>A 玻璃胶囊</b>：高 34px 胶囊，玻璃材质（同胶囊条），14px 绿色勾 + “已归档「名称」”。从上方 8px、0.96
+          倍落下（0.3 秒 snappy），退场上移 4px 淡出。最轻、最像 macOS 的系统反馈，只说一件事。
+        </li>
+        <li>
+          <b>B 两行卡片</b>：宽 300px，圆角 12px，浮层阴影；左边 28px
+          绿色浅底的图标块，第一行“已归档「名称」”，第二行说明保留了什么、去哪恢复（复用确认框里的说法）。从右侧 16px
+          滑入。信息最全，归档后不用再记“分支还在不在”。
+        </li>
+        <li>
+          <b>C 倒计时线</b>：40px 高的一行卡片，底边 2px 绿线随时间缩短，×
+          常显；悬停时线停住。剩多久一目了然，适合以后加“撤销/恢复”这类操作（本稿不加，需要的话另提）。
+        </li>
+        <li>
+          <b>D 系统 HUD</b>：明暗外观下都是深色半透明底、白字，像 macOS 的音量提示，从 0.9
+          倍弹出。最醒目，但和应用其他浮层（都跟随外观）不是一个语言。
+        </li>
+      </ul>
+      <p class="note">
+        2026-10-22 用户选定 A；失败也走右上角、也自动消失：同一个胶囊，图标换成
+        <code>--danger</code> 的感叹号圆圈，“没能归档「名称」”后接 <code>--text-muted</code> 的“：原因”，停 6
+        秒（原因要读，比成功多 3 秒），悬停同样暂停。
+      </p>
+    </section>
+
+    <script>
+      const ICON_OK =
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.25"/><path d="m8 12.5 2.6 2.6L16 9.5"/></svg>';
+      const ICON_ARCHIVE =
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1.5"/><path d="M5 9v8.5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5V9"/><path d="M10 13h4"/></svg>';
+      const ICON_ALERT =
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9.25"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></svg>';
+      const ICON_X =
+        '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+
+      const LIFE = { a: 3000, b: 3000, c: 4000, d: 3000 };
+      const BRANCH = { "fix-login": "atrium/fix-login", "tidy-icons": "atrium/tidy-icons" };
+
+      /** 按方案画一条提示的内部。 */
+      function markup(v, name, why) {
+        const x = `<button class="x" aria-label="关闭">${ICON_X}</button>`;
+        if (why !== undefined)
+          return `<span class="ic">${ICON_ALERT}</span><span>没能归档「<span class="nm-strong">${name}</span>」<span class="why">：${why}</span></span>${x}`;
+        const title = `已归档「<span class="nm-strong">${name}</span>」`;
+        if (v === "a") return `<span class="ic">${ICON_OK}</span><span>${title}</span>${x}`;
+        if (v === "b")
+          return `<span class="badge">${ICON_ARCHIVE}</span><div class="body"><div class="title">${title}</div><div class="sub">分支 <code>${BRANCH[name] ?? "atrium/" + name}</code> 保留，可在项目菜单的“已归档的工作区”里恢复</div></div>${x}`;
+        if (v === "c")
+          return `<span class="ic">${ICON_OK}</span><span class="txt">${title}</span>${x}<span class="bar"></span>`;
+        return `<span class="ic">${ICON_OK}</span><span>${title}</span>`;
+      }
+
+      const state = { v: "a", theme: "light" };
+      const box = document.getElementById("toasts");
+      const win = document.getElementById("win");
+
+      /** 弹出一条；悬停暂停计时，最多 3 条。 */
+      function show(name, why) {
+        const v = why === undefined ? state.v : "a";
+        const el = document.createElement("div");
+        el.className = `toast t-${v} enter-${v}` + (why === undefined ? "" : " fail");
+        el.style.setProperty("--life", LIFE[v] + "ms");
+        el.innerHTML = markup(v, name, why);
+        box.prepend(el);
+        while (box.children.length > 3) box.lastElementChild.remove();
+        let left = why === undefined ? LIFE[v] : 6000;
+        let started = performance.now();
+        let timer = setTimeout(leave, left);
+        function leave() {
+          clearTimeout(timer);
+          el.classList.add("leave");
+          el.addEventListener("animationend", () => el.remove(), { once: true });
+        }
+        el.addEventListener("mouseenter", () => {
+          clearTimeout(timer);
+          left -= performance.now() - started;
+        });
+        el.addEventListener("mouseleave", () => {
+          started = performance.now();
+          timer = setTimeout(leave, Math.max(left, 600));
+        });
+        el.querySelector(".x")?.addEventListener("click", leave);
+      }
+
+      function archive(name) {
+        const row = document.querySelector(`.row[data-name="${name}"]`);
+        if (row) row.classList.add("gone");
+        // 后台归档约 0.6 秒后成功
+        setTimeout(() => show(name), 600);
+      }
+
+      function pick(groupId, attr, onPick) {
+        const group = document.getElementById(groupId);
+        group.addEventListener("click", (e) => {
+          const b = e.target.closest("button");
+          if (!b) return;
+          for (const other of group.querySelectorAll("button")) other.setAttribute("aria-pressed", String(other === b));
+          onPick(b.dataset[attr]);
+        });
+      }
+      pick("variant", "v", (v) => {
+        state.v = v;
+        box.replaceChildren();
+      });
+      pick("theme", "t", (t) => {
+        state.theme = t;
+        win.classList.toggle("dark", t === "dark");
+        document.body.classList.toggle("page-dark", t === "dark");
+      });
+      document.getElementById("fire").onclick = () => archive("fix-login");
+      document.getElementById("fail").onclick = () =>
+        setTimeout(() => show("redesign-archive-toast", "有未提交的改动，先提交或丢弃再归档"), 600);
+      document.getElementById("fire2").onclick = () => {
+        archive("fix-login");
+        setTimeout(() => archive("tidy-icons"), 450);
+      };
+      document.getElementById("reset").onclick = () => {
+        document.querySelectorAll(".row.gone").forEach((r) => r.classList.remove("gone"));
+        box.replaceChildren();
+      };
+      document.getElementById("reduce").onchange = (e) => win.classList.toggle("reduce", e.target.checked);
+
+      // 静态并排
+      const NAMES = { a: "A 玻璃胶囊", b: "B 两行卡片", c: "C 倒计时线", d: "D 系统 HUD" };
+      const gallery = document.getElementById("gallery");
+      for (const v of ["a", "b", "c", "d"]) {
+        for (const dark of [false, true]) {
+          const tile = document.createElement("div");
+          tile.className = "tile" + (dark ? " dark" : "");
+          tile.innerHTML = `<h3>${NAMES[v]} · ${dark ? "深色" : "浅色"}</h3><p>两条叠放：新的在上</p><div class="stack"><div class="toast t-${v}">${markup(v, "tidy-icons")}</div><div class="toast t-${v}">${markup(v, "fix-login")}</div></div>`;
+          tile.style.minHeight = v === "b" ? "190px" : "150px";
+          gallery.append(tile);
+        }
+      }
+      for (const dark of [false, true]) {
+        const tile = document.createElement("div");
+        tile.className = "tile" + (dark ? " dark" : "");
+        tile.style.gridColumn = "1 / -1";
+        tile.innerHTML = `<h3>A 的失败 · ${dark ? "深色" : "浅色"}</h3><p>同一个胶囊，红色感叹号，原因用次级文字，停 6 秒；名称超过 180px 省略</p><div class="stack"><div class="toast t-a fail">${markup("a", "fix-login", "git 没能删除这个 worktree")}</div><div class="toast t-a fail">${markup("a", "redesign-archive-success-toast", "有未提交的改动，先提交或丢弃再归档")}</div></div>`;
+        gallery.append(tile);
+      }
+    </script>
+  </body>
+</html>

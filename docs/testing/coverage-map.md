@@ -1032,6 +1032,20 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
 | 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
 
+## M1.11 自用：worktree 归档结果改为右上角提示（2026-10-22）
+
+用户嫌侧栏项目标题下的一行通知难看，选了原型 `prototypes/archive-toast-prototype.html` 的 A“玻璃胶囊”；失败按用户要求也放右上角、也自动消失（design-language“提示”，SPEC-0001“M1.11 的工作区归档”）。对话归档失败仍在侧栏问题行。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 成功“已归档「名称」”，`role=status`、`--ok-text` 勾，3 秒后 0.2 秒退场再去掉 | `packages/ui/src/sidebar/archive-toasts.browser.test.tsx` "for 3 seconds" | 已覆盖 |
+| 失败“没能归档「名称」：原因”，`role=alert`、`--danger` 图标、原因 `--text-muted`，6 秒 | 同上 "for 6 seconds" | 已覆盖 |
+| 悬停或键盘聚焦 × 时暂停，移开接着走剩下的、至少 0.6 秒；× 悬停或聚焦时才显示，点了立即退场 | 同上 "while hovered"、"keyboard's focus"、"when it is pressed" | 已覆盖 |
+| 窗口右上角离顶 56px、离右 12px，高 34px、玻璃模糊，叠放间隔 8px、新的在上、最多 3 条；名称超过 180px 省略 | 同上 "top right"、"180 px"、`pushToast` | 已覆盖 |
+| 侧栏后台归档的成功与失败都走这里，不在侧栏里；关掉后从列表去掉 | `packages/ui/src/app/workbench.browser.test.tsx` "archiving in the background"、"background archive failed" | 已覆盖 |
+
+19 项 `pnpm break-check` 全部检出。改动不在变异分组（侧栏组件不属核心模块），未跑变异测试。
+
 ## M1.11 自用：Friday 服务商品牌（2026-10-22）
 
 用户指定 `sankuai-openai` 显示为 `Friday`，使用 friday.sankuai.com 官网 favicon 的本地 80×80 PNG。内部 ID、模型选择与套餐判断不变。来源登记在 `packages/ui/src/design/brand/SOURCES.md`。

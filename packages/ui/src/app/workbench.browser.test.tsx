@@ -1484,7 +1484,14 @@ describe("Workbench workspace archiving (M1.11)", () => {
 
     answer.resolve();
 
-    await expect.element(screen.getByRole("status")).toHaveTextContent("已归档「fix/typo」");
+    const toast = screen.getByRole("status");
+    await expect.element(toast).toHaveTextContent("已归档「fix/typo」");
+    // At the window's top right, not in the sidebar.
+    expect(screen.getByRole("navigation", { name: "侧栏" }).element().contains(toast.element())).toBe(false);
+    expect(toast.element().classList).toContain("atrium-toast");
+    await userEvent.hover(toast);
+    await toast.getByRole("button", { name: "关闭提示" }).click();
+    await expect.element(toast).not.toBeInTheDocument();
   });
 
   it("says why a background archive failed", async () => {
@@ -1495,9 +1502,10 @@ describe("Workbench workspace archiving (M1.11)", () => {
 
     answer.reject(new CommandError("workspace_dirty"));
 
-    await expect
-      .element(screen.getByRole("alert"))
-      .toHaveTextContent("没能归档「fix/typo」：有未提交的改动，先提交或丢弃再归档");
+    const toast = screen.getByRole("alert");
+    await expect.element(toast).toHaveTextContent("没能归档「fix/typo」：有未提交的改动，先提交或丢弃再归档");
+    expect(screen.getByRole("navigation", { name: "侧栏" }).element().contains(toast.element())).toBe(false);
+    expect(toast.element().classList).toContain("atrium-toast");
     await vi.waitFor(() => expect(screen.getByTestId("workspace-row").elements()).toHaveLength(3));
   });
 
