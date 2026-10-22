@@ -1,5 +1,5 @@
 import { type SessionFileReader, type SessionFileSummary, type SessionsLocation, sessionFolder } from "@atrium/pi";
-import { type Attention, isChatId, type SessionSummary } from "@atrium/protocol";
+import { type Attention, isChatId, type SessionSummary, ThinkingLevel } from "@atrium/protocol";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Clock } from "../platform/clock";
@@ -124,6 +124,26 @@ function parentOf(record: SessionRecord | undefined): SessionSummary["parent"] {
 }
 
 /**
+ * The model a session file records, as the summary can carry it.
+ *
+ * @remarks
+ * As `parentOf`: a level pi does not know, or an id longer than the protocol takes, is none, so
+ * one odd file cannot make the protocol refuse the whole list.
+ *
+ * @sideEffects none
+ * @param file - What the scan read of the file.
+ * @returns The model and level, or `null` when the file records none.
+ */
+function modelOf(file: SessionFileSummary): SessionSummary["model"] {
+  const level = ThinkingLevel.safeParse(file.thinkingLevel);
+  const model = file.model;
+  if (model === null || !level.success) return null;
+  if (model.providerId === "" || model.providerId.length > 256) return null;
+  if (model.modelId === "" || model.modelId.length > 512) return null;
+  return { providerId: model.providerId, modelId: model.modelId, thinkingLevel: level.data };
+}
+
+/**
  * A record's name, as the summary can carry it.
  *
  * @remarks
@@ -234,6 +254,7 @@ export function createSessionCatalog(options: {
         name: file.name ?? nameOf(record),
         prompt: promptLine(file.firstPrompt),
         file: file.path,
+        model: modelOf(file),
         state: "persisted",
         updatedAt: file.modifiedAt,
         archived: record?.archived ?? false,
@@ -256,6 +277,7 @@ export function createSessionCatalog(options: {
         name: nameOf(record),
         prompt: null,
         file: null,
+        model: null,
         // Before the first scan, a file not found yet may well be there (domain-model §1).
         state: record.draft ? "draft" : scanned ? "missing" : "persisted",
         updatedAt: record.createdAt,

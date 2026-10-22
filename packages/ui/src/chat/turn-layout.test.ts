@@ -1,4 +1,4 @@
-import type { AgentEventKind, AgentNoticeEvent, Step, Turn } from "@atrium/protocol";
+import type { AgentEventKind, AgentNoticeEvent, AskedQuestion, QuestionOutcome, Step, Turn } from "@atrium/protocol";
 import { describe, expect, it } from "vitest";
 import {
   type ToolStep,
@@ -17,6 +17,7 @@ import {
   opening,
   parseDisplayDiff,
   processParts,
+  questionRecord,
   transcriptMarkdown,
 } from "./turn-layout";
 
@@ -29,6 +30,56 @@ function tool(
 ): ToolStep {
   return { kind: "tool", id, callId: `c${id}`, tool: name, args: {}, status, output: null, details, partial: false };
 }
+
+/** Two questions `ask_user` asked: one choice, then several. */
+const QUESTIONS: AskedQuestion[] = [
+  {
+    header: "范围",
+    question: "改到哪？",
+    multiSelect: false,
+    options: [
+      { label: "收件箱", description: "", preview: null, recommended: true },
+      { label: "侧栏", description: "", preview: null, recommended: false },
+    ],
+  },
+  {
+    header: "测试",
+    question: "补哪些？",
+    multiSelect: true,
+    options: [
+      { label: "单元", description: "", preview: null, recommended: false },
+      { label: "组件", description: "", preview: null, recommended: false },
+      { label: "端到端", description: "", preview: null, recommended: false },
+    ],
+  },
+];
+
+/**
+ * An `ask_user` step (SPEC-0003).
+ *
+ * @param id - Its id.
+ * @param status - How the call stands.
+ * @param outcome - How its questions ended.
+ * @param questions - What it asked.
+ * @returns The step.
+ */
+function asking(
+  id: string,
+  status: ToolStep["status"],
+  outcome: QuestionOutcome | null,
+  questions: AskedQuestion[] = QUESTIONS,
+): ToolStep {
+  return tool(id, "ask_user", status, { tool: "ask_user", questions, outcome });
+}
+
+/** Answers to `QUESTIONS`. */
+const ANSWERED: QuestionOutcome = {
+  kind: "answered",
+  answers: [
+    { selected: [1], other: null },
+    { selected: [0, 2], other: "加一个基准\n夜间跑" },
+  ],
+};
 
 /** A text step. */
 function text(id: string, value: string): Step {
@@ -330,14 +381,25 @@ describe("countProcess and processParts", () => {
       text("8", "x"),
       compaction("9"),
       compaction("10", null, null),
+      asking("11", "done", ANSWERED),
+      asking("12", "failed", null, QUESTIONS.slice(0, 1)),
+      tool("13", "ask_user"),
     ]);
 
-    expect(counts).toStrictEqual({ reads: 2, searches: 3, commands: 3, failedCommands: 1, compactions: 2 });
+    expect(counts).toStrictEqual({
+      reads: 2,
+      searches: 3,
+      commands: 3,
+      failedCommands: 1,
+      compactions: 2,
+      questions: 3,
+    });
     expect(processParts(counts, 3)).toStrictEqual([
       "读了 2 个文件",
       "搜索了 3 次",
       "跑了 3 条命令",
       "改了 3 个文件",
+      "问了你 3 个问题",
       "1 条命令没走通",
       "压缩了 2 次上下文",
     ]);
@@ -772,6 +834,69 @@ describe("hostNoticeText", () => {
     );
     expect(transcriptMarkdown([note])).toBe(
       "> 在新的 worktree 里继续：~/work/atrium.worktrees/tests（之前的路径属于 ~/work/atrium）\n",
+    );
+  });
+});
+
+describe("the agent's questions on the rail (SPEC-0003)", () => {
+  it("says it asks you while it waits, and how the questions ended", () => {
+    expect(
+      [
+        asking("0", "running", null),
+        asking("1", "done", ANSWERED),
+        asking("2", "done", { kind: "skipped" }),
+        asking("3", "done", { kind: "skipped" }, QUESTIONS.slice(0, 1)),
+        asking("4", "done", { kind: "reply" }),
+        asking("5", "failed", null),
+        asking("6", "unfinished", null),
+        asking("7", "failed", { kind: "skipped" }),
+      ].map((step) => describeStep(step, step.status === "running")),
+    ).toStrictEqual([
+      { verb: "正在问你", object: "2 个问题", end: null },
+      { verb: "问了你", object: "2 个问题", end: null },
+      { verb: "你跳过了", object: "这 2 个问题", end: null },
+      { verb: "你跳过了", object: "这个问题", end: null },
+      { verb: "你没选，直接回复了", object: "", end: null },
+      { verb: "问题已取消", object: "", end: null },
+      { verb: "问题已取消", object: "", end: null },
+      { verb: "问题已取消", object: "", end: null },
+    ]);
+  });
+
+  it("keeps a line for each answer: the options' labels joined, the other answer quoted after them", () => {
+    expect(questionRecord(asking("0", "done", ANSWERED))).toStrictEqual([
+      { header: "范围", answer: "侧栏" },
+      { header: "测试", answer: "单元、端到端、其他：“加一个基准\n夜间跑”" },
+    ]);
+    expect(
+      questionRecord(
+        asking("1", "done", { kind: "answered", answers: [{ selected: [], other: "都不要" }] }, QUESTIONS.slice(0, 1)),
+      ),
+    ).toStrictEqual([{ header: "范围", answer: "其他：“都不要”" }]);
+  });
+
+  it("keeps no lines for questions skipped, replied to, still waiting, or for another tool", () => {
+    expect(
+      [
+        asking("0", "done", { kind: "skipped" }),
+        asking("1", "done", { kind: "reply" }),
+        asking("2", "running", null),
+        tool("3", "bash", "done", { tool: "bash", command: "ls" }),
+        tool("4", "grep"),
+      ].map(questionRecord),
+    ).toStrictEqual([null, null, null, null, null]);
+  });
+
+  it("writes the questions and answers into the Markdown as a quote", () => {
+    expect(transcriptMarkdown([turn([asking("0", "done", ANSWERED), text("1", "好")])])).toBe(
+      "> do it\n\n> 问了你 · 2 个问题\n> 范围 · 改到哪？ —— 侧栏\n> 测试 · 补哪些？ —— 单元、端到端、其他：“加一个基准 夜间跑”\n\n好\n",
+    );
+    expect(transcriptMarkdown([turn([asking("0", "done", { kind: "skipped" })])])).toBe(
+      "> do it\n\n> 你跳过了 · 这 2 个问题\n> 范围 · 改到哪？\n> 测试 · 补哪些？\n",
+    );
+    const twoLines = [{ ...QUESTIONS[0], question: "改到\n哪？" }] as AskedQuestion[];
+    expect(transcriptMarkdown([turn([asking("0", "done", { kind: "skipped" }, twoLines)])])).toBe(
+      "> do it\n\n> 你跳过了 · 这个问题\n> 范围 · 改到 哪？\n",
     );
   });
 });

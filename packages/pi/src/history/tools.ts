@@ -1,4 +1,5 @@
 import type { ToolDetails } from "@atrium/protocol";
+import { ASK_USER_TOOL, askUserOutcome, askedQuestions } from "../agent/ask-user";
 import { agentToolDetails } from "../agent/details";
 
 /** A JSON object, as tool call arguments are. */
@@ -83,13 +84,28 @@ function editDiff(details: unknown): string | null {
 }
 
 /**
+ * Whether a result's details are an empty object, as pi gives a tool that threw.
+ *
+ * @remarks
+ * See `toolDetails`: a stopped `ask_user` has these.
+ *
+ * @sideEffects none
+ * @param details - The details.
+ * @returns Whether they are.
+ */
+function isEmpty(details: unknown): boolean {
+  return typeof details === "object" && details !== null && Object.keys(details).length === 0;
+}
+
+/**
  * The details a tool step shows, from its arguments and, once it has one, its result.
  *
  * @remarks
  * pi's built-in tools (SPEC-0001, "对话记录"): `bash` shows its command; `read` its path and range;
  * `edit` the display diff pi returns in `details.diff`, with its line counts; `write` the written
  * content, which only the call's arguments hold (pi's result says just "Successfully wrote"); the
- * main agent's tools the children they started and the events they brought back (SPEC-0002).
+ * main agent's tools the children they started and the events they brought back (SPEC-0002);
+ * `ask_user` its questions, read from the arguments, and how they ended (SPEC-0003).
  * Paths are read under the names pi accepts, `path` and the older `file_path`. Other tools, and
  * arguments without the expected fields, have no details. Used for live events and rebuilt
  * history alike, so both show the same.
@@ -120,6 +136,14 @@ export function toolDetails(tool: string, args: ToolArgs, resultDetails?: unknow
     case "write": {
       const content = stringArg(args, "content");
       return path === undefined || content === undefined ? null : { tool: "write", path, content };
+    }
+    case ASK_USER_TOOL: {
+      const questions = askedQuestions(args);
+      const outcome = askUserOutcome(resultDetails);
+      // Waiting has no result, and a stopped call pi's empty details; any other result that is no
+      // outcome shows as any tool would, with its output (SPEC-0003, "对话记录").
+      const unread = outcome === null && resultDetails !== undefined && !isEmpty(resultDetails);
+      return questions === null || unread ? null : { tool: "ask_user", questions, outcome };
     }
     default:
       return agentToolDetails(tool, resultDetails);

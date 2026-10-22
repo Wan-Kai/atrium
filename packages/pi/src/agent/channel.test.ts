@@ -48,6 +48,17 @@ const EVENT = {
   changes: { files: 1, added: 2, removed: 3 },
 };
 
+/** A question as the extension sends it (SPEC-0003). */
+const ASKED = {
+  header: "范围",
+  question: "改到哪？",
+  multiSelect: false,
+  options: [
+    { label: "收件箱", description: "", preview: "<Inbox />", recommended: true },
+    { label: "侧栏", description: "", preview: null, recommended: false },
+  ],
+};
+
 describe("readRequest", () => {
   it("reads a call and a note the extension wrote, with their arguments", () => {
     const call = writeRequest({ kind: "call", id: "call-1", op: "send", args: { to: "audit", message: "go on" } });
@@ -94,6 +105,20 @@ describe("readRequest", () => {
       ["models", {}],
       ["ask", { question: "a".repeat(TEXT_LIMITS.question), options: ["a", "b"], timeoutSeconds: 60 }],
       ["branch", {}],
+      [
+        "ask_user",
+        {
+          questions: [
+            ASKED,
+            {
+              ...ASKED,
+              header: "其二",
+              multiSelect: true,
+              options: ASKED.options.map((one) => ({ ...one, preview: null })),
+            },
+          ],
+        },
+      ],
     ] as const) {
       expect(readRequest(JSON.stringify({ v: 1, kind: "call", id: "c", op, args }))).toStrictEqual({
         request: { kind: "call", id: "c", op, args },
@@ -124,6 +149,21 @@ describe("readRequest", () => {
       { ...call, op: "read", args: { to: "a", what: "steps", limit: 51 } },
       { ...call, op: "read", args: { to: "a", what: "reply", limit: 16_001 } },
       { ...call, op: "progress" },
+      { ...call, op: "ask_user", args: { questions: [ASKED, ASKED] } },
+      {
+        ...call,
+        op: "ask_user",
+        args: { questions: [{ ...ASKED, options: [ASKED.options[0], ASKED.options[0]] }] },
+      },
+      {
+        ...call,
+        op: "ask_user",
+        args: {
+          questions: [
+            { ...ASKED, multiSelect: true, options: [{ ...ASKED.options[0], preview: "x" }, ASKED.options[1]] },
+          ],
+        },
+      },
     ]) {
       expect(readRequest(JSON.stringify(bad))).toStrictEqual({ bad: "c", kind: "call" });
     }

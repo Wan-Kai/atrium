@@ -1,4 +1,4 @@
-import type { LogEntry } from "@atrium/pi";
+import type { AskUserResult, LogEntry } from "@atrium/pi";
 import type { CatalogModel, SessionModel } from "@atrium/protocol";
 import { FakeClock, present } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
@@ -57,6 +57,7 @@ function session(sessionId: string, fields: Partial<CatalogEntry> = {}): Catalog
     archived: false,
     attention: null,
     handedOff: false,
+    model: null,
     parent: null,
     cwd: `/repo/${sessionId}`,
     fast: null,
@@ -178,6 +179,10 @@ function harness(...entries: CatalogEntry[]) {
   const failWritesTo = new Set<string>();
   const holdWritesTo = new Map<string, Promise<void>>();
   const resumed: string[] = [];
+  /** The `ask_user` calls the controllers hold, by `session#call`, with how to answer them. */
+  const asked = new Map<string, (result: AskUserResult | null) => void>();
+  /** The `ask_user` calls dropped, as `session#call`. */
+  const dropped: string[] = [];
   let failStarts = false;
   let workChanges: Awaited<ReturnType<AgentHost["workChanges"]>> = { branch: null, changes: null };
   let model: SessionModel | null = { providerId: "faux", modelId: "m1", thinkingLevel: "high" };
@@ -211,6 +216,15 @@ function harness(...entries: CatalogEntry[]) {
       live.has(sessionId)
         ? ({
             deliveriesChanged: () => pumped.push(sessionId),
+            askUser: (id: string) => {
+              const { promise, resolve } = Promise.withResolvers<AskUserResult | null>();
+              asked.set(`${sessionId}#${id}`, resolve);
+              return promise;
+            },
+            dropQuestion: (id: string) => dropped.push(`${sessionId}#${id}`),
+            get asking() {
+              return [...asked.keys()].some((key) => key.startsWith(`${sessionId}#`));
+            },
             stop: async () => {
               stopped.push(sessionId);
               return { confirmed: true };
@@ -330,6 +344,8 @@ function harness(...entries: CatalogEntry[]) {
       holdWritesTo.set(id, until);
     },
     resumed,
+    asked,
+    dropped,
     /** Makes every start of pi fail from now on. */
     failStarts: () => {
       failStarts = true;
@@ -2987,5 +3003,83 @@ describe("agent relay: what the three-way review found (2026-10-18)", () => {
         changes: { files: 2, added: 10, removed: 3 },
       },
     ]);
+  });
+});
+
+describe("agent relay: ask_user (SPEC-0003)", () => {
+  /** One question, as the extension sends it. */
+  const questions = [
+    {
+      header: "范围",
+      question: "改到哪为止？",
+      multiSelect: false,
+      options: [
+        { label: "只改收件箱", description: "", preview: null, recommended: true },
+        { label: "整个侧栏", description: "", preview: null, recommended: false },
+      ],
+    },
+  ];
+
+  it("hands the session's controller the questions, and replies with how you answered once you did", async () => {
+    const h = harness(session("main"));
+
+    const { id, answer } = await h.call("main", "ask_user", { questions });
+    present(h.asked.get(`main#${id}`), "the questions held")({ outcome: "skipped" });
+    await settle();
+
+    expect(answer).toBeUndefined();
+    expect(h.reply(id)).toStrictEqual({ v: 1, id, ok: true, result: { outcome: "skipped" } });
+  });
+
+  it("refuses a child the agent opened, however deep, and lets one you opened ask", async () => {
+    const h = harness(
+      session("main"),
+      child("c1", "main", "audit", { role: "work" }),
+      child("c2", "c1", "deeper", { role: "work" }),
+      session("yours", { parent: { sessionId: "main", by: "user" } }),
+    );
+
+    const first = await h.call("c1", "ask_user", { questions });
+    const deep = await h.call("c2", "ask_user", { questions });
+    const yours = await h.call("yours", "ask_user", { questions });
+
+    expect([first.answer, deep.answer]).toStrictEqual([
+      { v: 1, id: first.id, ok: false, code: "ask_user_unavailable" },
+      { v: 1, id: deep.id, ok: false, code: "ask_user_unavailable" },
+    ]);
+    expect(yours.answer).toBeUndefined();
+    expect([...h.asked.keys()]).toStrictEqual([`yours#${yours.id}`]);
+  });
+
+  it("answers nothing for questions dropped, and drops them when the extension gives the call up", async () => {
+    const h = harness(session("main"));
+
+    const { id } = await h.call("main", "ask_user", { questions });
+    present(h.asked.get(`main#${id}`), "the questions held")(null);
+    await h.note("main", "cancel", { id });
+
+    expect(h.reply(id)).toBeUndefined();
+    expect(h.dropped).toStrictEqual([`main#${id}`]);
+  });
+
+  it("takes a give-up from a session whose pi has gone, quietly", async () => {
+    const h = harness(session("main"));
+    h.live.delete("main");
+
+    await h.note("main", "cancel", { id: "call-1" });
+
+    expect(h.records.filter((record) => record["msg"] === "agent note failed")).toStrictEqual([]);
+  });
+
+  it("refuses questions while another call's are open, and fails them in a session whose pi has gone", async () => {
+    const h = harness(session("main"), session("gone"));
+    h.live.delete("gone");
+
+    await h.call("main", "ask_user", { questions });
+    const second = await h.call("main", "ask_user", { questions });
+    const gone = await h.call("gone", "ask_user", { questions });
+
+    expect(second.answer).toStrictEqual({ v: 1, id: second.id, ok: false, code: "agent_bad_request" });
+    expect(gone.answer).toStrictEqual({ v: 1, id: gone.id, ok: false, code: "agent_failed" });
   });
 });

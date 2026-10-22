@@ -70,6 +70,10 @@ export const ErrorCode = z.enum([
   "queue_item_not_found",
   /** The interaction was answered, timed out, or went away with its pi. */
   "interaction_closed",
+  /** The agent's questions were answered, skipped or replied to, or the run stopped, or pi went (SPEC-0003). */
+  "question_closed",
+  /** An answer does not answer its question; `params.index` is which one (SPEC-0003, "接口与数据"). */
+  "question_invalid",
   /** pi could not list its models, as when no provider has credentials; `params.detail` is pi's own text. */
   "models_unavailable",
   /** `@` needs `fd`, found neither where pi keeps it nor on the login shell's PATH. */

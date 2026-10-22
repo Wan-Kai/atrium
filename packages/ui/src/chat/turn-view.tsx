@@ -116,6 +116,9 @@ function ProcessHeader({
   readonly launch: LaunchStatus | null;
 }) {
   const running = turn.outcome === "running" && launch !== "failed";
+  const asking = turn.steps.some(
+    (step) => step.kind === "tool" && step.details?.tool === "ask_user" && step.status === "running",
+  );
   const parts = launch === null ? processParts(countProcess(turn.steps), turn.changes.length) : [];
   return (
     <button
@@ -127,7 +130,11 @@ function ProcessHeader({
       className="atrium-press-row group relative mt-3 flex min-h-[30px] w-full min-w-0 items-center text-left text-[length:var(--fs-meta)] text-[var(--text-muted)]"
     >
       {running ? (
-        <RunStatus startedAt={startedAt} label={launch === "preparing" ? "准备工作区" : "进行中"} />
+        <RunStatus
+          startedAt={startedAt}
+          label={launch === "preparing" ? "准备工作区" : "进行中"}
+          asking={running && asking}
+        />
       ) : (
         <span className="flex min-w-0 items-center gap-1.5">
           <CaretDown

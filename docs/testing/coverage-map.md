@@ -4,6 +4,30 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 项目工作区展开行显示剩余数量（M1.11 自用，2026-10-21）
+
+用户指定将项目工作区的“显示全部 7 个”改为“显示剩余 2 个”。剩余数按已经过滤、排序后的工作区数减去实际已显示数计算，额外展示的当前工作区也扣除；没有剩余时不出现“显示剩余 0 个”。展开、收起、换项目后收回及行尺寸不变，对话分区不改。用户已指定文案，无新的视觉方案选择；本任务 worktree 的 `prototypes/sidebar-remaining-count-prototype.html` 列出 7/5、8/6、6/6 三个状态。
+
+`packages/ui/src/app/workbench.browser.test.tsx` 覆盖：总 8、已显示 6 → 剩余 2；当前工作区回到前五 → 剩余 3；总 7、已显示 5 → 剩余 2；总 6、已显示 6 → 不显示展开行，回到前五 → 剩余 1；展开全部后“收起”；正好五个无展开行；换项目收回。新增边界测试及修改的文案断言已见红，再实现后该文件 107 项通过。真实组件浅 / 深色截图已看，布局、选中行和按钮样式未改变，临时截图代码已移除。
+
+验证：`pnpm check`、构建、侧栏单元 21 项、串行全量 UI 940 项通过；三项 `pnpm break-check` 均检出（误用总数、只扣前五不扣额外当前项、没有剩余仍显示展开行）。真实组件浅 / 深色截图确认布局和文案，设计扫描无发现；截图首次写 `/tmp` 被浏览器测试的文件安全限制拒绝，改存工作区被忽略的 `.vitest/` 后成功，未放宽安全限制，临时截图代码已移除。用户确认并授权提交、合并后，核对最新 `main` 无新增提交，补跑全量单元 3268 项通过，工作台浏览器测试做 2 副本 × 2 轮压力检查全部通过；单元输出过日志流 `EBADF` 提示，不影响用例通过。仅改侧栏 JSX 展示，不涉及核心变异分组、宿主或协议；未跑桌面端到端、泄漏、性能、浸泡或打包安装。实现来自 `self-use-sidebar-remaining-count`，按用户要求本地提交合并；未安装、未推送。
+
+## 只读子代理默认提供 Bash（M1.11 自用，2026-10-21）
+
+用户确认只读是行为约束，不是沙箱强制保证。`explore`、`advise` 默认提供 Bash，首件任务明确仅可读取、检查与查询，不得修改文件或仓库状态、构建、测试、启动服务；需要修改时请父 agent 交给 `work` 子代理。原先白名单不含 Bash；`edit`、`write` 等白名单外工具仍受限。不新增命令过滤器，不声称能阻止 Bash 写入。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 普通启动、继承父参数、交给终端的白名单含 Bash，层数限制及其他工具边界不变 | `packages/host/src/sessions/agent-launch.test.ts` | 已见红并通过 |
+| explore 与 advise 的首件任务声明 Bash 及读取用途约束；work 的目录说明、带上下文不重做父调用的说明保持 | `packages/pi/src/agent/words.test.ts` 的 `taskText` | 已见红并通过 |
+| 带上下文子代理的工具钩子允许 Bash，仍拒绝 edit、write、MCP 和越层 agent 调用 | `packages/pi/src/agent/extension.test.ts` 的 `the tool hook` | 已通过，移除 Bash / 放行 write 的破坏检查均检出 |
+| 真实 pi 的 flags / extension 两种方式能执行 Bash 查询，write 调用报错且文件不存在 | `packages/pi/src/contract/agent-tools.pi.test.ts` 的 `agent-readonly-bash-*`、`agent-guard` | pi 1.3.0 五场景已录制并漂移复验通过；移除 Bash 的负对照检出 |
+| 真实桌面开默认只读子代理，查看 Bash 查询结果，write 未创建文件 | `apps/desktop/e2e/children.spec.ts` 的 `a read-only child can query with Bash but cannot call write` | 已通过；构建产物移除 Bash 后在真实结果 `Tool bash not found` 上失败，恢复后完整 children 五项通过 |
+
+验证：`pnpm check`、构建、串行全量单元 / 宿主 3415 项、上述真实 pi 五项、完整 children 桌面五项通过；相关三个单元文件做 2 副本 × 2 轮压力检查全部通过。五项 `pnpm break-check` 均检出（启动参数、扩展放行 Bash、角色说明、禁止 write、真实 pi），另有上述桌面负对照。聚焦本批实际改动的 `words.ts:17-18,236-244` 做 pi 组变异，实跑 13 个全部 killed、100%，无缓存复用、存活或超时；不冒称整文件或整组覆盖。独立只读源码复核无阻断问题。
+
+完整 `pnpm test:pi` 实跑 47 过、33 失败，失败逐条确认均为未修改旧场景缺本机 1.3.0 夹具，不弱化漂移检查、不顺带重录整套；不声称全套 pi 通过。单元层输出过一次日志流 `EBADF` 提示，但 3415 项全部通过。用户确认并要求提交、合并后，核对最新 `main` 无新增提交；补跑全量 UI 首轮 938 过、1 个已记录的 Markdown 悬停按钮用例偶发失败，该文件单跑 23 项及全量重跑 939 项全部通过，未改无关测试或弱化断言。本批未跑全量桌面、泄漏、性能、浸泡、打包安装；不修改 UI、宿主任务送达或资源回收逻辑。实现来自 `self-use-readonly-agent-bash`，用户已授权本地提交合并；未安装、未推送。SPEC-0002 与 security 已同步接受的风险边界。
+
 ## SPEC-0001 需求
 
 | # | 需求 | 测试 | 状态 |
@@ -456,7 +480,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 空状态（2026-10-14）：工作区、对话、不绑定项目的新对话一样，中间只有一句"每天都做一些改变出来"（20px），句末一个闪烁的光标（2px 宽、1.15em 高、离字 3px、`--tint`、1.06 秒一亮一灭不渐变、读屏不读）；减弱动效时常亮（浏览器测试没法切减弱动效，未测）；打开着的会话还什么都没有时也显示这一句，发出第一条消息就换成对话，内容还在加载、有更早的记录、在运行、在压缩、新建工作区页正在建它时不显示 | `packages/ui/src/chat/chat.browser.test.tsx` "says only one line"、"says the same line"、"does not say the line" | 已覆盖 |
 | 消息列（2026-10-15）：消息和输入框在同一列里，最宽 800px（`--column`，含左右 24px 内边距），在对话区居中；运行控制、新建工作区页的选择行和时间轴用同一个宽度 | `packages/ui/src/chat/chat.browser.test.tsx` "one column at most 800 px wide" | 已覆盖（运行控制、选择行、时间轴只共用同一个值，未单独测） |
 | 侧栏搜索框（2026-10-15）：常驻顶部、在"项目"标题上面，没有搜索按钮；输入时项目和对话换成结果；Esc 清空并离开搜索框，项目列表回来 | `packages/ui/src/app/workbench.browser.test.tsx` "from the box always at the top" | 已覆盖（不随下面滚动只靠它在滚动区外面，未单独测滚动） |
-| 项目里的工作区（2026-10-15）：最多列 5 个，当前所在的排在后面时接着显示；超过 5 个时末尾"显示全部 N 个"，点开全部列出、变成"收起"，再点回到 5 个；当前离开后它不再多列；当前换到别的项目时收回去，回来也是收着的（2026-10-16）；正好 5 个时没有这一行；"显示全部"这类展开行整行可点（和行一样宽、高 30px，对话的也是；已归档的对话、收件箱的"还有 N 条"共用同一个样式，未单独测） | `packages/ui/src/app/workbench.browser.test.tsx` "lists five of a project's workspaces"、"folds a project's workspaces back"、"every workspace of a project with five"、"lists chats like workspaces" | 已覆盖 |
+| 项目里的工作区（2026-10-15；2026-10-21 改为剩余数）：最多列 5 个，当前所在的排在后面时接着显示；有未显示的工作区时末尾"显示剩余 N 个"，N 扣除所有已显示项，点开全部列出、变成"收起"，再点回到 5 个及额外的当前项；当前离开后它不再多列；当前换到别的项目时收回去，回来也是收着的（2026-10-16）；没有剩余时无展开行；这类展开行整行可点（和行一样宽、高 30px，对话的也是；已归档的对话、收件箱的"还有 N 条"共用同一个样式，未单独测） | `packages/ui/src/app/workbench.browser.test.tsx` "lists five of a project's workspaces"、"folds a project's workspaces back"、"every workspace of a project with five"、"lists chats like workspaces" | 已覆盖 |
 | 状态栏详情卡片（2026-10-15）：标题行下面没有分隔线；卡片不伸出窗口，展开的长列表（如 50 个 skill）在卡片里滚动（2026-10-16） | `packages/ui/src/chat/status-bar.browser.test.tsx` "splits the context in its card"、"grows past the window" | 已覆盖（各卡片共用同一个标题行和外框，只在上下文卡片上测） |
 | 已移除的工作区（2026-10-15）：worktree 目录不在了的工作区不在项目里列出，搜索也找不到；它是当前所在的时照样列出、选中 | `packages/ui/src/app/workbench.browser.test.tsx` "whose directory is gone" | 已覆盖 |
 | 侧栏材质不随焦点变（2026-10-15）：窗口 `visualEffectState: "active"`，另一个窗口拿走焦点时，系统画出的侧栏颜色不变（用 `screencapture` 截窗口比较） | `apps/desktop/e2e/app.spec.ts` "material as it is" | 已覆盖 |
@@ -473,8 +497,8 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 走套餐的签：模型面板左列走套餐的服务商图标右下角有"套餐"签（离按钮右边 1px、下边 3px，高 12px，`--tint` 底、字 8px 600、面板底色），在"当前模型"小点下面不重叠；右栏顶上服务商名后面写"套餐"（`--tint`、11px）；输入框模型按钮的图标带同样的签（比图标右边多出 8px、下边 4px）；签是名为"走套餐"的图；按量计费的服务商、登录状态没说用 OAuth 的 OpenAI 和 xAI 都没有签；对话区和新建工作区页把设置的登录状态交给模型按钮，登录状态到了签跟着出现 | `model-picker.browser.test.tsx` "ModelPicker's plan tag"、"opens above the button"；`packages/ui/src/chat/chat.browser.test.tsx` "tags a provider on a plan as the setup's login state says"；`packages/ui/src/app/new-workspace.browser.test.tsx` "tags the model button of a provider on a plan" | 已覆盖（深色外观下的颜色未单独测） |
 | 胶囊点开的面板（design-language"胶囊点开的面板"）：排队面板和子对话列表各自浮在自己的胶囊正上方 8px、左边和胶囊左边齐；排队面板右边到胶囊条右边；子对话列表宽度按内容、最窄 300px、右边不超出胶囊条（胶囊前面的东西多了也一样）；箭头转半圈 | `packages/ui/src/chat/run-control.browser.test.tsx` "floats the queue 8px above its capsule"；`packages/ui/src/children/children.browser.test.tsx` "floats its list 8px above the capsule"、"keeps its list within the bar" | 已覆盖 |
 | 点空白处（面板、胶囊和输入框以外的地方）、按 Esc 收起面板（排队面板和子对话列表都是）；点面板里的东西（如行的"···"菜单）、点输入框和它里面的按钮（打字、停止）不收起；收起编辑的 Esc、输入框拿去停止运行的 Esc 不收起面板；点另一个胶囊换成那个的面板；收起后不再监听 | `run-control.browser.test.tsx` "closes the queue on a press outside it"、"keeps the queue open on a press in the input box or on its stop button"、"closes the queue on Escape, but not on the one that gives up an edit"、"switches to the other capsule's panel"；`children.browser.test.tsx` "closes its list on a press outside it and on Escape" | 已覆盖（输入框停止运行的 Esc 未单独测；监听的释放未单独测） |
-| 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起 0.2 秒、行一起淡出（0.16 秒），收完才拿掉面板；半路折回从已到的位置接着走；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"、"closes a panel turned back halfway"、"playing the close before the panel goes"、"opens and closes at once when less motion is asked for" | 已覆盖 |
-| 模型列表的规则表：去掉按量计费的 Claude、OpenAI（pi 自己的 `anthropic`、`azure-openai-responses`、不是 ChatGPT 登录的 `openai`、登录状态读不出时也去掉、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算）；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
+| 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起不做动画、面板直接消失（2026-10-21 自用时改）；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"（含收起时面板立刻没有）、"closes the queue on a press outside it, the panel going at once"、"opens and closes at once when less motion is asked for" | 已覆盖 |
+| 模型列表的规则表：恢复 pi 自己的 `anthropic` 和它的默认模型（2026-10-22 用户要求，OAuth / API Key 都可见，界面不加套餐签）；仍去掉 `azure-openai-responses`、不是 ChatGPT 登录的 `openai`（登录状态读不出时也去掉）、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
 
 ## M1.11 自用中改（2026-10-20）
 
@@ -913,3 +937,98 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
 | 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
 
+## M1.11 自用：恢复 pi 原生 Claude 模型（2026-10-22）
+
+仅移除模型规则表里对 `anthropic` 的整家过滤；模型面板、标题模型和 agent 继续共用同一目录，原生 Claude 默认模型照常保留。套餐签规则不改，OAuth 登录的原生 Claude 仍不显示签，不新增计费说明；Claude Bridge 及其它服务商规则不变。沿用现有无签布局，不引入新的视觉设计。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| `anthropic` 在 OAuth / API Key 登录时保留模型与默认；其它登录状态或读取失败不再把它过滤；仍过滤 Azure、OpenRouter 的指定前缀及付费 / 重复 OpenAI 路径 | `packages/host/src/sessions/model-rules.test.ts` 的完整列表断言与 `keeps native Claude models and pi's default with %s credentials` | 已覆盖；旧实现下五项断言见红 |
+| 即使用 Claude OAuth，按钮、服务商图标和模型列表标题都没有套餐签；可选中并关闭面板，Claude Bridge 的套餐签保持 | `packages/ui/src/chat/model-picker.browser.test.tsx` 的 `selects native Claude without a plan tag even with OAuth…` 及现有 Bridge 断言 | 已覆盖；临时把 `anthropic` 加入 OAuth 套餐名单，浏览器断言实际见红 |
+| 真实 Electron → 宿主 → pi：原生 Claude 默认模型可见、可切换并发送消息；三处无套餐签；明暗截图 | `apps/desktop/e2e/models.spec.ts` 的 `lists native Claude, keeps its default and selects it without plan tags`（隔离目录、真实 pi + faux，不使用真实账户） | 已覆盖；恢复旧过滤并重建后，默认按钮错误显示“选择模型”，端到端见红；移除后通过，明暗截图已看 |
+
+验证：`pnpm check`、构建通过；宿主集成全量 147 项、模型相关单元 26 项、UI 全量 938 项、模型相关 Electron 3 项通过。`pnpm break-check` 两项全部检出；宿主 `model-rules.ts` 聚焦变异实跑 95 个，全部 killed（100%，无缓存复用、存活或超时）。独立只读源文件复核未发现阻断（未独立执行 diff 或重跑测试）。未增加资源生命周期，无本批泄漏测试；未跑 pi 契约、其它端到端、性能 / 压力 / 浸泡、打包安装或真实账户付费请求。
+
+全量单元 / 宿主共 3407 项，**不能宣称全绿**：首轮 3406 过，未修改的 `workspace-files.test.ts` 创建 5001 个文件用例超时；复跑 3405 过，该文件创建恰好 5000 个文件用例超时，另有未修改的 `install-service.test.ts` 等安装输出用例失败。目录超时伴随清理 `ENOTEMPTY`，输出亦有日志流 `EBADF`。目录文件曾单独 22 项全过，但最终隔离复跑仍有一次目录超时；安装服务隔离复跑 24 项通过。不改超时、不弱化断言、不顺带修这些失败，保留为本次验收的验证限制。
+
+UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方进程；用 `/tmp` 下导入原配置且仅覆盖 UI 项目端口的临时配置（63328）完成全量 UI 与浏览器破坏检查，仓库配置未改。初次浏览器破坏检查因端口冲突报 `MISSED`，换端口后确实进入测试并检出，不把环境启动失败当作检出。
+
+用户确认合并与删除 worktree 后，同步 `main` 的 `a43ba71`，仅追踪表冲突，保留双方记录；实现差异仍限于本任务。合并前 `pnpm check`、构建、串行单元 3270 项、串行 UI 940 项、模型 Electron 3 项通过，使用仓库原配置，无超时调整或断言弱化。此前单元 / 宿主的失败记录保留，不改写为从未失败：本轮单元全过但仍有日志流 `EBADF` 输出。集成后首轮 UI 有未修改的右栏 0.24 秒动画例失败，单文件 13 项及随后串行全量通过；同时模型 Electron 的旧 `/faux-noop` 命令例失败，整文件独立复跑 3 项通过。本轮不冒称重新跑过宿主全量、变异测试或其它桌面旅程；未安装、未推送，主工作区无关的文档草稿不纳入提交。
+
+## 子对话列表标模型、插话重叠、弹窗直接消失（2026-10-21）
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 会话扫描读文件里最新的 `model_change` 与 `thinking_level_change`：取最后一条、类型不符或字段不是字符串的不算、没有为 `null`、藏在别的条目里的同名字样不算 | `packages/pi/src/sessions/session-files.test.ts` "reads the model and thinking level from the latest model_change and thinking_level_change"；真实 pi 录制文件 "reads the session id, working directory, name, first question and model of a file pi wrote" | 已覆盖 |
+| 目录把文件里的模型放进 `SessionSummary.model`；级别协议不认得、provider / model id 超上限的为 `null` 而不是让整份列表被拒；草稿为 `null` | `packages/host/src/sessions/session-catalog.test.ts` "lists the model and thinking level a session's file records…" | 已覆盖 |
+| 协议 23：`SessionSummary.model` 过协议校验（有值与 `null`） | `packages/protocol/src/envelope.test.ts`（会话摘要的两个样例） | 已覆盖 |
+| 子对话行写"模型名 · 档位"：名字取目录、目录没有则写 id；只有 `off` 的模型不写档位；没有记录不写；行高 40px、行间 2px | `packages/ui/src/children/children.test.ts` `modelLine` 三项；`children.browser.test.tsx` "tells each child's model and thinking level in its row, and keeps the rows apart" | 已覆盖（宿主换模型到列表更新的延迟未测） |
+| 折叠过的过程只留下插话行时，折叠一结束就清掉折叠动画，插话行不再盖到回复上（原先复用同一个 DOM 节点，`fill: forwards` 的高度 0 留在上面） | `packages/ui/src/chat/turn.browser.test.tsx` "keeps the steers a folded turn leaves in view clear of the reply once the fold has played" | 已覆盖 |
+| 排队面板、子对话列表收起时直接消失，不播收起动画；展开动画不变 | `packages/ui/src/chat/run-control.browser.test.tsx` "grows the panel from its bottom edge…"、"closes the queue on a press outside it, the panel going at once" | 已覆盖 |
+
+## agent 向你提问（SPEC-0003，2026-10-21）
+
+先是实施前的 pi 契约实测，2026-10-22 实现后续登记。协议 24。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| 工具挂着等宿主时先发 `steer`、再回答：插话应答 `queued` 并列在 `queue_update` 里，工具返回后紧跟工具结果送到模型，同一次运行 | `packages/pi/src/contract/subagent.pi.test.ts` "ask-steer: …"，夹具 `pi-1.3.0/ask-steer.jsonl` | 已覆盖（破坏检查：探针回答被改成别的文字时检出） |
+| 工具挂着时 `abort`：扩展抛出的文字成为 `isError` 的工具结果、`details` 为 `{}`，不再请求模型；下一次发消息模型看到这条结果 | `subagent.pi.test.ts` "ask-abort: …"，夹具 `pi-1.3.0/ask-abort.jsonl` | 已覆盖（破坏检查：探针中止时的文字被改时检出） |
+| 协议：问题与答案的形状和上限（1～4 题、2～4 个选项、各文字上限）；`answersQuestion`：单选恰好一项、多选至少一项、下标在范围内不重复、"其他"去空白后非空 | `packages/protocol/src/question.test.ts` | 已覆盖 |
+| 协议：`Control.question`、`answer_question`（答案 / 跳过，空答案和两者兼有被拒）、`ToolDetails` 的 `ask_user`、`question_closed` / `question_invalid` | `packages/protocol/src/envelope.test.ts`（各样例、命令清单、错误码清单） | 已覆盖 |
+| pi：读模型写的问题（去推荐标记、默认单选、去空白，推荐标记只认末尾），逐条拒绝并写明哪一题哪一项（题数、选项数、各文字上限、"Other"/"其他"不分大小写、重复选项、多选带预览、重复题名、形状不对），空白预览算没有 | `packages/pi/src/agent/ask-user.test.ts` "checkQuestions" | 已覆盖 |
+| pi：交回模型的文字（答案按选项顺序、"其他"去空白、跳过、直接回复）与停止时的文字；读结局（版本不对、停止后的空 `details` 读成没有） | `ask-user.test.ts` "answerText"、"askUserOutcome" | 已覆盖 |
+| pi：扩展注册 `ask_user`（声明给模型的说明和参数整体比对）、经通道问宿主、结局存进 `details`、问题不合格不问宿主、宿主拒绝的措辞、停止时通知宿主并抛出、子代理在执行和钩子两处被拒 | `packages/pi/src/agent/extension.test.ts` "ask_user"、"refusal" | 已覆盖 |
+| pi：读会话文件时从参数读问题、从结果读结局 | `packages/pi/src/history/tools.test.ts` "shows ask_user's questions" | 已覆盖 |
+| pi 契约（Atrium 扩展、真实 pi 1.3.0）：调用读成整理过的问题、宿主回答后模型读到答案、结局写进结果；停止时出错结果并通知宿主；`work` 子代理按宿主的参数没有这个工具 | `packages/pi/src/contract/agent-tools.pi.test.ts` "ask-user"、"ask-user-abort"、"ask-user-child"，夹具 `pi-1.3.0/ask-user*.jsonl`；`agent-call`、`agent-task`、`agent-guard`、`agent-readonly-bash-extension` 重录，只多了 `ask_user` 的声明 | 已覆盖 |
+| 宿主：`work` 子代理启动参数排除 `ask_user`（含层数 2、带上下文继承父会话参数、互为父会话的环） | `packages/host/src/sessions/agent-launch.test.ts` | 已覆盖 |
+| 宿主控制器：问题进控制状态、回答 / 跳过、对不上或答不全的拒绝且问题保留、插话代替回答（先摘下问题、pi 收下插话后才回答）、排队里的插话也算、插话被拒或被处理时问题恢复并重新发布、`/` 命令不算、停止当场作废、插话途中停止不恢复、pi 退出和扩展放弃时作废、同时只有一组 | `packages/host/src/sessions/session-controller.test.ts` "asking you (SPEC-0003)" | 已覆盖 |
+| 宿主中转：交给控制器、回答后回复扩展、agent 子代理（任意层）回 `ask_user_unavailable` 而你开的子对话能问、作废的不回复、扩展放弃时通知控制器、pi 已不在时的放弃安静处理、已有问题时拒绝 | `packages/host/src/sessions/agent-relay.test.ts` "ask_user (SPEC-0003)" | 已覆盖 |
+| 宿主：会话"待回答"算上问题，回答后清掉；路由转 `answer_question` | `session-manager.test.ts` "waits for the questions its agent asked"、`router.test.ts` | 已覆盖 |
+| 客户端：`answerQuestion` 发出命令 | `packages/client/src/atrium-client.test.ts` | 已覆盖 |
+| 界面状态：单选 / 多选 / "其他"的选取、算不算答了、下一道没答的题、拼出答案、按会话保存草稿（换问题、题数不对时重来） | `packages/ui/src/chat/question-state.test.ts` | 已覆盖 |
+| 提问卡片：题名标签与"已答 N / M"、单选 / 多选标签与"已选 N"、序号即控件（圆 / 圆角方、选中蓝底勾）、推荐标记、单选 0.2 秒后到下一题、多选勾选计数、没答完不能提交、"其他"多行框（铺满整行、聚焦、长高、⏎ 确定、⇧⏎ 换行）、数字键不进输入框、↑↓ 移动、← → 换题、跳过、草稿保留、预览跟着指向的选项、只有问题时卡片区也显示、在对话框下面 | `packages/ui/src/chat/question-card.browser.test.tsx` | 已覆盖 |
+| 输入框：有问题时占位文字换掉，回车和 ⌘回车都按插话发 | `composer.browser.test.tsx` "while the agent's questions wait" | 已覆盖 |
+| 过程轨道：文字（正在问你 / 问了你 / 跳过 / 直接回复 / 已取消）、折叠摘要"问了你 N 个问题"、记录行、Markdown；等你时问号标题行"等你回答"和光环节点、答完橙点和常显记录、点开看全部选项、停止后灰点不是死路 | `turn-layout.test.ts` "the agent's questions on the rail"、`turn.browser.test.tsx` "the agent's questions" | 已覆盖 |
+| 端到端：真实 Electron + pi + faux 模型，agent 问两题，卡片点选提交，模型同一轮读到答案、标签"待回答"起止、过程记录；有问题时在输入框发消息，卡片消失、模型同一轮先读到"直接回复"再读到你的话 | `apps/desktop/e2e/ask-user.spec.ts` | 已覆盖（负对照：去掉"有问题时回车按插话发"后第二条变红） |
+| 泄漏：控制器 200 轮（回答、直接回复、放弃、停止）每次调用都得到回答、不留问题、计时器和监听回到基线、问题对象可回收；界面 8 轮卡片出现消失不留脱离的 DOM | `session-controller.leak.test.ts` "answers and lets go of the agent's questions"、`apps/desktop/e2e/ask-user.leak.spec.ts` | 已覆盖（负对照：故意留住问题对象 / 卡片节点时都变红） |
+
+破坏检查（2026-10-22）：新行为的 50 个改坏点全部检出；第一次没检出的 4 处，3 处补了测试，1 处是多余的守卫，已删掉。
+
+变异测试（只变异改动的行，2026-10-22）：协议 `question.ts` 100%（76）；pi `ask-user.ts`、扩展的 `ask_user` 部分、`history/tools.ts` 100%（255），`ask-user.ts` 里 5 处为类型写的判断与一处空白预览后的上限参数注明等价；宿主控制器、中转、启动参数的改动 100%（控制器 100、中转 28、启动参数 5 个变异；过程中补了"插话被拒后重新发布问题""停止后不恢复""回复途中不收新问题""pi 已不在时放弃"四个测试，删掉了两处多余代码）；界面 `question-state.ts`、`turn-layout.ts` 的改动 100%（175），为类型写的判断注明等价。`question-state.ts` 加进了界面的变异分组。
+
+已知不稳（2026-10-22）：`children.spec.ts` "the agent opens two children" 在和其他端到端文件一起跑时 1/4 次失败（第二个子对话的来源行 5 秒内没出现，测试自己注明两条通知可能分开到），单跑 7/7、整组复跑 3/3 通过；和这次改动无关，未修改。整套界面测试在新 worktree 冷缓存第一次跑时 4 个文件导入期 SyntaxError，单跑与热缓存重跑全过（同路线图已记的现象）。
+
+### 三方审查后补（SPEC-0003，2026-10-22）
+
+GPT-6 Astra、Grok 4.7、Claude 子代理各自只读审查，合并去重后修了下列问题；每条先写会红的测试，再改代码。
+
+| 问题（来源） | 改法 | 测试 | 状态 |
+|---|---|---|---|
+| `ask_user` 没声明 `executionMode: "sequential"`，同一批两次提问时第二组被宿主拒成 `agent_bad_request`（三方） | 声明串行；本机 pi 1.3.0 已核对整批会依次执行 | `extension.test.ts` 声明比对；契约 `agent-tools.pi.test.ts` "ask-user-two"（夹具 `ask-user-two.jsonl`，改前第二组同时发出） | 已覆盖 |
+| 换题时选项重挂，焦点掉出卡片，按键失效（三方） | 焦点在卡片里时换题，焦点跟到新题选中的或第一个选项 | `question-card.browser.test.tsx` "keeps the focus in the card…"、"moves the focus onto the next question's options…" | 已覆盖 |
+| 提交失败后按钮永久锁住（三方） | 发送结果回传卡片，没发出就解锁；`question_closed` / `question_invalid` 有中文说明 | "lets you send again when sending failed…"；`chat.browser.test.tsx` "describes" 两项 | 已覆盖 |
+| "其他"没有 4000 字上限（Claude、Grok） | `maxLength` | "takes no more than 4000 characters…" | 已覆盖 |
+| 草稿在切会话（视图加载中）、直接回复被退回时被清掉（Astra、Claude） | 只在有新问题时换掉草稿，问题短暂不在时保留 | "keeps what you picked while the questions are away…" | 已覆盖 |
+| ⌘ + 数字被卡片当成选择，和切标签冲突（Claude） | 带 ⌘、Ctrl、Alt 的按键不处理 | "leaves keys held with ⌘, Ctrl or Alt…" | 已覆盖 |
+| 多行"其他"和带引号的问题会拆开交回模型的一行一题格式（Grok） | 问题、选项、"其他"都写成 JSON 字符串 | `ask-user.test.ts` "answerText"；`ask-user.jsonl` 重录（只多了引号）；端到端预期同步 | 已覆盖 |
+| 胶囊条盖住提问卡片底部的按钮（Grok；对话框卡片同样） | 对话框、出错、提问卡片都放进输入框的容器，胶囊条在卡片上方 | "sit between the capsule bar and the box…"；真实应用截图核对 | 已覆盖 |
+| pi 规范化过的参数（`null`、`"true"`/`"false"`）在读历史时读不出，提问退回普通步骤（Astra） | 读历史时照 pi 的读法 | `ask-user.test.ts` "reads a call's arguments as pi ran them…" | 已覆盖 |
+| 宿主拒绝、别的版本的结果被显示成"问题已取消"、原样输出看不到（Astra） | 读不出结局又不是空的结果按普通工具步骤显示 | `history/tools.test.ts` | 已覆盖 |
+| 直接回复被退回后"待回答"时间被重置（Astra、Claude） | 问题的等待时间取 `askedAt` | `session-manager.test.ts` "keeps since when the questions wait through a direct reply pi refused…"（改前差几毫秒） | 已覆盖 |
+| 没有控制器时调用不回复、工具一直挂着；回复途中的新问题回 `agent_failed`（Claude、Grok） | 前者回 `agent_failed`；控制器新增 `asking`（问题开着或回复在途），中转据此回 `agent_bad_request` | `agent-relay.test.ts`、`session-controller.test.ts` | 已覆盖 |
+| 宿主不查题名、选项名重复和多选带预览（Claude）；`ToolDetails.questions` 无上限 | 通道 schema 加校验；`max(4)` | `channel.test.ts` | 已覆盖 |
+| 复制成 Markdown 缺完整问题（三方） | 每题写题名、问题和回答 | `turn-layout.test.ts` | 已覆盖 |
+| 多选时取消"其他"会清掉写过的字（Grok） | 不选时留着，选回来还在 | `question-state.test.ts` "keeps the other answer's text…" | 已覆盖 |
+| 结束后的文字颜色不是 `--text-muted`（Grok） | 改色 | `turn.browser.test.tsx` 颜色断言 | 已覆盖 |
+
+破坏检查：上面 19 处全部检出；补变异测试时又加了 3 处（停止期间早先的回复不清掉后来的问题、读历史时数字和 `null` 的结果、Markdown 里问题的换行），也都检出。
+
+变异测试（审查修复后复跑改动的行，2026-10-22）：pi 组 `ask-user.ts`、`history/tools.ts`、`channel.ts` 的改动、宿主组控制器 / 中转 / 启动参数的改动、界面组 `question-state.ts` 和 `turn-layout.ts` 的改动，存活的都已补测试或在源码注明等价（控制器里"回复在途时不会有另一个回复"那处）。复跑结果：pi 99.65%（1 个存活，随后补测试检出）、宿主 100%、界面 99.49%（1 个存活，随后补测试检出）。
+
+最终验证（2026-10-22）：`pnpm check` 通过；单元与宿主串行 3532 项中 3531 过，1 项 `setup.host.test.ts` "updates pi…" 失败，这次没改这个测试和它覆盖的代码，单跑 3/3 通过；界面 964 项全过；控制器泄漏 3 项通过；端到端 `ask-user`、`ask-user.leak`、`run-control`、`children`、`chat` 共 15 项一起跑全过；pi 契约本次相关的 `agent-tools`（9 项）、`ask-steer` / `ask-abort` 通过，其余失败都是旧场景缺 1.3.0 夹具。
+
+记录、未改的：preview 按等宽原文显示（用户定，SPEC 措辞已改）；以 `/` 开头的普通回复被当成命令（SPEC 写成已知限制）；卡片出现时没有屏幕阅读器播报；后台会话结束后草稿留到页面关闭（每会话一份，有界）；插话途中 pi 退出时，同一条消息可能既回到排队又退回输入框（Grok 指出，插话本来就有的竞态），按用户要求在本分支修了，见下表最后三行。
+
+端到端排查（2026-10-22）：界面泄漏测试第一次写时，⌘T 后没等新标签就打字，6 次里约 1 次消息落到别的地方、卡片不来、超时；改成先等"新会话"标签，泄漏和端到端各重复 6 次 18/18 通过。`run-control.spec.ts` "queues a message during a run…" 在和其他文件一起跑时失败过 1 次（第一条消息后没出现"停止"），单跑 4/4、组合复跑 4/4 通过，未改。
+| 插话还在等 pi 应答、或排在别的插话后面时 pi 退出：消息被放回排队，同时命令报 `pi_unavailable`，输入框（或排队面板的"插话"）又退回一份（Grok，既有竞态） | 退出时给这些插话打上"已回排队"，它们的命令应答 `queued`，不再报错；排在后面的不再发出 | `session-controller.test.ts` "puts a steer pi had not answered when it went back in the queue once…"、"puts steers waiting their turn…"、"keeps a queued message steered as pi went in the queue once"（改前三项都报 `pi_unavailable`）；破坏检查 3 处检出 | 已覆盖 |

@@ -13,8 +13,12 @@ import type {
   WaitedFor,
 } from "./channel";
 
-/** The read-only tools, in the order the preamble names them (SPEC-0002, "只读用白名单"). */
-export const READ_ONLY_TOOLS = ["read", "grep", "find", "ls"] as const;
+/** What a sub-agent is told when it tries to ask the user (SPEC-0003, "哪些会话有这个工具"). */
+export const SUB_AGENT_ASKS_PARENT =
+  "A sub-agent cannot ask the user directly; ask the agent that started you with ask_parent.";
+
+/** The read-only roles' tools; Bash's read-only use is behavioral, not sandboxed (SPEC-0002). */
+export const READ_ONLY_TOOLS = ["read", "bash", "grep", "find", "ls"] as const;
 
 /** The main agent's tools (SPEC-0002, "主 agent 用的工具"). */
 export const PARENT_TOOLS = [
@@ -237,7 +241,9 @@ function preambleLines(preamble: TaskPreamble, fromTitle: string): string[] {
       ? [
           `Change files only in your own working directory${preamble.workspace === undefined ? "" : ` (${escapeBody(preamble.workspace)})`}.`,
         ]
-      : []),
+      : [
+          "Use bash only for read-only inspection and queries. Do not modify files or repository state, run builds or tests, or start services. Ask your parent to assign changes to a work sub-agent.",
+        ]),
     ...(preamble.forked
       ? [
           "The history above is your parent's conversation. Tool calls without results in its last assistant message, including the agent_spawn that started you, belong to the parent, which handles them: do not redo them. Do only the task below.",
@@ -298,6 +304,7 @@ const ERRORS: Readonly<Record<AgentErrorCode, (params: Readonly<Record<string, u
     `${typeof params["field"] === "string" ? params["field"] : "The text"} is too long: at most ${typeof params["max"] === "number" ? String(params["max"]) : "so many"} characters.`,
   agent_bad_request: () => "Atrium could not read that request.",
   agent_failed: () => "Atrium failed to do that. Try again, or go on without it.",
+  ask_user_unavailable: () => SUB_AGENT_ASKS_PARENT,
 };
 
 /**
@@ -458,13 +465,16 @@ export function askText(result: AskResult): string {
  * @param result - The host's answer.
  * @returns The text.
  */
-export function resultText<Op extends keyof CallResults>(op: Op, result: CallResults[Op]): string {
+export function resultText<Op extends WordedOp>(op: Op, result: CallResults[Op]): string {
   const words: (answer: CallResults[Op]) => string = RESULT_WORDS[op];
   return words(result);
 }
 
+/** The calls whose results `resultText` words; `ask_user` words its own (`answerText`). */
+type WordedOp = Exclude<keyof CallResults, "ask_user">;
+
 /** Each call's result in words; `resultText` picks the call's. */
-const RESULT_WORDS: { readonly [Op in keyof CallResults]: (answer: CallResults[Op]) => string } = {
+const RESULT_WORDS: { readonly [Op in WordedOp]: (answer: CallResults[Op]) => string } = {
   spawn: (spawned) => [...spawnedLines(spawned), ...waitedLines(spawned.waited)].join("\n"),
   send: (sent) =>
     [

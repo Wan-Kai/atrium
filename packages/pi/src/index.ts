@@ -62,6 +62,7 @@ export {
   type ReadResult,
   readRequest,
 } from "./agent/channel";
+export { ASK_USER_TOOL, type AskUserResult } from "./agent/ask-user";
 export { CHILD_TOOLS, PARENT_TOOLS, READ_ONLY_TOOLS } from "./agent/words";
 export { type ToolArgs, contentText, toolDetails } from "./history/tools";
 export {

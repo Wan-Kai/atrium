@@ -157,6 +157,27 @@ const commands: Command[] = [
   },
   { type: "retry_run", requestId: "r38", traceparent, sessionId: "s1" },
   {
+    type: "answer_question",
+    requestId: "r38b",
+    traceparent,
+    sessionId: "s1",
+    questionId: "call-9",
+    answer: {
+      answers: [
+        { selected: [0], other: null },
+        { selected: [1, 2], other: "再加一个基准" },
+      ],
+    },
+  },
+  {
+    type: "answer_question",
+    requestId: "r38c",
+    traceparent,
+    sessionId: "s1",
+    questionId: "call-9",
+    answer: { skipped: true },
+  },
+  {
     type: "answer_interaction",
     requestId: "r39",
     traceparent,
@@ -353,6 +374,21 @@ const control: Control = {
   restarting: false,
   compacting: true,
   interactions: [pick],
+  question: {
+    id: "call-9",
+    askedAt: 6,
+    questions: [
+      {
+        header: "范围",
+        question: "改到哪为止？",
+        multiSelect: false,
+        options: [
+          { label: "只改收件箱", description: "别处不动", preview: "<Inbox />", recommended: true },
+          { label: "整个侧栏", description: "改动大", preview: null, recommended: false },
+        ],
+      },
+    ],
+  },
   failure: { reason: "crashed", attempts: 3 },
 };
 
@@ -446,6 +482,57 @@ const steps: Step[] = [
     },
     partial: false,
   },
+  {
+    kind: "tool",
+    id: "15",
+    callId: "call-9",
+    tool: "ask_user",
+    args: {},
+    status: "done",
+    output: '"改到哪为止？" = 只改收件箱',
+    details: {
+      tool: "ask_user",
+      questions: [
+        {
+          header: "范围",
+          question: "改到哪为止？",
+          multiSelect: true,
+          options: [
+            { label: "只改收件箱", description: "", preview: null, recommended: true },
+            { label: "整个侧栏", description: "改动大", preview: null, recommended: false },
+          ],
+        },
+      ],
+      outcome: { kind: "answered", answers: [{ selected: [0, 1], other: "也补测试" }] },
+    },
+    partial: false,
+  },
+  ...[{ kind: "skipped" }, { kind: "reply" }, null].map((outcome, index): Step => ({
+    kind: "tool",
+    id: `16-${String(index)}`,
+    callId: "call-10",
+    tool: "ask_user",
+    args: {},
+    status: outcome === null ? "failed" : "done",
+    output: null,
+    details: {
+      tool: "ask_user",
+      questions: [
+        {
+          header: "名字",
+          question: "叫什么？",
+          multiSelect: false,
+          options: [
+            { label: "甲", description: "", preview: null, recommended: false },
+            { label: "乙", description: "", preview: null, recommended: false },
+          ],
+        },
+      ],
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- each outcome kind, written as data.
+      outcome: outcome as never,
+    },
+    partial: false,
+  })),
   { kind: "steer", id: "7", text: "also b" },
   { kind: "retry", id: "8", attempt: 1, maxAttempts: 3, error: "503" },
   { kind: "compaction", id: "12", tokensBefore: 152_000, tokensAfter: 41_000, summary: "so far", reason: "threshold" },
@@ -694,6 +781,7 @@ describe("parseClientMessage", () => {
       "add_project",
       "answer_interaction",
       "answer_login",
+      "answer_question",
       "archive_chat",
       "archive_session",
       "archive_workspace",
@@ -886,6 +974,30 @@ describe("parseClientMessage", () => {
         sessionId: "s1",
         interactionId: "d1",
         answer: { value: "a", confirmed: true },
+      },
+      "r1",
+    ],
+    [
+      "an answer to no question",
+      {
+        type: "answer_question",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        questionId: "call-9",
+        answer: { answers: [] },
+      },
+      "r1",
+    ],
+    [
+      "a question answered and skipped at once",
+      {
+        type: "answer_question",
+        requestId: "r1",
+        traceparent,
+        sessionId: "s1",
+        questionId: "call-9",
+        answer: { answers: [{ selected: [0], other: null }], skipped: true },
       },
       "r1",
     ],
@@ -1157,6 +1269,7 @@ describe("CommandResult", () => {
     expect(CommandResult.prompt.safeParse({ disposition: "started", itemId: "q1" }).success).toBe(false);
     expect(CommandResult.steer.parse({ disposition: "queued" })).toStrictEqual({ disposition: "queued" });
     expect(CommandResult.stop.parse({ confirmed: false })).toStrictEqual({ confirmed: false });
+    expect(CommandResult.answer_question.parse({})).toStrictEqual({});
     expect(CommandResult.stop.safeParse({}).success).toBe(false);
     expect(CommandResult.open_session.parse({})).toStrictEqual({});
     expect(CommandResult.add_project.parse({ projectId: PROJECT })).toStrictEqual({ projectId: PROJECT });
@@ -1475,6 +1588,7 @@ const snapshot: IndexSnapshotEvent = {
       attention: null,
       asking: null,
       handedOff: false,
+      model: null,
       parent: null,
       agent: null,
       heldDeliveries: 0,
@@ -1492,6 +1606,7 @@ const snapshot: IndexSnapshotEvent = {
       attention: { reason: "error", at: 7, cleared: false },
       asking: 8,
       handedOff: true,
+      model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "high" },
       parent: { sessionId: "s1", by: "agent" },
       agent: {
         handle: "audit",
@@ -1547,6 +1662,7 @@ const changes: IndexChangesEvent = {
         attention: null,
         asking: null,
         handedOff: false,
+        model: null,
         parent: { sessionId: "s2", by: "agent" },
         agent: null,
         heldDeliveries: 0,
@@ -1570,6 +1686,7 @@ describe("IDLE_CONTROL", () => {
       restarting: false,
       compacting: false,
       interactions: [],
+      question: null,
       failure: null,
     });
   });
@@ -1784,6 +1901,8 @@ describe("HostMessage", () => {
       "session_stopping",
       "queue_item_not_found",
       "interaction_closed",
+      "question_closed",
+      "question_invalid",
       "models_unavailable",
       "fd_missing",
       "attachment_limit",

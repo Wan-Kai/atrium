@@ -16,6 +16,14 @@
 
 ## 当前状态
 
+**2026-10-22："agent 向你提问"经三方审查（GPT-6 Astra、Grok 4.7、Claude）后修复，用户验收通过并合并。修了三方共同指出的 `ask_user` 未声明串行（契约 `ask-user-two` 实测同批第二组原先并发发出）、换题丢焦点、提交失败锁死、"其他"无上限；另修胶囊条盖住卡片（对话框卡片同样，现都放进输入框容器）、草稿在切会话和直接回复被退回时被清、⌘+数字冲突、多行答案拆格式（交回模型改为 JSON 字符串）、读历史与 pi 的参数规范化不一致、错误结果误显示为取消、恢复后"待回答"时间重置、Markdown 缺完整问题等。按用户要求顺带修了审查发现的既有竞态：插话在途时 pi 退出，同一条消息既回到排队又被退回输入框（现在只回排队，命令应答 `queued`，SPEC-0001"失败与重启"已补）。preview 按等宽原文显示（用户定）。详见 [追踪表](testing/coverage-map.md#三方审查后补spec-00032026-10-22)。**
+
+**2026-10-22："agent 向你提问"（[SPEC-0003](specs/0003-agent-asks-user.md)）实现完成，在 `atrium/design-agent-question-ui`，待用户验收，未合并、未推送。Atrium 扩展注册 `ask_user`（对齐 Claude Code 的 `AskUserQuestion`），宿主把问题放进 `control.question`，界面在输入框上方显示提问卡片（A、序号乙），答案作为工具结果交回、这一轮不断；在输入框发消息算直接回复（界面发插话，宿主先插话再回答，契约测试实测的顺序）；停止、pi 退出、扩展放弃时作废；只有不是 agent 开的会话有这个工具（`work` 子代理启动时排除，带上下文的由钩子拦）；过程轨道留"问了你 N 个问题"和每题一行的记录。协议 24。实现中按最小实现定的细节已写回 SPEC-0003（`details` 只存结局、不做回答的确认轮、← → 换题、标题行沿用运行计时、空白预览算没有）。`pnpm check`、单元与宿主 3513+、界面 954（新增后）、pi 契约新增 5 个场景、端到端 2 条、泄漏（宿主 200 轮、界面堆快照）通过；破坏检查 50 处全检出；改动行的变异测试各组 100%（等价处在源码注明）。已知不稳与限制见 [追踪表](testing/coverage-map.md#agent-向你提问spec-00032026-10-21)。**
+
+**2026-10-21：设计"agent 向你提问"（[SPEC-0003](specs/0003-agent-asks-user.md)，已确认，待实施），在 `atrium/design-agent-question-ui`。对齐 Claude Code 的 `AskUserQuestion`：Atrium 自带扩展的 `ask_user`，1～4 题、每题 2～4 个选项、可多选、可带预览、自动带"其他"；答案作为工具结果交回，这一轮不断。用户定了：位置 A"卡片"（输入框上方，原型 `prototypes/agent-question-prototype.html`）、序号乙"序号即控件"（单选圆、多选方，原型 `prototypes/agent-question-card-prototype.html`）、"其他"是铺满整行的多行框；等待时在输入框发消息算直接回复（先结束问题再作为插话送到）；只有不是 agent 开的会话有这个工具，agent 开的子对话照旧用 `ask_parent`；必须全部答完才能提交。design-language、SPEC-0001/0002、domain-model 已同步。下一步：契约测试实测 abort 与插话顺序，再按 SPEC 的实施计划测试先行实现。**
+
+**2026-10-21：M1.11 自用三项小改，在 `show-subchat-model-and-fix-overlap` worktree，待用户验收，未提交、合并或安装。①子对话列表每行标"模型 · 思考程度"、行距放宽（行高 40px、行间 2px）：宿主扫描会话文件读最新的 `model_change` / `thinking_level_change`，协议 23（`SessionSummary.model`），没打开过的子对话也有。②插话行偶尔盖住回复：根因是 `Fold` 折叠完后把"只留插话行"的内容渲染在同一个 DOM 节点上，折叠动画的 `fill: forwards` 高度 0 还挂在它身上；改成换节点，加回归。③排队、子对话等胶囊弹窗收起时直接消失，不播收起动画（展开不变）。`pnpm check`、单元 3263、宿主 147、UI 939 通过；6 项破坏检查全检出。未跑变异测试、桌面端到端和泄漏测试；子对话换模型到列表更新要等宿主下一次扫描，未测延迟。**
+
 **M1.11 试用后图表/图片细化已按用户全部选择 B 落地，并集成最新 main（2026-10-21）。** PlantUML 中性轻框、明暗配色与系统中文 13px，去阴影/底部重复参与者，用户显式参数继续优先；Mermaid 常显独立工具行、缩小/真实比例/放大/适应，复用原生缩放几何，原文复制与源码/全屏不变；图片预览名称在宽窄窗口均固定避让原生左上控件 120px。真实明暗/全屏截图已查阅；集成 main 的已停止消息编辑及空思考/空回复布局，保留 session 身份门槛与无 key 图片上下文，并补“停止回复含图片→进入编辑→工作区 metadata 不重读、dir 改变重读”的组合回归。集成后串行单元/宿主 3405 项、串行 UI 938 项、相关桌面 9 项（含回收、空结束与已停止消息编辑）全通过，`pnpm check`/构建通过，独立只读源差异复核无阻断；13 本批与 3 集成接缝负对照均在隔离源码副本检出，新主题模块实跑 51 个变异全部 killed（100%，不含缓存分数）。并发下原宿主队列例、旧右栏时序与测试模块导入期 SyntaxError 仍有失败记录，未增加重试或弱化断言；单文件对照与串行全量通过，详见追踪表“试用后图表与预览细化”。保留用户正在运行的开发版；不自动安装/关闭，按用户要求完成后本地合并 main、保留分支/worktree、不推送。
 
 **2026-10-20：M1.11 回复渲染经用户指定 Opus 5.5 / Grok 4.7 双路审查后修复，仍在 `atrium/audit-chat-rendering-support`，未提交、合并或安装。7 项确认问题已按红绿测试修正：失败/暂不存在文件不提前消费行定位；带链接图片的放大入口与目的链接/文件按钮并列，预览 portal 到 body；低于 25% 的适应模式缩小键不反向放大；主机/IP 端口和“行范围:列号”不误识别文件；工作区仅变分支/HEAD 不重读本地图；停止后的未闭合数据块说明不误称仍在输出。歧义行内冒号引用保守要求有目录，根文件写 `./auth.ts:42`，裸文件可用 `auth.ts#L42` 或显式链接，不采用扩展名/域名猜测。额外用真实生产 Markdown 入口复现并修复复制多出一个换行，只去掉转换器补的 LF，原始末尾空白保留。`pnpm check`、构建、串行单元 3100、最终 UI 890、相关桌面 7 项通过；带链接图片桌面样例再通过，明暗及全屏页面截图已看。11 项破坏检查全检出；只改动的核心地址解析聚焦变异 97.73%（129 killed、3 个冗余守卫存活，逐处说明，不含其它缓存文件）。首轮 UI 的既有右栏动画失败单跑确认通过，历史并行宿主配置风险不冒称解决；没有顺带改宿主或右栏。原生标题栏遮挡仍未确认：系统 `screencapture -l` 无法取得窗口图，未以缺少原生按钮的页面截图冒充通过，也未猜测性改标题栏。完整验证与限制见覆盖追踪。本次仅完成用户要求的双路审查及修复，不冒称正式三方/整套桌面、pi 契约、性能/压力/浸泡、打包安装均已完成。**
@@ -74,7 +82,7 @@
 | MVP 1 需求与方案 | [SPEC-0001](specs/0001-mvp1-single-session-chat.md)：侧栏、对话区、首次启动三块已定稿 |
 | 领域模型 | [domain-model.md](architecture/domain-model.md) 第 3 版：经 Grok 4.7、GPT-6-Astra 两轮评审，并对照 Paseo 与 pi 源码 |
 | 视觉规范 | [design-language.md](architecture/design-language.md) |
-| 界面原型 | `prototype/ui` 分支（见下文"原型"） |
+| 界面原型 | `prototypes/` 目录，随任务分支维护并归档进 `main`（见下文"原型"） |
 | M1.1 骨架 | monorepo 七个包、Electron 启动宿主、token 与 Origin 鉴权、日志与链路追踪、空白界面跟随系统外观；七层测试各有示例并验证过会失败；变异分数 100%（等价变异在代码里注明理由）。实现中改动的决定已写回 testing.md、coding-standards.md、observability.md、development.md：界面泄漏改用自写的脱离 DOM 分析、Stryker 改用命令运行器、Vitest 5 的基准 API、开发端口 5791 |
 | M1.2 最窄链路 | `packages/pi`：PiProcess（LF 分帧、按 id 对应响应、按命令设期限、停止时清理整棵进程树，真实 pi 启停 200 次无泄漏）、找 pi 与版本检查、交给 pi 的环境去掉相对 `PATH` 和 Atrium/Electron 变量；宿主读取登录 shell 的完整环境、`pi.process`/`pi.rpc` span、环境里的凭据不进日志；`pnpm pi:try`；faux 模型、12 个 pi 契约场景与夹具（录制时归一化，回放替身与 PiProcess 语义一致）。决定写回 testing.md、security.md、overview.md、domain-model.md（决定 9） |
 | M1.3 协议、客户端与流式显示 | `protocol`：信封、每条命令一条应答与错误码、握手与心跳、会话事件（`epoch + seq`、运行的 trace）与快照；宿主：命令分发与 `command <type>` span、心跳、背压、订阅表、pi 事件翻译、SessionController（运行、乐观消息对应、pi 拒绝的错误码）、新建对话；客户端：`createAtriumClient`（重连、心跳、宿主重启、每个会话的 SessionView）；界面：Streamdown 渲染、平滑揭示、滚动跟随、用户气泡与"进行中"、输入框、界面问题上报。决定写回 SPEC-0001"协议细节"、security.md（https 图片）、testing.md、observability.md、pi-internals.md |
@@ -158,7 +166,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 ### 原型
 
-- 位置：`prototype/ui` 分支的 `prototypes/` 目录（用完即弃，不进 `main`）。
+- 位置：仓库的 `prototypes/` 目录。2026-10-21 按用户要求将原 `prototype/ui` 的全部设计稿及资源归档进 `main`；后续原型在各自任务的 worktree 内制作，存放与归档规则见 [development.md · 标准开发流程](development.md#标准开发流程)。原型仅作设计参考，实现仍以 SPEC 和 design-language 为准。
 - 定稿稿：
   - `app-prototype.html`：完整主界面（侧栏、标签栏、消息流、过程、输入框、模型与推理强度、状态栏）。
   - `onboarding-prototype.html`：首次启动（欢迎页、安装 pi、登录、添加项目）。
@@ -167,8 +175,8 @@ MVP 1 里还没设计、做到时先补设计的：
 - 过程稿（只作参考）：`sidebar-prototype.html`、`conversation-prototype.html`、`icons-prototype.html`、`tags-prototype.html`、`fonts-prototype.html`、`cta-prototype.html`、`effort-prototype.html`、`effort-chip-prototype.html`。
 - 本地预览：
   ```sh
-  git worktree add ~/.cache/atrium-proto-wt prototype/ui   # 已存在则跳过
-  cd ~/.cache/atrium-proto-wt/prototypes && python3 -m http.server 8765 --bind 127.0.0.1
+  # 在包含目标设计稿的本任务 worktree 或主仓库中运行
+  cd prototypes && python3 -m http.server 8765 --bind 127.0.0.1
   # 打开 http://127.0.0.1:8765/app-prototype.html
   ```
 - 原型里的数值（颜色、尺寸、弹簧参数、点阵算法）可以直接搬到实现里；点阵和推理强度框的实现在 `app-prototype.html` 的 `dotField`、`effortBox`、`chipDots`，"开始设置"按钮的扫光在 `onboarding-prototype.html` 的 `dotCta`。

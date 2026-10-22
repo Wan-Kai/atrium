@@ -1,0 +1,2072 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>PROTOTYPE · 首次启动</title>
+    <!-- 标题字体：中文汇文明朝体，英文 Syne（SIL OFL）。本地子集，只含标题用字。正文仍用系统字体。 -->
+    <link rel="stylesheet" href="fonts/onboarding-title.css" />
+    <script>
+      const pref = localStorage.getItem("atrium-proto-theme") || "system";
+      document.documentElement.dataset.theme =
+        pref === "dark" || (pref === "system" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+    </script>
+    <style>
+      :root,
+      [data-theme="dark"] {
+        color-scheme: dark;
+        --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+        --display:
+          "Syne", "Atrium Title CN", -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif; /* 英文落到 Syne，中文落到汇文明朝体 */
+        --mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --bg: #121214;
+        --glow-a: rgba(94, 132, 255, 0.2);
+        --glow-b: rgba(255, 168, 108, 0.1);
+        --glow-c: rgba(120, 220, 200, 0.08);
+        --panel: rgba(255, 255, 255, 0.045);
+        --panel-2: rgba(255, 255, 255, 0.07);
+        --panel-edge: rgba(255, 255, 255, 0.09);
+        --term: #0c0c0e;
+        --term-edge: rgba(255, 255, 255, 0.08);
+        --term-text: #d6d9de;
+        --term-dim: #6f747c;
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --muted: #a3a8af;
+        --dim: #74787f;
+        --line: rgba(255, 255, 255, 0.09);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.09);
+        --accent: #7aaaff;
+        --accent-soft: rgba(122, 170, 255, 0.16);
+        --primary: #f4f5f7;
+        --on-primary: #121214;
+        --ok: #4ade80;
+        --ok-soft: rgba(74, 222, 128, 0.14);
+        --attn: #f0a24e;
+        --danger: #f87171;
+        --kbd: rgba(0, 0, 0, 0.12);
+      }
+      [data-theme="light"] {
+        color-scheme: light;
+        --bg: #f7f7f9;
+        --glow-a: rgba(94, 132, 255, 0.16);
+        --glow-b: rgba(255, 168, 108, 0.14);
+        --glow-c: rgba(80, 200, 180, 0.1);
+        --panel: rgba(255, 255, 255, 0.72);
+        --panel-2: rgba(255, 255, 255, 0.9);
+        --panel-edge: rgba(0, 0, 0, 0.06);
+        --term: #17181b;
+        --term-edge: rgba(0, 0, 0, 0.1);
+        --term-text: #d6d9de;
+        --term-dim: #70757d;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --muted: #6e6e74;
+        --dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.07);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.055);
+        --accent: #2f6fed;
+        --accent-soft: rgba(47, 111, 237, 0.1);
+        --primary: #1d1d1f;
+        --on-primary: #fff;
+        --ok: #1e8e3e;
+        --ok-soft: rgba(30, 142, 62, 0.1);
+        --attn: #c96509;
+        --danger: #dc2626;
+        --kbd: rgba(255, 255, 255, 0.16);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 var(--font);
+        -webkit-font-smoothing: antialiased;
+        overflow: hidden;
+      }
+      button {
+        font: inherit;
+        color: inherit;
+        border: 0;
+        background: none;
+        cursor: default;
+        padding: 0;
+      }
+
+      /* 环境光：很淡的三团光，给窗口一点空气感，不抢内容；随步骤缓慢移动 */
+      .ambient {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .ambient i {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        transition: transform 1.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      .ambient i:nth-child(1) {
+        width: 620px;
+        height: 620px;
+        left: -160px;
+        top: -220px;
+        background: var(--glow-a);
+      }
+      .ambient i:nth-child(2) {
+        width: 520px;
+        height: 520px;
+        right: -140px;
+        bottom: -200px;
+        background: var(--glow-b);
+      }
+      .ambient i:nth-child(3) {
+        width: 420px;
+        height: 420px;
+        right: 18%;
+        top: -180px;
+        background: var(--glow-c);
+      }
+      body[data-step="1"] .ambient i:nth-child(1) {
+        transform: translate(60px, 40px);
+      }
+      body[data-step="2"] .ambient i:nth-child(1) {
+        transform: translate(180px, 60px);
+      }
+      body[data-step="3"] .ambient i:nth-child(1) {
+        transform: translate(320px, 30px);
+      }
+
+      /* 窗口骨架：顶部（红绿灯 + 步骤）、中间内容、底部操作条 */
+      .win {
+        position: relative;
+        height: 100%;
+        display: grid;
+        grid-template-rows: 64px 1fr 72px;
+      }
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+      }
+      .lights {
+        position: absolute;
+        left: 20px;
+        top: 22px;
+        display: flex;
+        gap: 8px;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: block;
+      }
+      .lights i:nth-child(1) {
+        background: #ff5f57;
+      }
+      .lights i:nth-child(2) {
+        background: #febc2e;
+      }
+      .lights i:nth-child(3) {
+        background: #28c840;
+      }
+
+      /* 步骤条：数字 → 对勾；当前步骤加粗 */
+      .stepper {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 12.5px;
+        color: var(--dim);
+        transition: opacity 0.3s;
+      }
+      .stepper .st {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        white-space: nowrap;
+        transition: color 0.3s;
+      }
+      .stepper .n {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 10.5px;
+        font-weight: 600;
+        box-shadow: inset 0 0 0 1px var(--line);
+        transition: all 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.2);
+      }
+      .stepper .st.cur {
+        color: var(--text);
+        font-weight: 500;
+      }
+      .stepper .st.cur .n {
+        background: var(--primary);
+        color: var(--on-primary);
+        box-shadow: none;
+      }
+      .stepper .st.done {
+        color: var(--muted);
+      }
+      .stepper .st.done .n {
+        background: var(--ok-soft);
+        color: var(--ok);
+        box-shadow: none;
+      }
+      .stepper .bar {
+        width: 28px;
+        height: 1px;
+        background: var(--line);
+      }
+      body[data-step="0"] .stepper {
+        opacity: 0;
+      }
+
+      .mid {
+        overflow: auto;
+        display: grid;
+        place-items: center;
+        padding: 8px 32px;
+      }
+      .col {
+        width: 560px;
+        max-width: 100%;
+      }
+      .screen {
+        animation: in 0.5s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+      }
+      .screen.back {
+        animation-name: in-back;
+      }
+      @keyframes in {
+        from {
+          opacity: 0;
+          transform: translateX(28px);
+        }
+      }
+      @keyframes in-back {
+        from {
+          opacity: 0;
+          transform: translateX(-28px);
+        }
+      }
+
+      .eyebrow {
+        text-align: center;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        color: var(--dim);
+        margin-bottom: 10px;
+      }
+      h1 {
+        margin: 0;
+        text-align: center;
+        font: 600 30px/1.2 var(--display);
+        letter-spacing: -0.02em;
+      }
+      .lead {
+        margin: 10px auto 28px;
+        max-width: 480px;
+        text-align: center;
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.55;
+      }
+
+      /* 展示区：每一步一个"主视觉"，承担视觉重量（参考 Raycast 的展示面板） */
+      .show {
+        border-radius: 20px;
+        background: var(--panel);
+        box-shadow:
+          inset 0 0 0 0.5px var(--panel-edge),
+          0 1px 2px rgba(0, 0, 0, 0.03),
+          0 20px 50px -20px rgba(0, 0, 0, 0.18);
+        backdrop-filter: blur(24px) saturate(1.4);
+        padding: 18px;
+      }
+
+      /* 欢迎页：透亮的玻璃质感 + 产品预览，适合截图传播 */
+      body[data-step="0"] .win {
+        grid-template-rows: 64px 1fr 0;
+      }
+      body[data-step="0"] .foot {
+        display: none;
+      }
+      body[data-step="0"] .mid {
+        overflow: hidden;
+        place-items: start center;
+        padding-top: clamp(0px, 2vh, 28px);
+      }
+      body[data-step="0"] .col {
+        width: 980px;
+      }
+      .welcome {
+        position: relative;
+        text-align: center;
+      }
+      /* 极光：产品预览后面的一团光，缓慢流动 */
+      .aurora {
+        position: absolute;
+        left: 50%;
+        top: 300px;
+        width: 1100px;
+        height: 560px;
+        transform: translateX(-50%);
+        pointer-events: none;
+        filter: blur(60px);
+        opacity: var(--aurora-o, 0.9);
+      }
+      .aurora i {
+        position: absolute;
+        border-radius: 50%;
+        mix-blend-mode: var(--aurora-blend, multiply);
+        animation: drift 14s ease-in-out infinite alternate;
+      }
+      .aurora i:nth-child(1) {
+        left: 12%;
+        top: 18%;
+        width: 46%;
+        height: 70%;
+        background: radial-gradient(closest-side, rgba(92, 140, 255, 0.7), transparent);
+      }
+      .aurora i:nth-child(2) {
+        right: 10%;
+        top: 8%;
+        width: 44%;
+        height: 72%;
+        background: radial-gradient(closest-side, rgba(120, 214, 214, 0.5), transparent);
+        animation-delay: -5s;
+      }
+      .aurora i:nth-child(3) {
+        left: 34%;
+        top: 40%;
+        width: 40%;
+        height: 60%;
+        background: radial-gradient(closest-side, rgba(255, 170, 120, 0.42), transparent);
+        animation-delay: -9s;
+      }
+      [data-theme="dark"] .aurora {
+        --aurora-blend: screen;
+        --aurora-o: 0.75;
+      }
+      @keyframes drift {
+        to {
+          transform: translate(40px, -24px) scale(1.08);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .aurora i {
+          animation: none;
+        }
+      }
+
+      /* 玻璃材质：半透明底 + 背景模糊 + 顶部高光 + 发丝边 */
+      .glass {
+        background: linear-gradient(180deg, var(--g-top), var(--g-bot));
+        backdrop-filter: blur(28px) saturate(1.7);
+        -webkit-backdrop-filter: blur(28px) saturate(1.7);
+        box-shadow:
+          inset 0 1px 0 var(--g-hi),
+          inset 0 0 0 0.5px var(--g-edge),
+          0 1px 2px rgba(0, 0, 0, 0.04),
+          0 24px 60px -24px var(--g-shadow);
+      }
+      :root,
+      [data-theme="dark"] {
+        --pv-top: rgba(255, 255, 255, 0.08);
+        --pv-bot: rgba(255, 255, 255, 0.03);
+        --g-top: rgba(255, 255, 255, 0.1);
+        --g-bot: rgba(255, 255, 255, 0.04);
+        --g-hi: rgba(255, 255, 255, 0.18);
+        --g-edge: rgba(255, 255, 255, 0.12);
+        --g-shadow: rgba(0, 0, 0, 0.6);
+      }
+      [data-theme="light"] {
+        --pv-top: rgba(255, 255, 255, 0.62);
+        --pv-bot: rgba(255, 255, 255, 0.34);
+        --g-top: rgba(255, 255, 255, 0.82);
+        --g-bot: rgba(255, 255, 255, 0.52);
+        --g-hi: rgba(255, 255, 255, 1);
+        --g-edge: rgba(255, 255, 255, 0.9);
+        --g-shadow: rgba(50, 80, 170, 0.28);
+      }
+
+      /* logo 位：玻璃方块里放一个占位图形（同心圆角方框，暗示"中庭"），等正式 logo */
+      .gmark {
+        position: relative;
+        width: 68px;
+        height: 68px;
+        margin: 0 auto 18px;
+        border-radius: 22px;
+        display: grid;
+        place-items: center;
+      }
+      .gmark i {
+        position: absolute;
+        border-radius: 30%;
+        border: 1.5px solid;
+      }
+      .gmark::before {
+        content: "";
+        position: absolute;
+        inset: -28px;
+        border-radius: 50%;
+        background: radial-gradient(closest-side, rgba(92, 140, 255, 0.28), transparent);
+        z-index: -1;
+      }
+      .gmark i:nth-child(1) {
+        inset: 16px;
+        border-color: rgba(92, 140, 255, 0.85);
+      }
+      .gmark i:nth-child(2) {
+        inset: 23px;
+        border-color: rgba(120, 200, 210, 0.85);
+        background: linear-gradient(135deg, rgba(92, 140, 255, 0.35), rgba(255, 170, 120, 0.35));
+      }
+      .gpill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 12px 0 7px;
+        border-radius: 999px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: var(--muted);
+        text-decoration: none;
+        transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+      }
+      .gpill:hover {
+        transform: translateY(-1px);
+      }
+      .gpill .pimark {
+        width: 22px;
+        height: 22px;
+        border-radius: 7px;
+        display: grid;
+        place-items: center;
+        background: #fff;
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.08),
+          0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      .gpill .pimark svg {
+        width: 16px;
+        height: 16px;
+        display: block;
+      }
+      .gpill .by b {
+        font:
+          700 13.5px/1 "Syne",
+          var(--font);
+        color: var(--text);
+        letter-spacing: 0.01em;
+        margin: 0 1px;
+      }
+      .gpill .sep {
+        width: 1px;
+        height: 12px;
+        background: var(--line);
+      }
+      .gpill .go {
+        display: inline-flex;
+        color: var(--dim);
+        transition:
+          color 0.2s,
+          transform 0.2s;
+      }
+      .gpill:hover .go {
+        color: var(--text-2);
+        transform: translate(1px, -1px);
+      }
+      h1.hero {
+        font: 700 clamp(40px, 4.4vw, 60px)/1.12 var(--display);
+        letter-spacing: -0.01em;
+        margin: 0;
+        background: linear-gradient(180deg, var(--text) 35%, color-mix(in srgb, var(--text) 62%, transparent));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .hero-sub {
+        margin: 14px auto 22px;
+        max-width: 520px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.6;
+      }
+      .hero-cta {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      .hero-cta .hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--dim);
+        font-size: 12.5px;
+      }
+      /* 主按钮两个方案（控制条切换）：B 液态玻璃、D 内光。按钮里只放"开始设置 →"，键盘提示放在下方小字 */
+      .cta-wrap {
+        position: relative;
+        display: grid;
+        place-items: center;
+      }
+      .cta-wrap::before {
+        content: "";
+        position: absolute;
+        width: 280px;
+        height: 96px;
+        border-radius: 50%;
+        filter: blur(28px);
+        opacity: var(--bed, 0);
+        transition: opacity 0.4s;
+        background:
+          radial-gradient(closest-side at 35% 50%, rgba(94, 132, 255, 0.55), transparent),
+          radial-gradient(closest-side at 70% 50%, rgba(255, 170, 120, 0.45), transparent);
+      }
+      body.ctaB .cta-wrap {
+        --bed: 1;
+      }
+      .cta {
+        position: relative;
+        isolation: isolate;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        height: 54px;
+        padding: 0 32px;
+        border-radius: 999px;
+        font-weight: 600;
+        font-size: 16px;
+        line-height: 1;
+        letter-spacing: 0.01em;
+        transition:
+          transform 0.25s cubic-bezier(0.2, 0.9, 0.25, 1.3),
+          box-shadow 0.3s;
+      }
+      .cta .arr {
+        display: inline-block;
+        transition: transform 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+      }
+      .cta:hover .arr {
+        transform: translateX(3px);
+      }
+      .cta:active {
+        transform: scale(0.98);
+      }
+      /* B 液态玻璃 */
+      body.ctaB .cta {
+        color: var(--text);
+        background: var(--b-fill);
+        backdrop-filter: blur(24px) saturate(1.8);
+        -webkit-backdrop-filter: blur(24px) saturate(1.8);
+        box-shadow:
+          inset 0 1px 1px var(--b-hi),
+          inset 0 -1px 1px var(--b-lo),
+          0 10px 30px -12px var(--b-sh),
+          0 1px 2px rgba(0, 0, 0, 0.06);
+      }
+      body.ctaB .cta::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        padding: 1px;
+        z-index: -1;
+        background: linear-gradient(160deg, var(--b-rim1), transparent 40%, transparent 60%, var(--b-rim2));
+        -webkit-mask:
+          linear-gradient(#000 0 0) content-box,
+          linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask-composite: exclude;
+      }
+      body.ctaB .cta::after {
+        content: "";
+        position: absolute;
+        left: 14%;
+        right: 14%;
+        top: 2px;
+        height: 45%;
+        border-radius: 999px;
+        z-index: -1;
+        background: linear-gradient(180deg, var(--b-spec), transparent);
+      }
+      body.ctaB .cta:hover {
+        transform: translateY(-1px) scale(1.015);
+      }
+      :root,
+      [data-theme="dark"] {
+        --b-fill: rgba(255, 255, 255, 0.08);
+        --b-hi: rgba(255, 255, 255, 0.35);
+        --b-lo: rgba(255, 255, 255, 0.06);
+        --b-sh: rgba(0, 0, 0, 0.7);
+        --b-rim1: rgba(255, 255, 255, 0.55);
+        --b-rim2: rgba(255, 255, 255, 0.25);
+        --b-spec: rgba(255, 255, 255, 0.14);
+      }
+      [data-theme="light"] {
+        --b-fill: rgba(255, 255, 255, 0.45);
+        --b-hi: rgba(255, 255, 255, 1);
+        --b-lo: rgba(0, 0, 0, 0.04);
+        --b-sh: rgba(60, 80, 160, 0.35);
+        --b-rim1: rgba(255, 255, 255, 1);
+        --b-rim2: rgba(255, 255, 255, 0.7);
+        --b-spec: rgba(255, 255, 255, 0.75);
+      }
+      /* D 内光 */
+      body.ctaD .cta {
+        overflow: hidden;
+        color: #fff;
+        background: #0f1014;
+        height: 52px;
+        padding: 0 30px;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.14),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+          0 14px 34px -14px rgba(60, 90, 200, 0.6);
+      }
+      body.ctaD .cta::before {
+        content: "";
+        position: absolute;
+        inset: -60% -20%;
+        z-index: -1;
+        filter: blur(18px);
+        opacity: 0.55;
+        background:
+          radial-gradient(30% 60% at 25% 70%, #5e84ff, transparent 70%),
+          radial-gradient(28% 60% at 60% 30%, #78d6d6, transparent 70%),
+          radial-gradient(26% 55% at 85% 75%, #ffaa78, transparent 70%);
+        animation: cta-flow 9s ease-in-out infinite alternate;
+        transition: opacity 0.4s;
+      }
+      body.ctaD .cta:hover::before {
+        opacity: 0.8;
+      }
+      [data-theme="dark"] body.ctaD .cta {
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.16),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+          0 14px 34px -14px rgba(90, 130, 255, 0.55);
+      }
+      @keyframes cta-flow {
+        to {
+          transform: translateX(14%) rotate(8deg);
+        }
+      }
+      /* 点阵扫光：canvas 画圆角方点阵列，用每个点的深浅组成向右的箭头纹样；一道光带斜着慢慢扫过，纹样在光带里流动、点会轻微闪烁 */
+      body.ctaD .cta canvas.dots {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        pointer-events: none;
+      }
+      body.ctaD .cta .lbl {
+        position: relative;
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        text-shadow: 0 0 10px rgba(15, 16, 20, 0.85);
+        transition: transform 0.6s cubic-bezier(0.2, 0.9, 0.25, 1.2);
+      } /* 文字压在点阵上面 */
+      body.ctaD .cta:hover .lbl {
+        transform: scale(1.05);
+      }
+      @media (prefers-reduced-motion: reduce) {
+        body.ctaD .cta::before {
+          animation: none;
+        }
+        body.ctaD .cta canvas.dots {
+          display: none;
+        }
+      }
+      .hero-cta .hint kbd {
+        font: 600 11px var(--font);
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--line);
+      }
+
+      /* 产品预览：一扇微微后仰的玻璃窗，下缘淡出 */
+      .stage3d {
+        position: relative;
+        margin: clamp(24px, 4vh, 40px) auto 0;
+        width: 860px;
+        perspective: 1600px;
+      }
+      .preview {
+        --g-top: var(--pv-top);
+        --g-bot: var(--pv-bot);
+        position: relative;
+        height: clamp(240px, 38vh, 360px);
+        border-radius: 18px 18px 0 0;
+        overflow: hidden;
+        transform: rotateX(12deg);
+        transform-origin: 50% 0;
+        -webkit-mask-image: linear-gradient(#000 45%, transparent 98%);
+        mask-image: linear-gradient(#000 45%, transparent 98%);
+        display: grid;
+        grid-template-columns: 210px 1fr;
+        text-align: left;
+      }
+      .pv-side {
+        padding: 38px 12px 12px;
+        border-right: 0.5px solid var(--g-edge);
+        background: var(--g-bot);
+        font-size: 12.5px;
+      }
+      .pv-dots {
+        position: absolute;
+        top: 14px;
+        left: 16px;
+        display: flex;
+        gap: 6px;
+      }
+      .pv-dots i {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+      }
+      .pv-dots i:nth-child(1) {
+        background: #ff5f57;
+      }
+      .pv-dots i:nth-child(2) {
+        background: #febc2e;
+      }
+      .pv-dots i:nth-child(3) {
+        background: #28c840;
+      }
+      .pv-sec {
+        color: var(--dim);
+        font-size: 11px;
+        margin: 10px 8px 4px;
+      }
+      .pv-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 8px;
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      .pv-row.sel {
+        background: var(--selected);
+      }
+      .pv-row .t {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .pv-row .a {
+        color: var(--attn);
+        font-weight: 600;
+        font-size: 11.5px;
+      }
+      .pv-row .g {
+        color: var(--ok);
+        font-size: 11.5px;
+      }
+      .pv-row .d {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--attn);
+      }
+      .pv-main {
+        padding: 40px 34px 0;
+        font-size: 13px;
+      }
+      .pv-user {
+        margin-left: auto;
+        width: fit-content;
+        max-width: 70%;
+        padding: 9px 14px;
+        border-radius: 16px;
+        background: var(--selected);
+        color: var(--text-2);
+      }
+      .pv-proc {
+        margin: 18px 0 10px;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .pv-proc em {
+        font-style: normal;
+        color: var(--text-3);
+      }
+      .pv-reply {
+        color: var(--text-2);
+        line-height: 1.65;
+      }
+      .pv-reply code {
+        font: 12px var(--mono);
+        padding: 1px 6px;
+        border-radius: 6px;
+        background: var(--selected);
+      }
+      .pv-status {
+        display: flex;
+        gap: 18px;
+        justify-content: center;
+        margin-top: 22px;
+        color: var(--dim);
+        font-size: 12px;
+      }
+      /* 浮在预览上的三枚说明徽章 */
+      .callout {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 34px;
+        padding: 0 14px 0 10px;
+        border-radius: 12px;
+        font-size: 13px;
+        color: var(--text-2);
+        white-space: nowrap;
+        z-index: 2;
+        animation: float 6s ease-in-out infinite alternate;
+      }
+      .callout svg {
+        color: var(--accent);
+      }
+      .callout.c1 {
+        left: -150px;
+        top: 110px;
+      }
+      .callout.c2 {
+        right: -170px;
+        top: -14px;
+        animation-delay: -2s;
+      }
+      .callout.c3 {
+        right: -150px;
+        top: 196px;
+        animation-delay: -4s;
+      }
+      @keyframes float {
+        to {
+          transform: translateY(-6px);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .callout {
+          animation: none;
+        }
+      }
+
+      /* 终端：安装 / 更新的主视觉，安装时直接变成实时日志 */
+      .term {
+        border-radius: 14px;
+        background: var(--term);
+        box-shadow:
+          inset 0 0 0 0.5px var(--term-edge),
+          0 24px 48px -24px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+        color: var(--term-text);
+      }
+      .term .tb {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 12px;
+        border-bottom: 0.5px solid rgba(255, 255, 255, 0.06);
+      }
+      .term .tb i {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.25);
+      } /* 终端窗口的红绿灯 */
+      .term .tb i:nth-child(1) {
+        background: #ff5f57;
+      }
+      .term .tb i:nth-child(2) {
+        background: #febc2e;
+      }
+      .term .tb i:nth-child(3) {
+        background: #28c840;
+      }
+      .term .tb span {
+        flex: 1;
+        text-align: center;
+        margin-right: 45px;
+        font-size: 11.5px;
+        color: var(--term-dim);
+      }
+      .term .body {
+        max-height: 168px;
+        padding: 14px 16px;
+        font: 12px/1.75 var(--mono);
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        overflow: hidden;
+      } /* 高度随内容增长，最多约 7 行，超出时只露出最新的几行 */
+      .term .body .p {
+        color: var(--term-dim);
+      }
+      .term .body .ok {
+        color: #4ade80;
+      }
+      .term .body .err {
+        color: #f87171;
+      }
+      .term .body .cur::after {
+        content: "";
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        margin-left: 2px;
+        vertical-align: -2px;
+        background: var(--term-text);
+        animation: blink 1s steps(1) infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+      .term .prog {
+        height: 2px;
+        background: rgba(255, 255, 255, 0.06);
+      }
+      .term .prog i {
+        display: block;
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #7aaaff, #a5c4ff);
+        transition: width 0.4s ease;
+      }
+      .term .prog.ok i {
+        background: #4ade80;
+      }
+      .term .prog.bad i {
+        background: #f87171;
+      }
+      .under {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 12px;
+        padding: 0 4px;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .under .chips {
+        display: flex;
+        gap: 6px;
+        flex: none;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 24px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        color: var(--muted);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+      }
+      .chip:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .chip.on {
+        background: var(--selected);
+        color: var(--text);
+        box-shadow: none;
+      }
+      .need {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+        margin-bottom: 14px;
+      }
+      .need span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 12px;
+        border-radius: 999px;
+        background: var(--panel);
+        box-shadow: inset 0 0 0 0.5px var(--panel-edge);
+        font-size: 12.5px;
+        color: var(--text-3);
+      }
+      .need span.miss {
+        color: var(--danger);
+      }
+
+      /* 登录：分段切换（订阅 / API Key）+ 一张分组列表，图标用各家官方的 */
+      .seg {
+        display: flex;
+        width: fit-content;
+        margin: -6px auto 18px;
+        padding: 3px;
+        border-radius: 12px;
+        background: var(--selected);
+      }
+      .seg button {
+        height: 30px;
+        padding: 0 16px;
+        border-radius: 9px;
+        font-size: 13px;
+        color: var(--muted);
+        transition:
+          background 0.2s,
+          color 0.2s;
+      }
+      .seg button.on {
+        background: var(--panel-2);
+        color: var(--text);
+        box-shadow:
+          0 1px 2px rgba(0, 0, 0, 0.08),
+          0 0 0 0.5px var(--panel-edge);
+      }
+      .group {
+        padding: 6px;
+      }
+      .prow {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        height: 64px;
+        padding: 0 12px 0 10px;
+        border-radius: 14px;
+        transition:
+          background 0.15s,
+          box-shadow 0.2s;
+      }
+      .prow:hover {
+        background: var(--hover);
+      }
+      .prow + .prow {
+        position: relative;
+      }
+      .prow + .prow::before {
+        content: "";
+        position: absolute;
+        left: 62px;
+        right: 12px;
+        top: 0;
+        height: 0.5px;
+        background: var(--line);
+      }
+      .prow:hover::before,
+      .prow:hover + .prow::before,
+      .prow.busy::before,
+      .prow.busy + .prow::before {
+        opacity: 0;
+      }
+      .blogo {
+        width: 40px;
+        height: 40px;
+        flex: none;
+        border-radius: 11px;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #fff;
+        box-shadow:
+          0 0 0 0.5px rgba(0, 0, 0, 0.08),
+          0 1px 3px rgba(0, 0, 0, 0.06);
+      }
+      .blogo img {
+        width: 26px;
+        height: 26px;
+        display: block;
+      }
+      .blogo img.full {
+        width: 40px;
+        height: 40px;
+      }
+      .prow .nm {
+        flex: 1;
+        min-width: 0;
+      }
+      .prow .nm b {
+        display: block;
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .prow .nm small {
+        display: block;
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .prow .act {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12.5px;
+        color: var(--dim);
+      }
+      .pill {
+        height: 30px;
+        padding: 0 14px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-2);
+        box-shadow: inset 0 0 0 0.5px var(--line);
+        background: var(--panel-2);
+        transition:
+          background 0.15s,
+          transform 0.18s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+      }
+      .pill:hover {
+        background: var(--selected);
+      }
+      .pill:active {
+        transform: scale(0.96);
+      }
+      .prow.busy {
+        background: var(--accent-soft);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+      }
+      .prow.busy .act {
+        color: var(--accent);
+      }
+      .prow.ok .act {
+        color: var(--ok);
+      }
+      .prow .act .x {
+        color: var(--muted);
+        padding: 0 6px;
+        border-radius: 6px;
+      }
+      .prow .act .x:hover {
+        color: var(--text-2);
+        background: var(--hover);
+      }
+      .fine {
+        margin-top: 12px;
+        text-align: center;
+        color: var(--dim);
+        font-size: 12.5px;
+      }
+      .fine code {
+        font: 11.5px var(--mono);
+      }
+      .keybox {
+        padding: 18px;
+        display: grid;
+        gap: 12px;
+      }
+      .keybox label {
+        display: grid;
+        gap: 6px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .keybox .row {
+        display: flex;
+        gap: 8px;
+      }
+      .keybox a {
+        color: var(--accent);
+        text-decoration: none;
+        font-size: 12.5px;
+      }
+      .keyform {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      .field {
+        height: 38px;
+        border-radius: 12px;
+        border: 0;
+        padding: 0 12px;
+        background: var(--panel);
+        box-shadow: inset 0 0 0 0.5px var(--panel-edge);
+        color: var(--text);
+        font: 13px var(--font);
+        outline: none;
+      }
+      .field:focus {
+        box-shadow:
+          inset 0 0 0 1px var(--accent),
+          0 0 0 4px var(--accent-soft);
+      }
+
+      /* 添加项目：拖放区 + 发现的目录 */
+      .drop {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        height: 150px;
+        border-radius: 18px;
+        border: 1.5px dashed var(--line);
+        color: var(--muted);
+        transition: all 0.25s;
+      }
+      .drop:hover,
+      .drop.over {
+        border-color: var(--accent);
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+      .drop b {
+        color: var(--text-2);
+        font-weight: 500;
+        margin-top: 4px;
+      }
+      .drop:hover b,
+      .drop.over b {
+        color: var(--accent);
+      }
+      .drop span {
+        font-size: 12.5px;
+      }
+      .found {
+        margin-top: 18px;
+      }
+      .found .hd {
+        display: flex;
+        justify-content: space-between;
+        padding: 0 6px 8px;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .found .hd span {
+        color: var(--dim);
+      }
+      .dir {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        height: 54px;
+        padding: 0 12px;
+        border-radius: 12px;
+        text-align: left;
+      }
+      .dir:hover {
+        background: var(--hover);
+      }
+      .dir .cb {
+        width: 18px;
+        height: 18px;
+        border-radius: 6px;
+        box-shadow: inset 0 0 0 1.5px var(--line);
+        display: grid;
+        place-items: center;
+        color: transparent;
+        flex: none;
+        transition: all 0.2s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+      }
+      .dir.on .cb {
+        background: var(--primary);
+        color: var(--on-primary);
+        box-shadow: none;
+      }
+      .dir .nm {
+        flex: 1;
+        min-width: 0;
+      }
+      .dir .nm b {
+        display: block;
+        font-weight: 500;
+      }
+      .dir .nm span {
+        display: block;
+        font: 11.5px var(--mono);
+        color: var(--dim);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dir .meta {
+        font-size: 12px;
+        color: var(--dim);
+        white-space: nowrap;
+      }
+
+      /* 底部操作条：左边次要，右边主按钮 + 回车提示（参考 Raycast / Superhuman） */
+      .foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 24px;
+        border-top: 0.5px solid var(--line);
+        background: color-mix(in srgb, var(--bg) 70%, transparent);
+        backdrop-filter: blur(20px);
+      }
+      .foot .sp {
+        flex: 1;
+      }
+      .btn {
+        height: 36px;
+        padding: 0 16px;
+        border-radius: 11px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+        white-space: nowrap;
+        transition:
+          transform 0.18s cubic-bezier(0.2, 0.9, 0.25, 1.3),
+          background 0.15s,
+          opacity 0.2s;
+      }
+      .btn:active {
+        transform: scale(0.97);
+      }
+      .btn.primary {
+        background: var(--primary);
+        color: var(--on-primary);
+        box-shadow:
+          0 1px 2px rgba(0, 0, 0, 0.1),
+          0 6px 16px -8px rgba(0, 0, 0, 0.35);
+      }
+      .btn.primary:hover {
+        filter: brightness(1.1);
+      }
+      .btn.primary[disabled] {
+        opacity: 0.35;
+        pointer-events: none;
+      }
+      .btn.ghost {
+        color: var(--muted);
+        font-weight: 400;
+        padding: 0 12px;
+      }
+      .btn.ghost:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      kbd {
+        display: inline-grid;
+        place-items: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        border-radius: 6px;
+        background: var(--kbd);
+        font: 600 11px var(--font);
+      }
+      .spin {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 1.6px solid currentColor;
+        border-right-color: transparent;
+        animation: spin 0.8s linear infinite;
+        flex: none;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* 方案 B：左侧步骤清单（参考 Vercel 部署向导 / Raycast 新手清单），内容左对齐 */
+      body.vB .stepper {
+        display: none;
+      }
+      body.vB .col {
+        width: 840px;
+        display: grid;
+        grid-template-columns: 210px 1fr;
+        gap: 56px;
+        align-items: start;
+      }
+      body.vB .rail {
+        display: block;
+      }
+      body.vB h1,
+      body.vB .lead,
+      body.vB .eyebrow {
+        text-align: left;
+      }
+      body.vB .lead {
+        margin-left: 0;
+      }
+      body.vB[data-step="0"] .col {
+        width: 560px;
+        display: block;
+      }
+      body.vB[data-step="0"] .rail {
+        display: none;
+      }
+      body.vB[data-step="0"] h1,
+      body.vB[data-step="0"] .lead {
+        text-align: center;
+      }
+      body.vB[data-step="0"] .lead {
+        margin-left: auto;
+      }
+      .rail {
+        display: none;
+        padding-top: 4px;
+      }
+      .rail .hd {
+        font-size: 12px;
+        color: var(--dim);
+        margin-bottom: 8px;
+      }
+      .rail .pg {
+        height: 3px;
+        border-radius: 2px;
+        background: var(--line);
+        margin-bottom: 14px;
+        overflow: hidden;
+      }
+      .rail .pg i {
+        display: block;
+        height: 100%;
+        background: var(--ok);
+        transition: width 0.5s cubic-bezier(0.2, 0.9, 0.25, 1);
+      }
+      .rail .it {
+        display: flex;
+        gap: 12px;
+        padding: 10px 0;
+      }
+      .rail .it .dot {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        flex: none;
+        display: grid;
+        place-items: center;
+        box-shadow: inset 0 0 0 1.5px var(--line);
+        color: transparent;
+        margin-top: 1px;
+        transition: all 0.35s cubic-bezier(0.2, 0.9, 0.25, 1.3);
+      }
+      .rail .it.done .dot {
+        background: var(--ok);
+        color: #fff;
+        box-shadow: none;
+      }
+      .rail .it.cur .dot {
+        box-shadow: inset 0 0 0 1.5px var(--text);
+      }
+      .rail .it:not(.done) .dot svg {
+        display: none;
+      }
+      .rail .it.cur .dot::after {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--text);
+      }
+      .rail .it b {
+        display: block;
+        font-weight: 500;
+        color: var(--dim);
+      }
+      .rail .it.cur b,
+      .rail .it.done b {
+        color: var(--text);
+      }
+      .rail .it span span {
+        display: block;
+        font-size: 12.5px;
+        color: var(--dim);
+      }
+
+      /* 原型控制条 */
+      .proto {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 18px;
+        display: flex;
+        gap: 2px;
+        padding: 3px;
+        border-radius: 12px;
+        background: rgba(28, 28, 30, 0.86);
+        backdrop-filter: blur(20px);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        z-index: 10;
+      }
+      .proto button {
+        height: 26px;
+        padding: 0 9px;
+        border-radius: 9px;
+        color: rgba(255, 255, 255, 0.66);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .proto button.on {
+        background: rgba(255, 255, 255, 0.15);
+        color: #fff;
+      }
+      .proto .sep {
+        width: 1px;
+        margin: 5px 3px;
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .proto .tag {
+        align-self: center;
+        padding: 0 6px 0 8px;
+        color: #f0a24e;
+        font-size: 11px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body data-step="0">
+    <div class="ambient"><i></i><i></i><i></i></div>
+    <div class="win">
+      <div class="top">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <div class="stepper" id="stepper"></div>
+      </div>
+      <div class="mid"><div class="col" id="col"></div></div>
+      <div class="foot" id="foot"></div>
+    </div>
+    <div class="proto" id="proto">
+      <span class="tag">原型</span>
+      <button data-v="A">方案 A</button><button data-v="B">方案 B</button><span class="sep"></span>
+      <button data-go="welcome">欢迎</button><button data-go="nopi">没装 pi</button
+      ><button data-go="fail">安装失败</button><button data-go="nonode">缺 Node</button
+      ><button data-go="oldpi">pi 太旧</button><button data-go="login">登录</button
+      ><button data-go="project">项目</button><span class="sep"></span> <button data-t="light">浅色</button
+      ><button data-t="dark">深色</button>
+    </div>
+
+    <script>
+      const I = {
+        // Phosphor regular
+        check:
+          '<path d="M232.49,80.49l-128,128a12,12,0,0,1-17,0l-56-56a12,12,0,1,1,17-17L96,183,215.51,63.51a12,12,0,0,1,17,17Z"/>',
+        copy: '<path d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/>',
+        folder:
+          '<path d="M216,72H130.67L102.93,51.2a16.12,16.12,0,0,0-9.6-3.2H40A16,16,0,0,0,24,64V200a16,16,0,0,0,16,16H216.89A15.13,15.13,0,0,0,232,200.89V88A16,16,0,0,0,216,72Zm0,128H40V64H93.33L123.2,86.4A8,8,0,0,0,128,88h88Zm-56-56a8,8,0,0,1-8,8H136v16a8,8,0,0,1-16,0V152H104a8,8,0,0,1,0-16h16V120a8,8,0,0,1,16,0v16h16A8,8,0,0,1,160,144Z"/>',
+        tree: '<path d="M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.84,23.84,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z"/>',
+        eye: '<path d="M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.760a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.460,133.460,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/>',
+        terminal:
+          '<path d="M128,128a8,8,0,0,1-3,6.25l-40,32a8,8,0,1,1-10-12.5L107.19,128,75,102.25a8,8,0,1,1,10-12.5l40,32A8,8,0,0,1,128,128Zm48,24H136a8,8,0,0,0,0,16h40a8,8,0,0,0,0-16Zm56-96V200a16,16,0,0,1-16,16H40a16,16,0,0,1-16-16V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM216,200V56H40V200H216Z"/>',
+      };
+      const ic = (k, s = 16) =>
+        `<svg width="${s}" height="${s}" viewBox="0 0 256 256" fill="currentColor">${I[k]}</svg>`;
+      const enter = "<kbd>⏎</kbd>";
+
+      const STEPS = [
+        ["安装 pi", "agent 内核"],
+        ["登录模型", "用已有的订阅"],
+        ["添加项目", "开始写代码"],
+      ];
+      const CMDS = {
+        script: "curl -fsSL https://pi.dev/install.sh | sh",
+        npm: "npm install -g --ignore-scripts @earendil-works/pi-coding-agent",
+      };
+      const LOGS = {
+        pi: [
+          "Checking Node.js 22.19.0+ … ok (v24.11.0)",
+          "Checking npm … ok (11.6.2)",
+          "Resolving @earendil-works/pi-coding-agent … 0.99.2",
+          "Installing into ~/.pi/agent/bin …",
+          "added 214 packages in 9s",
+          "Linked pi → ~/.local/bin/pi",
+          "✓ pi 0.99.2 installed",
+        ],
+        update: [
+          "Current version 0.80.1, latest 0.99.2",
+          "Updating @earendil-works/pi-coding-agent …",
+          "changed 47 packages in 6s",
+          "✓ pi 0.99.2 installed",
+        ],
+        node: [
+          "==> Fetching node 24.11.0",
+          "==> Pouring node--24.11.0.arm64_sequoia.bottle.tar.gz",
+          "==> /opt/homebrew/Cellar/node/24.11.0",
+          "✓ node v24.11.0, npm 11.6.2",
+        ],
+        fail: [
+          "Checking Node.js 22.19.0+ … ok (v24.11.0)",
+          "Resolving @earendil-works/pi-coding-agent … 0.99.2",
+          "npm error code ETIMEDOUT",
+          "npm error network request to registry.npmjs.org failed",
+        ],
+      };
+      // [id, 名称, 说明, 官方图标, 图标是否铺满（自带圆角底的 app 图标）]，来源见 brand/SOURCES.md
+      const PROV = [
+        ["codex", "ChatGPT", "Plus / Pro 订阅，可用 Codex 模型", "brand/openai.svg", true],
+        ["anthropic", "Claude", "Pro / Max 订阅", "brand/claude.svg", false],
+        ["copilot", "GitHub Copilot", "Copilot 订阅", "brand/copilot.svg", false],
+        ["kimi", "Kimi Code", "Kimi 会员", "brand/kimi.png", true],
+        ["xai", "Grok", "xAI 的 SuperGrok / X Premium 订阅", "brand/xai.png", true],
+        ["openrouter", "OpenRouter", "用 OpenRouter 账号的额度", "brand/openrouter.svg", false],
+      ];
+      let loginTab = "sub";
+      const DIRS = [
+        ["atrium", "~/Documents/MT/projects/atrium", "23 个会话 · 今天"],
+        ["my-blog", "~/code/my-blog", "6 个会话 · 3 天前"],
+        ["dotfiles", "~/dotfiles", "2 个会话 · 上周"],
+      ];
+
+      let screen = "welcome",
+        dir = 1,
+        job = null,
+        forceFail = false,
+        cmdTab = "script",
+        login = {},
+        picked = new Set(["atrium", "my-blog"]);
+      const stepOf = (s) => ({ welcome: 0, nopi: 1, nonode: 1, oldpi: 1, login: 2, project: 3 })[s];
+
+      const termView = (title, idleCmd) => {
+        const lines = job ? job.lines : [];
+        const body = job
+          ? lines
+              .map(
+                (l, i) =>
+                  `<div class="${/^✓/.test(l) ? "ok" : /error/.test(l) ? "err" : ""}${i === lines.length - 1 && job.state === "run" ? " cur" : ""}">${l}</div>`,
+              )
+              .join("")
+          : `<div class="p"># 点"安装"后，这里显示实时输出</div><div class="cur"><span class="p">$ </span>${idleCmd}</div>`;
+        const pct = job ? Math.round((lines.length / job.total) * 100) : 0;
+        return `<div class="term"><div class="tb"><i></i><i></i><i></i><span>${title}</span></div><div class="body">${body}</div>
+    <div class="prog${job?.state === "ok" ? " ok" : job?.state === "fail" ? " bad" : ""}"><i style="width:${job ? (job.state === "run" ? pct : 100) : 0}%"></i></div></div>`;
+      };
+      const manualRow = (
+        withTabs,
+      ) => `<div class="under"><span>${job ? (job.state === "run" ? "正在运行，可以随时取消" : job.state === "ok" ? "完成" : "没有装好。可以重试，或复制命令自己装") : "也可以复制命令，在终端里自己装"}</span>
+  <span class="chips">${
+    withTabs
+      ? Object.keys(CMDS)
+          .map(
+            (k) =>
+              `<button class="chip${k === cmdTab ? " on" : ""}" data-cmd="${k}">${k === "script" ? "安装脚本" : "npm"}</button>`,
+          )
+          .join("")
+      : ""
+  }<button class="chip" data-copy>${ic("copy", 12)}复制</button></span></div>`;
+
+      const SCREENS = {
+        welcome: () => ({
+          html: `<div class="welcome">
+      <div class="aurora"><i></i><i></i><i></i></div>
+      <div class="gmark glass"><i></i><i></i></div>
+      <a class="gpill glass" href="https://pi.dev" target="_blank" rel="noopener" title="pi.dev">
+        <span class="pimark"><svg viewBox="150 150 500 500" aria-label="pi"><path fill="#F09082" d="M165.29 165.29H517.36V400H400V282.65H165.29Z"/><path fill="#4D9ABF" d="M165.29 282.65H282.65V400H400V517.36H282.65V634.72H165.29Z"/><path fill="#F1BE58" d="M517.36 400H634.72V634.72H517.36Z"/></svg></span>
+        <span class="by">由 <b>pi</b> 驱动</span><span class="sep"></span><span>开放的 agent 内核</span>
+        <span class="go"><svg width="12" height="12" viewBox="0 0 256 256" fill="currentColor"><path d="M204,64V168a12,12,0,0,1-24,0V93L72.49,200.49a12,12,0,0,1-17-17L163,76H88a12,12,0,0,1,0-24H192A12,12,0,0,1,204,64Z"/></svg></span></a>
+      <h1 class="hero">看得见内部的<br>coding agent</h1>
+      <p class="hero-sub">每一步读了什么、改了什么、花了多少 token，都摆在你眼前。<br>多个任务各占一个 worktree，并行推进。</p>
+      <div class="hero-cta"><div class="cta-wrap"><button class="cta" data-next="nopi"><span class="lbl">开始设置<span class="arr">→</span></span></button></div>
+        <span class="hint">按 <kbd>⏎</kbd> 开始 · 大约 1 分钟，三步完成</span></div>
+      <div class="stage3d">
+        <span class="callout glass c1">${ic("eye", 16)}每一步都看得见</span>
+        <span class="callout glass c2">${ic("tree", 16)}worktree 合没合并，一眼看出</span>
+        <span class="callout glass c3">${ic("terminal", 16)}和终端里的 pi 共用会话</span>
+        <div class="preview glass">
+          <div class="pv-dots"><i></i><i></i><i></i></div>
+          <div class="pv-side">
+            <div class="pv-sec">等你处理</div>
+            <div class="pv-row"><span class="t">重构宿主进程管理</span><span class="a">?</span></div>
+            <div class="pv-sec">项目</div>
+            <div class="pv-row sel"><span class="t">main</span></div>
+            <div class="pv-row"><span class="t">feat/sidebar</span><span class="a">↑3</span><span class="d"></span></div>
+            <div class="pv-row"><span class="t">fix/reconnect</span><span class="a">↑1</span></div>
+            <div class="pv-row"><span class="t" style="opacity:.55">fix/typo</span><span class="g">✓ 已合并</span></div>
+          </div>
+          <div class="pv-main">
+            <div class="pv-user">把侧栏改成收件箱的结构</div>
+            <div class="pv-proc">已完成，用时 2 分 13 秒 · <em>读了 3 个文件</em> · <em>改了 2 个文件</em> · 跑了 2 条命令</div>
+            <div class="pv-reply">改好了。收件箱是会话列表的派生视图：<code>Inbox.tsx</code> 筛出等你处理的会话，<code>Sidebar.tsx</code> 把它挂在项目列表上方。6 条测试全部通过。</div>
+            <div class="pv-status"><span>1 轮 7 步 · 48 tok/s</span><span>1.3M tok · 缓存命中 73%</span><span>上下文 42%</span></div>
+          </div>
+        </div>
+      </div>
+    </div>`,
+          foot: "",
+        }),
+        nopi: () => ({
+          eyebrow: "第 1 步 · 安装 pi",
+          title: job?.state === "fail" ? "没有装好" : job?.state === "ok" ? "pi 已就绪" : "先装好 pi",
+          lead:
+            job?.state === "fail"
+              ? "多半是网络问题。可以重试，或者复制命令在终端里自己装。"
+              : job?.state === "ok"
+                ? "装好了，终端里也能直接用 pi。"
+                : "Atrium 用 pi 作为 agent 内核，这台电脑上还没有找到它。",
+          html: `<div class="show">${termView("安装 pi", CMDS[cmdTab])}${manualRow(true)}</div>`,
+          foot: footFor("pi", "安装 pi", "我已经装好了", true),
+        }),
+        oldpi: () => ({
+          eyebrow: "第 1 步 · 更新 pi",
+          title: job?.state === "ok" ? "pi 已更新" : "pi 需要更新",
+          lead: "找到的 pi 是 0.80.1，Atrium 需要 0.99 或更高的版本。",
+          html: `<div class="show">${termView("更新 pi", "pi update --self")}${manualRow(false)}</div>`,
+          foot: footFor("update", "更新 pi", "我已经更新了", false),
+        }),
+        nonode: () => ({
+          eyebrow: "第 1 步 · 安装 pi",
+          title: "还需要 Node.js",
+          lead: "pi 运行在 Node.js 上。用 Homebrew 装好后，会接着安装 pi。",
+          html: `<div class="need"><span class="miss">Node.js 22.19+ 未找到</span><span>Homebrew 已安装</span></div>
+      <div class="show">${termView("安装 Node.js", "brew install node")}${manualRow(false)}</div>`,
+          foot:
+            job?.state === "run"
+              ? `<button class="btn ghost" data-cancel>取消</button><span class="sp"></span><button class="btn primary" disabled><span class="spin"></span>正在安装</button>`
+              : `<button class="btn ghost">去 nodejs.org 下载</button><span class="sp"></span><button class="btn primary" data-job="node">用 Homebrew 安装 ${enter}</button>`,
+        }),
+        login: () => ({
+          eyebrow: "第 2 步 · 登录模型",
+          title: "登录一个模型",
+          lead: "凭据保存在 pi 里，终端里的 pi 也能直接用。",
+          html: `<div class="seg"><button class="${loginTab === "sub" ? "on" : ""}" data-tab="sub">用订阅登录</button><button class="${loginTab === "key" ? "on" : ""}" data-tab="key">使用 API Key</button></div>
+      ${
+        loginTab === "sub"
+          ? `<div class="show group">${PROV.map(
+              ([id, nm, plan, src, full]) => `<div class="prow${login[id] ? " " + login[id] : ""}">
+          <span class="blogo"><img class="${full ? "full" : ""}" src="${src}" alt="${nm}"></span>
+          <span class="nm"><b>${nm}</b><small>${plan}</small></span>
+          <span class="act">${
+            login[id] === "busy"
+              ? `<span class="spin"></span>在浏览器中完成登录<button class="x" data-cancel-login="${id}">取消</button>`
+              : login[id] === "ok"
+                ? ic("check", 14) + "已登录"
+                : `<button class="pill" data-login="${id}">登录</button>`
+          }</span></div>`,
+            ).join("")}</div>
+        <div class="fine">点"登录"会打开浏览器，在官网完成授权后自动回到这里</div>`
+          : `<div class="show keybox">
+          <label>服务商<select class="field"><option>Anthropic</option><option>OpenAI</option><option>OpenRouter</option><option>DeepSeek</option><option>Google Gemini</option></select></label>
+          <label>API Key<span class="row"><input class="field" style="flex:1" type="password" placeholder="粘贴 API Key"><button class="pill" data-savekey>保存</button></span></label>
+          <a href="#">去哪里获取 API Key ↗</a></div>
+        <div class="fine">Key 写在 <code>~/.pi/agent/auth.json</code>，只保存在这台电脑上</div>`
+      }`,
+          foot: `<button class="btn ghost" data-back="nopi">返回</button><span class="sp"></span>
+      <button class="btn primary" data-next="project" ${Object.values(login).includes("ok") ? "" : "disabled"}>继续 ${enter}</button>`,
+        }),
+        project: () => ({
+          eyebrow: "第 3 步 · 添加项目",
+          title: "从一个项目开始",
+          lead: "选一个代码目录，agent 会在里面读写代码。以后随时可以再加。",
+          html: `<button class="drop" id="drop">${ic("folder", 26)}<b>把项目文件夹拖到这里</b><span>或者点击选择</span></button>
+      <div class="found"><div class="hd">在 pi 的历史会话里找到<span>~/.pi/agent/sessions</span></div>
+      ${DIRS.map(([n, p, m]) => `<button class="dir${picked.has(n) ? " on" : ""}" data-pick="${n}"><span class="cb">${ic("check", 11)}</span><span class="nm"><b>${n}</b><span>${p}</span></span><span class="meta">${m}</span></button>`).join("")}</div>`,
+          foot: `<button class="btn ghost" data-back="login">返回</button><button class="btn ghost">先新建一个对话</button><span class="sp"></span>
+      <button class="btn primary" ${picked.size ? "" : "disabled"}>${picked.size ? `添加 ${picked.size} 个项目` : "添加项目"} ${enter}</button>`,
+        }),
+      };
+      function footFor(kind, label, skip, back) {
+        if (job?.state === "run")
+          return `<button class="btn ghost" data-cancel>取消</button><span class="sp"></span><button class="btn primary" disabled><span class="spin"></span>${kind === "update" ? "正在更新" : "正在安装"}</button>`;
+        if (job?.state === "ok")
+          return `<span class="sp"></span><button class="btn primary" data-next="login">继续 ${enter}</button>`;
+        return `${back ? '<button class="btn ghost" data-back="welcome">返回</button>' : ""}<button class="btn ghost" data-recheck>${skip}</button><span class="sp"></span>
+    <button class="btn primary" data-job="${kind}">${job?.state === "fail" ? "重试" : label} ${enter}</button>`;
+      }
+
+      function render(animate) {
+        const step = stepOf(screen);
+        document.body.dataset.step = step;
+        document.getElementById("stepper").innerHTML = STEPS.map(
+          ([t], i) =>
+            `${i ? '<span class="bar"></span>' : ""}<span class="st${i + 1 === step ? " cur" : i + 1 < step ? " done" : ""}"><span class="n">${i + 1 < step ? ic("check", 10) : i + 1}</span>${t}</span>`,
+        ).join("");
+        const v = SCREENS[screen]();
+        const done = Math.max(0, step - 1);
+        const rail = `<div class="rail"><div class="hd">${done} / 3 完成</div><div class="pg"><i style="width:${(done / 3) * 100}%"></i></div>
+    ${STEPS.map(([t, d], i) => `<div class="it${i + 1 === step ? " cur" : i + 1 < step ? " done" : ""}"><span class="dot">${ic("check", 11)}</span><span><b>${t}</b><span>${d}</span></span></div>`).join("")}</div>`;
+        const head = v.title
+          ? `<div class="eyebrow">${v.eyebrow}</div><h1>${v.title}</h1><p class="lead">${v.lead}</p>`
+          : "";
+        document.getElementById("col").innerHTML =
+          `${rail}<div class="screen${dir < 0 ? " back" : ""}" style="${animate ? "" : "animation:none"}">${head}${v.html}</div>`;
+        document.getElementById("foot").innerHTML = v.foot;
+        document.querySelectorAll(".cta").forEach(dotCta);
+        document
+          .querySelectorAll("[data-go]")
+          .forEach((b) => b.classList.toggle("on", b.dataset.go === (forceFail ? "fail" : screen)));
+      }
+      function go(s, d = 1) {
+        if (s !== screen) job = null;
+        dir = d;
+        screen = s;
+        render(true);
+      }
+
+      async function runJob(kind) {
+        const failing = forceFail && kind === "pi";
+        const lines = LOGS[failing ? "fail" : kind];
+        job = { kind, state: "run", lines: [], total: lines.length };
+        render();
+        for (const l of lines) {
+          await new Promise((r) => setTimeout(r, 450));
+          if (!job || job.state !== "run") return;
+          job.lines.push(l);
+          render();
+        }
+        job.state = failing ? "fail" : "ok";
+        render();
+        if (!failing && kind === "node") {
+          await new Promise((r) => setTimeout(r, 700));
+          job = null;
+          screen = "nopi";
+          render(true);
+          runJob("pi");
+        }
+      }
+      // 点阵按钮：一条"\"方向的斜光带从左向右平移，带内每个圆角方点都亮，只用深浅组成图案。
+      // 图案是随机生成的平滑噪声，种子存在本机（正式版取安装 ID），所以每个人看到的都不一样，但同一个人每次一样。
+      function dotCta(btn) {
+        if (btn.querySelector("canvas.dots") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const cv = document.createElement("canvas");
+        cv.className = "dots";
+        btn.prepend(cv);
+        const ctx = cv.getContext("2d"),
+          PITCH = 6,
+          SIZE = 4.4,
+          R = 1.3;
+        const IDLE_EVERY = 6000,
+          IDLE_DUR = 1100,
+          HOVER_DUR = 850; // 悬停约 0.85 秒扫过，平时约 1.1 秒（配合缓急曲线）
+        // 前进曲线 cubic-bezier(.7, 0, .2, 1)：起步蓄力、中段冲过按钮、末尾长长地减速滑出
+        const bezier = (x1, y1, x2, y2) => {
+          const cx = 3 * x1,
+            bx = 3 * (x2 - x1) - cx,
+            ax = 1 - cx - bx,
+            cy = 3 * y1,
+            by = 3 * (y2 - y1) - cy,
+            ay = 1 - cy - by;
+          const X = (t) => ((ax * t + bx) * t + cx) * t,
+            Y = (t) => ((ay * t + by) * t + cy) * t,
+            dX = (t) => (3 * ax * t + 2 * bx) * t + cx;
+          return (x) => {
+            if (x <= 0) return 0;
+            if (x >= 1) return 1;
+            let t = x;
+            for (let k = 0; k < 6; k++) {
+              const d = dX(t);
+              if (Math.abs(d) < 1e-6) break;
+              t -= (X(t) - x) / d;
+            }
+            return Y(Math.min(1, Math.max(0, t)));
+          };
+        };
+        const ease = bezier(0.7, 0, 0.2, 1);
+        let seed = +localStorage.getItem("atrium-dot-seed");
+        if (!seed) {
+          seed = Math.floor(Math.random() * 1e9) + 1;
+          localStorage.setItem("atrium-dot-seed", seed);
+        }
+        const hash = (x, y) => {
+          let h = (x * 374761393 + y * 668265263 + seed * 2147483647) | 0;
+          h = ((h ^ (h >>> 13)) * 1274126177) | 0;
+          return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+        };
+        const smooth = (t) => t * t * (3 - 2 * t);
+        const vnoise = (x, y) => {
+          const xi = Math.floor(x),
+            yi = Math.floor(y),
+            xf = smooth(x - xi),
+            yf = smooth(y - yi);
+          const a = hash(xi, yi),
+            b = hash(xi + 1, yi),
+            c = hash(xi, yi + 1),
+            d = hash(xi + 1, yi + 1);
+          return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf;
+        };
+        const pattern = (u, v) => 0.62 * vnoise(u / 3.2, v / 3.2) + 0.38 * vnoise(u / 1.4 + 17, v / 1.4 + 5); // 两层噪声：大块 + 细节
+        let w = 0,
+          h = 0,
+          sweepStart = performance.now() + 700,
+          sweepDur = IDLE_DUR,
+          hovering = false;
+        function size() {
+          const r = btn.getBoundingClientRect(),
+            d = devicePixelRatio || 1;
+          w = r.width;
+          h = r.height;
+          cv.width = w * d;
+          cv.height = h * d;
+          ctx.setTransform(d, 0, 0, d, 0, 0);
+        }
+        size();
+        new ResizeObserver(size).observe(btn);
+        btn.addEventListener("pointerenter", () => {
+          hovering = true;
+          sweepStart = performance.now();
+          sweepDur = HOVER_DUR;
+        });
+        btn.addEventListener("pointerleave", () => {
+          hovering = false;
+        });
+        function frame(now) {
+          if (!btn.isConnected) return;
+          ctx.clearRect(0, 0, w, h);
+          if (now - sweepStart > sweepDur && !hovering) {
+            sweepStart = Math.max(sweepStart + IDLE_EVERY, now + 300 - IDLE_EVERY);
+            sweepDur = IDLE_DUR;
+          }
+          const raw = (now - sweepStart) / sweepDur,
+            p = window.__dotP ?? (raw < 0 || raw > 1 ? raw : ease(raw)); // __dotP：原型调试用，定格光带位置
+          if (p < 0 || p > 1) {
+            requestAnimationFrame(frame);
+            return;
+          }
+          const cols = Math.ceil(w / PITCH),
+            rows = Math.ceil(h / PITCH),
+            ox = (w - (cols - 1) * PITCH - SIZE) / 2,
+            oy = (h - (rows - 1) * PITCH - SIZE) / 2;
+          const SLANT = 0.55,
+            cy = (rows - 1) / 2; // 斜率：每往下一行右移 0.55 列，形成"\"
+          const MAXW = cols + rows * SLANT; // 最宽时正好盖满整个按钮
+          const BAND = MAXW * (0.45 + 0.55 * Math.sin(Math.PI * p)); // 光带宽度：进场时窄，到中间最宽（盖满），离场时再变窄
+          const center = -MAXW / 2 + p * (cols + MAXW); // 光带中心列，一次性从左外侧平移到右外侧
+          for (let j = 0; j < rows; j++)
+            for (let i = 0; i < cols; i++) {
+              const local = i - center - (j - cy) * SLANT; // 相对光带中心的位置（已按"\"倾斜）
+              const edge = Math.abs(local) / (BAND / 2);
+              if (edge >= 1) continue;
+              const env = edge < 0.7 ? 1 : 1 - smooth((edge - 0.7) / 0.3); // 带内全亮，只在两边柔和收边
+              const n = Math.min(1, Math.max(0, (pattern(local + 50, j) - 0.28) / 0.44)); // 拉开对比
+              const tone = 0.26 + 0.74 * n; // 图案跟着光带走；最暗的点也有 26% 亮度
+              const a = env * tone;
+              ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+              ctx.beginPath();
+              ctx.roundRect(ox + i * PITCH, oy + j * PITCH, SIZE, SIZE, R);
+              ctx.fill();
+            }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      }
+      function setCta(v) {
+        document.body.classList.toggle("ctaB", v === "B");
+        document.body.classList.toggle("ctaD", v === "D");
+        localStorage.setItem("atrium-proto-cta", v);
+        document.querySelectorAll("[data-cta]").forEach((b) => b.classList.toggle("on", b.dataset.cta === v));
+      }
+      function setTheme(t) {
+        localStorage.setItem("atrium-proto-theme", t);
+        document.documentElement.dataset.theme = t;
+        document.querySelectorAll("[data-t]").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+      }
+      function setVariant(v) {
+        document.body.classList.toggle("vB", v === "B");
+        localStorage.setItem("atrium-proto-onb", v);
+        document.querySelectorAll("[data-v]").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+      }
+      setTheme(document.documentElement.dataset.theme);
+      setVariant(localStorage.getItem("atrium-proto-onb") || "A");
+      setCta("D"); // 定稿：D 内光 + 点阵扫光
+      render(true);
+
+      document.addEventListener("click", (e) => {
+        const b = e.target.closest("button");
+        if (!b) return;
+        const d = b.dataset;
+        if (d.v) return setVariant(d.v);
+        if (d.cta) return setCta(d.cta);
+        if (d.t) return setTheme(d.t);
+        if (d.go) {
+          forceFail = d.go === "fail";
+          job = null;
+          return go(forceFail ? "nopi" : d.go);
+        }
+        if (d.next) return go(d.next, 1);
+        if (d.back) return go(d.back, -1);
+        if (d.job) return runJob(d.job);
+        if ("cancel" in d) {
+          job = null;
+          return render();
+        }
+        if (d.cmd) {
+          cmdTab = d.cmd;
+          return render();
+        }
+        if ("copy" in d) {
+          b.innerHTML = ic("check", 12) + "已复制";
+          setTimeout(() => render(), 1200);
+          return;
+        }
+        if ("recheck" in d) {
+          b.innerHTML = '<span class="spin"></span>正在检测';
+          setTimeout(() => {
+            b.innerHTML = '<span style="color:var(--attn)">还是没找到，可能要重开终端</span>';
+            setTimeout(render, 2000);
+          }, 900);
+          return;
+        }
+        if (d.login) {
+          const id = d.login;
+          if (login[id]) return;
+          login[id] = "busy";
+          render();
+          setTimeout(() => {
+            if (login[id] === "busy") {
+              login[id] = "ok";
+              render();
+            }
+          }, 2200);
+          return;
+        }
+        if (d.tab) {
+          loginTab = d.tab;
+          return render();
+        }
+        if (d.cancelLogin) {
+          delete login[d.cancelLogin];
+          return render();
+        }
+        if ("savekey" in d) {
+          login.apikey = "ok";
+          b.textContent = "已保存";
+          setTimeout(render, 900);
+          return;
+        }
+        if (d.pick) {
+          picked.has(d.pick) ? picked.delete(d.pick) : picked.add(d.pick);
+          return render();
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.isComposing && document.activeElement.tagName !== "INPUT") {
+          const p = document.querySelector(
+            ".foot .btn.primary:not([disabled]), .screen .btn.primary:not([disabled]), .screen .cta",
+          );
+          if (p) {
+            e.preventDefault();
+            p.click();
+          }
+        }
+      });
+      const drop = () => document.getElementById("drop");
+      document.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        drop()?.classList.add("over");
+      });
+      document.addEventListener("dragleave", () => drop()?.classList.remove("over"));
+    </script>
+  </body>
+</html>

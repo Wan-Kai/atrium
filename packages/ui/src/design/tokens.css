@@ -55,6 +55,8 @@
   --danger-soft: rgba(229, 72, 77, 0.1);
   --ok: #16a34a;
   --ok-text: #1e8e3e;
+  /* What sits on the tint: a pick's tick (design-language, "语义色"). */
+  --on-tint: #ffffff;
   --diff-add-bg: rgba(22, 163, 74, 0.09);
   --diff-del-bg: rgba(229, 72, 77, 0.08);
   --ctx-sys: #a1a1a7;
@@ -151,6 +153,7 @@
   --danger-soft: rgba(242, 90, 90, 0.14);
   --ok: #22c55e;
   --ok-text: #4ade80;
+  --on-tint: #0d1016;
   --diff-add-bg: rgba(34, 197, 94, 0.12);
   --diff-del-bg: rgba(242, 90, 90, 0.12);
   --ctx-sys: #9ca3af;

@@ -4,6 +4,7 @@ import { DiffTarget } from "./changes";
 import { FileCandidate, SlashCommand } from "./composer";
 import { DirEntry, FILE_LIMITS, FileContent, WorkspacePath } from "./files";
 import { InteractionAnswer } from "./control";
+import { QuestionReply } from "./question";
 import { ChatId, ContainerId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices } from "./listing";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
@@ -187,6 +188,15 @@ export const AnswerInteractionCommand = z.strictObject({
   answer: InteractionAnswer,
 });
 export type AnswerInteractionCommand = z.infer<typeof AnswerInteractionCommand>;
+
+/** Answers, or skips, the questions the agent asked with `ask_user` (SPEC-0003, "接口与数据"). */
+export const AnswerQuestionCommand = z.strictObject({
+  type: z.literal("answer_question"),
+  ...sessionCommandFields,
+  questionId: z.string().min(1).max(256),
+  answer: QuestionReply,
+});
+export type AnswerQuestionCommand = z.infer<typeof AnswerQuestionCommand>;
 
 /** The error card's "重试": runs the last turn again, as after an automatic restart. */
 export const RetryRunCommand = z.strictObject({ type: z.literal("retry_run"), ...sessionCommandFields });
@@ -814,6 +824,7 @@ export const Command = z.discriminatedUnion("type", [
   ResumeDeliveriesCommand,
   SteerQueuedCommand,
   AnswerInteractionCommand,
+  AnswerQuestionCommand,
   RetryRunCommand,
   ListModelsCommand,
   SetModelCommand,
@@ -934,6 +945,7 @@ export const CommandResult = {
   resume_deliveries: z.strictObject({}),
   steer_queued: z.strictObject({ disposition: z.enum(["started", "queued", "handled"]) }),
   answer_interaction: z.strictObject({}),
+  answer_question: z.strictObject({}),
   retry_run: z.strictObject({}),
   /** `defaultModel` is the one pi picks by its own settings, `null` when it reported none. */
   list_models: z.strictObject({ models: z.array(CatalogModel), defaultModel: ModelRef.nullable() }),

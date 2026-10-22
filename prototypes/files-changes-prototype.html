@@ -1,0 +1,1929 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. 右栏改成"文件 / 更改"两个标签（照 Paseo），点文件在对话区打开查看窗口。
+  问题：查看窗口开在对话区的哪里；更改打开的 diff 是全部文件连着看还是一次一个；文件树列哪些文件；diff 要不要语法高亮。
+  三版（底部浮条切换，也可用 ?variant=A|B|C、键盘 ← →）：
+    A 标签页：查看窗口是标签栏里的一个标签，和会话标签并排，切过去时占满对话区（Paseo 的做法）。
+    B 分栏：查看窗口在对话右边、右栏左边，对话变窄但一直看得见。
+    C 浮层：查看窗口是盖在对话上的一张卡片，Esc 关掉回到对话。
+  浮条还能切换：diff 全部文件 / 单个文件、忽略的文件隐藏 / 灰显、diff 语法高亮开 / 关、浅色 / 深色、窗口宽度。
+  结论（2026-10-13 用户定）：A 标签页；diff 全部文件连着、点哪个滚到哪个；文件树不列被忽略的文件；diff 语法高亮。
+  文件类型图标用 material-icon-theme 的原版 SVG（MIT）。颜色、尺寸取自 packages/ui/src/design/tokens.css 和 design-language.md；结构、交互参考 Paseo（~/.cache/paseo-src，commit 42806cd）。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 文件与更改</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --code: #f6f6f8;
+        --sidebar-bg: linear-gradient(
+          180deg,
+          #d5dbe9 0%,
+          #dae0e9 10%,
+          #e1e4ea 25%,
+          #e3e7e9 35%,
+          #e3e7e9 65%,
+          #e2e4e6 75%,
+          #dee1e7 85%,
+          #d8dbe3 100%
+        );
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --attn: #dd8629;
+        --ok: #16a34a;
+        --ok-text: #1e8e3e;
+        --danger: #e5484d;
+        --add-bg: rgba(22, 163, 74, 0.09);
+        --del-bg: rgba(229, 72, 77, 0.08);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.08);
+        --scrim: rgba(255, 255, 255, 0.55);
+        --hl-kw: #cf222e;
+        --hl-str: #0a3069;
+        --hl-com: #6e7781;
+        --hl-num: #0550ae;
+        --hl-fn: #8250df;
+        --hl-type: #953800;
+        --page: #eef1f6;
+        --bar: rgba(255, 255, 255, 0.92);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --fs-mono: 12.5px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-btn: 12px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --pane: 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+      }
+      :root[data-theme="dark"] {
+        --main: #151517;
+        --surface-1: #212123;
+        --surface-2: #2c2c2e;
+        --code: #19191b;
+        --sidebar-bg: rgba(95, 102, 114, 0.42);
+        --text: #f9fafb;
+        --text-2: #e7e9ec;
+        --text-3: #cfd3d6;
+        --text-muted: #adb2b8;
+        --text-dim: #81858c;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --tint: #7aaaff;
+        --attn: #dd8629;
+        --ok: #22c55e;
+        --ok-text: #4ade80;
+        --danger: #f25a5a;
+        --add-bg: rgba(34, 197, 94, 0.12);
+        --del-bg: rgba(242, 90, 90, 0.12);
+        --card-shadow: 0 0 0 0.5px var(--line), 0 9px 27px rgba(41, 70, 122, 0.2);
+        --scrim: rgba(13, 16, 22, 0.5);
+        --hl-kw: #ff7b72;
+        --hl-str: #a5d6ff;
+        --hl-com: #8b949e;
+        --hl-num: #79c0ff;
+        --hl-fn: #d2a8ff;
+        --hl-type: #ffa657;
+        --page: #0c0c0e;
+        --bar: rgba(40, 40, 42, 0.92);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        padding-bottom: 120px;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+        max-width: 1200px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p {
+        margin: 0 0 4px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+      }
+      .stage {
+        padding: 16px 40px;
+      }
+      button {
+        all: unset;
+        cursor: pointer;
+      }
+      svg {
+        display: block;
+        flex: none;
+      }
+
+      .win {
+        position: relative;
+        height: 720px;
+        border-radius: 12px;
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+      }
+      .win::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 10% 20%, #6d7fa8, transparent 60%),
+          radial-gradient(circle at 20% 90%, #8a6f96, transparent 55%), #4b5466;
+        z-index: 0;
+      }
+      :root:not([data-theme="dark"]) .win::before {
+        display: none;
+      }
+      .lights {
+        position: absolute;
+        left: 20px;
+        top: 18px;
+        display: flex;
+        gap: 8px;
+        z-index: 5;
+      }
+      .lights i {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: #ff5f57;
+      }
+      .lights i:nth-child(2) {
+        background: #febc2e;
+      }
+      .lights i:nth-child(3) {
+        background: #28c840;
+      }
+
+      /* 左栏（示意） */
+      .sb {
+        position: relative;
+        z-index: 1;
+        width: 270px;
+        flex: none;
+        background: var(--sidebar-bg);
+        box-shadow: inset -0.5px 0 0 var(--line);
+        display: flex;
+        flex-direction: column;
+      }
+      :root[data-theme="dark"] .sb {
+        backdrop-filter: blur(32px) saturate(1.5);
+      }
+      .sb-top {
+        height: 50px;
+        flex: none;
+      }
+      .sb-list {
+        flex: 1;
+        padding: 0 12px;
+      }
+      .sec {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        color: var(--text-muted);
+        margin-top: 6px;
+      }
+      .row {
+        height: 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        border-radius: var(--r);
+        color: var(--text-2);
+        margin-bottom: 2px;
+        white-space: nowrap;
+      }
+      .row.ind {
+        padding-left: 30px;
+      }
+      .row.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .row .dim {
+        margin-left: auto;
+        font-size: var(--fs-sm);
+        font-family: var(--font-mono);
+      }
+
+      /* 主区 */
+      .main {
+        position: relative;
+        z-index: 1;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--main);
+      }
+      .tabs {
+        height: 48px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0 12px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+      }
+      .tabstrip {
+        display: flex;
+        gap: 2px;
+        min-width: 0;
+        overflow: hidden;
+      }
+      .tab {
+        height: 30px;
+        max-width: 200px;
+        min-width: 96px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 4px 0 10px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        white-space: nowrap;
+        flex-shrink: 1;
+      }
+      .tab:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tab .t {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .tab.preview .t {
+        font-style: italic;
+      }
+      .tab .x {
+        width: 20px;
+        height: 20px;
+        border-radius: var(--r-sm);
+        display: grid;
+        place-items: center;
+        opacity: 0;
+        color: var(--text-muted);
+      }
+      .tab:hover .x,
+      .tab.on .x {
+        opacity: 1;
+      }
+      .tab .x:hover {
+        background: var(--hover);
+      }
+      .tb {
+        width: 28px;
+        height: 28px;
+        display: grid;
+        place-items: center;
+        border-radius: var(--r);
+        color: var(--text-muted);
+        flex: none;
+      }
+      .tb:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .tb[aria-pressed="true"] {
+        color: var(--tint);
+      }
+      .spacer {
+        flex: 1;
+      }
+      .body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+      }
+      .room {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        overflow: hidden;
+      }
+
+      /* 对话（示意） */
+      .chat {
+        flex: 1;
+        min-width: 440px;
+        display: flex;
+        flex-direction: column;
+      }
+      .thread {
+        flex: 1;
+        overflow: hidden;
+        padding: 20px 0;
+      }
+      .col {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px;
+        display: flex;
+        flex-direction: column;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 8px 16px;
+        margin-bottom: 14px;
+      }
+      .fold {
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        margin-bottom: 6px;
+      }
+      .reply {
+        color: var(--text-2);
+        margin-bottom: 18px;
+        font-size: 14.5px;
+        line-height: 1.55;
+      }
+      .chips {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin: -8px 0 18px;
+      }
+      .chip {
+        height: 22px;
+        border-radius: 999px;
+        padding: 0 9px 0 7px;
+        font-size: var(--fs-sm);
+        display: inline-flex;
+        gap: 5px;
+        align-items: center;
+        background: var(--surface-1);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 1px 1px rgba(0, 0, 0, 0.05);
+        color: var(--text-2);
+      }
+      .chip .n {
+        font-size: var(--fs-xs);
+        font-family: var(--font-mono);
+      }
+      .composer {
+        margin: 0 auto 12px;
+        width: calc(100% - 40px);
+        max-width: 680px;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 14px 20px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+        height: 84px;
+        flex: none;
+      }
+      .status {
+        height: 30px;
+        flex: none;
+        display: grid;
+        place-items: center;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+
+      /* 查看窗口 */
+      .viewer {
+        display: none;
+        flex-direction: column;
+        min-width: 0;
+        background: var(--main);
+      }
+      .v-A .viewer.show {
+        display: flex;
+        flex: 1;
+      }
+      .v-A .chat.hidden {
+        display: none;
+      }
+      .v-B .chat {
+        flex: 45 1 0;
+      }
+      .v-B .viewer.show {
+        display: flex;
+        flex: 55 1 0;
+        min-width: 0;
+        box-shadow: inset 0.5px 0 0 var(--line);
+      }
+      .v-C .viewer.show {
+        display: flex;
+        position: absolute;
+        inset: 10px;
+        z-index: 3;
+        border-radius: var(--r-card);
+        box-shadow:
+          var(--card-shadow),
+          0 20px 60px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+        background: var(--surface-1);
+      }
+      .scrim {
+        display: none;
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        background: var(--scrim);
+        backdrop-filter: blur(6px);
+      }
+      .v-C .scrim.show {
+        display: block;
+      }
+      .vtabs {
+        height: 40px;
+        flex: none;
+        display: none;
+        align-items: center;
+        gap: 2px;
+        padding: 0 6px 0 8px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+      }
+      .v-B .vtabs,
+      .v-C .vtabs {
+        display: flex;
+      }
+      .vtabs .tab {
+        height: 28px;
+        min-width: 0;
+      }
+      .vbar {
+        height: 40px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px 0 14px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+        min-width: 0;
+      }
+      .vbar .crumb {
+        color: var(--text-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .vbar .nm {
+        color: var(--text);
+        font-weight: 500;
+        flex: none;
+      }
+      .vbar .meta {
+        color: var(--text-dim);
+        font-size: var(--fs-sm);
+        font-variant-numeric: tabular-nums;
+      }
+      .vbar .link {
+        color: var(--tint);
+        font-size: var(--fs-sm);
+      }
+      .vbar .tb {
+        width: 26px;
+        height: 26px;
+      }
+      .vbar .tb[aria-pressed="true"] {
+        background: var(--selected);
+        color: var(--text-2);
+      }
+      .vbody {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        position: relative;
+      }
+      .code {
+        font: var(--fs-sm)/1.7 var(--font-mono);
+        padding: 6px 0 24px;
+        min-width: max-content;
+      }
+      .wrap .code {
+        min-width: 0;
+      }
+      .ln {
+        display: flex;
+        white-space: pre;
+      }
+      .wrap .ln {
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .ln .no {
+        width: 48px;
+        flex: none;
+        text-align: right;
+        padding-right: 12px;
+        color: var(--text-dim);
+        user-select: none;
+      }
+      .ln .tx {
+        flex: 1;
+        padding-right: 16px;
+        color: var(--text-2);
+      }
+      .d .ln .no {
+        width: 44px;
+        border-left: 2px solid transparent;
+      }
+      .d .ln.add {
+        background: var(--add-bg);
+      }
+      .d .ln.add .no {
+        border-left-color: var(--ok);
+      }
+      .d .ln.del {
+        background: var(--del-bg);
+      }
+      .d .ln.del .no {
+        border-left-color: var(--danger);
+      }
+      .d .ln.del .tx {
+        color: var(--text-3);
+      }
+      .d .ln.hunk {
+        background: var(--hover);
+        color: var(--text-dim);
+      }
+      .d .ln.hunk .tx {
+        color: var(--text-dim);
+      }
+      .fh {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px;
+        background: var(--surface-1);
+        box-shadow:
+          inset 0 -0.5px 0 var(--line),
+          inset 0 0.5px 0 var(--line);
+        font-size: var(--fs-meta);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .v-A .fh,
+      .v-B .fh {
+        background: var(--main);
+      }
+      .fh:hover {
+        background: var(--surface-2);
+      }
+      .fh .nm {
+        color: var(--text);
+      }
+      .fh .dir {
+        color: var(--text-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .fh .car {
+        transition: transform 0.15s;
+        color: var(--text-dim);
+      }
+      .fh.folded .car {
+        transform: rotate(-90deg);
+      }
+      .fsec.flash .fh {
+        animation: flash 1s;
+      }
+      .fsec:last-child {
+        min-height: 100%;
+      } /* 点最后一个文件也能滚到顶 */
+      @keyframes flash {
+        0%,
+        40% {
+          background: var(--selected);
+        }
+      }
+      .note {
+        padding: 10px 14px;
+        color: var(--text-dim);
+        font-size: var(--fs-meta);
+      }
+      .hl-kw {
+        color: var(--hl-kw);
+      }
+      .hl-str {
+        color: var(--hl-str);
+      }
+      .hl-com {
+        color: var(--hl-com);
+        font-style: italic;
+      }
+      .hl-num {
+        color: var(--hl-num);
+      }
+      .hl-fn {
+        color: var(--hl-fn);
+      }
+      .hl-type {
+        color: var(--hl-type);
+      }
+      .hl-h {
+        color: var(--hl-kw);
+        font-weight: 600;
+      }
+      .plain .hl-kw,
+      .plain .hl-str,
+      .plain .hl-com,
+      .plain .hl-num,
+      .plain .hl-fn,
+      .plain .hl-type,
+      .plain .hl-h {
+        color: inherit;
+        font-style: normal;
+        font-weight: inherit;
+      }
+
+      /* 右栏 */
+      .panel {
+        flex: none;
+        width: var(--panel-w);
+        display: flex;
+        flex-direction: column;
+        background: var(--surface-1);
+        box-shadow: inset 0.5px 0 0 var(--line);
+        min-width: 0;
+      }
+      .ph {
+        height: 44px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 8px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+      }
+      .ptab {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px 0 8px;
+        border-radius: var(--r);
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      .ptab:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .ptab[aria-selected="true"] {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .ptab .cnt {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .psub {
+        height: 36px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 6px 0 12px;
+        font-size: var(--fs-meta);
+        white-space: nowrap;
+      }
+      .psub .mode {
+        color: var(--text-muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        border-radius: var(--r-sm);
+        padding: 2px 4px;
+        margin-left: -4px;
+      }
+      .psub .mode:hover {
+        background: var(--hover);
+        color: var(--text-2);
+      }
+      .psub .tb {
+        width: 26px;
+        height: 26px;
+        color: var(--text-dim);
+      }
+      .stat {
+        display: inline-flex;
+        gap: 4px;
+        font: var(--fs-sm) var(--font-mono);
+        font-variant-numeric: tabular-nums;
+      }
+      .stat .a {
+        color: var(--ok-text);
+      }
+      .stat .d {
+        color: var(--danger);
+      }
+      .tree {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 2px 6px 24px;
+        font-size: var(--fs-meta);
+      }
+      .tr {
+        height: 28px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding-right: 6px;
+        border-radius: var(--r-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+        cursor: pointer;
+        margin-bottom: 1px;
+      }
+      .tr:hover {
+        background: var(--hover);
+      }
+      .tr.sel {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .tr .slot {
+        width: 16px;
+        height: 16px;
+        display: grid;
+        place-items: center;
+        flex: none;
+        color: var(--text-dim);
+      }
+      .tr .car {
+        transition: transform 0.15s;
+      }
+      .tr.closed .car {
+        transform: rotate(-90deg);
+      }
+      .tr .nm {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .tr .gap {
+        flex: 1;
+      }
+      .tr.dir .nm {
+        color: var(--text-2);
+      }
+      .tr.ignored .nm {
+        color: var(--text-dim);
+      }
+      .tr.dir .stat {
+        opacity: 0.75;
+      }
+      .tr.changed .nm {
+        color: var(--text);
+      }
+      .tr .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--attn);
+        flex: none;
+        margin-right: 4px;
+      }
+      .tr .dot.add {
+        background: var(--ok);
+      }
+      .ficon {
+        width: 16px;
+        height: 16px;
+        display: block;
+        flex: none;
+      }
+
+      /* 浮条 */
+      .bar {
+        position: fixed;
+        left: 50%;
+        bottom: 20px;
+        transform: translateX(-50%);
+        background: var(--bar);
+        backdrop-filter: blur(12px);
+        box-shadow:
+          0 0 0 0.5px var(--line-strong),
+          0 12px 32px rgba(0, 0, 0, 0.18);
+        border-radius: 14px;
+        padding: 8px 10px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        white-space: nowrap;
+        z-index: 50;
+      }
+      .seg {
+        display: inline-flex;
+        background: var(--hover);
+        border-radius: 9px;
+        padding: 2px;
+      }
+      .seg button {
+        padding: 3px 9px;
+        border-radius: 7px;
+        color: var(--text-muted);
+      }
+      .seg button[aria-pressed="true"] {
+        background: var(--surface-1);
+        color: var(--text);
+        box-shadow: 0 0 0 0.5px var(--line-strong);
+      }
+      .state {
+        font: var(--fs-xs)/1.4 var(--font-mono);
+        color: var(--text-dim);
+        margin: 10px 40px 0;
+      }
+      .desc {
+        margin: 14px 0 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        max-width: 1200px;
+        padding-left: 18px;
+      }
+      .desc li {
+        margin-bottom: 4px;
+      }
+      .desc b {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>右栏的文件与更改（原型，审完即弃）</h1>
+      <p>
+        右栏改成两个标签：<b>文件</b>是整个工作区的文件树，<b>更改</b>只列改了的文件（按目录），不显示
+        diff。点文件，在对话区打开查看窗口：从文件树打开看文件内容，从更改打开看 diff。
+      </p>
+      <p>
+        试试：在右栏点文件、展开收起目录；切到"文件"点一个改过的文件，再点窗口里的"查看改动"；用浮条比较三种打开位置和几个选项。
+      </p>
+    </header>
+    <div class="stage">
+      <div class="win" id="win">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <nav class="sb">
+          <div class="sb-top"></div>
+          <div class="sb-list">
+            <div class="sec">项目</div>
+            <div class="row">atrium</div>
+            <div class="row ind">main</div>
+            <div class="row ind on">
+              m1.11-self-use
+              <span class="dim"
+                ><span style="color: var(--ok-text)">+186</span> <span style="color: var(--danger)">−31</span></span
+              >
+            </div>
+            <div class="row">paseo</div>
+            <div class="sec">对话</div>
+            <div class="row">问一下 Electron 的 vibrancy</div>
+          </div>
+        </nav>
+        <main class="main">
+          <div class="tabs">
+            <div class="tabstrip" id="tabstrip"></div>
+            <button class="tb" title="新建会话">＋</button>
+            <span class="spacer"></span>
+            <button class="tb" title="更多">···</button>
+            <button class="tb" id="paneToggle" aria-pressed="true" title="文件与更改（⌥⌘B）"></button>
+          </div>
+          <div class="body">
+            <div class="room" id="room">
+              <div class="chat" id="chat">
+                <div class="thread">
+                  <div class="col">
+                    <div class="bubble">右栏的宽度改成能拖，最窄 360</div>
+                    <div class="fold">› 已完成，用时 2 分 10 秒 · 读了 5 个文件 · 改了 4 个文件</div>
+                    <div class="reply">
+                      改好了。宽度记在本机，所有工作区共用；拖动时不加过渡，松手后存下来。窗口变窄时面板先让，最窄到
+                      360px，再窄就让对话变窄。
+                    </div>
+                    <div class="chips" id="chips"></div>
+                    <div class="bubble">再加一个 e2e，量一下折叠时的帧</div>
+                    <div class="fold">› 已完成，用时 4 分 3 秒 · 新建了 1 个文件</div>
+                    <div class="reply">
+                      加了 <code style="font: var(--fs-mono) var(--font-mono)">changes.perf.spec.ts</code>：在约 2
+                      万行的 diff 旁边折叠展开左栏，每一步都不超过 4ms。
+                    </div>
+                  </div>
+                </div>
+                <div class="composer">发消息或描述任务，@ 引用文件，/ 使用命令</div>
+                <div class="status">2 轮 14 步 · 51 tok/s　　1.6M tok · 缓存命中 74%　　44%</div>
+              </div>
+              <div class="scrim" id="scrim"></div>
+              <section class="viewer" id="viewer" aria-label="查看窗口">
+                <div class="vtabs" id="vtabs"></div>
+                <div class="vbar" id="vbar"></div>
+                <div class="vbody" id="vbody"></div>
+              </section>
+            </div>
+            <aside class="panel" id="panel" aria-label="文件与更改">
+              <div class="ph" role="tablist">
+                <button class="ptab" role="tab" data-ptab="files" id="tabFiles"></button>
+                <button class="ptab" role="tab" data-ptab="changes" id="tabChanges"></button>
+                <span class="spacer"></span>
+                <button class="tb" title="关闭（Esc）" id="panelClose">✕</button>
+              </div>
+              <div class="psub" id="psub"></div>
+              <div class="tree" id="tree"></div>
+            </aside>
+          </div>
+        </main>
+      </div>
+      <ul class="desc" id="desc"></ul>
+    </div>
+    <div class="state" id="state"></div>
+    <div class="bar">
+      <span class="seg" id="variants"></span>
+      <span class="seg" id="diffs"></span>
+      <span class="seg" id="ignoreds"></span>
+      <span class="seg" id="hls"></span>
+      <span class="seg" id="widths"></span>
+      <span class="seg" id="themes"></span>
+    </div>
+    <script>
+      // ---------- 图标 ----------
+      const S = (d, size = 14, w = 1.6) =>
+        `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+      const I = {
+        chev: S('<path d="M6 9l6 6 6-6"/>', 12, 2),
+        files: S(
+          '<path d="M15 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z"/><path d="M15 2v5h5"/><path d="M3 7v13a2 2 0 0 0 2 2h10"/>',
+        ),
+        diff: S(
+          '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 10h6M12 7v6M9 17h6"/>',
+        ),
+        x: S('<path d="M6 6l12 12M18 6L6 18"/>', 12, 2),
+        refresh: S('<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/>'),
+        collapseAll: S('<path d="M7 20l5-5 5 5M7 4l5 5 5-5"/>'),
+        wrap: S('<path d="M3 6h18M3 12h15a3 3 0 0 1 0 6h-4"/><path d="M16 16l-2 2 2 2"/><path d="M3 18h7"/>'),
+        up: S('<path d="M18 15l-6-6-6 6"/>', 14, 2),
+        down: S('<path d="M6 9l6 6 6-6"/>', 14, 2),
+        added: S('<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/>', 14, 1.8),
+        deleted: S('<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M8 12h8"/>', 14, 1.8),
+        modified: S(
+          '<rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/>',
+          14,
+          1.8,
+        ),
+        panel: S('<rect x="2" y="3" width="20" height="18" rx="5"/><path d="M14.5 3v18M18 7h1M18 10h1"/>', 16, 1.75),
+        eye: S('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+      };
+      const STATUS = {
+        A: ["added", "var(--ok)", "新增"],
+        D: ["deleted", "var(--danger)", "删除"],
+        M: ["modified", "var(--attn)", "修改"],
+      };
+      const statusIcon = (st) =>
+        `<span title="${STATUS[st][2]}" style="color:${STATUS[st][1]}">${I[STATUS[st][0]]}</span>`;
+      const stat = (a, d) => `<span class="stat"><span class="a">+${a}</span><span class="d">−${d}</span></span>`;
+      // 文件类型图标：material-icon-theme 5.39.0（MIT，VS Code 最常用的图标主题，Paseo 也用它）的原版 SVG，
+      // 按它的规则认：先完整文件名，再最长的扩展名，再语言；浅色主题用它的浅色版。只收了原型里用到的几个。
+      const MIT_ICON_URI = {
+        git: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23e64a19%22%20d%3D%22M13.172%202.828%2011.78%204.22l1.91%201.91%202%202A2.986%202.986%200%200%201%2020%2010.81a3.25%203.25%200%200%201-.31%201.31l2.06%202a2.68%202.68%200%200%201%203.37.57%202.86%202.86%200%200%201%20.88%202.117%203.02%203.02%200%200%201-.856%202.109A2.9%202.9%200%200%201%2023%2019.81a2.93%202.93%200%200%201-2.13-.87%202.694%202.694%200%200%201-.56-3.38l-2-2.06a3%203%200%200%201-.31.12V20a3%203%200%200%201%201.44%201.09%202.92%202.92%200%200%201%20.56%201.72%202.88%202.88%200%200%201-.878%202.128%202.98%202.98%200%200%201-2.048.871%202.981%202.981%200%200%201-2.514-4.719A3%203%200%200%201%2016%2020v-6.38a2.96%202.96%200%200%201-1.44-1.09%202.9%202.9%200%200%201-.56-1.72%202.9%202.9%200%200%201%20.31-1.31l-3.9-3.9-7.579%207.572a4%204%200%200%200-.001%205.658l10.342%2010.342a4%204%200%200%200%205.656%200l10.344-10.344a4%204%200%200%200%200-5.656L18.828%202.828a4%204%200%200%200-5.656%200%22%2F%3E%3C%2Fsvg%3E",
+        markdown:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%2342a5f5%22%20d%3D%22m14%2010-4%203.5L6%2010H4v12h4v-6l2%202%202-2v6h4V10zm12%206v-6h-4v6h-4l6%208%206-8z%22%2F%3E%3C%2Fsvg%3E",
+        typescript:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20xml%3Aspace%3D%22preserve%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M2%202v12h12V2zm4%206h3v1H8v4H7V9H6zm5%200h2v1h-2v1h1a1.003%201.003%200%200%201%201%201v1a1.003%201.003%200%200%201-1%201h-2v-1h2v-1h-1a1.003%201.003%200%200%201-1-1V9a1.003%201.003%200%200%201%201-1%22%2F%3E%3C%2Fsvg%3E",
+        agent:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23ff5252%22%20d%3D%22M2.636%2024H6v-8H2.636a.63.63%200%200%200-.636.625v6.75a.63.63%200%200%200%20.636.625M26%2016v8h3.364c.351%200%20.636-.355.636-.7v-6.675a.63.63%200%200%200-.636-.625zM17.417%206H14.69a.63.63%200%200%200-.636.625V12H8.69a.63.63%200%200%200-.636.625L8%2025.375c0%20.345.305.625.637.625h14.727a.63.63%200%200%200%20.636-.625v-12.75a.63.63%200%200%200-.636-.625h-5.31V6.625A.63.63%200%200%200%2017.416%206m-5.363%208c1.781%200%202.674%202.154%201.414%203.414s-3.414.368-3.414-1.414a2%202%200%200%201%202-2M22%2024H10v-2h12zm-1.946-10c1.781%200%202.674%202.154%201.414%203.414s-3.414.368-3.414-1.414a2%202%200%200%201%202-2%22%2F%3E%3C%2Fsvg%3E",
+        "test-ts":
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M20%204v2h-2v4.531l.264.461%207.473%2013.078a2%202%200%200%201%20.263.992V26a2%202%200%200%201-2%202H8a2%202%200%200%201-2-2v-.938a2%202%200%200%201%20.264-.992l7.473-13.078.263-.46V6h-2V4zm0-2h-8a2%202%200%200%200-2%202v2a2%202%200%200%200%202%202v2L4.527%2023.078A4%204%200%200%200%204%2025.062V26a4%204%200%200%200%204%204h16a4%204%200%200%200%204-4v-.938a4%204%200%200%200-.527-1.984L20%2010V8a2%202%200%200%200%202-2V4a2%202%200%200%200-2-2%22%2F%3E%3Ccircle%20cx%3D%2217%22%20cy%3D%2217%22%20r%3D%221%22%20fill%3D%22%230288d1%22%2F%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M19.72%2020.715a1%201%200%200%200-1.134-.318%205%205%200%200%201-1.18.262%203.95%203.95%200%200%201-1.862-.292%202.74%202.74%200%200%200-3.371.489%202%202%200%200%200-.237.35L10%2024h12Z%22%2F%3E%3C%2Fsvg%3E",
+        react_ts:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M16%2012c7.444%200%2012%202.59%2012%204s-4.556%204-12%204-12-2.59-12-4%204.556-4%2012-4m0-2c-7.732%200-14%202.686-14%206s6.268%206%2014%206%2014-2.686%2014-6-6.268-6-14-6%22%2F%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M16%2014a2%202%200%201%200%202%202%202%202%200%200%200-2-2%22%2F%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M10.458%205.507c2.017%200%205.937%203.177%209.006%208.493%203.722%206.447%203.757%2011.687%202.536%2012.392a.9.9%200%200%201-.457.1c-2.017%200-5.938-3.176-9.007-8.492C8.814%2011.553%208.779%206.313%2010%205.608a.9.9%200%200%201%20.458-.1m-.001-2A2.87%202.87%200%200%200%209%203.875C6.13%205.532%206.938%2012.304%2010.804%2019c3.284%205.69%207.72%209.493%2010.74%209.493A2.87%202.87%200%200%200%2023%2028.124c2.87-1.656%202.062-8.428-1.804-15.124-3.284-5.69-7.72-9.493-10.74-9.493Z%22%2F%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M21.543%205.507a.9.9%200%200%201%20.457.1c1.221.706%201.186%205.946-2.536%2012.393-3.07%205.316-6.99%208.493-9.007%208.493a.9.9%200%200%201-.457-.1C8.779%2025.686%208.814%2020.446%2012.536%2014c3.07-5.316%206.99-8.493%209.007-8.493m0-2c-3.02%200-7.455%203.804-10.74%209.493C6.939%2019.696%206.13%2026.468%209%2028.124a2.87%202.87%200%200%200%201.457.369c3.02%200%207.455-3.804%2010.74-9.493C25.061%2012.304%2025.87%205.532%2023%203.876a2.87%202.87%200%200%200-1.457-.369%22%2F%3E%3C%2Fsvg%3E",
+        yaml: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%23ff5252%22%20d%3D%22M13%209h5.5L13%203.5zM6%202h8l6%206v12c0%201.1-.9%202-2%202H6c-1.1%200-2-.9-2-2V4c0-1.1.9-2%202-2m12%2016v-2H9v2zm-4-4v-2H6v2z%22%2F%3E%3C%2Fsvg%3E",
+        nodejs:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%238bc34a%22%20d%3D%22M16%2020.003v2h4a2%202%200%200%200%202-2v-2a2%202%200%200%200-2-2h-2v-2h4v-2h-4a2%202%200%200%200-2%202v2a2%202%200%200%200%202%202h2v2Z%22%2F%3E%3Cpath%20fill%3D%22%238bc34a%22%20d%3D%22m16%203.003-12%207v14l4%202h6v-13.5a.5.5%200%200%200-.5-.5h-1a.5.5%200%200%200-.5.5v11.5H8l-2-1.034V11.15l10-5.833%2010%205.833v11.703l-10%205.833-1.745-1.022L13%2029.253l3%201.75%2012-7v-14Z%22%2F%3E%3C%2Fsvg%3E",
+        pnpm: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23e0e0e0%22%20d%3D%22M2%2022h8v8H2zm10%200h8v8h-8zm10%200h8v8h-8zM12%2012h8v8h-8z%22%2F%3E%3Cpath%20fill%3D%22%23ffb300%22%20d%3D%22M2%202h8v8H2zm10%200h8v8h-8zm10%200h8v8h-8zm0%2010h8v8h-8z%22%2F%3E%3C%2Fsvg%3E",
+        pnpm_light:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23757575%22%20d%3D%22M2%2022h8v8H2zm10%200h8v8h-8zm10%200h8v8h-8zM12%2012h8v8h-8z%22%2F%3E%3Cpath%20fill%3D%22%23ffb300%22%20d%3D%22M2%202h8v8H2zm10%200h8v8h-8zm10%200h8v8h-8zm0%2010h8v8h-8z%22%2F%3E%3C%2Fsvg%3E",
+        roadmap:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20fill%3D%22%2326a69a%22%20d%3D%22M2%202h2v18h18v2H2zm5%208h10v3H7zm4%205h10v3H11zM6%204h16v4h-2V6H8v2H6z%22%2F%3E%3C%2Fsvg%3E",
+        lock: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23ffd54f%22%20d%3D%22M25%2012h-3V8a6%206%200%200%200-12%200v4H7a1%201%200%200%200-1%201v16a1%201%200%200%200%201%201h18a1%201%200%200%200%201-1V13a1%201%200%200%200-1-1M14%208a2%202%200%200%201%204%200v4h-4Zm2%2017a4%204%200%201%201%204-4%204%204%200%200%201-4%204%22%2F%3E%3C%2Fsvg%3E",
+        css: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%237e57c2%22%20d%3D%22M20%2018h-2v-2h-2v2c0%20.193%200%20.703%201.254%201.033A3.345%203.345%200%200%201%2020%2022h2v2h2v-2c0-.388-.562-.851-1.254-1.034C20.356%2020.34%2020%2018.84%2020%2018m-3.254%202.966C14.356%2020.34%2014%2018.84%2014%2018h-2v-2h-2v8h2v-2h4v2h2v-2c0-.388-.562-.851-1.254-1.034%22%2F%3E%3Cpath%20fill%3D%22%237e57c2%22%20d%3D%22M24%204H4v20a4%204%200%200%200%204%204h16.16A3.84%203.84%200%200%200%2028%2024.16V8a4%204%200%200%200-4-4m2%2014h-2v-2h-2v2c0%20.193%200%20.703%201.254%201.033A3.345%203.345%200%200%201%2026%2022v2a2%202%200%200%201-2%202h-2a2%202%200%200%201-2-2%202%202%200%200%201-2%202h-2a2%202%200%200%201-2-2%202%202%200%200%201-2%202h-2a2%202%200%200%201-2-2v-8a2%202%200%200%201%202-2h2a2%202%200%200%201%202%202%202%202%200%200%201%202-2h2a2%202%200%200%201%202%202%202%202%200%200%201%202-2h2a2%202%200%200%201%202%202Z%22%2F%3E%3C%2Fsvg%3E",
+        tsconfig:
+          "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2032%2032%22%3E%3Cpath%20fill%3D%22%23757575%22%20d%3D%22M15%202H6a2.006%202.006%200%200%200-2%202v22a2.006%202.006%200%200%200%202%202h6v-4H6v-2h6v-2H6v-2h6v-2H6v-2h6v-2h2V4l8%208h2v-1Z%22%20data-mit-no-recolor%3D%22true%22%2F%3E%3Cpath%20fill%3D%22%230288d1%22%20d%3D%22M12%2012v18h18V12Zm8%206h-2v8h-2v-8h-2v-2h6Zm8%200h-4v2h2a2.006%202.006%200%200%201%202%202v2a2.006%202.006%200%200%201-2%202h-4v-2h4v-2h-2a2.006%202.006%200%200%201-2-2v-2a2.006%202.006%200%200%201%202-2h4Z%22%2F%3E%3C%2Fsvg%3E",
+        file: "data:image/svg+xml,%3Csvg%20viewBox%3D%220%200%2016%2016%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22m8.668%206h3.6641l-3.6641-3.668v3.668m-4.668-4.668h5.332l4%204v8c0%200.73828-0.59375%201.3359-1.332%201.3359h-8c-0.73828%200-1.332-0.59766-1.332-1.3359v-10.664c0-0.74219%200.59375-1.3359%201.332-1.3359m3.332%201.3359h-3.332v10.664h8v-6h-4.668z%22%20fill%3D%22%2390a4ae%22%20%2F%3E%3C%2Fsvg%3E",
+      };
+      const MIT_ICON_FOR = {
+        ".gitignore": ["git", "git"],
+        ".md": ["markdown", "markdown"],
+        "0001-mvp1-single-session-chat.md": ["markdown", "markdown"],
+        "adapter.ts": ["typescript", "typescript"],
+        "AGENTS.md": ["agent", "agent"],
+        "app.spec.ts": ["test-ts", "test-ts"],
+        "changes-pane.tsx": ["react_ts", "react_ts"],
+        "changes-panel.tsx": ["react_ts", "react_ts"],
+        "changes.perf.spec.ts": ["test-ts", "test-ts"],
+        "changes.ts": ["typescript", "typescript"],
+        "ci.yml": ["yaml", "yaml"],
+        "CLAUDE.md": ["markdown", "markdown"],
+        "coding-standards.md": ["markdown", "markdown"],
+        "conversation-area.tsx": ["react_ts", "react_ts"],
+        "design-language.md": ["markdown", "markdown"],
+        "domain-model.md": ["markdown", "markdown"],
+        "forge.config.ts": ["typescript", "typescript"],
+        "launch.ts": ["typescript", "typescript"],
+        "main.ts": ["typescript", "typescript"],
+        "markdown.tsx": ["react_ts", "react_ts"],
+        "menu.ts": ["typescript", "typescript"],
+        "overview.md": ["markdown", "markdown"],
+        "package.json": ["nodejs", "nodejs"],
+        "panes.test.ts": ["test-ts", "test-ts"],
+        "panes.ts": ["typescript", "typescript"],
+        "paseo-architecture.md": ["markdown", "markdown"],
+        "pi-internals.md": ["markdown", "markdown"],
+        "pnpm-workspace.yaml": ["pnpm", "pnpm_light"],
+        "preload.ts": ["typescript", "typescript"],
+        "projects.ts": ["typescript", "typescript"],
+        "roadmap.md": ["roadmap", "roadmap"],
+        "security.md": ["lock", "lock"],
+        "server.ts": ["typescript", "typescript"],
+        "tab-bar.tsx": ["react_ts", "react_ts"],
+        "testing.md": ["markdown", "markdown"],
+        "tokens.css": ["css", "css"],
+        "tsconfig.json": ["tsconfig", "tsconfig"],
+        "window-state.ts": ["typescript", "typescript"],
+        "workbench.tsx": ["react_ts", "react_ts"],
+        _default: ["file", "file"],
+      };
+      function fileIcon(name) {
+        const pair = MIT_ICON_FOR[name] || MIT_ICON_FOR["." + name.split(".").pop()] || MIT_ICON_FOR._default;
+        return `<img class="ficon" alt="" src="${MIT_ICON_URI[pair[s.theme === "dark" ? 0 : 1]]}">`;
+      }
+
+      // ---------- 数据 ----------
+      const CHANGES = [
+        {
+          path: "packages/ui/src/state/panes.ts",
+          st: "M",
+          hunks: [
+            [
+              "@@ -4,7 +4,7 @@",
+              4,
+              4,
+              [
+                ' // browser profile for every workspace (SPEC-0001, "界面 · 左栏折叠与右栏").',
+                " ",
+                " /** The changes panel's widths in pixels, and a key's step (design-language, \"圆角、尺寸与间距\"). */",
+                "-export const PANEL_WIDTH = { usual: 560, least: 360, step: 16 } as const;",
+                "+export const PANEL_WIDTH = { usual: 320, least: 240, step: 16 } as const;",
+                " ",
+                " /** The least the conversation keeps beside the changes panel, in pixels. */",
+                " const CHAT_LEAST = 440;",
+              ],
+            ],
+            [
+              "@@ -40,6 +40,9 @@ export function fitPanelWidth",
+              40,
+              40,
+              [
+                " * @returns The width, whole pixels.",
+                "  */",
+                " export function fitPanelWidth(width: number, room: number): number {",
+                "+  if (room < PANEL_WIDTH.least + CHAT_LEAST) {",
+                "+    return PANEL_WIDTH.least;",
+                "+  }",
+                "   return Math.max(PANEL_WIDTH.least, Math.min(Math.round(width), room - CHAT_LEAST));",
+                " }",
+              ],
+            ],
+          ],
+        },
+        {
+          path: "packages/ui/src/state/panes.test.ts",
+          st: "M",
+          hunks: [
+            [
+              '@@ -23,9 +23,9 @@ describe("createPanes", () => {',
+              23,
+              23,
+              [
+                '   it("starts unfolded, closed and 320px wide with nothing stored", () => {',
+                "     const { sidebarCollapsed, panelOpen, panelWidth } = createPanes(memoryStorage()).getState();",
+                " ",
+                "     expect({ sidebarCollapsed, panelOpen, panelWidth }).toStrictEqual({",
+                "       sidebarCollapsed: false,",
+                "       panelOpen: false,",
+                "-      panelWidth: 560,",
+                "+      panelWidth: 320,",
+                "     });",
+              ],
+            ],
+          ],
+        },
+        {
+          path: "packages/ui/src/chat/changes-pane.tsx",
+          st: "M",
+          hunks: [
+            [
+              "@@ -88,12 +88,14 @@ export function ChangesPane",
+              88,
+              88,
+              [
+                "   const box = useRef<HTMLDivElement>(null);",
+                "   const [still, setStill] = useState(open);",
+                "-  if (!open && still) setStill(false);",
+                "+  if (!open && still) {",
+                "+    setStill(false);",
+                "+  }",
+                "   const moving = !dragging && workspaceId !== null;",
+                " ",
+                "   return (",
+                "     <div",
+                "-      style={{ width: open ? width : 0 }}",
+                "+      style={{ width: open ? width : 0, minWidth: open ? PANEL_WIDTH.least : 0 }}",
+                '       className={`flex-none ${moving ? MOTION : ""}`}',
+              ],
+            ],
+          ],
+        },
+        {
+          path: "packages/ui/src/chat/changes-panel.tsx",
+          st: "M",
+          hunks: [
+            [
+              "@@ -406,7 +406,7 @@ export function ChangesPanel",
+              406,
+              406,
+              [
+                "         </button>",
+                "       </header>",
+                '-      <div className="min-h-0 flex-1 overflow-auto">',
+                '+      <div className="min-h-0 flex-1 overflow-auto [contain:strict]" data-testid="changes-body">',
+                "         {body}",
+                "       </div>",
+                "     </section>",
+              ],
+            ],
+          ],
+        },
+        {
+          path: "apps/desktop/e2e/changes.perf.spec.ts",
+          st: "A",
+          hunks: [
+            [
+              "@@ -0,0 +1,16 @@",
+              0,
+              1,
+              [
+                '+import { createGitScene } from "@atrium/testkit";',
+                '+import { type CDPSession, type Page, expect, test } from "@playwright/test";',
+                "+",
+                "+/** The longest any one step of drawing a frame may take, in milliseconds. */",
+                "+const BUDGET_MS = 4;",
+                "+",
+                "+/** The renderer's steps of drawing a frame that a trace times. */",
+                '+const STEPS = ["FunctionCall", "UpdateLayoutTree", "Layout", "PrePaint", "Paint"];',
+                "+",
+                "+test(`@perf folds the sidebar beside a 20,000-line diff`, async () => {",
+                "+  test.setTimeout(240_000);",
+                '+  const scene = await createGitScene("e2e-changes-perf");',
+                "+  const launched = await launchApp(scene.env);",
+                '+  await launched.window.keyboard.press("Meta+b");',
+                "+  expect(await longestSteps(launched.window)).toBeLessThan(BUDGET_MS);",
+                "+});",
+              ],
+            ],
+          ],
+        },
+        {
+          path: "apps/desktop/src/main/main.ts",
+          st: "M",
+          hunks: [
+            [
+              "@@ -61,6 +61,8 @@ function createWindow",
+              61,
+              61,
+              [
+                "     minHeight: 560,",
+                '     titleBarStyle: "hiddenInset",',
+                "+    // The 14pt buttons centred 24pt down, level with the tabs.",
+                "+    trafficLightPosition: { x: 12, y: 17 },",
+                '     vibrancy: "sidebar",',
+                '     backgroundColor: "#00000000",',
+              ],
+            ],
+          ],
+        },
+        {
+          path: "docs/architecture/design-language.md",
+          st: "M",
+          hunks: [
+            [
+              "@@ -209,7 +209,8 @@ ### 右栏（改动面板）",
+              209,
+              209,
+              [
+                ' - 开关在标签栏最右（"···"右边），样式同标签栏的"+"（28px 方块）。',
+                "-- 分隔线在面板左边缘，可拖的区域 8px 宽。",
+                "+- 分隔线在面板左边缘，可拖的区域 8px 宽（骑在边线上），鼠标是左右箭头。",
+                "+- 渲染：面板的滚动区 `contain: strict`，把里面的 diff 和外面隔开。",
+                " - 其余同 SPEC-0001 · 工作区改动。",
+              ],
+            ],
+          ],
+        },
+        {
+          path: "docs/notes/old-panel.md",
+          st: "D",
+          hunks: [
+            [
+              "@@ -1,4 +0,0 @@",
+              1,
+              0,
+              ["-# 旧的改动面板", "-", "-面板固定 560px 宽，最多占对话区一半。", "-换容器时收起。"],
+            ],
+          ],
+        },
+      ];
+      for (const f of CHANGES) {
+        f.add = 0;
+        f.del = 0;
+        for (const [, , , lines] of f.hunks)
+          for (const l of lines) {
+            if (l[0] === "+") f.add++;
+            if (l[0] === "-") f.del++;
+          }
+      }
+      const CHANGED = Object.fromEntries(CHANGES.map((f) => [f.path, f]));
+
+      const FILE_TREE = {
+        ".github": { workflows: { "ci.yml": 0 } },
+        apps: {
+          desktop: {
+            e2e: { "app.spec.ts": 0, "changes.perf.spec.ts": 0, "launch.ts": 0, "projects.ts": 0 },
+            src: { main: { "main.ts": 0, "menu.ts": 0, "window-state.ts": 0 }, preload: { "preload.ts": 0 } },
+            out: { "Atrium-darwin-arm64": {} },
+            "package.json": 0,
+            "forge.config.ts": 0,
+          },
+        },
+        docs: {
+          architecture: {
+            "coding-standards.md": 0,
+            "design-language.md": 0,
+            "domain-model.md": 0,
+            "overview.md": 0,
+            "security.md": 0,
+            "testing.md": 0,
+          },
+          research: { "paseo-architecture.md": 0, "pi-internals.md": 0 },
+          specs: { "0001-mvp1-single-session-chat.md": 0 },
+          "roadmap.md": 0,
+        },
+        node_modules: { ".pnpm": {}, react: {}, zustand: {} },
+        packages: {
+          host: { src: { "server.ts": 0, "changes.ts": 0 } },
+          pi: { src: { "adapter.ts": 0 } },
+          ui: {
+            src: {
+              app: { "workbench.tsx": 0 },
+              chat: { "changes-pane.tsx": 0, "changes-panel.tsx": 0, "conversation-area.tsx": 0, "markdown.tsx": 0 },
+              design: { "tokens.css": 0 },
+              state: { "panes.ts": 0, "panes.test.ts": 0 },
+              tabs: { "tab-bar.tsx": 0 },
+            },
+            "package.json": 0,
+          },
+        },
+        ".gitignore": 0,
+        "AGENTS.md": 0,
+        "CLAUDE.md": 0,
+        "package.json": 0,
+        "pnpm-workspace.yaml": 0,
+        "tsconfig.json": 0,
+      };
+      const IGNORED = new Set(["node_modules", "apps/desktop/out"]);
+
+      // 文件内容（示意）：panes.ts 用真的，其余生成几行
+      const PANES_TS = `import { type StoreApi, createStore } from "zustand/vanilla";
+
+// The sidebar folded or not, and the changes panel open or not and how wide, remembered in this
+// browser profile for every workspace (SPEC-0001, "界面 · 左栏折叠与右栏").
+
+/** The changes panel's widths in pixels, and a key's step (design-language, "圆角、尺寸与间距"). */
+export const PANEL_WIDTH = { usual: 320, least: 240, step: 16 } as const;
+
+/** The least the conversation keeps beside the changes panel, in pixels. */
+const CHAT_LEAST = 440;
+
+const SIDEBAR_KEY = "atrium.sidebarCollapsed";
+const PANEL_OPEN_KEY = "atrium.changesOpen";
+const PANEL_WIDTH_KEY = "atrium.changesWidth";
+
+/** The part of \`localStorage\` the panes use. */
+export type PaneStorage = Pick<Storage, "getItem" | "setItem">;
+
+/** The panes' state and what changes it. */
+export interface Panes {
+  readonly sidebarCollapsed: boolean;
+  readonly panelOpen: boolean;
+  readonly panelWidth: number;
+  readonly toggleSidebar: () => void;
+  readonly setPanelOpen: (open: boolean) => void;
+  readonly setPanelWidth: (width: number) => void;
+}
+
+/**
+ * The width the changes panel shows at, given the room it and the conversation share.
+ *
+ * @sideEffects none
+ * @param width - The width wanted.
+ * @param room - The width of the panel and the conversation together.
+ * @returns The width, whole pixels.
+ */
+export function fitPanelWidth(width: number, room: number): number {
+  if (room < PANEL_WIDTH.least + CHAT_LEAST) {
+    return PANEL_WIDTH.least;
+  }
+  return Math.max(PANEL_WIDTH.least, Math.min(Math.round(width), room - CHAT_LEAST));
+}`;
+      function contentOf(path) {
+        if (path.endsWith("panes.ts")) return PANES_TS;
+        const name = path.split("/").pop();
+        if (path.endsWith(".md"))
+          return `# ${name.replace(/\.md$/, "")}\n\n> 状态：示意内容。\n\n这是原型里的占位文字，真的会显示文件内容。\n\n## 一节\n\n- 第一条，带 \`代码\`。\n- 第二条，**加粗**。\n`;
+        if (name === "package.json")
+          return `{\n  "name": "@atrium/${path.split("/")[1] || "atrium"}",\n  "private": true,\n  "type": "module",\n  "scripts": {\n    "check": "pnpm lint && pnpm typecheck",\n    "test": "vitest run"\n  }\n}`;
+        return `/** ${name}：示意内容。 */\nexport function example(value: number): string {\n  // 真的会显示文件内容\n  return String(value * 2);\n}\n`;
+      }
+
+      // ---------- 语法高亮（示意，只认几类记号） ----------
+      const KW =
+        /\b(import|export|from|const|let|function|return|if|else|type|interface|readonly|as|async|await|new|for|of|true|false|null|undefined)\b/g;
+      function esc(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function hl(text, path) {
+        if (path.endsWith(".md")) {
+          if (/^#+ /.test(text)) return `<span class="hl-h">${esc(text)}</span>`;
+          return esc(text)
+            .replace(/`([^`]+)`/g, '<span class="hl-str">`$1`</span>')
+            .replace(/\*\*([^*]+)\*\*/g, '<span class="hl-h">**$1**</span>');
+        }
+        const t = text.trim();
+        if (t.startsWith("//") || t.startsWith("/*") || t.startsWith("*"))
+          return `<span class="hl-com">${esc(text)}</span>`;
+        const parts = [];
+        let rest = text;
+        const re = /("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|\/\/.*$)/;
+        while (rest) {
+          const m = rest.match(re);
+          if (!m) {
+            parts.push(code(rest));
+            break;
+          }
+          parts.push(code(rest.slice(0, m.index)));
+          parts.push(`<span class="${m[0].startsWith("//") ? "hl-com" : "hl-str"}">${esc(m[0])}</span>`);
+          rest = rest.slice(m.index + m[0].length);
+        }
+        return parts.join("");
+      }
+      function code(s) {
+        return esc(s)
+          .replace(/\b(\d[\d_]*)\b/g, '<span class="hl-num">$1</span>')
+          .replace(KW, '<span class="hl-kw">$1</span>')
+          .replace(/\b([a-z]\w*)(?=\()/g, '<span class="hl-fn">$1</span>')
+          .replace(/\b([A-Z][A-Za-z]+)\b(?![^<]*>)/g, '<span class="hl-type">$1</span>');
+      }
+
+      // ---------- 状态 ----------
+      const VARIANTS = {
+        A: [
+          "A · 标签页",
+          [
+            '<b>查看窗口是标签栏里的一个标签</b>，排在会话标签后面，前面带文件类型图标（diff 是"改动"图标）。切过去时占满对话区，输入框也让出去；点会话标签回到对话。Paseo 就是这样：文件、Diff 都是主区的标签。',
+            '<b>预览标签</b>：从树里单击打开的标签标题是斜体，再单击别的文件会把它换掉，不会越开越多；双击树里的文件、或者双击标签，它就固定下来（同 VS Code、Paseo）。更改里打开的 diff 共用一个"改动"标签。',
+            "要定的：这些标签要不要和会话标签一样由宿主记下来（重启后还在）。会话标签现在按 clientId 存在宿主的 layouts.json 里；查看标签是新的一种标签，可以只放在界面里、重启就没了（建议这样，最简单）。",
+          ],
+        ],
+        B: [
+          "B · 分栏",
+          [
+            "<b>查看窗口在对话右边、右栏左边</b>，对话变窄但一直看得见：一边看 diff 一边给 agent 写下一句。窗口里有自己的一排标签（同样有预览标签），✕ 关掉后对话恢复原宽。",
+            "代价：横向要放下三栏。1400 宽的窗口、左栏展开、右栏 320 时，对话 440 + 查看窗口约 370，代码一行放不下多少；需要时折叠左栏（⌘B）。窗口再窄，查看窗口先盖住对话（同 C）。",
+          ],
+        ],
+        C: [
+          "C · 浮层",
+          [
+            "<b>查看窗口是盖在对话区上的一张卡片</b>（四边留 10px，圆角 16、卡片投影），后面的对话淡化模糊。Esc 或 ✕ 关掉，回到对话原来的位置；卡片里有自己的一排标签。",
+            "像 Quick Look：看一眼就回去，不改变对话区的布局；但看 diff 时看不到对话，也不能边看边打字。右栏留在旁边，可以接着点别的文件。",
+          ],
+        ],
+      };
+      const COMMON = [
+        '<b>右栏</b>：顶部两个标签"文件""更改"（28px 高、--r 圆角，选中 --selected 底，同标签栏的会话标签），"更改"后面跟改了几个文件。默认打开"更改"，没有改动时打开"文件"（同 Paseo）。右栏现在只放树，默认宽 320、最窄 240（原来 560 / 360），对话照旧最少留 440。开关、拖动、动效都不变。',
+        "<b>更改</b>：第二行是比较范围（未提交 / 已提交，菜单同现在）、合计 +N −M、刷新。下面是改了的文件按目录排成树：目录在前、按名字排；只有一个子目录的目录连成一行（packages/ui/src）；目录行后面是里面的合计；文件行是类型图标、文件名、+N −M、状态图标（新增 ⊞ 绿、删除 ⊟ 红、修改 ⊡ 橙，同现在的面板）。默认全部展开。不显示 diff。",
+        "<b>文件</b>：工作区的文件树，目录在前、按名字排，点目录展开（第一次展开时才去读）。展开到哪记在本机，按工作区分。改过的文件后面有一个小圆点（修改橙、新增绿），点进去的窗口里能直接切到 diff。被 .gitignore 忽略的（node_modules、out）默认不列，浮条可以切成灰显。",
+        '<b>查看窗口</b>：从文件打开时显示文件内容（只读，带行号、语法高亮、可换行；顶部是路径、大小、行数，有改动时有"查看改动"）。从更改打开时显示 diff：顶部是比较范围和合计、全部折叠 / 展开、换行；每个文件一个吸顶的文件头（点它折叠），行的样式同现在的面板（左边 2px 色条、增删底色、一列行号）。图片、二进制、太大的文件只显示一行说明。',
+        "<b>不做</b>（同 Paseo 比）：分支切换、新建 / 重命名 / 删除文件、右键菜单、并排 diff、忽略空白、在 diff 里写评论、编辑文件。Paseo 文件树的排序切换、显示隐藏文件开关也先不做。",
+      ];
+      const DIFF_MODES = { all: "diff：全部文件", one: "diff：单个文件" };
+      const IGN = { hide: "忽略的：不列", grey: "忽略的：灰显" };
+      const HL = { on: "高亮：开", off: "高亮：关" };
+      const WIDTHS = { 1400: "窗口 1400", 1680: "窗口 1680" };
+      const q = new URLSearchParams(location.search);
+      const s = {
+        variant: VARIANTS[q.get("variant")] ? q.get("variant") : "A",
+        diffMode: "all",
+        ignored: "hide",
+        hlOn: "on",
+        winW: "1400",
+        theme: "light",
+        ptab: "changes",
+        sel: null,
+        open: [],
+        active: null,
+        preview: null, // 查看窗口：{ id, kind: file|diff, path }
+        sessionActive: "s1",
+        wrap: false,
+        foldedFiles: new Set(),
+        expanded: new Set([
+          "apps",
+          "apps/desktop",
+          "apps/desktop/e2e",
+          "packages",
+          "packages/ui",
+          "packages/ui/src",
+          "packages/ui/src/state",
+        ]),
+        closedChangeDirs: new Set(),
+      };
+      const $ = (id) => document.getElementById(id);
+
+      // ---------- 右栏 ----------
+      function changeTree() {
+        const root = { dirs: {}, files: [] };
+        for (const f of CHANGES) {
+          const parts = f.path.split("/");
+          let n = root;
+          for (const p of parts.slice(0, -1)) n = n.dirs[p] ||= { dirs: {}, files: [] };
+          n.files.push(f);
+        }
+        const total = (n) => {
+          let a = 0,
+            d = 0;
+          for (const f of n.files) {
+            a += f.add;
+            d += f.del;
+          }
+          for (const c of Object.values(n.dirs)) {
+            const [x, y] = total(c);
+            a += x;
+            d += y;
+          }
+          return [a, d];
+        };
+        const rows = [];
+        const walk = (n, prefix, depth) => {
+          for (const name of Object.keys(n.dirs).sort()) {
+            let label = name,
+              c = n.dirs[name],
+              path = prefix + name;
+            while (Object.keys(c.dirs).length === 1 && c.files.length === 0) {
+              const k = Object.keys(c.dirs)[0];
+              label += "/" + k;
+              path += "/" + k;
+              c = c.dirs[k];
+            }
+            const [a, d] = total(c),
+              closed = s.closedChangeDirs.has(path);
+            rows.push(
+              `<div class="tr dir ${closed ? "closed" : ""}" data-cdir="${path}" style="padding-left:${6 + depth * 12}px"><span class="slot car">${I.chev}</span><span class="nm">${label}</span><span class="gap"></span>${stat(a, d)}<span style="width:14px"></span></div>`,
+            );
+            if (!closed) walk(c, path + "/", depth + 1);
+          }
+          for (const f of n.files.sort((x, y) => x.path.localeCompare(y.path))) {
+            const name = f.path.split("/").pop();
+            rows.push(
+              `<div class="tr ${s.sel === "c:" + f.path ? "sel" : ""}" data-change="${f.path}" title="${f.path}" style="padding-left:${6 + depth * 12}px"><span class="slot">${fileIcon(name)}</span><span class="nm" ${f.st === "D" ? 'style="text-decoration:line-through;text-decoration-color:var(--text-dim)"' : ""}>${name}</span><span class="gap"></span>${stat(f.add, f.del)}${statusIcon(f.st)}</div>`,
+            );
+          }
+        };
+        walk(root, "", 0);
+        return rows.join("");
+      }
+      function fileTree() {
+        const rows = [];
+        const walk = (node, prefix, depth) => {
+          const keys = Object.keys(node).sort((a, b) => {
+            const da = typeof node[a] === "object",
+              db = typeof node[b] === "object";
+            return da !== db ? (da ? -1 : 1) : a.localeCompare(b);
+          });
+          for (const k of keys) {
+            const path = prefix + k,
+              isDir = typeof node[k] === "object",
+              ign = IGNORED.has(path);
+            if (ign && s.ignored === "hide") continue;
+            const pad = `style="padding-left:${6 + depth * 12}px"`;
+            if (isDir) {
+              const open = s.expanded.has(path);
+              rows.push(
+                `<div class="tr dir ${open ? "" : "closed"} ${ign ? "ignored" : ""}" data-dir="${path}" ${pad}><span class="slot car">${I.chev}</span><span class="nm">${k}</span></div>`,
+              );
+              if (open) walk(node[k], path + "/", depth + 1);
+            } else {
+              const ch = CHANGED[path];
+              rows.push(
+                `<div class="tr ${ch ? "changed" : ""} ${s.sel === "f:" + path ? "sel" : ""}" data-file="${path}" title="${path}" ${pad}><span class="slot">${fileIcon(k)}</span><span class="nm">${k}</span><span class="gap"></span>${ch ? `<span class="dot ${ch.st === "A" ? "add" : ""}" title="${STATUS[ch.st][2]}"></span>` : ""}</div>`,
+              );
+            }
+          }
+        };
+        walk(FILE_TREE, "", 0);
+        return rows.join("");
+      }
+      function paintPanel() {
+        $("tabFiles").innerHTML = `${I.files}文件`;
+        $("tabChanges").innerHTML = `${I.diff}更改<span class="cnt">${CHANGES.length}</span>`;
+        $("tabFiles").setAttribute("aria-selected", String(s.ptab === "files"));
+        $("tabChanges").setAttribute("aria-selected", String(s.ptab === "changes"));
+        const a = CHANGES.reduce((x, f) => x + f.add, 0),
+          d = CHANGES.reduce((x, f) => x + f.del, 0);
+        $("psub").innerHTML =
+          s.ptab === "changes"
+            ? `<span class="mode">未提交 ${I.chev}</span>${stat(a, d)}<span class="spacer"></span><button class="tb" title="刷新">${I.refresh}</button>`
+            : `<span style="color:var(--text-muted)">atrium</span><span class="spacer"></span><button class="tb" title="全部收起" data-act="collapseTree">${I.collapseAll}</button><button class="tb" title="刷新">${I.refresh}</button>`;
+        $("tree").innerHTML = s.ptab === "changes" ? changeTree() : fileTree();
+      }
+
+      // ---------- 查看窗口 ----------
+      function openViewer(kind, path, pin) {
+        const id = kind === "diff" ? "diff" : "file:" + path;
+        const existing = s.open.find((t) => t.id === id);
+        if (existing) {
+          existing.path = path;
+          if (pin && s.preview === id) s.preview = null;
+        } else {
+          const t = { id, kind, path };
+          const pi = s.open.findIndex((x) => x.id === s.preview);
+          if (pi >= 0 && !pin && s.open[pi].kind === "file" && kind === "file") s.open[pi] = t;
+          else s.open.push(t);
+          if (!pin && kind === "file") s.preview = id;
+          else if (pin) s.preview = null;
+        }
+        s.active = id;
+        s.sessionActive = null;
+        paint();
+        if (kind === "diff") scrollToFile(path);
+      }
+      function closeViewer(id) {
+        const i = s.open.findIndex((t) => t.id === id);
+        s.open.splice(i, 1);
+        if (s.preview === id) s.preview = null;
+        if (s.active === id) {
+          s.active = s.open[i] ? s.open[i].id : s.open[i - 1] ? s.open[i - 1].id : null;
+          if (!s.active) s.sessionActive = "s1";
+        }
+        if (s.variant === "C" && !s.open.length) s.active = null;
+        paint();
+      }
+      const activeTab = () => s.open.find((t) => t.id === s.active);
+      function tabHtml(t) {
+        const name = t.kind === "diff" ? "改动" : t.path.split("/").pop();
+        const icon = t.kind === "diff" ? `<span style="color:var(--text-muted)">${I.diff}</span>` : fileIcon(name);
+        return `<span class="tab ${s.active === t.id ? "on" : ""} ${s.preview === t.id ? "preview" : ""}" data-vtab="${t.id}" title="${t.kind === "diff" ? "未提交的改动" : t.path}">${icon}<span class="t">${name}</span><span class="x" data-vclose="${t.id}">${I.x}</span></span>`;
+      }
+      function paintTabs() {
+        const sessions = [
+          ["s1", "右栏宽度"],
+          ["s2", "修 e2e"],
+        ]
+          .map(
+            ([id, t]) =>
+              `<span class="tab ${s.sessionActive === id ? "on" : ""}" data-session="${id}"><span class="t">${t}</span><span class="x">${I.x}</span></span>`,
+          )
+          .join("");
+        $("tabstrip").innerHTML = sessions + (s.variant === "A" ? s.open.map(tabHtml).join("") : "");
+        $("vtabs").innerHTML =
+          s.variant === "A"
+            ? ""
+            : s.open.map(tabHtml).join("") +
+              `<span class="spacer"></span><button class="tb" title="关闭查看窗口（Esc）" data-act="closeAll">${I.x}</button>`;
+      }
+      function diffLines(f) {
+        const out = [];
+        for (const [head, o0, n0, lines] of f.hunks) {
+          out.push(`<div class="ln hunk"><span class="no"></span><span class="tx">${esc(head)}</span></div>`);
+          let o = o0,
+            n = n0;
+          for (const l of lines) {
+            const k = l[0],
+              body = l.slice(1);
+            const cls = k === "+" ? "add" : k === "-" ? "del" : "";
+            const no = k === "-" ? o++ : k === " " ? (o++, n++) : n++;
+            out.push(
+              `<div class="ln ${cls}"><span class="no">${no}</span><span class="tx">${hl(body, f.path) || " "}</span></div>`,
+            );
+          }
+        }
+        return out.join("");
+      }
+      function fileSection(f) {
+        const name = f.path.split("/").pop(),
+          dir = f.path.slice(0, -name.length - 1),
+          folded = s.foldedFiles.has(f.path);
+        return `<section class="fsec" data-sec="${f.path}"><div class="fh ${folded ? "folded" : ""}" data-fold="${f.path}"><span class="car">${I.chev}</span>${fileIcon(name)}<span class="nm">${name}</span><span class="dir">${dir}</span><span class="spacer"></span>${stat(f.add, f.del)}${statusIcon(f.st)}</div>${folded ? "" : `<div class="code d">${diffLines(f)}</div>`}</section>`;
+      }
+      function paintViewer() {
+        const t = activeTab(),
+          v = $("viewer"),
+          show = !!t;
+        v.classList.toggle("show", show);
+        $("chat").classList.toggle("hidden", show && s.variant === "A");
+        $("scrim").classList.toggle("show", show && s.variant === "C");
+        if (!t) return;
+        const body = $("vbody");
+        body.classList.toggle("wrap", s.wrap);
+        body.classList.toggle("plain", s.hlOn === "off" && t.kind === "diff");
+        const wrapBtn = `<button class="tb" title="换行" aria-pressed="${s.wrap}" data-act="wrap">${I.wrap}</button>`;
+        if (t.kind === "file") {
+          const text = contentOf(t.path),
+            lines = text.split("\n"),
+            ch = CHANGED[t.path];
+          const name = t.path.split("/").pop(),
+            dir = t.path.slice(0, -name.length - 1);
+          $("vbar").innerHTML =
+            `${fileIcon(name)}<span class="nm">${name}</span><span class="crumb">${dir}</span><span class="meta">${(text.length / 1024).toFixed(1)} KB · ${lines.length} 行</span><span class="spacer"></span>${ch ? `${stat(ch.add, ch.del)}<button class="link" data-act="toDiff">查看改动</button>` : ""}${wrapBtn}`;
+          body.innerHTML = `<div class="code">${lines.map((l, i) => `<div class="ln"><span class="no">${i + 1}</span><span class="tx">${hl(l, t.path) || " "}</span></div>`).join("")}</div>`;
+          return;
+        }
+        const a = CHANGES.reduce((x, f) => x + f.add, 0),
+          d = CHANGES.reduce((x, f) => x + f.del, 0);
+        if (s.diffMode === "all") {
+          $("vbar").innerHTML =
+            `<span style="color:var(--text)">改动</span><span class="meta">未提交 · ${CHANGES.length} 个文件</span>${stat(a, d)}<span class="spacer"></span><button class="tb" title="全部折叠 / 展开" data-act="foldAll">${I.collapseAll}</button>${wrapBtn}`;
+          body.innerHTML = treeOrder().map(fileSection).join("");
+        } else {
+          const f = CHANGED[t.path],
+            name = f.path.split("/").pop(),
+            dir = f.path.slice(0, -name.length - 1),
+            i = treeOrder().indexOf(f);
+          $("vbar").innerHTML =
+            `${fileIcon(name)}<span class="nm">${name}</span><span class="crumb">${dir}</span>${stat(f.add, f.del)}${statusIcon(f.st)}<span class="spacer"></span><span class="meta">${i + 1} / ${CHANGES.length}</span><button class="tb" title="上一个文件（⌥↑）" data-act="prev">${I.up}</button><button class="tb" title="下一个文件（⌥↓）" data-act="next">${I.down}</button>${wrapBtn}`;
+          body.innerHTML = `<div class="code d">${diffLines(f)}</div>`;
+        }
+      }
+      function treeOrder() {
+        // 同更改树的顺序：目录在前、按名字
+        const key = (p) =>
+          p
+            .split("/")
+            .map((x, i, arr) => (i < arr.length - 1 ? "0" : "1") + x)
+            .join("/");
+        return [...CHANGES].sort((x, y) => key(x.path).localeCompare(key(y.path)));
+      }
+      function scrollToFile(path) {
+        if (s.diffMode !== "all") return;
+        s.foldedFiles.delete(path);
+        paintViewer();
+        const sec = document.querySelector(`[data-sec="${CSS.escape(path)}"]`);
+        if (!sec) return;
+        $("vbody").scrollTop = sec.offsetTop;
+        sec.classList.remove("flash");
+        void sec.offsetWidth;
+        sec.classList.add("flash");
+      }
+
+      // ---------- 总的 ----------
+      function paint() {
+        document.documentElement.dataset.theme = s.theme;
+        const win = $("win");
+        win.style.width = `min(${s.winW}px, calc(100vw - 80px))`;
+        win.className = `win v-${s.variant}`;
+        win.style.setProperty("--panel-w", "320px");
+        $("paneToggle").innerHTML = I.panel;
+        $("chips").innerHTML = ["packages/ui/src/state/panes.ts", "packages/ui/src/chat/changes-pane.tsx"]
+          .map((p) => {
+            const f = CHANGED[p],
+              n = p.split("/").pop();
+            return `<span class="chip" data-change="${p}" style="cursor:pointer">${fileIcon(n)}${n}<span class="n"><span style="color:var(--ok-text)">+${f.add}</span> <span style="color:var(--danger)">−${f.del}</span></span></span>`;
+          })
+          .join("");
+        paintPanel();
+        paintTabs();
+        paintViewer();
+        $("desc").innerHTML = [...VARIANTS[s.variant][1], ...COMMON].map((t) => `<li>${t}</li>`).join("");
+        seg("variants", Object.fromEntries(Object.entries(VARIANTS).map(([k, [l]]) => [k, l])), "variant");
+        seg("diffs", DIFF_MODES, "diffMode");
+        seg("ignoreds", IGN, "ignored");
+        seg("hls", HL, "hlOn");
+        seg("widths", WIDTHS, "winW");
+        seg("themes", { light: "浅色", dark: "深色" }, "theme");
+        $("state").textContent = JSON.stringify({
+          variant: s.variant,
+          panelTab: s.ptab,
+          selected: s.sel,
+          viewerTabs: s.open.map((t) => t.id),
+          activeViewer: s.active,
+          previewTab: s.preview,
+          activeSession: s.sessionActive,
+          diffMode: s.diffMode,
+          ignored: s.ignored,
+          highlight: s.hlOn,
+          wrap: s.wrap,
+        });
+        history.replaceState(null, "", `?variant=${s.variant}`);
+      }
+      function seg(id, options, key) {
+        const el = $(id);
+        el.innerHTML = Object.entries(options)
+          .map(([k, l]) => `<button data-k="${k}" aria-pressed="${s[key] === k}">${l}</button>`)
+          .join("");
+        el.querySelectorAll("button").forEach(
+          (b) =>
+            (b.onclick = () => {
+              s[key] = b.dataset.k;
+              if (key === "variant" && s.variant === "C" && s.sessionActive) s.active = null;
+              if (key === "variant" && s.variant !== "C" && !s.active && s.open.length && s.variant !== "A")
+                s.active = s.open[0].id;
+              paint();
+            }),
+        );
+      }
+
+      document.addEventListener("click", (e) => {
+        const el = (sel) => e.target.closest(sel);
+        let x;
+        if ((x = el("[data-ptab]"))) {
+          s.ptab = x.dataset.ptab;
+          paint();
+          return;
+        }
+        if ((x = el("[data-vclose]"))) {
+          e.stopPropagation();
+          closeViewer(x.dataset.vclose);
+          return;
+        }
+        if ((x = el("[data-vtab]"))) {
+          s.active = x.dataset.vtab;
+          s.sessionActive = null;
+          paint();
+          return;
+        }
+        if ((x = el("[data-session]"))) {
+          s.sessionActive = x.dataset.session;
+          if (s.variant === "A" || s.variant === "C") s.active = s.variant === "A" ? null : s.active;
+          if (s.variant === "A") s.active = null;
+          paint();
+          return;
+        }
+        if ((x = el("[data-cdir]"))) {
+          const p = x.dataset.cdir;
+          s.closedChangeDirs.has(p) ? s.closedChangeDirs.delete(p) : s.closedChangeDirs.add(p);
+          paint();
+          return;
+        }
+        if ((x = el("[data-dir]"))) {
+          const p = x.dataset.dir;
+          s.expanded.has(p) ? s.expanded.delete(p) : s.expanded.add(p);
+          paint();
+          return;
+        }
+        if ((x = el("[data-change]"))) {
+          s.sel = "c:" + x.dataset.change;
+          openViewer("diff", x.dataset.change, false);
+          return;
+        }
+        if ((x = el("[data-file]"))) {
+          s.sel = "f:" + x.dataset.file;
+          openViewer("file", x.dataset.file, false);
+          return;
+        }
+        if ((x = el("[data-fold]"))) {
+          const p = x.dataset.fold;
+          s.foldedFiles.has(p) ? s.foldedFiles.delete(p) : s.foldedFiles.add(p);
+          paintViewer();
+          return;
+        }
+        if ((x = el("[data-act]"))) {
+          const act = x.dataset.act,
+            t = activeTab();
+          if (act === "wrap") {
+            s.wrap = !s.wrap;
+            paintViewer();
+          }
+          if (act === "foldAll") {
+            const all = s.foldedFiles.size === CHANGES.length;
+            s.foldedFiles = new Set(all ? [] : CHANGES.map((f) => f.path));
+            paintViewer();
+          }
+          if (act === "toDiff") {
+            s.sel = "c:" + t.path;
+            s.ptab = "changes";
+            openViewer("diff", t.path, false);
+          }
+          if (act === "prev" || act === "next") {
+            const order = treeOrder(),
+              i = order.findIndex((f) => f.path === t.path),
+              j = Math.max(0, Math.min(order.length - 1, i + (act === "next" ? 1 : -1)));
+            t.path = order[j].path;
+            s.sel = "c:" + t.path;
+            paint();
+          }
+          if (act === "collapseTree") {
+            s.expanded.clear();
+            paint();
+          }
+          if (act === "closeAll") {
+            s.active = null;
+            if (s.variant !== "C") {
+              s.open = [];
+              s.preview = null;
+            }
+            paint();
+          }
+        }
+      });
+      document.addEventListener("dblclick", (e) => {
+        const t = e.target.closest("[data-file]") || e.target.closest("[data-vtab]");
+        if (!t) return;
+        if (t.dataset.file) openViewer("file", t.dataset.file, true);
+        else if (s.preview === t.dataset.vtab) {
+          s.preview = null;
+          paint();
+        }
+      });
+      $("scrim").onclick = () => {
+        s.active = null;
+        paint();
+      };
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && s.variant === "C" && s.active) {
+          s.active = null;
+          paint();
+          return;
+        }
+        if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp") && s.diffMode === "one") {
+          const b = document.querySelector(`[data-act=${e.key === "ArrowDown" ? "next" : "prev"}]`);
+          if (b) b.click();
+          e.preventDefault();
+          return;
+        }
+        if (e.target.closest("input")) return;
+        const keys = Object.keys(VARIANTS),
+          i = keys.indexOf(s.variant);
+        if (e.key === "ArrowRight" && !e.altKey) {
+          s.variant = keys[(i + 1) % keys.length];
+          paint();
+        }
+        if (e.key === "ArrowLeft" && !e.altKey) {
+          s.variant = keys[(i + keys.length - 1) % keys.length];
+          paint();
+        }
+      });
+      paint();
+    </script>
+  </body>
+</html>

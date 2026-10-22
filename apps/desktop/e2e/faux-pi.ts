@@ -1,4 +1,4 @@
-import { type FauxScript, fauxPi } from "@atrium/testkit";
+import { type FauxContext, type FauxScript, fauxPi } from "@atrium/testkit";
 import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -14,6 +14,8 @@ export interface FauxPiEnvironment {
   readonly pid: () => Promise<number>;
   /** The bodies of the requests every pi made so far, as its extensions left them. */
   readonly payloads: () => Promise<unknown[]>;
+  /** What each request every pi made so far gave the model: its tools and messages. */
+  readonly contexts: () => Promise<FauxContext[]>;
   readonly cleanup: () => Promise<void>;
 }
 
@@ -80,6 +82,7 @@ export async function fauxPiEnvironment(script: FauxScript): Promise<FauxPiEnvir
     release: (name) => launch.release(name),
     pid: () => launch.pid(),
     payloads: () => launch.payloads(),
+    contexts: () => launch.contexts(),
     cleanup: () => rm(dir, { recursive: true, force: true }),
   };
 }

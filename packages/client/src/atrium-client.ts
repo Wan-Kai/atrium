@@ -13,6 +13,7 @@ import {
   HostMessage,
   type InstallUpdatedEvent,
   type InteractionAnswer,
+  type QuestionReply,
   type LoginMethod,
   type LoginUpdatedEvent,
   type ModelRef,
@@ -257,6 +258,12 @@ export interface AtriumClient {
     interactionId: string,
     answer: InteractionAnswer,
   ): Promise<CommandResult<"answer_interaction">>;
+  /** Answers, or skips, the questions the agent asked with `ask_user` (SPEC-0003). */
+  answerQuestion(
+    sessionId: string,
+    questionId: string,
+    answer: QuestionReply,
+  ): Promise<CommandResult<"answer_question">>;
   /** The error card's "重试". */
   retryRun(sessionId: string): Promise<CommandResult<"retry_run">>;
   /** The models of a workspace, or with `null` of every chat and the settings, as far as asked; the same store every time. */
@@ -1325,6 +1332,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     steerQueued: (sessionId, itemId) => request("steer_queued", { sessionId, itemId }),
     answerInteraction: (sessionId, interactionId, answer) =>
       request("answer_interaction", { sessionId, interactionId, answer }),
+    answerQuestion: (sessionId, questionId, answer) => request("answer_question", { sessionId, questionId, answer }),
     retryRun: (sessionId) => request("retry_run", { sessionId }),
     models: (workspaceId) => modelList(workspaceId),
     loadModels: (workspaceId, refresh = false) => loadModels(workspaceId, refresh),

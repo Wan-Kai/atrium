@@ -1,0 +1,1052 @@
+<!doctype html>
+<!--
+  PROTOTYPE — throwaway. SPEC-0002 第二步：agent 开子对话的界面（2026-10-17）。
+  问题一：过程轨道上 agent_spawn 的"分出"和子对话做完的"合回"怎么画（SPEC 写"样式待原型"）。三种：
+    A 车道：每个在跑的子对话一条自己的竖线，和主线并行往下，做完从右边合回主线。
+    B 分出卡片：分出处是一张实时的小卡片（名字、角色、状态、最近进度），做完另起一行空心节点合回。
+    C 普通步骤：和别的工具步骤一样一行，右边的结果原地更新；轨道上不画合回，结果在下一轮的开头。
+  问题二：由通知开头的轮（主对话收到"来自子对话"、子对话收到"来自主对话的 agent"）怎么画。甲 来源行、乙 来源气泡、丙 细线。
+  问题三（一种方案，看有没有要改的）：排队面板里的待送达项、子对话条里 agent 开的子对话的行（角色、在问主 agent、最近进度）、"全部继续"。
+  每个窗口都能点"下一步"走一遍：开两个子对话 → 汇报进度 → 一个问主 agent → 都做完 → 下一轮由通知开头。
+  数据是假的；颜色、字号取自 packages/ui/src/design/tokens.css，图标是 Hugeicons 免费版（同 packages/ui），描边 1.75。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · agent 开子对话（SPEC-0002 第二步）</title>
+    <style>
+      :root {
+        --main: #fff;
+        --surface-1: #fff;
+        --surface-2: #f2f2f4;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --node: #c4c4ca;
+        --tint: #2f6fed;
+        --tint-soft: rgba(47, 111, 237, 0.1);
+        --attn: #dd8629;
+        --attn-text: #c96509;
+        --attn-soft: rgba(221, 134, 41, 0.12);
+        --danger: #e5484d;
+        --ok-text: #1e8e3e;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(41, 70, 122, 0.08);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 12px 32px rgba(0, 0, 0, 0.14);
+        --capsule-shadow: 0 0 0 0.5px var(--line), 0 6px 16px -8px rgba(0, 0, 0, 0.22);
+        --chip-shadow: 0 0 0 0.5px var(--line), 0 1px 2px rgba(0, 0, 0, 0.05);
+        --font-sans: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+        --mono: ui-monospace, "SF Mono", Menlo, monospace;
+        --fs: 14px;
+        --fs-meta: 13px;
+        --fs-sm: 12px;
+        --fs-xs: 11px;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 10px;
+        --r-card: 16px;
+        --r-bubble: 22px;
+        --r-pill: 999px;
+        --page: #eef1f6;
+      }
+      body.dark {
+        --main: #17181c;
+        --surface-1: #1f2025;
+        --surface-2: #26272d;
+        --code: #1c1d22;
+        --text: #f2f2f4;
+        --text-2: #e4e4e7;
+        --text-muted: #9a9aa2;
+        --text-dim: #6e6e76;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.06);
+        --line-strong: rgba(255, 255, 255, 0.16);
+        --hover: rgba(255, 255, 255, 0.05);
+        --selected: rgba(255, 255, 255, 0.08);
+        --node: #55565e;
+        --tint: #7aaaff;
+        --tint-soft: rgba(122, 170, 255, 0.14);
+        --attn: #f0a050;
+        --attn-text: #f0a050;
+        --attn-soft: rgba(240, 160, 80, 0.14);
+        --ok-text: #4cc27a;
+        --card-shadow: 0 0 0 0.5px var(--line), 0 8px 24px rgba(0, 0, 0, 0.3);
+        --float-shadow: 0 0 0 0.5px var(--line-strong), 0 16px 40px rgba(0, 0, 0, 0.45);
+        --capsule-shadow: 0 0 0 0.5px var(--line), 0 6px 16px -8px rgba(0, 0, 0, 0.6);
+        --chip-shadow: 0 0 0 0.5px var(--line), 0 1px 2px rgba(0, 0, 0, 0.3);
+        --page: #0f1013;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--page);
+        font: var(--fs)/1.5 var(--font-sans);
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+      }
+      header.page {
+        padding: 28px 40px 4px;
+        max-width: 1120px;
+      }
+      header.page h1 {
+        font-size: 20px;
+        margin: 0 0 6px;
+      }
+      header.page p,
+      p.note {
+        margin: 0 0 6px;
+        color: var(--text-muted);
+        font-size: var(--fs-meta);
+        line-height: 1.65;
+      }
+      header.page b,
+      p.note b {
+        color: var(--text-2);
+      }
+      .toggles {
+        display: flex;
+        gap: 16px;
+        padding: 6px 40px 0;
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+      }
+      section.block {
+        padding: 22px 40px 10px;
+      }
+      section.block > h2 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      section.block > ul {
+        margin: 4px 0 0;
+        padding-left: 18px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        line-height: 1.7;
+        max-width: 1080px;
+      }
+      section.block > ul b {
+        color: var(--text-2);
+        font-weight: 600;
+      }
+      .row3 {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .ctl {
+        display: flex;
+        gap: 8px;
+        margin: 8px 0 0;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        align-items: center;
+      }
+      .ctl button {
+        all: unset;
+        cursor: pointer;
+        padding: 3px 10px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--card-shadow);
+        color: var(--text-2);
+      }
+      .ctl .stage {
+        color: var(--text-dim);
+      }
+
+      .win {
+        position: relative;
+        margin-top: 8px;
+        width: 520px;
+        height: 640px;
+        background: var(--main);
+        border-radius: var(--r-card);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .win.wide {
+        width: 780px;
+        height: 560px;
+      }
+      .wtitle {
+        font-size: var(--fs-meta);
+        font-weight: 600;
+        color: var(--text-2);
+        margin-top: 14px;
+      }
+      .wtitle span {
+        font-weight: 400;
+        color: var(--text-muted);
+      }
+      .tabs {
+        height: 40px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 0 10px;
+        box-shadow: inset 0 -0.5px 0 var(--line);
+        font-size: var(--fs-meta);
+      }
+      .tab {
+        height: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 10px;
+        border-radius: var(--r);
+        color: var(--text-muted);
+        white-space: nowrap;
+      }
+      .tab.on {
+        background: var(--selected);
+        color: var(--text);
+      }
+      .thread {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px 0 12px;
+      }
+      .inner {
+        max-width: 500px;
+        margin: 0 auto;
+        padding: 0 18px 30px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .bubble {
+        align-self: flex-end;
+        max-width: 80%;
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 8px 14px;
+        font-size: var(--fs-meta);
+        white-space: pre-wrap;
+      }
+      .reply {
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        white-space: pre-wrap;
+        line-height: 1.6;
+      }
+      .dock {
+        flex: none;
+        position: relative;
+        width: calc(100% - 36px);
+        margin: 0 auto 12px;
+      }
+      .composer {
+        background: var(--surface-2);
+        border-radius: var(--r-bubble);
+        padding: 12px 16px;
+        font-size: var(--fs-meta);
+        min-height: 64px;
+        color: var(--text-dim);
+      }
+      .caps {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        bottom: calc(100% + 8px);
+        display: flex;
+        gap: 6px;
+      }
+      .capsule {
+        all: unset;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 11px;
+        border-radius: var(--r-pill);
+        background: var(--surface-1);
+        box-shadow: var(--capsule-shadow);
+        font-size: var(--fs-sm);
+        color: var(--text-2);
+        white-space: nowrap;
+      }
+      body.dark .capsule {
+        background: var(--surface-2);
+      }
+      .capsule .dim {
+        color: var(--text-dim);
+      }
+      .spin {
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .st {
+        display: inline-grid;
+        place-items: center;
+        width: 16px;
+        height: 16px;
+        flex: none;
+      }
+
+      /* 过程轨道 */
+      .head {
+        font-size: var(--fs-meta);
+        color: var(--text-muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 2px 0 2px 0;
+      }
+      .head .sweep {
+        color: var(--tint);
+      }
+      .rail {
+        position: relative;
+        font-size: var(--fs-meta);
+      }
+      .rail .step {
+        position: relative;
+        min-height: 30px;
+        padding: 5px 0 5px 30px;
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        line-height: 20px;
+      }
+      .rail .step .t {
+        flex: 1;
+        min-width: 0;
+      }
+      .rail .verb {
+        color: var(--text-2);
+      }
+      .rail .obj {
+        color: var(--text-muted);
+      }
+      .rail .dot {
+        color: var(--text-dim);
+      }
+      .rail .res {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        white-space: nowrap;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .rail .res.ok {
+        color: var(--ok-text);
+      }
+      .rail .res.run {
+        color: var(--tint);
+      }
+      .rail .res.ask {
+        color: var(--attn-text);
+      }
+      .rail svg.g {
+        position: absolute;
+        left: 0;
+        top: 0;
+        overflow: visible;
+        pointer-events: none;
+      }
+      .role {
+        display: inline-flex;
+        align-items: center;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: var(--r-sm);
+        font-size: var(--fs-xs);
+        color: var(--text-muted);
+        background: var(--surface-2);
+        margin-left: 4px;
+        vertical-align: 1px;
+      }
+      .role.w {
+        color: var(--attn-text);
+        background: var(--attn-soft);
+      }
+      .sub {
+        display: block;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        line-height: 18px;
+      }
+      .link {
+        color: var(--tint);
+        cursor: pointer;
+      }
+      .card {
+        margin-top: 2px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 7px 10px;
+        border-radius: var(--r-md);
+        background: var(--surface-1);
+        box-shadow: var(--chip-shadow);
+        cursor: pointer;
+      }
+      body.dark .card {
+        background: var(--surface-2);
+      }
+      .card:hover {
+        box-shadow: 0 0 0 0.5px var(--line-strong);
+      }
+      .card .l1 {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .card .l1 .n {
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .card .l1 .grow {
+        flex: 1;
+      }
+      .card .l2 {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+
+      /* 通知开头的轮 */
+      .from {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+      }
+      .from .ic {
+        color: var(--tint);
+        display: inline-grid;
+      }
+      .from.ask .ic {
+        color: var(--attn);
+      }
+      .from b {
+        color: var(--text-2);
+        font-weight: 500;
+      }
+      .from .grow {
+        flex: 1;
+      }
+      .fromb {
+        align-self: flex-start;
+        max-width: 84%;
+        background: var(--surface-2);
+        border-radius: 6px var(--r-bubble) var(--r-bubble) var(--r-bubble);
+        padding: 8px 14px;
+        font-size: var(--fs-meta);
+      }
+      .fromb .hd {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: var(--fs-sm);
+        color: var(--text-muted);
+        margin-bottom: 4px;
+      }
+      .fromb .hd .ic {
+        color: var(--tint);
+        display: inline-grid;
+      }
+      .fromb .bd {
+        color: var(--text-2);
+        white-space: pre-wrap;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .fromb .more {
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+        margin-top: 4px;
+      }
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: var(--fs-sm);
+        color: var(--text-dim);
+      }
+      .divider::before,
+      .divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+      .divider span {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .quote {
+        font-size: var(--fs-meta);
+        color: var(--text-2);
+        padding: 2px 0 2px 12px;
+        box-shadow: inset 2px 0 0 var(--line-strong);
+        white-space: pre-wrap;
+      }
+
+      /* 浮层：排队、子对话 */
+      .float {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: calc(100% + 44px);
+        background: var(--surface-1);
+        border-radius: var(--r-card);
+        box-shadow: var(--float-shadow);
+        padding: 6px;
+        font-size: var(--fs-meta);
+      }
+      body.dark .float {
+        background: var(--surface-2);
+      }
+      .float.fit {
+        right: auto;
+        width: max-content;
+        min-width: 320px;
+      }
+      .float .fh {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 4px 8px 6px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+      }
+      .float .fh .grow {
+        flex: 1;
+      }
+      .float .fh .act {
+        color: var(--tint);
+        cursor: pointer;
+      }
+      .qrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 4px 8px 4px 10px;
+        border-radius: var(--r-md);
+      }
+      .qrow:hover {
+        background: var(--hover);
+      }
+      .qrow .t {
+        flex: 1;
+        min-width: 0;
+        color: var(--text-2);
+      }
+      .qrow .t .k {
+        color: var(--text-muted);
+      }
+      .qrow .state {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .qrow .x {
+        color: var(--text-dim);
+        display: inline-grid;
+        cursor: pointer;
+        padding: 3px;
+        border-radius: var(--r-sm);
+      }
+      .qrow .x:hover {
+        background: var(--hover);
+        color: var(--text-muted);
+      }
+      .qrow .ic {
+        color: var(--tint);
+        display: inline-grid;
+      }
+      .crow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 34px;
+        padding: 4px 6px 4px 10px;
+        border-radius: var(--r-md);
+      }
+      .crow:hover {
+        background: var(--hover);
+      }
+      .crow .n {
+        color: var(--text-2);
+      }
+      .crow .two {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .crow .two .p {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        max-width: 280px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .crow .when {
+        margin-left: auto;
+        padding-left: 16px;
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        white-space: nowrap;
+      }
+      .crow .place {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        white-space: nowrap;
+      }
+      .paused {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 4px 6px;
+        padding: 6px 10px;
+        border-radius: var(--r-md);
+        background: var(--attn-soft);
+        color: var(--attn-text);
+        font-size: var(--fs-sm);
+      }
+      .paused .grow {
+        flex: 1;
+      }
+      .paused .go {
+        all: unset;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .legend {
+        font-size: var(--fs-xs);
+        color: var(--text-dim);
+        margin-top: 6px;
+        max-width: 520px;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="page">
+      <h1>原型 · agent 开子对话（SPEC-0002 第二步）</h1>
+      <p>
+        主对话的 agent 用 <b>agent_spawn</b> 开了两个子对话：<b>安全审查</b>（只读，同一工作区）和
+        <b>补测试</b>（可写，新 worktree <code>agent/tests</code>），再用
+        <b>agent_wait</b> 等齐汇总。问题一点"下一步"走一遍：汇报进度 → 补测试问主 agent、等待提前返回、回答后接着等 →
+        都做完、合回、汇总。
+      </p>
+      <p>
+        默认 agent
+        不等（开完就结束这一轮），子对话做完后由通知开一轮新的：那时的"合回"就是问题二里新一轮的开头，不在原来那一轮的轨道上。
+      </p>
+      <p>
+        要定的：<b>问题一</b>过程轨道的分出和合回，选 A / B / C；<b>问题二</b>通知开头的轮，选 甲 / 乙 /
+        丙；<b>问题三</b>只有一种，看有没有要改的。
+      </p>
+    </header>
+    <div class="toggles">
+      <label><input type="checkbox" id="dark" /> 深色</label>
+    </div>
+
+    <section class="block">
+      <h2>问题一 · 过程轨道：分出与合回</h2>
+      <ul>
+        <li>
+          <b>A 车道</b>：每个在跑的子对话一条自己的竖线（x =
+          22.5、33.5），和主线并行往下；做完时从右边弯回主线，空心节点写"名字 完成 · 用时"。最像 git
+          图，一眼看出几个在并行；车道多了文字往右挪。
+        </li>
+        <li>
+          <b>B 分出卡片</b
+          >：分出处向右弯出一张小卡片，名字、角色、实时状态和最近一条进度都在卡片里，点卡片打开；做完另起一行，空心节点从右边汇回（同插话的画法）。信息最全，占地方。
+        </li>
+        <li>
+          <b>C 普通步骤</b>：和读文件、跑命令一样是一行，右边的结果原地从"运行中"变成"✓
+          完成"；进度写在第二行。不画分支和合回，结果在下一轮的开头看。最安静，但看不出"分出去了"。
+        </li>
+      </ul>
+      <div class="row3" id="q1"></div>
+    </section>
+
+    <section class="block">
+      <h2>问题二 · 由通知开头的轮</h2>
+      <ul>
+        <li>
+          左边是主对话（收到"来自子对话「安全审查」完成"、中途插进来的"补测试
+          在问"），右边是子对话（第一件事"来自主对话的 agent"）。给模型的外壳文字（&lt;atrium-agent-report
+          …&gt;）不显示。
+        </li>
+        <li><b>甲 来源行</b>：没有气泡，一行小字说来源和事件，右边"打开"；子对话里交代的事用引用块。</li>
+        <li><b>乙 来源气泡</b>：靠左的气泡（和你的消息左右分开），头上写来源，正文是回复的前三行，"展开"看全文。</li>
+        <li><b>丙 细线</b>：同"上下文已压缩"那种居中细线写来源，下面直接是这一轮。</li>
+      </ul>
+      <div class="row3" id="q2"></div>
+    </section>
+
+    <section class="block">
+      <h2>问题三 · 排队面板、子对话条（一种方案）</h2>
+      <ul>
+        <li>
+          排队面板里待送达的是另一种项：图标 + "来自子对话「补测试」：完成"；还没发的能删（×），"已交给
+          pi"的删不掉。不能编辑、不能改成插话。
+        </li>
+        <li>
+          子对话条的行：agent 开的多一个角色小标签（只读不写字，"可写""顾问"写字）、"在问主
+          agent"的状态（问号，橙色，和"待回答"同形但写法不同）、第二行最近一条进度。
+        </li>
+        <li>宿主重启后待送达的都暂停：列表顶上一条"重启后暂停了 2 条送达 · 全部继续"，一次恢复整棵子树。</li>
+      </ul>
+      <div class="row3" id="q3"></div>
+    </section>
+
+    <script>
+      const SVG = {
+        CornerDownRightIcon:
+          '<path d="M19 15H12C8.22876 15 6.34315 15 5.17157 13.8284C4 12.6569 4 10.7712 4 7V4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M15 20C15 20 20 16.3176 20 15C20 13.6824 15 10 15 10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Loading03Icon:
+          '<path d="M12 3V6" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/><path d="M12 18V21" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/><path d="M21 12L18 12" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/><path d="M6 12L3 12" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/><path d="M18.3635 5.63672L16.2422 7.75804" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/><path d="M7.75804 16.2422L5.63672 18.3635" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/><path d="M18.3635 18.3635L16.2422 16.2422" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/><path d="M7.75804 7.75804L5.63672 5.63672" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"/>',
+        CheckmarkCircle02Icon:
+          '<path d="M22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 17.5228 6.47715 22 12 22C17.5228 22 22 17.5228 22 12Z" stroke="currentColor" stroke-width="1.5"/><path d="M8 12.5L10.5 15L16 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        HelpCircleIcon:
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M9.5 9.5C9.5 8.11929 10.6193 7 12 7C13.3807 7 14.5 8.11929 14.5 9.5C14.5 10.3569 14.0689 11.1131 13.4117 11.5636C12.7283 12.0319 12 12.6716 12 13.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M12.125 16.75H12M12.25 16.75C12.25 16.8881 12.1381 17 12 17C11.8619 17 11.75 16.8881 11.75 16.75C11.75 16.6119 11.8619 16.5 12 16.5C12.1381 16.5 12.25 16.6119 12.25 16.75Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        AlertCircleIcon:
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M12 8V12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M12.125 15.75H12M12.25 15.75C12.25 15.8881 12.1381 16 12 16C11.8619 16 11.75 15.8881 11.75 15.75C11.75 15.6119 11.8619 15.5 12 15.5C12.1381 15.5 12.25 15.6119 12.25 15.75Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowRight01Icon:
+          '<path d="M9.00005 6C9.00005 6 15 10.4189 15 12C15 13.5812 9 18 9 18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowDown01Icon:
+          '<path d="M18 9.00005C18 9.00005 13.5811 15 12 15C10.4188 15 6 9 6 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowUp01Icon:
+          '<path d="M17.9998 15C17.9998 15 13.5809 9.00001 11.9998 9C10.4187 8.99999 5.99985 15 5.99985 15" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Cancel01Icon:
+          '<path d="M18 6L6.00081 17.9992M17.9992 18L6 6.00085" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        GitBranchIcon:
+          '<path d="M7 19H13C15.8284 19 17.2426 19 18.1213 18.1213C19 17.2426 19 15.8284 19 13V10M19 10C19.7002 10 21.0085 11.9943 21.5 12.5M19 10C18.2998 10 16.9915 11.9943 16.5 12.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M5 7L5 17" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><circle cx="5" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="19" cy="5" r="2" stroke="currentColor" stroke-width="1.5"/><circle cx="5" cy="19" r="2" stroke="currentColor" stroke-width="1.5"/>',
+        Search01Icon:
+          '<path d="M17 17L21 21" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        PlayIcon:
+          '<path d="M18.8906 12.846C18.5371 14.189 16.8667 15.138 13.5257 17.0361C10.296 18.8709 8.6812 19.7884 7.37983 19.4196C6.8418 19.2671 6.35159 18.9776 5.95624 18.5787C5 17.6139 5 15.7426 5 12C5 8.2574 5 6.3861 5.95624 5.42132C6.35159 5.02245 6.8418 4.73288 7.37983 4.58042C8.6812 4.21165 10.296 5.12907 13.5257 6.96393C16.8667 8.86197 18.5371 9.811 18.8906 11.154C19.0365 11.7084 19.0365 12.2916 18.8906 12.846Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/>',
+        StopCircleIcon:
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><path d="M9.38886 15.1629C9.89331 15.5 10.5955 15.5 12 15.5C13.4045 15.5 14.1067 15.5 14.6111 15.1629C14.8295 15.017 15.017 14.8295 15.1629 14.6111C15.5 14.1067 15.5 13.4045 15.5 12C15.5 10.5955 15.5 9.89331 15.1629 9.38886C15.017 9.17048 14.8295 8.98298 14.6111 8.83706C14.1067 8.5 13.4045 8.5 12 8.5C10.5955 8.5 9.89331 8.5 9.38886 8.83706C9.17048 8.98298 8.98298 9.17048 8.83706 9.38886C8.5 9.89331 8.5 10.5955 8.5 12C8.5 13.4045 8.5 14.1067 8.83706 14.6111C8.98298 14.8295 9.17048 15.017 9.38886 15.1629Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowTurnBackwardIcon:
+          '<path d="M11 6H15.5C17.9853 6 20 8.01472 20 10.5C20 12.9853 17.9853 15 15.5 15H4" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M6.99998 12C6.99998 12 4.00001 14.2095 4 15C3.99999 15.7906 7 18 7 18" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Robot01Icon:
+          '<path d="M12 4V2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M20 22C20 17.5817 16.4183 14 12 14C7.58172 14 4 17.5817 4 22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M9.375 8.25H9.25M9.5 8.25C9.5 8.38807 9.38807 8.5 9.25 8.5C9.11193 8.5 9 8.38807 9 8.25C9 8.11193 9.11193 8 9.25 8C9.38807 8 9.5 8.11193 9.5 8.25Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M14.875 8.25H14.75M15 8.25C15 8.38807 14.8881 8.5 14.75 8.5C14.6119 8.5 14.5 8.38807 14.5 8.25C14.5 8.11193 14.6119 8 14.75 8C14.8881 8 15 8.11193 15 8.25Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M15.1538 4H8.84615C7.59095 4 6.96334 4 6.47397 4.22025C5.91693 4.47095 5.47095 4.91693 5.22025 5.47397C5 5.96334 5 6.59095 5 7.84615C5 9.85448 5 10.8586 5.3524 11.6417C5.75353 12.5329 6.46709 13.2465 7.35835 13.6476C8.14135 14 9.14552 14 11.1538 14H12.8462C14.8545 14 15.8586 14 16.6417 13.6476C17.5329 13.2465 18.2465 12.5329 18.6476 11.6417C19 10.8586 19 9.85448 19 7.84615C19 6.59095 19 5.96334 18.7797 5.47397C18.529 4.91693 18.0831 4.47095 17.526 4.22025C17.0367 4 16.4091 4 15.1538 4Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowLeft02Icon:
+          '<path d="M5.5 12.002H19" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M10.9999 18.002C10.9999 18.002 4.99998 13.583 4.99997 12.0019C4.99996 10.4208 11 6.00195 11 6.00195" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        MoreHorizontalIcon:
+          '<path d="M6.00449 12.5V12M18.0045 12.5V12M12.0045 12.5V12M7.00449 12.5C7.00449 11.9477 6.55677 11.5 6.00449 11.5C5.4522 11.5 5.00449 11.9477 5.00449 12.5C5.00449 13.0523 5.4522 13.5 6.00449 13.5C6.55677 13.5 7.00449 13.0523 7.00449 12.5ZM19.0045 12.5C19.0045 11.9477 18.5568 11.5 18.0045 11.5C17.4522 11.5 17.0045 11.9477 17.0045 12.5C17.0045 13.0523 17.4522 13.5 18.0045 13.5C18.5568 13.5 19.0045 13.0523 19.0045 12.5ZM13.0045 12.5C13.0045 11.9477 12.5568 11.5 12.0045 11.5C11.4522 11.5 11.0045 11.9477 11.0045 12.5C11.0045 13.0523 11.4522 13.5 12.0045 13.5C12.5568 13.5 13.0045 13.0523 13.0045 12.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Add01Icon:
+          '<path d="M12.001 5.00003V19.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M19.002 12.002L4.99998 12.002" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        ArrowUp02Icon:
+          '<path d="M12 5.5V19" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M18 11C18 11 13.5811 5.00001 12 5C10.4188 4.99999 6 11 6 11" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Message01Icon:
+          '<path d="M8.5 14.5H15.5M8.5 9.5H12" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M14.1706 20.8905C18.3536 20.6125 21.6856 17.2332 21.9598 12.9909C22.0134 12.1607 22.0134 11.3009 21.9598 10.4707C21.6856 6.22838 18.3536 2.84913 14.1706 2.57107C12.7435 2.47621 11.2536 2.47641 9.8294 2.57107C5.64639 2.84913 2.31441 6.22838 2.04024 10.4707C1.98659 11.3009 1.98659 12.1607 2.04024 12.9909C2.1401 14.536 2.82343 15.9666 3.62791 17.1746C4.09501 18.0203 3.78674 19.0758 3.30021 19.9978C2.94941 20.6626 2.77401 20.995 2.91484 21.2351C3.05568 21.4752 3.37026 21.4829 3.99943 21.4982C5.24367 21.5285 6.08268 21.1757 6.74868 20.6846C7.1264 20.4061 7.31527 20.2668 7.44544 20.2508C7.5756 20.2348 7.83177 20.3403 8.34401 20.5513C8.8044 20.7409 9.33896 20.8579 9.8294 20.8905C11.2536 20.9852 12.7435 20.9854 14.1706 20.8905Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.5"/>',
+        Clock01Icon:
+          '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><path d="M12 8V12L14 14" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+        Key01Icon:
+          '<path d="M15.5 14.5C18.8137 14.5 21.5 11.8137 21.5 8.5C21.5 5.18629 18.8137 2.5 15.5 2.5C12.1863 2.5 9.5 5.18629 9.5 8.5C9.5 9.38041 9.68962 10.2165 10.0303 10.9697L2.5 18.5V21.5H5.5V19.5H7.5V17.5H9.5L13.0303 13.9697C13.7835 14.3104 14.6196 14.5 15.5 14.5Z" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M17.5 6.5L16.5 7.5" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/>',
+      };
+      const ic = (k, s = 14, cls = "") =>
+        `<svg class="${cls}" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">${SVG[k]}</svg>`;
+      const esc = (t) =>
+        String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+      document.getElementById("dark").onchange = (e) => document.body.classList.toggle("dark", e.target.checked);
+
+      const STAGES = [
+        "开了两个子对话，主对话在等",
+        "都在汇报进度",
+        "补测试在问，等待提前返回；主 agent 回答后接着等",
+        "都做完了，等待返回，主对话汇总",
+      ];
+      const stage = { A: 0, B: 0, C: 0, 甲: 4, 乙: 4, 丙: 4 };
+
+      /** Rail geometry: 30px column, main line at 10.5. */
+      const LINE = "var(--line-strong)";
+      function dotNode(y, color = "var(--node)") {
+        return `<circle cx="10.5" cy="${y}" r="3" fill="${color}"/>`;
+      }
+      function runNode(y) {
+        return `<circle cx="10.5" cy="${y}" r="3" fill="var(--tint)"/><path class="spin" style="transform-origin:10.5px ${y}px" d="M10.5 ${y - 8} a8 8 0 1 1 -7.6 5.5" stroke="var(--tint)" stroke-width="1.5" fill="none" stroke-linecap="round"/>`;
+      }
+
+      function children(s) {
+        // State of the two children at each stage.
+        const audit = {
+          name: "安全审查",
+          role: "只读",
+          rk: "",
+          st: s >= 3 ? "done" : "run",
+          time: s >= 3 ? "3 分 12 秒" : s >= 1 ? "1:48" : "0:04",
+          prog: s >= 1 ? "读完了 auth/ 下的 14 个文件，正在查 token 刷新" : "开始",
+        };
+        const tests = {
+          name: "补测试",
+          role: "可写",
+          rk: "w",
+          st: s >= 3 ? "done" : s === 2 ? "ask" : "run",
+          time: s >= 3 ? "5 分 40 秒" : s >= 1 ? "1:31" : "0:03",
+          prog: s === 2 ? "在问：用 vitest 还是沿用 jest？" : s >= 1 ? "建了 auth.test.ts，写了 6 个用例" : "开始",
+          where: "agent/tests",
+        };
+        return [audit, tests];
+      }
+      function resOf(c) {
+        if (c.st === "done") return `<span class="res ok">${ic("CheckmarkCircle02Icon", 12)}完成 · ${c.time}</span>`;
+        if (c.st === "ask") return `<span class="res ask">${ic("HelpCircleIcon", 12)}在问主 agent</span>`;
+        return `<span class="res run">${ic("Loading03Icon", 12, "spin")}${c.time}</span>`;
+      }
+      const roleTag = (c) => (c.rk === "w" ? `<span class="role w">可写</span>` : `<span class="role">只读</span>`);
+
+      /** The parent's turn as each rail variant draws it. */
+      function parentThread(v, s) {
+        const [a, t] = children(s);
+        const running = s < 3;
+        const steps = [];
+        steps.push({
+          kind: "dot",
+          html: `<span class="verb">读了</span> <span class="obj">auth/session.ts、auth/token.ts</span>`,
+        });
+        const spawn = (c, i) => {
+          if (v === "C")
+            return {
+              kind: "spawnC",
+              html: `<span class="t"><span class="verb">开子对话</span> <span class="obj">${c.name}</span>${roleTag(c)}${c.where ? ` <span class="dot">·</span> <span class="obj">${c.where}</span>` : ""}<span class="sub">${esc(c.prog)}</span></span>${resOf(c)}`,
+            };
+          if (v === "B")
+            return {
+              kind: "spawnB",
+              c,
+              html: `<span class="t"><span class="verb">开子对话</span><div class="card"><div class="l1">${statusDot(c)}<span class="n">${c.name}</span>${roleTag(c)}${c.where ? `<span class="obj" style="font-size:12px">${ic("GitBranchIcon", 11)} ${c.where}</span>` : ""}<span class="grow"></span>${resOf(c)}</div><div class="l2">${esc(c.prog)}</div></div></span>`,
+            };
+          return {
+            kind: "spawnA",
+            lane: i,
+            c,
+            html: `<span class="t"><span class="verb">开子对话</span> <span class="obj">${c.name}</span>${roleTag(c)}${c.where ? ` <span class="dot">·</span> <span class="obj">${c.where}</span>` : ""}</span>${resOf(c)}`,
+          };
+        };
+        steps.push(spawn(a, 0));
+        steps.push(spawn(t, 1));
+        // The parent waits for both (agent_wait): a question ends the wait early, the parent answers and waits again.
+        if (s < 2)
+          steps.push({
+            kind: "run",
+            html: `<span class="verb">等子对话</span> <span class="obj">安全审查、补测试</span>`,
+          });
+        if (s >= 2) {
+          steps.push({
+            kind: "dot",
+            html: `<span class="t"><span class="verb">等子对话</span> <span class="obj">安全审查、补测试</span></span><span class="res">提前返回：有问题</span>`,
+          });
+          steps.push({
+            kind: "ask",
+            html: `<span class="t" style="color:var(--attn-text)">子对话「补测试」在问 <span class="obj">· 用 vitest 还是沿用 jest？</span></span>`,
+          });
+          steps.push({
+            kind: "dot",
+            html: `<span class="verb">回答了</span> <span class="obj">补测试 · 用 vitest</span>`,
+          });
+          steps.push({
+            kind: s === 2 ? "run" : "dot",
+            html: `<span class="t"><span class="verb">等子对话</span> <span class="obj">安全审查、补测试</span></span>${s >= 3 ? `<span class="res">都做完了</span>` : ""}`,
+          });
+        }
+        if (s >= 3) {
+          if (v !== "C") {
+            steps.push({
+              kind: "merge",
+              lane: 0,
+              html: `<span class="t"><span class="verb">${a.name}</span> <span class="obj">完成 · 用时 ${a.time}</span> <span class="link" style="font-size:12px">打开</span></span>`,
+            });
+            steps.push({
+              kind: "merge",
+              lane: 1,
+              html: `<span class="t"><span class="verb">${t.name}</span> <span class="obj">完成 · 用时 ${t.time} · +214 −3</span> <span class="link" style="font-size:12px">打开</span></span>`,
+            });
+          }
+        }
+        const rail = renderRail(v, steps, s);
+        const head = running
+          ? `<div class="head"><span class="sweep">进行中</span> · 等子对话</div>`
+          : `<div class="head">${ic("ArrowRight01Icon", 12)} 已完成，用时 6 分 02 秒 · 开了 2 个子对话</div>`;
+        let after = "";
+        if (s >= 3)
+          after += `<div class="reply">汇总：安全审查发现两处问题（refresh token 没有轮换、登出没清服务端会话）；补测试在 agent/tests 上加了 6 个用例，覆盖了第一处……</div>`;
+        if (s >= 4)
+          after +=
+            reportTurn("甲", a) +
+            `<div class="reply">安全审查发现两处问题：refresh token 没有轮换、登出时没清服务端会话。补测试那边的 6 个用例覆盖了第一处……</div>`;
+        return `<div class="bubble">把登录模块的安全问题查一遍，顺便补上测试</div>${head}${rail}${after}`;
+      }
+      function statusDot(c) {
+        if (c.st === "done")
+          return `<span class="st" style="color:var(--ok-text)">${ic("CheckmarkCircle02Icon", 14)}</span>`;
+        if (c.st === "ask") return `<span class="st" style="color:var(--attn)">${ic("HelpCircleIcon", 14)}</span>`;
+        return `<span class="st" style="color:var(--tint)">${ic("Loading03Icon", 14, "spin")}</span>`;
+      }
+
+      /** Draws the rail: steps as rows, the graph as one SVG over the rows. */
+      function renderRail(v, steps, s) {
+        const id = "r" + Math.random().toString(36).slice(2);
+        setTimeout(() => drawGraph(id, v, steps, s), 0);
+        const pad = v === "A" ? 46 : 30;
+        return `<div class="rail" id="${id}">${steps.map((st, i) => `<div class="step" data-i="${i}" style="padding-left:${st.kind === "merge" && v === "B" ? 30 : pad}px">${st.html.startsWith('<span class="t"') ? st.html : `<span class="t">${st.html}</span>`}</div>`).join("")}</div>`;
+      }
+      function drawGraph(id, v, steps, s) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const rows = [...el.querySelectorAll(".step")];
+        const H = el.offsetHeight;
+        const ys = rows.map((r) => r.offsetTop + 15);
+        let g = "";
+        const last = ys[ys.length - 1];
+        const running = s < 3;
+        // main line, broken around nodes
+        g += `<line x1="10.5" y1="0" x2="10.5" y2="${last}" stroke="${LINE}" stroke-width="1"/>`;
+        const laneX = (i) => 22.5 + i * 11;
+        steps.forEach((st, i) => {
+          const y = ys[i];
+          if (st.kind === "dot") g += `<circle cx="10.5" cy="${y}" r="6" fill="var(--main)"/>` + dotNode(y);
+          else if (st.kind === "run") g += `<circle cx="10.5" cy="${y}" r="9" fill="var(--main)"/>` + runNode(y);
+          else if (st.kind === "ask") {
+            // In A the question comes off the asking child's own lane.
+            const x = v === "A" ? laneX(1) : 19.5;
+            g += `<circle cx="${x}" cy="${y}" r="4" fill="var(--main)" stroke="var(--attn)" stroke-width="1.5"/>${v === "A" ? "" : `<path d="M19.5 ${y - 15} L19.5 ${y - 4}" stroke="var(--attn)" stroke-width="1" opacity=".5"/>`}<path d="M${x} ${y + 4} C${x} ${y + 10} 10.5 ${y + 8} 10.5 ${y + 15}" stroke="var(--attn)" stroke-width="1" fill="none"/>`;
+          } else if (st.kind === "spawnC")
+            g += `<circle cx="10.5" cy="${y}" r="6" fill="var(--main)"/>` + dotNode(y, "var(--tint)");
+          else if (st.kind === "spawnA") {
+            const x = laneX(st.lane);
+            g += `<circle cx="10.5" cy="${y}" r="6" fill="var(--main)"/>` + dotNode(y, "var(--tint)");
+            g += `<path d="M10.5 ${y} C10.5 ${y + 8} ${x} ${y + 6} ${x} ${y + 15}" stroke="var(--tint)" stroke-width="1" fill="none"/>`;
+            // lane runs down until its merge, or to the end while running
+            const mi = steps.findIndex((o) => o.kind === "merge" && o.lane === st.lane);
+            const yEnd = mi >= 0 ? ys[mi] - 12 : H;
+            g += `<line x1="${x}" y1="${y + 15}" x2="${x}" y2="${yEnd}" stroke="var(--tint)" stroke-width="1" ${mi < 0 ? 'stroke-dasharray="2 3"' : ""} opacity=".7"/>`;
+          } else if (st.kind === "spawnB") {
+            g += `<circle cx="10.5" cy="${y}" r="6" fill="var(--main)"/>` + dotNode(y, "var(--tint)");
+            g += `<path d="M10.5 ${y} C10.5 ${y + 10} 16 ${y + 16} 30 ${y + 22}" stroke="var(--tint)" stroke-width="1" fill="none" opacity=".7"/>`;
+          } else if (st.kind === "merge") {
+            if (v === "A") {
+              const x = laneX(st.lane);
+              g += `<path d="M${x} ${y - 12} L${x} ${y - 4}" stroke="var(--tint)" stroke-width="1" opacity=".7"/><circle cx="${x}" cy="${y}" r="4" fill="var(--main)" stroke="var(--tint)" stroke-width="1.5"/><path d="M${x} ${y + 4} C${x} ${y + 12} 10.5 ${y + 9} 10.5 ${y + 15}" stroke="var(--tint)" stroke-width="1" fill="none"/>`;
+            } else {
+              g += `<path d="M19.5 ${y - 15} L19.5 ${y - 4}" stroke="var(--tint)" stroke-width="1" opacity=".35"/><circle cx="19.5" cy="${y}" r="4" fill="var(--main)" stroke="var(--tint)" stroke-width="1.5"/><path d="M19.5 ${y + 4} C19.5 ${y + 10} 10.5 ${y + 8} 10.5 ${y + 15}" stroke="var(--tint)" stroke-width="1" fill="none"/>`;
+            }
+          }
+        });
+        el.insertAdjacentHTML("afterbegin", `<svg class="g" width="60" height="${H}">${g}</svg>`);
+      }
+
+      /** A turn opened by a notice, as variant 甲/乙/丙 draws its opening. */
+      function reportTurn(k, c) {
+        if (k === "乙")
+          return `<div class="fromb"><div class="hd"><span class="ic">${ic("ArrowTurnBackwardIcon", 13)}</span><span>来自子对话「<b style="color:var(--text-2);font-weight:500">${c.name}</b>」· 完成 · 用时 ${c.time}</span></div><div class="bd">发现两处问题：\n1. refresh token 每次刷新没有轮换，旧的一直有效；\n2. 登出只清了客户端，服务端会话还在。\n另外 auth/token.ts 的过期时间写死了……</div><div class="more">展开 · 打开子对话</div></div>`;
+        if (k === "丙")
+          return `<div class="divider"><span>${ic("ArrowTurnBackwardIcon", 12)}子对话「${c.name}」完成 · 用时 ${c.time}</span></div>`;
+        return `<div class="from"><span class="ic">${ic("ArrowTurnBackwardIcon", 13)}</span><span>来自子对话「<b>${c.name}</b>」· 完成 · 用时 ${c.time}</span><span class="grow"></span><span class="link">打开</span></div>`;
+      }
+      function askStep(k) {
+        if (k === "乙")
+          return `<div class="fromb" style="background:var(--attn-soft)"><div class="hd"><span class="ic" style="color:var(--attn)">${ic("HelpCircleIcon", 13)}</span>子对话「补测试」在问</div><div class="bd">用 vitest 还是沿用 jest？仓库里两种都有配置。</div></div>`;
+        if (k === "丙")
+          return `<div class="divider" style="color:var(--attn-text)"><span>${ic("HelpCircleIcon", 12)}子对话「补测试」在问：用 vitest 还是沿用 jest？</span></div>`;
+        return `<div class="from ask"><span class="ic">${ic("HelpCircleIcon", 13)}</span><span>子对话「<b>补测试</b>」在问 · 用 vitest 还是沿用 jest？</span></div>`;
+      }
+      function taskTurn(k) {
+        const task = "给 auth/ 补单元测试，重点是 token 刷新和登出；只在你自己的 worktree 里改，做完说明改了哪些文件。";
+        if (k === "乙")
+          return `<div class="fromb"><div class="hd"><span class="ic">${ic("Robot01Icon", 13)}</span>来自主对话的 agent</div><div class="bd" style="-webkit-line-clamp:unset">${task}</div></div>`;
+        if (k === "丙")
+          return `<div class="divider"><span>${ic("Robot01Icon", 12)}来自主对话的 agent</span></div><div class="quote">${task}</div>`;
+        return `<div class="from"><span class="ic">${ic("Robot01Icon", 13)}</span>来自主对话的 agent · 交代的事<span class="grow"></span><span class="link">主对话</span></div><div class="quote">${task}</div>`;
+      }
+
+      function capsules(s) {
+        const [a, t] = children(s);
+        const cnt =
+          s >= 3
+            ? `<span class="dim">·</span><span style="color:var(--ok-text);display:inline-flex">${ic("CheckmarkCircle02Icon", 13)}</span>2`
+            : s === 2
+              ? `<span class="dim">·</span><span style="color:var(--attn);display:inline-flex">${ic("HelpCircleIcon", 13)}</span>1<span class="dim">·</span><span style="color:var(--tint);display:inline-flex">${ic("Loading03Icon", 13, "spin")}</span>1`
+              : `<span class="dim">·</span><span style="color:var(--tint);display:inline-flex">${ic("Loading03Icon", 13, "spin")}</span>2`;
+        return `<div class="caps"><button class="capsule">子对话 2 ${cnt} ${ic("ArrowUp01Icon", 10)}</button></div>`;
+      }
+
+      function win(v, inner, s, opts = {}) {
+        return `<div><div class="wtitle">${v}<span> · ${opts.title ?? ""}</span></div>
+  <div class="ctl"><button data-next="${v}">下一步</button><button data-reset="${v}">从头</button><span class="stage">${STAGES[s]}</span></div>
+  <div class="win"><div class="tabs"><span class="tab on">${opts.tab ?? "安全修复"}</span>${opts.tab2 ? `<span class="tab">${opts.tab2}</span>` : ""}</div>
+  <div class="thread"><div class="inner">${inner}</div></div>
+  <div class="dock">${opts.caps ?? capsules(s)}<div class="composer">${s >= 3 && s < 4 ? "发消息" : "运行中可以排队或插话"}</div></div></div></div>`;
+      }
+
+      function render() {
+        document.getElementById("q1").innerHTML = ["A", "B", "C"]
+          .map((v) =>
+            win(v, parentThread(v, Math.min(stage[v], 3)), Math.min(stage[v], 3), {
+              title: { A: "车道", B: "分出卡片", C: "普通步骤" }[v],
+            }),
+          )
+          .join("");
+        document.getElementById("q2").innerHTML = ["甲", "乙", "丙"]
+          .map((k) => {
+            const [a] = children(4);
+            const parent = `<div class="bubble">把登录模块的安全问题查一遍，顺便补上测试</div><div class="head">${ic("ArrowRight01Icon", 12)} 已完成，用时 2 分 10 秒 · 开了 2 个子对话</div>${askStep(k)}<div class="reply">用 vitest，仓库已经在往 vitest 迁。</div>${reportTurn(k, a)}<div class="head">${ic("ArrowRight01Icon", 12)} 已完成，用时 40 秒 · 读了 2 个文件</div><div class="reply">安全审查发现两处问题：refresh token 没有轮换、登出时没清服务端会话……</div>`;
+            const child = `${taskTurn(k)}<div class="head">${ic("ArrowRight01Icon", 12)} 已完成，用时 5 分 40 秒 · 改了 2 个文件</div><div class="reply">补了 auth.test.ts 的 6 个用例……</div>`;
+            return `<div><div class="wtitle">${k}<span> · ${{ 甲: "来源行", 乙: "来源气泡", 丙: "细线" }[k]}</span></div>
+      <div class="win" style="width:440px;height:470px"><div class="tabs"><span class="tab on">安全修复</span></div><div class="thread"><div class="inner">${parent}</div></div></div>
+      <div class="win" style="width:440px;height:250px"><div class="tabs"><span class="tab">安全修复</span><span class="tab on">${ic("CornerDownRightIcon", 12)} 补测试</span></div><div class="thread"><div class="inner">${child}</div></div></div></div>`;
+          })
+          .join("");
+        const queue = `<div class="float" style="right:auto;width:440px"><div class="fh"><span>排队 3 · 本次运行结束后依次发送</span><span class="grow"></span><span class="act">清空</span></div>
+    <div class="qrow"><span class="ic">${ic("ArrowTurnBackwardIcon", 14)}</span><span class="t">来自子对话「安全审查」<span class="k">：完成</span></span><span class="state">已交给 pi</span></div>
+    <div class="qrow"><span class="ic">${ic("ArrowTurnBackwardIcon", 14)}</span><span class="t">来自子对话「补测试」<span class="k">：完成</span></span><span class="state">待送</span><span class="x">${ic("Cancel01Icon", 13)}</span></div>
+    <div class="qrow"><span class="t">再看一下 CSRF 的处理</span><span class="x">${ic("MoreHorizontalIcon", 14)}</span></div></div>`;
+        const list = `<div class="float fit"><div class="paused">${ic("Clock01Icon", 14)}<span class="grow">宿主重启后暂停了 2 条送达</span><button class="go">全部继续</button></div>
+    <div class="fh"><span>子对话</span><span class="grow"></span><span>最近更新的在前</span></div>
+    <div class="crow"><span class="st" style="color:var(--attn)">${ic("HelpCircleIcon", 14)}</span><div class="two"><span class="n">补测试 <span class="role w">可写</span></span><span class="p">在问主 agent：用 vitest 还是沿用 jest？</span></div><span class="place">${ic("GitBranchIcon", 11)} agent/tests</span><span class="when">刚刚</span><span class="qrow x" style="padding:3px">${ic("MoreHorizontalIcon", 14)}</span></div>
+    <div class="crow"><span class="st" style="color:var(--tint)">${ic("Loading03Icon", 14, "spin")}</span><div class="two"><span class="n">安全审查 <span class="role">只读</span></span><span class="p">读完了 auth/ 下的 14 个文件，正在查 token 刷新</span></div><span class="when">1 分钟前</span><span class="qrow x" style="padding:3px">${ic("MoreHorizontalIcon", 14)}</span></div>
+    <div class="crow"><span class="st"><span style="width:5px;height:5px;border-radius:50%;background:var(--text-dim);opacity:.6"></span></span><div class="two"><span class="n">接口梳理</span><span class="p">你开的子对话</span></div><span class="when">2 小时前</span><span class="qrow x" style="padding:3px">${ic("MoreHorizontalIcon", 14)}</span></div></div>`;
+        document.getElementById("q3").innerHTML = `
+    <div><div class="wtitle">排队面板<span> · 两条待送达，一条已交给 pi</span></div><div class="win wide" style="width:520px;height:420px"><div class="tabs"><span class="tab on">安全修复</span></div><div class="thread"><div class="inner"><div class="bubble">把登录模块的安全问题查一遍</div><div class="head"><span class="sweep" style="color:var(--tint)">进行中</span> · 读文件</div></div></div><div class="dock">${queue}<div class="caps"><button class="capsule"><span style="width:6px;height:6px;border-radius:50%;background:var(--tint)"></span>排队 3 ${ic("ArrowDown01Icon", 10)}</button><button class="capsule">子对话 2 ${ic("ArrowUp01Icon", 10)}</button></div><div class="composer">运行中可以排队或插话</div></div></div></div>
+    <div><div class="wtitle">子对话条<span> · agent 开的两个、你开的一个，重启后暂停</span></div><div class="win wide" style="width:560px;height:420px"><div class="tabs"><span class="tab on">安全修复</span></div><div class="thread"><div class="inner"></div></div><div class="dock">${list}<div class="caps"><button class="capsule">子对话 3 <span class="dim">·</span><span style="color:var(--attn);display:inline-flex">${ic("HelpCircleIcon", 13)}</span>1<span class="dim">·</span><span style="color:var(--tint);display:inline-flex">${ic("Loading03Icon", 13, "spin")}</span>1 ${ic("ArrowDown01Icon", 10)}</button></div><div class="composer">发消息</div></div></div></div>`;
+      }
+      document.addEventListener("click", (e) => {
+        const n = e.target.closest("[data-next]");
+        const r = e.target.closest("[data-reset]");
+        if (n) {
+          stage[n.dataset.next] = Math.min(stage[n.dataset.next] + 1, 3);
+          render();
+        }
+        if (r) {
+          stage[r.dataset.reset] = 0;
+          render();
+        }
+      });
+      render();
+    </script>
+  </body>
+</html>

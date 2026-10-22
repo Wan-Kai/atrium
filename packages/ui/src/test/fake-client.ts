@@ -99,6 +99,7 @@ export function session(
     attention: null,
     asking: null,
     handedOff: false,
+    model: null,
     parent: null,
     agent: null,
     heldDeliveries: 0,
