@@ -118,6 +118,34 @@ describe("workspaceChanges", () => {
       dirty: true,
       ahead: 1,
       branch: "feat",
+      base: "main",
+    });
+  });
+
+  it("compares a branch with the local main branch, leaving out what was merged into it here and not pushed", async () => {
+    const made = await scene();
+    await made.commit(made.repo, "merged-here.txt", "a\nb\nc\n");
+    const tree = await made.worktree("feat");
+    await made.commit(tree, "feature.txt", "x\n");
+
+    expect(await workspaceChanges(git, tree, null, signal)).toStrictEqual({
+      stat: { added: 1, removed: 0 },
+      dirty: false,
+      ahead: 1,
+      branch: "feat",
+      base: "main",
+    });
+  });
+
+  it("compares a branch with origin's main branch when there is no local one", async () => {
+    const made = await scene();
+    const tree = await made.worktree("feat");
+    await made.commit(tree, "feature.txt", "x\n");
+    await made.git(made.repo, "checkout", "--quiet", "-b", "work");
+    await made.git(made.repo, "branch", "--quiet", "-D", "main");
+
+    expect(await workspaceChanges(git, tree, null, signal)).toMatchObject({
+      stat: { added: 1, removed: 0 },
       base: "origin/main",
     });
   });
@@ -503,8 +531,11 @@ describe("workspaceDiff", () => {
     const made = await scene();
     const tree = await made.worktree("feat");
     await made.commit(tree, "f.txt", "f\n");
-    // A local branch named origin/main, at the feature's own commit, would hide every change.
+    // A local branch named origin/main, at the feature's own commit, would hide every change;
+    // without a local main, origin's is the one compared with.
     await made.git(made.repo, "branch", "origin/main", "feat");
+    await made.git(made.repo, "checkout", "--quiet", "-b", "work");
+    await made.git(made.repo, "branch", "--quiet", "-D", "main");
 
     expect(await workspaceChanges(git, tree, null, signal)).toMatchObject({
       stat: { added: 1, removed: 0 },

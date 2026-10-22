@@ -1402,7 +1402,7 @@ describe("CommandResult", () => {
     expect(CommandResult.list_branches.parse({ branches: [], head: null })).toStrictEqual({ branches: [], head: null });
     expect(CommandResult.list_branches.safeParse({ branches: [""], head: null }).success).toBe(false);
     expect(CommandResult.set_main_branch.parse({})).toStrictEqual({});
-    const bases = { main: "origin/main", current: "main", local: ["main", "atrium/a"], remote: ["origin/main"] };
+    const bases = { main: "refs/heads/main", current: "main", local: ["main", "atrium/a"], remote: ["origin/main"] };
     expect(CommandResult.list_bases.parse(bases)).toStrictEqual(bases);
     const none = { main: null, current: null, local: [], remote: [] };
     expect(CommandResult.list_bases.parse(none)).toStrictEqual(none);

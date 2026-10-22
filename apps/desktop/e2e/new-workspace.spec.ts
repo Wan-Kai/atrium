@@ -10,7 +10,7 @@ test("creates a worktree from a project's new-workspace page with the first mess
   const pi = await fauxPiEnvironment({ replies: [{ blocks: [{ type: "text", text: "好的" }] }] });
   const scene = await createGitScene("e2e-new-workspace");
   const repo = await realpath(scene.repo);
-  // The local main moves past origin's, so starting from origin/main shows.
+  // The local main moves past origin's, merged here and not pushed, so starting from it shows.
   await scene.commit(repo, "local.txt", "not pushed");
   const launched = await launchApp(pi.env);
   try {
@@ -20,7 +20,7 @@ test("creates a worktree from a project's new-workspace page with the first mess
     const project = window.getByTestId("project-row");
     await project.hover();
     await project.getByRole("button", { name: "在 repo 新建工作区" }).click();
-    await expect(window.getByRole("button", { name: "起点", exact: true })).toHaveText("基于 origin/main", {
+    await expect(window.getByRole("button", { name: "起点", exact: true })).toHaveText("基于 main", {
       timeout: 30_000,
     });
     await window.getByRole("button", { name: "分支名", exact: true }).click();
@@ -34,13 +34,13 @@ test("creates a worktree from a project's new-workspace page with the first mess
     // The steps folded into their summary, in the turn the message opened.
     await expect(window.getByTestId("launch-step")).toHaveCount(0);
     await expect(window.getByTestId("turn").getByTestId("launch-summary")).toHaveText(
-      /^在 atrium\/e2e-otter 建好工作区 · 基于 origin\/main · 用时 \d+ 秒$/,
+      /^在 atrium\/e2e-otter 建好工作区 · 基于 main · 用时 \d+ 秒$/,
     );
     await expect(window.getByTestId("workspace-row")).toHaveText(["main", "atrium/e2e-otter"]);
     await expect(window.getByTestId("workspace-row").nth(1)).toHaveAttribute("aria-current", "true");
     const dir = join(dirname(repo), "repo.worktrees", "e2e-otter");
     expect(await scene.git(dir, "branch", "--show-current")).toBe("atrium/e2e-otter");
-    expect(await scene.git(dir, "rev-parse", "HEAD")).toBe(await scene.git(repo, "rev-parse", "origin/main"));
+    expect(await scene.git(dir, "rev-parse", "HEAD")).toBe(await scene.git(repo, "rev-parse", "refs/heads/main"));
     expect(await scene.git(repo, "config", "--list")).not.toContain("branch.atrium/e2e-otter.");
   } finally {
     await launched.close();
@@ -66,7 +66,7 @@ test("names the new worktree's branch by the first message through pi, when no n
     await project.hover();
     await project.getByRole("button", { name: "在 repo 新建工作区" }).click();
     await expect(window.getByRole("button", { name: "分支名", exact: true })).toHaveText("自动起名");
-    await expect(window.getByRole("button", { name: "起点", exact: true })).toHaveText("基于 origin/main", {
+    await expect(window.getByRole("button", { name: "起点", exact: true })).toHaveText("基于 main", {
       timeout: 30_000,
     });
     await window.getByRole("textbox", { name: "消息" }).fill("登录老是超时，修一下");

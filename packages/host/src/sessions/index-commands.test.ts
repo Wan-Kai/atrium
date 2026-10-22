@@ -125,7 +125,7 @@ async function assemble() {
     creator: {
       bases: async (projectId) => {
         archiving.push(`bases ${projectId}`);
-        return { main: "origin/main", current: "main", local: ["main"], remote: ["origin/main"] };
+        return { main: "refs/heads/main", current: "main", local: ["main"], remote: ["origin/main"] };
       },
       create: async (projectId, branch, base) => {
         archiving.push(`create ${projectId} ${branch} ${base}`);
@@ -346,7 +346,7 @@ describe("IndexCommands.archiveWorkspace", () => {
     const { commands, archiving } = await assemble();
 
     expect(await commands.listBases("prj_1")).toStrictEqual({
-      main: "origin/main",
+      main: "refs/heads/main",
       current: "main",
       local: ["main"],
       remote: ["origin/main"],

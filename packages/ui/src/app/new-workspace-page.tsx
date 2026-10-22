@@ -179,7 +179,7 @@ function BaseMenu({
                   name={
                     <>
                       <span className="truncate font-[family-name:var(--font-mono)]">{name}</span>
-                      {kind === "remote" && name === bases.main ? (
+                      {baseRef(kind, name) === bases.main ? (
                         <span className={`${BADGE} bg-[var(--linked)] text-[var(--tint)]`}>主分支</span>
                       ) : null}
                       {kind === "local" && name === bases.current ? (
