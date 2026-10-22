@@ -3,6 +3,7 @@ import { CommandError, type CatalogModel, type ModelRef, type SetupLogin, type T
 import { describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
+import catpawLogo from "../design/brand/catpaw.webp";
 import claudeLogo from "../design/brand/claude.svg";
 import deepseekLogo from "../design/brand/deepseek.svg";
 import "../styles.css";
@@ -105,6 +106,43 @@ describe("ModelPicker's button", () => {
     expect(chip.element().querySelector("img")?.getAttribute("src")).toMatch(/^data:image\/svg|\.svg/);
     await expect.element(chip).not.toHaveAttribute("data-full");
   });
+
+  for (const theme of ["light", "dark"]) {
+    it(`renders the supplied CatPaw image in the button and provider list in ${theme} mode`, async () => {
+      const root = document.documentElement;
+      const wasDark = root.classList.contains("dark");
+      root.classList.toggle("dark", theme === "dark");
+      try {
+        const catpaw = model("catpaw-cli", "gemini-4-argon", "Gemini 4 Argon");
+        const list: ModelListView = { ...READY, models: [catpaw, SOL] };
+        const { chip, screen, calls } = await picker(shown(catpaw, null), list);
+
+        await expect.element(chip).toHaveTextContent("Gemini 4 Argon");
+        expect(chip.element().querySelector("img")?.getAttribute("src")).toBe(catpawLogo);
+        await expect.poll(() => chip.element().querySelector("img")?.naturalWidth).toBe(512);
+        expect([
+          chip.element().querySelector("img")?.getBoundingClientRect().width,
+          chip.element().querySelector("img")?.getBoundingClientRect().height,
+        ]).toStrictEqual([20, 20]);
+
+        await userEvent.click(chip);
+        const provider = screen.getByRole("tab", { name: "catpaw-cli", exact: true });
+        await expect.element(provider).toHaveAttribute("aria-selected", "true");
+        expect(provider.element().querySelector("img")?.getAttribute("src")).toBe(catpawLogo);
+        await expect.poll(() => provider.element().querySelector("img")?.naturalWidth).toBe(512);
+        expect([
+          provider.element().querySelector("img")?.getBoundingClientRect().width,
+          provider.element().querySelector("img")?.getBoundingClientRect().height,
+        ]).toStrictEqual([22, 22]);
+        await expect
+          .element(screen.getByRole("tabpanel", { name: "catpaw-cli" }))
+          .toMatchTextContent(/^catpaw-cli1 个模型/);
+        expect(calls).toStrictEqual([["open"]]);
+      } finally {
+        root.classList.toggle("dark", wasDark);
+      }
+    });
+  }
 
   it("glows at the model's top level", async () => {
     const { chip } = await picker(shown(SOL, "xhigh"));

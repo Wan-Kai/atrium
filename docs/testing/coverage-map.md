@@ -635,6 +635,20 @@ SPEC-0001“回复渲染”；原型 `chat-rendering-support-prototype.html` 的
 | 不超过 640px 的表格不渐隐、没有这一行 | 同上 "leaves a table that fits as it is: no fade, no button" | 已覆盖 |
 | 流式输出中长到 640px 以上同样收起，表头在视野里（不跟着滚到最新一行） | 同上 "folds a table still streaming in at 640px, its header in view" | 已覆盖 |
 
+### catpaw-cli 图标（2026-10-22）
+
+用户指定的绿色双猫爪原图替换 `catpaw-cli` 的首字母回退，仅改品牌映射与本地资源；不改名称、布局、其他 provider 或用户的 pi 扩展、认证和模型设置。对应 SPEC-0001“模型选择按钮”。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| `catpaw-cli` 使用收到的 `catpaw.webp` 原图，名称不变；`sankuai-openai` 仍走原有回退 | `packages/ui/src/chat/model-choice.test.ts` “uses the supplied image only for catpaw-cli…” | 红 → 绿 |
+| 明暗主题下，模型按钮与服务商列表加载同一张可解码的 512×512 图，分别保持 20×20 / 22×22，名称、当前选中状态不变 | `packages/ui/src/chat/model-picker.browser.test.tsx` “renders the supplied CatPaw image…” 两项 | 红 → 绿 |
+| 实际桌面构建和 CSP 下加载本地打包图，模型切换后仍显示；明暗主题截图 | `apps/desktop/e2e/models.spec.ts` “renders the supplied CatPaw icon…”；仅隔离 faux provider，不请求内部模型 | 缺映射时先在 `Cfaux-1` 失败；恢复后四项模型面板桌面回归全部通过 |
+
+验证：`pnpm check`、构建、串行全量单元 180 文件 / **3391** 项、相关桌面 `models.spec.ts` **4** 项通过；新增单元与浏览器用例在无映射时先红，相关两个文件合计 **48** 项通过。定向破坏检查 **5/5** 检出（删映射、错图、误改 `sankuai-openai`、仅按钮丢图、仅列表丢图），源码摘要核对已原样恢复。`model-choice.ts` 整个文件聚焦变异 **100%**（169 killed、0 survived、0 timeout，另 2 个原有忽略项；本工作树首次实跑，无缓存复用），达到 ≥80% 门槛。明暗真实桌面截图均已查阅；独立只读审查无阻断，按建议纠正 `ProviderIcon` 既有 JSDoc 的“所有资源均来自官网”说法，不改其渲染行为。
+
+验证失败与边界：首次串行 UI 与单元放在同一父命令，单元通过后 UI 被父工具 240 秒总时限中断，没有完整 UI 结果；随后默认并行全套 UI 实跑 **971** 项，**970 过 / 1 失败**，失败是已登记的 `changes-pane.browser.test.tsx`“0.24 s”动画，单独运行该文件 **13** 项通过，未改代码、断言或加入重试。浏览器正向首次尝试还误用了不存在的 heading 查询，已按既有 tabpanel 语义更正，未改生产 DOM。全量单元输出一条既有日志流关闭时的 `EBADF` 提示，但 3391 项均通过，不将该提示称为已修复。未跑全部桌面 e2e、宿主集成、pi 契约、泄漏、性能/压力/浸泡或打包安装；本批不改变进程、定时器、订阅或认证链路。未提交、合并、推送或替换正在运行的 Atrium，保留分支与 worktree 待用户验收。
+
 ## `/` 命令与命令标签（M1.11，协议 13，2026-10-13）
 
 SPEC-0001"M1.11 的 `/` 命令"。

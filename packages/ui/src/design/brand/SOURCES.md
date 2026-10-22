@@ -1,4 +1,4 @@
-# 品牌图标来源（原型用，均取自各家官方）
+# 品牌图标来源
 
 | 文件           | 来源                                                                                                           |
 | -------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -11,5 +11,7 @@
 | deepseek.svg   | DeepSeek 官网图标：https://fe-static.deepseek.com/chat/favicon.svg（chat.deepseek.com 的 favicon）             |
 
 正式使用前按各家品牌规范核对用法（尺寸、留白、配色）。
+
+`catpaw.webp` 是用户于 2026-10-22 在本次对话提供并指定用于 `catpaw-cli` 的绿色双猫爪图片；保留收到的 512×512 WebP 原图。不推断其官方来源或授权。
 
 `atrium.svg` 是 Atrium 自己的标志，不是第三方品牌，见 [design-language · 标志](../../../../../docs/architecture/design-language.md#标志)。

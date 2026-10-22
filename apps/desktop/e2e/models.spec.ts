@@ -92,6 +92,38 @@ test("lists native Claude, keeps its default and selects it without plan tags", 
   }
 });
 
+test("renders the supplied CatPaw icon in the model button and provider list", async () => {
+  const testInfo = test.info();
+  const pi = await fauxPiEnvironment({
+    provider: "catpaw-cli",
+    replies: [],
+    models: [{ id: "gemini-4-argon", name: "Gemini 4 Argon", reasoning: true }],
+  });
+  const launched = await launchApp(pi.env);
+  try {
+    const { window } = launched;
+    const chip = window.getByRole("button", { name: /^模型与推理强度/ });
+    await expect(chip).toHaveText("faux-1", { timeout: 30_000 });
+    await expect(chip.locator("img")).toHaveAttribute("src", /catpaw-[\w-]+\.webp$/);
+    await expect.poll(() => chip.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(512);
+    await chip.click();
+    const tab = window.getByRole("tab", { name: "catpaw-cli", exact: true });
+    await expect(tab).toHaveAttribute("aria-selected", "true");
+    await expect(tab.locator("img")).toHaveAttribute("src", /catpaw-[\w-]+\.webp$/);
+    await expect.poll(() => tab.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(512);
+    await window.getByRole("menuitemradio", { name: /Gemini 4 Argon/ }).click();
+    await expect(chip).toHaveText("Gemini 4 Argon中");
+    await chip.click();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await window.emulateMedia({ colorScheme });
+      await window.screenshot({ path: testInfo.outputPath(`catpaw-${colorScheme}.png`) });
+    }
+  } finally {
+    await launched.close();
+    await pi.cleanup();
+  }
+});
+
 test("lists pi's commands as / is typed, and runs the one chosen", async () => {
   const pi = await fauxPiEnvironment({ replies: [] });
   const launched = await launchApp(pi.env);
