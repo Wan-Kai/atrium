@@ -37,7 +37,6 @@ import {
   FlowchartIcon,
   Folder01Icon,
   FolderAddIcon,
-  FolderOpenIcon,
   FoldVerticalIcon,
   GitBranchIcon,
   GitCommitIcon,
@@ -152,6 +151,23 @@ const META: IconSvgElement = [
   ],
 ];
 
+/**
+ * An open folder, from Tabler Icons' `folder-open` (MIT, https://tabler.io/icons); Hugeicons' free
+ * `folder-open` carries a curled arrow that reads as a smudge at 15px. Same 24 grid, round caps and joins.
+ */
+const FOLDER_OPEN: IconSvgElement = [
+  [
+    "path",
+    {
+      d: "M5 19l2.757-7.351a1 1 0 0 1 .936-.649h12.307a1 1 0 0 1 .986 1.164l-.996 5.211a2 2 0 0 1-1.964 1.625h-14.026a2 2 0 0 1-2-2v-11a2 2 0 0 1 2-2h4l3 3h7a2 2 0 0 1 2 2v2",
+      stroke: "currentColor",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      key: "0",
+    },
+  ],
+];
+
 export const ArrowBendDownRight = drawn(CornerDownRightIcon);
 export const ArrowClockwise = drawn(ReloadIcon);
 export const ArrowDown = drawn(ArrowDown02Icon);
@@ -187,7 +203,7 @@ export const FileDiff = drawn(FileDiffIcon);
 export const Files = drawn(Files01Icon);
 export const Flowchart = drawn(FlowchartIcon);
 export const Folder = drawn(Folder01Icon);
-export const FolderOpen = drawn(FolderOpenIcon);
+export const FolderOpen = drawn(FOLDER_OPEN);
 export const FolderPlus = drawn(FolderAddIcon);
 export const Gauge = drawn(DashboardSpeed02Icon);
 export const GearSix = drawn(Settings01Icon);
