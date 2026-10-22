@@ -4,6 +4,14 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 项目工作区展开行显示剩余数量（M1.11 自用，2026-10-21）
+
+用户指定将项目工作区的“显示全部 7 个”改为“显示剩余 2 个”。剩余数按已经过滤、排序后的工作区数减去实际已显示数计算，额外展示的当前工作区也扣除；没有剩余时不出现“显示剩余 0 个”。展开、收起、换项目后收回及行尺寸不变，对话分区不改。用户已指定文案，无新的视觉方案选择；本任务 worktree 的 `prototypes/sidebar-remaining-count-prototype.html` 列出 7/5、8/6、6/6 三个状态。
+
+`packages/ui/src/app/workbench.browser.test.tsx` 覆盖：总 8、已显示 6 → 剩余 2；当前工作区回到前五 → 剩余 3；总 7、已显示 5 → 剩余 2；总 6、已显示 6 → 不显示展开行，回到前五 → 剩余 1；展开全部后“收起”；正好五个无展开行；换项目收回。新增边界测试及修改的文案断言已见红，再实现后该文件 107 项通过。真实组件浅 / 深色截图已看，布局、选中行和按钮样式未改变，临时截图代码已移除。
+
+验证：`pnpm check`、构建、侧栏单元 21 项、串行全量 UI 940 项通过；三项 `pnpm break-check` 均检出（误用总数、只扣前五不扣额外当前项、没有剩余仍显示展开行）。真实组件浅 / 深色截图确认布局和文案，设计扫描无发现；截图首次写 `/tmp` 被浏览器测试的文件安全限制拒绝，改存工作区被忽略的 `.vitest/` 后成功，未放宽安全限制，临时截图代码已移除。用户确认并授权提交、合并后，核对最新 `main` 无新增提交，补跑全量单元 3268 项通过，工作台浏览器测试做 2 副本 × 2 轮压力检查全部通过；单元输出过日志流 `EBADF` 提示，不影响用例通过。仅改侧栏 JSX 展示，不涉及核心变异分组、宿主或协议；未跑桌面端到端、泄漏、性能、浸泡或打包安装。实现来自 `self-use-sidebar-remaining-count`，按用户要求本地提交合并；未安装、未推送。
+
 ## 只读子代理默认提供 Bash（M1.11 自用，2026-10-21）
 
 用户确认只读是行为约束，不是沙箱强制保证。`explore`、`advise` 默认提供 Bash，首件任务明确仅可读取、检查与查询，不得修改文件或仓库状态、构建、测试、启动服务；需要修改时请父 agent 交给 `work` 子代理。原先白名单不含 Bash；`edit`、`write` 等白名单外工具仍受限。不新增命令过滤器，不声称能阻止 Bash 写入。
@@ -472,7 +480,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 空状态（2026-10-14）：工作区、对话、不绑定项目的新对话一样，中间只有一句"每天都做一些改变出来"（20px），句末一个闪烁的光标（2px 宽、1.15em 高、离字 3px、`--tint`、1.06 秒一亮一灭不渐变、读屏不读）；减弱动效时常亮（浏览器测试没法切减弱动效，未测）；打开着的会话还什么都没有时也显示这一句，发出第一条消息就换成对话，内容还在加载、有更早的记录、在运行、在压缩、新建工作区页正在建它时不显示 | `packages/ui/src/chat/chat.browser.test.tsx` "says only one line"、"says the same line"、"does not say the line" | 已覆盖 |
 | 消息列（2026-10-15）：消息和输入框在同一列里，最宽 800px（`--column`，含左右 24px 内边距），在对话区居中；运行控制、新建工作区页的选择行和时间轴用同一个宽度 | `packages/ui/src/chat/chat.browser.test.tsx` "one column at most 800 px wide" | 已覆盖（运行控制、选择行、时间轴只共用同一个值，未单独测） |
 | 侧栏搜索框（2026-10-15）：常驻顶部、在"项目"标题上面，没有搜索按钮；输入时项目和对话换成结果；Esc 清空并离开搜索框，项目列表回来 | `packages/ui/src/app/workbench.browser.test.tsx` "from the box always at the top" | 已覆盖（不随下面滚动只靠它在滚动区外面，未单独测滚动） |
-| 项目里的工作区（2026-10-15）：最多列 5 个，当前所在的排在后面时接着显示；超过 5 个时末尾"显示全部 N 个"，点开全部列出、变成"收起"，再点回到 5 个；当前离开后它不再多列；当前换到别的项目时收回去，回来也是收着的（2026-10-16）；正好 5 个时没有这一行；"显示全部"这类展开行整行可点（和行一样宽、高 30px，对话的也是；已归档的对话、收件箱的"还有 N 条"共用同一个样式，未单独测） | `packages/ui/src/app/workbench.browser.test.tsx` "lists five of a project's workspaces"、"folds a project's workspaces back"、"every workspace of a project with five"、"lists chats like workspaces" | 已覆盖 |
+| 项目里的工作区（2026-10-15；2026-10-21 改为剩余数）：最多列 5 个，当前所在的排在后面时接着显示；有未显示的工作区时末尾"显示剩余 N 个"，N 扣除所有已显示项，点开全部列出、变成"收起"，再点回到 5 个及额外的当前项；当前离开后它不再多列；当前换到别的项目时收回去，回来也是收着的（2026-10-16）；没有剩余时无展开行；这类展开行整行可点（和行一样宽、高 30px，对话的也是；已归档的对话、收件箱的"还有 N 条"共用同一个样式，未单独测） | `packages/ui/src/app/workbench.browser.test.tsx` "lists five of a project's workspaces"、"folds a project's workspaces back"、"every workspace of a project with five"、"lists chats like workspaces" | 已覆盖 |
 | 状态栏详情卡片（2026-10-15）：标题行下面没有分隔线；卡片不伸出窗口，展开的长列表（如 50 个 skill）在卡片里滚动（2026-10-16） | `packages/ui/src/chat/status-bar.browser.test.tsx` "splits the context in its card"、"grows past the window" | 已覆盖（各卡片共用同一个标题行和外框，只在上下文卡片上测） |
 | 已移除的工作区（2026-10-15）：worktree 目录不在了的工作区不在项目里列出，搜索也找不到；它是当前所在的时照样列出、选中 | `packages/ui/src/app/workbench.browser.test.tsx` "whose directory is gone" | 已覆盖 |
 | 侧栏材质不随焦点变（2026-10-15）：窗口 `visualEffectState: "active"`，另一个窗口拿走焦点时，系统画出的侧栏颜色不变（用 `screencapture` 截窗口比较） | `apps/desktop/e2e/app.spec.ts` "material as it is" | 已覆盖 |
@@ -490,7 +498,7 @@ SPEC-0001"M1.11 的工作区归档"：worktree 工作区可以归档（删掉目
 | 胶囊点开的面板（design-language"胶囊点开的面板"）：排队面板和子对话列表各自浮在自己的胶囊正上方 8px、左边和胶囊左边齐；排队面板右边到胶囊条右边；子对话列表宽度按内容、最窄 300px、右边不超出胶囊条（胶囊前面的东西多了也一样）；箭头转半圈 | `packages/ui/src/chat/run-control.browser.test.tsx` "floats the queue 8px above its capsule"；`packages/ui/src/children/children.browser.test.tsx` "floats its list 8px above the capsule"、"keeps its list within the bar" | 已覆盖 |
 | 点空白处（面板、胶囊和输入框以外的地方）、按 Esc 收起面板（排队面板和子对话列表都是）；点面板里的东西（如行的"···"菜单）、点输入框和它里面的按钮（打字、停止）不收起；收起编辑的 Esc、输入框拿去停止运行的 Esc 不收起面板；点另一个胶囊换成那个的面板；收起后不再监听 | `run-control.browser.test.tsx` "closes the queue on a press outside it"、"keeps the queue open on a press in the input box or on its stop button"、"closes the queue on Escape, but not on the one that gives up an edit"、"switches to the other capsule's panel"；`children.browser.test.tsx` "closes its list on a press outside it and on Escape" | 已覆盖（输入框停止运行的 Esc 未单独测；监听的释放未单独测） |
 | 面板的动效：展开时从底边往上长（`clip-path`，0.28 秒 `cubic-bezier(.45, 0, .15, 1)`，裁剪留出阴影的位置），各行从下 6px 淡入（0.22 秒，第一行晚 60ms，之后每行再晚 30ms）；收起不做动画、面板直接消失（2026-10-21 自用时改）；减少动态效果时直接出现、消失 | `run-control.browser.test.tsx` "grows the panel from its bottom edge"（含收起时面板立刻没有）、"closes the queue on a press outside it, the panel going at once"、"opens and closes at once when less motion is asked for" | 已覆盖 |
-| 模型列表的规则表：去掉按量计费的 Claude、OpenAI（pi 自己的 `anthropic`、`azure-openai-responses`、不是 ChatGPT 登录的 `openai`、登录状态读不出时也去掉、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算）；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
+| 模型列表的规则表：恢复 pi 自己的 `anthropic` 和它的默认模型（2026-10-22 用户要求，OAuth / API Key 都可见，界面不加套餐签）；仍去掉 `azure-openai-responses`、不是 ChatGPT 登录的 `openai`（登录状态读不出时也去掉）、OpenRouter 里 `anthropic/`、`openai/` 开头的，别家 `openai/` 开头的不算；同一订阅两条路时列表里有 `openai-codex` 的模型就不列 `openai` 的，没有时 ChatGPT 登录的 `openai` 照常列；pi 的默认模型被去掉、不在列表里或没有时没有默认 | `packages/host/src/sessions/model-rules.test.ts` | 已覆盖 |
 
 ## M1.11 自用中改（2026-10-20）
 
@@ -919,6 +927,23 @@ SPEC-0001"M1.11 的 `/` 命令"。
 | 失败只报状态码和让模型知道怎么办的话，不带服务器的原文（401 会回显 key）；不是 JSON、不是搜索或抓取的答案；连不上；不跟随重定向（key 不发到别处）；工具的信号触发时按"已停止"结束 | extension.test.ts "reports a failed status as a code…"、"words HTTP %i…"、"reports an answer that is not JSON…"、"reports unreachable…"、"ends as aborted…" | 已覆盖 |
 | 真实 pi 里加载扩展，模型调用 `web_search`、`web_fetch` 得到真实结果（2026-10-20 手动，pi 1.3.0，隔离的 `PI_CODING_AGENT_DIR`：`deepseek` 凭据带 `env` 时返回结果且 `auth.json` 没被改写；凭据有聊天 key 但没有搜索 key 时 `no_key`；环境变量里的聊天 key 不当搜索 key） | 没有自动化测试：契约夹具只录了 pi 1.1.0，且要联网和真实 key | 手动验证 |
 
+## M1.11 自用：恢复 pi 原生 Claude 模型（2026-10-22）
+
+仅移除模型规则表里对 `anthropic` 的整家过滤；模型面板、标题模型和 agent 继续共用同一目录，原生 Claude 默认模型照常保留。套餐签规则不改，OAuth 登录的原生 Claude 仍不显示签，不新增计费说明；Claude Bridge 及其它服务商规则不变。沿用现有无签布局，不引入新的视觉设计。
+
+| 行为 | 测试 | 状态 |
+|---|---|---|
+| `anthropic` 在 OAuth / API Key 登录时保留模型与默认；其它登录状态或读取失败不再把它过滤；仍过滤 Azure、OpenRouter 的指定前缀及付费 / 重复 OpenAI 路径 | `packages/host/src/sessions/model-rules.test.ts` 的完整列表断言与 `keeps native Claude models and pi's default with %s credentials` | 已覆盖；旧实现下五项断言见红 |
+| 即使用 Claude OAuth，按钮、服务商图标和模型列表标题都没有套餐签；可选中并关闭面板，Claude Bridge 的套餐签保持 | `packages/ui/src/chat/model-picker.browser.test.tsx` 的 `selects native Claude without a plan tag even with OAuth…` 及现有 Bridge 断言 | 已覆盖；临时把 `anthropic` 加入 OAuth 套餐名单，浏览器断言实际见红 |
+| 真实 Electron → 宿主 → pi：原生 Claude 默认模型可见、可切换并发送消息；三处无套餐签；明暗截图 | `apps/desktop/e2e/models.spec.ts` 的 `lists native Claude, keeps its default and selects it without plan tags`（隔离目录、真实 pi + faux，不使用真实账户） | 已覆盖；恢复旧过滤并重建后，默认按钮错误显示“选择模型”，端到端见红；移除后通过，明暗截图已看 |
+
+验证：`pnpm check`、构建通过；宿主集成全量 147 项、模型相关单元 26 项、UI 全量 938 项、模型相关 Electron 3 项通过。`pnpm break-check` 两项全部检出；宿主 `model-rules.ts` 聚焦变异实跑 95 个，全部 killed（100%，无缓存复用、存活或超时）。独立只读源文件复核未发现阻断（未独立执行 diff 或重跑测试）。未增加资源生命周期，无本批泄漏测试；未跑 pi 契约、其它端到端、性能 / 压力 / 浸泡、打包安装或真实账户付费请求。
+
+全量单元 / 宿主共 3407 项，**不能宣称全绿**：首轮 3406 过，未修改的 `workspace-files.test.ts` 创建 5001 个文件用例超时；复跑 3405 过，该文件创建恰好 5000 个文件用例超时，另有未修改的 `install-service.test.ts` 等安装输出用例失败。目录超时伴随清理 `ENOTEMPTY`，输出亦有日志流 `EBADF`。目录文件曾单独 22 项全过，但最终隔离复跑仍有一次目录超时；安装服务隔离复跑 24 项通过。不改超时、不弱化断言、不顺带修这些失败，保留为本次验收的验证限制。
+
+UI 默认测试端口 63315 被其它 worktree 的测试占用，未终止对方进程；用 `/tmp` 下导入原配置且仅覆盖 UI 项目端口的临时配置（63328）完成全量 UI 与浏览器破坏检查，仓库配置未改。初次浏览器破坏检查因端口冲突报 `MISSED`，换端口后确实进入测试并检出，不把环境启动失败当作检出。
+
+用户确认合并与删除 worktree 后，同步 `main` 的 `a43ba71`，仅追踪表冲突，保留双方记录；实现差异仍限于本任务。合并前 `pnpm check`、构建、串行单元 3270 项、串行 UI 940 项、模型 Electron 3 项通过，使用仓库原配置，无超时调整或断言弱化。此前单元 / 宿主的失败记录保留，不改写为从未失败：本轮单元全过但仍有日志流 `EBADF` 输出。集成后首轮 UI 有未修改的右栏 0.24 秒动画例失败，单文件 13 项及随后串行全量通过；同时模型 Electron 的旧 `/faux-noop` 命令例失败，整文件独立复跑 3 项通过。本轮不冒称重新跑过宿主全量、变异测试或其它桌面旅程；未安装、未推送，主工作区无关的文档草稿不纳入提交。
 
 ## 子对话列表标模型、插话重叠、弹窗直接消失（2026-10-21）
 

@@ -51,7 +51,7 @@ import { StatusIcon } from "./status-icon";
 /** How many chats the sidebar lists before "显示全部 N 个" (SPEC-0001, "对话"). */
 const RECENT_CHATS = 5;
 
-/** How many of a project's workspaces the sidebar lists before "显示全部 N 个" (SPEC-0001, "项目与工作区"). */
+/** How many of a project's workspaces the sidebar lists before "显示剩余 N 个" (SPEC-0001, "项目与工作区"). */
 const FIRST_WORKSPACES = 5;
 
 /** The appearances in the order the switch goes through them, with their names and icons. */
@@ -639,7 +639,8 @@ function ChatRows({
  * opens the project's new-workspace page; the row is selected while the page shows (SPEC-0001,
  * "M1.11 的新建工作区"). One whose directory is gone is left out unless it is the current one
  * (SPEC-0001, "项目与工作区"). Five workspaces are listed, and the current one after them when it comes
- * later; "显示全部 N 个" opens the rest in place and "收起" closes them, not remembered (SPEC-0001,
+ * later; "显示剩余 N 个" counts only the hidden workspaces and opens them in place, while "收起"
+ * closes them, not remembered (SPEC-0001,
  * "项目与工作区").
  *
  * @sideEffects Sends commands when used; animates the rows and the folder when opened or closed.
@@ -814,14 +815,14 @@ function ProjectRows({
             onArchive={() => setArchiving(workspace)}
           />
         ))}
-        {workspaces.length > FIRST_WORKSPACES ? (
+        {workspaces.length > FIRST_WORKSPACES && (all || shown.length < workspaces.length) ? (
           <button
             type="button"
             data-fold-row
             onClick={() => setAllWhile(all ? null : currentProject)}
             className={`${MORE_ROW} pl-9`}
           >
-            {all ? "收起" : `显示全部 ${workspaces.length} 个`}
+            {all ? "收起" : `显示剩余 ${workspaces.length - shown.length} 个`}
           </button>
         ) : null}
       </Fold>

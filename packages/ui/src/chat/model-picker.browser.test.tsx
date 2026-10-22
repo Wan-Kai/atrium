@@ -474,13 +474,35 @@ describe("ModelPicker's plan tag", () => {
     ]);
   });
 
-  it("does not tag a provider billed by use, on the button or above its models", async () => {
-    const { screen, chip } = await picker(shown(OPUS, "high"));
+  it("selects native Claude without a plan tag even with OAuth, on the button, tab or header", async () => {
+    const login: SetupLogin = {
+      state: "ready",
+      providers: [
+        {
+          providerId: "anthropic",
+          name: "Anthropic",
+          oauth: { label: "Claude", subscription: true },
+          apiKey: true,
+          signedIn: { method: "oauth", stored: true },
+        },
+      ],
+    };
+    const { screen, chip, calls } = await picker(shown(OPUS, "high"), READY, { login });
 
     await expect.element(chip.getByRole("img", { name: "走套餐" })).not.toBeInTheDocument();
     await userEvent.click(chip);
 
-    await expect.element(screen.getByRole("tabpanel", { name: "Anthropic" })).toMatchTextContent(/^Anthropic1 个模型/);
+    expect(tagged(screen)).toStrictEqual([
+      ["ChatGPT 订阅", true],
+      ["Anthropic", false],
+    ]);
+    const panel = screen.getByRole("tabpanel", { name: "Anthropic" });
+    await expect.element(panel).toMatchTextContent(/^Anthropic1 个模型/);
+    await expect.element(panel.getByText("套餐", { exact: true })).not.toBeInTheDocument();
+    await userEvent.click(panel.getByRole("menuitemradio", { name: /Claude Opus 5.5/ }));
+
+    expect(calls).toStrictEqual([["open"], ["model", { providerId: "anthropic", modelId: "claude-opus-5-5" }]]);
+    await expect.element(screen.getByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("tags OpenAI and xAI only while signed in to them through OAuth", async () => {
