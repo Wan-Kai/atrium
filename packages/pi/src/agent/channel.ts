@@ -50,6 +50,7 @@ export const AgentErrorCode = z.enum([
   "agent_thinking_invalid",
   "agent_context_unavailable",
   "agent_question_closed",
+  "agent_question_open",
   "agent_text_too_long",
   "agent_bad_request",
   /** `ask_user` from a child the agent opened, which asks its parent instead (SPEC-0003). */
@@ -63,9 +64,6 @@ const RequestId = z.string().min(1).max(256);
 
 /** Who addresses a child: its handle, or `id:<session id>` (SPEC-0002, "句柄与显示名"). */
 const To = z.string().min(1).max(256);
-
-/** How long a waiting tool waits, in seconds. */
-const WaitSeconds = z.number().int().min(30).max(3600);
 
 /**
  * A piece of text no longer than its limit, as the host checks it again.
@@ -92,21 +90,12 @@ const CallArgs = {
     place: z.enum(["same", "worktree"]).optional(),
     model: z.string().min(1).max(256).optional(),
     thinking: ThinkingLevel.optional(),
-    wait: z.boolean().optional(),
-    waitSeconds: WaitSeconds.optional(),
     /** The branch the extension cut, in the directory `branch` gave it, when `context` is `fork`. */
     branch: z.string().min(1).max(4096).optional(),
   }),
   send: z.strictObject({
     to: To,
     message: text(TEXT_LIMITS.message),
-    wait: z.boolean().optional(),
-    waitSeconds: WaitSeconds.optional(),
-  }),
-  wait: z.strictObject({
-    tasks: z.array(z.string().min(1).max(256)).max(64).optional(),
-    until: z.enum(["any", "all"]).optional(),
-    waitSeconds: WaitSeconds.optional(),
   }),
   reply: z.strictObject({ to: To, questionId: RequestId, answer: text(TEXT_LIMITS.answer) }),
   list: z.strictObject({ includeEnded: z.boolean().optional() }),
@@ -366,6 +355,8 @@ export const Delivery = z.discriminatedUnion("kind", [
     text: text(TEXT_LIMITS.message),
     /** Only with a child's first task. */
     preamble: TaskPreamble.optional(),
+    /** Words for the task in hand, not a new task (SPEC-0002, `agent_send`). */
+    steer: z.literal(true).optional(),
   }),
 ]);
 export type Delivery = z.infer<typeof Delivery>;
@@ -390,6 +381,8 @@ export const MessageDetails = z.discriminatedUnion("kind", [
     fromTitle: z.string(),
     taskId: z.string(),
     text: z.string(),
+    /** Words for the task in hand, which its run took in (SPEC-0002, `agent_send`). */
+    steer: z.literal(true).optional(),
   }),
 ]);
 export type MessageDetails = z.infer<typeof MessageDetails>;
@@ -407,20 +400,6 @@ export const AgentSelf = z.strictObject({
 });
 export type AgentSelf = z.infer<typeof AgentSelf>;
 
-/** How a wait ended, besides with events (SPEC-0002, "等待的规则"). */
-export interface WaitEnd {
-  /** The time ran out; the children go on and their results come as notices. */
-  readonly timedOut: boolean;
-  /** You sent a message in the parent, which returns any wait at once. */
-  readonly interrupted?: "user_message";
-}
-
-/** What `agent_spawn` and `agent_send` answer when they waited (SPEC-0002, `agent_spawn`). */
-export interface WaitedFor extends WaitEnd {
-  /** What happened to the task, unless the wait ended first. */
-  readonly event?: AgentEvent;
-}
-
 /** A child as `agent_spawn` answers it (SPEC-0002, `agent_spawn`). */
 export interface SpawnResult {
   readonly name: string;
@@ -433,7 +412,6 @@ export interface SpawnResult {
   readonly model: string;
   readonly thinking: ThinkingLevel;
   readonly status: AgentStatus;
-  readonly waited?: WaitedFor;
 }
 
 /** What `agent_send` answers. */
@@ -443,15 +421,8 @@ interface SendResult {
   readonly taskId: string;
   /** It waits for the child's run in progress to end. */
   readonly queued: boolean;
-  readonly waited?: WaitedFor;
-}
-
-/** What `agent_wait` answers. */
-interface WaitResult extends WaitEnd {
-  readonly events: readonly AgentEvent[];
-  /** The tasks waited for that have not ended. */
-  readonly pending: readonly string[];
-  readonly progress: readonly AgentProgress[];
+  /** It went into the task in hand, `taskId`, not a new one (SPEC-0002, `agent_send`). */
+  readonly steered: boolean;
 }
 
 /** One child as `agent_list` answers it. */
@@ -510,7 +481,6 @@ interface ReplyResult {
 export interface CallResults {
   readonly spawn: SpawnResult;
   readonly send: SendResult;
-  readonly wait: WaitResult;
   readonly reply: ReplyResult;
   readonly list: { readonly children: readonly ListedChild[] };
   readonly read: ReadResult;

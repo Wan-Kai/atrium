@@ -29,18 +29,24 @@ describe("agentFieldsOf", () => {
         { taskId: "t-2", state: "open", at: 2 },
       ],
     };
-    const deliveries = [
-      delivery("d1", "waiting"),
-      { ...delivery("d2", "claimed"), claimedBy: "call-1" },
-      delivery("d3", "sending"),
-      delivery("d4", "deleted"),
-    ];
+    const deliveries = [delivery("d1", "waiting"), delivery("d3", "sending"), delivery("d4", "deleted")];
 
     expect(agentFieldsOf({ agent, usedHandles: ["audit"], deliveries })).toStrictEqual({
       agent,
       usedHandles: ["audit"],
       deliveries,
     });
+  });
+
+  it("reads a delivery a wait took, kept by a host from before waits were dropped, as waiting", () => {
+    const claimed: unknown = { ...delivery("d2", "waiting"), state: "claimed", claimedBy: "call-1" };
+
+    const strayClaimer: unknown = { ...delivery("d4", "sending"), claimedBy: "call-2" };
+
+    expect(agentFieldsOf({ deliveries: [claimed, null, "d3", strayClaimer] }).deliveries).toStrictEqual([
+      delivery("d2", "waiting"),
+      delivery("d4", "sending"),
+    ]);
   });
 
   it("reads fields that are missing or not lists as none", () => {

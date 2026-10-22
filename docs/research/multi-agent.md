@@ -30,6 +30,12 @@
 
 > 2026-10-20 补：本节"父会话在跑时什么时候送"按 Claude Code 2.1.284、Codex `0ffcefa`、Paseo `42806cd` 的源码重新核对；pi 社区扩展的做法见第 7 节末尾。
 
+> 2026-10-22 补：长工具在跑时消息多久能进去（Codex `0ffcefa` 和 DeepSeek Harness 本机源码由子代理读、主会话抽查；Claude Code 2.1.284 二进制里的代码片段和提示文字）。
+>
+> - **Claude Code**：每个前台工具调用登记一个 `backgroundNow()`；这一轮在跑时有消息要送，调度器（日志 `low-latency-submit`）可以把能转的调用转到后台：Bash 进程照跑、输出写进文件，工具立刻返回"Command was moved to the background (ID: …) so that a message that arrived while it was running can reach you; it was not interrupted. Output is being written to: … You will be notified when it completes."，跑完再通知；声明了 `backgrounding: "detach"` 的工具（含 MCP）返回"还在跑、结果之后单独送来、不要重调也不要轮询"的占位结果，最多再跑 5 分钟。子代理里的调用、嵌套调用、非交互会话、带特定钩子的不转。模型的回复不打断。
+> - **Codex**：只在每次调模型之前取排队的输入和信箱，一次取完（`session/turn.rs:201-209`、`input_queue.rs:73-80`），这一批工具全部结束才回到这里；没有因为有消息而让工具提前返回的机制。`exec_command` 最多等 `yield_time_ms`（默认 10 秒，250 毫秒到 30 秒，`unified_exec/mod.rs:64-68`）就返回，进程留在会话里，模型用 `write_stdin` 取后面的输出；进程跑完只给界面发事件，不进模型上下文，要轮询。v2 子代理的信件 `trigger_turn=false`，父线程空闲时不叫醒；`wait_agent` 有信就返回，只说"Wait completed."，内容在下次取信箱时进去。
+> - **DeepSeek Harness**：插话、通知都进 inbox，每一步开始前一次取完这一批（`core/agent/src/inbox.ts:71-77`），工具都结束才到下一步；没有让工具提前返回的机制。`bash` 前台默认 120 秒、最多 600 秒，超时就杀；`run_in_background` 要模型自己选，返回 job id，跑完自动通知（父会话空闲就叫醒，最多连续叫醒 3 次），提示词写明不要轮询。子代理 `subagent` 可前台可后台，结果在父会话忙时按 steer、空闲时按 followup 送，几条同时到的合成一步；`send_message` 排到子代理下一轮（"cannot redirect work already underway"），改方向用 `interrupt_agent`；子代理只能单向 `report`，不能问父代理。
+
 ## 4. 不相干的两个会话
 
 - **Claude Code** `ListAgents` + `SendMessage`：本机其他会话、云端会话都能发。收到的消息标明来自哪个会话，不能批准任何事、不能改配置、斜杠命令不执行；接收方可设接受 / 先挂起 / 拒绝；每条约 100 万字符、有节流。

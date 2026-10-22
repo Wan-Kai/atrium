@@ -1,14 +1,19 @@
+import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FauxContext } from "@atrium/testkit";
 import { describe, expect, it } from "vitest";
 import { runScenario } from "../../test/contract";
+import { AGENT_END_GATE, AGENT_END_REACHED } from "../../test/agent-end-probe";
 import { encodeArgument } from "../agent/agent";
 import { type Delivery, readRequest } from "../agent/channel";
 import { ASK_USER_STOPPED, type AskUserResult, answerText } from "../agent/ask-user";
-import { CHILD_TOOLS, READ_ONLY_TOOLS, resultText, taskText } from "../agent/words";
+import { CHILD_TOOLS, READ_ONLY_TOOLS, reportText, resultText, taskText } from "../agent/words";
 import type { PiEvent } from "../process/pi-process";
+
+/** Holds pi at a run's `agent_end` until released, ahead of Atrium's extension. */
+const AGENT_END_PROBE = fileURLToPath(new URL("../../test/agent-end-probe.ts", import.meta.url));
 
 /** Atrium's extension, as the host has pi load it (ADR-0008, ADR-0013). */
 const ATRIUM_EXTENSION = fileURLToPath(new URL("../extension/atrium.ts", import.meta.url));
@@ -22,7 +27,6 @@ const AGENT_TOOLS = [
   "agent_send",
   "agent_spawn",
   "agent_stop",
-  "agent_wait",
   "ask_parent",
   "report_progress",
 ];
@@ -132,6 +136,20 @@ function agentTools(request: FauxContext | undefined): string[] {
   return [...(request?.tools ?? [])].filter((tool) => AGENT_TOOLS.includes(tool)).toSorted();
 }
 
+/**
+ * A child's task finishing, as a notice carries it.
+ *
+ * @remarks
+ * From `audit`, after a second.
+ *
+ * @sideEffects none
+ * @param taskId - The task.
+ * @returns The event.
+ */
+function finishedOf(taskId: string): Extract<Delivery, { kind: "report" }>["events"][number] {
+  return { name: "audit", title: "审查", sessionId: "s-1", taskId, event: "finished", elapsedMs: 1000 };
+}
+
 describe("pi contract: Atrium's agent tools", () => {
   it("agent-call: a tool asks the host on its status line, the host's reply answers it mid-run, and the model reads the words", async () => {
     await runScenario(
@@ -214,6 +232,110 @@ describe("pi contract: Atrium's agent tools", () => {
     );
   });
 
+  it("agent-boundary: notices that come while a tool runs go in together at the batch's end, before the next request", async () => {
+    const first: Delivery = { v: 1, kind: "report", deliveries: ["d1"], events: [finishedOf("t-1")], progress: [] };
+    const second: Delivery = {
+      v: 1,
+      kind: "report",
+      deliveries: ["d2"],
+      events: [finishedOf("t-2")],
+      progress: [{ name: "audit", title: "审查", message: "half" }],
+    };
+    await runScenario(
+      {
+        scenario: "agent-boundary",
+        extensions: [ATRIUM_EXTENSION],
+        args: [flag({ child: false, role: null, depth: 0, guard: "flags" })],
+        script: {
+          replies: [
+            { blocks: [{ type: "toolCall", id: "call-1", name: "agent_list", arguments: {} }] },
+            { blocks: [{ type: "text", text: "done" }] },
+          ],
+        },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await until(asked("call-1"));
+        for (const delivery of [first, second])
+          await pi.request({ type: "prompt", message: `/atrium-agent deliver ${encodeArgument(delivery)}` });
+        await pi.request({
+          type: "prompt",
+          message: `/atrium-agent reply ${encodeArgument({ v: 1, id: "call-1", ok: true, result: { children: [] } })}`,
+        });
+        await until((one) => one.type === "agent_settled");
+        const requests = await contexts();
+
+        expect(requests).toHaveLength(2);
+        expect(spoken(requests[1]).slice(-2)).toStrictEqual([
+          `toolResult: ${resultText("list", { children: [] })}`,
+          `user: ${reportText({ ...first, deliveries: ["d1", "d2"], events: [finishedOf("t-1"), finishedOf("t-2")], progress: second.progress })}`,
+        ]);
+      },
+    );
+  });
+
+  it("agent-boundary-end: a notice that comes after the run's last turn end goes in as pi runs on, in the same run", async () => {
+    const notice: Delivery = { v: 1, kind: "report", deliveries: ["d1"], events: [finishedOf("t-1")], progress: [] };
+    await runScenario(
+      {
+        scenario: "agent-boundary-end",
+        extensions: [AGENT_END_PROBE, ATRIUM_EXTENSION],
+        args: [flag({ child: false, role: null, depth: 0, guard: "flags" })],
+        script: {
+          replies: [{ blocks: [{ type: "text", text: "done" }] }, { blocks: [{ type: "text", text: "saw it" }] }],
+        },
+      },
+      async ({ pi, until, contexts, release, cwd, events }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await expect.poll(() => existsSync(join(cwd, "faux-gates", AGENT_END_REACHED)), { timeout: 30_000 }).toBe(true);
+        await pi.request({ type: "prompt", message: `/atrium-agent deliver ${encodeArgument(notice)}` });
+        await release(AGENT_END_GATE);
+        await until((one) => one.type === "agent_settled");
+        const requests = await contexts();
+
+        expect(events.filter((one) => one.type === "agent_settled")).toHaveLength(1);
+        expect(requests).toHaveLength(2);
+        expect(spoken(requests[1]).at(-1)).toBe(`user: ${reportText(notice)}`);
+      },
+    );
+  });
+
+  it("agent-boundary-stop: a notice the extension holds goes no further once the run is stopped", async () => {
+    const delivery: Delivery = {
+      v: 1,
+      kind: "report",
+      deliveries: ["d1"],
+      events: [{ name: "audit", title: "审查", sessionId: "s-1", taskId: "t-1", event: "finished" }],
+      progress: [],
+    };
+    await runScenario(
+      {
+        scenario: "agent-boundary-stop",
+        extensions: [ATRIUM_EXTENSION],
+        args: [flag({ child: false, role: null, depth: 0, guard: "flags" })],
+        script: {
+          replies: [
+            { blocks: [{ type: "toolCall", id: "call-1", name: "agent_list", arguments: {} }] },
+            { blocks: [{ type: "text", text: "again" }] },
+          ],
+        },
+      },
+      async ({ pi, until, contexts }) => {
+        await pi.request({ type: "prompt", message: "go" });
+        await until(asked("call-1"));
+        await pi.request({ type: "prompt", message: `/atrium-agent deliver ${encodeArgument(delivery)}` });
+        // As the host stops a session: pi's own queue first, then the run.
+        await pi.request({ type: "clear_queue" });
+        await pi.request({ type: "abort" });
+        await until((one) => one.type === "agent_settled");
+        await pi.request({ type: "prompt", message: "next" });
+        await until((one) => one.type === "agent_settled");
+        const requests = await contexts();
+
+        expect(spoken(requests.at(-1)).filter((line) => line.includes("atrium-agent-report"))).toStrictEqual([]);
+      },
+    );
+  });
   it.each([
     {
       role: "explore",
